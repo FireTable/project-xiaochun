@@ -6,20 +6,43 @@ import path from 'path';
 import { EdgeTTS } from 'edge-tts-universal';
 
 /**
- * dropOnnxWasm — Cloudflare Pages 单文件上限 25 MiB,onnxruntime-web 的
- * ort-wasm-simd-threaded.jsep.wasm(WebGPU EP variant)单文件 26.5 MiB,超限。
- * EMAGE 已在 src/motion/emageWorker.ts 设 ort.env.wasm.wasmPaths 指向 jsDelivr,
- * 运行时根本不用本地这份 WASM,Vite 是因为静态 import.meta.url 把它顺手打包了。
- * ponytail: 从最终 bundle 里直接删掉,运行时照样走 CDN,Cloudflare 上传不报错。
+ * dropDockerfatAssets — Cloudflare Pages 单文件上限 25 MiB,生产 bundle 需要去掉:
+ * 1. onnxruntime-web 的 ort-wasm-simd-threaded.jsep.wasm(WebGPU EP variant,26.5 MiB)
+ *    EMAGE 已在 src/motion/emageWorker.ts 设 ort.env.wasm.wasmPaths 指向 jsDelivr
+ *    CDN,运行时根本不用本地这份。generateBundle 钩子删 —— WASM 走 Rollup bundle。
+ * 2. EMAGE ONNX 模型(emage_step.onnx 504 MB + 6 个 VQ 30 MB)
+ *    生产走 R2(VITE_EMAGE_BASE=https://cdn.firetable.tech/xiaochun/),
+ *    本地 dev 仍读 public/onnx 软链 —— dist/ 删掉不影响本地文件。
+ *    ONNX 来自 publicDir 拷贝,generateBundle 看不到,用 closeBundle 钩子从磁盘删。
+ *
+ * ponytail: 两类都删,运行时不碰(都走 CDN)。
  */
-function dropOnnxWasm(): Plugin {
+function dropDockerfatAssets(): Plugin {
   return {
-    name: 'drop-onnx-wasm',
+    name: 'drop-dockerfat-assets',
     generateBundle(_options, bundle) {
       for (const file of Object.keys(bundle)) {
         if (file.includes('ort-wasm-simd-threaded.jsep') && file.endsWith('.wasm')) {
           delete bundle[file];
         }
+      }
+    },
+    async closeBundle() {
+      // 删除 publicDir 拷贝过去的 ONNX,本地源文件不动
+      const fs = await import('node:fs/promises');
+      const path = await import('node:path');
+      const onnxDir = path.resolve(import.meta.dirname, 'dist/client/onnx');
+      try {
+        const files = await fs.readdir(onnxDir);
+        for (const f of files) {
+          if (f.endsWith('.onnx')) {
+            await fs.unlink(path.join(onnxDir, f));
+            console.log(`[dropDockerfatAssets] removed dist/client/onnx/${f}`);
+          }
+        }
+      } catch (e: any) {
+        // ponytail: dev server 跑时可能没 dist/,静默忽略
+        if (e.code !== 'ENOENT') console.warn('[dropDockerfatAssets]', e.message);
       }
     },
   };
@@ -97,7 +120,7 @@ function localApiPlugin(): Plugin {
 }
 
 export default defineConfig({
-  plugins: [tailwindcss(), tanstackStart(), react(), localApiPlugin(), dropOnnxWasm()],
+  plugins: [tailwindcss(), tanstackStart(), react(), localApiPlugin(), dropDockerfatAssets()],
   resolve: {
     tsconfigPaths: true,
     alias: {
