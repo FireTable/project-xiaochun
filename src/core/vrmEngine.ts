@@ -557,7 +557,7 @@ export class VRMEngine {
     this.vrmaPlayer.stop();
     this.emagePlayer.stop();
 
-    const fetchUrl = url.startsWith('blob:') || url.startsWith('data:') ? url : `${url}?v=${Date.now()}`;
+    const fetchUrl = url;
     this.loader.load(
       fetchUrl,
       (gltf) => {
