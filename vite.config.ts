@@ -34,6 +34,7 @@ function dropDockerfatAssets(): Plugin {
       const path = await import('node:path');
       const onnxDir = path.resolve(import.meta.dirname, 'dist/client/onnx');
       try {
+        // 1. 删除 publicDir 拷贝过去的 ONNX,本地源文件不动
         const files = await fs.readdir(onnxDir);
         for (const f of files) {
           if (f.endsWith('.onnx')) {
@@ -42,7 +43,21 @@ function dropDockerfatAssets(): Plugin {
           }
         }
       } catch (e: any) {
-        // ponytail: dev server 跑时可能没 dist/,静默忽略
+        if (e.code !== 'ENOENT') console.warn('[dropDockerfatAssets]', e.message);
+      }
+
+      // 2. 删除误入 dist/server/assets 的客户端专用 Web Worker 脚本 (llmWorker, emageWorker)
+      // 避免 Workers 超过 3 MiB 免费限制
+      const serverAssetsDir = path.resolve(import.meta.dirname, 'dist/server/assets');
+      try {
+        const sFiles = await fs.readdir(serverAssetsDir);
+        for (const f of sFiles) {
+          if (f.includes('Worker') || f.includes('emageWorker') || f.includes('llmWorker')) {
+            await fs.unlink(path.join(serverAssetsDir, f));
+            console.log(`[dropDockerfatAssets] removed unused server asset: dist/server/assets/${f}`);
+          }
+        }
+      } catch (e: any) {
         if (e.code !== 'ENOENT') console.warn('[dropDockerfatAssets]', e.message);
       }
     },
