@@ -10,6 +10,11 @@ import {
   DropdownMenuContent,
   DropdownMenuItem,
 } from '@/components/ui/dropdown-menu';
+import {
+  Tooltip,
+  TooltipTrigger,
+  TooltipContent,
+} from '@/components/ui/tooltip';
 import { APP_CONFIG } from '@/config';
 import { changeLang, LANG_LABELS, SUPPORTED_LANGS, type Lang } from '@/i18n';
 
@@ -67,43 +72,59 @@ export const TopHeader: React.FC<TopHeaderProps> = ({
           onChange={handleFileUpload}
         />
 
-        <DropdownMenu>
-          <DropdownMenuTrigger asChild>
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <Button
+                  id="btn-switch-lang"
+                  variant="glass"
+                  size="icon"
+                  title={t('header.switchLang.tooltip')}
+                  aria-label={t('header.switchLang.tooltip')}
+                  className="h-11 w-11 sm:h-9 sm:w-9"
+                >
+                  <Globe className="w-4 h-4 sm:w-3.5 sm:h-3.5" />
+                </Button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="end">
+                {SUPPORTED_LANGS.map((lng) => (
+                  <DropdownMenuItem
+                    key={lng}
+                    onSelect={() => changeLang(i18n, lng)}
+                    className="justify-between"
+                  >
+                    <span>{LANG_LABELS[lng]}</span>
+                    {currentLang === lng && <span className="text-brand-300 text-xs">✓</span>}
+                  </DropdownMenuItem>
+                ))}
+              </DropdownMenuContent>
+            </DropdownMenu>
+          </TooltipTrigger>
+          {/* ponytail: tooltip 只挂在 icon-only 按钮上(语言/设置);"上传 VRM" 已有可见文字标签,不重复。 */}
+          <TooltipContent side="bottom">
+            {t('header.switchLang.tooltip')}
+          </TooltipContent>
+        </Tooltip>
+
+        <Tooltip>
+          <TooltipTrigger asChild>
             <Button
-              id="btn-switch-lang"
+              id="btn-toggle-panel"
               variant="glass"
               size="icon"
-              title={t('header.switchLang.tooltip')}
-              aria-label={t('header.switchLang.tooltip')}
-              className="h-11 w-11 sm:h-9 sm:w-9"
+              title={t('header.settingsPanel')}
+              aria-label={t('header.settingsPanel')}
+              onClick={onToggleDrawer}
+              className={`h-11 w-11 sm:h-9 sm:w-9 ${isDrawerOpen ? 'bg-brand-500/25 border-brand-300 text-brand-100 rotate-90 shadow-lg shadow-brand-500/25' : ''}`}
             >
-              <Globe className="w-4 h-4 sm:w-3.5 sm:h-3.5" />
+              <Settings className="w-4 h-4 sm:w-3.5 sm:h-3.5" />
             </Button>
-          </DropdownMenuTrigger>
-          <DropdownMenuContent align="end">
-            {SUPPORTED_LANGS.map((lng) => (
-              <DropdownMenuItem
-                key={lng}
-                onSelect={() => changeLang(i18n, lng)}
-                className="justify-between"
-              >
-                <span>{LANG_LABELS[lng]}</span>
-                {currentLang === lng && <span className="text-brand-300 text-xs">✓</span>}
-              </DropdownMenuItem>
-            ))}
-          </DropdownMenuContent>
-        </DropdownMenu>
-
-        <Button
-          id="btn-toggle-panel"
-          variant="glass"
-          size="icon"
-          title={t('header.settingsPanel')}
-          onClick={onToggleDrawer}
-          className={`h-11 w-11 sm:h-9 sm:w-9 ${isDrawerOpen ? 'bg-brand-500/25 border-brand-300 text-brand-100 rotate-90 shadow-lg shadow-brand-500/25' : ''}`}
-        >
-          <Settings className="w-4 h-4 sm:w-3.5 sm:h-3.5" />
-        </Button>
+          </TooltipTrigger>
+          <TooltipContent side="bottom">
+            {t('header.settingsPanel')}
+          </TooltipContent>
+        </Tooltip>
       </div>
     </header>
   );

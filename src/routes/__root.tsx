@@ -7,6 +7,7 @@ import {
 import type { ReactNode } from 'react';
 import { useMemo } from 'react';
 import { I18nextProvider } from 'react-i18next';
+import { TooltipProvider } from '@/components/ui/tooltip';
 import appCss from '@/styles/main.css?url';
 import '@/styles/main.css';
 import {
@@ -44,9 +45,11 @@ function RootComponent() {
 
   return (
     <I18nextProvider i18n={i18n}>
-      <RootDocument lang={i18n.language as Lang}>
-        <Outlet />
-      </RootDocument>
+      <TooltipProvider delayDuration={300} skipDelayDuration={500}>
+        <RootDocument lang={i18n.language as Lang}>
+          <Outlet />
+        </RootDocument>
+      </TooltipProvider>
     </I18nextProvider>
   );
 }
