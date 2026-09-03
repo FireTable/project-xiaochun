@@ -9,6 +9,7 @@ import { VRMAMotionPlayer } from '@/motion/vrmaPlayer';
 import { EmagePlayer } from '@/motion/emagePlayer';
 import { NaturalIdleSystem } from '@/motion/naturalIdle';
 import { ChatDirector } from '@/director/chatDirector';
+import { preloadWebLLM } from '@/llm/webLLM';
 import { APP_CONFIG, type LightConfig } from '@/config';
 
 /**
@@ -606,7 +607,10 @@ export class VRMEngine {
         this.emagePlayer.bind(vrm);
         this.naturalIdle.bind(vrm);
         setTimeout(() => {
+          // 1. 后台预热 EMAGE ONNX 全身协同动作模型 (Dedicated Worker)
           if (!this.emagePlayer.ready) void this.emagePlayer.ensureLoaded();
+          // 2. 后台预热 WebLLM Qwen 语言大模型 (Dedicated Worker)
+          preloadWebLLM();
         }, 2500);
 
         this.fitCamera();

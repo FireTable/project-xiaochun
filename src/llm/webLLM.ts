@@ -73,6 +73,18 @@ export async function getWebLLMEngine(opts?: {
 }
 
 /**
+ * 启动时或空闲期后台静默预热 WebLLM 模型 (跑在独立 Dedicated Worker，不卡顿 3D 渲染)
+ */
+export function preloadWebLLM(opts?: {
+  onProgressText?: (text: string) => void;
+}): void {
+  if (typeof window === 'undefined') return;
+  void getWebLLMEngine({ onProgressText: opts?.onProgressText }).catch((err) => {
+    console.warn('[WebLLM] Background preload notice:', err);
+  });
+}
+
+/**
  * 清洗大模型输出，严格剥离 <think> 思考链，只拿其后的正文内容。
  * ponytail: 不在这里兜底中文问候,留给 chatDirector 走 i18n。
  */
