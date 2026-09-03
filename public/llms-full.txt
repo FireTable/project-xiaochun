@@ -1,16 +1,16 @@
 # Project XiaoChun — Full Technical Documentation
 
-> Complete architecture, dependency inventory, AI inference pipelines, i18n / SSR setup, and Cloudflare Pages deployment guide.
+> Complete architecture, dependency inventory, AI inference pipelines, i18n / SSR setup, and Cloudflare Workers deployment guide.
 
 ---
 
 ## 1. System Architecture
 
-Project XiaoChun is a single-page application built on **Vite 8 + TanStack Start (full-stack SSR) + React 19 + three.js 0.185**. Everything except Edge-TTS runs in the browser tab; there is no application server beyond a single Cloudflare Pages Function that proxies Edge-TTS.
+Project XiaoChun is a full-stack web application built on **Vite 8 + TanStack Start (full-stack SSR) + React 19 + three.js 0.185** deployed to **Cloudflare Workers**. Everything except Edge-TTS runs in the browser tab; the edge runtime handles SSR stream rendering and WebSocket Edge-TTS proxying.
 
 - **3D Engine**: `three.js` with `@pixiv/three-vrm` for VRM 1.0 rendering (MToon NPR shader). OrbitControls, EffectComposer with custom render loop. Lightweight outline-free pass — VRM's built-in MToon outline is preserved.
 - **Application Framework**: TanStack Start provides file-based routing, full-stack SSR, and server-only helpers (`createServerOnlyFn`, `getCookie` from `@tanstack/react-start/server`).
-- **Bundler**: Vite with a custom `localApiPlugin` middleware that serves `/api/tts` during `pnpm dev`, mirroring the production Cloudflare Pages Function so the dev/prod parity is exact.
+- **Bundler**: Vite 8 with `@cloudflare/vite-plugin` and custom `localApiPlugin` middleware that runs Miniflare during `pnpm dev` for 100% dev/prod parity.
 - **Styling**: Tailwind CSS v4 with `@theme` tokens (`brand-*` coral palette, derived from the default VRM model's hair color) + `tailwindcss-animate` for micro-interactions.
 
 ---
@@ -35,8 +35,8 @@ All AI runs in the browser tab via WebGPU + WebAssembly:
 ### 2.3 TTS (Edge-TTS)
 - **Engine**: `edge-tts-universal` v1.4.0 (browser build of Microsoft Edge-TTS protocol)
 - **Default voice**: `zh-CN-XiaoyiNeural` with `+10Hz` pitch (energetic anime-girl timbre)
-- **Production endpoint**: Cloudflare Pages Function at `functions/api/tts.ts` — opens WebSocket to `speech.platform.bing.com`, streams audio chunks as `audio/mpeg`
-- **Dev endpoint**: Same shape, served by `vite.config.ts → localApiPlugin` middleware
+- **Production endpoint**: Cloudflare Worker at `src/server.ts` — opens WebSocket to `speech.platform.bing.com`, streams audio chunks as `audio/mpeg`
+- **Dev endpoint**: Same shape, served by `vite.config.ts → localApiPlugin` middleware with Miniflare
 - **Emoji handling**: Text passed to TTS is stripped of `\p{Extended_Pictographic}` characters to avoid prosody glitches (Microsoft TTS tends to over-articulate emoji)
 
 ### 2.4 Chat Director
@@ -100,15 +100,15 @@ pnpm install
 pnpm build    # tsc + vite build → dist/
 ```
 
-### 6.2 Cloudflare Pages (production)
-- **Configuration**: `wrangler.toml` (compatibility_date 2024-09-23 for `response.webSocket` support)
-- **Headers**: `_headers` defines COOP/COEP (required for WebGPU + SharedArrayBuffer), security headers, and cache policy (`/assets/*` immutable; root path `must-revalidate`)
-- **Functions**: `functions/api/tts.ts` — edge-runtime TTS proxy
-- **Static assets**: `public/*` served as-is (robots.txt, sitemap.xml, llms.txt, llms-full.txt, VRM model, fonts)
+### 6.2 Cloudflare Workers (production)
+- **Configuration**: `wrangler.jsonc` (`nodejs_compat` enabled, static assets bound to `./dist/client`)
+- **Headers**: `public/_headers` defines COOP/COEP (required for WebGPU + SharedArrayBuffer), security headers, and cache policy (`/assets/*` immutable; root path `must-revalidate`)
+- **SSR & TTS Entry**: `src/server.ts` — full-stack SSR router + edge-runtime TTS WebSocket proxy
+- **Static assets**: `dist/client/*` served directly via Cloudflare Assets (robots.txt, sitemap.xml, llms.txt, llms-full.txt, VRM model, fonts)
 
 ### 6.3 Two Deploy Modes
-- **Git-integrated (recommended)**: Push to GitHub → Cloudflare Dashboard → Pages → Connect Git → auto-deploy on push.
-- **Direct CLI**: `pnpm wrangler pages deploy dist --project-name=project-xiaochun`
+- **One-Command CLI (recommended)**: `pnpm deploy` (`pnpm build && wrangler deploy`)
+- **Git-integrated**: Push to GitHub → Cloudflare Dashboard → Workers & Pages → Connect Git (leave Root directory blank) → auto-deploy on push.
 
 ### 6.4 First-Run Notes
 - WebLLM downloads ~400 MB model on first browser visit; cached in `CacheStorage` thereafter.

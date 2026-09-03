@@ -32,6 +32,6 @@
   Cross-Origin-Embedder-Policy: credentialless
   Cache-Control: public, max-age=0, must-revalidate
 
-# === /api/* 由 functions/api/tts.ts 处理,本身不带缓存 ===
+# === /api/* 由 src/server.ts 动态处理,本身不带静态缓存 ===
 /api/*
   Cache-Control: public, max-age=86400

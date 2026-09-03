@@ -1,11 +1,10 @@
 /**
- * Custom Cloudflare Worker entry — wraps TanStack Start handler with /api/tts.
+ * Custom Cloudflare Worker entry — wraps TanStack Start SSR handler with /api/tts.
  *
- * ponytail: Cloudflare Workers 不支持 Pages 的 `functions/` 目录 + _headers,
- * 路由逻辑全塞进这个 fetch handler 里:
- * - /api/tts → 跑 Edge-TTS WebSocket,返回 audio/mpeg
- * - 其他所有路径 → 交给 TanStack Start SSR
- * - 静态资源(/assets/*, /xiaochun_v1.vrm, /robots.txt 等) → 走 assets binding
+ * Request routing:
+ * - /api/tts → Native Edge-TTS WebSocket proxy, returns audio/mpeg stream
+ * - Other dynamic paths → TanStack Start streaming SSR handler
+ * - Static assets (/assets/*, /xiaochun_v1.vrm, /robots.txt, etc.) → Served directly via Cloudflare Assets
  */
 import handler from '@tanstack/react-start/server-entry';
 
