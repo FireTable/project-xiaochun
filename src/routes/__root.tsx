@@ -38,7 +38,7 @@ export const Route = createRootRoute({
       { property: 'og:image:type', content: 'image/jpeg' },
       { property: 'og:image:width', content: '1200' },
       { property: 'og:image:height', content: '630' },
-      { property: 'og:image:alt', content: '小蠢 — Project XiaoChun' },
+      { property: 'og:image:alt', content: 'Project XiaoChun — 100% 浏览器原生二次元数字人' },
       { property: 'og:locale', content: 'zh_CN' },
       { property: 'og:site_name', content: 'Project XiaoChun' },
 
@@ -49,7 +49,7 @@ export const Route = createRootRoute({
       { name: 'twitter:title', content: 'Project XiaoChun' },
       { name: 'twitter:description', content: '100% browser-native anime VTuber — local LLM + EMAGE motion + Edge-TTS.' },
       { name: 'twitter:image', content: 'https://xiaochun.firetable.tech/og.jpg' },
-      { name: 'twitter:image:alt', content: '小蠢 — Project XiaoChun' },
+      { name: 'twitter:image:alt', content: 'Project XiaoChun — 100% 浏览器原生二次元数字人' },
 
       { title: 'Project XiaoChun' },
     ],
