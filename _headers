@@ -1,0 +1,37 @@
+# Cloudflare Pages — HTTP 响应头
+#
+# ponytail: 文件路径匹配规则 — 一行路径,其后缩进的 Header 全部应用。
+# `/assets/*` 等带 hash 的静态资源(Vite 自动生成)走 immutable 强缓存一年;
+# VRM / VRMA / PNG 等用户上传的运行时内容不缓存。
+# 根路径与所有 HTML 走安全头 + 短缓存(SPA-style)。
+
+# === 静态资源(指纹化,长缓存)===
+/assets/*
+  Cache-Control: public, max-age=31536000, immutable
+
+# === 字体(跨域 + 长缓存)===
+/*.woff2
+  Cache-Control: public, max-age=31536000, immutable
+  Access-Control-Allow-Origin: *
+
+# === 默认 VRM / VRMA 模型(被默认场景引用,可缓存)===
+/xiaochun_v1.vrm
+  Cache-Control: public, max-age=86400
+/thinking.vrma
+  Cache-Control: public, max-age=86400
+
+# === 根路径与所有页面:安全头 + 短缓存(SSR 内容必须短缓存)===
+/
+/index.html
+/*
+  X-Content-Type-Options: nosniff
+  X-Frame-Options: DENY
+  Referrer-Policy: strict-origin-when-cross-origin
+  Permissions-Policy: camera=(), microphone=(), geolocation=(), interest-cohort=()
+  Cross-Origin-Opener-Policy: same-origin
+  Cross-Origin-Embedder-Policy: credentialless
+  Cache-Control: public, max-age=0, must-revalidate
+
+# === /api/* 由 functions/api/tts.ts 处理,本身不带缓存 ===
+/api/*
+  Cache-Control: public, max-age=86400
