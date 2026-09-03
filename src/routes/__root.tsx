@@ -44,6 +44,8 @@ export const Route = createRootRoute({
 
       // Twitter
       { name: 'twitter:card', content: 'summary_large_image' },
+      { name: 'twitter:site', content: 'FireTablePlus' },
+      { name: 'twitter:creator', content: 'FireTablePlus' },
       { name: 'twitter:title', content: 'Project XiaoChun' },
       { name: 'twitter:description', content: '100% browser-native anime VTuber — local LLM + EMAGE motion + Edge-TTS.' },
       { name: 'twitter:image', content: 'https://xiaochun.firetable.tech/og.jpg' },
