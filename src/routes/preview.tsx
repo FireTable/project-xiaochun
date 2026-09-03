@@ -35,7 +35,7 @@ function LoadingPreviewPage() {
   };
 
   return (
-    <div className="relative w-full h-screen overflow-hidden bg-[#0a0812] text-white select-none font-sans">
+    <div className="relative w-full h-screen h-[100dvh] overflow-hidden bg-[#0a0812] text-white select-none font-sans">
       {/* ─── 顶部悬浮控制器 ─── */}
       <header className="fixed top-5 inset-x-0 z-50 flex justify-center items-center px-4 pointer-events-none">
         <div className="pointer-events-auto flex items-center gap-2 p-1.5 rounded-2xl bg-black/75 backdrop-blur-2xl border border-white/10 shadow-2xl shadow-[#ea8377]/10">
@@ -100,9 +100,11 @@ function LoadingPreviewPage() {
         </div>
 
         {/* 底部 ChatBar */}
-        <div className="w-full max-w-xl mx-auto h-14 rounded-full bg-black/40 backdrop-blur-2xl border border-white/10 px-6 flex items-center justify-between shadow-2xl">
-          <span className="text-xs text-white/40">{t('loading.madChatPlaceholder')}</span>
-          <div className="w-8 h-8 rounded-full bg-[#ea8377] flex items-center justify-center text-white text-xs font-bold">↑</div>
+        <div className="fixed bottom-[calc(0.75rem+env(safe-area-inset-bottom,0px))] sm:bottom-8 left-1/2 -translate-x-1/2 z-30 w-full max-w-xl px-3 sm:px-4 pointer-events-auto">
+          <div className="w-full h-12 sm:h-14 rounded-full bg-black/60 backdrop-blur-2xl border border-white/15 px-4 sm:px-6 flex items-center justify-between shadow-2xl">
+            <span className="text-xs text-white/40">{t('loading.madChatPlaceholder')}</span>
+            <div className="w-8 h-8 rounded-full bg-[#ea8377] flex items-center justify-center text-white text-xs font-bold">↑</div>
+          </div>
         </div>
       </div>
 
@@ -188,15 +190,15 @@ function AnimeMadStage({
       className="relative w-full h-full overflow-hidden flex items-center justify-center bg-[#0a0812]"
       style={{ perspective: '1200px' }}
     >
-      {/* 1. 背景动态流光极光：统一使用小蠢品牌色（珊瑚橘粉 #ea8377、亮粉 #f5aa9c、暖暗粉 #e06d64） */}
+      {/* 1. 背景动态流光极光：移动端使用 blur-3xl 降低 GPU 显存带宽压力，桌面端使用极光 blur */}
       <div 
-        className="absolute w-[38rem] h-[38rem] rounded-full bg-[#ea8377]/15 blur-[150px] pointer-events-none transition-transform duration-700 ease-out"
+        className="absolute w-[22rem] sm:w-[38rem] h-[22rem] sm:h-[38rem] rounded-full bg-[#ea8377]/15 blur-3xl md:blur-[150px] pointer-events-none transition-transform duration-700 ease-out"
         style={{
           transform: `translate3d(${mouseOffset.x * -60}px, ${mouseOffset.y * -60}px, 0)`
         }}
       />
       <div 
-        className="absolute w-[36rem] h-[36rem] rounded-full bg-[#e06d64]/12 blur-[140px] pointer-events-none transition-transform duration-700 ease-out"
+        className="absolute w-[20rem] sm:w-[36rem] h-[20rem] sm:h-[36rem] rounded-full bg-[#e06d64]/12 blur-3xl md:blur-[140px] pointer-events-none transition-transform duration-700 ease-out"
         style={{
           transform: `translate3d(${mouseOffset.x * 60}px, ${mouseOffset.y * 60}px, 0)`
         }}
@@ -212,7 +214,7 @@ function AnimeMadStage({
       />
 
       {/* 3. 动态斜向标语胶带 (Warning Cyber Tape) */}
-      <div className="absolute -top-6 -right-16 rotate-12 z-10 pointer-events-none opacity-40 hover:opacity-100 transition-opacity">
+      <div className="hidden sm:block absolute -top-6 -right-16 rotate-12 z-10 pointer-events-none opacity-40 hover:opacity-100 transition-opacity">
         <div className="px-16 py-1.5 bg-[#ea8377] text-black font-black text-[10px] tracking-[0.3em] font-mono uppercase shadow-lg">
           // 100% IN-BROWSER AI VTUBER // WEBGPU ENGINE // ZERO BACKEND //
         </div>
@@ -220,15 +222,23 @@ function AnimeMadStage({
 
       {/* ─── 4. 多图层视差舞台容器 (Parallax Canvas) ─── */}
       <div 
-        className="relative z-20 w-full max-w-5xl h-[85vh] flex items-center justify-center transition-transform duration-300 ease-out"
+        className="relative z-20 w-full max-w-5xl h-full sm:h-[85vh] flex items-center justify-center transition-transform duration-300 ease-out"
         style={{
           transform: `rotateY(${mouseOffset.x * 12}deg) rotateX(${-mouseOffset.y * 12}deg)`
         }}
       >
 
-        {/* ─── 切图卡片 A (左上角)：Retro Cyber-OS 终端切片 ─── */}
+        {/* ─── 移动端顶部极简状态胶囊 (0 遮挡，替代桌面端 256px 宽窗口) ─── */}
+        <div className="md:hidden absolute top-3 left-3 z-20 flex items-center gap-2 px-3 py-1.5 rounded-full bg-black/70 backdrop-blur-md border border-white/15 text-[10px] font-mono shadow-lg">
+          <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" />
+          <span className="text-white/80 font-bold">{t('loading.madSysTitle')}</span>
+          <span className="text-white/30">//</span>
+          <span className="text-[#f5aa9c] font-bold">{progress}%</span>
+        </div>
+
+        {/* ─── 切图卡片 A (左上角，桌面端专属)：Retro Cyber-OS 终端切片 ─── */}
         <div 
-          className={`absolute top-4 left-4 sm:left-8 z-20 w-64 rounded-2xl bg-black/60 backdrop-blur-xl border border-white/15 p-3.5 shadow-2xl transition-all duration-700 hover:scale-105 hover:border-[#ea8377]/50 will-change-transform ${
+          className={`hidden md:block absolute top-4 left-4 sm:left-8 z-20 w-64 rounded-2xl bg-black/60 backdrop-blur-xl border border-white/15 p-3.5 shadow-2xl transition-all duration-700 hover:scale-105 hover:border-[#ea8377]/50 will-change-transform ${
             isBreaking ? '-translate-x-96 -translate-y-96 opacity-0' : 'animate-[float-pulse-gentle_6.5s_ease-in-out_infinite]'
           }`}
           style={{ animationDelay: '0s' }}
@@ -264,9 +274,9 @@ function AnimeMadStage({
           </div>
         </div>
 
-        {/* ─── 浮动小配饰 4 (左上偏中)：赛博机能爱心护目镜 (Cyber Visor - 弧线飘动轨迹) ─── */}
+        {/* ─── 浮动小配饰 4 (左上偏中，桌面端专属)：赛博机能爱心护目镜 ─── */}
         <div
-          className={`absolute left-[280px] sm:left-[308px] top-4 sm:top-6 z-25 transition-all duration-700 hover:scale-125 hover:rotate-6 cursor-pointer group will-change-transform select-none ${
+          className={`hidden md:block absolute left-[280px] sm:left-[308px] top-4 sm:top-6 z-25 transition-all duration-700 hover:scale-125 hover:rotate-6 cursor-pointer group will-change-transform select-none ${
             isBreaking ? '-translate-y-96 opacity-0 scale-50' : 'animate-[float-drift_7.2s_ease-in-out_infinite]'
           }`}
           style={{ animationDelay: '0.8s' }}
@@ -282,21 +292,21 @@ function AnimeMadStage({
           </div>
         </div>
 
-        {/* ─── 切图卡片 B (右上角)：小蠢 Q 版挥手贴纸 (Die-cut Chibi Sticker - 悬浮呼吸慢轨迹) ─── */}
+        {/* ─── 切图卡片 B (右上角)：小蠢 Q 版挥手贴纸 (移动端精致置顶) ─── */}
         <div 
-          className={`absolute top-0 right-2 sm:right-6 z-30 transition-all duration-700 hover:scale-110 cursor-pointer will-change-transform select-none ${
+          className={`absolute top-2 sm:top-0 right-2 sm:right-6 z-30 transition-all duration-700 hover:scale-110 cursor-pointer will-change-transform select-none ${
             isBreaking ? 'translate-x-96 -translate-y-96 opacity-0' : 'animate-[float-bob_5.8s_ease-in-out_infinite]'
           }`}
           style={{ animationDelay: '1.5s' }}
         >
           <div className="relative select-none">
-            {/* 对话气泡 */}
-            <div className="absolute -top-6 -left-10 px-3.5 py-1.5 rounded-2xl bg-white text-black font-bold text-xs shadow-2xl border border-black/10 flex items-center gap-1 whitespace-nowrap animate-bounce pointer-events-none">
+            {/* 对话气泡 (移动端隐藏避免横向遮挡) */}
+            <div className="hidden sm:flex absolute -top-6 -left-10 px-3.5 py-1.5 rounded-2xl bg-white text-black font-bold text-xs shadow-2xl border border-black/10 items-center gap-1 whitespace-nowrap animate-bounce pointer-events-none">
               <span>{t('loading.madBubbleSticker')}</span>
               <Heart className="w-3.5 h-3.5 text-[#ea8377] fill-[#ea8377]" />
             </div>
-            {/* Q 版独立超大透明模切贴纸 */}
-            <div className="w-40 h-40 sm:w-48 sm:h-48 drop-shadow-[0_20px_40px_rgba(0,0,0,0.55)] select-none">
+            {/* Q 版独立模切贴纸 */}
+            <div className="w-20 h-20 sm:w-40 sm:h-40 md:w-48 md:h-48 drop-shadow-[0_16px_32px_rgba(0,0,0,0.55)] select-none">
               <img 
                 src="/materials/xiaochun_chibi.png" 
                 alt="小蠢贴纸" 
@@ -315,7 +325,7 @@ function AnimeMadStage({
           }`}
         >
           {/* 卡牌主容器：保持 overflow-visible 允许头部向上突破破框 */}
-          <div className="relative w-64 sm:w-72 lg:w-80 h-[360px] sm:h-[400px]">
+          <div className="relative w-[260px] sm:w-72 lg:w-80 h-[340px] sm:h-[380px] lg:h-[400px]">
             
             {/* 1. 卡牌边框外壳与流光层：自身 overflow-hidden 裁切旋转流光与背景底板 */}
             <div className="absolute inset-0 p-1.5 rounded-[32px] overflow-hidden shadow-[0_20px_60px_rgba(234,131,119,0.3)] group-hover:shadow-[0_30px_100px_rgba(234,131,119,0.65)] transition-all duration-500 z-10">
@@ -404,7 +414,7 @@ function AnimeMadStage({
           </div>
 
           {/* ─── 原神/星铁风格超感光轨加载控制台 (Genshin-style Loading Pipeline Console) ─── */}
-          <div className="mt-6 w-[280px] sm:w-[320px] lg:w-[360px] flex flex-col items-center gap-2.5 z-30">
+          <div className="mt-5 sm:mt-6 w-[260px] sm:w-[320px] lg:w-[360px] flex flex-col items-center gap-2 sm:gap-2.5 z-30">
             
             {/* 顶栏：实时阶段文本 + 发光百分比 (固定端到端宽度，杜绝内容变化导致的尺寸缩放) */}
             <div className="w-full flex items-center justify-between text-xs font-mono px-0.5">
@@ -465,9 +475,9 @@ function AnimeMadStage({
           </div>
         </div>
 
-        {/* ─── 浮动小配饰 1 (左侧居中)：猫耳赛博麦克风 (Cyber Cat Mic - 节奏倾斜轨迹) ─── */}
+        {/* ─── 浮动小配饰 1 (左侧居中，桌面端专属)：猫耳赛博麦克风 ─── */}
         <div
-          className={`absolute left-2 sm:left-10 top-1/2 -translate-y-20 z-30 transition-all duration-700 hover:scale-125 hover:rotate-8 cursor-pointer group will-change-transform select-none ${
+          className={`hidden md:block absolute left-2 sm:left-10 top-1/2 -translate-y-20 z-30 transition-all duration-700 hover:scale-125 hover:rotate-8 cursor-pointer group will-change-transform select-none ${
             isBreaking ? '-translate-x-96 opacity-0 rotate-45' : 'animate-[float-sway_4.6s_ease-in-out_infinite]'
           }`}
           style={{ animationDelay: '0.2s' }}
@@ -488,9 +498,9 @@ function AnimeMadStage({
           </div>
         </div>
 
-        {/* ─── 浮动小配饰 2 (右侧居中)：猫爪星空珍珠奶茶 (Kawaii Boba Tea - 轨道公转微动) ─── */}
+        {/* ─── 浮动小配饰 2 (右侧居中，桌面端专属)：猫爪星空珍珠奶茶 ─── */}
         <div
-          className={`absolute right-2 sm:right-10 top-1/2 -translate-y-24 z-30 transition-all duration-700 hover:scale-125 hover:-rotate-8 cursor-pointer group will-change-transform select-none ${
+          className={`hidden md:block absolute right-2 sm:right-10 top-1/2 -translate-y-24 z-30 transition-all duration-700 hover:scale-125 hover:-rotate-8 cursor-pointer group will-change-transform select-none ${
             isBreaking ? 'translate-x-96 opacity-0 -rotate-45' : 'animate-[float-orbit_6.8s_ease-in-out_infinite]'
           }`}
           style={{ animationDelay: '2.2s' }}
@@ -511,9 +521,9 @@ function AnimeMadStage({
           </div>
         </div>
 
-        {/* ─── 切图卡片 C (左下角)：台词气泡卡片 (温和慢浮动) ─── */}
+        {/* ─── 切图卡片 C (左下角，桌面端专属)：台词气泡卡片 ─── */}
         <div 
-          className={`absolute bottom-6 left-2 sm:left-10 z-20 w-64 sm:w-72 rounded-2xl bg-black/60 backdrop-blur-xl border border-white/15 p-4 shadow-2xl transition-all duration-700 hover:scale-105 will-change-transform select-none ${
+          className={`hidden md:block absolute bottom-6 left-2 sm:left-10 z-20 w-64 sm:w-72 rounded-2xl bg-black/60 backdrop-blur-xl border border-white/15 p-4 shadow-2xl transition-all duration-700 hover:scale-105 will-change-transform select-none ${
             isBreaking ? '-translate-x-96 translate-y-96 opacity-0' : 'animate-[float-bob_7.5s_ease-in-out_infinite]'
           }`}
           style={{ animationDelay: '3.1s' }}
@@ -527,9 +537,9 @@ function AnimeMadStage({
           </p>
         </div>
 
-        {/* ─── 浮动小配饰 3 (底部偏右放置)：像素赛博爱心勋章 (Pixel Heart Badge - 轻快浮游) ─── */}
+        {/* ─── 浮动小配饰 3 (底部偏右，桌面端专属)：像素赛博爱心勋章 ─── */}
         <div
-          className={`absolute right-76 sm:right-84 bottom-2 z-25 transition-all duration-700 hover:scale-125 hover:rotate-12 cursor-pointer group will-change-transform select-none ${
+          className={`hidden md:block absolute right-76 sm:right-84 bottom-2 z-25 transition-all duration-700 hover:scale-125 hover:rotate-12 cursor-pointer group will-change-transform select-none ${
             isBreaking ? 'translate-y-96 opacity-0 scale-50' : 'animate-[float-drift_5.2s_ease-in-out_infinite]'
           }`}
           style={{ animationDelay: '1.9s' }}
@@ -545,9 +555,9 @@ function AnimeMadStage({
           </div>
         </div>
 
-        {/* ─── 切图卡片 D (右下角)：实时系统监控终端卡片 ─── */}
+        {/* ─── 切图卡片 D (右下角，桌面端专属)：实时系统监控终端卡片 ─── */}
         <div 
-          className={`absolute bottom-6 right-2 sm:right-10 z-20 w-64 sm:w-72 rounded-2xl bg-black/60 backdrop-blur-xl border border-white/15 p-4 shadow-2xl transition-all duration-700 hover:scale-105 will-change-transform ${
+          className={`hidden md:block absolute bottom-6 right-2 sm:right-10 z-20 w-64 sm:w-72 rounded-2xl bg-black/60 backdrop-blur-xl border border-white/15 p-4 shadow-2xl transition-all duration-700 hover:scale-105 will-change-transform ${
             isBreaking ? 'translate-x-96 translate-y-96 opacity-0' : 'animate-[float-sway_6.2s_ease-in-out_infinite]'
           }`}
           style={{ animationDelay: '2.7s' }}
@@ -571,7 +581,7 @@ function AnimeMadStage({
       </div>
 
       {/* 底部版权 */}
-      <div className="absolute bottom-4 inset-x-0 flex justify-center text-[10px] font-mono text-white/30 pointer-events-none z-20">
+      <div className="hidden sm:flex absolute bottom-4 inset-x-0 justify-center text-[10px] font-mono text-white/30 pointer-events-none z-20">
         PROJECT XIAOCHUN // ANIME MAD DYNAMIC PRELOADER // 2026.9
       </div>
     </div>

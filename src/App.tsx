@@ -85,7 +85,7 @@ export const App: React.FC = () => {
   }, [i18n]);
 
   return (
-    <div id="app" className="relative w-screen h-screen overflow-hidden bg-[#0b0f19]">
+    <div id="app" className="relative w-full h-screen h-[100dvh] overflow-hidden bg-[#0b0f19]">
       {/* 3D Canvas (按需异步挂载，不阻塞首屏骨架) */}
       <React.Suspense fallback={<canvas id="vrm-canvas" className="absolute inset-0 w-full h-full block z-0" />}>
         <SceneCanvas />

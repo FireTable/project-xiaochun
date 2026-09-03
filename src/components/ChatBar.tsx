@@ -34,7 +34,7 @@ export const ChatBar: React.FC = () => {
   };
 
   return (
-    <div className="absolute bottom-3 sm:bottom-8 left-1/2 -translate-x-1/2 z-10 w-full max-w-xl px-3 sm:px-4 pointer-events-auto">
+    <div className="fixed bottom-[calc(0.75rem+env(safe-area-inset-bottom,0px))] sm:bottom-8 left-1/2 -translate-x-1/2 z-30 w-full max-w-xl px-3 sm:px-4 pointer-events-auto">
       {/* ponytail: 输入框 h-10(40px)全端通用,字号 text-base 16px 防止 iOS 聚焦自动缩放;
           发送按钮 h-11(44px)略高于输入,符合"主 CTA 高于输入"惯例。 */}
       <div className="flex items-center gap-2 sm:gap-2.5 p-1.5 sm:p-2 rounded-full bg-slate-950/85 border border-white/20 shadow-2xl backdrop-blur-2xl ring-1 ring-black/40">
