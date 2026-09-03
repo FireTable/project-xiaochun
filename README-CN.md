@@ -68,9 +68,9 @@ UI 走 **TanStack Start SSR + i18next** 水合,**完整支持简体中文 / Engl
 
 ### 🛠️ 开发工具链 (Dev Tooling)
 * **调试抽屉**:表情切换 / 6 路灯光滑杆 / FOV / 全局亮度。
-* **Cloudflare Pages Functions**(`functions/api/tts.ts`):生产环境走边缘运行时 TTS。
-* **Vite dev 中间件**(`vite.config.ts → localApiPlugin`):本地 TTS 走完全相同的端点,**零 Python**。
-* **单一可信源**:`src/config.ts` 集中管理所有光照 / 相机 / 表情参数。
+* **Cloudflare Workers**(`src/server.ts`):生产环境统一承载 TanStack Start SSR 与原生 WebSocket Edge-TTS 流式代理。
+* **Vite dev 中间件**(`vite.config.ts → localApiPlugin`):本地开发使用 Miniflare 虚拟运行时，与线上环境 100% 同构。
+* **单一可信源**:`src/config.ts` 集中管理所有光照 / 相机 / 表情 / R2 模型参数。
 
 ---
 
@@ -84,32 +84,57 @@ UI 走 **TanStack Start SSR + i18next** 水合,**完整支持简体中文 / Engl
 | **大语言模型** | [WebLLM](https://github.com/mlc-ai/web-llm) | Qwen3 0.6B q4f16_1 WebGPU 流式推理 |
 | **动作生成** | EMAGE + [ONNX Runtime Web](https://onnxruntime.ai) | Dedicated Web Worker 全身动作生成 |
 | **语音合成** | [edge-tts-universal](https://github.com/Sterznode/edge-tts-universal) | 晓伊 zh-CN +10 Hz,emoji 剥离 |
-| **边缘运行时** | [Cloudflare Pages Functions](https://developers.cloudflare.com/pages/functions/) | `/api/tts` 端点,零冷启动 |
+| **边缘运行时** | [Cloudflare Workers](https://developers.cloudflare.com/workers/) + [@cloudflare/vite-plugin](https://developers.cloudflare.com/workers/framework-guides/web-apps/tanstack-start/) | SSR 渲染 + WebSocket TTS + 静态资产直连 |
+| **对象存储** | [Cloudflare R2](https://developers.cloudflare.com/r2/) | 托管 504 MB ONNX 全身模型，免出站流量费 |
 | **样式** | [Tailwind CSS 4](https://tailwindcss.com) + `tailwindcss-animate` | 液态玻璃视觉,移动端优先 |
 | **国际化** | [i18next](https://www.i18next.com) + [react-i18next](https://react.i18next.com) | 三语,SSR 水合 |
 | **UI 原语** | [Radix UI](https://www.radix-ui.com) (DropdownMenu, Slot) | shadcn 风格组件 |
 | **语言** | [TypeScript 6](https://www.typescriptlang.org) | 端到端严格类型 |
-| **构建** | [Vite 8](https://vite.dev) + [Vinxi](https://vinxi.vercel.app) | Dev 中间件、边缘兼容构建 |
+| **构建** | [Vite 8](https://vite.dev) + `@cloudflare/vite-plugin` | 自动剔除超大静态资产，生产极致瘦身 |
 
 ---
 
-## 🚀 快速开始 (Quick Start)
+## 🚀 快速开始与部署指南 (Quick Start & Deployment)
 
 环境要求:**Node.js 18+**,包管理器 **pnpm**(`preinstall` hook 强制)。
 
+### 本地开发 (Local Development)
+
 ```bash
-# 1. 安装依赖 (会自动设置 TTS 开发中间件)
+# 1. 安装依赖
 pnpm install
 
-# 2. 启动开发服务器 (TTS / VRM / WebLLM 全在浏览器)
-pnpm dev          # → http://localhost:3000
+# 2. 启动开发服务器 (SSR + Miniflare 本地边缘运行时)
+pnpm dev          # → http://localhost:5185
 
-# 3. 生产构建
-pnpm build        # 输出到 .output/ (Cloudflare Pages 兼容)
-pnpm preview      # 本地预览生产产物
+# 3. 生产打包并预览
+pnpm build        # 构建输出 dist/client 与 dist/server (Worker)
+pnpm preview      # 预览生产 Worker 行为
 ```
 
-> **首次启动提示**:WebLLM 首次启动会下载 Qwen3 0.6B q4f16_1 模型(约 400 MB),并缓存在浏览器的 `CacheStorage` 中。后续访问秒级冷启动。
+---
+
+### ☁️ Cloudflare Workers 部署 (Cloudflare Deployment)
+
+本项目全面采用 **Cloudflare 现代 Workers + Static Assets 架构**（而非旧版 Pages），兼顾全栈 SSR 极速注水与原生 WebSocket 流式 TTS。
+
+#### 方式 A：本地终端一键发布（推荐 · 秒级上线）
+```bash
+# 一键完成生产构建并直接推送至 Cloudflare 边缘网络
+pnpm deploy
+# 等价于: pnpm build && wrangler deploy
+```
+*首次发布若未登录，将自动调起浏览器完成 OAuth 授权。发布成功后，在 Cloudflare 控制台将自定义域名（如 `xiaochun.firetable.tech`）绑定至该 Worker 即可。*
+
+#### 方式 B：GitHub 自动 CI 部署（Workers Builds）
+如需通过 `git push` 自动触发云端构建发布：
+1. 登录 Cloudflare 控制台 -> 进入 **Workers & Pages** -> **Create Application** -> 切换到 **Workers** 标签；
+2. 选择 **Connect to Git** 关联此 GitHub 仓库；
+3. **构建设置（⚠️ 关键注意事项）**：
+   * **根目录 (Root directory)**：**必须留空（Blank）！切勿填写 `/`**，填 `/` 会导致容器将路径误认为 Linux 系统根目录而挂起；
+   * **构建命令 (Build command)**：`pnpm build`
+   * **部署命令 (Deploy command)**：`npx wrangler deploy`
+4. 关联成功后，后续任意 Git 提交推送到 `main` 分支均会自动构建上线。
 
 ---
 
@@ -117,32 +142,29 @@ pnpm preview      # 本地预览生产产物
 
 ```text
 Project-XiaoChun/
-├── public/                    # 静态资源
+├── public/                    # 静态资产目录 (通过 Cloudflare Workers Assets 托管)
 │   ├── xiaochun_v1.vrm        # 默认 VRM 角色模型 (18 MB)
 │   ├── thinking.vrma          # 待机思考动作循环
-│   ├── logo.png / favicon.*   # 品牌资产
-├── functions/
-│   └── api/
-│       └── tts.ts             # Cloudflare Pages Function — /api/tts 边缘端点
+│   ├── _headers               # 静态资源强缓存与安全响应头
+│   └── logo.png / favicon.*   # 品牌资产
+├── wrangler.jsonc             # Cloudflare Workers 声明式配置文件
 ├── src/
+│   ├── server.ts              # Cloudflare Worker 统一入口 (SSR 调度 + /api/tts WebSocket 直连)
 │   ├── routes/                # TanStack Start 文件路由
-│   │   └── __root.tsx         # 根布局 (i18n SSR 水合入口)
+│   │   ├── __root.tsx         # 根布局 (i18n SSR 水合与元信息)
+│   │   └── index.tsx          # 首页入口
 │   ├── components/            # React UI 组件 (TopHeader, ChatBar, HeadBubble…)
-│   │   └── ui/                # shadcn 风格原语 (button, dropdown-menu, input)
 │   ├── core/
-│   │   └── vrmEngine.ts       # 3D 场景组装、光照通道、渲染循环
-│   ├── motion/                # VRMA / EMAGE 播放器 + Web Worker
-│   ├── llm/                   # WebLLM 接入 + 每语言提示词
+│   │   └── vrmEngine.ts       # 3D 场景组装、线稿天空、6路灯光通道、渲染循环
+│   ├── motion/                # EMAGE Web Worker (ONNX 全身动作生成)
+│   ├── llm/                   # WebLLM 接入 + 多语言系统提示词
 │   ├── director/
-│   │   └── chatDirector.ts    # LLM → TTS → EMAGE 流式编排管线
-│   ├── i18n/                  # zh-CN / en / ja 翻译文件 + SSR 助手
-│   │   ├── zh-CN.ts / en.ts / ja.ts
-│   │   ├── index.ts           # createI18n, changeLang, readClientLang
-│   │   └── server.ts          # createServerOnlyFn 包装 getCookie
+│   │   └── chatDirector.ts    # LLM → TTS → EMAGE 流式状态编排管线
+│   ├── i18n/                  # zh-CN / en / ja 翻译资源 + 服务端 Cookie 提取
 │   ├── styles/
-│   │   └── main.css           # Tailwind v4 @theme tokens + 全局重置
-│   └── config.ts              # 单一可信源(光照 / 相机 / 表情)
-├── vite.config.ts             # Vite + TanStack Start + 本地 TTS 开发中间件
+│   │   └── main.css           # Tailwind v4 @theme tokens + 视觉滤镜
+│   └── config.ts              # 单一可信源 (R2 端点 / 相机 / 灯光 / 表情)
+├── vite.config.ts             # Vite 8 + TanStack Start + @cloudflare/vite-plugin
 └── tsconfig.json
 ```
 

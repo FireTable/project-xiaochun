@@ -68,9 +68,9 @@ The UI is fully **SSR-hydrated multi-language** (zh-CN / en / ja) via TanStack S
 
 ### 🛠️ Dev Tooling
 * **Debug drawer** with expression picker, per-channel light sliders, FOV control, global light multiplier.
-* **Cloudflare Pages Functions** (`functions/api/tts.ts`) — production TTS via edge runtime.
-* **Vite dev middleware** (`vite.config.ts → localApiPlugin`) — local TTS via the same endpoint, zero Python.
-* **Single source of truth**: `src/config.ts` consolidates all lighting / camera / expression config.
+* **Cloudflare Workers** (`src/server.ts`) — handles full-stack TanStack Start SSR alongside native WebSocket streaming for Edge-TTS.
+* **Vite dev middleware** (`vite.config.ts → localApiPlugin`) — local development powered by Miniflare runtime for 100% dev/prod parity.
+* **Single source of truth**: `src/config.ts` consolidates all lighting / camera / expression / R2 model config.
 
 ---
 
@@ -84,32 +84,57 @@ The UI is fully **SSR-hydrated multi-language** (zh-CN / en / ja) via TanStack S
 | **LLM** | [WebLLM](https://github.com/mlc-ai/web-llm) | Qwen3 0.6B q4f16_1 on WebGPU, streaming |
 | **Motion** | EMAGE + [ONNX Runtime Web](https://onnxruntime.ai) | Full-body generation in Dedicated Web Worker |
 | **TTS** | [edge-tts-universal](https://github.com/Sterznode/edge-tts-universal) | XiaoyiNeural zh-CN +10 Hz, emoji-stripped text |
-| **Edge** | [Cloudflare Pages Functions](https://developers.cloudflare.com/pages/functions/) | `/api/tts` endpoint, 0 cold start |
+| **Edge Runtime** | [Cloudflare Workers](https://developers.cloudflare.com/workers/) + [@cloudflare/vite-plugin](https://developers.cloudflare.com/workers/framework-guides/web-apps/tanstack-start/) | SSR streaming + WebSocket Edge-TTS + Static Assets |
+| **Object Storage** | [Cloudflare R2](https://developers.cloudflare.com/r2/) | 504 MB ONNX body models hosted with zero egress fees |
 | **Styling** | [Tailwind CSS 4](https://tailwindcss.com) + `tailwindcss-animate` | `liquid-glass` aesthetic, mobile-first |
 | **i18n** | [i18next](https://www.i18next.com) + [react-i18next](https://react.i18next.com) | 3 languages, SSR-hydrated |
 | **UI Primitives** | [Radix UI](https://www.radix-ui.com) (Dropdown Menu, Slot) | shadcn-style components |
 | **Language** | [TypeScript 6](https://www.typescriptlang.org) | Strict typing end-to-end |
-| **Build** | [Vite 8](https://vite.dev) + [Vinxi](https://vinxi.vercel.app) | Dev middleware, edge-compatible build |
+| **Build** | [Vite 8](https://vite.dev) + `@cloudflare/vite-plugin` | Automated artifact slimming for lean edge bundles |
 
 ---
 
-## 🚀 Quick Start
+## 🚀 Quick Start & Deployment
 
 Requirements: **Node.js 18+**, package manager: **pnpm** (enforced via `preinstall` hook).
 
+### Local Development
+
 ```bash
-# 1. Install dependencies (will trigger TTS dev middleware setup)
+# 1. Install dependencies
 pnpm install
 
-# 2. Start dev server (TTS / VRM / WebLLM all in-browser)
-pnpm dev          # → http://localhost:3000
+# 2. Start dev server (SSR + Miniflare local edge runtime)
+pnpm dev          # → http://localhost:5185
 
-# 3. Production build
-pnpm build        # outputs to .output/ (Cloudflare Pages compatible)
-pnpm preview      # preview the production build locally
+# 3. Production build & preview
+pnpm build        # outputs dist/client & dist/server (Worker)
+pnpm preview      # preview production Worker behavior locally
 ```
 
-> **First-run note**: WebLLM downloads the Qwen3 0.6B q4f16_1 model (~400 MB) on first launch and caches it in the browser. Subsequent visits load instantly from `CacheStorage`.
+---
+
+### ☁️ Cloudflare Workers Deployment
+
+This project uses **Cloudflare's modern Workers + Static Assets architecture** (replacing legacy Pages) for lightning-fast SSR hydration and duplex WebSocket TTS streaming.
+
+#### Option A: One-command CLI Deploy (Recommended)
+```bash
+# Builds production bundle and deploys directly to Cloudflare edge
+pnpm deploy
+# Equivalent to: pnpm build && wrangler deploy
+```
+*If not logged in, Wrangler will automatically open your browser for OAuth authentication. Once deployed, attach your custom domain (e.g. `xiaochun.firetable.tech`) under Worker -> Domains & Routes.*
+
+#### Option B: GitHub CI Deployment (Workers Builds)
+To deploy automatically on every `git push`:
+1. Log in to Cloudflare Dashboard -> navigate to **Workers & Pages** -> **Create Application** -> **Workers** tab;
+2. Select **Connect to Git** and connect this repository;
+3. **Build settings (⚠️ Critical)**:
+   * **Root directory**: **Leave completely blank (do NOT enter `/`)** — entering `/` points the runner to the Linux root filesystem and causes builds to hang;
+   * **Build command**: `pnpm build`
+   * **Deploy command**: `npx wrangler deploy`
+4. Pushing new commits to `main` will now trigger automatic build and deployment.
 
 ---
 
@@ -117,32 +142,29 @@ pnpm preview      # preview the production build locally
 
 ```text
 Project-XiaoChun/
-├── public/                    # Static assets
+├── public/                    # Static assets (served directly via Cloudflare Assets)
 │   ├── xiaochun_v1.vrm        # Default VRM character model (18 MB)
 │   ├── thinking.vrma          # Idle thinking animation loop
-│   ├── logo.png / favicon.*   # Brand assets
-├── functions/
-│   └── api/
-│       └── tts.ts             # Cloudflare Pages Function — /api/tts edge endpoint
+│   ├── _headers               # Cache-Control and security headers
+│   └── logo.png / favicon.*   # Brand assets
+├── wrangler.jsonc             # Cloudflare Workers declarative configuration
 ├── src/
+│   ├── server.ts              # Cloudflare Worker entry (SSR router + /api/tts WebSocket stream)
 │   ├── routes/                # TanStack Start file-based routes
-│   │   └── __root.tsx         # Root layout (i18n SSR hydration here)
+│   │   ├── __root.tsx         # Root layout (i18n SSR hydration & meta tags)
+│   │   └── index.tsx          # Index route
 │   ├── components/            # React UI components (TopHeader, ChatBar, HeadBubble…)
-│   │   └── ui/                # shadcn-style primitives (button, dropdown-menu, input)
 │   ├── core/
-│   │   └── vrmEngine.ts       # 3D scene assembly, light channels, render loop
-│   ├── motion/                # VRMA / EMAGE players + Web Worker
-│   ├── llm/                   # WebLLM integration + per-language prompts
+│   │   └── vrmEngine.ts       # 3D scene assembly, linework sky, 6-channel lighting
+│   ├── motion/                # EMAGE Web Worker (ONNX full-body gesture inference)
+│   ├── llm/                   # WebLLM integration + multi-language prompts
 │   ├── director/
-│   │   └── chatDirector.ts    # LLM → TTS → EMAGE streaming pipeline
-│   ├── i18n/                  # zh-CN / en / ja translation files + SSR helpers
-│   │   ├── zh-CN.ts / en.ts / ja.ts
-│   │   ├── index.ts           # createI18n, changeLang, readClientLang
-│   │   └── server.ts          # createServerOnlyFn wrapper for getCookie
+│   │   └── chatDirector.ts    # LLM → TTS → EMAGE streaming coordinator
+│   ├── i18n/                  # zh-CN / en / ja translation files + server cookie helper
 │   ├── styles/
-│   │   └── main.css           # Tailwind v4 @theme tokens + global resets
-│   └── config.ts              # Single source of truth for lights / camera / expressions
-├── vite.config.ts             # Vite + TanStack Start + local TTS dev middleware
+│   │   └── main.css           # Tailwind v4 @theme tokens + visual post-processing
+│   └── config.ts              # Single source of truth (R2 base / camera / lights / expressions)
+├── vite.config.ts             # Vite 8 + TanStack Start + @cloudflare/vite-plugin
 └── tsconfig.json
 ```
 
