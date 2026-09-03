@@ -96,11 +96,11 @@ function resolveServerLang(): Lang {
 
 function RootDocument({ children, lang }: { children: ReactNode; lang: Lang }) {
   return (
-    <html lang={lang}>
+    <html lang={lang} suppressHydrationWarning>
       <head>
         <HeadContent />
       </head>
-      <body>
+      <body suppressHydrationWarning>
         <div id="root">{children}</div>
         <Scripts />
       </body>

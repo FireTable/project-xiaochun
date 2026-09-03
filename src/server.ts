@@ -195,7 +195,7 @@ async function handleTTS(request: Request): Promise<Response> {
         socket.addEventListener('message', onMessage);
         socket.addEventListener('close', onClose);
         socket.addEventListener('error', onError);
-        socket.accept();
+        (socket as any).accept?.();
         socket.send(buildSpeechConfig());
         socket.send(buildSsml(reqId, formattedVoice, text, pitch, '+0%'));
       },
