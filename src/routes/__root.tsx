@@ -34,7 +34,11 @@ export const Route = createRootRoute({
       { property: 'og:title', content: 'Project XiaoChun' },
       { property: 'og:description', content: '100% browser-native anime VTuber — local LLM + EMAGE motion + Edge-TTS.' },
       { property: 'og:url', content: 'https://xiaochun.firetable.tech' },
-      { property: 'og:image', content: 'https://xiaochun.firetable.tech/logo.png' },
+      { property: 'og:image', content: 'https://xiaochun.firetable.tech/og.jpg' },
+      { property: 'og:image:type', content: 'image/jpeg' },
+      { property: 'og:image:width', content: '1200' },
+      { property: 'og:image:height', content: '630' },
+      { property: 'og:image:alt', content: '小蠢 — Project XiaoChun' },
       { property: 'og:locale', content: 'zh_CN' },
       { property: 'og:site_name', content: 'Project XiaoChun' },
 
@@ -42,7 +46,8 @@ export const Route = createRootRoute({
       { name: 'twitter:card', content: 'summary_large_image' },
       { name: 'twitter:title', content: 'Project XiaoChun' },
       { name: 'twitter:description', content: '100% browser-native anime VTuber — local LLM + EMAGE motion + Edge-TTS.' },
-      { name: 'twitter:image', content: 'https://xiaochun.firetable.tech/logo.png' },
+      { name: 'twitter:image', content: 'https://xiaochun.firetable.tech/og.jpg' },
+      { name: 'twitter:image:alt', content: '小蠢 — Project XiaoChun' },
 
       { title: 'Project XiaoChun' },
     ],
