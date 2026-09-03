@@ -1,0 +1,64 @@
+@import "tailwindcss";
+@plugin "tailwindcss-animate";
+
+@theme {
+  --color-brand-50: #fef5f3;
+  --color-brand-100: #fce0d4;
+  --color-brand-200: #f5c0b4;
+  --color-brand-300: #f5aa9c;
+  --color-brand-400: #ea8377;
+  --color-brand-500: #e06d64;
+  --color-brand-600: #d55e55;
+  --color-brand-700: #b9453c;
+
+  --color-brand-primary: #ea8377;
+  --color-brand-light: #f5aa9c;
+  --color-brand-highlight: #fce0d4;
+  --color-brand-dark: #e06d64;
+}
+
+@layer base {
+  body, html {
+    width: 100%;
+    height: 100%;
+    overflow: hidden;
+    font-family: 'Outfit', 'Noto Sans SC', system-ui, -apple-system, sans-serif;
+    color: #f8fafc;
+    user-select: none;
+    background-color: #0b0f19;
+    /* ponytail: 禁止横向滚动 — 移动端任何定位元素溢出都会被截,避免界面"跳动"。 */
+    overflow-x: hidden;
+    /* ponytail: iOS 点击高亮关掉,避免 button 闪蓝光。 */
+    -webkit-tap-highlight-color: transparent;
+  }
+  /* ponytail: 全局字体平滑 + 阻止 iOS Safari 文本大小自动调整。 */
+  html { -webkit-text-size-adjust: 100%; }
+}
+
+/* Range input slider styling using brand theme tokens */
+input[type="range"] {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 100%;
+  height: 6px;
+  background: rgba(255, 255, 255, 0.12);
+  border-radius: 9999px;
+  outline: none;
+}
+
+input[type="range"]::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  background: var(--color-brand-300);
+  box-shadow: 0 0 12px var(--color-brand-400);
+  cursor: pointer;
+  border: 2px solid #ffffff;
+  transition: transform 0.15s ease;
+}
+
+input[type="range"]::-webkit-slider-thumb:hover {
+  transform: scale(1.2);
+}
