@@ -1,0 +1,20 @@
+# Project XiaoChun
+
+> 100% browser-native anime VTuber — local LLM + EMAGE motion + Edge-TTS. Real-time chat with VRM characters, no backend.
+
+## Overview
+Project XiaoChun is a single-page web application that runs an interactive anime character entirely in the user's browser tab. The 3D scene renders via `three.js` + `@pixiv/three-vrm` (MToon NPR shading); conversation, motion, and speech are all generated client-side using WebGPU and ONNX Runtime Web. The only network calls are to a Cloudflare Pages Function that proxies Microsoft Edge-TTS (no API keys stored on the user side).
+
+## Core Features
+- **VRM Character & Linework Scene**: 6-channel lighting (dir / hemi / front / fill / leg / arm), procedural linework outdoor scene with 19 buildings + 5 trees, runtime VRM upload.
+- **LLM**: WebLLM running Qwen3 0.6B (q4f16_1) on WebGPU, streaming with milestone callbacks.
+- **Motion**: EMAGE full-body co-speech motion (PantoMatrix, CVPR 2024) in a Dedicated Web Worker with temporal Gaussian smoothing.
+- **TTS**: Microsoft Edge-TTS XiaoyiNeural zh-CN (+10 Hz) via `edge-tts-universal` — emoji stripped from speech text to avoid prosody glitches.
+- **i18n & SSR**: TanStack Start full-stack SSR with cookie-based language hydration; ships zh-CN / en / ja; per-language system prompts.
+- **Mobile-First UI**: iOS HIG 44 pt / Material 48 dp touch targets, shadcn-style components, Tailwind CSS v4 liquid-glass aesthetic.
+
+## Links & API Contracts
+- [Full LLM Specification](/llms-full.txt): Complete technical architecture, dependency list, motion/TTS pipelines, deployment guide.
+- [GitHub Repository](#): Source code, setup instructions, and issue tracker.
+- [Live Demo](https://xiaochun.firetable.tech): Browser-only deploy on Cloudflare Pages.
+- Edge API: `GET /api/tts?text=...&voice=zh-CN-XiaoyiNeural&pitch=%2B10Hz` returns `audio/mpeg`. CORS open.

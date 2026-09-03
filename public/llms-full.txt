@@ -1,0 +1,151 @@
+# Project XiaoChun — Full Technical Documentation
+
+> Complete architecture, dependency inventory, AI inference pipelines, i18n / SSR setup, and Cloudflare Pages deployment guide.
+
+---
+
+## 1. System Architecture
+
+Project XiaoChun is a single-page application built on **Vite 8 + TanStack Start (full-stack SSR) + React 19 + three.js 0.185**. Everything except Edge-TTS runs in the browser tab; there is no application server beyond a single Cloudflare Pages Function that proxies Edge-TTS.
+
+- **3D Engine**: `three.js` with `@pixiv/three-vrm` for VRM 1.0 rendering (MToon NPR shader). OrbitControls, EffectComposer with custom render loop. Lightweight outline-free pass — VRM's built-in MToon outline is preserved.
+- **Application Framework**: TanStack Start provides file-based routing, full-stack SSR, and server-only helpers (`createServerOnlyFn`, `getCookie` from `@tanstack/react-start/server`).
+- **Bundler**: Vite with a custom `localApiPlugin` middleware that serves `/api/tts` during `pnpm dev`, mirroring the production Cloudflare Pages Function so the dev/prod parity is exact.
+- **Styling**: Tailwind CSS v4 with `@theme` tokens (`brand-*` coral palette, derived from the default VRM model's hair color) + `tailwindcss-animate` for micro-interactions.
+
+---
+
+## 2. AI Inference Pipelines
+
+All AI runs in the browser tab via WebGPU + WebAssembly:
+
+### 2.1 LLM (WebLLM)
+- **Engine**: `@mlc-ai/web-llm` v0.2.84
+- **Model**: Qwen3 0.6B (q4f16_1) — ~400 MB, downloaded on first launch and cached in `CacheStorage` for instant subsequent loads
+- **Runtime**: WebGPU (falls back to WASM with reduced throughput)
+- **Streaming**: Chunked completion with milestone callbacks (`loading-webgpu`, `thinking` states)
+- **System Prompts**: Per-language (`src/llm/prompts.ts`) — each prompt enforces a `🌐 LANGUAGE RULE` so the LLM responds in the user's language regardless of input language
+
+### 2.2 Motion (EMAGE)
+- **Model**: EMAGE full-body co-speech motion (PantoMatrix, [Yi et al., CVPR 2024](https://pantomatrix.github.io/EMAGE/))
+- **Runtime**: ONNX Runtime Web v1.22.0-dev inside a Dedicated Web Worker (`src/motion/emageWorker.ts`)
+- **Orchestrator**: `src/motion/emagePlayer.ts` — sentence-level streaming pipeline, temporal Gaussian smoothing, inertial tracking, natural idle blends
+- **Browser support**: WebGPU execution provider with multi-threaded WASM fallback for browsers without WebGPU
+
+### 2.3 TTS (Edge-TTS)
+- **Engine**: `edge-tts-universal` v1.4.0 (browser build of Microsoft Edge-TTS protocol)
+- **Default voice**: `zh-CN-XiaoyiNeural` with `+10Hz` pitch (energetic anime-girl timbre)
+- **Production endpoint**: Cloudflare Pages Function at `functions/api/tts.ts` — opens WebSocket to `speech.platform.bing.com`, streams audio chunks as `audio/mpeg`
+- **Dev endpoint**: Same shape, served by `vite.config.ts → localApiPlugin` middleware
+- **Emoji handling**: Text passed to TTS is stripped of `\p{Extended_Pictographic}` characters to avoid prosody glitches (Microsoft TTS tends to over-articulate emoji)
+
+### 2.4 Chat Director
+- **File**: `src/director/chatDirector.ts`
+- **Role**: Orchestrates LLM → TTS → EMAGE as a single streaming pipeline. Each utterance triggers:
+  1. LLM streaming token callbacks
+  2. On utterance boundary: dispatch to TTS (begin Edge-TTS WebSocket, stream audio to user)
+  3. EMAGE receives the same utterance and generates motion frames in lockstep
+  4. Lip-sync (viseme blending) updates from TTS audio energy + EMAGE mouth keyframes
+- **Cancellation**: New user message cancels in-flight LLM/TTS/EMAGE via token cancellation
+
+---
+
+## 3. i18n & SSR Hydration
+
+- **Library**: `i18next` + `react-i18next`
+- **Languages shipped**: `zh-CN`, `en`, `ja` (each in `src/i18n/<lang>.ts`, typed against `typeof zh-CN` for shape safety)
+- **SSR hydration**: Cookie-based — `@tanstack/react-start/server`'s `getCookie()` reads the `lang` cookie during SSR. Wrapped in `createServerOnlyFn` (`src/i18n/server.ts`) so the server-only import never lands in the client bundle (TanStack Start's import-protection enforces this).
+- **Client fallback**: `readClientLang()` parses `document.cookie` for the same value, ensuring zero hydration mismatch.
+- **Per-language system prompts**: `src/llm/prompts.ts` exports `XIAOCHUN_SYSTEM_PROMPT: Record<Lang, string>` — same prompt template, three localized variants.
+
+---
+
+## 4. VRM Character & Scene
+
+- **Default model**: `public/xiaochun_v1.vrm` (18 MB, VRM 1.0). Generated with [VRoid Studio](https://vroid.com/en/studio) (Pixiv Inc.), subject to the VRoid Studio License.
+- **Default thinking animation**: `public/thinking.vrma` (63 KB, VRM animation, license unverified — verify before redistribution)
+- **Runtime VRM upload**: Top-bar "上传 VRM" button (top-right) accepts any VRM 1.0 file via `<input type="file">` and `URL.createObjectURL`
+- **Scene composition** (`vrmEngine.ts → buildLineworkScene()`):
+  - **Sun**: Spherical mesh at `(10, 14, -22)`, radius 1.5
+  - **Ground**: 60×60 wireframe grid (`WireframeGeometry` + `LineSegments`)
+  - **Buildings**: 19 procedurally-placed wireframe buildings across 5 archetypes (cube / tall-rect / step-pyramid / cylinder / cross)
+  - **Trees**: 5 stylized trees across 5 archetypes (conifer / fan / layered / cypress / vertical-oval). Trunk height `max(1.7, totalH * 0.35)` so all trunks reach character waist level.
+- **Lighting** (6 independent channels):
+  - `dir`: Main directional (sun), `base: 1.0`, position aligned with sun mesh
+  - `hemi`: Hemisphere sky/ground, `base: 0.6`
+  - `front`: Face spot light, `base: 0.7`
+  - `fill`: Back-rim Fresnel-style fill, `base: 0.8`
+  - `leg`: Leg-only soft fill, `base: 0.45`
+  - `arm`: Arm-only rim, `base: 0.5`
+  - Global multiplier `1.1`
+- **Camera**: PerspectiveCamera, default FOV 35°, position `(0, 1.5, 3.6)`, target `(0, 1.2, 0)`
+
+---
+
+## 5. Mobile & Accessibility
+
+- **Touch targets**: All interactive elements ≥ 40 px on mobile, ≥ 44 px for primary CTA. Follows iOS HIG 44 pt / Material 48 dp.
+- **Input field**: 16 px font (iOS Safari won't auto-zoom on focus at ≥ 16 px).
+- **Responsive breakpoints**: Tailwind `sm:` (≥ 640 px). Mobile-first; desktop tightens spacing.
+- **Top-bar icons** (globe / settings) wrapped in Radix Tooltip with `delayDuration={300ms}` so they don't flash on quick hover; icons alone on mobile, label-on-tap reveal.
+- **Speech bubble**: Floats above the character's head, follows head motion via additive `transform` interpolation with `transition-duration: 150ms`. Max width 240 px (mobile) / 320 px (desktop) with `break-words`.
+
+---
+
+## 6. Build & Deploy
+
+### 6.1 Build
+```bash
+pnpm install
+pnpm build    # tsc + vite build → dist/
+```
+
+### 6.2 Cloudflare Pages (production)
+- **Configuration**: `wrangler.toml` (compatibility_date 2024-09-23 for `response.webSocket` support)
+- **Headers**: `_headers` defines COOP/COEP (required for WebGPU + SharedArrayBuffer), security headers, and cache policy (`/assets/*` immutable; root path `must-revalidate`)
+- **Functions**: `functions/api/tts.ts` — edge-runtime TTS proxy
+- **Static assets**: `public/*` served as-is (robots.txt, sitemap.xml, llms.txt, llms-full.txt, VRM model, fonts)
+
+### 6.3 Two Deploy Modes
+- **Git-integrated (recommended)**: Push to GitHub → Cloudflare Dashboard → Pages → Connect Git → auto-deploy on push.
+- **Direct CLI**: `pnpm wrangler pages deploy dist --project-name=project-xiaochun`
+
+### 6.4 First-Run Notes
+- WebLLM downloads ~400 MB model on first browser visit; cached in `CacheStorage` thereafter.
+- VRM model (18 MB) is shipped in the bundle; not lazy-loaded.
+- TTS endpoint has no auth — keep behind custom domain to avoid random abuse.
+
+---
+
+## 7. API Reference
+
+### `GET /api/tts`
+Synthesizes text to speech via Microsoft Edge-TTS (XiaoyiNeural zh-CN).
+
+**Query parameters**:
+- `text` (required) — text to synthesize, URL-encoded
+- `voice` (optional) — voice full name (default `zh-CN-XiaoyiNeural`)
+- `pitch` (optional) — prosody pitch (default `+10Hz`)
+
+**Response**: `audio/mpeg` stream, `Cache-Control: public, max-age=86400`
+
+**CORS**: `Access-Control-Allow-Origin: *`
+
+**Example**:
+```
+GET /api/tts?text=你好&voice=zh-CN-XiaoyiNeural&pitch=%2B10Hz
+```
+
+---
+
+## 8. Third-Party Attributions
+
+- [pixiv / three-vrm](https://github.com/pixiv/three-vrm) — VRM runtime (MIT)
+- [Pixiv / VRoid Studio](https://vroid.com/en/studio) — default character authoring tool (VRoid Studio License)
+- [PantoMatrix / EMAGE](https://github.com/PantoMatrix/PantoMatrix) ([Yi et al., CVPR 2024](https://pantomatrix.github.io/EMAGE/)) — full-body motion model
+- [Animation Inc.](https://www.animation.inc) — Ani-2 architecture inspiration
+- [Qiuner / Qiuner.github.io](https://github.com/Qiuner/Qiuner.github.io) — linework outdoor scene visual inspiration
+- [MLC AI / WebLLM](https://github.com/mlc-ai/web-llm) — in-browser LLM
+- [Sterznode / edge-tts-universal](https://github.com/Sterznode/edge-tts-universal) — Edge-TTS bridge
+- [TanStack Start](https://tanstack.com/start) — full-stack React framework
+- [Tailwind CSS](https://tailwindcss.com) — utility-first styling

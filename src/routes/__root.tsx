@@ -23,10 +23,32 @@ export const Route = createRootRoute({
     meta: [
       { charSet: 'utf-8' },
       { name: 'viewport', content: 'width=device-width, initial-scale=1' },
+      { name: 'theme-color', content: '#ea8377' },
+      { name: 'description', content: '100% browser-native anime VTuber — local LLM (WebLLM Qwen3) + EMAGE full-body motion + Edge-TTS. Real-time chat with VRM characters, no backend.' },
+      { name: 'keywords', content: 'VTuber, AI, VRM, WebLLM, WebGPU, Edge-TTS, EMAGE, anime, character, three.js, browser' },
+      { name: 'robots', content: 'index, follow' },
+      { name: 'format-detection', content: 'telephone=no' },
+
+      // Open Graph
+      { property: 'og:type', content: 'website' },
+      { property: 'og:title', content: 'Project XiaoChun' },
+      { property: 'og:description', content: '100% browser-native anime VTuber — local LLM + EMAGE motion + Edge-TTS.' },
+      { property: 'og:url', content: 'https://xiaochun.firetable.tech' },
+      { property: 'og:image', content: 'https://xiaochun.firetable.tech/logo.png' },
+      { property: 'og:locale', content: 'zh_CN' },
+      { property: 'og:site_name', content: 'Project XiaoChun' },
+
+      // Twitter
+      { name: 'twitter:card', content: 'summary_large_image' },
+      { name: 'twitter:title', content: 'Project XiaoChun' },
+      { name: 'twitter:description', content: '100% browser-native anime VTuber — local LLM + EMAGE motion + Edge-TTS.' },
+      { name: 'twitter:image', content: 'https://xiaochun.firetable.tech/logo.png' },
+
       { title: 'Project XiaoChun' },
     ],
     links: [
       { rel: 'icon', type: 'image/png', href: '/favicon.png' },
+      { rel: 'canonical', href: 'https://xiaochun.firetable.tech/' },
       { rel: 'stylesheet', href: appCss },
       { rel: 'preconnect', href: 'https://fonts.googleapis.com' },
       { rel: 'preconnect', href: 'https://fonts.gstatic.com', crossOrigin: 'anonymous' },
