@@ -1,22 +1,176 @@
-import React, { useState, useEffect, useRef } from 'react';
+import { createFileRoute } from '@tanstack/react-router';
+import { useState, useEffect, useRef } from 'react';
+import { RefreshCw, Flame, Heart, Radio, Music } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
-import { Heart, Radio, Music } from 'lucide-react';
-import type { LoadingState } from '@/core/vrmEngine';
 
-interface LoadingOverlayProps {
-  state: LoadingState;
-  onBreakComplete?: () => void;
+export const Route = createFileRoute('/preview')({
+  component: LoadingPreviewPage,
+});
+
+function LoadingPreviewPage() {
+  const { t } = useTranslation();
+  const [isBreakingDimension, setIsBreakingDimension] = useState(false);
+  const [statusIdx, setStatusIdx] = useState(0);
+
+  const statusTexts = [
+    t('loading.loadingWebGpu'),
+    t('loading.thinking'),
+    t('loading.parsingModel'),
+    t('loading.loadingModel', { name: 'XiaoChun' }),
+  ];
+
+  useEffect(() => {
+    const timer = setInterval(() => {
+      setStatusIdx((prev) => (prev + 1) % statusTexts.length);
+    }, 2400);
+    return () => clearInterval(timer);
+  }, [statusTexts.length]);
+
+  // 触发 2D MAD -> 3D 破次元震撼入场转场
+  const triggerDimensionBreak = () => {
+    setIsBreakingDimension(true);
+    setTimeout(() => {
+      setIsBreakingDimension(false);
+    }, 3800);
+  };
+
+  return (
+    <div className="relative w-full h-screen overflow-hidden bg-[#0a0812] text-white select-none font-sans">
+      {/* ─── 顶部悬浮控制器 ─── */}
+      <header className="fixed top-5 inset-x-0 z-50 flex justify-center items-center px-4 pointer-events-none">
+        <div className="pointer-events-auto flex items-center gap-2 p-1.5 rounded-2xl bg-black/75 backdrop-blur-2xl border border-white/10 shadow-2xl shadow-[#ea8377]/10">
+          <div className="flex items-center gap-2 px-4 py-2 rounded-xl text-xs font-bold bg-gradient-to-r from-[#ea8377] via-[#e06d64] to-[#f5aa9c] text-white shadow-lg shadow-[#ea8377]/30">
+            <Flame className="w-3.5 h-3.5 text-amber-200 animate-pulse" />
+            <span>🎬 二次元 MAD 动态卡片 · 2D 破次元 → 3D</span>
+            <span className="text-[10px] bg-black/20 px-1.5 py-0.5 rounded text-white font-mono">MAD</span>
+          </div>
+
+          <div className="w-[1px] h-5 bg-white/15 mx-0.5 hidden sm:block" />
+
+          {/* 破次元转场触发按钮 */}
+          <button
+            onClick={triggerDimensionBreak}
+            disabled={isBreakingDimension}
+            className={`flex items-center gap-2 px-3.5 py-2 rounded-xl text-xs font-bold transition-all cursor-pointer shadow-lg ${
+              isBreakingDimension
+                ? 'bg-[#ea8377] text-white animate-pulse'
+                : 'bg-white/15 hover:bg-white/25 active:scale-95 text-white'
+            }`}
+            title="点击体验加载完成后：2D 卡片炸开进入 3D 舞台的视觉震撼！"
+          >
+            <RefreshCw className={`w-3.5 h-3.5 ${isBreakingDimension ? 'animate-spin' : ''}`} />
+            <span>{isBreakingDimension ? t('loading.madBreaking') : t('loading.madPreviewBreakBtn')}</span>
+          </button>
+        </div>
+      </header>
+
+      {/* ─── 底层：真实 3D 舞台（破次元后露出的世界） ─── */}
+      <div 
+        className={`absolute inset-0 z-0 bg-[#0c0914] flex flex-col justify-between p-6 transition-all duration-1000 ${
+          isBreakingDimension ? 'scale-100 filter-none' : 'scale-95 blur-sm opacity-50'
+        }`}
+      >
+        {/* 顶部 Header */}
+        <div className="w-full h-14 rounded-2xl bg-white/[0.04] backdrop-blur-xl border border-white/10 px-6 flex items-center justify-between shadow-xl">
+          <div className="flex items-center gap-3">
+            <div className="w-8 h-8 rounded-xl bg-gradient-to-tr from-[#ea8377] to-[#e06d64] flex items-center justify-center font-bold text-xs">XC</div>
+            <span className="text-xs font-bold tracking-wider text-white">PROJECT XIAOCHUN</span>
+          </div>
+          <div className="flex items-center gap-2">
+            <span className="text-[11px] font-mono text-[#f5aa9c] bg-[#ea8377]/10 px-2.5 py-1 rounded-full border border-[#ea8377]/30">
+              {t('loading.madStageActive')}
+            </span>
+          </div>
+        </div>
+
+        {/* 舞台中心：小蠢 3D 形象登场 */}
+        <div className="relative flex flex-col items-center justify-center my-auto">
+          {/* 舞台光照与氛围 */}
+          <div className="absolute w-[480px] h-[480px] rounded-full bg-gradient-to-t from-[#ea8377]/25 via-[#e06d64]/10 to-transparent blur-3xl" />
+          
+          {/* 3D 角色投影模型 */}
+          <div className="relative z-10 flex flex-col items-center animate-bounce" style={{ animationDuration: '3s' }}>
+            <div className="h-[52vh] max-h-[500px] drop-shadow-[0_0_35px_rgba(234,131,119,0.4)]">
+              <img src="/materials/xiaochun_character.png" alt="小蠢 3D" className="h-full w-auto object-contain" />
+            </div>
+            <div className="mt-3 px-4 py-1 rounded-full bg-black/60 border border-[#ea8377]/40 text-xs font-mono text-[#f5aa9c] backdrop-blur-md">
+              {t('loading.madStageReady')}
+            </div>
+          </div>
+        </div>
+
+        {/* 底部 ChatBar */}
+        <div className="w-full max-w-xl mx-auto h-14 rounded-full bg-black/40 backdrop-blur-2xl border border-white/10 px-6 flex items-center justify-between shadow-2xl">
+          <span className="text-xs text-white/40">{t('loading.madChatPlaceholder')}</span>
+          <div className="w-8 h-8 rounded-full bg-[#ea8377] flex items-center justify-center text-white text-xs font-bold">↑</div>
+        </div>
+      </div>
+
+      {/* ─── 顶层：2D MAD 动态卡片切图切片层 ─── */}
+      <div
+        className={`relative z-10 w-full h-full transition-all duration-1000 ease-out ${
+          isBreakingDimension
+            ? 'opacity-0 scale-125 pointer-events-none filter blur-md'
+            : 'opacity-100 scale-100'
+        }`}
+      >
+        <AnimeMadStage 
+          statusText={statusTexts[statusIdx]} 
+          isBreaking={isBreakingDimension} 
+          onBreakTrigger={triggerDimensionBreak}
+        />
+      </div>
+    </div>
+  );
 }
 
-export const LoadingOverlay: React.FC<LoadingOverlayProps> = ({ state, onBreakComplete }) => {
+// ─────────────────────────────────────────────────────────────
+// 🎬 核心：二次元 MAD 风格动态切图舞台 (Anime MAD Cutout Motion Stage)
+// ─────────────────────────────────────────────────────────────
+function AnimeMadStage({ 
+  statusText, 
+  isBreaking,
+  onBreakTrigger 
+}: { 
+  statusText: string; 
+  isBreaking: boolean;
+  onBreakTrigger: () => void;
+}) {
   const { t } = useTranslation();
   const containerRef = useRef<HTMLDivElement>(null);
   const [mouseOffset, setMouseOffset] = useState({ x: 0, y: 0 });
-  const [isBreaking, setIsBreaking] = useState(false);
-  const [hasExited, setHasExited] = useState(false);
+  const [progress, setProgress] = useState(35);
 
-  // 记录挂载时间，保证即使缓存秒开也有至少 1.2s 的视觉冲击力展示，防止一闪而过的糟糕体验
-  const mountTimeRef = useRef<number>(Date.now());
+  // 模拟原神式加载进度递增
+  useEffect(() => {
+    const timer = setInterval(() => {
+      setProgress((prev) => {
+        if (prev >= 100) {
+          onBreakTrigger();
+          return 100;
+        }
+        return Math.min(100, prev + 12);
+      });
+    }, 1800);
+    return () => clearInterval(timer);
+  }, [onBreakTrigger]);
+
+  const pipelineMilestones = [
+    { name: '01 引擎初始化', threshold: 10 },
+    { name: '02 着色器编译', threshold: 35 },
+    { name: '03 网格解压', threshold: 65 },
+    { name: '04 动作就绪', threshold: 95 },
+  ];
+
+  const getStageText = () => {
+    if (progress < 25) return `01/04 · WebGPU / WebGL 上下文初始化…`;
+    if (progress < 60) return `02/04 · ${t('loading.madShaderCompiling')}`;
+    if (progress < 85) return `03/04 · ${t('loading.madMeshDecoding')}`;
+    if (progress < 100) return `04/04 · ${t('loading.madMotionSync')}`;
+    return `✦ ${t('loading.madPipelineReady')}`;
+  };
+
+  const stageText = statusText ? `${statusText} // ${getStageText()}` : getStageText();
 
   // 鼠标全景 3D 视差倾斜 (Parallax Tilt)
   const handleMouseMove = (e: React.MouseEvent) => {
@@ -27,84 +181,14 @@ export const LoadingOverlay: React.FC<LoadingOverlayProps> = ({ state, onBreakCo
     setMouseOffset({ x, y });
   };
 
-  // 触发 2D 破次元 -> 3D 舞台的入场爆发动效
-  const triggerBreak = () => {
-    if (isBreaking || hasExited) return;
-    setIsBreaking(true);
-    setTimeout(() => {
-      setHasExited(true);
-      onBreakComplete?.();
-    }, 1100);
-  };
-
-  // 当 VRM 引擎汇报加载完成 (progress === 100 且 active === false) 时，平滑进入破次元倒计时
-  useEffect(() => {
-    if (!state.active && state.progress >= 100 && !isBreaking && !hasExited) {
-      const elapsed = Date.now() - mountTimeRef.current;
-      const minDisplayDelay = Math.max(0, 1500 - elapsed);
-      const timer = setTimeout(() => {
-        triggerBreak();
-      }, minDisplayDelay);
-      return () => clearTimeout(timer);
-    }
-  }, [state.active, state.progress, isBreaking, hasExited]);
-
-  // 当有新模型上传/重新开始加载时（例如从 TopHeader 上传新 VRM），重置状态重新展示
-  useEffect(() => {
-    if (state.active) {
-      setHasExited(false);
-      setIsBreaking(false);
-      mountTimeRef.current = Date.now();
-    }
-  }, [state.active]);
-
-  if (hasExited) {
-    return null;
-  }
-
-  const progress = Math.min(100, Math.max(0, state.progress || 0));
-
-  // 原神/星铁风格：分阶段着色器与管线动态文字
-  const getStageText = () => {
-    if (progress < 25) {
-      return `01/04 · WebGPU / WebGL 上下文初始化…`;
-    }
-    if (progress < 60) {
-      return `02/04 · ${t('loading.madShaderCompiling')}`;
-    }
-    if (progress < 85) {
-      return `03/04 · ${t('loading.madMeshDecoding')}`;
-    }
-    if (progress < 100) {
-      return `04/04 · ${t('loading.madMotionSync')}`;
-    }
-    return `✦ ${t('loading.madPipelineReady')}`;
-  };
-
-  const subtitle = state.subtitleKey
-    ? t(`loading.${state.subtitleKey}`, state.subtitleVars as Record<string, unknown> | undefined)
-    : '';
-
-  const stageText = subtitle ? `${subtitle} // ${getStageText()}` : getStageText();
-
-  const pipelineMilestones = [
-    { name: '01 引擎初始化', threshold: 10 },
-    { name: '02 着色器编译', threshold: 35 },
-    { name: '03 网格解压', threshold: 65 },
-    { name: '04 动作就绪', threshold: 95 },
-  ];
-
   return (
     <div
-      id="loading-overlay"
       ref={containerRef}
       onMouseMove={handleMouseMove}
-      className={`fixed inset-0 z-50 overflow-hidden flex items-center justify-center bg-[#0a0812] select-none transition-all duration-1000 ease-out ${
-        isBreaking ? 'opacity-0 scale-125 filter blur-md pointer-events-none' : 'opacity-100 scale-100'
-      }`}
+      className="relative w-full h-full overflow-hidden flex items-center justify-center bg-[#0a0812]"
       style={{ perspective: '1200px' }}
     >
-      {/* 1. 背景流光氛围：珊瑚橘粉 #ea8377 与暖暗粉 #e06d64 */}
+      {/* 1. 背景动态流光极光：统一使用小蠢品牌色（珊瑚橘粉 #ea8377、亮粉 #f5aa9c、暖暗粉 #e06d64） */}
       <div 
         className="absolute w-[38rem] h-[38rem] rounded-full bg-[#ea8377]/15 blur-[150px] pointer-events-none transition-transform duration-700 ease-out"
         style={{
@@ -118,7 +202,7 @@ export const LoadingOverlay: React.FC<LoadingOverlayProps> = ({ state, onBreakCo
         }}
       />
 
-      {/* 2. 背景浮动点阵底纹 */}
+      {/* 2. 背景浮动点阵 */}
       <div 
         className="absolute inset-0 pointer-events-none opacity-25"
         style={{
@@ -141,6 +225,7 @@ export const LoadingOverlay: React.FC<LoadingOverlayProps> = ({ state, onBreakCo
           transform: `rotateY(${mouseOffset.x * 12}deg) rotateX(${-mouseOffset.y * 12}deg)`
         }}
       >
+
         {/* ─── 切图卡片 A (左上角)：Retro Cyber-OS 终端切片 ─── */}
         <div 
           className={`absolute top-4 left-4 sm:left-8 z-20 w-64 rounded-2xl bg-black/60 backdrop-blur-xl border border-white/15 p-3.5 shadow-2xl transition-all duration-700 hover:scale-105 hover:border-[#ea8377]/50 will-change-transform ${
@@ -158,11 +243,10 @@ export const LoadingOverlay: React.FC<LoadingOverlayProps> = ({ state, onBreakCo
             <Radio className="w-3 h-3 text-[#ea8377] animate-pulse" />
           </div>
           <div className="flex items-center justify-between text-[11px] font-mono text-white/80">
-            <span className="flex items-center gap-1.5 truncate pr-2">
-              <Music className="w-3 h-3 text-[#f5aa9c] shrink-0" />
-              <span className="truncate">{subtitle || t('loading.madBgmStatus')}</span>
+            <span className="flex items-center gap-1.5">
+              <Music className="w-3 h-3 text-[#f5aa9c]" /> {t('loading.madBgmStatus')}
             </span>
-            <span className="text-[#f5aa9c] font-bold shrink-0">{progress}%</span>
+            <span className="text-[#f5aa9c] font-bold">100%</span>
           </div>
           {/* 音频跳动频谱柱 */}
           <div className="flex items-end gap-1 h-5 mt-2">
@@ -171,7 +255,7 @@ export const LoadingOverlay: React.FC<LoadingOverlayProps> = ({ state, onBreakCo
                 key={i} 
                 className="flex-1 bg-gradient-to-t from-[#ea8377] to-[#f5aa9c] rounded-t"
                 style={{ 
-                  height: `${Math.max(15, (h * (progress || 30)) / 100)}%`,
+                  height: `${h}%`,
                   animation: `pulse 1.2s ease-in-out infinite`,
                   animationDelay: `${i * 0.1}s`
                 }}
@@ -180,7 +264,7 @@ export const LoadingOverlay: React.FC<LoadingOverlayProps> = ({ state, onBreakCo
           </div>
         </div>
 
-        {/* ─── 浮动小配饰 4 (左上偏中)：赛博机能爱心护目镜 (零重叠，舒适呼吸间距) ─── */}
+        {/* ─── 浮动小配饰 4 (左上偏中)：赛博机能爱心护目镜 (Cyber Visor - 弧线飘动轨迹) ─── */}
         <div
           className={`absolute left-[280px] sm:left-[308px] top-4 sm:top-6 z-25 transition-all duration-700 hover:scale-125 hover:rotate-6 cursor-pointer group will-change-transform select-none ${
             isBreaking ? '-translate-y-96 opacity-0 scale-50' : 'animate-[float-drift_7.2s_ease-in-out_infinite]'
@@ -198,7 +282,7 @@ export const LoadingOverlay: React.FC<LoadingOverlayProps> = ({ state, onBreakCo
           </div>
         </div>
 
-        {/* ─── 切图卡片 B (右上角)：小蠢 Q 版挥手模切贴纸 ─── */}
+        {/* ─── 切图卡片 B (右上角)：小蠢 Q 版挥手贴纸 (Die-cut Chibi Sticker - 悬浮呼吸慢轨迹) ─── */}
         <div 
           className={`absolute top-0 right-2 sm:right-6 z-30 transition-all duration-700 hover:scale-110 cursor-pointer will-change-transform select-none ${
             isBreaking ? 'translate-x-96 -translate-y-96 opacity-0' : 'animate-[float-bob_5.8s_ease-in-out_infinite]'
@@ -224,13 +308,13 @@ export const LoadingOverlay: React.FC<LoadingOverlayProps> = ({ state, onBreakCo
           </div>
         </div>
 
-        {/* ─── 核心主体卡片 (居中)：小蠢全息二次元卡牌 (头部向上破框 + 炫彩流光边框) ─── */}
+        {/* ─── 核心主体卡片 (居中)：小蠢全息二次元卡牌 (支持头部突破上方破框 + 炫彩流光边框) ─── */}
         <div 
           className={`relative z-20 flex flex-col items-center transition-all duration-1000 group select-none ${
             isBreaking ? 'scale-150 filter brightness-150 blur-sm' : ''
           }`}
         >
-          {/* 卡牌主容器：保持 overflow-visible 允许头部突破破框 */}
+          {/* 卡牌主容器：保持 overflow-visible 允许头部向上突破破框 */}
           <div className="relative w-64 sm:w-72 lg:w-80 h-[360px] sm:h-[400px]">
             
             {/* 1. 卡牌边框外壳与流光层：自身 overflow-hidden 裁切旋转流光与背景底板 */}
@@ -336,7 +420,11 @@ export const LoadingOverlay: React.FC<LoadingOverlayProps> = ({ state, onBreakCo
             </div>
 
             {/* 原神光轨进度条 (固定长度，不随文字或状态缩短) */}
-            <div className="relative w-full h-2.5 rounded-full bg-white/10 backdrop-blur-md border border-white/20 p-[2px] shadow-inner overflow-visible">
+            <div 
+              onClick={onBreakTrigger}
+              title="点击可直接触发破次元入场"
+              className="relative w-full h-2.5 rounded-full bg-white/10 backdrop-blur-md border border-white/20 p-[2px] shadow-inner overflow-visible cursor-pointer hover:border-[#ea8377]/60 transition-colors"
+            >
               {/* 填充发光进度 */}
               <div 
                 className="h-full rounded-full bg-gradient-to-r from-[#ea8377] via-[#f5aa9c] to-white transition-all duration-300 ease-out shadow-[0_0_14px_rgba(234,131,119,0.9)]"
@@ -377,7 +465,7 @@ export const LoadingOverlay: React.FC<LoadingOverlayProps> = ({ state, onBreakCo
           </div>
         </div>
 
-        {/* ─── 浮动小配饰 1 (左侧居中)：猫耳赛博麦克风 ─── */}
+        {/* ─── 浮动小配饰 1 (左侧居中)：猫耳赛博麦克风 (Cyber Cat Mic - 节奏倾斜轨迹) ─── */}
         <div
           className={`absolute left-2 sm:left-10 top-1/2 -translate-y-20 z-30 transition-all duration-700 hover:scale-125 hover:rotate-8 cursor-pointer group will-change-transform select-none ${
             isBreaking ? '-translate-x-96 opacity-0 rotate-45' : 'animate-[float-sway_4.6s_ease-in-out_infinite]'
@@ -400,7 +488,7 @@ export const LoadingOverlay: React.FC<LoadingOverlayProps> = ({ state, onBreakCo
           </div>
         </div>
 
-        {/* ─── 浮动小配饰 2 (右侧居中)：猫爪星空珍珠奶茶 ─── */}
+        {/* ─── 浮动小配饰 2 (右侧居中)：猫爪星空珍珠奶茶 (Kawaii Boba Tea - 轨道公转微动) ─── */}
         <div
           className={`absolute right-2 sm:right-10 top-1/2 -translate-y-24 z-30 transition-all duration-700 hover:scale-125 hover:-rotate-8 cursor-pointer group will-change-transform select-none ${
             isBreaking ? 'translate-x-96 opacity-0 -rotate-45' : 'animate-[float-orbit_6.8s_ease-in-out_infinite]'
@@ -423,7 +511,7 @@ export const LoadingOverlay: React.FC<LoadingOverlayProps> = ({ state, onBreakCo
           </div>
         </div>
 
-        {/* ─── 切图卡片 C (左下角)：台词气泡卡片 ─── */}
+        {/* ─── 切图卡片 C (左下角)：台词气泡卡片 (温和慢浮动) ─── */}
         <div 
           className={`absolute bottom-6 left-2 sm:left-10 z-20 w-64 sm:w-72 rounded-2xl bg-black/60 backdrop-blur-xl border border-white/15 p-4 shadow-2xl transition-all duration-700 hover:scale-105 will-change-transform select-none ${
             isBreaking ? '-translate-x-96 translate-y-96 opacity-0' : 'animate-[float-bob_7.5s_ease-in-out_infinite]'
@@ -439,7 +527,7 @@ export const LoadingOverlay: React.FC<LoadingOverlayProps> = ({ state, onBreakCo
           </p>
         </div>
 
-        {/* ─── 浮动小配饰 3 (底部偏右)：像素赛博爱心勋章 ─── */}
+        {/* ─── 浮动小配饰 3 (底部偏右放置)：像素赛博爱心勋章 (Pixel Heart Badge - 轻快浮游) ─── */}
         <div
           className={`absolute right-76 sm:right-84 bottom-2 z-25 transition-all duration-700 hover:scale-125 hover:rotate-12 cursor-pointer group will-change-transform select-none ${
             isBreaking ? 'translate-y-96 opacity-0 scale-50' : 'animate-[float-drift_5.2s_ease-in-out_infinite]'
@@ -457,7 +545,7 @@ export const LoadingOverlay: React.FC<LoadingOverlayProps> = ({ state, onBreakCo
           </div>
         </div>
 
-        {/* ─── 切图卡片 D (右下角)：系统监控终端 ─── */}
+        {/* ─── 切图卡片 D (右下角)：实时系统监控终端卡片 ─── */}
         <div 
           className={`absolute bottom-6 right-2 sm:right-10 z-20 w-64 sm:w-72 rounded-2xl bg-black/60 backdrop-blur-xl border border-white/15 p-4 shadow-2xl transition-all duration-700 hover:scale-105 will-change-transform ${
             isBreaking ? 'translate-x-96 translate-y-96 opacity-0' : 'animate-[float-sway_6.2s_ease-in-out_infinite]'
@@ -471,7 +559,7 @@ export const LoadingOverlay: React.FC<LoadingOverlayProps> = ({ state, onBreakCo
           <div className="flex items-center gap-2 overflow-hidden">
             <span className="w-1.5 h-1.5 rounded-full bg-[#ea8377] animate-ping" />
             <span className="text-[11px] font-mono text-white/90 truncate">
-              {subtitle}
+              {statusText}
             </span>
           </div>
           <div className="grid grid-cols-2 gap-2 mt-3 text-[10px] font-mono text-white/60">
@@ -479,6 +567,7 @@ export const LoadingOverlay: React.FC<LoadingOverlayProps> = ({ state, onBreakCo
             <div className="p-1.5 rounded bg-white/5 border border-white/5">VRAM: LOCAL</div>
           </div>
         </div>
+
       </div>
 
       {/* 底部版权 */}
@@ -487,4 +576,5 @@ export const LoadingOverlay: React.FC<LoadingOverlayProps> = ({ state, onBreakCo
       </div>
     </div>
   );
-};
+}
+

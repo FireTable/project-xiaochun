@@ -33,3 +33,4 @@ public/onnx
 *.sw?
 .git.bak/
 .wrangler/
+.tanstack/

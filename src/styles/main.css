@@ -62,3 +62,65 @@ input[type="range"]::-webkit-slider-thumb {
 input[type="range"]::-webkit-slider-thumb:hover {
   transform: scale(1.2);
 }
+
+/* Hardware-accelerated distinct anime float animations for MAD preloader */
+@keyframes float-sway {
+  0%, 100% {
+    transform: translate3d(0, 0, 0) rotate(-2deg);
+  }
+  50% {
+    transform: translate3d(6px, -14px, 0) rotate(3deg);
+  }
+}
+
+@keyframes float-bob {
+  0%, 100% {
+    transform: translate3d(0, 0, 0) rotate(1deg);
+  }
+  50% {
+    transform: translate3d(-8px, -18px, 0) rotate(-2.5deg);
+  }
+}
+
+@keyframes float-drift {
+  0%, 100% {
+    transform: translate3d(0, 0, 0) rotate(0deg);
+  }
+  33% {
+    transform: translate3d(10px, -10px, 0) rotate(2deg);
+  }
+  66% {
+    transform: translate3d(-6px, -16px, 0) rotate(-1.5deg);
+  }
+}
+
+@keyframes float-orbit {
+  0%, 100% {
+    transform: translate3d(0, 0, 0) rotate(-1deg) scale(1);
+  }
+  50% {
+    transform: translate3d(8px, -12px, 0) rotate(2deg) scale(1.03);
+  }
+}
+
+@keyframes float-pulse-gentle {
+  0%, 100% {
+    transform: translate3d(0, 0, 0) rotate(0.5deg);
+  }
+  50% {
+    transform: translate3d(0, -8px, 0) rotate(-0.5deg);
+  }
+}
+
+@keyframes stream-rotate {
+  from {
+    transform: rotate(0deg);
+  }
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+.animate-stream-rotate {
+  animation: stream-rotate 3.2s linear infinite;
+}
