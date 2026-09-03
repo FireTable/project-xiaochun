@@ -8,6 +8,7 @@
  */
 
 import * as ort from 'onnxruntime-web';
+import { APP_CONFIG } from '@/config';
 
 const WINDOW = 64;
 const SEED_FRAMES = 4;
@@ -23,9 +24,11 @@ const CODEBOOK_SIZE = 256;
 const GLOBAL_VX = 54;
 const GLOBAL_Y = 55;
 const GLOBAL_VZ = 56;
-const ONNX_BASE = '/onnx';
+// ponytail: 模型文件基础 URL。生产从 R2(绕过 Pages 25 MiB/300 MiB 单文件上限);
+// 本地 dev 在 .env.local 设 VITE_EMAGE_BASE=/onnx 即可用 public/onnx 软链。
+const ONNX_BASE = APP_CONFIG.emage.base;
 const WASM_PATHS = 'https://cdn.jsdelivr.net/npm/onnxruntime-web@1.22.0-dev.20250409-89f8206ba4/dist/';
-const CACHE_NAME = 'emage-models-v1';
+const CACHE_NAME = APP_CONFIG.emage.cacheName;
 
 function makeIdentityMotion(): Float32Array {
   const buf = new Float32Array(WINDOW * MDIM);

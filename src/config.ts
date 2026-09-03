@@ -27,6 +27,13 @@ export const APP_CONFIG = {
     defaultVrm: '/xiaochun_v1.vrm',
     defaultName: '小蠢 (xiaochun_v1)',
   },
+  // ponytail: EMAGE ONNX 模型文件基础 URL。
+  // 生产 = R2(cdn.firetable.tech/xiaochun/)绕过 Pages 25 MiB / 300 MiB 单文件限制;
+  // 本地 dev: 在 .env.local 设 VITE_EMAGE_BASE=/onnx 即回到 public/onnx 软链。
+  emage: {
+    base: (import.meta.env.VITE_EMAGE_BASE as string | undefined) ?? 'https://cdn.firetable.tech/xiaochun',
+    cacheName: 'emage-models-v1',
+  },
   camera: {
     defaultFov: 35,
     minFov: 15,
