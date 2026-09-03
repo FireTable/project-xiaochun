@@ -9,13 +9,8 @@ export function createRouter() {
   return router;
 }
 
-let routerInstance: ReturnType<typeof createRouter> | null = null;
-
 export function getRouter() {
-  if (!routerInstance) {
-    routerInstance = createRouter();
-  }
-  return routerInstance;
+  return createRouter();
 }
 
 declare module '@tanstack/react-router' {
