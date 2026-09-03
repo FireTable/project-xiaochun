@@ -159,7 +159,8 @@ async function ensureLoaded(onStatus?: (msg: string) => void): Promise<void> {
     for (let i = 0; i < files.length; i++) {
       const m = files[i]!;
       onStatus?.(`[${i + 1}/${files.length}] 加载 ${m.label}…`);
-      const url = `${ONNX_BASE}/${m.file}`;
+      const cleanBase = ONNX_BASE.replace(/\/+$/, '');
+      const url = `${cleanBase}/${m.file}`;
       const buf = await fetchWithCache(url);
       sess[m.key] = await ort.InferenceSession.create(new Uint8Array(buf) as any, opts);
     }
