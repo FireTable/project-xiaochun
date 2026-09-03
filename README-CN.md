@@ -146,24 +146,31 @@ Project-XiaoChun/
 │   ├── xiaochun_v1.vrm        # 默认 VRM 角色模型 (18 MB)
 │   ├── thinking.vrma          # 待机思考动作循环
 │   ├── _headers               # 静态资源强缓存与安全响应头
-│   └── logo.png / favicon.*   # 品牌资产
+│   ├── robots.txt / sitemap.* # SEO 搜索引擎爬虫协议
+│   ├── llms.txt / llms-full.* # AI 代理文档协议
+│   └── logo.png / favicon.*   # 品牌与图标资产
 ├── wrangler.jsonc             # Cloudflare Workers 声明式配置文件
 ├── src/
-│   ├── server.ts              # Cloudflare Worker 统一入口 (SSR 调度 + /api/tts WebSocket 直连)
 │   ├── routes/                # TanStack Start 文件路由
 │   │   ├── __root.tsx         # 根布局 (i18n SSR 水合与元信息)
-│   │   └── index.tsx          # 首页入口
-│   ├── components/            # React UI 组件 (TopHeader, ChatBar, HeadBubble…)
+│   │   └── index.tsx          # 首页主路由
+│   ├── components/            # React UI 组件 (TopHeader, ChatBar, HeadBubble, DevDrawer…)
+│   │   └── ui/                # Radix UI 原语封装 (button, dropdown-menu, tooltip)
 │   ├── core/
-│   │   └── vrmEngine.ts       # 3D 场景组装、线稿天空、6路灯光通道、渲染循环
-│   ├── motion/                # EMAGE Web Worker (ONNX 全身动作生成)
-│   ├── llm/                   # WebLLM 接入 + 多语言系统提示词
+│   │   └── vrmEngine.ts       # 3D 场景组装、线稿天空、6路独立灯光、渲染循环
+│   ├── motion/                # EMAGE Web Worker (ONNX 全身协同动作生成) + 步态播放器
+│   ├── llm/                   # WebLLM WebGPU 流式推理 + Worker + 多语言系统提示词
 │   ├── director/
 │   │   └── chatDirector.ts    # LLM → TTS → EMAGE 流式状态编排管线
 │   ├── i18n/                  # zh-CN / en / ja 翻译资源 + 服务端 Cookie 提取
 │   ├── styles/
-│   │   └── main.css           # Tailwind v4 @theme tokens + 视觉滤镜
-│   └── config.ts              # 单一可信源 (R2 端点 / 相机 / 灯光 / 表情)
+│   │   └── main.css           # Tailwind v4 @theme tokens + 液态玻璃样式
+│   ├── App.tsx                # 应用主体与事件总线
+│   ├── client.tsx             # 客户端 Hydration 注水入口
+│   ├── server.ts              # Cloudflare Worker 统一入口 (SSR 流式渲染 + /api/tts WebSocket 直连)
+│   ├── router.tsx             # TanStack Router 实例工厂
+│   ├── routeTree.gen.ts       # 自动生成的类型安全路由树
+│   └── config.ts              # 单一可信源 (R2 端点 / 相机 / 6路灯光 / 预设表情)
 ├── vite.config.ts             # Vite 8 + TanStack Start + @cloudflare/vite-plugin
 └── tsconfig.json
 ```

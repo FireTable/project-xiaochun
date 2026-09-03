@@ -142,28 +142,35 @@ To deploy automatically on every `git push`:
 
 ```text
 Project-XiaoChun/
-├── public/                    # Static assets (served directly via Cloudflare Assets)
+├── public/                    # Static assets (hosted via Cloudflare Workers Assets)
 │   ├── xiaochun_v1.vrm        # Default VRM character model (18 MB)
 │   ├── thinking.vrma          # Idle thinking animation loop
 │   ├── _headers               # Cache-Control and security headers
-│   └── logo.png / favicon.*   # Brand assets
+│   ├── robots.txt / sitemap.* # Search engine crawler contracts
+│   ├── llms.txt / llms-full.* # AI agent documentation specs
+│   └── logo.png / favicon.*   # Brand and icon assets
 ├── wrangler.jsonc             # Cloudflare Workers declarative configuration
 ├── src/
-│   ├── server.ts              # Cloudflare Worker entry (SSR router + /api/tts WebSocket stream)
 │   ├── routes/                # TanStack Start file-based routes
 │   │   ├── __root.tsx         # Root layout (i18n SSR hydration & meta tags)
-│   │   └── index.tsx          # Index route
-│   ├── components/            # React UI components (TopHeader, ChatBar, HeadBubble…)
+│   │   └── index.tsx          # Main index route
+│   ├── components/            # React UI components (TopHeader, ChatBar, HeadBubble, DevDrawer…)
+│   │   └── ui/                # Radix UI primitives (button, dropdown-menu, tooltip)
 │   ├── core/
-│   │   └── vrmEngine.ts       # 3D scene assembly, linework sky, 6-channel lighting
-│   ├── motion/                # EMAGE Web Worker (ONNX full-body gesture inference)
-│   ├── llm/                   # WebLLM integration + multi-language prompts
+│   │   └── vrmEngine.ts       # 3D scene assembly, linework sky, 6-channel lighting, render loop
+│   ├── motion/                # EMAGE Web Worker (ONNX full-body motion) + playback retargeting
+│   ├── llm/                   # WebLLM WebGPU streaming + Worker + multi-language prompts
 │   ├── director/
-│   │   └── chatDirector.ts    # LLM → TTS → EMAGE streaming coordinator
-│   ├── i18n/                  # zh-CN / en / ja translation files + server cookie helper
+│   │   └── chatDirector.ts    # LLM → TTS → EMAGE streaming coordinator pipeline
+│   ├── i18n/                  # zh-CN / en / ja translation dictionaries + server cookie helper
 │   ├── styles/
-│   │   └── main.css           # Tailwind v4 @theme tokens + visual post-processing
-│   └── config.ts              # Single source of truth (R2 base / camera / lights / expressions)
+│   │   └── main.css           # Tailwind v4 @theme tokens + liquid-glass styles
+│   ├── App.tsx                # Main application component & event bindings
+│   ├── client.tsx             # Client hydration entry
+│   ├── server.ts              # Cloudflare Worker entry (SSR router + /api/tts WebSocket proxy)
+│   ├── router.tsx             # TanStack Router factory
+│   ├── routeTree.gen.ts       # Auto-generated type-safe route tree
+│   └── config.ts              # Single source of truth (R2 base / camera / 6-ch lights / expressions)
 ├── vite.config.ts             # Vite 8 + TanStack Start + @cloudflare/vite-plugin
 └── tsconfig.json
 ```
