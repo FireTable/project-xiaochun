@@ -4,7 +4,6 @@ import {
   HeadContent,
   Scripts,
 } from '@tanstack/react-router';
-import { getCookie } from '@tanstack/react-start/server';
 import type { ReactNode } from 'react';
 import { useMemo } from 'react';
 import { I18nextProvider } from 'react-i18next';
@@ -13,11 +12,10 @@ import '@/styles/main.css';
 import {
   createI18n,
   DEFAULT_LANG,
-  LANG_COOKIE,
   readClientLang,
-  resolveLang,
   type Lang,
 } from '@/i18n';
+import { readServerLang } from '@/i18n/server';
 
 export const Route = createRootRoute({
   head: () => ({
@@ -53,16 +51,15 @@ function RootComponent() {
   );
 }
 
-/** ponytail: 服务端读 cookie,客户端走 document.cookie。getCookie 在非请求上下文会抛错,被 try/catch 兜底。 */
+/** ponytail: 客户端走 document.cookie;服务端用 readServerLang(server-only 文件,getCookie 不进客户端 bundle)。 */
 function resolveServerLang(): Lang {
   if (typeof document !== 'undefined') return readClientLang();
   try {
-    const cookie = getCookie(LANG_COOKIE);
-    if (cookie) return resolveLang(cookie);
+    return readServerLang();
   } catch {
-    // ponytail: 跑到这里说明不在请求上下文(构建期/重渲染等),静默回落。
+    // ponytail: 客户端误入此分支时静默回落(虽然 import-protection 已经隔离,多一层兜底)。
+    return DEFAULT_LANG;
   }
-  return DEFAULT_LANG;
 }
 
 function RootDocument({ children, lang }: { children: ReactNode; lang: Lang }) {

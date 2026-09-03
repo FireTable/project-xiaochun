@@ -118,6 +118,9 @@ export class EmagePlayer {
    */
   private initWorker(): void {
     if (this.worker) return;
+    // ponytail: SSR/非浏览器环境没 Worker 全局,跳过初始化(VRMEngine 在模块顶层 new,
+    // TanStack Start SSR 渲染时也会跑构造函数,不能让它崩)。
+    if (typeof Worker === 'undefined') return;
     try {
       this.worker = new Worker(new URL('./emageWorker.ts', import.meta.url), { type: 'module' });
       this.worker.onmessage = (e: MessageEvent) => {
