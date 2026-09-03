@@ -6,6 +6,26 @@ import path from 'path';
 import { EdgeTTS } from 'edge-tts-universal';
 
 /**
+ * dropOnnxWasm — Cloudflare Pages 单文件上限 25 MiB,onnxruntime-web 的
+ * ort-wasm-simd-threaded.jsep.wasm(WebGPU EP variant)单文件 26.5 MiB,超限。
+ * EMAGE 已在 src/motion/emageWorker.ts 设 ort.env.wasm.wasmPaths 指向 jsDelivr,
+ * 运行时根本不用本地这份 WASM,Vite 是因为静态 import.meta.url 把它顺手打包了。
+ * ponytail: 从最终 bundle 里直接删掉,运行时照样走 CDN,Cloudflare 上传不报错。
+ */
+function dropOnnxWasm(): Plugin {
+  return {
+    name: 'drop-onnx-wasm',
+    generateBundle(_options, bundle) {
+      for (const file of Object.keys(bundle)) {
+        if (file.includes('ort-wasm-simd-threaded.jsep') && file.endsWith('.wasm')) {
+          delete bundle[file];
+        }
+      }
+    },
+  };
+}
+
+/**
  * localApiPlugin — 本地开发原生全功能中间件:
  * 1. 提供 /api/tts 小蠢语音合成 (完全脱离 Python server.py)
  * 2. 生产环境部署到 Cloudflare Pages 时，由 functions/api/tts.ts 原生无缝接管
@@ -77,7 +97,7 @@ function localApiPlugin(): Plugin {
 }
 
 export default defineConfig({
-  plugins: [tailwindcss(), tanstackStart(), react(), localApiPlugin()],
+  plugins: [tailwindcss(), tanstackStart(), react(), localApiPlugin(), dropOnnxWasm()],
   resolve: {
     tsconfigPaths: true,
     alias: {
