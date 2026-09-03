@@ -7,8 +7,10 @@
   "scripts": {
     "preinstall": "npx only-allow pnpm",
     "dev": "vite",
-    "build": "tsc && vite build",
-    "preview": "vite preview"
+    "build": "vite build",
+    "preview": "vite preview",
+    "deploy": "pnpm build && wrangler deploy",
+    "cf-typegen": "wrangler types"
   },
   "engines": {
     "pnpm": ">=10.0.0",
@@ -16,6 +18,8 @@
     "yarn": "please-use-pnpm"
   },
   "devDependencies": {
+    "@cloudflare/vite-plugin": "^1.54.4",
+    "@cloudflare/workers-types": "^5.20260903.1",
     "@tailwindcss/vite": "^4.3.3",
     "@types/react": "^19.2.18",
     "@types/react-dom": "^19.2.7",
@@ -23,7 +27,8 @@
     "@vitejs/plugin-react": "^6.1.1",
     "tailwindcss": "^4.3.3",
     "typescript": "~6.0.2",
-    "vite": "^8.2.0"
+    "vite": "^8.2.0",
+    "wrangler": "^4.129.0"
   },
   "dependencies": {
     "@gltf-transform/core": "^4.4.2",
@@ -50,5 +55,12 @@
     "three": "^0.185.1",
     "vinxi": "^0.5.11",
     "vite-tsconfig-paths": "^6.1.1"
+  },
+  "pnpm": {
+    "onlyBuiltDependencies": [
+      "esbuild",
+      "workerd",
+      "sharp"
+    ]
   }
 }

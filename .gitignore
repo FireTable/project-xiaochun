@@ -32,3 +32,4 @@ public/onnx
 *.sln
 *.sw?
 .git.bak/
+.wrangler/

@@ -1,6 +1,7 @@
 import { defineConfig, type Plugin } from 'vite';
 import tailwindcss from '@tailwindcss/vite';
 import { tanstackStart } from '@tanstack/react-start/plugin/vite';
+import { cloudflare } from '@cloudflare/vite-plugin';
 import react from '@vitejs/plugin-react';
 import path from 'path';
 import { EdgeTTS } from 'edge-tts-universal';
@@ -120,7 +121,14 @@ function localApiPlugin(): Plugin {
 }
 
 export default defineConfig({
-  plugins: [tailwindcss(), tanstackStart(), react(), localApiPlugin(), dropDockerfatAssets()],
+  plugins: [
+    cloudflare({ viteEnvironment: { name: 'ssr' } }),
+    tailwindcss(),
+    tanstackStart(),
+    react(),
+    localApiPlugin(),
+    dropDockerfatAssets(),
+  ],
   resolve: {
     tsconfigPaths: true,
     alias: {
