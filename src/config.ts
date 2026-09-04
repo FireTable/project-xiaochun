@@ -60,6 +60,13 @@ export const APP_CONFIG = {
     fallback: 'Qwen3.5-0.8B-q4f16_1-MLC',
     thinking: false,
   },
+  // 端侧记忆:短期近几轮、长期摘要、实体 JSON。都在 IndexedDB,不进服务器。
+  memory: {
+    shortTermTurns: 6,
+    turnMaxChars: 180,
+    longTermKeep: 80,
+    longTermTopK: 4,
+  },
   camera: {
     defaultFov: 45,
     minFov: 15,

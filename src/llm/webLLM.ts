@@ -10,7 +10,8 @@
 
 import { CreateWebWorkerMLCEngine, prebuiltAppConfig, type WebWorkerMLCEngine } from '@mlc-ai/web-llm';
 import { APP_CONFIG } from '@/config';
-import { XIAOCHUN_SYSTEM_PROMPT, wrapUserContent } from '@/llm/prompts';
+import { langFromSystemPrompt, XIAOCHUN_SYSTEM_PROMPT, wrapUserContent } from '@/llm/prompts';
+import { applyRecall, recallForChat } from '@/memory';
 import type { Lang } from '@/i18n';
 
 export const DEFAULT_LLM_MODEL = APP_CONFIG.llm.model;
@@ -317,19 +318,18 @@ async function completeOnce(
   userText: string,
   systemPrompt: string,
   thinking: boolean,
+  history: { role: 'user' | 'assistant'; content: string }[] = [],
 ): Promise<string> {
   const qwen3 = getActiveModelId().startsWith('Qwen3');
-  const lang: Lang =
-    systemPrompt === XIAOCHUN_SYSTEM_PROMPT.en
-      ? 'en'
-      : systemPrompt === XIAOCHUN_SYSTEM_PROMPT.ja
-        ? 'ja'
-        : 'zh-CN';
+  const lang: Lang = langFromSystemPrompt(systemPrompt);
+  const messages = [
+    { role: 'system' as const, content: systemPrompt },
+    ...history,
+    { role: 'user' as const, content: wrapUserContent(userText, lang) },
+  ];
+  console.table(messages.map((m, i) => ({ i, role: m.role, chars: m.content.length, content: m.content })));
   const reply = await engine.chat.completions.create({
-    messages: [
-      { role: 'system', content: systemPrompt },
-      { role: 'user', content: wrapUserContent(userText, lang) },
-    ],
+    messages,
     temperature: 0.8,
     ...(qwen3 ? { extra_body: { enable_thinking: thinking && qwen3 } } : {}),
   });
@@ -350,13 +350,16 @@ export async function generateSpeechReply(
   onMilestone?.('thinking');
   const gen = loadGen;
   const wantThink = isThinkingEnabled() && getActiveModelId().startsWith('Qwen3');
+  const lang = langFromSystemPrompt(systemPrompt);
+  const mem = await recallForChat(userText);
+  const packed = applyRecall(systemPrompt, mem, lang);
 
-  let raw = await completeOnce(engine, userText, systemPrompt, wantThink);
+  let raw = await completeOnce(engine, userText, packed.system, wantThink, packed.history);
   if (gen !== loadGen) throw new Error('model switched');
   let cleanSpeech = extractCleanSpeech(raw);
 
   if (!cleanSpeech.trim() && wantThink) {
-    raw = await completeOnce(engine, userText, systemPrompt, false);
+    raw = await completeOnce(engine, userText, packed.system, false, packed.history);
     if (gen !== loadGen) throw new Error('model switched');
     cleanSpeech = extractCleanSpeech(raw);
   }

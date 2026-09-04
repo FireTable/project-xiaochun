@@ -13,6 +13,7 @@ import { makeClipSeamless } from '@/motion/vrmaRetarget';
 import type { VRMAMotionPlayer } from '@/motion/vrmaPlayer';
 import { pcmFromAudioBuffer, type EmagePlayer } from '@/motion/emagePlayer';
 import { generateSpeechReply } from '@/llm/webLLM';
+import { rememberTurn } from '@/memory';
 import type { MotionTransitionManager } from '@/motion/motionTransition';
 
 interface Plan { speech: string; llm_provider?: string }
@@ -221,6 +222,7 @@ export class ChatDirector {
     }
     this.plan = { speech: speechText.trim(), llm_provider: 'WebLLM (q4f16_1)' };
     console.log('[ChatDirector] speech:', this.plan.speech, 'llm:', this.plan.llm_provider);
+    void rememberTurn(text, this.plan.speech);
 
     this.ctx = this.ctx ?? new AudioContext();
     if (this.ctx.state === 'suspended') await this.ctx.resume();
