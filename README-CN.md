@@ -5,7 +5,7 @@
 <h1 align="center">Project XiaoChun</h1>
 
 <p align="center">
-  <b>100% 浏览器原生二次元 VTuber — 本地 LLM + EMAGE 动作 + Edge-TTS,零后端</b>
+  <b>100% 浏览器原生二次元陪伴角色 — 本地 LLM + EMAGE 动作 + Edge-TTS,零后端</b>
 </p>
 
 <p align="center">
@@ -16,15 +16,15 @@
 ---
 
 > [!IMPORTANT]
-> **声明**:本项目是一个**浏览器原生 AI 数字人研究实验项目 (Browser-native AI VTuber Research Project)**。旨在验证 100% 客户端 AI 推理栈 (WebLLM / WebGPU / ONNX Runtime Web) 与 Cloudflare Pages 边缘 TTS 函数的可行性,**不建议直接用于商业化生产部署**。
+> **声明**:本项目是一个**浏览器原生 AI 陪伴角色研究实验**。旨在验证 100% 客户端 AI 推理栈 (WebLLM / WebGPU / ONNX Runtime Web) 与 Cloudflare Workers 边缘 TTS 的可行性,**不建议直接用于商业化生产部署**。
 
 ---
 
 ## 📖 项目简介 (Overview)
 
-**Project XiaoChun (小蠢)** 是一个完全运行在浏览器里的二次元虚拟形象伙伴。角色用 `@pixiv/three-vrm` 渲染,采用 MToon NPR 着色,坐在沉浸式线稿户外场景中;**所有 AI 推理都在你当前的浏览器标签页里跑** —— 没有 Python 后端,没有服务器 GPU。
+**Project XiaoChun (小蠢)** 是一个完全运行在浏览器里的二次元陪伴角色。角色用 `@pixiv/three-vrm` 渲染,采用 MToon NPR 着色,坐在沉浸式线稿户外场景中;**所有 AI 推理都在你当前的浏览器标签页里跑** —— 没有 Python 后端,没有服务器 GPU。
 
-你跟她说话。她思考(WebLLM Qwen3 0.6B on WebGPU)、她表情变化(EMAGE ONNX 在 Dedicated Web Worker 里)、她开口说话(Edge-TTS 走 Cloudflare Pages Function / Vite dev middleware)、她全身动作实时跟上。
+进场是 2D MAD 预载再到 3D。你跟她说话。她思考(WebLLM Qwen3 0.6B on WebGPU,思考模式可关)、她开口说话(Edge-TTS 走 Cloudflare Workers WebSocket)、她全身动作实时跟上(EMAGE ONNX 在 Dedicated Web Worker 里)。模型没就绪时输入会排队,不会丢字。
 
 UI 走 **TanStack Start SSR + i18next** 水合,**完整支持简体中文 / English / 日本語 三语切换**,并且按 iOS HIG 44 pt / Material 48 dp 触屏规范做了移动端优先适配。
 
@@ -44,33 +44,37 @@ UI 走 **TanStack Start SSR + i18next** 水合,**完整支持简体中文 / Engl
 ### 🎭 VRM 角色与场景 (VRM & Scene)
 * **VRM 1.0 渲染**:基于 `@pixiv/three-vrm` 与 MToon NPR 着色,日系柔和打光,**6 组独立光照通道**(主日光 / 半球天光 / 面部射灯 / 背后轮廓 / 腿部柔光 / 双臂专属),可在调试面板实时调参。
 * **线稿户外场景**:程序化生成的太阳、19 栋线稿建筑(5 种原型)、5 棵风格化树(松塔/扇形/层叠/柏树/竖椭圆)、线稿地面 —— **纯白底白线,零贴图**。
-* **陪伴式凝视系统**:水平头部微动 + 微扫视 + 加性 look-at 追踪,带舒适俯仰角限制。
+* **陪伴式凝视系统**:水平头部微动 + 微扫视 + 加性 look-at 追踪,俯仰随镜头走。
+* **动作衔接**:待机 / 思考 VRMA / EMAGE 之间从当前骨骼姿态 slerp 进去,循环动作不自动淡出,避免闪 T-Pose。
+* **材质饱和度**:衣服 / 头发 / 眼睛 / 皮肤分通道可调,预设写在 `src/config.ts`。
 * **运行时上传 VRM**:右上角上传按钮,支持任意 VRM 1.0 角色替换。
 
 ### 🧠 100% 浏览器端 AI 推理栈 (Browser-Side AI)
-* **大语言模型** — [`@mlc-ai/web-llm`](https://github.com/mlc-ai/web-llm) 跑 **Qwen3 0.6B (q4f16_1)** WebGPU 推理,思考阶段与流式补全都在当前标签页完成。
-* **动作生成** — **EMAGE** 全身动作(ONNX Runtime Web)在 Dedicated Web Worker 中跑,句子级流式输出 + 时序高斯平滑 + 自然待机融合。
-* **语音合成** — **Edge-TTS 晓伊 (XiaoyiNeural, zh-CN, +10 Hz 元气少女)**,基于 [`edge-tts-universal`](https://github.com/Sterznode/edge-tts-universal);传输前剥离 emoji,避免 TTS prosody 异常。
-* **LLM + TTS + EMAGE 一体编排**:流式 chat director 把每句话切成动作 / 语音 / 表情事件,主线程 60 FPS 零卡顿。
+* **大语言模型** — [`@mlc-ai/web-llm`](https://github.com/mlc-ai/web-llm) 跑 **Qwen3 0.6B (q4f16_1)** WebGPU 推理。输入栏左侧可开关思考模式;回复跟用户这条消息的语言走。
+* **动作生成** — **EMAGE** 全身动作(ONNX Runtime Web)在 Dedicated Web Worker 中跑,时序高斯平滑 + 自然待机融合。
+* **语音合成** — **Edge-TTS 晓伊 (XiaoyiNeural, zh-CN, +10 Hz)**,基于 [`edge-tts-universal`](https://github.com/Sterznode/edge-tts-universal);传输前剥离 emoji。
+* **LLM + TTS + EMAGE 一体编排**:chat director 串起说话链路,主线程 60 FPS。
 
 ### 🌐 国际化与 SSR 水合 (i18n & SSR)
 * **TanStack Start** 全栈 SSR,基于 Cookie 的语言水合 —— **客户端首屏不闪语言**。
 * **三语齐备**:简体中文 / English / 日本語。
-* **每语言独立系统提示词**:LLM 自动用用户当前语言回答,不依赖用户输入语言。
+* **系统提示词**:小蠢是陪伴角色,用用户这条消息的语言回答,不跟 UI 语言走。
 * **shadcn 风格下拉菜单**(Radix UI 原语)右上角切换语言。
 
 ### 📱 移动端优先 UI (Mobile-First)
 * **iOS HIG 44 pt / Material 48 dp** 触屏规范贯穿全局。
 * **底部对话输入框 ≥ 40 px**,字号 16 px(防止 iOS Safari 聚焦自动缩放)。
 * **Tailwind CSS + tailwindcss-animate** 微交互 + 液态玻璃视觉。
-* **顶部操作条**:上传 / 语言切换 / 调试面板。
-* **头顶跟随气泡**:`transform` 插值平滑跟随头部移动。
+* **顶部操作条**:上传 VRM / 语言切换 / GitHub;调试面板只在 localhost 出现。
+* **对话条**:输入可排队、思考模式开关、发送。
+* **头顶跟随气泡**:直接改 DOM `transform`,带死区,不跟 60 FPS 一起刷 React。
+* **移动端**:预载贴纸保留,ChatBar 避开底部安全区。
 
 ### 🛠️ 开发工具链 (Dev Tooling)
-* **调试抽屉**:表情切换 / 6 路灯光滑杆 / FOV / 全局亮度。
+* **调试抽屉**(仅本地):表情切换 / 6 路灯光 / FOV / 全局亮度 / 材质饱和度预设。
 * **Cloudflare Workers**(`src/server.ts`):生产环境统一承载 TanStack Start SSR 与原生 WebSocket Edge-TTS 流式代理。
 * **Vite dev 中间件**(`vite.config.ts → localApiPlugin`):本地开发使用 Miniflare 虚拟运行时，与线上环境 100% 同构。
-* **单一可信源**:`src/config.ts` 集中管理所有光照 / 相机 / 表情 / R2 模型参数。
+* **单一可信源**:`src/config.ts` 集中管理光照 / 相机 / 表情 / 饱和度 / R2 模型参数。
 
 ---
 
@@ -157,8 +161,8 @@ Project-XiaoChun/
 │   ├── components/            # React UI 组件 (TopHeader, ChatBar, HeadBubble, DevDrawer…)
 │   │   └── ui/                # Radix UI 原语封装 (button, dropdown-menu, tooltip)
 │   ├── core/
-│   │   └── vrmEngine.ts       # 3D 场景组装、线稿天空、6路独立灯光、渲染循环
-│   ├── motion/                # EMAGE Web Worker (ONNX 全身协同动作生成) + 步态播放器
+│   │   └── vrmEngine.ts       # 3D 场景、线稿、6路灯光、材质饱和度、渲染循环
+│   ├── motion/                # EMAGE Worker + VRMA 播放 / 骨骼渐入 / MotionTransition
 │   ├── llm/                   # WebLLM WebGPU 流式推理 + Worker + 多语言系统提示词
 │   ├── director/
 │   │   └── chatDirector.ts    # LLM → TTS → EMAGE 流式状态编排管线
@@ -170,7 +174,7 @@ Project-XiaoChun/
 │   ├── server.ts              # Cloudflare Worker 统一入口 (SSR 流式渲染 + /api/tts WebSocket 直连)
 │   ├── router.tsx             # TanStack Router 实例工厂
 │   ├── routeTree.gen.ts       # 自动生成的类型安全路由树
-│   └── config.ts              # 单一可信源 (R2 端点 / 相机 / 6路灯光 / 预设表情)
+│   └── config.ts              # 单一可信源 (R2 / 相机 / 灯光 / 饱和度 / 表情)
 ├── vite.config.ts             # Vite 8 + TanStack Start + @cloudflare/vite-plugin
 └── tsconfig.json
 ```
@@ -196,7 +200,7 @@ Project-XiaoChun/
 > * `public/xiaochun_v1.vrm` — VRM 角色模型,使用 **[VRoid Studio](https://vroid.com/en/studio)** (Pixiv Inc.) 生成。遵循 **VRoid Studio 许可证**:允许个人使用、修改及非商业再分发(需注明出处)。若需商业使用,请参阅 [VRoid Studio 许可证条款](https://vroid.com/en/license) 或联系 Pixiv Inc. 另行协商。
 > * `public/thinking.vrma` — VRM 动作。**许可证不明**,分发前请自行确认。
 
-`functions/api/tts.ts` 通过 [`edge-tts-universal`](https://github.com/Sterznode/edge-tts-universal) 公开协议调用 Microsoft Edge-TTS。`TRUSTED_CLIENT_TOKEN` 是公开的共享 token(所有开源 Edge-TTS 实现都用同一个值),**不是个人密钥**。
+`src/server.ts` 的 `/api/tts` 通过 [`edge-tts-universal`](https://github.com/Sterznode/edge-tts-universal) 公开协议调用 Microsoft Edge-TTS。`TRUSTED_CLIENT_TOKEN` 是公开的共享 token(所有开源 Edge-TTS 实现都用同一个值),**不是个人密钥**。
 
 ---
 

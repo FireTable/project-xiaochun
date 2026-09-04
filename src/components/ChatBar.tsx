@@ -184,12 +184,12 @@ export const ChatBar: React.FC = () => {
           type="button"
           onClick={() => void handleSend()}
           disabled={isSending || !hasText}
-          className={`relative overflow-hidden h-11 sm:h-11 px-4 sm:px-5 rounded-full font-medium text-sm flex items-center justify-center gap-1.5 shrink-0 select-none touch-manipulation active:scale-95 bg-[#13111c] ${
+          className={`relative h-11 sm:h-11 px-4 sm:px-5 rounded-full font-medium text-sm flex items-center justify-center gap-1.5 shrink-0 select-none touch-manipulation active:scale-95 appearance-none outline-none border-none ${
             isSending
-              ? 'text-white/50 border border-white/15 cursor-wait shadow-md'
+              ? 'bg-[#13111c]/85 text-white/50 cursor-wait'
               : isQueued || hasText
-              ? 'text-white border border-[#f5aa9c]/40 shadow-[0_4px_16px_rgba(234,131,119,0.35)] cursor-pointer'
-              : 'text-white/40 border border-white/15 cursor-not-allowed shadow-md'
+              ? 'text-white bg-[#ea8377] shadow-[0_4px_16px_rgba(234,131,119,0.35)] cursor-pointer'
+              : 'text-white/40 bg-[#13111c]/85 shadow-[inset_0_0_0_1px_rgba(255,255,255,0.15)] cursor-not-allowed'
           }`}
         >
           <AccentFill on={!isSending && (isQueued || hasText)} />

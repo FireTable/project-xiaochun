@@ -65,14 +65,14 @@ export const APP_CONFIG = {
     default: {
       preset: 'vibrant',
       clothing: 1.20,
-      hair: 1.40,
+      hair: 1.30,
       eyes: 1.30,
       skin: 0.95,
     } as MaterialSaturationConfig,
     presets: {
       vibrant: {
         clothing: 1.20,
-        hair: 1.40,
+        hair: 1.30,
         eyes: 1.30,
         skin: 0.95,
       },

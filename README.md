@@ -5,7 +5,7 @@
 <h1 align="center">Project XiaoChun</h1>
 
 <p align="center">
-  <b>A 100% browser-native anime VTuber — local LLM + EMAGE motion + Edge-TTS, zero backend</b>
+  <b>A 100% browser-native anime companion — local LLM + EMAGE motion + Edge-TTS, zero backend</b>
 </p>
 
 <p align="center">
@@ -16,15 +16,15 @@
 ---
 
 > [!IMPORTANT]
-> **Notice**: This repository is a **Browser-native AI VTuber Research Project & Experimental Prototype**. It explores 100% client-side AI stacks (WebLLM / WebGPU / ONNX Runtime Web) and Cloudflare Pages edge functions for TTS. **It is not recommended for direct commercial production deployment.**
+> **Notice**: This repository is a **browser-native AI companion research prototype**. It explores 100% client-side AI stacks (WebLLM / WebGPU / ONNX Runtime Web) and Cloudflare Workers edge TTS. **It is not recommended for direct commercial production deployment.**
 
 ---
 
 ## 📖 Overview
 
-**Project XiaoChun (小蠢)** is a fully browser-native anime VTuber companion. The character renders through `@pixiv/three-vrm` with MToon NPR shading inside an immersive linework outdoor scene; all AI inference runs in your browser tab — no Python backend, no server GPUs.
+**Project XiaoChun (小蠢)** is a fully browser-native anime companion. The character renders through `@pixiv/three-vrm` with MToon NPR shading inside an immersive linework outdoor scene; all AI inference runs in your browser tab — no Python backend, no server GPUs.
 
-You talk to her. She thinks (WebLLM Qwen3 0.6B on WebGPU), emotes (EMAGE ONNX in a Dedicated Web Worker), speaks (Edge-TTS via Cloudflare Pages Function / Vite dev middleware), and moves her whole body in real time.
+Entry is a 2D MAD preload into 3D. You talk to her. She thinks (WebLLM Qwen3 0.6B on WebGPU, thinking mode optional), speaks (Edge-TTS over a Cloudflare Workers WebSocket), and moves with her (EMAGE ONNX in a Dedicated Web Worker). If the model is not ready yet, typed messages queue instead of getting dropped.
 
 The UI is fully **SSR-hydrated multi-language** (zh-CN / en / ja) via TanStack Start + i18next, and is mobile-first responsive (iOS HIG 44 pt / Material 48 dp touch targets).
 
@@ -44,33 +44,37 @@ The UI is fully **SSR-hydrated multi-language** (zh-CN / en / ja) via TanStack S
 ### 🎭 VRM Character & Scene
 * **VRM 1.0 rendering** via `@pixiv/three-vrm` with MToon NPR shading, soft Japanese-anime lighting, and **6 independent light channels** (dir / hemi / front / fill / leg / arm) with live tuning.
 * **Linework outdoor scene**: procedural sun, 19 wireframe buildings (5 archetypes), 5 stylized trees (conifer / fan / layered / cypress / vertical-oval), and a wireframe ground — 100% white-on-white, no textures.
-* **Companion gaze system**: level head + micro-saccades + additive look-at tracking with comfortable pitch limits.
+* **Companion gaze system**: level head + micro-saccades + additive look-at tracking; pitch follows the camera.
+* **Motion blending**: idle / thinking VRMA / EMAGE slerp from the live pose; looping clips do not auto-fade, so bind pose never flashes.
+* **Material saturation**: clothing / hair / eyes / skin are independently tunable; presets live in `src/config.ts`.
 * **Upload your own VRM** at runtime via the top-bar upload button.
 
 ### 🧠 100% Browser-Side AI Stack
-* **LLM** — [`@mlc-ai/web-llm`](https://github.com/mlc-ai/web-llm) running **Qwen3 0.6B (q4f16_1)** on WebGPU. Thinking phase and streaming completion both live in the browser tab.
-* **Motion** — **EMAGE** full-body motion generation (ONNX Runtime Web) inside a Dedicated Web Worker, with sentence-level streaming, temporal Gaussian smoothing, and natural idle blends.
-* **TTS** — **Edge-TTS 晓伊 (XiaoyiNeural, zh-CN, +10 Hz)** via [`edge-tts-universal`](https://github.com/Sterznode/edge-tts-universal); emoji stripped from speech text to avoid prosody glitches.
-* **LLM + TTS + EMAGE orchestrated** by a streaming chat director that emits per-utterance actions without UI freeze.
+* **LLM** — [`@mlc-ai/web-llm`](https://github.com/mlc-ai/web-llm) running **Qwen3 0.6B (q4f16_1)** on WebGPU. Thinking mode is a chat-bar toggle; replies follow the language of the current user message.
+* **Motion** — **EMAGE** full-body motion (ONNX Runtime Web) in a Dedicated Web Worker, with temporal Gaussian smoothing and natural idle blends.
+* **TTS** — **Edge-TTS 晓伊 (XiaoyiNeural, zh-CN, +10 Hz)** via [`edge-tts-universal`](https://github.com/Sterznode/edge-tts-universal); emoji stripped before speech.
+* **LLM + TTS + EMAGE orchestrated** by the chat director on the main thread at 60 FPS.
 
 ### 🌐 i18n & SSR
 * **TanStack Start** full-stack SSR with cookie-based language hydration — no client-side language flash.
 * **3 languages shipped**: 简体中文 / English / 日本語.
-* **Per-language system prompts** — the LLM responds in the user's language even when prompted cross-language.
+* **System prompt** — XiaoChun is a companion; she replies in the language of this user message, not the UI language.
 * **shadcn-style dropdown** in the top-right for language switching (Radix UI primitive).
 
 ### 📱 Mobile-First UI
 * **iOS HIG 44 pt / Material 48 dp** touch targets throughout.
 * **Bottom chat input ≥ 40 px** with 16 px text (prevents iOS Safari auto-zoom on focus).
 * **Tw + tailwindcss-animate** micro-interactions; liquid-glass aesthetic.
-* **Top-right action bar** — upload, language switcher, dev panel toggle.
-* **Floating speech bubble** that follows the character's head with smooth `transform` interpolation.
+* **Top-right action bar** — upload VRM, language, GitHub; the debug drawer only appears on localhost.
+* **Chat bar** — queue-while-loading, thinking toggle, send.
+* **Floating speech bubble** writes `transform` on the DOM with a deadzone, so React does not re-render at 60 FPS.
+* **Mobile** — preload stickers stay; the chat bar clears the home-indicator inset.
 
 ### 🛠️ Dev Tooling
-* **Debug drawer** with expression picker, per-channel light sliders, FOV control, global light multiplier.
+* **Debug drawer** (localhost only) — expressions, 6 light channels, FOV, global light, material saturation presets.
 * **Cloudflare Workers** (`src/server.ts`) — handles full-stack TanStack Start SSR alongside native WebSocket streaming for Edge-TTS.
 * **Vite dev middleware** (`vite.config.ts → localApiPlugin`) — local development powered by Miniflare runtime for 100% dev/prod parity.
-* **Single source of truth**: `src/config.ts` consolidates all lighting / camera / expression / R2 model config.
+* **Single source of truth**: `src/config.ts` consolidates lighting / camera / expressions / saturation / R2 model config.
 
 ---
 
@@ -157,8 +161,8 @@ Project-XiaoChun/
 │   ├── components/            # React UI components (TopHeader, ChatBar, HeadBubble, DevDrawer…)
 │   │   └── ui/                # Radix UI primitives (button, dropdown-menu, tooltip)
 │   ├── core/
-│   │   └── vrmEngine.ts       # 3D scene assembly, linework sky, 6-channel lighting, render loop
-│   ├── motion/                # EMAGE Web Worker (ONNX full-body motion) + playback retargeting
+│   │   └── vrmEngine.ts       # 3D scene, linework, 6-ch lights, material saturation, render loop
+│   ├── motion/                # EMAGE worker + VRMA playback / bone fade-in / MotionTransition
 │   ├── llm/                   # WebLLM WebGPU streaming + Worker + multi-language prompts
 │   ├── director/
 │   │   └── chatDirector.ts    # LLM → TTS → EMAGE streaming coordinator pipeline
@@ -170,7 +174,7 @@ Project-XiaoChun/
 │   ├── server.ts              # Cloudflare Worker entry (SSR router + /api/tts WebSocket proxy)
 │   ├── router.tsx             # TanStack Router factory
 │   ├── routeTree.gen.ts       # Auto-generated type-safe route tree
-│   └── config.ts              # Single source of truth (R2 base / camera / 6-ch lights / expressions)
+│   └── config.ts              # Single source of truth (R2 / camera / lights / saturation / expressions)
 ├── vite.config.ts             # Vite 8 + TanStack Start + @cloudflare/vite-plugin
 └── tsconfig.json
 ```
@@ -196,7 +200,7 @@ This project is licensed under the **MIT License**.
 > * `public/xiaochun_v1.vrm` — VRM character model generated with **[VRoid Studio](https://vroid.com/en/studio)** (Pixiv Inc.). Subject to the **VRoid Studio License** — free for personal use, modification, and non-commercial redistribution with attribution. For commercial use, please review the [VRoid Studio License terms](https://vroid.com/en/license) or contact Pixiv Inc. for a separate agreement.
 > * `public/thinking.vrma` — VRM animation. **License unknown** — verify before redistribution.
 
-The bundled `functions/api/tts.ts` uses Microsoft's Edge-TTS service via the public [`edge-tts-universal`](https://github.com/Sterznode/edge-tts-universal) protocol. The `TRUSTED_CLIENT_TOKEN` constant is a publicly known shared token (the same value used by every open-source Edge-TTS implementation) and is **not** a personal secret.
+`/api/tts` in `src/server.ts` uses Microsoft's Edge-TTS service via the public [`edge-tts-universal`](https://github.com/Sterznode/edge-tts-universal) protocol. The `TRUSTED_CLIENT_TOKEN` constant is a publicly known shared token (the same value used by every open-source Edge-TTS implementation) and is **not** a personal secret.
 
 ---
 
