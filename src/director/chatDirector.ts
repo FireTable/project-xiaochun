@@ -142,7 +142,6 @@ export class ChatDirector {
 
   /** VRM 就绪后就把 thinking.vrma 解析成 clip,发送时不再卡主线程。 */
   async warmThinkingClip(vrm: VRM, player: VRMAMotionPlayer): Promise<void> {
-    if (this.cachedThinkingClip) return;
     if (!this.thinkingVRMABuf) await this.preloadThinking();
     if (!this.thinkingVRMABuf) return;
     try {

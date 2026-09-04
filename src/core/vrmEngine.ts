@@ -907,6 +907,10 @@ uniform float uMatSaturation;
         // 全局动作平滑过渡器统一接管（解决 idle -> think -> emage -> idle 任意两状态间的割裂跳跃）
         this.motionTransition.apply(vrm, delta);
 
+        if (vrmaLive) {
+          this.levelFeet(vrm);
+        }
+
         this.chatDirector.tick(vrm, this.vrmaPlayer);
 
         // 思考神态与基础待机神态平滑过渡
@@ -1121,6 +1125,36 @@ uniform float uMatSaturation;
     };
 
     animate();
+  }
+
+  private _footLevelQ = new THREE.Quaternion();
+  private _footLevelParentInv = new THREE.Quaternion();
+
+  private levelFeet(vrm: VRM): void {
+    const h = vrm.humanoid;
+    if (!h) return;
+    const lf = h.getNormalizedBoneNode('leftFoot');
+    const rf = h.getNormalizedBoneNode('rightFoot');
+    const ll = h.getNormalizedBoneNode('leftLowerLeg');
+    const rl = h.getNormalizedBoneNode('rightLowerLeg');
+
+    const levelOne = (foot: THREE.Object3D | null | undefined, lower: THREE.Object3D | null | undefined) => {
+      if (!foot || !lower) return;
+      foot.updateWorldMatrix(true, false);
+      foot.getWorldQuaternion(this._footLevelQ);
+      const euler = new THREE.Euler().setFromQuaternion(this._footLevelQ, 'YXZ');
+      euler.x = 0; // 绝对水平，鞋尖绝不翘起
+      euler.z = 0; // 绝对水平，鞋底绝不内翻外翻
+      this._footLevelQ.setFromEuler(euler);
+
+      lower.getWorldQuaternion(this._footLevelParentInv).invert();
+      this._footLevelParentInv.multiply(this._footLevelQ);
+      foot.quaternion.copy(this._footLevelParentInv);
+      foot.updateWorldMatrix(true, false);
+    };
+
+    levelOne(lf, ll);
+    levelOne(rf, rl);
   }
 
   public dispose(): void {
