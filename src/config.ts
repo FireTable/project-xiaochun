@@ -80,8 +80,8 @@ export const APP_CONFIG = {
   // 对话条菜单可切换模型与思考模式,选择写入 localStorage,有记录时以用户为准。
   // 模型选项来自 WebLLM prebuiltAppConfig,按 provider 分组,同一模型优先 q4f16_1。
   llm: {
-    model: 'Qwen2.5-1.5B-Instruct-q4f16_1-MLC',
-    fallback: 'Qwen2.5-0.5B-Instruct-q4f16_1-MLC',
+    model: 'onnx-community/Qwen2.5-1.5B-Instruct',
+    fallback: 'onnx-community/Qwen2.5-0.5B-Instruct',
     thinking: false,
   },
   // 端侧记忆:短期近几轮、长期摘要、实体 JSON。都在 IndexedDB,不进服务器。

@@ -9,7 +9,7 @@ import { NaturalIdleSystem } from '@/motion/naturalIdle';
 import { ChatDirector } from '@/director/chatDirector';
 import { MotionTransitionManager } from '@/motion/motionTransition';
 import { BodyTurnSystem } from '@/motion/bodyTurn';
-import { preloadWebLLM } from '@/llm/webLLM';
+import { preloadWebLLM } from '@/llm/transformersLLM';
 import { APP_CONFIG, type LightConfig, type MaterialSaturationConfig } from '@/config';
 
 /**

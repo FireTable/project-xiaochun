@@ -12,7 +12,7 @@ import type { VRM } from '@pixiv/three-vrm';
 import { makeClipSeamless } from '@/motion/vrmaRetarget';
 import type { VRMAMotionPlayer } from '@/motion/vrmaPlayer';
 import { pcmFromAudioBuffer, type EmagePlayer, type EmageMotionData } from '@/motion/emagePlayer';
-import { generateSpeechReply } from '@/llm/webLLM';
+import { generateSpeechReply } from '@/llm/transformersLLM';
 import { rememberTurn } from '@/memory';
 import type { MotionTransitionManager } from '@/motion/motionTransition';
 

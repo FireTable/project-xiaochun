@@ -13,7 +13,7 @@ import {
   setActiveModelId,
   listModelGroups,
   modelBaseId,
-} from '@/llm/webLLM';
+} from '@/llm/transformersLLM';
 import { Send, Sparkles, Loader2 } from '@/components/icons';
 import { Button } from '@/components/ui/button';
 import {
