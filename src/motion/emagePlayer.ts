@@ -63,7 +63,7 @@ export class EmagePlayer {
   holdLastFrame = false;
   lockLowerBody = false; // 默认不强制锁定下半身，释放骨盆与腰椎生理律动；由生理权重与 PitchClamping 保证挺拔立姿
   fadeDuration = 0.6; // 平滑淡出到 Idle 的过渡时长 (秒)
-  public enableFootIK = false; // FootIK 功能临时开关：设为 false 完全旁路 FootIK 查看原生 EMAGE；设为 true 开启物理地锚与重心解算
+  public enableFootIK = true; // FootIK 功能临时开关：设为 false 完全旁路 FootIK 查看原生 EMAGE；设为 true 开启物理地锚与重心解算
   public footIK = new FootIKSolver();
   public fadingOut = false;
   private fadeElapsed = 0;
