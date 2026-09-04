@@ -1,14 +1,55 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, Fragment } from 'react';
 import { useTranslation } from 'react-i18next';
-import { Brain } from 'lucide-react';
+import { Menu } from 'lucide-react';
 import { vrmEngine } from '@/core/vrmEngine';
-import { isWebLLMReady, onWebLLMReady, isThinkingEnabled, setThinkingEnabled } from '@/llm/webLLM';
+import {
+  isWebLLMReady,
+  onWebLLMReadyChange,
+  isThinkingEnabled,
+  setThinkingEnabled,
+  onLlmLoadProgress,
+  getLlmLoadProgress,
+  getActiveModelId,
+  setActiveModelId,
+  listModelGroups,
+  modelBaseId,
+} from '@/llm/webLLM';
 import { Send, Sparkles, Loader2 } from '@/components/icons';
+import { Button } from '@/components/ui/button';
 import {
   Tooltip,
   TooltipTrigger,
   TooltipContent,
 } from '@/components/ui/tooltip';
+import {
+  DropdownMenu,
+  DropdownMenuTrigger,
+  DropdownMenuContent,
+  DropdownMenuLabel,
+  DropdownMenuSeparator,
+  DropdownMenuItem,
+  DropdownMenuSub,
+  DropdownMenuSubTrigger,
+  DropdownMenuSubContent,
+} from '@/components/ui/dropdown-menu';
+import { LlmProviderIcon } from '@/components/LlmProviderIcon';
+
+function MenuSwitch({ on }: { on: boolean }) {
+  return (
+    <span
+      aria-hidden
+      className={`flex h-5 w-9 shrink-0 items-center rounded-full p-0.5 transition-colors ${
+        on ? 'bg-[#ea8377]' : 'bg-white/20'
+      }`}
+    >
+      <span
+        className={`h-4 w-4 rounded-full bg-white shadow transition-transform ${
+          on ? 'translate-x-4' : 'translate-x-0'
+        }`}
+      />
+    </span>
+  );
+}
 
 function AccentFill({ on }: { on: boolean }) {
   return (
@@ -27,24 +68,32 @@ export const ChatBar: React.FC = () => {
   const [isQueued, setIsQueued] = useState(false);
   const queuedTextRef = useRef('');
   const [thinkingOn, setThinkingOn] = useState(() => isThinkingEnabled());
+  const [activeModel, setActiveModel] = useState(() => getActiveModelId());
+  const llmGroups = listModelGroups();
+  const activeBase = modelBaseId(activeModel);
+  const thinkingSupported = activeBase.startsWith('Qwen3');
 
   // 模型与引擎就绪感知
   const [isVRMReady, setIsVRMReady] = useState(() => vrmEngine.isReady());
   const [isLLMReady, setIsLLMReady] = useState(() => isWebLLMReady());
+  const [llmProgress, setLlmProgress] = useState(() => getLlmLoadProgress());
 
   useEffect(() => {
     // 监听 3D VRM 模型就绪状态
     const unsubVRM = vrmEngine.onReadyChange((ready) => {
       setIsVRMReady(ready);
     });
-    // 监听 WebLLM 神经核心 Worker 权重预热就绪状态
-    const unsubLLM = onWebLLMReady(() => {
-      setIsLLMReady(true);
+    const unsubLLM = onWebLLMReadyChange((ready) => {
+      setIsLLMReady(ready);
+    });
+    const unsubProgress = onLlmLoadProgress((p) => {
+      setLlmProgress(p);
     });
 
     return () => {
       unsubVRM();
       unsubLLM();
+      unsubProgress();
     };
   }, []);
 
@@ -118,32 +167,76 @@ export const ChatBar: React.FC = () => {
   return (
     <div className="fixed bottom-[calc(0.75rem+env(safe-area-inset-bottom,0px))] sm:bottom-8 left-1/2 -translate-x-1/2 z-30 w-full max-w-xl px-3 sm:px-4 pointer-events-auto select-none">
       <div className="flex items-center gap-2 sm:gap-2.5 w-full">
-        <Tooltip>
-          <TooltipTrigger asChild>
-            <button
-              type="button"
-              id="chat-thinking"
-              aria-pressed={thinkingOn}
-              aria-label={thinkingOn ? t('chat.thinkingOn') : t('chat.thinkingOff')}
-              onClick={() => {
+        <DropdownMenu>
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <DropdownMenuTrigger asChild>
+                <Button
+                  type="button"
+                  id="chat-menu"
+                  variant="glass"
+                  size="icon"
+                  aria-label={t('chat.chatMenu')}
+                  className="h-11 w-11 shrink-0"
+                >
+                  <Menu className="w-4 h-4" />
+                </Button>
+              </DropdownMenuTrigger>
+            </TooltipTrigger>
+            <TooltipContent side="top">{t('chat.chatMenu')}</TooltipContent>
+          </Tooltip>
+          <DropdownMenuContent side="top" align="start" className="min-w-[14rem]">
+            <DropdownMenuSub>
+              <DropdownMenuSubTrigger>
+                <span className="flex-1">{t('chat.switchModel')}</span>
+                <span className="max-w-[7.5rem] truncate text-xs text-white/50">{activeBase}</span>
+              </DropdownMenuSubTrigger>
+              <DropdownMenuSubContent className="max-h-[min(20rem,70vh)] min-w-[16rem] overflow-y-auto">
+                {llmGroups.map((group, i) => (
+                  <Fragment key={group.provider}>
+                    {i > 0 ? <DropdownMenuSeparator /> : null}
+                    <DropdownMenuLabel className="flex items-center gap-2 normal-case tracking-normal">
+                      <LlmProviderIcon name={group.provider} />
+                      {group.provider}
+                    </DropdownMenuLabel>
+                    {group.models.map((m) => {
+                      const selected = modelBaseId(m.id) === activeBase;
+                      return (
+                        <DropdownMenuItem
+                          key={m.id}
+                          disabled={isSending}
+                          onSelect={() => {
+                            if (selected) return;
+                            setActiveModel(m.id);
+                            setActiveModelId(m.id);
+                          }}
+                          className="justify-between"
+                        >
+                          <span className="truncate">{m.label}</span>
+                          {selected ? <span className="text-brand-300 text-xs">✓</span> : null}
+                        </DropdownMenuItem>
+                      );
+                    })}
+                  </Fragment>
+                ))}
+              </DropdownMenuSubContent>
+            </DropdownMenuSub>
+            <DropdownMenuItem
+              disabled={!thinkingSupported}
+              aria-checked={thinkingOn}
+              onSelect={(e) => {
+                e.preventDefault();
                 const next = !thinkingOn;
                 setThinkingOn(next);
                 setThinkingEnabled(next);
               }}
-              className={`relative h-11 w-11 rounded-full shrink-0 flex items-center justify-center select-none touch-manipulation active:scale-95 cursor-pointer appearance-none outline-none border-none ${
-                thinkingOn
-                  ? 'text-white bg-[#ea8377] shadow-[0_4px_16px_rgba(234,131,119,0.35)]'
-                  : 'text-white/70 bg-[#13111c]/85 backdrop-blur-2xl shadow-[inset_0_0_0_1px_rgba(255,255,255,0.15)] hover:text-white'
-              }`}
+              className="justify-between"
             >
-              <AccentFill on={thinkingOn} />
-              <Brain className="relative z-10 w-4 h-4" />
-            </button>
-          </TooltipTrigger>
-          <TooltipContent side="top">
-            {thinkingOn ? t('chat.thinkingOn') : t('chat.thinkingOff')}
-          </TooltipContent>
-        </Tooltip>
+              <span>{t('chat.thinkingMode')}</span>
+              <MenuSwitch on={thinkingOn} />
+            </DropdownMenuItem>
+          </DropdownMenuContent>
+        </DropdownMenu>
 
         {/* 输入框主胶囊：高度严格 h-11 (44px)，非阻塞可随时聚焦输入，排队时呼吸高亮 */}
         <div
@@ -181,44 +274,66 @@ export const ChatBar: React.FC = () => {
         </div>
 
         {/* 发送按钮：高度严格 h-11 (44px)，状态随就绪度与排队状态联动 */}
-        <button
-          id="chatSend"
-          type="button"
-          onClick={() => void handleSend()}
-          disabled={isSending || !hasText}
-          className={`relative h-11 sm:h-11 px-4 sm:px-5 rounded-full font-medium text-sm flex items-center justify-center gap-1.5 shrink-0 select-none touch-manipulation active:scale-95 appearance-none outline-none border-none ${
-            isSending
-              ? 'bg-[#13111c]/85 text-white/50 cursor-wait'
-              : isQueued || hasText
-              ? 'text-white bg-[#ea8377] shadow-[0_4px_16px_rgba(234,131,119,0.35)] cursor-pointer'
-              : 'text-white/40 bg-[#13111c]/85 shadow-[inset_0_0_0_1px_rgba(255,255,255,0.15)] cursor-not-allowed'
-          }`}
-        >
-          <AccentFill on={!isSending && (isQueued || hasText)} />
-          <span className="relative z-10 flex items-center gap-1.5">
-            {isSending ? (
-              <>
-                <Loader2 className="w-4 h-4 animate-spin text-white" />
-                <span>{t('chat.sending')}</span>
-              </>
-            ) : isQueued ? (
-              <>
-                <Loader2 className="w-4 h-4 animate-spin text-white" />
-                <span>{t('chat.queued')}</span>
-              </>
-            ) : hasText && !isModelReady ? (
-              <>
-                <Sparkles className="w-4 h-4 text-white animate-pulse" />
-                <span>{t('chat.queueSend')}</span>
-              </>
-            ) : (
-              <>
-                <Send className={`w-4 h-4 ${hasText ? 'text-white' : 'text-white/40'}`} />
-                <span>{t('chat.send')}</span>
-              </>
-            )}
-          </span>
-        </button>
+        {(() => {
+          const llmPct = Math.round(Math.min(1, Math.max(0, llmProgress.progress)) * 100);
+          const waitTooltip = (
+            <div className="flex flex-col gap-0.5 max-w-[16rem]">
+              {!isVRMReady ? <span>{t('chat.waitVrm')}</span> : null}
+              {!isLLMReady ? <span>{t('chat.waitLlm', { percent: llmPct, model: getActiveModelId() })}</span> : null}
+              {!isLLMReady && llmProgress.text ? (
+                <span className="text-white/50 break-all">{llmProgress.text}</span>
+              ) : null}
+              {isQueued ? <span className="text-white/70">{t('chat.waitReadyHint')}</span> : null}
+            </div>
+          );
+          const sendBtn = (
+            <button
+              id="chatSend"
+              type="button"
+              onClick={() => void handleSend()}
+              disabled={isSending || !hasText}
+              className={`relative h-11 sm:h-11 px-4 sm:px-5 rounded-full font-medium text-sm flex items-center justify-center gap-1.5 shrink-0 select-none touch-manipulation active:scale-95 appearance-none outline-none border-none ${
+                isSending
+                  ? 'bg-[#13111c]/85 text-white/50 cursor-wait'
+                  : isQueued || hasText
+                  ? 'text-white bg-[#ea8377] shadow-[0_4px_16px_rgba(234,131,119,0.35)] cursor-pointer'
+                  : 'text-white/40 bg-[#13111c]/85 shadow-[inset_0_0_0_1px_rgba(255,255,255,0.15)] cursor-not-allowed'
+              }`}
+            >
+              <AccentFill on={!isSending && (isQueued || hasText)} />
+              <span className="relative z-10 flex items-center gap-1.5">
+                {isSending ? (
+                  <>
+                    <Loader2 className="w-4 h-4 animate-spin text-white" />
+                    <span>{t('chat.sending')}</span>
+                  </>
+                ) : isQueued ? (
+                  <>
+                    <Loader2 className="w-4 h-4 animate-spin text-white" />
+                    <span>{t('chat.queued')}{!isLLMReady ? ` ${llmPct}%` : ''}</span>
+                  </>
+                ) : hasText && !isModelReady ? (
+                  <>
+                    <Sparkles className="w-4 h-4 text-white animate-pulse" />
+                    <span>{t('chat.queueSend')}</span>
+                  </>
+                ) : (
+                  <>
+                    <Send className={`w-4 h-4 ${hasText ? 'text-white' : 'text-white/40'}`} />
+                    <span>{t('chat.send')}</span>
+                  </>
+                )}
+              </span>
+            </button>
+          );
+          if (!isQueued && !(!isModelReady && hasText)) return sendBtn;
+          return (
+            <Tooltip delayDuration={0}>
+              <TooltipTrigger asChild>{sendBtn}</TooltipTrigger>
+              <TooltipContent side="top">{waitTooltip}</TooltipContent>
+            </Tooltip>
+          );
+        })()}
       </div>
     </div>
   );

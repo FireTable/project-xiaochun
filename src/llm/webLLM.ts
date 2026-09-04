@@ -2,23 +2,28 @@
  * webLLM.ts — 纯前端浏览器端大语言模型管理模块
  * 
  * 核心特性:
- * 1. 100% 运行于浏览器本地 WebGPU (基于 Qwen3 0.6B / Qwen2.5 0.5B q4f16_1 轻量量化模型)；
+ * 1. 100% 运行于浏览器本地 WebGPU (默认 Qwen3.5-2B q4f16_1,失败则降到 Qwen3.5-0.8B)；
  * 2. 彻底抛弃 Python 后端与 MiniMax CLI 依赖，实现纯静态公网一键运行；
  * 3. 首次加载后自动持久化缓存至浏览器 IndexedDB，后续秒开冷启动；
  * 4. 运行在 Dedicated Web Worker 内部，推理期间主线程 3D 渲染画面绝不掉帧。
  */
 
-import { CreateWebWorkerMLCEngine, type WebWorkerMLCEngine } from '@mlc-ai/web-llm';
+import { CreateWebWorkerMLCEngine, prebuiltAppConfig, type WebWorkerMLCEngine } from '@mlc-ai/web-llm';
+import { APP_CONFIG } from '@/config';
 import { XIAOCHUN_SYSTEM_PROMPT } from '@/llm/prompts';
 
-export const DEFAULT_LLM_MODEL = 'Qwen3-0.6B-q4f16_1-MLC';
-export const FALLBACK_LLM_MODEL = 'Qwen2.5-0.5B-Instruct-q4f16_1-MLC';
+export const DEFAULT_LLM_MODEL = APP_CONFIG.llm.model;
+export const FALLBACK_LLM_MODEL = APP_CONFIG.llm.fallback;
 
 const THINKING_PREF_KEY = 'xiaochun.thinking';
+const MODEL_PREF_KEY = 'xiaochun.llm.model';
 
 export function isThinkingEnabled(): boolean {
-  if (typeof window === 'undefined') return false;
-  return window.localStorage.getItem(THINKING_PREF_KEY) === '1';
+  if (typeof window === 'undefined') return APP_CONFIG.llm.thinking;
+  const saved = window.localStorage.getItem(THINKING_PREF_KEY);
+  if (saved === '1') return true;
+  if (saved === '0') return false;
+  return APP_CONFIG.llm.thinking;
 }
 
 export function setThinkingEnabled(on: boolean): void {
@@ -28,8 +33,88 @@ export function setThinkingEnabled(on: boolean): void {
 
 let engineInstance: WebWorkerMLCEngine | null = null;
 let initPromise: Promise<WebWorkerMLCEngine> | null = null;
-let activeModelId = DEFAULT_LLM_MODEL;
+let engineWorker: Worker | null = null;
+let activeModelId: string | null = null;
+let loadGen = 0;
 const llmReadyListeners = new Set<() => void>();
+const readyChangeListeners = new Set<(ready: boolean) => void>();
+
+function isKnownModelId(id: string): boolean {
+  return prebuiltAppConfig.model_list.some((m) => m.model_id === id);
+}
+
+const QUANT_SUF = /-(q[0-9]f[0-9]+(?:_[0-9]+)?)-MLC(?:-1k)?$/i;
+
+const PROVIDER_RE: [RegExp, string][] = [
+  [/^deepseek/i, 'DeepSeek'],
+  [/^openhermes/i, 'OpenHermes'],
+  [/^neuralhermes/i, 'NeuralHermes'],
+  [/^wizardmath/i, 'WizardMath'],
+  [/^redpajama/i, 'RedPajama'],
+  [/^tinyllama/i, 'TinyLlama'],
+  [/^ministral/i, 'Ministral'],
+  [/^hermes/i, 'Hermes'],
+  [/^smollm/i, 'SmolLM'],
+  [/^llama/i, 'Llama'],
+  [/^mistral/i, 'Mistral'],
+  [/^qwen/i, 'Qwen'],
+  [/^phi/i, 'Phi'],
+  [/^gemma/i, 'Gemma'],
+  [/^olmo/i, 'OLMo'],
+  [/^stablelm/i, 'StableLM'],
+];
+
+export function modelBaseId(id: string): string {
+  return id.replace(QUANT_SUF, '');
+}
+
+function providerOf(base: string): string {
+  const hit = PROVIDER_RE.find(([re]) => re.test(base));
+  return hit ? hit[1] : (base.split('-')[0] || base);
+}
+
+export type LlmModelOption = { id: string; label: string };
+export type LlmModelGroup = { provider: string; models: LlmModelOption[] };
+
+/** ponytail: 跳过 embedding / -1k;同一模型优先 q4f16_1。 */
+export function listModelGroups(): LlmModelGroup[] {
+  const byName = new Map<string, { id: string; quant: string; shortCtx: boolean }[]>();
+  for (const rec of prebuiltAppConfig.model_list) {
+    const id = rec.model_id;
+    if (/embed/i.test(id)) continue;
+    const m = id.match(/^(.*)-(q[0-9]f[0-9]+(?:_[0-9]+)?)-MLC(-1k)?$/i);
+    if (!m) continue;
+    const name = m[1];
+    const arr = byName.get(name) ?? [];
+    arr.push({ id, quant: m[2], shortCtx: Boolean(m[3]) });
+    byName.set(name, arr);
+  }
+
+  const groups = new Map<string, LlmModelOption[]>();
+  for (const [name, cands] of byName) {
+    const pick =
+      cands.find((c) => !c.shortCtx && c.quant === 'q4f16_1') ??
+      cands.find((c) => !c.shortCtx) ??
+      cands[0];
+    const provider = providerOf(name);
+    const arr = groups.get(provider) ?? [];
+    arr.push({ id: pick.id, label: name });
+    groups.set(provider, arr);
+  }
+
+  const keys = [...groups.keys()].sort((a, b) =>
+    a === 'Qwen' ? -1 : b === 'Qwen' ? 1 : a.localeCompare(b),
+  );
+  return keys.map((provider) => ({ provider, models: groups.get(provider)! }));
+}
+
+export function resolveInitialModelId(): string {
+  if (typeof window !== 'undefined') {
+    const saved = window.localStorage.getItem(MODEL_PREF_KEY);
+    if (saved && isKnownModelId(saved)) return saved;
+  }
+  return APP_CONFIG.llm.model;
+}
 
 export function isWebLLMReady(): boolean {
   return engineInstance !== null;
@@ -46,23 +131,80 @@ export function onWebLLMReady(cb: () => void): () => void {
   };
 }
 
+export function onWebLLMReadyChange(cb: (ready: boolean) => void): () => void {
+  readyChangeListeners.add(cb);
+  return () => {
+    readyChangeListeners.delete(cb);
+  };
+}
+
 function notifyLLMReady(): void {
   llmReadyListeners.forEach((fn) => {
     try { fn(); } catch {}
   });
   llmReadyListeners.clear();
+  readyChangeListeners.forEach((fn) => {
+    try { fn(true); } catch {}
+  });
+}
+
+function notifyLLMUnready(): void {
+  readyChangeListeners.forEach((fn) => {
+    try { fn(false); } catch {}
+  });
+}
+
+function unloadEngine(): void {
+  loadGen += 1;
+  engineInstance = null;
+  initPromise = null;
+  engineWorker?.terminate();
+  engineWorker = null;
+  notifyLoadProgress(0, '');
+  notifyLLMUnready();
+}
+
+export interface LlmLoadProgress {
+  progress: number;
+  text: string;
+}
+
+let lastLoadProgress: LlmLoadProgress = { progress: 0, text: '' };
+const loadProgressListeners = new Set<(p: LlmLoadProgress) => void>();
+
+function notifyLoadProgress(progress: number, text: string): void {
+  lastLoadProgress = { progress, text };
+  loadProgressListeners.forEach((fn) => {
+    try { fn(lastLoadProgress); } catch {}
+  });
+}
+
+export function getLlmLoadProgress(): LlmLoadProgress {
+  return lastLoadProgress;
+}
+
+export function onLlmLoadProgress(cb: (p: LlmLoadProgress) => void): () => void {
+  loadProgressListeners.add(cb);
+  if (lastLoadProgress.text || lastLoadProgress.progress > 0) cb(lastLoadProgress);
+  return () => {
+    loadProgressListeners.delete(cb);
+  };
 }
 
 export function getActiveModelId(): string {
+  if (!activeModelId) activeModelId = resolveInitialModelId();
   return activeModelId;
 }
 
 export function setActiveModelId(modelId: string): void {
-  if (modelId !== activeModelId) {
-    activeModelId = modelId;
-    engineInstance = null;
-    initPromise = null;
-  }
+  if (!isKnownModelId(modelId)) return;
+  if (modelId === getActiveModelId() && engineInstance) return;
+  activeModelId = modelId;
+  try {
+    window.localStorage.setItem(MODEL_PREF_KEY, modelId);
+  } catch {}
+  unloadEngine();
+  preloadWebLLM();
 }
 
 /** ponytail: 已知里程碑 → i18n key;worker 原始进度 → onProgressText(默认沉默,免得刷屏)。 */
@@ -77,28 +219,43 @@ export async function getWebLLMEngine(opts?: {
   if (engineInstance) return engineInstance;
   if (initPromise) return initPromise;
 
+  const gen = loadGen;
   initPromise = (async () => {
     onMilestone?.('loadingWebGpu');
     const worker = new Worker(new URL('./llmWorker.ts', import.meta.url), { type: 'module' });
+    engineWorker = worker;
+    const modelId = getActiveModelId();
 
     try {
-      const engine = await CreateWebWorkerMLCEngine(worker, activeModelId, {
+      const engine = await CreateWebWorkerMLCEngine(worker, modelId, {
         initProgressCallback: (report) => {
+          if (gen !== loadGen) return;
+          notifyLoadProgress(report.progress, report.text);
           onProgressText?.(report.text);
         },
       });
+      if (gen !== loadGen) {
+        worker.terminate();
+        throw new Error('model switched');
+      }
       engineInstance = engine;
       notifyLLMReady();
       return engine;
     } catch (err: any) {
-      console.warn(`[WebLLM] 加载 ${activeModelId} 遇到异常，尝试备用模型 ${FALLBACK_LLM_MODEL}`, err);
-      // 若 Qwen3 远程分片或权重出现网络波动，平滑自动降级到极稳的 Qwen2.5-0.5B
+      if (gen !== loadGen) throw err;
+      console.warn(`[WebLLM] 加载 ${modelId} 遇到异常，尝试备用模型 ${FALLBACK_LLM_MODEL}`, err);
       activeModelId = FALLBACK_LLM_MODEL;
-      const engine = await CreateWebWorkerMLCEngine(worker, activeModelId, {
+      const engine = await CreateWebWorkerMLCEngine(worker, FALLBACK_LLM_MODEL, {
         initProgressCallback: (report) => {
+          if (gen !== loadGen) return;
+          notifyLoadProgress(report.progress, report.text);
           onProgressText?.(report.text);
         },
       });
+      if (gen !== loadGen) {
+        worker.terminate();
+        throw new Error('model switched');
+      }
       engineInstance = engine;
       notifyLLMReady();
       return engine;
@@ -173,7 +330,7 @@ export async function generateSpeechReply(
       { role: 'user', content: userText },
     ],
     temperature: 0.7,
-    ...(activeModelId.startsWith('Qwen3')
+    ...(getActiveModelId().startsWith('Qwen3')
       ? { extra_body: { enable_thinking: isThinkingEnabled() } }
       : {}),
   });

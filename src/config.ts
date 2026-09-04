@@ -45,6 +45,21 @@ export const APP_CONFIG = {
       : ((import.meta.env.VITE_EMAGE_BASE as string | undefined) ?? '/onnx'),
     cacheName: 'emage-models-v1',
   },
+  // WebLLM 模型 id。改 model 即可换模型,必须是 WebLLM 预置表里的 model_id。
+  // 在线列表: https://github.com/mlc-ai/web-llm/blob/main/src/config.ts
+  //   打开后搜 `prebuiltAppConfig` → `model_list` → 复制 `model_id`。
+  // 在线试跑: https://chat.webllm.ai/
+  // 本机已安装的那份: node_modules/@mlc-ai/web-llm 里搜 `model_id:`。
+  // 命名: q4f16_1 = 4bit 权重(小); q0f16 = 近 fp16(更大更准)。手机建议 ≤2B。
+  // 加载失败会改用 fallback。
+  // thinking: Qwen3 / Qwen3.5 的思考链。true=先想再答(更慢、更占 GPU);false=直接答。
+  // 对话条菜单可切换模型与思考模式,选择写入 localStorage,有记录时以用户为准。
+  // 模型选项来自 WebLLM prebuiltAppConfig,按 provider 分组,同一模型优先 q4f16_1。
+  llm: {
+    model: 'Qwen3.5-2B-q4f16_1-MLC',
+    fallback: 'Qwen3.5-0.8B-q4f16_1-MLC',
+    thinking: true,
+  },
   camera: {
     defaultFov: 45,
     minFov: 15,
