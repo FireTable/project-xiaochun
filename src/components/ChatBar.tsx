@@ -10,6 +10,15 @@ import {
   TooltipContent,
 } from '@/components/ui/tooltip';
 
+function AccentFill({ on }: { on: boolean }) {
+  return (
+    <span
+      aria-hidden
+      className={`pointer-events-none absolute inset-0 rounded-full bg-gradient-to-r from-[#ea8377] to-[#e06d64] transition-opacity duration-200 ${on ? 'opacity-100' : 'opacity-0'}`}
+    />
+  );
+}
+
 export const ChatBar: React.FC = () => {
   const { t } = useTranslation();
   const inputRef = useRef<HTMLInputElement>(null);
@@ -107,6 +116,33 @@ export const ChatBar: React.FC = () => {
   return (
     <div className="fixed bottom-[calc(0.75rem+env(safe-area-inset-bottom,0px))] sm:bottom-8 left-1/2 -translate-x-1/2 z-30 w-full max-w-xl px-3 sm:px-4 pointer-events-auto select-none">
       <div className="flex items-center gap-2 sm:gap-2.5 w-full">
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <button
+              type="button"
+              id="chat-thinking"
+              aria-pressed={thinkingOn}
+              aria-label={thinkingOn ? t('chat.thinkingOn') : t('chat.thinkingOff')}
+              onClick={() => {
+                const next = !thinkingOn;
+                setThinkingOn(next);
+                setThinkingEnabled(next);
+              }}
+              className={`relative h-11 w-11 rounded-full shrink-0 flex items-center justify-center select-none touch-manipulation active:scale-95 cursor-pointer appearance-none outline-none border-none ${
+                thinkingOn
+                  ? 'text-white bg-[#ea8377] shadow-[0_4px_16px_rgba(234,131,119,0.35)]'
+                  : 'text-white/70 bg-[#13111c]/85 backdrop-blur-2xl shadow-[inset_0_0_0_1px_rgba(255,255,255,0.15)] hover:text-white'
+              }`}
+            >
+              <AccentFill on={thinkingOn} />
+              <Brain className="relative z-10 w-4 h-4" />
+            </button>
+          </TooltipTrigger>
+          <TooltipContent side="top">
+            {thinkingOn ? t('chat.thinkingOn') : t('chat.thinkingOff')}
+          </TooltipContent>
+        </Tooltip>
+
         {/* 输入框主胶囊：高度严格 h-11 (44px)，非阻塞可随时聚焦输入，排队时呼吸高亮 */}
         <div
           className={`flex-1 flex items-center h-11 sm:h-11 rounded-full bg-[#13111c]/85 border shadow-[0_8px_32px_rgba(0,0,0,0.5)] backdrop-blur-2xl px-3.5 sm:px-4 transition-all duration-300 ${
@@ -142,69 +178,44 @@ export const ChatBar: React.FC = () => {
           />
         </div>
 
-        <Tooltip>
-          <TooltipTrigger asChild>
-            <button
-              type="button"
-              id="chat-thinking"
-              aria-pressed={thinkingOn}
-              aria-label={thinkingOn ? t('chat.thinkingOn') : t('chat.thinkingOff')}
-              onClick={() => {
-                const next = !thinkingOn;
-                setThinkingOn(next);
-                setThinkingEnabled(next);
-              }}
-              className={`h-11 w-11 rounded-full shrink-0 flex items-center justify-center select-none touch-manipulation active:scale-95 transition-[transform,box-shadow,background,border-color] duration-150 ${
-                thinkingOn
-                  ? 'bg-gradient-to-r from-[#ea8377] to-[#e06d64] text-white border border-[#f5aa9c]/40 shadow-[0_4px_16px_rgba(234,131,119,0.35)] cursor-pointer'
-                  : 'bg-[#13111c]/90 text-white/70 border border-white/15 shadow-md cursor-pointer hover:text-white hover:border-white/25'
-              }`}
-            >
-              <Brain className="w-4 h-4" />
-            </button>
-          </TooltipTrigger>
-          <TooltipContent side="top">
-            {thinkingOn ? t('chat.thinkingOn') : t('chat.thinkingOff')}
-          </TooltipContent>
-        </Tooltip>
-
         {/* 发送按钮：高度严格 h-11 (44px)，状态随就绪度与排队状态联动 */}
         <button
           id="chatSend"
           type="button"
           onClick={() => void handleSend()}
           disabled={isSending || !hasText}
-          className={`h-11 sm:h-11 px-4 sm:px-5 rounded-full font-medium text-sm flex items-center justify-center gap-1.5 shrink-0 select-none touch-manipulation active:scale-95 transition-[transform,box-shadow] duration-150 ${
+          className={`relative overflow-hidden h-11 sm:h-11 px-4 sm:px-5 rounded-full font-medium text-sm flex items-center justify-center gap-1.5 shrink-0 select-none touch-manipulation active:scale-95 bg-[#13111c] ${
             isSending
-              ? 'bg-[#13111c]/90 text-white/50 border border-white/15 cursor-wait shadow-md'
-              : isQueued
-              ? 'bg-gradient-to-r from-[#ea8377] to-[#e06d64] text-white border border-[#f5aa9c]/40 shadow-[0_4px_16px_rgba(234,131,119,0.35)] cursor-pointer'
-              : hasText
-              ? 'bg-gradient-to-r from-[#ea8377] to-[#e06d64] text-white border border-[#f5aa9c]/30 shadow-[0_4px_16px_rgba(234,131,119,0.35)] cursor-pointer'
-              : 'bg-[#13111c]/90 text-white/40 border border-white/15 cursor-not-allowed shadow-md'
+              ? 'text-white/50 border border-white/15 cursor-wait shadow-md'
+              : isQueued || hasText
+              ? 'text-white border border-[#f5aa9c]/40 shadow-[0_4px_16px_rgba(234,131,119,0.35)] cursor-pointer'
+              : 'text-white/40 border border-white/15 cursor-not-allowed shadow-md'
           }`}
         >
-          {isSending ? (
-            <>
-              <Loader2 className="w-4 h-4 animate-spin text-white" />
-              <span>{t('chat.sending')}</span>
-            </>
-          ) : isQueued ? (
-            <>
-              <Loader2 className="w-4 h-4 animate-spin text-white" />
-              <span>{t('chat.queued')}</span>
-            </>
-          ) : hasText && !isModelReady ? (
-            <>
-              <Sparkles className="w-4 h-4 text-white animate-pulse" />
-              <span>{t('chat.queueSend')}</span>
-            </>
-          ) : (
-            <>
-              <Send className={`w-4 h-4 ${hasText ? 'text-white' : 'text-white/40'}`} />
-              <span>{t('chat.send')}</span>
-            </>
-          )}
+          <AccentFill on={!isSending && (isQueued || hasText)} />
+          <span className="relative z-10 flex items-center gap-1.5">
+            {isSending ? (
+              <>
+                <Loader2 className="w-4 h-4 animate-spin text-white" />
+                <span>{t('chat.sending')}</span>
+              </>
+            ) : isQueued ? (
+              <>
+                <Loader2 className="w-4 h-4 animate-spin text-white" />
+                <span>{t('chat.queued')}</span>
+              </>
+            ) : hasText && !isModelReady ? (
+              <>
+                <Sparkles className="w-4 h-4 text-white animate-pulse" />
+                <span>{t('chat.queueSend')}</span>
+              </>
+            ) : (
+              <>
+                <Send className={`w-4 h-4 ${hasText ? 'text-white' : 'text-white/40'}`} />
+                <span>{t('chat.send')}</span>
+              </>
+            )}
+          </span>
         </button>
       </div>
     </div>

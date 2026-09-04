@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import { useTranslation } from 'react-i18next';
-import { vrmEngine } from '@/core/vrmEngine';
-import { X, Sliders } from '@/components/icons';
+import { vrmEngine, type MaterialSaturationSettings, type MaterialSaturationPresetKey } from '@/core/vrmEngine';
+import { X, Sliders, RotateCcw, Palette } from '@/components/icons';
 import { APP_CONFIG } from '@/config';
 
 interface DevDrawerProps {
@@ -53,6 +53,25 @@ export const DevDrawer: React.FC<DevDrawerProps> = ({ isOpen, onClose }) => {
     vrmEngine.setFov(val);
   };
 
+  const [matSat, setMatSat] = useState<MaterialSaturationSettings>(() => ({ ...vrmEngine.materialSaturation }));
+
+  const handleMatPreset = (presetKey: MaterialSaturationPresetKey) => {
+    vrmEngine.applyMaterialPreset(presetKey);
+    setMatSat({ ...vrmEngine.materialSaturation });
+  };
+
+  const handleMatSatParamChange = (key: keyof Omit<MaterialSaturationSettings, 'preset'>, val: number) => {
+    const next = { ...matSat, [key]: val, preset: 'custom' as const };
+    setMatSat(next);
+    vrmEngine.setMaterialSaturation({ [key]: val, preset: 'custom' });
+  };
+
+  const handleResetMatSat = () => {
+    const defaults = { ...APP_CONFIG.saturation.default };
+    vrmEngine.setMaterialSaturation(defaults);
+    setMatSat(defaults);
+  };
+
   return (
     <aside
       id="control-panel"
@@ -69,7 +88,7 @@ export const DevDrawer: React.FC<DevDrawerProps> = ({ isOpen, onClose }) => {
         {/* ponytail: 关闭按钮提升到 w-11 h-11(44px)触屏规范,内圈视觉仍是 w-4 h-4。 */}
         <button
           id="btn-close-panel"
-          className="w-11 h-11 rounded-full bg-white/10 hover:bg-white/20 border border-white/15 flex items-center justify-center text-white/70 hover:text-white cursor-pointer transition-all duration-150 touch-manipulation"
+          className="w-11 h-11 rounded-full bg-white/10 hover:bg-white/20 border border-white/15 flex items-center justify-center text-white/70 hover:text-white cursor-pointer touch-manipulation"
           title={t('header.settingsPanelTitle')}
           aria-label={t('header.settingsPanelTitle')}
           onClick={onClose}
@@ -88,7 +107,7 @@ export const DevDrawer: React.FC<DevDrawerProps> = ({ isOpen, onClose }) => {
             <button
               key={e.key}
               onClick={() => handleExpressionClick(e.key)}
-              className={`py-2 px-1 rounded-xl text-xs font-medium transition-all duration-200 cursor-pointer text-center select-none ${
+              className={`py-2 px-1 rounded-xl text-xs font-medium cursor-pointer text-center select-none ${
                 activeExpr === e.key
                   ? 'bg-brand-500/25 border border-brand-400/60 text-brand-100 shadow-sm shadow-brand-500/20'
                   : 'bg-white/5 hover:bg-white/10 border border-white/10 text-white/70 hover:text-white'
@@ -97,6 +116,111 @@ export const DevDrawer: React.FC<DevDrawerProps> = ({ isOpen, onClose }) => {
               {t(`panel.expressionList.${e.key}`)}
             </button>
           ))}
+        </div>
+      </div>
+
+      {/* 画面滤镜与调色 */}
+      <div className="flex flex-col gap-3.5">
+        <div className="flex items-center justify-between">
+          <h3 className="text-xs font-semibold text-white/70 uppercase tracking-wider flex items-center gap-1.5">
+            <Palette className="w-3.5 h-3.5 text-brand-400" />
+            {t('panel.filterLabel')}
+          </h3>
+          <button
+            onClick={handleResetMatSat}
+            title={t('panel.resetFilter')}
+            className="flex items-center gap-1 text-[11px] text-white/40 hover:text-brand-300 transition-colors cursor-pointer"
+          >
+            <RotateCcw className="w-3 h-3" />
+            <span>{t('panel.resetFilter')}</span>
+          </button>
+        </div>
+
+        {/* 预设风格胶囊 */}
+        <div className="flex flex-col gap-1.5">
+          <span className="text-[11px] text-white/50">{t('panel.filterPresetsLabel')}</span>
+          <div className="grid grid-cols-2 gap-1.5">
+            {(['vibrant', 'sweet', 'cinematic', 'original'] as const).map((key) => (
+              <button
+                key={key}
+                onClick={() => handleMatPreset(key)}
+                className={`py-1.5 px-2 rounded-lg text-xs font-medium cursor-pointer text-center transition-all ${
+                  matSat.preset === key
+                    ? 'bg-brand-500/25 border border-brand-400/60 text-brand-100 shadow-sm shadow-brand-500/20 font-semibold'
+                    : 'bg-white/5 hover:bg-white/10 border border-white/10 text-white/70 hover:text-white'
+                }`}
+              >
+                {t(`panel.filterPresets.${key}`)}
+              </button>
+            ))}
+          </div>
+        </div>
+
+        {/* 材质分级微调滑块 */}
+        <div className="p-3 rounded-xl bg-white/[0.03] border border-white/10 flex flex-col gap-3">
+          {/* 1. 服装与饰品 */}
+          <div className="flex flex-col gap-1">
+            <div className="flex justify-between items-center text-[11px] text-white/80">
+              <span className="font-medium text-white/90 whitespace-nowrap">{t('panel.clothingSat')}</span>
+              <span className="text-brand-300 font-mono font-medium whitespace-nowrap shrink-0">{Math.round(matSat.clothing * 100)}%</span>
+            </div>
+            <input
+              type="range"
+              min="0.80"
+              max="2.00"
+              step="0.02"
+              value={matSat.clothing}
+              onChange={(e) => handleMatSatParamChange('clothing', parseFloat(e.target.value))}
+            />
+          </div>
+
+          {/* 2. 头发发色 */}
+          <div className="flex flex-col gap-1">
+            <div className="flex justify-between items-center text-[11px] text-white/80">
+              <span className="font-medium text-white/90 whitespace-nowrap">{t('panel.hairSat')}</span>
+              <span className="text-brand-300 font-mono font-medium whitespace-nowrap shrink-0">{Math.round(matSat.hair * 100)}%</span>
+            </div>
+            <input
+              type="range"
+              min="0.80"
+              max="2.00"
+              step="0.02"
+              value={matSat.hair}
+              onChange={(e) => handleMatSatParamChange('hair', parseFloat(e.target.value))}
+            />
+          </div>
+
+          {/* 3. 瞳孔眼睛 */}
+          <div className="flex flex-col gap-1">
+            <div className="flex justify-between items-center text-[11px] text-white/80">
+              <span className="font-medium text-white/90 whitespace-nowrap">{t('panel.eyesSat')}</span>
+              <span className="text-brand-300 font-mono font-medium whitespace-nowrap shrink-0">{Math.round(matSat.eyes * 100)}%</span>
+            </div>
+            <input
+              type="range"
+              min="0.80"
+              max="2.00"
+              step="0.02"
+              value={matSat.eyes}
+              onChange={(e) => handleMatSatParamChange('eyes', parseFloat(e.target.value))}
+            />
+          </div>
+
+          {/* 4. 肤色饱和度 */}
+          <div className="flex flex-col gap-1">
+            <div className="flex justify-between items-center text-[11px] text-white/80">
+              <span className="font-medium text-white/90 whitespace-nowrap">{t('panel.skinSat')}</span>
+              <span className="text-brand-300 font-mono font-medium whitespace-nowrap shrink-0">{Math.round(matSat.skin * 100)}%</span>
+            </div>
+            <input
+              type="range"
+              min="0.80"
+              max="1.30"
+              step="0.01"
+              value={matSat.skin}
+              onChange={(e) => handleMatSatParamChange('skin', parseFloat(e.target.value))}
+            />
+          </div>
         </div>
       </div>
 

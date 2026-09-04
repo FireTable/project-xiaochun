@@ -11,7 +11,7 @@ import { NaturalIdleSystem } from '@/motion/naturalIdle';
 import { ChatDirector } from '@/director/chatDirector';
 import { MotionTransitionManager } from '@/motion/motionTransition';
 import { preloadWebLLM } from '@/llm/webLLM';
-import { APP_CONFIG, type LightConfig } from '@/config';
+import { APP_CONFIG, type LightConfig, type MaterialSaturationConfig } from '@/config';
 
 /**
  * 状态文案走 i18n key (例如 'loading.loadingModel'),由 HeadBubble/LoadingOverlay 用 t() 翻译。
@@ -38,6 +38,9 @@ export interface LightChannelState {
   base: number;
   enabled: boolean;
 }
+
+export type MaterialSaturationSettings = MaterialSaturationConfig;
+export type MaterialSaturationPresetKey = keyof typeof APP_CONFIG.saturation.presets;
 
 export class VRMEngine {
   private canvas: HTMLCanvasElement | null = null;
@@ -78,6 +81,18 @@ export class VRMEngine {
 
   private activePlayer: 'vrma' | 'emage' | 'idle' = 'idle';
   private manualExpression: string | null = null;
+  public materialSaturation: MaterialSaturationSettings = { ...APP_CONFIG.saturation.default };
+  private categorizedMaterials: {
+    skin: any[];
+    hair: any[];
+    clothing: any[];
+    eyes: any[];
+  } = {
+    skin: [],
+    hair: [],
+    clothing: [],
+    eyes: [],
+  };
   private currentUrl: string = APP_CONFIG.model.defaultVrm;
 
   public getCurrentUrl(): string {
@@ -280,8 +295,47 @@ export class VRMEngine {
 
     window.addEventListener('resize', this.handleResize);
 
+    try {
+      const saved = localStorage.getItem('xiaochun.mat_saturation_settings');
+      if (saved) {
+        this.materialSaturation = { ...APP_CONFIG.saturation.default, ...JSON.parse(saved) };
+      }
+    } catch {}
+    if (this.canvas) {
+      this.canvas.style.filter = 'none';
+    }
+
     this.buildLineworkScene();
     this.startAnimation();
+  }
+
+  public setMaterialSaturation(settings: Partial<MaterialSaturationSettings>): void {
+    this.materialSaturation = { ...this.materialSaturation, ...settings };
+    this.applyMaterialSaturations();
+    try {
+      localStorage.setItem('xiaochun.mat_saturation_settings', JSON.stringify(this.materialSaturation));
+    } catch {}
+  }
+
+  public applyMaterialPreset(presetKey: MaterialSaturationPresetKey): void {
+    const preset = APP_CONFIG.saturation.presets[presetKey];
+    this.setMaterialSaturation({ preset: presetKey, ...preset });
+  }
+
+  public applyMaterialSaturations(): void {
+    const { skin, hair, clothing, eyes } = this.materialSaturation;
+    this.categorizedMaterials.skin.forEach((m) => {
+      if (m.uniforms?.uMatSaturation) m.uniforms.uMatSaturation.value = skin;
+    });
+    this.categorizedMaterials.hair.forEach((m) => {
+      if (m.uniforms?.uMatSaturation) m.uniforms.uMatSaturation.value = hair;
+    });
+    this.categorizedMaterials.clothing.forEach((m) => {
+      if (m.uniforms?.uMatSaturation) m.uniforms.uMatSaturation.value = clothing;
+    });
+    this.categorizedMaterials.eyes.forEach((m) => {
+      if (m.uniforms?.uMatSaturation) m.uniforms.uMatSaturation.value = eyes;
+    });
   }
 
   /**
@@ -499,7 +553,7 @@ export class VRMEngine {
       this.scene.add(tree);
     }
 
-    // ponytail: 后处理只挂 RenderPass;VRM 内部 MToon 自带描边,叠 OutlinePass 会变黑框。
+    // ponytail: 后处理只挂 RenderPass; 调色在 MToon 材质层物理隔离执行, 背景与线稿保持 100% 原始纯净
     this.composer = new EffectComposer(this.renderer);
     this.composer.addPass(new RenderPass(this.scene, this.camera));
   }
@@ -673,6 +727,7 @@ export class VRMEngine {
   }
 
   private optimizeVRMMaterials(vrm: VRM): void {
+    this.categorizedMaterials = { skin: [], hair: [], clothing: [], eyes: [] };
     vrm.scene.traverse((obj) => {
       if ((obj as THREE.Mesh).isMesh) {
         const mesh = obj as THREE.Mesh;
@@ -681,12 +736,47 @@ export class VRMEngine {
           if (!mat || !mat.isMToonMaterial) return;
 
           const name = (mat.name || '').toLowerCase();
-          const isFace = name.includes('face') || name.includes('eye') || name.includes('mouth') || name.includes('brow');
-          const isBody = name.includes('body') || name.includes('skin');
+          const isFaceSkin = name.includes('face') || name.includes('skin') || name.includes('body') || name.includes('mouth') || name.includes('brow') || name.includes('head');
+          const isEye = name.includes('eye') || name.includes('iris');
+          const isHair = name.includes('hair');
           const isSocks = name.includes('socks') || name.includes('stocking') || name.includes('tights');
-          const isCloth = name.includes('cloth') || name.includes('shirt') || name.includes('top') || name.includes('skirt') || name.includes('coat') || name.includes('bottom');
+          const isCloth = name.includes('cloth') || name.includes('shirt') || name.includes('top') || name.includes('skirt') || name.includes('coat') || name.includes('bottom') || name.includes('dress') || name.includes('onepiece') || name.includes('shoes');
 
-          if (isFace) {
+          let category: 'skin' | 'hair' | 'eyes' | 'clothing' = 'clothing';
+          if (isEye) {
+            category = 'eyes';
+          } else if (isFaceSkin) {
+            category = 'skin';
+          } else if (isHair) {
+            category = 'hair';
+          } else {
+            category = 'clothing';
+          }
+
+          // 注入材质级独立饱和度 Shader
+          if (!mat.userData.__saturationInjected) {
+            mat.userData.__saturationInjected = true;
+            mat.uniforms['uMatSaturation'] = { value: 1.0 };
+            const targetCode = 'gl_FragColor = vec4( col, diffuseColor.a );\n  postCorrection();';
+            if (mat.fragmentShader.includes(targetCode)) {
+              mat.fragmentShader = `
+uniform float uMatSaturation;
+` + mat.fragmentShader.replace(
+                targetCode,
+                `float gray = dot(col, vec3(0.299, 0.587, 0.114));
+  col = max(vec3(0.0), mix(vec3(gray), col, uMatSaturation));
+  gl_FragColor = vec4( col, diffuseColor.a );
+  postCorrection();`
+              );
+              mat.needsUpdate = true;
+            }
+          }
+
+          if (!this.categorizedMaterials[category].includes(mat)) {
+            this.categorizedMaterials[category].push(mat);
+          }
+
+          if (isFaceSkin) {
             mat.rimLightingMix = 0.0;
             mat.rimMultiply = new THREE.Color(0x000000);
             mat.rimFresnelPower = 100.0;
@@ -694,14 +784,6 @@ export class VRMEngine {
             mat.shadeShift = 0.08;
             mat.shadeToony = 0.98;
             if (mat.shadeColor) mat.shadeColor.setHex(0xfff2ea);
-          } else if (isBody) {
-            mat.rimLightingMix = 0.0;
-            mat.rimMultiply = new THREE.Color(0x000000);
-            mat.rimFresnelPower = 100.0;
-            mat.rimLift = 0.0;
-            mat.shadeShift = -0.10;
-            mat.shadeToony = 0.50;
-            if (mat.shadeColor) mat.shadeColor.setHex(0xffebe0);
           } else if (isSocks) {
             mat.rimLightingMix = 0.60;
             mat.rimMultiply = new THREE.Color(0xffffff);
@@ -721,6 +803,7 @@ export class VRMEngine {
         });
       }
     });
+    this.applyMaterialSaturations();
   }
 
   private resetBones(vrm: VRM): void {

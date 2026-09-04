@@ -17,6 +17,14 @@ export interface LightConfig {
   globalMult: number;
 }
 
+export interface MaterialSaturationConfig {
+  preset: 'vibrant' | 'sweet' | 'cinematic' | 'original' | 'custom';
+  clothing: number;
+  hair: number;
+  eyes: number;
+  skin: number;
+}
+
 export const APP_CONFIG = {
   brand: {
     name: 'Project XiaoChun',
@@ -53,6 +61,41 @@ export const APP_CONFIG = {
     arm: { base: 0.50, enabled: true },
     globalMult: 1.1,
   } as LightConfig,
+  saturation: {
+    default: {
+      preset: 'vibrant',
+      clothing: 1.20,
+      hair: 1.40,
+      eyes: 1.30,
+      skin: 0.95,
+    } as MaterialSaturationConfig,
+    presets: {
+      vibrant: {
+        clothing: 1.20,
+        hair: 1.40,
+        eyes: 1.30,
+        skin: 0.95,
+      },
+      sweet: {
+        clothing: 1.30,
+        hair: 1.25,
+        eyes: 1.20,
+        skin: 1.05,
+      },
+      cinematic: {
+        clothing: 1.15,
+        hair: 1.10,
+        eyes: 1.10,
+        skin: 1.00,
+      },
+      original: {
+        clothing: 1.00,
+        hair: 1.00,
+        eyes: 1.00,
+        skin: 1.00,
+      },
+    },
+  },
   expressions: [
     { key: 'neutral' },
     { key: 'happy' },

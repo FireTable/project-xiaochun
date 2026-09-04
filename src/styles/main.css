@@ -33,6 +33,13 @@
   }
   /* ponytail: 全局字体平滑 + 阻止 iOS Safari 文本大小自动调整。 */
   html { -webkit-text-size-adjust: 100%; }
+
+  /* 按钮状态变化统一过渡。不过渡 background 简写,避免渐变↔纯色时 background-image 插值成透明、透出白场景。 */
+  button {
+    transition-property: color, background-color, border-color, box-shadow, transform, opacity, filter;
+    transition-duration: 200ms;
+    transition-timing-function: cubic-bezier(0.4, 0, 0.2, 1);
+  }
 }
 
 /* 全局精致细滚动条 (WebKit / Chromium / Safari) */
