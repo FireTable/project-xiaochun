@@ -888,6 +888,7 @@ uniform float uMatSaturation;
         } else if (vrmaLive) {
           this.activePlayer = 'vrma';
           this.vrmaPlayer.update(delta);
+          this.emagePlayer.footIK.solve(delta);
         } else {
           if (this.activePlayer !== 'idle') {
             this.motionTransition.startTransition(vrm, 0.75);
