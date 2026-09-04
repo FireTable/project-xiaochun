@@ -12,14 +12,15 @@ interface LegChain {
   restLocalFootQ: THREE.Quaternion;
 
   // 方案一：物理足底地面支点锚点 (World Ground Anchor)
-  restAnchorPos: THREE.Vector3;   // 初始静息地面锚点 (X, Y, Z)
-  currentAnchorPos: THREE.Vector3;// 当前动态物理支点
-  smoothTargetPos: THREE.Vector3; // 求解平滑目标点 (X, Y, Z)
+  restAnchorPos: THREE.Vector3;      // 初始静息世界地面锚点 (X, Y, Z)
+  restAnchorLocalPos: THREE.Vector3; // 初始静息本地地面锚点 (相对 vrm.scene)
+  currentAnchorPos: THREE.Vector3;   // 当前动态物理世界支点
+  smoothTargetPos: THREE.Vector3;    // 求解平滑目标点 (X, Y, Z)
 
   // 方案二：重心分配与受力姿态
-  isStance: boolean;              // 是否为主承重支撑腿
-  effectiveWeight: number;        // 当前腿的动态混合权重
-  kneeFlexionBias: number;        // 放松腿膝关节微屈偏置弧度
+  isStance: boolean;                 // 是否为主承重支撑腿
+  effectiveWeight: number;           // 当前腿的动态混合权重
+  kneeFlexionBias: number;           // 放松腿膝关节微屈偏置弧度
 }
 
 /**
@@ -46,7 +47,7 @@ export class FootIKSolver {
   // ─── 连续重心与动态换腿参数 (0.0 = 左腿主支柱, 1.0 = 右腿主支柱) ───
   public stanceRatio = 0.0;
   public smoothStanceRatio = 0.0;
-  public transferSpeed = 2.5; // 换腿过渡速度 (约 1.5~2.0 秒优雅丝滑完成换脚)
+  public transferSpeed = 3.5; // 换腿重心过渡速度 (约 1.2~1.5 秒丝滑无感完成换脚)
 
   get stanceLeg(): 'left' | 'right' {
     return this.stanceRatio >= 0.5 ? 'right' : 'left';
@@ -59,6 +60,7 @@ export class FootIKSolver {
   private leftLeg: LegChain | null = null;
   private rightLeg: LegChain | null = null;
   private hips: THREE.Object3D | null = null;
+  private spine: THREE.Object3D | null = null;
   private restHipsLocalPos = new THREE.Vector3();
   private restHipsWorldPos = new THREE.Vector3();
   private smoothHipsOffsetY = 0;
@@ -89,6 +91,7 @@ export class FootIKSolver {
       this.restHipsLocalPos.copy(this.hips.position);
       this.hips.getWorldPosition(this.restHipsWorldPos);
     }
+    this.spine = h.getNormalizedBoneNode('spine') ?? h.getRawBoneNode('spine');
 
     const getBone = (name: any) => h.getNormalizedBoneNode(name) ?? h.getRawBoneNode(name);
 
@@ -112,6 +115,9 @@ export class FootIKSolver {
       lLower.getWorldPosition(p2);
       lFoot.getWorldPosition(p3);
 
+      const localAnchorL = p3.clone();
+      vrm.scene.worldToLocal(localAnchorL);
+
       this.leftLeg = {
         upperLeg: lUpper,
         lowerLeg: lLower,
@@ -122,6 +128,7 @@ export class FootIKSolver {
         restAnkleY: p3.y,
         restLocalFootQ: lFoot.quaternion.clone(),
         restAnchorPos: p3.clone(),
+        restAnchorLocalPos: localAnchorL,
         currentAnchorPos: p3.clone(),
         smoothTargetPos: p3.clone(),
         isStance: true,
@@ -138,6 +145,9 @@ export class FootIKSolver {
       rLower.getWorldPosition(p2);
       rFoot.getWorldPosition(p3);
 
+      const localAnchorR = p3.clone();
+      vrm.scene.worldToLocal(localAnchorR);
+
       this.rightLeg = {
         upperLeg: rUpper,
         lowerLeg: rLower,
@@ -148,6 +158,7 @@ export class FootIKSolver {
         restAnkleY: p3.y,
         restLocalFootQ: rFoot.quaternion.clone(),
         restAnchorPos: p3.clone(),
+        restAnchorLocalPos: localAnchorR,
         currentAnchorPos: p3.clone(),
         smoothTargetPos: p3.clone(),
         isStance: true,
@@ -161,6 +172,9 @@ export class FootIKSolver {
 
   reset(): void {
     this.smoothHipsOffsetY = 0;
+    if (this.hips) {
+      this.hips.position.copy(this.restHipsLocalPos);
+    }
     if (this.leftLeg) {
       this.leftLeg.currentAnchorPos.copy(this.leftLeg.restAnchorPos);
       this.leftLeg.smoothTargetPos.copy(this.leftLeg.restAnchorPos);
@@ -178,7 +192,7 @@ export class FootIKSolver {
   }
 
   /**
-   * 在动画帧之后调用，实施脚部支点地锚、重心转移与双骨逆向动力学纠偏
+   * 在动画帧之后调用，实施脚部支点地锚、单脚重心转移与双骨逆向动力学纠偏
    */
   solve(delta: number): void {
     if (!this.enabled || !this.vrm || !this.leftLeg || !this.rightLeg || !this.hips || this.weight <= 0.001) {
@@ -191,113 +205,113 @@ export class FootIKSolver {
     const l = this.leftLeg;
     const r = this.rightLeg;
 
-    // 1. 丝滑平滑过渡当前重心比例 sr ∈ [0, 1]
+    // 1. 刷新地面世界物理支点坐标 (World Ground Anchors)
+    l.currentAnchorPos.copy(l.restAnchorLocalPos).applyMatrix4(scene.matrixWorld);
+    r.currentAnchorPos.copy(r.restAnchorLocalPos).applyMatrix4(scene.matrixWorld);
+    const lAnchorWorld = l.currentAnchorPos;
+    const rAnchorWorld = r.currentAnchorPos;
+
+    // 2. 丝滑平滑过渡当前重心比例 sr ∈ [0, 1] (0.0 = 纯左腿支撑, 1.0 = 纯右腿支撑)
     const transferFilter = 1.0 - Math.exp(-this.transferSpeed * Math.max(0.001, delta));
     this.smoothStanceRatio += (this.stanceRatio - this.smoothStanceRatio) * transferFilter;
     const sr = this.smoothStanceRatio;
 
-    // 左腿承重比例 (1.0=纯支柱, 0.0=纯放松)
+    // 左右腿承重分配
     const lSupport = 1.0 - sr;
-    l.isStance = lSupport >= 0.5;
-    l.effectiveWeight = this.weight;
-    // 当左腿承重减少时，膝部自然微屈 ~7.5°
-    l.kneeFlexionBias = sr * 0.13;
-
-    // 右腿承重比例 (1.0=纯支柱, 0.0=纯放松)
     const rSupport = sr;
+    l.isStance = lSupport >= 0.5;
     r.isStance = rSupport >= 0.5;
+    l.effectiveWeight = this.weight;
     r.effectiveWeight = this.weight;
-    // 当右腿承重减少时，膝部自然微屈 ~7.5°
-    r.kneeFlexionBias = (1.0 - sr) * 0.13;
 
-    // 2. 连续平滑骨盆高度补偿 (Ground Alignment):
-    // 关键修正：提取去除上一帧修正量后的真实内在对地距离，彻底消灭代数环弹簧回弹震荡！
+    // 3. 仿生重心横向转移 (Lateral Pelvis Center of Mass Shift)
+    // 关键原理：双足横向间距约 20cm，当单脚受力站立时，骨盆必须横向平移至承重脚上方 (~3.8cm~4.2cm)，
+    // 使得承重腿股骨头垂直对齐脚踝，形成顶天立地的承重柱！
+    const midAnchorX = (lAnchorWorld.x + rAnchorWorld.x) * 0.5;
+    const halfSpan = Math.abs(rAnchorWorld.x - lAnchorWorld.x) * 0.5;
+    const leftSign = Math.sign(lAnchorWorld.x - midAnchorX) || -1;
+
+    // stanceDir: -1.0 为纯左腿支撑, +1.0 为纯右腿支撑
+    const stanceDir = (sr - 0.5) * 2.0;
+    const maxShiftX = Math.min(0.042, halfSpan * 0.40);
+    const targetShiftX = stanceDir * (-leftSign) * maxShiftX * this.weight;
+    this.hips.position.x = this.restHipsLocalPos.x + targetShiftX;
+
+    // 4. 骨盆垂直高度补偿 (Ground Alignment):
+    // 提取去除上一帧修正量后的真实内在对地距离，彻底消灭代数环弹簧回弹震荡
     const prevOffset = this.smoothHipsOffsetY * this.weight;
-    const lPos = this._vA;
-    const rPos = this._vB;
-    l.foot.getWorldPosition(lPos);
-    r.foot.getWorldPosition(rPos);
+    l.foot.getWorldPosition(this._vTemp);
+    const lFootY = this._vTemp.y;
+    r.foot.getWorldPosition(this._vTemp);
+    const rFootY = this._vTemp.y;
 
-    // 剔除上一帧的世界骨盆位移，获取脚踝纯几何姿态的对地误差
-    const intrinsicLDist = (lPos.y - prevOffset) - l.restAnkleY;
-    const intrinsicRDist = (rPos.y - prevOffset) - r.restAnkleY;
+    const intrinsicLDist = (lFootY - prevOffset) - l.restAnkleY;
+    const intrinsicRDist = (rFootY - prevOffset) - r.restAnkleY;
     const weightedGroundDist = intrinsicLDist * lSupport + intrinsicRDist * rSupport;
 
-    // 10Hz 指数阻尼滤波平滑跟进，杜绝任何弹性绳晃荡感
-    const filterFactor = 1.0 - Math.exp(-10.0 * Math.max(0.001, delta));
+    const heightFilter = 1.0 - Math.exp(-8.0 * Math.max(0.001, delta));
     const targetHipsOffset = -weightedGroundDist;
-    this.smoothHipsOffsetY += (targetHipsOffset - this.smoothHipsOffsetY) * filterFactor;
+    this.smoothHipsOffsetY += (targetHipsOffset - this.smoothHipsOffsetY) * heightFilter;
 
-    // 应用 Hips 高度补偿 (限制在生理站立合理区间 -8cm ~ +3cm)
-    const effHipsOffset = THREE.MathUtils.clamp(this.smoothHipsOffsetY * this.weight, -0.08, 0.03);
+    const effHipsOffset = THREE.MathUtils.clamp(this.smoothHipsOffsetY * this.weight, -0.06, 0.02);
     this.hips.position.y = this.restHipsLocalPos.y + effHipsOffset;
     this.hips.updateMatrixWorld(true);
 
-    // 3. 执行左右腿的两骨解析式 IK (支持按 supportRatio 连续平滑过渡)
-    this.solveLegIK(l, lSupport, delta);
-    this.solveLegIK(r, rSupport, delta);
+    // 5. 对立平衡骨盆解剖学侧倾 (Contrapposto Pelvic Roll) 与脊柱反向代偿
+    // 站立单腿承重时，承重侧骨盆微微抬高约 2.4° (0.042 rad)，呈现自然 S 型优美体态；
+    // 脊柱向相反方向代偿倾斜，保持胸腔与头部端正水平，杜绝歪斜。
+    const rollAngle = -stanceDir * (-leftSign) * 0.042 * this.weight;
+    if (Math.abs(rollAngle) > 0.0005) {
+      this._qDelta.setFromAxisAngle(new THREE.Vector3(0, 0, 1), rollAngle);
+      this.hips.quaternion.multiply(this._qDelta);
+      if (this.spine) {
+        this._qDelta.setFromAxisAngle(new THREE.Vector3(0, 0, 1), -rollAngle * 0.82);
+        this.spine.quaternion.multiply(this._qDelta);
+      }
+    }
+
+    // 6. 执行左右腿两骨解析式 IK (两脚物理地锚稳固贴地，零悬挂、零漂移滑步)
+    this.solveLegIK(l, lAnchorWorld, lSupport, delta);
+    this.solveLegIK(r, rAnchorWorld, rSupport, delta);
   }
 
-  private solveLegIK(leg: LegChain, supportRatio: number, delta: number): void {
-    const { upperLeg, lowerLeg, foot, l1, l2, restAnkleY } = leg;
+  private solveLegIK(leg: LegChain, anchorWorld: THREE.Vector3, supportRatio: number, delta: number): void {
+    const { upperLeg, lowerLeg, foot, l1, l2 } = leg;
 
-    // 刷新世界坐标
     upperLeg.updateWorldMatrix(true, false);
     lowerLeg.updateWorldMatrix(true, false);
     foot.updateWorldMatrix(true, false);
 
-    // ─── 核心优化：按 supportRatio 连续无感融合 ───
-    // freeLegAlpha: 0.0 = 纯主承重支柱, 1.0 = 纯从属放松微屈腿
-    const freeLegAlpha = Math.max(0.0, Math.min(1.0, 1.0 - supportRatio));
+    // freeAlpha: 0.0 = 纯主承重支柱腿, 1.0 = 纯从属放松微屈腿
+    const freeAlpha = Math.max(0.0, Math.min(1.0, 1.0 - supportRatio));
 
-    // 如果几乎是完全主支撑腿 (freeLegAlpha < 0.01):
-    // 骨骼角度在 applyFrame 中已经以 restQ 锁定，免除二次逆向几何计算，0 抖动、绝对稳健！
-    if (freeLegAlpha < 0.01) {
-      foot.getWorldQuaternion(this._qWorld);
-      const euler = new THREE.Euler().setFromQuaternion(this._qWorld, 'YXZ');
-      euler.x *= (1.0 - 0.85 * this.weight);
-      euler.z *= (1.0 - 0.85 * this.weight);
-      this._qWorld.setFromEuler(euler);
+    // 地锚目标点：两脚始终扎根在地面 anchorWorld，高度贴合地表，消除任何漂浮悬挂感
+    const filterFactor = 1.0 - Math.exp(-15.0 * Math.max(0.001, delta));
+    leg.smoothTargetPos.x += (anchorWorld.x - leg.smoothTargetPos.x) * filterFactor;
+    leg.smoothTargetPos.y += (anchorWorld.y - leg.smoothTargetPos.y) * filterFactor;
+    leg.smoothTargetPos.z += (anchorWorld.z - leg.smoothTargetPos.z) * filterFactor;
 
-      lowerLeg.getWorldQuaternion(this._qParentWorldInv).invert();
-      this._qTarget.copy(this._qParentWorldInv).multiply(this._qWorld);
-      foot.quaternion.slerp(this._qTarget, this.weight * 0.90);
-      foot.updateWorldMatrix(true, false);
-      return;
-    }
-
-    const pA = this._vA; // UpperLeg (Hip 关节点)
-    const pB = this._vB; // LowerLeg (Knee 膝关节点)
-    const pC = this._vC; // Foot (Ankle 踝关节点)
+    const pT = this._vT.copy(leg.smoothTargetPos);
+    const pA = this._vA;
+    const pB = this._vB;
+    const pC = this._vC;
     upperLeg.getWorldPosition(pA);
     lowerLeg.getWorldPosition(pB);
     foot.getWorldPosition(pC);
-
-    // 放松腿目标点：高度贴合地表，水平位置自然跟随
-    const targetX = pC.x;
-    const targetZ = pC.z;
-    const targetY = Math.max(pC.y, restAnkleY);
-
-    const filterFactor = 1.0 - Math.exp(-12.0 * Math.max(0.001, delta));
-    leg.smoothTargetPos.x += (targetX - leg.smoothTargetPos.x) * filterFactor;
-    leg.smoothTargetPos.y += (targetY - leg.smoothTargetPos.y) * filterFactor;
-    leg.smoothTargetPos.z += (targetZ - leg.smoothTargetPos.z) * filterFactor;
-
-    const pT = this._vT.copy(leg.smoothTargetPos);
 
     // 计算大腿根部到脚踝目标点的距离
     const vAT = this._vDir.subVectors(pT, pA);
     let dist = vAT.length();
     const maxReach = (l1 + l2) * this.maxLegReachRatio;
-    const minReach = Math.abs(l1 - l2) + 0.01;
+    const minReach = Math.abs(l1 - l2) + 0.02;
     dist = THREE.MathUtils.clamp(dist, minReach, maxReach);
     vAT.normalize();
 
-    // 余弦定理求解大腿屈角
+    // 余弦定理求解大腿屈角 (解析式两骨 IK，无迭代零延迟零抖动)
     const cosHip = THREE.MathUtils.clamp((l1 * l1 + dist * dist - l2 * l2) / (2 * l1 * dist), -1, 1);
     const angleHip = Math.acos(cosHip);
 
-    // ─── 核心突破：人体解剖学正交极向量 (Forward Pole Vector) ───
+    // 人体解剖学正交极向量 (Forward Pole Vector)，膝盖永恒正向向前弯曲，杜绝侧滑翻转
     const vForward = this._vTemp;
     if (this.hips) {
       this.hips.getWorldQuaternion(this._qWorld);
@@ -309,8 +323,11 @@ export class FootIKSolver {
     const vNormal = this._vNormal.crossVectors(vAT, vForward).normalize();
     const vBend = this._vBendDir.crossVectors(vNormal, vAT).normalize();
 
-    // 注入解剖学自然微屈偏置 (随 freeLegAlpha 连续渐变)
-    const effectiveAngleHip = angleHip + (leg.kneeFlexionBias * freeLegAlpha);
+    // 生理级膝部微屈调控：
+    // 主承重腿保留微小的 0.015 rad (约 0.9°) 防止膝关节完全绷死异响，形成垂直支撑柱；
+    // 放松从属腿呈现解剖学自然微屈 0.16 rad (约 9.2°)，呈现经典的单脚重心待机姿态。
+    const flexion = THREE.MathUtils.lerp(0.015, 0.16, freeAlpha);
+    const effectiveAngleHip = angleHip + flexion;
 
     const newUpperDir = this._vUpperDir.copy(vAT).multiplyScalar(Math.cos(effectiveAngleHip))
       .addScaledVector(vBend, Math.sin(effectiveAngleHip)).normalize();
@@ -318,9 +335,10 @@ export class FootIKSolver {
     const newB = this._vB.copy(pA).addScaledVector(newUpperDir, l1);
     const newLowerDir = this._vLowerDir.subVectors(pT, newB).normalize();
 
-    // 旋转增量随 freeLegAlpha 连续柔和施加
-    const ikStrength = leg.effectiveWeight * freeLegAlpha * 0.85;
+    // 旋转增量柔和施加
+    const ikStrength = THREE.MathUtils.lerp(0.95, 0.88, freeAlpha) * leg.effectiveWeight;
 
+    // 纠偏 UpperLeg
     const origUpperDir = this._vDir.subVectors(pB, pA).normalize();
     this._qDelta.setFromUnitVectors(origUpperDir, newUpperDir);
     upperLeg.getWorldQuaternion(this._qWorld);
@@ -335,6 +353,7 @@ export class FootIKSolver {
     upperLeg.quaternion.slerp(this._qTarget, ikStrength);
     upperLeg.updateWorldMatrix(true, false);
 
+    // 纠偏 LowerLeg
     const origLowerDir = this._vDir.subVectors(pC, pB).normalize();
     this._qDelta.setFromUnitVectors(origLowerDir, newLowerDir);
     lowerLeg.getWorldQuaternion(this._qWorld);
@@ -345,16 +364,16 @@ export class FootIKSolver {
     lowerLeg.quaternion.slerp(this._qTarget, ikStrength);
     lowerLeg.updateWorldMatrix(true, false);
 
-    // 脚掌贴地水平回正
+    // 脚掌紧密贴合地面平面
     foot.getWorldQuaternion(this._qWorld);
     const euler = new THREE.Euler().setFromQuaternion(this._qWorld, 'YXZ');
-    euler.x *= (1.0 - 0.80 * leg.effectiveWeight);
-    euler.z *= (1.0 - 0.80 * leg.effectiveWeight);
+    euler.x *= (1.0 - 0.88 * leg.effectiveWeight);
+    euler.z *= (1.0 - 0.88 * leg.effectiveWeight);
     this._qWorld.setFromEuler(euler);
 
     lowerLeg.getWorldQuaternion(this._qParentWorldInv).invert();
     this._qTarget.copy(this._qParentWorldInv).multiply(this._qWorld);
-    foot.quaternion.slerp(this._qTarget, leg.effectiveWeight * 0.85);
+    foot.quaternion.slerp(this._qTarget, leg.effectiveWeight * 0.90);
     foot.updateWorldMatrix(true, false);
   }
 }

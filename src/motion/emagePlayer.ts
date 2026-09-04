@@ -71,12 +71,12 @@ export class EmagePlayer {
   gestureIntensity = 1.0;      // 手臂幅度缩放 (0.1~1.0，默认 1.0 满额手势)
   fingerIntensity = 0.75;      // 指关节活跃度 (0.1~1.0，默认 0.75，保持柔和半卷，消除乱指)
   torsoIntensity = 0.75;       // 胸腔微动权重 (默认 0.55，从 0.12 适当提升，保留自然呼吸与起伏)
-  spineIntensity = 0.25;       // 腰椎微动权重 (默认 0.25，自然微屈与说话起伏)
+  spineIntensity = 0.3;       // 腰椎微动权重 (默认 0.3，自然微屈与说话起伏)
   hipIntensity = 0.70;         // 骨盆/胯部微动权重 (默认 0.40，赋予活人重心微移与说话律动)
-  legIntensity = 0.70;         // 双腿跟随权重 (默认 0.40，配合骨盆重心自然微动，足部由 FootIK 稳妥贴地)
+  legIntensity = 0.30;         // 双腿跟随权重 (默认 0.30，配合骨盆重心自然微动，足部由 FootIK 稳妥贴地)
   headIntensity = 0.80;        // 头部/颈部权重 (默认 0.80，防止脖子前伸乌龟颈，保持抬头挺胸)
   dampingStiffness = 5.5;      // 惯性阻尼刚度 (默认 5.5，数值越小越柔顺轻盈，消除“动得太快”)
-  temporalSmoothRadius = 7;    // 时序高斯平滑半径 (默认 7 帧/约0.5s，消除“切换太频繁”)
+  temporalSmoothRadius = 12;    // 时序高斯平滑半径 (默认 12 帧/约0.8s，消除“切换太频繁”)
 
   // ─── 动态单腿支柱与丝滑换腿控制 ───
   stancePillar: 'left' | 'right' | 'alternate' | 'auto' = 'auto'; // 默认 auto 智能动态换腿
