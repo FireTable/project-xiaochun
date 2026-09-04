@@ -31,7 +31,7 @@ export const en: Trans = {
     placeholder: 'Say something to XiaoChun…',
     placeholderLong: 'Talk to XiaoChun… (e.g. say hi)',
     madChatPlaceholder: 'Say something to XiaoChun…',
-    syncingPlaceholder: '✦ Syncing neural core… (Feel free to type)',
+    syncingPlaceholder: 'Syncing neural core… (Feel free to type)',
     syncing: 'Syncing…',
     queued: 'Queued…',
     queueSend: 'Queue',

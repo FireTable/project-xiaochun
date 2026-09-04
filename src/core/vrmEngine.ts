@@ -8,6 +8,7 @@ import { EmagePlayer } from '@/motion/emagePlayer';
 import { NaturalIdleSystem } from '@/motion/naturalIdle';
 import { ChatDirector } from '@/director/chatDirector';
 import { MotionTransitionManager } from '@/motion/motionTransition';
+import { BodyTurnSystem } from '@/motion/bodyTurn';
 import { preloadWebLLM } from '@/llm/webLLM';
 import { APP_CONFIG, type LightConfig, type MaterialSaturationConfig } from '@/config';
 
@@ -111,9 +112,8 @@ export class VRMEngine {
   private readonly isLockHead = true;
 
   private thinkingWeight = 0.0;
-  private turnStepPhase = 0.0;
-  private isTurningBody = false;
-  private stepWeight = 0.0;
+  private bodyTurn = new BodyTurnSystem();
+  private bodyTurnIsStepping = false;
 
   private blinkTimer = 0;
   private blinkInterval = 3.0;
@@ -695,6 +695,7 @@ export class VRMEngine {
 
         this.emagePlayer.bind(vrm);
         this.naturalIdle.bind(vrm);
+        this.bodyTurn.bind(vrm);
         if (typeof window !== 'undefined') {
           (window as any).emagePlayer = this.emagePlayer;
         }
@@ -913,7 +914,9 @@ uniform float uMatSaturation;
           }
           vrm.scene.position.y = this.vrmBaseSceneY;
           if (this.isIdleBreath) {
-            this.naturalIdle.update(time, 1.0);
+            // 始终启用 naturalIdle(负责呼吸/手指/head/neck),仅在 bodyTurn 踱步时跳过腿/髋写入。
+            // 配合 handleBodyTurnHandoff 的 motionTransition,完成腿/髋的平滑切换。
+            this.naturalIdle.update(time, 1.0, this.bodyTurn.isStepping());
           }
         }
 
@@ -922,6 +925,26 @@ uniform float uMatSaturation;
         // 外部 Slerp 与 EMAGE 内部弹簧同时运行会产生"双重插值"，导致上肢冲击放快、头部闪跳。
         if (!emageLive) {
           this.motionTransition.apply(vrm, delta);
+        }
+
+        // 物理转身踱步系统 (BodyTurnSystem) — 必须先于 levelFeet 运行:
+        // 踱步期间脚踝会施加背屈旋转,footIK 抹平就完全看不见了。
+        // ponytail: 踱步时 levelFeet 内部通过 bodyTurn.isStepping() 让位。
+        if (this.isLookAtHead) {
+          const _btHead = vrm.humanoid?.getNormalizedBoneNode('head');
+          const _btPos = new THREE.Vector3();
+          if (_btHead) _btHead.getWorldPosition(_btPos);
+          else _btPos.copy(vrm.scene.position);
+          const _dx = this.camera.position.x - _btPos.x;
+          const _dz = this.camera.position.z - _btPos.z;
+          const _targetYaw = Math.atan2(_dx, _dz) - vrm.scene.rotation.y;
+          const normYaw = Math.atan2(Math.sin(_targetYaw), Math.cos(_targetYaw));
+          const yawDelta = this.bodyTurn.update(delta, normYaw, emageLive);
+          vrm.scene.rotation.y += yawDelta;
+
+          // 踱步状态翻转时,通过 motionTransition 做 0.30s 平滑过渡 + 同步切换 naturalIdle 开关。
+          // ponytail: 单点切换,避免两套系统互相冲刷;transition 自身会在 duration 后自动停。
+          this.handleBodyTurnHandoff(vrm);
         }
 
         if (vrmaLive || !emageLive) {
@@ -1053,48 +1076,6 @@ uniform float uMatSaturation;
 
         vrm.update(delta);
 
-        // 下半身踏步迟滞跟随镜头
-        if (this.isLookAtHead && vrm) {
-          const vrmPos = new THREE.Vector3();
-          if (headNode) headNode.getWorldPosition(vrmPos);
-          else vrmPos.copy(vrm.scene.position);
-
-          const dx = this.camera.position.x - vrmPos.x;
-          const dz = this.camera.position.z - vrmPos.z;
-          const targetYaw = Math.atan2(dx, dz) - vrm.scene.rotation.y;
-          const normYaw = Math.atan2(Math.sin(targetYaw), Math.cos(targetYaw));
-
-          if (!this.isTurningBody && Math.abs(normYaw) > 0.95 && !emageLive) {
-            this.isTurningBody = true;
-          } else if (this.isTurningBody && (Math.abs(normYaw) < 0.35 || emageLive)) {
-            this.isTurningBody = false;
-          }
-
-          const targetStepWeight = this.isTurningBody ? 1.0 : 0.0;
-          this.stepWeight += (targetStepWeight - this.stepWeight) * Math.min(1.0, delta * 6.0);
-
-          if (this.isTurningBody) {
-            vrm.scene.rotation.y += normYaw * delta * 2.0;
-            this.turnStepPhase += delta * 10.0;
-          }
-
-          if (this.stepWeight > 0.01) {
-            const leftLeg = vrm.humanoid?.getNormalizedBoneNode('leftUpperLeg');
-            const rightLeg = vrm.humanoid?.getNormalizedBoneNode('rightUpperLeg');
-            const stepL = Math.sin(this.turnStepPhase) * 0.06 * this.stepWeight;
-            const stepR = Math.sin(this.turnStepPhase + Math.PI) * 0.06 * this.stepWeight;
-
-            if (leftLeg) {
-              const q = new THREE.Quaternion().setFromEuler(new THREE.Euler(Math.max(0, stepL), 0, 0));
-              leftLeg.quaternion.slerp(q, 0.2);
-            }
-            if (rightLeg) {
-              const q = new THREE.Quaternion().setFromEuler(new THREE.Euler(Math.max(0, stepR), 0, 0));
-              rightLeg.quaternion.slerp(q, 0.2);
-            }
-          }
-        }
-
         // 影子跟随
         if (this.shadowPlane && vrm.humanoid) {
           const lf = vrm.humanoid.getNormalizedBoneNode('leftFoot');
@@ -1147,7 +1128,26 @@ uniform float uMatSaturation;
   private _footLevelQ = new THREE.Quaternion();
   private _footLevelParentInv = new THREE.Quaternion();
 
+  /**
+   * bodyTurn 踱步状态翻转时调用 — 通过 motionTransition 做 0.30s 平滑过渡,
+   * 并同步切换 naturalIdle.enabled,让两套骨骼系统通过 transitionManager 协调而非互相冲刷。
+   * ponytail: 仅在 idle/VRMA 分支被调用(EMAGE 时 bodyTurn 自己强制 IDLE);
+   *           transition 自身在 duration 后自动停,不需要手动 stop。
+   */
+  private handleBodyTurnHandoff(vrm: VRM): void {
+    const isStepping = this.bodyTurn.isStepping();
+    if (isStepping === this.bodyTurnIsStepping) return;
+    this.bodyTurnIsStepping = isStepping;
+    // 触发 motionTransition:naturalIdle 仍然启用(只跳过腿/髋写入),transition
+    // 会把腿/髋从 naturalIdle 的 rest pose 平滑过渡到 bodyTurn 的踱步 pose,再切回。
+    this.motionTransition.startTransition(vrm, 0.30);
+  }
+
   private levelFeet(vrm: VRM): void {
+    // 踱步进行中让出脚部控制权,否则 footIK 会把脚踝背屈旋转强抹平。
+    // ponytail: 仅做一次早返,无分配;踱步结束(IDLE)后自动恢复脚部水平修正。
+    if (this.bodyTurn.isStepping()) return;
+
     const h = vrm.humanoid;
     if (!h) return;
     const lf = h.getNormalizedBoneNode('leftFoot');

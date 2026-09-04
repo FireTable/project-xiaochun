@@ -267,7 +267,7 @@ export class NaturalIdleSystem {
     setBone(f.little.distal, 0.0, 0.0, -0.42);
   }
 
-  update(time: number, idleWeight: number): void {
+  update(time: number, idleWeight: number, bodyTurnActive = false): void {
     if (!this.enabled || !this.vrm || idleWeight <= 0.001) return;
 
     const t = time;
@@ -283,7 +283,12 @@ export class NaturalIdleSystem {
     const swayX = Math.sin(t * 0.42) * 0.007 * idleWeight;
     const swayZ = Math.cos(t * 0.31) * 0.005 * idleWeight;
 
-    if (this.hips) {
+    // ponytail: bodyTurn 踱步中让出下半身控制权 — naturalIdle 每帧 slerp 腿/髋回 rest
+    // 会直接把 bodyTurn 的踱步姿态清零。头/颈/手指/呼吸不 gate,继续维持 LookAt 基础姿态,
+    // 防止 LookAt.multiply() 在 head/neck 上逐帧累积造成 360° 旋转。
+    const legWeight = bodyTurnActive ? 0.0 : idleWeight;
+
+    if (this.hips && !bodyTurnActive) {
       this._hipsPos.set(
         this.restHipsPos.x + swayX,
         this.restHipsPos.y + (breathMain * 0.004 + 0.002) * idleWeight,
@@ -299,14 +304,14 @@ export class NaturalIdleSystem {
     }
 
     // ─── 2.1 下半身双腿与脚掌端正站姿保障（平滑插值回归标准立姿，彻底消除任何 EMAGE 或动作残留的歪斜、弯曲与脱臼） ───
-    if (this.leftUpperLeg) this.leftUpperLeg.quaternion.slerp(this.restLeftUpperLegQ, idleWeight);
-    if (this.rightUpperLeg) this.rightUpperLeg.quaternion.slerp(this.restRightUpperLegQ, idleWeight);
-    if (this.leftLowerLeg) this.leftLowerLeg.quaternion.slerp(this.restLeftLowerLegQ, idleWeight);
-    if (this.rightLowerLeg) this.rightLowerLeg.quaternion.slerp(this.restRightLowerLegQ, idleWeight);
-    if (this.leftFoot) this.leftFoot.quaternion.slerp(this.restLeftFootQ, idleWeight);
-    if (this.rightFoot) this.rightFoot.quaternion.slerp(this.restRightFootQ, idleWeight);
-    if (this.leftToes) this.leftToes.quaternion.slerp(this.restLeftToesQ, idleWeight);
-    if (this.rightToes) this.rightToes.quaternion.slerp(this.restRightToesQ, idleWeight);
+    if (this.leftUpperLeg) this.leftUpperLeg.quaternion.slerp(this.restLeftUpperLegQ, legWeight);
+    if (this.rightUpperLeg) this.rightUpperLeg.quaternion.slerp(this.restRightUpperLegQ, legWeight);
+    if (this.leftLowerLeg) this.leftLowerLeg.quaternion.slerp(this.restLeftLowerLegQ, legWeight);
+    if (this.rightLowerLeg) this.rightLowerLeg.quaternion.slerp(this.restRightLowerLegQ, legWeight);
+    if (this.leftFoot) this.leftFoot.quaternion.slerp(this.restLeftFootQ, legWeight);
+    if (this.rightFoot) this.rightFoot.quaternion.slerp(this.restRightFootQ, legWeight);
+    if (this.leftToes) this.leftToes.quaternion.slerp(this.restLeftToesQ, legWeight);
+    if (this.rightToes) this.rightToes.quaternion.slerp(this.restRightToesQ, legWeight);
 
     // ─── 3. 胸腔与脊柱呼吸扩张 ───
     if (this.chest) {
