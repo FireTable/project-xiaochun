@@ -156,7 +156,7 @@ function notifyLLMUnready(): void {
   });
 }
 
-function unloadEngineInternal(): void {
+function unloadEngine(): void {
   loadGen += 1;
   engineInstance = null;
   initPromise = null;
@@ -164,44 +164,6 @@ function unloadEngineInternal(): void {
   engineWorker = null;
   notifyLoadProgress(0, '');
   notifyLLMUnready();
-}
-
-/** ponytail: 暴露给 chatDirector 用 — Android Chrome mapAsync AbortError 时强制重建引擎。 */
-export function unloadEngine(): void {
-  unloadEngineInternal();
-}
-
-// ponytail: 缓存 GPU 风险等级。Android Chrome WebGPU 在 Adreno/Mali/ARM 上
-// 已知出现 VK_ERROR_DEVICE_LOST 与 mapAsync AbortError (mlc-ai/web-llm #722、#836,
-// 官方 PR #256/#262 推荐的检测手段)。query 只跑一次,后续同步返回。
-let cachedGpuRisk: 'safe' | 'risky' | 'unknown' | null = null;
-
-export async function getGpuRiskLevel(): Promise<'safe' | 'risky' | 'unknown'> {
-  if (cachedGpuRisk !== null) return cachedGpuRisk;
-  const gpu = (navigator as any).gpu;
-  if (typeof navigator === 'undefined' || !gpu) {
-    cachedGpuRisk = 'unknown';
-    return 'unknown';
-  }
-  try {
-    const adapter = await gpu.requestAdapter();
-    if (!adapter) {
-      cachedGpuRisk = 'unknown';
-      return 'unknown';
-    }
-    const info: any = await adapter.requestAdapterInfo?.();
-    const vendor = String(info?.vendor ?? '').toLowerCase();
-    const arch = String(info?.architecture ?? '').toLowerCase();
-    const lim = (adapter.limits as any)?.maxStorageBufferBindingSize ?? 0;
-    const riskyVendor = /qualcomm|arm|mali|powervr|adreno|imagination/.test(vendor)
-      || /arm|llvm/.test(arch);
-    // 128MB binding size = Android 低端 (PR #209),根本跑不了大模型
-    const tinyBinding = lim > 0 && lim < 512 * 1024 * 1024;
-    cachedGpuRisk = riskyVendor || tinyBinding ? 'risky' : 'safe';
-  } catch {
-    cachedGpuRisk = 'unknown';
-  }
-  return cachedGpuRisk;
 }
 
 export interface LlmLoadProgress {

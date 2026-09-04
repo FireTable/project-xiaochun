@@ -12,7 +12,7 @@ import type { VRM } from '@pixiv/three-vrm';
 import { makeClipSeamless } from '@/motion/vrmaRetarget';
 import type { VRMAMotionPlayer } from '@/motion/vrmaPlayer';
 import { pcmFromAudioBuffer, type EmagePlayer, type EmageMotionData } from '@/motion/emagePlayer';
-import { generateSpeechReply, unloadEngine } from '@/llm/webLLM';
+import { generateSpeechReply } from '@/llm/webLLM';
 import { rememberTurn } from '@/memory';
 import type { MotionTransitionManager } from '@/motion/motionTransition';
 
@@ -251,9 +251,6 @@ export class ChatDirector {
   private currentVRM: VRM | null = null;
   private transition: MotionTransitionManager | null = null;
   private stopPlaySegment: (() => void) | null = null;
-  // ponytail: Android Chrome WebGPU 在第二次推理时偶发 mapAsync AbortError
-  // (mlc-ai/web-llm #722/#836),每条消息最多重建引擎重试一次,避免死循环。
-  private llmRetried = false;
 
   bindTransitionManager(tm: MotionTransitionManager): void {
     this.transition = tm;
@@ -340,7 +337,6 @@ export class ChatDirector {
     this.stopped = false;
     this.audioDone = false;
     this.speaking = false;
-    this.llmRetried = false;
     this.player = player;
     this.emage = emage;
     this.currentVRM = vrm;
@@ -361,27 +357,16 @@ export class ChatDirector {
         this.getSystemPrompt?.() ?? '',
       );
     } catch (e: any) {
-      // ponytail: Android Chrome WebGPU 已知问题 — 第二次推理偶发
-      // "AbortError: Failed to execute 'mapAsync' on 'GPUBuffer': Buffer was unmapped"。
-      // 强制重建引擎再试一次,后续同一对话内不再重试(避免死循环)。
-      if (!this.llmRetried && this.isMapAsyncAbort(e)) {
-        this.llmRetried = true;
-        console.warn('[ChatDirector] mapAsync AbortError — rebuilding engine, retrying once');
-        unloadEngine();
-        try {
-          speechText = await generateSpeechReply(
-            text,
-            (key, vars) => status(key, vars),
-            this.getSystemPrompt?.() ?? '',
-          );
-        } catch (e2: any) {
-          this.reportLlmError(e2, status);
-          return;
-        }
-      } else {
-        this.reportLlmError(e, status);
-        return;
-      }
+      // ponytail: 1) console 必打,方便手机 chrome 用户从 DevTools 复制原文反馈;
+      //          2) message 为空时硬编码英文兜底("Unknown error"),避免出现
+      //             "Local LLM error: "秃尾巴 + 不依赖未定义的 i18n key;
+      //          3) HeadBubble 渲染时硬加 "bubble." 前缀 → 传 "error.llm" 实际查
+      //             "bubble.error.llm",所以 i18n 里要定义在 bubble.error.llm 而非 error.llm。
+      console.error('[ChatDirector] LLM failed:', e);
+      const rawMsg = (e?.message ?? String(e) ?? '').trim();
+      status('error.llm', { message: rawMsg || 'Unknown error' }, true);
+      this.stop();
+      return;
     }
     if (this.stopped || !speechText.trim()) {
       // ponytail: LLM 空输出时塞 i18n greeting,不再硬编码中文。
@@ -613,23 +598,6 @@ export class ChatDirector {
   }
 
   setOnEnd(cb: () => void) { this.onEnd = cb; }
-
-  /** ponytail: 识别 Android Chrome 第二次推理的 mapAsync AbortError,用于触发引擎重建重试。 */
-  private isMapAsyncAbort(e: any): boolean {
-    return e?.name === 'AbortError' && /mapasync|unmapped/i.test(String(e?.message ?? ''));
-  }
-
-  /** ponytail: 统一上报 LLM 错误 — console 打原始 message 方便手机 chrome 用户从 DevTools 复制反馈。 */
-  private reportLlmError(e: any, status: (
-    key: string,
-    vars?: Record<string, unknown>,
-    isError?: boolean,
-  ) => void): void {
-    console.error('[ChatDirector] LLM failed:', e);
-    const rawMsg = (e?.message ?? String(e) ?? '').trim();
-    status('error.llm', { message: rawMsg || 'Unknown error' }, true);
-    this.stop();
-  }
 
   // ponytail: 外部判断"现在是否有 chat 在播",给 main.ts 的 idle 接管用
   isActive(): boolean {
