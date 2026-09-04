@@ -312,7 +312,6 @@ export function extractCleanSpeech(text: string): string {
   return raw;
 }
 
-/** ponytail: WebLLM 没有 thinking_budget,流式里数 delta 当 token,超时或超上限就 interrupt。 */
 async function completeOnce(
   engine: WebWorkerMLCEngine,
   userText: string,
@@ -320,46 +319,21 @@ async function completeOnce(
   thinking: boolean,
 ): Promise<string> {
   const qwen3 = getActiveModelId().startsWith('Qwen3');
-  const useThink = thinking && qwen3;
   const lang: Lang =
     systemPrompt === XIAOCHUN_SYSTEM_PROMPT.en
       ? 'en'
       : systemPrompt === XIAOCHUN_SYSTEM_PROMPT.ja
         ? 'ja'
         : 'zh-CN';
-  const chunks = await engine.chat.completions.create({
+  const reply = await engine.chat.completions.create({
     messages: [
       { role: 'system', content: systemPrompt },
       { role: 'user', content: wrapUserContent(userText, lang) },
     ],
     temperature: 0.8,
-    stream: true,
-    ...(qwen3 ? { extra_body: { enable_thinking: useThink } } : {}),
+    ...(qwen3 ? { extra_body: { enable_thinking: thinking && qwen3 } } : {}),
   });
-
-  let raw = '';
-  let thinkTokens = 0;
-  let inThink = useThink;
-  const t0 = Date.now();
-  const maxTok = APP_CONFIG.llm.thinkingMaxTokens;
-  const maxMs = APP_CONFIG.llm.thinkingMaxMs;
-
-  for await (const chunk of chunks) {
-    const delta = chunk.choices[0]?.delta?.content ?? '';
-    if (delta) raw += delta;
-    if (!inThink) continue;
-    if (raw.includes('</think>')) {
-      inThink = false;
-      continue;
-    }
-    if (delta) thinkTokens += 1;
-    if (thinkTokens >= maxTok || Date.now() - t0 >= maxMs) {
-      engine.interruptGenerate();
-      break;
-    }
-  }
-
-  return raw;
+  return reply.choices[0]?.message?.content || '';
 }
 
 /**
@@ -381,7 +355,6 @@ export async function generateSpeechReply(
   if (gen !== loadGen) throw new Error('model switched');
   let cleanSpeech = extractCleanSpeech(raw);
 
-  // 思考被掐断、还没正文:关思考再跑一轮,避免空等之后只剩兜底问候。
   if (!cleanSpeech.trim() && wantThink) {
     raw = await completeOnce(engine, userText, systemPrompt, false);
     if (gen !== loadGen) throw new Error('model switched');
