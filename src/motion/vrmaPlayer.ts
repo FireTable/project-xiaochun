@@ -3,11 +3,7 @@ import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
 import { VRMAnimationLoaderPlugin, createVRMAnimationClip } from '@pixiv/three-vrm-animation';
 import type { VRM } from '@pixiv/three-vrm';
 import { retargetClip } from './vrmaRetarget';
-
-export interface VRMALoadResult {
-  name: string;
-  duration: number;
-}
+import type { MotionTransitionManager } from './motionTransition';
 
 export interface VRMALoadResult {
   name: string;
@@ -31,36 +27,10 @@ export class VRMAMotionPlayer {
   private isFadingToIdle = false;
   private fadeDuration = 0.5;
 
-  private currentVRM: VRM | null = null;
-  private isFadingIn = false;
-  private fadeInElapsed = 0;
-  private fadeInDuration = 0.65;
-  private boneSnapshots = new Map<string, { q: THREE.Quaternion; p?: THREE.Vector3 }>();
+  private transitionManager: MotionTransitionManager | null = null;
 
-  private captureBoneSnapshots(vrm: VRM, fadeDur = 0.65): void {
-    this.currentVRM = vrm;
-    this.boneSnapshots.clear();
-    this.fadeInDuration = Math.max(0.1, fadeDur);
-    this.fadeInElapsed = 0;
-    this.isFadingIn = true;
-
-    if (!vrm.humanoid) return;
-    const boneNames = [
-      'hips', 'spine', 'chest', 'upperChest', 'neck', 'head',
-      'leftShoulder', 'rightShoulder', 'leftUpperArm', 'rightUpperArm',
-      'leftLowerArm', 'rightLowerArm', 'leftHand', 'rightHand',
-      'leftUpperLeg', 'rightUpperLeg', 'leftLowerLeg', 'rightLowerLeg',
-      'leftFoot', 'rightFoot',
-    ] as const;
-
-    for (const name of boneNames) {
-      const node = vrm.humanoid.getNormalizedBoneNode(name as any);
-      if (!node) continue;
-      this.boneSnapshots.set(name, {
-        q: node.quaternion.clone(),
-        p: name === 'hips' ? node.position.clone() : undefined,
-      });
-    }
+  bindTransitionManager(tm: MotionTransitionManager): void {
+    this.transitionManager = tm;
   }
 
   async parseBufferToClip(buf: ArrayBuffer, vrm: VRM): Promise<THREE.AnimationClip> {
@@ -98,6 +68,9 @@ export class VRMAMotionPlayer {
     this.isSequenceMode = false;
     this.fadeDuration = fadeDur;
 
+    // 全局动作平滑过渡器：无感捕获当前实时骨骼并平滑 Slerp 渐入新动作
+    this.transitionManager?.startTransition(vrm, fadeDur);
+
     const newAction = mixer.clipAction(clip);
     newAction.reset();
     newAction.setLoop(THREE.LoopOnce, 1);
@@ -107,24 +80,13 @@ export class VRMAMotionPlayer {
     newAction.setEffectiveTimeScale(1.0);
 
     const oldAction = this.action;
-    if (oldAction && oldAction !== newAction && oldAction.isRunning() && oldAction.getEffectiveWeight() > 0.05) {
-      newAction.setEffectiveWeight(1.0);
-      newAction.crossFadeFrom(oldAction, fadeDur, true);
-      const toClean = oldAction;
-      setTimeout(() => {
-        if (this.action !== toClean) {
-          toClean.stop();
-        }
-      }, fadeDur * 1000 + 100);
-    } else {
-      // 从待机进入动作：捕获当前骨骼真实姿态 (Natural Idle)，毫秒级零冲击平滑 Slerp 渐入！
-      this.captureBoneSnapshots(vrm, fadeDur);
-      newAction.setEffectiveWeight(1.0);
-      this.idleWeight = 1.0;
+    if (oldAction && oldAction !== newAction) {
+      oldAction.stop();
     }
 
     newAction.play();
     this.action = newAction;
+    this.idleWeight = 0.0;
     this.isFadingToIdle = false;
     this.paused = false;
     this.clock.start();
@@ -137,31 +99,24 @@ export class VRMAMotionPlayer {
     this.isSequenceMode = false;
     this.fadeDuration = fadeDur;
 
+    // 全局动作平滑过渡器：从待机或其他动作无感捕获当前骨骼，丝滑 Slerp 融入循环
+    this.transitionManager?.startTransition(vrm, fadeDur);
+
     const newAction = mixer.clipAction(clip);
     newAction.reset();
     newAction.setLoop(THREE.LoopRepeat, Infinity);
     newAction.clampWhenFinished = false;
     newAction.enabled = true;
+    newAction.setEffectiveWeight(1.0);
 
     const oldAction = this.action;
-    if (oldAction && oldAction !== newAction && oldAction.isRunning() && oldAction.getEffectiveWeight() > 0.05) {
-      newAction.setEffectiveWeight(1.0);
-      newAction.crossFadeFrom(oldAction, fadeDur, true);
-      const toClean = oldAction;
-      setTimeout(() => {
-        if (this.action !== toClean) {
-          toClean.stop();
-        }
-      }, fadeDur * 1000 + 100);
-    } else {
-      // 从待机进入思考循环：捕获当前骨骼真实姿态 (Natural Idle)，毫秒级零冲击平滑 Slerp 渐入！
-      this.captureBoneSnapshots(vrm, fadeDur);
-      newAction.setEffectiveWeight(1.0);
-      this.idleWeight = 1.0;
+    if (oldAction && oldAction !== newAction) {
+      oldAction.stop();
     }
 
     newAction.play();
     this.action = newAction;
+    this.idleWeight = 0.0;
     this.isFadingToIdle = false;
     this.paused = false;
     this.clock.start();
@@ -180,6 +135,9 @@ export class VRMAMotionPlayer {
     this.isFadingToIdle = false;
     this.fadeDuration = fadeDur;
 
+    // 全局动作平滑过渡器接管
+    this.transitionManager?.startTransition(vrm, fadeDur);
+
     clips.forEach((clip) => {
       const act = mixer.clipAction(clip);
       act.reset();
@@ -193,27 +151,13 @@ export class VRMAMotionPlayer {
 
     const oldAction = this.action;
     const firstAction = this.sequenceActions[0];
-    firstAction.reset();
-
-    if (oldAction && oldAction !== firstAction && oldAction.isRunning() && oldAction.getEffectiveWeight() > 0.05) {
-      firstAction.setEffectiveWeight(1.0);
-      firstAction.crossFadeFrom(oldAction, fadeDur, true);
-      const toClean = oldAction;
-      setTimeout(() => {
-        if (this.action !== toClean) {
-          try { toClean.stop(); } catch {}
-        }
-      }, fadeDur * 1000 + 100);
-    } else {
-      this.captureBoneSnapshots(vrm, fadeDur);
-      firstAction.setEffectiveWeight(1.0);
-      this.idleWeight = 1.0;
+    if (oldAction && oldAction !== firstAction) {
+      oldAction.stop();
     }
-
     firstAction.play();
     this.action = firstAction;
-
     this.name = `sequence (${clips.length} actions)`;
+    this.idleWeight = 0.0;
     this.paused = false;
     this.clock.start();
   }
@@ -263,26 +207,6 @@ export class VRMAMotionPlayer {
     if (!this.mixer || this.paused) return;
     const dt = delta > 0 ? delta : this.clock.getDelta();
     this.mixer.update(dt);
-
-    if (this.isFadingIn && this.currentVRM?.humanoid) {
-      this.fadeInElapsed += dt;
-      const alpha = Math.min(1.0, this.fadeInElapsed / this.fadeInDuration);
-      const easedAlpha = alpha * alpha * (3 - 2 * alpha); // Smoothstep S 曲线
-
-      for (const [name, snap] of this.boneSnapshots.entries()) {
-        const node = this.currentVRM.humanoid.getNormalizedBoneNode(name as any);
-        if (!node) continue;
-        node.quaternion.copy(snap.q).slerp(node.quaternion, easedAlpha);
-        if (snap.p && name === 'hips') {
-          node.position.copy(snap.p).lerp(node.position, easedAlpha);
-        }
-      }
-
-      if (alpha >= 1.0) {
-        this.isFadingIn = false;
-        this.boneSnapshots.clear();
-      }
-    }
 
     if (this.isSequenceMode && this.sequenceActions.length > 0) {
       const curAction = this.sequenceActions[this.sequenceIdx];
@@ -364,9 +288,6 @@ export class VRMAMotionPlayer {
     this.transitioningSequence = false;
     this.idleWeight = 1.0;
     this.isFadingToIdle = false;
-    this.isFadingIn = false;
-    this.boneSnapshots.clear();
-    this.currentVRM = null;
     this.clock.stop();
   }
 

@@ -107,11 +107,12 @@ export const App: React.FC = () => {
         onToggleDrawer={() => setIsDrawerOpen((prev) => !prev)}
       />
 
-      {/* 设置 / 调试抽屉 */}
-      <DevDrawer
-        isOpen={isDrawerOpen}
-        onClose={() => setIsDrawerOpen(false)}
-      />
+      {isDev ? (
+        <DevDrawer
+          isOpen={isDrawerOpen}
+          onClose={() => setIsDrawerOpen(false)}
+        />
+      ) : null}
 
       {/* 拖拽上传提示层 */}
       {isDragOver && (

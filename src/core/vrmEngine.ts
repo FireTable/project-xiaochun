@@ -9,6 +9,7 @@ import { VRMAMotionPlayer } from '@/motion/vrmaPlayer';
 import { EmagePlayer } from '@/motion/emagePlayer';
 import { NaturalIdleSystem } from '@/motion/naturalIdle';
 import { ChatDirector } from '@/director/chatDirector';
+import { MotionTransitionManager } from '@/motion/motionTransition';
 import { preloadWebLLM } from '@/llm/webLLM';
 import { APP_CONFIG, type LightConfig } from '@/config';
 
@@ -69,12 +70,14 @@ export class VRMEngine {
   }
 
   public currentVRM: VRM | null = null;
+  private motionTransition = new MotionTransitionManager();
   private vrmaPlayer = new VRMAMotionPlayer();
   private emagePlayer = new EmagePlayer();
   private naturalIdle = new NaturalIdleSystem();
   private chatDirector = new ChatDirector();
 
-  private activePlayer: 'vrma' | 'emage' = 'vrma';
+  private activePlayer: 'vrma' | 'emage' | 'idle' = 'idle';
+  private manualExpression: string | null = null;
   private currentUrl: string = APP_CONFIG.model.defaultVrm;
 
   public getCurrentUrl(): string {
@@ -243,6 +246,9 @@ export class VRMEngine {
     this.scene.add(this.rightArmLight);
 
     this.updateAllLights();
+
+    this.vrmaPlayer.bindTransitionManager(this.motionTransition);
+    this.chatDirector.bindTransitionManager(this.motionTransition);
 
     this.chatDirector.setOnEnd(() => {
       this.currentBubbleState.visible = false;
@@ -548,9 +554,10 @@ export class VRMEngine {
 
   public setExpression(name: string): void {
     if (!this.currentVRM?.expressionManager) return;
+    this.manualExpression = name === 'neutral' ? null : name;
     const mgr = this.currentVRM.expressionManager;
     const presets: VRMExpressionPresetName[] = [
-      'happy', 'angry', 'sad', 'relaxed', 'surprised', 'neutral'
+      'happy', 'angry', 'sad', 'relaxed', 'surprised', 'neutral', 'aa', 'ih', 'ou', 'ee', 'oh'
     ];
     presets.forEach((p) => {
       try { mgr.setValue(p, 0); } catch { }
@@ -579,7 +586,9 @@ export class VRMEngine {
     this.chatDirector.resetClipCache();
     this.vrmaPlayer.stop();
     this.emagePlayer.stop();
-    this.activePlayer = 'vrma';
+    this.motionTransition.stop();
+    this.manualExpression = null;
+    this.activePlayer = 'idle';
 
     const fetchUrl = url;
     this.loader.load(
@@ -792,50 +801,62 @@ export class VRMEngine {
         const emageLive = this.emagePlayer.isPlaying();
         const vrmaLive = this.vrmaPlayer.isPlaying() || this.chatDirector.isThinking;
 
-        let rawIdleWeight = 1.0;
         if (emageLive) {
           this.activePlayer = 'emage';
           this.emagePlayer.update(delta);
-          rawIdleWeight = this.emagePlayer.getIdleWeight();
-        } else if (vrmaLive || this.activePlayer === 'vrma') {
+        } else if (vrmaLive) {
           this.activePlayer = 'vrma';
           this.vrmaPlayer.update(delta);
-          rawIdleWeight = this.vrmaPlayer.getIdleWeight();
         } else {
-          this.activePlayer = 'vrma';
-          rawIdleWeight = 1.0;
+          if (this.activePlayer !== 'idle') {
+            this.motionTransition.startTransition(vrm, 0.75);
+            this.activePlayer = 'idle';
+          }
+          if (this.isIdleBreath) {
+            this.naturalIdle.update(time, 1.0);
+          } else {
+            vrm.scene.position.y = this.vrmBaseSceneY;
+          }
         }
+
+        // 全局动作平滑过渡器统一接管（解决 idle -> think -> emage -> idle 任意两状态间的割裂跳跃）
+        this.motionTransition.apply(vrm, delta);
 
         this.chatDirector.tick(vrm, this.vrmaPlayer);
 
-        const u = Math.min(Math.max(rawIdleWeight, 0), 1);
-        const idleWeight = u * u * u * (u * (u * 6 - 15) + 10);
-
-        const headBone = vrm.humanoid?.getNormalizedBoneNode('head');
-
-        if (this.isIdleBreath && idleWeight > 0.001) {
-          this.naturalIdle.update(time, idleWeight);
-        } else if (!this.isIdleBreath) {
-          vrm.scene.position.y = this.vrmBaseSceneY;
-        }
-
-        // 思考状态下的神态与微动态
+        // 思考神态与基础待机神态平滑过渡
         if (this.chatDirector.isThinking) {
-          this.thinkingWeight = Math.min(1.0, this.thinkingWeight + delta * 0.6);
+          this.thinkingWeight = Math.min(1.0, this.thinkingWeight + delta * 2.5);
         } else {
-          this.thinkingWeight = Math.max(0.0, this.thinkingWeight - delta * 0.8);
+          this.thinkingWeight = Math.max(0.0, this.thinkingWeight - delta * 3.0);
         }
         const tw = this.thinkingWeight * this.thinkingWeight * (3 - 2 * this.thinkingWeight);
-        if (vrm.expressionManager && tw > 0.01 && !this.chatDirector.speaking) {
-          vrm.expressionManager.setValue('ou', 0.85 * tw);
-          vrm.expressionManager.setValue('relaxed', 0.25 * tw);
+
+        if (vrm.expressionManager) {
+          if (this.manualExpression && this.manualExpression !== 'neutral') {
+            // 用户在开发者抽屉显式指定表情时，维持手动表情
+          } else if (this.chatDirector.speaking) {
+            // 朗读说话中：清空思考嘴型 ('ou') 与静态微笑，完全让位给实时语音 LipSync ('aa')
+            vrm.expressionManager.setValue('ou', 0);
+            vrm.expressionManager.setValue('relaxed', 0);
+            vrm.expressionManager.setValue('happy', 0);
+          } else {
+            // 待机或思考态：
+            // 1. 思考嘴型 'ou' 随 tw 严格平滑渐变（tw 归 0 时 ou 彻底归 0，绝不残留）
+            vrm.expressionManager.setValue('ou', 0.65 * tw);
+            vrm.expressionManager.setValue('relaxed', 0.15 * tw);
+            // 2. 待机默认不张嘴：happy 设为 0，完美回归模型原始雕刻的温婉闭嘴微笑（图二效果）
+            vrm.expressionManager.setValue('happy', 0);
+          }
         }
+
+        const headBone = vrm.humanoid?.getNormalizedBoneNode('head');
         if (headBone && tw > 0.01) {
-          const thinkHeadSwayX = Math.sin(time * 1.6) * 0.035 * tw;
-          const thinkHeadSwayY = Math.cos(time * 1.1) * 0.055 * tw;
-          const thinkHeadSwayZ = Math.sin(time * 1.4) * 0.03 * tw;
-          const q = new THREE.Quaternion().setFromEuler(new THREE.Euler(thinkHeadSwayX, thinkHeadSwayY, thinkHeadSwayZ));
-          headBone.quaternion.slerp(q, tw * 0.5);
+          const thinkHeadSwayX = Math.sin(time * 1.6) * 0.025 * tw;
+          const thinkHeadSwayY = Math.cos(time * 1.1) * 0.035 * tw;
+          const thinkHeadSwayZ = Math.sin(time * 1.4) * 0.02 * tw;
+          const swayQ = new THREE.Quaternion().setFromEuler(new THREE.Euler(thinkHeadSwayX, thinkHeadSwayY, thinkHeadSwayZ));
+          headBone.quaternion.multiply(swayQ);
         }
 
         // 自然眨眼

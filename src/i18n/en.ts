@@ -17,6 +17,7 @@ export const en: Trans = {
     uploadVrm: 'Upload VRM',
     settingsPanel: 'Settings / Debug Panel',
     settingsPanelTitle: 'Collapse panel',
+    github: 'View on GitHub',
     switchLang: {
       tooltip: 'Switch language / 切换语言',
     },
@@ -36,6 +37,8 @@ export const en: Trans = {
     queueSend: 'Queue',
     sending: 'Thinking…',
     send: 'Send',
+    thinkingOn: 'Thinking on',
+    thinkingOff: 'Thinking off',
   },
   loading: {
     title: 'XiaoChun is waking up…',

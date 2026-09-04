@@ -2,7 +2,7 @@ import React, { useEffect, useRef } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Globe } from 'lucide-react';
 import { vrmEngine } from '@/core/vrmEngine';
-import { Upload, Settings } from '@/components/icons';
+import { Upload, Settings, Github } from '@/components/icons';
 import { Button } from '@/components/ui/button';
 import {
   DropdownMenu,
@@ -25,6 +25,7 @@ interface TopHeaderProps {
 }
 
 export const TopHeader: React.FC<TopHeaderProps> = ({
+  isDev,
   isDrawerOpen,
   onToggleDrawer,
 }) => {
@@ -101,7 +102,7 @@ export const TopHeader: React.FC<TopHeaderProps> = ({
               </DropdownMenuContent>
             </DropdownMenu>
           </TooltipTrigger>
-          {/* ponytail: tooltip 只挂在 icon-only 按钮上(语言/设置);"上传 VRM" 已有可见文字标签,不重复。 */}
+          {/* ponytail: tooltip 只挂在 icon-only 按钮上;"上传 VRM" 已有可见文字标签,不重复。 */}
           <TooltipContent side="bottom">
             {t('header.switchLang.tooltip')}
           </TooltipContent>
@@ -110,21 +111,47 @@ export const TopHeader: React.FC<TopHeaderProps> = ({
         <Tooltip>
           <TooltipTrigger asChild>
             <Button
-              id="btn-toggle-panel"
+              asChild
               variant="glass"
               size="icon"
-              title={t('header.settingsPanel')}
-              aria-label={t('header.settingsPanel')}
-              onClick={onToggleDrawer}
-              className={`h-11 w-11 sm:h-9 sm:w-9 ${isDrawerOpen ? 'bg-brand-500/25 border-brand-300 text-brand-100 rotate-90 shadow-lg shadow-brand-500/25' : ''}`}
+              className="h-11 w-11 sm:h-9 sm:w-9"
             >
-              <Settings className="w-4 h-4 sm:w-3.5 sm:h-3.5" />
+              <a
+                id="btn-github"
+                href={APP_CONFIG.brand.github}
+                target="_blank"
+                rel="noopener noreferrer"
+                aria-label={t('header.github')}
+              >
+                <Github className="w-4 h-4 sm:w-3.5 sm:h-3.5" />
+              </a>
             </Button>
           </TooltipTrigger>
           <TooltipContent side="bottom">
-            {t('header.settingsPanel')}
+            {t('header.github')}
           </TooltipContent>
         </Tooltip>
+
+        {isDev ? (
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <Button
+                id="btn-toggle-panel"
+                variant="glass"
+                size="icon"
+                title={t('header.settingsPanel')}
+                aria-label={t('header.settingsPanel')}
+                onClick={onToggleDrawer}
+                className={`h-11 w-11 sm:h-9 sm:w-9 ${isDrawerOpen ? 'bg-brand-500/25 border-brand-300 text-brand-100 rotate-90 shadow-lg shadow-brand-500/25' : ''}`}
+              >
+                <Settings className="w-4 h-4 sm:w-3.5 sm:h-3.5" />
+              </Button>
+            </TooltipTrigger>
+            <TooltipContent side="bottom">
+              {t('header.settingsPanel')}
+            </TooltipContent>
+          </Tooltip>
+        ) : null}
       </div>
     </header>
   );

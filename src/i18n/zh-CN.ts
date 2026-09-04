@@ -15,6 +15,7 @@ export const zhCN = {
     uploadVrm: '上传 VRM',
     settingsPanel: '设置 / 调试面板',
     settingsPanelTitle: '收起面板',
+    github: '在 GitHub 上查看',
     switchLang: {
       tooltip: '切换语言 / Switch language',
     },
@@ -35,6 +36,8 @@ export const zhCN = {
     queueSend: '就绪后发送',
     sending: '思考中…',
     send: '发送',
+    thinkingOn: '思考模式开',
+    thinkingOff: '思考模式关',
   },
   loading: {
     title: '小蠢正在醒来…',

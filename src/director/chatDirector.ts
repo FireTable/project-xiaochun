@@ -13,6 +13,7 @@ import { makeClipSeamless } from '@/motion/vrmaRetarget';
 import type { VRMAMotionPlayer } from '@/motion/vrmaPlayer';
 import { pcmFromAudioBuffer, type EmagePlayer } from '@/motion/emagePlayer';
 import { generateSpeechReply } from '@/llm/webLLM';
+import type { MotionTransitionManager } from '@/motion/motionTransition';
 
 interface Plan { speech: string; llm_provider?: string }
 
@@ -107,6 +108,13 @@ export class ChatDirector {
   private onEnd: (() => void) | null = null;
   private player: VRMAMotionPlayer | null = null;
   private emage: EmagePlayer | null = null;
+  private currentVRM: VRM | null = null;
+  private transition: MotionTransitionManager | null = null;
+
+  bindTransitionManager(tm: MotionTransitionManager): void {
+    this.transition = tm;
+  }
+
   /** ponytail: 由 vrmEngine.translateSync 注入,LLM 空输出兜底走 i18n。 */
   public translateSync: ((key: string, vars?: Record<string, unknown>) => string) | null = null;
 
@@ -136,6 +144,7 @@ export class ChatDirector {
   private async playThinking(vrm: VRM, player: VRMAMotionPlayer): Promise<void> {
     document.body.classList.add('chat-playing');
     this.isThinking = true;
+    this.currentVRM = vrm;
 
     // 起播 3D 思考动作文件 (thinking.vrma 无缝循环播放)
     if (!this.thinkingVRMABuf) {
@@ -148,6 +157,8 @@ export class ChatDirector {
           makeClipSeamless(clip);
           this.cachedThinkingClip = clip;
         }
+        // 全局动作平滑过渡：从当前自然待机 (Natural Idle) 毫秒级快照平滑过渡到思考
+        this.transition?.startTransition(vrm, 0.65);
         player.playLoop(this.cachedThinkingClip, vrm, 0.65);
       } catch (e) {
         console.warn('播放 thinking.vrma 动作失败', e);
@@ -254,6 +265,11 @@ export class ChatDirector {
     this.audioDoneTime = 0;
     document.body.classList.add('chat-playing');
 
+    // 全局动作平滑过渡：从思考姿态 (托腮/倾头) 平滑切入 EMAGE 说话全身手势
+    if (this.currentVRM) {
+      this.transition?.startTransition(this.currentVRM, 0.55);
+    }
+
     this.analyser = this.ctx.createAnalyser();
     this.analyser.fftSize = 512;
     this.analyserBuf = new Uint8Array(this.analyser.fftSize);
@@ -327,6 +343,13 @@ export class ChatDirector {
     this.isThinking = false;
     this.speaking = false;
     this.audioDoneTime = 0;
+    if (this.currentVRM) {
+      this.transition?.startTransition(this.currentVRM, 0.65);
+      if (this.currentVRM.expressionManager) {
+        this.currentVRM.expressionManager.setValue('aa', 0);
+        this.currentVRM.expressionManager.setValue('ou', 0);
+      }
+    }
     try { this.currentSource?.stop(); } catch {}
     this.currentSource = null;
     this.audioBuffer = null;

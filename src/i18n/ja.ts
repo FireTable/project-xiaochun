@@ -17,6 +17,7 @@ export const ja: Trans = {
     uploadVrm: 'VRMをアップロード',
     settingsPanel: '設定 / デバッグパネル',
     settingsPanelTitle: 'パネルを閉じる',
+    github: 'GitHub で見る',
     switchLang: {
       tooltip: '言語を切り替え / Switch language',
     },
@@ -36,6 +37,8 @@ export const ja: Trans = {
     queueSend: '準備後送信',
     sending: '考え中…',
     send: '送信',
+    thinkingOn: '思考モードオン',
+    thinkingOff: '思考モードオフ',
   },
   loading: {
     title: '小蠢が目覚めてる…',

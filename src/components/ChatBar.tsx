@@ -1,8 +1,14 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { useTranslation } from 'react-i18next';
+import { Brain } from 'lucide-react';
 import { vrmEngine } from '@/core/vrmEngine';
-import { isWebLLMReady, onWebLLMReady } from '@/llm/webLLM';
+import { isWebLLMReady, onWebLLMReady, isThinkingEnabled, setThinkingEnabled } from '@/llm/webLLM';
 import { Send, Sparkles, Loader2 } from '@/components/icons';
+import {
+  Tooltip,
+  TooltipTrigger,
+  TooltipContent,
+} from '@/components/ui/tooltip';
 
 export const ChatBar: React.FC = () => {
   const { t } = useTranslation();
@@ -11,6 +17,7 @@ export const ChatBar: React.FC = () => {
   const [isSending, setIsSending] = useState(false);
   const [isQueued, setIsQueued] = useState(false);
   const queuedTextRef = useRef('');
+  const [thinkingOn, setThinkingOn] = useState(() => isThinkingEnabled());
 
   // 模型与引擎就绪感知
   const [isVRMReady, setIsVRMReady] = useState(() => vrmEngine.isReady());
@@ -135,6 +142,32 @@ export const ChatBar: React.FC = () => {
           />
         </div>
 
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <button
+              type="button"
+              id="chat-thinking"
+              aria-pressed={thinkingOn}
+              aria-label={thinkingOn ? t('chat.thinkingOn') : t('chat.thinkingOff')}
+              onClick={() => {
+                const next = !thinkingOn;
+                setThinkingOn(next);
+                setThinkingEnabled(next);
+              }}
+              className={`h-11 w-11 rounded-full shrink-0 flex items-center justify-center select-none touch-manipulation active:scale-95 transition-[transform,box-shadow,background,border-color] duration-150 ${
+                thinkingOn
+                  ? 'bg-gradient-to-r from-[#ea8377] to-[#e06d64] text-white border border-[#f5aa9c]/40 shadow-[0_4px_16px_rgba(234,131,119,0.35)] cursor-pointer'
+                  : 'bg-[#13111c]/90 text-white/70 border border-white/15 shadow-md cursor-pointer hover:text-white hover:border-white/25'
+              }`}
+            >
+              <Brain className="w-4 h-4" />
+            </button>
+          </TooltipTrigger>
+          <TooltipContent side="top">
+            {thinkingOn ? t('chat.thinkingOn') : t('chat.thinkingOff')}
+          </TooltipContent>
+        </Tooltip>
+
         {/* 发送按钮：高度严格 h-11 (44px)，状态随就绪度与排队状态联动 */}
         <button
           id="chatSend"
@@ -145,7 +178,7 @@ export const ChatBar: React.FC = () => {
             isSending
               ? 'bg-[#13111c]/90 text-white/50 border border-white/15 cursor-wait shadow-md'
               : isQueued
-              ? 'bg-gradient-to-r from-[#ea8377] to-[#e06d64] text-white border border-[#f5aa9c]/40 shadow-[0_0_20px_rgba(234,131,119,0.45)] animate-pulse cursor-pointer'
+              ? 'bg-gradient-to-r from-[#ea8377] to-[#e06d64] text-white border border-[#f5aa9c]/40 shadow-[0_4px_16px_rgba(234,131,119,0.35)] cursor-pointer'
               : hasText
               ? 'bg-gradient-to-r from-[#ea8377] to-[#e06d64] text-white border border-[#f5aa9c]/30 shadow-[0_4px_16px_rgba(234,131,119,0.35)] cursor-pointer'
               : 'bg-[#13111c]/90 text-white/40 border border-white/15 cursor-not-allowed shadow-md'

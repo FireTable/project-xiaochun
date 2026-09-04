@@ -35,6 +35,57 @@
   html { -webkit-text-size-adjust: 100%; }
 }
 
+/* 全局精致细滚动条 (WebKit / Chromium / Safari) */
+::-webkit-scrollbar {
+  width: 4px;
+  height: 4px;
+}
+
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+::-webkit-scrollbar-thumb {
+  background-color: rgba(255, 255, 255, 0.25);
+  border-radius: 9999px;
+  transition: background-color 0.2s ease;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background-color: rgba(234, 131, 119, 0.75);
+}
+
+::-webkit-scrollbar-corner {
+  background: transparent;
+}
+
+/* 气泡专属极细微型滚动条 (3px 精准控制) */
+.custom-bubble-scrollbar::-webkit-scrollbar {
+  width: 3px !important;
+  height: 3px !important;
+}
+
+.custom-bubble-scrollbar::-webkit-scrollbar-track {
+  background: transparent !important;
+}
+
+.custom-bubble-scrollbar::-webkit-scrollbar-thumb {
+  background-color: rgba(255, 255, 255, 0.35) !important;
+  border-radius: 9999px !important;
+}
+
+.custom-bubble-scrollbar::-webkit-scrollbar-thumb:hover {
+  background-color: rgba(234, 131, 119, 0.95) !important;
+}
+
+/* 仅在 Firefox 下应用标准 scrollbar 属性 (避免 Chromium 121+ 因触发该属性而强制回退到系统粗滚动条) */
+@supports (-moz-appearance: none) {
+  * {
+    scrollbar-width: thin;
+    scrollbar-color: rgba(255, 255, 255, 0.25) transparent;
+  }
+}
+
 /* Range input slider styling using brand theme tokens */
 input[type="range"] {
   -webkit-appearance: none;

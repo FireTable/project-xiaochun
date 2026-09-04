@@ -22,6 +22,7 @@ export const APP_CONFIG = {
     name: 'Project XiaoChun',
     logo: '/logo.png',
     favicon: '/favicon.png',
+    github: 'https://github.com/FireTable/project-xiaochun',
   },
   model: {
     defaultVrm: '/xiaochun_v1.vrm',

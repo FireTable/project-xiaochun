@@ -14,6 +14,18 @@ import { XIAOCHUN_SYSTEM_PROMPT } from '@/llm/prompts';
 export const DEFAULT_LLM_MODEL = 'Qwen3-0.6B-q4f16_1-MLC';
 export const FALLBACK_LLM_MODEL = 'Qwen2.5-0.5B-Instruct-q4f16_1-MLC';
 
+const THINKING_PREF_KEY = 'xiaochun.thinking';
+
+export function isThinkingEnabled(): boolean {
+  if (typeof window === 'undefined') return false;
+  return window.localStorage.getItem(THINKING_PREF_KEY) === '1';
+}
+
+export function setThinkingEnabled(on: boolean): void {
+  if (typeof window === 'undefined') return;
+  window.localStorage.setItem(THINKING_PREF_KEY, on ? '1' : '0');
+}
+
 let engineInstance: WebWorkerMLCEngine | null = null;
 let initPromise: Promise<WebWorkerMLCEngine> | null = null;
 let activeModelId = DEFAULT_LLM_MODEL;
@@ -161,7 +173,9 @@ export async function generateSpeechReply(
       { role: 'user', content: userText },
     ],
     temperature: 0.7,
-    max_tokens: 256,
+    ...(activeModelId.startsWith('Qwen3')
+      ? { extra_body: { enable_thinking: isThinkingEnabled() } }
+      : {}),
   });
 
   const raw = reply.choices[0]?.message?.content || '';
