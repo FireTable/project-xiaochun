@@ -30,7 +30,7 @@ export const zhCN = {
     placeholder: '跟小蠢说点什么吧…',
     placeholderLong: '跟小蠢说话… (例如: 跟我打个招呼)',
     madChatPlaceholder: '跟小蠢说点什么吧…',
-    syncingPlaceholder: '✦ 神经核心同步中… (可先输入想说的话)',
+    syncingPlaceholder: '神经核心同步中… (可先输入想说的话)',
     syncing: '核心同步中…',
     queued: '等待就绪中…',
     queueSend: '就绪后发送',

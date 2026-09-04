@@ -1,29 +1,26 @@
 import * as THREE from 'three';
 import type { VRM } from '@pixiv/three-vrm';
 
-// VRM 骨骼过渡清单：包含全身骨骼与左右手全部 30 个指节。
-// 关键设计：明确排除 'neck' 和 'head'！
-// 因为头部和颈部在渲染循环末端受到 LookAt 追踪系统的增量乘法叠加 (headNode.quaternion.multiply(headOffsetQ))；
-// 如果在过渡器中对 head/neck 进行快照，快照内会包含 lookAt 偏移量；过渡时被二次叠加乘法，
-// 就会在切换瞬间导致头部严重朝向错位、闪现归位或抽动。排除后，头部由各自模块与 LookAt 独立平滑跟随，完美消除闪跳。
+// VRM 核心骨骼过渡清单：20 根核心骨骼（躯干 + 四肢）。
+//
+// ⚠️ 关键设计决策：
+// 1. 明确排除 'neck' 和 'head'！
+//    头部和颈部在渲染循环末端受到 LookAt 追踪系统的增量乘法叠加
+//    (headNode.quaternion.multiply(headOffsetQ))。若快照头部骨骼，
+//    快照内包含 LookAt 偏移量，过渡时会被二次叠加，导致头部翻折/闪跳/抽动。
+//    头部交由各自模块与 LookAt 独立平滑跟随。
+//
+// 2. 明确排除全部 30 根手指骨骼！
+//    手指由 EMAGE 内部 fingerIntensity Slerp 和 NaturalIdleSystem 的 applyFingerPose
+//    独立驱动，两者各帧都在写入手指骨骼；若外部过渡器同时 Slerp 手指，
+//    会产生"双重插值"叠加，在切换瞬间造成手指快速抖颤或飞转。
 export const VRM_ALL_HUMANOID_BONES = [
+  // ─ 核心骨干（20 根）─
   'hips', 'spine', 'chest', 'upperChest',
   'leftShoulder', 'rightShoulder', 'leftUpperArm', 'rightUpperArm',
   'leftLowerArm', 'rightLowerArm', 'leftHand', 'rightHand',
   'leftUpperLeg', 'rightUpperLeg', 'leftLowerLeg', 'rightLowerLeg',
   'leftFoot', 'rightFoot', 'leftToes', 'rightToes',
-  // 左手 15 个指节骨骼
-  'leftThumbMetacarpal', 'leftThumbProximal', 'leftThumbDistal',
-  'leftIndexProximal', 'leftIndexIntermediate', 'leftIndexDistal',
-  'leftMiddleProximal', 'leftMiddleIntermediate', 'leftMiddleDistal',
-  'leftRingProximal', 'leftRingIntermediate', 'leftRingDistal',
-  'leftLittleProximal', 'leftLittleIntermediate', 'leftLittleDistal',
-  // 右手 15 个指节骨骼
-  'rightThumbMetacarpal', 'rightThumbProximal', 'rightThumbDistal',
-  'rightIndexProximal', 'rightIndexIntermediate', 'rightIndexDistal',
-  'rightMiddleProximal', 'rightMiddleIntermediate', 'rightMiddleDistal',
-  'rightRingProximal', 'rightRingIntermediate', 'rightRingDistal',
-  'rightLittleProximal', 'rightLittleIntermediate', 'rightLittleDistal',
 ] as const;
 
 /**

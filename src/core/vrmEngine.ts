@@ -895,20 +895,20 @@ uniform float uMatSaturation;
 
         if (emageLive) {
           if (this.activePlayer !== 'emage') {
-            this.motionTransition.startTransition(vrm, 0.5);
+            this.motionTransition.startTransition(vrm, 0.65);
             this.activePlayer = 'emage';
           }
           this.emagePlayer.update(delta);
         } else if (vrmaLive) {
           if (this.activePlayer !== 'vrma') {
-            this.motionTransition.startTransition(vrm, 0.5);
+            this.motionTransition.startTransition(vrm, 0.55);
             this.activePlayer = 'vrma';
           }
           vrm.scene.position.y = this.vrmBaseSceneY;
           this.vrmaPlayer.update(delta);
         } else {
           if (this.activePlayer !== 'idle') {
-            this.motionTransition.startTransition(vrm, 0.75);
+            this.motionTransition.startTransition(vrm, 0.85);
             this.activePlayer = 'idle';
           }
           vrm.scene.position.y = this.vrmBaseSceneY;
@@ -917,8 +917,12 @@ uniform float uMatSaturation;
           }
         }
 
-        // 全局动作平滑过渡器统一接管（解决 idle -> think -> emage -> idle 任意两状态间的割裂跳跃）
-        this.motionTransition.apply(vrm, delta);
+        // 全局动作平滑过渡器统一接管——仅在非 EMAGE 活跃期间（vrma / idle）执行。
+        // EMAGE 活跃期间跳过：EMAGE 内部物理角速度限制 + 逖冲击陈尼弹簧已负责段间连续性，
+        // 外部 Slerp 与 EMAGE 内部弹簧同时运行会产生"双重插值"，导致上肢冲击放快、头部闪跳。
+        if (!emageLive) {
+          this.motionTransition.apply(vrm, delta);
+        }
 
         if (vrmaLive || !emageLive) {
           this.levelFeet(vrm);

@@ -31,7 +31,7 @@ export const ja: Trans = {
     placeholder: '小蠢に話しかけてみてね…',
     placeholderLong: '小蠢と話す… (例: 挨拶して)',
     madChatPlaceholder: '小蠢に話しかけてみてね…',
-    syncingPlaceholder: '✦ コア同期中… (先に入力できます)',
+    syncingPlaceholder: 'コア同期中… (先に入力できます)',
     syncing: '同期中…',
     queued: '待機中…',
     queueSend: '準備後送信',
