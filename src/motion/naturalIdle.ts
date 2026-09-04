@@ -54,10 +54,30 @@ export class NaturalIdleSystem {
   private leftFingers: HandFingers | null = null;
   private rightFingers: HandFingers | null = null;
 
+  // 下半身双腿与骨盆端正立姿关键骨骼
+  private leftUpperLeg: THREE.Object3D | null = null;
+  private rightUpperLeg: THREE.Object3D | null = null;
+  private leftLowerLeg: THREE.Object3D | null = null;
+  private rightLowerLeg: THREE.Object3D | null = null;
+  private leftFoot: THREE.Object3D | null = null;
+  private rightFoot: THREE.Object3D | null = null;
+  private leftToes: THREE.Object3D | null = null;
+  private rightToes: THREE.Object3D | null = null;
+
   private restHipsPos: THREE.Vector3 = new THREE.Vector3();
+  private restHipsQ: THREE.Quaternion = new THREE.Quaternion();
+  private restLeftUpperLegQ = new THREE.Quaternion();
+  private restRightUpperLegQ = new THREE.Quaternion();
+  private restLeftLowerLegQ = new THREE.Quaternion();
+  private restRightLowerLegQ = new THREE.Quaternion();
+  private restLeftFootQ = new THREE.Quaternion();
+  private restRightFootQ = new THREE.Quaternion();
+  private restLeftToesQ = new THREE.Quaternion();
+  private restRightToesQ = new THREE.Quaternion();
 
   // 预分配临时复用对象，确保 60/120 FPS 满帧零垃圾回收 (Zero-GC)
   private _targetQ = new THREE.Quaternion();
+  private _tempQ = new THREE.Quaternion();
   private _euler = new THREE.Euler();
   private _hipsPos = new THREE.Vector3();
 
@@ -71,7 +91,25 @@ export class NaturalIdleSystem {
     this.hips = getBone('hips');
     if (this.hips) {
       this.restHipsPos.copy(this.hips.position);
+      this.restHipsQ.copy(this.hips.quaternion);
     }
+
+    this.leftUpperLeg = getBone('leftUpperLeg');
+    if (this.leftUpperLeg) this.restLeftUpperLegQ.copy(this.leftUpperLeg.quaternion);
+    this.rightUpperLeg = getBone('rightUpperLeg');
+    if (this.rightUpperLeg) this.restRightUpperLegQ.copy(this.rightUpperLeg.quaternion);
+    this.leftLowerLeg = getBone('leftLowerLeg');
+    if (this.leftLowerLeg) this.restLeftLowerLegQ.copy(this.leftLowerLeg.quaternion);
+    this.rightLowerLeg = getBone('rightLowerLeg');
+    if (this.rightLowerLeg) this.restRightLowerLegQ.copy(this.rightLowerLeg.quaternion);
+    this.leftFoot = getBone('leftFoot');
+    if (this.leftFoot) this.restLeftFootQ.copy(this.leftFoot.quaternion);
+    this.rightFoot = getBone('rightFoot');
+    if (this.rightFoot) this.restRightFootQ.copy(this.rightFoot.quaternion);
+    this.leftToes = getBone('leftToes');
+    if (this.leftToes) this.restLeftToesQ.copy(this.leftToes.quaternion);
+    this.rightToes = getBone('rightToes');
+    if (this.rightToes) this.restRightToesQ.copy(this.rightToes.quaternion);
     this.spine = getBone('spine');
     this.chest = getBone('chest');
     this.upperChest = getBone('upperChest');
@@ -183,6 +221,17 @@ export class NaturalIdleSystem {
       this.applyFingerPoseImmediate(this.rightFingers, -1);
     }
 
+    // 3. 下半身双腿与骨盆端正归位，消除任何腿部歪斜弯折
+    if (this.hips) this.hips.quaternion.copy(this.restHipsQ);
+    if (this.leftUpperLeg) this.leftUpperLeg.quaternion.copy(this.restLeftUpperLegQ);
+    if (this.rightUpperLeg) this.rightUpperLeg.quaternion.copy(this.restRightUpperLegQ);
+    if (this.leftLowerLeg) this.leftLowerLeg.quaternion.copy(this.restLeftLowerLegQ);
+    if (this.rightLowerLeg) this.rightLowerLeg.quaternion.copy(this.restRightLowerLegQ);
+    if (this.leftFoot) this.leftFoot.quaternion.copy(this.restLeftFootQ);
+    if (this.rightFoot) this.rightFoot.quaternion.copy(this.restRightFootQ);
+    if (this.leftToes) this.leftToes.quaternion.copy(this.restLeftToesQ);
+    if (this.rightToes) this.rightToes.quaternion.copy(this.restRightToesQ);
+
     this.vrm.scene.updateMatrixWorld(true);
   }
 
@@ -240,8 +289,24 @@ export class NaturalIdleSystem {
         this.restHipsPos.y + (breathMain * 0.004 + 0.002) * idleWeight,
         this.restHipsPos.z + swayZ
       );
-      this.hips.position.lerp(this._hipsPos, idleWeight * 0.12);
+      this.hips.position.copy(this._hipsPos);
+
+      // 骨盆朝向平滑回归端正站姿（微小重心摆动）
+      this._euler.set(0.0, swayX * 0.25, -swayX * 0.3);
+      this._tempQ.setFromEuler(this._euler);
+      this._targetQ.copy(this.restHipsQ).multiply(this._tempQ);
+      this.hips.quaternion.slerp(this._targetQ, idleWeight);
     }
+
+    // ─── 2.1 下半身双腿与脚掌端正站姿保障（平滑插值回归标准立姿，彻底消除任何 EMAGE 或动作残留的歪斜、弯曲与脱臼） ───
+    if (this.leftUpperLeg) this.leftUpperLeg.quaternion.slerp(this.restLeftUpperLegQ, idleWeight);
+    if (this.rightUpperLeg) this.rightUpperLeg.quaternion.slerp(this.restRightUpperLegQ, idleWeight);
+    if (this.leftLowerLeg) this.leftLowerLeg.quaternion.slerp(this.restLeftLowerLegQ, idleWeight);
+    if (this.rightLowerLeg) this.rightLowerLeg.quaternion.slerp(this.restRightLowerLegQ, idleWeight);
+    if (this.leftFoot) this.leftFoot.quaternion.slerp(this.restLeftFootQ, idleWeight);
+    if (this.rightFoot) this.rightFoot.quaternion.slerp(this.restRightFootQ, idleWeight);
+    if (this.leftToes) this.leftToes.quaternion.slerp(this.restLeftToesQ, idleWeight);
+    if (this.rightToes) this.rightToes.quaternion.slerp(this.restRightToesQ, idleWeight);
 
     // ─── 3. 胸腔与脊柱呼吸扩张 ───
     if (this.chest) {

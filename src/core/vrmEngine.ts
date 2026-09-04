@@ -894,10 +894,16 @@ uniform float uMatSaturation;
         const vrmaLive = this.vrmaPlayer.isPlaying() || this.chatDirector.isThinking;
 
         if (emageLive) {
-          this.activePlayer = 'emage';
+          if (this.activePlayer !== 'emage') {
+            this.motionTransition.startTransition(vrm, 0.5);
+            this.activePlayer = 'emage';
+          }
           this.emagePlayer.update(delta);
         } else if (vrmaLive) {
-          this.activePlayer = 'vrma';
+          if (this.activePlayer !== 'vrma') {
+            this.motionTransition.startTransition(vrm, 0.5);
+            this.activePlayer = 'vrma';
+          }
           vrm.scene.position.y = this.vrmBaseSceneY;
           this.vrmaPlayer.update(delta);
         } else {
@@ -905,17 +911,16 @@ uniform float uMatSaturation;
             this.motionTransition.startTransition(vrm, 0.75);
             this.activePlayer = 'idle';
           }
+          vrm.scene.position.y = this.vrmBaseSceneY;
           if (this.isIdleBreath) {
             this.naturalIdle.update(time, 1.0);
-          } else {
-            vrm.scene.position.y = this.vrmBaseSceneY;
           }
         }
 
         // 全局动作平滑过渡器统一接管（解决 idle -> think -> emage -> idle 任意两状态间的割裂跳跃）
         this.motionTransition.apply(vrm, delta);
 
-        if (vrmaLive) {
+        if (vrmaLive || !emageLive) {
           this.levelFeet(vrm);
         }
 
