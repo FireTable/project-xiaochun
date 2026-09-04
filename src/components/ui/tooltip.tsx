@@ -2,9 +2,8 @@
  * shadcn-style Tooltip — 基于 @radix-ui/react-tooltip 手写,
  * 与项目现有 DropdownMenu / Button 同一套样式语言。
  *
- * ponytail: 全局通过 TouchAwareTooltip 强制 open=true,任何设备/任何交互
- * 模式下 tooltip 都常驻可见 — icon-only 按钮没有可见文字标签,tooltip
- * 是唯一的语义提示;hover 才显示对触屏 + 桌面快速浏览都不友好。
+ * 默认 hover-only。需要常驻可见的 tooltip(如 ChatBar 发送按钮在等待就绪时),
+ * 直接用 <Tooltip open={true} ...> 强制锁定即可,不必再额外造 wrapper。
  */
 import * as React from 'react';
 import * as TooltipPrimitive from '@radix-ui/react-tooltip';
@@ -33,13 +32,4 @@ const TooltipContent = React.forwardRef<
 ));
 TooltipContent.displayName = TooltipPrimitive.Content.displayName;
 
-// ponytail: 桌面也强制一直显示,不做端区分 — 项目方要求全局常驻。icon-only 按钮
-// 没有可见文字标签,tooltip 是唯一的语义提示;hover 才显示对触屏 + 桌面快速浏览都不友好。
-type TouchAwareTooltipProps = React.ComponentProps<typeof Tooltip>;
-
-/** 全端常驻 tooltip:无论桌面/移动,都强制 open=true。 */
-function TouchAwareTooltip(props: TouchAwareTooltipProps) {
-  return <Tooltip open={true} {...props} />;
-}
-
-export { Tooltip, TooltipTrigger, TooltipContent, TooltipProvider, TouchAwareTooltip };
+export { Tooltip, TooltipTrigger, TooltipContent, TooltipProvider };

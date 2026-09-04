@@ -11,9 +11,9 @@ import {
   DropdownMenuItem,
 } from '@/components/ui/dropdown-menu';
 import {
+  Tooltip,
   TooltipTrigger,
   TooltipContent,
-  TouchAwareTooltip,
 } from '@/components/ui/tooltip';
 import { APP_CONFIG } from '@/config';
 import { changeLang, LANG_LABELS, SUPPORTED_LANGS, type Lang } from '@/i18n';
@@ -73,7 +73,7 @@ export const TopHeader: React.FC<TopHeaderProps> = ({
           onChange={handleFileUpload}
         />
 
-        <TouchAwareTooltip>
+        <Tooltip>
           <TooltipTrigger asChild>
             <DropdownMenu>
               <DropdownMenuTrigger asChild>
@@ -106,9 +106,9 @@ export const TopHeader: React.FC<TopHeaderProps> = ({
           <TooltipContent side="bottom">
             {t('header.switchLang.tooltip')}
           </TooltipContent>
-        </TouchAwareTooltip>
+        </Tooltip>
 
-        <TouchAwareTooltip>
+        <Tooltip>
           <TooltipTrigger asChild>
             <Button
               asChild
@@ -130,10 +130,10 @@ export const TopHeader: React.FC<TopHeaderProps> = ({
           <TooltipContent side="bottom">
             {t('header.github')}
           </TooltipContent>
-        </TouchAwareTooltip>
+        </Tooltip>
 
         {isDev ? (
-          <TouchAwareTooltip>
+          <Tooltip>
             <TooltipTrigger asChild>
               <Button
                 id="btn-toggle-panel"
@@ -150,7 +150,7 @@ export const TopHeader: React.FC<TopHeaderProps> = ({
             <TooltipContent side="bottom">
               {t('header.settingsPanel')}
             </TooltipContent>
-          </TouchAwareTooltip>
+          </Tooltip>
         ) : null}
       </div>
     </header>

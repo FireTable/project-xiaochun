@@ -357,8 +357,10 @@ export const ChatBar: React.FC = () => {
             </button>
           );
           if (!isQueued && !(!isModelReady && hasText)) return sendBtn;
+          // ponytail: 等待就绪时按钮处于禁用态,移动端没有 hover 看不到提示,
+          // 这里强制 open=true 让 tooltip 常驻,直到按钮重新可点。
           return (
-            <Tooltip delayDuration={0}>
+            <Tooltip delayDuration={0} open={true}>
               <TooltipTrigger asChild>{sendBtn}</TooltipTrigger>
               <TooltipContent side="top">{waitTooltip}</TooltipContent>
             </Tooltip>
