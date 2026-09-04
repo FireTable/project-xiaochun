@@ -201,12 +201,13 @@ export function retargetClip(clip: THREE.AnimationClip, vrm: VRM): THREE.Animati
   }
 
   // 过滤掉任何试图驱动眼球的动画轨道，确保眼球始终由 VRMLookAt 系统精确注视镜头
-  // 同时过滤脚掌与脚趾旋转轨道：小蠢模型穿厚底高跟鞋，通用平底鞋动捕的脚踝旋转会导致鞋底严重翘起悬空
+  // 同时过滤下半身（双腿、脚掌与脚趾）：thinking.vrma 为纯上半身站立思考神态，
+  // 消除通用动捕下半身杂波与下蹲微屈导致的鞋底翘起和人物下沉，保持下半身稳固立足地面
   clip.tracks = clip.tracks.filter((track) => {
     const hname = hnameOf(track.name);
     if (!hname) return true;
     if (hname === 'leftEye' || hname === 'rightEye' || track.name.toLowerCase().includes('eye')) return false;
-    if (hname === 'leftFoot' || hname === 'rightFoot' || hname === 'leftToes' || hname === 'rightToes') return false;
+    if (LEG_BONES.has(hname)) return false;
     return true;
   });
   let clamped = 0;

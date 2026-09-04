@@ -890,10 +890,8 @@ uniform float uMatSaturation;
           this.emagePlayer.update(delta);
         } else if (vrmaLive) {
           this.activePlayer = 'vrma';
+          vrm.scene.position.y = this.vrmBaseSceneY;
           this.vrmaPlayer.update(delta);
-          if (this.emagePlayer.enableFootIK) {
-            this.emagePlayer.footIK.solve(delta);
-          }
         } else {
           if (this.activePlayer !== 'idle') {
             this.motionTransition.startTransition(vrm, 0.75);
