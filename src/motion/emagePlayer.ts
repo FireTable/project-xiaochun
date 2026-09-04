@@ -16,7 +16,9 @@ const SMPLX_TO_VRM: (VRMHumanBoneName | null)[] = [
 ];
 
 // 下半身、骨盆与腰椎关节 (SMPL-X 索引: 0=hips, 1/2=大腿, 3=spine下腰椎, 4/5=小腿, 7/8=脚, 10/11=脚趾)
-// 强制锁定立姿，彻底消除腰椎弯折与整体前倾
+const HIPS_INDEX = 0;
+const SPINE_INDEX = 3;
+const LEG_INDICES = new Set([1, 2, 4, 5, 7, 8, 10, 11]);
 const LOWER_BODY_INDICES = new Set([0, 1, 2, 3, 4, 5, 7, 8, 10, 11]);
 
 // 上半身手臂关节 (SMPL-X 索引: 13/14=肩膀, 16/17=大臂, 18/19=小臂, 20/21=手腕)
@@ -57,7 +59,7 @@ export class EmagePlayer {
   loop = false;
   playAudio = false;
   holdLastFrame = false;
-  lockLowerBody = true; // 默认锁定下半身稳妥立姿，彻底杜绝骨盆与后腰不自然过度后仰
+  lockLowerBody = false; // 默认不强制锁定下半身，释放骨盆与腰椎生理律动；由生理权重与 PitchClamping 保证挺拔立姿
   fadeDuration = 0.6; // 平滑淡出到 Idle 的过渡时长 (秒)
   public footIK = new FootIKSolver();
   public fadingOut = false;
@@ -66,7 +68,10 @@ export class EmagePlayer {
   // ─── 动作速度与频率优化控制 ───
   gestureIntensity = 1.0;      // 手臂幅度缩放 (0.1~1.0，默认 1.0 满额手势)
   fingerIntensity = 0.35;      // 指关节活跃度 (0.1~1.0，默认 0.35，保持柔和半卷，消除乱指)
-  torsoIntensity = 0.12;       // 胸腔微动权重 (默认 0.12，仅保留呼吸与微幅说话起伏，彻底消除驼背探身)
+  torsoIntensity = 0.35;       // 胸腔微动权重 (默认 0.35，从 0.12 适当提升，保留自然呼吸与起伏)
+  spineIntensity = 0.45;       // 腰椎微动权重 (默认 0.45，自然微屈与说话起伏)
+  hipIntensity = 0.40;         // 骨盆/胯部微动权重 (默认 0.40，赋予活人重心微移与说话律动)
+  legIntensity = 0.20;         // 双腿跟随权重 (默认 0.20，配合骨盆重心自然微动，足部由 FootIK 稳妥贴地)
   headIntensity = 0.30;        // 头部/颈部权重 (默认 0.30，防止脖子前伸乌龟颈，保持抬头挺胸)
   dampingStiffness = 5.5;      // 惯性阻尼刚度 (默认 5.5，数值越小越柔顺轻盈，消除“动得太快”)
   temporalSmoothRadius = 7;    // 时序高斯平滑半径 (默认 7 帧/约0.5s，消除“切换太频繁”)
@@ -115,8 +120,21 @@ export class EmagePlayer {
   private _m4 = new THREE.Matrix4();
   private _q1 = new THREE.Quaternion();
   private _q2 = new THREE.Quaternion();
+  private _deltaQ = new THREE.Quaternion();
+  private _euler = new THREE.Euler(0, 0, 0, 'YXZ');
   private startQ = Array.from({ length: NUM_JOINTS }, () => new THREE.Quaternion());
   public fadeInDuration = 0.60; // 从前置动作 (例如 thinking.vrma) 平滑切入的时长 (秒)
+
+  /**
+   * 限制关节相对 restQ 的俯仰角 (Pitch)，彻底杜绝骨盆过度前顶与腰椎过度后仰塌腰 (Hyper-lordosis)
+   */
+  private clampBonePitch(qGoal: THREE.Quaternion, rest: THREE.Quaternion, minPitch: number, maxPitch: number): void {
+    this._deltaQ.copy(rest).invert().multiply(qGoal);
+    this._euler.setFromQuaternion(this._deltaQ, 'YXZ');
+    this._euler.x = THREE.MathUtils.clamp(this._euler.x, minPitch, maxPitch);
+    this._deltaQ.setFromEuler(this._euler);
+    qGoal.copy(rest).multiply(this._deltaQ);
+  }
 
   constructor() {
     this.initWorker();
@@ -409,9 +427,9 @@ export class EmagePlayer {
       const y0 = this.trans[f0 * 3 + 1]!;
       const y1 = this.trans[f1 * 3 + 1]!;
       const rawDeltaY = (y0 + (y1 - y0) * alpha) - this.transRefY;
-      const deltaY = THREE.MathUtils.clamp(rawDeltaY * 0.25, -0.03, 0.03);
+      const deltaY = THREE.MathUtils.clamp(rawDeltaY * 0.15, -0.015, 0.015);
       const targetY = this.baseY + deltaY;
-      this.vrm.scene.position.y = idleWeight > 0.001 ? THREE.MathUtils.lerp(targetY, this.baseY, idleWeight) : targetY;
+      this.vrm.scene.position.y = idleWeight > 0.0001 ? THREE.MathUtils.lerp(targetY, this.baseY, idleWeight) : targetY;
     } else if (this.vrm) {
       this.vrm.scene.position.y = this.baseY;
     }
@@ -442,6 +460,14 @@ export class EmagePlayer {
           qGoal.slerp(rest, 1.0 - this.torsoIntensity);
         } else if (HEAD_INDICES.has(i) && this.headIntensity < 0.999) {
           qGoal.slerp(rest, 1.0 - this.headIntensity);
+        } else if (i === HIPS_INDEX) {
+          qGoal.slerp(rest, 1.0 - this.hipIntensity);
+          this.clampBonePitch(qGoal, rest, -0.04, 0.15);
+        } else if (i === SPINE_INDEX) {
+          qGoal.slerp(rest, 1.0 - this.spineIntensity);
+          this.clampBonePitch(qGoal, rest, -0.05, 0.18);
+        } else if (LEG_INDICES.has(i) && this.legIntensity < 0.999) {
+          qGoal.slerp(rest, 1.0 - this.legIntensity);
         }
       }
 
@@ -456,7 +482,12 @@ export class EmagePlayer {
         finalQ = this._q2.copy(this.startQ[i]!).slerp(finalQ, smoothIn);
       }
 
-      // 动作结束平滑淡出到 Idle (由 vrmEngine.naturalIdle 依据 idleWeight 平滑接管，绝不强行拉回 T-Pose)
+      // 动作结束平滑淡出到 Idle: 仅对下半身与骨盆（LOWER_BODY_INDICES）在淡出时平滑 Slerp 回 restQ 端正立姿；
+      // 双臂、手指与头部完全保持原有逻辑，绝不强拉回 T-Pose
+      if (idleWeight > 0.0001 && LOWER_BODY_INDICES.has(i) && rest) {
+        finalQ = this._q2.copy(finalQ).slerp(rest, idleWeight);
+      }
+
       bone.quaternion.copy(finalQ);
     }
   }
@@ -555,6 +586,15 @@ export class EmagePlayer {
     this.currentBoneInitialized = false;
     if (this.vrm) {
       this.vrm.scene.position.y = this.baseY;
+      // 仅回正下半身与骨盆（LOWER_BODY_INDICES），绝对不触碰双臂与手指（双臂由 naturalIdle 顺畅接管）
+      for (const idx of LOWER_BODY_INDICES) {
+        const bone = this.bones[idx];
+        const rest = this.restQ[idx];
+        if (bone && rest) {
+          bone.quaternion.copy(rest);
+          this.currentBoneQ[idx]!.copy(rest);
+        }
+      }
     }
   }
 
@@ -576,6 +616,15 @@ export class EmagePlayer {
     this.currentBoneInitialized = false;
     if (this.vrm) {
       this.vrm.scene.position.y = this.baseY;
+      // 仅回正下半身与骨盆（LOWER_BODY_INDICES），绝对不触碰双臂
+      for (const idx of LOWER_BODY_INDICES) {
+        const bone = this.bones[idx];
+        const rest = this.restQ[idx];
+        if (bone && rest) {
+          bone.quaternion.copy(rest);
+          this.currentBoneQ[idx]!.copy(rest);
+        }
+      }
     }
   }
 
