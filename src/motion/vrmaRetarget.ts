@@ -257,31 +257,55 @@ function smoothQuaternionTrack(values: Float32Array) {
   }
 }
 
-// ponytail: 循环首尾无缝缝合 (将末尾 25% 帧平滑 Slerp 到第 0 帧，确保 Loop 循环 100% 丝滑无跳跃)
+// 循环首尾无缝缝合 (将末尾 25% 帧平滑 Slerp/Lerp 到第 0 帧，确保 Loop 循环 100% 丝滑无跳跃、无瞬移)
 export function makeClipSeamless(clip: THREE.AnimationClip): THREE.AnimationClip {
   for (const track of clip.tracks) {
-    if (!track.name.endsWith('.quaternion')) continue;
+    const isQuat = track.name.endsWith('.quaternion');
+    const isPos = track.name.endsWith('.position');
+    if (!isQuat && !isPos) continue;
+
     const values = track.values as unknown as Float32Array;
-    const numFrames = values.length / 4;
+    const stride = isQuat ? 4 : 3;
+    const numFrames = values.length / stride;
     if (numFrames < 8) continue;
 
-    const q0 = new THREE.Quaternion(values[0], values[1], values[2], values[3]);
-    const qCur = new THREE.Quaternion();
-
-    const blendCount = Math.floor(numFrames * 0.25);
+    const blendCount = Math.max(4, Math.floor(numFrames * 0.25));
     const startFrame = numFrames - blendCount;
 
-    for (let i = startFrame; i < numFrames; i++) {
-      const idx = i * 4;
-      qCur.set(values[idx], values[idx + 1], values[idx + 2], values[idx + 3]);
-      const alpha = (i - startFrame + 1) / (blendCount + 1);
-      const easedAlpha = alpha * alpha * (3 - 2 * alpha); // Smoothstep S 曲线
-      qCur.slerp(q0, easedAlpha);
+    if (isQuat) {
+      const q0 = new THREE.Quaternion(values[0], values[1], values[2], values[3]);
+      const qCur = new THREE.Quaternion();
 
-      values[idx]     = qCur.x;
-      values[idx + 1] = qCur.y;
-      values[idx + 2] = qCur.z;
-      values[idx + 3] = qCur.w;
+      for (let i = startFrame; i < numFrames; i++) {
+        const idx = i * 4;
+        qCur.set(values[idx], values[idx + 1], values[idx + 2], values[idx + 3]);
+        // 当 i = numFrames - 1 时，alpha 正好为 1.0，确保首尾完全重合
+        const alpha = (i - startFrame + 1) / blendCount;
+        const clampedAlpha = Math.min(1.0, Math.max(0.0, alpha));
+        const easedAlpha = clampedAlpha * clampedAlpha * (3 - 2 * clampedAlpha); // Smoothstep S 曲线
+        qCur.slerp(q0, easedAlpha);
+
+        values[idx]     = qCur.x;
+        values[idx + 1] = qCur.y;
+        values[idx + 2] = qCur.z;
+        values[idx + 3] = qCur.w;
+      }
+    } else if (isPos) {
+      const p0 = new THREE.Vector3(values[0], values[1], values[2]);
+      const pCur = new THREE.Vector3();
+
+      for (let i = startFrame; i < numFrames; i++) {
+        const idx = i * 3;
+        pCur.set(values[idx], values[idx + 1], values[idx + 2]);
+        const alpha = (i - startFrame + 1) / blendCount;
+        const clampedAlpha = Math.min(1.0, Math.max(0.0, alpha));
+        const easedAlpha = clampedAlpha * clampedAlpha * (3 - 2 * clampedAlpha);
+        pCur.lerp(p0, easedAlpha);
+
+        values[idx]     = pCur.x;
+        values[idx + 1] = pCur.y;
+        values[idx + 2] = pCur.z;
+      }
     }
   }
   return clip;

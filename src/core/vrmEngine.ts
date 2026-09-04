@@ -169,6 +169,8 @@ export class VRMEngine {
     x: 0,
     y: 0,
   };
+  private lastBubbleX = 0;
+  private lastBubbleY = 0;
 
   constructor() {
     this.loader.register((parser) => new VRMLoaderPlugin(parser));
@@ -747,6 +749,24 @@ export class VRMEngine {
         this.currentBubbleState.statusVars = vars;
         this.currentBubbleState.speechText = speechText || '';
         this.currentBubbleState.isError = isError;
+
+        if (this.currentVRM) {
+          const head = this.currentVRM.humanoid?.getNormalizedBoneNode('head');
+          const p = new THREE.Vector3();
+          if (head) {
+            head.getWorldPosition(p);
+            p.y += 0.24;
+          } else {
+            p.set(0, 1.7, 0);
+          }
+          p.project(this.camera);
+          const x = Math.round((p.x * 0.5 + 0.5) * window.innerWidth);
+          const y = Math.round((-(p.y * 0.5) + 0.5) * window.innerHeight);
+          this.currentBubbleState.x = x;
+          this.currentBubbleState.y = y;
+          this.lastBubbleX = x;
+          this.lastBubbleY = y;
+        }
       }
       this.onBubbleChange?.({ ...this.currentBubbleState });
     };
@@ -867,7 +887,7 @@ export class VRMEngine {
         const microSaccadeX = Math.sin(time * 6.7) * 0.012;
         const microSaccadeY = Math.cos(time * 5.3) * 0.008;
         const eyeLevelY = headPos.y - 0.03;
-        const clampedGazeY = Math.min(this.camera.position.y, eyeLevelY + 0.08);
+        const clampedGazeY = Math.min(this.camera.position.y, eyeLevelY + 0.35);
 
         this.gazeTarget.position.set(
           this.camera.position.x + this.gazeCurrentOffset.x + microSaccadeX,
@@ -886,7 +906,8 @@ export class VRMEngine {
           const clampedYaw = Math.max(-0.80, Math.min(0.80, normYaw));
 
           const targetPitch = this.isLockHead ? 0 : -Math.atan2(dy, distXZ);
-          const clampedPitch = this.isLockHead ? 0 : Math.max(-0.18, Math.min(0.22, targetPitch));
+          // 放宽上下仰角范围 (-0.42 ~ +0.38 rad，约 -24° ~ +22°)，使头部随镜头俯仰自如，告别"头只转左右"与"翻白眼"
+          const clampedPitch = this.isLockHead ? 0 : Math.max(-0.42, Math.min(0.38, targetPitch));
 
           const neckOffsetQ = new THREE.Quaternion().setFromEuler(new THREE.Euler(clampedPitch * 0.30, clampedYaw * 0.30, 0, 'YXZ'));
           const headOffsetQ = new THREE.Quaternion().setFromEuler(new THREE.Euler(clampedPitch * 0.70, clampedYaw * 0.70, 0, 'YXZ'));
@@ -959,7 +980,7 @@ export class VRMEngine {
           }
         }
 
-        // 3D 头部气泡位置动态计算
+        // 3D 头部气泡位置动态更新（高性能直接 DOM 变换 + 1.5px 死区过滤，彻底杜绝 60~120FPS React 全局重渲染与无谓 transform 抖动）
         if (this.currentBubbleState.visible) {
           const head = vrm.humanoid?.getNormalizedBoneNode('head');
           const p = new THREE.Vector3();
@@ -970,12 +991,22 @@ export class VRMEngine {
             p.set(0, 1.7, 0);
           }
           p.project(this.camera);
-          const x = (p.x * 0.5 + 0.5) * window.innerWidth;
-          const y = (-(p.y * 0.5) + 0.5) * window.innerHeight;
+          const x = Math.round((p.x * 0.5 + 0.5) * window.innerWidth);
+          const y = Math.round((-(p.y * 0.5) + 0.5) * window.innerHeight);
 
-          this.currentBubbleState.x = x;
-          this.currentBubbleState.y = y;
-          this.onBubbleChange?.({ ...this.currentBubbleState });
+          const dx = x - this.lastBubbleX;
+          const dy = y - this.lastBubbleY;
+          // 死区过滤：角色微弱呼吸（位移 < 1.5px）时完全不更新 transform；位移明显或镜头旋转时直接修改 DOM，0 次 React 重渲染！
+          if (dx * dx + dy * dy >= 2.25) {
+            this.lastBubbleX = x;
+            this.lastBubbleY = y;
+            this.currentBubbleState.x = x;
+            this.currentBubbleState.y = y;
+            const bubbleEl = document.getElementById('head-bubble');
+            if (bubbleEl) {
+              bubbleEl.style.transform = `translate3d(calc(${x}px - 50%), calc(${y}px - 100% - 16px), 0)`;
+            }
+          }
         }
       }
 

@@ -6,7 +6,8 @@ import { Send, Sparkles, Loader2 } from '@/components/icons';
 
 export const ChatBar: React.FC = () => {
   const { t } = useTranslation();
-  const [inputText, setInputText] = useState('');
+  const inputRef = useRef<HTMLInputElement>(null);
+  const [hasText, setHasText] = useState(false);
   const [isSending, setIsSending] = useState(false);
   const [isQueued, setIsQueued] = useState(false);
   const queuedTextRef = useRef('');
@@ -38,8 +39,9 @@ export const ChatBar: React.FC = () => {
     if (isModelReady && isQueued && queuedTextRef.current) {
       const toSend = queuedTextRef.current;
       queuedTextRef.current = '';
+      if (inputRef.current) inputRef.current.value = '';
+      setHasText(false);
       setIsQueued(false);
-      setInputText('');
       setIsSending(true);
 
       void vrmEngine
@@ -52,7 +54,7 @@ export const ChatBar: React.FC = () => {
   }, [isModelReady, isQueued]);
 
   const handleSend = async () => {
-    const text = inputText.trim();
+    const text = inputRef.current?.value.trim() ?? '';
     if (!text || isSending) return;
 
     // 模型尚未完全就绪：智能转入排队状态，输入内容安全保留，不吞字
@@ -62,7 +64,8 @@ export const ChatBar: React.FC = () => {
       return;
     }
 
-    setInputText('');
+    if (inputRef.current) inputRef.current.value = '';
+    setHasText(false);
     setIsQueued(false);
     setIsSending(true);
 
@@ -82,7 +85,17 @@ export const ChatBar: React.FC = () => {
     }
   };
 
-  const hasText = inputText.trim().length > 0;
+  const handleInput = () => {
+    const val = inputRef.current?.value ?? '';
+    const nowHasText = val.trim().length > 0;
+    if (nowHasText !== hasText) {
+      setHasText(nowHasText);
+    }
+    if (isQueued) {
+      queuedTextRef.current = val.trim();
+      if (!val.trim()) setIsQueued(false);
+    }
+  };
 
   return (
     <div className="fixed bottom-[calc(0.75rem+env(safe-area-inset-bottom,0px))] sm:bottom-8 left-1/2 -translate-x-1/2 z-30 w-full max-w-xl px-3 sm:px-4 pointer-events-auto select-none">
@@ -110,18 +123,11 @@ export const ChatBar: React.FC = () => {
           )}
 
           <input
+            ref={inputRef}
             type="text"
             id="chatText"
             placeholder={isModelReady ? t('chat.placeholder') : t('chat.syncingPlaceholder')}
-            value={inputText}
-            onChange={(e) => {
-              const val = e.target.value;
-              setInputText(val);
-              if (isQueued) {
-                queuedTextRef.current = val.trim();
-                if (!val.trim()) setIsQueued(false);
-              }
-            }}
+            onInput={handleInput}
             onKeyDown={handleKeyDown}
             autoComplete="off"
             disabled={isSending}
@@ -135,16 +141,14 @@ export const ChatBar: React.FC = () => {
           type="button"
           onClick={() => void handleSend()}
           disabled={isSending || !hasText}
-          className={`h-11 sm:h-11 px-4 sm:px-5 rounded-full font-medium text-sm flex items-center justify-center gap-1.5 shrink-0 transition-all duration-300 border select-none cursor-pointer touch-manipulation ${
+          className={`h-11 sm:h-11 px-4 sm:px-5 rounded-full font-medium text-sm flex items-center justify-center gap-1.5 shrink-0 select-none touch-manipulation active:scale-95 transition-[transform,box-shadow] duration-150 ${
             isSending
-              ? 'bg-[#13111c]/80 text-white/50 border-white/10 backdrop-blur-2xl cursor-wait'
+              ? 'bg-[#13111c]/90 text-white/50 border border-white/15 cursor-wait shadow-md'
               : isQueued
-              ? 'bg-gradient-to-r from-[#ea8377]/90 via-[#f5aa9c]/90 to-[#e06d64]/90 text-white border-[#ea8377] shadow-[0_0_20px_rgba(234,131,119,0.4)] animate-pulse'
-              : hasText && !isModelReady
-              ? 'bg-gradient-to-r from-[#ea8377]/80 to-[#e06d64]/80 text-white border-white/20 shadow-[0_4px_16px_rgba(234,131,119,0.3)] hover:brightness-110 active:scale-95'
-              : hasText && isModelReady
-              ? 'bg-gradient-to-r from-[#ea8377] via-[#f5aa9c] to-[#e06d64] text-white border-white/20 shadow-[0_4px_20px_rgba(234,131,119,0.4)] hover:brightness-110 active:scale-95'
-              : 'bg-[#13111c]/80 text-white/40 border-white/10 backdrop-blur-2xl shadow-md cursor-not-allowed'
+              ? 'bg-gradient-to-r from-[#ea8377] to-[#e06d64] text-white border border-[#f5aa9c]/40 shadow-[0_0_20px_rgba(234,131,119,0.45)] animate-pulse cursor-pointer'
+              : hasText
+              ? 'bg-gradient-to-r from-[#ea8377] to-[#e06d64] text-white border border-[#f5aa9c]/30 shadow-[0_4px_16px_rgba(234,131,119,0.35)] cursor-pointer'
+              : 'bg-[#13111c]/90 text-white/40 border border-white/15 cursor-not-allowed shadow-md'
           }`}
         >
           {isSending ? (
@@ -164,7 +168,7 @@ export const ChatBar: React.FC = () => {
             </>
           ) : (
             <>
-              <Send className={`w-4 h-4 transition-transform duration-200 ${hasText ? 'text-white' : 'text-white/40'}`} />
+              <Send className={`w-4 h-4 ${hasText ? 'text-white' : 'text-white/40'}`} />
               <span>{t('chat.send')}</span>
             </>
           )}

@@ -22,6 +22,7 @@ export const HeadBubble: React.FC<HeadBubbleProps> = ({ state }) => {
 
   return (
     <div
+      id="head-bubble"
       className="pointer-events-none fixed top-0 left-0 z-20 will-change-transform transition-transform duration-150 ease-out"
       style={{
         transform: `translate3d(calc(${state.x}px - 50%), calc(${state.y}px - 100% - 16px), 0)`,

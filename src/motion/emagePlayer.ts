@@ -15,14 +15,21 @@ const SMPLX_TO_VRM: (VRMHumanBoneName | null)[] = [
   'hips', 'leftUpperLeg', 'rightUpperLeg', 'spine', 'leftLowerLeg', 'rightLowerLeg', 'chest', 'leftFoot', 'rightFoot', 'upperChest', 'leftToes', 'rightToes', 'neck', 'leftShoulder', 'rightShoulder', 'head', 'leftUpperArm', 'rightUpperArm', 'leftLowerArm', 'rightLowerArm', 'leftHand', 'rightHand', 'jaw', null, null, 'leftIndexProximal', 'leftIndexIntermediate', 'leftIndexDistal', 'leftMiddleProximal', 'leftMiddleIntermediate', 'leftMiddleDistal', 'leftLittleProximal', 'leftLittleIntermediate', 'leftLittleDistal', 'leftRingProximal', 'leftRingIntermediate', 'leftRingDistal', 'leftThumbMetacarpal', 'leftThumbProximal', 'leftThumbDistal', 'rightIndexProximal', 'rightIndexIntermediate', 'rightIndexDistal', 'rightMiddleProximal', 'rightMiddleIntermediate', 'rightMiddleDistal', 'rightLittleProximal', 'rightLittleIntermediate', 'rightLittleDistal', 'rightRingProximal', 'rightRingIntermediate', 'rightRingDistal', 'rightThumbMetacarpal', 'rightThumbProximal', 'rightThumbDistal',
 ];
 
-// 下半身与双腿关节 (SMPL-X 索引: 0=hips, 1/2=大腿, 4/5=小腿, 7/8=脚, 10/11=脚趾)
-const LOWER_BODY_INDICES = new Set([0, 1, 2, 4, 5, 7, 8, 10, 11]);
+// 下半身、骨盆与腰椎关节 (SMPL-X 索引: 0=hips, 1/2=大腿, 3=spine下腰椎, 4/5=小腿, 7/8=脚, 10/11=脚趾)
+// 强制锁定立姿，彻底消除腰椎弯折与整体前倾
+const LOWER_BODY_INDICES = new Set([0, 1, 2, 3, 4, 5, 7, 8, 10, 11]);
 
 // 上半身手臂关节 (SMPL-X 索引: 13/14=肩膀, 16/17=大臂, 18/19=小臂, 20/21=手腕)
 const ARM_INDICES = new Set([13, 14, 16, 17, 18, 19, 20, 21]);
 
 // 十指指关节 (SMPL-X 索引: 25~54 为左右手各15个指节)
 const FINGER_INDICES = new Set(Array.from({ length: 30 }, (_, i) => 25 + i));
+
+// 胸腔上躯干关节 (SMPL-X 索引: 6=chest, 9=upperChest)
+const TORSO_INDICES = new Set([6, 9]);
+
+// 头部/颈部关节 (SMPL-X 索引: 12=neck, 15=head)
+const HEAD_INDICES = new Set([12, 15]);
 
 function resample16k(src: Float32Array, sampleRate: number): Float32Array {
   if (sampleRate === SR) return src;
@@ -59,6 +66,8 @@ export class EmagePlayer {
   // ─── 动作速度与频率优化控制 ───
   gestureIntensity = 1.0;      // 手臂幅度缩放 (0.1~1.0，默认 1.0 满额手势)
   fingerIntensity = 0.35;      // 指关节活跃度 (0.1~1.0，默认 0.35，保持柔和半卷，消除乱指)
+  torsoIntensity = 0.12;       // 胸腔微动权重 (默认 0.12，仅保留呼吸与微幅说话起伏，彻底消除驼背探身)
+  headIntensity = 0.30;        // 头部/颈部权重 (默认 0.30，防止脖子前伸乌龟颈，保持抬头挺胸)
   dampingStiffness = 5.5;      // 惯性阻尼刚度 (默认 5.5，数值越小越柔顺轻盈，消除“动得太快”)
   temporalSmoothRadius = 7;    // 时序高斯平滑半径 (默认 7 帧/约0.5s，消除“切换太频繁”)
 
@@ -429,6 +438,10 @@ export class EmagePlayer {
           qGoal.slerp(rest, 1.0 - this.gestureIntensity);
         } else if (FINGER_INDICES.has(i) && this.fingerIntensity < 0.999) {
           qGoal.slerp(rest, 1.0 - this.fingerIntensity);
+        } else if (TORSO_INDICES.has(i) && this.torsoIntensity < 0.999) {
+          qGoal.slerp(rest, 1.0 - this.torsoIntensity);
+        } else if (HEAD_INDICES.has(i) && this.headIntensity < 0.999) {
+          qGoal.slerp(rest, 1.0 - this.headIntensity);
         }
       }
 
@@ -443,10 +456,7 @@ export class EmagePlayer {
         finalQ = this._q2.copy(this.startQ[i]!).slerp(finalQ, smoothIn);
       }
 
-      // 动作结束平滑淡出到 Idle (Fade-Out)
-      if (idleWeight > 0.001) {
-        finalQ = this._q2.copy(finalQ).slerp(this.restQ[i] ?? this._q1.identity(), idleWeight);
-      }
+      // 动作结束平滑淡出到 Idle (由 vrmEngine.naturalIdle 依据 idleWeight 平滑接管，绝不强行拉回 T-Pose)
       bone.quaternion.copy(finalQ);
     }
   }
@@ -537,9 +547,15 @@ export class EmagePlayer {
 
   stop(): void {
     this.playing = false;
+    this.fadingOut = false;
     this.clearExternalClock();
     if (this.audio) { this.audio.pause(); this.audio.currentTime = 0; }
-    this.resetPose();
+    this.footIK.reset();
+    this.idleWeight = 1.0;
+    this.currentBoneInitialized = false;
+    if (this.vrm) {
+      this.vrm.scene.position.y = this.baseY;
+    }
   }
 
   pause(): void {
@@ -556,10 +572,8 @@ export class EmagePlayer {
   resetPose(): void {
     this.idleWeight = 1.0;
     this.footIK.reset();
-    for (let i = 0; i < NUM_JOINTS; i++) {
-      const bone = this.bones[i];
-      if (bone && this.restQ[i]) bone.quaternion.copy(this.restQ[i]!);
-    }
+    this.fadingOut = false;
+    this.currentBoneInitialized = false;
     if (this.vrm) {
       this.vrm.scene.position.y = this.baseY;
     }
