@@ -211,21 +211,25 @@ export class FootIKSolver {
     r.kneeFlexionBias = (1.0 - sr) * 0.13;
 
     // 2. 连续平滑骨盆高度补偿 (Ground Alignment):
-    // 根据两腿当前各自的承重贡献加权计算地面高度差
+    // 关键修正：提取去除上一帧修正量后的真实内在对地距离，彻底消灭代数环弹簧回弹震荡！
+    const prevOffset = this.smoothHipsOffsetY * this.weight;
     const lPos = this._vA;
     const rPos = this._vB;
     l.foot.getWorldPosition(lPos);
     r.foot.getWorldPosition(rPos);
-    const lDist = lPos.y - l.restAnkleY;
-    const rDist = rPos.y - r.restAnkleY;
-    const weightedGroundDist = lDist * lSupport + rDist * rSupport;
 
-    const filterFactor = 1.0 - Math.exp(-12.0 * Math.max(0.001, delta));
+    // 剔除上一帧的世界骨盆位移，获取脚踝纯几何姿态的对地误差
+    const intrinsicLDist = (lPos.y - prevOffset) - l.restAnkleY;
+    const intrinsicRDist = (rPos.y - prevOffset) - r.restAnkleY;
+    const weightedGroundDist = intrinsicLDist * lSupport + intrinsicRDist * rSupport;
+
+    // 10Hz 指数阻尼滤波平滑跟进，杜绝任何弹性绳晃荡感
+    const filterFactor = 1.0 - Math.exp(-10.0 * Math.max(0.001, delta));
     const targetHipsOffset = -weightedGroundDist;
     this.smoothHipsOffsetY += (targetHipsOffset - this.smoothHipsOffsetY) * filterFactor;
 
-    // 应用 Hips 高度补偿
-    const effHipsOffset = this.smoothHipsOffsetY * this.weight;
+    // 应用 Hips 高度补偿 (限制在生理站立合理区间 -8cm ~ +3cm)
+    const effHipsOffset = THREE.MathUtils.clamp(this.smoothHipsOffsetY * this.weight, -0.08, 0.03);
     this.hips.position.y = this.restHipsLocalPos.y + effHipsOffset;
     this.hips.updateMatrixWorld(true);
 

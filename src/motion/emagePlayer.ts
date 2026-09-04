@@ -70,11 +70,11 @@ export class EmagePlayer {
   // ─── 动作速度与频率优化控制 ───
   gestureIntensity = 1.0;      // 手臂幅度缩放 (0.1~1.0，默认 1.0 满额手势)
   fingerIntensity = 0.75;      // 指关节活跃度 (0.1~1.0，默认 0.75，保持柔和半卷，消除乱指)
-  torsoIntensity = 0.55;       // 胸腔微动权重 (默认 0.55，从 0.12 适当提升，保留自然呼吸与起伏)
+  torsoIntensity = 0.75;       // 胸腔微动权重 (默认 0.55，从 0.12 适当提升，保留自然呼吸与起伏)
   spineIntensity = 0.25;       // 腰椎微动权重 (默认 0.25，自然微屈与说话起伏)
-  hipIntensity = 0.40;         // 骨盆/胯部微动权重 (默认 0.40，赋予活人重心微移与说话律动)
-  legIntensity = 0.40;         // 双腿跟随权重 (默认 0.40，配合骨盆重心自然微动，足部由 FootIK 稳妥贴地)
-  headIntensity = 0.80;        // 头部/颈部权重 (默认 0.30，防止脖子前伸乌龟颈，保持抬头挺胸)
+  hipIntensity = 0.70;         // 骨盆/胯部微动权重 (默认 0.40，赋予活人重心微移与说话律动)
+  legIntensity = 0.70;         // 双腿跟随权重 (默认 0.40，配合骨盆重心自然微动，足部由 FootIK 稳妥贴地)
+  headIntensity = 0.80;        // 头部/颈部权重 (默认 0.80，防止脖子前伸乌龟颈，保持抬头挺胸)
   dampingStiffness = 5.5;      // 惯性阻尼刚度 (默认 5.5，数值越小越柔顺轻盈，消除“动得太快”)
   temporalSmoothRadius = 7;    // 时序高斯平滑半径 (默认 7 帧/约0.5s，消除“切换太频繁”)
 
@@ -104,8 +104,6 @@ export class EmagePlayer {
   private baseY = 0;
 
   private motion: Float32Array | null = null;
-  private trans: Float32Array | null = null;
-  private transRefY = 0;
   private frameCount = 0;
   private duration = 0; // 真实音频/动作秒数
   private fps = FPS;
@@ -307,8 +305,6 @@ export class EmagePlayer {
       this.duration = res.duration;
       this.fps = res.fps;
       this.motion = res.rot6d;
-      this.trans = res.trans;
-      this.transRefY = this.trans[1] ?? 0;
       this.playhead = 0;
       this.idleWeight = 0.0;
       this.cachedF0 = -1;
@@ -439,14 +435,8 @@ export class EmagePlayer {
       }
     }
 
-    if (this.trans && !this.lockLowerBody) {
-      const y0 = this.trans[f0 * 3 + 1]!;
-      const y1 = this.trans[f1 * 3 + 1]!;
-      const rawDeltaY = (y0 + (y1 - y0) * alpha) - this.transRefY;
-      const deltaY = THREE.MathUtils.clamp(rawDeltaY * 0.15, -0.015, 0.015);
-      const targetY = this.baseY + deltaY;
-      this.vrm.scene.position.y = idleWeight > 0.0001 ? THREE.MathUtils.lerp(targetY, this.baseY, idleWeight) : targetY;
-    } else if (this.vrm) {
+    // 关键修正：站立交流说话时，角色的世界地面基准高度必须绝对锁定在 baseY，绝不随动捕数据在空中上下抽动悬空！
+    if (this.vrm) {
       this.vrm.scene.position.y = this.baseY;
     }
 
