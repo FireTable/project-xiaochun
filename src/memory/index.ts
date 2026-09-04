@@ -1,12 +1,12 @@
 import { APP_CONFIG } from '@/config';
 import type { Lang } from '@/i18n';
 import { extractEntities } from './extract';
-import { appendMemoryToSystem, historyMessages, pickNotes } from './inject';
+import { appendMemoryToSystem, assistantPrefill, historyAsUserPrompt, pickNotes } from './inject';
 import { appendNote, appendTurn, loadEntities, loadNotes, loadTurns, saveEntities } from './store';
 import { emptyEntities, type Recall } from './types';
 
 export type { EntityProfile, LongNote, MemoryTurn, Recall } from './types';
-export { appendMemoryToSystem, historyMessages };
+export { appendMemoryToSystem, assistantPrefill, historyAsUserPrompt };
 
 function clipNote(user: string, assistant: string): string {
   const max = APP_CONFIG.memory.turnMaxChars;
@@ -42,8 +42,12 @@ export async function rememberTurn(user: string, assistant: string): Promise<voi
 }
 
 export function applyRecall(systemPrompt: string, mem: Recall, lang: Lang) {
+  // ponytail: 单条 user 消息压缩历史 + 语言相关 prefill,根治 2B 模型复读。
+  //   - historyPrefix: 已包含 "[对话历史]...\n现在用户说: " 末尾冒号前的内容
+  //   - prefill: 追加到 messages 末尾的 assistant 消息,模型从这里续写
   return {
     system: appendMemoryToSystem(systemPrompt, mem, lang),
-    history: historyMessages(mem.recent),
+    historyPrefix: historyAsUserPrompt(mem.recent, lang),
+    prefill: assistantPrefill(lang),
   };
 }

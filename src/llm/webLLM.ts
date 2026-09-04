@@ -318,22 +318,28 @@ async function completeOnce(
   userText: string,
   systemPrompt: string,
   thinking: boolean,
-  history: { role: 'user' | 'assistant'; content: string }[] = [],
+  historyPrefix: string = '',
+  prefill: string = '',
 ): Promise<string> {
   const qwen3 = getActiveModelId().startsWith('Qwen3');
   const lang: Lang = langFromSystemPrompt(systemPrompt);
-  const messages = [
-    { role: 'system' as const, content: systemPrompt },
-    ...history,
-    { role: 'user' as const, content: wrapUserContent(userText, lang) },
+  // ponytail: 历史压成单条 user 消息,而不是多轮 ChatML 交替 — 根治 2B 模型复读。
+  const userContent = (historyPrefix + wrapUserContent(userText, lang)).trim();
+  const messages: { role: 'system' | 'user' | 'assistant'; content: string }[] = [
+    { role: 'system', content: systemPrompt },
+    { role: 'user', content: userContent },
   ];
-  console.table(messages.map((m, i) => ({ i, role: m.role, chars: m.content.length, content: m.content })));
+  // 带内容的 assistant prefill — 强于官方 add_generation_prompt 的空 assistant 头。
+  if (prefill) messages.push({ role: 'assistant', content: prefill });
+  console.table(messages.map((m, i) => ({ i, role: m.role, chars: m.content.length, preview: m.content.slice(0, 60) })));
   const reply = await engine.chat.completions.create({
     messages,
     temperature: 0.8,
     ...(qwen3 ? { extra_body: { enable_thinking: thinking && qwen3 } } : {}),
   });
-  return reply.choices[0]?.message?.content || '';
+  // ponytail: MLC 会把 prefill 拼到回复开头,要剥离掉,否则 TTS 会念"小蠢：xxx"。
+  const raw = reply.choices[0]?.message?.content || '';
+  return prefill && raw.startsWith(prefill) ? raw.slice(prefill.length) : raw;
 }
 
 /**
@@ -354,12 +360,12 @@ export async function generateSpeechReply(
   const mem = await recallForChat(userText);
   const packed = applyRecall(systemPrompt, mem, lang);
 
-  let raw = await completeOnce(engine, userText, packed.system, wantThink, packed.history);
+  let raw = await completeOnce(engine, userText, packed.system, wantThink, packed.historyPrefix, packed.prefill);
   if (gen !== loadGen) throw new Error('model switched');
   let cleanSpeech = extractCleanSpeech(raw);
 
   if (!cleanSpeech.trim() && wantThink) {
-    raw = await completeOnce(engine, userText, packed.system, false, packed.history);
+    raw = await completeOnce(engine, userText, packed.system, false, packed.historyPrefix, packed.prefill);
     if (gen !== loadGen) throw new Error('model switched');
     cleanSpeech = extractCleanSpeech(raw);
   }
