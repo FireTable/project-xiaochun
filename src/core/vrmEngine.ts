@@ -1,8 +1,6 @@
 import * as THREE from 'three';
 import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js';
 import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
-import { EffectComposer } from 'three/examples/jsm/postprocessing/EffectComposer.js';
-import { RenderPass } from 'three/examples/jsm/postprocessing/RenderPass.js';
 import { VRM, VRMLoaderPlugin, VRMUtils, type VRMExpressionPresetName } from '@pixiv/three-vrm';
 
 import { VRMAMotionPlayer } from '@/motion/vrmaPlayer';
@@ -45,7 +43,6 @@ export type MaterialSaturationPresetKey = keyof typeof APP_CONFIG.saturation.pre
 export class VRMEngine {
   private canvas: HTMLCanvasElement | null = null;
   private renderer: THREE.WebGLRenderer | null = null;
-  private composer: EffectComposer | null = null;
   private scene: THREE.Scene = new THREE.Scene();
   private camera: THREE.PerspectiveCamera = new THREE.PerspectiveCamera(
     APP_CONFIG.camera.defaultFov,
@@ -273,9 +270,14 @@ export class VRMEngine {
 
   public attachCanvas(canvas: HTMLCanvasElement): void {
     this.canvas = canvas;
-    this.renderer = new THREE.WebGLRenderer({ canvas, antialias: true, alpha: true });
+    this.renderer = new THREE.WebGLRenderer({
+      canvas,
+      antialias: true,
+      alpha: true,
+      powerPreference: 'high-performance',
+    });
+    this.renderer.setPixelRatio(Math.min(window.devicePixelRatio, APP_CONFIG.renderer.maxPixelRatio));
     this.renderer.setSize(window.innerWidth, window.innerHeight);
-    this.renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
     this.renderer.toneMapping = THREE.LinearToneMapping;
     this.renderer.toneMappingExposure = 1.08;
     this.renderer.shadowMap.enabled = true;
@@ -552,18 +554,14 @@ export class VRMEngine {
       tree.position.set(pos[0], 0, pos[1]);
       this.scene.add(tree);
     }
-
-    // ponytail: 后处理只挂 RenderPass; 调色在 MToon 材质层物理隔离执行, 背景与线稿保持 100% 原始纯净
-    this.composer = new EffectComposer(this.renderer);
-    this.composer.addPass(new RenderPass(this.scene, this.camera));
   }
 
   private handleResize = () => {
     if (!this.renderer) return;
     this.camera.aspect = window.innerWidth / window.innerHeight;
     this.camera.updateProjectionMatrix();
+    this.renderer.setPixelRatio(Math.min(window.devicePixelRatio, APP_CONFIG.renderer.maxPixelRatio));
     this.renderer.setSize(window.innerWidth, window.innerHeight);
-    this.composer?.setSize(window.innerWidth, window.innerHeight);
   };
 
   public updateAllLights(): void {
@@ -1115,13 +1113,7 @@ uniform float uMatSaturation;
       }
 
       this.controls?.update();
-      if (this.renderer) {
-        if (this.composer) {
-          this.composer.render();
-        } else {
-          this.renderer.render(this.scene, this.camera);
-        }
-      }
+      this.renderer?.render(this.scene, this.camera);
     };
 
     animate();

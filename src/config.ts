@@ -52,6 +52,10 @@ export const APP_CONFIG = {
     defaultPosition: [0.0, 1.5, 3.6] as [number, number, number],
     defaultTarget: [0.0, 1.2, 0.0] as [number, number, number],
   },
+  renderer: {
+    // iPhone 多是 3x;封顶 2 会按 2/3 分辨率画,头发和网袜特别容易锯齿。
+    maxPixelRatio: 3,
+  },
   lights: {
     dir: { base: 1.00, enabled: true },
     hemi: { base: 0.60, enabled: true },
