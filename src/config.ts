@@ -25,6 +25,18 @@ export interface MaterialSaturationConfig {
   skin: number;
 }
 
+export interface EmageMotionConfig {
+  gestureIntensity: number;      // 手臂幅度缩放 (0.1~1.0，默认 1.0 满额手势)
+  fingerIntensity: number;       // 指关节活跃度 (0.1~1.0，默认 0.5，保持柔和半卷，消除乱指)
+  torsoIntensity: number;        // 胸腔微动权重 (默认 0.75，保留自然呼吸与起伏)
+  spineIntensity: number;        // 腰椎微动权重 (默认 0.3，自然微屈与说话起伏)
+  hipIntensity: number;          // 骨盆/胯部微动权重 (默认 0.70，赋予活人重心微移与说话律动)
+  legIntensity: number;          // 双腿跟随权重 (默认 0.70，配合骨盆重心自然微动，足部由 FootIK 稳妥贴地)
+  headIntensity: number;         // 头部/颈部权重 (默认 0.80，防止脖子前伸乌龟颈，保持抬头挺胸)
+  dampingStiffness: number;      // 惯性阻尼刚度 (默认 4.2，数值越小越柔顺轻盈，消除“动得太快”)
+  temporalSmoothRadius: number;  // 时序高斯平滑半径 (默认 12 帧/约0.8s，消除“切换太频繁”)
+}
+
 export const APP_CONFIG = {
   brand: {
     name: 'Project XiaoChun',
@@ -44,6 +56,18 @@ export const APP_CONFIG = {
       ? ((import.meta.env.VITE_EMAGE_BASE_PROD as string | undefined) ?? 'https://cdn.firetable.tech/xiaochun')
       : ((import.meta.env.VITE_EMAGE_BASE as string | undefined) ?? '/onnx'),
     cacheName: 'emage-models-v1',
+    // ─── 动作速度与频率优化权威配置 ───
+    motion: {
+      gestureIntensity: 1.0,      // 手臂幅度缩放 (0.1~1.0，默认 1.0 满额手势)
+      fingerIntensity: 0.5,       // 指关节活跃度 (0.1~1.0，默认 0.5，保持柔和半卷，消除乱指)
+      torsoIntensity: 0.75,       // 胸腔微动权重 (默认 0.75，保留自然呼吸与起伏)
+      spineIntensity: 0.3,        // 腰椎微动权重 (默认 0.3，自然微屈与说话起伏)
+      hipIntensity: 0.70,         // 骨盆/胯部微动权重 (默认 0.70，赋予活人重心微移与说话律动)
+      legIntensity: 0.70,         // 双腿跟随权重 (默认 0.70，配合骨盆重心自然微动，足部由 FootIK 稳妥贴地)
+      headIntensity: 0.80,        // 头部/颈部权重 (默认 0.80，防止脖子前伸乌龟颈，保持抬头挺胸)
+      dampingStiffness: 4.2,      // 惯性阻尼刚度 (默认 4.2，数值越小越柔顺轻盈，消除“动得太快”)
+      temporalSmoothRadius: 12,   // 时序高斯平滑半径 (默认 12 帧/约0.8s，消除“切换太频繁”)
+    } as EmageMotionConfig,
   },
   // WebLLM 模型 id。改 model 即可换模型,必须是 WebLLM 预置表里的 model_id。
   // 在线列表: https://github.com/mlc-ai/web-llm/blob/main/src/config.ts

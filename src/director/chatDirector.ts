@@ -21,16 +21,15 @@ interface Plan { speech: string; llm_provider?: string }
 /**
  * 智能分句与切段器 (Smart Speech Chunk Slicer)
  * 目标:
- * 1. 首句追求极致低延迟响应 (约 15~28 个字，遇标点即切)，让用户在 1 秒以内听到数字人开口！
- * 2. 后续段追求自然的语义完整度与抑扬顿挫 (约 30~60 个字，在句号、感叹号、问号或换行处切)。
- * 3. 绝不在词语中硬切，严格在标点处分段；若长句超过 65 字无句号，则在逗号处切分。
+ * 1. 统一各段语义完整度与抑扬顿挫 (约 30~60 个字，在句号、感叹号、问号或换行处自然切分)。
+ * 2. 绝不在词语中硬切，严格在标点处分段；若长句超过 65 字无句号，则在逗号、分号处切分换气。
  */
 export function splitIntoSpeechChunks(text: string): string[] {
   const clean = text.trim();
   if (!clean) return [];
 
-  // 如果总字数较少 (<= 35 字)，无需分段，单段直接开播体验最佳
-  if (clean.length <= 35) {
+  // 如果总字数较少 (<= 45 字)，无需分段，单段直接开播体验最佳
+  if (clean.length <= 45) {
     return [clean];
   }
 
@@ -41,59 +40,17 @@ export function splitIntoSpeechChunks(text: string): string[] {
   const sentenceDelims = /(?:[。！？!?\n]|\.(?:\s+|$))/g;
   const commaDelims = /(?:[，,；;]|,(?:\s+|$)|;(?:\s+|$))/g;
 
-  // 1. 首句截取：目标长度 15~28 字以求毫秒级开口响应
-  let firstEnd = -1;
-  let match: RegExpExecArray | null;
-
-  while ((match = sentenceDelims.exec(remaining)) !== null) {
-    const endIdx = match.index + match[0].length;
-    if (endIdx >= 10) {
-      firstEnd = endIdx;
-      break;
-    }
-  }
-
-  // 若第一个句号太远 (> 30 字) 或未找到，但在 12~28 字之间有逗号/分号，则首句在逗号处断句以求极速响应
-  if (firstEnd === -1 || firstEnd > 30) {
-    commaDelims.lastIndex = 0;
-    while ((match = commaDelims.exec(remaining)) !== null) {
-      const endIdx = match.index + match[0].length;
-      if (endIdx >= 12 && endIdx <= 28) {
-        firstEnd = endIdx;
-        break;
-      }
-    }
-  }
-
-  // 若仍未找到合适标点，且首部 > 32 字，在 15~28 字间找任意空格或标点
-  if (firstEnd === -1) {
-    if (remaining.length > 32) {
-      const anySpaceOrPunct = /[，,；;。！？!?\s]/g;
-      let candidate = -1;
-      while ((match = anySpaceOrPunct.exec(remaining)) !== null) {
-        if (match.index >= 12 && match.index <= 28) {
-          candidate = match.index + match[0].length;
-        }
-      }
-      firstEnd = candidate > 0 ? candidate : 25;
-    } else {
-      firstEnd = remaining.length;
-    }
-  }
-
-  const firstChunk = remaining.slice(0, firstEnd).trim();
-  if (firstChunk) chunks.push(firstChunk);
-  remaining = remaining.slice(firstEnd).trim();
-
-  // 2. 后续段落截取：每段目标 30~60 字
   while (remaining.length > 0) {
-    if (remaining.length <= 50) {
+    if (remaining.length <= 55) {
       chunks.push(remaining);
       break;
     }
 
     let cutIdx = -1;
     sentenceDelims.lastIndex = 0;
+    let match: RegExpExecArray | null;
+
+    // 1. 优先在 25 ~ 65 字之间的句末标点处断句
     while ((match = sentenceDelims.exec(remaining)) !== null) {
       const idx = match.index + match[0].length;
       if (idx >= 25 && idx <= 65) {
@@ -105,6 +62,7 @@ export function splitIntoSpeechChunks(text: string): string[] {
       }
     }
 
+    // 2. 若未在 25~65 字找到句末标点，但在 25~60 字之间有逗号/分号，则在逗号处切分换气
     if (cutIdx === -1) {
       commaDelims.lastIndex = 0;
       while ((match = commaDelims.exec(remaining)) !== null) {
@@ -115,7 +73,18 @@ export function splitIntoSpeechChunks(text: string): string[] {
       }
     }
 
-    // 若无任何标点，尽量在空格处切断，避免在英文单词中间截断
+    // 3. 若仍未找到合适标点，但在 15~75 字内有任意句末标点，顺畅断开
+    if (cutIdx === -1) {
+      sentenceDelims.lastIndex = 0;
+      if ((match = sentenceDelims.exec(remaining)) !== null) {
+        const idx = match.index + match[0].length;
+        if (idx >= 15 && idx <= 75) {
+          cutIdx = idx;
+        }
+      }
+    }
+
+    // 4. 若无任何标点，尽量在空格处切断，避免在英文单词中间截断
     if (cutIdx === -1) {
       const target = Math.min(50, remaining.length);
       const lastSpace = remaining.lastIndexOf(' ', target);
@@ -425,25 +394,7 @@ export class ChatDirector {
       }
     });
 
-    // ── 步骤 1: 首段 (Chunk 0) 音频就绪后立即触发 EMAGE 推理 ──
-    status('tts', undefined, false, chunks[0]);
-    const buf0 = await ttsAudioPromises[0];
-    if (this.stopped) return;
-    tracker.update(0, { 'EMAGE': '⚙️ 推理中…' }, '切片 #0 EMAGE 动作推理启动');
-
-    status('emage', { seconds: buf0.duration.toFixed(1) }, false, chunks[0]);
-    const pcm0 = pcmFromAudioBuffer(buf0);
-    let motion0: EmageMotionData;
-    try {
-      motion0 = await emage.generate(pcm0, () => undefined, false, false);
-    } catch (err) {
-      this.stop();
-      throw err;
-    }
-    if (this.stopped) return;
-    tracker.update(0, { 'EMAGE': `✅ 就绪 (${motion0.frameCount}帧)` }, '切片 #0 EMAGE 动作推理就绪');
-
-    // ── 步骤 2: 准备后台生产者预取队列 (Ready Queue) ──
+    // ── 准备后台生产者预取队列 (Ready Queue) ──
     interface SpeechSegment {
       index: number;
       text: string;
@@ -462,26 +413,34 @@ export class ChatDirector {
       }
     };
 
-    // 启动后台异步生产者：并行顺序生成后续段落动作 (仅 EMAGE 自回归跨段种子继承)
+    // 启动后台异步生产者：顺序生成所有切片的 EMAGE 动作 (自回归跨段连续继承种子)
     const producerPromise = (async () => {
-      for (let i = 1; i < chunks.length; i++) {
+      for (let i = 0; i < chunks.length; i++) {
         if (this.stopped) break;
         try {
           const cText = chunks[i]!;
-          // 直接取并发已在后台下载完成的 TTS 音频 (0ms 网络等待！)
+          if (readyQueue.length === 0 && i === 0) {
+            status('tts', undefined, false);
+          }
+
+          // 取并发已就绪的 TTS 音频 (0ms 网络等待)
           const aBuf = await ttsAudioPromises[i]!;
           if (this.stopped) break;
 
           tracker.update(i, { 'EMAGE': '⚙️ 推理中…' }, `切片 #${i} EMAGE 动作推理启动`);
-          const pcm = pcmFromAudioBuffer(aBuf);
-          const mot = await emage.generate(pcm, () => undefined, false, true); // continueFromPrevious = true!
-          if (this.stopped) break;
-          tracker.update(i, { 'EMAGE': `✅ 就绪 (${mot.frameCount}帧)` }, `切片 #${i} EMAGE 动作推理就绪`);
+          if (readyQueue.length === 0 && i === 0) {
+            status('emage', { seconds: aBuf.duration.toFixed(1) }, false);
+          }
 
+          const pcm = pcmFromAudioBuffer(aBuf);
+          const mot = await emage.generate(pcm, () => undefined, false, i > 0);
+          if (this.stopped) break;
+
+          tracker.update(i, { 'EMAGE': `✅ 就绪 (${mot.frameCount}帧)` }, `切片 #${i} EMAGE 动作推理就绪`);
           readyQueue.push({ index: i, text: cText, audioBuffer: aBuf, motion: mot });
           wakeConsumer();
         } catch (e) {
-          console.warn(`[ChatDirector] 后台预生成第 ${i} 段异常:`, e);
+          console.warn(`[ChatDirector] 生产第 ${i} 段动作异常:`, e);
           tracker.update(i, { 'EMAGE': '❌ 异常中断' }, `切片 #${i} 异常中断`);
           producerFinished = true;
           wakeConsumer();
@@ -492,11 +451,20 @@ export class ChatDirector {
       wakeConsumer();
     })();
 
-    // ── 步骤 3: 消费者播放循环 ──
-    this.audioBuffer = buf0;
-    status('speaking', undefined, false, chunks[0], 1, chunks.length);
-    tracker.update(0, { 'Playback': '▶️ 播放中' });
-    emage.applyMotionData(motion0, 0.60);
+    // ── 双条件预缓冲等待起播 ──
+    // 条件 1: 比例原则 — 约 1/3 切片数 Math.ceil(chunks.length / 3)
+    // 条件 2: 上下限约束 — 最多预缓冲 2 段 (2段音频时长通常 8~12s，足够后台产生后续段，防止段数很多时初始久等)
+    const targetPreload = chunks.length <= 1
+      ? 1
+      : Math.min(chunks.length, Math.min(2, Math.max(1, Math.ceil(chunks.length / 3))));
+
+    console.log(`[ChatDirector] 智能分段: 共 ${chunks.length} 段, 双条件预缓冲目标: ${targetPreload} 段`);
+
+    // 等待预缓冲切片达到 targetPreload，或者生产者已提前全部完成
+    while (readyQueue.length < targetPreload && !producerFinished && !this.stopped) {
+      await new Promise<void>((resolve) => notifyReady.push(resolve));
+    }
+    if (this.stopped) return;
 
     const playSegmentAudio = (buf: AudioBuffer, isInitial: boolean): Promise<void> => {
       return new Promise<void>((resolve) => {
@@ -512,45 +480,55 @@ export class ChatDirector {
       });
     };
 
-    await playSegmentAudio(buf0, true);
-    tracker.update(0, { 'Playback': '🏁 播放完成' });
-
-    // 连续消费后续段落
-    for (let i = 1; i < chunks.length; i++) {
+    // ── 消费者播放循环 ──
+    for (let i = 0; i < chunks.length; i++) {
       if (this.stopped) break;
 
-      // 等待第 i 段进入 readyQueue
-      while (readyQueue.length === 0 && !producerFinished && !this.stopped) {
-        await new Promise<void>((resolve) => notifyReady.push(resolve));
+      // 如果待播切片尚未就绪，立即切入 SpeakIdle 言谈间歇微动待机 (胸腔呼吸、手臂微浮沉、头部微动)
+      if (readyQueue.length === 0 && !producerFinished && !this.stopped) {
+        emage.clearExternalClock();
+        emage.enterSpeakIdle();
+        tracker.update(i, { 'Playback': '☕ 等待推理 (言谈微动待机)' }, `等待切片 #${i} 就绪`);
+        while (readyQueue.length === 0 && !producerFinished && !this.stopped) {
+          await new Promise<void>((resolve) => notifyReady.push(resolve));
+        }
+        emage.exitSpeakIdle();
       }
       if (this.stopped) break;
 
       const seg = readyQueue.shift();
       if (!seg) break;
 
-      // 标点呼吸微停顿 (220ms，人类生理换气停顿，消除接缝爆音且给动作留足惯性减速期)
-      await new Promise((r) => setTimeout(r, 220));
-      if (this.stopped) break;
+      if (i > 0) {
+        // 标点呼吸微停顿 (220ms，人类生理换气停顿，消除接缝爆音且给动作留足惯性减速期)
+        await new Promise((r) => setTimeout(r, 220));
+        if (this.stopped) break;
+      }
 
       this.audioBuffer = seg.audioBuffer;
       status('speaking', undefined, false, seg.text, i + 1, chunks.length);
       tracker.update(i, { 'Playback': '▶️ 播放中' });
-      // 完全不依赖固定时间，由生理角速度上限在物理空间自收敛平滑切入
-      emage.switchSegment(seg.motion);
 
-      await playSegmentAudio(seg.audioBuffer, false);
+      if (i === 0) {
+        emage.applyMotionData(seg.motion, 0.60);
+        await playSegmentAudio(seg.audioBuffer, true);
+      } else {
+        // 段落间由 emagePlayer.switchSegment 在内部以生理角速度上限与惯性阻尼自适应连续收敛
+        emage.switchSegment(seg.motion);
+        await playSegmentAudio(seg.audioBuffer, false);
+      }
       tracker.update(i, { 'Playback': '🏁 播放完成' });
     }
 
     if (this.stopped) return;
 
-    // 全部段落播放完毕
+    // 全部段落播放完毕：立即由全局 motionTransition 统一接管 55 根骨骼从当前说话姿态丝滑融入 NaturalIdle
     this.audioDone = true;
     this.audioDoneTime = performance.now();
     emage.clearExternalClock();
-    if (!emage.isPlaying() || emage.getProgress() >= 0.8) {
-      emage.fadeOutToIdle(0.6);
-    }
+    emage.stop();
+    this.stop();
+    this.onEnd?.();
 
     await producerPromise.catch(() => {});
   }
@@ -662,7 +640,7 @@ export class ChatDirector {
       this.stopPlaySegment = null;
     }
     if (this.currentVRM) {
-      this.transition?.startTransition(this.currentVRM, 0.65);
+      this.transition?.startTransition(this.currentVRM, 0.75);
       if (this.currentVRM.expressionManager) {
         this.currentVRM.expressionManager.setValue('aa', 0);
         this.currentVRM.expressionManager.setValue('ou', 0);
@@ -675,7 +653,7 @@ export class ChatDirector {
     this.audioDone = true;
     document.body.classList.remove('chat-playing');
     this.emage?.clearExternalClock();
-    this.emage?.fadeOutToIdle(0.85);
-    this.player?.fadeOutToIdle(0.85);
+    this.emage?.stop();
+    this.player?.stop();
   }
 }

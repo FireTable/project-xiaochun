@@ -60,6 +60,26 @@ UI 走 **TanStack Start SSR + i18next** 水合,**完整支持简体中文 / Engl
 * **语音合成** — **Edge-TTS 晓伊 (XiaoyiNeural, zh-CN, +10 Hz)**,基于 [`edge-tts-universal`](https://github.com/Sterznode/edge-tts-universal);传输前剥离 emoji。
 * **LLM + TTS + EMAGE 一体编排**:chat director 串起说话链路,主线程 60 FPS。
 
+### ⚡ 智能分段流式语音管线 (Streaming Speech Pipeline)
+* **智能分句切片 (Smart Chunking)**：打破千字长文生成等待瓶颈，统一按 30~60 字与自然语法标点（`。！？!?\n` 或逗号长句）断句，语气自然抑扬顿挫。
+* **全切片 TTS 零延迟并发预取**：纯网络 I/O 全部切片并行下载，彻底消除语音合成等待延迟。
+* **双条件预缓冲起播 (Dual-Condition Pre-buffering)**：兼顾比例（$\lceil N / 3 \rceil$）与上限封顶（最多预缓冲 2 段，约 8~12s 语音），1~2 段极速开播，多段长文缓冲 2 段即起播，后续段落后台源源不断产生，告别长文久等。
+* **跨段潜空间自回归种子连续继承 (Latent Seed Carryover)**：Worker 内部继承上一段尾部 4 帧潜空间种子 (`continueFromPrevious`)，分段动作在数学与物理上完全等同于单次长程自回归推理，消除断接割裂。
+* **纯生理角速度与阻尼弹簧无感切段过渡**：废除时间倒计时生硬插值，基于真实人体生理极限（手臂 2.2 rad/s，颈头 1.6 rad/s，躯干 1.2 rad/s）+ 指数弹簧阻尼自适应收敛，无论段间动作差异多大均平滑自收敛。
+* **自适应言谈间歇待机 (`SpeakIdleSystem`)**：段间等待时角色不再定格成蜡像，根据前序手势随机应变 —— 身前手势保持悬浮交谈态（带呼吸浮沉与超 1.5s 极缓重力自然微沉降）；严格按 VRM 1.0 真指节沿 Z 轴实施微脉搏舒缩；配合意识流头部微偏转与倾听微点头。
+* **控制台多切片动态表格看板**：`console.table` 实时呈现各段 TTS、EMAGE 推理、播放状态与切段过渡模式。
+* **气泡流式进度呼吸徽标**：头顶跟随气泡顶栏「来啦来啦～」右侧实时指示 `🟢 1 / 5` 进度胶囊，释放正文空间。
+
+### 💾 端侧持久化多级记忆系统 (Client-Side Memory System)
+* **100% 纯本地隐私安全 (IndexedDB)**：基于浏览器原生 IndexedDB（`xiaochun-memory` 独立数据库），对话轮次、用户称呼、性格喜好与长期记忆全部保留在用户设备本地，绝不向任何云端服务器回传。
+* **三层记忆分级架构 (3-Tier Memory Architecture)**：
+  * **短期对话轮次 (Short-Term Turns)**：自动维护最近 $N$ 轮对话上下文（默认保留 6 轮，单轮截断 180 字符，由 `APP_CONFIG.memory.shortTermTurns` 控制），保障即时对话连贯性。
+  * **实体画像提取 (Entity Profile)**：支持中 / 英 / 日多语言正则智能抓取用户称呼（如“我叫…”、“叫我…”、“my name is…”、“call me…”、“私は…”）、偏好倾向（“我喜欢…”、“我不喜欢…”、“i like…”）与关键事实，去重收录并持久化至画像配置。
+  * **长期摘要笔记与相关度检索 (Long-Term Notes & n-gram Retrieval)**：自动沉淀对话摘要笔记（长期存储上限 80 条）；新对话发起时，通过 n-gram 文本相似度打分算法 (`gramScore`) 快速召回最相关的 Top-K（默认 4 条）历史笔记。
+* **免阻塞异步写入与动态提示词注入**：
+  * **异步落库**：对话结束后台异步执行 `rememberTurn()`，零阻塞主线程渲染、手势与音频播放。
+  * **动态记忆注入**：发起生成前瞬时完成 `recallForChat()`，将提取的实体画像与召回的长期笔记智能封装进小蠢的 LLM 系统提示词（`appendMemoryToSystem`），支持中 / 英 / 日多语系个性化称呼（如“你还记得对方：称呼 xxx。喜欢 xxx…”、“以前聊过的事：…”），并指示模型优先接续最新话题。
+
 ### 🌐 国际化与 SSR 水合 (i18n & SSR)
 * **TanStack Start** 全栈 SSR,基于 Cookie 的语言水合 —— **客户端首屏不闪语言**。
 * **三语齐备**:简体中文 / English / 日本語。
@@ -91,6 +111,7 @@ UI 走 **TanStack Start SSR + i18next** 水合,**完整支持简体中文 / Engl
 | **应用框架** | [React 19](https://react.dev) + [TanStack Start](https://tanstack.com/start) | 全栈 SSR + Cookie 水合 i18n |
 | **路由** | [TanStack Router](https://tanstack.com/router) | 类型安全文件路由 |
 | **大语言模型** | [WebLLM](https://github.com/mlc-ai/web-llm) | Qwen3.5 2B q4f16_1 WebGPU 流式推理(失败降到 0.8B) |
+| **端侧记忆** | IndexedDB + 自研三层画像管线 | 纯本地多级记忆持久化、实体画像提取与 n-gram 语义召回 |
 | **动作生成** | EMAGE + [ONNX Runtime Web](https://onnxruntime.ai) | Dedicated Web Worker 全身动作生成 |
 | **语音合成** | [edge-tts-universal](https://github.com/Sterznode/edge-tts-universal) | 晓伊 zh-CN +10 Hz,emoji 剥离 |
 | **边缘运行时** | [Cloudflare Workers](https://developers.cloudflare.com/workers/) + [@cloudflare/vite-plugin](https://developers.cloudflare.com/workers/framework-guides/web-apps/tanstack-start/) | SSR 渲染 + WebSocket TTS + 静态资产直连 |
@@ -167,7 +188,8 @@ Project-XiaoChun/
 │   │   └── ui/                # Radix UI 原语封装 (button, dropdown-menu, tooltip)
 │   ├── core/
 │   │   └── vrmEngine.ts       # 3D 场景、线稿、6路灯光、材质饱和度、渲染循环
-│   ├── motion/                # EMAGE Worker + VRMA 播放 / 骨骼渐入 / MotionTransition
+│   ├── motion/                # EMAGE Worker + VRMA 播放 / 骨骼渐入 / MotionTransition / FootIK / SpeakIdle
+│   ├── memory/                # 端侧持久化多级记忆 (IndexedDB 存储 / 实体画像提取 / n-gram 长期笔记检索 / 动态 Prompt 注入)
 │   ├── llm/                   # WebLLM WebGPU 流式推理 + Worker + 多语言系统提示词
 │   ├── director/
 │   │   └── chatDirector.ts    # LLM → TTS → EMAGE 流式状态编排管线

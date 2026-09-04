@@ -2,6 +2,8 @@ import * as THREE from 'three';
 import type { VRM } from '@pixiv/three-vrm';
 import type { VRMHumanBoneName } from '@pixiv/three-vrm';
 import { FootIKSolver } from './footIK';
+import { SpeakIdleSystem } from './speakIdle';
+import { APP_CONFIG } from '@/config';
 
 const FPS = 30;
 const SR = 16000;
@@ -76,16 +78,16 @@ export class EmagePlayer {
   public fadingOut = false;
   private fadeElapsed = 0;
 
-  // ─── 动作速度与频率优化控制 ───
-  gestureIntensity = 1.0;      // 手臂幅度缩放 (0.1~1.0，默认 1.0 满额手势)
-  fingerIntensity = 0.5;      // 指关节活跃度 (0.1~1.0，默认 0.5，保持柔和半卷，消除乱指)
-  torsoIntensity = 0.75;       // 胸腔微动权重 (默认 0.55，从 0.12 适当提升，保留自然呼吸与起伏)
-  spineIntensity = 0.3;       // 腰椎微动权重 (默认 0.3，自然微屈与说话起伏)
-  hipIntensity = 0.70;         // 骨盆/胯部微动权重 (默认 0.40，赋予活人重心微移与说话律动)
-  legIntensity = 0.70;         // 双腿跟随权重 (默认 0.70，配合骨盆重心自然微动，足部由 FootIK 稳妥贴地)
-  headIntensity = 0.80;        // 头部/颈部权重 (默认 0.80，防止脖子前伸乌龟颈，保持抬头挺胸)
-  dampingStiffness = 5.5;      // 惯性阻尼刚度 (默认 5.5，数值越小越柔顺轻盈，消除“动得太快”)
-  temporalSmoothRadius = 12;    // 时序高斯平滑半径 (默认 12 帧/约0.8s，消除“切换太频繁”)
+  // ─── 动作速度与频率优化控制 (权威引用自 APP_CONFIG.emage.motion) ───
+  gestureIntensity = APP_CONFIG.emage.motion.gestureIntensity;
+  fingerIntensity = APP_CONFIG.emage.motion.fingerIntensity;
+  torsoIntensity = APP_CONFIG.emage.motion.torsoIntensity;
+  spineIntensity = APP_CONFIG.emage.motion.spineIntensity;
+  hipIntensity = APP_CONFIG.emage.motion.hipIntensity;
+  legIntensity = APP_CONFIG.emage.motion.legIntensity;
+  headIntensity = APP_CONFIG.emage.motion.headIntensity;
+  dampingStiffness = APP_CONFIG.emage.motion.dampingStiffness;
+  temporalSmoothRadius = APP_CONFIG.emage.motion.temporalSmoothRadius;
 
   // ─── 动态单腿支柱与丝滑换腿控制 ───
   stancePillar: 'left' | 'right' | 'alternate' | 'auto' = 'auto'; // 默认 auto 智能动态换腿
@@ -128,6 +130,25 @@ export class EmagePlayer {
   private f1Q = Array.from({ length: NUM_JOINTS }, () => new THREE.Quaternion());
   private currentBoneQ = Array.from({ length: NUM_JOINTS }, () => new THREE.Quaternion());
   private currentBoneInitialized = false;
+
+  // ─── 言谈间歇待机微律动模块 (SpeakIdleSystem) ───
+  public speakIdle = new SpeakIdleSystem();
+
+  /**
+   * 进入言谈间歇待机 (SpeakIdle)：
+   * 委托 SpeakIdleSystem 锁定当前交谈手势姿态作为基准，叠加生理级多谐波呼吸、双臂与手指微浮沉、头部灵动微视线
+   */
+  enterSpeakIdle(): void {
+    this.speakIdle.enter(this.currentBoneQ);
+  }
+
+  exitSpeakIdle(): void {
+    this.speakIdle.exit();
+  }
+
+  isSpeakIdle(): boolean {
+    return this.speakIdle.isActive();
+  }
 
   private smplxLocal = Array.from({ length: NUM_JOINTS }, () => new THREE.Quaternion());
   private smplxWorld = Array.from({ length: NUM_JOINTS }, () => new THREE.Quaternion());
@@ -205,7 +226,7 @@ export class EmagePlayer {
   }
 
   isPlaying(): boolean {
-    return (this.playing || this.fadingOut) && this.motion !== null;
+    return (this.playing || this.fadingOut || this.speakIdle.isActive()) && this.motion !== null;
   }
 
   bind(vrm: VRM): void {
@@ -395,6 +416,7 @@ export class EmagePlayer {
    * 保持当前骨骼姿态，由生理角速度约束 (Max Angular Speed) 与临界阻尼在物理空间平滑自收敛
    */
   switchSegment(data: EmageMotionData): void {
+    this.speakIdle.exit();
     this.frameCount = data.frameCount;
     this.duration = data.duration;
     this.fps = data.fps;
@@ -561,14 +583,14 @@ export class EmagePlayer {
       const clamped = Math.min(1.0, Math.max(0.0, dot));
       const angleDist = 2 * Math.acos(clamped);
 
-      // 根据各部位生理特性约束最大自然转动角速度 (弧度/秒): 手臂手部 2.2 rad/s (~125°/s), 躯干 1.2 rad/s, 颈头 1.6 rad/s
-      let maxSpeed = 1.8;
+      // 根据各部位生理特性约束最大自然转动角速度 (弧度/秒): 手臂手部 1.5 rad/s (~86°/s), 躯干 1.0 rad/s (~57°/s), 颈头 1.3 rad/s (~74°/s)
+      let maxSpeed = 1.4;
       if (ARM_INDICES.has(i) || FINGER_INDICES.has(i)) {
-        maxSpeed = 2.2;
+        maxSpeed = 1.5;
       } else if (i === SPINE_INDEX || i === HIPS_INDEX || TORSO_INDICES.has(i)) {
-        maxSpeed = 1.2;
+        maxSpeed = 1.0;
       } else if (HEAD_INDICES.has(i)) {
-        maxSpeed = 1.6;
+        maxSpeed = 1.3;
       }
 
       // 单帧允许跨越的最大弧度步长
@@ -592,8 +614,15 @@ export class EmagePlayer {
   }
 
   update(delta: number, _lookAtEnabled = false): void {
-    if (!this.playing && !this.fadingOut) return;
+    if (!this.playing && !this.fadingOut && !this.speakIdle.isActive()) return;
     if (!this.motion || this.frameCount <= 0) return;
+
+    // ─── 言谈间歇待机微律动 (由独立 SpeakIdleSystem 接管) ───
+    if (this.speakIdle.isActive()) {
+      this.speakIdle.update(delta, this.bones, this.currentBoneQ);
+      if (this.enableFootIK) this.footIK.solve(delta);
+      return;
+    }
 
     // 动态换腿与生理微动节奏 (长篇连续说话时，每 8.5 秒平滑完成一次换脚)
     if (this.stancePillar === 'auto') {
@@ -656,6 +685,7 @@ export class EmagePlayer {
   fadeOutToIdle(duration = 0.8): void {
     this.clearExternalClock();
     if (this.audio) { this.audio.pause(); }
+    this.speakIdle.exit();
     if (!this.playing && this.idleWeight >= 0.99) return;
     this.fadeDuration = Math.max(0.1, duration);
     this.fadingOut = true;
@@ -691,24 +721,15 @@ export class EmagePlayer {
   stop(): void {
     this.playing = false;
     this.fadingOut = false;
+    this.speakIdle.exit();
     this.clearExternalClock();
     this.resetSeed();
     if (this.audio) { this.audio.pause(); this.audio.currentTime = 0; }
     this.footIK.reset();
-    this.idleWeight = 1.0;
+    this.idleWeight = 0.0;
     this.currentBoneInitialized = false;
-    if (this.vrm) {
-      this.vrm.scene.position.y = this.baseY;
-      // 仅回正下半身与骨盆（LOWER_BODY_INDICES），绝对不触碰双臂与手指（双臂由 naturalIdle 顺畅接管）
-      for (const idx of LOWER_BODY_INDICES) {
-        const bone = this.bones[idx];
-        const rest = this.restQ[idx];
-        if (bone && rest) {
-          bone.quaternion.copy(rest);
-          this.currentBoneQ[idx]!.copy(rest);
-        }
-      }
-    }
+    // 关键修正：绝不强拉或瞬移任何骨骼（包括下半身），完整保留瞬时生理姿态，
+    // 交由全局 MotionTransitionManager 毫秒级捕获并在随后时间窗内平滑 Slerp 回待机
   }
 
   pause(): void {
@@ -723,22 +744,10 @@ export class EmagePlayer {
   }
 
   resetPose(): void {
-    this.idleWeight = 1.0;
+    this.idleWeight = 0.0;
     this.footIK.reset();
     this.fadingOut = false;
     this.currentBoneInitialized = false;
-    if (this.vrm) {
-      this.vrm.scene.position.y = this.baseY;
-      // 仅回正下半身与骨盆（LOWER_BODY_INDICES），绝对不触碰双臂
-      for (const idx of LOWER_BODY_INDICES) {
-        const bone = this.bones[idx];
-        const rest = this.restQ[idx];
-        if (bone && rest) {
-          bone.quaternion.copy(rest);
-          this.currentBoneQ[idx]!.copy(rest);
-        }
-      }
-    }
   }
 
   getProgress(): number {

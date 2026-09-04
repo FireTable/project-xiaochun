@@ -19,6 +19,7 @@ export const HeadBubble: React.FC<HeadBubbleProps> = ({ state }) => {
   if (!state.visible) return null;
 
   const iconKind = state.isError ? 'idle' : ICON_BY_KEY[state.statusKey] ?? 'idle';
+  const isSpeaking = state.statusKey === 'speaking';
 
   return (
     <div
@@ -51,7 +52,7 @@ export const HeadBubble: React.FC<HeadBubbleProps> = ({ state }) => {
               {t(`bubble.${state.statusKey}`, state.statusVars as Record<string, unknown> | undefined)}
             </span>
             {/* 多段流式朗读进度指示胶囊 (并排放在 来啦来啦~ 旁边) */}
-            {state.totalSegments && state.totalSegments > 1 && state.segmentIndex ? (
+            {isSpeaking && state.totalSegments && state.totalSegments > 1 && state.segmentIndex ? (
               <span className="ml-1 px-1.5 py-0.5 rounded-full bg-white/10 text-[10px] font-medium text-brand-200 tracking-wider inline-flex items-center gap-1 border border-white/10 shadow-sm backdrop-blur-sm">
                 <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
                 <span className="text-white font-bold">{state.segmentIndex}</span>
@@ -61,7 +62,8 @@ export const HeadBubble: React.FC<HeadBubbleProps> = ({ state }) => {
             ) : null}
           </div>
         )}
-        {state.speechText && (
+        {/* 只有在“来啦来啦～” (speaking) 状态时才展示文本，其他时候仅展示状态提示 */}
+        {isSpeaking && state.speechText && (
           <div
             className={`text-sm font-medium text-white leading-snug break-words max-h-[calc(5*1.375em)] overflow-y-auto pr-1.5 pl-0.5 select-text custom-bubble-scrollbar pointer-events-auto ${
               state.speechText.length > 30 ? 'text-left' : 'text-center'

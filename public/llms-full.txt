@@ -48,6 +48,15 @@ All AI runs in the browser tab via WebGPU + WebAssembly:
   4. Lip-sync (viseme blending) updates from TTS audio energy + EMAGE mouth keyframes
 - **Cancellation**: New user message cancels in-flight LLM/TTS/EMAGE via token cancellation
 
+### 2.5 Memory System (Client-Side Persistence & Extraction)
+- **Files**: `src/memory/` (`store.ts`, `extract.ts`, `inject.ts`, `index.ts`, `types.ts`)
+- **Storage**: Browser-native IndexedDB database `xiaochun-memory` with three object stores (`turns`, `notes`, `meta`). Zero telemetry or server transfer.
+- **3-Tier Architecture**:
+  1. *Short-Term Turns*: Recalls last $N$ dialogue rounds (default 6 turns, clipped to 180 chars) for immediate conversational context.
+  2. *Entity Profile*: Multilingual regex extraction identifies user name/nickname, preferences (likes/dislikes), and key entity facts.
+  3. *Long-Term Notes*: Keeps up to 80 summarized dialogue notes; retrieves Top-4 relevant notes per turn using n-gram similarity scoring.
+- **Async Execution**: Turn commits happen asynchronously without blocking rendering or speech. `recallForChat()` injects localized memory context (`appendMemoryToSystem`) directly into system prompt instructions.
+
 ---
 
 ## 3. i18n & SSR Hydration

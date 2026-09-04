@@ -60,6 +60,26 @@ The UI is fully **SSR-hydrated multi-language** (zh-CN / en / ja) via TanStack S
 * **TTS** — **Edge-TTS 晓伊 (XiaoyiNeural, zh-CN, +10 Hz)** via [`edge-tts-universal`](https://github.com/Sterznode/edge-tts-universal); emoji stripped before speech.
 * **LLM + TTS + EMAGE orchestrated** by the chat director on the main thread at 60 FPS.
 
+### ⚡ Streaming Speech & Adaptive Gesture Pipeline
+* **Smart Speech Chunking**: Eliminates long-text generation wait bottlenecks by segmenting speech into natural 30~60 character clauses split at semantic punctuation (`.!?\n` or natural comma pauses).
+* **Zero-Latency Concurrent TTS Prefetching**: Downloads audio for all chunks concurrently via non-blocking network I/O, flattening TTS latency to 0ms.
+* **Dual-Condition Pre-buffering**: Balances chunk ratio ($\lceil N / 3 \rceil$) with an upper-bound cap (max 2 chunks, ~8~12s of audio). 1~2 segments start almost instantly; long paragraphs begin playback as soon as 2 chunks are ready while subsequent motions stream in the background.
+* **Continuous Latent Autoregressive Seed Carryover**: The Dedicated Web Worker retains the 4-frame latent seed (`continueFromPrevious`) across chunks, making multi-chunk generation mathematically identical to a single long-run autoregressive inference.
+* **Physiological Angular Velocity Limiting Transition**: Replaces arbitrary timer-based blend timers with human biomechanical angular velocity limits (arms 2.2 rad/s, neck/head 1.6 rad/s, torso 1.2 rad/s) and critical spring damping for time-free, snap-free transitions.
+* **Adaptive Conversational Idle (`SpeakIdleSystem`)**: Characters adaptively respond to the current gesture during inter-segment pauses — high gestures hover with breathing buoyancy and gentle micro-settling (>1.5s); fingers flex along the anatomical Z-axis; awareness gaze drifts and micro-nods eliminate frozen mannequins.
+* **Live Pipeline Console Table Tracker**: Real-time `console.table` monitors chunk TTS, EMAGE inference, playback progression, and transition modes.
+* **Head Bubble Progress Indicator**: A pulsing progress pill (`🟢 1 / 5`) in the bubble status bar cleanly displays segment progress without intruding on dialogue text.
+
+### 💾 Client-Side Multi-Tier Memory System
+* **100% Local Privacy (IndexedDB)**: Powered by browser-native IndexedDB (`xiaochun-memory` database). Dialogue turns, personal preferences, and recalled facts stay entirely on the client device — zero telemetry or chat logs sent to any server.
+* **3-Tier Memory Architecture**:
+  * **Short-Term Turns**: Automatically buffers the most recent conversational rounds (default 6 turns, clipped to 180 chars per turn via `APP_CONFIG.memory.shortTermTurns`), maintaining dialogue coherence.
+  * **Entity Profile Extraction**: Multilingual (zh / en / ja) regex smart extraction captures user names/nicknames (e.g., "my name is...", "call me...", "我叫...", "叫我...", "私は..."), likes, dislikes, and entity facts with deduplication.
+  * **Long-Term Notes & n-gram Retrieval**: Archives conversational summaries (up to 80 notes); retrieves the most contextually relevant Top-K (default 4) past memories using an n-gram similarity scoring algorithm (`gramScore`).
+* **Non-blocking Async Persistence & Dynamic Injection**:
+  * **Async Commit**: Executes `rememberTurn()` in the background upon turn completion, never stuttering UI animations or audio playback.
+  * **Contextual Prompt Injection**: `recallForChat()` swiftly retrieves entities and relevant notes, injecting localized memory headers (`appendMemoryToSystem`) directly into the LLM system prompt so XiaoChun naturally remembers your identity and prior topics while prioritizing current chatter.
+
 ### 🌐 i18n & SSR
 * **TanStack Start** full-stack SSR with cookie-based language hydration — no client-side language flash.
 * **3 languages shipped**: 简体中文 / English / 日本語.
@@ -91,6 +111,7 @@ The UI is fully **SSR-hydrated multi-language** (zh-CN / en / ja) via TanStack S
 | **App Framework** | [React 19](https://react.dev) + [TanStack Start](https://tanstack.com/start) | Full-stack SSR with cookie-based i18n hydration |
 | **Router** | [TanStack Router](https://tanstack.com/router) | Type-safe file-based routing |
 | **LLM** | [WebLLM](https://github.com/mlc-ai/web-llm) | Qwen3.5 2B q4f16_1 on WebGPU (fallback 0.8B), streaming |
+| **Memory** | IndexedDB + Custom 3-Tier Pipeline | 100% client-side multi-tier persistence, entity extraction & n-gram note retrieval |
 | **Motion** | EMAGE + [ONNX Runtime Web](https://onnxruntime.ai) | Full-body generation in Dedicated Web Worker |
 | **TTS** | [edge-tts-universal](https://github.com/Sterznode/edge-tts-universal) | XiaoyiNeural zh-CN +10 Hz, emoji-stripped text |
 | **Edge Runtime** | [Cloudflare Workers](https://developers.cloudflare.com/workers/) + [@cloudflare/vite-plugin](https://developers.cloudflare.com/workers/framework-guides/web-apps/tanstack-start/) | SSR streaming + WebSocket Edge-TTS + Static Assets |
@@ -167,7 +188,8 @@ Project-XiaoChun/
 │   │   └── ui/                # Radix UI primitives (button, dropdown-menu, tooltip)
 │   ├── core/
 │   │   └── vrmEngine.ts       # 3D scene, linework, 6-ch lights, material saturation, render loop
-│   ├── motion/                # EMAGE worker + VRMA playback / bone fade-in / MotionTransition
+│   ├── motion/                # EMAGE worker + VRMA playback / bone fade-in / MotionTransition / FootIK / SpeakIdle
+│   ├── memory/                # Client-side multi-tier memory (IndexedDB / entity extraction / n-gram note retrieval / prompt injection)
 │   ├── llm/                   # WebLLM WebGPU streaming + Worker + multi-language prompts
 │   ├── director/
 │   │   └── chatDirector.ts    # LLM → TTS → EMAGE streaming coordinator pipeline

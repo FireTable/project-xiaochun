@@ -10,6 +10,7 @@ Project XiaoChun is a single-page web application that runs an interactive anime
 - **LLM**: WebLLM running Qwen3 0.6B (q4f16_1) on WebGPU, streaming with milestone callbacks.
 - **Motion**: EMAGE full-body co-speech motion (PantoMatrix, CVPR 2024) in a Dedicated Web Worker with temporal Gaussian smoothing.
 - **TTS**: Microsoft Edge-TTS XiaoyiNeural zh-CN (+10 Hz) via `edge-tts-universal` — emoji stripped from speech text to avoid prosody glitches.
+- **Client-Side Memory**: IndexedDB (`xiaochun-memory`) local persistence — 3-tier architecture with short-term turns, multilingual entity profile extraction, and n-gram long-term note retrieval. Zero server telemetry.
 - **i18n & SSR**: TanStack Start full-stack SSR with cookie-based language hydration; ships zh-CN / en / ja; per-language system prompts.
 - **Mobile-First UI**: iOS HIG 44 pt / Material 48 dp touch targets, shadcn-style components, Tailwind CSS v4 liquid-glass aesthetic.
 

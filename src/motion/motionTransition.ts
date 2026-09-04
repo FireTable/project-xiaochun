@@ -1,9 +1,13 @@
 import * as THREE from 'three';
 import type { VRM } from '@pixiv/three-vrm';
 
-// VRM 规范中全部 55 根人体标准化骨骼 (包括全身骨骼与左右手全部 30 个指节)
+// VRM 骨骼过渡清单：包含全身骨骼与左右手全部 30 个指节。
+// 关键设计：明确排除 'neck' 和 'head'！
+// 因为头部和颈部在渲染循环末端受到 LookAt 追踪系统的增量乘法叠加 (headNode.quaternion.multiply(headOffsetQ))；
+// 如果在过渡器中对 head/neck 进行快照，快照内会包含 lookAt 偏移量；过渡时被二次叠加乘法，
+// 就会在切换瞬间导致头部严重朝向错位、闪现归位或抽动。排除后，头部由各自模块与 LookAt 独立平滑跟随，完美消除闪跳。
 export const VRM_ALL_HUMANOID_BONES = [
-  'hips', 'spine', 'chest', 'upperChest', 'neck', 'head',
+  'hips', 'spine', 'chest', 'upperChest',
   'leftShoulder', 'rightShoulder', 'leftUpperArm', 'rightUpperArm',
   'leftLowerArm', 'rightLowerArm', 'leftHand', 'rightHand',
   'leftUpperLeg', 'rightUpperLeg', 'leftLowerLeg', 'rightLowerLeg',
