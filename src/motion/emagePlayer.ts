@@ -18,6 +18,8 @@ const SMPLX_TO_VRM: (VRMHumanBoneName | null)[] = [
 // 下半身、骨盆与腰椎关节 (SMPL-X 索引: 0=hips, 1/2=大腿, 3=spine下腰椎, 4/5=小腿, 7/8=脚, 10/11=脚趾)
 const HIPS_INDEX = 0;
 const SPINE_INDEX = 3;
+const LEFT_LEG_INDICES = new Set([1, 4, 7, 10]);
+const RIGHT_LEG_INDICES = new Set([2, 5, 8, 11]);
 const LEG_INDICES = new Set([1, 2, 4, 5, 7, 8, 10, 11]);
 const LOWER_BODY_INDICES = new Set([0, 1, 2, 3, 4, 5, 7, 8, 10, 11]);
 
@@ -69,12 +71,18 @@ export class EmagePlayer {
   gestureIntensity = 1.0;      // 手臂幅度缩放 (0.1~1.0，默认 1.0 满额手势)
   fingerIntensity = 0.75;      // 指关节活跃度 (0.1~1.0，默认 0.75，保持柔和半卷，消除乱指)
   torsoIntensity = 0.55;       // 胸腔微动权重 (默认 0.55，从 0.12 适当提升，保留自然呼吸与起伏)
-  spineIntensity = 0.45;       // 腰椎微动权重 (默认 0.45，自然微屈与说话起伏)
+  spineIntensity = 0.25;       // 腰椎微动权重 (默认 0.25，自然微屈与说话起伏)
   hipIntensity = 0.40;         // 骨盆/胯部微动权重 (默认 0.40，赋予活人重心微移与说话律动)
-  legIntensity = 0.20;         // 双腿跟随权重 (默认 0.20，配合骨盆重心自然微动，足部由 FootIK 稳妥贴地)
-  headIntensity = 0.30;        // 头部/颈部权重 (默认 0.30，防止脖子前伸乌龟颈，保持抬头挺胸)
+  legIntensity = 0.40;         // 双腿跟随权重 (默认 0.40，配合骨盆重心自然微动，足部由 FootIK 稳妥贴地)
+  headIntensity = 0.80;        // 头部/颈部权重 (默认 0.30，防止脖子前伸乌龟颈，保持抬头挺胸)
   dampingStiffness = 5.5;      // 惯性阻尼刚度 (默认 5.5，数值越小越柔顺轻盈，消除“动得太快”)
   temporalSmoothRadius = 7;    // 时序高斯平滑半径 (默认 7 帧/约0.5s，消除“切换太频繁”)
+
+  // ─── 动态单腿支柱与丝滑换腿控制 ───
+  stancePillar: 'left' | 'right' | 'alternate' | 'auto' = 'auto'; // 默认 auto 智能动态换腿
+  currentStanceRatio = 0.0; // 0.0 = 纯左腿支撑, 1.0 = 纯右腿支撑
+  private targetStanceRatio = 0.0;
+  private weightShiftTimer = 0; // 长句周期换腿计时器
 
   // ─── Dedicated Web Worker 异步推理调度 ───
   private worker: Worker | null = null;
@@ -330,6 +338,14 @@ export class EmagePlayer {
     }
     this.currentBoneInitialized = true;
 
+    // 每次开始播放新动作/语音时，智能交替主承重支柱腿 (实现交谈时自然换腿)
+    if (this.stancePillar === 'auto' || this.stancePillar === 'alternate') {
+      this.targetStanceRatio = (this.targetStanceRatio >= 0.5) ? 0.0 : 1.0;
+    } else {
+      this.targetStanceRatio = (this.stancePillar === 'right') ? 1.0 : 0.0;
+    }
+    this.weightShiftTimer = 0;
+
     this.playing = true;
     this.startAudio();
   }
@@ -466,8 +482,18 @@ export class EmagePlayer {
         } else if (i === SPINE_INDEX) {
           qGoal.slerp(rest, 1.0 - this.spineIntensity);
           this.clampBonePitch(qGoal, rest, -0.05, 0.18);
-        } else if (LEG_INDICES.has(i) && this.legIntensity < 0.999) {
-          qGoal.slerp(rest, 1.0 - this.legIntensity);
+        } else if (LEG_INDICES.has(i)) {
+          // 左右腿连续承重比 (1.0 = 纯主支柱, 0.0 = 纯从属放松腿)
+          const lSupport = 1.0 - this.currentStanceRatio;
+          const rSupport = this.currentStanceRatio;
+          const legSupport = LEFT_LEG_INDICES.has(i) ? lSupport : (RIGHT_LEG_INDICES.has(i) ? rSupport : 0.5);
+
+          if (rest) {
+            // 当某腿为主支撑腿 (legSupport -> 1.0) 时，100% 保持在端正站姿 (restQ)
+            // 当为主从放松腿 (legSupport -> 0.0) 时，允许极微弱的生理随动 (不超过 legIntensity * 0.35)
+            const restLockFactor = THREE.MathUtils.lerp(1.0 - (this.legIntensity * 0.35), 1.0, legSupport);
+            qGoal.slerp(rest, restLockFactor);
+          }
         }
       }
 
@@ -495,6 +521,19 @@ export class EmagePlayer {
   update(delta: number, _lookAtEnabled = false): void {
     if (!this.playing && !this.fadingOut) return;
     if (!this.motion || this.frameCount <= 0) return;
+
+    // 动态换腿与生理微动节奏 (长篇连续说话时，每 8.5 秒平滑完成一次换脚)
+    if (this.stancePillar === 'auto') {
+      this.weightShiftTimer += delta;
+      if (this.weightShiftTimer > 8.5) {
+        this.weightShiftTimer = 0;
+        this.targetStanceRatio = (this.targetStanceRatio >= 0.5) ? 0.0 : 1.0;
+      }
+    }
+    // 换脚阻尼平滑，约 1.5~2.0 秒无感丝滑过渡
+    const shiftFilter = 1.0 - Math.exp(-2.5 * Math.max(0.001, delta));
+    this.currentStanceRatio += (this.targetStanceRatio - this.currentStanceRatio) * shiftFilter;
+    this.footIK.stanceRatio = this.currentStanceRatio;
 
     if (this.fadingOut) {
       this.fadeElapsed += delta;
