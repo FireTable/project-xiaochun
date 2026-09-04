@@ -82,6 +82,9 @@ export const en: Trans = {
     emage: 'Picking a pose for you…',
     loadingWebGpu: 'XiaoChun\'s brain is warming up…',
     greeting: 'Hi! Glad to chat with you!',
+    // ponytail: HeadBubble 渲染时硬加 "bubble." 前缀,所以状态 key 必须是 bubble.error.llm
+    // 而非 error.llm。message 为空时由 chatDirector 兜底"Unknown error",避免秃尾巴。
+    error: { llm: 'Local LLM error: {{message}}' },
   },
   panel: {
     title: 'Debug / Settings Panel',

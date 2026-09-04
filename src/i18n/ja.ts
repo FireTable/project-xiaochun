@@ -82,6 +82,9 @@ export const ja: Trans = {
     emage: 'ポーズを考えるね…',
     loadingWebGpu: '小蠢の脳を温めてる…',
     greeting: 'こんにちは!お話しできて嬉しいです!',
+    // HeadBubble 渲染时硬加 "bubble." 前缀,所以状态 key 必须是 bubble.error.llm
+    // 而非 error.llm。message 为空时由 chatDirector 兜底"不明なエラー",避免秃尾巴。
+    error: { llm: 'ローカル LLM エラー: {{message}}' },
   },
   panel: {
     title: 'デバッグ / 設定パネル',

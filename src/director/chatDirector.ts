@@ -357,7 +357,13 @@ export class ChatDirector {
         this.getSystemPrompt?.() ?? '',
       );
     } catch (e: any) {
-      status('error.llm', { message: e?.message ?? String(e) }, true);
+      // ponytail: 1) console 必打,方便手机 chrome 用户从 DevTools 复制原文反馈;
+      //          2) message 为空时硬编码英文兜底("Unknown error"),避免出现
+      //             "Local LLM error: "秃尾巴 + 不依赖未定义的 i18n key;
+      //          3) 状态 key 必须是 bubble.error.llm — HeadBubble 渲染时硬加 "bubble." 前缀。
+      console.error('[ChatDirector] LLM failed:', e);
+      const rawMsg = (e?.message ?? String(e) ?? '').trim();
+      status('bubble.error.llm', { message: rawMsg || 'Unknown error' }, true);
       this.stop();
       return;
     }
