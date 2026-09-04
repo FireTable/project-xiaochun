@@ -63,6 +63,7 @@ export class EmagePlayer {
   holdLastFrame = false;
   lockLowerBody = false; // 默认不强制锁定下半身，释放骨盆与腰椎生理律动；由生理权重与 PitchClamping 保证挺拔立姿
   fadeDuration = 0.6; // 平滑淡出到 Idle 的过渡时长 (秒)
+  public enableFootIK = false; // FootIK 功能临时开关：设为 false 完全旁路 FootIK 查看原生 EMAGE；设为 true 开启物理地锚与重心解算
   public footIK = new FootIKSolver();
   public fadingOut = false;
   private fadeElapsed = 0;
@@ -473,16 +474,23 @@ export class EmagePlayer {
           qGoal.slerp(rest, 1.0 - this.spineIntensity);
           this.clampBonePitch(qGoal, rest, -0.05, 0.18);
         } else if (LEG_INDICES.has(i)) {
-          // 左右腿连续承重比 (1.0 = 纯主支柱, 0.0 = 纯从属放松腿)
-          const lSupport = 1.0 - this.currentStanceRatio;
-          const rSupport = this.currentStanceRatio;
-          const legSupport = LEFT_LEG_INDICES.has(i) ? lSupport : (RIGHT_LEG_INDICES.has(i) ? rSupport : 0.5);
+          if (!this.enableFootIK) {
+            // FootIK 关闭时，使用原生 EMAGE 双腿跟随动作
+            if (rest && this.legIntensity < 0.999) {
+              qGoal.slerp(rest, 1.0 - this.legIntensity);
+            }
+          } else {
+            // FootIK 开启时，执行单腿支柱与重心分配
+            const lSupport = 1.0 - this.currentStanceRatio;
+            const rSupport = this.currentStanceRatio;
+            const legSupport = LEFT_LEG_INDICES.has(i) ? lSupport : (RIGHT_LEG_INDICES.has(i) ? rSupport : 0.5);
 
-          if (rest) {
-            // 当某腿为主支撑腿 (legSupport -> 1.0) 时，100% 保持在端正站姿 (restQ)
-            // 当为主从放松腿 (legSupport -> 0.0) 时，允许极微弱的生理随动 (不超过 legIntensity * 0.35)
-            const restLockFactor = THREE.MathUtils.lerp(1.0 - (this.legIntensity * 0.35), 1.0, legSupport);
-            qGoal.slerp(rest, restLockFactor);
+            if (rest) {
+              // 当某腿为主支撑腿 (legSupport -> 1.0) 时，100% 保持在端正站姿 (restQ)
+              // 当为主从放松腿 (legSupport -> 0.0) 时，允许极微弱的生理随动 (不超过 legIntensity * 0.35)
+              const restLockFactor = THREE.MathUtils.lerp(1.0 - (this.legIntensity * 0.35), 1.0, legSupport);
+              qGoal.slerp(rest, restLockFactor);
+            }
           }
         }
       }
@@ -530,7 +538,7 @@ export class EmagePlayer {
       const p = Math.min(1.0, this.fadeElapsed / Math.max(0.1, this.fadeDuration));
       this.idleWeight = p * p * (3 - 2 * p);
       this.applyFrame(this.playhead, this.idleWeight, delta);
-      this.footIK.solve(delta);
+      if (this.enableFootIK) this.footIK.solve(delta);
       if (p >= 1.0) {
         this.fadingOut = false;
         this.playing = false;
@@ -545,7 +553,7 @@ export class EmagePlayer {
         this.playhead = Math.min(this.frameCount - 1, (t / this.duration) * this.frameCount);
         this.idleWeight = 0.0;
         this.applyFrame(this.playhead, 0.0, delta);
-        this.footIK.solve(delta);
+        if (this.enableFootIK) this.footIK.solve(delta);
         return;
       }
     }
@@ -567,7 +575,7 @@ export class EmagePlayer {
       this.applyFrame(this.playhead, 0.0, delta);
     }
 
-    this.footIK.solve(delta);
+    if (this.enableFootIK) this.footIK.solve(delta);
   }
 
   fadeOutToIdle(duration = 0.8): void {

@@ -693,6 +693,9 @@ export class VRMEngine {
 
         this.emagePlayer.bind(vrm);
         this.naturalIdle.bind(vrm);
+        if (typeof window !== 'undefined') {
+          (window as any).emagePlayer = this.emagePlayer;
+        }
         setTimeout(() => {
           // 1. 后台预热 EMAGE ONNX 全身协同动作模型 (Dedicated Worker)
           if (!this.emagePlayer.ready) void this.emagePlayer.ensureLoaded();
@@ -888,7 +891,9 @@ uniform float uMatSaturation;
         } else if (vrmaLive) {
           this.activePlayer = 'vrma';
           this.vrmaPlayer.update(delta);
-          this.emagePlayer.footIK.solve(delta);
+          if (this.emagePlayer.enableFootIK) {
+            this.emagePlayer.footIK.solve(delta);
+          }
         } else {
           if (this.activePlayer !== 'idle') {
             this.motionTransition.startTransition(vrm, 0.75);
