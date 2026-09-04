@@ -10,7 +10,8 @@
 
 import { CreateWebWorkerMLCEngine, prebuiltAppConfig, type WebWorkerMLCEngine } from '@mlc-ai/web-llm';
 import { APP_CONFIG } from '@/config';
-import { XIAOCHUN_SYSTEM_PROMPT } from '@/llm/prompts';
+import { XIAOCHUN_SYSTEM_PROMPT, wrapUserContent } from '@/llm/prompts';
+import type { Lang } from '@/i18n';
 
 export const DEFAULT_LLM_MODEL = APP_CONFIG.llm.model;
 export const FALLBACK_LLM_MODEL = APP_CONFIG.llm.fallback;
@@ -123,7 +124,7 @@ export function isWebLLMReady(): boolean {
 export function onWebLLMReady(cb: () => void): () => void {
   if (engineInstance) {
     cb();
-    return () => {};
+    return () => { };
   }
   llmReadyListeners.add(cb);
   return () => {
@@ -140,17 +141,17 @@ export function onWebLLMReadyChange(cb: (ready: boolean) => void): () => void {
 
 function notifyLLMReady(): void {
   llmReadyListeners.forEach((fn) => {
-    try { fn(); } catch {}
+    try { fn(); } catch { }
   });
   llmReadyListeners.clear();
   readyChangeListeners.forEach((fn) => {
-    try { fn(true); } catch {}
+    try { fn(true); } catch { }
   });
 }
 
 function notifyLLMUnready(): void {
   readyChangeListeners.forEach((fn) => {
-    try { fn(false); } catch {}
+    try { fn(false); } catch { }
   });
 }
 
@@ -175,7 +176,7 @@ const loadProgressListeners = new Set<(p: LlmLoadProgress) => void>();
 function notifyLoadProgress(progress: number, text: string): void {
   lastLoadProgress = { progress, text };
   loadProgressListeners.forEach((fn) => {
-    try { fn(lastLoadProgress); } catch {}
+    try { fn(lastLoadProgress); } catch { }
   });
 }
 
@@ -202,7 +203,7 @@ export function setActiveModelId(modelId: string): void {
   activeModelId = modelId;
   try {
     window.localStorage.setItem(MODEL_PREF_KEY, modelId);
-  } catch {}
+  } catch { }
   unloadEngine();
   preloadWebLLM();
 }
@@ -298,7 +299,7 @@ export function extractCleanSpeech(text: string): string {
   try {
     const parsed = JSON.parse(raw);
     if (parsed && typeof parsed.speech === 'string') return parsed.speech.trim();
-  } catch {}
+  } catch { }
 
   // 4. 清理括号内的动作描述或心理描述（如“（微笑着说）”或“(点头)”）
   raw = raw.replace(/（[^）]*）/g, '').replace(/\([^)]*\)/g, '');
@@ -307,6 +308,56 @@ export function extractCleanSpeech(text: string): string {
 
   // 5. 去除首尾多余引号和空白字符
   raw = raw.replace(/^["'“”]+|["'“”]+$/g, '').trim();
+
+  return raw;
+}
+
+/** ponytail: WebLLM 没有 thinking_budget,流式里数 delta 当 token,超时或超上限就 interrupt。 */
+async function completeOnce(
+  engine: WebWorkerMLCEngine,
+  userText: string,
+  systemPrompt: string,
+  thinking: boolean,
+): Promise<string> {
+  const qwen3 = getActiveModelId().startsWith('Qwen3');
+  const useThink = thinking && qwen3;
+  const lang: Lang =
+    systemPrompt === XIAOCHUN_SYSTEM_PROMPT.en
+      ? 'en'
+      : systemPrompt === XIAOCHUN_SYSTEM_PROMPT.ja
+        ? 'ja'
+        : 'zh-CN';
+  const chunks = await engine.chat.completions.create({
+    messages: [
+      { role: 'system', content: systemPrompt },
+      { role: 'user', content: wrapUserContent(userText, lang) },
+    ],
+    temperature: 0.8,
+    stream: true,
+    ...(qwen3 ? { extra_body: { enable_thinking: useThink } } : {}),
+  });
+
+  let raw = '';
+  let thinkTokens = 0;
+  let inThink = useThink;
+  const t0 = Date.now();
+  const maxTok = APP_CONFIG.llm.thinkingMaxTokens;
+  const maxMs = APP_CONFIG.llm.thinkingMaxMs;
+
+  for await (const chunk of chunks) {
+    const delta = chunk.choices[0]?.delta?.content ?? '';
+    if (delta) raw += delta;
+    if (!inThink) continue;
+    if (raw.includes('</think>')) {
+      inThink = false;
+      continue;
+    }
+    if (delta) thinkTokens += 1;
+    if (thinkTokens >= maxTok || Date.now() - t0 >= maxMs) {
+      engine.interruptGenerate();
+      break;
+    }
+  }
 
   return raw;
 }
@@ -323,20 +374,20 @@ export async function generateSpeechReply(
 ): Promise<string> {
   const engine = await getWebLLMEngine({ onMilestone });
   onMilestone?.('thinking');
+  const gen = loadGen;
+  const wantThink = isThinkingEnabled() && getActiveModelId().startsWith('Qwen3');
 
-  const reply = await engine.chat.completions.create({
-    messages: [
-      { role: 'system', content: systemPrompt },
-      { role: 'user', content: userText },
-    ],
-    temperature: 0.7,
-    ...(getActiveModelId().startsWith('Qwen3')
-      ? { extra_body: { enable_thinking: isThinkingEnabled() } }
-      : {}),
-  });
+  let raw = await completeOnce(engine, userText, systemPrompt, wantThink);
+  if (gen !== loadGen) throw new Error('model switched');
+  let cleanSpeech = extractCleanSpeech(raw);
 
-  const raw = reply.choices[0]?.message?.content || '';
-  const cleanSpeech = extractCleanSpeech(raw);
+  // 思考被掐断、还没正文:关思考再跑一轮,避免空等之后只剩兜底问候。
+  if (!cleanSpeech.trim() && wantThink) {
+    raw = await completeOnce(engine, userText, systemPrompt, false);
+    if (gen !== loadGen) throw new Error('model switched');
+    cleanSpeech = extractCleanSpeech(raw);
+  }
+
   console.log('[WebLLM Raw Output]:', raw);
   console.log('[WebLLM Clean Speech]:', cleanSpeech);
 

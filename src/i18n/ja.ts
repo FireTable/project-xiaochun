@@ -45,6 +45,7 @@ export const ja: Trans = {
     chatMenu: 'チャット設定',
     switchModel: 'モデル切替',
     thinkingMode: '思考モード',
+    thinkingHint: '考えすぎると小蠢が固まって話せなくなることがある。そのときはオフで大丈夫。',
   },
   loading: {
     title: '小蠢が目覚めてる…',

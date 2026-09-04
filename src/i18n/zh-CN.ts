@@ -44,6 +44,7 @@ export const zhCN = {
     chatMenu: '聊天设置',
     switchModel: '切换模型',
     thinkingMode: '思考模式',
+    thinkingHint: '小蠢想太多可能会卡住说不出话，关掉就好。',
   },
   loading: {
     title: '小蠢正在醒来…',

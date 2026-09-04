@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef, Fragment } from 'react';
 import { useTranslation } from 'react-i18next';
-import { Menu } from 'lucide-react';
+import { ChevronLeft, ChevronRight, Menu } from 'lucide-react';
 import { vrmEngine } from '@/core/vrmEngine';
 import {
   isWebLLMReady,
@@ -28,9 +28,6 @@ import {
   DropdownMenuLabel,
   DropdownMenuSeparator,
   DropdownMenuItem,
-  DropdownMenuSub,
-  DropdownMenuSubTrigger,
-  DropdownMenuSubContent,
 } from '@/components/ui/dropdown-menu';
 import { LlmProviderIcon } from '@/components/LlmProviderIcon';
 
@@ -69,6 +66,7 @@ export const ChatBar: React.FC = () => {
   const queuedTextRef = useRef('');
   const [thinkingOn, setThinkingOn] = useState(() => isThinkingEnabled());
   const [activeModel, setActiveModel] = useState(() => getActiveModelId());
+  const [pickingModel, setPickingModel] = useState(false);
   const llmGroups = listModelGroups();
   const activeBase = modelBaseId(activeModel);
   const thinkingSupported = activeBase.startsWith('Qwen3');
@@ -167,7 +165,7 @@ export const ChatBar: React.FC = () => {
   return (
     <div className="fixed bottom-[calc(0.75rem+env(safe-area-inset-bottom,0px))] sm:bottom-8 left-1/2 -translate-x-1/2 z-30 w-full max-w-xl px-3 sm:px-4 pointer-events-auto select-none">
       <div className="flex items-center gap-2 sm:gap-2.5 w-full">
-        <DropdownMenu>
+        <DropdownMenu onOpenChange={(open) => { if (!open) setPickingModel(false); }}>
           <Tooltip>
             <TooltipTrigger asChild>
               <DropdownMenuTrigger asChild>
@@ -185,56 +183,88 @@ export const ChatBar: React.FC = () => {
             </TooltipTrigger>
             <TooltipContent side="top">{t('chat.chatMenu')}</TooltipContent>
           </Tooltip>
-          <DropdownMenuContent side="top" align="start" className="min-w-[14rem]">
-            <DropdownMenuSub>
-              <DropdownMenuSubTrigger>
-                <span className="flex-1">{t('chat.switchModel')}</span>
-                <span className="max-w-[7.5rem] truncate text-xs text-white/50">{activeBase}</span>
-              </DropdownMenuSubTrigger>
-              <DropdownMenuSubContent className="max-h-[min(20rem,70vh)] min-w-[16rem] overflow-y-auto">
-                {llmGroups.map((group, i) => (
-                  <Fragment key={group.provider}>
-                    {i > 0 ? <DropdownMenuSeparator /> : null}
-                    <DropdownMenuLabel className="flex items-center gap-2 normal-case tracking-normal">
-                      <LlmProviderIcon name={group.provider} />
-                      {group.provider}
-                    </DropdownMenuLabel>
-                    {group.models.map((m) => {
-                      const selected = modelBaseId(m.id) === activeBase;
-                      return (
-                        <DropdownMenuItem
-                          key={m.id}
-                          disabled={isSending}
-                          onSelect={() => {
-                            if (selected) return;
-                            setActiveModel(m.id);
-                            setActiveModelId(m.id);
-                          }}
-                          className="justify-between"
-                        >
-                          <span className="truncate">{m.label}</span>
-                          {selected ? <span className="text-brand-300 text-xs">✓</span> : null}
-                        </DropdownMenuItem>
-                      );
-                    })}
-                  </Fragment>
-                ))}
-              </DropdownMenuSubContent>
-            </DropdownMenuSub>
-            <DropdownMenuItem
-              disabled={!thinkingSupported}
-              aria-checked={thinkingOn}
-              onSelect={(e) => {
-                e.preventDefault();
-                const next = !thinkingOn;
-                setThinkingOn(next);
-                setThinkingEnabled(next);
-              }}
-              className="justify-between"
-            >
-              <span>{t('chat.thinkingMode')}</span>
-              <MenuSwitch on={thinkingOn} />
-            </DropdownMenuItem>
+          <DropdownMenuContent
+            side="top"
+            align="start"
+            collisionPadding={12}
+            className="w-[min(18rem,calc(100vw-1.5rem))] max-w-[calc(100vw-1.5rem)] overflow-x-hidden"
+          >
+            {pickingModel ? (
+              <>
+                <DropdownMenuItem
+                  onSelect={(e) => {
+                    e.preventDefault();
+                    setPickingModel(false);
+                  }}
+                >
+                  <ChevronLeft className="h-4 w-4 shrink-0 text-white/50" />
+                  <span className="flex-1">{t('chat.switchModel')}</span>
+                </DropdownMenuItem>
+                <DropdownMenuSeparator />
+                <div className="max-h-[min(18rem,50dvh)] overflow-x-hidden overflow-y-auto">
+                  {llmGroups.map((group, i) => (
+                    <Fragment key={group.provider}>
+                      {i > 0 ? <DropdownMenuSeparator /> : null}
+                      <DropdownMenuLabel className="flex min-w-0 items-center gap-2 normal-case tracking-normal">
+                        <LlmProviderIcon name={group.provider} />
+                        <span className="truncate">{group.provider}</span>
+                      </DropdownMenuLabel>
+                      {group.models.map((m) => {
+                        const selected = modelBaseId(m.id) === activeBase;
+                        return (
+                          <DropdownMenuItem
+                            key={m.id}
+                            disabled={isSending}
+                            onSelect={() => {
+                              if (selected) return;
+                              setActiveModel(m.id);
+                              setActiveModelId(m.id);
+                            }}
+                            className="min-w-0 justify-between"
+                          >
+                            <span className="min-w-0 flex-1 truncate">{m.label}</span>
+                            {selected ? <span className="shrink-0 text-brand-300 text-xs">✓</span> : null}
+                          </DropdownMenuItem>
+                        );
+                      })}
+                    </Fragment>
+                  ))}
+                </div>
+              </>
+            ) : (
+              <>
+                <DropdownMenuItem
+                  onSelect={(e) => {
+                    e.preventDefault();
+                    setPickingModel(true);
+                  }}
+                  className="justify-between"
+                >
+                  <span>{t('chat.switchModel')}</span>
+                  <span className="flex min-w-0 items-center gap-1">
+                    <span className="max-w-[7.5rem] truncate text-xs text-white/50">{activeBase}</span>
+                    <ChevronRight className="h-4 w-4 shrink-0 text-white/50" />
+                  </span>
+                </DropdownMenuItem>
+                <DropdownMenuItem
+                  disabled={!thinkingSupported}
+                  aria-checked={thinkingOn}
+                  onSelect={(e) => {
+                    e.preventDefault();
+                    const next = !thinkingOn;
+                    setThinkingOn(next);
+                    setThinkingEnabled(next);
+                  }}
+                  className="justify-between"
+                >
+                  <span>{t('chat.thinkingMode')}</span>
+                  <MenuSwitch on={thinkingOn} />
+                </DropdownMenuItem>
+                <p className="px-2.5 pb-1.5 text-[10px] leading-snug text-white/40">
+                  {t('chat.thinkingHint')}
+                </p>
+              </>
+            )}
           </DropdownMenuContent>
         </DropdownMenu>
 

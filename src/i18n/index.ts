@@ -29,6 +29,16 @@ export const LANG_LABELS: Record<Lang, string> = {
 };
 
 const NS = 'translation';
+const liveInstances = new Set<I18nInstance>();
+
+function putBundles(
+  inst: I18nInstance,
+  bundles: { 'zh-CN': typeof zhCN; en: typeof en; ja: typeof ja },
+) {
+  inst.addResourceBundle('zh-CN', NS, bundles['zh-CN'], true, true);
+  inst.addResourceBundle('en', NS, bundles.en, true, true);
+  inst.addResourceBundle('ja', NS, bundles.ja, true, true);
+}
 
 export function isLang(value: string | null | undefined): value is Lang {
   return !!value && (SUPPORTED_LANGS as readonly string[]).includes(value);
@@ -90,7 +100,21 @@ export function createI18n(lang: Lang): I18nInstance {
     returnNull: false,
     react: { useSuspense: false },
   });
+  liveInstances.add(inst);
   return inst;
+}
+
+if (import.meta.hot) {
+  import.meta.hot.accept(['./zh-CN', './en', './ja'], (mods) => {
+    const nextZh = mods?.[0]?.zhCN as typeof zhCN | undefined;
+    const nextEn = mods?.[1]?.en as typeof en | undefined;
+    const nextJa = mods?.[2]?.ja as typeof ja | undefined;
+    if (!nextZh || !nextEn || !nextJa) return;
+    for (const inst of liveInstances) {
+      putBundles(inst, { 'zh-CN': nextZh, en: nextEn, ja: nextJa });
+      void inst.changeLanguage(inst.language);
+    }
+  });
 }
 
 /**

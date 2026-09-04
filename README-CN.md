@@ -24,7 +24,7 @@
 
 **Project XiaoChun (小蠢)** 是一个完全运行在浏览器里的二次元陪伴角色。角色用 `@pixiv/three-vrm` 渲染,采用 MToon NPR 着色,坐在沉浸式线稿户外场景中;**所有 AI 推理都在你当前的浏览器标签页里跑** —— 没有 Python 后端,没有服务器 GPU。
 
-进场是 2D MAD 预载再到 3D。你跟她说话。她思考(WebLLM Qwen3 0.6B on WebGPU,思考模式可关)、她开口说话(Edge-TTS 走 Cloudflare Workers WebSocket)、她全身动作实时跟上(EMAGE ONNX 在 Dedicated Web Worker 里)。模型没就绪时输入会排队,不会丢字。
+进场是 2D MAD 预载再到 3D。你跟她说话。她思考(WebLLM Qwen3.5 2B q4f16_1,失败降到 0.8B;思考模式可关)、她开口说话(Edge-TTS 走 Cloudflare Workers WebSocket)、她全身动作实时跟上(EMAGE ONNX 在 Dedicated Web Worker 里)。模型没就绪时输入会排队,不会丢字。对话条菜单可从 WebLLM 预置表换模型。
 
 UI 走 **TanStack Start SSR + i18next** 水合,**完整支持简体中文 / English / 日本語 三语切换**,并且按 iOS HIG 44 pt / Material 48 dp 触屏规范做了移动端优先适配。
 
@@ -55,7 +55,7 @@ UI 走 **TanStack Start SSR + i18next** 水合,**完整支持简体中文 / Engl
 * **运行时上传 VRM**:右上角上传按钮,支持任意 VRM 1.0 角色替换。
 
 ### 🧠 100% 浏览器端 AI 推理栈 (Browser-Side AI)
-* **大语言模型** — [`@mlc-ai/web-llm`](https://github.com/mlc-ai/web-llm) 跑 **Qwen3 0.6B (q4f16_1)** WebGPU 推理。输入栏左侧可开关思考模式;回复跟用户这条消息的语言走。
+* **大语言模型** — [`@mlc-ai/web-llm`](https://github.com/mlc-ai/web-llm) 默认 **Qwen3.5 2B (q4f16_1)**,失败降到 0.8B。对话条菜单从 `prebuiltAppConfig` 按 provider 换模型,思考模式是开关;回复跟用户这条消息的语言走。
 * **动作生成** — **EMAGE** 全身动作(ONNX Runtime Web)在 Dedicated Web Worker 中跑,时序高斯平滑 + 自然待机融合。
 * **语音合成** — **Edge-TTS 晓伊 (XiaoyiNeural, zh-CN, +10 Hz)**,基于 [`edge-tts-universal`](https://github.com/Sterznode/edge-tts-universal);传输前剥离 emoji。
 * **LLM + TTS + EMAGE 一体编排**:chat director 串起说话链路,主线程 60 FPS。
@@ -71,7 +71,7 @@ UI 走 **TanStack Start SSR + i18next** 水合,**完整支持简体中文 / Engl
 * **底部对话输入框 ≥ 40 px**,字号 16 px(防止 iOS Safari 聚焦自动缩放)。
 * **Tailwind CSS + tailwindcss-animate** 微交互 + 液态玻璃视觉。
 * **顶部操作条**:上传 VRM / 语言切换 / GitHub;调试面板只在 localhost 出现。
-* **对话条**:输入可排队、思考模式开关、发送。
+* **对话条**:输入可排队、菜单换模型/思考模式、发送。
 * **头顶跟随气泡**:直接改 DOM `transform`,带死区,不跟 60 FPS 一起刷 React。
 * **移动端**:预载贴纸保留,ChatBar 避开底部安全区。
 
@@ -79,7 +79,7 @@ UI 走 **TanStack Start SSR + i18next** 水合,**完整支持简体中文 / Engl
 * **调试抽屉**(仅本地):表情切换 / 6 路灯光 / FOV / 全局亮度 / 材质饱和度预设。
 * **Cloudflare Workers**(`src/server.ts`):生产环境统一承载 TanStack Start SSR 与原生 WebSocket Edge-TTS 流式代理。
 * **Vite dev 中间件**(`vite.config.ts → localApiPlugin`):本地开发使用 Miniflare 虚拟运行时，与线上环境 100% 同构。
-* **单一可信源**:`src/config.ts` 集中管理光照 / 相机 / 表情 / 饱和度 / R2 模型参数。
+* **单一可信源**:`src/config.ts` 集中管理光照 / 相机 / 表情 / 饱和度 / LLM / R2 模型参数。
 
 ---
 
@@ -87,10 +87,10 @@ UI 走 **TanStack Start SSR + i18next** 水合,**完整支持简体中文 / Engl
 
 | 架构层 | 技术方案 | 说明 |
 | :--- | :--- | :--- |
-| **3D 引擎** | [three.js 0.185](https://threejs.org) + [@pixiv/three-vrm 3.5](https://github.com/pixiv/three-vrm) | MToon NPR 着色、OrbitControls、EffectComposer |
+| **3D 引擎** | [three.js 0.185](https://threejs.org) + [@pixiv/three-vrm 3.5](https://github.com/pixiv/three-vrm) | MToon NPR 着色、OrbitControls |
 | **应用框架** | [React 19](https://react.dev) + [TanStack Start](https://tanstack.com/start) | 全栈 SSR + Cookie 水合 i18n |
 | **路由** | [TanStack Router](https://tanstack.com/router) | 类型安全文件路由 |
-| **大语言模型** | [WebLLM](https://github.com/mlc-ai/web-llm) | Qwen3 0.6B q4f16_1 WebGPU 流式推理 |
+| **大语言模型** | [WebLLM](https://github.com/mlc-ai/web-llm) | Qwen3.5 2B q4f16_1 WebGPU 流式推理(失败降到 0.8B) |
 | **动作生成** | EMAGE + [ONNX Runtime Web](https://onnxruntime.ai) | Dedicated Web Worker 全身动作生成 |
 | **语音合成** | [edge-tts-universal](https://github.com/Sterznode/edge-tts-universal) | 晓伊 zh-CN +10 Hz,emoji 剥离 |
 | **边缘运行时** | [Cloudflare Workers](https://developers.cloudflare.com/workers/) + [@cloudflare/vite-plugin](https://developers.cloudflare.com/workers/framework-guides/web-apps/tanstack-start/) | SSR 渲染 + WebSocket TTS + 静态资产直连 |
@@ -179,7 +179,7 @@ Project-XiaoChun/
 │   ├── server.ts              # Cloudflare Worker 统一入口 (SSR 流式渲染 + /api/tts WebSocket 直连)
 │   ├── router.tsx             # TanStack Router 实例工厂
 │   ├── routeTree.gen.ts       # 自动生成的类型安全路由树
-│   └── config.ts              # 单一可信源 (R2 / 相机 / 灯光 / 饱和度 / 表情)
+│   └── config.ts              # 单一可信源 (R2 / 相机 / 灯光 / 饱和度 / LLM / 表情)
 ├── vite.config.ts             # Vite 8 + TanStack Start + @cloudflare/vite-plugin
 └── tsconfig.json
 ```

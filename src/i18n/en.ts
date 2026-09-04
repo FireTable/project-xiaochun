@@ -45,6 +45,7 @@ export const en: Trans = {
     chatMenu: 'Chat settings',
     switchModel: 'Model',
     thinkingMode: 'Thinking mode',
+    thinkingHint: 'If XiaoChun overthinks she may freeze — just turn this off.',
   },
   loading: {
     title: 'XiaoChun is waking up…',

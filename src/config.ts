@@ -53,12 +53,16 @@ export const APP_CONFIG = {
   // 命名: q4f16_1 = 4bit 权重(小); q0f16 = 近 fp16(更大更准)。手机建议 ≤2B。
   // 加载失败会改用 fallback。
   // thinking: Qwen3 / Qwen3.5 的思考链。true=先想再答(更慢、更占 GPU);false=直接答。
+  // thinkingMaxTokens / thinkingMaxMs: 思考阶段上限。WebLLM 没有 thinking_budget,
+  // 流式数 token 和墙钟,超了就打断;若还没正文,关思考再答一次。
   // 对话条菜单可切换模型与思考模式,选择写入 localStorage,有记录时以用户为准。
   // 模型选项来自 WebLLM prebuiltAppConfig,按 provider 分组,同一模型优先 q4f16_1。
   llm: {
     model: 'Qwen3.5-2B-q4f16_1-MLC',
     fallback: 'Qwen3.5-0.8B-q4f16_1-MLC',
     thinking: true,
+    thinkingMaxTokens: 192,
+    thinkingMaxMs: 10000,
   },
   camera: {
     defaultFov: 45,
