@@ -5,6 +5,9 @@
  * ponytail: 默认 delayDuration 300ms — 桌面 hover 0.3s 才出,避免快速划过闪烁;
  * 移动端触屏无 hover 概念,Radix 会在 tap 后通过 focus 弹出,松手后消失,
  * 配合 TooltipProvider 的 skipDelayDuration 让连续 hover 不卡。
+ *
+ * TouchAwareTooltip: 在 (hover: none) 设备上 force open — 让 tooltip 在移动端
+ * 一直可见,用户一眼看清每个图标按钮的作用,不用 hover / 长按。
  */
 import * as React from 'react';
 import * as TooltipPrimitive from '@radix-ui/react-tooltip';
@@ -33,4 +36,28 @@ const TooltipContent = React.forwardRef<
 ));
 TooltipContent.displayName = TooltipPrimitive.Content.displayName;
 
-export { Tooltip, TooltipTrigger, TooltipContent, TooltipProvider };
+// ponytail: 不引入 useMediaQuery hook,内联 matchMedia — 触屏判定是项目唯一的 media query,
+// 多一个 hook 文件不划算。SSR 安全:window 不存在时返回 false,行为等同桌面端。
+function useIsTouchDevice(): boolean {
+  const [v, setV] = React.useState(false);
+  React.useEffect(() => {
+    const mq = window.matchMedia('(hover: none) and (pointer: coarse)');
+    setV(mq.matches);
+    const onChange = (e: MediaQueryListEvent) => setV(e.matches);
+    mq.addEventListener('change', onChange);
+    return () => mq.removeEventListener('change', onChange);
+  }, []);
+  return v;
+}
+
+type TouchAwareTooltipProps = React.ComponentProps<typeof Tooltip>;
+
+/** 触屏设备上强制 open,桌面端退化为原生 hover 行为。 */
+function TouchAwareTooltip(props: TouchAwareTooltipProps) {
+  const isTouch = useIsTouchDevice();
+  // ponytail: 触屏 → 受控 open=true 永远展开;桌面 → 不传 open 走 Radix 默认 hover/focus。
+  if (isTouch) return <Tooltip open={true} {...props} />;
+  return <Tooltip {...props} />;
+}
+
+export { Tooltip, TooltipTrigger, TooltipContent, TooltipProvider, TouchAwareTooltip };
