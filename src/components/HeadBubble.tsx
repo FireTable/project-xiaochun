@@ -50,6 +50,15 @@ export const HeadBubble: React.FC<HeadBubbleProps> = ({ state }) => {
             <span>
               {t(`bubble.${state.statusKey}`, state.statusVars as Record<string, unknown> | undefined)}
             </span>
+            {/* 多段流式朗读进度指示胶囊 (并排放在 来啦来啦~ 旁边) */}
+            {state.totalSegments && state.totalSegments > 1 && state.segmentIndex ? (
+              <span className="ml-1 px-1.5 py-0.5 rounded-full bg-white/10 text-[10px] font-medium text-brand-200 tracking-wider inline-flex items-center gap-1 border border-white/10 shadow-sm backdrop-blur-sm">
+                <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
+                <span className="text-white font-bold">{state.segmentIndex}</span>
+                <span className="opacity-40 text-[9px]">/</span>
+                <span className="text-slate-300">{state.totalSegments}</span>
+              </span>
+            ) : null}
           </div>
         )}
         {state.speechText && (

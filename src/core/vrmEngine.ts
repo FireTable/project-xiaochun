@@ -30,6 +30,8 @@ export interface BubbleState {
   isError: boolean;
   x: number;
   y: number;
+  segmentIndex?: number;
+  totalSegments?: number;
 }
 
 export interface LightChannelState {
@@ -833,15 +835,21 @@ uniform float uMatSaturation;
       vars?: Record<string, unknown>,
       isError = false,
       speechText?: string,
+      segmentIndex?: number,
+      totalSegments?: number,
     ) => {
       if (!key || key === 'silent') {
         this.currentBubbleState.visible = false;
+        this.currentBubbleState.segmentIndex = undefined;
+        this.currentBubbleState.totalSegments = undefined;
       } else {
         this.currentBubbleState.visible = true;
         this.currentBubbleState.statusKey = key;
         this.currentBubbleState.statusVars = vars;
         this.currentBubbleState.speechText = speechText || '';
         this.currentBubbleState.isError = isError;
+        this.currentBubbleState.segmentIndex = segmentIndex;
+        this.currentBubbleState.totalSegments = totalSegments;
 
         if (this.currentVRM) {
           const head = this.currentVRM.humanoid?.getNormalizedBoneNode('head');

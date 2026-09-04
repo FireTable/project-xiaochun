@@ -271,7 +271,13 @@ function temporalSmooth6D(data: Float32Array, numFrames: number, radius = 7): Fl
 
 // ─── Worker 消息路由监听 ───
 self.onmessage = async (e: MessageEvent) => {
-  const { id, type, pcm, temporalSmoothRadius } = e.data;
+  const { id, type, pcm, temporalSmoothRadius, continueFromPrevious } = e.data;
+
+  if (type === 'reset') {
+    seed = null;
+    self.postMessage({ id, type: 'reset_done' });
+    return;
+  }
 
   if (type === 'init') {
     try {
@@ -290,7 +296,10 @@ self.onmessage = async (e: MessageEvent) => {
       await ensureLoaded();
       if (!sessions) throw new Error('EMAGE 引擎未能成功就绪');
 
-      seed = null;
+      // 若未指定从上一段延续（或显式传 false），重置自回归初始种子为 null
+      if (!continueFromPrevious) {
+        seed = null;
+      }
       const totalFrames = Math.max(1, Math.floor(pcm.length / SPF));
       const numWindows = Math.max(1, Math.ceil((totalFrames - SEED_FRAMES) / EFF));
       const N = totalFrames;

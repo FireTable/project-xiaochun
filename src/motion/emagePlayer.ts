@@ -56,6 +56,14 @@ export function pcmFromAudioBuffer(buf: AudioBuffer): Float32Array {
   return resample16k(buf.getChannelData(0), buf.sampleRate);
 }
 
+export interface EmageMotionData {
+  rot6d: Float32Array;
+  trans: Float32Array;
+  frameCount: number;
+  duration: number;
+  fps: number;
+}
+
 export class EmagePlayer {
   ready = false;
   loop = false;
@@ -269,12 +277,27 @@ export class EmagePlayer {
   }
 
   /**
-   * 异步触发后台 Worker 生成全身动作，主线程 3D 渲染彻底不卡顿！
+   * 重置 Worker 内部的自回归种子 (开启全新非连贯动作时调用)
    */
-  async generate(pcm: Float32Array, onProgress?: (msg: string) => void, autoplay = true): Promise<void> {
+  resetSeed(): void {
+    if (!this.worker) return;
+    const id = ++this.workerRequestId;
+    this.worker.postMessage({ id, type: 'reset' });
+  }
+
+  /**
+   * 异步触发后台 Worker 生成全身动作，主线程 3D 渲染彻底不卡顿！
+   * @param continueFromPrevious 是否继承上一段尾部的 4 帧潜空间种子，实现跨段连贯自回归
+   */
+  async generate(
+    pcm: Float32Array,
+    onProgress?: (msg: string) => void,
+    autoplay = true,
+    continueFromPrevious = false,
+  ): Promise<EmageMotionData> {
     if (this.isGenerating) {
       console.warn('[EMAGE] 模型推理正在进行中，跳过重入调用');
-      return;
+      throw new Error('EMAGE is currently generating');
     }
     this.isGenerating = true;
     try {
@@ -282,13 +305,7 @@ export class EmagePlayer {
       this.initWorker();
 
       const id = ++this.workerRequestId;
-      const res = await new Promise<{
-        rot6d: Float32Array;
-        trans: Float32Array;
-        frameCount: number;
-        duration: number;
-        fps: number;
-      }>((resolve, reject) => {
+      const res = await new Promise<EmageMotionData>((resolve, reject) => {
         this.pendingRequests.set(id, { resolve, reject, onProgress });
         // 使用 Transferable Objects 零拷贝传输 PCM
         this.worker?.postMessage(
@@ -297,32 +314,57 @@ export class EmagePlayer {
             type: 'generate',
             pcm,
             temporalSmoothRadius: this.temporalSmoothRadius,
+            continueFromPrevious,
           },
           [pcm.buffer]
         );
       });
 
-      this.frameCount = res.frameCount;
-      this.duration = res.duration;
-      this.fps = res.fps;
-      this.motion = res.rot6d;
-      this.playhead = 0;
-      this.idleWeight = 0.0;
-      this.cachedF0 = -1;
-      this.cachedF1 = -1;
-      this.currentBoneInitialized = false;
-      if (autoplay) this.play();
+      if (autoplay) {
+        this.applyMotionData(res, this.fadeInDuration);
+        this.play(this.fadeInDuration);
+      }
+      return res;
     } finally {
       this.isGenerating = false;
     }
   }
 
-  play(): void {
+  /**
+   * 应用指定的动作切片数据，瞬时锁定当前姿态作为 Slerp 淡入起点
+   */
+  applyMotionData(data: EmageMotionData, fadeIn = 0.60): void {
+    this.frameCount = data.frameCount;
+    this.duration = data.duration;
+    this.fps = data.fps;
+    this.motion = data.rot6d;
+    this.playhead = 0;
+    this.idleWeight = 0.0;
+    this.cachedF0 = -1;
+    this.cachedF1 = -1;
+    this.fadeInDuration = fadeIn;
+
+    if (this.vrm) {
+      for (let i = 0; i < NUM_JOINTS; i++) {
+        const b = this.bones[i];
+        if (b) {
+          this.startQ[i]!.copy(b.quaternion);
+          this.currentBoneQ[i]!.copy(b.quaternion);
+        } else {
+          this.startQ[i]!.identity();
+        }
+      }
+      this.currentBoneInitialized = true;
+    }
+  }
+
+  play(fadeIn = 0.60): void {
     if (!this.motion || !this.vrm) return;
     this.playhead = 0;
     this.idleWeight = 0.0;
     this.cachedF0 = -1;
     this.cachedF1 = -1;
+    this.fadeInDuration = fadeIn;
 
     for (let i = 0; i < NUM_JOINTS; i++) {
       const b = this.bones[i];
@@ -344,7 +386,26 @@ export class EmagePlayer {
     this.weightShiftTimer = 0;
 
     this.playing = true;
+    this.fadingOut = false;
     this.startAudio();
+  }
+
+  /**
+   * 动态切段 (Switch Segment)：完全不依赖时间倒计时判断，
+   * 保持当前骨骼姿态，由生理角速度约束 (Max Angular Speed) 与临界阻尼在物理空间平滑自收敛
+   */
+  switchSegment(data: EmageMotionData): void {
+    this.frameCount = data.frameCount;
+    this.duration = data.duration;
+    this.fps = data.fps;
+    this.motion = data.rot6d;
+    this.playhead = 0;
+    this.idleWeight = 0.0;
+    this.cachedF0 = -1;
+    this.cachedF1 = -1;
+
+    this.playing = true;
+    this.fadingOut = false;
   }
 
 
@@ -495,16 +556,30 @@ export class EmagePlayer {
         }
       }
 
-      this.currentBoneQ[i]!.slerp(qGoal, followFactor);
-      let finalQ = this.currentBoneQ[i]!;
+      // 生理角速度上限与惯性阻尼弹簧融合 (完全不依赖时间判断，纯物理几何与生理转动约束驱动)
+      const dot = Math.abs(this.currentBoneQ[i]!.dot(qGoal));
+      const clamped = Math.min(1.0, Math.max(0.0, dot));
+      const angleDist = 2 * Math.acos(clamped);
 
-      // 动作前置平滑淡入 (Fade-In)
-      const curTime = (this.playhead / this.fps);
-      if (curTime < this.fadeInDuration) {
-        const inAlpha = Math.min(1.0, Math.max(0.0, curTime / this.fadeInDuration));
-        const smoothIn = inAlpha * inAlpha * (3 - 2 * inAlpha);
-        finalQ = this._q2.copy(this.startQ[i]!).slerp(finalQ, smoothIn);
+      // 根据各部位生理特性约束最大自然转动角速度 (弧度/秒): 手臂手部 2.2 rad/s (~125°/s), 躯干 1.2 rad/s, 颈头 1.6 rad/s
+      let maxSpeed = 1.8;
+      if (ARM_INDICES.has(i) || FINGER_INDICES.has(i)) {
+        maxSpeed = 2.2;
+      } else if (i === SPINE_INDEX || i === HIPS_INDEX || TORSO_INDICES.has(i)) {
+        maxSpeed = 1.2;
+      } else if (HEAD_INDICES.has(i)) {
+        maxSpeed = 1.6;
       }
+
+      // 单帧允许跨越的最大弧度步长
+      const maxDeltaAngle = maxSpeed * Math.min(delta, 0.1);
+      const velFactor = angleDist > 0.001 ? Math.min(1.0, maxDeltaAngle / angleDist) : 1.0;
+      const blendFactor = this.currentBoneInitialized
+        ? Math.min(followFactor, velFactor)
+        : 1.0;
+
+      this.currentBoneQ[i]!.slerp(qGoal, blendFactor);
+      let finalQ = this.currentBoneQ[i]!;
 
       // 动作结束平滑淡出到 Idle: 仅对下半身与骨盆（LOWER_BODY_INDICES）在淡出时平滑 Slerp 回 restQ 端正立姿；
       // 双臂、手指与头部完全保持原有逻辑，绝不强拉回 T-Pose
@@ -617,6 +692,7 @@ export class EmagePlayer {
     this.playing = false;
     this.fadingOut = false;
     this.clearExternalClock();
+    this.resetSeed();
     if (this.audio) { this.audio.pause(); this.audio.currentTime = 0; }
     this.footIK.reset();
     this.idleWeight = 1.0;
