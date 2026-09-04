@@ -80,7 +80,7 @@ export const APP_CONFIG = {
   // 对话条菜单可切换模型与思考模式,选择写入 localStorage,有记录时以用户为准。
   // 模型选项来自 WebLLM prebuiltAppConfig,按 provider 分组,同一模型优先 q4f16_1。
   llm: {
-    model: 'Qwen3.5-2B-q4f16_1-MLC',
+    model: 'Qwen3.5-0.8B-q4f16_1-MLC',
     fallback: 'Qwen3.5-0.8B-q4f16_1-MLC',
     thinking: false,
   },
