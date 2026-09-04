@@ -228,14 +228,6 @@ function AnimeMadStage({
         }}
       >
 
-        {/* ─── 移动端顶部极简状态胶囊 (0 遮挡，替代桌面端 256px 宽窗口) ─── */}
-        <div className="md:hidden absolute top-3 left-3 z-20 flex items-center gap-2 px-3 py-1.5 rounded-full bg-black/70 backdrop-blur-md border border-white/15 text-[10px] font-mono shadow-lg">
-          <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" />
-          <span className="text-white/80 font-bold">{t('loading.madSysTitle')}</span>
-          <span className="text-white/30">//</span>
-          <span className="text-[#f5aa9c] font-bold">{progress}%</span>
-        </div>
-
         {/* ─── 切图卡片 A (左上角，桌面端专属)：Retro Cyber-OS 终端切片 ─── */}
         <div 
           className={`hidden md:block absolute top-4 left-4 sm:left-8 z-20 w-64 rounded-2xl bg-black/60 backdrop-blur-xl border border-white/15 p-3.5 shadow-2xl transition-all duration-700 hover:scale-105 hover:border-[#ea8377]/50 will-change-transform ${
@@ -274,20 +266,20 @@ function AnimeMadStage({
           </div>
         </div>
 
-        {/* ─── 浮动小配饰 4 (左上偏中，桌面端专属)：赛博机能爱心护目镜 ─── */}
+        {/* ─── 浮动小配饰 4 (左上角)：赛博机能爱心护目镜 (全端展示，微幅呼吸漂浮) ─── */}
         <div
-          className={`hidden md:block absolute left-[280px] sm:left-[308px] top-4 sm:top-6 z-25 transition-all duration-700 hover:scale-125 hover:rotate-6 cursor-pointer group will-change-transform select-none ${
+          className={`absolute left-3 sm:left-[308px] top-3 sm:top-6 z-25 transition-all duration-700 hover:scale-125 hover:rotate-6 cursor-pointer group will-change-transform select-none ${
             isBreaking ? '-translate-y-96 opacity-0 scale-50' : 'animate-[float-drift_7.2s_ease-in-out_infinite]'
           }`}
           style={{ animationDelay: '0.8s' }}
         >
-          <div className="w-24 h-24 sm:w-28 sm:h-28 drop-shadow-[0_16px_32px_rgba(234,131,119,0.45)] select-none">
+          <div className="w-14 h-14 sm:w-28 sm:h-28 drop-shadow-[0_12px_24px_rgba(234,131,119,0.45)] select-none">
             <img 
               src="/materials/xiaochun_glasses.png" 
               alt="机能护目镜" 
               draggable={false}
               onDragStart={(e) => e.preventDefault()}
-              className="w-full h-full object-contain filter drop-shadow-[0_6px_12px_rgba(0,0,0,0.4)] pointer-events-none select-none" 
+              className="w-full h-full object-contain filter drop-shadow-[0_4px_10px_rgba(0,0,0,0.4)] pointer-events-none select-none" 
             />
           </div>
         </div>
@@ -475,47 +467,47 @@ function AnimeMadStage({
           </div>
         </div>
 
-        {/* ─── 浮动小配饰 1 (左侧居中，桌面端专属)：猫耳赛博麦克风 ─── */}
+        {/* ─── 浮动小配饰 1 (左侧居中)：猫耳赛博麦克风 ─── */}
         <div
-          className={`hidden md:block absolute left-2 sm:left-10 top-1/2 -translate-y-20 z-30 transition-all duration-700 hover:scale-125 hover:rotate-8 cursor-pointer group will-change-transform select-none ${
+          className={`absolute left-1 sm:left-10 top-[42%] sm:top-1/2 -translate-y-1/2 sm:-translate-y-20 z-25 sm:z-30 transition-all duration-700 hover:scale-125 hover:rotate-8 cursor-pointer group will-change-transform select-none ${
             isBreaking ? '-translate-x-96 opacity-0 rotate-45' : 'animate-[float-sway_4.6s_ease-in-out_infinite]'
           }`}
           style={{ animationDelay: '0.2s' }}
         >
           <div className="relative select-none">
-            <div className="w-28 h-28 sm:w-36 sm:h-36 drop-shadow-[0_16px_36px_rgba(234,131,119,0.45)] select-none">
+            <div className="w-14 h-14 sm:w-36 sm:h-36 drop-shadow-[0_12px_24px_rgba(234,131,119,0.45)] select-none">
               <img 
                 src="/materials/xiaochun_mic.png" 
                 alt="麦克风小配饰" 
                 draggable={false}
                 onDragStart={(e) => e.preventDefault()}
-                className="w-full h-full object-contain filter drop-shadow-[0_6px_14px_rgba(0,0,0,0.45)] pointer-events-none select-none" 
+                className="w-full h-full object-contain filter drop-shadow-[0_4px_10px_rgba(0,0,0,0.45)] pointer-events-none select-none" 
               />
             </div>
-            <span className="absolute -bottom-1 -right-1 px-2 py-0.5 rounded-md bg-black/80 border border-white/20 text-[10px] font-mono font-bold text-[#f5aa9c] shadow pointer-events-none select-none">
+            <span className="absolute -bottom-1 -right-1 px-1.5 sm:px-2 py-0.5 rounded-md bg-black/80 border border-white/20 text-[8px] sm:text-[10px] font-mono font-bold text-[#f5aa9c] shadow pointer-events-none select-none">
               MIC ON
             </span>
           </div>
         </div>
 
-        {/* ─── 浮动小配饰 2 (右侧居中，桌面端专属)：猫爪星空珍珠奶茶 ─── */}
+        {/* ─── 浮动小配饰 2 (右侧居中)：猫爪星空珍珠奶茶 ─── */}
         <div
-          className={`hidden md:block absolute right-2 sm:right-10 top-1/2 -translate-y-24 z-30 transition-all duration-700 hover:scale-125 hover:-rotate-8 cursor-pointer group will-change-transform select-none ${
+          className={`absolute right-1 sm:right-10 top-[42%] sm:top-1/2 -translate-y-1/2 sm:-translate-y-24 z-25 sm:z-30 transition-all duration-700 hover:scale-125 hover:-rotate-8 cursor-pointer group will-change-transform select-none ${
             isBreaking ? 'translate-x-96 opacity-0 -rotate-45' : 'animate-[float-orbit_6.8s_ease-in-out_infinite]'
           }`}
           style={{ animationDelay: '2.2s' }}
         >
           <div className="relative select-none">
-            <div className="w-28 h-28 sm:w-36 sm:h-36 drop-shadow-[0_16px_36px_rgba(234,131,119,0.45)] select-none">
+            <div className="w-14 h-14 sm:w-36 sm:h-36 drop-shadow-[0_12px_24px_rgba(234,131,119,0.45)] select-none">
               <img 
                 src="/materials/xiaochun_drink.png" 
                 alt="奶茶小配饰" 
                 draggable={false}
                 onDragStart={(e) => e.preventDefault()}
-                className="w-full h-full object-contain filter drop-shadow-[0_6px_14px_rgba(0,0,0,0.45)] pointer-events-none select-none" 
+                className="w-full h-full object-contain filter drop-shadow-[0_4px_10px_rgba(0,0,0,0.45)] pointer-events-none select-none" 
               />
             </div>
-            <span className="absolute -bottom-1 -left-1 px-2 py-0.5 rounded-md bg-black/80 border border-white/20 text-[10px] font-mono font-bold text-[#f5aa9c] shadow pointer-events-none select-none">
+            <span className="absolute -bottom-1 -left-1 px-1.5 sm:px-2 py-0.5 rounded-md bg-black/80 border border-white/20 text-[8px] sm:text-[10px] font-mono font-bold text-[#f5aa9c] shadow pointer-events-none select-none">
               ENERGY+
             </span>
           </div>
@@ -537,20 +529,20 @@ function AnimeMadStage({
           </p>
         </div>
 
-        {/* ─── 浮动小配饰 3 (底部偏右，桌面端专属)：像素赛博爱心勋章 ─── */}
+        {/* ─── 浮动小配饰 3 (底部偏右)：像素赛博爱心勋章 ─── */}
         <div
-          className={`hidden md:block absolute right-76 sm:right-84 bottom-2 z-25 transition-all duration-700 hover:scale-125 hover:rotate-12 cursor-pointer group will-change-transform select-none ${
+          className={`absolute right-4 sm:right-84 bottom-3 sm:bottom-2 z-25 transition-all duration-700 hover:scale-125 hover:rotate-12 cursor-pointer group will-change-transform select-none ${
             isBreaking ? 'translate-y-96 opacity-0 scale-50' : 'animate-[float-drift_5.2s_ease-in-out_infinite]'
           }`}
           style={{ animationDelay: '1.9s' }}
         >
-          <div className="w-20 h-20 sm:w-24 sm:h-24 drop-shadow-[0_14px_28px_rgba(234,131,119,0.4)] select-none">
+          <div className="w-12 h-12 sm:w-24 sm:h-24 drop-shadow-[0_10px_20px_rgba(234,131,119,0.4)] select-none">
             <img 
               src="/materials/xiaochun_badge.png" 
               alt="爱心勋章" 
               draggable={false}
               onDragStart={(e) => e.preventDefault()}
-              className="w-full h-full object-contain filter drop-shadow-[0_6px_10px_rgba(0,0,0,0.4)] pointer-events-none select-none" 
+              className="w-full h-full object-contain filter drop-shadow-[0_4px_8px_rgba(0,0,0,0.4)] pointer-events-none select-none" 
             />
           </div>
         </div>

@@ -64,6 +64,7 @@ input[type="range"]::-webkit-slider-thumb:hover {
 }
 
 /* Hardware-accelerated distinct anime float animations for MAD preloader */
+/* Hardware-accelerated distinct anime float animations for MAD preloader */
 @keyframes float-sway {
   0%, 100% {
     transform: translate3d(0, 0, 0) rotate(-2deg);
@@ -109,6 +110,45 @@ input[type="range"]::-webkit-slider-thumb:hover {
   }
   50% {
     transform: translate3d(0, -8px, 0) rotate(-0.5deg);
+  }
+}
+
+/* 移动端轻微幅度浮动：控制在 2~5px 与 ±0.8° 范围，避免大幅摆动与中心卡牌产生视差碰撞 */
+@media (max-width: 767px) {
+  @keyframes float-sway {
+    0%, 100% {
+      transform: translate3d(0, 0, 0) rotate(-0.8deg);
+    }
+    50% {
+      transform: translate3d(2px, -5px, 0) rotate(0.8deg);
+    }
+  }
+
+  @keyframes float-bob {
+    0%, 100% {
+      transform: translate3d(0, 0, 0) rotate(0.5deg);
+    }
+    50% {
+      transform: translate3d(-2px, -6px, 0) rotate(-0.8deg);
+    }
+  }
+
+  @keyframes float-drift {
+    0%, 100% {
+      transform: translate3d(0, 0, 0) rotate(0deg);
+    }
+    50% {
+      transform: translate3d(2px, -5px, 0) rotate(0.8deg);
+    }
+  }
+
+  @keyframes float-orbit {
+    0%, 100% {
+      transform: translate3d(0, 0, 0) rotate(-0.5deg) scale(1);
+    }
+    50% {
+      transform: translate3d(3px, -5px, 0) rotate(0.8deg) scale(1.01);
+    }
   }
 }
 
