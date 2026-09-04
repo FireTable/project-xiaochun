@@ -33,8 +33,13 @@ UI 走 **TanStack Start SSR + i18next** 水合,**完整支持简体中文 / Engl
 ## 🖼️ 项目预览 (Preview)
 
 <p align="center">
-  <img src="screenshots/preview-v1.png" width="100%" alt="小蠢在程序化线稿户外场景中" /><br/>
-  <i>VRM 角色采用 MToon NPR 着色,沉浸在程序化生成的线稿户外场景中</i>
+  <img src="screenshots/preview-mad.jpg" width="100%" alt="小蠢 MAD 动态预载画面" /><br/>
+  <i>进场预载：2D MAD 卡面，加载完成后破次元进入 3D</i>
+</p>
+
+<p align="center">
+  <img src="screenshots/preview-3d.jpg" width="100%" alt="小蠢在线稿户外场景中对话" /><br/>
+  <i>3D 舞台：MToon NPR 角色、线稿场景、头顶气泡与底部对话条</i>
 </p>
 
 ---

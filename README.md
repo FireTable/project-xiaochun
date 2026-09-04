@@ -33,8 +33,13 @@ The UI is fully **SSR-hydrated multi-language** (zh-CN / en / ja) via TanStack S
 ## 🖼️ Preview
 
 <p align="center">
-  <img src="screenshots/preview-v1.png" width="100%" alt="Project XiaoChun — VRM character in linework scene with chat bar" /><br/>
-  <i>VRM character rendered with MToon NPR shading, immersed in a procedural linework outdoor scene</i>
+  <img src="screenshots/preview-mad.jpg" width="100%" alt="XiaoChun MAD dynamic preloader" /><br/>
+  <i>Entry: 2D MAD card, then a dimension-break into the 3D stage</i>
+</p>
+
+<p align="center">
+  <img src="screenshots/preview-3d.jpg" width="100%" alt="XiaoChun chatting in the linework outdoor scene" /><br/>
+  <i>3D stage: MToon NPR character, linework city, head bubble, and chat bar</i>
 </p>
 
 ---
