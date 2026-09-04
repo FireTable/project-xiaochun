@@ -144,6 +144,9 @@ async function handleTTS(request: Request): Promise<Response> {
 
     const socket = upgradeRes.webSocket;
     (socket as any).accept?.();
+    try {
+      (socket as any).binaryType = 'arraybuffer';
+    } catch {}
 
     const reqId = makeConnectionId();
     const ts = dateToString();
@@ -170,22 +173,24 @@ async function handleTTS(request: Request): Promise<Response> {
     return new Promise<Uint8Array>((resolve, reject) => {
       const chunks: Uint8Array[] = [];
       const textLogs: string[] = [];
+      let pendingAsyncBinary = 0;
+      let turnEnded = false;
       let timer: ReturnType<typeof setTimeout> | null = null;
       let finished = false;
 
       const cleanup = () => {
         if (timer) clearTimeout(timer);
-        socket.removeEventListener('message', onMessage);
+        socket.removeEventListener('message', onMessage as any);
         socket.removeEventListener('close', onClose);
         socket.removeEventListener('error', onError);
       };
 
-      const finish = () => {
-        if (finished) return;
+      const checkFinish = () => {
+        if (!turnEnded || pendingAsyncBinary > 0 || finished) return;
         finished = true;
         cleanup();
         if (chunks.length === 0) {
-          reject(new Error(`No audio chunks received from TTS service. Responses: ${textLogs.slice(-3).join('; ') || 'none'}`));
+          reject(new Error(`No audio chunks received from TTS service. Responses: ${textLogs.slice(-4).join('; ') || 'none'}`));
           return;
         }
         const totalLen = chunks.reduce((acc, c) => acc + c.length, 0);
@@ -198,25 +203,47 @@ async function handleTTS(request: Request): Promise<Response> {
         resolve(merged);
       };
 
-      const onMessage = (e: MessageEvent) => {
+      const onMessage = async (e: MessageEvent) => {
         const data = e.data;
         if (typeof data === 'string') {
-          textLogs.push(data.slice(0, 150));
           const h = parseHeaders(data);
           if (h.Path === 'turn.end') {
+            turnEnded = true;
             try { socket.close(); } catch { /* noop */ }
-            finish();
+            checkFinish();
+          } else {
+            textLogs.push(`Txt:${h.Path || 'no-path'}`);
           }
           return;
         }
+
+        pendingAsyncBinary++;
         try {
-          const u8 = data instanceof Uint8Array ? data : new Uint8Array(data as ArrayBuffer);
+          let u8: Uint8Array;
+          if (data instanceof ArrayBuffer) {
+            u8 = new Uint8Array(data);
+          } else if (data instanceof Uint8Array) {
+            u8 = data;
+          } else if (typeof Blob !== 'undefined' && data instanceof Blob) {
+            u8 = new Uint8Array(await data.arrayBuffer());
+          } else if (data && typeof data === 'object' && 'buffer' in data && (data as any).buffer instanceof ArrayBuffer) {
+            u8 = new Uint8Array((data as any).buffer);
+          } else {
+            textLogs.push(`UnknownBin:${typeof data}:${data?.constructor?.name}`);
+            return;
+          }
+
           const f = parseBinaryFrame(u8);
           if (f.headers.Path === 'audio' && f.body.length > 0) {
             chunks.push(f.body);
+          } else {
+            textLogs.push(`BinNotAudio:${f.headers.Path || 'no-path'}:len=${f.body.length}`);
           }
-        } catch (parseErr) {
-          console.warn('[TTS Parse Error]', parseErr);
+        } catch (parseErr: any) {
+          textLogs.push(`ParseErr:${parseErr?.message || String(parseErr)}`);
+        } finally {
+          pendingAsyncBinary--;
+          checkFinish();
         }
       };
 
