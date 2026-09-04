@@ -56,8 +56,33 @@ async function handleTTS(request: Request): Promise<Response> {
       .toUpperCase();
   }
 
-  function dateToString(): string {
-    return new Date().toUTCString().replace('GMT', 'GMT+0000 (Coordinated Universal Time)');
+  function normalizeVoiceName(voice: string): string {
+    const match = /^([a-z]{2,})-([A-Z]{2,})-(.+Neural)$/.exec(voice.trim());
+    if (match) {
+      const [, lang] = match;
+      let [, , region, name] = match;
+      if (name.includes('-')) {
+        const parts = name.split('-');
+        region += `-${parts[0]}`;
+        name = parts[1];
+      }
+      return `Microsoft Server Speech Text to Speech Voice (${lang}-${region}, ${name})`;
+    }
+    return voice.trim();
+  }
+
+  function removeIncompatibleCharacters(str: string): string {
+    const charsToRemove = '*/()[]{}$%^@#+=|\\~`><"&';
+    let cleanStr = str;
+    for (const char of charsToRemove) {
+      cleanStr = cleanStr.replace(new RegExp('\\' + char, 'g'), '');
+    }
+    return cleanStr;
+  }
+
+  function dateToString(date?: Date): string {
+    const d = date ?? new Date();
+    return d.toISOString().replace(/[-:.]/g, '').slice(0, -1);
   }
 
   function escapeXml(text: string): string {
@@ -122,6 +147,8 @@ async function handleTTS(request: Request): Promise<Response> {
 
     const reqId = makeConnectionId();
     const ts = dateToString();
+    const formattedVoice = normalizeVoiceName(voice);
+    const cleanText = escapeXml(removeIncompatibleCharacters(text));
 
     const speechConfig =
       `X-Timestamp:${ts}\r\n` +
@@ -131,7 +158,7 @@ async function handleTTS(request: Request): Promise<Response> {
 
     const ssml =
       `<speak version='1.0' xmlns='http://www.w3.org/2001/10/synthesis' xml:lang='en-US'>` +
-      `<voice name='${voice}'><prosody pitch='${pitch}' rate='+0%' volume='+0%'>${escapeXml(text)}</prosody></voice></speak>`;
+      `<voice name='${formattedVoice}'><prosody pitch='${pitch}' rate='+0%' volume='+0%'>${cleanText}</prosody></voice></speak>`;
 
     const ssmlMessage =
       `X-RequestId:${reqId}\r\n` +
@@ -142,6 +169,7 @@ async function handleTTS(request: Request): Promise<Response> {
 
     return new Promise<Uint8Array>((resolve, reject) => {
       const chunks: Uint8Array[] = [];
+      const textLogs: string[] = [];
       let timer: ReturnType<typeof setTimeout> | null = null;
       let finished = false;
 
@@ -157,7 +185,7 @@ async function handleTTS(request: Request): Promise<Response> {
         finished = true;
         cleanup();
         if (chunks.length === 0) {
-          reject(new Error('No audio chunks received from TTS service'));
+          reject(new Error(`No audio chunks received from TTS service. Responses: ${textLogs.slice(-3).join('; ') || 'none'}`));
           return;
         }
         const totalLen = chunks.reduce((acc, c) => acc + c.length, 0);
@@ -173,6 +201,7 @@ async function handleTTS(request: Request): Promise<Response> {
       const onMessage = (e: MessageEvent) => {
         const data = e.data;
         if (typeof data === 'string') {
+          textLogs.push(data.slice(0, 150));
           const h = parseHeaders(data);
           if (h.Path === 'turn.end') {
             try { socket.close(); } catch { /* noop */ }
