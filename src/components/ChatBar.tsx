@@ -73,6 +73,8 @@ export const ChatBar: React.FC = () => {
     const text = inputRef.current?.value.trim() ?? '';
     if (!text || isSending) return;
 
+    inputRef.current?.blur();
+
     // 模型尚未完全就绪：智能转入排队状态，输入内容安全保留，不吞字
     if (!isModelReady) {
       setIsQueued(true);

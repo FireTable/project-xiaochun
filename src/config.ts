@@ -46,7 +46,7 @@ export const APP_CONFIG = {
     cacheName: 'emage-models-v1',
   },
   camera: {
-    defaultFov: 35,
+    defaultFov: 45,
     minFov: 15,
     maxFov: 60,
     defaultPosition: [0.0, 1.5, 3.6] as [number, number, number],

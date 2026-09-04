@@ -128,7 +128,6 @@ export class ChatDirector {
     this.cachedThinkingClip = null;
   }
 
-  // 预加载 thinking.vrma 思考动作
   async preloadThinking(): Promise<void> {
     try {
       const vrmaRes = await fetch('/thinking.vrma');
@@ -137,6 +136,20 @@ export class ChatDirector {
       }
     } catch (e) {
       console.warn('预加载思考动作失败', e);
+    }
+  }
+
+  /** VRM 就绪后就把 thinking.vrma 解析成 clip,发送时不再卡主线程。 */
+  async warmThinkingClip(vrm: VRM, player: VRMAMotionPlayer): Promise<void> {
+    if (this.cachedThinkingClip) return;
+    if (!this.thinkingVRMABuf) await this.preloadThinking();
+    if (!this.thinkingVRMABuf) return;
+    try {
+      const clip = await player.parseBufferToClip(this.thinkingVRMABuf, vrm);
+      makeClipSeamless(clip);
+      this.cachedThinkingClip = clip;
+    } catch (e) {
+      console.warn('预解析思考动作失败', e);
     }
   }
 
@@ -182,6 +195,10 @@ export class ChatDirector {
     this.emage = emage;
 
     await this.playThinking(vrm, player);
+
+    // 先让手机键盘收完再抢 GPU,否则收键盘动画会和推理卡在一起。
+    await new Promise((r) => setTimeout(r, 280));
+    if (this.stopped) return;
 
     let speechText = '';
     try {

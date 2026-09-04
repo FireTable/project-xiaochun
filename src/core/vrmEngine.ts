@@ -701,7 +701,7 @@ export class VRMEngine {
         }, 2500);
 
         this.fitCamera();
-        this.chatDirector.preloadThinking();
+        void this.chatDirector.warmThinkingClip(vrm, this.vrmaPlayer);
 
         this.onLoadingChange?.({ active: false, subtitleKey: '', progress: 100 });
       },
