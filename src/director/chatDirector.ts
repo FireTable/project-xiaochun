@@ -58,19 +58,35 @@ async function synthesizeSentenceAudio(
   if (!ttsText) {
     return ctx.createBuffer(1, Math.floor(ctx.sampleRate * 0.1), ctx.sampleRate);
   }
-  const res = await fetch('/api/tts', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({
-      text: ttsText,
-      voice: 'zh-CN-XiaoyiNeural',
-      pitch: '+10Hz',
-    }),
-  });
-  if (!res.ok) throw new Error(`语音合成失败: HTTP ${res.status}`);
-  const arrayBuffer = await res.arrayBuffer();
-  const rawDecoded = await ctx.decodeAudioData(arrayBuffer);
-  return trimAudioBufferTrailingSilence(ctx, rawDecoded);
+
+  try {
+    const res = await fetch('/api/tts', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        text: ttsText,
+        voice: 'zh-CN-XiaoyiNeural',
+        pitch: '+10Hz',
+      }),
+    });
+
+    if (!res.ok) {
+      throw new Error(`语音合成服务异常: HTTP ${res.status}`);
+    }
+
+    const arrayBuffer = await res.arrayBuffer();
+    if (!arrayBuffer || arrayBuffer.byteLength < 64) {
+      throw new Error(`语音合成数据无效或为空 (byteLength: ${arrayBuffer?.byteLength ?? 0})`);
+    }
+
+    const rawDecoded = await ctx.decodeAudioData(arrayBuffer);
+    return trimAudioBufferTrailingSilence(ctx, rawDecoded);
+  } catch (err) {
+    console.warn('[ChatDirector] 语音合成或解码失败，启动平稳降级轨道:', err);
+    // 降级轨道：按字数预估朗读时长生成轻柔静音轨道，驱动 EMAGE 动作与字幕正常播放，绝不崩溃中断
+    const fallbackDuration = Math.max(1.5, Math.min(8, ttsText.length * 0.2));
+    return ctx.createBuffer(1, Math.floor(ctx.sampleRate * fallbackDuration), ctx.sampleRate);
+  }
 }
 
 export class ChatDirector {
