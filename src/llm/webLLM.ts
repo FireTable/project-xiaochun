@@ -319,27 +319,24 @@ async function completeOnce(
   systemPrompt: string,
   thinking: boolean,
   historyPrefix: string = '',
-  prefill: string = '',
 ): Promise<string> {
   const qwen3 = getActiveModelId().startsWith('Qwen3');
   const lang: Lang = langFromSystemPrompt(systemPrompt);
   // ponytail: 历史压成单条 user 消息,而不是多轮 ChatML 交替 — 根治 2B 模型复读。
+  // 不做 assistant prefill — MLC 的 OpenAI-compat API 强制最后一条必须是 user/tool,
+  // 拼 assistant prefill 会报 MessageOrderError。
   const userContent = (historyPrefix + wrapUserContent(userText, lang)).trim();
-  const messages: { role: 'system' | 'user' | 'assistant'; content: string }[] = [
+  const messages: { role: 'system' | 'user'; content: string }[] = [
     { role: 'system', content: systemPrompt },
     { role: 'user', content: userContent },
   ];
-  // 带内容的 assistant prefill — 强于官方 add_generation_prompt 的空 assistant 头。
-  if (prefill) messages.push({ role: 'assistant', content: prefill });
   console.table(messages.map((m, i) => ({ i, role: m.role, chars: m.content.length, preview: m.content.slice(0, 60) })));
   const reply = await engine.chat.completions.create({
     messages,
     temperature: 0.8,
     ...(qwen3 ? { extra_body: { enable_thinking: thinking && qwen3 } } : {}),
   });
-  // ponytail: MLC 会把 prefill 拼到回复开头,要剥离掉,否则 TTS 会念"小蠢：xxx"。
-  const raw = reply.choices[0]?.message?.content || '';
-  return prefill && raw.startsWith(prefill) ? raw.slice(prefill.length) : raw;
+  return reply.choices[0]?.message?.content || '';
 }
 
 /**
@@ -360,12 +357,12 @@ export async function generateSpeechReply(
   const mem = await recallForChat(userText);
   const packed = applyRecall(systemPrompt, mem, lang);
 
-  let raw = await completeOnce(engine, userText, packed.system, wantThink, packed.historyPrefix, packed.prefill);
+  let raw = await completeOnce(engine, userText, packed.system, wantThink, packed.historyPrefix);
   if (gen !== loadGen) throw new Error('model switched');
   let cleanSpeech = extractCleanSpeech(raw);
 
   if (!cleanSpeech.trim() && wantThink) {
-    raw = await completeOnce(engine, userText, packed.system, false, packed.historyPrefix, packed.prefill);
+    raw = await completeOnce(engine, userText, packed.system, false, packed.historyPrefix);
     if (gen !== loadGen) throw new Error('model switched');
     cleanSpeech = extractCleanSpeech(raw);
   }

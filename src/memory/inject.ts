@@ -82,9 +82,12 @@ export function historyMessages(recent: MemoryTurn[]): { role: 'user' | 'assista
 
 // ponytail: 2B 模型复读 root cause — Qwen 官方 ChatML 多轮对话里,如果历史里出现 N 条
 // user role,模型会把"最近一条 user message"当作模板开始抄。把 N 条对话压成 1 条 user
-// 消息 + 1 条带内容的 assistant prefill,模型就只能"续写 prefill"而不是"复读 user"。
-//   - 历史里出现的是 user/assistant 交替字符串,不是 ChatML role,模式识别不到。
-//   - prefill "<角色>：" 把回复的开头钉死,模型从这里续,几乎不会跳出角色。
+// 消息后,历史里的"用户/小蠢"是字符串而非 ChatML role,模型识别不到这是个回合开始,
+// 就不会触发模式匹配。
+//
+// 不再做 assistant prefill — MLC 的 OpenAI-compat API 强制最后一条消息必须是 user/tool,
+// 否则报 MessageOrderError。所以"内容锚定"的方案只能在 HuggingFace 原生推理里用,
+// 走 MLC 的话只能依赖单条 user 消息压缩来根治复读。
 
 function speakerLabel(lang: Lang, role: 'user' | 'assistant'): string {
   if (lang === 'en') return role === 'user' ? 'User' : 'XiaoChun';
@@ -92,7 +95,7 @@ function speakerLabel(lang: Lang, role: 'user' | 'assistant'): string {
   return role === 'user' ? '用户' : '小蠢';
 }
 
-/** 历史对话压缩成单条 user 消息的文本(无 prefill,留给调用方追加)。 */
+/** 历史对话压缩成单条 user 消息的文本。 */
 export function historyAsUserPrompt(recent: MemoryTurn[], lang: Lang): string {
   if (!recent.length) return '';
   const max = APP_CONFIG.memory.turnMaxChars;
@@ -102,11 +105,4 @@ export function historyAsUserPrompt(recent: MemoryTurn[], lang: Lang): string {
     .join('\n');
   const tail = lang === 'en' ? '\n\nNow the user says: ' : lang === 'ja' ? '\n\n今のユーザーの発言: ' : '\n\n现在用户说: ';
   return header + '\n' + body + tail;
-}
-
-/** 语言相关的 assistant prefill。Qwen 官方 add_generation_prompt 只插 "<|im_start|>assistant\n"
- *  空 assistant,2B 模型还是会乱起笔;带 "小蠢：" 这种内容锚定后稳定得多。 */
-export function assistantPrefill(lang: Lang): string {
-  if (lang === 'en') return 'XiaoChun:';
-  return '小蠢：';
 }
