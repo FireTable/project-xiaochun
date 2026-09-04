@@ -344,18 +344,18 @@ export const LoadingOverlay: React.FC<LoadingOverlayProps> = ({ state, onBreakCo
             </div>
 
             {/* 元素/管线四阶段微章里程碑 (Pipeline Milestones) */}
-            <div className="w-full grid grid-cols-4 gap-1 sm:gap-1.5 mt-0.5 text-[9px] font-mono">
+            <div className="w-full grid grid-cols-2 sm:grid-cols-4 gap-1.5 mt-0.5 text-[9px] font-mono">
               {pipelineMilestones.map((node, i) => {
                 const isPassed = progress >= node.threshold;
                 return (
                   <div
                     key={i}
-                    className={`flex items-center justify-center gap-1 py-1 px-1 rounded-md border transition-all duration-300 ${isPassed
+                    className={`flex min-w-0 items-center justify-center gap-1 py-1.5 px-2 rounded-md border transition-all duration-300 ${isPassed
                       ? 'bg-[#ea8377]/15 border-[#ea8377]/50 text-[#f5aa9c] font-bold shadow-[0_0_10px_rgba(234,131,119,0.2)]'
                       : 'bg-white/5 border-white/10 text-white/40 font-normal'
                       }`}
                   >
-                    <span className={`w-1 h-1 rounded-full ${isPassed ? 'bg-[#ea8377]' : 'bg-white/30'}`} />
+                    <span className={`w-1 h-1 shrink-0 rounded-full ${isPassed ? 'bg-[#ea8377]' : 'bg-white/30'}`} />
                     <span className="truncate">{node.name}</span>
                   </div>
                 );
