@@ -7,6 +7,7 @@
  * 思考阶段仍用 thinking.vrma。
  */
 
+import type * as THREE from 'three';
 import type { VRM } from '@pixiv/three-vrm';
 import { makeClipSeamless } from '@/motion/vrmaRetarget';
 import type { VRMAMotionPlayer } from '@/motion/vrmaPlayer';
@@ -98,9 +99,10 @@ export class ChatDirector {
   private currentGain: GainNode | null = null;
   private audioBuffer: AudioBuffer | null = null;
   private audioDone = false;          // 语音是否已结束 (与 VRMA 独立)
+  private audioDoneTime = 0;
 
   private plan: Plan | null = null;
-  private speaking = false;
+  public speaking = false;
   private stopped = false;
   private onEnd: (() => void) | null = null;
   private player: VRMAMotionPlayer | null = null;
@@ -112,6 +114,11 @@ export class ChatDirector {
   public getSystemPrompt: (() => string) | null = null;
 
   private thinkingVRMABuf: ArrayBuffer | null = null;
+  private cachedThinkingClip: THREE.AnimationClip | null = null;
+
+  resetClipCache(): void {
+    this.cachedThinkingClip = null;
+  }
 
   // 预加载 thinking.vrma 思考动作
   async preloadThinking(): Promise<void> {
@@ -131,11 +138,17 @@ export class ChatDirector {
     this.isThinking = true;
 
     // 起播 3D 思考动作文件 (thinking.vrma 无缝循环播放)
+    if (!this.thinkingVRMABuf) {
+      await this.preloadThinking();
+    }
     if (this.thinkingVRMABuf) {
       try {
-        const clip = await player.parseBufferToClip(this.thinkingVRMABuf, vrm);
-        makeClipSeamless(clip);
-        player.playLoop(clip, vrm, 0.65);
+        if (!this.cachedThinkingClip) {
+          const clip = await player.parseBufferToClip(this.thinkingVRMABuf, vrm);
+          makeClipSeamless(clip);
+          this.cachedThinkingClip = clip;
+        }
+        player.playLoop(this.cachedThinkingClip, vrm, 0.65);
       } catch (e) {
         console.warn('播放 thinking.vrma 动作失败', e);
       }
@@ -200,7 +213,7 @@ export class ChatDirector {
     const pcm = pcmFromAudioBuffer(this.audioBuffer);
     emage.loop = false;
     emage.playAudio = false;
-    emage.holdLastFrame = true;
+    emage.holdLastFrame = false;
     try {
       // ponytail: emage worker 内部进度太碎,不再喂给 status(避免状态文本刷屏)。
       await emage.generate(pcm, () => undefined, false);
@@ -215,9 +228,12 @@ export class ChatDirector {
     status('speaking', undefined, false, this.plan.speech);
     this.playAudioSource(this.audioBuffer, () => {
       this.audioDone = true;
+      this.audioDoneTime = performance.now();
       emage.clearExternalClock();
-      this.stop();
-      this.onEnd?.();
+      // 音频已播放完毕，口型即刻停闭；若动作进度已达尾声 (>=80%) 或已停播，立即自然淡出归入待机；绝不循环复读！
+      if (!emage.isPlaying() || emage.getProgress() >= 0.8) {
+        emage.fadeOutToIdle(0.6);
+      }
     }, emage, player);
   }
 
@@ -235,6 +251,7 @@ export class ChatDirector {
     this.isThinking = false;
     this.speaking = true;
     this.audioDone = false;
+    this.audioDoneTime = 0;
     document.body.classList.add('chat-playing');
 
     this.analyser = this.ctx.createAnalyser();
@@ -273,16 +290,10 @@ export class ChatDirector {
   }
 
   tick(vrm: VRM, _player: VRMAMotionPlayer): void {
-    if (!this.ctx || !this.analyser || !this.analyserBuf || this.stopped) return;
+    if (!this.ctx || this.stopped) return;
 
-    if (this.speaking && this.audioDone) {
-      this.stop();
-      this.onEnd?.();
-      return;
-    }
-
-    // 2) 口型驱动 (音频 RMS → aa)
-    if (this.audioBuffer && !this.audioDone) {
+    // 1) 口型驱动 (音频 RMS → aa)
+    if (this.audioBuffer && !this.audioDone && this.analyser && this.analyserBuf) {
       this.analyser.getByteTimeDomainData(this.analyserBuf as any);
       let sum = 0;
       for (let i = 0; i < this.analyserBuf.length; i++) {
@@ -295,6 +306,19 @@ export class ChatDirector {
     } else if (this.audioDone && vrm.expressionManager) {
       vrm.expressionManager.setValue('aa', 0);
     }
+
+    // 2) 动作完整播放检查：音频播完 且 手势动作（EMAGE/VRMA）已彻底演完收势归位后，才正式结束说话态
+    if (this.speaking && this.audioDone) {
+      const emagePlaying = this.emage?.isPlaying() ?? false;
+      const vrmaPlaying = this.player?.isPlaying() ?? false;
+      // 超时保护设置为 1.5 秒 (足够 0.6s 动作平滑淡出收势，绝不在角色面前多卡停滞或循环)
+      const timeoutReached = this.audioDoneTime > 0 && (performance.now() - this.audioDoneTime > 1500);
+
+      if ((!emagePlaying && !vrmaPlaying) || timeoutReached) {
+        this.stop();
+        this.onEnd?.();
+      }
+    }
   }
 
   stop(): void {
@@ -302,6 +326,7 @@ export class ChatDirector {
     this.stopped = true;
     this.isThinking = false;
     this.speaking = false;
+    this.audioDoneTime = 0;
     try { this.currentSource?.stop(); } catch {}
     this.currentSource = null;
     this.audioBuffer = null;

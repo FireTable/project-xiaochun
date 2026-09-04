@@ -141,6 +141,25 @@ export class VRMEngine {
   // Callbacks to React
   public onLoadingChange?: (state: LoadingState) => void;
   public onBubbleChange?: (state: BubbleState) => void;
+  private readyListeners = new Set<(ready: boolean) => void>();
+
+  public isReady(): boolean {
+    return this.currentVRM !== null;
+  }
+
+  public onReadyChange(cb: (ready: boolean) => void): () => void {
+    cb(this.isReady());
+    this.readyListeners.add(cb);
+    return () => {
+      this.readyListeners.delete(cb);
+    };
+  }
+
+  private notifyReady(ready: boolean): void {
+    this.readyListeners.forEach((cb) => {
+      try { cb(ready); } catch {}
+    });
+  }
 
   private currentBubbleState: BubbleState = {
     visible: false,
@@ -553,9 +572,12 @@ export class VRMEngine {
       this.scene.remove(this.currentVRM.scene);
       VRMUtils.deepDispose(this.currentVRM.scene);
       this.currentVRM = null;
+      this.notifyReady(false);
     }
+    this.chatDirector.resetClipCache();
     this.vrmaPlayer.stop();
     this.emagePlayer.stop();
+    this.activePlayer = 'vrma';
 
     const fetchUrl = url;
     this.loader.load(
@@ -565,9 +587,11 @@ export class VRMEngine {
         if (!vrm) {
           alert(this.translateSync!('error.loadVrmFailed'));
           this.onLoadingChange?.({ active: false, subtitleKey: '', progress: 0 });
+          this.notifyReady(false);
           return;
         }
         this.currentVRM = vrm;
+        this.notifyReady(true);
         this.vrmaPlayer.resetHipsRest();
         VRMUtils.removeUnnecessaryVertices(gltf.scene);
         VRMUtils.removeUnnecessaryJoints(gltf.scene);
@@ -707,6 +731,7 @@ export class VRMEngine {
   public async sendMessage(text: string): Promise<void> {
     if (!this.currentVRM) return;
     this.emagePlayer.stop();
+    this.activePlayer = 'vrma';
 
     const setStatus = (
       key: string,
@@ -745,16 +770,24 @@ export class VRMEngine {
         }
 
         const emageLive = this.emagePlayer.isPlaying();
+        const vrmaLive = this.vrmaPlayer.isPlaying() || this.chatDirector.isThinking;
+
+        let rawIdleWeight = 1.0;
         if (emageLive) {
           this.activePlayer = 'emage';
           this.emagePlayer.update(delta);
-        } else if (this.activePlayer === 'vrma') {
+          rawIdleWeight = this.emagePlayer.getIdleWeight();
+        } else if (vrmaLive || this.activePlayer === 'vrma') {
+          this.activePlayer = 'vrma';
           this.vrmaPlayer.update(delta);
+          rawIdleWeight = this.vrmaPlayer.getIdleWeight();
+        } else {
+          this.activePlayer = 'vrma';
+          rawIdleWeight = 1.0;
         }
 
         this.chatDirector.tick(vrm, this.vrmaPlayer);
 
-        const rawIdleWeight = emageLive ? this.emagePlayer.getIdleWeight() : (this.activePlayer === 'vrma' ? this.vrmaPlayer.getIdleWeight() : 1.0);
         const u = Math.min(Math.max(rawIdleWeight, 0), 1);
         const idleWeight = u * u * u * (u * (u * 6 - 15) + 10);
 
@@ -762,26 +795,27 @@ export class VRMEngine {
 
         if (this.isIdleBreath && idleWeight > 0.001) {
           this.naturalIdle.update(time, idleWeight);
-
-          if (this.chatDirector.isThinking) {
-            this.thinkingWeight = Math.min(1.0, this.thinkingWeight + delta * 0.6);
-          } else {
-            this.thinkingWeight = Math.max(0.0, this.thinkingWeight - delta * 0.8);
-          }
-          const tw = this.thinkingWeight * this.thinkingWeight * (3 - 2 * this.thinkingWeight);
-          if (vrm.expressionManager && tw > 0.01 && !this.chatDirector.isActive()) {
-            vrm.expressionManager.setValue('ou', 0.85 * tw);
-            vrm.expressionManager.setValue('relaxed', 0.25 * tw);
-          }
-          if (headBone && tw > 0.01) {
-            const thinkHeadSwayX = Math.sin(time * 1.6) * 0.035 * tw;
-            const thinkHeadSwayY = Math.cos(time * 1.1) * 0.055 * tw;
-            const thinkHeadSwayZ = Math.sin(time * 1.4) * 0.03 * tw;
-            const q = new THREE.Quaternion().setFromEuler(new THREE.Euler(thinkHeadSwayX, thinkHeadSwayY, thinkHeadSwayZ));
-            headBone.quaternion.slerp(q, tw * 0.5);
-          }
         } else if (!this.isIdleBreath) {
           vrm.scene.position.y = this.vrmBaseSceneY;
+        }
+
+        // 思考状态下的神态与微动态
+        if (this.chatDirector.isThinking) {
+          this.thinkingWeight = Math.min(1.0, this.thinkingWeight + delta * 0.6);
+        } else {
+          this.thinkingWeight = Math.max(0.0, this.thinkingWeight - delta * 0.8);
+        }
+        const tw = this.thinkingWeight * this.thinkingWeight * (3 - 2 * this.thinkingWeight);
+        if (vrm.expressionManager && tw > 0.01 && !this.chatDirector.speaking) {
+          vrm.expressionManager.setValue('ou', 0.85 * tw);
+          vrm.expressionManager.setValue('relaxed', 0.25 * tw);
+        }
+        if (headBone && tw > 0.01) {
+          const thinkHeadSwayX = Math.sin(time * 1.6) * 0.035 * tw;
+          const thinkHeadSwayY = Math.cos(time * 1.1) * 0.055 * tw;
+          const thinkHeadSwayZ = Math.sin(time * 1.4) * 0.03 * tw;
+          const q = new THREE.Quaternion().setFromEuler(new THREE.Euler(thinkHeadSwayX, thinkHeadSwayY, thinkHeadSwayZ));
+          headBone.quaternion.slerp(q, tw * 0.5);
         }
 
         // 自然眨眼

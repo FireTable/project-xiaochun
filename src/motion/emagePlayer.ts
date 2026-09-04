@@ -47,8 +47,8 @@ export function pcmFromAudioBuffer(buf: AudioBuffer): Float32Array {
 
 export class EmagePlayer {
   ready = false;
-  loop = true;
-  playAudio = true;
+  loop = false;
+  playAudio = false;
   holdLastFrame = false;
   lockLowerBody = true; // 默认锁定下半身稳妥立姿，彻底杜绝骨盆与后腰不自然过度后仰
   fadeDuration = 0.6; // 平滑淡出到 Idle 的过渡时长 (秒)
@@ -472,7 +472,7 @@ export class EmagePlayer {
     if (this.externalClock) {
       const t = this.externalClock();
       if (t >= 0 && this.duration > 0) {
-        this.playhead = (t / this.duration) * this.frameCount;
+        this.playhead = Math.min(this.frameCount - 1, (t / this.duration) * this.frameCount);
         this.idleWeight = 0.0;
         this.applyFrame(this.playhead, 0.0, delta);
         this.footIK.solve(delta);
@@ -483,18 +483,7 @@ export class EmagePlayer {
     const nextPlayhead = this.playhead + delta * this.fps;
 
     if (nextPlayhead >= this.frameCount) {
-      if (this.holdLastFrame) {
-        this.playhead = this.frameCount - 1;
-        const fadeOutSpeed = 1.0 / Math.max(0.1, this.fadeDuration);
-        this.idleWeight = Math.min(1.0, this.idleWeight + delta * fadeOutSpeed);
-
-        if (this.idleWeight >= 0.999) {
-          this.playing = false;
-          this.resetPose();
-          return;
-        }
-        this.applyFrame(this.playhead, this.idleWeight, delta);
-      } else if (this.loop) {
+      if (this.loop) {
         this.playhead = nextPlayhead % this.frameCount;
         this.idleWeight = 0.0;
         this.applyFrame(this.playhead, 0.0, delta);
@@ -514,6 +503,7 @@ export class EmagePlayer {
   fadeOutToIdle(duration = 0.8): void {
     this.clearExternalClock();
     if (this.audio) { this.audio.pause(); }
+    if (!this.playing && this.idleWeight >= 0.99) return;
     this.fadeDuration = Math.max(0.1, duration);
     this.fadingOut = true;
     this.fadeElapsed = 0;

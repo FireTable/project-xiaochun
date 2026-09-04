@@ -63,23 +63,22 @@ input[type="range"]::-webkit-slider-thumb:hover {
   transform: scale(1.2);
 }
 
-/* Hardware-accelerated distinct anime float animations for MAD preloader */
-/* Hardware-accelerated distinct anime float animations for MAD preloader */
+/* Hardware-accelerated distinct anime float animations for MAD preloader (PC 端生动浮动) */
 @keyframes float-sway {
   0%, 100% {
-    transform: translate3d(0, 0, 0) rotate(-2deg);
+    transform: translate3d(0, 0, 0) rotate(-3deg);
   }
   50% {
-    transform: translate3d(6px, -14px, 0) rotate(3deg);
+    transform: translate3d(8px, -18px, 0) rotate(4deg);
   }
 }
 
 @keyframes float-bob {
   0%, 100% {
-    transform: translate3d(0, 0, 0) rotate(1deg);
+    transform: translate3d(0, 0, 0) rotate(2deg);
   }
   50% {
-    transform: translate3d(-8px, -18px, 0) rotate(-2.5deg);
+    transform: translate3d(-10px, -22px, 0) rotate(-3deg);
   }
 }
 
@@ -88,19 +87,19 @@ input[type="range"]::-webkit-slider-thumb:hover {
     transform: translate3d(0, 0, 0) rotate(0deg);
   }
   33% {
-    transform: translate3d(10px, -10px, 0) rotate(2deg);
+    transform: translate3d(12px, -14px, 0) rotate(3deg);
   }
   66% {
-    transform: translate3d(-6px, -16px, 0) rotate(-1.5deg);
+    transform: translate3d(-8px, -20px, 0) rotate(-2deg);
   }
 }
 
 @keyframes float-orbit {
   0%, 100% {
-    transform: translate3d(0, 0, 0) rotate(-1deg) scale(1);
+    transform: translate3d(0, 0, 0) rotate(-2deg) scale(1);
   }
   50% {
-    transform: translate3d(8px, -12px, 0) rotate(2deg) scale(1.03);
+    transform: translate3d(10px, -16px, 0) rotate(3deg) scale(1.04);
   }
 }
 
@@ -113,42 +112,43 @@ input[type="range"]::-webkit-slider-thumb:hover {
   }
 }
 
-/* 移动端轻微幅度浮动：控制在 2~5px 与 ±0.8° 范围，避免大幅摆动与中心卡牌产生视差碰撞 */
-@media (max-width: 767px) {
-  @keyframes float-sway {
-    0%, 100% {
-      transform: translate3d(0, 0, 0) rotate(-0.8deg);
-    }
-    50% {
-      transform: translate3d(2px, -5px, 0) rotate(0.8deg);
-    }
+/* 移动端专属自然微浮动（幅度 12~14px，运动生动灵巧不拖沓） */
+@keyframes float-sway-mobile {
+  0%, 100% {
+    transform: translate3d(0, 0, 0) rotate(-2deg);
   }
-
-  @keyframes float-bob {
-    0%, 100% {
-      transform: translate3d(0, 0, 0) rotate(0.5deg);
-    }
-    50% {
-      transform: translate3d(-2px, -6px, 0) rotate(-0.8deg);
-    }
+  50% {
+    transform: translate3d(5px, -12px, 0) rotate(2.5deg);
   }
+}
 
-  @keyframes float-drift {
-    0%, 100% {
-      transform: translate3d(0, 0, 0) rotate(0deg);
-    }
-    50% {
-      transform: translate3d(2px, -5px, 0) rotate(0.8deg);
-    }
+@keyframes float-bob-mobile {
+  0%, 100% {
+    transform: translate3d(0, 0, 0) rotate(1.8deg);
   }
+  50% {
+    transform: translate3d(-5px, -14px, 0) rotate(-2deg);
+  }
+}
 
-  @keyframes float-orbit {
-    0%, 100% {
-      transform: translate3d(0, 0, 0) rotate(-0.5deg) scale(1);
-    }
-    50% {
-      transform: translate3d(3px, -5px, 0) rotate(0.8deg) scale(1.01);
-    }
+@keyframes float-drift-mobile {
+  0%, 100% {
+    transform: translate3d(0, 0, 0) rotate(-1.2deg);
+  }
+  33% {
+    transform: translate3d(6px, -9px, 0) rotate(1.5deg);
+  }
+  66% {
+    transform: translate3d(-4px, -13px, 0) rotate(-1.5deg);
+  }
+}
+
+@keyframes float-orbit-mobile {
+  0%, 100% {
+    transform: translate3d(0, 0, 0) rotate(-1.5deg) scale(1);
+  }
+  50% {
+    transform: translate3d(5px, -12px, 0) rotate(2deg) scale(1.03);
   }
 }
 

@@ -1,20 +1,69 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { useTranslation } from 'react-i18next';
 import { vrmEngine } from '@/core/vrmEngine';
-import { Send, Sparkles } from '@/components/icons';
-import { Button } from '@/components/ui/button';
-import { Input } from '@/components/ui/input';
+import { isWebLLMReady, onWebLLMReady } from '@/llm/webLLM';
+import { Send, Sparkles, Loader2 } from '@/components/icons';
 
 export const ChatBar: React.FC = () => {
   const { t } = useTranslation();
   const [inputText, setInputText] = useState('');
   const [isSending, setIsSending] = useState(false);
+  const [isQueued, setIsQueued] = useState(false);
+  const queuedTextRef = useRef('');
+
+  // 模型与引擎就绪感知
+  const [isVRMReady, setIsVRMReady] = useState(() => vrmEngine.isReady());
+  const [isLLMReady, setIsLLMReady] = useState(() => isWebLLMReady());
+
+  useEffect(() => {
+    // 监听 3D VRM 模型就绪状态
+    const unsubVRM = vrmEngine.onReadyChange((ready) => {
+      setIsVRMReady(ready);
+    });
+    // 监听 WebLLM 神经核心 Worker 权重预热就绪状态
+    const unsubLLM = onWebLLMReady(() => {
+      setIsLLMReady(true);
+    });
+
+    return () => {
+      unsubVRM();
+      unsubLLM();
+    };
+  }, []);
+
+  const isModelReady = isVRMReady && isLLMReady;
+
+  // 智能排队机制：一旦模型加载完毕，若此前有排队中的输入，自动无缝触发发送，绝不丢字
+  useEffect(() => {
+    if (isModelReady && isQueued && queuedTextRef.current) {
+      const toSend = queuedTextRef.current;
+      queuedTextRef.current = '';
+      setIsQueued(false);
+      setInputText('');
+      setIsSending(true);
+
+      void vrmEngine
+        .sendMessage(toSend)
+        .catch((e) => console.error('[ChatBar Queue] Send failed:', e))
+        .finally(() => {
+          setIsSending(false);
+        });
+    }
+  }, [isModelReady, isQueued]);
 
   const handleSend = async () => {
     const text = inputText.trim();
     if (!text || isSending) return;
 
+    // 模型尚未完全就绪：智能转入排队状态，输入内容安全保留，不吞字
+    if (!isModelReady) {
+      setIsQueued(true);
+      queuedTextRef.current = text;
+      return;
+    }
+
     setInputText('');
+    setIsQueued(false);
     setIsSending(true);
 
     try {
@@ -33,42 +82,93 @@ export const ChatBar: React.FC = () => {
     }
   };
 
+  const hasText = inputText.trim().length > 0;
+
   return (
-    <div className="fixed bottom-[calc(0.75rem+env(safe-area-inset-bottom,0px))] sm:bottom-8 left-1/2 -translate-x-1/2 z-30 w-full max-w-xl px-3 sm:px-4 pointer-events-auto">
-      {/* ponytail: 输入框 h-10(40px)全端通用,字号 text-base 16px 防止 iOS 聚焦自动缩放;
-          发送按钮 h-11(44px)略高于输入,符合"主 CTA 高于输入"惯例。 */}
-      <div className="flex items-center gap-2 sm:gap-2.5 p-1.5 sm:p-2 rounded-full bg-slate-950/85 border border-white/20 shadow-2xl backdrop-blur-2xl ring-1 ring-black/40">
-        <Input
-          type="text"
-          id="chatText"
-          placeholder={t('chat.placeholder')}
-          value={inputText}
-          onChange={(e) => setInputText(e.target.value)}
-          onKeyDown={handleKeyDown}
-          autoComplete="off"
-          disabled={isSending}
-          className="border-none bg-transparent shadow-none focus-visible:ring-0 focus-visible:border-none text-white placeholder:text-slate-400 text-base sm:text-sm h-10 px-3 touch-manipulation"
-        />
-        <Button
+    <div className="fixed bottom-[calc(0.75rem+env(safe-area-inset-bottom,0px))] sm:bottom-8 left-1/2 -translate-x-1/2 z-30 w-full max-w-xl px-3 sm:px-4 pointer-events-auto select-none">
+      <div className="flex items-center gap-2 sm:gap-2.5 w-full">
+        {/* 输入框主胶囊：高度严格 h-11 (44px)，非阻塞可随时聚焦输入，排队时呼吸高亮 */}
+        <div
+          className={`flex-1 flex items-center h-11 sm:h-11 rounded-full bg-[#13111c]/85 border shadow-[0_8px_32px_rgba(0,0,0,0.5)] backdrop-blur-2xl px-3.5 sm:px-4 transition-all duration-300 ${
+            isQueued
+              ? 'border-[#ea8377] ring-2 ring-[#ea8377]/40 shadow-[0_0_24px_rgba(234,131,119,0.35)]'
+              : 'border-white/15 focus-within:border-[#ea8377] focus-within:ring-2 focus-within:ring-[#ea8377]/30 focus-within:shadow-[0_0_24px_rgba(234,131,119,0.3)]'
+          }`}
+        >
+          {/* 左侧状态感知指示器 */}
+          {isQueued ? (
+            <Loader2 className="w-4 h-4 text-[#ea8377] animate-spin shrink-0 mr-2 sm:mr-2.5" />
+          ) : !isModelReady ? (
+            <div className="flex items-center gap-1 shrink-0 mr-2 sm:mr-2.5">
+              <Sparkles className="w-4 h-4 text-[#f5aa9c] animate-pulse shrink-0 opacity-90" />
+              <span className="hidden sm:inline-block text-[9px] font-mono font-bold text-[#f5aa9c] bg-[#ea8377]/15 border border-[#ea8377]/30 px-1 py-0.2 rounded uppercase">
+                SYNC
+              </span>
+            </div>
+          ) : (
+            <Sparkles className="w-4 h-4 text-[#ea8377] shrink-0 mr-2 sm:mr-2.5 opacity-90 animate-pulse" />
+          )}
+
+          <input
+            type="text"
+            id="chatText"
+            placeholder={isModelReady ? t('chat.placeholder') : t('chat.syncingPlaceholder')}
+            value={inputText}
+            onChange={(e) => {
+              const val = e.target.value;
+              setInputText(val);
+              if (isQueued) {
+                queuedTextRef.current = val.trim();
+                if (!val.trim()) setIsQueued(false);
+              }
+            }}
+            onKeyDown={handleKeyDown}
+            autoComplete="off"
+            disabled={isSending}
+            className="w-full h-full bg-transparent border-none outline-none text-white placeholder:text-white/40 text-sm sm:text-sm touch-manipulation select-text"
+          />
+        </div>
+
+        {/* 发送按钮：高度严格 h-11 (44px)，状态随就绪度与排队状态联动 */}
+        <button
           id="chatSend"
-          variant="default"
-          size="default"
+          type="button"
           onClick={() => void handleSend()}
-          disabled={isSending || !inputText.trim()}
-          className="shrink-0 h-11 sm:h-9 px-4 text-sm sm:text-xs"
+          disabled={isSending || !hasText}
+          className={`h-11 sm:h-11 px-4 sm:px-5 rounded-full font-medium text-sm flex items-center justify-center gap-1.5 shrink-0 transition-all duration-300 border select-none cursor-pointer touch-manipulation ${
+            isSending
+              ? 'bg-[#13111c]/80 text-white/50 border-white/10 backdrop-blur-2xl cursor-wait'
+              : isQueued
+              ? 'bg-gradient-to-r from-[#ea8377]/90 via-[#f5aa9c]/90 to-[#e06d64]/90 text-white border-[#ea8377] shadow-[0_0_20px_rgba(234,131,119,0.4)] animate-pulse'
+              : hasText && !isModelReady
+              ? 'bg-gradient-to-r from-[#ea8377]/80 to-[#e06d64]/80 text-white border-white/20 shadow-[0_4px_16px_rgba(234,131,119,0.3)] hover:brightness-110 active:scale-95'
+              : hasText && isModelReady
+              ? 'bg-gradient-to-r from-[#ea8377] via-[#f5aa9c] to-[#e06d64] text-white border-white/20 shadow-[0_4px_20px_rgba(234,131,119,0.4)] hover:brightness-110 active:scale-95'
+              : 'bg-[#13111c]/80 text-white/40 border-white/10 backdrop-blur-2xl shadow-md cursor-not-allowed'
+          }`}
         >
           {isSending ? (
             <>
-              <Sparkles className="w-4 h-4 sm:w-3.5 sm:h-3.5 animate-spin text-brand-100" />
+              <Loader2 className="w-4 h-4 animate-spin text-white" />
               <span>{t('chat.sending')}</span>
+            </>
+          ) : isQueued ? (
+            <>
+              <Loader2 className="w-4 h-4 animate-spin text-white" />
+              <span>{t('chat.queued')}</span>
+            </>
+          ) : hasText && !isModelReady ? (
+            <>
+              <Sparkles className="w-4 h-4 text-white animate-pulse" />
+              <span>{t('chat.queueSend')}</span>
             </>
           ) : (
             <>
-              <Send className="w-4 h-4 sm:w-3.5 sm:h-3.5" />
+              <Send className={`w-4 h-4 transition-transform duration-200 ${hasText ? 'text-white' : 'text-white/40'}`} />
               <span>{t('chat.send')}</span>
             </>
           )}
-        </Button>
+        </button>
       </div>
     </div>
   );

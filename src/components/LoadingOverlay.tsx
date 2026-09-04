@@ -99,19 +99,18 @@ export const LoadingOverlay: React.FC<LoadingOverlayProps> = ({ state, onBreakCo
       id="loading-overlay"
       ref={containerRef}
       onMouseMove={handleMouseMove}
-      className={`fixed inset-0 z-50 overflow-hidden flex items-center justify-center bg-[#0a0812] select-none transition-all duration-1000 ease-out ${
-        isBreaking ? 'opacity-0 scale-125 filter blur-md pointer-events-none' : 'opacity-100 scale-100'
-      }`}
+      className={`fixed inset-0 z-50 overflow-hidden flex items-center justify-center bg-[#0a0812] select-none transition-all duration-1000 ease-out ${isBreaking ? 'opacity-0 scale-125 filter blur-md pointer-events-none' : 'opacity-100 scale-100'
+        }`}
       style={{ perspective: '1200px' }}
     >
       {/* 1. 背景流光氛围：移动端使用 blur-3xl 降低 GPU 显存带宽压力，桌面端使用极光 blur */}
-      <div 
+      <div
         className="absolute w-[22rem] sm:w-[38rem] h-[22rem] sm:h-[38rem] rounded-full bg-[#ea8377]/15 blur-3xl md:blur-[150px] pointer-events-none transition-transform duration-700 ease-out"
         style={{
           transform: `translate3d(${mouseOffset.x * -60}px, ${mouseOffset.y * -60}px, 0)`
         }}
       />
-      <div 
+      <div
         className="absolute w-[20rem] sm:w-[36rem] h-[20rem] sm:h-[36rem] rounded-full bg-[#e06d64]/12 blur-3xl md:blur-[140px] pointer-events-none transition-transform duration-700 ease-out"
         style={{
           transform: `translate3d(${mouseOffset.x * 60}px, ${mouseOffset.y * 60}px, 0)`
@@ -119,7 +118,7 @@ export const LoadingOverlay: React.FC<LoadingOverlayProps> = ({ state, onBreakCo
       />
 
       {/* 2. 背景浮动点阵底纹 */}
-      <div 
+      <div
         className="absolute inset-0 pointer-events-none opacity-25"
         style={{
           backgroundImage: `radial-gradient(circle, rgba(234, 131, 119, 0.35) 1px, transparent 1px)`,
@@ -127,25 +126,24 @@ export const LoadingOverlay: React.FC<LoadingOverlayProps> = ({ state, onBreakCo
         }}
       />
 
-      {/* 3. 动态斜向标语胶带 (Warning Cyber Tape) */}
-      <div className="absolute -top-6 -right-16 rotate-12 z-10 pointer-events-none opacity-40 hover:opacity-100 transition-opacity">
+      {/* 3. 动态斜向标语胶带 (Warning Cyber Tape，桌面端专属，避免遮挡移动端贴纸) */}
+      <div className="hidden sm:block absolute -top-6 -right-16 rotate-12 z-10 pointer-events-none opacity-40 hover:opacity-100 transition-opacity">
         <div className="px-16 py-1.5 bg-[#ea8377] text-black font-black text-[10px] tracking-[0.3em] font-mono uppercase shadow-lg">
           // 100% IN-BROWSER AI VTUBER // WEBGPU ENGINE // ZERO BACKEND //
         </div>
       </div>
 
       {/* ─── 4. 多图层视差舞台容器 (Parallax Canvas) ─── */}
-      <div 
+      <div
         className="relative z-20 w-full max-w-5xl h-full sm:h-[85vh] flex items-center justify-center transition-transform duration-300 ease-out"
         style={{
           transform: `rotateY(${mouseOffset.x * 12}deg) rotateX(${-mouseOffset.y * 12}deg)`
         }}
       >
         {/* ─── 切图卡片 A (左上角，桌面端专属)：Retro Cyber-OS 终端切片 ─── */}
-        <div 
-          className={`hidden md:block absolute top-4 left-4 sm:left-8 z-20 w-64 rounded-2xl bg-black/60 backdrop-blur-xl border border-white/15 p-3.5 shadow-2xl transition-all duration-700 hover:scale-105 hover:border-[#ea8377]/50 will-change-transform ${
-            isBreaking ? '-translate-x-96 -translate-y-96 opacity-0' : 'animate-[float-pulse-gentle_6.5s_ease-in-out_infinite]'
-          }`}
+        <div
+          className={`hidden md:block absolute top-4 left-4 sm:left-8 z-20 w-64 rounded-2xl bg-black/60 backdrop-blur-xl border border-white/15 p-3.5 shadow-2xl transition-all duration-700 hover:scale-105 hover:border-[#ea8377]/50 will-change-transform ${isBreaking ? '-translate-x-96 -translate-y-96 opacity-0' : 'animate-[float-pulse-gentle_6.5s_ease-in-out_infinite]'
+            }`}
           style={{ animationDelay: '0s' }}
         >
           <div className="flex items-center justify-between pb-2 mb-2 border-b border-white/10">
@@ -167,10 +165,10 @@ export const LoadingOverlay: React.FC<LoadingOverlayProps> = ({ state, onBreakCo
           {/* 音频跳动频谱柱 */}
           <div className="flex items-end gap-1 h-5 mt-2">
             {[40, 80, 55, 95, 30, 70, 85, 45, 90, 60, 75, 50].map((h, i) => (
-              <div 
-                key={i} 
+              <div
+                key={i}
                 className="flex-1 bg-gradient-to-t from-[#ea8377] to-[#f5aa9c] rounded-t"
-                style={{ 
+                style={{
                   height: `${Math.max(15, (h * (progress || 30)) / 100)}%`,
                   animation: `pulse 1.2s ease-in-out infinite`,
                   animationDelay: `${i * 0.1}s`
@@ -180,67 +178,63 @@ export const LoadingOverlay: React.FC<LoadingOverlayProps> = ({ state, onBreakCo
           </div>
         </div>
 
-        {/* ─── 浮动小配饰 4 (左上角)：赛博机能爱心护目镜 (全端展示，微幅呼吸漂浮) ─── */}
+        {/* ─── 浮动小配饰 4 (左上角)：赛博机能爱心护目镜 (放大尺寸，细节清晰) ─── */}
         <div
-          className={`absolute left-3 sm:left-[308px] top-3 sm:top-6 z-25 transition-all duration-700 hover:scale-125 hover:rotate-6 cursor-pointer group will-change-transform select-none ${
-            isBreaking ? '-translate-y-96 opacity-0 scale-50' : 'animate-[float-drift_7.2s_ease-in-out_infinite]'
-          }`}
-          style={{ animationDelay: '0.8s' }}
+          className={`absolute left-2 sm:left-[308px] top-4 sm:top-6 -rotate-6 sm:rotate-0 z-25 transition-all duration-700 hover:scale-125 hover:rotate-6 cursor-pointer group will-change-transform select-none ${isBreaking ? '-translate-y-96 opacity-0 scale-50' : 'animate-[float-drift-mobile_3.2s_ease-in-out_infinite] md:animate-[float-drift_7.2s_ease-in-out_infinite]'
+            }`}
+          style={{ animationDelay: '0.4s' }}
         >
-          <div className="w-14 h-14 sm:w-28 sm:h-28 drop-shadow-[0_12px_24px_rgba(234,131,119,0.45)] select-none">
-            <img 
-              src="/materials/xiaochun_glasses.png" 
-              alt="机能护目镜" 
+          <div className="w-[82px] h-[52px] sm:w-28 sm:h-28 drop-shadow-[0_12px_24px_rgba(234,131,119,0.45)] select-none">
+            <img
+              src="/materials/xiaochun_glasses.png"
+              alt="机能护目镜"
               draggable={false}
               onDragStart={(e) => e.preventDefault()}
-              className="w-full h-full object-contain filter drop-shadow-[0_4px_10px_rgba(0,0,0,0.4)] pointer-events-none select-none" 
+              className="w-full h-full object-contain filter drop-shadow-[0_4px_10px_rgba(0,0,0,0.4)] pointer-events-none select-none"
             />
           </div>
         </div>
 
-        {/* ─── 切图卡片 B (右上角)：小蠢 Q 版挥手模切贴纸 (移动端小巧精致置顶) ─── */}
-        <div 
-          className={`absolute top-2 sm:top-0 right-2 sm:right-6 z-30 transition-all duration-700 hover:scale-110 cursor-pointer will-change-transform select-none ${
-            isBreaking ? 'translate-x-96 -translate-y-96 opacity-0' : 'animate-[float-bob_5.8s_ease-in-out_infinite]'
-          }`}
-          style={{ animationDelay: '1.5s' }}
+        {/* ─── 切图卡片 B (右上角)：小蠢 Q 版挥手贴纸 (贴纸群主角 Hero Sticker，特大醒目) ─── */}
+        <div
+          className={`absolute top-5 sm:top-0 right-2 sm:right-6 -rotate-6 sm:rotate-0 z-30 transition-all duration-700 hover:scale-110 cursor-pointer will-change-transform select-none ${isBreaking ? 'translate-x-96 -translate-y-96 opacity-0' : 'animate-[float-bob-mobile_2.8s_ease-in-out_infinite] md:animate-[float-bob_5.8s_ease-in-out_infinite]'
+            }`}
         >
           <div className="relative select-none">
-            {/* 对话气泡 (移动端隐藏避免横向遮挡卡牌) */}
-            <div className="hidden sm:flex absolute -top-6 -left-10 px-3.5 py-1.5 rounded-2xl bg-white text-black font-bold text-xs shadow-2xl border border-black/10 items-center gap-1 whitespace-nowrap animate-bounce pointer-events-none">
+            {/* 对话气泡 (移动端与桌面端均展示：精致圆润气泡，蠢蠢欲动，安全距离不被顶栏裁切) */}
+            <div className="flex absolute -top-2 sm:-top-6 -left-12 sm:-left-10 px-2.5 py-1 sm:px-3.5 sm:py-1.5 rounded-full sm:rounded-2xl bg-white text-black font-bold text-[10px] sm:text-xs shadow-2xl border border-black/10 items-center gap-1 whitespace-nowrap animate-bounce pointer-events-none z-30">
               <span>{t('loading.madBubbleSticker')}</span>
-              <Heart className="w-3.5 h-3.5 text-[#ea8377] fill-[#ea8377]" />
+              <Heart className="w-3 h-3 sm:w-3.5 sm:h-3.5 text-[#ea8377] fill-[#ea8377] shrink-0" />
             </div>
             {/* Q 版独立模切贴纸 */}
-            <div className="w-20 h-20 sm:w-40 sm:h-40 md:w-48 md:h-48 drop-shadow-[0_16px_32px_rgba(0,0,0,0.55)] select-none">
-              <img 
-                src="/materials/xiaochun_chibi.png" 
-                alt="小蠢贴纸" 
+            <div className="w-24 h-24 sm:w-40 sm:h-40 md:w-48 md:h-48 drop-shadow-[0_16px_32px_rgba(0,0,0,0.55)] select-none">
+              <img
+                src="/materials/xiaochun_chibi.png"
+                alt="小蠢贴纸"
                 draggable={false}
                 onDragStart={(e) => e.preventDefault()}
-                className="w-full h-full object-contain filter drop-shadow-[0_6px_16px_rgba(234,131,119,0.35)] pointer-events-none select-none" 
+                className="w-full h-full object-contain filter drop-shadow-[0_6px_16px_rgba(234,131,119,0.35)] pointer-events-none select-none"
               />
             </div>
           </div>
         </div>
 
         {/* ─── 核心主体卡片 (居中)：小蠢全息二次元卡牌 (头部向上破框 + 炫彩流光边框) ─── */}
-        <div 
-          className={`relative z-20 flex flex-col items-center transition-all duration-1000 group select-none ${
-            isBreaking ? 'scale-150 filter brightness-150 blur-sm' : ''
-          }`}
+        <div
+          className={`relative z-20 flex flex-col items-center transition-all duration-1000 group select-none ${isBreaking ? 'scale-150 filter brightness-150 blur-sm' : ''
+            }`}
         >
           {/* 卡牌主容器：保持 overflow-visible 允许头部突破破框 */}
           <div className="relative w-[260px] sm:w-72 lg:w-80 h-[340px] sm:h-[380px] lg:h-[400px]">
-            
+
             {/* 1. 卡牌边框外壳与流光层：自身 overflow-hidden 裁切旋转流光与背景底板 */}
             <div className="absolute inset-0 p-1.5 rounded-[32px] overflow-hidden shadow-[0_20px_60px_rgba(234,131,119,0.3)] group-hover:shadow-[0_30px_100px_rgba(234,131,119,0.65)] transition-all duration-500 z-10">
-              
+
               {/* 常态静态渐变边框底层 */}
               <div className="absolute inset-0 rounded-[32px] bg-gradient-to-b from-white/30 via-[#ea8377]/40 to-[#e06d64]/40 backdrop-blur-2xl transition-opacity duration-500 group-hover:opacity-0" />
 
               {/* Hover 激活的高亮高速旋转 360° 动态流光边框 (Conic Stream Border) */}
-              <div 
+              <div
                 className="absolute -inset-[100%] pointer-events-none opacity-0 group-hover:opacity-100 transition-opacity duration-500 animate-stream-rotate will-change-transform"
                 style={{
                   background: `conic-gradient(from 0deg, transparent 0deg, #ea8377 60deg, #ffffff 90deg, #f5aa9c 120deg, transparent 180deg, #e06d64 240deg, #ffffff 270deg, #ea8377 300deg, transparent 360deg)`
@@ -248,18 +242,18 @@ export const LoadingOverlay: React.FC<LoadingOverlayProps> = ({ state, onBreakCo
               />
 
               {/* 边缘流光外溢光晕倍增层 */}
-              <div 
+              <div
                 className="absolute -inset-2 pointer-events-none opacity-0 group-hover:opacity-80 transition-opacity duration-500 blur-xl"
                 style={{
                   background: `radial-gradient(circle, rgba(234, 131, 119, 0.6) 0%, transparent 70%)`
                 }}
               />
-              
+
               {/* 卡牌内胆底板 */}
               <div className="relative w-full h-full rounded-[26px] bg-[#16101c] overflow-hidden border border-white/10 flex flex-col justify-between p-4">
                 {/* 底纹与微光 */}
                 <div className="absolute inset-0 bg-gradient-to-b from-[#ea8377]/10 via-transparent to-[#16101c]" />
-                <div 
+                <div
                   className="absolute inset-0 opacity-15"
                   style={{
                     backgroundImage: `radial-gradient(circle, rgba(234, 131, 119, 0.4) 1px, transparent 1px)`,
@@ -280,7 +274,7 @@ export const LoadingOverlay: React.FC<LoadingOverlayProps> = ({ state, onBreakCo
             </div>
 
             {/* 2. 核心立绘角色层：上方突破上方框线 (-top-20)，左/右/下严格按照内胆圆角(rounded-b-[26px])裁剪 */}
-            <div 
+            <div
               className="absolute inset-x-1.5 bottom-1.5 pointer-events-none z-20 flex items-end justify-center rounded-b-[26px] overflow-hidden select-none"
               style={{
                 top: '-80px',
@@ -289,12 +283,12 @@ export const LoadingOverlay: React.FC<LoadingOverlayProps> = ({ state, onBreakCo
               }}
             >
               <div className="relative w-full h-[calc(100%-6px)] origin-bottom transition-transform duration-500 ease-out group-hover:scale-110 drop-shadow-[0_15px_30px_rgba(0,0,0,0.6)] select-none">
-                <img 
-                  src="/materials/xiaochun_character.png" 
-                  alt="小蠢原画" 
+                <img
+                  src="/materials/xiaochun_character.png"
+                  alt="小蠢原画"
                   draggable={false}
                   onDragStart={(e) => e.preventDefault()}
-                  className="w-full h-full object-contain object-bottom filter drop-shadow-[0_0_20px_rgba(234,131,119,0.4)] pointer-events-none select-none" 
+                  className="w-full h-full object-contain object-bottom filter drop-shadow-[0_0_20px_rgba(234,131,119,0.4)] pointer-events-none select-none"
                 />
               </div>
             </div>
@@ -321,7 +315,7 @@ export const LoadingOverlay: React.FC<LoadingOverlayProps> = ({ state, onBreakCo
 
           {/* ─── 原神/星铁风格超感光轨加载控制台 (Genshin-style Loading Pipeline Console) ─── */}
           <div className="mt-5 sm:mt-6 w-[260px] sm:w-[320px] lg:w-[360px] flex flex-col items-center gap-2 sm:gap-2.5 z-30">
-            
+
             {/* 顶栏：实时阶段文本 + 发光百分比 (固定端到端宽度，杜绝内容变化导致的尺寸缩放) */}
             <div className="w-full flex items-center justify-between text-xs font-mono px-0.5">
               <div className="flex items-center gap-2 text-white/85 min-w-0 flex-1">
@@ -338,16 +332,15 @@ export const LoadingOverlay: React.FC<LoadingOverlayProps> = ({ state, onBreakCo
             {/* 原神光轨进度条 (固定长度，不随文字或状态缩短) */}
             <div className="relative w-full h-2.5 rounded-full bg-white/10 backdrop-blur-md border border-white/20 p-[2px] shadow-inner overflow-visible">
               {/* 填充发光进度 */}
-              <div 
-                className="h-full rounded-full bg-gradient-to-r from-[#ea8377] via-[#f5aa9c] to-white transition-all duration-300 ease-out shadow-[0_0_14px_rgba(234,131,119,0.9)]"
-                style={{ width: `${progress}%` }}
-              />
-
-              {/* 原神菱形星芒光标 (Diamond Light Runner) */}
-              <div 
-                className="absolute top-1/2 -translate-y-1/2 -translate-x-1/2 w-3 h-3 rotate-45 bg-white border border-[#ea8377] shadow-[0_0_12px_#ffffff] transition-all duration-300 pointer-events-none"
-                style={{ left: `${progress}%` }}
-              />
+              <div
+                className="relative h-full rounded-full bg-gradient-to-r from-[#ea8377] via-[#f5aa9c] to-white transition-all duration-300 ease-out shadow-[0_0_14px_rgba(234,131,119,0.9)]"
+                style={{ width: `${Math.max(1, progress)}%` }}
+              >
+                {/* 原神菱形星芒光标 (Diamond Light Runner) —— 紧锁在进度条最顶端前沿 (right-0 translate-x-1/2) */}
+                <div
+                  className="absolute right-0 top-1/2 -translate-y-1/2 translate-x-1/2 w-3.5 h-3.5 rotate-45 bg-white border border-[#ea8377] shadow-[0_0_14px_#ffffff] pointer-events-none z-10"
+                />
+              </div>
             </div>
 
             {/* 元素/管线四阶段微章里程碑 (Pipeline Milestones) */}
@@ -355,13 +348,12 @@ export const LoadingOverlay: React.FC<LoadingOverlayProps> = ({ state, onBreakCo
               {pipelineMilestones.map((node, i) => {
                 const isPassed = progress >= node.threshold;
                 return (
-                  <div 
+                  <div
                     key={i}
-                    className={`flex items-center justify-center gap-1 py-1 px-1 rounded-md border transition-all duration-300 ${
-                      isPassed
-                        ? 'bg-[#ea8377]/15 border-[#ea8377]/50 text-[#f5aa9c] font-bold shadow-[0_0_10px_rgba(234,131,119,0.2)]'
-                        : 'bg-white/5 border-white/10 text-white/40 font-normal'
-                    }`}
+                    className={`flex items-center justify-center gap-1 py-1 px-1 rounded-md border transition-all duration-300 ${isPassed
+                      ? 'bg-[#ea8377]/15 border-[#ea8377]/50 text-[#f5aa9c] font-bold shadow-[0_0_10px_rgba(234,131,119,0.2)]'
+                      : 'bg-white/5 border-white/10 text-white/40 font-normal'
+                      }`}
                   >
                     <span className={`w-1 h-1 rounded-full ${isPassed ? 'bg-[#ea8377]' : 'bg-white/30'}`} />
                     <span className="truncate">{node.name}</span>
@@ -377,57 +369,54 @@ export const LoadingOverlay: React.FC<LoadingOverlayProps> = ({ state, onBreakCo
           </div>
         </div>
 
-        {/* ─── 浮动小配饰 1 (左侧居中)：猫耳赛博麦克风 ─── */}
+        {/* ─── 浮动小配饰 1 (左侧中上方偏高)：猫耳赛博麦克风 (放大尺寸，细节与文字醒目) ─── */}
         <div
-          className={`absolute left-1 sm:left-10 top-[42%] sm:top-1/2 -translate-y-1/2 sm:-translate-y-20 z-25 sm:z-30 transition-all duration-700 hover:scale-125 hover:rotate-8 cursor-pointer group will-change-transform select-none ${
-            isBreaking ? '-translate-x-96 opacity-0 rotate-45' : 'animate-[float-sway_4.6s_ease-in-out_infinite]'
-          }`}
+          className={`absolute left-1 sm:left-10 top-[34%] sm:top-1/2 -translate-y-1/2 sm:-translate-y-20 rotate-12 sm:rotate-0 z-25 sm:z-30 transition-all duration-700 hover:scale-125 hover:rotate-8 cursor-pointer group will-change-transform select-none ${isBreaking ? '-translate-x-96 opacity-0 rotate-45' : 'animate-[float-sway-mobile_2.4s_ease-in-out_infinite] md:animate-[float-sway_4.6s_ease-in-out_infinite]'
+            }`}
           style={{ animationDelay: '0.2s' }}
         >
           <div className="relative select-none">
-            <div className="w-14 h-14 sm:w-36 sm:h-36 drop-shadow-[0_12px_24px_rgba(234,131,119,0.45)] select-none">
-              <img 
-                src="/materials/xiaochun_mic.png" 
-                alt="麦克风小配饰" 
+            <div className="w-[72px] h-[72px] sm:w-36 sm:h-36 drop-shadow-[0_12px_24px_rgba(234,131,119,0.45)] select-none">
+              <img
+                src="/materials/xiaochun_mic.png"
+                alt="麦克风小配饰"
                 draggable={false}
                 onDragStart={(e) => e.preventDefault()}
-                className="w-full h-full object-contain filter drop-shadow-[0_4px_10px_rgba(0,0,0,0.45)] pointer-events-none select-none" 
+                className="w-full h-full object-contain filter drop-shadow-[0_4px_10px_rgba(0,0,0,0.45)] pointer-events-none select-none"
               />
             </div>
-            <span className="absolute -bottom-1 -right-1 px-1.5 sm:px-2 py-0.5 rounded-md bg-black/80 border border-white/20 text-[8px] sm:text-[10px] font-mono font-bold text-[#f5aa9c] shadow pointer-events-none select-none">
+            <span className="absolute -bottom-1 -right-1 px-2 py-0.5 rounded-md bg-black/80 border border-white/20 text-[9px] sm:text-[10px] font-mono font-bold text-[#f5aa9c] shadow pointer-events-none select-none">
               MIC ON
             </span>
           </div>
         </div>
 
-        {/* ─── 浮动小配饰 2 (右侧居中)：猫爪星空珍珠奶茶 ─── */}
+        {/* ─── 浮动小配饰 2 (右侧中下方偏低)：猫爪星空珍珠奶茶 (放大尺寸，饱满层次) ─── */}
         <div
-          className={`absolute right-1 sm:right-10 top-[42%] sm:top-1/2 -translate-y-1/2 sm:-translate-y-24 z-25 sm:z-30 transition-all duration-700 hover:scale-125 hover:-rotate-8 cursor-pointer group will-change-transform select-none ${
-            isBreaking ? 'translate-x-96 opacity-0 -rotate-45' : 'animate-[float-orbit_6.8s_ease-in-out_infinite]'
-          }`}
-          style={{ animationDelay: '2.2s' }}
+          className={`absolute right-1 sm:right-10 top-[54%] sm:top-1/2 -translate-y-1/2 sm:-translate-y-24 -rotate-12 sm:rotate-0 z-25 sm:z-30 transition-all duration-700 hover:scale-125 hover:-rotate-8 cursor-pointer group will-change-transform select-none ${isBreaking ? 'translate-x-96 opacity-0 -rotate-45' : 'animate-[float-orbit-mobile_2.9s_ease-in-out_infinite] md:animate-[float-orbit_6.8s_ease-in-out_infinite]'
+            }`}
+          style={{ animationDelay: '1.2s' }}
         >
           <div className="relative select-none">
-            <div className="w-14 h-14 sm:w-36 sm:h-36 drop-shadow-[0_12px_24px_rgba(234,131,119,0.45)] select-none">
-              <img 
-                src="/materials/xiaochun_drink.png" 
-                alt="奶茶小配饰" 
+            <div className="w-[82px] h-[82px] sm:w-36 sm:h-36 drop-shadow-[0_12px_24px_rgba(234,131,119,0.45)] select-none">
+              <img
+                src="/materials/xiaochun_drink.png"
+                alt="奶茶小配饰"
                 draggable={false}
                 onDragStart={(e) => e.preventDefault()}
-                className="w-full h-full object-contain filter drop-shadow-[0_4px_10px_rgba(0,0,0,0.45)] pointer-events-none select-none" 
+                className="w-full h-full object-contain filter drop-shadow-[0_4px_10px_rgba(0,0,0,0.45)] pointer-events-none select-none"
               />
             </div>
-            <span className="absolute -bottom-1 -left-1 px-1.5 sm:px-2 py-0.5 rounded-md bg-black/80 border border-white/20 text-[8px] sm:text-[10px] font-mono font-bold text-[#f5aa9c] shadow pointer-events-none select-none">
+            <span className="absolute -bottom-1 -left-1 px-2 py-0.5 rounded-md bg-black/80 border border-white/20 text-[9px] sm:text-[10px] font-mono font-bold text-[#f5aa9c] shadow pointer-events-none select-none">
               ENERGY+
             </span>
           </div>
         </div>
 
         {/* ─── 切图卡片 C (左下角，桌面端专属)：台词气泡卡片 ─── */}
-        <div 
-          className={`hidden md:block absolute bottom-6 left-2 sm:left-10 z-20 w-64 sm:w-72 rounded-2xl bg-black/60 backdrop-blur-xl border border-white/15 p-4 shadow-2xl transition-all duration-700 hover:scale-105 will-change-transform select-none ${
-            isBreaking ? '-translate-x-96 translate-y-96 opacity-0' : 'animate-[float-bob_7.5s_ease-in-out_infinite]'
-          }`}
+        <div
+          className={`hidden md:block absolute bottom-6 left-2 sm:left-10 z-20 w-64 sm:w-72 rounded-2xl bg-black/60 backdrop-blur-xl border border-white/15 p-4 shadow-2xl transition-all duration-700 hover:scale-105 will-change-transform select-none ${isBreaking ? '-translate-x-96 translate-y-96 opacity-0' : 'animate-[float-bob_7.5s_ease-in-out_infinite]'
+            }`}
           style={{ animationDelay: '3.1s' }}
         >
           <div className="flex items-center gap-2 mb-2 select-none">
@@ -439,29 +428,27 @@ export const LoadingOverlay: React.FC<LoadingOverlayProps> = ({ state, onBreakCo
           </p>
         </div>
 
-        {/* ─── 浮动小配饰 3 (底部偏右)：像素赛博爱心勋章 ─── */}
+        {/* ─── 浮动小配饰 3 (右下侧角落)：像素赛博爱心勋章 (放大至60px，饱满醒目，侧倾有型) ─── */}
         <div
-          className={`absolute right-4 sm:right-84 bottom-3 sm:bottom-2 z-25 transition-all duration-700 hover:scale-125 hover:rotate-12 cursor-pointer group will-change-transform select-none ${
-            isBreaking ? 'translate-y-96 opacity-0 scale-50' : 'animate-[float-drift_5.2s_ease-in-out_infinite]'
-          }`}
-          style={{ animationDelay: '1.9s' }}
+          className={`absolute right-3.5 sm:right-84 bottom-7 sm:bottom-2 -rotate-6 sm:rotate-0 z-25 transition-all duration-700 hover:scale-125 hover:rotate-12 cursor-pointer group will-change-transform select-none ${isBreaking ? 'translate-y-96 opacity-0 scale-50' : 'animate-[float-drift-mobile_2.6s_ease-in-out_infinite] md:animate-[float-drift_5.2s_ease-in-out_infinite]'
+            }`}
+          style={{ animationDelay: '0.8s' }}
         >
-          <div className="w-12 h-12 sm:w-24 sm:h-24 drop-shadow-[0_10px_20px_rgba(234,131,119,0.4)] select-none">
-            <img 
-              src="/materials/xiaochun_badge.png" 
-              alt="爱心勋章" 
+          <div className="w-[60px] h-[60px] sm:w-24 sm:h-24 drop-shadow-[0_12px_24px_rgba(234,131,119,0.4)] select-none">
+            <img
+              src="/materials/xiaochun_badge.png"
+              alt="爱心勋章"
               draggable={false}
               onDragStart={(e) => e.preventDefault()}
-              className="w-full h-full object-contain filter drop-shadow-[0_4px_8px_rgba(0,0,0,0.4)] pointer-events-none select-none" 
+              className="w-full h-full object-contain filter drop-shadow-[0_4px_8px_rgba(0,0,0,0.4)] pointer-events-none select-none"
             />
           </div>
         </div>
 
         {/* ─── 切图卡片 D (右下角，桌面端专属)：系统监控终端 ─── */}
-        <div 
-          className={`hidden md:block absolute bottom-6 right-2 sm:right-10 z-20 w-64 sm:w-72 rounded-2xl bg-black/60 backdrop-blur-xl border border-white/15 p-4 shadow-2xl transition-all duration-700 hover:scale-105 will-change-transform ${
-            isBreaking ? 'translate-x-96 translate-y-96 opacity-0' : 'animate-[float-sway_6.2s_ease-in-out_infinite]'
-          }`}
+        <div
+          className={`hidden md:block absolute bottom-6 right-2 sm:right-10 z-20 w-64 sm:w-72 rounded-2xl bg-black/60 backdrop-blur-xl border border-white/15 p-4 shadow-2xl transition-all duration-700 hover:scale-105 will-change-transform ${isBreaking ? 'translate-x-96 translate-y-96 opacity-0' : 'animate-[float-sway_6.2s_ease-in-out_infinite]'
+            }`}
           style={{ animationDelay: '2.7s' }}
         >
           <div className="flex items-center justify-between mb-2 pb-1.5 border-b border-white/10 text-[10px] font-mono text-white/50">

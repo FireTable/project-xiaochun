@@ -281,6 +281,11 @@ export class VRMAMotionPlayer {
     return this.idleWeight;
   }
 
+  isPlaying(): boolean {
+    if (this.paused || !this.action || !this.mixer) return false;
+    return this.action.isRunning() && (!this.isFadingToIdle || this.idleWeight < 0.99);
+  }
+
   fadeOutToIdle(duration = 0.85) {
     this.fadeDuration = duration;
     this.isFadingToIdle = true;

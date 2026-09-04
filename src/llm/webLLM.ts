@@ -17,7 +17,29 @@ export const FALLBACK_LLM_MODEL = 'Qwen2.5-0.5B-Instruct-q4f16_1-MLC';
 let engineInstance: WebWorkerMLCEngine | null = null;
 let initPromise: Promise<WebWorkerMLCEngine> | null = null;
 let activeModelId = DEFAULT_LLM_MODEL;
+const llmReadyListeners = new Set<() => void>();
 
+export function isWebLLMReady(): boolean {
+  return engineInstance !== null;
+}
+
+export function onWebLLMReady(cb: () => void): () => void {
+  if (engineInstance) {
+    cb();
+    return () => {};
+  }
+  llmReadyListeners.add(cb);
+  return () => {
+    llmReadyListeners.delete(cb);
+  };
+}
+
+function notifyLLMReady(): void {
+  llmReadyListeners.forEach((fn) => {
+    try { fn(); } catch {}
+  });
+  llmReadyListeners.clear();
+}
 
 export function getActiveModelId(): string {
   return activeModelId;
@@ -54,6 +76,7 @@ export async function getWebLLMEngine(opts?: {
         },
       });
       engineInstance = engine;
+      notifyLLMReady();
       return engine;
     } catch (err: any) {
       console.warn(`[WebLLM] 加载 ${activeModelId} 遇到异常，尝试备用模型 ${FALLBACK_LLM_MODEL}`, err);
@@ -65,6 +88,7 @@ export async function getWebLLMEngine(opts?: {
         },
       });
       engineInstance = engine;
+      notifyLLMReady();
       return engine;
     }
   })();

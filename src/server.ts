@@ -247,7 +247,10 @@ async function handleTTS(request: Request): Promise<Response> {
         }
       };
 
-      const onClose = () => finish();
+      const onClose = () => {
+        turnEnded = true;
+        checkFinish();
+      };
       const onError = (_e: Event) => {
         if (finished) return;
         finished = true;
@@ -262,12 +265,13 @@ async function handleTTS(request: Request): Promise<Response> {
       // 10 秒超时保护
       timer = setTimeout(() => {
         if (finished) return;
-        finished = true;
         cleanup();
         try { socket.close(); } catch {}
         if (chunks.length > 0) {
-          finish();
+          turnEnded = true;
+          checkFinish();
         } else {
+          finished = true;
           reject(new Error('TTS request timed out after 10s'));
         }
       }, 10000);
