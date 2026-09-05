@@ -46,16 +46,29 @@ The UI is fully **SSR-hydrated multi-language** (zh-CN / en / ja) via TanStack S
 
 ## ✨ Key Features
 
-### 🎭 VRM Character & Scene
-* **VRM 1.0 rendering** via `@pixiv/three-vrm` with MToon NPR shading, soft Japanese-anime lighting, and **6 independent light channels** (dir / hemi / front / fill / leg / arm) with live tuning.
-* **Linework outdoor scene**: procedural sun, 19 wireframe buildings (5 archetypes), 5 stylized trees (conifer / fan / layered / cypress / vertical-oval), and a wireframe ground — 100% white-on-white, no textures.
-* **Companion gaze system**: level head + micro-saccades + additive look-at tracking; pitch follows the camera.
-* **Motion blending**: idle / thinking VRMA / EMAGE slerp from the live pose; looping clips do not auto-fade, so bind pose never flashes.
-* **Material saturation**: clothing / hair / eyes / skin are independently tunable; presets live in `src/config.ts`.
+### 🎭 VRM Core Engine & Modular Architecture
+* **VRM 1.0 Modular Pipeline**: Powered by `@pixiv/three-vrm` with MToon NPR shading. The core engine (`VRMEngine`) is decoupled into 5 specialized subsystems (reducing monolithic engine size by 55%):
+  * **Linework Outdoor Scene (`LineworkWorld`)**: Pure procedural code generating a minimalist wireframe outdoor world (sun with 12 radial rays, 19 stylized skyline buildings, ground grid, and 5 tree archetypes) — **100% white-on-white, zero external textures**.
+  * **Studio 6-Channel Lighting (`StudioLighting`)**: Hemisphere ambient, directional sunlight with 2048 PCFSoft shadow camera, front face fill, leg light, and dual-arm highlights with independent live tuning.
+  * **MToon Material Manager (`VRMMaterialManager`)**: Automatic mesh semantic categorization (skin / hair / eyes / clothing); dynamic fragment shader injection with uniform `uMatSaturation` for live color calibration; tuned hair saturation (default 1.50) for rich anime highlights.
+  * **Companion Gaze Controller (`GazeController`)**: Companion eye & head tracking, physiological yaw/pitch safety clamping, micro-saccades, and thinking head sways.
+  * **3D Head Bubble Tracker (`BubbleTracker`)**: 3D world-to-screen 2D projection with a 1.5px dead-zone filter, writing directly to DOM transforms to bypass 60~120 FPS React re-renders.
 * **Upload your own VRM** at runtime via the top-bar upload button.
 
+### 🩰 Universal Motion Blending Pipeline
+* **Zero-Friction Any-Motion Ingestion (`playMotion`)**: Ingest VRMA URLs, raw ArrayBuffers, or `THREE.AnimationClip`s through a single call; automatically performs humanoid retargeting, hips normalization, and supports whole-body (`all`) or upper-body (`upperBody`) masking.
+* **Quintic Smootherstep Inbetweening**: Eliminates linear interpolation and jerk artifacts using $6t^5 - 15t^4 + 10t^3$ curves over biomechanical timeframes (0.70s~0.88s) with strictly continuous velocity and acceleration.
+* **Layered Pose Evaluation Graph**:
+  * **Layer 0 (Base)**: `NaturalIdleSystem` procedural breathing, 8-figure pelvic postural sway, and relaxed biomechanical finger curling;
+  * **Layer 1 (Main Action)**: `VRMA` thinking loops, `EMAGE` streaming gestures, and universal clips crossfading smoothly;
+  * **Layer 2 (Locomotion)**: `BodyTurnSystem` procedural stepping footsteps overlaid strictly on `LOWER_BODY_MASK` (legs & hips) without distorting the torso or gaze;
+  * **Post-Pass**: Physical `FootIK` ground anchoring.
+* **Three.js `stopAllAction` Restore Trap Elimination**: Atomically preserves bone transforms across action stops, curing the classic Three.js flaw of resetting bones to T-Pose on stop.
+* **LookAt Decoupling via Inverse Quaternions**: Multiplies bone snapshots by inverse gaze quaternions to eliminate multiplicative camera tracking artifacts during state transitions.
+* **Auto Lifecycle Management**: Non-looping motions automatically fade out to idle and trigger completion callbacks without requiring manual timer hacks.
+
 ### 🧠 100% Browser-Side AI Stack
-* **LLM** — [`@mlc-ai/web-llm`](https://github.com/mlc-ai/web-llm) default **Qwen3.5 2B (q4f16_1)** on WebGPU, fallback 0.8B. The chat-bar menu switches models from `prebuiltAppConfig` (grouped by provider) and has a thinking switch; replies follow the language of the current user message.
+* **LLM** — [`@mlc-ai/web-llm`](https://github.com/mlc-ai/web-llm) default **Qwen2.5 1.5B (q4f16_1)** on WebGPU (fallback 0.5B). Lightweight and responsive on mobile and low-VRAM devices; chat-bar menu supports live model switching and thinking mode toggles; response language adaptively mirrors the user's prompt.
 * **Motion** — **EMAGE** full-body motion (ONNX Runtime Web) in a Dedicated Web Worker, with temporal Gaussian smoothing and natural idle blends.
 * **TTS** — **Edge-TTS 晓伊 (XiaoyiNeural, zh-CN, +10 Hz)** via [`edge-tts-universal`](https://github.com/Sterznode/edge-tts-universal); emoji stripped before speech.
 * **LLM + TTS + EMAGE orchestrated** by the chat director on the main thread at 60 FPS.
@@ -107,10 +120,11 @@ The UI is fully **SSR-hydrated multi-language** (zh-CN / en / ja) via TanStack S
 
 | Layer | Technology | Description |
 | :--- | :--- | :--- |
-| **3D Engine** | [three.js 0.185](https://threejs.org) + [@pixiv/three-vrm 3.5](https://github.com/pixiv/three-vrm) | MToon NPR shading, OrbitControls |
+| **3D Core Engine** | [three.js 0.185](https://threejs.org) + [@pixiv/three-vrm 3.5](https://github.com/pixiv/three-vrm) | Decoupled modular core (LineworkWorld, StudioLighting, VRMMaterialManager, GazeController, BubbleTracker) |
+| **Motion Pipeline** | Custom Layered Universal Pipeline (`MotionPipeline`) | Quintic smootherstep inbetweening, bone masking, biomechanical limits, inverse quaternion decoupling & T-Pose protection |
 | **App Framework** | [React 19](https://react.dev) + [TanStack Start](https://tanstack.com/start) | Full-stack SSR with cookie-based i18n hydration |
 | **Router** | [TanStack Router](https://tanstack.com/router) | Type-safe file-based routing |
-| **LLM** | [WebLLM](https://github.com/mlc-ai/web-llm) | Qwen3.5 2B q4f16_1 on WebGPU (fallback 0.8B), streaming |
+| **LLM** | [WebLLM](https://github.com/mlc-ai/web-llm) | Qwen2.5 1.5B q4f16_1 on WebGPU (fallback 0.5B), streaming |
 | **Memory** | IndexedDB + Custom 3-Tier Pipeline | 100% client-side multi-tier persistence, entity extraction & n-gram note retrieval |
 | **Motion** | EMAGE + [ONNX Runtime Web](https://onnxruntime.ai) | Full-body generation in Dedicated Web Worker |
 | **TTS** | [edge-tts-universal](https://github.com/Sterznode/edge-tts-universal) | XiaoyiNeural zh-CN +10 Hz, emoji-stripped text |
@@ -177,20 +191,35 @@ Project-XiaoChun/
 │   ├── thinking.vrma          # Idle thinking animation loop
 │   ├── _headers               # Cache-Control and security headers
 │   ├── robots.txt / sitemap.* # Search engine crawler contracts
-│   ├── llms.txt / llms-full.* # AI agent documentation specs
+│   ├── llms.txt / llms-full.* # AI agent & LLM GEO documentation specs
 │   └── logo.png / favicon.*   # Brand and icon assets
 ├── wrangler.jsonc             # Cloudflare Workers declarative configuration
 ├── src/
 │   ├── routes/                # TanStack Start file-based routes
-│   │   ├── __root.tsx         # Root layout (i18n SSR hydration & meta tags)
+│   │   ├── __root.tsx         # Root layout (i18n SSR hydration, GEO JSON-LD & meta tags)
 │   │   └── index.tsx          # Main index route
 │   ├── components/            # React UI components (TopHeader, ChatBar, HeadBubble, DevDrawer…)
 │   │   └── ui/                # Radix UI primitives (button, dropdown-menu, tooltip)
-│   ├── core/
-│   │   └── vrmEngine.ts       # 3D scene, linework, 6-ch lights, material saturation, render loop
-│   ├── motion/                # EMAGE worker + VRMA playback / bone fade-in / MotionTransition / FootIK / SpeakIdle
-│   ├── memory/                # Client-side multi-tier memory (IndexedDB / entity extraction / n-gram note retrieval / prompt injection)
-│   ├── llm/                   # WebLLM WebGPU streaming + Worker + multi-language prompts
+│   ├── core/                  # 3D rendering & scene core (Decoupled Facade architecture)
+│   │   ├── vrmEngine.ts       # Central engine coordinator (slim Facade, render loop, VRM loading)
+│   │   ├── scene/             # Linework background world (lineworkWorld.ts: sun rays / skyline / grid / trees)
+│   │   ├── lighting/          # 6-channel studio lighting rig (studioLighting.ts: main / hemi / fill / rims)
+│   │   ├── material/          # MToon material management (vrmMaterialManager.ts: Shader saturation injection)
+│   │   └── ui/                # Spatial UI tracker (bubbleTracker.ts: 3D head position to 2D bubble)
+│   ├── motion/                # Motion system (Universal pipeline + bio-inspired natural posture)
+│   │   ├── pipeline/          # Universal motion pipeline (MotionPipeline / PoseBuffer / UniversalMotion)
+│   │   ├── motionTransition.ts # Quintic Smootherstep Slerp interpolation
+│   │   ├── gazeController.ts  # Human-interactive gaze & head tracking (limits, blink, micro-jitter, thinking shake)
+│   │   ├── naturalIdle.ts     # Multi-harmonic bio-breathing idle & finger curl (Layer 0)
+│   │   ├── speakIdle.ts       # Inter-clause hesitation gesture hover & slow descent
+│   │   ├── bodyTurn.ts        # Pelvis & lower-body procedural turning gait (Layer 2)
+│   │   ├── footIK.ts          # Foot grounding inverse kinematics solver (Post-Pass)
+│   │   ├── emagePlayer.ts     # EMAGE co-speech gesture player & temporal Gaussian filtering
+│   │   ├── emageWorker.ts     # ONNX Runtime Web dedicated Web Worker
+│   │   ├── vrmaPlayer.ts      # VRMA animation playback driver
+│   │   └── vrmaRetarget.ts    # VRMA bone retargeting & normalization
+│   ├── memory/                # Client-side multi-tier memory (IndexedDB / entity extraction / n-gram retrieval)
+│   ├── llm/                   # WebLLM WebGPU streaming (Qwen2.5 1.5B / 0.5B) + Worker + prompts
 │   ├── director/
 │   │   └── chatDirector.ts    # LLM → TTS → EMAGE streaming coordinator pipeline
 │   ├── i18n/                  # zh-CN / en / ja translation dictionaries + server cookie helper
@@ -201,7 +230,7 @@ Project-XiaoChun/
 │   ├── server.ts              # Cloudflare Worker entry (SSR router + /api/tts WebSocket proxy)
 │   ├── router.tsx             # TanStack Router factory
 │   ├── routeTree.gen.ts       # Auto-generated type-safe route tree
-│   └── config.ts              # Single source of truth (R2 / camera / lights / saturation / LLM / expressions)
+│   └── config.ts              # Single source of truth (R2 / camera / 6-ch lights / saturation / LLM / expressions)
 ├── vite.config.ts             # Vite 8 + TanStack Start + @cloudflare/vite-plugin
 └── tsconfig.json
 ```

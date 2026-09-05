@@ -46,19 +46,32 @@ UI 走 **TanStack Start SSR + i18next** 水合,**完整支持简体中文 / Engl
 
 ## ✨ 核心特性 (Key Features)
 
-### 🎭 VRM 角色与场景 (VRM & Scene)
-* **VRM 1.0 渲染**:基于 `@pixiv/three-vrm` 与 MToon NPR 着色,日系柔和打光,**6 组独立光照通道**(主日光 / 半球天光 / 面部射灯 / 背后轮廓 / 腿部柔光 / 双臂专属),可在调试面板实时调参。
-* **线稿户外场景**:程序化生成的太阳、19 栋线稿建筑(5 种原型)、5 棵风格化树(松塔/扇形/层叠/柏树/竖椭圆)、线稿地面 —— **纯白底白线,零贴图**。
-* **陪伴式凝视系统**:水平头部微动 + 微扫视 + 加性 look-at 追踪,俯仰随镜头走。
-* **动作衔接**:待机 / 思考 VRMA / EMAGE 之间从当前骨骼姿态 slerp 进去,循环动作不自动淡出,避免闪 T-Pose。
-* **材质饱和度**:衣服 / 头发 / 眼睛 / 皮肤分通道可调,预设写在 `src/config.ts`。
-* **运行时上传 VRM**:右上角上传按钮,支持任意 VRM 1.0 角色替换。
+### 🎭 VRM 核心引擎与模块化子系统 (VRM Engine & Modular Architecture)
+* **VRM 1.0 渲染中枢**:基于 `@pixiv/three-vrm` 与 MToon NPR 着色，核心引擎经深度模块化解耦（`VRMEngine` 体积直降 55%），由 5 大专业子系统协同编排：
+  * **线稿世界环境 (`LineworkWorld`)**:纯代码程序化构建太阳与 12 条发散光线、19 栋线稿建筑天际线、网格地面与 5 种造型风格化树（松塔/伞盖/黑松/笔柏/椭圆）—— **纯白底黑线，零外部贴图**。
+  * **影棚 6 通道专业光照 (`StudioLighting`)**:主日光（带 2048 柔和阴影相机）/ 半球天光 / 面部射灯 / 背后轮廓 / 腿部立体 / 双臂专属高光，各通道独立可控。
+  * **MToon 材质管线 (`VRMMaterialManager`)**:全自动网格材质语义分类（skin / hair / eyes / clothing），动态注入片元着色器 Uniform `uMatSaturation` 并在 Shader 层实施灰度混合校色；头发饱和度精细调优（默认 1.50），光泽通透。
+  * **视线与微表情交互 (`GazeController`)**:陪伴式注视、微扫视、生理仰俯/偏航安全角限位、自然生理眨眼与思考神态摇头。
+  * **3D 空间气泡追踪 (`BubbleTracker`)**:头部世界坐标到屏幕 2D 像素投影，带 1.5px 移动死区过滤算法，直接操控 DOM 变换，避免 60~120 FPS React 重渲染。
+* **运行时上传 VRM**:右上角上传按钮，支持任意标准 VRM 1.0 角色无缝导入。
+
+### 🩰 统一万能动作融合管线 (Universal Motion Pipeline)
+* **万能动作零门槛接入 (`playMotion`)**：无论是 VRMA 文件 URL、ArrayBuffer 二进制流还是 `THREE.AnimationClip`，均通过单一管线一键播放；自动完成骨骼重定向、Hips 偏移归一化，支持全身（`all`）与半身（`upperBody`）部位遮罩。
+* **电影级五次平滑步阶曲线补帧 (Quintic Smootherstep Inbetweening)**：废除机械线性插值，基于 $6t^5 - 15t^4 + 10t^3$ 曲线在生理时间窗（0.70s~0.88s）内逐帧自适应 Slerp 插补，首尾速度与加速度严格连续，彻底消灭动作启停时的撕扯与跳帧。
+* **分层动作姿态求值图 (Layered Pose Hierarchy)**：
+  * **Layer 0 (Base)**：`NaturalIdleSystem` 仿生自然待机（多频胸腹呼吸、8 字骨盆慢速重心微摆、真十指松弛微卷）；
+  * **Layer 1 (Main Action)**：`vrma` 思考动作、`emage` 语音手势与通用动作剪辑平滑 Crossfade 流转；
+  * **Layer 2 (Locomotion)**：`BodyTurnSystem` 物理转身步态，仅通过 `LOWER_BODY_MASK`（双腿与骨盆）加权覆盖，绝不污染上身姿态与视线；
+  * **Post-Pass**：`FootIK` 脚部物理贴地解算。
+* **Three.js `stopAllAction` 陷阱消除**：彻底封堵 Three.js 在 stop 动作时触发 `restoreOriginalState()` 把骨骼清零重置为 T-Pose 的顽疾，在动作停止前后原子化保护真实人体姿态。
+* **视线逆四元数解耦 (LookAt Decoupling via Inverse Quaternions)**：打姿态快照时乘以逆四元数剔除乘法视线偏移，彻底消除转身或停步瞬间头部被拉扯偏动的突变顿挫。
+* **全自动生命周期闭环**：单次动作播完自动启动淡出过渡，从容回归待机并触发回调，无需外部状态机额外干预。
 
 ### 🧠 100% 浏览器端 AI 推理栈 (Browser-Side AI)
-* **大语言模型** — [`@mlc-ai/web-llm`](https://github.com/mlc-ai/web-llm) 默认 **Qwen3.5 2B (q4f16_1)**,失败降到 0.8B。对话条菜单从 `prebuiltAppConfig` 按 provider 换模型,思考模式是开关;回复跟用户这条消息的语言走。
-* **动作生成** — **EMAGE** 全身动作(ONNX Runtime Web)在 Dedicated Web Worker 中跑,时序高斯平滑 + 自然待机融合。
-* **语音合成** — **Edge-TTS 晓伊 (XiaoyiNeural, zh-CN, +10 Hz)**,基于 [`edge-tts-universal`](https://github.com/Sterznode/edge-tts-universal);传输前剥离 emoji。
-* **LLM + TTS + EMAGE 一体编排**:chat director 串起说话链路,主线程 60 FPS。
+* **大语言模型** — [`@mlc-ai/web-llm`](https://github.com/mlc-ai/web-llm) 默认 **Qwen2.5 1.5B (q4f16_1)**，低配设备自动降级至 0.5B。轻量高效，在移动端与低显存设备上兼顾推理速度与回复质量；对话条菜单可随时热切换模型或开关思考模式；回复语言随用户提问语系自适应匹配。
+* **动作生成** — **EMAGE** 全身动作 (ONNX Runtime Web) 在 Dedicated Web Worker 中运行，时序高斯滤波平滑。
+* **语音合成** — **Edge-TTS 晓伊 (XiaoyiNeural, zh-CN, +10 Hz)**，基于 [`edge-tts-universal`](https://github.com/Sterznode/edge-tts-universal)；网络传输前智能剥离 emoji。
+* **LLM + TTS + EMAGE 一体编排**：chat director 全链路统一协调，主线程满帧 60 FPS 丝滑驱动。
 
 ### ⚡ 智能分段流式语音管线 (Streaming Speech Pipeline)
 * **智能分句切片 (Smart Chunking)**：打破千字长文生成等待瓶颈，统一按 30~60 字与自然语法标点（`。！？!?\n` 或逗号长句）断句，语气自然抑扬顿挫。
@@ -107,13 +120,14 @@ UI 走 **TanStack Start SSR + i18next** 水合,**完整支持简体中文 / Engl
 
 | 架构层 | 技术方案 | 说明 |
 | :--- | :--- | :--- |
-| **3D 引擎** | [three.js 0.185](https://threejs.org) + [@pixiv/three-vrm 3.5](https://github.com/pixiv/three-vrm) | MToon NPR 着色、OrbitControls |
+| **3D 核心引擎** | [three.js 0.185](https://threejs.org) + [@pixiv/three-vrm 3.5](https://github.com/pixiv/three-vrm) | 模块化解耦中枢（5 大专业子系统：线稿世界 / 6 通道影棚打光 / MToon 饱和度注入 / 视线交互 / 3D 气泡追踪） |
+| **动作融合管线** | 自研分层万能动作管线 (`MotionPipeline`) | 全姿态五次平滑步阶曲线补帧、部位遮罩、解剖角速度限幅、逆四元数解耦与防 T-Pose 保护 |
 | **应用框架** | [React 19](https://react.dev) + [TanStack Start](https://tanstack.com/start) | 全栈 SSR + Cookie 水合 i18n |
 | **路由** | [TanStack Router](https://tanstack.com/router) | 类型安全文件路由 |
-| **大语言模型** | [WebLLM](https://github.com/mlc-ai/web-llm) | Qwen3.5 2B q4f16_1 WebGPU 流式推理(失败降到 0.8B) |
+| **大语言模型** | [WebLLM](https://github.com/mlc-ai/web-llm) | Qwen2.5 1.5B q4f16_1 WebGPU 流式推理 (自动降级至 0.5B) |
 | **端侧记忆** | IndexedDB + 自研三层画像管线 | 纯本地多级记忆持久化、实体画像提取与 n-gram 语义召回 |
 | **动作生成** | EMAGE + [ONNX Runtime Web](https://onnxruntime.ai) | Dedicated Web Worker 全身动作生成 |
-| **语音合成** | [edge-tts-universal](https://github.com/Sterznode/edge-tts-universal) | 晓伊 zh-CN +10 Hz,emoji 剥离 |
+| **语音合成** | [edge-tts-universal](https://github.com/Sterznode/edge-tts-universal) | 晓伊 zh-CN +10 Hz, emoji 剥离 |
 | **边缘运行时** | [Cloudflare Workers](https://developers.cloudflare.com/workers/) + [@cloudflare/vite-plugin](https://developers.cloudflare.com/workers/framework-guides/web-apps/tanstack-start/) | SSR 渲染 + WebSocket TTS + 静态资产直连 |
 | **对象存储** | [Cloudflare R2](https://developers.cloudflare.com/r2/) | 托管 504 MB ONNX 全身模型，免出站流量费 |
 | **样式** | [Tailwind CSS 4](https://tailwindcss.com) + `tailwindcss-animate` | 液态玻璃视觉,移动端优先 |
@@ -177,23 +191,38 @@ Project-XiaoChun/
 │   ├── thinking.vrma          # 待机思考动作循环
 │   ├── _headers               # 静态资源强缓存与安全响应头
 │   ├── robots.txt / sitemap.* # SEO 搜索引擎爬虫协议
-│   ├── llms.txt / llms-full.* # AI 代理文档协议
+│   ├── llms.txt / llms-full.* # AI 代理与大模型 GEO 协议规范
 │   └── logo.png / favicon.*   # 品牌与图标资产
 ├── wrangler.jsonc             # Cloudflare Workers 声明式配置文件
 ├── src/
 │   ├── routes/                # TanStack Start 文件路由
-│   │   ├── __root.tsx         # 根布局 (i18n SSR 水合与元信息)
+│   │   ├── __root.tsx         # 根布局 (i18n SSR 水合、GEO JSON-LD 与元信息)
 │   │   └── index.tsx          # 首页主路由
 │   ├── components/            # React UI 组件 (TopHeader, ChatBar, HeadBubble, DevDrawer…)
 │   │   └── ui/                # Radix UI 原语封装 (button, dropdown-menu, tooltip)
-│   ├── core/
-│   │   └── vrmEngine.ts       # 3D 场景、线稿、6路灯光、材质饱和度、渲染循环
-│   ├── motion/                # EMAGE Worker + VRMA 播放 / 骨骼渐入 / MotionTransition / FootIK / SpeakIdle
-│   ├── memory/                # 端侧持久化多级记忆 (IndexedDB 存储 / 实体画像提取 / n-gram 长期笔记检索 / 动态 Prompt 注入)
-│   ├── llm/                   # WebLLM WebGPU 流式推理 + Worker + 多语言系统提示词
+│   ├── core/                  # 3D 渲染与场景中枢 (解耦 Facade 架构)
+│   │   ├── vrmEngine.ts       # 核心引擎调度中枢 (轻量 Facade、渲染循环、VRM 加载挂载)
+│   │   ├── scene/             # 线稿背景世界 (lineworkWorld.ts: 太阳光芒/大楼/地面/树木)
+│   │   ├── lighting/          # 6 通道影棚打光 (studioLighting.ts: 主光/半球光/补光/高光)
+│   │   ├── material/          # MToon 材质管理 (vrmMaterialManager.ts: Shader 饱和度注入)
+│   │   └── ui/                # 空间 UI 投影 (bubbleTracker.ts: 头部 3D 坐标转 2D 气泡)
+│   ├── motion/                # 动作系统 (统一万能管线 + 仿生拟真姿态)
+│   │   ├── pipeline/          # 统一万能动作融合管线 (MotionPipeline / PoseBuffer / UniversalMotion)
+│   │   ├── motionTransition.ts # 五次平滑步阶曲线补帧 (Quintic Smootherstep Slerp)
+│   │   ├── gazeController.ts  # 人机视线伴随系统 (眼部微颤/眨眼/生理限位/思考摇头)
+│   │   ├── naturalIdle.ts     # 多频仿生呼吸待机与十指微卷 (Layer 0)
+│   │   ├── speakIdle.ts       # 言谈微停顿手势悬浮自适应与缓沉
+│   │   ├── bodyTurn.ts        # 骨盆与下半身物理转身步态 (Layer 2)
+│   │   ├── footIK.ts          # 脚部物理贴地解算器 (Post-Pass)
+│   │   ├── emagePlayer.ts     # EMAGE 语音手势驱动与时序高斯滤波
+│   │   ├── emageWorker.ts     # ONNX Runtime Web 独立 Dedicated Worker
+│   │   ├── vrmaPlayer.ts      # VRMA 动画播放驱动器
+│   │   └── vrmaRetarget.ts    # VRMA 骨骼重定向与标准化
+│   ├── memory/                # 端侧持久化多级记忆 (IndexedDB 存储 / 实体画像提取 / n-gram 检索)
+│   ├── llm/                   # WebLLM WebGPU 流式推理 (Qwen2.5 1.5B / 0.5B) + Worker + 提示词
 │   ├── director/
-│   │   └── chatDirector.ts    # LLM → TTS → EMAGE 流式状态编排管线
-│   ├── i18n/                  # zh-CN / en / ja 翻译资源 + 服务端 Cookie 提取
+│   │   └── chatDirector.ts    # LLM → TTS → EMAGE 流式全链路状态编排
+│   ├── i18n/                  # zh-CN / en / ja 翻译字典 + 服务端 Cookie 提取
 │   ├── styles/
 │   │   └── main.css           # Tailwind v4 @theme tokens + 液态玻璃样式
 │   ├── App.tsx                # 应用主体与事件总线
@@ -201,7 +230,7 @@ Project-XiaoChun/
 │   ├── server.ts              # Cloudflare Worker 统一入口 (SSR 流式渲染 + /api/tts WebSocket 直连)
 │   ├── router.tsx             # TanStack Router 实例工厂
 │   ├── routeTree.gen.ts       # 自动生成的类型安全路由树
-│   └── config.ts              # 单一可信源 (R2 / 相机 / 灯光 / 饱和度 / LLM / 表情)
+│   └── config.ts              # 单一可信源 (R2 / 相机 / 6路灯光 / 饱和度 / LLM / 表情)
 ├── vite.config.ts             # Vite 8 + TanStack Start + @cloudflare/vite-plugin
 └── tsconfig.json
 ```

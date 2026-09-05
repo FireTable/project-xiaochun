@@ -2,7 +2,7 @@
  * IndexedDB 持久化。SSR / 无 indexedDB 时全部变成空操作。
  */
 import { APP_CONFIG } from '@/config';
-import { emptyEntities, type EntityProfile, type LongNote, type MemoryTurn } from './types';
+import { emptyEntities, type EntityProfile, type MemoryTurn } from './types';
 
 const DB_NAME = 'xiaochun-memory';
 const DB_VER = 1;
@@ -18,9 +18,6 @@ function openDb(): Promise<IDBDatabase> {
       const db = req.result;
       if (!db.objectStoreNames.contains('turns')) {
         db.createObjectStore('turns', { keyPath: 'id', autoIncrement: true });
-      }
-      if (!db.objectStoreNames.contains('notes')) {
-        db.createObjectStore('notes', { keyPath: 'id', autoIncrement: true });
       }
       if (!db.objectStoreNames.contains('meta')) {
         db.createObjectStore('meta');
@@ -39,7 +36,7 @@ function reqToPromise<T>(req: IDBRequest<T>): Promise<T> {
 }
 
 async function withStore<T>(
-  store: 'turns' | 'notes' | 'meta',
+  store: 'turns' | 'meta',
   mode: IDBTransactionMode,
   fn: (s: IDBObjectStore) => IDBRequest<T> | Promise<T>,
 ): Promise<T> {
@@ -69,7 +66,7 @@ export async function appendTurn(turn: Omit<MemoryTurn, 'id'>): Promise<void> {
   if (!available()) return;
   try {
     await withStore('turns', 'readwrite', (s) => s.add(turn));
-    const keep = APP_CONFIG.memory.shortTermTurns;
+    const keep = Math.max(APP_CONFIG.memory.shortTermTurns || 2, 6);
     const all = await loadTurns();
     const extra = all.length - keep;
     if (extra <= 0) return;
@@ -117,43 +114,5 @@ export async function saveEntities(profile: EntityProfile): Promise<void> {
     await withStore('meta', 'readwrite', (s) => s.put(profile, 'entities'));
   } catch (e) {
     console.warn('[memory] saveEntities', e);
-  }
-}
-
-export async function loadNotes(): Promise<LongNote[]> {
-  if (!available()) return [];
-  try {
-    const rows = await withStore('notes', 'readonly', (s) => s.getAll());
-    return (rows as LongNote[]).sort((a, b) => (a.id ?? 0) - (b.id ?? 0));
-  } catch (e) {
-    console.warn('[memory] loadNotes', e);
-    return [];
-  }
-}
-
-export async function appendNote(note: Omit<LongNote, 'id'>): Promise<void> {
-  if (!available()) return;
-  try {
-    await withStore('notes', 'readwrite', (s) => s.add(note));
-    const keep = APP_CONFIG.memory.longTermKeep;
-    const all = await loadNotes();
-    const extra = all.length - keep;
-    if (extra <= 0) return;
-    const db = await openDb();
-    try {
-      const tx = db.transaction('notes', 'readwrite');
-      const s = tx.objectStore('notes');
-      for (const row of all.slice(0, extra)) {
-        if (row.id != null) s.delete(row.id);
-      }
-      await new Promise<void>((resolve, reject) => {
-        tx.oncomplete = () => resolve();
-        tx.onerror = () => reject(tx.error);
-      });
-    } finally {
-      db.close();
-    }
-  } catch (e) {
-    console.warn('[memory] appendNote', e);
   }
 }

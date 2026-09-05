@@ -725,7 +725,7 @@ export class EmagePlayer {
     this.clearExternalClock();
     this.resetSeed();
     if (this.audio) { this.audio.pause(); this.audio.currentTime = 0; }
-    this.footIK.reset();
+    this.footIK.softReset();
     this.idleWeight = 0.0;
     this.currentBoneInitialized = false;
     // 关键修正：绝不强拉或瞬移任何骨骼（包括下半身），完整保留瞬时生理姿态，
@@ -761,5 +761,28 @@ export class EmagePlayer {
 
   getDuration(): number {
     return this.duration;
+  }
+
+  /**
+   * 彻底释放 EMAGE 占用的所有资源 (终止 Dedicated Web Worker, 销毁 WASM 堆内存, 清理音频与待处理队列)
+   */
+  dispose(): void {
+    if (this.worker) {
+      this.worker.terminate();
+      this.worker = null;
+    }
+    this.ready = false;
+    this.loadPromise = null;
+    this.isGenerating = false;
+    this.pendingRequests.forEach(({ reject }) => {
+      try { reject(new Error('EMAGE disposed')); } catch {}
+    });
+    this.pendingRequests.clear();
+    this.stop();
+    this.motion = null;
+    if (this.audioUrl && this.audioUrl.startsWith('blob:')) {
+      URL.revokeObjectURL(this.audioUrl);
+      this.audioUrl = null;
+    }
   }
 }

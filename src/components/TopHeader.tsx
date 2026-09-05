@@ -33,7 +33,11 @@ export const TopHeader: React.FC<TopHeaderProps> = ({
   const fileInputRef = useRef<HTMLInputElement | null>(null);
 
   useEffect(() => {
-    vrmEngine.loadVRM(APP_CONFIG.model.defaultVrm, APP_CONFIG.model.defaultName);
+    // 延后触发模型下载与解析，优先将主线程让给 LoadingOverlay 首屏动画与交互
+    const timer = setTimeout(() => {
+      vrmEngine.loadVRM(APP_CONFIG.model.defaultVrm, APP_CONFIG.model.defaultName);
+    }, 120);
+    return () => clearTimeout(timer);
   }, []);
 
   const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {

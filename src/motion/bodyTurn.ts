@@ -219,10 +219,10 @@ export class BodyTurnSystem {
     this.spineDelayIdx++;
     const spineDelayedYaw = this.spineDelayBuf[this.spineDelayIdx % this.spineDelayBuf.length] ?? 0;
 
-    // 脊柱预旋目标（仅在转身激活期间，平滑收敛到 0）
-    const upperChestTarget = this.isTurning ? normYaw        * 0.30 : 0;
-    const chestTarget      = this.isTurning ? chestDelayedYaw * 0.20 : 0;
-    const spineTarget      = this.isTurning ? spineDelayedYaw * 0.10 : 0;
+    // 脊柱柔和生理微动目标（温和辅助转身节奏，幅度由过激的 0.60 降至自然的 0.08，彻底杜绝头部超调与停步回弹）
+    const upperChestTarget = this.isTurning ? normYaw         * 0.04 : 0;
+    const chestTarget      = this.isTurning ? chestDelayedYaw * 0.03 : 0;
+    const spineTarget      = this.isTurning ? spineDelayedYaw * 0.01 : 0;
 
     const spineBlend = Math.min(1.0, dt * 5.0);
     this.upperChestYawCur += (upperChestTarget - this.upperChestYawCur) * spineBlend;

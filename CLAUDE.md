@@ -1,6 +1,6 @@
 # CLAUDE.md — Claude Agent Project Guide
 
-Welcome to **Project XiaoChun** (100% browser-native anime VTuber with WebGPU LLM + EMAGE full-body motion + Edge-TTS).
+Welcome to **Project XiaoChun** (100% browser-native anime companion with WebGPU LLM + EMAGE full-body motion + Edge-TTS).
 
 ## 📖 Primary Architectural Specification
 

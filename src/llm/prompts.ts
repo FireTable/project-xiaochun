@@ -99,7 +99,7 @@ export const CHARACTER_PERSONAS: Record<
  * 🎬 导演脚本生成旧版提示词 — 仅在调试/迁移期可能用到。
  * ponytail: 此 prompt 输出 JSON,本身对语言不敏感,保持中文。
  */
-export const DIRECTOR_LEGACY_PROMPT = `你是 3D 数字人。根据用户的对话内容,用自然口语中文回应。只输出 JSON,不要 markdown,不要解释。
+export const DIRECTOR_LEGACY_PROMPT = `你是 3D 二次元伴侣。根据用户的对话内容,用自然口语中文回应。只输出 JSON,不要 markdown,不要解释。
 
 JSON 格式:
 {"speech":"<自然口语的中文回应>"}

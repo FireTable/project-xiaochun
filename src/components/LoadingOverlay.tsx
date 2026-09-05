@@ -1,19 +1,43 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { useTranslation } from 'react-i18next';
-import { Heart, Radio, Music } from 'lucide-react';
+import { Heart, Radio, Music, Cpu } from 'lucide-react';
 import type { LoadingState } from '@/core/vrmEngine';
+import { onLlmLoadProgress, getLlmLoadProgress } from '@/llm/progress';
+
+// ponytail: SSR fallback state —— 当 LoadingOverlay 被注册成 router defaultPendingComponent
+// 时,没有 state prop 也能渲染"启动期"的样子:VRM 解析中、progress 0。
+const DEFAULT_LOADING_STATE: LoadingState = {
+  active: true,
+  subtitleKey: 'parsingModel',
+  progress: 0,
+};
 
 interface LoadingOverlayProps {
-  state: LoadingState;
+  state?: LoadingState;
+  onBreakStart?: () => void;
   onBreakComplete?: () => void;
 }
 
-export const LoadingOverlay: React.FC<LoadingOverlayProps> = ({ state, onBreakComplete }) => {
+export const LoadingOverlay: React.FC<LoadingOverlayProps> = ({ state, onBreakStart, onBreakComplete }) => {
+  const effectiveState = state ?? DEFAULT_LOADING_STATE;
   const { t } = useTranslation();
   const containerRef = useRef<HTMLDivElement>(null);
   const [mouseOffset, setMouseOffset] = useState({ x: 0, y: 0 });
   const [isBreaking, setIsBreaking] = useState(false);
   const [hasExited, setHasExited] = useState(false);
+
+  // ponytail: 订阅 LLM 下载进度,跟 VRM 进度一起显示在 NEURAL_DISPATCH 卡片里。
+  // App.tsx 在 splash 期间不渲染 ChatBar,所以 LLM 进度只能在这里展示。
+  const [llmPct, setLlmPct] = useState(() => {
+    const p = getLlmLoadProgress();
+    return Math.round(Math.min(1, Math.max(0, p.progress)) * 100);
+  });
+  useEffect(() => {
+    const unsub = onLlmLoadProgress((p) => {
+      setLlmPct(Math.round(Math.min(1, Math.max(0, p.progress)) * 100));
+    });
+    return unsub;
+  }, []);
 
   // 记录挂载时间，保证即使缓存秒开也有至少 1.2s 的视觉冲击力展示，防止一闪而过的糟糕体验
   const mountTimeRef = useRef<number>(Date.now());
@@ -31,6 +55,7 @@ export const LoadingOverlay: React.FC<LoadingOverlayProps> = ({ state, onBreakCo
   const triggerBreak = () => {
     if (isBreaking || hasExited) return;
     setIsBreaking(true);
+    onBreakStart?.();
     setTimeout(() => {
       setHasExited(true);
       onBreakComplete?.();
@@ -39,7 +64,7 @@ export const LoadingOverlay: React.FC<LoadingOverlayProps> = ({ state, onBreakCo
 
   // 当 VRM 引擎汇报加载完成 (progress === 100 且 active === false) 时，平滑进入破次元倒计时
   useEffect(() => {
-    if (!state.active && state.progress >= 100 && !isBreaking && !hasExited) {
+    if (!effectiveState.active && effectiveState.progress >= 100 && !isBreaking && !hasExited) {
       const elapsed = Date.now() - mountTimeRef.current;
       const minDisplayDelay = Math.max(0, 1500 - elapsed);
       const timer = setTimeout(() => {
@@ -47,27 +72,27 @@ export const LoadingOverlay: React.FC<LoadingOverlayProps> = ({ state, onBreakCo
       }, minDisplayDelay);
       return () => clearTimeout(timer);
     }
-  }, [state.active, state.progress, isBreaking, hasExited]);
+  }, [effectiveState.active, effectiveState.progress, isBreaking, hasExited]);
 
   // 当有新模型上传/重新开始加载时（例如从 TopHeader 上传新 VRM），重置状态重新展示
   useEffect(() => {
-    if (state.active) {
+    if (effectiveState.active) {
       setHasExited(false);
       setIsBreaking(false);
       mountTimeRef.current = Date.now();
     }
-  }, [state.active]);
+  }, [effectiveState.active]);
 
   if (hasExited) {
     return null;
   }
 
-  const progress = Math.min(100, Math.max(0, state.progress || 0));
+  const progress = Math.min(100, Math.max(0, effectiveState.progress || 0));
 
   // 原神/星铁风格：分阶段着色器与管线动态文字
   const getStageText = () => {
     if (progress < 25) {
-      return `01/04 · WebGPU / WebGL 上下文初始化…`;
+      return `01/04 · ${t('loading.madStage1Init')}`;
     }
     if (progress < 60) {
       return `02/04 · ${t('loading.madShaderCompiling')}`;
@@ -81,17 +106,17 @@ export const LoadingOverlay: React.FC<LoadingOverlayProps> = ({ state, onBreakCo
     return `✦ ${t('loading.madPipelineReady')}`;
   };
 
-  const subtitle = state.subtitleKey
-    ? t(`loading.${state.subtitleKey}`, state.subtitleVars as Record<string, unknown> | undefined)
+  const subtitle = effectiveState.subtitleKey
+    ? t(`loading.${effectiveState.subtitleKey}`, effectiveState.subtitleVars as Record<string, unknown> | undefined)
     : '';
 
   const stageText = subtitle ? `${subtitle} // ${getStageText()}` : getStageText();
 
   const pipelineMilestones = [
-    { name: '01 引擎初始化', threshold: 10 },
-    { name: '02 着色器编译', threshold: 35 },
-    { name: '03 网格解压', threshold: 65 },
-    { name: '04 动作就绪', threshold: 95 },
+    { name: `01 ${t('loading.milestoneEngine')}`, threshold: 10 },
+    { name: `02 ${t('loading.milestoneShader')}`, threshold: 35 },
+    { name: `03 ${t('loading.milestoneMesh')}`, threshold: 65 },
+    { name: `04 ${t('loading.milestoneMotion')}`, threshold: 95 },
   ];
 
   return (
@@ -99,9 +124,17 @@ export const LoadingOverlay: React.FC<LoadingOverlayProps> = ({ state, onBreakCo
       id="loading-overlay"
       ref={containerRef}
       onMouseMove={handleMouseMove}
-      className={`fixed inset-0 z-50 overflow-hidden flex items-center justify-center bg-[#0a0812] select-none transition-all duration-1000 ease-out ${isBreaking ? 'opacity-0 scale-125 filter blur-md pointer-events-none' : 'opacity-100 scale-100'
+      // ponytail: position/inset/z/background inline 写死,CSS 没编译完也保证遮盖 —— 否则
+      // 早期 paint 帧会看到背后的 three.js clear color。
+      style={{
+        position: 'fixed',
+        inset: 0,
+        zIndex: 50,
+        backgroundColor: '#0a0812',
+        perspective: '1200px',
+      }}
+      className={`overflow-hidden flex items-center justify-center pt-9 sm:pt-0 select-none transition-all duration-1000 ease-out ${isBreaking ? 'opacity-0 scale-125 filter blur-md pointer-events-none' : 'opacity-100 scale-100'
         }`}
-      style={{ perspective: '1200px' }}
     >
       {/* 1. 背景流光氛围：移动端使用 blur-3xl 降低 GPU 显存带宽压力，桌面端使用极光 blur */}
       <div
@@ -129,7 +162,7 @@ export const LoadingOverlay: React.FC<LoadingOverlayProps> = ({ state, onBreakCo
       {/* 3. 动态斜向标语胶带 (Warning Cyber Tape，桌面端专属，避免遮挡移动端贴纸) */}
       <div className="hidden sm:block absolute -top-6 -right-16 rotate-12 z-10 pointer-events-none opacity-40 hover:opacity-100 transition-opacity">
         <div className="px-16 py-1.5 bg-[#ea8377] text-black font-black text-[10px] tracking-[0.3em] font-mono uppercase shadow-lg">
-          // 100% IN-BROWSER AI VTUBER // WEBGPU ENGINE // ZERO BACKEND //
+          // 100% IN-BROWSER AI ANIME COMPANION // WEBGPU ENGINE // ZERO BACKEND //
         </div>
       </div>
 
@@ -161,6 +194,14 @@ export const LoadingOverlay: React.FC<LoadingOverlayProps> = ({ state, onBreakCo
               <span className="truncate">{subtitle || t('loading.madBgmStatus')}</span>
             </span>
             <span className="text-[#f5aa9c] font-bold shrink-0">{progress}%</span>
+          </div>
+          {/* ponytail: LLM 模型下载进度,跟 VRM 进度并排展示 */}
+          <div className="flex items-center justify-between text-[11px] font-mono text-white/80 mt-1.5">
+            <span className="flex items-center gap-1.5 truncate pr-2">
+              <Cpu className="w-3 h-3 text-[#7c5cff] shrink-0" />
+              <span className="truncate">LLM {llmPct < 100 ? `${llmPct}%` : '✓'}</span>
+            </span>
+            <span className="text-white/40 text-[10px]">{t('loading.localInference')}</span>
           </div>
           {/* 音频跳动频谱柱 */}
           <div className="flex items-end gap-1 h-5 mt-2">

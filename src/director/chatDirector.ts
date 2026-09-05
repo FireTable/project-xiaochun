@@ -262,6 +262,10 @@ export class ChatDirector {
   /** 由 vrmEngine.bindSystemPrompt 注入,根据当前 i18n 语言挑对应 system prompt。 */
   public getSystemPrompt: (() => string) | null = null;
 
+  /** 移动端推理期间挂起 3D WebGL 渲染，消除与 WebGPU 的资源争抢 */
+  public onSuspendRendering: (() => void) | null = null;
+  public onResumeRendering: (() => void) | null = null;
+
   private thinkingVRMABuf: ArrayBuffer | null = null;
   private cachedThinkingClip: THREE.AnimationClip | null = null;
 
@@ -310,8 +314,7 @@ export class ChatDirector {
           makeClipSeamless(clip);
           this.cachedThinkingClip = clip;
         }
-        // 全局动作平滑过渡：从当前自然待机 (Natural Idle) 毫秒级快照平滑过渡到思考
-        this.transition?.startTransition(vrm, 0.65);
+        // 起播思考循环动作，动作平滑过渡由 vrmEngine 统一调度
         player.playLoop(this.cachedThinkingClip, vrm, 0.65);
       } catch (e) {
         console.warn('播放 thinking.vrma 动作失败', e);
@@ -340,12 +343,19 @@ export class ChatDirector {
     this.player = player;
     this.emage = emage;
     this.currentVRM = vrm;
+    this.isThinking = true;
 
     await this.playThinking(vrm, player);
 
     // 先让手机键盘收完再抢 GPU,否则收键盘动画会和推理卡在一起。
     await new Promise((r) => setTimeout(r, 280));
     if (this.stopped) return;
+
+    // 手机端让出 100% GPU 给 WebGPU 推理，防止 WebGL 60FPS 与 WebLLM 争抢触发 Android Vulkan TDR 驱动重置 (mapAsync 崩溃)
+    const isMobile = typeof navigator !== 'undefined' && /Mobi|Android|iPhone|iPad/i.test(navigator.userAgent);
+    if (isMobile) {
+      this.onSuspendRendering?.();
+    }
 
     let speechText = '';
     try {
@@ -367,6 +377,10 @@ export class ChatDirector {
       status('error.llm', { message: rawMsg || 'Unknown error' }, true);
       this.stop();
       return;
+    } finally {
+      if (isMobile) {
+        this.onResumeRendering?.();
+      }
     }
     if (this.stopped || !speechText.trim()) {
       // ponytail: LLM 空输出时塞 i18n greeting,不再硬编码中文。
@@ -561,10 +575,7 @@ export class ChatDirector {
     this.audioDoneTime = 0;
     document.body.classList.add('chat-playing');
 
-    // 全局动作平滑过渡：仅首段从思考姿态 (托腮/倾头) 平滑切入 EMAGE 说话全身手势
-    if (isInitial && this.currentVRM) {
-      this.transition?.startTransition(this.currentVRM, 0.55);
-    }
+    // 思考到说话动作平滑过渡由 vrmEngine 在活跃播放器状态转换时统一调度
 
     this.analyser = this.ctx.createAnalyser();
     this.analyser.fftSize = 512;
@@ -642,12 +653,12 @@ export class ChatDirector {
     this.isThinking = false;
     this.speaking = false;
     this.audioDoneTime = 0;
+    this.onResumeRendering?.();
     if (this.stopPlaySegment) {
       this.stopPlaySegment();
       this.stopPlaySegment = null;
     }
     if (this.currentVRM) {
-      this.transition?.startTransition(this.currentVRM, 0.75);
       if (this.currentVRM.expressionManager) {
         this.currentVRM.expressionManager.setValue('aa', 0);
         this.currentVRM.expressionManager.setValue('ou', 0);

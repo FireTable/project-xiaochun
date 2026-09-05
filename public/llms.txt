@@ -1,21 +1,27 @@
 # Project XiaoChun
 
-> 100% browser-native anime VTuber — local LLM + EMAGE motion + Edge-TTS. Real-time chat with VRM characters, no backend.
+> 100% browser-native anime companion — on-device WebLLM + universal motion blending pipeline + Edge-TTS. 100% private, real-time interactive anime companion in your browser tab, zero backend.
 
 ## Overview
-Project XiaoChun is a single-page web application that runs an interactive anime character entirely in the user's browser tab. The 3D scene renders via `three.js` + `@pixiv/three-vrm` (MToon NPR shading); conversation, motion, and speech are all generated client-side using WebGPU and ONNX Runtime Web. The only network calls are to a Cloudflare Worker that proxies Microsoft Edge-TTS (no API keys stored on the user side).
+Project XiaoChun is a full-stack, browser-native web application that runs an interactive anime companion entirely in the user's browser tab. The 3D scene renders via `three.js` + `@pixiv/three-vrm` (MToon NPR shading); conversation, motion, and speech are all generated client-side using WebGPU and ONNX Runtime Web. The only network calls are to a Cloudflare Worker edge proxy for Microsoft Edge-TTS streaming (no API keys or user data stored).
 
 ## Core Features
-- **VRM Character & Linework Scene**: 6-channel lighting (dir / hemi / front / fill / leg / arm), procedural linework outdoor scene with 19 buildings + 5 trees, runtime VRM upload.
-- **LLM**: WebLLM running Qwen3 0.6B (q4f16_1) on WebGPU, streaming with milestone callbacks.
-- **Motion**: EMAGE full-body co-speech motion (PantoMatrix, CVPR 2024) in a Dedicated Web Worker with temporal Gaussian smoothing.
-- **TTS**: Microsoft Edge-TTS XiaoyiNeural zh-CN (+10 Hz) via `edge-tts-universal` — emoji stripped from speech text to avoid prosody glitches.
-- **Client-Side Memory**: IndexedDB (`xiaochun-memory`) local persistence — 3-tier architecture with short-term turns, multilingual entity profile extraction, and n-gram long-term note retrieval. Zero server telemetry.
-- **i18n & SSR**: TanStack Start full-stack SSR with cookie-based language hydration; ships zh-CN / en / ja; per-language system prompts.
-- **Mobile-First UI**: iOS HIG 44 pt / Material 48 dp touch targets, shadcn-style components, Tailwind CSS v4 liquid-glass aesthetic.
+- **Decoupled 3D Architecture**: Modular `VRMEngine` coordinating 5 specialized subsystems:
+  - `LineworkWorld`: Minimalist procedural line-art outdoor world (sun with radial rays, 19 buildings, wireframe ground, 5 tree archetypes).
+  - `StudioLighting`: 6-channel lighting (dir / hemi / front / fill / leg / arm) with 2048 PCFSoft shadow camera.
+  - `VRMMaterialManager`: Semantic material categorization with dynamic `uMatSaturation` fragment shader injection.
+  - `GazeController`: Level-head gaze tracking, micro-saccades, and thinking head sways.
+  - `BubbleTracker`: High-performance 3D-to-2D screen projection with 1.5px dead-zone filtering.
+- **Universal Motion Pipeline**: Layered pose hierarchy with Quintic Smootherstep ($6t^5 - 15t^4 + 10t^3$) inbetweening, full/upper-body masking, inverse quaternion LookAt decoupling, and automated lifecycle return-to-idle.
+- **LLM**: WebLLM running Qwen2.5 1.5B (q4f16_1) on WebGPU (fallback 0.5B), streaming with milestone callbacks.
+- **Motion Generation**: EMAGE full-body co-speech motion (PantoMatrix, CVPR 2024) in a Dedicated Web Worker with temporal Gaussian smoothing.
+- **TTS**: Microsoft Edge-TTS XiaoyiNeural zh-CN (+10 Hz) via `edge-tts-universal` — emoji stripped from speech text.
+- **Client-Side Memory**: IndexedDB (`xiaochun-memory`) local persistence — 3-tier architecture with short-term turns, multilingual entity profile extraction, and n-gram long-term note retrieval. 100% local privacy guarantee with zero telemetry.
+- **i18n & SSR**: TanStack Start full-stack SSR with cookie-based language hydration; ships zh-CN / en / ja; adaptive prompt matching user input language.
+- **Mobile-First UI**: iOS HIG 44 pt / Material 48 dp touch targets, liquid-glass aesthetic, SSR pre-rendered LoadingOverlay.
 
 ## Links & API Contracts
-- [Full LLM Specification](/llms-full.txt): Complete technical architecture, dependency list, motion/TTS pipelines, deployment guide.
+- [Full Documentation](/llms-full.txt): Complete technical architecture, dependency list, motion/TTS pipelines, deployment guide.
 - [GitHub Repository](#): Source code, setup instructions, and issue tracker.
 - [Live Demo](https://xiaochun.firetable.tech): Full-stack SSR deploy on Cloudflare Workers.
 - Edge API: `GET /api/tts?text=...&voice=zh-CN-XiaoyiNeural&pitch=%2B10Hz` returns `audio/mpeg`. CORS open.

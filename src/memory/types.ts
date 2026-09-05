@@ -15,16 +15,9 @@ export type EntityProfile = {
   facts: EntityFact[];
 };
 
-export type LongNote = {
-  id?: number;
-  text: string;
-  ts: number;
-};
-
 export type Recall = {
   entities: EntityProfile;
   recent: MemoryTurn[];
-  notes: LongNote[];
 };
 
 export function emptyEntities(): EntityProfile {

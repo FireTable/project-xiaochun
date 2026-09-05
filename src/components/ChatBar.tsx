@@ -2,6 +2,7 @@ import React, { useState, useEffect, useRef, Fragment } from 'react';
 import { useTranslation } from 'react-i18next';
 import { ChevronLeft, ChevronRight, Menu } from 'lucide-react';
 import { vrmEngine } from '@/core/vrmEngine';
+import { DeviceStatusDialog } from '@/components/DeviceStatusDialog';
 import {
   isWebLLMReady,
   onWebLLMReadyChange,
@@ -11,6 +12,9 @@ import {
   getLlmLoadProgress,
   getActiveModelId,
   setActiveModelId,
+  onActiveModelChange,
+  getQuickDeviceTier,
+  getCachedDeviceProfile,
   listModelGroups,
   modelBaseId,
 } from '@/llm/webLLM';
@@ -63,37 +67,117 @@ export const ChatBar: React.FC = () => {
   const [hasText, setHasText] = useState(false);
   const [isSending, setIsSending] = useState(false);
   const [isQueued, setIsQueued] = useState(false);
+  const [isInputFocused, setIsInputFocused] = useState(false);
   const queuedTextRef = useRef('');
   const [thinkingOn, setThinkingOn] = useState(() => isThinkingEnabled());
   const [activeModel, setActiveModel] = useState(() => getActiveModelId());
   const [pickingModel, setPickingModel] = useState(false);
+  const [showDeviceDialog, setShowDeviceDialog] = useState(false);
   const llmGroups = listModelGroups();
   const activeBase = modelBaseId(activeModel);
   const thinkingSupported = activeBase.startsWith('Qwen3');
+  const deviceTier = getCachedDeviceProfile()?.tier ?? getQuickDeviceTier();
 
   // 模型与引擎就绪感知
   const [isVRMReady, setIsVRMReady] = useState(() => vrmEngine.isReady());
   const [isLLMReady, setIsLLMReady] = useState(() => isWebLLMReady());
-  const [llmProgress, setLlmProgress] = useState(() => getLlmLoadProgress());
+  // ponytail: 进度 + 速度合并成一个 state,1Hz 节流更新一次,
+  // 避免 progress_callback chunk-level 抖动造成 UI re-render 风暴。
+  // 速度用过去 3 秒的滑动窗口平均,稳定且抗抖动。
+  const [llmStats, setLlmStats] = useState(() => {
+    const p = getLlmLoadProgress();
+    return { progress: p.progress, text: p.text, loaded: p.loaded, total: p.total, bps: 0 };
+  });
+  const samplesRef = useRef<{ ts: number; loaded: number }[]>([]);
+  const lastUiTsRef = useRef(0);
+  const pendingProgressRef = useRef<{ progress: number; text: string; loaded: number; total: number } | null>(null);
 
   useEffect(() => {
     // 监听 3D VRM 模型就绪状态
     const unsubVRM = vrmEngine.onReadyChange((ready) => {
       setIsVRMReady(ready);
     });
+    // ponytail: 兜底轮询 — onWebLLMReadyChange 回调可能在 ChatBar 挂载前就触发了
+    // (pipeline() 在 preload 阶段就启动,ChatBar 监听器还没注册就 ready 了),
+    // 那样 cb(true) 永远到不了,tooltip 就关不掉。每秒 poll 一次直到 ready。
+    if (isWebLLMReady()) setIsLLMReady(true);
+    const pollId = window.setInterval(() => {
+      if (isWebLLMReady()) setIsLLMReady(true);
+    }, 1000);
     const unsubLLM = onWebLLMReadyChange((ready) => {
       setIsLLMReady(ready);
+      if (ready) {
+        samplesRef.current = [];
+        lastUiTsRef.current = 0;
+        pendingProgressRef.current = null;
+        setLlmStats({ progress: 1, text: '', loaded: 0, total: 0, bps: 0 });
+      }
     });
     const unsubProgress = onLlmLoadProgress((p) => {
-      setLlmProgress(p);
+      const now = performance.now();
+
+      // 1) 始终把最新原始进度放进 pending,这是给下次 UI tick 用的快照。
+      pendingProgressRef.current = { progress: p.progress, text: p.text, loaded: p.loaded, total: p.total };
+
+      // 2) 把样本推进滑动窗口(只保留过去 3 秒)
+      samplesRef.current.push({ ts: now, loaded: p.loaded });
+      const cutoff = now - 3000;
+      while (samplesRef.current.length > 0 && samplesRef.current[0].ts < cutoff) {
+        samplesRef.current.shift();
+      }
+
+      // 3) 节流:每 1000ms 推一次 UI state,但如果是终态 (>=100% 或错误) 则立即推更新
+      const isTerminal = p.progress >= 1 || p.text.startsWith('加载失败');
+      if (!isTerminal && now - lastUiTsRef.current < 1000) return;
+      lastUiTsRef.current = now;
+
+      const samples = samplesRef.current;
+      let bps = 0;
+      if (samples.length >= 2) {
+        const first = samples[0];
+        const last = samples[samples.length - 1];
+        const dt = (last.ts - first.ts) / 1000;
+        const dl = last.loaded - first.loaded;
+        if (dt > 0 && dl >= 0) bps = dl / dt;
+      }
+
+      const pending = pendingProgressRef.current ?? { progress: 0, text: '', loaded: 0, total: 0 };
+      setLlmStats({ ...pending, bps });
+    });
+
+    const unsubModel = onActiveModelChange((m) => {
+      setActiveModel(m);
     });
 
     return () => {
+      window.clearInterval(pollId);
       unsubVRM();
       unsubLLM();
       unsubProgress();
+      unsubModel();
     };
   }, []);
+
+  const llmProgress = llmStats;
+  const llmBps = llmStats.bps;
+
+  function fmtBytes(b: number): string {
+    if (!b || b < 0) return '0 B';
+    if (b >= 1024 * 1024) return `${(b / 1024 / 1024).toFixed(1)} MB`;
+    if (b >= 1024) return `${(b / 1024).toFixed(0)} KB`;
+    return `${b} B`;
+  }
+  function fmtSpeed(bps: number): string {
+    if (!bps || bps <= 0) return '—';
+    if (bps >= 1024 * 1024) return `${(bps / 1024 / 1024).toFixed(2)} MB/s`;
+    if (bps >= 1024) return `${(bps / 1024).toFixed(0)} KB/s`;
+    return `${bps} B/s`;
+  }
+  function fmtEta(secs: number): string {
+    if (!secs || !isFinite(secs) || secs <= 0) return '—';
+    if (secs >= 60) return `${Math.floor(secs / 60)}分${Math.round(secs % 60)}秒`;
+    return `${Math.round(secs)}秒`;
+  }
 
   const isModelReady = isVRMReady && isLLMReady;
 
@@ -263,6 +347,19 @@ export const ChatBar: React.FC = () => {
                 <p className="px-2.5 pb-1.5 text-[10px] leading-snug text-white/40">
                   {t('chat.thinkingHint')}
                 </p>
+                <DropdownMenuSeparator />
+                <DropdownMenuItem
+                  onSelect={() => setShowDeviceDialog(true)}
+                  className="justify-between"
+                >
+                  <span>{t('chat.deviceStatus')}</span>
+                  <span className="flex min-w-0 items-center gap-1">
+                    <span className="max-w-[7.5rem] truncate text-xs text-white/50">
+                      {deviceTier === 'high' ? 'High' : 'Low'}
+                    </span>
+                    <ChevronRight className="h-4 w-4 shrink-0 text-white/50" />
+                  </span>
+                </DropdownMenuItem>
               </>
             )}
           </DropdownMenuContent>
@@ -297,6 +394,8 @@ export const ChatBar: React.FC = () => {
             placeholder={isModelReady ? t('chat.placeholder') : t('chat.syncingPlaceholder')}
             onInput={handleInput}
             onKeyDown={handleKeyDown}
+            onFocus={() => setIsInputFocused(true)}
+            onBlur={() => setIsInputFocused(false)}
             autoComplete="off"
             disabled={isSending}
             className="w-full h-full bg-transparent border-none outline-none text-white placeholder:text-white/40 text-sm sm:text-sm touch-manipulation select-text"
@@ -306,12 +405,36 @@ export const ChatBar: React.FC = () => {
         {/* 发送按钮：高度严格 h-11 (44px)，状态随就绪度与排队状态联动 */}
         {(() => {
           const llmPct = Math.round(Math.min(1, Math.max(0, llmProgress.progress)) * 100);
+          const llmEta = (llmBps > 0 && llmProgress.total > llmProgress.loaded)
+            ? (llmProgress.total - llmProgress.loaded) / llmBps
+            : 0;
+          // ponytail: 加载失败时 llmProgress.text = "加载失败: ..."(progressCallback 不标 100% 后,
+          // 出错路径里我们手动 notifyLoadProgress(0, '加载失败: ...', ...)),UI 切到错误态。
+          const isError = !isLLMReady && llmProgress.text.startsWith('加载失败');
           const waitTooltip = (
-            <div className="flex flex-col gap-0.5 max-w-[16rem]">
+            <div className="flex flex-col gap-0.5 max-w-[18rem]">
               {!isVRMReady ? <span>{t('chat.waitVrm')}</span> : null}
-              {!isLLMReady ? <span>{t('chat.waitLlm', { percent: llmPct, model: getActiveModelId() })}</span> : null}
-              {!isLLMReady && llmProgress.text ? (
-                <span className="text-white/50 break-all">{llmProgress.text}</span>
+              {!isLLMReady ? (
+                <>
+                  {isError ? (
+                    <>
+                      <span className="text-[#f85149]">{llmProgress.text}</span>
+                      <span className="text-white/40">换模型 / 刷新页面重试</span>
+                    </>
+                  ) : (
+                    <>
+                      <span>{t('chat.waitLlm', { percent: llmPct })}</span>
+                      {llmProgress.total > 0 ? (
+                        <span className="text-white/60 tabular-nums">
+                          {fmtBytes(llmProgress.loaded)} / {fmtBytes(llmProgress.total)}
+                          {' · '}{fmtSpeed(llmBps)}
+                          {llmEta > 0 ? <> · 剩余 {fmtEta(llmEta)}</> : null}
+                        </span>
+                      ) : null}
+                      <span className="text-white/50 break-all">{getActiveModelId()}</span>
+                    </>
+                  )}
+                </>
               ) : null}
               {isQueued ? <span className="text-white/70">{t('chat.waitReadyHint')}</span> : null}
             </div>
@@ -356,17 +479,35 @@ export const ChatBar: React.FC = () => {
               </span>
             </button>
           );
-          if (!isQueued && !(!isModelReady && hasText)) return sendBtn;
-          // ponytail: 等待就绪时按钮处于禁用态,移动端没有 hover 看不到提示,
-          // 这里强制 open=true 让 tooltip 常驻,直到按钮重新可点。
+          // ponytail: tooltip 按需显示 —— 只在用户跟输入框交互时才出现:
+          //   1. 输入框被聚焦(isInputFocused)
+          //   2. 输入框有内容(hasText)
+          //   3. 用户排了队等模型就绪(isQueued)
+          // 不再"模型没好就一直显示",那个太抢戏了。
+          if (isModelReady) return sendBtn;
+          if (!isInputFocused && !hasText && !isQueued) return sendBtn;
+          const forceOpen = true;
           return (
-            <Tooltip delayDuration={0} open={true}>
+            <Tooltip delayDuration={0} open={forceOpen}>
               <TooltipTrigger asChild>{sendBtn}</TooltipTrigger>
-              <TooltipContent side="top">{waitTooltip}</TooltipContent>
+              <TooltipContent
+                side="top"
+                align="end"
+                sideOffset={8}
+                collisionPadding={12}
+              >
+                {waitTooltip}
+              </TooltipContent>
             </Tooltip>
           );
         })()}
       </div>
+
+      <DeviceStatusDialog
+        open={showDeviceDialog}
+        onOpenChange={setShowDeviceDialog}
+        activeModelId={activeModel}
+      />
     </div>
   );
 };

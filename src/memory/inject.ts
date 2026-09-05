@@ -1,6 +1,6 @@
 import type { Lang } from '@/i18n';
 import { APP_CONFIG } from '@/config';
-import type { EntityProfile, LongNote, MemoryTurn, Recall } from './types';
+import type { EntityProfile, MemoryTurn } from './types';
 
 function clip(s: string, n: number): string {
   const t = s.replace(/\s+/g, ' ').trim();
@@ -23,54 +23,22 @@ function formatEntities(e: EntityProfile, lang: Lang): string {
   return `你还记得对方：${bits.join('。')}。`;
 }
 
-function gramScore(note: string, query: string): number {
-  const q = query.toLowerCase();
-  const n = note.toLowerCase();
-  if (!q || !n) return 0;
-  let hit = 0;
-  const step = /[a-z0-9]/.test(q) ? 3 : 2;
-  const seen = new Set<string>();
-  for (let i = 0; i <= q.length - step; i++) {
-    const g = q.slice(i, i + step);
-    if (seen.has(g)) continue;
-    seen.add(g);
-    if (n.includes(g)) hit += 1;
-  }
-  return hit;
+/**
+ * ponytail: entities 拼到 system 末尾;对话历史拆到 messages 数组,
+ * 不再跟 system 串成一块。system prompt 保持短,模型指令空间不被挤压。
+ */
+export function appendEntitiesToSystem(system: string, entities: EntityProfile, lang: Lang): string {
+  const ent = formatEntities(entities, lang);
+  return ent ? `${system}\n\n${ent}` : system;
 }
 
-export function pickNotes(notes: LongNote[], query: string, k = APP_CONFIG.memory.longTermTopK): LongNote[] {
-  if (!notes.length) return [];
-  return [...notes]
-    .map((note) => ({ note, s: gramScore(note.text, query) }))
-    .filter((x) => x.s > 0)
-    .sort((a, b) => b.s - a.s || b.note.ts - a.note.ts)
-    .slice(0, k)
-    .map((x) => x.note);
-}
-
-export function appendMemoryToSystem(system: string, mem: Recall, lang: Lang): string {
-  const max = APP_CONFIG.memory.turnMaxChars;
-  const parts: string[] = [];
-  const ent = formatEntities(mem.entities, lang);
-  if (ent) parts.push(ent);
-  if (mem.notes.length) {
-    const lines = mem.notes.map((n) => clip(n.text, max));
-    if (lang === 'en') parts.push(`Older bits you recall:\n- ${lines.join('\n- ')}`);
-    else if (lang === 'ja') parts.push(`前に話したこと：\n- ${lines.join('\n- ')}`);
-    else parts.push(`以前聊过的事：\n- ${lines.join('\n- ')}`);
-  }
-  if (!parts.length) return system;
-  const rule =
-    lang === 'en'
-      ? 'These are things you remember. Answer their latest reply first.'
-      : lang === 'ja'
-        ? 'これは覚えていること。まずは最新の返信に乗る。'
-        : '这些是你还记得的事。先接这次最新的回复。';
-  return `${system}\n\n${rule}\n${parts.join('\n')}`;
-}
-
-export function historyMessages(recent: MemoryTurn[]): { role: 'user' | 'assistant'; content: string }[] {
+/**
+ * 把对话历史转成 messages 数组 — 标准的 ChatML 多轮对话格式。
+ * ponytail: 对话历史从 system 拆出来之后,长度不再卡 system prompt 的字符预算;
+ * 唯一需要的是把每条 turn 截到 turnMaxChars 防止单条太长刷屏。
+ */
+export function historyToMessages(recent: MemoryTurn[], lang: Lang): { role: 'user' | 'assistant'; content: string }[] {
+  void lang;
   const max = APP_CONFIG.memory.turnMaxChars;
   const out: { role: 'user' | 'assistant'; content: string }[] = [];
   for (const t of recent) {
@@ -78,31 +46,4 @@ export function historyMessages(recent: MemoryTurn[]): { role: 'user' | 'assista
     out.push({ role: 'assistant', content: clip(t.assistant, max) });
   }
   return out;
-}
-
-// ponytail: 2B 模型复读 root cause — Qwen 官方 ChatML 多轮对话里,如果历史里出现 N 条
-// user role,模型会把"最近一条 user message"当作模板开始抄。把 N 条对话压成 1 条 user
-// 消息后,历史里的"用户/小蠢"是字符串而非 ChatML role,模型识别不到这是个回合开始,
-// 就不会触发模式匹配。
-//
-// 不再做 assistant prefill — MLC 的 OpenAI-compat API 强制最后一条消息必须是 user/tool,
-// 否则报 MessageOrderError。所以"内容锚定"的方案只能在 HuggingFace 原生推理里用,
-// 走 MLC 的话只能依赖单条 user 消息压缩来根治复读。
-
-function speakerLabel(lang: Lang, role: 'user' | 'assistant'): string {
-  if (lang === 'en') return role === 'user' ? 'User' : 'XiaoChun';
-  if (lang === 'ja') return role === 'user' ? 'ユーザー' : '小蠢';
-  return role === 'user' ? '用户' : '小蠢';
-}
-
-/** 历史对话压缩成单条 user 消息的文本。 */
-export function historyAsUserPrompt(recent: MemoryTurn[], lang: Lang): string {
-  if (!recent.length) return '';
-  const max = APP_CONFIG.memory.turnMaxChars;
-  const header = lang === 'en' ? '[Previous chat]' : lang === 'ja' ? '[これまでの会話]' : '[对话历史]';
-  const body = recent
-    .map((t) => `${speakerLabel(lang, 'user')}: ${clip(t.user, max)}\n${speakerLabel(lang, 'assistant')}: ${clip(t.assistant, max)}`)
-    .join('\n');
-  const tail = lang === 'en' ? '\n\nNow the user says: ' : lang === 'ja' ? '\n\n今のユーザーの発言: ' : '\n\n现在用户说: ';
-  return header + '\n' + body + tail;
 }

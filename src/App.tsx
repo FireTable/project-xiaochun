@@ -39,6 +39,7 @@ export const App: React.FC = () => {
 
     import('@/core/vrmEngine').then((mod) => {
       engineModule = mod;
+      mod.vrmEngine.suspendRendering();
       mod.vrmEngine.onLoadingChange = (state) => setLoading(state);
       mod.vrmEngine.onBubbleChange = (state) => setBubble(state);
       // ponytail: 引擎内部 alert() / LLM 空输出兜底等走 t(),bindI18n 顺带同步给 chatDirector。
@@ -94,11 +95,21 @@ export const App: React.FC = () => {
       {/* 3D 角色头顶悬浮对话框 */}
       <HeadBubble state={bubble} />
 
-      {/* 底部对话输入条 */}
-      <ChatBar />
+      {/* 底部对话输入条 — 启动 splash 期间不渲染,避免跟 LoadingOverlay 重叠。
+          之前 ChatBar tooltip 在 !isModelReady 时常驻,会跟启动动画叠在一起看着像两个页面。
+          ponytail: 只用 `loading.active` 一个标志就够了,VRM ready 后 loading.active=false,
+          ChatBar 这时候挂载,自带 tooltip 接管剩余的 LLM 下载/就绪提示。 */}
+      {!loading.active && <ChatBar />}
 
       {/* 模型加载进度遮罩 */}
-      <LoadingOverlay state={loading} />
+      <LoadingOverlay
+        state={loading}
+        onBreakStart={() => {
+          import('@/core/vrmEngine').then((mod) => {
+            mod.vrmEngine.resumeRendering();
+          });
+        }}
+      />
 
       {/* 顶部控制栏 */}
       <TopHeader

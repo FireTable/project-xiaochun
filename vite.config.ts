@@ -3,6 +3,7 @@ import tailwindcss from '@tailwindcss/vite';
 import { tanstackStart } from '@tanstack/react-start/plugin/vite';
 import { cloudflare } from '@cloudflare/vite-plugin';
 import react from '@vitejs/plugin-react';
+import basicSsl from '@vitejs/plugin-basic-ssl';
 import path from 'path';
 import { EdgeTTS } from 'edge-tts-universal';
 
@@ -137,6 +138,7 @@ function localApiPlugin(): Plugin {
 
 export default defineConfig({
   plugins: [
+    basicSsl(),
     cloudflare({ viteEnvironment: { name: 'ssr' } }),
     tailwindcss(),
     tanstackStart(),
@@ -171,10 +173,15 @@ export default defineConfig({
     },
   },
   server: {
+    host: '0.0.0.0',
     port: 5185,
     headers: {
       'Cross-Origin-Opener-Policy': 'same-origin',
       'Cross-Origin-Embedder-Policy': 'credentialless',
+    },
+    hmr: {
+      protocol: 'wss',
+      clientPort: 5185,
     },
   },
   preview: {

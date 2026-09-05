@@ -9,13 +9,24 @@ import { NaturalIdleSystem } from '@/motion/naturalIdle';
 import { ChatDirector } from '@/director/chatDirector';
 import { MotionTransitionManager } from '@/motion/motionTransition';
 import { BodyTurnSystem } from '@/motion/bodyTurn';
-import { preloadWebLLM } from '@/llm/webLLM';
-import { APP_CONFIG, type LightConfig, type MaterialSaturationConfig } from '@/config';
+import { MotionPipeline, type PipelineMotionSource } from '@/motion/pipeline/motionPipeline';
+import type { PlayMotionOptions, UniversalMotionHandle } from '@/motion/pipeline/universalMotion';
+import { preloadWebLLM, unloadWebLLM } from '@/llm/webLLM';
+import { APP_CONFIG, type LightConfig } from '@/config';
 
-/**
- * 状态文案走 i18n key (例如 'loading.loadingModel'),由 HeadBubble/LoadingOverlay 用 t() 翻译。
- * 引擎不再直接持有最终文案,避免与 React 树耦合。
- */
+// ── 抽离子系统导入 ──
+import { LineworkWorld } from './scene/lineworkWorld';
+import { StudioLighting } from './lighting/studioLighting';
+import {
+  VRMMaterialManager,
+  type MaterialSaturationSettings,
+  type MaterialSaturationPresetKey,
+} from './material/vrmMaterialManager';
+import { GazeController } from '@/motion/gazeController';
+import { BubbleTracker, type BubbleState } from './ui/bubbleTracker';
+
+export type { BubbleState, MaterialSaturationSettings, MaterialSaturationPresetKey };
+
 export interface LoadingState {
   active: boolean;
   subtitleKey: string;
@@ -23,27 +34,37 @@ export interface LoadingState {
   progress: number;
 }
 
-export interface BubbleState {
-  visible: boolean;
-  statusKey: string;
-  statusVars?: Record<string, unknown>;
-  speechText: string;
-  isError: boolean;
-  x: number;
-  y: number;
-  segmentIndex?: number;
-  totalSegments?: number;
-}
-
 export interface LightChannelState {
   base: number;
   enabled: boolean;
 }
 
-export type MaterialSaturationSettings = MaterialSaturationConfig;
-export type MaterialSaturationPresetKey = keyof typeof APP_CONFIG.saturation.presets;
+// 踱步转身过渡专用骨骼清单：仅限于下半身腿部与髋部，绝对不污染头颈视线追踪与上身呼吸手势
+const BODY_TURN_BONES = [
+  'hips',
+  'leftUpperLeg', 'rightUpperLeg',
+  'leftLowerLeg', 'rightLowerLeg',
+  'leftFoot', 'rightFoot',
+  'leftToes', 'rightToes',
+] as const;
 
+/**
+ * VRMEngine — 3D 核心渲染引擎中枢 (Core Engine Facade)
+ * 
+ * 职责：
+ * 1. 负责 Three.js WebGLRenderer, PerspectiveCamera, OrbitControls 与 Scene 核心基础设施；
+ * 2. 调度模型加载卸载、材质优化与骨架绑定；
+ * 3. 作为高层中枢统一编排各专用子系统：
+ *    - LineworkWorld (线稿场景环境)
+ *    - StudioLighting (影棚 6 通道灯光系统)
+ *    - VRMMaterialManager (MToon 材质分类与 Shader 饱和度注入)
+ *    - MotionPipeline (统一动作融合管线)
+ *    - GazeController (人机视线伴随、眨眼与神态微动)
+ *    - BubbleTracker (3D 头部空间投影与气泡追踪)
+ *    - ChatDirector / WebLLM (聊天流程编排)
+ */
 export class VRMEngine {
+  // ── Three.js 核心基础设施 ──
   private canvas: HTMLCanvasElement | null = null;
   private renderer: THREE.WebGLRenderer | null = null;
   private scene: THREE.Scene = new THREE.Scene();
@@ -54,46 +75,70 @@ export class VRMEngine {
     20.0
   );
   private controls: OrbitControls | null = null;
+  private loader = new GLTFLoader();
+  private clock = new THREE.Clock();
+  private animFrameId: number | null = null;
 
-  /** 由 App.tsx 注入,用于把引擎内部少数原生字符串(i18n 缺位时的兜底)走翻译。 */
-  public translateSync: ((key: string, vars?: Record<string, unknown>) => string) | null = null;
+  // ── 模块化独立子系统 ──
+  private lineworkWorld = new LineworkWorld();
+  public readonly lighting = new StudioLighting();
+  public readonly materialManager = new VRMMaterialManager();
+  public readonly gazeController = new GazeController();
+  public readonly bubbleTracker = new BubbleTracker();
 
-  /** ponytail: App.tsx 一处调用,自动同步给 chatDirector(它没暴露给外部)。 */
-  public bindI18n(fn: ((key: string, vars?: Record<string, unknown>) => string) | null) {
-    this.translateSync = fn;
-    this.chatDirector.translateSync = fn;
-  }
-
-  /**
-   * 注入 system prompt getter,根据当前 i18n 语言动态挑中/英/日版。
-   * ponytail: 同 bindI18n 一样一次性传给 chatDirector,App.tsx 不用两边赋值。
-   */
-  public bindSystemPrompt(getter: () => string) {
-    this.chatDirector.getSystemPrompt = getter;
-  }
-
-  public currentVRM: VRM | null = null;
+  // ── 动作管线与驱动模块 ──
+  public readonly motionPipeline = new MotionPipeline();
   private motionTransition = new MotionTransitionManager();
   private vrmaPlayer = new VRMAMotionPlayer();
   private emagePlayer = new EmagePlayer();
   private naturalIdle = new NaturalIdleSystem();
+  private bodyTurn = new BodyTurnSystem();
   private chatDirector = new ChatDirector();
 
-  private activePlayer: 'vrma' | 'emage' | 'idle' = 'idle';
-  private manualExpression: string | null = null;
-  public materialSaturation: MaterialSaturationSettings = { ...APP_CONFIG.saturation.default };
-  private categorizedMaterials: {
-    skin: any[];
-    hair: any[];
-    clothing: any[];
-    eyes: any[];
-  } = {
-    skin: [],
-    hair: [],
-    clothing: [],
-    eyes: [],
-  };
+  // ── 实体状态 ──
+  public currentVRM: VRM | null = null;
   private currentUrl: string = APP_CONFIG.model.defaultVrm;
+  private activePlayer: PipelineMotionSource = 'idle';
+  private manualExpression: string | null = null;
+  private bodyTurnIsStepping = false;
+
+  private vrmSoleOffset = 0.08;
+  private vrmBaseSceneY = 0;
+  private shadowPlane: THREE.Mesh | null = null;
+
+  // 临时向量复用
+  private tempSoleA = new THREE.Vector3();
+  private tempSoleB = new THREE.Vector3();
+  private _footLevelQ = new THREE.Quaternion();
+  private _footLevelParentInv = new THREE.Quaternion();
+
+  // ── 外部状态与回调 ──
+  public translateSync: ((key: string, vars?: Record<string, unknown>) => string) | null = null;
+  public onLoadingChange?: (state: LoadingState) => void;
+  private readyListeners = new Set<(ready: boolean) => void>();
+  public isRenderingSuspended = true;
+
+  constructor() {
+    this.loader.register((parser) => new VRMLoaderPlugin(parser));
+    this.initScene();
+  }
+
+  // ── Facade 门面属性代理 (保障外部 100% 零破坏兼容) ──
+  public get lightChannels(): LightConfig {
+    return this.lighting.channels;
+  }
+
+  public get materialSaturation(): MaterialSaturationSettings {
+    return this.materialManager.saturation;
+  }
+
+  public get onBubbleChange(): ((state: BubbleState) => void) | undefined {
+    return this.bubbleTracker.onBubbleChange;
+  }
+
+  public set onBubbleChange(cb: ((state: BubbleState) => void) | undefined) {
+    this.bubbleTracker.onBubbleChange = cb;
+  }
 
   public getCurrentUrl(): string {
     return this.currentUrl;
@@ -102,63 +147,6 @@ export class VRMEngine {
   public getCanvas(): HTMLCanvasElement | null {
     return this.canvas;
   }
-
-  // Constants & optimal animation variables
-  private readonly isAutoBlink = true;
-  private readonly isAutoRotate = false;
-  private readonly isIdleBreath = true;
-  private readonly isLookAtEyes = true;
-  private readonly isLookAtHead = true;
-  private readonly isLockHead = true;
-
-  private thinkingWeight = 0.0;
-  private bodyTurn = new BodyTurnSystem();
-  private bodyTurnIsStepping = false;
-
-  private blinkTimer = 0;
-  private blinkInterval = 3.0;
-  private blinkDuration = 0.15;
-  private isBlinking = false;
-  private blinkProgress = 0;
-
-  private vrmSoleOffset = 0.08;
-  private vrmBaseSceneY = 0;
-  private shadowPlane: THREE.Mesh | null = null;
-
-  private gazeTarget = new THREE.Object3D();
-  private gazeShiftTimer = 0;
-  private gazeShiftInterval = 3.5;
-  private gazeOffsetTarget = new THREE.Vector3(0, 0, 0);
-  private gazeCurrentOffset = new THREE.Vector3(0, 0, 0);
-  private isGlancingAway = false;
-
-  // Lights
-  private hemiLight = new THREE.HemisphereLight(0xfffaf4, 0x6e6268, 0.60);
-  private dirLight = new THREE.DirectionalLight(0xfffbf5, 1.00);
-  private fillLight = new THREE.DirectionalLight(0xe8edff, 0.80);
-  private frontFill = new THREE.SpotLight(0xfff8f2, 0.70, 2.5, Math.PI / 7.5, 0.45, 1.2);
-  private legLight = new THREE.SpotLight(0xfff8f2, 0.45, 4.0, Math.PI / 4.0, 0.85, 1.0);
-  private leftArmLight = new THREE.SpotLight(0xfffbf7, 0.50, 1.5, Math.PI / 11, 0.4, 1.5);
-  private rightArmLight = new THREE.SpotLight(0xfffbf7, 0.50, 1.5, Math.PI / 11, 0.4, 1.5);
-
-  public lightChannels: LightConfig = {
-    dir: { ...APP_CONFIG.lights.dir },
-    hemi: { ...APP_CONFIG.lights.hemi },
-    front: { ...APP_CONFIG.lights.front },
-    fill: { ...APP_CONFIG.lights.fill },
-    leg: { ...APP_CONFIG.lights.leg },
-    arm: { ...APP_CONFIG.lights.arm },
-    globalMult: APP_CONFIG.lights.globalMult,
-  };
-
-  private loader = new GLTFLoader();
-  private clock = new THREE.Clock();
-  private animFrameId: number | null = null;
-
-  // Callbacks to React
-  public onLoadingChange?: (state: LoadingState) => void;
-  public onBubbleChange?: (state: BubbleState) => void;
-  private readyListeners = new Set<(ready: boolean) => void>();
 
   public isReady(): boolean {
     return this.currentVRM !== null;
@@ -178,26 +166,29 @@ export class VRMEngine {
     });
   }
 
-  private currentBubbleState: BubbleState = {
-    visible: false,
-    statusKey: '',
-    speechText: '',
-    isError: false,
-    x: 0,
-    y: 0,
-  };
-  private lastBubbleX = 0;
-  private lastBubbleY = 0;
-
-  constructor() {
-    this.loader.register((parser) => new VRMLoaderPlugin(parser));
-    this.initScene();
+  public bindI18n(fn: ((key: string, vars?: Record<string, unknown>) => string) | null): void {
+    this.translateSync = fn;
+    this.chatDirector.translateSync = fn;
   }
 
-  private initScene(): void {
-    this.scene.background = new THREE.Color(0xffffff);
+  public bindSystemPrompt(getter: () => string): void {
+    this.chatDirector.getSystemPrompt = getter;
+  }
 
-    // 实体影子平面
+  public suspendRendering(): void {
+    this.isRenderingSuspended = true;
+  }
+
+  public resumeRendering(): void {
+    this.isRenderingSuspended = false;
+    this.clock.start();
+  }
+
+  // ── 场景与画布初始化 ──
+  private initScene(): void {
+    this.scene.background = new THREE.Color(0x0b0f19);
+
+    // 实体阴影平面
     const shadowPlaneGeo = new THREE.PlaneGeometry(12, 12);
     const shadowPlaneMat = new THREE.ShadowMaterial({ opacity: 0.25 });
     this.shadowPlane = new THREE.Mesh(shadowPlaneGeo, shadowPlaneMat);
@@ -206,68 +197,16 @@ export class VRMEngine {
     this.shadowPlane.receiveShadow = true;
     this.scene.add(this.shadowPlane);
 
-    this.scene.add(this.gazeTarget);
+    // 初始化视线系统与灯光系统
+    this.gazeController.init(this.scene);
+    this.lighting.init(this.scene);
 
-    // 灯光装配
-    this.scene.add(this.hemiLight);
-
-    this.dirLight.position.set(10, 14, -22);
-    this.dirLight.target.position.set(0, 1, 0);
-    this.scene.add(this.dirLight.target);
-    this.dirLight.castShadow = true;
-    this.dirLight.shadow.mapSize.width = 2048;
-    this.dirLight.shadow.mapSize.height = 2048;
-    this.dirLight.shadow.bias = -0.00015;
-    this.dirLight.shadow.radius = 2.5;
-    // ponytail: shadow camera 范围 — 光从 (10,14,-22) 打向原点,够覆盖场景中的角色 + 周围道具。
-    this.dirLight.shadow.camera.left = -8;
-    this.dirLight.shadow.camera.right = 8;
-    this.dirLight.shadow.camera.top = 8;
-    this.dirLight.shadow.camera.bottom = -8;
-    this.dirLight.shadow.camera.near = 0.5;
-    this.dirLight.shadow.camera.far = 40.0;
-    this.scene.add(this.dirLight);
-
-    this.fillLight.position.set(-1.5, 1.8, -1.2);
-    this.scene.add(this.fillLight);
-
-    this.frontFill.position.set(0.0, 1.65, 1.3);
-    const faceTarget = new THREE.Object3D();
-    faceTarget.position.set(0.0, 1.50, 0.0);
-    this.scene.add(faceTarget);
-    this.frontFill.target = faceTarget;
-    this.scene.add(this.frontFill);
-
-    this.legLight.position.set(0.15, 0.65, 1.6);
-    const legTarget = new THREE.Object3D();
-    legTarget.position.set(0.0, 0.35, 0.0);
-    this.scene.add(legTarget);
-    this.legLight.target = legTarget;
-    this.scene.add(this.legLight);
-
-    this.leftArmLight.position.set(-0.95, 1.10, 0.45);
-    const leftArmTarget = new THREE.Object3D();
-    leftArmTarget.position.set(-0.40, 1.00, 0.0);
-    this.scene.add(leftArmTarget);
-    this.leftArmLight.target = leftArmTarget;
-    this.scene.add(this.leftArmLight);
-
-    this.rightArmLight.position.set(0.95, 1.10, 0.45);
-    const rightArmTarget = new THREE.Object3D();
-    rightArmTarget.position.set(0.40, 1.00, 0.0);
-    this.scene.add(rightArmTarget);
-    this.rightArmLight.target = rightArmTarget;
-    this.scene.add(this.rightArmLight);
-
-    this.updateAllLights();
-
+    // 动作与聊天控制器事件绑定
     this.vrmaPlayer.bindTransitionManager(this.motionTransition);
     this.chatDirector.bindTransitionManager(this.motionTransition);
-
-    this.chatDirector.setOnEnd(() => {
-      this.currentBubbleState.visible = false;
-      this.onBubbleChange?.({ ...this.currentBubbleState });
-    });
+    this.chatDirector.onSuspendRendering = () => this.suspendRendering();
+    this.chatDirector.onResumeRendering = () => this.resumeRendering();
+    this.chatDirector.setOnEnd(() => this.bubbleTracker.hide());
   }
 
   public attachCanvas(canvas: HTMLCanvasElement): void {
@@ -299,263 +238,13 @@ export class VRMEngine {
 
     window.addEventListener('resize', this.handleResize);
 
-    try {
-      const saved = localStorage.getItem('xiaochun.mat_saturation_settings');
-      if (saved) {
-        this.materialSaturation = { ...APP_CONFIG.saturation.default, ...JSON.parse(saved) };
-      }
-    } catch {}
     if (this.canvas) {
       this.canvas.style.filter = 'none';
     }
 
-    this.buildLineworkScene();
+    // 构建线稿场景世界并启动主循环
+    this.lineworkWorld.build(this.scene);
     this.startAnimation();
-  }
-
-  public setMaterialSaturation(settings: Partial<MaterialSaturationSettings>): void {
-    this.materialSaturation = { ...this.materialSaturation, ...settings };
-    this.applyMaterialSaturations();
-    try {
-      localStorage.setItem('xiaochun.mat_saturation_settings', JSON.stringify(this.materialSaturation));
-    } catch {}
-  }
-
-  public applyMaterialPreset(presetKey: MaterialSaturationPresetKey): void {
-    const preset = APP_CONFIG.saturation.presets[presetKey];
-    this.setMaterialSaturation({ preset: presetKey, ...preset });
-  }
-
-  public applyMaterialSaturations(): void {
-    const { skin, hair, clothing, eyes } = this.materialSaturation;
-    this.categorizedMaterials.skin.forEach((m) => {
-      if (m.uniforms?.uMatSaturation) m.uniforms.uMatSaturation.value = skin;
-    });
-    this.categorizedMaterials.hair.forEach((m) => {
-      if (m.uniforms?.uMatSaturation) m.uniforms.uMatSaturation.value = hair;
-    });
-    this.categorizedMaterials.clothing.forEach((m) => {
-      if (m.uniforms?.uMatSaturation) m.uniforms.uMatSaturation.value = clothing;
-    });
-    this.categorizedMaterials.eyes.forEach((m) => {
-      if (m.uniforms?.uMatSaturation) m.uniforms.uMatSaturation.value = eyes;
-    });
-  }
-
-  /**
-   * 线稿世界场景:白底 + 几何体全部 wireframe,太阳 + 远景城市剪影 + 地面网格,
-   * 角色 VRM 通过 OutlinePass 自动描边。
-   * ponytail: 纯代码,零外部资产;轨道相机转动时整个线稿世界跟着转,达到"身临其境"。
-   */
-  private buildLineworkScene(): void {
-    if (!this.renderer) return;
-    this.scene.background = new THREE.Color(0xffffff);
-
-    // 太阳 — 实心圆 + 12 条辐射线,放在角色斜对角远处,跟 dirLight 方向对齐
-    // ponytail: 位置 (10, 14, -22),distance ≈ 28,direction 指向原点 — 视觉与脚下的影子成对角。
-    //          半径 1.5,远距离下不至于过小看不见;用实体填充保证存在感。
-    const sunGroup = new THREE.Group();
-    const sunFill = new THREE.Mesh(
-      new THREE.CircleGeometry(1.5, 64),
-      new THREE.MeshBasicMaterial({ color: 0x222222 }),
-    );
-    sunFill.position.set(10, 14, -22);
-    sunGroup.add(sunFill);
-    const sunRays = new THREE.LineSegments(
-      new THREE.BufferGeometry().setFromPoints(
-        Array.from({ length: 12 }, (_, i) => {
-          const a = (i / 12) * Math.PI * 2;
-          const inner = new THREE.Vector3(Math.cos(a) * 2.0, Math.sin(a) * 2.0, 0);
-          const outer = new THREE.Vector3(Math.cos(a) * 2.7, Math.sin(a) * 2.7, 0);
-          return [inner, outer];
-        }).flat(),
-      ),
-      new THREE.LineBasicMaterial({ color: 0x222222 }),
-    );
-    sunRays.position.copy(sunFill.position);
-    sunGroup.add(sunRays);
-    this.scene.add(sunGroup);
-
-    // 远景城市天际线 — 5 种造型混搭(box / tower / pyramid / stepped / antenna),
-    // 高度各异但都比角色(约 1.5m)高
-    // ponytail: 用不同几何体组合做天际线节奏,比全 box 立体很多。
-    const wireMat = new THREE.MeshBasicMaterial({ color: 0x222222, wireframe: true });
-
-    type BuildingShape = 'box' | 'tower' | 'pyramid' | 'stepped' | 'antenna';
-    const buildBuilding = (
-      shape: BuildingShape,
-      w: number,
-      height: number,
-      d: number,
-    ): THREE.Group => {
-      const g = new THREE.Group();
-      const box = new THREE.Mesh(new THREE.BoxGeometry(w, height, d), wireMat);
-      box.position.y = height / 2;
-      g.add(box);
-
-      if (shape === 'pyramid') {
-        // 锥顶金字塔
-        const roofH = height * 0.25;
-        const roof = new THREE.Mesh(
-          new THREE.ConeGeometry(Math.max(w, d) * 0.75, roofH, 4),
-          wireMat,
-        );
-        roof.position.y = height + roofH / 2;
-        roof.rotation.y = Math.PI / 4;
-        g.add(roof);
-      } else if (shape === 'stepped') {
-        // 阶梯塔 — 顶部小方块 + 细天线
-        const tierW = w * 0.55;
-        const tierH = height * 0.35;
-        const tier = new THREE.Mesh(
-          new THREE.BoxGeometry(tierW, tierH, d * 0.55),
-          wireMat,
-        );
-        tier.position.y = height + tierH / 2;
-        g.add(tier);
-        const pole = new THREE.Mesh(
-          new THREE.CylinderGeometry(0.05, 0.05, 0.6, 4),
-          wireMat,
-        );
-        pole.position.y = height + tierH + 0.3;
-        g.add(pole);
-      } else if (shape === 'antenna') {
-        // 顶层一根细天线
-        const pole = new THREE.Mesh(
-          new THREE.CylinderGeometry(0.05, 0.05, 1.2, 4),
-          wireMat,
-        );
-        pole.position.y = height + 0.6;
-        g.add(pole);
-      }
-      // 'box' / 'tower' 只用底座盒子;tower 通过高瘦比例与 box 区分。
-      return g;
-    };
-
-    const buildingSpecs: Array<{
-      x: number; w: number; height: number; d: number; shape: BuildingShape;
-    }> = [
-      { x: -12,   w: 1.4, height: 4.0,  d: 1.5, shape: 'box' },
-      { x: -10.7, w: 1.2, height: 7.5,  d: 1.5, shape: 'tower' },
-      { x: -9.4,  w: 1.6, height: 5.0,  d: 1.5, shape: 'pyramid' },
-      { x: -8.1,  w: 1.3, height: 6.5,  d: 1.5, shape: 'stepped' },
-      { x: -6.8,  w: 1.4, height: 3.5,  d: 1.5, shape: 'box' },
-      { x: -5.5,  w: 1.0, height: 9.0,  d: 1.5, shape: 'antenna' },
-      { x: -4.2,  w: 1.5, height: 5.5,  d: 1.5, shape: 'pyramid' },
-      { x: -2.9,  w: 1.2, height: 4.5,  d: 1.5, shape: 'box' },
-      { x: -1.6,  w: 1.4, height: 7.0,  d: 1.5, shape: 'stepped' },
-      { x: -0.3,  w: 1.6, height: 11.0, d: 1.5, shape: 'tower' },
-      { x: 1.0,   w: 1.3, height: 5.5,  d: 1.5, shape: 'box' },
-      { x: 2.3,   w: 1.5, height: 8.0,  d: 1.5, shape: 'pyramid' },
-      { x: 3.6,   w: 1.2, height: 4.0,  d: 1.5, shape: 'antenna' },
-      { x: 4.9,   w: 1.4, height: 6.0,  d: 1.5, shape: 'box' },
-      { x: 6.2,   w: 1.3, height: 8.5,  d: 1.5, shape: 'tower' },
-      { x: 7.5,   w: 1.5, height: 5.5,  d: 1.5, shape: 'pyramid' },
-      { x: 8.8,   w: 1.2, height: 4.0,  d: 1.5, shape: 'stepped' },
-      { x: 10.1,  w: 1.4, height: 6.5,  d: 1.5, shape: 'box' },
-      { x: 11.4,  w: 1.3, height: 4.5,  d: 1.5, shape: 'antenna' },
-    ];
-    const cityGroup = new THREE.Group();
-    for (const { x, w, height, d, shape } of buildingSpecs) {
-      const building = buildBuilding(shape, w, height, d);
-      building.position.set(x, 0, -10);
-      cityGroup.add(building);
-    }
-    this.scene.add(cityGroup);
-
-    // 地面 — 大平面,wireframe
-    const ground = new THREE.Mesh(
-      new THREE.PlaneGeometry(40, 40, 20, 20),
-      new THREE.MeshBasicMaterial({ color: 0x222222, wireframe: true }),
-    );
-    ground.rotation.x = -Math.PI / 2;
-    ground.position.y = 0;
-    this.scene.add(ground);
-
-    // 几根抽象的"树",4 种造型混搭,高度随机但都比角色(约 1.5m)高
-    // ponytail: 用同一种 wireframe 材质,靠几何体形状区分(尖塔 / 圆球 / 层叠 / 笔柏)。
-    const treeMat = new THREE.MeshBasicMaterial({ color: 0x222222, wireframe: true });
-
-    type TreeShape = 'conifer' | 'fan' | 'layered' | 'cypress' | 'oval';
-    const buildTree = (shape: TreeShape, totalH: number): THREE.Group => {
-      // ponytail: 树干至少 ≥ 1.7m(角色 1.5m,留点余量),树冠半径按比例缩小,避免吞噬角色。
-      const trunkH = Math.max(1.7, totalH * 0.35);
-      const topH = totalH - trunkH;
-      const tree = new THREE.Group();
-      const trunk = new THREE.Mesh(
-        new THREE.CylinderGeometry(0.1, 0.14, trunkH, 8),
-        treeMat,
-      );
-      trunk.position.y = trunkH / 2;
-      tree.add(trunk);
-
-      if (shape === 'conifer') {
-        // 单个圆锥 — 标准圣诞树
-        const cone = new THREE.Mesh(
-          new THREE.ConeGeometry(0.35 + totalH * 0.08, topH, 8),
-          treeMat,
-        );
-        cone.position.y = trunkH + topH / 2;
-        tree.add(cone);
-      } else if (shape === 'fan') {
-        // 扇形 — 浅开口圆锥(openEnded),半径/高 ≈ 1.3 → 更圆,不像打开的折扇更像伞盖
-        // ponytail: segments=24 圆周更平滑,从远处看像球冠
-        const fan = new THREE.Mesh(
-          new THREE.ConeGeometry(topH * 0.65, topH * 0.5, 24, 1, true),
-          treeMat,
-        );
-        fan.position.y = trunkH + topH * 0.25;
-        tree.add(fan);
-      } else if (shape === 'layered') {
-        // 3 层叠加圆锥 — 宝塔 / 黑松造型
-        const layers = 3;
-        const layerH = topH / (layers + 0.5);
-        for (let i = 0; i < layers; i++) {
-          const radius = (0.35 + totalH * 0.08) * (1 - i * 0.25);
-          const cone = new THREE.Mesh(
-            new THREE.ConeGeometry(radius, layerH, 8),
-            treeMat,
-          );
-          cone.position.y = trunkH + (i + 0.5) * (layerH * 1.05);
-          tree.add(cone);
-        }
-      } else if (shape === 'cypress') {
-        // 细长笔柏 — 意大利柏树
-        const cone = new THREE.Mesh(
-          new THREE.ConeGeometry(0.2 + totalH * 0.04, topH, 6),
-          treeMat,
-        );
-        cone.position.y = trunkH + topH / 2;
-        tree.add(cone);
-      } else if (shape === 'oval') {
-        // 椭圆树冠 — 球体纵向拉长,像鸡蛋形 / 高瘦树冠(白杨、银杏苗)
-        // ponytail: X/Z 压扁 0.7x、Y 拉高 1.4x;半径 0.32,实际 Y 半径 = 0.448×topH;
-        //          center 放 trunkH + 0.45×topH → bottom ≈ trunkH,视觉上贴树干顶。
-        const oval = new THREE.Mesh(
-          new THREE.IcosahedronGeometry(topH * 0.32, 1),
-          treeMat,
-        );
-        oval.scale.set(0.7, 1.4, 0.7);
-        oval.position.y = trunkH + topH * 0.448;
-        tree.add(oval);
-      }
-      return tree;
-    };
-
-    const treeSpecs: Array<{ pos: [number, number]; height: number; shape: TreeShape }> = [
-      // ponytail: 两棵 fan 砍了 — 它们扇冠太宽,容易和别树冠打架,只保留右半边的树。
-      { pos: [5, -3],  height: 6.5, shape: 'cypress' },
-      { pos: [-4, 4],  height: 5.0, shape: 'conifer' },
-      { pos: [4, 4],   height: 8.0, shape: 'layered' },
-      { pos: [6, 0],   height: 6.0, shape: 'cypress' },
-      // ponytail: 加一棵椭圆树冠在左前,平衡左半边空荡 + 引入新造型
-      { pos: [-5, -2], height: 5.5, shape: 'oval' },
-    ];
-    for (const { pos, height, shape } of treeSpecs) {
-      const tree = buildTree(shape, height);
-      tree.position.set(pos[0], 0, pos[1]);
-      this.scene.add(tree);
-    }
   }
 
   private handleResize = () => {
@@ -566,28 +255,21 @@ export class VRMEngine {
     this.renderer.setSize(window.innerWidth, window.innerHeight);
   };
 
-  public updateAllLights(): void {
-    const m = this.lightChannels.globalMult;
-    this.dirLight.intensity = this.lightChannels.dir.enabled ? this.lightChannels.dir.base * m : 0;
-    this.hemiLight.intensity = this.lightChannels.hemi.enabled ? this.lightChannels.hemi.base * m : 0;
-    this.frontFill.intensity = this.lightChannels.front.enabled ? this.lightChannels.front.base * m : 0;
-    this.fillLight.intensity = this.lightChannels.fill.enabled ? this.lightChannels.fill.base * m : 0;
-    this.legLight.intensity = this.lightChannels.leg.enabled ? this.lightChannels.leg.base * m : 0;
-    this.leftArmLight.intensity = this.lightChannels.arm.enabled ? this.lightChannels.arm.base * m : 0;
-    this.rightArmLight.intensity = this.lightChannels.arm.enabled ? this.lightChannels.arm.base * m : 0;
-  }
-
+  // ── 外部控制代理 API ──
   public setLight(key: string, enabled: boolean, value: number): void {
-    if (key in this.lightChannels) {
-      (this.lightChannels as any)[key].enabled = enabled;
-      (this.lightChannels as any)[key].base = value;
-      this.updateAllLights();
-    }
+    this.lighting.setLight(key, enabled, value);
   }
 
   public setGlobalLight(mult: number): void {
-    this.lightChannels.globalMult = mult;
-    this.updateAllLights();
+    this.lighting.setGlobalMult(mult);
+  }
+
+  public setMaterialSaturation(settings: Partial<MaterialSaturationSettings>): void {
+    this.materialManager.setSaturation(settings);
+  }
+
+  public applyMaterialPreset(presetKey: MaterialSaturationPresetKey): void {
+    this.materialManager.applyPreset(presetKey);
   }
 
   public setFov(fov: number): void {
@@ -614,14 +296,15 @@ export class VRMEngine {
       'happy', 'angry', 'sad', 'relaxed', 'surprised', 'neutral', 'aa', 'ih', 'ou', 'ee', 'oh'
     ];
     presets.forEach((p) => {
-      try { mgr.setValue(p, 0); } catch { }
+      try { mgr.setValue(p, 0); } catch {}
     });
     if (name !== 'neutral') {
-      try { mgr.setValue(name as VRMExpressionPresetName, 1); } catch { }
+      try { mgr.setValue(name as VRMExpressionPresetName, 1); } catch {}
     }
     mgr.update();
   }
 
+  // ── 模型生命周期加载 ──
   public loadVRM(url: string, filename = '小蠢 (xiaochun_v1)'): void {
     this.currentUrl = url;
     this.onLoadingChange?.({
@@ -644,9 +327,8 @@ export class VRMEngine {
     this.manualExpression = null;
     this.activePlayer = 'idle';
 
-    const fetchUrl = url;
     this.loader.load(
-      fetchUrl,
+      url,
       (gltf) => {
         const vrm = gltf.userData.vrm as VRM;
         if (!vrm) {
@@ -657,7 +339,12 @@ export class VRMEngine {
         }
         this.currentVRM = vrm;
         this.notifyReady(true);
+
+        this.vrmaPlayer.bind(vrm);
         this.vrmaPlayer.resetHipsRest();
+        this.motionPipeline.bind(vrm);
+        this.motionPipeline.finalPose.sampleFromVRM(vrm);
+
         VRMUtils.removeUnnecessaryVertices(gltf.scene);
         VRMUtils.removeUnnecessaryJoints(gltf.scene);
 
@@ -671,7 +358,8 @@ export class VRMEngine {
           }
         });
 
-        this.optimizeVRMMaterials(vrm);
+        // 委托材质管理器进行 MToon 优化与 Shader 注入
+        this.materialManager.optimize(vrm);
         VRMUtils.rotateVRM0(vrm);
         vrm.scene.position.set(0, 0, 0);
         vrm.scene.rotation.y = 0;
@@ -699,15 +387,14 @@ export class VRMEngine {
         if (typeof window !== 'undefined') {
           (window as any).emagePlayer = this.emagePlayer;
         }
-        setTimeout(() => {
-          // 1. 后台预热 EMAGE ONNX 全身协同动作模型 (Dedicated Worker)
-          if (!this.emagePlayer.ready) void this.emagePlayer.ensureLoaded();
-          // 2. 后台预热 WebLLM Qwen 语言大模型 (Dedicated Worker)
-          preloadWebLLM();
-        }, 2500);
+
+        // 后台预热大模型与语音动作模型
+        if (!this.emagePlayer.ready) void this.emagePlayer.ensureLoaded();
+        preloadWebLLM();
 
         this.fitCamera();
         void this.chatDirector.warmThinkingClip(vrm, this.vrmaPlayer);
+        this.renderSingleFrame();
 
         this.onLoadingChange?.({ active: false, subtitleKey: '', progress: 100 });
       },
@@ -730,86 +417,6 @@ export class VRMEngine {
     );
   }
 
-  private optimizeVRMMaterials(vrm: VRM): void {
-    this.categorizedMaterials = { skin: [], hair: [], clothing: [], eyes: [] };
-    vrm.scene.traverse((obj) => {
-      if ((obj as THREE.Mesh).isMesh) {
-        const mesh = obj as THREE.Mesh;
-        const materials = Array.isArray(mesh.material) ? mesh.material : [mesh.material];
-        materials.forEach((mat: any) => {
-          if (!mat || !mat.isMToonMaterial) return;
-
-          const name = (mat.name || '').toLowerCase();
-          const isFaceSkin = name.includes('face') || name.includes('skin') || name.includes('body') || name.includes('mouth') || name.includes('brow') || name.includes('head');
-          const isEye = name.includes('eye') || name.includes('iris');
-          const isHair = name.includes('hair');
-          const isSocks = name.includes('socks') || name.includes('stocking') || name.includes('tights');
-          const isCloth = name.includes('cloth') || name.includes('shirt') || name.includes('top') || name.includes('skirt') || name.includes('coat') || name.includes('bottom') || name.includes('dress') || name.includes('onepiece') || name.includes('shoes');
-
-          let category: 'skin' | 'hair' | 'eyes' | 'clothing' = 'clothing';
-          if (isEye) {
-            category = 'eyes';
-          } else if (isFaceSkin) {
-            category = 'skin';
-          } else if (isHair) {
-            category = 'hair';
-          } else {
-            category = 'clothing';
-          }
-
-          // 注入材质级独立饱和度 Shader
-          if (!mat.userData.__saturationInjected) {
-            mat.userData.__saturationInjected = true;
-            mat.uniforms['uMatSaturation'] = { value: 1.0 };
-            const targetCode = 'gl_FragColor = vec4( col, diffuseColor.a );\n  postCorrection();';
-            if (mat.fragmentShader.includes(targetCode)) {
-              mat.fragmentShader = `
-uniform float uMatSaturation;
-` + mat.fragmentShader.replace(
-                targetCode,
-                `float gray = dot(col, vec3(0.299, 0.587, 0.114));
-  col = max(vec3(0.0), mix(vec3(gray), col, uMatSaturation));
-  gl_FragColor = vec4( col, diffuseColor.a );
-  postCorrection();`
-              );
-              mat.needsUpdate = true;
-            }
-          }
-
-          if (!this.categorizedMaterials[category].includes(mat)) {
-            this.categorizedMaterials[category].push(mat);
-          }
-
-          if (isFaceSkin) {
-            mat.rimLightingMix = 0.0;
-            mat.rimMultiply = new THREE.Color(0x000000);
-            mat.rimFresnelPower = 100.0;
-            mat.rimLift = 0.0;
-            mat.shadeShift = 0.08;
-            mat.shadeToony = 0.98;
-            if (mat.shadeColor) mat.shadeColor.setHex(0xfff2ea);
-          } else if (isSocks) {
-            mat.rimLightingMix = 0.60;
-            mat.rimMultiply = new THREE.Color(0xffffff);
-            mat.rimFresnelPower = 3.0;
-            mat.rimLift = 0.15;
-            mat.shadeShift = -0.05;
-            mat.shadeToony = 0.80;
-          } else if (isCloth) {
-            mat.rimLightingMix = 0.35;
-            mat.rimMultiply = new THREE.Color(0xf0f4ff);
-            mat.rimFresnelPower = 4.0;
-            mat.rimLift = 0.10;
-            mat.shadeShift = 0.0;
-            mat.shadeToony = 0.85;
-          }
-          mat.needsUpdate = true;
-        });
-      }
-    });
-    this.applyMaterialSaturations();
-  }
-
   private resetBones(vrm: VRM): void {
     if (!vrm.humanoid) return;
     const boneNames = [
@@ -826,10 +433,35 @@ uniform float uMatSaturation;
     });
   }
 
+  // ── 万能动作播放接口 ──
+  public async playMotion(
+    input: string | ArrayBuffer | THREE.AnimationClip,
+    options: PlayMotionOptions = {},
+  ): Promise<UniversalMotionHandle> {
+    if (!this.currentVRM) {
+      throw new Error('[VRMEngine] 模型尚未就绪，无法播放动作');
+    }
+    const lookAtOffsets = this.gazeController.getLookAtOffsets();
+    return this.motionPipeline.playMotion(this.currentVRM, input, options, lookAtOffsets);
+  }
+
+  public stopMotion(fadeDuration = 0.75): void {
+    const lookAtOffsets = this.gazeController.getLookAtOffsets();
+    this.motionPipeline.stopMotion(fadeDuration, lookAtOffsets);
+  }
+
+  public isMotionPlaying(): boolean {
+    return (
+      this.motionPipeline.isMotionPlaying() ||
+      this.vrmaPlayer.isPlaying() ||
+      this.emagePlayer.isPlaying() ||
+      this.chatDirector.isThinking
+    );
+  }
+
+  // ── 聊天与气泡追踪 ──
   public async sendMessage(text: string): Promise<void> {
     if (!this.currentVRM) return;
-    this.emagePlayer.stop();
-    this.activePlayer = 'vrma';
 
     const setStatus = (
       key: string,
@@ -839,283 +471,142 @@ uniform float uMatSaturation;
       segmentIndex?: number,
       totalSegments?: number,
     ) => {
-      if (!key || key === 'silent') {
-        this.currentBubbleState.visible = false;
-        this.currentBubbleState.segmentIndex = undefined;
-        this.currentBubbleState.totalSegments = undefined;
-      } else {
-        this.currentBubbleState.visible = true;
-        this.currentBubbleState.statusKey = key;
-        this.currentBubbleState.statusVars = vars;
-        this.currentBubbleState.speechText = speechText || '';
-        this.currentBubbleState.isError = isError;
-        this.currentBubbleState.segmentIndex = segmentIndex;
-        this.currentBubbleState.totalSegments = totalSegments;
-
-        if (this.currentVRM) {
-          const head = this.currentVRM.humanoid?.getNormalizedBoneNode('head');
-          const p = new THREE.Vector3();
-          if (head) {
-            head.getWorldPosition(p);
-            p.y += 0.24;
-          } else {
-            p.set(0, 1.7, 0);
-          }
-          p.project(this.camera);
-          const x = Math.round((p.x * 0.5 + 0.5) * window.innerWidth);
-          const y = Math.round((-(p.y * 0.5) + 0.5) * window.innerHeight);
-          this.currentBubbleState.x = x;
-          this.currentBubbleState.y = y;
-          this.lastBubbleX = x;
-          this.lastBubbleY = y;
-        }
-      }
-      this.onBubbleChange?.({ ...this.currentBubbleState });
+      this.bubbleTracker.setStatus(
+        key,
+        this.currentVRM,
+        this.camera,
+        vars,
+        isError,
+        speechText,
+        segmentIndex,
+        totalSegments
+      );
     };
 
     await this.chatDirector.say(text, this.currentVRM, this.vrmaPlayer, this.emagePlayer, setStatus);
   }
 
-  private startAnimation(): void {
-    const tempSoleA = new THREE.Vector3();
-    const tempSoleB = new THREE.Vector3();
+  public releaseHeavyResources(): void {
+    try { this.chatDirector.stop(); } catch {}
+    try { unloadWebLLM(); } catch (e) { console.warn('[VRMEngine] 释放 WebLLM 异常:', e); }
+    try { this.emagePlayer.dispose(); } catch (e) { console.warn('[VRMEngine] 释放 EMAGE 异常:', e); }
+    console.log('[VRMEngine] 已成功释放 WebLLM 显存与 EMAGE 运行内存');
+  }
 
+  public renderSingleFrame(): void {
+    if (this.renderer && this.currentVRM) {
+      this.renderer.render(this.scene, this.camera);
+    }
+  }
+
+  // ── 核心高内聚主渲染循环 ──
+  private startAnimation(): void {
     const animate = () => {
       this.animFrameId = requestAnimationFrame(animate);
+      if (this.isRenderingSuspended) return;
+
       const delta = Math.min(this.clock.getDelta(), 0.1);
       const time = this.clock.getElapsedTime();
 
       const vrm = this.currentVRM;
       if (vrm) {
-        if (this.isAutoRotate) {
-          vrm.scene.rotation.y += delta * 0.5;
-        }
-
+        const universalLive = this.motionPipeline.isMotionPlaying();
         const emageLive = this.emagePlayer.isPlaying();
         const vrmaLive = this.vrmaPlayer.isPlaying() || this.chatDirector.isThinking;
+        const lookAtOffsets = this.gazeController.getLookAtOffsets();
 
-        if (emageLive) {
-          if (this.activePlayer !== 'emage') {
-            this.motionTransition.startTransition(vrm, 0.65);
-            this.activePlayer = 'emage';
-          }
+        // 1. 统一动作源判定与流转 (Universal Motion State Graph)
+        let targetSource: PipelineMotionSource = 'idle';
+        let targetDuration = 0.88;
+
+        if (universalLive) {
+          targetSource = 'motion';
+          targetDuration = this.motionPipeline.universalMotion.getCurrentOptions().fadeDuration ?? 0.75;
+        } else if (emageLive) {
+          targetSource = 'emage';
+          targetDuration = 0.70;
+        } else if (vrmaLive) {
+          targetSource = 'vrma';
+          targetDuration = 0.78;
+        } else {
+          targetSource = 'idle';
+          targetDuration = 0.88;
+        }
+
+        if (this.activePlayer !== targetSource) {
+          this.motionPipeline.setMotionSource(targetSource, targetDuration, lookAtOffsets);
+          this.motionTransition.startTransition(vrm, targetDuration, lookAtOffsets);
+          this.activePlayer = targetSource;
+        }
+
+        // 2. 驱动对应主动作更新
+        if (universalLive) {
+          vrm.scene.position.y = this.vrmBaseSceneY;
+          this.motionPipeline.universalMotion.update(delta);
+        } else if (emageLive) {
           this.emagePlayer.update(delta);
         } else if (vrmaLive) {
-          if (this.activePlayer !== 'vrma') {
-            this.motionTransition.startTransition(vrm, 0.55);
-            this.activePlayer = 'vrma';
-          }
           vrm.scene.position.y = this.vrmBaseSceneY;
           this.vrmaPlayer.update(delta);
         } else {
-          if (this.activePlayer !== 'idle') {
-            this.motionTransition.startTransition(vrm, 0.85);
-            this.activePlayer = 'idle';
-          }
           vrm.scene.position.y = this.vrmBaseSceneY;
-          if (this.isIdleBreath) {
-            // 始终启用 naturalIdle(负责呼吸/手指/head/neck),仅在 bodyTurn 踱步时跳过腿/髋写入。
-            // 配合 handleBodyTurnHandoff 的 motionTransition,完成腿/髋的平滑切换。
-            this.naturalIdle.update(time, 1.0, this.bodyTurn.isStepping());
-          }
+          this.naturalIdle.update(time, 1.0, this.bodyTurn.isStepping());
         }
 
-        // 全局动作平滑过渡器统一接管——仅在非 EMAGE 活跃期间（vrma / idle）执行。
-        // EMAGE 活跃期间跳过：EMAGE 内部物理角速度限制 + 逖冲击陈尼弹簧已负责段间连续性，
-        // 外部 Slerp 与 EMAGE 内部弹簧同时运行会产生"双重插值"，导致上肢冲击放快、头部闪跳。
-        if (!emageLive) {
-          this.motionTransition.apply(vrm, delta);
-        }
+        // 3. 全局平滑过渡器加权 Slerp 统一接管
+        this.motionTransition.apply(vrm, delta);
 
-        // 物理转身踱步系统 (BodyTurnSystem) — 必须先于 levelFeet 运行:
-        // 踱步期间脚踝会施加背屈旋转,footIK 抹平就完全看不见了。
-        // ponytail: 踱步时 levelFeet 内部通过 bodyTurn.isStepping() 让位。
-        if (this.isLookAtHead) {
-          const _btHead = vrm.humanoid?.getNormalizedBoneNode('head');
-          const _btPos = new THREE.Vector3();
-          if (_btHead) _btHead.getWorldPosition(_btPos);
-          else _btPos.copy(vrm.scene.position);
-          const _dx = this.camera.position.x - _btPos.x;
-          const _dz = this.camera.position.z - _btPos.z;
-          const _targetYaw = Math.atan2(_dx, _dz) - vrm.scene.rotation.y;
-          const normYaw = Math.atan2(Math.sin(_targetYaw), Math.cos(_targetYaw));
-          const yawDelta = this.bodyTurn.update(delta, normYaw, emageLive);
-          vrm.scene.rotation.y += yawDelta;
+        // 4. 同步管线最终姿态快照 (非破坏性只读采样)
+        this.motionPipeline.finalPose.sampleFromVRM(vrm);
 
-          // 踱步状态翻转时,通过 motionTransition 做 0.30s 平滑过渡 + 同步切换 naturalIdle 开关。
-          // ponytail: 单点切换,避免两套系统互相冲刷;transition 自身会在 duration 后自动停。
-          this.handleBodyTurnHandoff(vrm);
-        }
+        // 5. 转身物理踱步系统 (BodyTurn)
+        const _btHead = vrm.humanoid?.getNormalizedBoneNode('head');
+        const _btPos = new THREE.Vector3();
+        if (_btHead) _btHead.getWorldPosition(_btPos);
+        else _btPos.copy(vrm.scene.position);
+        const _dx = this.camera.position.x - _btPos.x;
+        const _dz = this.camera.position.z - _btPos.z;
+        const _targetYaw = Math.atan2(_dx, _dz) - vrm.scene.rotation.y;
+        const normYaw = Math.atan2(Math.sin(_targetYaw), Math.cos(_targetYaw));
+        const yawDelta = this.bodyTurn.update(delta, normYaw, emageLive);
+        vrm.scene.rotation.y += yawDelta;
 
-        if (vrmaLive || !emageLive) {
+        this.handleBodyTurnHandoff(vrm);
+
+        if (vrmaLive || universalLive || !emageLive) {
           this.levelFeet(vrm);
         }
 
         this.chatDirector.tick(vrm, this.vrmaPlayer);
 
-        // 思考神态与基础待机神态平滑过渡
-        if (this.chatDirector.isThinking) {
-          this.thinkingWeight = Math.min(1.0, this.thinkingWeight + delta * 2.5);
-        } else {
-          this.thinkingWeight = Math.max(0.0, this.thinkingWeight - delta * 3.0);
-        }
-        const tw = this.thinkingWeight * this.thinkingWeight * (3 - 2 * this.thinkingWeight);
-
-        if (vrm.expressionManager) {
-          if (this.manualExpression && this.manualExpression !== 'neutral') {
-            // 用户在开发者抽屉显式指定表情时，维持手动表情
-          } else if (this.chatDirector.speaking) {
-            // 朗读说话中：清空思考嘴型 ('ou') 与静态微笑，完全让位给实时语音 LipSync ('aa')
-            vrm.expressionManager.setValue('ou', 0);
-            vrm.expressionManager.setValue('relaxed', 0);
-            vrm.expressionManager.setValue('happy', 0);
-          } else {
-            // 待机或思考态：
-            // 1. 思考嘴型 'ou' 随 tw 严格平滑渐变（tw 归 0 时 ou 彻底归 0，绝不残留）
-            vrm.expressionManager.setValue('ou', 0.65 * tw);
-            vrm.expressionManager.setValue('relaxed', 0.15 * tw);
-            // 2. 待机默认不张嘴：happy 设为 0，完美回归模型原始雕刻的温婉闭嘴微笑（图二效果）
-            vrm.expressionManager.setValue('happy', 0);
-          }
-        }
-
-        const headBone = vrm.humanoid?.getNormalizedBoneNode('head');
-        if (headBone && tw > 0.01) {
-          const thinkHeadSwayX = Math.sin(time * 1.6) * 0.025 * tw;
-          const thinkHeadSwayY = Math.cos(time * 1.1) * 0.035 * tw;
-          const thinkHeadSwayZ = Math.sin(time * 1.4) * 0.02 * tw;
-          const swayQ = new THREE.Quaternion().setFromEuler(new THREE.Euler(thinkHeadSwayX, thinkHeadSwayY, thinkHeadSwayZ));
-          headBone.quaternion.multiply(swayQ);
-        }
-
-        // 自然眨眼
-        if (this.isAutoBlink && vrm.expressionManager) {
-          this.blinkTimer += delta;
-          if (!this.isBlinking && this.blinkTimer >= this.blinkInterval) {
-            this.isBlinking = true;
-            this.blinkTimer = 0;
-            this.blinkProgress = 0;
-            this.blinkInterval = 2.0 + Math.random() * 3.0;
-          }
-          if (this.isBlinking) {
-            this.blinkProgress += delta / this.blinkDuration;
-            if (this.blinkProgress <= 0.5) {
-              vrm.expressionManager.setValue('blink', this.blinkProgress / 0.5);
-            } else if (this.blinkProgress <= 1.0) {
-              vrm.expressionManager.setValue('blink', (1.0 - this.blinkProgress) / 0.5);
-            } else {
-              this.isBlinking = false;
-              vrm.expressionManager.setValue('blink', 0);
-            }
-          }
-        }
-
-        // 自然视线伴随
-        const headNode = vrm.humanoid?.getNormalizedBoneNode('head');
-        const neckNode = vrm.humanoid?.getNormalizedBoneNode('neck');
-
-        const headPos = new THREE.Vector3();
-        if (headNode) headNode.getWorldPosition(headPos);
-        else headPos.copy(vrm.scene.position).add(new THREE.Vector3(0, 1.35, 0));
-
-        this.gazeShiftTimer += delta;
-        if (this.gazeShiftTimer >= this.gazeShiftInterval) {
-          this.gazeShiftTimer = 0;
-          const glanceChance = emageLive ? 0.40 : 0.25;
-          this.isGlancingAway = !this.isGlancingAway && Math.random() < glanceChance;
-          if (this.isGlancingAway) {
-            const side = Math.random() < 0.5 ? -1 : 1;
-            this.gazeOffsetTarget.set(side * (0.12 + Math.random() * 0.12), -0.08 - Math.random() * 0.08, 0);
-            this.gazeShiftInterval = 0.8 + Math.random() * 0.6;
-          } else {
-            this.gazeOffsetTarget.set(0, 0, 0);
-            this.gazeShiftInterval = 3.0 + Math.random() * 2.5;
-          }
-        }
-        this.gazeCurrentOffset.lerp(this.gazeOffsetTarget, Math.min(1.0, delta * 4.0));
-
-        const microSaccadeX = Math.sin(time * 6.7) * 0.012;
-        const microSaccadeY = Math.cos(time * 5.3) * 0.008;
-        const eyeLevelY = headPos.y - 0.03;
-        const clampedGazeY = Math.min(this.camera.position.y, eyeLevelY + 0.35);
-
-        this.gazeTarget.position.set(
-          this.camera.position.x + this.gazeCurrentOffset.x + microSaccadeX,
-          clampedGazeY + this.gazeCurrentOffset.y + microSaccadeY,
-          this.camera.position.z + this.gazeCurrentOffset.z
+        // 6. 委托 GazeController 处理眨眼、视线追踪、思考神态与头颈微晃
+        this.gazeController.update(
+          vrm,
+          delta,
+          time,
+          this.camera,
+          this.chatDirector.isThinking,
+          this.chatDirector.speaking,
+          emageLive,
+          this.manualExpression,
         );
-
-        if (this.isLookAtHead && headNode && neckNode) {
-          const dx = this.camera.position.x - headPos.x;
-          const dy = this.camera.position.y - headPos.y;
-          const dz = this.camera.position.z - headPos.z;
-          const distXZ = Math.sqrt(dx * dx + dz * dz);
-
-          const targetYaw = Math.atan2(dx, dz) - vrm.scene.rotation.y;
-          const normYaw = Math.atan2(Math.sin(targetYaw), Math.cos(targetYaw));
-          const clampedYaw = Math.max(-0.80, Math.min(0.80, normYaw));
-
-          const targetPitch = this.isLockHead ? 0 : -Math.atan2(dy, distXZ);
-          // 放宽上下仰角范围 (-0.42 ~ +0.38 rad，约 -24° ~ +22°)，使头部随镜头俯仰自如，告别"头只转左右"与"翻白眼"
-          const clampedPitch = this.isLockHead ? 0 : Math.max(-0.42, Math.min(0.38, targetPitch));
-
-          const neckOffsetQ = new THREE.Quaternion().setFromEuler(new THREE.Euler(clampedPitch * 0.30, clampedYaw * 0.30, 0, 'YXZ'));
-          const headOffsetQ = new THREE.Quaternion().setFromEuler(new THREE.Euler(clampedPitch * 0.70, clampedYaw * 0.70, 0, 'YXZ'));
-
-          neckNode.quaternion.multiply(neckOffsetQ);
-          headNode.quaternion.multiply(headOffsetQ);
-        }
-
-        if (this.isLookAtEyes && vrm) {
-          if (vrm.lookAt) {
-            vrm.lookAt.target = this.gazeTarget;
-            vrm.lookAt.autoUpdate = true;
-            vrm.lookAt.update(delta);
-          }
-        }
 
         vrm.update(delta);
 
-        // 影子跟随
+        // 7. 实体脚下影子平面高度贴合
         if (this.shadowPlane && vrm.humanoid) {
           const lf = vrm.humanoid.getNormalizedBoneNode('leftFoot');
           const rf = vrm.humanoid.getNormalizedBoneNode('rightFoot');
           if (lf && rf) {
-            lf.getWorldPosition(tempSoleA);
-            rf.getWorldPosition(tempSoleB);
-            const minAnkleY = Math.min(tempSoleA.y, tempSoleB.y);
+            lf.getWorldPosition(this.tempSoleA);
+            rf.getWorldPosition(this.tempSoleB);
+            const minAnkleY = Math.min(this.tempSoleA.y, this.tempSoleB.y);
             this.shadowPlane.position.y = minAnkleY - this.vrmSoleOffset + 0.002;
           }
         }
 
-        // 3D 头部气泡位置动态更新（高性能直接 DOM 变换 + 1.5px 死区过滤，彻底杜绝 60~120FPS React 全局重渲染与无谓 transform 抖动）
-        if (this.currentBubbleState.visible) {
-          const head = vrm.humanoid?.getNormalizedBoneNode('head');
-          const p = new THREE.Vector3();
-          if (head) {
-            head.getWorldPosition(p);
-            p.y += 0.24;
-          } else {
-            p.set(0, 1.7, 0);
-          }
-          p.project(this.camera);
-          const x = Math.round((p.x * 0.5 + 0.5) * window.innerWidth);
-          const y = Math.round((-(p.y * 0.5) + 0.5) * window.innerHeight);
-
-          const dx = x - this.lastBubbleX;
-          const dy = y - this.lastBubbleY;
-          // 死区过滤：角色微弱呼吸（位移 < 1.5px）时完全不更新 transform；位移明显或镜头旋转时直接修改 DOM，0 次 React 重渲染！
-          if (dx * dx + dy * dy >= 2.25) {
-            this.lastBubbleX = x;
-            this.lastBubbleY = y;
-            this.currentBubbleState.x = x;
-            this.currentBubbleState.y = y;
-            const bubbleEl = document.getElementById('head-bubble');
-            if (bubbleEl) {
-              bubbleEl.style.transform = `translate3d(calc(${x}px - 50%), calc(${y}px - 100% - 16px), 0)`;
-            }
-          }
-        }
+        // 8. 委托 BubbleTracker 更新 3D 头部气泡屏幕坐标 (带 1.5px 死区过滤)
+        this.bubbleTracker.update(vrm, this.camera);
       }
 
       this.controls?.update();
@@ -1125,27 +616,14 @@ uniform float uMatSaturation;
     animate();
   }
 
-  private _footLevelQ = new THREE.Quaternion();
-  private _footLevelParentInv = new THREE.Quaternion();
-
-  /**
-   * bodyTurn 踱步状态翻转时调用 — 通过 motionTransition 做 0.30s 平滑过渡,
-   * 并同步切换 naturalIdle.enabled,让两套骨骼系统通过 transitionManager 协调而非互相冲刷。
-   * ponytail: 仅在 idle/VRMA 分支被调用(EMAGE 时 bodyTurn 自己强制 IDLE);
-   *           transition 自身在 duration 后自动停,不需要手动 stop。
-   */
   private handleBodyTurnHandoff(vrm: VRM): void {
     const isStepping = this.bodyTurn.isStepping();
     if (isStepping === this.bodyTurnIsStepping) return;
     this.bodyTurnIsStepping = isStepping;
-    // 触发 motionTransition:naturalIdle 仍然启用(只跳过腿/髋写入),transition
-    // 会把腿/髋从 naturalIdle 的 rest pose 平滑过渡到 bodyTurn 的踱步 pose,再切回。
-    this.motionTransition.startTransition(vrm, 0.30);
+    this.motionTransition.startTransition(vrm, 0.30, undefined, BODY_TURN_BONES);
   }
 
   private levelFeet(vrm: VRM): void {
-    // 踱步进行中让出脚部控制权,否则 footIK 会把脚踝背屈旋转强抹平。
-    // ponytail: 仅做一次早返,无分配;踱步结束(IDLE)后自动恢复脚部水平修正。
     if (this.bodyTurn.isStepping()) return;
 
     const h = vrm.humanoid;
@@ -1160,8 +638,8 @@ uniform float uMatSaturation;
       foot.updateWorldMatrix(true, false);
       foot.getWorldQuaternion(this._footLevelQ);
       const euler = new THREE.Euler().setFromQuaternion(this._footLevelQ, 'YXZ');
-      euler.x = 0; // 绝对水平，鞋尖绝不翘起
-      euler.z = 0; // 绝对水平，鞋底绝不内翻外翻
+      euler.x = 0;
+      euler.z = 0;
       this._footLevelQ.setFromEuler(euler);
 
       lower.getWorldQuaternion(this._footLevelParentInv).invert();
@@ -1181,6 +659,7 @@ uniform float uMatSaturation;
     window.removeEventListener('resize', this.handleResize);
     this.controls?.dispose();
     this.renderer?.dispose();
+    this.lineworkWorld.dispose(this.scene);
   }
 }
 

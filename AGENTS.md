@@ -26,22 +26,60 @@ Project XiaoChun is a **100% browser-native 3D AI companion** with strong on-dev
 
 The 3D motion pipeline involves complex layered logic. Follow these geometric and physics rules strictly:
 
-### 2.1 Motion State Machine & Priority
-
-In the main render loop (`vrmEngine.ts`), motion source priority is strictly:
-1. **EMAGE Speaking Motion** (`activePlayer = 'emage'`): Driven by EMAGE whole-body co-speech motion; during inter-segment gaps, `SpeakIdleSystem` seamlessly takes over internally.
-2. **VRMA Thinking Loop** (`activePlayer = 'vrma'`): Plays `thinking.vrma` while the user's query is being processed by the LLM.
-3. **NaturalIdle Standby** (`activePlayer = 'idle'`): Driven by procedural physiological breathing and postural micro-sway.
+### 2.1 Unified Motion Blending Pipeline & Universal Motion API (万能动作融合管线与零障碍动作接入)
+- Files: `src/motion/pipeline/poseBuffer.ts`, `src/motion/pipeline/universalMotion.ts`, `src/motion/pipeline/motionPipeline.ts`, `src/core/vrmEngine.ts`
+- **Architecture Principle**:
+  1. **Single Bone Writer (唯一骨骼写入者)**: All sub-modules (Idle, VRMA, EMAGE, Universal Clips, BodyTurn) calculate desired transforms into preallocated `PoseBuffer` objects; only `MotionPipeline.evaluate()` commits final quaternions and positions atomically to VRM humanoid bones in the final pass.
+  2. **Layered Blend Graph**:
+     - **Layer 0 (Base)**: `NaturalIdle` procedural breathing and standby poise.
+     - **Layer 1 (Main Action)**: Managed via continuous Quintic Smootherstep crossfading ($\sum W = 1.0$) between `idle`, `vrma`, `emage`, and `motion`.
+     - **Layer 2 (Locomotion)**: `BodyTurnSystem` masked override applied strictly to `LOWER_BODY_MASK` (legs + hips) via `blendMasked()`.
+     - **Post Constraints**: `FootIK` physical ground anchoring followed by `LookAtHead` gaze alignment.
+  3. **Universal Motion Ingestion (万能动作零门槛接入入口)**:
+     - 任何地方想要播放任何动作（无论是 VRMA 文件 URL、ArrayBuffer 二进制流、还是 THREE.AnimationClip），**严禁到处写死 if-else 或私自创建 Mixer**，必须统一调用顶层 API：
+       ```ts
+       const handle = await vrmEngine.playMotion(clipOrUrl, {
+         fadeDuration: 0.75, // 五次平滑步阶曲线过渡时长 (秒)
+         loop: false,        // 是否循环播放
+         mask: 'all' | 'upperBody', // 全身动作或仅上半身手势
+         timeScale: 1.0,     // 播放倍速
+         onEnd: () => { ... } // 播完并平滑淡出回归待机后的回调
+       });
+       // 或随时平滑淡出停播：
+       vrmEngine.stopMotion(0.75);
+       ```
+  4. **Automatic Frame Inbetweening & Lifecycle**:
+     - 当新动作塞入时，管线自动捕获当前物理瞬时姿态作为过渡起点，自动消除 LookAt 增量；
+     - 使用五次平滑步阶（Quintic Smootherstep: $6t^5 - 15t^4 + 10t^3$）在自适应生理时间窗（0.70s~0.88s）内逐帧 Slerp 插补，彻底消除跳帧与机械撕扯；
+     - 非循环动作到达尾声时，管线自动启动淡出过渡并从容回归 `NaturalIdle`，触发 `onEnd` 回调，外部调用者 0 维护负担。
+  5. **⚠️ Critical Architecture Pitfall: Zero-Buffer Commit Trap (T-Pose & Sinking Bug)**:
+     - **The Problem**: 预分配的 `PoseBuffer` 初始四元数均为默认的 `(0, 0, 0, 1)`（即 T-Pose），骨盆位置为 `(0, 0, 0)`（即深陷脚底原点）。如果直接在渲染循环末端执行 `finalPose.commitToVRM(vrm)`，而 `basePose` 尚未经过逐帧计算或采样，就会强行将全零姿态覆写至骨骼，导致模型瞬间变为 T-Pose 假人并下沉入地底！
+     - **The Solution**: 渲染主循环末尾对管线姿态的更新必须遵循**非破坏性只读采样原则**（`motionPipeline.finalPose.sampleFromVRM(vrm)`），让各个动作子系统（NaturalIdle、UniversalMotion、EMAGE）安全驱动骨骼，由 `MotionTransitionManager` 负责跨状态五次平滑步阶 Slerp，绝不在未经安全校验前盲目覆写骨骼。
 
 ### 2.2 State Transitions & `MotionTransitionManager`
 - File: `src/motion/motionTransition.ts`
-- Principle: At the instant a state switch triggers (e.g. `Idle -> Think`, `Think -> Speaking`, `Speaking -> Idle`), it captures all normalized bone quaternions in milliseconds, then uses Quintic Smootherstep ($6t^5 - 15t^4 + 10t^3$) to Slerp-interpolate over typically 0.55s ~ 0.75s.
-- **⚠️ Critical Rule: Strictly exclude `neck` and `head`!**
-  - **Why**: `vrmEngine.ts` applies incremental multiplicative gaze tracking to `neck` and `head` at the end of every render frame (`neckNode.quaternion.multiply(neckOffsetQ)`).
-  - **Consequence**: If the transition manager snapshots head bones, the snapshot already contains the LookAt offset; during interpolation it gets multiplied again, causing severe head flip, jitter, or snap-back at the transition instant.
-  - **Rule**: `VRM_ALL_HUMANOID_BONES` **must never include `neck` or `head`**. Let each module's base orientation and LookAt independently smooth-follow.
+- Principle: At the instant a state switch triggers (e.g. `Idle -> Think`, `Think -> Speaking`, `Speaking -> Idle`), it captures all normalized bone quaternions in milliseconds, then uses Quintic Smootherstep ($6t^5 - 15t^4 + 10t^3$) to Slerp-interpolate over physiological timeframes (0.70s ~ 0.88s, ~42~53 frames).
+- **⚠️ Critical Architecture Pitfall: LookAt Decoupling via Inverse Quaternions**:
+  - **The Problem**: `vrmEngine.ts` applies multiplicative gaze tracking to `neck` and `head` at the end of every frame (`node.quaternion.multiply(offsetQ)`). If the transition manager blindly snapshots these bones, the snapshot contains the gaze offset; during interpolation it gets multiplied again, causing severe head flips or snap-back.
+  - **The Solution**: Instead of naively excluding neck/head, `MotionTransitionManager.startTransition(vrm, dur, lookAtOffsets)` receives the current LookAt offsets and multiplies the snapshot by the inverse offset: `snap.multiply(invLookAt)`. This preserves pure anatomical orientation and allows full 52-bone seamless interpolation without head spasms.
 
-### 2.3 EMAGE Cross-Segment Streaming Continuity (`switchSegment`)
+### 2.3 Three.js `AnimationMixer.stopAllAction()` Restore Trap (The `Think -> Emage` Drop-to-Idle Pitfall)
+- Files: `src/motion/vrmaPlayer.ts`, `src/director/chatDirector.ts`, `src/core/vrmEngine.ts`
+- **Pitfall Symptom**: When switching from thinking posture to speech gestures (`think -> emage`), the character abruptly dropped their hand back to idle, froze for a split second, and then began the speech gesture from scratch ("seemed to be switched back to idle then to emage").
+- **Root Cause**: In Three.js, calling `mixer.stopAllAction()` triggers an internal `restoreOriginalState()` on all active property bindings, **forcibly resetting all animated bones back to their rest pose / T-Pose (0)**. When `motionTransition.startTransition` sampled the VRM bones in the next render frame, it captured the already-reset idle pose rather than the actual thinking chin-resting pose!
+- **Engineering Standard & Rule**:
+  - In `VRMAMotionPlayer.stop()`, **never call `mixer.stopAllAction()` nakedly**.
+  - Always snapshot all 52 humanoid bone quaternions and `hips.position` immediately **before** calling `mixer.stopAllAction()`, and write them back immediately **after** `mixer.stopAllAction()`.
+  - This ensures bone transforms remain continuous in 3D space across action stops, allowing `MotionTransitionManager` to capture the true anatomical pose.
+
+### 2.4 State Machine Race Conditions & Premature Assignment Pitfall
+- **Pitfall Symptom**: Clicking "Send" caused the character to twitch/flicker back to idle for one frame before resuming `think`.
+- **Root Cause**: Prematurely writing `this.activePlayer = 'vrma'` before the animation clip actually starts playing. In the intermediate render frame, `vrmaPlayer.isPlaying()` was still `false`, causing the render loop's state machine to demote `activePlayer` back to `'idle'` and trigger an unintended reverse transition.
+- **Engineering Standard & Rule**:
+  - `activePlayer` must be driven **strictly and atomically by the render loop** (`vrmEngine.ts`) based on real-time module status (`isPlaying()` / `isThinking`).
+  - Never prematurely mutate `activePlayer` outside the render loop in async event handlers or caller methods (`sendMessage()`, etc.).
+
+### 2.5 EMAGE Cross-Segment Streaming Continuity (`switchSegment`)
 - File: `src/motion/emagePlayer.ts`
 - **Autoregressive Seed Inheritance**: When the Worker generates segment $i$, it must pass `continueFromPrevious = true` to absorb the last 4 frames' latent representation from the previous segment, guaranteeing mathematical motion continuity.
 - **Physical Angular Velocity & Damping Following**:
@@ -51,13 +89,24 @@ In the main render loop (`vrmEngine.ts`), motion source priority is strictly:
   - Inertial damping stiffness: read from `APP_CONFIG.emage.motion.dampingStiffness` (default 4.2).
 - **⚠️ Critical Rule**: Segment switching is handled internally inside the EMAGE player via `currentBoneQ` physical catch-up. **Never call `motionTransition.startTransition` externally during a segment switch** — it will produce duplicate snapshots and motion contention.
 
-### 2.4 Speech-End Smooth Recovery & Idle Upright Posture Guarantee
-- After all speech segments finish, call `emage.stop()` and fire `this.motionTransition.startTransition(vrm, 0.75)`.
+### 2.6 Speech-End Smooth Recovery & Idle Upright Posture Guarantee
+- After all speech segments finish, call `emage.stop()` and fire `this.motionTransition.startTransition(vrm, 0.88)`.
 - **⚠️ Critical Rule**: Never use `bone.quaternion.copy(rest)` in `emage.stop()` or `resetPose()` to snap lower-body bones straight! Always preserve the current real-time bone orientation and hand off to the global `motionTransition` to smoothly Slerp back into NaturalIdle — eliminates any 0.6s freeze/stutter.
 - **`NaturalIdleSystem` must continuously maintain upright lower-body posture**:
   - `NaturalIdleSystem` must bind and hold initial rest quaternions (`restQ`) for all leg, foot, toe, and pelvis bones: `leftUpperLeg`, `rightUpperLeg`, `leftLowerLeg`, `rightLowerLeg`, `leftFoot`, `rightFoot`, `leftToes`, `rightToes`, `hips`.
   - In `update(time, idleWeight)`, every lower-body bone must execute `slerp(restQ, idleWeight)`, giving the transition manager a definite upright target and preventing any bent-knee or crooked-leg residue during standby.
   - In both idle and VRMA modes, call `levelFeet(vrm)` to keep soles absolutely level with the ground ($X=0, Z=0$), preventing toe-lift or foot roll.
+
+### 2.7 BodyTurn Stepping & Head Gaze Decoupling (`handleBodyTurnHandoff`)
+- Files: `src/motion/bodyTurn.ts`, `src/core/vrmEngine.ts`, `src/motion/motionTransition.ts`
+- **Pitfall Symptom**: When the camera rotates around the character, `BodyTurnSystem` steps to rotate the body toward the lens. At the moment stepping finishes, the head abruptly jerks/snaps to the side before snapping back to face the camera ("头在转的时候注视镜头，在要结束的时候头突然偏一下").
+- **Root Causes**:
+  1. `handleBodyTurnHandoff` originally called global `motionTransition.startTransition(vrm, 0.30)`. Because `VRM_ALL_HUMANOID_BONES` included `head` and `neck`, the transition manager captured a snapshot of the head/neck and forcibly interpolated them over 0.30s, fighting against the real-time `LookAt` system and pulling the head backward in time.
+  2. `BodyTurnSystem` originally applied aggressive spine pre-rotation (`upperChestTarget = normYaw * 0.30`, total 0.60 across spine/chest). Because `neck` and `head` are child bones of `upperChest`, this caused the head's world yaw to overshoot by 160%; when stepping stopped, the spine snapped back to 0, whipping the head.
+- **Engineering Standard & Rule**:
+  - `MotionTransitionManager.startTransition` must support `boneFilter?: readonly string[]`.
+  - In `handleBodyTurnHandoff`, strictly pass `BODY_TURN_BONES` (only `hips`, `upperLeg`, `lowerLeg`, `foot`, `toes`). **Never snapshot or transition `head`, `neck`, or arms during stepping handoffs!**
+  - Keep `BodyTurnSystem` spine yaw subtle ($\le 0.08$ total) to let real-time `LookAtHead` cleanly govern gaze orientation without spine whip.
 
 ---
 

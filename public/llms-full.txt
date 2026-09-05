@@ -1,6 +1,6 @@
 # Project XiaoChun — Full Technical Documentation
 
-> Complete architecture, dependency inventory, AI inference pipelines, i18n / SSR setup, and Cloudflare Workers deployment guide.
+> 100% browser-native 3D anime companion (二次元伴侣). Complete architecture, dependency inventory, AI inference pipelines, modular 3D engine, universal motion pipeline, i18n / SSR setup, and Cloudflare Workers deployment guide.
 
 ---
 
@@ -8,7 +8,15 @@
 
 Project XiaoChun is a full-stack web application built on **Vite 8 + TanStack Start (full-stack SSR) + React 19 + three.js 0.185** deployed to **Cloudflare Workers**. Everything except Edge-TTS runs in the browser tab; the edge runtime handles SSR stream rendering and WebSocket Edge-TTS proxying.
 
-- **3D Engine**: `three.js` with `@pixiv/three-vrm` for VRM 1.0 rendering (MToon NPR shader). OrbitControls, EffectComposer with custom render loop. Lightweight outline-free pass — VRM's built-in MToon outline is preserved.
+- **3D Engine Architecture**: Decoupled into five modular sub-engines:
+  - `src/core/vrmEngine.ts`: Master facade and lifecycle coordinator.
+  - `src/core/vrmCharacter.ts`: VRM 1.0 lifecycle, spring bones (`VRMSpringBoneManager`), MToon material calibration, facial expression presets, and LookAt head tracking.
+  - `src/core/vrmLighting.ts`: 6-channel lighting rig (directional sun, hemisphere sky/ground, front face spot, rim fill, leg fill, arm rim) with spherical sun mesh.
+  - `src/core/vrmEnvironment.ts`: Procedural linework city (19 buildings across 5 archetypes, 5 stylized trees, wireframe ground grid).
+  - `src/core/vrmRenderLoop.ts`: Adaptive requestAnimationFrame render loop with visibility-aware throttling and clock delta clamping.
+- **Universal Motion Pipeline (`src/motion/universalMotionPipeline.ts`)**:
+  - Unifies custom clips (mixamo, bvh, fbx, vrma), procedural natural idle/breathing, and AI co-speech motion (EMAGE) under a single pipeline.
+  - Features dual-mode crossfade (smooth blending or instantaneous cuts), non-linear root displacement locking (anti-ground-penetration), and automated rest-pose restoration.
 - **Application Framework**: TanStack Start provides file-based routing, full-stack SSR, and server-only helpers (`createServerOnlyFn`, `getCookie` from `@tanstack/react-start/server`).
 - **Bundler**: Vite 8 with `@cloudflare/vite-plugin` and custom `localApiPlugin` middleware that runs Miniflare during `pnpm dev` for 100% dev/prod parity.
 - **Styling**: Tailwind CSS v4 with `@theme` tokens (`brand-*` coral palette, derived from the default VRM model's hair color) + `tailwindcss-animate` for micro-interactions.
@@ -21,15 +29,16 @@ All AI runs in the browser tab via WebGPU + WebAssembly:
 
 ### 2.1 LLM (WebLLM)
 - **Engine**: `@mlc-ai/web-llm` v0.2.84
-- **Model**: Qwen3 0.6B (q4f16_1) — ~400 MB, downloaded on first launch and cached in `CacheStorage` for instant subsequent loads
+- **Model**: Qwen2.5 1.5B (q4f16_1, default) / Qwen3 0.6B (optional) — downloaded on first launch and cached in `CacheStorage` for instant subsequent loads
 - **Runtime**: WebGPU (falls back to WASM with reduced throughput)
 - **Streaming**: Chunked completion with milestone callbacks (`loading-webgpu`, `thinking` states)
 - **System Prompts**: Per-language (`src/llm/prompts.ts`) — each prompt enforces a `🌐 LANGUAGE RULE` so the LLM responds in the user's language regardless of input language
 
-### 2.2 Motion (EMAGE)
+### 2.2 Motion (EMAGE & Universal Motion Pipeline)
 - **Model**: EMAGE full-body co-speech motion (PantoMatrix, [Yi et al., CVPR 2024](https://pantomatrix.github.io/EMAGE/))
 - **Runtime**: ONNX Runtime Web v1.22.0-dev inside a Dedicated Web Worker (`src/motion/emageWorker.ts`)
 - **Orchestrator**: `src/motion/emagePlayer.ts` — sentence-level streaming pipeline, temporal Gaussian smoothing, inertial tracking, natural idle blends
+- **Universal Pipeline Integration**: Seamlessly handed over to `UniversalMotionPipeline` for crossfading, root coordinate locking, and zero-snap return to `NaturalIdle`.
 - **Browser support**: WebGPU execution provider with multi-threaded WASM fallback for browsers without WebGPU
 
 ### 2.3 TTS (Edge-TTS)

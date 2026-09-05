@@ -3,7 +3,7 @@ import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
 import { VRMAnimationLoaderPlugin, createVRMAnimationClip } from '@pixiv/three-vrm-animation';
 import type { VRM } from '@pixiv/three-vrm';
 import { retargetClip } from './vrmaRetarget';
-import type { MotionTransitionManager } from './motionTransition';
+import { VRM_ALL_HUMANOID_BONES, type MotionTransitionManager } from './motionTransition';
 
 export interface VRMALoadResult {
   name: string;
@@ -11,6 +11,7 @@ export interface VRMALoadResult {
 }
 
 export class VRMAMotionPlayer {
+  private vrm: VRM | null = null;
   private mixer: THREE.AnimationMixer | null = null;
   private action: THREE.AnimationAction | null = null;
   private name = '';
@@ -28,6 +29,10 @@ export class VRMAMotionPlayer {
   private fadeDuration = 0.5;
 
   private transitionManager: MotionTransitionManager | null = null;
+
+  bind(vrm: VRM): void {
+    this.vrm = vrm;
+  }
 
   bindTransitionManager(tm: MotionTransitionManager): void {
     this.transitionManager = tm;
@@ -63,13 +68,11 @@ export class VRMAMotionPlayer {
   }
 
   private playClipOnMixer(clip: THREE.AnimationClip, vrm: VRM, fadeDur = 0.65): THREE.AnimationAction {
+    this.vrm = vrm;
     const mixer = this.mixer ?? new THREE.AnimationMixer(vrm.scene);
     this.mixer = mixer;
     this.isSequenceMode = false;
     this.fadeDuration = fadeDur;
-
-    // 全局动作平滑过渡器：无感捕获当前实时骨骼并平滑 Slerp 渐入新动作
-    this.transitionManager?.startTransition(vrm, fadeDur);
 
     const newAction = mixer.clipAction(clip);
     newAction.reset();
@@ -94,13 +97,11 @@ export class VRMAMotionPlayer {
   }
 
   playLoop(clip: THREE.AnimationClip, vrm: VRM, fadeDur = 0.65): THREE.AnimationAction {
+    this.vrm = vrm;
     const mixer = this.mixer ?? new THREE.AnimationMixer(vrm.scene);
     this.mixer = mixer;
     this.isSequenceMode = false;
     this.fadeDuration = fadeDur;
-
-    // 全局动作平滑过渡器：从待机或其他动作无感捕获当前骨骼，丝滑 Slerp 融入循环
-    this.transitionManager?.startTransition(vrm, fadeDur);
 
     const newAction = mixer.clipAction(clip);
     newAction.reset();
@@ -126,6 +127,7 @@ export class VRMAMotionPlayer {
   playSequence(clips: THREE.AnimationClip[], vrm: VRM, fadeDur = 0.65): void {
     if (!clips.length) return;
 
+    this.vrm = vrm;
     const mixer = this.mixer ?? new THREE.AnimationMixer(vrm.scene);
     this.mixer = mixer;
     this.isSequenceMode = true;
@@ -135,8 +137,7 @@ export class VRMAMotionPlayer {
     this.isFadingToIdle = false;
     this.fadeDuration = fadeDur;
 
-    // 全局动作平滑过渡器接管
-    this.transitionManager?.startTransition(vrm, fadeDur);
+
 
     clips.forEach((clip) => {
       const act = mixer.clipAction(clip);
@@ -278,7 +279,31 @@ export class VRMAMotionPlayer {
   }
 
   stop() {
+    // 关键修正：Three.js 的 AnimationMixer.stopAllAction() 会默认触发 restoreOriginalState()，
+    // 将受控骨骼粗暴重置回 T-Pose / Rest Pose（0），导致姿态闪现顿挫！
+    // 在 stopAllAction 执行前后截获并完整保护当前姿态，确保处于自然连续的人体生理姿态，
+    // 供全局 MotionTransitionManager 或下一段动作无缝接管！
+    const boneTransforms: { node: THREE.Object3D; q: THREE.Quaternion; p?: THREE.Vector3 }[] = [];
+    if (this.vrm?.humanoid) {
+      for (const name of VRM_ALL_HUMANOID_BONES) {
+        const node = this.vrm.humanoid.getNormalizedBoneNode(name as any);
+        if (node) {
+          boneTransforms.push({
+            node,
+            q: node.quaternion.clone(),
+            p: name === 'hips' ? node.position.clone() : undefined,
+          });
+        }
+      }
+    }
+
     this.mixer?.stopAllAction();
+
+    for (const item of boneTransforms) {
+      item.node.quaternion.copy(item.q);
+      if (item.p) item.node.position.copy(item.p);
+    }
+
     this.action = null;
     this.mixer = null;
     this.paused = false;

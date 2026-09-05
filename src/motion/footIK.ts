@@ -192,6 +192,24 @@ export class FootIKSolver {
   }
 
   /**
+   * 软重置：重置求解器状态但完整保留当前时刻 hips 与双足瞬时物理姿态，
+   * 专供动作切换时 MotionTransitionManager 毫秒级无损捕获快照
+   */
+  softReset(): void {
+    this.smoothHipsOffsetY = 0;
+    if (this.leftLeg) {
+      this.leftLeg.isStance = true;
+      this.leftLeg.effectiveWeight = 1.0;
+      this.leftLeg.kneeFlexionBias = 0.0;
+    }
+    if (this.rightLeg) {
+      this.rightLeg.isStance = true;
+      this.rightLeg.effectiveWeight = 1.0;
+      this.rightLeg.kneeFlexionBias = 0.0;
+    }
+  }
+
+  /**
    * 在动画帧之后调用，实施脚部支点地锚、单脚重心转移与双骨逆向动力学纠偏
    */
   solve(delta: number): void {

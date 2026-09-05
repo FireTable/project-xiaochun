@@ -77,19 +77,16 @@ export const APP_CONFIG = {
   // 命名: q4f16_1 = 4bit 权重(小); q0f16 = 近 fp16(更大更准)。手机建议 ≤2B。
   // 加载失败会改用 fallback。
   // thinking: Qwen3 / Qwen3.5 的思考链。true=先想再答(更慢、更占 GPU);false=直接答。
-  // 对话条菜单可切换模型与思考模式,选择写入 localStorage,有记录时以用户为准。
   // 模型选项来自 WebLLM prebuiltAppConfig,按 provider 分组,同一模型优先 q4f16_1。
   llm: {
     model: 'Qwen2.5-1.5B-Instruct-q4f16_1-MLC',
     fallback: 'Qwen2.5-0.5B-Instruct-q4f16_1-MLC',
     thinking: false,
   },
-  // 端侧记忆:短期近几轮、长期摘要、实体 JSON。都在 IndexedDB,不进服务器。
+  // 端侧记忆: 小模型(0.5B/1.5B)对注意力与上下文长度极敏感，控制在 2 轮防止复读、人设漂移及 prefill 延迟
   memory: {
-    shortTermTurns: 6,
-    turnMaxChars: 180,
-    longTermKeep: 80,
-    longTermTopK: 4,
+    shortTermTurns: 2,
+    turnMaxChars: 120,
   },
   camera: {
     defaultFov: 45,
@@ -122,7 +119,7 @@ export const APP_CONFIG = {
     presets: {
       vibrant: {
         clothing: 1.20,
-        hair: 1.30,
+        hair: 1.40,
         eyes: 1.30,
         skin: 0.95,
       },
