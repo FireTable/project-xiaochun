@@ -191,7 +191,7 @@ export const en: Trans = {
     thinking: 'Hmm… let me think…',
     speaking: 'Here we go~',
     tts: 'Warming up my voice…',
-    emage: 'Picking a pose for you…',
+    emage: 'Hmm… figuring out how to reply with feeling…',
     loadingWebGpu: 'XiaoChun\'s brain is warming up…',
     greeting: 'Hi! Glad to chat with you!',
     // ponytail: HeadBubble 渲染时硬加 "bubble." 前缀,所以状态 key 必须是 bubble.error.llm

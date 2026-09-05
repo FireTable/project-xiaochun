@@ -221,6 +221,41 @@ export const ChatBar: React.FC = () => {
     };
   }, []);
 
+  /**
+   * ponytail: iOS 软键盘弹出时把 ChatBar 浮起 — 3D 场景保持原尺寸不被挤压。
+   * 视觉策略:
+   * - App 根仍走 h-screen / h-[100dvh] (锁原 viewport),3D 场景不变
+   * - 用 visualViewport API 算键盘高度,写到 --kb CSS 变量
+   * - ChatBar 的 bottom 用 calc(env(safe-area-inset-bottom) + var(--kb,0px)),键盘顶多高它就浮多高
+   * - 键盘消失时 --kb 复位为 0,ChatBar 回到底部
+   * 同时强制 scrollTo(0,0) 抵消 iOS 自动滚到 input 的行为。
+   */
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    const vv = window.visualViewport;
+    if (!vv) return;
+    const update = () => {
+      // ponytail: keyboard height = 全屏高度(layout viewport) - 可见视口高度(visual viewport)。
+      // layout viewport 一般就是 window.innerHeight,visible viewport 是 vv.height。
+      // 二者差值即键盘占的空间,实时同步到 --kb。
+      const kb = Math.max(0, window.innerHeight - vv.height);
+      document.documentElement.style.setProperty('--kb', `${kb}px`);
+    };
+    vv.addEventListener('resize', update);
+    vv.addEventListener('scroll', update);
+    update();
+    return () => {
+      vv.removeEventListener('resize', update);
+      vv.removeEventListener('scroll', update);
+    };
+  }, []);
+
+  const handleInputFocus = () => {
+    if (typeof window !== 'undefined') {
+      requestAnimationFrame(() => window.scrollTo(0, 0));
+    }
+  };
+
   const llmProgress = llmStats;
   const llmBps = llmStats.bps;
 
@@ -311,7 +346,7 @@ export const ChatBar: React.FC = () => {
   };
 
   return (
-    <div className="fixed bottom-[calc(0.75rem+env(safe-area-inset-bottom,0px))] sm:bottom-8 left-1/2 -translate-x-1/2 z-30 w-full max-w-xl px-3 sm:px-4 pointer-events-auto select-none">
+    <div className="fixed bottom-[calc(0.75rem+env(safe-area-inset-bottom,0px)+var(--kb,0px))] sm:bottom-8 left-1/2 -translate-x-1/2 z-30 w-full max-w-xl px-3 sm:px-4 pointer-events-auto select-none">
       <div className="flex items-center gap-2 sm:gap-2.5 w-full">
         <DropdownMenu
           onOpenChange={(open) => {
@@ -501,7 +536,10 @@ export const ChatBar: React.FC = () => {
             placeholder={isModelReady ? t('chat.placeholder') : t('chat.syncingPlaceholder')}
             onInput={handleInput}
             onKeyDown={handleKeyDown}
-            onFocus={() => setIsInputFocused(true)}
+            onFocus={() => {
+              setIsInputFocused(true);
+              handleInputFocus();
+            }}
             onBlur={() => setIsInputFocused(false)}
             autoComplete="off"
             // ponytail: 回复中也允许输入 — 用户可以预先打下一句,点 send 时

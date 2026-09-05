@@ -159,9 +159,12 @@ export const LoadingOverlay: React.FC<LoadingOverlayProps> = ({ state, onBreakSt
     return `✦ ${t('loading.madPipelineReady')}`;
   };
 
+  // ponytail: VRM 加载完成后 vrmEngine 把 subtitleKey 置空(切到「ready」态),这时会
+  // 显示空白 — 让 subtitle 兜底走 stageText(100% 时是「✦ 破次元管线准备就绪!」),
+  // 保证从 2D 进入 3D 的过渡期内文案不丢。
   const subtitle = effectiveState.subtitleKey
     ? t(`loading.${effectiveState.subtitleKey}`, effectiveState.subtitleVars as Record<string, unknown> | undefined)
-    : '';
+    : (progress >= 100 ? getStageText() : '');
 
   const stageText = subtitle ? `${subtitle} // ${getStageText()}` : getStageText();
 

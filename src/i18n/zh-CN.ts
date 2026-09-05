@@ -191,7 +191,7 @@ export const zhCN = {
     thinking: '嗯嗯…让小蠢想想嘛…',
     speaking: '来啦来啦～',
     tts: '嗯…让嗓子热一下…',
-    emage: '嗯…想想怎么动…',
+    emage: '嗯…想想怎么深情并茂地回复',
     // ponytail: 这个本来该走 LoadingOverlay,但 webLLM milestone 走的是 bubble status 通道,
     // 兜底翻译一下避免 i18next 把 key 原样吐出来。
     loadingWebGpu: '小蠢的大脑要热身一下…',

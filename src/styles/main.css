@@ -34,6 +34,11 @@
   /* ponytail: 全局字体平滑 + 阻止 iOS Safari 文本大小自动调整。 */
   html { -webkit-text-size-adjust: 100%; }
 
+/* ponytail: ChatBar useEffect 在 keyboard 出现时把键盘高度写到 --kb。
+   ChatBar 用 calc(... + var(--kb)) 浮起 — 3D 场景保持原尺寸不被挤压。
+   iOS Safari 100dvh 不跟随键盘收缩,只能 JS 兜底。 */
+:root { --kb: 0px; }
+
   /* 按钮状态变化统一过渡。不过渡 background 简写,避免渐变↔纯色时 background-image 插值成透明、透出白场景。 */
   button {
     transition-property: color, background-color, border-color, box-shadow, transform, opacity, filter;

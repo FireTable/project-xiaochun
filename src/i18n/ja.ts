@@ -191,7 +191,7 @@ export const ja: Trans = {
     thinking: 'うーん…考え中…',
     speaking: 'いってきます～',
     tts: '声のお準備…',
-    emage: 'ポーズを考えるね…',
+    emage: 'んー…どう感情込めて返そうか考え中…',
     loadingWebGpu: '小蠢の脳を温めてる…',
     greeting: 'こんにちは!お話しできて嬉しいです!',
     // HeadBubble 渲染时硬加 "bubble." 前缀,所以状态 key 必须是 bubble.error.llm
