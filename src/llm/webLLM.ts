@@ -19,6 +19,9 @@ export { getLlmLoadProgress, onLlmLoadProgress, type LlmLoadProgress };
 import { detectGpuDeviceProfile, getQuickDeviceTier, getCachedDeviceProfile, type GpuDeviceProfile } from './deviceDetection';
 export { detectGpuDeviceProfile, getQuickDeviceTier, getCachedDeviceProfile, type GpuDeviceProfile };
 
+import { getActiveProviderId, getActiveProvider, completeOnce as customCompleteOnce } from './providers';
+import type { ChatMessage as ProviderChatMessage } from './providers';
+
 import './polyfill';
 
 export const DEFAULT_LLM_MODEL = APP_CONFIG.llm.model;
@@ -410,6 +413,36 @@ async function completeOnce(
 }
 
 /**
+ * ponytail: 自定义 provider (OpenAI-compatible HTTP) 的对话实现 — 走 fetch + SSE 流式,
+ * 不创建 webLLM worker,不下载模型权重。返回完整字符串(chatDirector 流式调度在 chat 层)。
+ */
+async function generateCustomSpeechReply(
+  userText: string,
+  onMilestone?: (key: LlmMilestoneKey, vars?: Record<string, unknown>) => void,
+  systemPrompt: string = XIAOCHUN_SYSTEM_PROMPT['zh-CN'],
+): Promise<string> {
+  const lang = langFromSystemPrompt(systemPrompt);
+  const mem = await recallForChat(userText);
+  const recalled = applyRecall(systemPrompt, mem, lang);
+  const profile = await getActiveProvider();
+  if (!profile) {
+    throw new Error('active custom provider not found');
+  }
+  onMilestone?.('thinking');
+  const messages: ProviderChatMessage[] = [
+    { role: 'system', content: recalled.system },
+    ...recalled.history,
+    { role: 'user', content: wrapUserContent(userText, lang) },
+  ];
+  return customCompleteOnce(profile, {
+    model: profile.model,
+    messages,
+    temperature: 0.8,
+    maxTokens: 120,
+  });
+}
+
+/**
  * 对话生成接口 — 纯前端本地推理对话
  * @param systemPrompt 可选覆盖,缺省用 XIAOCHUN_SYSTEM_PROMPT['zh-CN']。
  *   ponytail: 由 chatDirector 在调用时根据当前 i18n 语言注入,实现"用户用什么语言问,就用什么语言答"。
@@ -419,6 +452,13 @@ export async function generateSpeechReply(
   onMilestone?: (key: LlmMilestoneKey, vars?: Record<string, unknown>) => void,
   systemPrompt: string = XIAOCHUN_SYSTEM_PROMPT['zh-CN'],
 ): Promise<string> {
+  // ponytail: 有 active custom provider 就走 HTTP 路径,跳过 webLLM worker + Worker init。
+  // 这样 ChatBar/chatDirector 不知道后端是什么,接口保持不变。
+  const customId = await getActiveProviderId();
+  if (customId) {
+    return generateCustomSpeechReply(userText, onMilestone, systemPrompt);
+  }
+
   let activeEngine = await getWebLLMEngine({ onMilestone });
   onMilestone?.('thinking');
   let gen = loadGen;

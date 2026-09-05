@@ -1,8 +1,9 @@
 import React, { useState, useEffect, useRef, Fragment } from 'react';
 import { useTranslation } from 'react-i18next';
-import { ChevronLeft, ChevronRight, Menu } from 'lucide-react';
+import { ChevronLeft, ChevronRight, Menu, Server } from 'lucide-react';
 import { vrmEngine } from '@/core/vrmEngine';
 import { DeviceStatusDialog } from '@/components/DeviceStatusDialog';
+import { ProviderConfigDialog } from '@/components/ProviderConfigDialog';
 import {
   isWebLLMReady,
   onWebLLMReadyChange,
@@ -73,6 +74,7 @@ export const ChatBar: React.FC = () => {
   const [activeModel, setActiveModel] = useState(() => getActiveModelId());
   const [pickingModel, setPickingModel] = useState(false);
   const [showDeviceDialog, setShowDeviceDialog] = useState(false);
+  const [showProviderDialog, setShowProviderDialog] = useState(false);
   const llmGroups = listModelGroups();
   const activeBase = modelBaseId(activeModel);
   const thinkingSupported = activeBase.startsWith('Qwen3');
@@ -373,6 +375,16 @@ export const ChatBar: React.FC = () => {
                 </p>
                 <DropdownMenuSeparator />
                 <DropdownMenuItem
+                  onSelect={() => setShowProviderDialog(true)}
+                  className="justify-between"
+                >
+                  <span className="flex items-center gap-1.5">
+                    <Server className="h-3.5 w-3.5 text-white/50" />
+                    <span>模型服务提供商</span>
+                  </span>
+                  <ChevronRight className="h-4 w-4 shrink-0 text-white/50" />
+                </DropdownMenuItem>
+                <DropdownMenuItem
                   onSelect={() => setShowDeviceDialog(true)}
                   className="justify-between"
                 >
@@ -537,6 +549,11 @@ export const ChatBar: React.FC = () => {
         open={showDeviceDialog}
         onOpenChange={setShowDeviceDialog}
         activeModelId={activeModel}
+      />
+
+      <ProviderConfigDialog
+        open={showProviderDialog}
+        onOpenChange={setShowProviderDialog}
       />
     </div>
   );
