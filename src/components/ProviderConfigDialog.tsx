@@ -147,7 +147,7 @@ export const ProviderConfigDialog: React.FC<ProviderConfigDialogProps> = ({
       <DialogContent className="max-w-[min(28rem,calc(100vw-1.5rem))] sm:max-w-lg max-h-[calc(100dvh-env(safe-area-inset-top,0px)-env(safe-area-inset-bottom,0px))] overflow-y-auto">
         <DialogHeader className="space-y-1">
           <div className="flex items-center gap-2 text-brand-300">
-            <Server className="h-4 w-4 sm:h-5 sm:w-5 shrink-0 text-brand-400" />
+            <Server className="h-4 w-4 sm:h-5 sm:w-5 shrink-0" />
             <DialogTitle className="text-sm sm:text-base font-semibold">
               连接自定义模型服务
             </DialogTitle>
