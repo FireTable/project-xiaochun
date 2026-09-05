@@ -124,6 +124,22 @@ export async function setActiveProviderId(id: string | null): Promise<void> {
       unloadEngine();
     } catch { /* noop */ }
   }
+  notifyProvidersChange();
+}
+
+// ponytail: providers 列表 / 激活态变化的订阅 — sync import 批量写完 provider 后
+// UI(ChatBar 的 activeCustom state)一次性 re-fetch,避免手动重开 dialog 才能看到。
+const providersChangeListeners = new Set<() => void>();
+
+export function subscribeProvidersChange(cb: () => void): () => void {
+  providersChangeListeners.add(cb);
+  return () => { providersChangeListeners.delete(cb); };
+}
+
+function notifyProvidersChange(): void {
+  providersChangeListeners.forEach((cb) => {
+    try { cb(); } catch { /* noop */ }
+  });
 }
 
 export interface SaveInput {
@@ -174,6 +190,7 @@ export async function saveProvider(input: SaveInput): Promise<ProviderProfile> {
       reject(req.error);
     };
   });
+  notifyProvidersChange();
   return { ...profile, apiKey: '' };
 }
 
@@ -192,6 +209,7 @@ export async function deleteProvider(id: string): Promise<void> {
     };
   });
   if ((await getActiveProviderId()) === id) await setActiveProviderId(null);
+  notifyProvidersChange();
 }
 
 function dedupeModels(list: string[]): string[] {

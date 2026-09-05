@@ -20,9 +20,10 @@ import {
   getCachedDeviceProfile,
   listModelGroups,
   modelBaseId,
+  subscribeThinkingEnabled,
 } from '@/llm/webLLMProvider';
-import { getActiveProviderId, getProvider, type ProviderProfile } from '@/llm/customProvider';
-import { readActiveKey } from '@/llm/activeKey';
+import { getActiveProviderId, getProvider, type ProviderProfile, subscribeProvidersChange } from '@/llm/customProvider';
+import { readActiveKey, subscribeActiveKey } from '@/llm/activeKey';
 import { Send, Sparkles, Loader2 } from '@/components/icons';
 import { Button } from '@/components/ui/button';
 import {
@@ -100,9 +101,12 @@ export const ChatBar: React.FC = () => {
   }
   const deviceTier = getCachedDeviceProfile()?.tier ?? getQuickDeviceTier();
 
-  // ponytail: 同步读 active key — custom 用户永远不需要等 webllm 加载,
-  // 否则 SYNC badge + "加载模型 0%" + "神经核心同步中" 会一直挂着,误导用户。
-  const isOnCustom = readActiveKey()?.kind === 'custom';
+  // ponytail: active key 走 state — sync import 写入 sessionStorage 后会通过 subscribeActiveKey
+  // 推过来,直接 readActiveKey() 是非反应式,UI 不会跟新。
+  const [activeKey, setActiveKey] = useState(() => readActiveKey());
+  // custom 用户永远不需要等 webllm 加载,否则 SYNC badge + "加载模型 0%" + "神经核心同步中"
+  // 会一直挂着,误导用户。
+  const isOnCustom = activeKey?.kind === 'custom';
 
   // 模型与引擎就绪感知
   const [isVRMReady, setIsVRMReady] = useState(() => vrmEngine.isReady());
@@ -154,6 +158,33 @@ export const ChatBar: React.FC = () => {
   useEffect(() => {
     void refreshActiveCustom();
   }, [showProviderDialog]);
+
+  // ponytail: 跨设备同步 import 写完存储后,store 主动推订阅 — UI 立刻反映。
+  // active key 变化同时覆盖 webllm 模型切换(setActiveModelId 也走 writeActiveKey)。
+  useEffect(() => {
+    const unsubKey = subscribeActiveKey((k) => {
+      setActiveKey(k);
+      if (k?.kind === 'webllm') {
+        setActiveModel(k.modelId);
+      }
+      // custom / null 都要 re-fetch active provider — import 完 provider 列表变了,
+      // 老的 provider 可能已经被覆盖,需要拿到最新一份。
+      void refreshActiveCustom();
+    });
+    const unsubThinking = subscribeThinkingEnabled((enabled) => {
+      setThinkingOn(enabled);
+    });
+    const unsubProviders = subscribeProvidersChange(() => {
+      void refreshActiveCustom();
+    });
+    return () => {
+      unsubKey();
+      unsubThinking();
+      unsubProviders();
+    };
+    // ponytail: refreshActiveCustom 是组件内函数,身份稳定,故意不列依赖避免循环。
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   useEffect(() => {
     // 监听 3D VRM 模型就绪状态
@@ -349,6 +380,7 @@ export const ChatBar: React.FC = () => {
     <div className="fixed bottom-[calc(0.75rem+env(safe-area-inset-bottom,0px)+var(--kb,0px))] sm:bottom-8 left-1/2 -translate-x-1/2 z-30 w-full max-w-xl px-3 sm:px-4 pointer-events-auto select-none">
       <div className="flex items-center gap-2 sm:gap-2.5 w-full">
         <DropdownMenu
+          modal={false}
           onOpenChange={(open) => {
             if (!open) setPickingModel(false);
           }}
@@ -369,10 +401,15 @@ export const ChatBar: React.FC = () => {
               <Menu className="w-4 h-4" />
             </Button>
           </DropdownMenuTrigger>
+          {/* ponytail: modal={false} 允许菜单打开时点击外部(input)直接聚焦,不会被 Radix
+            的覆盖层拦掉。onCloseAutoFocus 阻止菜单关闭时把焦点弹回 trigger — 否则 input
+            刚拿到焦点(键盘弹起、ChatBar 浮起)就会被抢回去,键盘收起、ChatBar 回到底部,
+            视觉上「折叠」。两个配合才能让 input 稳定保持聚焦状态。 */}
           <DropdownMenuContent
             side="top"
             align="start"
             collisionPadding={12}
+            onCloseAutoFocus={(e) => e.preventDefault()}
             className="w-[min(18rem,calc(100vw-1.5rem))] max-w-[calc(100vw-1.5rem)] overflow-x-hidden"
           >
             {pickingModel ? (
@@ -507,14 +544,42 @@ export const ChatBar: React.FC = () => {
           </DropdownMenuContent>
         </DropdownMenu>
 
-        {/* 输入框主胶囊：高度严格 h-11 (44px)，非阻塞可随时聚焦输入，排队时呼吸高亮 */}
-        <div
-          className={`flex-1 flex items-center h-11 sm:h-11 rounded-full bg-[#13111c]/85 border shadow-[0_8px_32px_rgba(0,0,0,0.5)] backdrop-blur-2xl px-3.5 sm:px-4 transition-all duration-300 ${
+        {/* 输入框主胶囊：高度严格 h-11 (44px)，非阻塞可随时聚焦输入，排队时呼吸高亮。
+            ponytail: 用 <form autoComplete="off"> 包住 chat input,显式声明这个 form 不是
+            登录表单 — Chrome / Safari 的密码管理器会基于 form 上下文判断要不要弹 autofill,
+            这样 ProviderConfigDialog 里的 type="password" 保存的 credential 就不会回流到
+            chat input 上。 */}
+        <form
+          autoComplete="off"
+          onSubmit={(e) => e.preventDefault()}
+          className={`flex-1 flex items-center h-11 sm:h-11 rounded-full bg-[#13111c]/85 border shadow-[0_8px_32px_rgba(0,0,0,0.5)] backdrop-blur-2xl px-3.5 sm:px-4 transition-all duration-300 relative ${
             isQueued
               ? 'border-[#ea8377] ring-2 ring-[#ea8377]/40 shadow-[0_0_24px_rgba(234,131,119,0.35)]'
               : 'border-white/15 focus-within:border-[#ea8377] focus-within:ring-2 focus-within:ring-[#ea8377]/30 focus-within:shadow-[0_0_24px_rgba(234,131,119,0.3)]'
           }`}
         >
+          {/* ponytail: Chrome 内置密码管理器看到 URL 命中 saved credential 就会弹 autofill,
+              autoComplete="off" / data-form-type / 1p-ignore 都不管用。decoy pattern — 在
+              chat input 前面塞两个视觉隐藏的 username + current-password,Chrome 会把
+              autofill 目标锁定到这两个 decoy,真正可见的 chat input 被绕过。tabIndex=-1 +
+              aria-hidden + pointer-events-none 保证它们不进 tab 顺序、不影响布局、不被无
+              障碍树读出来。absolute 定位脱离 flex 流,不影响 chat input 的对齐。 */}
+          <input
+            type="text"
+            name="username"
+            autoComplete="username"
+            tabIndex={-1}
+            aria-hidden="true"
+            className="absolute left-[-9999px] top-0 w-px h-px opacity-0 pointer-events-none"
+          />
+          <input
+            type="password"
+            name="password"
+            autoComplete="current-password"
+            tabIndex={-1}
+            aria-hidden="true"
+            className="absolute left-[-9999px] top-0 w-px h-px opacity-0 pointer-events-none"
+          />
           {/* 左侧状态感知指示器 */}
           {isQueued ? (
             <Loader2 className="w-4 h-4 text-[#ea8377] animate-spin shrink-0 mr-2 sm:mr-2.5" />
@@ -533,6 +598,22 @@ export const ChatBar: React.FC = () => {
             ref={inputRef}
             type="text"
             id="chatText"
+            // ponytail: name 故意取 chatMessage — Chrome password manager heuristic
+            // 会扫 username / email / password 关键词,不在白名单里就不会把 chat input
+            // 当成 username 字段触发 autofill。
+            name="chatMessage"
+            inputMode="text"
+            // ponytail: 通用的 password manager 忽略标记 — 1Password / LastPass / Dashlane /
+            // Bitwarden 等见到这些属性就跳过本字段。Chrome 内置密码管理不一定遵守,
+            // 但配合外层 <form autoComplete="off"> 通常就够。
+            data-form-type="other"
+            data-1p-ignore="true"
+            data-lpignore="true"
+            data-bwignore="true"
+            autoComplete="off"
+            autoCorrect="off"
+            autoCapitalize="off"
+            spellCheck={false}
             placeholder={isModelReady ? t('chat.placeholder') : t('chat.syncingPlaceholder')}
             onInput={handleInput}
             onKeyDown={handleKeyDown}
@@ -541,12 +622,11 @@ export const ChatBar: React.FC = () => {
               handleInputFocus();
             }}
             onBlur={() => setIsInputFocused(false)}
-            autoComplete="off"
             // ponytail: 回复中也允许输入 — 用户可以预先打下一句,点 send 时
             // handleSend 内部用 isSending 拦截,不重复发。按钮单独 disable。
             className="w-full h-full bg-transparent border-none outline-none text-white placeholder:text-white/40 text-sm sm:text-sm touch-manipulation select-text"
           />
-        </div>
+        </form>
 
         {/* 发送按钮：高度严格 h-11 (44px)，状态随就绪度与排队状态联动 */}
         {(() => {

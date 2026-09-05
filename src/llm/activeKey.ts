@@ -46,6 +46,26 @@ export function writeActiveKey(key: ParsedActiveKey | null): void {
       window.sessionStorage.removeItem(ACTIVE_KEY);
     }
   } catch { /* noop */ }
+  // ponytail: 通知订阅者 — 跨设备同步 import 完数据写入 sessionStorage 但 UI
+  // 没刷新,就是缺这一步。订阅者(ChatBar 等)拿到新 key 后自行 re-read 派生 state。
+  notifyActiveKey();
+}
+
+// ponytail: 统一的 active key 订阅 — 覆盖 webllm 切换 (setActiveModelId) 和 custom 切换
+// (setActiveProviderId),因为两者都走 writeActiveKey。订阅者拿到的是已解析的 key。
+const activeKeyListeners = new Set<(key: ParsedActiveKey | null) => void>();
+
+export function subscribeActiveKey(cb: (key: ParsedActiveKey | null) => void): () => void {
+  activeKeyListeners.add(cb);
+  return () => { activeKeyListeners.delete(cb); };
+}
+
+function notifyActiveKey(): void {
+  if (activeKeyListeners.size === 0) return;
+  const current = readActiveKey();
+  activeKeyListeners.forEach((cb) => {
+    try { cb(current); } catch { /* noop */ }
+  });
 }
 
 // ponytail: 旧版本把 custom providerId 直接存 sessionStorage(无前缀),重构后改成统一

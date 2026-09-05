@@ -7,13 +7,13 @@
 
 import { probeProvider, streamCompletion } from './client';
 import type { CompletionChunk, CompletionOptions } from './client';
-import { deleteProvider, getActiveProvider, getActiveProviderId, getDecryptedApiKey, getProvider, listProviders, listProvidersDecrypted, saveProvider, setActiveProviderId } from './store';
+import { deleteProvider, getActiveProvider, getActiveProviderId, getDecryptedApiKey, getProvider, listProviders, listProvidersDecrypted, saveProvider, setActiveProviderId, subscribeProvidersChange } from './store';
 import type { ChatMessage, ProviderProfile, ProviderTemplate } from './types';
 import { KNOWN_TEMPLATES } from './types';
 
 export type { ChatMessage, CompletionChunk, CompletionOptions, ProviderProfile, ProviderTemplate };
 export { KNOWN_TEMPLATES };
-export { listProviders, listProvidersDecrypted, getProvider, getActiveProvider, getActiveProviderId, setActiveProviderId, saveProvider, deleteProvider, probeProvider, streamCompletion, getDecryptedApiKey };
+export { listProviders, listProvidersDecrypted, getProvider, getActiveProvider, getActiveProviderId, setActiveProviderId, saveProvider, deleteProvider, probeProvider, streamCompletion, getDecryptedApiKey, subscribeProvidersChange };
 
 export { runChat, customChatProvider } from './speech';
 

@@ -35,6 +35,22 @@ export function isThinkingEnabled(): boolean {
 export function setThinkingEnabled(on: boolean): void {
   if (typeof window === 'undefined') return;
   window.localStorage.setItem(THINKING_PREF_KEY, on ? '1' : '0');
+  // ponytail: 通知订阅者 — sync import 改完 localStorage 但 UI 没刷新,缺这一步。
+  notifyThinkingChange(on);
+}
+
+// ponytail: 思考模式开关订阅 — sync import 改完 UI(ChatBar 的 thinkingOn state)立刻跟新。
+const thinkingListeners = new Set<(enabled: boolean) => void>();
+
+export function subscribeThinkingEnabled(cb: (enabled: boolean) => void): () => void {
+  thinkingListeners.add(cb);
+  return () => { thinkingListeners.delete(cb); };
+}
+
+function notifyThinkingChange(enabled: boolean): void {
+  thinkingListeners.forEach((cb) => {
+    try { cb(enabled); } catch { /* noop */ }
+  });
 }
 
 let engineInstance: WebWorkerMLCEngine | null = null;

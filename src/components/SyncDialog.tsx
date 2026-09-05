@@ -49,7 +49,7 @@ import {
   type ProviderProfile,
 } from '@/llm/customProvider';
 import { writeActiveKey, parseActiveKey, readActiveKey } from '@/llm/activeKey';
-import { setThinkingEnabled } from '@/llm/webLLMProvider';
+import { setActiveModelId, setThinkingEnabled } from '@/llm/webLLMProvider';
 import { saveUserSettings, type UserSettings } from '@/llm/userSettings';
 
 interface SyncDialogProps {
@@ -372,15 +372,22 @@ const ReceivePanel: React.FC<{ onClose: () => void }> = ({ onClose }) => {
           });
         }
       }
-      if (data.providers) {
-        await setActiveProviderId(null);
-      }
+      // ponytail: dispatch 到正确的 setter — custom 走 setActiveProviderId (顺带 unload webllm engine),
+      // webllm 走 setActiveModelId (reload/preload)。两个 setter 都通过 writeActiveKey 通知
+      // subscribeActiveKey 订阅者(ChatBar 等),UI 立刻刷新 — 之前直接 writeActiveKey 既不通知
+      // 也不释放显存,现在两个 setter 都自动处理好。
       if (data.activeKey !== undefined) {
         if (data.activeKey === null) {
           writeActiveKey(null);
         } else {
           const parsed = parseActiveKey(data.activeKey);
-          if (parsed) writeActiveKey(parsed);
+          if (parsed) {
+            if (parsed.kind === 'custom') {
+              await setActiveProviderId(parsed.providerId);
+            } else {
+              setActiveModelId(parsed.modelId);
+            }
+          }
         }
       }
       if (data.thinkingEnabled !== undefined) {
