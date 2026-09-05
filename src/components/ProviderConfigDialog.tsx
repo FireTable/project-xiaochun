@@ -153,7 +153,7 @@ export const ProviderConfigDialog: React.FC<ProviderConfigDialogProps> = ({
             </DialogTitle>
           </div>
           <DialogDescription className="text-[11px] sm:text-xs text-white/60 leading-relaxed">
-            连接 OpenAI 兼容服务(本地 Ollama / LM Studio / vLLM / 云厂商)。选中的服务会跳过 webLLM 走 HTTP 直连,API Key 与配置仅在本机加密存储。
+            连接 OpenAI 兼容服务(本地 Ollama / LM Studio / vLLM / 云厂商)。选中的服务会跳过 webLLM 走 HTTP 直连，API Key 与配置仅在本机加密存储。
           </DialogDescription>
         </DialogHeader>
 
