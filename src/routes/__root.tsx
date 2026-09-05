@@ -108,7 +108,8 @@ function RootComponent() {
     <I18nextProvider i18n={i18n}>
       <TooltipProvider delayDuration={300} skipDelayDuration={500}>
         <RootDocument lang={i18n.language as Lang}>
-          <WebConsole />
+          {/* ponytail: vconsole 只在 dev 模式挂载,生产 build 不带 WebConsole 实例。 */}
+          {import.meta.env.DEV && <WebConsole />}
           <Outlet />
         </RootDocument>
       </TooltipProvider>
