@@ -87,6 +87,10 @@ export const APP_CONFIG = {
   memory: {
     shortTermTurns: 2,
     turnMaxChars: 120,
+    // ponytail: 用户在「对话设置」可手动覆盖的范围 — UI slider 和 IDB setter 共用这一份,
+    // 改了这里两边同步生效,避免 setter 上限跟 slider 不一致(以前踩过这个坑)。
+    userTurnsMin: 1,
+    userTurnsMax: 50,
   },
   camera: {
     defaultFov: 45,

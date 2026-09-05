@@ -71,6 +71,7 @@ UI 走 **TanStack Start SSR + i18next** 水合,**完整支持简体中文 / Engl
 * **大语言模型 (WebLLM,默认)** — [`@mlc-ai/web-llm`](https://github.com/mlc-ai/web-llm) 默认 **Qwen2.5 1.5B (q4f16_1)**，低配设备自动降级至 0.5B。轻量高效，在移动端与低显存设备上兼顾推理速度与回复质量；对话条菜单可随时热切换模型或开关思考模式；回复语言随用户提问语系自适应匹配。
 * **大语言模型 (OpenAI 兼容自定义服务,可选)** — 应用内配置对话框一键接入任意 OpenAI 兼容 HTTP 服务:Ollama / LM Studio / vLLM / LocalAI / 云厂商(OpenAI、DeepSeek、Qwen API 等)。Provider 配置 AES-GCM 加密存在 IndexedDB;激活后 WebLLM **不会**预热,省 1-2 GB 显存 + 模型下载带宽。
 * **统一 Provider 工厂 (`chatWorkflow.runChat`)** — WebLLM 与自定义 provider 共享同形 `runChat(opts) → string` 契约;dispatcher 通过 `ChatProvider` 注册表轮询,选第一个 `isActive` 命中的。加新 provider = 注册一个描述符。
+* **用户自定义系统提示词 + 记忆轮数** — 聊天菜单 → 「对话设置」可微调小蠢人设(留空/与默认相同则走默认人设)与对话记忆轮数(1-50,默认设备推荐)。配置持久化在 IndexedDB(`xiaochun-user-settings`);边界常量集中在 `APP_CONFIG.memory.userTurnsMin/Max` 一处,slider UI 与存储 setter 共享同一份 SSOT。
 * **动作生成** — **EMAGE** 全身动作 (ONNX Runtime Web) 在 Dedicated Web Worker 中运行，时序高斯滤波平滑。
 * **语音合成** — **Edge-TTS 晓伊 (XiaoyiNeural, zh-CN, +10 Hz)**，基于 [`edge-tts-universal`](https://github.com/Sterznode/edge-tts-universal)；网络传输前智能剥离 emoji。
 * **LLM + TTS + EMAGE 一体编排**：chat director 全链路统一协调，主线程满帧 60 FPS 丝滑驱动。
@@ -84,6 +85,12 @@ UI 走 **TanStack Start SSR + i18next** 水合,**完整支持简体中文 / Engl
 * **自适应言谈间歇待机 (`SpeakIdleSystem`)**：段间等待时角色不再定格成蜡像，根据前序手势随机应变 —— 身前手势保持悬浮交谈态（带呼吸浮沉与超 1.5s 极缓重力自然微沉降）；严格按 VRM 1.0 真指节沿 Z 轴实施微脉搏舒缩；配合意识流头部微偏转与倾听微点头。
 * **控制台多切片动态表格看板**：`console.table` 实时呈现各段 TTS、EMAGE 推理、播放状态与切段过渡模式。
 * **气泡流式进度呼吸徽标**：头顶跟随气泡顶栏「来啦来啦～」右侧实时指示 `🟢 1 / 5` 进度胶囊，释放正文空间。
+
+### 🔄 跨设备同步(纯前端)
+* **纯文本传输** — 聊天菜单 → 「跨设备同步」→ 勾选要同步的项(provider 配置 + 当前激活 / 思考模式 / 对话设置)→ AES-GCM-256 加密生成 `xs:v1:iv.ct.key` 单行文本 → 复制粘到另一台设备。**密钥内嵌密文,粘一次就行**,不需要单独传密钥。
+* **Provider 配置同步** — 自定义 OpenAI 兼容 provider(含 AES 加密的 API key)走发送端 `listProvidersDecrypted()` 解密 → 接收端 `saveProvider()` 用本机 salt 重新加密入库,设备间无缝迁移。
+* **预览后导入** — 接收端本地解密后展示「将导入」的完整列表(active 服务 / N 个 provider / 思考模式 / 对话设置),用户点「确认导入」才落库,可逆可控。
+* **零服务端、零二维码** — QR 方案已放弃(payload 装不下完整 provider 配置)。纯前端,无遥测,无后端协调。
 
 ### 💾 端侧持久化多级记忆系统 (Client-Side Memory System)
 * **100% 纯本地隐私安全 (IndexedDB)**：基于浏览器原生 IndexedDB（`xiaochun-memory` 独立数据库），对话轮次、用户称呼、性格喜好与长期记忆全部保留在用户设备本地，绝不向任何云端服务器回传。
@@ -201,7 +208,9 @@ Project-XiaoChun/
 │   │   ├── __root.tsx         # 根布局 (i18n SSR 水合、GEO JSON-LD 与元信息)
 │   │   └── index.tsx          # 首页主路由
 │   ├── components/            # React UI 组件 (TopHeader, ChatBar, HeadBubble, DevDrawer…)
-│   │   └── ui/                # Radix UI 原语封装 (button, dropdown-menu, tooltip)
+│   │   ├── AdvancedSettingsDialog.tsx  # 用户自定义系统提示词 + 记忆轮数 slider
+│   │   ├── SyncDialog.tsx     # 跨设备加密文本传输 (AES-GCM)
+│   │   └── ui/                # Radix UI 原语封装 (button, dialog, dropdown-menu, slider, tooltip)
 │   ├── core/                  # 3D 渲染与场景中枢 (解耦 Facade 架构)
 │   │   ├── vrmEngine.ts       # 核心引擎调度中枢 (轻量 Facade、渲染循环、VRM 加载挂载)
 │   │   ├── scene/             # 线稿背景世界 (lineworkWorld.ts: 太阳光芒/大楼/地面/树木)
@@ -228,11 +237,13 @@ Project-XiaoChun/
 │   │   │   ├── client.ts       #   fetch + SSE + probeProvider
 │   │   │   ├── crypto.ts       #   AES-GCM API key 加密 (PBKDF2)
 │   │   │   ├── speech.ts       #   自定义 provider 的 runChat
-│   │   │   ├── store.ts        #   IndexedDB profile 持久化
+│   │   │   ├── store.ts        #   IndexedDB profile 持久化(含 listProvidersDecrypted)
 │   │   │   └── types.ts        #   ProviderProfile + KNOWN_TEMPLATES
 │   │   ├── chatTypes.ts        # 共享 RunChatOptions / ChatProvider / ChatMessage
 │   │   ├── chatWorkflow.ts     # 跨 provider 调度 + 输出清洗 + 兜底台词
 │   │   ├── activeKey.ts        # 统一 custom:xxx / webllm:xxx active key
+│   │   ├── userSettings.ts     # 用户自定义设置(系统提示词/记忆轮数)IDB
+│   │   ├── syncPayload.ts      # 跨设备同步 payload (AES-GCM + xs:v1:iv.ct.key 格式)
 │   │   └── progress.ts         # LLM 进度事件总线
 │   ├── director/
 │   │   └── chatDirector.ts    # LLM → TTS → EMAGE 流式全链路状态编排

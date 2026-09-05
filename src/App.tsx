@@ -7,6 +7,7 @@ import { ChatBar } from '@/components/ChatBar';
 import { LoadingOverlay } from '@/components/LoadingOverlay';
 import { DevDrawer } from '@/components/DevDrawer';
 import { XIAOCHUN_SYSTEM_PROMPT } from '@/llm/prompts';
+import { resolveSystemPrompt, getCachedUserSettings, subscribeUserSettings } from '@/llm/userSettings';
 import type { Lang } from '@/i18n';
 
 const SceneCanvas = React.lazy(() =>
@@ -51,9 +52,25 @@ export const App: React.FC = () => {
       mod.vrmEngine.bindI18n((key, vars) => i18n.t(key, vars));
       // ponytail: system prompt 按当前 i18n 语言挑;getter 里读 i18n.language 是反应式的,
       // 用户切换语言后下次 send 自动用新语言回答。
+      // ponytail: 用 bindSystemContext — 同时返回 prompt + lang,避免 chatWorkflow 靠 prompt 反推 lang
+      // (用户在 AdvancedSettings 改 prompt 后那个 trick 会失效)。override 由 userSettings 提供,
+      // 没有 override 时按 lang 拿默认人设。
+      const provideSystemContext = async () => {
+        const lang = (i18n.resolvedLanguage ?? i18n.language ?? 'zh-CN') as Lang;
+        const prompt = resolveSystemPrompt(getCachedUserSettings(), lang);
+        return { prompt, lang };
+      };
+      mod.vrmEngine.bindSystemContext(provideSystemContext);
+      // ponytail: 旧 API 留个 fallback — 万一别的代码路径还调 getSystemPrompt,
+      // 直接走 i18n 拿默认人设,不读 override(覆盖旧的 webllm 路径行为)。
       mod.vrmEngine.bindSystemPrompt(() => {
         const lang = (i18n.resolvedLanguage ?? i18n.language ?? 'zh-CN') as Lang;
         return XIAOCHUN_SYSTEM_PROMPT[lang] ?? XIAOCHUN_SYSTEM_PROMPT['zh-CN'];
+      });
+      // ponytail: 用户在 AdvancedSettingsDialog 改了 override → cache 更新 → 重新 bind,
+      // 保证下一次 generateSpeechReply 拿到新值。挂到 engineModule 上,dispose 时一起清。
+      (engineModule as any)._unsubUserSettings = subscribeUserSettings(() => {
+        mod.vrmEngine.bindSystemContext(provideSystemContext);
       });
     });
 
@@ -86,6 +103,8 @@ export const App: React.FC = () => {
       window.removeEventListener('dragover', handleDragOver);
       window.removeEventListener('dragleave', handleDragLeave);
       window.removeEventListener('drop', handleDrop);
+      const em = engineModule as any;
+      em?._unsubUserSettings?.();
       engineModule?.vrmEngine.dispose();
     };
   }, [i18n]);

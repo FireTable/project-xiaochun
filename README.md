@@ -71,6 +71,7 @@ The UI is fully **SSR-hydrated multi-language** (zh-CN / en / ja) via TanStack S
 * **LLM (WebLLM, default)** — [`@mlc-ai/web-llm`](https://github.com/mlc-ai/web-llm) **Qwen2.5 1.5B (q4f16_1)** on WebGPU (fallback 0.5B). Lightweight and responsive on mobile and low-VRAM devices; chat-bar menu supports live model switching and thinking mode toggles; response language adaptively mirrors the user's prompt.
 * **LLM (Custom OpenAI-Compatible Providers, optional)** — Connect any OpenAI-compatible HTTP service via the in-app config dialog: Ollama / LM Studio / vLLM / LocalAI / cloud (OpenAI, DeepSeek, Qwen API …). Provider profiles are AES-GCM encrypted in IndexedDB; the active provider is one click away from switching. When a custom provider is active, WebLLM is **not** preloaded — saves 1-2 GB VRAM on local and avoids wasting bandwidth on a model you won't use.
 * **Unified Provider Factory (`chatWorkflow.runChat`)** — Same-shape `runChat(opts) → string` contract for both WebLLM and custom providers; the dispatcher picks one per request via a `ChatProvider` registry. Adding a new provider = drop in a descriptor.
+* **User-Customizable System Prompt & Memory Turns** — Open the chat-bar menu → **对话设置 / Chat Settings** to override the character system prompt (free-form text, falls back to default when empty/equal) and tune the conversation memory-turn count (1–50, default = device-recommended). Overrides persist in IndexedDB (`xiaochun-user-settings`); bound constants live in `APP_CONFIG.memory.userTurnsMin/Max` as the single source of truth shared between the slider UI and the storage setter.
 * **Motion** — **EMAGE** full-body motion (ONNX Runtime Web) in a Dedicated Web Worker, with temporal Gaussian smoothing and natural idle blends.
 * **TTS** — **Edge-TTS 晓伊 (XiaoyiNeural, zh-CN, +10 Hz)** via [`edge-tts-universal`](https://github.com/Sterznode/edge-tts-universal); emoji stripped before speech.
 * **LLM + TTS + EMAGE orchestrated** by the chat director on the main thread at 60 FPS.
@@ -84,6 +85,12 @@ The UI is fully **SSR-hydrated multi-language** (zh-CN / en / ja) via TanStack S
 * **Adaptive Conversational Idle (`SpeakIdleSystem`)**: Characters adaptively respond to the current gesture during inter-segment pauses — high gestures hover with breathing buoyancy and gentle micro-settling (>1.5s); fingers flex along the anatomical Z-axis; awareness gaze drifts and micro-nods eliminate frozen mannequins.
 * **Live Pipeline Console Table Tracker**: Real-time `console.table` monitors chunk TTS, EMAGE inference, playback progression, and transition modes.
 * **Head Bubble Progress Indicator**: A pulsing progress pill (`🟢 1 / 5`) in the bubble status bar cleanly displays segment progress without intruding on dialogue text.
+
+### 🔄 Cross-Device Sync (Pure-Front-End)
+* **Text-Only Transfer** — Open the chat-bar menu → **跨设备同步 / Cross-Device Sync** → pick what to sync (custom providers + active model / thinking mode / chat settings) → an AES-GCM-256 encrypted blob (`xs:v1:iv.ct.key`) is generated and put in a copyable text block. The key travels inside the ciphertext — paste once on the other device, no separate key channel needed.
+* **Provider Config Sync** — Custom OpenAI-compatible providers (including their AES-encrypted API keys) round-trip across devices via `listProvidersDecrypted()` on the sender side and `saveProvider()` re-encryption on the receiver side, using each device's local salt.
+* **Preview-Before-Apply** — The receiving device decrypts locally, shows exactly what will change (active service / N providers / thinking on-off / chat settings), and only commits after the user clicks **确认导入**.
+* **Zero Server, Zero QR** — QR codes were dropped (payload too large with full provider configs). Pure-frontend, no telemetry, no backend coordination.
 
 ### 💾 Client-Side Multi-Tier Memory System
 * **100% Local Privacy (IndexedDB)**: Powered by browser-native IndexedDB (`xiaochun-memory` database). Dialogue turns, personal preferences, and recalled facts stay entirely on the client device — zero telemetry or chat logs sent to any server.
@@ -210,7 +217,9 @@ Project-XiaoChun/
 │   │   ├── __root.tsx         # Root layout (i18n SSR hydration, GEO JSON-LD & meta tags)
 │   │   └── index.tsx          # Main index route
 │   ├── components/            # React UI components (TopHeader, ChatBar, HeadBubble, DevDrawer…)
-│   │   └── ui/                # Radix UI primitives (button, dropdown-menu, tooltip)
+│   │   ├── AdvancedSettingsDialog.tsx  # User-customizable system prompt + memory-turns slider
+│   │   ├── SyncDialog.tsx     # Cross-device encrypted text transfer (AES-GCM)
+│   │   └── ui/                # Radix UI primitives (button, dialog, dropdown-menu, slider, tooltip)
 │   ├── core/                  # 3D rendering & scene core (Decoupled Facade architecture)
 │   │   ├── vrmEngine.ts       # Central engine coordinator (slim Facade, render loop, VRM loading)
 │   │   ├── scene/             # Linework background world (lineworkWorld.ts: sun rays / skyline / grid / trees)
@@ -237,11 +246,13 @@ Project-XiaoChun/
 │   │   │   ├── client.ts       #   fetch + SSE + probeProvider
 │   │   │   ├── crypto.ts       #   AES-GCM API key encryption (PBKDF2)
 │   │   │   ├── speech.ts       #   Custom provider's runChat
-│   │   │   ├── store.ts        #   IndexedDB profile persistence
+│   │   │   ├── store.ts        #   IndexedDB profile persistence (incl. listProvidersDecrypted)
 │   │   │   └── types.ts        #   ProviderProfile + KNOWN_TEMPLATES
 │   │   ├── chatTypes.ts        # Shared RunChatOptions / ChatProvider / ChatMessage
 │   │   ├── chatWorkflow.ts     # Cross-provider dispatcher + clean speech + fallback
 │   │   ├── activeKey.ts        # Unified custom:xxx / webllm:xxx active key
+│   │   ├── userSettings.ts     # User-customizable settings (system prompt / memory turns) IDB
+│   │   ├── syncPayload.ts      # Cross-device sync payload (AES-GCM + xs:v1:iv.ct.key format)
 │   │   └── progress.ts         # llmPct event bus
 │   ├── director/
 │   │   └── chatDirector.ts    # LLM → TTS → EMAGE streaming coordinator pipeline

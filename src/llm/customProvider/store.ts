@@ -56,6 +56,26 @@ export async function listProviders(): Promise<ProviderProfile[]> {
   return raw.map((p) => ({ ...p, apiKey: '' }));
 }
 
+/**
+ * ponytail: 跟 listProviders 一样,但 apiKey 字段解出明文 — 只在「需要把 provider 配置
+ * 搬到另一台设备」的同步场景使用(SyncDialog 导出)。普通 UI 列表继续走 listProviders 拿空 key。
+ * 解密失败返回空字符串,不让一个坏 provider 阻塞整个导出。
+ */
+export async function listProvidersDecrypted(): Promise<ProviderProfile[]> {
+  const raw = await listEncrypted();
+  const out: ProviderProfile[] = [];
+  for (const p of raw) {
+    let apiKey = '';
+    try {
+      apiKey = await decryptString(p.apiKey);
+    } catch {
+      /* decrypt failed — keep empty key */
+    }
+    out.push({ ...p, apiKey });
+  }
+  return out;
+}
+
 export async function getProvider(id: string): Promise<ProviderProfile | null> {
   const all = await listEncrypted();
   const found = all.find((p) => p.id === id);

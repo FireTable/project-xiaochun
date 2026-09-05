@@ -13,6 +13,8 @@ import { MotionPipeline, type PipelineMotionSource } from '@/motion/pipeline/mot
 import type { PlayMotionOptions, UniversalMotionHandle } from '@/motion/pipeline/universalMotion';
 import { preloadWebLLM, unloadWebLLM } from '@/llm/webLLMProvider';
 import { APP_CONFIG, type LightConfig } from '@/config';
+import type { Lang } from '@/i18n';
+import { langFromSystemPrompt } from '@/llm/prompts';
 
 // ── 抽离子系统导入 ──
 import { LineworkWorld } from './scene/lineworkWorld';
@@ -172,7 +174,19 @@ export class VRMEngine {
   }
 
   public bindSystemPrompt(getter: () => string): void {
-    this.chatDirector.getSystemPrompt = getter;
+    // ponytail: 旧 API 保留兼容 — 内部包装成 context 形式,lang 走 prompt 反推(用户没改 prompt 时正确)。
+    this.chatDirector.getSystemContext = async () => {
+      const prompt = getter();
+      return { prompt, lang: langFromSystemPrompt(prompt) };
+    };
+  }
+
+  /**
+   * ponytail: 新 API — 同时返回 prompt + lang。chatWorkflow 用 lang 给 user 消息打 lang 标记,
+   * 不再靠「prompt 内容反推 lang」(用户改 prompt 后那个 trick 会失效)。
+   */
+  public bindSystemContext(provider: () => Promise<{ prompt: string; lang: Lang }>): void {
+    this.chatDirector.getSystemContext = provider;
   }
 
   public suspendRendering(): void {

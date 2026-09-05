@@ -4,6 +4,8 @@ import { ChevronLeft, ChevronRight, Menu, Server } from 'lucide-react';
 import { vrmEngine } from '@/core/vrmEngine';
 import { DeviceStatusDialog } from '@/components/DeviceStatusDialog';
 import { ProviderConfigDialog } from '@/components/ProviderConfigDialog';
+import { AdvancedSettingsDialog } from '@/components/AdvancedSettingsDialog';
+import { SyncDialog } from '@/components/SyncDialog';
 import {
   isWebLLMReady,
   onWebLLMReadyChange,
@@ -77,6 +79,8 @@ export const ChatBar: React.FC = () => {
   const [pickingModel, setPickingModel] = useState(false);
   const [showDeviceDialog, setShowDeviceDialog] = useState(false);
   const [showProviderDialog, setShowProviderDialog] = useState(false);
+  const [showAdvancedDialog, setShowAdvancedDialog] = useState(false);
+  const [showSyncDialog, setShowSyncDialog] = useState(false);
   // ponytail: 当前激活的自定义 provider(webllm 与 custom 二选一)。用来在模型下拉里
   // 显示真实生效的服务名 / 模型,而不是 webLLM 的兜底。
   const [activeCustom, setActiveCustom] = useState<ProviderProfile | null>(null);
@@ -438,6 +442,20 @@ export const ChatBar: React.FC = () => {
                 </p>
                 <DropdownMenuSeparator />
                 <DropdownMenuItem
+                  onSelect={() => setShowAdvancedDialog(true)}
+                  className="justify-between"
+                >
+                  <span>{t('chat.advancedMenu')}</span>
+                  <ChevronRight className="h-4 w-4 shrink-0 text-white/50" />
+                </DropdownMenuItem>
+                <DropdownMenuItem
+                  onSelect={() => setShowSyncDialog(true)}
+                  className="justify-between"
+                >
+                  <span>{t('chat.syncMenu')}</span>
+                  <ChevronRight className="h-4 w-4 shrink-0 text-white/50" />
+                </DropdownMenuItem>
+                <DropdownMenuItem
                   onSelect={() => setShowDeviceDialog(true)}
                   className="justify-between"
                 >
@@ -608,6 +626,16 @@ export const ChatBar: React.FC = () => {
       <ProviderConfigDialog
         open={showProviderDialog}
         onOpenChange={setShowProviderDialog}
+      />
+
+      <AdvancedSettingsDialog
+        open={showAdvancedDialog}
+        onOpenChange={setShowAdvancedDialog}
+      />
+
+      <SyncDialog
+        open={showSyncDialog}
+        onOpenChange={setShowSyncDialog}
       />
     </div>
   );

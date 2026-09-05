@@ -15,6 +15,7 @@ import { pcmFromAudioBuffer, type EmagePlayer, type EmageMotionData } from '@/mo
 import { generateSpeechReply } from '@/llm/chatWorkflow';
 import { rememberTurn } from '@/memory';
 import type { MotionTransitionManager } from '@/motion/motionTransition';
+import type { Lang } from '@/i18n';
 
 interface Plan { speech: string; llm_provider?: string }
 
@@ -262,6 +263,13 @@ export class ChatDirector {
   /** 由 vrmEngine.bindSystemPrompt 注入,根据当前 i18n 语言挑对应 system prompt。 */
   public getSystemPrompt: (() => string) | null = null;
 
+  /**
+   * ponytail: 新 API — 同时返回 prompt + lang。chatWorkflow 用 lang 给 user 消息打 lang 标记,
+   * 不再靠 prompt 内容反推 lang(用户改 prompt 后那个 trick 失效)。
+   * vrmEngine.bindSystemContext 注入;旧 bindSystemPrompt 内部会包一层同步版本兜底。
+   */
+  public getSystemContext: (() => Promise<{ prompt: string; lang: Lang }>) | null = null;
+
   /** 移动端推理期间动态调频与稳态保护 */
   public onSuspendRendering: (() => void) | null = null;
   public onResumeRendering: (() => void) | null = null;
@@ -363,11 +371,16 @@ export class ChatDirector {
     let speechText = '';
     try {
       // ponytail: webLLM 内部已用 onMilestone 转发 i18n key;worker 高频进度不进 bubble,避免刷屏。
-      // 系统 prompt 走当前 i18n 语言,实现"用户用什么语言问,就用什么语言答"。
+      // 系统 prompt + lang 由 bindSystemContext 注入(默认人设按 i18n 选,有 override 用 override)。
+      const ctx = await (this.getSystemContext?.() ?? Promise.resolve({
+        prompt: this.getSystemPrompt?.() ?? '',
+        lang: 'zh-CN' as Lang,
+      }));
       speechText = await generateSpeechReply(
         text,
         (key, vars) => status(key, vars),
-        this.getSystemPrompt?.() ?? '',
+        ctx.prompt,
+        ctx.lang,
       );
     } catch (e: any) {
       // ponytail: 1) console 必打,方便手机 chrome 用户从 DevTools 复制原文反馈;

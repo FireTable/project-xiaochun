@@ -13,6 +13,7 @@ import { applyRecall, recallForChat } from '@/memory';
 import type { Lang } from '@/i18n';
 import { customChatProvider } from './customProvider';
 import { webllmChatProvider, ModelSwitchedError, isThinkingEnabled, preloadWebLLM } from './webLLMProvider';
+import { resolveEffectiveSettings } from './userSettings';
 import type { ChatProvider, LlmMilestoneKey, MilestoneFn, ChatMessage, RunChatOptions, RunChatFn } from './chatTypes';
 
 export type { LlmMilestoneKey };
@@ -68,22 +69,27 @@ function getFriendlyFallbackSpeech(lang: Lang): string {
  * 对话生成接口 — 纯前端本地推理对话
  * @param systemPrompt 可选覆盖,缺省用 XIAOCHUN_SYSTEM_PROMPT['zh-CN']。
  *   ponytail: 由 chatDirector 在调用时根据当前 i18n 语言注入,实现"用户用什么语言问,就用什么语言答"。
+ * @param lang 可选覆盖,缺省从 systemPrompt 反推。用户在 AdvancedSettings 改了 system prompt
+ *   后,反推 trick 会失效 — 这里必须由 chatDirector 用 bindSystemContext 注入真实 lang。
  */
 export async function generateSpeechReply(
   userText: string,
   onMilestone?: MilestoneFn,
   systemPrompt: string = XIAOCHUN_SYSTEM_PROMPT['zh-CN'],
+  lang?: Lang,
 ): Promise<string> {
-  const lang: Lang = langFromSystemPrompt(systemPrompt);
-  const mem = await recallForChat(userText);
-  const recalled = applyRecall(systemPrompt, mem, lang);
+  const effectiveLang: Lang = lang ?? langFromSystemPrompt(systemPrompt);
+  // ponytail: 用户可能改了记忆轮数 — 走 effective 解析(override 优先,否则设备默认)。
+  const { memoryTurns } = await resolveEffectiveSettings(effectiveLang);
+  const mem = await recallForChat(userText, memoryTurns);
+  const recalled = applyRecall(systemPrompt, mem, effectiveLang);
 
   // ponytail: messages 一次组装,两条路径共用 — 当前 user 文本走 wrapUserContent,
   // 把 lang 编码到 prompt 里(让模型知道回答用哪种语言)。
   const messages: ChatMessage[] = [
     { role: 'system', content: recalled.system },
     ...recalled.history,
-    { role: 'user', content: wrapUserContent(userText, lang) },
+    { role: 'user', content: wrapUserContent(userText, effectiveLang) },
   ];
 
   const wantThink = isThinkingEnabled();
@@ -111,20 +117,20 @@ export async function generateSpeechReply(
       return '';
     }
     console.error('[chatWorkflow] provider 推理失败,返回优雅角色兜底台词:', err);
-    raw = getFriendlyFallbackSpeech(lang);
+    raw = getFriendlyFallbackSpeech(effectiveLang);
   }
 
   let cleanSpeech = extractCleanSpeech(raw);
   // ponytail: 思考模式 + 拿到空内容 → 关掉 thinking 再试一次,部分模型只输出
   // <think> 块时这个回退能把正文挖出来。
-  if (!cleanSpeech.trim() && wantThink && raw !== getFriendlyFallbackSpeech(lang)) {
+  if (!cleanSpeech.trim() && wantThink && raw !== getFriendlyFallbackSpeech(effectiveLang)) {
     try {
       raw = await run({ ...runOpts, thinking: false });
       cleanSpeech = extractCleanSpeech(raw);
     } catch (err) {
       if (!(err instanceof ModelSwitchedError)) {
         console.warn('[chatWorkflow] 二次重试失败,使用兜底:', err);
-        cleanSpeech = extractCleanSpeech(getFriendlyFallbackSpeech(lang));
+        cleanSpeech = extractCleanSpeech(getFriendlyFallbackSpeech(effectiveLang));
       }
     }
   }

@@ -279,7 +279,7 @@ export const ProviderConfigDialog: React.FC<ProviderConfigDialogProps> = ({
                               aria-label={t('providerConfig.delete')}
                               title={t('providerConfig.delete')}
                               onClick={() => setConfirmingDeleteId(p.id)}
-                              className={`h-7 w-7 rounded-lg flex items-center justify-center transition-colors ${confirmingDeleteId === p.id
+                              className={`h-7 w-7 rounded-lg flex items-center justify-center transition-colors focus:outline-none focus-visible:ring-1 focus-visible:ring-white/30 ${confirmingDeleteId === p.id
                                 ? 'text-rose-300 bg-rose-500/20 ring-1 ring-rose-500/40'
                                 : 'text-rose-400/70 hover:text-rose-300 hover:bg-rose-500/15'
                                 }`}
@@ -298,12 +298,12 @@ export const ProviderConfigDialog: React.FC<ProviderConfigDialogProps> = ({
                               <button
                                 type="button"
                                 onClick={() => setConfirmingDeleteId(null)}
-                                className="h-7 px-2.5 rounded-lg bg-white/[0.06] hover:bg-white/[0.12] text-white/80 text-xs font-medium transition-colors"
+                                className="h-7 px-2.5 rounded-lg bg-white/[0.06] hover:bg-white/[0.12] text-white/80 text-xs font-medium transition-colors focus:outline-none focus-visible:ring-1 focus-visible:ring-white/30"
                               >{t('providerConfig.cancel')}</button>
                               <button
                                 type="button"
                                 onClick={() => void handleDelete(p.id)}
-                                className="h-7 px-2.5 rounded-lg bg-rose-500/80 hover:bg-rose-500 text-white text-xs font-medium transition-colors"
+                                className="h-7 px-2.5 rounded-lg bg-rose-500/80 hover:bg-rose-500 text-white text-xs font-medium transition-colors focus:outline-none focus-visible:ring-1 focus-visible:ring-rose-400/40"
                               >{t('providerConfig.confirm')}</button>
                             </div>
                           </div>
@@ -364,7 +364,7 @@ export const ProviderConfigDialog: React.FC<ProviderConfigDialogProps> = ({
                   <button
                     type="button"
                     onClick={handleBack}
-                    className="flex items-center gap-0.5 text-white/60 hover:text-white transition-colors"
+                    className="flex items-center gap-0.5 text-white/60 hover:text-white transition-colors focus:outline-none focus-visible:ring-1 focus-visible:ring-white/30 rounded-md"
                   >
                     <ChevronLeft className="h-3.5 w-3.5" />{t('providerConfig.back')}</button>
                   <span className="text-white/20">/</span>
@@ -394,7 +394,7 @@ export const ProviderConfigDialog: React.FC<ProviderConfigDialogProps> = ({
                       type="button"
                       onClick={() => void handleTest()}
                       disabled={testing || !form.baseURL.trim()}
-                      className="flex items-center gap-1.5 h-8 px-3 rounded-lg bg-white/[0.06] hover:bg-white/[0.12] border border-white/10 text-white text-xs font-medium transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                      className="flex items-center gap-1.5 h-8 px-3 rounded-lg bg-white/[0.06] hover:bg-white/[0.12] border border-white/10 text-white text-xs font-medium transition-colors focus:outline-none focus-visible:ring-1 focus-visible:ring-white/30 disabled:opacity-50 disabled:cursor-not-allowed"
                     >
                       {testing ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Zap className="h-3.5 w-3.5" />}
                       {t('providerConfig.test')}
@@ -426,7 +426,7 @@ export const ProviderConfigDialog: React.FC<ProviderConfigDialogProps> = ({
                           key={m}
                           type="button"
                           onClick={() => setForm((f) => ({ ...f, model: m }))}
-                          className={`px-2 py-0.5 rounded text-xs font-mono border transition-colors ${form.model === m
+                          className={`px-2 py-0.5 rounded text-xs font-mono border transition-colors focus:outline-none focus-visible:ring-1 focus-visible:ring-white/30 ${form.model === m
                             ? 'bg-brand-500/25 border-brand-400/60 text-brand-100'
                             : 'bg-white/[0.04] border-white/10 text-white/70 hover:bg-white/[0.08]'
                             }`}
@@ -486,7 +486,7 @@ const IconBtn: React.FC<{
     type="button"
     onClick={onClick}
     aria-label={aria}
-    className={`h-7 w-7 rounded-lg flex items-center justify-center transition-colors ${danger
+    className={`h-7 w-7 rounded-lg flex items-center justify-center transition-colors focus:outline-none focus-visible:ring-1 focus-visible:ring-white/30 ${danger
       ? 'text-white/50 hover:text-rose-400 hover:bg-rose-500/10'
       : 'text-white/50 hover:text-white hover:bg-white/10'
       }`}

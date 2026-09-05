@@ -73,7 +73,12 @@ const isHigh = profile?.tier === 'high';
 
 return (
 <Dialog open={open} onOpenChange={onOpenChange}>
-<DialogContent className="max-w-[min(28rem,calc(100vw-1.75rem))] sm:max-w-lg">
+<DialogContent
+        className="max-w-[min(28rem,calc(100vw-1.75rem))] sm:max-w-lg"
+        // ponytail: Radix Dialog 默认 .focus() 第一个 button — 浏览器 :focus 显示默认
+        // outline(Button 只压了 :focus-visible)。直接禁掉自动聚焦,用户需要操作时自己 Tab。
+        onOpenAutoFocus={(e) => e.preventDefault()}
+      >
 <DialogHeader className="space-y-1">
 <div className="flex items-center gap-2 text-brand-300">
 <Cpu className="h-4 w-4 sm:h-5 sm:h-5 sm:w-5 shrink-0 text-brand-400" />
@@ -143,15 +148,17 @@ return (
 <div className="rounded-lg bg-black/40 border border-white/5 px-2.5 py-1.5 font-mono text-[11px] sm:text-xs text-brand-200 break-all leading-normal select-all">
 {activeCustom.model}
 </div>
-<div className="flex items-center gap-1.5 text-[10px] sm:text-[11px] text-white/50">
+<div className="flex items-center gap-2 text-[10px] sm:text-[11px] text-white/50 flex-wrap">
+<div className="flex items-center gap-1.5 min-w-0 flex-1">
 <Globe className="h-3 w-3 shrink-0" />
 <span className="font-mono truncate">{activeCustom.baseURL}</span>
 </div>
-<div className="flex items-center gap-1.5 text-[10px] sm:text-[11px] text-white/50">
+<div className="flex items-center gap-1.5 shrink-0">
 <span className="px-1.5 rounded bg-white/10 border border-white/10 font-mono text-[10px]">
 {activeCustom.protocol}
 </span>
 <span>{t('chat.deviceDialog.protocol')}</span>
+</div>
 </div>
 </div>
 ) : (
@@ -181,11 +188,18 @@ defaultValue: profile.reason,
 )}
 </div>
 
-{/* 第三行:底层硬件检测指标 — webllm 专属,custom 时隐藏 */}
-{!activeCustom && (
+{/* ponytail: 第三行底层硬件检测 — webllm/custom 都展示。
+    LLM 走 custom 时虽然不吃本地显存,但 3D 渲染 / 上下文 / 记忆仍依赖本机硬件。 */}
 <div className="rounded-xl bg-black/40 border border-white/10 p-2.5 sm:p-3 space-y-0.5">
-<div className="text-white/40 text-[10px] sm:text-[11px] font-semibold uppercase tracking-wider mb-1">
+<div className="flex items-center justify-between mb-1">
+<span className="text-white/40 text-[10px] sm:text-[11px] font-semibold uppercase tracking-wider">
 {t('chat.deviceDialog.specsTitle')}
+</span>
+{activeCustom && (
+<span className="text-[10px] text-white/40 font-normal normal-case tracking-normal">
+{t('chat.deviceDialog.specsNote')}
+</span>
+)}
 </div>
 
 <div className="flex items-center justify-between py-1.5 border-b border-white/[0.04]">
@@ -263,7 +277,6 @@ defaultValue: profile.reason,
 <span className="font-mono text-brand-300 font-semibold">{profile.maxMemoryTurns} {t('chat.deviceDialog.turnsUnit')}</span>
 </div>
 </div>
-)}
 </div>
 ) : null}
 
