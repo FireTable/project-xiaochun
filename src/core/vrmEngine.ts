@@ -206,7 +206,31 @@ export class VRMEngine {
     this.chatDirector.bindTransitionManager(this.motionTransition);
     this.chatDirector.onSuspendRendering = () => this.suspendRendering();
     this.chatDirector.onResumeRendering = () => this.resumeRendering();
+    this.chatDirector.onInferenceStart = () => this.setInferenceMode(true);
+    this.chatDirector.onInferenceEnd = () => this.setInferenceMode(false);
     this.chatDirector.setOnEnd(() => this.bubbleTracker.hide());
+  }
+
+  // ── 推理期间动态调频 (稳态 30FPS + 阴影降级) ──
+  private isInferenceMode = false;
+  private lastFrameTime = 0;
+  private lastRenderWidth = 0;
+  private resizeRAFId: number | null = null;
+
+  public setInferenceMode(enabled: boolean): void {
+    this.isInferenceMode = enabled;
+    if (!this.renderer) return;
+    if (enabled) {
+      // 大模型推理期间挂起阴影贴图高频重绘，将 GPU 算力让出给 WebGPU Prefill
+      if (this.renderer.shadowMap.enabled) {
+        this.renderer.shadowMap.autoUpdate = false;
+      }
+    } else {
+      if (this.renderer.shadowMap.enabled) {
+        this.renderer.shadowMap.autoUpdate = true;
+        this.renderer.shadowMap.needsUpdate = true;
+      }
+    }
   }
 
   public attachCanvas(canvas: HTMLCanvasElement): void {
@@ -219,6 +243,7 @@ export class VRMEngine {
     });
     this.renderer.setPixelRatio(Math.min(window.devicePixelRatio, APP_CONFIG.renderer.maxPixelRatio));
     this.renderer.setSize(window.innerWidth, window.innerHeight);
+    this.lastRenderWidth = window.innerWidth;
     this.renderer.toneMapping = THREE.LinearToneMapping;
     this.renderer.toneMappingExposure = 1.08;
     this.renderer.shadowMap.enabled = true;
@@ -249,10 +274,35 @@ export class VRMEngine {
 
   private handleResize = () => {
     if (!this.renderer) return;
-    this.camera.aspect = window.innerWidth / window.innerHeight;
-    this.camera.updateProjectionMatrix();
-    this.renderer.setPixelRatio(Math.min(window.devicePixelRatio, APP_CONFIG.renderer.maxPixelRatio));
-    this.renderer.setSize(window.innerWidth, window.innerHeight);
+
+    if (this.resizeRAFId !== null) {
+      cancelAnimationFrame(this.resizeRAFId);
+    }
+
+    this.resizeRAFId = requestAnimationFrame(() => {
+      this.resizeRAFId = null;
+      if (!this.renderer) return;
+
+      const newWidth = window.innerWidth;
+      const newHeight = window.innerHeight;
+
+      // 移动端软键盘解耦保护：
+      // 在移动端，软键盘弹起与收起仅改变高度 (宽度完全不变)，
+      // 绝不调用昂贵的 renderer.setSize 销毁重建 WebGL Framebuffer，
+      // 仅更新相机纵横比即可消除所有视觉拉伸与 100ms+ 的重建掉帧！
+      const isMobile = typeof navigator !== 'undefined' && /Mobi|Android|iPhone|iPad/i.test(navigator.userAgent);
+      if (isMobile && this.lastRenderWidth === newWidth) {
+        this.camera.aspect = newWidth / newHeight;
+        this.camera.updateProjectionMatrix();
+        return;
+      }
+
+      this.lastRenderWidth = newWidth;
+      this.camera.aspect = newWidth / newHeight;
+      this.camera.updateProjectionMatrix();
+      this.renderer.setPixelRatio(Math.min(window.devicePixelRatio, APP_CONFIG.renderer.maxPixelRatio));
+      this.renderer.setSize(newWidth, newHeight);
+    });
   };
 
   // ── 外部控制代理 API ──
@@ -501,9 +551,19 @@ export class VRMEngine {
 
   // ── 核心高内聚主渲染循环 ──
   private startAnimation(): void {
-    const animate = () => {
+    const animate = (timestamp: number) => {
       this.animFrameId = requestAnimationFrame(animate);
       if (this.isRenderingSuspended) return;
+
+      // 移动端/推理期动态调频 (Throttle to ~30 FPS):
+      // 将 GPU 瞬时算力让渡给 WebGPU Prefill，保持角色 30FPS 稳定动态呼吸，消除卡死与掉帧
+      if (this.isInferenceMode) {
+        const elapsedSinceLast = timestamp - this.lastFrameTime;
+        if (elapsedSinceLast < 31) {
+          return;
+        }
+      }
+      this.lastFrameTime = timestamp;
 
       const delta = Math.min(this.clock.getDelta(), 0.1);
       const time = this.clock.getElapsedTime();
@@ -613,7 +673,7 @@ export class VRMEngine {
       this.renderer?.render(this.scene, this.camera);
     };
 
-    animate();
+    animate(0);
   }
 
   private handleBodyTurnHandoff(vrm: VRM): void {

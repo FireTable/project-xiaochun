@@ -36,6 +36,8 @@ export const zhCN = {
     queueSend: '就绪后发送',
     waitVrm: '3D 角色还在加载…',
     waitLlm: '正在加载（{{percent}}%）',
+    downloading: '正在下载（{{percent}}%）',
+    loadingModelProgress: '加载模型（{{percent}}%）',
     waitReadyHint: '就绪后会自动发出刚才那句话',
     sending: '思考中…',
     send: '发送',

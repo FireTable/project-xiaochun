@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, startTransition } from 'react';
 import { useTranslation } from 'react-i18next';
 import type { LoadingState, BubbleState } from '@/core/vrmEngine';
 import { TopHeader } from '@/components/TopHeader';
@@ -41,7 +41,12 @@ export const App: React.FC = () => {
       engineModule = mod;
       mod.vrmEngine.suspendRendering();
       mod.vrmEngine.onLoadingChange = (state) => setLoading(state);
-      mod.vrmEngine.onBubbleChange = (state) => setBubble(state);
+      // React 并发过渡：将气泡 UI 状态更新降级为非阻塞 transition，绝不阻塞主线程 3D 动画帧与交互
+      mod.vrmEngine.onBubbleChange = (state) => {
+        startTransition(() => {
+          setBubble(state);
+        });
+      };
       // ponytail: 引擎内部 alert() / LLM 空输出兜底等走 t(),bindI18n 顺带同步给 chatDirector。
       mod.vrmEngine.bindI18n((key, vars) => i18n.t(key, vars));
       // ponytail: system prompt 按当前 i18n 语言挑;getter 里读 i18n.language 是反应式的,

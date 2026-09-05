@@ -435,6 +435,12 @@ export const ChatBar: React.FC = () => {
           // ponytail: 加载失败时 llmProgress.text = "加载失败: ..."(progressCallback 不标 100% 后,
           // 出错路径里我们手动 notifyLoadProgress(0, '加载失败: ...', ...)),UI 切到错误态。
           const isError = !isLLMReady && llmProgress.text.startsWith('加载失败');
+          // ponytail: webLLM cached hit 也会 emit 一次含 'fetch' 的 progress 但 loaded/total=0,
+          // 直接走"下载 0%"再跳"加载 0%"很突兀。加 loaded/total>0 守卫后,
+          // 缓存命中或瞬时跳过 fetch 阶段都会直接进入"加载模型"。
+          const hasBytes = llmProgress.loaded > 0 && llmProgress.total > 0;
+          const isDownloading = !isError && /fetch/i.test(llmProgress.text) && hasBytes;
+          const stageKey = isError ? 'chat.waitLlm' : (isDownloading ? 'chat.downloading' : 'chat.loadingModelProgress');
           const waitTooltip = (
             <div className="flex flex-col gap-0.5 max-w-[18rem]">
               {!isVRMReady ? <span>{t('chat.waitVrm')}</span> : null}
@@ -447,7 +453,7 @@ export const ChatBar: React.FC = () => {
                     </>
                   ) : (
                     <>
-                      <span>{t('chat.waitLlm', { percent: llmPct })}</span>
+                      <span>{t(stageKey, { percent: llmPct })}</span>
                       {llmProgress.total > 0 ? (
                         <span className="text-white/60 tabular-nums">
                           {fmtBytes(llmProgress.loaded)} / {fmtBytes(llmProgress.total)}

@@ -37,6 +37,8 @@ export const en: Trans = {
     queueSend: 'Queue',
     waitVrm: '3D character still loading…',
     waitLlm: 'Loading ({{percent}}%)',
+    downloading: 'Downloading ({{percent}}%)',
+    loadingModelProgress: 'Loading model ({{percent}}%)',
     waitReadyHint: 'Your message will send when ready',
     sending: 'Thinking…',
     send: 'Send',

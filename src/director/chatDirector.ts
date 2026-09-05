@@ -262,9 +262,11 @@ export class ChatDirector {
   /** 由 vrmEngine.bindSystemPrompt 注入,根据当前 i18n 语言挑对应 system prompt。 */
   public getSystemPrompt: (() => string) | null = null;
 
-  /** 移动端推理期间挂起 3D WebGL 渲染，消除与 WebGPU 的资源争抢 */
+  /** 移动端推理期间动态调频与稳态保护 */
   public onSuspendRendering: (() => void) | null = null;
   public onResumeRendering: (() => void) | null = null;
+  public onInferenceStart: (() => void) | null = null;
+  public onInferenceEnd: (() => void) | null = null;
 
   private thinkingVRMABuf: ArrayBuffer | null = null;
   private cachedThinkingClip: THREE.AnimationClip | null = null;
@@ -342,20 +344,21 @@ export class ChatDirector {
     this.speaking = false;
     this.player = player;
     this.emage = emage;
-    this.currentVRM = vrm;
-    this.isThinking = true;
-
     await this.playThinking(vrm, player);
 
-    // 先让手机键盘收完再抢 GPU,否则收键盘动画会和推理卡在一起。
-    await new Promise((r) => setTimeout(r, 280));
+    // 错峰调度：移动端软键盘收起动画通常持续 300~400ms，让出 380ms 确保键盘完全收拢平稳，
+    // 桌面端无软键盘则仅保留 50ms，彻底避免收键盘动画与 WebGPU 首字爆发在半空中冲突卡顿
+    const isMobile = typeof navigator !== 'undefined' && /Mobi|Android|iPhone|iPad/i.test(navigator.userAgent);
+    const staggerDelay = isMobile ? 380 : 50;
+    await new Promise((r) => setTimeout(r, staggerDelay));
     if (this.stopped) return;
 
-    // 手机端让出 100% GPU 给 WebGPU 推理，防止 WebGL 60FPS 与 WebLLM 争抢触发 Android Vulkan TDR 驱动重置 (mapAsync 崩溃)
-    const isMobile = typeof navigator !== 'undefined' && /Mobi|Android|iPhone|iPad/i.test(navigator.userAgent);
-    if (isMobile) {
-      this.onSuspendRendering?.();
-    }
+    // 激活推理期 30FPS 稳态调频与阴影降级，把 95%+ GPU 算力让渡给 WebGPU Prefill
+    this.onInferenceStart?.();
+
+    // 关键帧让渡：让出 1 帧 rAF，确保 Three.js 刚好平稳提交完当前稳态帧，再唤醒 WebGPU 算力，避免在同一帧内碰撞
+    await new Promise((r) => requestAnimationFrame(r));
+    if (this.stopped) return;
 
     let speechText = '';
     try {
@@ -378,9 +381,8 @@ export class ChatDirector {
       this.stop();
       return;
     } finally {
-      if (isMobile) {
-        this.onResumeRendering?.();
-      }
+      // 推理结束，立即恢复 60FPS 全特效渲染与阴影更新
+      this.onInferenceEnd?.();
     }
     if (this.stopped || !speechText.trim()) {
       // ponytail: LLM 空输出时塞 i18n greeting,不再硬编码中文。

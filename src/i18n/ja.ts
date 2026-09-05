@@ -37,6 +37,8 @@ export const ja: Trans = {
     queueSend: '準備後送信',
     waitVrm: '3Dキャラを読み込み中…',
     waitLlm: 'ロード中（{{percent}}%）',
+    downloading: 'ダウンロード中（{{percent}}%）',
+    loadingModelProgress: 'モデル読み込み中（{{percent}}%）',
     waitReadyHint: '準備できたら今のメッセージを送ります',
     sending: '考え中…',
     send: '送信',
