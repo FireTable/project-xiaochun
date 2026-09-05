@@ -92,6 +92,29 @@ export const ChatBar: React.FC = () => {
   const lastUiTsRef = useRef(0);
   const pendingProgressRef = useRef<{ progress: number; text: string; loaded: number; total: number } | null>(null);
 
+  // ponytail: 生产 build 下用户连点菜单 10 次触发 vconsole(不走 dev 自动挂载路径)。
+  // ChatBar 在生产一直挂载,所以计数和 lazy import 放这里,无新组件。
+  const menuClickCountRef = useRef(0);
+  const enableVConsole = async () => {
+    if (typeof window === 'undefined') return;
+    if ((window as any).__vconsole__) return;
+    try {
+      const { default: VConsole } = await import('vconsole');
+      new VConsole({ theme: 'dark' });
+      (window as any).__vconsole__ = true;
+      console.log('[WebConsole] 10 次菜单点击触发 — vconsole 已启用');
+    } catch (err) {
+      console.warn('[WebConsole] lazy load 失败:', err);
+    }
+  };
+  const handleMenuClickForVConsole = () => {
+    menuClickCountRef.current += 1;
+    if (menuClickCountRef.current >= 10) {
+      menuClickCountRef.current = 0;
+      void enableVConsole();
+    }
+  };
+
   useEffect(() => {
     // 监听 3D VRM 模型就绪状态
     const unsubVRM = vrmEngine.onReadyChange((ready) => {
@@ -260,6 +283,7 @@ export const ChatBar: React.FC = () => {
                   size="icon"
                   aria-label={t('chat.chatMenu')}
                   className="h-11 w-11 shrink-0"
+                  onClick={handleMenuClickForVConsole}
                 >
                   <Menu className="w-4 h-4" />
                 </Button>
