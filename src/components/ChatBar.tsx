@@ -310,6 +310,13 @@ export const ChatBar: React.FC = () => {
                   <ChevronLeft className="h-4 w-4 shrink-0 text-white/50" />
                   <span className="flex-1">{t('chat.switchModel')}</span>
                 </DropdownMenuItem>
+                <DropdownMenuItem
+                  onSelect={() => setShowProviderDialog(true)}
+                  className="flex items-center gap-2"
+                >
+                  <Server className="h-3.5 w-3.5 shrink-0 text-brand-300" />
+                  <span className="flex-1">连接自定义模型服务</span>
+                </DropdownMenuItem>
                 <DropdownMenuSeparator />
                 <div className="max-h-[min(18rem,50dvh)] overflow-x-hidden overflow-y-auto">
                   {llmGroups.map((group, i) => (
@@ -374,16 +381,6 @@ export const ChatBar: React.FC = () => {
                   {t('chat.thinkingHint')}
                 </p>
                 <DropdownMenuSeparator />
-                <DropdownMenuItem
-                  onSelect={() => setShowProviderDialog(true)}
-                  className="justify-between"
-                >
-                  <span className="flex items-center gap-1.5">
-                    <Server className="h-3.5 w-3.5 text-white/50" />
-                    <span>模型服务提供商</span>
-                  </span>
-                  <ChevronRight className="h-4 w-4 shrink-0 text-white/50" />
-                </DropdownMenuItem>
                 <DropdownMenuItem
                   onSelect={() => setShowDeviceDialog(true)}
                   className="justify-between"
