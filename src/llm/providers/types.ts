@@ -44,6 +44,13 @@ export interface ProviderTemplate {
 }
 
 export const KNOWN_TEMPLATES: ProviderTemplate[] = [
+  // ponytail: 自定义放首位 — 用户最常用 baseURL/API key 输入场景,优先触达。
+  {
+    id: 'custom',
+    label: '自定义 OpenAI 兼容',
+    defaultBaseURL: 'https://api.openai.com/v1',
+    defaultModel: 'gpt-4o-mini',
+  },
   {
     id: 'ollama',
     label: 'Ollama(本地)',
@@ -69,11 +76,5 @@ export const KNOWN_TEMPLATES: ProviderTemplate[] = [
     label: 'LocalAI(本地)',
     defaultBaseURL: 'http://localhost:8080/v1',
     defaultModel: 'gpt-4',
-  },
-  {
-    id: 'custom',
-    label: '自定义 OpenAI 兼容',
-    defaultBaseURL: 'https://api.openai.com/v1',
-    defaultModel: 'gpt-4o-mini',
   },
 ];
