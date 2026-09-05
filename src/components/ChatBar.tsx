@@ -313,7 +313,7 @@ export const ChatBar: React.FC = () => {
                   {llmGroups.map((group, i) => (
                     <Fragment key={group.provider}>
                       {i > 0 ? <DropdownMenuSeparator /> : null}
-                      <DropdownMenuLabel className="flex min-w-0 items-center gap-2 normal-case tracking-normal">
+                      <DropdownMenuLabel className="flex min-w-0 items-center gap-2 normal-case tracking-normal text-sm font-semibold text-white/70">
                         <LlmProviderIcon name={group.provider} />
                         <span className="truncate">{group.provider}</span>
                       </DropdownMenuLabel>
