@@ -1,26 +1,20 @@
 /**
- * webLLM.ts — 纯前端浏览器端大语言模型管理模块
- * 
- * 核心特性:
- * 1. 100% 运行于浏览器本地 WebGPU (默认 Qwen3.5-2B q4f16_1,失败则降到 Qwen3.5-0.8B)；
- * 2. 彻底抛弃 Python 后端与 MiniMax CLI 依赖，实现纯静态公网一键运行；
- * 3. 首次加载后自动持久化缓存至浏览器 IndexedDB，后续秒开冷启动；
- * 4. 运行在 Dedicated Web Worker 内部，推理期间主线程 3D 渲染画面绝不掉帧。
+ * webLLMProvider.ts — webLLM (WebGPU + Worker) 路径的 provider。
+ *
+ * ponytail: 把 webLLM 引擎 + chat 调用 + 模型列表打包成一个 provider,
+ * 不感知「dispatch 到哪」,由 chatWorkflow 决定何时调用。
+ * 自定义 HTTP provider 见 ./customProvider.ts。
  */
 
 import { CreateWebWorkerMLCEngine, prebuiltAppConfig, type WebWorkerMLCEngine } from '@mlc-ai/web-llm';
 import { APP_CONFIG } from '@/config';
-import { langFromSystemPrompt, XIAOCHUN_SYSTEM_PROMPT, wrapUserContent } from '@/llm/prompts';
-import { applyRecall, recallForChat } from '@/memory';
-import type { Lang } from '@/i18n';
+import { readActiveKey, writeActiveKey } from './activeKey';
 import { notifyLoadProgress, getLlmLoadProgress, onLlmLoadProgress, type LlmLoadProgress } from './progress';
 export { getLlmLoadProgress, onLlmLoadProgress, type LlmLoadProgress };
+import type { ChatProvider, RunChatOptions } from './chatTypes';
 
 import { detectGpuDeviceProfile, getQuickDeviceTier, getCachedDeviceProfile, type GpuDeviceProfile } from './deviceDetection';
 export { detectGpuDeviceProfile, getQuickDeviceTier, getCachedDeviceProfile, type GpuDeviceProfile };
-
-import { getActiveProviderId, getActiveProvider, completeOnce as customCompleteOnce } from './providers';
-import type { ChatMessage as ProviderChatMessage } from './providers';
 
 import './polyfill';
 
@@ -48,6 +42,8 @@ let initPromise: Promise<WebWorkerMLCEngine> | null = null;
 let engineWorker: Worker | null = null;
 let activeModelId: string | null = null;
 let loadGen = 0;
+// ponytail: 暴露给 chatWorkflow 用 — 检测「推理过程中模型被切换」时丢弃过期结果。
+export function getLoadGen(): number { return loadGen; }
 const llmReadyListeners = new Set<() => void>();
 const readyChangeListeners = new Set<(ready: boolean) => void>();
 
@@ -191,7 +187,7 @@ function notifyLLMUnready(): void {
   });
 }
 
-function unloadEngine(): void {
+export function unloadEngine(): void {
   loadGen += 1;
   engineInstance = null;
   initPromise = null;
@@ -207,27 +203,40 @@ export function unloadWebLLM(): void {
 }
 
 export function getActiveModelId(): string {
+  // ponytail: 优先读统一 active key — 自定义 provider 激活时走 custom 分支,
+  // 这里只 fallback 到 webllm 的初始 model。
+  const active = readActiveKey();
+  if (active?.kind === 'webllm' && isKnownModelId(active.modelId)) {
+    activeModelId = active.modelId;
+    return activeModelId;
+  }
   if (!activeModelId) activeModelId = resolveInitialModelId();
   return activeModelId;
 }
 
 export function setActiveModelId(modelId: string): void {
   if (!isKnownModelId(modelId)) return;
-  if (modelId === getActiveModelId() && engineInstance) return;
+  // ponytail: 必须先写 key,即使 model 跟当前一样 — 之前因为提前 return 没写,
+  // 导致 custom 激活时点 webLLM 默认模型,key 还是 custom,UI 也跟着错。
+  const wasAlreadyWebLLM = readActiveKey()?.kind === 'webllm';
+  writeActiveKey({ kind: 'webllm', modelId });
   activeModelId = modelId;
   notifyModelChange(modelId);
   try {
     window.localStorage.setItem(MODEL_PREF_KEY, modelId);
   } catch { }
+  // ponytail: 已经在跑同一个 model 且 key 本来就是 webllm → 完全 no-op,跳过 reload。
+  if (wasAlreadyWebLLM && engineInstance) return;
   unloadEngine();
   preloadWebLLM();
 }
 
 /** ponytail: 已知里程碑 → i18n key;worker 原始进度 → onProgressText(默认沉默,免得刷屏)。 */
-export type LlmMilestoneKey = 'loadingWebGpu' | 'thinking';
+import type { LlmMilestoneKey, MilestoneFn } from './chatTypes';
+export type { LlmMilestoneKey };
 
 export async function getWebLLMEngine(opts?: {
-  onMilestone?: (key: LlmMilestoneKey, vars?: Record<string, unknown>) => void;
+  onMilestone?: MilestoneFn;
   onProgressText?: (text: string) => void;
 }): Promise<WebWorkerMLCEngine> {
   const onMilestone = opts?.onMilestone;
@@ -310,98 +319,66 @@ export async function getWebLLMEngine(opts?: {
 }
 
 /**
- * 启动时或空闲期后台静默预热 WebLLM 模型 (跑在独立 Dedicated Worker，不卡顿 3D 渲染)
+ * 启动时或空闲期后台静默预热 WebLLM 模型 (跑在独立 Dedicated Worker，不卡顿 3D 渲染)。
+ * 当前激活的是 custom provider 时直接 no-op — 加载了也用不上,白占 1-2GB 显存。
  */
 export function preloadWebLLM(opts?: {
   onProgressText?: (text: string) => void;
 }): void {
   if (typeof window === 'undefined') return;
+  if (readActiveKey()?.kind === 'custom') return;
   void getWebLLMEngine({ onProgressText: opts?.onProgressText }).catch((err) => {
     console.warn('[WebLLM] Background preload notice:', err);
   });
 }
 
 /**
- * 清洗大模型输出，严格剥离 <think> 思考链，只拿其后的正文内容。
- * ponytail: 不在这里兜底中文问候,留给 chatDirector 走 i18n。
+ * ponytail: provider 的统一入口 — 拿 messages + opts → 返 raw 字符串。
+ * 内部负责:加载/复用 engine、失败时降级到 fallback 模型、KV cache 释放、
+ * 模型切换时抛 ModelSwitchedError 让 chatWorkflow 丢弃过期结果。
  */
-export function extractCleanSpeech(text: string): string {
-  let raw = text || '';
-
-  // 1. 若包含 </think> 闭合标签，直接截取其后的真实正文！
-  if (raw.includes('</think>')) {
-    raw = raw.split('</think>').pop() || '';
-  }
-
-  // 2. 若存在未闭合的 <think>，强力剥离 <think> 及其后的全部内容
-  raw = raw.replace(/<think>[\s\S]*$/gi, '');
-  raw = raw.replace(/<think>[\s\S]*?<\/think>/gi, '');
-
-  // 3. 过滤 markdown 标记、json 代码块
-  raw = raw.replace(/^```(?:json)?\s*/i, '').replace(/\s*```$/, '').trim();
+export async function runChat(opts: RunChatOptions): Promise<string> {
+  let engine = await getWebLLMEngine({ onMilestone: opts.onMilestone });
+  const gen = getLoadGen();
   try {
-    const parsed = JSON.parse(raw);
-    if (parsed && typeof parsed.speech === 'string') return parsed.speech.trim();
-  } catch { }
-
-  // 4. 清理括号内的动作描述或心理描述（如“（微笑着说）”或“(点头)”）
-  raw = raw.replace(/（[^）]*）/g, '').replace(/\([^)]*\)/g, '');
-  raw = raw.replace(/\*[^*]*\*/g, ''); // 过滤 *动作神态*
-  raw = raw.replace(/^(?:小蠢|晓伊)[^：:，,\n]*[：:]\s*/, ''); // 过滤“小蠢微笑道：”等小说前缀
-
-  // 5. 去除首尾多余引号和空白字符
-  raw = raw.replace(/^["'“”]+|["'“”]+$/g, '').trim();
-
-  return raw;
-}
-
-function getFriendlyFallbackSpeech(lang: Lang): string {
-  switch (lang) {
-    case 'ja':
-      return '{"speech":"ちょっとスマホのメモリがいっぱいでぼーっとしちゃった…もう一度言ってくれる？"}';
-    case 'en':
-      return '{"speech":"Whew, graphics memory was tight and I spaced out for a second... could you say that again?"}';
-    case 'zh-CN':
-    default:
-      return '{"speech":"唔……刚才显存稍微有点吃紧，小蠢晃了下神～你刚才说什么来着？"}';
+    return await callEngine(engine, opts);
+  } catch (err) {
+    if (gen !== getLoadGen()) throw new ModelSwitchedError();
+    const errStr = String((err as Error)?.message || err);
+    console.warn(`[WebLLM] 推理异常 (${errStr})，重置 worker 尝试恢复:`, err);
+    unloadEngine();
+    if (getActiveModelId() !== FALLBACK_LLM_MODEL) {
+      console.warn(`[WebLLM] 自动降级至 fallback 模型 (${FALLBACK_LLM_MODEL})`);
+      setActiveModelId(FALLBACK_LLM_MODEL);
+    }
+    engine = await getWebLLMEngine({ onMilestone: opts.onMilestone });
+    if (gen !== getLoadGen()) throw new ModelSwitchedError();
+    return callEngine(engine, { ...opts, thinking: false, maxTokens: 80 });
   }
 }
 
-async function completeOnce(
+export class ModelSwitchedError extends Error {
+  constructor() {
+    super('webllm model switched during inference');
+    this.name = 'ModelSwitchedError';
+  }
+}
+
+async function callEngine(
   engine: WebWorkerMLCEngine,
-  userText: string,
-  systemPrompt: string,
-  history: { role: 'user' | 'assistant'; content: string }[],
-  thinking: boolean,
-  maxTokensOverride?: number,
+  opts: RunChatOptions,
 ): Promise<string> {
-  const isMobile = typeof navigator !== 'undefined' && /Mobi|Android|iPhone|iPad/i.test(navigator.userAgent);
-  const qwen3 = getActiveModelId().startsWith('Qwen3');
-  const lang: Lang = langFromSystemPrompt(systemPrompt);
-  // ponytail: 标准 ChatML 多轮 — [system, ...history, current user]。
-  // 对话历史从 system 拆出到独立 messages,system 不再被 history 撑长,
-  // 模型指令空间完整,2B 模型复读的历史 user role 反而让上下文更紧凑。
-  const userContent = wrapUserContent(userText, lang);
-  const messages: { role: 'system' | 'user' | 'assistant'; content: string }[] = [
-    { role: 'system', content: systemPrompt },
-    ...history,
-    { role: 'user', content: userContent },
-  ];
-  // ponytail: 打印完整 messages —— console.table 浏览器内部对长字符串只截 ~60 字,
-  // 看不全 system 里拼进去的对话历史/记忆。换成 console.log 完整展开。
-  console.log(`[WebLLM → messages] ${messages.length} 条`);
-  for (const m of messages) {
-    console.log(`\n── ${m.role} (${m.content.length} chars) ──\n${m.content}`);
-  }
-  // 移动端生成 token 限制为 120 (约3-4句话)，有效防止长时间占用 GPU 触发移动端驱动 TDR 看门狗重置
-  const maxTokens = maxTokensOverride ?? (isMobile ? 120 : 220);
+  // ponytail: 请求体已在 chatWorkflow.runChat 入口统一打印,这里不再 log 避免重复。
   try {
     const reply = await engine.chat.completions.create({
       model: getActiveModelId(),
-      messages,
+      messages: opts.messages,
       temperature: 0.8,
-      max_tokens: maxTokens,
-      ...(qwen3 ? { extra_body: { enable_thinking: thinking && qwen3 } } : {}),
+      // ponytail: maxTokens 不传就不限 — 让 MLC / 模型端用各自的默认。
+      ...(opts.maxTokens ? { max_tokens: opts.maxTokens } : {}),
+      // ponytail: thinking 对所有模型一视同仁 —— WebLLM 的 OpenAI 兼容层原样透传
+      // extra_body,不支持的模型静默忽略。
+      ...(opts.thinking ? { extra_body: { enable_thinking: true } } : {}),
     });
     return reply.choices[0]?.message?.content || '';
   } finally {
@@ -413,102 +390,13 @@ async function completeOnce(
 }
 
 /**
- * ponytail: 自定义 provider (OpenAI-compatible HTTP) 的对话实现 — 走 fetch + SSE 流式,
- * 不创建 webLLM worker,不下载模型权重。返回完整字符串(chatDirector 流式调度在 chat 层)。
+ * ponytail: provider 描述符 — 没显式激活任何 custom 时 webllm 是默认。
+ * factory 看到 active key 不是 `custom:*` 就挑我们。
  */
-async function generateCustomSpeechReply(
-  userText: string,
-  onMilestone?: (key: LlmMilestoneKey, vars?: Record<string, unknown>) => void,
-  systemPrompt: string = XIAOCHUN_SYSTEM_PROMPT['zh-CN'],
-): Promise<string> {
-  const lang = langFromSystemPrompt(systemPrompt);
-  const mem = await recallForChat(userText);
-  const recalled = applyRecall(systemPrompt, mem, lang);
-  const profile = await getActiveProvider();
-  if (!profile) {
-    throw new Error('active custom provider not found');
-  }
-  onMilestone?.('thinking');
-  const messages: ProviderChatMessage[] = [
-    { role: 'system', content: recalled.system },
-    ...recalled.history,
-    { role: 'user', content: wrapUserContent(userText, lang) },
-  ];
-  return customCompleteOnce(profile, {
-    model: profile.model,
-    messages,
-    temperature: 0.8,
-    maxTokens: 120,
-  });
-}
-
-/**
- * 对话生成接口 — 纯前端本地推理对话
- * @param systemPrompt 可选覆盖,缺省用 XIAOCHUN_SYSTEM_PROMPT['zh-CN']。
- *   ponytail: 由 chatDirector 在调用时根据当前 i18n 语言注入,实现"用户用什么语言问,就用什么语言答"。
- */
-export async function generateSpeechReply(
-  userText: string,
-  onMilestone?: (key: LlmMilestoneKey, vars?: Record<string, unknown>) => void,
-  systemPrompt: string = XIAOCHUN_SYSTEM_PROMPT['zh-CN'],
-): Promise<string> {
-  // ponytail: 有 active custom provider 就走 HTTP 路径,跳过 webLLM worker + Worker init。
-  // 这样 ChatBar/chatDirector 不知道后端是什么,接口保持不变。
-  const customId = await getActiveProviderId();
-  if (customId) {
-    return generateCustomSpeechReply(userText, onMilestone, systemPrompt);
-  }
-
-  let activeEngine = await getWebLLMEngine({ onMilestone });
-  onMilestone?.('thinking');
-  let gen = loadGen;
-  const wantThink = isThinkingEnabled() && getActiveModelId().startsWith('Qwen3');
-  const lang = langFromSystemPrompt(systemPrompt);
-  const mem = await recallForChat(userText);
-  const recalled = applyRecall(systemPrompt, mem, lang);
-
-  let raw: string;
-  try {
-    raw = await completeOnce(activeEngine, userText, recalled.system, recalled.history, wantThink);
-  } catch (err: any) {
-    const errStr = String(err?.message || err?.name || err);
-    console.warn(`[WebLLM] 推理过程遇到异常 (${errStr})，自动重置 Worker 尝试恢复:`, err);
-    unloadEngine();
-    gen = loadGen;
-    const currentModel = getActiveModelId();
-    if (currentModel !== FALLBACK_LLM_MODEL) {
-      console.warn(`[WebLLM] 当前模型 ${currentModel} 自动重置并降级至 fallback 模型 (${FALLBACK_LLM_MODEL})`);
-      setActiveModelId(FALLBACK_LLM_MODEL);
-    }
-    try {
-      activeEngine = await getWebLLMEngine({ onMilestone });
-      raw = await completeOnce(activeEngine, userText, recalled.system, recalled.history, false, 80);
-    } catch (retryErr) {
-      console.error('[WebLLM] 重启 Worker 重新加载后重试依然失败，返回优雅角色兜底台词:', retryErr);
-      raw = getFriendlyFallbackSpeech(lang);
-    }
-  }
-  if (gen !== loadGen) {
-    console.warn('[WebLLM] 模型已切换，放弃本次过期生成结果');
-    return '';
-  }
-  let cleanSpeech = extractCleanSpeech(raw);
-
-  if (!cleanSpeech.trim() && wantThink) {
-    try {
-      raw = await completeOnce(activeEngine, userText, recalled.system, recalled.history, false);
-      if (gen !== loadGen) {
-        console.warn('[WebLLM] 模型已切换，放弃本次过期生成结果');
-        return '';
-      }
-      cleanSpeech = extractCleanSpeech(raw);
-    } catch {
-      cleanSpeech = extractCleanSpeech(getFriendlyFallbackSpeech(lang));
-    }
-  }
-
-  console.log('[WebLLM Raw Output]:', raw);
-  console.log('[WebLLM Clean Speech]:', cleanSpeech);
-
-  return cleanSpeech;
-}
+export const webllmChatProvider: ChatProvider = {
+  isActive: async () => {
+    const active = readActiveKey();
+    return active?.kind !== 'custom';
+  },
+  runChat,
+};

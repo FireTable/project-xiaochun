@@ -34,46 +34,46 @@ export interface ChatChunkDelta {
   content: string;
 }
 
-/** 已知本地服务模板 — UI 上一键填 baseURL/默认 model。 */
+/** 已知本地服务模板 — UI 上一键填 baseURL/默认 model。labelKey / hintKey 是 i18n key,UI 层 t(...) 渲染。 */
 export interface ProviderTemplate {
   id: string;
-  label: string;
+  labelKey: string;
   defaultBaseURL: string;
   defaultModel: string;
-  hint?: string;
+  hintKey?: string;
 }
 
 export const KNOWN_TEMPLATES: ProviderTemplate[] = [
   // ponytail: 自定义放首位 — 用户最常用 baseURL/API key 输入场景,优先触达。
   {
     id: 'custom',
-    label: '自定义 OpenAI 兼容',
+    labelKey: 'providerConfig.templates.custom',
     defaultBaseURL: 'https://api.openai.com/v1',
     defaultModel: 'gpt-4o-mini',
   },
   {
     id: 'ollama',
-    label: 'Ollama(本地)',
+    labelKey: 'providerConfig.templates.ollama',
     defaultBaseURL: 'http://localhost:11434/v1',
     defaultModel: 'qwen2.5:7b',
-    hint: '需先启动 ollama serve',
+    hintKey: 'providerConfig.hintOllama',
   },
   {
     id: 'lm-studio',
-    label: 'LM Studio(本地)',
+    labelKey: 'providerConfig.templates.lmStudio',
     defaultBaseURL: 'http://localhost:1234/v1',
     defaultModel: 'qwen2.5-7b-instruct',
-    hint: '需先在 LM Studio 启动 OpenAI 兼容服务',
+    hintKey: 'providerConfig.hintLmStudio',
   },
   {
     id: 'vllm',
-    label: 'vLLM(本地)',
+    labelKey: 'providerConfig.templates.vllm',
     defaultBaseURL: 'http://localhost:8000/v1',
     defaultModel: 'Qwen/Qwen2.5-7B-Instruct',
   },
   {
     id: 'localai',
-    label: 'LocalAI(本地)',
+    labelKey: 'providerConfig.templates.localai',
     defaultBaseURL: 'http://localhost:8080/v1',
     defaultModel: 'gpt-4',
   },

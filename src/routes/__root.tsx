@@ -54,18 +54,12 @@ export const Route = createRootRoute({
       { name: 'twitter:image', content: 'https://xiaochun.firetable.tech/og.jpg' },
       { name: 'twitter:image:alt', content: 'Project XiaoChun — 100% 浏览器原生二次元伴侣' },
 
-      { title: 'Project XiaoChun — 100% 浏览器原生二次元伴侣' },
+      { title: 'Project XiaoChun' },
     ],
     links: [
       { rel: 'icon', type: 'image/png', href: '/favicon.png' },
       { rel: 'canonical', href: 'https://xiaochun.firetable.tech/' },
       { rel: 'stylesheet', href: appCss },
-      { rel: 'preconnect', href: 'https://fonts.googleapis.com' },
-      { rel: 'preconnect', href: 'https://fonts.gstatic.com', crossOrigin: 'anonymous' },
-      {
-        rel: 'stylesheet',
-        href: 'https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;600;700&family=Noto+Sans+SC:wght@300;400;500;700&display=swap',
-      },
     ],
     scripts: [
       {

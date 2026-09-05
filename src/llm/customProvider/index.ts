@@ -5,7 +5,7 @@
  * 第一个 200 命中就拿它的 baseURL + 自动拉模型列表,用户确认即可保存。
  */
 
-import { probeProvider, streamCompletion, completeOnce } from './client';
+import { probeProvider, streamCompletion } from './client';
 import type { CompletionChunk, CompletionOptions } from './client';
 import { deleteProvider, getActiveProvider, getActiveProviderId, getDecryptedApiKey, getProvider, listProviders, saveProvider, setActiveProviderId } from './store';
 import type { ChatMessage, ProviderProfile, ProviderTemplate } from './types';
@@ -13,7 +13,9 @@ import { KNOWN_TEMPLATES } from './types';
 
 export type { ChatMessage, CompletionChunk, CompletionOptions, ProviderProfile, ProviderTemplate };
 export { KNOWN_TEMPLATES };
-export { listProviders, getProvider, getActiveProvider, getActiveProviderId, setActiveProviderId, saveProvider, deleteProvider, probeProvider, streamCompletion, completeOnce, getDecryptedApiKey };
+export { listProviders, getProvider, getActiveProvider, getActiveProviderId, setActiveProviderId, saveProvider, deleteProvider, probeProvider, streamCompletion, getDecryptedApiKey };
+
+export { runChat, customChatProvider } from './speech';
 
 export interface ProbeHit {
   template: ProviderTemplate;

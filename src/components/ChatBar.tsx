@@ -18,7 +18,9 @@ import {
   getCachedDeviceProfile,
   listModelGroups,
   modelBaseId,
-} from '@/llm/webLLM';
+} from '@/llm/webLLMProvider';
+import { getActiveProviderId, getProvider, type ProviderProfile } from '@/llm/customProvider';
+import { readActiveKey } from '@/llm/activeKey';
 import { Send, Sparkles, Loader2 } from '@/components/icons';
 import { Button } from '@/components/ui/button';
 import {
@@ -75,10 +77,28 @@ export const ChatBar: React.FC = () => {
   const [pickingModel, setPickingModel] = useState(false);
   const [showDeviceDialog, setShowDeviceDialog] = useState(false);
   const [showProviderDialog, setShowProviderDialog] = useState(false);
+  // ponytail: 当前激活的自定义 provider(webllm 与 custom 二选一)。用来在模型下拉里
+  // 显示真实生效的服务名 / 模型,而不是 webLLM 的兜底。
+  const [activeCustom, setActiveCustom] = useState<ProviderProfile | null>(null);
   const llmGroups = listModelGroups();
   const activeBase = modelBaseId(activeModel);
-  const thinkingSupported = activeBase.startsWith('Qwen3');
+  // ponytail: 找当前激活 webllm 模型的 label(去掉量化后缀),下拉里跟 custom 一样
+  // 显示「WebLLM + 模型」两行 — provider 名固定,因为都是 webllm 引擎跑的。
+  let activeWebLLM: { label: string } | null = null;
+  if (activeModel) {
+    for (const g of llmGroups) {
+      const hit = g.models.find((m) => m.id === activeModel);
+      if (hit) {
+        activeWebLLM = { label: hit.label };
+        break;
+      }
+    }
+  }
   const deviceTier = getCachedDeviceProfile()?.tier ?? getQuickDeviceTier();
+
+  // ponytail: 同步读 active key — custom 用户永远不需要等 webllm 加载,
+  // 否则 SYNC badge + "加载模型 0%" + "神经核心同步中" 会一直挂着,误导用户。
+  const isOnCustom = readActiveKey()?.kind === 'custom';
 
   // 模型与引擎就绪感知
   const [isVRMReady, setIsVRMReady] = useState(() => vrmEngine.isReady());
@@ -116,6 +136,20 @@ export const ChatBar: React.FC = () => {
       void enableVConsole();
     }
   };
+
+  // ponytail: 加载当前激活的自定义 provider,dialog 关闭后也重新拉一次。
+  const refreshActiveCustom = async () => {
+    const id = await getActiveProviderId();
+    if (!id) {
+      setActiveCustom(null);
+      return;
+    }
+    const p = await getProvider(id);
+    setActiveCustom(p);
+  };
+  useEffect(() => {
+    void refreshActiveCustom();
+  }, [showProviderDialog]);
 
   useEffect(() => {
     // 监听 3D VRM 模型就绪状态
@@ -204,7 +238,8 @@ export const ChatBar: React.FC = () => {
     return `${Math.round(secs)}秒`;
   }
 
-  const isModelReady = isVRMReady && isLLMReady;
+  // ponytail: custom provider 永远 ready(webllm engine 用不上),不显示加载状态。
+  const isModelReady = isVRMReady && (isOnCustom || isLLMReady);
 
   // 智能排队机制：一旦模型加载完毕，若此前有排队中的输入，自动无缝触发发送，绝不丢字
   useEffect(() => {
@@ -274,25 +309,27 @@ export const ChatBar: React.FC = () => {
   return (
     <div className="fixed bottom-[calc(0.75rem+env(safe-area-inset-bottom,0px))] sm:bottom-8 left-1/2 -translate-x-1/2 z-30 w-full max-w-xl px-3 sm:px-4 pointer-events-auto select-none">
       <div className="flex items-center gap-2 sm:gap-2.5 w-full">
-        <DropdownMenu onOpenChange={(open) => { if (!open) setPickingModel(false); }}>
-          <Tooltip>
-            <TooltipTrigger asChild>
-              <DropdownMenuTrigger asChild>
-                <Button
-                  type="button"
-                  id="chat-menu"
-                  variant="glass"
-                  size="icon"
-                  aria-label={t('chat.chatMenu')}
-                  className="h-11 w-11 shrink-0"
-                  onClick={handleMenuClickForVConsole}
-                >
-                  <Menu className="w-4 h-4" />
-                </Button>
-              </DropdownMenuTrigger>
-            </TooltipTrigger>
-            <TooltipContent side="top">{t('chat.chatMenu')}</TooltipContent>
-          </Tooltip>
+        <DropdownMenu
+          onOpenChange={(open) => {
+            if (!open) setPickingModel(false);
+          }}
+        >
+          {/* ponytail: 不包 Tooltip — Radix 官方 anti-pattern,无论 controlled 还是
+            blur 都治不干净(focus 状态变化太多)。aria-label 已经提供无障碍支持,
+            触发过一次用户就知道是什么,hover tooltip 提示是冗余。 */}
+          <DropdownMenuTrigger asChild>
+            <Button
+              type="button"
+              id="chat-menu"
+              variant="glass"
+              size="icon"
+              aria-label={t('chat.chatMenu')}
+              className="h-11 w-11 shrink-0"
+              onClick={handleMenuClickForVConsole}
+            >
+              <Menu className="w-4 h-4" />
+            </Button>
+          </DropdownMenuTrigger>
           <DropdownMenuContent
             side="top"
             align="start"
@@ -314,8 +351,10 @@ export const ChatBar: React.FC = () => {
                   onSelect={() => setShowProviderDialog(true)}
                   className="flex items-center gap-2"
                 >
-                  <Server className="h-3.5 w-3.5 shrink-0 text-brand-300" />
-                  <span className="flex-1">连接自定义模型服务</span>
+                  <Server className="h-3.5 w-3.5 shrink-0 text-white" />
+                  <span className="flex-1">{t('chat.providerMenu')}</span>
+                  {/* ponytail: 自定义 provider 已激活时,这里打勾,webLLM 行不打勾。 */}
+                  {activeCustom ? <span className="shrink-0 text-brand-300 text-xs">✓</span> : null}
                 </DropdownMenuItem>
                 <DropdownMenuSeparator />
                 <div className="max-h-[min(18rem,50dvh)] overflow-x-hidden overflow-y-auto">
@@ -327,15 +366,19 @@ export const ChatBar: React.FC = () => {
                         <span className="truncate">{group.provider}</span>
                       </DropdownMenuLabel>
                       {group.models.map((m) => {
-                        const selected = modelBaseId(m.id) === activeBase;
+                        const selected = !activeCustom && modelBaseId(m.id) === activeBase;
                         return (
                           <DropdownMenuItem
                             key={m.id}
                             disabled={isSending}
                             onSelect={() => {
                               if (selected) return;
+                              // ponytail: setActiveModelId 现在写统一 key 的 webllm 分支,
+                              // 自动覆盖 custom 分支。然后刷新 activeCustom React state,
+                              // 否则 UI 还显示旧 custom。
                               setActiveModel(m.id);
                               setActiveModelId(m.id);
+                              void refreshActiveCustom();
                             }}
                             className="min-w-0 justify-between"
                           >
@@ -359,12 +402,25 @@ export const ChatBar: React.FC = () => {
                 >
                   <span>{t('chat.switchModel')}</span>
                   <span className="flex min-w-0 items-center gap-1">
-                    <span className="max-w-[7.5rem] truncate text-xs text-white/50">{activeBase}</span>
+                    {activeCustom ? (
+                      <span className="flex min-w-0 flex-col items-end max-w-[8rem]">
+                        <span className="truncate text-xs text-white/70">{activeCustom.name || activeCustom.model}</span>
+                        {activeCustom.name && activeCustom.model !== activeCustom.name ? (
+                          <span className="truncate text-[10px] text-white/40 font-mono">{activeCustom.model}</span>
+                        ) : null}
+                      </span>
+                    ) : activeWebLLM ? (
+                      <span className="flex min-w-0 flex-col items-end max-w-[8rem]">
+                        <span className="truncate text-xs text-white/70">WebLLM</span>
+                        <span className="truncate text-[10px] text-white/40 font-mono">{activeWebLLM.label}</span>
+                      </span>
+                    ) : (
+                      <span className="max-w-[7.5rem] truncate text-xs text-white/50">{activeBase}</span>
+                    )}
                     <ChevronRight className="h-4 w-4 shrink-0 text-white/50" />
                   </span>
                 </DropdownMenuItem>
                 <DropdownMenuItem
-                  disabled={!thinkingSupported}
                   aria-checked={thinkingOn}
                   onSelect={(e) => {
                     e.preventDefault();
@@ -430,7 +486,8 @@ export const ChatBar: React.FC = () => {
             onFocus={() => setIsInputFocused(true)}
             onBlur={() => setIsInputFocused(false)}
             autoComplete="off"
-            disabled={isSending}
+            // ponytail: 回复中也允许输入 — 用户可以预先打下一句,点 send 时
+            // handleSend 内部用 isSending 拦截,不重复发。按钮单独 disable。
             className="w-full h-full bg-transparent border-none outline-none text-white placeholder:text-white/40 text-sm sm:text-sm touch-manipulation select-text"
           />
         </div>
@@ -458,7 +515,7 @@ export const ChatBar: React.FC = () => {
                   {isError ? (
                     <>
                       <span className="text-[#f85149]">{llmProgress.text}</span>
-                      <span className="text-white/40">换模型 / 刷新页面重试</span>
+                      <span className="text-white/40">{t('chat.hintRetry')}</span>
                     </>
                   ) : (
                     <>

@@ -13,15 +13,18 @@ Project XiaoChun is a full-stack, browser-native web application that runs an in
   - `GazeController`: Level-head gaze tracking, micro-saccades, and thinking head sways.
   - `BubbleTracker`: High-performance 3D-to-2D screen projection with 1.5px dead-zone filtering.
 - **Universal Motion Pipeline**: Layered pose hierarchy with Quintic Smootherstep ($6t^5 - 15t^4 + 10t^3$) inbetweening, full/upper-body masking, inverse quaternion LookAt decoupling, and automated lifecycle return-to-idle.
-- **LLM**: WebLLM running Qwen2.5 1.5B (q4f16_1) on WebGPU (fallback 0.5B), streaming with milestone callbacks.
+- **LLM (WebLLM, default)**: WebLLM running Qwen2.5 1.5B (q4f16_1) on WebGPU (fallback 0.5B), streaming with milestone callbacks.
+- **LLM (Custom OpenAI-Compatible Providers)**: Plug any OpenAI-compatible HTTP service (Ollama / LM Studio / vLLM / LocalAI / OpenAI / DeepSeek / Qwen API) via in-app config dialog. Profiles AES-GCM encrypted in IndexedDB. Active custom provider unloads WebLLM to free 1-2 GB VRAM. Unified `runChat(opts)` contract for both providers via `chatWorkflow` factory.
+- **Cinematic Intro**: When the loading overlay exits, `vrmEngine.cinematicIntro(1100)` tweens camera from a 3.3× distant position to the current position with `easeOutCubic`, synchronized with overlay's `scale-125 + blur-md` break transition.
 - **Motion Generation**: EMAGE full-body co-speech motion (PantoMatrix, CVPR 2024) in a Dedicated Web Worker with temporal Gaussian smoothing.
-- **TTS**: Microsoft Edge-TTS XiaoyiNeural zh-CN (+10 Hz) via `edge-tts-universal` — emoji stripped from speech text.
+- **TTS**: Microsoft Edge-TTS XiaoyiNeural zh-CN (+10 Hz) via `edge-tts-universal` — emoji stripped from speech text. Dev proxy via `TTS_PROXY_URL` env var (EU egress workaround).
 - **Client-Side Memory**: IndexedDB (`xiaochun-memory`) local persistence — 3-tier architecture with short-term turns, multilingual entity profile extraction, and n-gram long-term note retrieval. 100% local privacy guarantee with zero telemetry.
 - **i18n & SSR**: TanStack Start full-stack SSR with cookie-based language hydration; ships zh-CN / en / ja; adaptive prompt matching user input language.
-- **Mobile-First UI**: iOS HIG 44 pt / Material 48 dp touch targets, liquid-glass aesthetic, SSR pre-rendered LoadingOverlay.
+- **Mobile-First UI**: iOS HIG 44 pt / Material 48 dp touch targets, liquid-glass aesthetic, SSR pre-rendered LoadingOverlay. Chat input remains editable during response so users can pre-type.
 
 ## Links & API Contracts
 - [Full Documentation](/llms-full.txt): Complete technical architecture, dependency list, motion/TTS pipelines, deployment guide.
 - [GitHub Repository](#): Source code, setup instructions, and issue tracker.
 - [Live Demo](https://xiaochun.firetable.tech): Full-stack SSR deploy on Cloudflare Workers.
 - Edge API: `GET /api/tts?text=...&voice=zh-CN-XiaoyiNeural&pitch=%2B10Hz` returns `audio/mpeg`. CORS open.
+- Custom Providers: in-app **Custom Model Service** dialog (top-bar / chat-bar). Templates: Ollama, LM Studio, vLLM, LocalAI, Generic OpenAI-compatible. Test connection button probes `/v1/models` endpoint before save.

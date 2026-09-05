@@ -24,7 +24,7 @@
 
 **Project XiaoChun (小蠢)** 是一个完全运行在浏览器里的二次元陪伴角色。角色用 `@pixiv/three-vrm` 渲染,采用 MToon NPR 着色,坐在沉浸式线稿户外场景中;**所有 AI 推理都在你当前的浏览器标签页里跑** —— 没有 Python 后端,没有服务器 GPU。
 
-进场是 2D MAD 预载再到 3D。你跟她说话。她思考(WebLLM Qwen3.5 2B q4f16_1,失败降到 0.8B;思考模式可关)、她开口说话(Edge-TTS 走 Cloudflare Workers WebSocket)、她全身动作实时跟上(EMAGE ONNX 在 Dedicated Web Worker 里)。模型没就绪时输入会排队,不会丢字。对话条菜单可从 WebLLM 预置表换模型。
+进场是 2D MAD 预载破次元到 3D —— 镜头从 3.3 倍远景推近,splash 同步淡出。你跟她说话。她思考(WebLLM Qwen2.5 1.5B q4f16_1,失败降到 0.5B;思考模式可关)、她开口说话(Edge-TTS 走 Cloudflare Workers WebSocket)、她全身动作实时跟上(EMAGE ONNX 在 Dedicated Web Worker 里)。模型没就绪时输入会排队,不会丢字。对话条菜单可从 WebLLM 预置表换模型,也可在**应用内配置对话框**接入任意 **OpenAI 兼容 自定义服务**(Ollama / LM Studio / vLLM / LocalAI / 云厂商)——AES-GCM 加密存在 IndexedDB。
 
 UI 走 **TanStack Start SSR + i18next** 水合,**完整支持简体中文 / English / 日本語 三语切换**,并且按 iOS HIG 44 pt / Material 48 dp 触屏规范做了移动端优先适配。
 
@@ -68,7 +68,9 @@ UI 走 **TanStack Start SSR + i18next** 水合,**完整支持简体中文 / Engl
 * **全自动生命周期闭环**：单次动作播完自动启动淡出过渡，从容回归待机并触发回调，无需外部状态机额外干预。
 
 ### 🧠 100% 浏览器端 AI 推理栈 (Browser-Side AI)
-* **大语言模型** — [`@mlc-ai/web-llm`](https://github.com/mlc-ai/web-llm) 默认 **Qwen2.5 1.5B (q4f16_1)**，低配设备自动降级至 0.5B。轻量高效，在移动端与低显存设备上兼顾推理速度与回复质量；对话条菜单可随时热切换模型或开关思考模式；回复语言随用户提问语系自适应匹配。
+* **大语言模型 (WebLLM,默认)** — [`@mlc-ai/web-llm`](https://github.com/mlc-ai/web-llm) 默认 **Qwen2.5 1.5B (q4f16_1)**，低配设备自动降级至 0.5B。轻量高效，在移动端与低显存设备上兼顾推理速度与回复质量；对话条菜单可随时热切换模型或开关思考模式；回复语言随用户提问语系自适应匹配。
+* **大语言模型 (OpenAI 兼容自定义服务,可选)** — 应用内配置对话框一键接入任意 OpenAI 兼容 HTTP 服务:Ollama / LM Studio / vLLM / LocalAI / 云厂商(OpenAI、DeepSeek、Qwen API 等)。Provider 配置 AES-GCM 加密存在 IndexedDB;激活后 WebLLM **不会**预热,省 1-2 GB 显存 + 模型下载带宽。
+* **统一 Provider 工厂 (`chatWorkflow.runChat`)** — WebLLM 与自定义 provider 共享同形 `runChat(opts) → string` 契约;dispatcher 通过 `ChatProvider` 注册表轮询,选第一个 `isActive` 命中的。加新 provider = 注册一个描述符。
 * **动作生成** — **EMAGE** 全身动作 (ONNX Runtime Web) 在 Dedicated Web Worker 中运行，时序高斯滤波平滑。
 * **语音合成** — **Edge-TTS 晓伊 (XiaoyiNeural, zh-CN, +10 Hz)**，基于 [`edge-tts-universal`](https://github.com/Sterznode/edge-tts-universal)；网络传输前智能剥离 emoji。
 * **LLM + TTS + EMAGE 一体编排**：chat director 全链路统一协调，主线程满帧 60 FPS 丝滑驱动。
@@ -111,7 +113,7 @@ UI 走 **TanStack Start SSR + i18next** 水合,**完整支持简体中文 / Engl
 ### 🛠️ 开发工具链 (Dev Tooling)
 * **调试抽屉**(仅本地):表情切换 / 6 路灯光 / FOV / 全局亮度 / 材质饱和度预设。
 * **Cloudflare Workers**(`src/server.ts`):生产环境统一承载 TanStack Start SSR 与原生 WebSocket Edge-TTS 流式代理。
-* **Vite dev 中间件**(`vite.config.ts → localApiPlugin`):本地开发使用 Miniflare 虚拟运行时，与线上环境 100% 同构。
+* **Vite dev 中间件**(`vite/localApiPlugin.ts`):本地开发使用 Miniflare 虚拟运行时，与线上环境 100% 同构。`/api/tts` 默认转发到 `TTS_PROXY_URL`(部署的 Cloudflare Worker),未设置时回退本地 `edge-tts-universal`。
 * **单一可信源**:`src/config.ts` 集中管理光照 / 相机 / 表情 / 饱和度 / LLM / R2 模型参数。
 
 ---
@@ -219,7 +221,19 @@ Project-XiaoChun/
 │   │   ├── vrmaPlayer.ts      # VRMA 动画播放驱动器
 │   │   └── vrmaRetarget.ts    # VRMA 骨骼重定向与标准化
 │   ├── memory/                # 端侧持久化多级记忆 (IndexedDB 存储 / 实体画像提取 / n-gram 检索)
-│   ├── llm/                   # WebLLM WebGPU 流式推理 (Qwen2.5 1.5B / 0.5B) + Worker + 提示词
+│   ├── llm/                   # LLM 层 — WebLLM + 自定义 OpenAI 兼容 provider 工厂
+│   │   ├── webLLMProvider.ts   # WebLLM 引擎 + runChat
+│   │   ├── customProvider/     # 自定义 OpenAI 兼容 provider
+│   │   │   ├── index.ts        #   公共导出
+│   │   │   ├── client.ts       #   fetch + SSE + probeProvider
+│   │   │   ├── crypto.ts       #   AES-GCM API key 加密 (PBKDF2)
+│   │   │   ├── speech.ts       #   自定义 provider 的 runChat
+│   │   │   ├── store.ts        #   IndexedDB profile 持久化
+│   │   │   └── types.ts        #   ProviderProfile + KNOWN_TEMPLATES
+│   │   ├── chatTypes.ts        # 共享 RunChatOptions / ChatProvider / ChatMessage
+│   │   ├── chatWorkflow.ts     # 跨 provider 调度 + 输出清洗 + 兜底台词
+│   │   ├── activeKey.ts        # 统一 custom:xxx / webllm:xxx active key
+│   │   └── progress.ts         # LLM 进度事件总线
 │   ├── director/
 │   │   └── chatDirector.ts    # LLM → TTS → EMAGE 流式全链路状态编排
 │   ├── i18n/                  # zh-CN / en / ja 翻译字典 + 服务端 Cookie 提取
@@ -232,6 +246,10 @@ Project-XiaoChun/
 │   ├── routeTree.gen.ts       # 自动生成的类型安全路由树
 │   └── config.ts              # 单一可信源 (R2 / 相机 / 6路灯光 / 饱和度 / LLM / 表情)
 ├── vite.config.ts             # Vite 8 + TanStack Start + @cloudflare/vite-plugin
+├── vite/                      # 自定义 Vite 插件 (从 vite.config.ts 抽出)
+│   ├── localApiPlugin.ts       # /api/tts 开发中间件 (TTS 转发 + EU 出口回退)
+│   └── dropDockerfatAssets.ts # 剥离 25 MiB+ WASM blob 以适配 Cloudflare Pages 上限
+├── .env.example               # 全部环境变量文档化模板 (复制到 .env.local)
 └── tsconfig.json
 ```
 

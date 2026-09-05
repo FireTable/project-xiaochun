@@ -2,23 +2,27 @@
  * providers/store.ts — 加密 + 持久化 provider profiles。
  *
  * ponytail: 每个 profile 一个 IndexedDB record,key 是 profile.id。apiKey 走 crypto.ts AES-GCM。
- * 不维护单独 active 字段 — 用 sessionStorage 缓存当前活跃 id,启动时回退到默认(第一个)。
+ * 「当前激活」走 ../activeKey 统一 key,不再单独存 — webllm 和 custom 用同一个 key 互斥。
  */
 
 import type { ProviderProfile } from './types';
 import { decryptString, encryptString } from './crypto';
+import { readActiveKey, writeActiveKey } from '../activeKey';
+import { unloadEngine } from '../webLLMProvider';
 
 const DB_NAME = 'xiaochun-providers';
 const DB_STORE = 'profiles';
-const DB_VER = 1;
-const ACTIVE_KEY = 'xiaochun.provider.active';
+const DB_VER = 2;
 
 function openDb(): Promise<IDBDatabase> {
   return new Promise((resolve, reject) => {
     const req = indexedDB.open(DB_NAME, DB_VER);
     req.onupgradeneeded = () => {
       const db = req.result;
+      // ponytail: 跟 crypto.ts 共享同一个 DB(v2),升级时把两个 store 都建出来。
+      // 谁先打开都行,缺的 store 都会补上。
       if (!db.objectStoreNames.contains(DB_STORE)) db.createObjectStore(DB_STORE);
+      if (!db.objectStoreNames.contains('meta')) db.createObjectStore('meta');
     };
     req.onsuccess = () => resolve(req.result);
     req.onerror = () => reject(req.error);
@@ -71,14 +75,10 @@ export async function getDecryptedApiKey(id: string): Promise<string | null> {
 }
 
 export async function getActiveProvider(): Promise<ProviderProfile | null> {
-  if (typeof window === 'undefined') return null;
-  let id: string | null = null;
-  try {
-    id = window.sessionStorage.getItem(ACTIVE_KEY);
-  } catch { /* noop */ }
-  if (!id) return null;
+  const active = readActiveKey();
+  if (!active || active.kind !== 'custom') return null;
   const raw = await listEncrypted();
-  const found = raw.find((p) => p.id === id);
+  const found = raw.find((p) => p.id === active.providerId);
   if (!found) return null;
   // ponytail: 解密 apiKey,发请求前才解,常态内存里不存明文。
   try {
@@ -90,20 +90,20 @@ export async function getActiveProvider(): Promise<ProviderProfile | null> {
 }
 
 export async function getActiveProviderId(): Promise<string | null> {
-  if (typeof window === 'undefined') return null;
-  try {
-    return window.sessionStorage.getItem(ACTIVE_KEY);
-  } catch {
-    return null;
-  }
+  const active = readActiveKey();
+  return active?.kind === 'custom' ? active.providerId : null;
 }
 
 export async function setActiveProviderId(id: string | null): Promise<void> {
-  if (typeof window === 'undefined') return;
-  try {
-    if (id) window.sessionStorage.setItem(ACTIVE_KEY, id);
-    else window.sessionStorage.removeItem(ACTIVE_KEY);
-  } catch { /* noop */ }
+  const wasCustom = readActiveKey()?.kind === 'custom';
+  writeActiveKey(id ? { kind: 'custom', providerId: id } : null);
+  // ponytail: 切到 custom 时顺手把还在内存里的 webllm engine 释放掉,
+  // 不然 1-2GB 显存白占,用户也用不上。
+  if (id && !wasCustom) {
+    try {
+      unloadEngine();
+    } catch { /* noop */ }
+  }
 }
 
 export interface SaveInput {

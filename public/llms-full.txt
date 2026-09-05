@@ -18,7 +18,8 @@ Project XiaoChun is a full-stack web application built on **Vite 8 + TanStack St
   - Unifies custom clips (mixamo, bvh, fbx, vrma), procedural natural idle/breathing, and AI co-speech motion (EMAGE) under a single pipeline.
   - Features dual-mode crossfade (smooth blending or instantaneous cuts), non-linear root displacement locking (anti-ground-penetration), and automated rest-pose restoration.
 - **Application Framework**: TanStack Start provides file-based routing, full-stack SSR, and server-only helpers (`createServerOnlyFn`, `getCookie` from `@tanstack/react-start/server`).
-- **Bundler**: Vite 8 with `@cloudflare/vite-plugin` and custom `localApiPlugin` middleware that runs Miniflare during `pnpm dev` for 100% dev/prod parity.
+- **Bundler**: Vite 8 with `@cloudflare/vite-plugin` and custom plugins in `vite/`: `localApiPlugin.ts` (TTS dev middleware + EU proxy), `dropDockerfatAssets.ts` (Cloudflare 25 MiB asset limit workaround).
+- **LLM Layer**: Unified factory (`src/llm/chatWorkflow.ts`) dispatches between WebLLM and any custom OpenAI-compatible provider. Both implement the same `runChat(opts: RunChatOptions) → string` contract; new providers just need a `ChatProvider` descriptor.
 - **Styling**: Tailwind CSS v4 with `@theme` tokens (`brand-*` coral palette, derived from the default VRM model's hair color) + `tailwindcss-animate` for micro-interactions.
 
 ---
@@ -27,28 +28,38 @@ Project XiaoChun is a full-stack web application built on **Vite 8 + TanStack St
 
 All AI runs in the browser tab via WebGPU + WebAssembly:
 
-### 2.1 LLM (WebLLM)
+### 2.1 LLM (WebLLM, default)
 - **Engine**: `@mlc-ai/web-llm` v0.2.84
 - **Model**: Qwen2.5 1.5B (q4f16_1, default) / Qwen3 0.6B (optional) — downloaded on first launch and cached in `CacheStorage` for instant subsequent loads
 - **Runtime**: WebGPU (falls back to WASM with reduced throughput)
 - **Streaming**: Chunked completion with milestone callbacks (`loading-webgpu`, `thinking` states)
 - **System Prompts**: Per-language (`src/llm/prompts.ts`) — each prompt enforces a `🌐 LANGUAGE RULE` so the LLM responds in the user's language regardless of input language
 
-### 2.2 Motion (EMAGE & Universal Motion Pipeline)
+### 2.2 Custom OpenAI-Compatible Providers (optional)
+- **Activation**: in-app **Custom Model Service** dialog (chat-bar menu or top-bar gear). Templates: Ollama / LM Studio / vLLM / LocalAI / Generic OpenAI-compatible.
+- **Configuration**: `name` (display) + `baseURL` + optional `apiKey` + `model`. Test connection probes `GET {baseURL}/v1/models` before save.
+- **Storage**: Each profile is a record in IndexedDB `xiaochun-providers` database, AES-GCM encrypted with PBKDF2-derived key from random salt. API keys never stored in plaintext.
+- **Unified active key**: `custom:{providerId}` or `webllm:{modelId}` in sessionStorage. Single source of truth, automatically migrates legacy `xiaochun.provider.active` keys.
+- **Factory dispatch** (`chatWorkflow.getActiveChatRunner`): polls `ChatProvider` registry (`isActive` + `runChat`), picks first match. Custom takes precedence; webllm is fallback.
+- **VRAM release**: when a custom provider is activated, `preloadWebLLM()` early-returns and `setActiveProviderId` calls `unloadEngine()` — releases 1-2 GB VRAM that webllm would have reserved.
+- **Thinking mode**: passed through `extra_body: { enable_thinking: true }` (OpenAI-compatible convention used by DeepSeek / Qwen API / vLLM). Providers that don't support it silently ignore.
+- **Output cleaning**: same `extractCleanSpeech` runs in chatWorkflow for both paths — strips `<think>` blocks, JSON wrappers, narrative parentheses, and quote marks.
+
+### 2.3 Motion (EMAGE & Universal Motion Pipeline)
 - **Model**: EMAGE full-body co-speech motion (PantoMatrix, [Yi et al., CVPR 2024](https://pantomatrix.github.io/EMAGE/))
 - **Runtime**: ONNX Runtime Web v1.22.0-dev inside a Dedicated Web Worker (`src/motion/emageWorker.ts`)
 - **Orchestrator**: `src/motion/emagePlayer.ts` — sentence-level streaming pipeline, temporal Gaussian smoothing, inertial tracking, natural idle blends
 - **Universal Pipeline Integration**: Seamlessly handed over to `UniversalMotionPipeline` for crossfading, root coordinate locking, and zero-snap return to `NaturalIdle`.
 - **Browser support**: WebGPU execution provider with multi-threaded WASM fallback for browsers without WebGPU
 
-### 2.3 TTS (Edge-TTS)
+### 2.4 TTS (Edge-TTS)
 - **Engine**: `edge-tts-universal` v1.4.0 (browser build of Microsoft Edge-TTS protocol)
 - **Default voice**: `zh-CN-XiaoyiNeural` with `+10Hz` pitch (energetic anime-girl timbre)
 - **Production endpoint**: Cloudflare Worker at `src/server.ts` — opens WebSocket to `speech.platform.bing.com`, streams audio chunks as `audio/mpeg`
 - **Dev endpoint**: Same shape, served by `vite.config.ts → localApiPlugin` middleware with Miniflare
 - **Emoji handling**: Text passed to TTS is stripped of `\p{Extended_Pictographic}` characters to avoid prosody glitches (Microsoft TTS tends to over-articulate emoji)
 
-### 2.4 Chat Director
+### 2.5 Chat Director
 - **File**: `src/director/chatDirector.ts`
 - **Role**: Orchestrates LLM → TTS → EMAGE as a single streaming pipeline. Each utterance triggers:
   1. LLM streaming token callbacks
@@ -57,7 +68,7 @@ All AI runs in the browser tab via WebGPU + WebAssembly:
   4. Lip-sync (viseme blending) updates from TTS audio energy + EMAGE mouth keyframes
 - **Cancellation**: New user message cancels in-flight LLM/TTS/EMAGE via token cancellation
 
-### 2.5 Memory System (Client-Side Persistence & Extraction)
+### 2.6 Memory System (Client-Side Persistence & Extraction)
 - **Files**: `src/memory/` (`store.ts`, `extract.ts`, `inject.ts`, `index.ts`, `types.ts`)
 - **Storage**: Browser-native IndexedDB database `xiaochun-memory` with three object stores (`turns`, `notes`, `meta`). Zero telemetry or server transfer.
 - **3-Tier Architecture**:
@@ -118,20 +129,25 @@ pnpm install
 pnpm build    # tsc + vite build → dist/
 ```
 
-### 6.2 Cloudflare Workers (production)
+### 6.2 Vite Plugins (`vite/`)
+- **`localApiPlugin.ts`** — `/api/tts` dev middleware. If `TTS_PROXY_URL` env var is set, forwards the request to that endpoint (auto-appends `/api/tts` if missing); otherwise falls back to local `edge-tts-universal`. Solves EU egress issues where Microsoft TTS endpoints hang.
+- **`dropDockerfatAssets.ts`** — strips oversized assets from production build. Cloudflare Pages has a 25 MiB per-file limit; this removes `onnxruntime-web`'s `ort-wasm-simd-threaded.jsep.wasm` (26.5 MiB WebGPU EP variant, loaded from jsDelivr at runtime instead) and training data JSONs.
+
+### 6.3 Cloudflare Workers (production)
 - **Configuration**: `wrangler.jsonc` (`nodejs_compat` enabled, static assets bound to `./dist/client`)
 - **Headers**: `public/_headers` defines COOP/COEP (required for WebGPU + SharedArrayBuffer), security headers, and cache policy (`/assets/*` immutable; root path `must-revalidate`)
 - **SSR & TTS Entry**: `src/server.ts` — full-stack SSR router + edge-runtime TTS WebSocket proxy
 - **Static assets**: `dist/client/*` served directly via Cloudflare Assets (robots.txt, sitemap.xml, llms.txt, llms-full.txt, VRM model, fonts)
 
-### 6.3 Two Deploy Modes
+### 6.4 Two Deploy Modes
 - **One-Command CLI (recommended)**: `pnpm deploy` (`pnpm build && wrangler deploy`)
 - **Git-integrated**: Push to GitHub → Cloudflare Dashboard → Workers & Pages → Connect Git (leave Root directory blank) → auto-deploy on push.
 
-### 6.4 First-Run Notes
-- WebLLM downloads ~400 MB model on first browser visit; cached in `CacheStorage` thereafter.
+### 6.5 First-Run Notes
+- WebLLM downloads ~400 MB model on first browser visit; cached in `CacheStorage` thereafter. **Skipped entirely** when a custom OpenAI-compatible provider is active.
 - VRM model (18 MB) is shipped in the bundle; not lazy-loaded.
 - TTS endpoint has no auth — keep behind custom domain to avoid random abuse.
+- Environment variables: see `.env.example` for the full list (`VITE_EMAGE_BASE`, `TTS_PROXY_URL`, `VITE_PROVIDER_*_URL` overrides). Copy to `.env.local` and fill in; `.env.local` is git-ignored.
 
 ---
 

@@ -112,6 +112,9 @@ export const App: React.FC = () => {
         onBreakStart={() => {
           import('@/core/vrmEngine').then((mod) => {
             mod.vrmEngine.resumeRendering();
+            // ponytail: 跟 overlay 1.1s 破次元同步推镜 — 远处起步,easeOutCubic 推进,
+            // tween 期间禁 OrbitControls,VRM 出现时是个小点,镜头平滑推近。
+            mod.vrmEngine.cinematicIntro(1100);
           });
         }}
       />

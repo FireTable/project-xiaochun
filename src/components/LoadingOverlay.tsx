@@ -22,19 +22,44 @@ export const LoadingOverlay: React.FC<LoadingOverlayProps> = ({ state, onBreakSt
   const effectiveState = state ?? DEFAULT_LOADING_STATE;
   const { t } = useTranslation();
   const containerRef = useRef<HTMLDivElement>(null);
-  const [mouseOffset, setMouseOffset] = useState({ x: 0, y: 0 });
+  // ponytail: 鼠标视差走 CSS 变量方案 — JS 只 setProperty('--mx'/'--my'),
+  // 3 个元素的 transform 在 CSS 表达式里 calc(var(--mx) * Npx) 派生。
+  // 比 ref 直写 style.transform 更省:
+  //   1) 1 次 setProperty 替代 3 次 style.transform 写入
+  //   2) 浏览器走 CSS custom property 优化路径,只在依赖该 prop 的元素上重算
+  //   3) React 不知道 JS 写过 prop,组件 0 re-render
+  // rAF + 缓存 rect 保留 — 解决 100+ Hz 鼠标事件 + layout query 成本。
+  const pendingMouseRef = useRef<{ x: number; y: number } | null>(null);
+  const rafIdRef = useRef<number | null>(null);
+  const cachedRectRef = useRef<DOMRect | null>(null);
   const [isBreaking, setIsBreaking] = useState(false);
   const [hasExited, setHasExited] = useState(false);
 
   // ponytail: 订阅 LLM 下载进度,跟 VRM 进度一起显示在 NEURAL_DISPATCH 卡片里。
   // App.tsx 在 splash 期间不渲染 ChatBar,所以 LLM 进度只能在这里展示。
+  // 早版无脑 setState — webLLM progress callback 高频触发(下载期多次/秒),
+  // 整个 LoadingOverlay 跟着 re-render,跟 conic 动画 + backdrop-blur 抢 GPU。
+  // 改成 100ms 节流 + 整数取整,数字跳得人眼看不出差别,但 re-render 频率砍到 10Hz。
   const [llmPct, setLlmPct] = useState(() => {
     const p = getLlmLoadProgress();
     return Math.round(Math.min(1, Math.max(0, p.progress)) * 100);
   });
+  const lastLlmFlushRef = useRef(0);
+  const pendingLlmPctRef = useRef<number | null>(null);
   useEffect(() => {
+    const flush = () => {
+      lastLlmFlushRef.current = Date.now();
+      if (pendingLlmPctRef.current !== null) {
+        setLlmPct(pendingLlmPctRef.current);
+        pendingLlmPctRef.current = null;
+      }
+    };
     const unsub = onLlmLoadProgress((p) => {
-      setLlmPct(Math.round(Math.min(1, Math.max(0, p.progress)) * 100));
+      const next = Math.round(Math.min(1, Math.max(0, p.progress)) * 100);
+      pendingLlmPctRef.current = next;
+      const elapsed = Date.now() - lastLlmFlushRef.current;
+      if (elapsed >= 100) flush();
+      else setTimeout(flush, 100 - elapsed);
     });
     return unsub;
   }, []);
@@ -42,13 +67,41 @@ export const LoadingOverlay: React.FC<LoadingOverlayProps> = ({ state, onBreakSt
   // 记录挂载时间，保证即使缓存秒开也有至少 1.2s 的视觉冲击力展示，防止一闪而过的糟糕体验
   const mountTimeRef = useRef<number>(Date.now());
 
-  // 鼠标全景 3D 视差倾斜 (Parallax Tilt)
+  // 鼠标全景 3D 视差倾斜 (Parallax Tilt) — ref 直写 transform,不走 React state。
+  // 缓存容器 rect — mousemove 期间不重算,只 resize/scroll 时刷新。
+  const refreshRect = () => {
+    cachedRectRef.current = containerRef.current?.getBoundingClientRect() ?? null;
+  };
+  useEffect(() => {
+    refreshRect();
+    window.addEventListener('resize', refreshRect);
+    window.addEventListener('scroll', refreshRect, { passive: true });
+    return () => {
+      window.removeEventListener('resize', refreshRect);
+      window.removeEventListener('scroll', refreshRect);
+    };
+  }, []);
+
+  // 鼠标全景 3D 视差倾斜 (Parallax Tilt) — rAF 节流,每帧最多更新一次。
+  // 高刷新率鼠标 / 触摸板可能 200+ Hz,mousemove 也对应触发,但合成层
+  // 只按 vsync 渲染,中间事件全部丢,只保留最新的 x/y。
   const handleMouseMove = (e: React.MouseEvent) => {
-    if (!containerRef.current) return;
-    const rect = containerRef.current.getBoundingClientRect();
-    const x = (e.clientX - rect.left) / rect.width - 0.5;
-    const y = (e.clientY - rect.top) / rect.height - 0.5;
-    setMouseOffset({ x, y });
+    if (!cachedRectRef.current) refreshRect();
+    const rect = cachedRectRef.current!;
+    pendingMouseRef.current = {
+      x: (e.clientX - rect.left) / rect.width - 0.5,
+      y: (e.clientY - rect.top) / rect.height - 0.5,
+    };
+    if (rafIdRef.current !== null) return;
+    rafIdRef.current = requestAnimationFrame(() => {
+      rafIdRef.current = null;
+      const p = pendingMouseRef.current;
+      if (!p || !containerRef.current) return;
+      // ponytail: 一次 setProperty 替代早版 3 次 style.transform 写入。
+      // CSS 表达式在依赖该 prop 的元素上自动重算,合成层继续跑 transform。
+      containerRef.current.style.setProperty('--mx', p.x.toString());
+      containerRef.current.style.setProperty('--my', p.y.toString());
+    });
   };
 
   // 触发 2D 破次元 -> 3D 舞台的入场爆发动效
@@ -126,28 +179,27 @@ export const LoadingOverlay: React.FC<LoadingOverlayProps> = ({ state, onBreakSt
       onMouseMove={handleMouseMove}
       // ponytail: position/inset/z/background inline 写死,CSS 没编译完也保证遮盖 —— 否则
       // 早期 paint 帧会看到背后的 three.js clear color。
+      // --mx/--my 是视差源 — 子元素 transform 都通过 calc(var(--mx) * Npx) 派生,
+      // JS 只 setProperty 这两个,3 个元素的 transform 浏览器自己重算,React 0 介入。
       style={{
         position: 'fixed',
         inset: 0,
         zIndex: 50,
         backgroundColor: '#0a0812',
         perspective: '1200px',
-      }}
+        // ponytail: 初始 0,JS 第一次 mousemove 时覆写。
+        ['--mx' as string]: 0,
+        ['--my' as string]: 0,
+      } as React.CSSProperties}
       className={`overflow-hidden flex items-center justify-center pt-9 sm:pt-0 select-none transition-all duration-1000 ease-out ${isBreaking ? 'opacity-0 scale-125 filter blur-md pointer-events-none' : 'opacity-100 scale-100'
         }`}
     >
       {/* 1. 背景流光氛围：移动端使用 blur-3xl 降低 GPU 显存带宽压力，桌面端使用极光 blur */}
       <div
-        className="absolute w-[22rem] sm:w-[38rem] h-[22rem] sm:h-[38rem] rounded-full bg-[#ea8377]/15 blur-3xl md:blur-[150px] pointer-events-none transition-transform duration-700 ease-out"
-        style={{
-          transform: `translate3d(${mouseOffset.x * -60}px, ${mouseOffset.y * -60}px, 0)`
-        }}
+        className="absolute w-[22rem] sm:w-[38rem] h-[22rem] sm:h-[38rem] rounded-full bg-[#ea8377]/15 blur-3xl md:blur-[150px] pointer-events-none transition-transform duration-700 ease-out [transform:translate3d(calc(var(--mx,0)*-60px),calc(var(--my,0)*-60px),0)]"
       />
       <div
-        className="absolute w-[20rem] sm:w-[36rem] h-[20rem] sm:h-[36rem] rounded-full bg-[#e06d64]/12 blur-3xl md:blur-[140px] pointer-events-none transition-transform duration-700 ease-out"
-        style={{
-          transform: `translate3d(${mouseOffset.x * 60}px, ${mouseOffset.y * 60}px, 0)`
-        }}
+        className="absolute w-[20rem] sm:w-[36rem] h-[20rem] sm:h-[36rem] rounded-full bg-[#e06d64]/12 blur-3xl md:blur-[140px] pointer-events-none transition-transform duration-700 ease-out [transform:translate3d(calc(var(--mx,0)*60px),calc(var(--my,0)*60px),0)]"
       />
 
       {/* 2. 背景浮动点阵底纹 */}
@@ -168,10 +220,7 @@ export const LoadingOverlay: React.FC<LoadingOverlayProps> = ({ state, onBreakSt
 
       {/* ─── 4. 多图层视差舞台容器 (Parallax Canvas) ─── */}
       <div
-        className="relative z-20 w-full max-w-5xl h-full sm:h-[85vh] flex items-center justify-center transition-transform duration-300 ease-out"
-        style={{
-          transform: `rotateY(${mouseOffset.x * 12}deg) rotateX(${-mouseOffset.y * 12}deg)`
-        }}
+        className="relative z-20 w-full max-w-5xl h-full sm:h-[85vh] flex items-center justify-center transition-transform duration-300 ease-out [transform:rotateY(calc(var(--mx,0)*12deg))_rotateX(calc(var(--my,0)*-12deg))]"
       >
         {/* ─── 切图卡片 A (左上角，桌面端专属)：Retro Cyber-OS 终端切片 ─── */}
         <div
@@ -193,24 +242,26 @@ export const LoadingOverlay: React.FC<LoadingOverlayProps> = ({ state, onBreakSt
               <Music className="w-3 h-3 text-[#f5aa9c] shrink-0" />
               <span className="truncate">{subtitle || t('loading.madBgmStatus')}</span>
             </span>
-            <span className="text-[#f5aa9c] font-bold shrink-0">{progress}%</span>
+            <span className="text-[#f5aa9c] font-bold shrink-0 tabular-nums">{progress}%</span>
           </div>
           {/* ponytail: LLM 模型下载进度,跟 VRM 进度并排展示 */}
           <div className="flex items-center justify-between text-[11px] font-mono text-white/80 mt-1.5">
             <span className="flex items-center gap-1.5 truncate pr-2">
               <Cpu className="w-3 h-3 text-[#7c5cff] shrink-0" />
-              <span className="truncate">LLM {llmPct < 100 ? `${llmPct}%` : '✓'}</span>
+              <span className="truncate">LLM <span className="tabular-nums">{llmPct < 100 ? `${llmPct}%` : '✓'}</span></span>
             </span>
             <span className="text-white/40 text-[10px]">{t('loading.localInference')}</span>
           </div>
-          {/* 音频跳动频谱柱 */}
+          {/* 音频跳动频谱柱 — 高度用 transform: scaleY 不用 height %,
+            12 柱 × 10Hz 进度更新 = 120 layout/sec,改后 0 layout 全在合成层。 */}
           <div className="flex items-end gap-1 h-5 mt-2">
             {[40, 80, 55, 95, 30, 70, 85, 45, 90, 60, 75, 50].map((h, i) => (
               <div
                 key={i}
-                className="flex-1 bg-gradient-to-t from-[#ea8377] to-[#f5aa9c] rounded-t"
+                className="flex-1 bg-gradient-to-t from-[#ea8377] to-[#f5aa9c] rounded-t origin-bottom"
                 style={{
-                  height: `${Math.max(15, (h * (progress || 30)) / 100)}%`,
+                  height: '100%',
+                  transform: `scaleY(${Math.max(0.15, (h * (progress || 30)) / 100 / 100)})`,
                   animation: `pulse 1.2s ease-in-out infinite`,
                   animationDelay: `${i * 0.1}s`
                 }}
@@ -274,11 +325,14 @@ export const LoadingOverlay: React.FC<LoadingOverlayProps> = ({ state, onBreakSt
               {/* 常态静态渐变边框底层 */}
               <div className="absolute inset-0 rounded-[32px] bg-gradient-to-b from-white/30 via-[#ea8377]/40 to-[#e06d64]/40 backdrop-blur-2xl transition-opacity duration-500 group-hover:opacity-0" />
 
-              {/* Hover 激活的高亮高速旋转 360° 动态流光边框 (Conic Stream Border) */}
+              {/* ponytail: 360° 旋转流光边框常驻 — 不再 hover 才触发,跟 three.js 渲染并行
+                不会增加额外 transform 负担(动画在 GPU compositor 层,只跑 opacity/transform)。
+                早期版本用 transparent 段做"呼吸感",但旋转后缺口会扫过可见区,出现
+                断流;改用连续色相 + 均匀节奏,任何角度都有光。 */}
               <div
-                className="absolute -inset-[100%] pointer-events-none opacity-0 group-hover:opacity-100 transition-opacity duration-500 animate-stream-rotate will-change-transform"
+                className="absolute -inset-[100%] pointer-events-none opacity-100 animate-stream-rotate will-change-transform"
                 style={{
-                  background: `conic-gradient(from 0deg, transparent 0deg, #ea8377 60deg, #ffffff 90deg, #f5aa9c 120deg, transparent 180deg, #e06d64 240deg, #ffffff 270deg, #ea8377 300deg, transparent 360deg)`
+                  background: `conic-gradient(from 0deg, #ea8377 0deg, #ffffff 30deg, #f5aa9c 60deg, #e06d64 90deg, #ea8377 120deg, #ffffff 150deg, #f5aa9c 180deg, #e06d64 210deg, #ea8377 240deg, #ffffff 270deg, #f5aa9c 300deg, #e06d64 330deg, #ea8377 360deg)`
                 }}
               />
 
@@ -323,7 +377,7 @@ export const LoadingOverlay: React.FC<LoadingOverlayProps> = ({ state, onBreakSt
                 borderTopRightRadius: 0,
               }}
             >
-              <div className="relative w-full h-[calc(100%-6px)] origin-bottom transition-transform duration-500 ease-out group-hover:scale-110 drop-shadow-[0_15px_30px_rgba(0,0,0,0.6)] select-none">
+              <div className="relative w-full h-[calc(100%-6px)] origin-bottom scale-105 drop-shadow-[0_15px_30px_rgba(0,0,0,0.6)] select-none">
                 <img
                   src="/materials/xiaochun_character.png"
                   alt="小蠢原画"
@@ -339,7 +393,7 @@ export const LoadingOverlay: React.FC<LoadingOverlayProps> = ({ state, onBreakSt
               <span className="text-[10px] font-mono tracking-widest text-[#ea8377] font-semibold">
                 {t('loading.madCardRole')}
               </span>
-              <h3 className="text-xl sm:text-2xl font-black text-white tracking-tight font-['Outfit']">
+              <h3 className="text-xl sm:text-2xl font-black text-white tracking-tight">
                 {t('loading.madCardName')}
               </h3>
               <div className="flex items-center gap-2 mt-1.5">
@@ -372,10 +426,12 @@ export const LoadingOverlay: React.FC<LoadingOverlayProps> = ({ state, onBreakSt
 
             {/* 原神光轨进度条 (固定长度，不随文字或状态缩短) */}
             <div className="relative w-full h-2.5 rounded-full bg-white/10 backdrop-blur-md border border-white/20 p-[2px] shadow-inner overflow-visible">
-              {/* 填充发光进度 */}
+              {/* ponytail: 进度条 fill 用 transform: scaleX 而不是 width —
+                scaleX 是 GPU 合成层唯一属性,不会触发 layout/paint,跟 conic
+                流光同跑在合成层互不干扰。transform-origin: left 让缩放从左到右。 */}
               <div
-                className="relative h-full rounded-full bg-gradient-to-r from-[#ea8377] via-[#f5aa9c] to-white transition-all duration-300 ease-out shadow-[0_0_14px_rgba(234,131,119,0.9)]"
-                style={{ width: `${Math.max(1, progress)}%` }}
+                className="relative h-full rounded-full bg-gradient-to-r from-[#ea8377] via-[#f5aa9c] to-white origin-left transition-transform duration-300 ease-out shadow-[0_0_14px_rgba(234,131,119,0.9)] will-change-transform"
+                style={{ transform: `scaleX(${Math.max(0.01, progress / 100)})` }}
               >
                 {/* 原神菱形星芒光标 (Diamond Light Runner) —— 紧锁在进度条最顶端前沿 (right-0 translate-x-1/2) */}
                 <div

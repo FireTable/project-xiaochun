@@ -15,7 +15,7 @@ Project XiaoChun is a **100% browser-native 3D AI companion** with strong on-dev
 | **Motion Transition** | `MotionTransitionManager`<br/>(`src/motion/motionTransition.ts`) | Quintic Smootherstep global 53-bone zero-impact seamless transitions |
 | **Speaking Micro-motion** | `SpeakIdleSystem`<br/>(`src/motion/speakIdle.ts`) | Maintains natural floating speech gestures, Z-axis knuckle micro-flex, organic head-tilt during TTS generation gaps |
 | **Natural Idle** | `NaturalIdleSystem`<br/>(`src/motion/naturalIdle.ts`) | Biomechanical finger curl, multi-harmonic breathing sway, figure-8 pelvis postural balance, gaze wander |
-| **On-device LLM** | `@mlc-ai/web-llm`<br/>(`src/llm/webLLM.ts`) | WebGPU streaming inference, default Qwen3.5 2B (q4f16_1), fallback to 0.8B |
+| **On-device LLM** | `@mlc-ai/web-llm`<br/>(`src/llm/webLLMProvider.ts` + `src/llm/chatWorkflow.ts`) | WebGPU streaming inference, default Qwen3.5 2B (q4f16_1), fallback to 0.8B; `chatWorkflow` dispatches to webLLM or custom HTTP provider |
 | **TTS** | `edge-tts-universal`<br/>(`src/server.ts` + `src/director/chatDirector.ts`) | XiaoYi voice (zh-CN-XiaoyiNeural +10 Hz), fully concurrent chunk pre-fetch |
 | **On-device Memory** | IndexedDB (`xiaochun-memory`)<br/>(`src/memory/`) | Pure local 3-tier memory: last 6 turns, ZH/EN/JA entity profile extraction, n-gram long-term note retrieval |
 | **Single Source of Truth** | `src/config.ts` | Centrally manages lighting, camera, saturation presets, and motion dynamics parameters (`APP_CONFIG.emage.motion`) |

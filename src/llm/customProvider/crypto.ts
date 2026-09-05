@@ -11,8 +11,8 @@ const ENC = new TextEncoder();
 const DEC = new TextDecoder();
 
 const DB_NAME = 'xiaochun-providers';
-const DB_STORE = 'meta';
-const DB_VER = 1;
+const DB_STORE_META = 'meta';
+const DB_VER = 2;
 const SALT_KEY = 'crypto.salt.v1';
 
 async function openDb(): Promise<IDBDatabase> {
@@ -20,7 +20,9 @@ async function openDb(): Promise<IDBDatabase> {
     const req = indexedDB.open(DB_NAME, DB_VER);
     req.onupgradeneeded = () => {
       const db = req.result;
-      if (!db.objectStoreNames.contains(DB_STORE)) db.createObjectStore(DB_STORE);
+      // ponytail: store.ts 同一个 DB,只创建过 profiles;升级时补建 meta,
+      // 防止 transaction 找不到 store 抛 NotFoundError。
+      if (!db.objectStoreNames.contains(DB_STORE_META)) db.createObjectStore(DB_STORE_META);
     };
     req.onsuccess = () => resolve(req.result);
     req.onerror = () => reject(req.error);
@@ -30,8 +32,8 @@ async function openDb(): Promise<IDBDatabase> {
 async function getOrCreateSalt(): Promise<Uint8Array> {
   const db = await openDb();
   return new Promise((resolve, reject) => {
-    const tx = db.transaction(DB_STORE, 'readwrite');
-    const store = tx.objectStore(DB_STORE);
+    const tx = db.transaction(DB_STORE_META, 'readwrite');
+    const store = tx.objectStore(DB_STORE_META);
     const req = store.get(SALT_KEY);
     req.onsuccess = () => {
       if (req.result instanceof Uint8Array && req.result.length === 16) {

@@ -11,7 +11,7 @@ import { MotionTransitionManager } from '@/motion/motionTransition';
 import { BodyTurnSystem } from '@/motion/bodyTurn';
 import { MotionPipeline, type PipelineMotionSource } from '@/motion/pipeline/motionPipeline';
 import type { PlayMotionOptions, UniversalMotionHandle } from '@/motion/pipeline/universalMotion';
-import { preloadWebLLM, unloadWebLLM } from '@/llm/webLLM';
+import { preloadWebLLM, unloadWebLLM } from '@/llm/webLLMProvider';
 import { APP_CONFIG, type LightConfig } from '@/config';
 
 // ── 抽离子系统导入 ──
@@ -72,7 +72,7 @@ export class VRMEngine {
     APP_CONFIG.camera.defaultFov,
     1,
     0.1,
-    20.0
+    100.0
   );
   private controls: OrbitControls | null = null;
   private loader = new GLTFLoader();
@@ -162,7 +162,7 @@ export class VRMEngine {
 
   private notifyReady(ready: boolean): void {
     this.readyListeners.forEach((cb) => {
-      try { cb(ready); } catch {}
+      try { cb(ready); } catch { }
     });
   }
 
@@ -182,6 +182,49 @@ export class VRMEngine {
   public resumeRendering(): void {
     this.isRenderingSuspended = false;
     this.clock.start();
+  }
+
+  // ponytail: 启动期 cinematic 推镜 — LoadingOverlay 破次元时调,沿当前相机方向
+  // 推远 3.3 倍作为起点,1.1s 内 easeOutCubic 拉回当前位(默认位或用户已调过的位)。
+  // 视觉上 VRM 是个小点,镜头平滑推进,跟 overlay 的 scale-125 + blur-md 同步。
+  // Tween 期间禁用 OrbitControls,避免用户输入跟动画抢 camera。
+  private cinematicIntroRafId: number | null = null;
+  public cinematicIntro(durationMs: number = 1100): void {
+    const camera = this.camera;
+    const controls = this.controls;
+    if (!camera || !controls) return;
+    if (this.cinematicIntroRafId !== null) {
+      cancelAnimationFrame(this.cinematicIntroRafId);
+      this.cinematicIntroRafId = null;
+    }
+    const finalPos = camera.position.clone();
+    const finalTarget = controls.target.clone();
+    // 沿 camera→target 反方向 ×3.3 = 从同视角的远处起步,VRM 一开始是个小点
+    const offset = finalPos.clone().sub(finalTarget);
+    const startPos = finalTarget.clone().add(offset.clone().multiplyScalar(3.3));
+    camera.position.copy(startPos);
+    camera.lookAt(finalTarget);
+    controls.target.copy(finalTarget);
+    const wasEnabled = controls.enabled;
+    controls.enabled = false;
+    const startTime = performance.now();
+    const easeOutCubic = (t: number) => 1 - Math.pow(1 - t, 3);
+    const tick = () => {
+      this.cinematicIntroRafId = null;
+      const t = Math.min(1, (performance.now() - startTime) / durationMs);
+      const eased = easeOutCubic(t);
+      camera.position.lerpVectors(startPos, finalPos, eased);
+      camera.lookAt(finalTarget);
+      if (t < 1) {
+        this.cinematicIntroRafId = requestAnimationFrame(tick);
+      } else {
+        camera.position.copy(finalPos);
+        controls.target.copy(finalTarget);
+        controls.enabled = wasEnabled;
+        controls.update();
+      }
+    };
+    this.cinematicIntroRafId = requestAnimationFrame(tick);
   }
 
   // ── 场景与画布初始化 ──
@@ -346,10 +389,10 @@ export class VRMEngine {
       'happy', 'angry', 'sad', 'relaxed', 'surprised', 'neutral', 'aa', 'ih', 'ou', 'ee', 'oh'
     ];
     presets.forEach((p) => {
-      try { mgr.setValue(p, 0); } catch {}
+      try { mgr.setValue(p, 0); } catch { }
     });
     if (name !== 'neutral') {
-      try { mgr.setValue(name as VRMExpressionPresetName, 1); } catch {}
+      try { mgr.setValue(name as VRMExpressionPresetName, 1); } catch { }
     }
     mgr.update();
   }
@@ -537,7 +580,7 @@ export class VRMEngine {
   }
 
   public releaseHeavyResources(): void {
-    try { this.chatDirector.stop(); } catch {}
+    try { this.chatDirector.stop(); } catch { }
     try { unloadWebLLM(); } catch (e) { console.warn('[VRMEngine] 释放 WebLLM 异常:', e); }
     try { this.emagePlayer.dispose(); } catch (e) { console.warn('[VRMEngine] 释放 EMAGE 异常:', e); }
     console.log('[VRMEngine] 已成功释放 WebLLM 显存与 EMAGE 运行内存');

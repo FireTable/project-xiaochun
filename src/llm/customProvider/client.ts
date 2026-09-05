@@ -14,6 +14,8 @@ export interface CompletionOptions {
   signal?: AbortSignal;
   temperature?: number;
   maxTokens?: number;
+  /** ponytail: 与 webLLM 对齐 — 透传 extra_body.enable_thinking;不支持的 provider 自己忽略。 */
+  thinking?: boolean;
 }
 
 export interface CompletionChunk {
@@ -64,8 +66,12 @@ export async function completeOnce(
       model: opts.model,
       messages: opts.messages,
       temperature: opts.temperature ?? 0.8,
-      max_tokens: opts.maxTokens ?? 1024,
+      // ponytail: maxTokens 不传就不限 — 让 OpenAI 兼容服务用各自默认。
+      ...(opts.maxTokens ? { max_tokens: opts.maxTokens } : {}),
       stream: false,
+      // ponytail: 思考模式开关 — DeepSeek/Qwen API 等 OpenAI 兼容服务用 extra_body.enable_thinking,
+      // 不支持的 provider 静默忽略。chatWorkflow 那边 extractCleanSpeech 已经会剥 <think>。
+      ...(opts.thinking ? { extra_body: { enable_thinking: true } } : {}),
     }),
     signal: opts.signal,
   });

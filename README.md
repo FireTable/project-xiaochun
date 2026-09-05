@@ -24,7 +24,7 @@
 
 **Project XiaoChun (小蠢)** is a fully browser-native anime companion. The character renders through `@pixiv/three-vrm` with MToon NPR shading inside an immersive linework outdoor scene; all AI inference runs in your browser tab — no Python backend, no server GPUs.
 
-Entry is a 2D MAD preload into 3D. You talk to her. She thinks (WebLLM Qwen3.5 2B q4f16_1 on WebGPU, falls back to 0.8B; thinking optional), speaks (Edge-TTS over a Cloudflare Workers WebSocket), and moves with her (EMAGE ONNX in a Dedicated Web Worker). If the model is not ready yet, typed messages queue instead of getting dropped. The chat-bar menu can switch models from WebLLM's prebuilt list.
+Entry is a 2D MAD preload into 3D — the camera pushes in from a distant 3.3× view while the overlay dissolves. You talk to her. She thinks (WebLLM Qwen2.5 1.5B q4f16_1 on WebGPU, falls back to 0.5B; thinking optional), speaks (Edge-TTS over a Cloudflare Workers WebSocket), and moves with her (EMAGE ONNX in a Dedicated Web Worker). If the model is not ready yet, typed messages queue instead of getting dropped. The chat-bar menu can switch models from WebLLM's prebuilt list, or connect any **custom OpenAI-compatible provider** (Ollama / LM Studio / vLLM / LocalAI / cloud) via the in-app config dialog — credentials stay AES-GCM encrypted in IndexedDB.
 
 The UI is fully **SSR-hydrated multi-language** (zh-CN / en / ja) via TanStack Start + i18next, and is mobile-first responsive (iOS HIG 44 pt / Material 48 dp touch targets).
 
@@ -68,7 +68,9 @@ The UI is fully **SSR-hydrated multi-language** (zh-CN / en / ja) via TanStack S
 * **Auto Lifecycle Management**: Non-looping motions automatically fade out to idle and trigger completion callbacks without requiring manual timer hacks.
 
 ### 🧠 100% Browser-Side AI Stack
-* **LLM** — [`@mlc-ai/web-llm`](https://github.com/mlc-ai/web-llm) default **Qwen2.5 1.5B (q4f16_1)** on WebGPU (fallback 0.5B). Lightweight and responsive on mobile and low-VRAM devices; chat-bar menu supports live model switching and thinking mode toggles; response language adaptively mirrors the user's prompt.
+* **LLM (WebLLM, default)** — [`@mlc-ai/web-llm`](https://github.com/mlc-ai/web-llm) **Qwen2.5 1.5B (q4f16_1)** on WebGPU (fallback 0.5B). Lightweight and responsive on mobile and low-VRAM devices; chat-bar menu supports live model switching and thinking mode toggles; response language adaptively mirrors the user's prompt.
+* **LLM (Custom OpenAI-Compatible Providers, optional)** — Connect any OpenAI-compatible HTTP service via the in-app config dialog: Ollama / LM Studio / vLLM / LocalAI / cloud (OpenAI, DeepSeek, Qwen API …). Provider profiles are AES-GCM encrypted in IndexedDB; the active provider is one click away from switching. When a custom provider is active, WebLLM is **not** preloaded — saves 1-2 GB VRAM on local and avoids wasting bandwidth on a model you won't use.
+* **Unified Provider Factory (`chatWorkflow.runChat`)** — Same-shape `runChat(opts) → string` contract for both WebLLM and custom providers; the dispatcher picks one per request via a `ChatProvider` registry. Adding a new provider = drop in a descriptor.
 * **Motion** — **EMAGE** full-body motion (ONNX Runtime Web) in a Dedicated Web Worker, with temporal Gaussian smoothing and natural idle blends.
 * **TTS** — **Edge-TTS 晓伊 (XiaoyiNeural, zh-CN, +10 Hz)** via [`edge-tts-universal`](https://github.com/Sterznode/edge-tts-universal); emoji stripped before speech.
 * **LLM + TTS + EMAGE orchestrated** by the chat director on the main thread at 60 FPS.
@@ -111,7 +113,7 @@ The UI is fully **SSR-hydrated multi-language** (zh-CN / en / ja) via TanStack S
 ### 🛠️ Dev Tooling
 * **Debug drawer** (localhost only) — expressions, 6 light channels, FOV, global light, material saturation presets.
 * **Cloudflare Workers** (`src/server.ts`) — handles full-stack TanStack Start SSR alongside native WebSocket streaming for Edge-TTS.
-* **Vite dev middleware** (`vite.config.ts → localApiPlugin`) — local development powered by Miniflare runtime for 100% dev/prod parity.
+* **Vite dev middleware** (`vite/localApiPlugin.ts`) — local development powered by Miniflare runtime for 100% dev/prod parity. Forwards `GET /api/tts` to your `TTS_PROXY_URL` (e.g., the deployed Worker) when set, else falls back to local `edge-tts-universal`.
 * **Single source of truth**: `src/config.ts` consolidates lighting / camera / expressions / saturation / LLM / R2 model config.
 
 ---
@@ -124,7 +126,7 @@ The UI is fully **SSR-hydrated multi-language** (zh-CN / en / ja) via TanStack S
 | **Motion Pipeline** | Custom Layered Universal Pipeline (`MotionPipeline`) | Quintic smootherstep inbetweening, bone masking, biomechanical limits, inverse quaternion decoupling & T-Pose protection |
 | **App Framework** | [React 19](https://react.dev) + [TanStack Start](https://tanstack.com/start) | Full-stack SSR with cookie-based i18n hydration |
 | **Router** | [TanStack Router](https://tanstack.com/router) | Type-safe file-based routing |
-| **LLM** | [WebLLM](https://github.com/mlc-ai/web-llm) | Qwen2.5 1.5B q4f16_1 on WebGPU (fallback 0.5B), streaming |
+| **LLM** | [WebLLM](https://github.com/mlc-ai/web-llm) + custom OpenAI-compatible providers (Ollama / LM Studio / vLLM / cloud) | Qwen2.5 1.5B q4f16_1 on WebGPU (fallback 0.5B), streaming; unified `runChat(opts)` factory pattern |
 | **Memory** | IndexedDB + Custom 3-Tier Pipeline | 100% client-side multi-tier persistence, entity extraction & n-gram note retrieval |
 | **Motion** | EMAGE + [ONNX Runtime Web](https://onnxruntime.ai) | Full-body generation in Dedicated Web Worker |
 | **TTS** | [edge-tts-universal](https://github.com/Sterznode/edge-tts-universal) | XiaoyiNeural zh-CN +10 Hz, emoji-stripped text |
@@ -148,13 +150,22 @@ Requirements: **Node.js 18+**, package manager: **pnpm** (enforced via `preinsta
 # 1. Install dependencies
 pnpm install
 
-# 2. Start dev server (SSR + Miniflare local edge runtime)
+# 2. (Optional) Configure environment — copy .env.example to .env.local and edit
+cp .env.example .env.local
+# - VITE_EMAGE_BASE / VITE_EMAGE_BASE_PROD: ONNX model base URLs
+# - TTS_PROXY_URL: Forward Edge-TTS to your Cloudflare Worker (auto-appends /api/tts)
+
+# 3. Start dev server (SSR + Miniflare local edge runtime)
 pnpm dev          # → http://localhost:5185
 
-# 3. Production build & preview
+# 4. Production build & preview
 pnpm build        # outputs dist/client & dist/server (Worker)
 pnpm preview      # preview production Worker behavior locally
 ```
+
+### Connecting a Custom LLM Provider
+
+Open the in-app **Custom Model Service** dialog (chat-bar menu → provider icon, or top-bar gear). Pick a template (Ollama / LM Studio / vLLM / LocalAI / Generic OpenAI), fill the base URL and (optionally) an API key, hit **Test connection**, then **Save & enable**. Active providers appear with a folded-corner checkmark in the list. Switching to a custom provider automatically unloads WebLLM to free 1-2 GB VRAM.
 
 ---
 
@@ -219,7 +230,19 @@ Project-XiaoChun/
 │   │   ├── vrmaPlayer.ts      # VRMA animation playback driver
 │   │   └── vrmaRetarget.ts    # VRMA bone retargeting & normalization
 │   ├── memory/                # Client-side multi-tier memory (IndexedDB / entity extraction / n-gram retrieval)
-│   ├── llm/                   # WebLLM WebGPU streaming (Qwen2.5 1.5B / 0.5B) + Worker + prompts
+│   ├── llm/                   # LLM layer — WebLLM + custom OpenAI-compatible provider factory
+│   │   ├── webLLMProvider.ts   # WebLLM engine + runChat
+│   │   ├── customProvider/     # Custom OpenAI-compatible providers
+│   │   │   ├── index.ts        #   Public exports
+│   │   │   ├── client.ts       #   fetch + SSE + probeProvider
+│   │   │   ├── crypto.ts       #   AES-GCM API key encryption (PBKDF2)
+│   │   │   ├── speech.ts       #   Custom provider's runChat
+│   │   │   ├── store.ts        #   IndexedDB profile persistence
+│   │   │   └── types.ts        #   ProviderProfile + KNOWN_TEMPLATES
+│   │   ├── chatTypes.ts        # Shared RunChatOptions / ChatProvider / ChatMessage
+│   │   ├── chatWorkflow.ts     # Cross-provider dispatcher + clean speech + fallback
+│   │   ├── activeKey.ts        # Unified custom:xxx / webllm:xxx active key
+│   │   └── progress.ts         # llmPct event bus
 │   ├── director/
 │   │   └── chatDirector.ts    # LLM → TTS → EMAGE streaming coordinator pipeline
 │   ├── i18n/                  # zh-CN / en / ja translation dictionaries + server cookie helper
@@ -232,6 +255,10 @@ Project-XiaoChun/
 │   ├── routeTree.gen.ts       # Auto-generated type-safe route tree
 │   └── config.ts              # Single source of truth (R2 / camera / 6-ch lights / saturation / LLM / expressions)
 ├── vite.config.ts             # Vite 8 + TanStack Start + @cloudflare/vite-plugin
+├── vite/                      # Custom vite plugins (extracted from vite.config.ts)
+│   ├── localApiPlugin.ts       # /api/tts dev middleware (TTS proxy with EU fallback)
+│   └── dropDockerfatAssets.ts # Strip 25 MiB+ WASM blobs for Cloudflare Pages limit
+├── .env.example               # Documented template for all env vars (copy to .env.local)
 └── tsconfig.json
 ```
 
