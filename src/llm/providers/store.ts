@@ -59,6 +59,17 @@ export async function getProvider(id: string): Promise<ProviderProfile | null> {
   return found;
 }
 
+/** ponytail: 解密指定 id 的 apiKey,只用于"测试连接"等需要凭据但又不希望把 key 放 UI state 的场景。 */
+export async function getDecryptedApiKey(id: string): Promise<string | null> {
+  const p = await getProvider(id);
+  if (!p) return null;
+  try {
+    return await decryptString(p.apiKey);
+  } catch {
+    return null;
+  }
+}
+
 export async function getActiveProvider(): Promise<ProviderProfile | null> {
   if (typeof window === 'undefined') return null;
   let id: string | null = null;

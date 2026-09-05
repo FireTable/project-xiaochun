@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { Server, Trash2, Check, Loader2, Globe, Power, KeyRound, ChevronLeft } from 'lucide-react';
+import { Server, Trash2, Check, Loader2, Globe, Power, KeyRound, ChevronLeft, Zap, X } from 'lucide-react';
 import {
   Dialog,
   DialogContent,
@@ -16,7 +16,9 @@ import {
   deleteProvider,
   getActiveProviderId,
   setActiveProviderId,
+  probeProvider,
   probeAllKnownTemplates,
+  getDecryptedApiKey,
   type ProviderProfile,
   type ProviderTemplate,
   type ProbeResult,
@@ -48,6 +50,8 @@ export const ProviderConfigDialog: React.FC<ProviderConfigDialogProps> = ({
   const [autoBusy, setAutoBusy] = useState(false);
   const [probeResults, setProbeResults] = useState<ProbeResult[]>([]);
   const [error, setError] = useState<string | null>(null);
+  const [testing, setTesting] = useState(false);
+  const [testResult, setTestResult] = useState<null | { ok: true; models: string[]; ms: number } | { ok: false; error: string; ms: number }>(null);
 
   const refresh = async () => {
     const [all, active] = await Promise.all([listProviders(), getActiveProviderId()]);
@@ -110,6 +114,35 @@ export const ProviderConfigDialog: React.FC<ProviderConfigDialogProps> = ({
   const handleBack = () => {
     setForm(EMPTY_FORM);
     setError(null);
+  };
+
+  const handleTest = async () => {
+    if (!form.baseURL.trim()) return;
+    setTesting(true);
+    setTestResult(null);
+    const start = performance.now();
+    try {
+      // ponytail: 编辑已有服务时,用户没改 key 就从加密存储里拿 — 不强制重输 key。
+      let key = form.apiKey;
+      if (!key && form.id) key = (await getDecryptedApiKey(form.id)) ?? '';
+      const res = await probeProvider(form.baseURL, key);
+      const ms = Math.round(performance.now() - start);
+      if (res.ok) {
+        setTestResult({ ok: true, models: res.models, ms });
+        // ponytail: 测试成功顺便刷新可选 model 列表;若当前 model 字段为空则填第一个。
+        setForm((f) => ({
+          ...f,
+          availableModels: res.models,
+          model: f.model.trim() ? f.model : (res.models[0] ?? f.model),
+        }));
+      } else {
+        setTestResult({ ok: false, error: res.error ?? 'failed', ms });
+      }
+    } catch (err) {
+      setTestResult({ ok: false, error: String((err as Error)?.message ?? err), ms: Math.round(performance.now() - start) });
+    } finally {
+      setTesting(false);
+    }
   };
 
   const handleSave = async () => {
@@ -314,6 +347,35 @@ export const ProviderConfigDialog: React.FC<ProviderConfigDialogProps> = ({
             </div>
 
             {error && <div className="text-rose-400 text-xs">⚠ {error}</div>}
+
+            {/* ponytail: 测试连接 + 状态行 — 用当前表单里的 baseURL/apiKey/model 探测,
+                成功会顺手把可选 model 列表拉回来。 */}
+            <div className="flex items-center gap-2">
+              <button
+                type="button"
+                onClick={() => void handleTest()}
+                disabled={testing || !form.baseURL.trim()}
+                className="flex items-center gap-1.5 h-8 px-3 rounded-lg bg-white/[0.06] hover:bg-white/[0.12] border border-white/10 text-white text-xs font-medium transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+              >
+                {testing ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Zap className="h-3.5 w-3.5" />}
+                测试连接
+              </button>
+              {testResult && !testing && (
+                <div className={`flex items-center gap-1 text-xs ${testResult.ok ? 'text-emerald-400' : 'text-rose-400'}`}>
+                  {testResult.ok ? (
+                    <>
+                      <Check className="h-3.5 w-3.5" />
+                      <span>已连接 · {testResult.models.length} 个模型 · {testResult.ms} ms</span>
+                    </>
+                  ) : (
+                    <>
+                      <X className="h-3.5 w-3.5" />
+                      <span className="truncate" title={testResult.error}>连接失败 · {testResult.error}</span>
+                    </>
+                  )}
+                </div>
+              )}
+            </div>
 
             <Button
               type="button"
