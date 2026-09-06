@@ -191,7 +191,12 @@ export class VRMEngine {
   public translateSync: ((key: string, vars?: Record<string, unknown>) => string) | null = null;
   public onLoadingChange?: (state: LoadingState) => void;
   private readyListeners = new Set<(ready: boolean) => void>();
-  public isRenderingSuspended = !(import.meta.env.DEV && APP_CONFIG.dev.disableLoadingOverlayInDev);
+  // ponytail: 渲染不再默认 suspend。LoadingOverlay 只是个视觉遮罩,不挡渲染循环。
+  // 旧逻辑:prod 默认 isRenderingSuspended=true,要等 onBreakStart 触发 resumeRendering;
+  // 但 prod 初次访问 __VRM_ALREADY_READY__ 还没设过,onBreakStart 没机会跑,
+  // 渲染永远被卡住,黑屏。现在:dev / prod 都从 startAnimation 立即开始渲染,
+  // overlay 只是叠加在上层的 UI。VRM 加载完后,fitCamera + cinematicIntro 直接显示。
+  public isRenderingSuspended = false;
 
   constructor() {
     this.loader.register((parser) => new VRMLoaderPlugin(parser));
