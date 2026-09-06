@@ -170,10 +170,9 @@ export const App: React.FC = () => {
           state={loading}
           onBreakStart={() => {
             import('@/core/vrmEngine').then((mod) => {
+              // ponytail: cinematic 已经在 loadVRM 回调里触发过,这里只唤醒渲染循环
+              // 让用户看到已经在飞的 tween —— 单一触发源,无双 tween。
               mod.vrmEngine.resumeRendering();
-              // ponytail: 跟 overlay 1.1s 破次元同步推镜 — 远处起步,easeOutCubic 推进,
-              // tween 期间禁 OrbitControls,VRM 出现时是个小点,镜头平滑推近。
-              mod.vrmEngine.cinematicIntro(1100);
             });
           }}
         />

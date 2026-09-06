@@ -732,9 +732,11 @@ export class VRMEngine {
           this.fitCamera();
           this.lineworkWorld.build(this.scene);
           this.startAnimation();
-          if (import.meta.env.DEV && APP_CONFIG.dev.disableLoadingOverlayInDev) {
-            this.cinematicIntro(1100);
-          }
+          // ponytail: cinematic 永远在这里触发 — 单一触发点,dev / prod 行为一致。
+          // APP_CONFIG.dev.disableLoadingOverlayInDev 只管 overlay 是否显示,
+          // 跟 cinematic 无关。App.tsx 的 onBreakStart 只做 resumeRendering,
+          // 不再重复触发避免双 tween。
+          this.cinematicIntro(1100);
         } else if (this.controls) {
           this.fitCamera();
           this.renderSingleFrame();
