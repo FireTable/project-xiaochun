@@ -732,7 +732,7 @@ export class VRMEngine {
           this.fitCamera();
           this.lineworkWorld.build(this.scene);
           this.startAnimation();
-          if (APP_CONFIG.dev.disableLoadingOverlayInDev) {
+          if (import.meta.env.DEV && APP_CONFIG.dev.disableLoadingOverlayInDev) {
             this.cinematicIntro(1100);
           }
         } else if (this.controls) {

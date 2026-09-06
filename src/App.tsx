@@ -57,6 +57,9 @@ export const App: React.FC = () => {
 
   useEffect(() => {
     let engineModule: typeof import('@/core/vrmEngine') | null = null;
+    // ponytail: 闭包局部变量,不能在 engineModule(ESM namespace, 冻结)上挂属性 ——
+    // prod 构建会抛 "Cannot assign to property '_unsubUserSettings'"。
+    let unsubUserSettings: (() => void) | null = null;
 
     import('@/core/vrmEngine').then((mod) => {
       engineModule = mod;
@@ -102,8 +105,8 @@ export const App: React.FC = () => {
         return XIAOCHUN_SYSTEM_PROMPT[lang] ?? XIAOCHUN_SYSTEM_PROMPT['zh-CN'];
       });
       // ponytail: 用户在 AdvancedSettingsDialog 改了 override → cache 更新 → 重新 bind,
-      // 保证下一次 generateSpeechReply 拿到新值。挂到 engineModule 上,dispose 时一起清。
-      (engineModule as any)._unsubUserSettings = subscribeUserSettings(() => {
+      // 保证下一次 generateSpeechReply 拿到新值。存到闭包变量,cleanup 时一起清。
+      unsubUserSettings = subscribeUserSettings(() => {
         mod.vrmEngine.bindSystemContext(provideSystemContext);
       });
     });
@@ -137,8 +140,7 @@ export const App: React.FC = () => {
       window.removeEventListener('dragover', handleDragOver);
       window.removeEventListener('dragleave', handleDragLeave);
       window.removeEventListener('drop', handleDrop);
-      const em = engineModule as any;
-      em?._unsubUserSettings?.();
+      unsubUserSettings?.();
       engineModule?.vrmEngine.dispose();
     };
   }, [i18n]);
