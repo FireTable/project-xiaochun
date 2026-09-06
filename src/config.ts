@@ -348,7 +348,7 @@ export const APP_CONFIG = {
   ],
   dev: {
     // 是否在本地开发调试 (DEV) 时禁用 LoadingOverlay 开屏遮罩，彻底消除 HMR 热更新时的弹窗与渲染暂停干扰
-    disableLoadingOverlayInDev: false,
+    disableLoadingOverlayInDev: true,
   },
 } as const;
 
