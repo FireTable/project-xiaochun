@@ -60,7 +60,6 @@ export class MotionTransitionManager {
   private isTransitioning = false;
   private transitionElapsed = 0;
   private transitionDuration = 0.45;
-  private needCalculateDuration = false;
 
   private boneSnapshots = new Map<string, THREE.Quaternion>();
   private hipsPosSnapshot = new THREE.Vector3();

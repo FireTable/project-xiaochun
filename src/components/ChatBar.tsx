@@ -67,7 +67,7 @@ function AccentFill({ on }: { on: boolean }) {
   );
 }
 
-export const ChatBar: React.FC = () => {
+export const ChatBar: React.FC<{ onShowDevPanel?: () => void }> = ({ onShowDevPanel }) => {
   const { t } = useTranslation();
   const inputRef = useRef<HTMLInputElement>(null);
   const [hasText, setHasText] = useState(false);
@@ -142,6 +142,9 @@ export const ChatBar: React.FC = () => {
     if (menuClickCountRef.current >= 10) {
       menuClickCountRef.current = 0;
       void enableVConsole();
+      // ponytail: 暗号触发后只「解锁」右上角 ⚙️ 按钮(让生产构建也能看见),面板本身
+      // 要用户主动再点 ⚙️ 才会滑出来 — 不要一次性蹦两个面板砸脸。
+      onShowDevPanel?.();
     }
   };
 

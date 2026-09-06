@@ -112,7 +112,7 @@ export class EmagePlayer {
   private restWorldQ: (THREE.Quaternion | null)[] = new Array(NUM_JOINTS).fill(null);
   private vrmParentSmplx = new Int8Array(NUM_JOINTS).fill(-1);
   private parentRestWorldQ: (THREE.Quaternion | null)[] = new Array(NUM_JOINTS).fill(null);
-  private baseY = 0;
+  public baseY = 0;
 
   private motion: Float32Array | null = null;
   private frameCount = 0;

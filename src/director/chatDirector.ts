@@ -250,7 +250,7 @@ export class ChatDirector {
   private player: VRMAMotionPlayer | null = null;
   private emage: EmagePlayer | null = null;
   private currentVRM: VRM | null = null;
-  private transition: MotionTransitionManager | null = null;
+  public transition: MotionTransitionManager | null = null;
   private stopPlaySegment: (() => void) | null = null;
 
   bindTransitionManager(tm: MotionTransitionManager): void {

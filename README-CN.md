@@ -55,17 +55,27 @@ UI 走 **TanStack Start SSR + i18next** 水合,**完整支持简体中文 / Engl
   * **3D 空间气泡追踪 (`BubbleTracker`)**:头部世界坐标到屏幕 2D 像素投影，带 1.5px 移动死区过滤算法，直接操控 DOM 变换，避免 60~120 FPS React 重渲染。
 * **运行时上传 VRM**:右上角上传按钮，支持任意标准 VRM 1.0 角色无缝导入。
 
-### 🩰 统一万能动作融合管线 (Universal Motion Pipeline)
+### 🧍 生物力学体型形变与正交解耦引擎 (Biomechanical Morphing Engine)
+* **28 项全维度正交体型微调**：覆盖头身比、天鹅颈、肩宽、躯干身长、躯干前后厚度、腰宽、肚子大小、胯宽、翘臀立体度、胸部挺拔度、手臂与手掌、大腿小腿粗细长短及足部大小。
+* **解剖学前沿锁死机制 (Boundary Locking)**：将骨骼默认的居中对称膨胀重构为定向生长（躯干厚度 100% 往后背延展，前胸与前腹壁锁死平坦；臀部饱满挺翘，骨盆前沿 0 凸起）。
+* **程序化前腹壁微凸/收腹形变 (`belly`)**：采用余弦平滑衰减算法精准驱动前腹壁 687 个网格顶点，完全脱离 `Spine` 骨骼——后腰厚度与脊柱生理曲度 100% 独立稳定！
+* **膝足地锚反向对齐算法**：假胯与臀外侧丰满展宽的同时，在膝关节将外移量 100% 反向扣除，双脚依然平齐并拢笔直踩地。
+* **头部绝对正交世界合成**：切断 Neck 倾角与非等比缩放相乘产生的非对角剪切畸变（Shear），眼眶与 11 根头发骨骼正交不扁不斜。
+* **纯动态头顶顶点测高**：基于几何顶点实时动态测量物理总高，穿脱鞋、FootIK 下沉及体型拉伸厘米级自适应。
+* **完整技术规范与参数表**：详见技术白皮书 [`docs/BONE_MORPH.md`](docs/BONE_MORPH.md)。
+
+### 🩰 统一万能动作融合管线与动力学体系 (Universal Motion Pipeline & Ground Dynamics)
 * **万能动作零门槛接入 (`playMotion`)**：无论是 VRMA 文件 URL、ArrayBuffer 二进制流还是 `THREE.AnimationClip`，均通过单一管线一键播放；自动完成骨骼重定向、Hips 偏移归一化，支持全身（`all`）与半身（`upperBody`）部位遮罩。
-* **电影级五次平滑步阶曲线补帧 (Quintic Smootherstep Inbetweening)**：废除机械线性插值，基于 $6t^5 - 15t^4 + 10t^3$ 曲线在生理时间窗（0.70s~0.88s）内逐帧自适应 Slerp 插补，首尾速度与加速度严格连续，彻底消灭动作启停时的撕扯与跳帧。
+* **电影级五次平滑步阶曲线补帧 (Quintic Smootherstep Inbetweening)**：废除机械线性插值，基于 $6t^5 - 15t^4 + 10t^3$ 曲线在生理时间窗（0.70s~0.88s）内逐帧自适应 Slerp 插补，首尾速度与加速度严格连续。详见 [`docs/MOTION_PIPELINE.md`](docs/MOTION_PIPELINE.md)。
+* **仿生 FootIK 与地面地锚系统**：工业级两骨解析式 IK、世界地锚防滑步、对立平衡（Contrapposto）单腿重心转移与脱鞋自适应下沉（4.6cm/3.9cm）。详见 [`docs/FOOT_IK.md`](docs/FOOT_IK.md)。
+* **程序化转身步态与视线跳视**：四阶段迈步状态机、临界阻尼弹簧偏航角追踪与眼神微动。详见 [`docs/BODY_TURN_AND_GAZE.md`](docs/BODY_TURN_AND_GAZE.md)。
 * **分层动作姿态求值图 (Layered Pose Hierarchy)**：
   * **Layer 0 (Base)**：`NaturalIdleSystem` 仿生自然待机（多频胸腹呼吸、8 字骨盆慢速重心微摆、真十指松弛微卷）；
   * **Layer 1 (Main Action)**：`vrma` 思考动作、`emage` 语音手势与通用动作剪辑平滑 Crossfade 流转；
   * **Layer 2 (Locomotion)**：`BodyTurnSystem` 物理转身步态，仅通过 `LOWER_BODY_MASK`（双腿与骨盆）加权覆盖，绝不污染上身姿态与视线；
   * **Post-Pass**：`FootIK` 脚部物理贴地解算。
-* **Three.js `stopAllAction` 陷阱消除**：彻底封堵 Three.js 在 stop 动作时触发 `restoreOriginalState()` 把骨骼清零重置为 T-Pose 的顽疾，在动作停止前后原子化保护真实人体姿态。
-* **视线逆四元数解耦 (LookAt Decoupling via Inverse Quaternions)**：打姿态快照时乘以逆四元数剔除乘法视线偏移，彻底消除转身或停步瞬间头部被拉扯偏动的突变顿挫。
-* **全自动生命周期闭环**：单次动作播完自动启动淡出过渡，从容回归待机并触发回调，无需外部状态机额外干预。
+* **系统生命周期与主循环规约**：一帧生命周期 10 步精确时序图与开发者避坑红线详见 [`docs/ARCHITECTURE_AND_RULES.md`](docs/ARCHITECTURE_AND_RULES.md)。
+* **完整技术文档中心**：架构全景与 Agent 快速路由导航详见 [`docs/README.md`](docs/README.md)。
 
 ### 🧠 100% 浏览器端 AI 推理栈 (Browser-Side AI)
 * **大语言模型 (WebLLM,默认)** — [`@mlc-ai/web-llm`](https://github.com/mlc-ai/web-llm) 默认 **Qwen2.5 1.5B (q4f16_1)**，低配设备自动降级至 0.5B。轻量高效，在移动端与低显存设备上兼顾推理速度与回复质量；对话条菜单可随时热切换模型或开关思考模式；回复语言随用户提问语系自适应匹配。
@@ -196,12 +206,24 @@ pnpm deploy
 ```text
 Project-XiaoChun/
 ├── public/                    # 静态资产目录 (通过 Cloudflare Workers Assets 托管)
-│   ├── xiaochun_v1.vrm        # 默认 VRM 角色模型 (18 MB)
+│   ├── xiaochun_V1.vrm        # 默认 VRM 角色模型 (20 MB)
 │   ├── thinking.vrma          # 待机思考动作循环
+│   ├── materials/             # MAD 破次元卡素材 (立绘/徽章/服饰预览 PNG)
+│   ├── onnx/                  # EMAGE 全身动作模型权重 (vq_* / emage_step / postprocess)
 │   ├── _headers               # 静态资源强缓存与安全响应头
 │   ├── robots.txt / sitemap.* # SEO 搜索引擎爬虫协议
 │   ├── llms.txt / llms-full.* # AI 代理与大模型 GEO 协议规范
+│   ├── og.jpg                 # OpenGraph 分享卡片
 │   └── logo.png / favicon.*   # 品牌与图标资产
+├── docs/                      # 架构与模块深度文档
+│   ├── README.md
+│   ├── ARCHITECTURE_AND_RULES.md
+│   ├── MOTION_PIPELINE.md
+│   ├── BODY_TURN_AND_GAZE.md
+│   ├── BONE_MORPH.md
+│   ├── FOOT_IK.md
+│   ├── CHAT_DIRECTOR.md
+│   └── ON_DEVICE_AI.md
 ├── wrangler.jsonc             # Cloudflare Workers 声明式配置文件
 ├── src/
 │   ├── routes/                # TanStack Start 文件路由
@@ -210,12 +232,15 @@ Project-XiaoChun/
 │   ├── components/            # React UI 组件 (TopHeader, ChatBar, HeadBubble, DevDrawer…)
 │   │   ├── AdvancedSettingsDialog.tsx  # 用户自定义系统提示词 + 记忆轮数 slider
 │   │   ├── SyncDialog.tsx     # 跨设备加密文本传输 (AES-GCM)
+│   │   ├── SliderWithAnchors.tsx       # 滑块 + 视觉锚点刻度 (Radix 精确对齐)
 │   │   └── ui/                # Radix UI 原语封装 (button, dialog, dropdown-menu, slider, tooltip)
 │   ├── core/                  # 3D 渲染与场景中枢 (解耦 Facade 架构)
 │   │   ├── vrmEngine.ts       # 核心引擎调度中枢 (轻量 Facade、渲染循环、VRM 加载挂载)
+│   │   ├── morph/             # DevDrawer 滑块驱动的运行时骨骼微调
+│   │   │   └── vrmBodyMorph.ts # VRMBodyMorph — 单骨绑定的 body part 缩放
 │   │   ├── scene/             # 线稿背景世界 (lineworkWorld.ts: 太阳光芒/大楼/地面/树木)
 │   │   ├── lighting/          # 6 通道影棚打光 (studioLighting.ts: 主光/半球光/补光/高光)
-│   │   ├── material/          # MToon 材质管理 (vrmMaterialManager.ts: Shader 饱和度注入)
+│   │   ├── material/          # MToon 材质管理 (vrmMaterialManager.ts: 部件可见性 + Shader 饱和度)
 │   │   └── ui/                # 空间 UI 投影 (bubbleTracker.ts: 头部 3D 坐标转 2D 气泡)
 │   ├── motion/                # 动作系统 (统一万能管线 + 仿生拟真姿态)
 │   │   ├── pipeline/          # 统一万能动作融合管线 (MotionPipeline / PoseBuffer / UniversalMotion)
@@ -248,6 +273,8 @@ Project-XiaoChun/
 │   ├── director/
 │   │   └── chatDirector.ts    # LLM → TTS → EMAGE 流式全链路状态编排
 │   ├── i18n/                  # zh-CN / en / ja 翻译字典 + 服务端 Cookie 提取
+│   ├── lib/                   # 横切工具 (cn className 合并助手)
+│   │   └── utils.ts
 │   ├── styles/
 │   │   └── main.css           # Tailwind v4 @theme tokens + 液态玻璃样式
 │   ├── App.tsx                # 应用主体与事件总线
@@ -255,11 +282,14 @@ Project-XiaoChun/
 │   ├── server.ts              # Cloudflare Worker 统一入口 (SSR 流式渲染 + /api/tts WebSocket 直连)
 │   ├── router.tsx             # TanStack Router 实例工厂
 │   ├── routeTree.gen.ts       # 自动生成的类型安全路由树
-│   └── config.ts              # 单一可信源 (R2 / 相机 / 6路灯光 / 饱和度 / LLM / 表情)
+│   └── config.ts              # 单一可信源 (R2 / 相机 / 6路灯光 / 饱和度 / LLM / bodyMorph / 表情)
 ├── vite.config.ts             # Vite 8 + TanStack Start + @cloudflare/vite-plugin
 ├── vite/                      # 自定义 Vite 插件 (从 vite.config.ts 抽出)
 │   ├── localApiPlugin.ts       # /api/tts 开发中间件 (TTS 转发 + EU 出口回退)
 │   └── dropDockerfatAssets.ts # 剥离 25 MiB+ WASM blob 以适配 Cloudflare Pages 上限
+├── AGENTS.md                  # Coding Agent 工程规范 (动作管线 + T-Pose / LookAt / 状态机陷阱)
+├── CLAUDE.md                  # Claude 运行时上下文
+├── README.md / README-CN.md   # 本文档 (English / 中文)
 ├── .env.example               # 全部环境变量文档化模板 (复制到 .env.local)
 └── tsconfig.json
 ```

@@ -27,7 +27,7 @@ const Slider = React.forwardRef<
     </SliderPrimitive.Track>
     <SliderPrimitive.Thumb
       className={cn(
-        'block h-4 w-4 rounded-full border-2 border-white bg-brand-300',
+        'block h-3 w-3 rounded-full border-2 border-white bg-brand-300',
         'shadow-[0_0_12px_rgba(234,131,119,0.5)]',
         'transition-transform hover:scale-110 active:scale-95',
         'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-400 focus-visible:ring-offset-2 focus-visible:ring-offset-slate-950',

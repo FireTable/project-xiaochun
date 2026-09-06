@@ -56,6 +56,11 @@ export class FootIKSolver {
     this.stanceRatio = (side === 'right') ? 1.0 : 0.0;
   }
 
+  // ─── 裸足自适应地锚与放平参数 ───
+  public barefootFactor = 0.0;
+  public autoBarefootPitch = 0.0; // 动态探测计算的裸足放平背屈角度 (rad，平底/赤足模型为 0)
+  public autoBarefootSink = 0.046; // 动态探测计算的靴子鞋底厚度下沉补偿高度 (m，脱鞋后下沉 4.6cm 稳稳踩实地面)
+
   private vrm: VRM | null = null;
   private leftLeg: LegChain | null = null;
   private rightLeg: LegChain | null = null;
@@ -80,9 +85,14 @@ export class FootIKSolver {
   private _qWorld = new THREE.Quaternion();
   private _qParentWorldInv = new THREE.Quaternion();
   private _qTarget = new THREE.Quaternion();
+  private _footLevelQ = new THREE.Quaternion();
+  private _footLevelParentInv = new THREE.Quaternion();
 
   bind(vrm: VRM): void {
     this.vrm = vrm;
+    // 自动探测模型原生足底骨骼几何（鞋跟落差与倾角）
+    this.detectFootGeometry(vrm);
+
     const h = vrm.humanoid;
     if (!h) return;
 
@@ -263,8 +273,9 @@ export class FootIKSolver {
     r.foot.getWorldPosition(this._vTemp);
     const rFootY = this._vTemp.y;
 
-    const intrinsicLDist = (lFootY - prevOffset) - l.restAnkleY;
-    const intrinsicRDist = (rFootY - prevOffset) - r.restAnkleY;
+    // 对比当前帧随 scene 矩阵动态更新的地面锚点 Y，消除场景高度沉降/拉升对骨盆造成的误补偿
+    const intrinsicLDist = (lFootY - prevOffset) - lAnchorWorld.y;
+    const intrinsicRDist = (rFootY - prevOffset) - rAnchorWorld.y;
     const weightedGroundDist = intrinsicLDist * lSupport + intrinsicRDist * rSupport;
 
     const heightFilter = 1.0 - Math.exp(-8.0 * Math.max(0.001, delta));
@@ -385,7 +396,8 @@ export class FootIKSolver {
     // 脚掌紧密贴合地面平面
     foot.getWorldQuaternion(this._qWorld);
     const euler = new THREE.Euler().setFromQuaternion(this._qWorld, 'YXZ');
-    euler.x *= (1.0 - 0.88 * leg.effectiveWeight);
+    const targetPitch = this.autoBarefootPitch * this.barefootFactor;
+    euler.x = THREE.MathUtils.lerp(euler.x * (1.0 - 0.88 * leg.effectiveWeight), targetPitch, leg.effectiveWeight);
     euler.z *= (1.0 - 0.88 * leg.effectiveWeight);
     this._qWorld.setFromEuler(euler);
 
@@ -393,6 +405,156 @@ export class FootIKSolver {
     this._qTarget.copy(this._qParentWorldInv).multiply(this._qWorld);
     foot.quaternion.slerp(this._qTarget, leg.effectiveWeight * 0.90);
     foot.updateWorldMatrix(true, false);
+
+    if (leg.toes) {
+      leg.toes.quaternion.slerp(new THREE.Quaternion(), 0.95);
+      leg.toes.updateWorldMatrix(true, false);
+    }
+  }
+
+  /**
+   * 平滑更新裸足状态因子 (0.0 = 穿鞋, 1.0 = 脱鞋/光脚)
+   */
+  public updateBarefoot(isShoesOff: boolean, delta: number): void {
+    const target = isShoesOff ? 1.0 : 0.0;
+    this.barefootFactor = THREE.MathUtils.damp(this.barefootFactor, target, 12, delta);
+  }
+
+  /**
+   * 获取脱鞋后身体下沉补偿高度 (m)
+   */
+  public getSinkOffset(): number {
+    return this.autoBarefootSink * this.barefootFactor;
+  }
+
+  /**
+   * 足底水平对齐与放平算子：
+   * 无论模型处于待机还是动作过渡，均确保双足平行水平贴地，彻底消除脚尖翘起或内翻外翻
+   */
+  public levelFeet(vrm?: VRM, isStepping: boolean = false): void {
+    if (isStepping) return;
+    const targetVrm = vrm || this.vrm;
+    if (!targetVrm?.humanoid) return;
+
+    const h = targetVrm.humanoid;
+    const lf = h.getNormalizedBoneNode('leftFoot');
+    const rf = h.getNormalizedBoneNode('rightFoot');
+    const lt = h.getNormalizedBoneNode('leftToes');
+    const rt = h.getNormalizedBoneNode('rightToes');
+    const ll = h.getNormalizedBoneNode('leftLowerLeg');
+    const rl = h.getNormalizedBoneNode('rightLowerLeg');
+
+    const barefootPitch = this.autoBarefootPitch * this.barefootFactor;
+
+    const levelOne = (
+      foot: THREE.Object3D | null | undefined,
+      lower: THREE.Object3D | null | undefined,
+      toes: THREE.Object3D | null | undefined,
+    ) => {
+      if (!foot || !lower) return;
+      foot.updateWorldMatrix(true, false);
+      foot.getWorldQuaternion(this._footLevelQ);
+      const euler = new THREE.Euler().setFromQuaternion(this._footLevelQ, 'YXZ');
+      // 世界坐标系水平对齐 (euler.x = 0, euler.z = 0)，如遇高跟鞋模型脱鞋则应用回正角
+      euler.x = barefootPitch;
+      euler.z = 0;
+      this._footLevelQ.setFromEuler(euler);
+
+      lower.getWorldQuaternion(this._footLevelParentInv).invert();
+      this._footLevelParentInv.multiply(this._footLevelQ);
+      foot.quaternion.copy(this._footLevelParentInv);
+      foot.updateWorldMatrix(true, false);
+
+      if (toes) {
+        // 脚趾保持与脚掌平直水平，杜绝翘起
+        toes.quaternion.slerp(new THREE.Quaternion(), 0.95);
+        toes.updateWorldMatrix(true, false);
+      }
+    };
+
+    levelOne(lf, ll, lt);
+    levelOne(rf, rl, rt);
+  }
+
+  /**
+   * 智能足部几何与鞋底厚度分析器：
+   * 1. 骨骼姿态：脚底保持水平平贴地面（对于平底鞋与短靴模型 pitch = 0，脚尖绝不向上折起翘天）；
+   * 2. 鞋底落差：精确探测模型是否穿着鞋靴。VRoid 默认短靴/厚底鞋具有约 4.6cm 的外底厚度，
+   *    脱鞋后身体自动下沉 0.046m，彻底消灭“脱鞋后悬空飞起”的空隙，让双脚稳稳踩实地面！
+   */
+  public detectFootGeometry(vrm: VRM): void {
+    if (!vrm.humanoid) return;
+    const lf = vrm.humanoid.getNormalizedBoneNode('leftFoot');
+    if (!lf) return;
+
+    lf.updateWorldMatrix(true, false);
+
+    // 1. 脚踝姿态回正（高跟鞋模型才做角度回正，平底/靴子保持 0.0 水平平踏）
+    const euler = new THREE.Euler().setFromQuaternion(lf.quaternion, 'YXZ');
+    const restPitch = euler.x;
+    if (restPitch > 0.18) {
+      this.autoBarefootPitch = -restPitch;
+    } else {
+      this.autoBarefootPitch = 0.0;
+    }
+
+    // 2. 探测鞋子材质以确定鞋底厚度下沉量
+    let hasShoes = false;
+    vrm.scene.traverse((obj) => {
+      if ((obj as THREE.Mesh).isMesh) {
+        const mesh = obj as THREE.Mesh;
+        const mats = Array.isArray(mesh.material) ? mesh.material : [mesh.material];
+        for (const m of mats) {
+          if (m?.name && (m.name.toLowerCase().includes('shoes') || m.name.toLowerCase().includes('boot'))) {
+            hasShoes = true;
+            break;
+          }
+        }
+      }
+    });
+
+    if (hasShoes) {
+      // 动态精确探测靴底与素体赤足底部的物理落差（检测几何顶点精确落差，避免整个 MergedMesh 包围盒均归零的缺陷）
+      let bodyLowestY = Infinity;
+      let shoesLowestY = Infinity;
+
+      vrm.scene.traverse((obj) => {
+        if ((obj as THREE.SkinnedMesh).isSkinnedMesh) {
+          const sm = obj as THREE.SkinnedMesh;
+          const mats = Array.isArray(sm.material) ? sm.material : [sm.material];
+          const pos = sm.geometry?.attributes?.position;
+          const idx = sm.geometry?.index;
+          if (!pos) return;
+
+          const checkGroup = (start: number, count: number, mat: any) => {
+            const matName = (mat?.name || '').toLowerCase();
+            const isShoes = matName.includes('shoes') || matName.includes('boot');
+            const isBody = matName.includes('skin') && matName.includes('body');
+            if (!isShoes && !isBody) return;
+
+            for (let i = start; i < start + count; i++) {
+              const vIdx = idx ? idx.getX(i) : i;
+              const y = pos.getY(vIdx);
+              if (isBody && y < bodyLowestY) bodyLowestY = y;
+              if (isShoes && y < shoesLowestY) shoesLowestY = y;
+            }
+          };
+
+          if (sm.geometry.groups && sm.geometry.groups.length > 0) {
+            sm.geometry.groups.forEach((g) => {
+              checkGroup(g.start, g.count, mats[g.materialIndex ?? 0]);
+            });
+          } else {
+            checkGroup(0, idx ? idx.count : pos.count, mats[0]);
+          }
+        }
+      });
+
+      const delta = (isFinite(bodyLowestY) && isFinite(shoesLowestY)) ? Math.max(0, bodyLowestY - shoesLowestY) : 0.039;
+      this.autoBarefootSink = delta > 0.008 ? delta : 0.039;
+    } else {
+      this.autoBarefootSink = 0.0;
+    }
   }
 }
 

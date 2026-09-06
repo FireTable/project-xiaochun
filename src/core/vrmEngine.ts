@@ -5,6 +5,8 @@ import { VRM, VRMLoaderPlugin, VRMUtils, type VRMExpressionPresetName } from '@p
 
 import { VRMAMotionPlayer } from '@/motion/vrmaPlayer';
 import { EmagePlayer } from '@/motion/emagePlayer';
+import { FootIKSolver } from '@/motion/footIK';
+import { VRMBodyMorph } from './morph/vrmBodyMorph';
 import { NaturalIdleSystem } from '@/motion/naturalIdle';
 import { ChatDirector } from '@/director/chatDirector';
 import { MotionTransitionManager } from '@/motion/motionTransition';
@@ -23,11 +25,22 @@ import {
   VRMMaterialManager,
   type MaterialSaturationSettings,
   type MaterialSaturationPresetKey,
+  type ModelPartDefinition,
+  type ModelPartCategory,
+  MODEL_PARTS_CONFIG,
+  MODEL_PART_CATEGORIES,
 } from './material/vrmMaterialManager';
 import { GazeController } from '@/motion/gazeController';
 import { BubbleTracker, type BubbleState } from './ui/bubbleTracker';
 
-export type { BubbleState, MaterialSaturationSettings, MaterialSaturationPresetKey };
+export type {
+  BubbleState,
+  MaterialSaturationSettings,
+  MaterialSaturationPresetKey,
+  ModelPartDefinition,
+  ModelPartCategory,
+};
+export { MODEL_PARTS_CONFIG, MODEL_PART_CATEGORIES };
 
 export interface LoadingState {
   active: boolean;
@@ -49,6 +62,42 @@ const BODY_TURN_BONES = [
   'leftFoot', 'rightFoot',
   'leftToes', 'rightToes',
 ] as const;
+
+// ponytail: 相机视点持久化 — 用户在 OrbitControls 里调过的位置 / target
+// 写到 localStorage,下次构造 OrbitControls 时直接还原,免得每次刷新都回默认。
+// 不暴露 UI 旋钮,纯无感持久化。
+const CAMERA_STATE_STORAGE_KEY = 'xiaochun_camera_state';
+interface SavedCameraState {
+  position: [number, number, number];
+  target: [number, number, number];
+}
+function loadSavedCameraState(): SavedCameraState | null {
+  if (typeof localStorage === 'undefined') return null;
+  try {
+    const raw = localStorage.getItem(CAMERA_STATE_STORAGE_KEY);
+    if (!raw) return null;
+    const parsed = JSON.parse(raw);
+    if (
+      Array.isArray(parsed?.position) && parsed.position.length === 3 &&
+      Array.isArray(parsed?.target) && parsed.target.length === 3 &&
+      parsed.position.every((n: unknown) => typeof n === 'number' && Number.isFinite(n)) &&
+      parsed.target.every((n: unknown) => typeof n === 'number' && Number.isFinite(n))
+    ) {
+      return parsed as SavedCameraState;
+    }
+  } catch (e) {
+    console.warn('[vrmEngine] Failed to load camera state:', e);
+  }
+  return null;
+}
+function persistCameraState(state: SavedCameraState): void {
+  if (typeof localStorage === 'undefined') return;
+  try {
+    localStorage.setItem(CAMERA_STATE_STORAGE_KEY, JSON.stringify(state));
+  } catch (e) {
+    console.warn('[vrmEngine] Failed to save camera state:', e);
+  }
+}
 
 /**
  * VRMEngine — 3D 核心渲染引擎中枢 (Core Engine Facade)
@@ -93,6 +142,26 @@ export class VRMEngine {
   private motionTransition = new MotionTransitionManager();
   private vrmaPlayer = new VRMAMotionPlayer();
   private emagePlayer = new EmagePlayer();
+  public readonly footIK = new FootIKSolver();
+  public readonly bodyMorph = new VRMBodyMorph(APP_CONFIG.bodyMorph.default);
+  private heightListeners = new Set<() => void>();
+  // ponytail: 标记首次 VRM 加载完成。attachCanvas 只装 renderer/controls 不渲染,
+  // 等 loadVRM 回调把场景 + 角色 + linework 一起 build 完,再 startAnimation + 推镜。
+  // 中途换模型不重建场景,只 fitCamera。
+  private _sceneInitialized = false;
+
+  public onHeightChange(callback: () => void): () => void {
+    this.heightListeners.add(callback);
+    return () => {
+      this.heightListeners.delete(callback);
+    };
+  }
+
+  public notifyHeightChange(): void {
+    this.heightListeners.forEach((cb) => {
+      try { cb(); } catch (e) { console.warn('[VRMEngine] onHeightChange 回调异常:', e); }
+    });
+  }
   private naturalIdle = new NaturalIdleSystem();
   private bodyTurn = new BodyTurnSystem();
   private chatDirector = new ChatDirector();
@@ -103,25 +172,30 @@ export class VRMEngine {
   private activePlayer: PipelineMotionSource = 'idle';
   private manualExpression: string | null = null;
   private bodyTurnIsStepping = false;
+  public enableBodyTurn = true;
 
-  private vrmSoleOffset = 0.08;
+  // ─── 头顶实时身高测量指示线与 HUD 标牌 (Height Ruler) ───
+  public isHeightRulerVisible = false;
+  private tempHeadTopPos = new THREE.Vector3();
+  private tempRulerEdgePos = new THREE.Vector3();
+  private _lastRenderedHeight = 0;
+
   private vrmBaseSceneY = 0;
   private shadowPlane: THREE.Mesh | null = null;
 
   // 临时向量复用
   private tempSoleA = new THREE.Vector3();
   private tempSoleB = new THREE.Vector3();
-  private _footLevelQ = new THREE.Quaternion();
-  private _footLevelParentInv = new THREE.Quaternion();
 
   // ── 外部状态与回调 ──
   public translateSync: ((key: string, vars?: Record<string, unknown>) => string) | null = null;
   public onLoadingChange?: (state: LoadingState) => void;
   private readyListeners = new Set<(ready: boolean) => void>();
-  public isRenderingSuspended = true;
+  public isRenderingSuspended = !(import.meta.env.DEV && APP_CONFIG.dev.disableLoadingOverlayInDev);
 
   constructor() {
     this.loader.register((parser) => new VRMLoaderPlugin(parser));
+    this.emagePlayer.footIK = this.footIK;
     this.initScene();
   }
 
@@ -199,7 +273,9 @@ export class VRMEngine {
   }
 
   // ponytail: 启动期 cinematic 推镜 — LoadingOverlay 破次元时调,沿当前相机方向
-  // 推远 3.3 倍作为起点,1.1s 内 easeOutCubic 拉回当前位(默认位或用户已调过的位)。
+  // 推远 3.3 倍作为起点,1.1s 内 easeOutCubic 拉回终点。
+  // 终点 = loadSavedCameraState() 的记录点(若有);否则回退到默认相机位。
+  // 解耦于「调用瞬间 camera.position」,任何时机调都明确推向上次保存的视角。
   // 视觉上 VRM 是个小点,镜头平滑推进,跟 overlay 的 scale-125 + blur-md 同步。
   // Tween 期间禁用 OrbitControls,避免用户输入跟动画抢 camera。
   private cinematicIntroRafId: number | null = null;
@@ -211,9 +287,14 @@ export class VRMEngine {
       cancelAnimationFrame(this.cinematicIntroRafId);
       this.cinematicIntroRafId = null;
     }
-    const finalPos = camera.position.clone();
-    const finalTarget = controls.target.clone();
-    // 沿 camera→target 反方向 ×3.3 = 从同视角的远处起步,VRM 一开始是个小点
+    const saved = loadSavedCameraState();
+    const finalPos = saved ? new THREE.Vector3(...saved.position) : camera.position.clone();
+    const finalTarget = saved ? new THREE.Vector3(...saved.target) : controls.target.clone();
+    // 把相机立即设到终点,让 tween 期间 render-loop 读者(gaze 等)看到正确值;
+    // 再跳到 startPos 准备推进。
+    camera.position.copy(finalPos);
+    controls.target.copy(finalTarget);
+    // 沿 finalPos→finalTarget 反方向 ×3.3 = 从同视角的远处起步,VRM 一开始是个小点
     const offset = finalPos.clone().sub(finalTarget);
     const startPos = finalTarget.clone().add(offset.clone().multiplyScalar(3.3));
     camera.position.copy(startPos);
@@ -254,6 +335,8 @@ export class VRMEngine {
     this.shadowPlane.receiveShadow = true;
     this.scene.add(this.shadowPlane);
 
+
+
     // 初始化视线系统与灯光系统
     this.gazeController.init(this.scene);
     this.lighting.init(this.scene);
@@ -266,6 +349,48 @@ export class VRMEngine {
     this.chatDirector.onInferenceStart = () => this.setInferenceMode(true);
     this.chatDirector.onInferenceEnd = () => this.setInferenceMode(false);
     this.chatDirector.setOnEnd(() => this.bubbleTracker.hide());
+  }
+
+  /**
+   * 控制头顶身高标尺与 HUD 胶囊显示隐藏
+   */
+  public setHeightRulerVisible(visible: boolean): void {
+    this.isHeightRulerVisible = visible;
+    const badgeEl = typeof document !== 'undefined' ? document.getElementById('height-ruler-badge') : null;
+    if (badgeEl) {
+      badgeEl.style.display = visible ? 'flex' : 'none';
+      if (!visible) {
+        badgeEl.style.opacity = '0';
+      }
+    }
+    const svgEl = typeof document !== 'undefined' ? document.getElementById('height-ruler-svg') : null;
+    if (svgEl) {
+      svgEl.style.display = visible ? 'block' : 'none';
+    }
+    if (visible) {
+      this._refreshHeightRulerText();
+      if (!this._unsubHeightRuler) {
+        this._unsubHeightRuler = this.onHeightChange(() => this._refreshHeightRulerText());
+      }
+    } else {
+      this._unsubHeightRuler?.();
+      this._unsubHeightRuler = null;
+    }
+  }
+
+  private _unsubHeightRuler: (() => void) | null = null;
+
+  private _refreshHeightRulerText(): void {
+    if (typeof document === 'undefined') return;
+    const heightStr = `${this.bodyMorph.getCurrentHeightCm().toFixed(1)}cm`;
+    const textEl = document.getElementById('height-ruler-text');
+    if (textEl) {
+      textEl.textContent = heightStr;
+    }
+  }
+
+  public getHeightCm(): number {
+    return this.bodyMorph.getCurrentHeightCm();
   }
 
   // ── 推理期间动态调频 (稳态 30FPS + 阴影降级) ──
@@ -318,15 +443,35 @@ export class VRMEngine {
     this.controls.minDistance = 1.0;
     this.controls.maxDistance = 8.0;
 
+    // 监听 OrbitControls change,rAF 节流写入 localStorage。
+    // 前 2s 屏蔽 — 覆盖 cinematicIntro tween(1.1s) + 初始 damping 收敛,
+    // 避免把 tween 中间过渡位 / 默认位写进去覆盖真实状态。
+    // 还原由 cinematicIntro 自己处理,这里不重复。
+    let cameraSaveReady = false;
+    let cameraSaveRaf: number | null = null;
+    this.controls.addEventListener('change', () => {
+      if (!cameraSaveReady) return;
+      if (cameraSaveRaf !== null) return;
+      cameraSaveRaf = requestAnimationFrame(() => {
+        cameraSaveRaf = null;
+        if (!this.controls) return;
+        persistCameraState({
+          position: [this.camera.position.x, this.camera.position.y, this.camera.position.z],
+          target: [this.controls.target.x, this.controls.target.y, this.controls.target.z],
+        });
+      });
+    });
+    setTimeout(() => { cameraSaveReady = true; }, 2000);
+
     window.addEventListener('resize', this.handleResize);
 
     if (this.canvas) {
       this.canvas.style.filter = 'none';
     }
 
-    // 构建线稿场景世界并启动主循环
-    this.lineworkWorld.build(this.scene);
-    this.startAnimation();
+    // ponytail: 这里不构建场景、不起渲染、不推镜,等 loadVRM 回调里
+    // 跟 VRM 一起初始化,避免「空场景在 default 角度先露脸 → 角色出现 → 推镜
+    // 终点又被 fitCamera 头部框选位覆盖」的三段撕裂。
   }
 
   private handleResize = () => {
@@ -379,6 +524,80 @@ export class VRMEngine {
     this.materialManager.applyPreset(presetKey);
   }
 
+  public setClothingVisibility(part: string, visible: boolean): void {
+    this.materialManager.setPartVisibility(part, visible);
+    this.notifyHeightChange();
+  }
+
+  public setPartVisibility(part: string, visible: boolean): void {
+    this.materialManager.setPartVisibility(part, visible);
+    this.notifyHeightChange();
+  }
+
+  public resetAllPartsVisibility(): void {
+    this.materialManager.resetAllPartsVisibility();
+    this.notifyHeightChange();
+  }
+
+  public undressAllClothing(): void {
+    this.materialManager.undressAllClothing();
+    this.notifyHeightChange();
+  }
+
+  public dressAllClothing(): void {
+    this.materialManager.dressAllClothing();
+    this.notifyHeightChange();
+  }
+
+  public setCategoryVisibility(category: ModelPartCategory, visible: boolean): void {
+    this.materialManager.setCategoryVisibility(category, visible);
+    this.notifyHeightChange();
+  }
+
+  // ── 骨骼体型微调系统 (Bone Morphing) ──
+  public setBodyPartScale(part: import('@/config').BodyMorphPartKey, value: number): void {
+    this.bodyMorph.setPart(part, value);
+    this.notifyHeightChange();
+  }
+
+  public getBodyPartScale(part: import('@/config').BodyMorphPartKey): number {
+    return this.bodyMorph.getPart(part);
+  }
+
+  public getBodyMorphConfig(): import('@/config').BodyMorphConfig {
+    return this.bodyMorph.getConfig();
+  }
+
+  public resetBodyMorph(): void {
+    this.bodyMorph.reset();
+    this.notifyHeightChange();
+  }
+
+  // 保持旧接口 100% 兼容
+  public setHipScale(scale: number): void {
+    this.bodyMorph.setPart('hips', scale);
+  }
+
+  public getHipScale(): number {
+    return this.bodyMorph.getPart('hips');
+  }
+
+  public setBustScale(scale: number): void {
+    this.bodyMorph.setPart('bust', scale);
+  }
+
+  public getBustScale(): number {
+    return this.bodyMorph.getPart('bust');
+  }
+
+  public setEnableBodyTurn(enabled: boolean): void {
+    this.enableBodyTurn = enabled;
+  }
+
+  public getEnableBodyTurn(): boolean {
+    return this.enableBodyTurn;
+  }
+
   public setFov(fov: number): void {
     this.camera.fov = fov;
     this.camera.updateProjectionMatrix();
@@ -427,6 +646,17 @@ export class VRMEngine {
       this.currentVRM = null;
       this.notifyReady(false);
     }
+    // 强制清理场景中历史遗留的任何 3D 标尺 mesh (彻底杜绝蓝色方块残留)
+    const oldRulers: THREE.Object3D[] = [];
+    this.scene.traverse((obj) => {
+      if (obj.name && (obj.name.includes('heightRuler') || obj.name.includes('rulerMesh'))) {
+        oldRulers.push(obj);
+      }
+    });
+    oldRulers.forEach((m) => {
+      this.scene.remove(m);
+      if ((m as THREE.Mesh).geometry) (m as THREE.Mesh).geometry.dispose();
+    });
     this.chatDirector.resetClipCache();
     this.vrmaPlayer.stop();
     this.emagePlayer.stop();
@@ -470,6 +700,8 @@ export class VRMEngine {
         VRMUtils.rotateVRM0(vrm);
         vrm.scene.position.set(0, 0, 0);
         vrm.scene.rotation.y = 0;
+        // ponytail: 直接 visible = true,因为 loadVRM 回调才会触发 startAnimation,
+        // 之前的代码把 VRM 藏起来再揭示的逻辑在新设计里不需要了 — 渲染循环压根没起。
         this.scene.add(vrm.scene);
 
         this.resetBones(vrm);
@@ -480,14 +712,8 @@ export class VRMEngine {
         this.vrmBaseSceneY = vrm.scene.position.y;
         vrm.scene.updateMatrixWorld(true);
 
-        const lf = vrm.humanoid?.getNormalizedBoneNode('leftFoot');
-        const rf = vrm.humanoid?.getNormalizedBoneNode('rightFoot');
-        if (lf && rf) {
-          const lfPos = new THREE.Vector3(); const rfPos = new THREE.Vector3();
-          lf.getWorldPosition(lfPos); rf.getWorldPosition(rfPos);
-          this.vrmSoleOffset = Math.max(0.02, Math.min(lfPos.y, rfPos.y));
-        }
-
+        this.footIK.bind(vrm);
+        this.bodyMorph.bind(vrm);
         this.emagePlayer.bind(vrm);
         this.naturalIdle.bind(vrm);
         this.bodyTurn.bind(vrm);
@@ -499,9 +725,21 @@ export class VRMEngine {
         if (!this.emagePlayer.ready) void this.emagePlayer.ensureLoaded();
         preloadWebLLM();
 
-        this.fitCamera();
+        // attachCanvas 已经在跑(loadVRM 回调晚于 attachCanvas)→ 立刻揭示并 fit。
+        // 否则保持 invisible,等 attachCanvas 自己揭示。
+        if (this.controls && !this._sceneInitialized) {
+          this._sceneInitialized = true;
+          this.fitCamera();
+          this.lineworkWorld.build(this.scene);
+          this.startAnimation();
+          if (APP_CONFIG.dev.disableLoadingOverlayInDev) {
+            this.cinematicIntro(1100);
+          }
+        } else if (this.controls) {
+          this.fitCamera();
+          this.renderSingleFrame();
+        }
         void this.chatDirector.warmThinkingClip(vrm, this.vrmaPlayer);
-        this.renderSingleFrame();
 
         this.onLoadingChange?.({ active: false, subtitleKey: '', progress: 100 });
       },
@@ -658,17 +896,22 @@ export class VRMEngine {
 
         // 2. 驱动对应主动作更新
         if (universalLive) {
-          vrm.scene.position.y = this.vrmBaseSceneY;
           this.motionPipeline.universalMotion.update(delta);
         } else if (emageLive) {
           this.emagePlayer.update(delta);
         } else if (vrmaLive) {
-          vrm.scene.position.y = this.vrmBaseSceneY;
           this.vrmaPlayer.update(delta);
         } else {
-          vrm.scene.position.y = this.vrmBaseSceneY;
           this.naturalIdle.update(time, 1.0, this.bodyTurn.isStepping());
         }
+
+        // 裸足地锚与高度自适应：由 FootIK 解算器统一管理下沉量与背屈
+        const isShoesOff = this.materialManager.partsVisibility['shoes'] === false;
+        this.footIK.updateBarefoot(isShoesOff, delta);
+
+        const currentSceneBaseY = this.vrmBaseSceneY - this.footIK.getSinkOffset() + this.bodyMorph.getLegHeightDelta();
+        vrm.scene.position.y = currentSceneBaseY;
+        if (this.emagePlayer) this.emagePlayer.baseY = currentSceneBaseY;
 
         // 3. 全局平滑过渡器加权 Slerp 统一接管
         this.motionTransition.apply(vrm, delta);
@@ -677,21 +920,24 @@ export class VRMEngine {
         this.motionPipeline.finalPose.sampleFromVRM(vrm);
 
         // 5. 转身物理踱步系统 (BodyTurn)
-        const _btHead = vrm.humanoid?.getNormalizedBoneNode('head');
-        const _btPos = new THREE.Vector3();
-        if (_btHead) _btHead.getWorldPosition(_btPos);
-        else _btPos.copy(vrm.scene.position);
-        const _dx = this.camera.position.x - _btPos.x;
-        const _dz = this.camera.position.z - _btPos.z;
-        const _targetYaw = Math.atan2(_dx, _dz) - vrm.scene.rotation.y;
-        const normYaw = Math.atan2(Math.sin(_targetYaw), Math.cos(_targetYaw));
-        const yawDelta = this.bodyTurn.update(delta, normYaw, emageLive);
-        vrm.scene.rotation.y += yawDelta;
+        if (this.enableBodyTurn) {
+          const _btHead = vrm.humanoid?.getNormalizedBoneNode('head');
+          const _btPos = new THREE.Vector3();
+          if (_btHead) _btHead.getWorldPosition(_btPos);
+          else _btPos.copy(vrm.scene.position);
+          const _dx = this.camera.position.x - _btPos.x;
+          const _dz = this.camera.position.z - _btPos.z;
+          const _targetYaw = Math.atan2(_dx, _dz) - vrm.scene.rotation.y;
+          const normYaw = Math.atan2(Math.sin(_targetYaw), Math.cos(_targetYaw));
+          const yawDelta = this.bodyTurn.update(delta, normYaw, emageLive);
+          vrm.scene.rotation.y += yawDelta;
 
-        this.handleBodyTurnHandoff(vrm);
+          this.handleBodyTurnHandoff(vrm);
+        }
 
-        if (vrmaLive || universalLive || !emageLive) {
-          this.levelFeet(vrm);
+        const isStepping = this.enableBodyTurn && this.bodyTurn.isStepping();
+        if (vrmaLive || universalLive || !emageLive || isShoesOff) {
+          this.footIK.levelFeet(vrm, isStepping);
         }
 
         this.chatDirector.tick(vrm, this.vrmaPlayer);
@@ -709,21 +955,75 @@ export class VRMEngine {
         );
 
         vrm.update(delta);
+        this.bodyMorph.update(vrm);
 
-        // 7. 实体脚下影子平面高度贴合
+        // 7. 实体脚下影子平面中心与地面高度贴合
         if (this.shadowPlane && vrm.humanoid) {
           const lf = vrm.humanoid.getNormalizedBoneNode('leftFoot');
           const rf = vrm.humanoid.getNormalizedBoneNode('rightFoot');
           if (lf && rf) {
             lf.getWorldPosition(this.tempSoleA);
             rf.getWorldPosition(this.tempSoleB);
-            const minAnkleY = Math.min(this.tempSoleA.y, this.tempSoleB.y);
-            this.shadowPlane.position.y = minAnkleY - this.vrmSoleOffset + 0.002;
+            this.shadowPlane.position.x = (this.tempSoleA.x + this.tempSoleB.x) * 0.5;
+            this.shadowPlane.position.z = (this.tempSoleA.z + this.tempSoleB.z) * 0.5;
+          } else {
+            this.shadowPlane.position.x = vrm.scene.position.x;
+            this.shadowPlane.position.z = vrm.scene.position.z;
           }
+          // 阴影平面高度永远紧密贴合在世界地面表面 (Y = 0.0015)，彻底杜绝空中浮空或地表错位
+          this.shadowPlane.position.y = 0.0015;
         }
 
         // 8. 委托 BubbleTracker 更新 3D 头部气泡屏幕坐标 (带 1.5px 死区过滤)
         this.bubbleTracker.update(vrm, this.camera);
+
+        // 9. 头顶实时身高指示折线与 3D 浮动 HUD 胶囊标牌 (彻底去掉蓝色方块，发光指示线优雅连接)
+        if (this.isHeightRulerVisible) {
+          // 毫秒级实时刷新当前数值 (穿脱鞋阻尼平滑下沉过程中 60FPS 动态连续刷新)
+          const liveHeight = this.bodyMorph.getCurrentHeightCm();
+          if (Math.abs(liveHeight - this._lastRenderedHeight) >= 0.05) {
+            this._lastRenderedHeight = liveHeight;
+            this._refreshHeightRulerText();
+          }
+
+          if (this.camera) {
+            this.bodyMorph.getHeadTopWorldPosition(this.tempHeadTopPos);
+            this.tempRulerEdgePos.copy(this.tempHeadTopPos).project(this.camera);
+
+            const inView = this.tempRulerEdgePos.z <= 1.0;
+            const badgeEl = typeof document !== 'undefined' ? document.getElementById('height-ruler-badge') : null;
+            const svgEl = typeof document !== 'undefined' ? document.getElementById('height-ruler-svg') : null;
+            const lineEl = typeof document !== 'undefined' ? document.getElementById('height-ruler-line') : null;
+            const dotEl = typeof document !== 'undefined' ? document.getElementById('height-ruler-dot') : null;
+
+            if (inView) {
+              const hx = (this.tempRulerEdgePos.x * 0.5 + 0.5) * window.innerWidth;
+              const hy = (-this.tempRulerEdgePos.y * 0.5 + 0.5) * window.innerHeight;
+
+              // 标牌放置于角色头顶右上方
+              const bx = Math.round(hx + 42);
+              const by = Math.round(hy - 28);
+
+              if (badgeEl) {
+                badgeEl.style.transform = `translate3d(${bx}px, ${by}px, 0)`;
+                badgeEl.style.opacity = '1';
+              }
+
+              if (svgEl && lineEl && dotEl) {
+                svgEl.style.display = 'block';
+                const midX = Math.round(hx + 20);
+                const midY = Math.round(hy - 14);
+                const targetY = Math.round(by + 13);
+                lineEl.setAttribute('d', `M ${Math.round(hx)} ${Math.round(hy)} L ${midX} ${midY} L ${bx} ${targetY}`);
+                dotEl.setAttribute('cx', String(Math.round(hx)));
+                dotEl.setAttribute('cy', String(Math.round(hy)));
+              }
+            } else {
+              if (badgeEl) badgeEl.style.opacity = '0';
+              if (svgEl) svgEl.style.display = 'none';
+            }
+          }
+        }
       }
 
       this.controls?.update();
@@ -738,35 +1038,6 @@ export class VRMEngine {
     if (isStepping === this.bodyTurnIsStepping) return;
     this.bodyTurnIsStepping = isStepping;
     this.motionTransition.startTransition(vrm, 0.30, undefined, BODY_TURN_BONES);
-  }
-
-  private levelFeet(vrm: VRM): void {
-    if (this.bodyTurn.isStepping()) return;
-
-    const h = vrm.humanoid;
-    if (!h) return;
-    const lf = h.getNormalizedBoneNode('leftFoot');
-    const rf = h.getNormalizedBoneNode('rightFoot');
-    const ll = h.getNormalizedBoneNode('leftLowerLeg');
-    const rl = h.getNormalizedBoneNode('rightLowerLeg');
-
-    const levelOne = (foot: THREE.Object3D | null | undefined, lower: THREE.Object3D | null | undefined) => {
-      if (!foot || !lower) return;
-      foot.updateWorldMatrix(true, false);
-      foot.getWorldQuaternion(this._footLevelQ);
-      const euler = new THREE.Euler().setFromQuaternion(this._footLevelQ, 'YXZ');
-      euler.x = 0;
-      euler.z = 0;
-      this._footLevelQ.setFromEuler(euler);
-
-      lower.getWorldQuaternion(this._footLevelParentInv).invert();
-      this._footLevelParentInv.multiply(this._footLevelQ);
-      foot.quaternion.copy(this._footLevelParentInv);
-      foot.updateWorldMatrix(true, false);
-    };
-
-    levelOne(lf, ll);
-    levelOne(rf, rl);
   }
 
   public dispose(): void {

@@ -44,7 +44,7 @@ export class MotionPipeline {
 
   // ── 主动作平滑 Crossfader ──
   private activeSource: PipelineMotionSource = 'idle';
-  private previousSource: PipelineMotionSource = 'idle';
+  public previousSource: PipelineMotionSource = 'idle';
   private activeMask: MotionBoneMask = 'all';
 
   private crossfadeElapsed = 0;

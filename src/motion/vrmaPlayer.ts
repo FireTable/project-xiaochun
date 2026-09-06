@@ -28,7 +28,7 @@ export class VRMAMotionPlayer {
   private isFadingToIdle = false;
   private fadeDuration = 0.5;
 
-  private transitionManager: MotionTransitionManager | null = null;
+  public transitionManager: MotionTransitionManager | null = null;
 
   bind(vrm: VRM): void {
     this.vrm = vrm;

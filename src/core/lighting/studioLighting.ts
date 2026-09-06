@@ -13,13 +13,13 @@ import { APP_CONFIG, type LightConfig } from '@/config';
  * 6. 左右手臂高光 (arm)
  */
 export class StudioLighting {
-  public hemiLight = new THREE.HemisphereLight(0xfffaf4, 0x6e6268, 0.60);
-  public dirLight = new THREE.DirectionalLight(0xfffbf5, 1.00);
-  public fillLight = new THREE.DirectionalLight(0xe8edff, 0.80);
-  public frontFill = new THREE.SpotLight(0xfff8f2, 0.70, 2.5, Math.PI / 7.5, 0.45, 1.2);
-  public legLight = new THREE.SpotLight(0xfff8f2, 0.45, 4.0, Math.PI / 4.0, 0.85, 1.0);
-  public leftArmLight = new THREE.SpotLight(0xfffbf7, 0.50, 1.5, Math.PI / 11, 0.4, 1.5);
-  public rightArmLight = new THREE.SpotLight(0xfffbf7, 0.50, 1.5, Math.PI / 11, 0.4, 1.5);
+  public hemiLight = new THREE.HemisphereLight(0xfffaf4, 0x6e6268, 0.72);
+  public dirLight = new THREE.DirectionalLight(0xfffbf5, 0.90);
+  public fillLight = new THREE.DirectionalLight(0xe8edff, 0.70);
+  public frontFill = new THREE.SpotLight(0xfff8f2, 1.00, 1.8, Math.PI / 13.0, 0.35, 1.2);
+  public legLight = new THREE.SpotLight(0xfff8f2, 1.00, 4.0, Math.PI / 4.0, 0.85, 1.0);
+  public leftArmLight = new THREE.SpotLight(0xfffbf7, 0.40, 2.4, Math.PI / 6.5, 0.55, 1.2);
+  public rightArmLight = new THREE.SpotLight(0xfffbf7, 0.40, 2.4, Math.PI / 6.5, 0.55, 1.2);
 
   public readonly channels: LightConfig = {
     dir: { ...APP_CONFIG.lights.dir },
@@ -55,10 +55,10 @@ export class StudioLighting {
     this.fillLight.position.set(-1.5, 1.8, -1.2);
     scene.add(this.fillLight);
 
-    // 脸部高光
-    this.frontFill.position.set(0.0, 1.65, 1.3);
+    // 脸部专属射灯（精准贴合面部：微仰角 + 13.8° 精准窄光锥，在下巴处截断，彻底阻隔下溢至胸前）
+    this.frontFill.position.set(0.0, 1.52, 0.95);
     const faceTarget = new THREE.Object3D();
-    faceTarget.position.set(0.0, 1.50, 0.0);
+    faceTarget.position.set(0.0, 1.56, 0.0);
     scene.add(faceTarget);
     this.frontFill.target = faceTarget;
     scene.add(this.frontFill);
@@ -71,17 +71,17 @@ export class StudioLighting {
     this.legLight.target = legTarget;
     scene.add(this.legLight);
 
-    // 双臂轮廓光
-    this.leftArmLight.position.set(-0.95, 1.10, 0.45);
+    // 双臂与大腿根轮廓侧光（适度收拢至 X=±1.35，精准聚焦覆盖手臂与大腿根部，柔和不突兀）
+    this.leftArmLight.position.set(1.35, 1.00, 0.55);
     const leftArmTarget = new THREE.Object3D();
-    leftArmTarget.position.set(-0.40, 1.00, 0.0);
+    leftArmTarget.position.set(0.32, 0.88, 0.0);
     scene.add(leftArmTarget);
     this.leftArmLight.target = leftArmTarget;
     scene.add(this.leftArmLight);
 
-    this.rightArmLight.position.set(0.95, 1.10, 0.45);
+    this.rightArmLight.position.set(-1.35, 1.00, 0.55);
     const rightArmTarget = new THREE.Object3D();
-    rightArmTarget.position.set(0.40, 1.00, 0.0);
+    rightArmTarget.position.set(-0.32, 0.88, 0.0);
     scene.add(rightArmTarget);
     this.rightArmLight.target = rightArmTarget;
     scene.add(this.rightArmLight);

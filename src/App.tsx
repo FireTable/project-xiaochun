@@ -9,6 +9,7 @@ import { DevDrawer } from '@/components/DevDrawer';
 import { XIAOCHUN_SYSTEM_PROMPT } from '@/llm/prompts';
 import { resolveSystemPrompt, getCachedUserSettings, subscribeUserSettings } from '@/llm/userSettings';
 import type { Lang } from '@/i18n';
+import { APP_CONFIG } from '@/config';
 
 const SceneCanvas = React.lazy(() =>
   import('@/components/SceneCanvas').then((m) => ({ default: m.SceneCanvas }))
@@ -16,11 +17,19 @@ const SceneCanvas = React.lazy(() =>
 
 export const App: React.FC = () => {
   const { t, i18n } = useTranslation();
-  const [loading, setLoading] = useState<LoadingState>({
-    active: true,
-    subtitleKey: 'parsingModel',
-    progress: 0,
-  });
+
+  // dev 调试模式或 HMR 热更新时跳过 LoadingOverlay
+  // 严格遵守 APP_CONFIG.dev.disableLoadingOverlayInDev 开关：若为 false 则说明需要调试遮罩，绝不盲目跳过
+  const skipLoadingOverlay = Boolean(
+    (import.meta.env.DEV && APP_CONFIG.dev.disableLoadingOverlayInDev) ||
+    (APP_CONFIG.dev.disableLoadingOverlayInDev && typeof window !== 'undefined' && Boolean((window as any).__VRM_ALREADY_READY__))
+  );
+
+  const [loading, setLoading] = useState<LoadingState>(() => ({
+    active: !skipLoadingOverlay,
+    subtitleKey: skipLoadingOverlay ? '' : 'parsingModel',
+    progress: skipLoadingOverlay ? 100 : 0,
+  }));
 
   const [bubble, setBubble] = useState<BubbleState>({
     visible: false,
@@ -32,16 +41,41 @@ export const App: React.FC = () => {
   });
 
   const isDev = import.meta.env.DEV || (typeof window !== 'undefined' && ['localhost', '127.0.0.1'].includes(window.location.hostname));
-  const [isDrawerOpen, setIsDrawerOpen] = useState(false);
+  // ponytail: 抽屉开关状态记到 localStorage,刷新后保持原样,调试不用每次手动打开。
+  const [isDrawerOpen, setIsDrawerOpen] = useState(() => {
+    if (typeof localStorage === 'undefined') return false;
+    return localStorage.getItem('xiaochun_dev_drawer_open') === '1';
+  });
+  useEffect(() => {
+    if (typeof localStorage === 'undefined') return;
+    localStorage.setItem('xiaochun_dev_drawer_open', isDrawerOpen ? '1' : '0');
+  }, [isDrawerOpen]);
   const [isDragOver, setIsDragOver] = useState(false);
+  // ponytail: 10 次连击暗号触发后,生产构建也要能看见右上角调试按钮 — 用户已经
+  // 「发现」了隐藏 dev 通道,继续藏按钮不合理。一次性解锁,刷新页面后重置。
+  const [hasDevEasterEgg, setHasDevEasterEgg] = useState(false);
 
   useEffect(() => {
     let engineModule: typeof import('@/core/vrmEngine') | null = null;
 
     import('@/core/vrmEngine').then((mod) => {
       engineModule = mod;
-      mod.vrmEngine.suspendRendering();
-      mod.vrmEngine.onLoadingChange = (state) => setLoading(state);
+      if (!skipLoadingOverlay && !mod.vrmEngine.currentVRM) {
+        mod.vrmEngine.suspendRendering();
+      } else {
+        mod.vrmEngine.resumeRendering();
+      }
+      mod.vrmEngine.onLoadingChange = (state) => {
+        if (skipLoadingOverlay && state.progress < 100) return;
+        setLoading(state);
+        // 如果处于跳过遮罩状态且模型已就绪，立即唤醒主循环渲染
+        if (!state.active && skipLoadingOverlay) {
+          mod.vrmEngine.resumeRendering();
+        }
+      };
+      mod.vrmEngine.onReadyChange((ready) => {
+        if (ready && typeof window !== 'undefined') (window as any).__VRM_ALREADY_READY__ = true;
+      });
       // React 并发过渡：将气泡 UI 状态更新降级为非阻塞 transition，绝不阻塞主线程 3D 动画帧与交互
       mod.vrmEngine.onBubbleChange = (state) => {
         startTransition(() => {
@@ -122,35 +156,80 @@ export const App: React.FC = () => {
       {/* 底部对话输入条 — 启动 splash 期间不渲染,避免跟 LoadingOverlay 重叠。
           之前 ChatBar tooltip 在 !isModelReady 时常驻,会跟启动动画叠在一起看着像两个页面。
           ponytail: 只用 `loading.active` 一个标志就够了,VRM ready 后 loading.active=false,
-          ChatBar 这时候挂载,自带 tooltip 接管剩余的 LLM 下载/就绪提示。 */}
-      {!loading.active && <ChatBar />}
+          ChatBar 这时候挂载,自带 tooltip 接管剩余的 LLM 下载/就绪提示。
+          onShowDevPanel: 10 次连击暗号只解锁 hasDevEasterEgg — 让 TopHeader 上的 ⚙️
+          按钮在生产构建里亮起来,面板本身要用户主动再点 ⚙️ 才打开。vconsole 仍由
+          ChatBar 内部独立触发。 */}
+      {!loading.active && <ChatBar onShowDevPanel={() => setHasDevEasterEgg(true)} />}
 
-      {/* 模型加载进度遮罩 */}
-      <LoadingOverlay
-        state={loading}
-        onBreakStart={() => {
-          import('@/core/vrmEngine').then((mod) => {
-            mod.vrmEngine.resumeRendering();
-            // ponytail: 跟 overlay 1.1s 破次元同步推镜 — 远处起步,easeOutCubic 推进,
-            // tween 期间禁 OrbitControls,VRM 出现时是个小点,镜头平滑推近。
-            mod.vrmEngine.cinematicIntro(1100);
-          });
-        }}
-      />
+      {/* 模型加载进度遮罩 (dev 或 HMR 时彻底免除) */}
+      {!skipLoadingOverlay && (
+        <LoadingOverlay
+          state={loading}
+          onBreakStart={() => {
+            import('@/core/vrmEngine').then((mod) => {
+              mod.vrmEngine.resumeRendering();
+              // ponytail: 跟 overlay 1.1s 破次元同步推镜 — 远处起步,easeOutCubic 推进,
+              // tween 期间禁 OrbitControls,VRM 出现时是个小点,镜头平滑推近。
+              mod.vrmEngine.cinematicIntro(1100);
+            });
+          }}
+        />
+      )}
 
       {/* 顶部控制栏 */}
       <TopHeader
-        isDev={isDev}
+        isDev={isDev || hasDevEasterEgg}
         isDrawerOpen={isDrawerOpen}
         onToggleDrawer={() => setIsDrawerOpen((prev) => !prev)}
       />
 
-      {isDev ? (
-        <DevDrawer
-          isOpen={isDrawerOpen}
-          onClose={() => setIsDrawerOpen(false)}
+      {/* ponytail: DevDrawer 不再受 isDev 守卫 — 10 次连击暗号触发后,生产构建也要能
+          拉出调试面板(只走 10 次连击路径,TopHeader 上的 dev 按钮仍受 isDev 隐藏)。 */}
+      <DevDrawer
+        isOpen={isDrawerOpen}
+        onClose={() => setIsDrawerOpen(false)}
+      />
+
+      {/* 实时身高 3D 浮动指示线与 HUD 标牌 (头顶发光微点 + 科技感延伸指示线) */}
+      <svg
+        id="height-ruler-svg"
+        className="fixed inset-0 pointer-events-none z-40 w-full h-full"
+        style={{ display: 'none' }}
+      >
+        <defs>
+          <filter id="ruler-glow" x="-50%" y="-50%" width="200%" height="200%">
+            <feDropShadow dx="0" dy="0" stdDeviation="2" floodColor="#e06d64" floodOpacity="0.8" />
+          </filter>
+        </defs>
+        <path
+          id="height-ruler-line"
+          stroke="#e06d64"
+          strokeWidth="1.5"
+          strokeDasharray="4 3"
+          strokeLinecap="round"
+          strokeLinejoin="round"
+          fill="none"
+          filter="url(#ruler-glow)"
         />
-      ) : null}
+        <circle
+          id="height-ruler-dot"
+          r="3"
+          fill="#ffffff"
+          stroke="#e06d64"
+          strokeWidth="1.5"
+          filter="url(#ruler-glow)"
+        />
+      </svg>
+
+      <div
+        id="height-ruler-badge"
+        className="fixed top-0 left-0 z-50 pointer-events-none will-change-transform transition-opacity duration-150 select-none flex items-center gap-1 font-bold text-white text-[11px] sm:text-xs px-2 py-0.5 rounded-md bg-brand-500/90 backdrop-blur-sm border border-brand-300/40 shadow-lg shadow-brand-500/30 tracking-wide"
+        style={{ display: 'none', opacity: 0 }}
+      >
+        <span className="text-[10px] opacity-80 font-normal">📏</span>
+        <span id="height-ruler-text">--.-cm</span>
+      </div>
 
       {/* 拖拽上传提示层 */}
       {isDragOver && (

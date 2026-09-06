@@ -8,17 +8,16 @@
 
 Project XiaoChun is a **100% browser-native 3D AI companion** with strong on-device privacy and real-time performance.
 
-| Module | Core Technologies & Key Files | Key Responsibility |
+| Module | Core Technologies & Key Files | Key Responsibility & Dedicated Documentation |
 | :--- | :--- | :--- |
-| **3D Engine** | `three.js 0.185` + `@pixiv/three-vrm 3.5`<br/>(`src/core/vrmEngine.ts`) | MToon NPR shading, 6-channel independent lighting, procedural outline outdoor world, camera orbit controls |
-| **Motion Generation** | EMAGE + ONNX Runtime Web<br/>(`src/motion/emagePlayer.ts`<br/>`src/motion/emageWorker.ts`) | Dedicated Web Worker whole-body motion generation, temporal Gaussian smoothing, dynamic FootIK stance switching |
-| **Motion Transition** | `MotionTransitionManager`<br/>(`src/motion/motionTransition.ts`) | Quintic Smootherstep global 53-bone zero-impact seamless transitions |
-| **Speaking Micro-motion** | `SpeakIdleSystem`<br/>(`src/motion/speakIdle.ts`) | Maintains natural floating speech gestures, Z-axis knuckle micro-flex, organic head-tilt during TTS generation gaps |
-| **Natural Idle** | `NaturalIdleSystem`<br/>(`src/motion/naturalIdle.ts`) | Biomechanical finger curl, multi-harmonic breathing sway, figure-8 pelvis postural balance, gaze wander |
-| **On-device LLM** | `@mlc-ai/web-llm`<br/>(`src/llm/webLLMProvider.ts` + `src/llm/chatWorkflow.ts`) | WebGPU streaming inference, default Qwen3.5 2B (q4f16_1), fallback to 0.8B; `chatWorkflow` dispatches to webLLM or custom HTTP provider |
-| **TTS** | `edge-tts-universal`<br/>(`src/server.ts` + `src/director/chatDirector.ts`) | XiaoYi voice (zh-CN-XiaoyiNeural +10 Hz), fully concurrent chunk pre-fetch |
-| **On-device Memory** | IndexedDB (`xiaochun-memory`)<br/>(`src/memory/`) | Pure local 3-tier memory: last 6 turns, ZH/EN/JA entity profile extraction, n-gram long-term note retrieval |
-| **Single Source of Truth** | `src/config.ts` | Centrally manages lighting, camera, saturation presets, and motion dynamics parameters (`APP_CONFIG.emage.motion`) |
+| **3D Engine & Lifecycle** | `three.js 0.185` + `@pixiv/three-vrm 3.5`<br/>(`src/core/vrmEngine.ts`) | MToon NPR shading, 6-channel lighting, lifecycle order, detailed in [`docs/ARCHITECTURE_AND_RULES.md`](docs/ARCHITECTURE_AND_RULES.md) |
+| **Motion Pipeline** | `UniversalMotionController` + `MotionPipeline`<br/>(`src/motion/pipeline/`) | Universal motion input, 5-layer blend graph, detailed in [`docs/MOTION_PIPELINE.md`](docs/MOTION_PIPELINE.md) |
+| **FootIK & Ground Anchors** | `FootIKSolver`<br/>(`src/motion/footIK.ts`) | Two-bone analytical IK, weight shift (contrapposto), auto-sink, detailed in [`docs/FOOT_IK.md`](docs/FOOT_IK.md) |
+| **Locomotion & Gaze** | `BodyTurnSystem` + `GazeController`<br/>(`src/motion/bodyTurn.ts`, `gazeController.ts`) | 4-phase stepping FSM, spring yaw tracking, bio saccades, detailed in [`docs/BODY_TURN_AND_GAZE.md`](docs/BODY_TURN_AND_GAZE.md) |
+| **Biomechanical Morphing** | `VRMBodyMorph`<br/>(`src/core/morph/vrmBodyMorph.ts`) | 28-parameter orthogonal decoupled bone & vertex morphing engine, detailed in [`docs/BONE_MORPH.md`](docs/BONE_MORPH.md) |
+| **Chat Director & TTS** | `ChatDirector` + `edge-tts-universal`<br/>(`src/director/chatDirector.ts`, `src/server.ts`) | Smart 30~60 chars slicer, parallel TTS prefetch, stream sync, detailed in [`docs/CHAT_DIRECTOR.md`](docs/CHAT_DIRECTOR.md) |
+| **On-device AI & Memory** | `webLLM` + `EMAGE Worker` + `IndexedDB`<br/>(`src/llm/`, `src/motion/`, `src/memory/`) | 100% local WebGPU inference, EMAGE Worker, 3-tier memory, detailed in [`docs/ON_DEVICE_AI.md`](docs/ON_DEVICE_AI.md) |
+| **Documentation Index** | Complete Architecture Index & Sitemap | Complete agent fast-path guide, detailed in [`docs/README.md`](docs/README.md) |
 
 ---
 
@@ -107,6 +106,16 @@ The 3D motion pipeline involves complex layered logic. Follow these geometric an
   - `MotionTransitionManager.startTransition` must support `boneFilter?: readonly string[]`.
   - In `handleBodyTurnHandoff`, strictly pass `BODY_TURN_BONES` (only `hips`, `upperLeg`, `lowerLeg`, `foot`, `toes`). **Never snapshot or transition `head`, `neck`, or arms during stepping handoffs!**
   - Keep `BodyTurnSystem` spine yaw subtle ($\le 0.08$ total) to let real-time `LookAtHead` cleanly govern gaze orientation without spine whip.
+
+### 2.8 Biomechanical Bone Morphing & Orthogonal Decoupling Engine (体型骨骼正交解耦系统)
+- Files: `src/core/morph/vrmBodyMorph.ts`, `src/config.ts`, `src/components/DevDrawer.tsx`, and detailed specification in [`docs/BONE_MORPH.md`](docs/BONE_MORPH.md)
+- **Core Engineering Principle**:
+  1. **Anatomical Boundary Locking (地锚锁死原则)**: Bone scaling must never be symmetrically center-out. Always compute forward/backward expansion amounts and apply opposite translation offsets to lock the opposite anatomical face (e.g. flat abdomen wall remains $0\text{ mm}$ drift when buttocks or torso thickness scales).
+  2. **Downstream Inverse Compensation (级联逆补偿原则)**: When a parent bone undergoes compensatory translation or scaling, its immediate child joint (e.g. `UpperChest` under `Chest`, `Knee` under `UpperLeg`) must invert the transform ($1/S_z$ and $-\Delta P$) to preserve downstream world alignment (shoulders, neck, and feet stay 100% stable).
+  3. **Bone vs. Soft-Tissue Separation (骨架与软组织分治原则)**:
+     - Rigid/structural proportions (height, shoulder width, torso thickness, limb length) are driven via skeletal matrix transforms.
+     - Soft-tissue adiposity (such as `belly` / belly size) is driven via **procedural vertex morphing with smooth cosine falloff** over the front abdominal wall. **Never mutate `Spine` scale or rotation for belly fullness**, as this distorts the lumbar curve and thickens the lower back!
+  4. **Dynamic Crown Height Measurement**: Never hardcode character height constants. Compute height by dynamically projecting the highest mesh vertex crown down to physical ground ($Y=0$) across dynamic shoes, IK sink, and morph slider changes.
 
 ---
 

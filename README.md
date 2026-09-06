@@ -55,17 +55,27 @@ The UI is fully **SSR-hydrated multi-language** (zh-CN / en / ja) via TanStack S
   * **3D Head Bubble Tracker (`BubbleTracker`)**: 3D world-to-screen 2D projection with a 1.5px dead-zone filter, writing directly to DOM transforms to bypass 60~120 FPS React re-renders.
 * **Upload your own VRM** at runtime via the top-bar upload button.
 
-### 🩰 Universal Motion Blending Pipeline
+### 🧍 Biomechanical Bone Morphing & Decoupling Engine
+* **28-Parameter Orthogonal Morphing**: Complete live anatomical customization across head, neck, shoulders, torso thickness, waist, belly, hips, buttocks, bust, arms, fingers, thighs, calves, and feet.
+* **Anatomical Boundary Locking**: Converts symmetrical center-out bone scaling into directional expansion (e.g., torso thickness expands posteriorly, locking the anterior chest and abdomen flat; buttocks volume expands backwards without pelvic protrusion).
+* **Procedural Abdominal Morphing (`belly`)**: Deforms 687 front abdominal wall vertices with smooth cosine falloff ($0.70\times \sim 1.80\times$), completely decoupled from `Spine` bones — zero impact on lumbar thickness or spinal curvature!
+* **Knee-Foot Ground Anchor Alignment**: Broadens saddlebag hips while automatically neutralizing lateral femur shifts at the knee, keeping legs strictly plumb and feet planted together.
+* **Shear-Free Head Composition**: Isolates the Head world matrix from non-uniform neck scaling, preventing eye flattening or hair slant.
+* **Dynamic Crown Height Measurement**: Live millimeter-accurate character height dynamically derived from vertex meshes across shoes, FootIK sink, and morph slider changes.
+* **Technical Standard**: Full mathematical specifications, formulas, and parameters matrix available in [`docs/BONE_MORPH.md`](docs/BONE_MORPH.md).
+
+### 🩰 Universal Motion Blending Pipeline & Ground Dynamics
 * **Zero-Friction Any-Motion Ingestion (`playMotion`)**: Ingest VRMA URLs, raw ArrayBuffers, or `THREE.AnimationClip`s through a single call; automatically performs humanoid retargeting, hips normalization, and supports whole-body (`all`) or upper-body (`upperBody`) masking.
-* **Quintic Smootherstep Inbetweening**: Eliminates linear interpolation and jerk artifacts using $6t^5 - 15t^4 + 10t^3$ curves over biomechanical timeframes (0.70s~0.88s) with strictly continuous velocity and acceleration.
+* **Quintic Smootherstep Inbetweening**: Eliminates linear interpolation and jerk artifacts using $6t^5 - 15t^4 + 10t^3$ curves over biomechanical timeframes (0.70s~0.88s) with strictly continuous velocity and acceleration. Detailed in [`docs/MOTION_PIPELINE.md`](docs/MOTION_PIPELINE.md).
+* **Biomechanical FootIK & Ground Anchoring**: Two-bone analytical IK with physical ground anchors, contrapposto weight shift, and automatic shoe-off sink compensation (4.6cm/3.9cm). Detailed in [`docs/FOOT_IK.md`](docs/FOOT_IK.md).
+* **Procedural Locomotion Stepping & Gaze**: 4-phase stepping state machine with spring yaw tracking and bio-saccades. Detailed in [`docs/BODY_TURN_AND_GAZE.md`](docs/BODY_TURN_AND_GAZE.md).
 * **Layered Pose Evaluation Graph**:
   * **Layer 0 (Base)**: `NaturalIdleSystem` procedural breathing, 8-figure pelvic postural sway, and relaxed biomechanical finger curling;
   * **Layer 1 (Main Action)**: `VRMA` thinking loops, `EMAGE` streaming gestures, and universal clips crossfading smoothly;
   * **Layer 2 (Locomotion)**: `BodyTurnSystem` procedural stepping footsteps overlaid strictly on `LOWER_BODY_MASK` (legs & hips) without distorting the torso or gaze;
   * **Post-Pass**: Physical `FootIK` ground anchoring.
-* **Three.js `stopAllAction` Restore Trap Elimination**: Atomically preserves bone transforms across action stops, curing the classic Three.js flaw of resetting bones to T-Pose on stop.
-* **LookAt Decoupling via Inverse Quaternions**: Multiplies bone snapshots by inverse gaze quaternions to eliminate multiplicative camera tracking artifacts during state transitions.
-* **Auto Lifecycle Management**: Non-looping motions automatically fade out to idle and trigger completion callbacks without requiring manual timer hacks.
+* **Architecture Rules & Lifecycle Order**: Full 10-step render loop lifecycle and developer anti-patterns detailed in [`docs/ARCHITECTURE_AND_RULES.md`](docs/ARCHITECTURE_AND_RULES.md).
+* **Technical Docs Center**: Complete architecture sitemap and agent navigation available in [`docs/README.md`](docs/README.md).
 
 ### 🧠 100% Browser-Side AI Stack
 * **LLM (WebLLM, default)** — [`@mlc-ai/web-llm`](https://github.com/mlc-ai/web-llm) **Qwen2.5 1.5B (q4f16_1)** on WebGPU (fallback 0.5B). Lightweight and responsive on mobile and low-VRAM devices; chat-bar menu supports live model switching and thinking mode toggles; response language adaptively mirrors the user's prompt.
@@ -205,12 +215,24 @@ To deploy automatically on every `git push`:
 ```text
 Project-XiaoChun/
 ├── public/                    # Static assets (hosted via Cloudflare Workers Assets)
-│   ├── xiaochun_v1.vrm        # Default VRM character model (18 MB)
+│   ├── xiaochun_V1.vrm        # Default VRM character model (20 MB)
 │   ├── thinking.vrma          # Idle thinking animation loop
+│   ├── materials/             # MAD preload chibi / badge / outfit preview PNGs
+│   ├── onnx/                  # EMAGE body motion model weights (vq_*, emage_step, postprocess)
 │   ├── _headers               # Cache-Control and security headers
 │   ├── robots.txt / sitemap.* # Search engine crawler contracts
 │   ├── llms.txt / llms-full.* # AI agent & LLM GEO documentation specs
+│   ├── og.jpg                 # OpenGraph share card
 │   └── logo.png / favicon.*   # Brand and icon assets
+├── docs/                      # Architecture and module deep-dive docs
+│   ├── README.md
+│   ├── ARCHITECTURE_AND_RULES.md
+│   ├── MOTION_PIPELINE.md
+│   ├── BODY_TURN_AND_GAZE.md
+│   ├── BONE_MORPH.md
+│   ├── FOOT_IK.md
+│   ├── CHAT_DIRECTOR.md
+│   └── ON_DEVICE_AI.md
 ├── wrangler.jsonc             # Cloudflare Workers declarative configuration
 ├── src/
 │   ├── routes/                # TanStack Start file-based routes
@@ -219,12 +241,15 @@ Project-XiaoChun/
 │   ├── components/            # React UI components (TopHeader, ChatBar, HeadBubble, DevDrawer…)
 │   │   ├── AdvancedSettingsDialog.tsx  # User-customizable system prompt + memory-turns slider
 │   │   ├── SyncDialog.tsx     # Cross-device encrypted text transfer (AES-GCM)
+│   │   ├── SliderWithAnchors.tsx       # Slider + visual anchor ticks (Radix-aligned)
 │   │   └── ui/                # Radix UI primitives (button, dialog, dropdown-menu, slider, tooltip)
 │   ├── core/                  # 3D rendering & scene core (Decoupled Facade architecture)
 │   │   ├── vrmEngine.ts       # Central engine coordinator (slim Facade, render loop, VRM loading)
+│   │   ├── morph/             # Runtime body part scaling driven by DevDrawer sliders
+│   │   │   └── vrmBodyMorph.ts # VRMBodyMorph — bone-by-bone scale bindings
 │   │   ├── scene/             # Linework background world (lineworkWorld.ts: sun rays / skyline / grid / trees)
 │   │   ├── lighting/          # 6-channel studio lighting rig (studioLighting.ts: main / hemi / fill / rims)
-│   │   ├── material/          # MToon material management (vrmMaterialManager.ts: Shader saturation injection)
+│   │   ├── material/          # MToon material management (vrmMaterialManager.ts: part visibility + Shader saturation)
 │   │   └── ui/                # Spatial UI tracker (bubbleTracker.ts: 3D head position to 2D bubble)
 │   ├── motion/                # Motion system (Universal pipeline + bio-inspired natural posture)
 │   │   ├── pipeline/          # Universal motion pipeline (MotionPipeline / PoseBuffer / UniversalMotion)
@@ -257,6 +282,8 @@ Project-XiaoChun/
 │   ├── director/
 │   │   └── chatDirector.ts    # LLM → TTS → EMAGE streaming coordinator pipeline
 │   ├── i18n/                  # zh-CN / en / ja translation dictionaries + server cookie helper
+│   ├── lib/                   # Cross-cutting utilities (cn className merge helper)
+│   │   └── utils.ts
 │   ├── styles/
 │   │   └── main.css           # Tailwind v4 @theme tokens + liquid-glass styles
 │   ├── App.tsx                # Main application component & event bindings
@@ -264,11 +291,14 @@ Project-XiaoChun/
 │   ├── server.ts              # Cloudflare Worker entry (SSR router + /api/tts WebSocket proxy)
 │   ├── router.tsx             # TanStack Router factory
 │   ├── routeTree.gen.ts       # Auto-generated type-safe route tree
-│   └── config.ts              # Single source of truth (R2 / camera / 6-ch lights / saturation / LLM / expressions)
+│   └── config.ts              # Single source of truth (R2 / camera / 6-ch lights / saturation / LLM / bodyMorph / expressions)
 ├── vite.config.ts             # Vite 8 + TanStack Start + @cloudflare/vite-plugin
 ├── vite/                      # Custom vite plugins (extracted from vite.config.ts)
 │   ├── localApiPlugin.ts       # /api/tts dev middleware (TTS proxy with EU fallback)
 │   └── dropDockerfatAssets.ts # Strip 25 MiB+ WASM blobs for Cloudflare Pages limit
+├── AGENTS.md                  # Coding agent engineering standards (motion pipeline + T-Pose / LookAt / state-machine pitfalls)
+├── CLAUDE.md                  # Claude-specific runtime context
+├── README.md / README-CN.md   # This file (English / 中文)
 ├── .env.example               # Documented template for all env vars (copy to .env.local)
 └── tsconfig.json
 ```

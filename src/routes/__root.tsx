@@ -26,11 +26,19 @@ export const Route = createRootRoute({
       { name: 'viewport', content: 'width=device-width, initial-scale=1' },
       { name: 'theme-color', content: '#ea8377' },
       { name: 'description', content: '100% browser-native anime companion — local on-device LLM (WebLLM Qwen2.5) + EMAGE full-body motion + Edge-TTS. 100% private, real-time chat with VRM anime companion, zero backend.' },
-      { name: 'keywords', content: '二次元伴侣, 虚拟伴侣, AI伴侣, anime companion, virtual companion, VRM, WebLLM, WebGPU, Edge-TTS, EMAGE, three.js, browser-native' },
-      { name: 'robots', content: 'index, follow' },
+      { name: 'keywords', content: 'Project XiaoChun, 二次元伴侣, 虚拟伴侣, AI伴侣, 骨骼微调, anime companion, virtual companion, VRM, VRM morph, WebLLM, WebGPU, Edge-TTS, EMAGE, three.js, browser-native, リアルタイムAI, バーチャルコンパニオン, 3Dアバター' },
+      { name: 'robots', content: 'index, follow, max-snippet:-1, max-image-preview:large, max-video-preview:-1' },
       { name: 'format-detection', content: 'telephone=no' },
       { name: 'application-name', content: 'Project XiaoChun' },
+
+      // GEO & Dublin Core
       { name: 'geo.region', content: 'GLOBAL' },
+      { name: 'geo.placename', content: 'Global' },
+      { name: 'DC.title', content: 'Project XiaoChun — 100% 浏览器原生二次元伴侣' },
+      { name: 'DC.creator', content: 'FireTable' },
+      { name: 'DC.subject', content: '3D Anime Companion, WebGPU, WebLLM, VRM' },
+      { name: 'DC.language', content: 'zh-CN, ja, en' },
+      { name: 'DC.coverage', content: 'World' },
 
       // Open Graph
       { property: 'og:type', content: 'website' },
@@ -43,6 +51,8 @@ export const Route = createRootRoute({
       { property: 'og:image:height', content: '1024' },
       { property: 'og:image:alt', content: 'Project XiaoChun — 100% 浏览器原生二次元伴侣' },
       { property: 'og:locale', content: 'zh_CN' },
+      { property: 'og:locale:alternate', content: 'en_US' },
+      { property: 'og:locale:alternate', content: 'ja_JP' },
       { property: 'og:site_name', content: 'Project XiaoChun' },
 
       // Twitter
@@ -59,6 +69,10 @@ export const Route = createRootRoute({
     links: [
       { rel: 'icon', type: 'image/png', href: '/favicon.png' },
       { rel: 'canonical', href: 'https://xiaochun.firetable.tech/' },
+      { rel: 'alternate', hrefLang: 'zh-CN', href: 'https://xiaochun.firetable.tech/' },
+      { rel: 'alternate', hrefLang: 'en', href: 'https://xiaochun.firetable.tech/' },
+      { rel: 'alternate', hrefLang: 'ja', href: 'https://xiaochun.firetable.tech/' },
+      { rel: 'alternate', hrefLang: 'x-default', href: 'https://xiaochun.firetable.tech/' },
       { rel: 'stylesheet', href: appCss },
     ],
     scripts: [
@@ -71,7 +85,14 @@ export const Route = createRootRoute({
           alternateName: '小蠢二次元伴侣',
           url: 'https://xiaochun.firetable.tech',
           applicationCategory: 'EntertainmentApplication',
+          applicationSubCategory: 'Virtual Companion / 3D Avatar',
           operatingSystem: 'Any (Browser-native WebGPU)',
+          inLanguage: ['zh-CN', 'en', 'ja'],
+          author: {
+            '@type': 'Organization',
+            name: 'FireTable',
+            url: 'https://github.com/FireTable',
+          },
           description: '100% 浏览器原生二次元伴侣 — 端侧大模型 (WebLLM Qwen2.5) + EMAGE 全身动作生成 + Edge-TTS 语音合成。纯本地隐私交互，无需云端后端。',
           browserRequirements: 'Requires WebGPU or modern WebGL2 browser',
           offers: {
@@ -84,6 +105,7 @@ export const Route = createRootRoute({
             'EMAGE 实时全身协同动作生成',
             'Edge-TTS 自然语音流式合成',
             '端侧持久化多级记忆系统 (IndexedDB)',
+            '28项人体工程学骨骼与微观形变微调系统',
             '100% 纯本地隐私保证，零对话数据回传',
             '三语自适应沉浸交互 (中/英/日)',
           ],

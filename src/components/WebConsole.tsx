@@ -1,10 +1,21 @@
 import React, { useEffect } from 'react';
 
 /** ponytail: __root.tsx 已经用 `import.meta.env.DEV && <WebConsole />` 条件挂载,
- * 生产 build 不带本组件。组件内部不再做 dev/landebug 判定,直接拉 vconsole + 诊断。 */
+ * 生产 build 不带本组件。组件内部不再做 dev/landebug 判定,直接拉 vconsole + 诊断。
+ *
+ * ponytail: 桌面端不挂 vconsole — 桌面有 F12 唤醒原生 DevTools, vconsole 反而冗余;
+ * 只在移动端挂, 给无法开 F12 的手机/平板一个 console 入口。
+ */
 export const WebConsole: React.FC = () => {
   useEffect(() => {
     if (typeof window === 'undefined' || import.meta.env.SSR) return;
+
+    // ponytail: 简单 UA 嗅探判断移动端 (Android/iOS/iPad/iPhone 等).
+    // 桌面端 (Windows/Mac/Linux) 不挂 vconsole, 留给原生 DevTools.
+    const ua = navigator.userAgent || '';
+    const isMobile = /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(ua)
+      || (navigator.maxTouchPoints > 1 && /Macintosh/i.test(ua));
+    if (!isMobile) return;
 
     import('vconsole')
       .then(({ default: VConsole }) => {
