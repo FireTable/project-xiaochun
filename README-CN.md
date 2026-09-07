@@ -56,12 +56,12 @@ UI 走 **TanStack Start SSR + i18next** 水合,**完整支持简体中文 / Engl
 * **运行时上传 VRM**:右上角上传按钮，支持任意标准 VRM 1.0 角色无缝导入。
 
 ### 🧍 生物力学体型形变与正交解耦引擎 (Biomechanical Morphing Engine)
-* **28 项全维度正交体型微调**：覆盖头身比、天鹅颈、肩宽、躯干身长、躯干前后厚度、腰宽、肚子大小、胯宽、翘臀立体度、胸部挺拔度、手臂与手掌、大腿小腿粗细长短及足部大小。
+* **27 项全维度正交体型微调**：覆盖头身比、天鹅颈、肩宽、躯干身长、躯干前后厚度、腰宽、肚子大小、胯宽、翘臀立体度、胸部挺拔度、手臂与手掌、大腿小腿粗细长短及足部大小。UI 上 27 个 slider 按身体区域(整体 / 头颈 / 躯干 / 臀部 / 胸部 / 上肢 / 下肢)分 7 组 sub-card,搜索框过滤时自动隐藏空 region。
 * **解剖学前沿锁死机制 (Boundary Locking)**：将骨骼默认的居中对称膨胀重构为定向生长（躯干厚度 100% 往后背延展，前胸与前腹壁锁死平坦；臀部饱满挺翘，骨盆前沿 0 凸起）。
 * **程序化前腹壁微凸/收腹形变 (`belly`)**：采用余弦平滑衰减算法精准驱动前腹壁 687 个网格顶点，完全脱离 `Spine` 骨骼——后腰厚度与脊柱生理曲度 100% 独立稳定！
 * **膝足地锚反向对齐算法**：假胯与臀外侧丰满展宽的同时，在膝关节将外移量 100% 反向扣除，双脚依然平齐并拢笔直踩地。
 * **头部绝对正交世界合成**：切断 Neck 倾角与非等比缩放相乘产生的非对角剪切畸变（Shear），眼眶与 11 根头发骨骼正交不扁不斜。
-* **纯动态头顶顶点测高**：基于几何顶点实时动态测量物理总高，穿脱鞋、FootIK 下沉及体型拉伸厘米级自适应。
+* **纯动态头顶顶点测高**：基于几何顶点实时动态测量物理总高，穿脱鞋、FootIK 下沉及体型拉伸厘米级自适应。drawer 顶部 chip 实时显示，canvas 上的浮动身高尺仅在 drawer 打开 + 非移动端时出现。
 * **完整技术规范与参数表**：详见技术白皮书 [`docs/BONE_MORPH.md`](docs/BONE_MORPH.md)。
 
 ### 🩰 统一万能动作融合管线与动力学体系 (Universal Motion Pipeline & Ground Dynamics)
@@ -128,7 +128,11 @@ UI 走 **TanStack Start SSR + i18next** 水合,**完整支持简体中文 / Engl
 * **移动端**:预载贴纸保留,ChatBar 避开底部安全区。
 
 ### 🛠️ 开发工具链 (Dev Tooling)
-* **调试抽屉**(仅本地):表情切换 / 6 路灯光 / FOV / 全局亮度 / 材质饱和度预设。
+* **调试抽屉**(仅本地):6 段固定顺序(🎭 预设表情 → 🎥 镜头设置 → 🎨 画面色彩 → ✨ 骨骼体型 → 🧩 模型部位 → 💡 灯光通道)。每段独立 React state、独立重置、modified 点只在用户改过后才亮。Schema 驱动渲染:加新段只需在 `SECTIONS` 加一行 + 在组件 `REGISTRY` 加一行。完整原始组件拆解见 [`docs/ARCHITECTURE_AND_RULES.md` §3](docs/ARCHITECTURE_AND_RULES.md)。
+* **per-frame slider 拖动架构**:slider 把 per-tick 推 engine 跟 commit 时写 state + localStorage 拆开,28 个 slider 的 `BoneMorphSection` 拖一个 slider 时不会重渲其他 27 个。数字显示通过 `SliderWithAnchors` 的 `liveValueRef` 机制 imperative 写 textContent 跟手,完全绕过 React reconciliation。
+* **镜头段**:FOV slider(带 hover `ⓘ` tooltip,4 行 bullet list 解释 20°/30°/45°/60°)+ `📷` 最小 / `🔭` 最大距离 slider(鼠标滚轮 + pinch 缩放范围)+ 自动面朝镜头转身 toggle。默认推镜距离按 FOV 自动算(`defaultShotExtent`),15° 跟 60° 框选同一主体高度,不会再"长焦糊脸"。
+* **骨骼体型段**:27 个 slider 按身体区域(整体 / 头颈 / 躯干 / 臀部 / 胸部 / 上肢 / 下肢)分 7 组,每组独立 sub-card;搜索框过滤时自动隐藏空 region。
+* **模型部位段**:3 态渲染 — `穿`(勾选)/ `未穿`(勾掉,line-through)/ `未装配`(虚线禁用块,无勾选)。"已装配"判定走 `vrmEngine.materialManager.partMaterials[id]?.length`,不是用户可见性 toggle。
 * **Cloudflare Workers**(`src/server.ts`):生产环境统一承载 TanStack Start SSR 与原生 WebSocket Edge-TTS 流式代理。
 * **Vite dev 中间件**(`vite/localApiPlugin.ts`):本地开发使用 Miniflare 虚拟运行时，与线上环境 100% 同构。`/api/tts` 默认转发到 `TTS_PROXY_URL`(部署的 Cloudflare Worker),未设置时回退本地 `edge-tts-universal`。
 * **单一可信源**:`src/config.ts` 集中管理光照 / 相机 / 表情 / 饱和度 / LLM / R2 模型参数。
@@ -230,9 +234,27 @@ Project-XiaoChun/
 │   │   ├── __root.tsx         # 根布局 (i18n SSR 水合、GEO JSON-LD 与元信息)
 │   │   └── index.tsx          # 首页主路由
 │   ├── components/            # React UI 组件 (TopHeader, ChatBar, HeadBubble, DevDrawer…)
+│   │   ├── dev-drawer/         # 调试抽屉 — schema 驱动的 6 段(仅 localhost)
+│   │   │   ├── DevDrawer.tsx          # 壳 (头部 + SectionRenderer 列表)
+│   │   │   ├── schema.ts              # SECTIONS[] (id + 顺序) — 加新段 = 1 行
+│   │   │   ├── renderer.tsx           # id → 组件 REGISTRY
+│   │   │   ├── context.tsx            # DevDrawerContext (t / collapsed / resetSignal)
+│   │   │   ├── storage.ts             # localStorage 辅助
+│   │   │   ├── components/            # 共用原始组件
+│   │   │   │   ├── SectionCard.tsx    # 卡片外壳(可选 id 走折叠门控)
+│   │   │   │   ├── SectionHeader.tsx  # chevron + 标题 + modified 点 + 段内重置
+│   │   │   │   └── HeightChip.tsx     # 订阅 engine 实时高度的 chip
+│   │   │   ├── sections/              # 6 个自包含段组件
+│   │   │   │   ├── ExpressionsSection.tsx
+│   │   │   │   ├── CameraSection.tsx           # FOV + min/max 距离 + 自动转身 toggle
+│   │   │   │   ├── SaturationSection.tsx       # 4 个 slider + 4 个预设
+│   │   │   │   ├── BoneMorphSection.tsx        # 27 个 slider 分 7 个身体区域
+│   │   │   │   ├── WardrobeSection.tsx         # 穿 / 未穿 / 未装配 3 态渲染
+│   │   │   │   └── LightingSection.tsx         # 6 通道 + 全局倍率
+│   │   │   └── hooks/                 # 共用段 hook(useCollapse)
 │   │   ├── AdvancedSettingsDialog.tsx  # 用户自定义系统提示词 + 记忆轮数 slider
 │   │   ├── SyncDialog.tsx     # 跨设备加密文本传输 (AES-GCM)
-│   │   ├── SliderWithAnchors.tsx       # 滑块 + 视觉锚点刻度 (Radix 精确对齐)
+│   │   ├── SliderWithAnchors.tsx       # 滑块 + 视觉锚点刻度 (Radix 精确对齐,onTick/onCommit 拆分)
 │   │   └── ui/                # Radix UI 原语封装 (button, dialog, dropdown-menu, slider, tooltip)
 │   ├── core/                  # 3D 渲染与场景中枢 (解耦 Facade 架构)
 │   │   ├── vrmEngine.ts       # 核心引擎调度中枢 (轻量 Facade、渲染循环、VRM 加载挂载)

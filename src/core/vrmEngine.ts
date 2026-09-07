@@ -114,6 +114,20 @@ function persistCameraState(state: SavedCameraState): void {
  *    - BubbleTracker (3D 头部空间投影与气泡追踪)
  *    - ChatDirector / WebLLM (聊天流程编排)
  */
+/**
+ * ponytail: 默认相机位置按 FOV + shotExtent 反推距离,保证不同焦距下"主体框选
+ * 大小"一致。distance = extent / (2 * tan(fov/2)),方向沿用 config 里 defaultPosition
+ * 减 defaultTarget 的方向(保留原本"略高于 target 看下来"的角度)。
+ */
+function computeDefaultCameraPosition(): [number, number, number] {
+  const target = new THREE.Vector3(...APP_CONFIG.camera.defaultTarget);
+  const originalOffset = new THREE.Vector3(...APP_CONFIG.camera.defaultPosition).sub(target);
+  const direction = originalOffset.clone().normalize();
+  const fovRad = (APP_CONFIG.camera.defaultFov * Math.PI) / 180;
+  const distance = APP_CONFIG.camera.defaultShotExtent / (2 * Math.tan(fovRad / 2));
+  return target.clone().add(direction.multiplyScalar(distance)).toArray() as [number, number, number];
+}
+
 export class VRMEngine {
   // ── Three.js 核心基础设施 ──
   private canvas: HTMLCanvasElement | null = null;
@@ -437,7 +451,7 @@ export class VRMEngine {
     this.renderer.shadowMap.type = THREE.PCFSoftShadowMap;
 
     this.camera.aspect = window.innerWidth / window.innerHeight;
-    this.camera.position.set(...APP_CONFIG.camera.defaultPosition);
+    this.camera.position.set(...computeDefaultCameraPosition());
     this.camera.updateProjectionMatrix();
 
     this.controls = new OrbitControls(this.camera, canvas);
@@ -445,8 +459,8 @@ export class VRMEngine {
     this.controls.enableDamping = true;
     this.controls.dampingFactor = 0.05;
     this.controls.screenSpacePanning = true;
-    this.controls.minDistance = 1.0;
-    this.controls.maxDistance = 8.0;
+    this.controls.minDistance = APP_CONFIG.camera.defaultMinDistance;
+    this.controls.maxDistance = APP_CONFIG.camera.defaultMaxDistance;
 
     // 监听 OrbitControls change,rAF 节流写入 localStorage。
     // 前 2s 屏蔽 — 覆盖 cinematicIntro tween(1.1s) + 初始 damping 收敛,
@@ -608,13 +622,33 @@ export class VRMEngine {
     this.camera.updateProjectionMatrix();
   }
 
+  // ponytail: devDrawer 调相机推拉上下限 — minDistance/maxDistance 是 OrbitControls
+  // 的钳位属性,clamp 当前 camera-to-target 距离落在新范围内,避免改完后视角"跳"。
+  public setCameraDistanceRange(minDist: number, maxDist: number): void {
+    if (!this.controls) return;
+    this.controls.minDistance = Math.max(0.1, minDist);
+    this.controls.maxDistance = Math.max(this.controls.minDistance + 0.1, maxDist);
+    const offset = this.camera.position.clone().sub(this.controls.target);
+    const current = offset.length();
+    if (current < this.controls.minDistance || current > this.controls.maxDistance) {
+      const clamped = Math.min(Math.max(current, this.controls.minDistance), this.controls.maxDistance);
+      offset.setLength(clamped);
+      this.camera.position.copy(this.controls.target).add(offset);
+      this.controls.update();
+    }
+  }
+
   public fitCamera(): void {
     const head = this.currentVRM?.humanoid?.getNormalizedBoneNode('head');
     if (head && this.controls) {
       const p = new THREE.Vector3();
       head.getWorldPosition(p);
       this.controls.target.set(p.x, p.y - 0.25, p.z);
-      this.camera.position.set(p.x, p.y - 0.1, p.z + 2.2);
+      // ponytail: 同 computeDefaultCameraPosition — 距离按当前 FOV + shotExtent 算,
+      // 不再硬编码 z+2.2,这样 FOV 改了 fitCamera 也不会糊脸。
+      const fovRad = (this.camera.fov * Math.PI) / 180;
+      const distance = APP_CONFIG.camera.defaultShotExtent / (2 * Math.tan(fovRad / 2));
+      this.camera.position.set(p.x, p.y - 0.1, p.z + distance);
       this.controls.update();
     }
   }
@@ -985,13 +1019,16 @@ export class VRMEngine {
         this.bubbleTracker.update(vrm, this.camera);
 
         // 9. 头顶实时身高指示折线与 3D 浮动 HUD 胶囊标牌 (彻底去掉蓝色方块，发光指示线优雅连接)
+        // ponytail: liveHeight 每帧无条件读,与 canvas ruler / drawer chip 共用同一个值;
+        // 只有当数字变化 ≥0.05cm 才广播 notifyHeightChange,drawer 收到后再读一次
+        // (这次 scene Y 已经更新到最新),从而消灭"chip 显示旧 sceneY 虚高"的串号 bug。
+        const liveHeight = this.bodyMorph.getCurrentHeightCm();
+        if (Math.abs(liveHeight - this._lastRenderedHeight) >= 0.05) {
+          this._lastRenderedHeight = liveHeight;
+          this.notifyHeightChange();
+        }
         if (this.isHeightRulerVisible) {
-          // 毫秒级实时刷新当前数值 (穿脱鞋阻尼平滑下沉过程中 60FPS 动态连续刷新)
-          const liveHeight = this.bodyMorph.getCurrentHeightCm();
-          if (Math.abs(liveHeight - this._lastRenderedHeight) >= 0.05) {
-            this._lastRenderedHeight = liveHeight;
-            this._refreshHeightRulerText();
-          }
+          this._refreshHeightRulerText();
 
           if (this.camera) {
             this.bodyMorph.getHeadTopWorldPosition(this.tempHeadTopPos);

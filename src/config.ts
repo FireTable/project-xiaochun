@@ -74,7 +74,7 @@ export interface BodyMorphConfig {
   // 下肢与足部
   thighs: number;           // 大腿粗细 (默认 1.00，范围 0.70 ~ 1.60)
   thighLength: number;      // 大腿长度 (默认 1.00，范围 0.80 ~ 1.30)
-  calves: number;           // 小腿粗细 (默认 1.00，范围 0.70 ~ 1.50)
+  calves: number;           // 小腿粗细 (默认 0.86，范围 0.70 ~ 1.50)
   calfLength: number;       // 小腿长度 (默认 1.00，范围 0.80 ~ 1.30)
   feet: number;             // 脚掌/鞋子大小 (默认 1.00，范围 0.70 ~ 1.30)
 }
@@ -159,11 +159,19 @@ export const APP_CONFIG = {
     userTurnsMax: 50,
   },
   camera: {
-    defaultFov: 45,
+    defaultFov: 20,
     minFov: 15,
     maxFov: 60,
     defaultPosition: [0.0, 1.5, 3.6] as [number, number, number],
     defaultTarget: [0.0, 1.2, 0.0] as [number, number, number],
+    // ponytail: 默认推镜按"想看多高(米)"反推距离 = extent / (2*tan(fov/2)),
+    // 这样 FOV 20° 跟 60° 都能框出相同的主体大小,不会出现"长焦糊脸"。
+    // 1.4m ≈ 头到小腿(半身再多一点),1.6m = 全身,0.9m = 标准半身。
+    defaultShotExtent: 1.4,
+    // ponytail: 鼠标滚轮 / 双指 pinch 缩放的距离上下限。改这里同时也是 devDrawer
+    // "镜头距离范围" 两 slider 的默认值;运行时调整会覆盖并写 localStorage。
+    defaultMinDistance: 1.0,
+    defaultMaxDistance: 15.0,
   },
   renderer: {
     // iPhone 多是 3x;封顶 2 会按 2/3 分辨率画,头发和网袜特别容易锯齿。
@@ -240,8 +248,8 @@ export const APP_CONFIG = {
       fingerWidth: 1.00,
       thighs: 1.00,
       thighLength: 1.00,
-      calves: 0.90,
-      calfLength: 0.95,
+      calves: 0.86,
+      calfLength: 1.00,
       feet: 1.00,
     } as BodyMorphConfig,
     limits: {

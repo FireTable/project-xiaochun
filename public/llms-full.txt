@@ -107,7 +107,7 @@ All AI runs in the browser tab via WebGPU + WebAssembly:
   - `leg`: Leg-only soft fill, `base: 0.45`
   - `arm`: Arm-only rim, `base: 0.5`
   - Global multiplier `1.1`
-- **Camera**: PerspectiveCamera, default FOV 35°, position `(0, 1.5, 3.6)`, target `(0, 1.2, 0)`
+- **Camera**: PerspectiveCamera, default FOV 20° (configurable via `APP_CONFIG.camera.defaultFov`), target `(0, 1.2, 0)`. Default position is **computed** via `computeDefaultCameraPosition()` from `defaultShotExtent` (1.4m) and the current FOV using `distance = extent / (2·tan(fov/2))`, so 15°/20°/60° all frame the same subject height instead of the previous fixed 3.6m close-up at long focal lengths. `fitCamera()` uses the same formula against the head bone instead of the previous hardcoded `z + 2.2`. Mouse-wheel / pinch zoom is clamped by `OrbitControls.minDistance / maxDistance`, both editable from the debug drawer's Camera section (defaults 1.0 / 15.0).
 
 ---
 
@@ -172,7 +172,31 @@ GET /api/tts?text=你好&voice=zh-CN-XiaoyiNeural&pitch=%2B10Hz
 
 ---
 
-## 8. Third-Party Attributions
+## 8. Debug Drawer (localhost-only developer panel)
+
+Visible only when the page is served from a non-production host. Lives at `src/components/dev-drawer/` and is a 6-section schema-driven panel:
+
+1. **🎭 预设表情 / Expressions** — 6 preset buttons (default / happy / angry / sad / relaxed / surprised) bound to `vrmEngine.setExpression()`.
+2. **🎥 镜头设置 / Camera** — FOV slider (15-60°, default 20°) with hover `ⓘ` tooltip explaining 20°/30°/45°/60° reference values; min / max camera distance sliders (mouse wheel / pinch zoom range, defaults 1.0-15.0); automatic body-turn toggle.
+3. **🎨 画面色彩与饱和度 / Material Saturation** — 4 sliders (clothing / hair / eyes / skin) + 4 preset buttons (元气 vibrant / 甜美 sweet / 胶片 cinematic / 原画 original), driven by `uMatSaturation` shader uniform.
+4. **✨ 骨骼体型微调 / Bone Morph** — 27 sliders grouped into 7 body-region sub-cards (整体 / 头颈 / 躯干 / 臀部 / 胸部 / 上肢 / 下肢). Each category is a self-contained sub-card with its label outside; search box filters and hides empty regions. Modified detection is per-section (uses a `useRef` baseline at mount, not `APP_CONFIG` defaults) so a freshly loaded model with non-default bone morphs doesn't show a "modified" dot.
+5. **🧩 模型部位调整 / Wardrobe** — 3-state per-part rendering: 穿 (checkbox on, normal) / 未穿 (checkbox off, line-through) / 未装配 (dashed disabled div, no checkbox). "Equipped" comes from `vrmEngine.materialManager.partMaterials[id]?.length > 0` — not the user's visibility toggle.
+6. **💡 灯光通道与全局倍率 / Lighting** — 6 channels (dir / hemi / front / fill / leg / arm) with independent enable toggle + brightness slider, plus a global multiplier slider.
+
+### Architecture highlights
+
+- **Per-section state isolation**: Each section owns its `useState`. A 28-slider `BoneMorphSection` does not re-render its siblings on drag.
+- **Slider drag split** (`SliderWithAnchors`): per-frame `onTick` writes the engine directly (canvas stays smooth); `onChange` (Radix `onValueCommit`, fires on release) updates React state + `localStorage` once per drag. The 28-slider section therefore writes `localStorage` exactly 1 time per drag, not 60+ times.
+- **Per-frame display without re-render**: Section passes `liveValueRef` + `liveValueFormatter` to `SliderWithAnchors`; a `useEffect([local])` writes `ref.current.textContent` imperatively, so the `90%` number follows the thumb in real time without React reconciliation.
+- **Global reset broadcast**: A `resetSignal` counter on `DevDrawerContext` is included in `<SectionRenderer key={...}>`; on global reset the shell bumps it, React unmounts and remounts every section, and each section's `useState` initializer re-runs against the now-defaulted engine.
+- **Schema-driven render order**: `src/components/dev-drawer/schema.ts` `SECTIONS[]` defines the order; `renderer.tsx` `REGISTRY` maps id → component. Adding a section = one line in `SECTIONS` + one in `REGISTRY`.
+- **Collapse gate**: `SectionCard` accepts an optional `id` prop — when set, it reads `collapsed.has(id)` from context and hides everything except the first child (the header). Six sections all set their `id`; nested cards (bone morph categories) leave it off.
+
+Full implementation details in [`docs/ARCHITECTURE_AND_RULES.md` §3](https://github.com/FireTable/project-xiaochun/blob/main/docs/ARCHITECTURE_AND_RULES.md).
+
+---
+
+## 9. Third-Party Attributions
 
 - [pixiv / three-vrm](https://github.com/pixiv/three-vrm) — VRM runtime (MIT)
 - [Pixiv / VRoid Studio](https://vroid.com/en/studio) — default character authoring tool (VRoid Studio License)

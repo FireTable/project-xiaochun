@@ -203,7 +203,8 @@ export const zhCN = {
   panel: {
     title: '调试 / 设置面板',
     expressionsLabel: '🎭 预设表情',
-    lightsLabel: '💡 独立灯光通道',
+    lightsLabel: '💡 灯光通道与全局倍率',
+    cameraLabel: '🎥 镜头设置',
     globalLight: '全局总光照倍率',
     fov: '镜头视场角 （FOV）',
     brightness: '亮度',
@@ -238,7 +239,7 @@ export const zhCN = {
       custom: '⚙️ 自定义',
     },
     devDrawer: {
-      partDebuggingTitle: '模型部件分类调试',
+      partDebuggingTitle: '🧩 模型部位调整',
       showAllParts: '一键全显',
       equipped: '{{count}} 已装配',
       notEquipped: '未装配',
@@ -249,6 +250,13 @@ export const zhCN = {
       partNotLoaded: '{{part}}（当前模型尚未装配独立材质）',
       wearing: '穿',
       undressed: '脱',
+      // ponytail: 折叠 / 标记 / 搜索 —— v2 DevDrawer UX
+      modifiedDot: '该段有未保存的修改',
+      resetSection: '重置本段',
+      searchBoneMorph: '搜索骨骼部位…',
+      clearSearch: '清空搜索',
+      noMatches: '没有匹配的部位',
+      currentHeight: '当前角色身高',
     },
     partCategories: {
       clothing: '服装',
@@ -256,6 +264,15 @@ export const zhCN = {
       hair: '发型',
       face: '面部',
       body: '体型',
+    },
+    boneMorphCategories: {
+      overall: '整体',
+      head: '头颈',
+      torso: '躯干',
+      hips: '臀部',
+      bust: '胸部',
+      arms: '上肢',
+      legs: '下肢',
     },
     partItems: {
       tops: '上身',
@@ -318,8 +335,10 @@ export const zhCN = {
       copyConfig: '复制配置',
       copySuccess: '已复制',
       reset: '重置',
-      bodyMorphTitle: '骨骼体型微调 (Bone Morph)',
-      autoBodyTurn: '自动面朝镜头转身',
+      bodyMorphTitle: '✨ 骨骼体型微调 (Bone Morph)',
+      autoBodyTurn: '🔄 自动面朝镜头转身',
+      cameraMinDist: '镜头最近距离',
+      cameraMaxDist: '镜头最远距离',
     },
     devDrawerTips: {
       copyConfig: '复制体型配置（可直接贴入 src/config.ts）',

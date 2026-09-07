@@ -5,7 +5,7 @@ import { TopHeader } from '@/components/TopHeader';
 import { HeadBubble } from '@/components/HeadBubble';
 import { ChatBar } from '@/components/ChatBar';
 import { LoadingOverlay } from '@/components/LoadingOverlay';
-import { DevDrawer } from '@/components/DevDrawer';
+import { DevDrawer } from '@/components/dev-drawer';
 import { XIAOCHUN_SYSTEM_PROMPT } from '@/llm/prompts';
 import { resolveSystemPrompt, getCachedUserSettings, subscribeUserSettings } from '@/llm/userSettings';
 import type { Lang } from '@/i18n';

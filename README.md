@@ -56,12 +56,12 @@ The UI is fully **SSR-hydrated multi-language** (zh-CN / en / ja) via TanStack S
 * **Upload your own VRM** at runtime via the top-bar upload button.
 
 ### 🧍 Biomechanical Bone Morphing & Decoupling Engine
-* **28-Parameter Orthogonal Morphing**: Complete live anatomical customization across head, neck, shoulders, torso thickness, waist, belly, hips, buttocks, bust, arms, fingers, thighs, calves, and feet.
+* **27-Parameter Orthogonal Morphing**: Complete live anatomical customization across head, neck, shoulders, torso thickness, waist, belly, hips, buttocks, bust, arms, fingers, thighs, calves, and feet. UI groups the 27 sliders into 7 body regions (整体 / 头颈 / 躯干 / 臀部 / 胸部 / 上肢 / 下肢) inside sub-cards with a search filter.
 * **Anatomical Boundary Locking**: Converts symmetrical center-out bone scaling into directional expansion (e.g., torso thickness expands posteriorly, locking the anterior chest and abdomen flat; buttocks volume expands backwards without pelvic protrusion).
 * **Procedural Abdominal Morphing (`belly`)**: Deforms 687 front abdominal wall vertices with smooth cosine falloff ($0.70\times \sim 1.80\times$), completely decoupled from `Spine` bones — zero impact on lumbar thickness or spinal curvature!
 * **Knee-Foot Ground Anchor Alignment**: Broadens saddlebag hips while automatically neutralizing lateral femur shifts at the knee, keeping legs strictly plumb and feet planted together.
 * **Shear-Free Head Composition**: Isolates the Head world matrix from non-uniform neck scaling, preventing eye flattening or hair slant.
-* **Dynamic Crown Height Measurement**: Live millimeter-accurate character height dynamically derived from vertex meshes across shoes, FootIK sink, and morph slider changes.
+* **Dynamic Crown Height Measurement**: Live millimeter-accurate character height dynamically derived from vertex meshes across shoes, FootIK sink, and morph slider changes. Displayed in the drawer header chip and the optional on-canvas floating ruler (visible while the drawer is open on non-mobile).
 * **Technical Standard**: Full mathematical specifications, formulas, and parameters matrix available in [`docs/BONE_MORPH.md`](docs/BONE_MORPH.md).
 
 ### 🩰 Universal Motion Blending Pipeline & Ground Dynamics
@@ -128,7 +128,11 @@ The UI is fully **SSR-hydrated multi-language** (zh-CN / en / ja) via TanStack S
 * **Mobile** — preload stickers stay; the chat bar clears the home-indicator inset.
 
 ### 🛠️ Dev Tooling
-* **Debug drawer** (localhost only) — expressions, 6 light channels, FOV, global light, material saturation presets.
+* **Debug drawer** (localhost only) — 6 sections in fixed order (🎭 预设表情 → 🎥 镜头设置 → 🎨 画面色彩 → ✨ 骨骼体型 → 🧩 模型部位 → 💡 灯光通道). Each section owns its own React state, has its own reset, and shows a "modified" dot only when the user has changed something since mount. Schema-driven render: add a section = one entry in `SECTIONS` + one in the component `REGISTRY`. See [`docs/ARCHITECTURE_AND_RULES.md` §3](docs/ARCHITECTURE_AND_RULES.md) for the full primitive breakdown.
+* **Per-frame slider drag**: sliders split per-tick (engine) from commit-time (state + `localStorage`) so a 28-slider `BoneMorphSection` doesn't re-render its siblings on every pointer event. Display numbers next to each slider follow the thumb in real time via imperative `textContent` writes from `SliderWithAnchors`' `liveValueRef` mechanism — React reconciliation is bypassed entirely.
+* **Camera section**: FOV slider (with hover `ⓘ` tooltip listing 20°/30°/45°/60° reference values), `📷` min / `🔭` max camera distance sliders (mouse wheel + pinch zoom range), and the body-turn toggle. Default push-in distance is computed from FOV via `defaultShotExtent` so the framing stays consistent at 15°/20°/60° (no more "long-lens crops the face").
+* **Bone morph section**: 27 sliders grouped into 7 body regions (整体 / 头颈 / 躯干 / 臀部 / 胸部 / 上肢 / 下肢), each as a sub-card; search filter hides empty regions.
+* **Wardrobe section**: 3-state per-part rendering — `穿` (toggle on) / `未穿` (toggle off, line-through) / `未装配` (dashed disabled div, no checkbox). "Equipped" comes from `vrmEngine.materialManager.partMaterials[id]?.length`, not the user's visibility toggle.
 * **Cloudflare Workers** (`src/server.ts`) — handles full-stack TanStack Start SSR alongside native WebSocket streaming for Edge-TTS.
 * **Vite dev middleware** (`vite/localApiPlugin.ts`) — local development powered by Miniflare runtime for 100% dev/prod parity. Forwards `GET /api/tts` to your `TTS_PROXY_URL` (e.g., the deployed Worker) when set, else falls back to local `edge-tts-universal`.
 * **Single source of truth**: `src/config.ts` consolidates lighting / camera / expressions / saturation / LLM / R2 model config.
@@ -239,9 +243,27 @@ Project-XiaoChun/
 │   │   ├── __root.tsx         # Root layout (i18n SSR hydration, GEO JSON-LD & meta tags)
 │   │   └── index.tsx          # Main index route
 │   ├── components/            # React UI components (TopHeader, ChatBar, HeadBubble, DevDrawer…)
+│   │   ├── dev-drawer/         # Debug drawer — schema-driven 6 sections (localhost only)
+│   │   │   ├── DevDrawer.tsx          # Shell (header + SectionRenderer list)
+│   │   │   ├── schema.ts              # SECTIONS[] (id + order) — add a section = 1 line
+│   │   │   ├── renderer.tsx           # id → component REGISTRY
+│   │   │   ├── context.tsx            # DevDrawerContext (t / collapsed / resetSignal)
+│   │   │   ├── storage.ts             # localStorage helpers (settings + collapsed)
+│   │   │   ├── components/            # Shared primitives
+│   │   │   │   ├── SectionCard.tsx    # Card wrapper (optional collapse gate via id)
+│   │   │   │   ├── SectionHeader.tsx  # Chevron + title + modified dot + reset
+│   │   │   │   └── HeightChip.tsx     # Live height chip subscribing to engine
+│   │   │   ├── sections/              # 6 self-contained section components
+│   │   │   │   ├── ExpressionsSection.tsx
+│   │   │   │   ├── CameraSection.tsx           # FOV + min/max distance + body-turn toggle
+│   │   │   │   ├── SaturationSection.tsx       # 4 sliders + 4 presets
+│   │   │   │   ├── BoneMorphSection.tsx        # 27 sliders grouped into 7 body regions
+│   │   │   │   ├── WardrobeSection.tsx         # 穿 / 未穿 / 未装配 3-state rendering
+│   │   │   │   └── LightingSection.tsx         # 6 channels + global mult
+│   │   │   └── hooks/                 # Shared section hooks
 │   │   ├── AdvancedSettingsDialog.tsx  # User-customizable system prompt + memory-turns slider
 │   │   ├── SyncDialog.tsx     # Cross-device encrypted text transfer (AES-GCM)
-│   │   ├── SliderWithAnchors.tsx       # Slider + visual anchor ticks (Radix-aligned)
+│   │   ├── SliderWithAnchors.tsx       # Slider + visual anchor ticks (Radix-aligned, onTick/onCommit split)
 │   │   └── ui/                # Radix UI primitives (button, dialog, dropdown-menu, slider, tooltip)
 │   ├── core/                  # 3D rendering & scene core (Decoupled Facade architecture)
 │   │   ├── vrmEngine.ts       # Central engine coordinator (slim Facade, render loop, VRM loading)

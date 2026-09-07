@@ -41,22 +41,26 @@ export class LineworkWorld {
     this.disposables.push(bgTexture);
 
     // ── 材质单例池 ──
+    // ponytail: 注释里写「白色线稿」但实际颜色 0x222222 / 0x2a334a 偏深,移动端
+    // 高 DPI 渲染下深线特别压抑。这里换成真正的浅灰线 + 低透明度,贴合命名。
     const lineMat = new THREE.LineBasicMaterial({
-      color: 0x222222,
+      color: 0x8a8a8a,
       transparent: true,
-      opacity: 0.85,
+      opacity: 0.55,
       depthWrite: false,
     });
     const buildingWireMat = new THREE.MeshBasicMaterial({
-      color: 0x2a334a,
+      color: 0x9aa5c4,
       wireframe: true,
       transparent: true,
-      opacity: 0.8,
+      opacity: 0.5,
       depthWrite: false,
     });
     const groundTreeMat = new THREE.MeshBasicMaterial({
-      color: 0x222222,
+      color: 0x8a8a8a,
       wireframe: true,
+      transparent: true,
+      opacity: 0.55,
       depthWrite: false,
     });
 

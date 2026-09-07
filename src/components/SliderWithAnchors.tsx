@@ -27,9 +27,25 @@ interface SliderWithAnchorsProps {
   min: number;
   max: number;
   step: number;
+  /**
+   * 父级接收 committed value 的回调 — 拖动结束后(手指抬起 / 键盘确认)才触发一次。
+   * ponytail: 这里只更新 React state + 落 localStorage,不做 per-frame 重活。
+   */
   onChange: (val: number) => void;
+  /**
+   * 每帧 pointermove 触发 — 用来直接推 engine(让 canvas 跟手)。
+   * 不传则什么都不做(只走 commit 路径)。
+   */
+  onTick?: (val: number) => void;
   anchors: SliderAnchor[];
   className?: string;
+  /**
+   * ponytail: 把拖动中的实时数字写进 ref.current.textContent(imperative DOM),
+   * 绕过 React reconciliation — display 跟手但不触发父段重渲。
+   * 不传就不动 display,父段自己管(commit 前的瞬时延后是当前可接受的)。
+   */
+  liveValueRef?: React.RefObject<HTMLSpanElement | null>;
+  liveValueFormatter?: (val: number) => string;
 }
 
 // ponytail: 镜像 Radix Slider thumb 的偏移公式 (LTR direction, thumb w-3 = 12px)。
@@ -53,18 +69,41 @@ export const SliderWithAnchors: React.FC<SliderWithAnchorsProps> = ({
   max,
   step,
   onChange,
+  onTick,
   anchors,
   className = '',
+  liveValueRef,
+  liveValueFormatter,
 }) => {
   const range = max - min;
+  // ponytail: 本地持有 controlled value,拖动期间 setState 只重渲本 slider,
+  // 不会牵动父段 28 个 slider 全跑;父段的 React state 只在 commit 时才更新。
+  // prop value 变化时(比如外部 reset)通过 effect 同步下来,保证不会跟父脱钩。
+  const [local, setLocal] = React.useState(value);
+  React.useEffect(() => {
+    setLocal(value);
+  }, [value]);
+
+  // ponytail: local 变化时(拖动期间 per-tick,或外部 reset)imperative 更新
+  // 父段给的 display span,绕过 React — display 跟手但父段不重渲。
+  React.useEffect(() => {
+    if (liveValueRef?.current && liveValueFormatter) {
+      liveValueRef.current.textContent = liveValueFormatter(local);
+    }
+  }, [local, liveValueRef, liveValueFormatter]);
+
   return (
     <div className={cn('relative w-full py-1', className)}>
       <Slider
-        value={[value]}
+        value={[local]}
         min={min}
         max={max}
         step={step}
-        onValueChange={(v) => onChange(v[0])}
+        onValueChange={(v) => {
+          setLocal(v[0]);
+          onTick?.(v[0]);
+        }}
+        onValueCommit={(v) => onChange(v[0])}
         className="w-full"
       />
       {/* 刻度层 — 纯 visual, 0 事件 handler。

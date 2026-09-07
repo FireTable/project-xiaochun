@@ -1,8 +1,9 @@
-# Architecture Lifecycle, Wardrobe System & Agent Engineering Rules
+# Architecture Lifecycle, DevDrawer, Wardrobe System & Agent Engineering Rules
 
 > **Core Files**:  
 > - [`src/core/vrmEngine.ts`](../src/core/vrmEngine.ts) (Main render loop coordinator)  
 > - [`src/core/material/vrmMaterialManager.ts`](../src/core/material/vrmMaterialManager.ts) (Wardrobe & material manager)  
+> - [`src/components/dev-drawer/`](../src/components/dev-drawer/) (Debug drawer UI — section schema, slider architecture, collapse gate)  
 > - [`src/config.ts`](../src/config.ts) (Central single source of truth)
 
 ---
@@ -74,7 +75,78 @@ vrmEngine.dressAllClothing();
 
 ---
 
-## 3. 🚨 Coding Agent Engineering Rules (Anti-Patterns)
+## 3. DevDrawer Architecture
+
+The debug drawer is a 6-section debug panel (`src/components/dev-drawer/`) shown only on localhost. Sections are schema-driven and each owns its own React state so per-frame UI work never cascades across sections.
+
+### 3.1 Component Primitives
+
+| Component | File | Role |
+| :--- | :--- | :--- |
+| `SectionCard` | `components/SectionCard.tsx` | Outer card. Optional `id` prop — when set, reads `collapsed.has(id)` from context and hides everything except the first child (the header). Without `id`, it's a plain visual wrapper. |
+| `SectionHeader` | `components/SectionHeader.tsx` | Chevron + title + modified dot + per-section reset. Reads `collapsed` / `toggleCollapsed` from `useContext(DevDrawerContext)`. Renders a 1px `h-px bg-white/10 mt-2` divider below the title in expanded state. |
+| `SectionRenderer` | `renderer.tsx` | `id → component` registry. `SECTIONS` schema in `schema.ts` provides the order; `REGISTRY` provides the component map. Adding a section = one line in `SECTIONS` + one in `REGISTRY`. |
+| `SliderWithAnchors` | `src/components/SliderWithAnchors.tsx` | Radix slider + 1px anchor ticks for "100% center" and "config default". Supports both `onValueChange` (per-frame) and `onValueCommit` (release) callbacks. |
+
+### 3.2 Per-Section State Isolation
+
+Each section owns its `useState`. A 28-slider `BoneMorphSection` does **not** re-render its 27 sibling sliders when one slider drags — only the dragged `SliderWithAnchors` re-renders. This is the single most important property: it keeps mobile slider drag fluid despite a drawer full of controls.
+
+### 3.3 Slider Drag Architecture (per-frame / commit split)
+
+Drag-related callbacks have two paths:
+
+| Callback | Fires | Use for |
+| :--- | :--- | :--- |
+| `onTick` (optional) | Every `pointermove` (60–120 Hz) | Direct engine write. Drives the canvas and Radix thumb position via `SliderWithAnchors`' local state. |
+| `onChange` | `onValueCommit` (release / keyboard / tap) | React state update + `localStorage` write. Fires once per drag. |
+
+Sections adopt this by defining two handlers — `handleSliderTick` (engine only) and `handleChange` (state + storage). `localStorage` is never written per-tick.
+
+### 3.4 Live Value Display Without Re-render
+
+The percentage text next to a slider (e.g. `90%`) lives in the section as a `<span>`. Updating React state per-tick would re-render the whole section. Instead, the section passes a `liveValueRef` + `liveValueFormatter` to `SliderWithAnchors`, which writes `ref.current.textContent = formatter(local)` imperatively from a `useEffect([local])`. The display follows the thumb in real time, but the section's React state stays at the committed value.
+
+### 3.5 Modified Detection — Per-Section Baseline
+
+`modified` is computed against a `useRef` baseline captured on mount, **not** against `APP_CONFIG` defaults. This is because the loaded VRM model (or a previous session's `localStorage`) may carry non-default values (e.g. `shoulderWidth = 1.10`), and the user should not see a "modified" dot just from opening the page. `modified` means "the user has changed something since the section mounted". The section's `handleReset` updates the baseline so the dot disappears after reset.
+
+### 3.6 Global Reset Broadcast
+
+`DevDrawerContext` carries a `resetSignal: number`. When the header "重置" button fires, the shell:
+1. Resets every engine subsystem and writes defaults to `localStorage`.
+2. Bumps `resetSignal`, which becomes part of `<SectionRenderer key={`${s.id}-${resetSignal}`}>`.
+
+React unmounts and remounts every section on bump. Each section's `useState` initializer re-runs against the now-defaulted engine, so all 6 sections show their default state without per-section imperative sync.
+
+### 3.7 Schema-Driven Render Order
+
+`src/components/dev-drawer/schema.ts`:
+
+```ts
+export const SECTIONS: SectionConfig[] = [
+  { id: 'expressions', defaultCollapsed: false },
+  { id: 'camera',      defaultCollapsed: false },
+  { id: 'saturation',  defaultCollapsed: false },
+  { id: 'bodyMorph',   defaultCollapsed: false },
+  { id: 'wardrobe',    defaultCollapsed: false },
+  { id: 'lighting',    defaultCollapsed: false },
+];
+```
+
+Current order: 预设表情 → 🎥 镜头设置 → 🎨 画面色彩 → ✨ 骨骼体型 → 🧩 模型部位 → 💡 灯光通道. Reordering = swapping entries in this array; no other file changes.
+
+### 3.8 Section-Specific Patterns
+
+- **Wardrobe (`WardhouseSection.tsx`)**: Each part row has 3 states — `穿` (checkbox on, normal), `未穿` (checkbox off, line-through, dim), `未装配` (dashed disabled div, no checkbox). `equippedCount` per category uses `vrmEngine.materialManager.partMaterials[p.id]?.length > 0` — not the user's visibility toggle — to distinguish "model has this part" from "user has hidden it".
+- **Bone morph (`BoneMorphSection.tsx`)**: 27 sliders grouped into 7 body regions (overall / head / torso / hips / bust / arms / legs). Each category is a sub-card (`rounded-lg bg-white/[0.02] border`) with the label outside the card. Search filter hides empty regions.
+- **Camera (`CameraSection.tsx`)**: 3 sliders — FOV (with hover `ⓘ` tooltip and bullet list of reference values), min / max camera distance. Body-turn toggle also lives here since it shares the camera concept. `defaultShotExtent` in `config.ts` controls how tall a body the default FOV frames.
+
+---
+
+---
+
+## 4. 🚨 Coding Agent Engineering Rules (Anti-Patterns)
 
 Any AI Coding Agent working on this repository **must strictly obey these 5 rules**:
 

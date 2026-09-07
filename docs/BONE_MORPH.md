@@ -3,7 +3,7 @@
 > **Document Version**: 2.0  
 > **Status**: Production Engineering Standard  
 > **Target Audience**: AI Coding Agents, Graphics Engineers, Technical Artists  
-> **Primary Source Code**: [`src/core/morph/vrmBodyMorph.ts`](../src/core/morph/vrmBodyMorph.ts), [`src/config.ts`](../src/config.ts), [`src/components/DevDrawer.tsx`](../src/components/DevDrawer.tsx)
+> **Primary Source Code**: [`src/core/morph/vrmBodyMorph.ts`](../src/core/morph/vrmBodyMorph.ts), [`src/config.ts`](../src/config.ts), [`src/components/dev-drawer/`](../src/components/dev-drawer/)
 
 ---
 
