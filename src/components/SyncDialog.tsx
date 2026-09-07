@@ -48,7 +48,8 @@ import {
   setActiveProviderId,
   type ProviderProfile,
 } from '@/llm/customProvider';
-import { writeActiveKey, parseActiveKey, readActiveKey } from '@/llm/activeKey';
+import { readActiveModel, writeActiveModel, parseActiveModel } from '@/llm/activeModel';
+import { THINKING_PREF_KEY } from '@/lib/constants';
 import { setActiveModelId, setThinkingEnabled } from '@/llm/webLLMProvider';
 import { saveUserSettings, type UserSettings } from '@/llm/userSettings';
 
@@ -151,9 +152,9 @@ const SendPanel: React.FC = () => {
     void (async () => {
       const list = await listProvidersDecrypted();
       setProviders(list);
-      const parsed = readActiveKey();
+      const parsed = readActiveModel();
       setActiveKeyRaw(parsed ? (parsed.kind === 'custom' ? `custom:${parsed.providerId}` : `webllm:${parsed.modelId}`) : null);
-      const thinkingRaw = window.localStorage.getItem('xiaochun.thinking');
+      const thinkingRaw = window.localStorage.getItem(THINKING_PREF_KEY);
       setThinkingEnabledLocal(thinkingRaw === '1' ? true : thinkingRaw === '0' ? false : undefined);
       const { getUserSettings } = await import('@/llm/userSettings');
       const s = await getUserSettings();
@@ -373,14 +374,14 @@ const ReceivePanel: React.FC<{ onClose: () => void }> = ({ onClose }) => {
         }
       }
       // ponytail: dispatch 到正确的 setter — custom 走 setActiveProviderId (顺带 unload webllm engine),
-      // webllm 走 setActiveModelId (reload/preload)。两个 setter 都通过 writeActiveKey 通知
-      // subscribeActiveKey 订阅者(ChatBar 等),UI 立刻刷新 — 之前直接 writeActiveKey 既不通知
+      // webllm 走 setActiveModelId (reload/preload)。两个 setter 都通过 writeActiveModel 通知
+      // subscribeActiveModel 订阅者(ChatBar 等),UI 立刻刷新 — 之前直接 writeActiveModel 既不通知
       // 也不释放显存,现在两个 setter 都自动处理好。
       if (data.activeKey !== undefined) {
         if (data.activeKey === null) {
-          writeActiveKey(null);
+          writeActiveModel(null);
         } else {
-          const parsed = parseActiveKey(data.activeKey);
+          const parsed = parseActiveModel(data.activeKey);
           if (parsed) {
             if (parsed.kind === 'custom') {
               await setActiveProviderId(parsed.providerId);

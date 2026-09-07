@@ -8,7 +8,8 @@
 
 import { CreateWebWorkerMLCEngine, prebuiltAppConfig, type WebWorkerMLCEngine } from '@mlc-ai/web-llm';
 import { APP_CONFIG } from '@/config';
-import { readActiveKey, writeActiveKey } from './activeKey';
+import { readActiveModel, writeActiveModel } from './activeModel';
+import { THINKING_PREF_KEY } from '@/lib/constants';
 import { notifyLoadProgress, getLlmLoadProgress, onLlmLoadProgress, type LlmLoadProgress } from './progress';
 export { getLlmLoadProgress, onLlmLoadProgress, type LlmLoadProgress };
 import type { ChatProvider, RunChatOptions } from './chatTypes';
@@ -20,9 +21,6 @@ import './polyfill';
 
 export const DEFAULT_LLM_MODEL = APP_CONFIG.llm.model;
 export const FALLBACK_LLM_MODEL = APP_CONFIG.llm.fallback;
-
-const THINKING_PREF_KEY = 'xiaochun.thinking';
-const MODEL_PREF_KEY = 'xiaochun.llm.model';
 
 export function isThinkingEnabled(): boolean {
   if (typeof window === 'undefined') return APP_CONFIG.llm.thinking;
@@ -135,13 +133,12 @@ export function listModelGroups(): LlmModelGroup[] {
 export function resolveInitialModelId(): string {
   const quickTier = getQuickDeviceTier();
   if (typeof window !== 'undefined') {
-    const saved = window.localStorage.getItem(MODEL_PREF_KEY);
+    const active = readActiveModel();
+    const saved = active?.kind === 'webllm' ? active.modelId : null;
     if (saved && isKnownModelId(saved)) {
       // 显存与设备保护：若评估为 low（显存受限/手机等），且存的模型不是 fallback，自动纠偏为 fallback 模型
       if (quickTier === 'low' && saved !== FALLBACK_LLM_MODEL) {
-        try {
-          window.localStorage.setItem(MODEL_PREF_KEY, FALLBACK_LLM_MODEL);
-        } catch { }
+        writeActiveModel({ kind: 'webllm', modelId: FALLBACK_LLM_MODEL });
         return FALLBACK_LLM_MODEL;
       }
       return saved;
@@ -219,9 +216,8 @@ export function unloadWebLLM(): void {
 }
 
 export function getActiveModelId(): string {
-  // ponytail: 优先读统一 active key — 自定义 provider 激活时走 custom 分支,
-  // 这里只 fallback 到 webllm 的初始 model。
-  const active = readActiveKey();
+  // ponytail: 统一 active key — custom 激活时只返 webllm 默认值,不消耗显存。
+  const active = readActiveModel();
   if (active?.kind === 'webllm' && isKnownModelId(active.modelId)) {
     activeModelId = active.modelId;
     return activeModelId;
@@ -234,13 +230,10 @@ export function setActiveModelId(modelId: string): void {
   if (!isKnownModelId(modelId)) return;
   // ponytail: 必须先写 key,即使 model 跟当前一样 — 之前因为提前 return 没写,
   // 导致 custom 激活时点 webLLM 默认模型,key 还是 custom,UI 也跟着错。
-  const wasAlreadyWebLLM = readActiveKey()?.kind === 'webllm';
-  writeActiveKey({ kind: 'webllm', modelId });
+  const wasAlreadyWebLLM = readActiveModel()?.kind === 'webllm';
+  writeActiveModel({ kind: 'webllm', modelId });
   activeModelId = modelId;
   notifyModelChange(modelId);
-  try {
-    window.localStorage.setItem(MODEL_PREF_KEY, modelId);
-  } catch { }
   // ponytail: 已经在跑同一个 model 且 key 本来就是 webllm → 完全 no-op,跳过 reload。
   if (wasAlreadyWebLLM && engineInstance) return;
   unloadEngine();
@@ -275,9 +268,7 @@ export async function getWebLLMEngine(opts?: {
       activeModelId = FALLBACK_LLM_MODEL;
       modelId = FALLBACK_LLM_MODEL;
       notifyModelChange(FALLBACK_LLM_MODEL);
-      try {
-        window.localStorage.setItem(MODEL_PREF_KEY, FALLBACK_LLM_MODEL);
-      } catch { }
+      writeActiveModel({ kind: 'webllm', modelId: FALLBACK_LLM_MODEL });
     }
 
     const worker = new Worker(new URL('./llmWorker.ts', import.meta.url), { type: 'module' });
@@ -342,7 +333,7 @@ export function preloadWebLLM(opts?: {
   onProgressText?: (text: string) => void;
 }): void {
   if (typeof window === 'undefined') return;
-  if (readActiveKey()?.kind === 'custom') return;
+  if (readActiveModel()?.kind === 'custom') return;
   void getWebLLMEngine({ onProgressText: opts?.onProgressText }).catch((err) => {
     console.warn('[WebLLM] Background preload notice:', err);
   });
@@ -411,8 +402,7 @@ async function callEngine(
  */
 export const webllmChatProvider: ChatProvider = {
   isActive: async () => {
-    const active = readActiveKey();
-    return active?.kind !== 'custom';
+    return readActiveModel()?.kind !== 'custom';
   },
   runChat,
 };

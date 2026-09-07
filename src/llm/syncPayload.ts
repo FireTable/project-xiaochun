@@ -17,10 +17,8 @@
 
 import type { ProviderProfile } from './customProvider/types';
 import type { UserSettings } from './userSettings';
-import { readActiveKey } from './activeKey';
-
-/** ponytail: 跟 webLLMProvider.ts 里的 THINKING_PREF_KEY 同值 — 这里不需要依赖 webLLM 模块。 */
-const THINKING_PREF_KEY = 'xiaochun.thinking';
+import { readActiveModel } from './activeModel';
+import { THINKING_PREF_KEY } from '@/lib/constants';
 
 /** 同步协议版本 — 格式变了就 bump,接收端拒收不认识的高版本。 */
 const PROTOCOL_VERSION = 1;
@@ -68,8 +66,8 @@ function readThinkingFromStorage(): boolean | undefined {
   return undefined;
 }
 
-function readActiveKeyRaw(): string | null {
-  const parsed = readActiveKey();
+function readActiveModelRaw(): string | null {
+  const parsed = readActiveModel();
   if (!parsed) return null;
   return parsed.kind === 'custom' ? `custom:${parsed.providerId}` : `webllm:${parsed.modelId}`;
 }
@@ -89,7 +87,7 @@ export function buildSyncPayload(input: CollectInputs): SyncPayload {
   const data: SyncPayload['data'] = {};
   if (input.selection.models) {
     if (input.providers !== undefined) data.providers = input.providers;
-    const active = readActiveKeyRaw();
+    const active = readActiveModelRaw();
     if (active !== null) data.activeKey = active;
     else data.activeKey = null;
   }

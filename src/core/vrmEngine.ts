@@ -2,6 +2,7 @@ import * as THREE from 'three';
 import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js';
 import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
 import { VRM, VRMLoaderPlugin, VRMUtils, type VRMExpressionPresetName } from '@pixiv/three-vrm';
+import { CAMERA_STATE_KEY } from '@/lib/constants';
 
 import { VRMAMotionPlayer } from '@/motion/vrmaPlayer';
 import { EmagePlayer } from '@/motion/emagePlayer';
@@ -66,7 +67,7 @@ const BODY_TURN_BONES = [
 // ponytail: 相机视点持久化 — 用户在 OrbitControls 里调过的位置 / target
 // 写到 localStorage,下次构造 OrbitControls 时直接还原,免得每次刷新都回默认。
 // 不暴露 UI 旋钮,纯无感持久化。
-const CAMERA_STATE_STORAGE_KEY = 'xiaochun_camera_state';
+const CAMERA_STATE_STORAGE_KEY = CAMERA_STATE_KEY;
 interface SavedCameraState {
   position: [number, number, number];
   target: [number, number, number];

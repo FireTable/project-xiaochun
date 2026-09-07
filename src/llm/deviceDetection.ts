@@ -16,6 +16,7 @@
 
 
 import { APP_CONFIG } from '@/config';
+import { GPU_TIER_KEY } from '@/lib/constants';
 
 /** ponytail: reason 用完整 i18n key,vars 给 i18next 插值;reason 留中文 fallback 给非 i18n 通道。 */
 export type ReasonKey =
@@ -51,7 +52,7 @@ export interface GpuDeviceProfile {
   maxMemoryTurns: number;
 }
 
-const TIER_STORAGE_KEY = 'xiaochun.gpu_tier';
+const TIER_STORAGE_KEY = GPU_TIER_KEY;
 let cachedProfile: GpuDeviceProfile | null = null;
 let profilePromise: Promise<GpuDeviceProfile> | null = null;
 
@@ -182,7 +183,7 @@ export function getQuickDeviceTier(): 'high' | 'low' {
 
   if (typeof window !== 'undefined') {
     try {
-      const savedTier = window.sessionStorage.getItem(TIER_STORAGE_KEY);
+      const savedTier = window.localStorage.getItem(TIER_STORAGE_KEY);
       if (savedTier === 'high' || savedTier === 'low') return savedTier;
     } catch { }
   }
@@ -354,7 +355,7 @@ function cacheResult(profile: GpuDeviceProfile): void {
   cachedProfile = profile;
   if (typeof window !== 'undefined') {
     try {
-      window.sessionStorage.setItem(TIER_STORAGE_KEY, profile.tier);
+      window.localStorage.setItem(TIER_STORAGE_KEY, profile.tier);
     } catch { }
   }
   logProfileToConsole(profile);

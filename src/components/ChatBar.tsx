@@ -23,7 +23,7 @@ import {
   subscribeThinkingEnabled,
 } from '@/llm/webLLMProvider';
 import { getActiveProviderId, getProvider, type ProviderProfile, subscribeProvidersChange } from '@/llm/customProvider';
-import { readActiveKey, subscribeActiveKey } from '@/llm/activeKey';
+import { readActiveModel, subscribeActiveModel } from '@/llm/activeModel';
 import { Send, Sparkles, Loader2 } from '@/components/icons';
 import { Button } from '@/components/ui/button';
 import {
@@ -101,9 +101,9 @@ export const ChatBar: React.FC<{ onShowDevPanel?: () => void }> = ({ onShowDevPa
   }
   const deviceTier = getCachedDeviceProfile()?.tier ?? getQuickDeviceTier();
 
-  // ponytail: active key 走 state — sync import 写入 sessionStorage 后会通过 subscribeActiveKey
-  // 推过来,直接 readActiveKey() 是非反应式,UI 不会跟新。
-  const [activeKey, setActiveKey] = useState(() => readActiveKey());
+  // ponytail: active model 走 state — sync import 写入 localStorage 后会通过 subscribeActiveModel
+  // 推过来,直接 readActiveModel() 是非反应式,UI 不会跟新。
+  const [activeKey, setActiveKey] = useState(() => readActiveModel());
   // custom 用户永远不需要等 webllm 加载,否则 SYNC badge + "加载模型 0%" + "神经核心同步中"
   // 会一直挂着,误导用户。
   const isOnCustom = activeKey?.kind === 'custom';
@@ -163,9 +163,9 @@ export const ChatBar: React.FC<{ onShowDevPanel?: () => void }> = ({ onShowDevPa
   }, [showProviderDialog]);
 
   // ponytail: 跨设备同步 import 写完存储后,store 主动推订阅 — UI 立刻反映。
-  // active key 变化同时覆盖 webllm 模型切换(setActiveModelId 也走 writeActiveKey)。
+  // active model 变化同时覆盖 webllm 模型切换(setActiveModelId 也走 writeActiveModel)。
   useEffect(() => {
-    const unsubKey = subscribeActiveKey((k) => {
+    const unsubKey = subscribeActiveModel((k) => {
       setActiveKey(k);
       if (k?.kind === 'webllm') {
         setActiveModel(k.modelId);

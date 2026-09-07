@@ -39,7 +39,7 @@ All AI runs in the browser tab via WebGPU + WebAssembly:
 - **Activation**: in-app **Custom Model Service** dialog (chat-bar menu or top-bar gear). Templates: Ollama / LM Studio / vLLM / LocalAI / Generic OpenAI-compatible.
 - **Configuration**: `name` (display) + `baseURL` + optional `apiKey` + `model`. Test connection probes `GET {baseURL}/v1/models` before save.
 - **Storage**: Each profile is a record in IndexedDB `xiaochun-providers` database, AES-GCM encrypted with PBKDF2-derived key from random salt. API keys never stored in plaintext.
-- **Unified active key**: `custom:{providerId}` or `webllm:{modelId}` in sessionStorage. Single source of truth, automatically migrates legacy `xiaochun.provider.active` keys.
+- **Unified active key**: `custom:{providerId}` or `webllm:{modelId}` in localStorage (`xiaochun.llm.model`). Single source of truth. Upgrades from the previous sessionStorage-based active key start fresh on default — no migration, no legacy data.
 - **Factory dispatch** (`chatWorkflow.getActiveChatRunner`): polls `ChatProvider` registry (`isActive` + `runChat`), picks first match. Custom takes precedence; webllm is fallback.
 - **VRAM release**: when a custom provider is activated, `preloadWebLLM()` early-returns and `setActiveProviderId` calls `unloadEngine()` — releases 1-2 GB VRAM that webllm would have reserved.
 - **Thinking mode**: passed through `extra_body: { enable_thinking: true }` (OpenAI-compatible convention used by DeepSeek / Qwen API / vLLM). Providers that don't support it silently ignore.

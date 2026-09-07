@@ -2,12 +2,12 @@
  * providers/store.ts — 加密 + 持久化 provider profiles。
  *
  * ponytail: 每个 profile 一个 IndexedDB record,key 是 profile.id。apiKey 走 crypto.ts AES-GCM。
- * 「当前激活」走 ../activeKey 统一 key,不再单独存 — webllm 和 custom 用同一个 key 互斥。
+ * 「当前激活」走 ../activeModel 统一 key,不再单独存 — webllm 和 custom 用同一个 key 互斥。
  */
 
 import type { ProviderProfile } from './types';
 import { decryptString, encryptString } from './crypto';
-import { readActiveKey, writeActiveKey } from '../activeKey';
+import { readActiveModel, writeActiveModel } from '../activeModel';
 import { unloadEngine } from '../webLLMProvider';
 
 const DB_NAME = 'xiaochun-providers';
@@ -95,7 +95,7 @@ export async function getDecryptedApiKey(id: string): Promise<string | null> {
 }
 
 export async function getActiveProvider(): Promise<ProviderProfile | null> {
-  const active = readActiveKey();
+  const active = readActiveModel();
   if (!active || active.kind !== 'custom') return null;
   const raw = await listEncrypted();
   const found = raw.find((p) => p.id === active.providerId);
@@ -110,13 +110,13 @@ export async function getActiveProvider(): Promise<ProviderProfile | null> {
 }
 
 export async function getActiveProviderId(): Promise<string | null> {
-  const active = readActiveKey();
+  const active = readActiveModel();
   return active?.kind === 'custom' ? active.providerId : null;
 }
 
 export async function setActiveProviderId(id: string | null): Promise<void> {
-  const wasCustom = readActiveKey()?.kind === 'custom';
-  writeActiveKey(id ? { kind: 'custom', providerId: id } : null);
+  const wasCustom = readActiveModel()?.kind === 'custom';
+  writeActiveModel(id ? { kind: 'custom', providerId: id } : null);
   // ponytail: 切到 custom 时顺手把还在内存里的 webllm engine 释放掉,
   // 不然 1-2GB 显存白占,用户也用不上。
   if (id && !wasCustom) {

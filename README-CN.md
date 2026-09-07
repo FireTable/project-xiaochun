@@ -288,7 +288,7 @@ Project-XiaoChun/
 │   │   │   └── types.ts        #   ProviderProfile + KNOWN_TEMPLATES
 │   │   ├── chatTypes.ts        # 共享 RunChatOptions / ChatProvider / ChatMessage
 │   │   ├── chatWorkflow.ts     # 跨 provider 调度 + 输出清洗 + 兜底台词
-│   │   ├── activeKey.ts        # 统一 custom:xxx / webllm:xxx active key
+│   │   ├── activeModel.ts      # 统一 active key,存 localStorage `xiaochun.llm.model` (`webllm:{modelId}` | `custom:{providerId}`)
 │   │   ├── userSettings.ts     # 用户自定义设置(系统提示词/记忆轮数)IDB
 │   │   ├── syncPayload.ts      # 跨设备同步 payload (AES-GCM + xs:v1:iv.ct.key 格式)
 │   │   └── progress.ts         # LLM 进度事件总线

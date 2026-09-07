@@ -7,6 +7,7 @@ import {
   type ModelPartDefinition,
   type ModelPartCategoryDefinition,
 } from '@/config';
+import { MAT_SATURATION_KEY } from '@/lib/constants';
 
 export type MaterialSaturationSettings = MaterialSaturationConfig;
 export type MaterialSaturationPresetKey = keyof typeof APP_CONFIG.saturation.presets;
@@ -241,7 +242,7 @@ export class VRMMaterialManager {
   private restoreFromStorage(): void {
     try {
       if (typeof localStorage !== 'undefined') {
-        const saved = localStorage.getItem('xiaochun.mat_saturation_settings');
+        const saved = localStorage.getItem(MAT_SATURATION_KEY);
         if (saved) {
           this.saturation = { ...APP_CONFIG.saturation.default, ...JSON.parse(saved) };
         }
@@ -502,7 +503,7 @@ uniform float uMatSaturation;
     this.applySaturations();
     try {
       if (typeof localStorage !== 'undefined') {
-        localStorage.setItem('xiaochun.mat_saturation_settings', JSON.stringify(this.saturation));
+        localStorage.setItem(MAT_SATURATION_KEY, JSON.stringify(this.saturation));
       }
     } catch {}
   }

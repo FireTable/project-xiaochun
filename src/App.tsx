@@ -8,6 +8,7 @@ import { LoadingOverlay } from '@/components/LoadingOverlay';
 import { DevDrawer } from '@/components/dev-drawer';
 import { XIAOCHUN_SYSTEM_PROMPT } from '@/llm/prompts';
 import { resolveSystemPrompt, getCachedUserSettings, subscribeUserSettings } from '@/llm/userSettings';
+import { DEV_DRAWER_OPEN_KEY } from '@/lib/constants';
 import type { Lang } from '@/i18n';
 import { APP_CONFIG } from '@/config';
 
@@ -44,11 +45,11 @@ export const App: React.FC = () => {
   // ponytail: 抽屉开关状态记到 localStorage,刷新后保持原样,调试不用每次手动打开。
   const [isDrawerOpen, setIsDrawerOpen] = useState(() => {
     if (typeof localStorage === 'undefined') return false;
-    return localStorage.getItem('xiaochun_dev_drawer_open') === '1';
+    return localStorage.getItem(DEV_DRAWER_OPEN_KEY) === '1';
   });
   useEffect(() => {
     if (typeof localStorage === 'undefined') return;
-    localStorage.setItem('xiaochun_dev_drawer_open', isDrawerOpen ? '1' : '0');
+    localStorage.setItem(DEV_DRAWER_OPEN_KEY, isDrawerOpen ? '1' : '0');
   }, [isDrawerOpen]);
   const [isDragOver, setIsDragOver] = useState(false);
   // ponytail: 10 次连击暗号触发后,生产构建也要能看见右上角调试按钮 — 用户已经

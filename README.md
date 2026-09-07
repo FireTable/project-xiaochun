@@ -297,7 +297,7 @@ Project-XiaoChun/
 │   │   │   └── types.ts        #   ProviderProfile + KNOWN_TEMPLATES
 │   │   ├── chatTypes.ts        # Shared RunChatOptions / ChatProvider / ChatMessage
 │   │   ├── chatWorkflow.ts     # Cross-provider dispatcher + clean speech + fallback
-│   │   ├── activeKey.ts        # Unified custom:xxx / webllm:xxx active key
+│   │   ├── activeModel.ts      # Unified active key in localStorage `xiaochun.llm.model` (`webllm:{modelId}` | `custom:{providerId}`)
 │   │   ├── userSettings.ts     # User-customizable settings (system prompt / memory turns) IDB
 │   │   ├── syncPayload.ts      # Cross-device sync payload (AES-GCM + xs:v1:iv.ct.key format)
 │   │   └── progress.ts         # llmPct event bus

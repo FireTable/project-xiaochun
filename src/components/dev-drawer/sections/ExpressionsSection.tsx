@@ -5,6 +5,7 @@ import { useDevDrawer } from '../context';
 import { SectionCard } from '../components/SectionCard';
 import { SectionHeader } from '../components/SectionHeader';
 import { saveDevDrawerSettings } from '../storage';
+import { DEV_DRAWER_STORAGE_KEY } from '@/lib/constants';
 
 /**
  * ponytail: 这段是 6 个预设表情按钮 + modified 检测 + reset 回 neutral。
@@ -15,7 +16,7 @@ export const ExpressionsSection: React.FC = () => {
   const expressions = APP_CONFIG.expressions;
   const [activeExpr, setActiveExpr] = useState<string>(() => {
     try {
-      const raw = localStorage.getItem('xiaochun_dev_drawer_all_settings');
+      const raw = localStorage.getItem(DEV_DRAWER_STORAGE_KEY);
       if (raw) {
         const parsed = JSON.parse(raw);
         return parsed.activeExpr ?? 'neutral';

@@ -1,6 +1,7 @@
 import * as THREE from 'three';
 import { VRM } from '@pixiv/three-vrm';
 import { APP_CONFIG, type BodyMorphConfig, type BodyMorphPartKey } from '../../config';
+import { BODY_MORPH_KEY } from '@/lib/constants';
 
 /**
  * VRMBodyMorph - 角色全身体型微调与正交解耦骨骼系统
@@ -15,7 +16,7 @@ import { APP_CONFIG, type BodyMorphConfig, type BodyMorphPartKey } from '../../c
  * 7. 胸部精细形变 (Bust Size/Thickness/Pitch/Spread)：VRoid 规范的胸部大小、厚度、朝向与外扩独立微调。
  * 8. 全身大小 / 肩宽 / 躯干高度 / 手指粗细 / 颈部前后深度 等 VRoid Studio 完整配置项。
  */
-const STORAGE_KEY_BODY_MORPH = 'xiaochun_dev_body_morph';
+const STORAGE_KEY_BODY_MORPH = BODY_MORPH_KEY;
 
 interface BellyMorphTarget {
   geometry: THREE.BufferGeometry;
