@@ -42,6 +42,16 @@ export const ja: Trans = {
     waitReadyHint: '準備できたら今のメッセージを送ります',
     sending: '返信中…',
     send: '送信',
+    // ponytail: dev-only 一括テスト — LLM をスキップし、直接 TTS → EMAGE → 再生へ
+    testSpeak: 'テスト',
+    // ponytail: 意図的に ≥2 セグメント — マルチセグメントパイプラインをテスト
+    testSpeakText: '今日は天気がとても良く、春風が頬を撫で桜の花が満開できれいです。湖畔の柳も新芽を吹いて風に揺れ、一緒に公園を散歩しませんか？',
+    // ponytail: dev テストドロップダウン — サンプルを選んでパイプライン長を切り替える
+    testSpeakSpring: '春の散歩',
+    testSpeakShudao: '蜀道難（李白）',
+    testSpeakSegments: '{{count}} 段',
+    // ponytail: 中国古典詩 — 原文のまま;TTS 中文ボイスで正しく読まれる
+    testSpeakShudaoText: '噫吁嚱，危乎高哉！蜀道之难，难于上青天！蚕丛及鱼凫，开国何茫然！尔来四万八千岁，不与秦塞通人烟。西当太白有鸟道，可以横绝峨眉巅。地崩山摧壮士死，然后天梯石栈相钩连。上有六龙回日之高标，下有冲波逆折之回川。黄鹤之飞尚不得过，猿猱欲度愁攀援。青泥何盘盘，百步九折萦岩峦。扪参历井仰胁息，以手抚膺坐长叹。问君西游何时还？畏途巉岩不可攀。但见悲鸟号古木，雄飞雌从绕林间。又闻子规啼夜月，愁空山。蜀道之难，难于上青天，使人听此凋朱颜！连峰去天不盈尺，枯松倒挂倚绝壁。飞湍瀑流争喧豗，砯崖转石万壑雷。其险也如此，嗟尔远道之人胡为乎来哉！剑阁峥嵘而崔嵬，一夫当关，万夫莫开。所守或匪亲，化为狼与豺。朝避猛虎，夕避长蛇。磨牙吮血，杀人如麻。锦城虽云乐，不如早还家。蜀道之难，难于上青天，侧身西望长咨嗟！',
     thinkingOn: '思考モードオン',
     thinkingOff: '思考モードオフ',
     chatMenu: 'チャット設定',
@@ -164,6 +174,8 @@ export const ja: Trans = {
     madCardName: '小 蠢 · XiaoChun',
     madTagHair: 'コーラルピンク髪',
     madTagWebGpu: 'ネイティブ WebGPU エンジン',
+    // ponytail: P0b EMAGE Worker WASM + SAB マルチスレッド — WebGPU と並べて技術スタックを示す
+    madTagWasm: 'EMAGE WASM · SAB マルチスレッド',
     madBreakBtn: '次元突破して 3D ステージへ',
     madBreaking: '⚡ 次元を突破中...',
     madPreviewBreakBtn: '🚀 2D → 3D 次元突破演出を体験',
@@ -201,6 +213,18 @@ export const ja: Trans = {
   panel: {
     title: 'デバッグ / 設定パネル',
     expressionsLabel: '🎭 プリセット表情',
+    emagePerfLabel: '⚡ EMAGE 性能 / P0b',
+    emagePerfClear: 'step 記録をクリア',
+    emagePerfToggle: '次の発話で step 記録',
+    emagePerfPass: 'スレッド OK',
+    emagePerfToggleHint: '呼び出し側が profileStages を省略した時のみ有効（chatDirector は既に true）',
+    emagePerfWaitWasm: 'wasm_env 待ち（モデル予熱後に表示）',
+    emagePerfPassLine: 'PASS：numThreads≥2 かつ SAB + isolated',
+    emagePerfFailNotIsolated: 'FAIL：crossOriginIsolated ではない（COOP/COEP なし）',
+    emagePerfFailNoSab: 'FAIL：SharedArrayBuffer なし',
+    emagePerfFailThreads: 'FAIL：numThreads={{n}}（≥2 が必要）',
+    emagePerfFailUnknown: 'FAIL：原因不明',
+    emagePerfRecentStages: '最近の stage（{{n}}/12）',
     lightsLabel: '💡 ライトチャンネルと全体倍率',
     cameraLabel: '🎥 カメラ設定',
     globalLight: '全体光量倍率',

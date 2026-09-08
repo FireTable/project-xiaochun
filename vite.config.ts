@@ -32,13 +32,19 @@ export default defineConfig({
     host: '0.0.0.0',
     port: 5185,
     headers: {
+      // P0b B1: match public/_headers. R2 onnx CDN has CORS but no CORP;
+      // require-corp would block SAB / multi-thread wasm when models are cross-origin.
       'Cross-Origin-Opener-Policy': 'same-origin',
-      'Cross-Origin-Embedder-Policy': 'require-corp',
+      'Cross-Origin-Embedder-Policy': 'credentialless',
     },
   },
   preview: {
     host: '0.0.0.0',
     port: 5185,
+    headers: {
+      'Cross-Origin-Opener-Policy': 'same-origin',
+      'Cross-Origin-Embedder-Policy': 'credentialless',
+    },
   },
   build: {
     target: 'es2022',

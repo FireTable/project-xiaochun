@@ -37,7 +37,7 @@ const TORSO_INDICES = new Set([6, 9]);
 // 头部/颈部关节 (SMPL-X 索引: 12=neck, 15=head)
 const HEAD_INDICES = new Set([12, 15]);
 
-function resample16k(src: Float32Array, sampleRate: number): Float32Array {
+export function resample16k(src: Float32Array, sampleRate: number): Float32Array {
   if (sampleRate === SR) return src;
   const ratio = sampleRate / SR;
   const n = Math.max(1, Math.floor(src.length / ratio));
@@ -64,6 +64,36 @@ export interface EmageMotionData {
   frameCount: number;
   duration: number;
   fps: number;
+}
+
+/** Worker-reported ORT/WASM env (posted once after ensureLoaded). */
+export interface EmageWasmEnv {
+  numThreads: number;
+  hardwareConcurrency: number;
+  crossOriginIsolated: boolean;
+  sharedArrayBuffer: boolean;
+  simd?: boolean;
+}
+
+/** One stage_profile sample from the worker. */
+export interface EmageStageProfileSample {
+  stage: string;
+  elapsedMs: number;
+  frames?: number;
+  at: number;
+}
+
+/** Screenshot-friendly perf snapshot for DevDrawer P0b. */
+export interface EmagePerfSnapshot {
+  wasmEnv: EmageWasmEnv | null;
+  lastByStage: Record<string, number>;
+  lastStageProfiles: EmageStageProfileSample[];
+  ready: boolean;
+  streamingMotionActive: boolean;
+  awaitingAudioStart: boolean;
+  preferProfileStages: boolean;
+  /** Live main-thread `globalThis.crossOriginIsolated` (may differ from worker). */
+  liveCrossOriginIsolated: boolean;
 }
 
 export class EmagePlayer {
@@ -98,6 +128,8 @@ export class EmagePlayer {
   // ─── Dedicated Web Worker 异步推理调度 ───
   private worker: Worker | null = null;
   private workerRequestId = 0;
+  // ponytail: 流式会话绑定唯一 ID。从 start 到 end 严格复用，解决 Worker success 回传时找不到 pending Promise 的死锁！
+  private currentStreamId: number | null = null;
   private pendingRequests = new Map<number, {
     resolve: (data?: any) => void;
     reject: (err: any) => void;
@@ -105,6 +137,43 @@ export class EmagePlayer {
   }>();
   private loadPromise: Promise<void> | null = null;
   private isGenerating = false;
+
+  /** P0a: Worker 每窗 motion_chunk 追加播；为 true 时 Director 勿再 applyMotionData/switchSegment */
+  streamingMotionActive = false;
+  /** P0a-AV: 已缓冲 motion_chunk，但尚未随 TTS AudioContext.start 释放可见动作 */
+  awaitingAudioStart = false;
+  /**
+   * DevDrawer: when startAudioStream opts.profileStages is omitted, use this.
+   * Default false so production paths that omit the flag stay off; chatDirector
+   * still passes profileStages:true explicitly on its speak path.
+   */
+  preferProfileStages = false;
+  /** Last wasm_env from worker (null until ensureLoaded posts it). */
+  lastWasmEnv: EmageWasmEnv | null = null;
+  private lastStageProfiles: EmageStageProfileSample[] = [];
+  private lastByStage: Record<string, number> = {};
+  private static readonly STAGE_PROFILE_CAP = 12;
+  /**
+   * P0c: streaming playhead 追赶倍率上限（相对实时）。
+   * 音频已跑、motion_chunk 晚到时，禁止一帧跳过多秒造成 yank；>1 允许轻微追赶以维持 A/V 收敛。
+   */
+  streamingCatchUpRate = APP_CONFIG.emage.motion.streamingCatchUpRate;
+  /** P0c/P0c.1: rot6d 接缝几何缝合最大帧数（再加约 30% 帧，接缝更柔） */
+  chunkSeamMaxFrames = APP_CONFIG.emage.motion.chunkSeamMaxFrames;
+  /** 传给 Worker feed_audio_start；默认 true */
+  emitPerWindow = true;
+  /** E2: hop frames; undefined → worker EFF */
+  advanceFrames: number | undefined = APP_CONFIG.emage.motion.advanceFrames;
+  fadeInDuration = APP_CONFIG.emage.motion.fadeInDuration;
+  switchSegmentCrossFade = APP_CONFIG.emage.motion.switchSegmentCrossFade;
+  poseMicroFadeJumpDiv = APP_CONFIG.emage.motion.poseMicroFadeJumpDiv;
+  poseMicroFadeMinSec = APP_CONFIG.emage.motion.poseMicroFadeMinSec;
+  poseMicroFadeMaxSec = APP_CONFIG.emage.motion.poseMicroFadeMaxSec;
+  poseMicroFadeJumpMin = APP_CONFIG.emage.motion.poseMicroFadeJumpMin;
+  seamJumpThreshold = APP_CONFIG.emage.motion.seamJumpThreshold;
+  seamJumpFramesScale = APP_CONFIG.emage.motion.seamJumpFramesScale;
+  /** 首块/后续块回调（Director 用于早于 EOF 的 status('emage')） */
+  onMotionChunk: ((data: EmageMotionData, isFirst: boolean) => void) | null = null;
 
   private vrm: VRM | null = null;
   private bones: (THREE.Object3D | null)[] = new Array(NUM_JOINTS).fill(null);
@@ -130,6 +199,12 @@ export class EmagePlayer {
   private f1Q = Array.from({ length: NUM_JOINTS }, () => new THREE.Quaternion());
   private currentBoneQ = Array.from({ length: NUM_JOINTS }, () => new THREE.Quaternion());
   private currentBoneInitialized = false;
+
+  // ─── 段落接缝平滑过渡混合器 (Cross-Segment Smooth Blending) ───
+  private segmentTransitionStartQ = Array.from({ length: NUM_JOINTS }, () => new THREE.Quaternion());
+  private segmentTransitionDuration = 0.0;
+  private segmentTransitionElapsed = 0.0;
+  private isCrossFadingSegment = false;
 
   // ─── 言谈间歇待机微律动模块 (SpeakIdleSystem) ───
   public speakIdle = new SpeakIdleSystem();
@@ -159,7 +234,6 @@ export class EmagePlayer {
   private _deltaQ = new THREE.Quaternion();
   private _euler = new THREE.Euler(0, 0, 0, 'YXZ');
   private startQ = Array.from({ length: NUM_JOINTS }, () => new THREE.Quaternion());
-  public fadeInDuration = 0.60; // 从前置动作 (例如 thinking.vrma) 平滑切入的时长 (秒)
 
   /**
    * 限制关节相对 restQ 的俯仰角 (Pitch)，彻底杜绝骨盆过度前顶与腰椎过度后仰塌腰 (Hyper-lordosis)
@@ -181,24 +255,68 @@ export class EmagePlayer {
    */
   private initWorker(): void {
     if (this.worker) return;
-    // ponytail: SSR/非浏览器环境没 Worker 全局,跳过初始化(VRMEngine 在模块顶层 new,
-    // TanStack Start SSR 渲染时也会跑构造函数,不能让它崩)。
+    // ponytail: SSR/非浏览器环境没 Worker 全局,跳过初始化
     if (typeof Worker === 'undefined') return;
     try {
       this.worker = new Worker(new URL('./emageWorker.ts', import.meta.url), { type: 'module' });
       this.worker.onmessage = (e: MessageEvent) => {
-        const { id, type, message, error, rot6d, trans, frameCount, duration, fps } = e.data;
+        const { id, type, message, error, rot6d, trans, frameCount, duration, fps, windowsProcessed, totalBufferedFrames, stage, elapsedMs, frames } = e.data;
         const pending = this.pendingRequests.get(id);
         if (type === 'progress') {
           pending?.onProgress?.(message);
+        } else if (type === 'wasm_env') {
+          // P0b diagnostics — no UX change; FINAL_TEST checks threads>1 when isolated.
+          const env: EmageWasmEnv = {
+            numThreads: Number((e.data as any).numThreads) || 1,
+            hardwareConcurrency: Number((e.data as any).hardwareConcurrency) || 1,
+            crossOriginIsolated: !!(e.data as any).crossOriginIsolated,
+            sharedArrayBuffer: !!(e.data as any).sharedArrayBuffer,
+            simd: (e.data as any).simd == null ? undefined : !!(e.data as any).simd,
+          };
+          this.lastWasmEnv = env;
+          console.info('[EMAGE P0b wasm_env]', env);
+        } else if (type === 'stage_profile') {
+          const sample: EmageStageProfileSample = {
+            stage: String(stage ?? ''),
+            elapsedMs: Number(elapsedMs) || 0,
+            frames: frames == null ? undefined : Number(frames),
+            at: Date.now(),
+          };
+          this.lastStageProfiles.push(sample);
+          if (this.lastStageProfiles.length > EmagePlayer.STAGE_PROFILE_CAP) {
+            this.lastStageProfiles.splice(0, this.lastStageProfiles.length - EmagePlayer.STAGE_PROFILE_CAP);
+          }
+          if (sample.stage) this.lastByStage[sample.stage] = sample.elapsedMs;
+          console.debug('[EMAGE profile]', stage, `${elapsedMs}ms`, frames == null ? '' : `${frames} frames`);
+          pending?.onProgress?.(`[profile] ${stage}: ${elapsedMs}ms`);
         } else if (type === 'ready') {
           this.ready = true;
           pending?.resolve();
           this.pendingRequests.delete(id);
-        } else if (type === 'success') {
+        } else if (type === 'stream_ready') {
+          // ponytail: 流式会话建立完毕，唤醒 startAudioStream 调用方开始灌数据
+          pending?.resolve();
+          this.pendingRequests.delete(id);
+        } else if (type === 'stream_progress') {
+          pending?.onProgress?.(`已处理 ${windowsProcessed} 个窗口,缓冲 ${totalBufferedFrames} 帧`);
+        } else if (type === 'motion_chunk') {
+          // P0a: 窗级动作块 — 不走 pending Promise，直接追加播
+          this.appendMotionChunk({ rot6d, trans, frameCount, duration, fps });
+        } else if (type === 'checkpoint_success') {
+          // 增量结算成功：当前会话继续保持 (currentStreamId 不清空，支持后续段落持续无缝自回归推演)[cite: 11]
           pending?.resolve({ rot6d, trans, frameCount, duration, fps });
           this.pendingRequests.delete(id);
+        } else if (type === 'success') {
+          // 关键闭环：收到最终推理结果，resolve 动作数据并清理当前流[cite: 11]
+          this.currentStreamId = null;
+          pending?.resolve({ rot6d, trans, frameCount, duration, fps });
+          this.pendingRequests.delete(id);
+        } else if (type === 'success_empty') {
+          this.currentStreamId = null;
+          pending?.resolve(null);
+          this.pendingRequests.delete(id);
         } else if (type === 'error') {
+          this.currentStreamId = null;
           pending?.reject(new Error(error || 'Worker error'));
           this.pendingRequests.delete(id);
         }
@@ -298,6 +416,112 @@ export class EmagePlayer {
   }
 
   /**
+   * ponytail: 开启流式音频 → EMAGE 会话。
+   * 关键修复：统一生成 currentStreamId 并固化在整个流式生命周期内。
+   */
+  startAudioStream(opts: {
+    temporalSmoothRadius?: number;
+    continueFromPrevious?: boolean;
+    profileStages?: boolean;
+    emitPerWindow?: boolean;
+    /** E2: PCM hop frames per step (EFF..WINDOW); default EFF */
+    advanceFrames?: number;
+  } = {}): Promise<void> {
+    return this.ensureLoaded().then(() => new Promise<void>((resolve, reject) => {
+      const id = ++this.workerRequestId;
+      this.currentStreamId = id;
+      this.streamingMotionActive = false;
+      this.awaitingAudioStart = false;
+      this.emitPerWindow = opts.emitPerWindow !== false;
+      if (opts.advanceFrames != null) this.advanceFrames = opts.advanceFrames;
+      this.pendingRequests.set(id, { resolve, reject, onProgress: undefined });
+      this.worker!.postMessage({
+        id,
+        type: 'feed_audio_start',
+        temporalSmoothRadius: opts.temporalSmoothRadius ?? this.temporalSmoothRadius,
+        continueFromPrevious: opts.continueFromPrevious,
+        profileStages: opts.profileStages ?? this.preferProfileStages,
+        emitPerWindow: this.emitPerWindow,
+        advanceFrames: this.advanceFrames,
+      });
+    }));
+  }
+
+  /**
+   * ponytail: 推一个 pcm 块 (Float32Array, 16kHz mono) 给 worker。
+   * 用 Transferable 传 ArrayBuffer 零拷贝。必须使用 currentStreamId 确保 Worker 识别同一条会话。
+   */
+  pushAudioChunk(pcm: Float32Array): void {
+    if (!this.worker || !this.currentStreamId) return;
+    this.worker.postMessage(
+      { id: this.currentStreamId, type: 'feed_audio_chunk', pcm },
+      [pcm.buffer]
+    );
+  }
+
+  /**
+   * 增量结算当前段落切片动作：在不关闭长流、不清空特征栈的前提下局部解码[cite: 11]
+   */
+  async checkpointAudioStream(): Promise<EmageMotionData> {
+    return new Promise((resolve, reject) => {
+      if (!this.worker || !this.currentStreamId) {
+        reject(new Error('No active audio stream session'));
+        return;
+      }
+      const reqId = ++this.workerRequestId;
+      this.pendingRequests.set(reqId, {
+        resolve: (data: EmageMotionData) => resolve(data),
+        reject: (err: any) => reject(err),
+        onProgress: undefined,
+      });
+      this.worker.postMessage({
+        id: reqId,
+        type: 'feed_audio_checkpoint',
+        temporalSmoothRadius: this.temporalSmoothRadius,
+      });
+    });
+  }
+
+  /**
+   * ponytail: 标记流结束 — worker 处理尾部 + decode + 平滑 + 返回最终动作。
+   * 关键修复：直接复用 currentStreamId 注册监听，解决前后 ID 脱节导致的 Promise 永远挂起！
+   */
+  async endAudioStream(): Promise<EmageMotionData | null> {
+    return new Promise((resolve, reject) => {
+      if (!this.worker || !this.currentStreamId) {
+        resolve(null);
+        return;
+      }
+      const id = this.currentStreamId;
+      this.pendingRequests.set(id, {
+        resolve: (data: EmageMotionData | null) => {
+          this.currentStreamId = null;
+          resolve(data);
+        },
+        reject: (err: any) => {
+          this.currentStreamId = null;
+          reject(err);
+        },
+        onProgress: undefined,
+      });
+      this.worker.postMessage({ id, type: 'feed_audio_end', temporalSmoothRadius: this.temporalSmoothRadius });
+    });
+  }
+
+  /**
+   * ponytail: 强制中断当前流式会话
+   */
+  abortAudioStream(): void {
+    if (this.currentStreamId) {
+      this.pendingRequests.delete(this.currentStreamId);
+      this.currentStreamId = null;
+    }
+    this.streamingMotionActive = false;
+    this.awaitingAudioStart = false;
+    this.worker?.postMessage({ id: ++this.workerRequestId, type: 'reset' });
+  }
+
+  /**
    * 重置 Worker 内部的自回归种子 (开启全新非连贯动作时调用)
    */
   resetSeed(): void {
@@ -307,8 +531,7 @@ export class EmagePlayer {
   }
 
   /**
-   * 异步触发后台 Worker 生成全身动作，主线程 3D 渲染彻底不卡顿！
-   * @param continueFromPrevious 是否继承上一段尾部的 4 帧潜空间种子，实现跨段连贯自回归
+   * 异步触发后台 Worker 生成全身动作 (全量降级/直接推理调用)
    */
   async generate(
     pcm: Float32Array,
@@ -328,7 +551,6 @@ export class EmagePlayer {
       const id = ++this.workerRequestId;
       const res = await new Promise<EmageMotionData>((resolve, reject) => {
         this.pendingRequests.set(id, { resolve, reject, onProgress });
-        // 使用 Transferable Objects 零拷贝传输 PCM
         this.worker?.postMessage(
           {
             id,
@@ -354,7 +576,7 @@ export class EmagePlayer {
   /**
    * 应用指定的动作切片数据，瞬时锁定当前姿态作为 Slerp 淡入起点
    */
-  applyMotionData(data: EmageMotionData, fadeIn = 0.60): void {
+  applyMotionData(data: EmageMotionData, fadeIn = this.fadeInDuration): void {
     this.frameCount = data.frameCount;
     this.duration = data.duration;
     this.fps = data.fps;
@@ -379,7 +601,122 @@ export class EmagePlayer {
     }
   }
 
-  play(fadeIn = 0.60): void {
+  /**
+   * P0a: 追加窗级动作块。首块只缓冲 applyMotionData（不 play）；
+   * 可见动作须等 Director TTS AudioContext.start → releaseMotionForAudio。
+   * 后续 concat rot6d 且不重置 playhead。禁止对每窗调用 switchSegment。
+   */
+  appendMotionChunk(data: EmageMotionData): void {
+    if (!data || data.frameCount <= 0 || !data.rot6d || data.rot6d.length === 0) return;
+
+    const isFirst = !this.streamingMotionActive || !this.motion || this.frameCount <= 0;
+    if (isFirst) {
+      this.streamingMotionActive = true;
+      this.awaitingAudioStart = true;
+      this.applyMotionData(data, this.fadeInDuration);
+      // 关键：不在此处 play() — 否则会在 TTS 可听之前自由推进 playhead
+      console.log('[P0a-AV] motion_chunk buffered (awaiting audio)', {
+        frameCount: data.frameCount,
+        duration: data.duration,
+        fps: data.fps,
+      });
+      this.onMotionChunk?.(data, true);
+      return;
+    }
+
+    const prevFrames = this.frameCount;
+    const prevRot = this.motion!;
+    const merged = new Float32Array(prevRot.length + data.rot6d.length);
+    merged.set(prevRot, 0);
+    merged.set(data.rot6d, prevRot.length);
+    this.motion = merged;
+    this.frameCount += data.frameCount;
+    this.duration += data.duration;
+    this.fps = data.fps;
+    this.cachedF0 = -1;
+    this.cachedF1 = -1;
+    // P0c: 几何接缝缝合（帧数由姿态跳变决定）+ 必要时从当前骨姿微 crossfade
+    this.stitchMotionChunkSeam(prevFrames, data.frameCount);
+    // playhead 保持不变 — 由 audio clock 驱动（update 内限速追赶）；音频未起时 playing=false
+    this.onMotionChunk?.(data, false);
+  }
+
+  /**
+   * P0c: 在已交付尾帧与新 chunk 首帧之间做 rot6d 几何缝合。
+   * 缝合长度由接缝 L2 跳变自适应，不用固定 0.18s/0.75s 墙钟参数。
+   */
+  private stitchMotionChunkSeam(prevFrames: number, newFrames: number): void {
+    if (!this.motion || prevFrames < 1 || newFrames < 1) return;
+
+    const stride = FRAME_STRIDE;
+    const prevOff = (prevFrames - 1) * stride;
+    const new0 = prevFrames * stride;
+
+    // 用前若干关节维度估计跳变强度（避免扫全 330 维过重）
+    let acc = 0;
+    const probe = Math.min(stride, 6 * 12); // hips/spine/arms 一带
+    for (let d = 0; d < probe; d++) {
+      const a = this.motion[prevOff + d]!;
+      const b = this.motion[new0 + d]!;
+      const diff = a - b;
+      acc += diff * diff;
+    }
+    const jump = Math.sqrt(acc / probe);
+    if (jump < this.seamJumpThreshold) {
+      // 接缝已连续：若仍在播，仅在骨姿与目标可能脱节时点亮极短 pose crossfade
+      this.armPoseSpaceMicroFade(jump);
+      return;
+    }
+
+    const maxF = Math.max(3, Math.min(this.chunkSeamMaxFrames, newFrames));
+    // jump~0.02 → ~3帧；jump≥0.12 → maxF（比 P0c 多约 30% 帧）
+    const stitchFrames = Math.max(3, Math.min(maxF, Math.ceil(3 + (jump - this.seamJumpThreshold) / this.seamJumpFramesScale)));
+
+    for (let f = 0; f < stitchFrames; f++) {
+      const w = 1 - (f + 1) / (stitchFrames + 1); // 越靠接缝越贴近 prev 尾帧
+      const off = (prevFrames + f) * stride;
+      for (let d = 0; d < stride; d++) {
+        const a = this.motion[prevOff + d]!;
+        const b = this.motion[off + d]!;
+        this.motion[off + d] = a * w + b * (1 - w);
+      }
+    }
+
+    this.armPoseSpaceMicroFade(jump);
+  }
+
+  /** 用当前已写骨姿作为起点，按跳变幅度自适应微 crossfade（秒数由姿态导出，非业务常量旋钮） */
+  private armPoseSpaceMicroFade(jump: number): void {
+    if (!this.playing || !this.currentBoneInitialized || jump < this.poseMicroFadeJumpMin) return;
+    for (let i = 0; i < NUM_JOINTS; i++) {
+      this.segmentTransitionStartQ[i]!.copy(this.currentBoneQ[i]!);
+    }
+    // 略放慢收敛：duration = clamp(jump/1.15, 0.05, 0.36)（约 +30%）
+    this.segmentTransitionDuration = Math.max(this.poseMicroFadeMinSec, Math.min(this.poseMicroFadeMaxSec, jump / this.poseMicroFadeJumpDiv));
+    this.segmentTransitionElapsed = 0.0;
+    this.isCrossFadingSegment = true;
+  }
+
+  /**
+   * P0a-AV: TTS / AudioContext 真正 start 时调用。
+   * 在 setExternalClock 之后调用，确保首帧与可听语音对齐。
+   */
+  releaseMotionForAudio(fadeIn = this.fadeInDuration): void {
+    if (!this.motion || !this.vrm) return;
+    const wasAwaiting = this.awaitingAudioStart;
+    this.awaitingAudioStart = false;
+    if (!this.playing) {
+      this.play(fadeIn);
+    }
+    console.log('[P0a-AV] motion_release with audio', {
+      wasAwaiting,
+      frameCount: this.frameCount,
+      duration: this.duration,
+      playhead: this.playhead,
+    });
+  }
+
+  play(fadeIn = this.fadeInDuration): void {
     if (!this.motion || !this.vrm) return;
     this.playhead = 0;
     this.idleWeight = 0.0;
@@ -398,7 +735,7 @@ export class EmagePlayer {
     }
     this.currentBoneInitialized = true;
 
-    // 每次开始播放新动作/语音时，智能交替主承重支柱腿 (实现交谈时自然换腿)
+    // 每次开始播放新动作/语音时，智能交替主承重支柱腿
     if (this.stancePillar === 'auto' || this.stancePillar === 'alternate') {
       this.targetStanceRatio = (this.targetStanceRatio >= 0.5) ? 0.0 : 1.0;
     } else {
@@ -412,11 +749,21 @@ export class EmagePlayer {
   }
 
   /**
-   * 动态切段 (Switch Segment)：完全不依赖时间倒计时判断，
-   * 保持当前骨骼姿态，由生理角速度约束 (Max Angular Speed) 与临界阻尼在物理空间平滑自收敛
+   * 动态切段 (Switch Segment)：
+   * 修复关键断层：在切段瞬间锁定当前骨骼真实停留的姿态，执行轻量级的 0.18s Slerp 阻尼混出，
+   * 彻底消除动画帧离散采样与音频时钟微差导致的瞬间跳动[cite: 11]！
    */
-  switchSegment(data: EmageMotionData): void {
+  switchSegment(data: EmageMotionData, crossFade = this.switchSegmentCrossFade): void {
     this.speakIdle.exit();
+
+    // 锁定切入瞬间的瞬时姿态
+    for (let i = 0; i < NUM_JOINTS; i++) {
+      this.segmentTransitionStartQ[i]!.copy(this.currentBoneQ[i]!);
+    }
+    this.segmentTransitionDuration = Math.max(0.01, crossFade);
+    this.segmentTransitionElapsed = 0.0;
+    this.isCrossFadingSegment = true;
+
     this.frameCount = data.frameCount;
     this.duration = data.duration;
     this.fps = data.fps;
@@ -429,7 +776,6 @@ export class EmagePlayer {
     this.playing = true;
     this.fadingOut = false;
   }
-
 
   private startAudio(): void {
     if (this.audio) { this.audio.pause(); this.audio = null; }
@@ -504,7 +850,7 @@ export class EmagePlayer {
         this.cachedF1 = f1;
       }
 
-      // 真·四元数球形线性插值 (Slerp)
+      // 四元数球形线性插值 (Slerp)
       for (let i = 0; i < NUM_JOINTS; i++) {
         this.targetQ[i]!.copy(this.f0Q[i]!).slerp(this.f1Q[i]!, alpha);
       }
@@ -519,7 +865,18 @@ export class EmagePlayer {
       }
     }
 
-    // 关键修正：站立交流说话时，角色的世界地面基准高度必须绝对锁定在 baseY，绝不随动捕数据在空中上下抽动悬空！
+    // 处理跨切片姿态接续平滑插值 (Segment Cross-Fade)
+    let crossFadeWeight = 0.0;
+    if (this.isCrossFadingSegment) {
+      this.segmentTransitionElapsed += delta;
+      const progress = Math.min(1.0, this.segmentTransitionElapsed / this.segmentTransitionDuration);
+      crossFadeWeight = 1.0 - (progress * progress * (3 - 2 * progress));
+      if (progress >= 1.0) {
+        this.isCrossFadingSegment = false;
+      }
+    }
+
+    // 关键修正：站立交流说话时，角色的世界地面基准高度绝对锁定在 baseY
     if (this.vrm) {
       this.vrm.scene.position.y = this.baseY;
     }
@@ -540,6 +897,12 @@ export class EmagePlayer {
       }
 
       const qGoal = this._q1.copy(this.targetQ[i]!);
+
+      // 如果正在经历切片切换，与上一段末尾姿态执行丝滑平滑收敛
+      if (crossFadeWeight > 0.0001) {
+        qGoal.copy(this.segmentTransitionStartQ[i]!).slerp(this.targetQ[i]!, 1.0 - crossFadeWeight);
+      }
+
       const rest = this.restQ[i];
       if (rest) {
         if (ARM_INDICES.has(i) && this.gestureIntensity < 0.999) {
@@ -558,19 +921,15 @@ export class EmagePlayer {
           this.clampBonePitch(qGoal, rest, -0.05, 0.18);
         } else if (LEG_INDICES.has(i)) {
           if (!this.enableFootIK) {
-            // FootIK 关闭时，使用原生 EMAGE 双腿跟随动作
             if (rest && this.legIntensity < 0.999) {
               qGoal.slerp(rest, 1.0 - this.legIntensity);
             }
           } else {
-            // FootIK 开启时，执行单腿支柱与重心分配
             const lSupport = 1.0 - this.currentStanceRatio;
             const rSupport = this.currentStanceRatio;
             const legSupport = LEFT_LEG_INDICES.has(i) ? lSupport : (RIGHT_LEG_INDICES.has(i) ? rSupport : 0.5);
 
             if (rest) {
-              // 当某腿为主支撑腿 (legSupport -> 1.0) 时，100% 保持在端正站姿 (restQ)
-              // 当为主从放松腿 (legSupport -> 0.0) 时，允许极微弱的生理随动 (不超过 legIntensity * 0.35)
               const restLockFactor = THREE.MathUtils.lerp(1.0 - (this.legIntensity * 0.35), 1.0, legSupport);
               qGoal.slerp(rest, restLockFactor);
             }
@@ -578,12 +937,10 @@ export class EmagePlayer {
         }
       }
 
-      // 生理角速度上限与惯性阻尼弹簧融合 (完全不依赖时间判断，纯物理几何与生理转动约束驱动)
       const dot = Math.abs(this.currentBoneQ[i]!.dot(qGoal));
       const clamped = Math.min(1.0, Math.max(0.0, dot));
       const angleDist = 2 * Math.acos(clamped);
 
-      // 根据各部位生理特性约束最大自然转动角速度 (弧度/秒): 手臂手部 1.5 rad/s (~86°/s), 躯干 1.0 rad/s (~57°/s), 颈头 1.3 rad/s (~74°/s)
       let maxSpeed = 1.4;
       if (ARM_INDICES.has(i) || FINGER_INDICES.has(i)) {
         maxSpeed = 1.5;
@@ -593,7 +950,6 @@ export class EmagePlayer {
         maxSpeed = 1.3;
       }
 
-      // 单帧允许跨越的最大弧度步长
       const maxDeltaAngle = maxSpeed * Math.min(delta, 0.1);
       const velFactor = angleDist > 0.001 ? Math.min(1.0, maxDeltaAngle / angleDist) : 1.0;
       const blendFactor = this.currentBoneInitialized
@@ -603,8 +959,6 @@ export class EmagePlayer {
       this.currentBoneQ[i]!.slerp(qGoal, blendFactor);
       let finalQ = this.currentBoneQ[i]!;
 
-      // 动作结束平滑淡出到 Idle: 仅对下半身与骨盆（LOWER_BODY_INDICES）在淡出时平滑 Slerp 回 restQ 端正立姿；
-      // 双臂、手指与头部完全保持原有逻辑，绝不强拉回 T-Pose
       if (idleWeight > 0.0001 && LOWER_BODY_INDICES.has(i) && rest) {
         finalQ = this._q2.copy(finalQ).slerp(rest, idleWeight);
       }
@@ -617,14 +971,12 @@ export class EmagePlayer {
     if (!this.playing && !this.fadingOut && !this.speakIdle.isActive()) return;
     if (!this.motion || this.frameCount <= 0) return;
 
-    // ─── 言谈间歇待机微律动 (由独立 SpeakIdleSystem 接管) ───
     if (this.speakIdle.isActive()) {
       this.speakIdle.update(delta, this.bones, this.currentBoneQ);
       if (this.enableFootIK) this.footIK.solve(delta);
       return;
     }
 
-    // 动态换腿与生理微动节奏 (长篇连续说话时，每 8.5 秒平滑完成一次换脚)
     if (this.stancePillar === 'auto') {
       this.weightShiftTimer += delta;
       if (this.weightShiftTimer > 8.5) {
@@ -632,7 +984,6 @@ export class EmagePlayer {
         this.targetStanceRatio = (this.targetStanceRatio >= 0.5) ? 0.0 : 1.0;
       }
     }
-    // 换脚阻尼平滑，约 1.5~2.0 秒无感丝滑过渡
     const shiftFilter = 1.0 - Math.exp(-2.5 * Math.max(0.001, delta));
     this.currentStanceRatio += (this.targetStanceRatio - this.currentStanceRatio) * shiftFilter;
     this.footIK.stanceRatio = this.currentStanceRatio;
@@ -653,13 +1004,34 @@ export class EmagePlayer {
 
     if (this.externalClock) {
       const t = this.externalClock();
-      if (t >= 0 && this.duration > 0) {
-        this.playhead = Math.min(this.frameCount - 1, (t / this.duration) * this.frameCount);
+      if (t >= 0 && this.frameCount > 0) {
+        // 绝对音频时钟 → 帧：streaming 下 duration 会随 chunk 增长，用 t*fps 更稳
+        const fps = this.fps > 0 ? this.fps : FPS;
+        const target = Math.min(this.frameCount - 1, Math.max(0, t * fps));
+        if (this.streamingMotionActive) {
+          // P0c: 禁止 underrun 解除后一帧跳过多秒（step≈0.7s+ 晚到 chunk 的典型 yank）
+          const maxAdvance = Math.max(fps * Math.min(delta, 0.1) * this.streamingCatchUpRate, 0.5);
+          if (target > this.playhead + maxAdvance) {
+            this.playhead += maxAdvance;
+          } else if (target < this.playhead - maxAdvance) {
+            // 时钟回跳极少见；同样限速，避免反向抽动
+            this.playhead -= maxAdvance;
+          } else {
+            this.playhead = target;
+          }
+        } else {
+          this.playhead = target;
+        }
         this.idleWeight = 0.0;
         this.applyFrame(this.playhead, 0.0, delta);
         if (this.enableFootIK) this.footIK.solve(delta);
         return;
       }
+    }
+
+    // P0a-AV: 流式动作在缺少 audio clock 时禁止自由跑表（避免早于 TTS）
+    if (this.streamingMotionActive) {
+      return;
     }
 
     const nextPlayhead = this.playhead + delta * this.fps;
@@ -712,7 +1084,6 @@ export class EmagePlayer {
 
   seek(progressOrTime: number): void {
     if (!this.motion || this.frameCount <= 0) return;
-    // 如果传入大于 1，则按秒数换算比例
     const ratio = progressOrTime > 1.0 && this.duration > 0 ? progressOrTime / this.duration : progressOrTime;
     this.playhead = Math.max(0, Math.min(ratio, 1)) * (this.frameCount - 1);
     this.applyFrame(this.playhead);
@@ -721,15 +1092,15 @@ export class EmagePlayer {
   stop(): void {
     this.playing = false;
     this.fadingOut = false;
+    this.isCrossFadingSegment = false;
     this.speakIdle.exit();
     this.clearExternalClock();
-    this.resetSeed();
+    this.abortAudioStream();
+    // ponytail: abortAudioStream 已发 reset 消息清空 Worker 状态,无需再调 resetSeed。
     if (this.audio) { this.audio.pause(); this.audio.currentTime = 0; }
     this.footIK.softReset();
     this.idleWeight = 0.0;
     this.currentBoneInitialized = false;
-    // 关键修正：绝不强拉或瞬移任何骨骼（包括下半身），完整保留瞬时生理姿态，
-    // 交由全局 MotionTransitionManager 毫秒级捕获并在随后时间窗内平滑 Slerp 回待机
   }
 
   pause(): void {
@@ -747,6 +1118,7 @@ export class EmagePlayer {
     this.idleWeight = 0.0;
     this.footIK.reset();
     this.fadingOut = false;
+    this.isCrossFadingSegment = false;
     this.currentBoneInitialized = false;
   }
 
@@ -763,9 +1135,25 @@ export class EmagePlayer {
     return this.duration;
   }
 
-  /**
-   * 彻底释放 EMAGE 占用的所有资源 (终止 Dedicated Web Worker, 销毁 WASM 堆内存, 清理音频与待处理队列)
-   */
+  getPerfSnapshot(): EmagePerfSnapshot {
+    return {
+      wasmEnv: this.lastWasmEnv,
+      lastByStage: { ...this.lastByStage },
+      lastStageProfiles: this.lastStageProfiles.slice(),
+      ready: this.ready,
+      streamingMotionActive: this.streamingMotionActive,
+      awaitingAudioStart: this.awaitingAudioStart,
+      preferProfileStages: this.preferProfileStages,
+      liveCrossOriginIsolated:
+        typeof globalThis !== 'undefined' && !!(globalThis as { crossOriginIsolated?: boolean }).crossOriginIsolated,
+    };
+  }
+
+  clearPerfProfiles(): void {
+    this.lastStageProfiles = [];
+    this.lastByStage = {};
+  }
+
   dispose(): void {
     if (this.worker) {
       this.worker.terminate();
@@ -775,7 +1163,7 @@ export class EmagePlayer {
     this.loadPromise = null;
     this.isGenerating = false;
     this.pendingRequests.forEach(({ reject }) => {
-      try { reject(new Error('EMAGE disposed')); } catch {}
+      try { reject(new Error('EMAGE disposed')); } catch { }
     });
     this.pendingRequests.clear();
     this.stop();

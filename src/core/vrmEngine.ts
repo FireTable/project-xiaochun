@@ -618,6 +618,19 @@ export class VRMEngine {
     return this.enableBodyTurn;
   }
 
+  /** DevDrawer / P0b: thin forward to EmagePlayer.getPerfSnapshot(). */
+  public getEmagePerfSnapshot() {
+    return this.emagePlayer.getPerfSnapshot();
+  }
+
+  public clearEmagePerfProfiles(): void {
+    this.emagePlayer.clearPerfProfiles();
+  }
+
+  public setEmagePreferProfileStages(prefer: boolean): void {
+    this.emagePlayer.preferProfileStages = prefer;
+  }
+
   public setFov(fov: number): void {
     this.camera.fov = fov;
     this.camera.updateProjectionMatrix();
@@ -871,6 +884,36 @@ export class VRMEngine {
     };
 
     await this.chatDirector.say(text, this.currentVRM, this.vrmaPlayer, this.emagePlayer, setStatus);
+  }
+
+  /**
+   * ponytail: 跳过 LLM,直接跑 TTS → EMAGE → 播放流水线。
+   * 当前仅 dev 测试按钮调用;函数本身通用,后续其他 "直接念" 场景也可复用。
+   */
+  public async speakText(text: string): Promise<void> {
+    if (!this.currentVRM) return;
+
+    const setStatus = (
+      key: string,
+      vars?: Record<string, unknown>,
+      isError = false,
+      speechText?: string,
+      segmentIndex?: number,
+      totalSegments?: number,
+    ) => {
+      this.bubbleTracker.setStatus(
+        key,
+        this.currentVRM,
+        this.camera,
+        vars,
+        isError,
+        speechText,
+        segmentIndex,
+        totalSegments
+      );
+    };
+
+    await this.chatDirector.speakText(text, this.currentVRM, this.vrmaPlayer, this.emagePlayer, setStatus);
   }
 
   public releaseHeavyResources(): void {

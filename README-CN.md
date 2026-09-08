@@ -82,15 +82,18 @@ UI 走 **TanStack Start SSR + i18next** 水合,**完整支持简体中文 / Engl
 * **大语言模型 (OpenAI 兼容自定义服务,可选)** — 应用内配置对话框一键接入任意 OpenAI 兼容 HTTP 服务:Ollama / LM Studio / vLLM / LocalAI / 云厂商(OpenAI、DeepSeek、Qwen API 等)。Provider 配置 AES-GCM 加密存在 IndexedDB;激活后 WebLLM **不会**预热,省 1-2 GB 显存 + 模型下载带宽。
 * **统一 Provider 工厂 (`chatWorkflow.runChat`)** — WebLLM 与自定义 provider 共享同形 `runChat(opts) → string` 契约;dispatcher 通过 `ChatProvider` 注册表轮询,选第一个 `isActive` 命中的。加新 provider = 注册一个描述符。
 * **用户自定义系统提示词 + 记忆轮数** — 聊天菜单 → 「对话设置」可微调小蠢人设(留空/与默认相同则走默认人设)与对话记忆轮数(1-50,默认设备推荐)。配置持久化在 IndexedDB(`xiaochun-user-settings`);边界常量集中在 `APP_CONFIG.memory.userTurnsMin/Max` 一处,slider UI 与存储 setter 共享同一份 SSOT。
-* **动作生成** — **EMAGE** 全身动作 (ONNX Runtime Web) 在 Dedicated Web Worker 中运行，时序高斯滤波平滑。
-* **语音合成** — **Edge-TTS 晓伊 (XiaoyiNeural, zh-CN, +10 Hz)**，基于 [`edge-tts-universal`](https://github.com/Sterznode/edge-tts-universal)；网络传输前智能剥离 emoji。
-* **LLM + TTS + EMAGE 一体编排**：chat director 全链路统一协调，主线程满帧 60 FPS 丝滑驱动。
+* **动作生成** — **EMAGE** 全身协同动作 (ONNX Runtime Web) 在 Dedicated Web Worker 中运行：**wasm 执行提供者 + INT8**（`useInt8`）；**不使用 WebGPU**（模型含 int64）。时序高斯滤波与自然待机混合。流式窗长 **T=64**，每窗 `motion_chunk` 降低 TTFA；可听 TTS 前 A/V hold；hop/接缝参数集中在 `APP_CONFIG.emage.motion`（`advanceFrames` 60..64）。详情见 [`docs/EMAGE_MODEL.md`](docs/EMAGE_MODEL.md)。
+* **语音合成** — **Edge-TTS 晓伊 (XiaoyiNeural, zh-CN, +10 Hz)**，基于自研原生 WebSocket 客户端（`src/lib/edge-tts-core.ts`,无第三方 TTS SDK）；网络传输前智能剥离 emoji。
+* **LLM + TTS + EMAGE 一体编排**：chat director 全链路统一协调，主线程满帧 60 FPS。**LLM 可用 WebGPU**（WebLLM）；**EMAGE 固定 wasm/INT8**。
 
 ### ⚡ 智能分段流式语音管线 (Streaming Speech Pipeline)
 * **智能分句切片 (Smart Chunking)**：打破千字长文生成等待瓶颈，统一按 30~60 字与自然语法标点（`。！？!?\n` 或逗号长句）断句，语气自然抑扬顿挫。
 * **全切片 TTS 零延迟并发预取**：纯网络 I/O 全部切片并行下载，彻底消除语音合成等待延迟。
 * **双条件预缓冲起播 (Dual-Condition Pre-buffering)**：兼顾比例（$\lceil N / 3 \rceil$）与上限封顶（最多预缓冲 2 段，约 8~12s 语音），1~2 段极速开播，多段长文缓冲 2 段即起播，后续段落后台源源不断产生，告别长文久等。
 * **跨段潜空间自回归种子连续继承 (Latent Seed Carryover)**：Worker 内部继承上一段尾部 4 帧潜空间种子 (`continueFromPrevious`)，分段动作在数学与物理上完全等同于单次长程自回归推理，消除断接割裂。
+* **流式 EMAGE（`motion_chunk`）**：Worker 按 **T=64** 窗步进 PCM/动作，每次 `runStep` 成功即 Transferable 投递 `motion_chunk`，首窗即可开播（TTFA）。首块仅缓冲，待 TTS `AudioContext.start` 后 `releaseMotionForAudio`，动作不早于可听音频。
+* **P0b 隔离 + wasm 多线程**：文档响设置 **COOP `same-origin` + COEP `credentialless`**（`src/server.ts`、Vite、`public/_headers`），`crossOriginIsolated` 时启用 SharedArrayBuffer 与 ORT wasm 多线程；step scratch 跨窗复用。
+* **P0c / E1+E2 hop 与接缝**：由 `APP_CONFIG.emage.motion` 驱动 — `advanceFrames`（60..64）、`chunkSeamMaxFrames`、`seamJumpThreshold` / `seamJumpFramesScale`、姿态微 fade 等。**未交付**：P0d residual-gate、WebGPU-EMAGE。
 * **纯生理角速度与阻尼弹簧无感切段过渡**：废除时间倒计时生硬插值，基于真实人体生理极限（手臂 2.2 rad/s，颈头 1.6 rad/s，躯干 1.2 rad/s）+ 指数弹簧阻尼自适应收敛，无论段间动作差异多大均平滑自收敛。
 * **自适应言谈间歇待机 (`SpeakIdleSystem`)**：段间等待时角色不再定格成蜡像，根据前序手势随机应变 —— 身前手势保持悬浮交谈态（带呼吸浮沉与超 1.5s 极缓重力自然微沉降）；严格按 VRM 1.0 真指节沿 Z 轴实施微脉搏舒缩；配合意识流头部微偏转与倾听微点头。
 * **控制台多切片动态表格看板**：`console.table` 实时呈现各段 TTS、EMAGE 推理、播放状态与切段过渡模式。
@@ -128,13 +131,14 @@ UI 走 **TanStack Start SSR + i18next** 水合,**完整支持简体中文 / Engl
 * **移动端**:预载贴纸保留,ChatBar 避开底部安全区。
 
 ### 🛠️ 开发工具链 (Dev Tooling)
-* **调试抽屉**(仅本地):6 段固定顺序(🎭 预设表情 → 🎥 镜头设置 → 🎨 画面色彩 → ✨ 骨骼体型 → 🧩 模型部位 → 💡 灯光通道)。每段独立 React state、独立重置、modified 点只在用户改过后才亮。Schema 驱动渲染:加新段只需在 `SECTIONS` 加一行 + 在组件 `REGISTRY` 加一行。完整原始组件拆解见 [`docs/ARCHITECTURE_AND_RULES.md` §3](docs/ARCHITECTURE_AND_RULES.md)。
+* **调试抽屉**(仅本地):**7 段**固定顺序(🎭 预设表情 → 🎥 镜头设置 → 🎨 画面色彩 → ✨ 骨骼体型 → 🧩 模型部位 → 💡 灯光通道 → ⚡ EMAGE Perf)。每段独立 React state、独立重置、modified 点只在用户改过后才亮。Schema 驱动渲染:加新段只需在 `SECTIONS` 加一行 + 在组件 `REGISTRY` 加一行。`EmagePerfSection` 展示 wasm_env / 隔离 / numThreads / 分阶段耗时，便于 P0b 验收截图。完整拆解见 [`docs/ARCHITECTURE_AND_RULES.md` §3](docs/ARCHITECTURE_AND_RULES.md)。
+* **ChatBar 试听下拉**(dev)：春日 / 蜀道难预设，段数由 `splitIntoSpeechChunks` 实时计算，方便端到端测 TTS+EMAGE 流式，无需手打长文。
 * **per-frame slider 拖动架构**:slider 把 per-tick 推 engine 跟 commit 时写 state + localStorage 拆开,28 个 slider 的 `BoneMorphSection` 拖一个 slider 时不会重渲其他 27 个。数字显示通过 `SliderWithAnchors` 的 `liveValueRef` 机制 imperative 写 textContent 跟手,完全绕过 React reconciliation。
 * **镜头段**:FOV slider(带 hover `ⓘ` tooltip,4 行 bullet list 解释 20°/30°/45°/60°)+ `📷` 最小 / `🔭` 最大距离 slider(鼠标滚轮 + pinch 缩放范围)+ 自动面朝镜头转身 toggle。默认推镜距离按 FOV 自动算(`defaultShotExtent`),15° 跟 60° 框选同一主体高度,不会再"长焦糊脸"。
 * **骨骼体型段**:27 个 slider 按身体区域(整体 / 头颈 / 躯干 / 臀部 / 胸部 / 上肢 / 下肢)分 7 组,每组独立 sub-card;搜索框过滤时自动隐藏空 region。
 * **模型部位段**:3 态渲染 — `穿`(勾选)/ `未穿`(勾掉,line-through)/ `未装配`(虚线禁用块,无勾选)。"已装配"判定走 `vrmEngine.materialManager.partMaterials[id]?.length`,不是用户可见性 toggle。
-* **Cloudflare Workers**(`src/server.ts`):生产环境统一承载 TanStack Start SSR 与原生 WebSocket Edge-TTS 流式代理。
-* **Vite dev 中间件**(`vite/localApiPlugin.ts`):本地开发使用 Miniflare 虚拟运行时，与线上环境 100% 同构。`/api/tts` 默认转发到 `TTS_PROXY_URL`(部署的 Cloudflare Worker),未设置时回退本地 `edge-tts-universal`。
+* **Cloudflare Workers**(`src/server.ts`):生产环境统一承载 TanStack Start SSR 与原生 WebSocket Edge-TTS 流式代理；并对 HTML/SSR 文档响应施加 **COOP/COEP `credentialless`**（Workers+Assets 不吃 `public/_headers` 的文档头），以便 EMAGE ORT wasm 在隔离环境下启用 SAB 多线程。
+* **Vite dev 中间件**(`vite/localApiPlugin.ts`):本地开发使用 Miniflare 虚拟运行时，与线上环境 100% 同构。`/api/tts` 默认转发到 `TTS_PROXY_URL`(部署的 Cloudflare Worker),未设置时走本地原生 WebSocket(`src/lib/edge-tts-core.ts`)直连 Edge-TTS。
 * **单一可信源**:`src/config.ts` 集中管理光照 / 相机 / 表情 / 饱和度 / LLM / R2 模型参数。
 
 ---
@@ -149,10 +153,10 @@ UI 走 **TanStack Start SSR + i18next** 水合,**完整支持简体中文 / Engl
 | **路由** | [TanStack Router](https://tanstack.com/router) | 类型安全文件路由 |
 | **大语言模型** | [WebLLM](https://github.com/mlc-ai/web-llm) | Qwen2.5 1.5B q4f16_1 WebGPU 流式推理 (自动降级至 0.5B) |
 | **端侧记忆** | IndexedDB + 自研三层画像管线 | 纯本地多级记忆持久化、实体画像提取与 n-gram 语义召回 |
-| **动作生成** | EMAGE + [ONNX Runtime Web](https://onnxruntime.ai) | Dedicated Web Worker 全身动作生成 |
-| **语音合成** | [edge-tts-universal](https://github.com/Sterznode/edge-tts-universal) | 晓伊 zh-CN +10 Hz, emoji 剥离 |
+| **动作生成** | EMAGE + [ONNX Runtime Web](https://onnxruntime.ai) | Dedicated Worker，**wasm EP + INT8**（无 WebGPU；int64）；流式 `motion_chunk` T=64 |
+| **语音合成** | 原生 WebSocket 客户端 (`src/lib/edge-tts-core.ts`) | 晓伊 zh-CN +10 Hz, emoji 剥离;无第三方 TTS SDK |
 | **边缘运行时** | [Cloudflare Workers](https://developers.cloudflare.com/workers/) + [@cloudflare/vite-plugin](https://developers.cloudflare.com/workers/framework-guides/web-apps/tanstack-start/) | SSR 渲染 + WebSocket TTS + 静态资产直连 |
-| **对象存储** | [Cloudflare R2](https://developers.cloudflare.com/r2/) | 托管 504 MB ONNX 全身模型，免出站流量费 |
+| **对象存储** | [Cloudflare R2](https://developers.cloudflare.com/r2/) | 同时托管 FP32（504 MB）与 INT8（约 195 MB）两套 ONNX 全身模型，免出站流量费；浏览器下载走 `src/config.ts` 的 `useInt8` 开关（tip 默认 INT8） |
 | **样式** | [Tailwind CSS 4](https://tailwindcss.com) + `tailwindcss-animate` | 液态玻璃视觉,移动端优先 |
 | **国际化** | [i18next](https://www.i18next.com) + [react-i18next](https://react.i18next.com) | 三语,SSR 水合 |
 | **UI 原语** | [Radix UI](https://www.radix-ui.com) (DropdownMenu, Slot) | shadcn 风格组件 |
@@ -227,14 +231,15 @@ Project-XiaoChun/
 │   ├── BONE_MORPH.md
 │   ├── FOOT_IK.md
 │   ├── CHAT_DIRECTOR.md
-│   └── ON_DEVICE_AI.md
+│   ├── ON_DEVICE_AI.md
+│   └── EMAGE_MODEL.md         # EMAGE 现状与已知限制（wasm/INT8、流式、隔离）
 ├── wrangler.jsonc             # Cloudflare Workers 声明式配置文件
 ├── src/
 │   ├── routes/                # TanStack Start 文件路由
 │   │   ├── __root.tsx         # 根布局 (i18n SSR 水合、GEO JSON-LD 与元信息)
 │   │   └── index.tsx          # 首页主路由
 │   ├── components/            # React UI 组件 (TopHeader, ChatBar, HeadBubble, DevDrawer…)
-│   │   ├── dev-drawer/         # 调试抽屉 — schema 驱动的 6 段(仅 localhost)
+│   │   ├── dev-drawer/         # 调试抽屉 — schema 驱动的 7 段(仅 localhost)
 │   │   │   ├── DevDrawer.tsx          # 壳 (头部 + SectionRenderer 列表)
 │   │   │   ├── schema.ts              # SECTIONS[] (id + 顺序) — 加新段 = 1 行
 │   │   │   ├── renderer.tsx           # id → 组件 REGISTRY
@@ -244,13 +249,14 @@ Project-XiaoChun/
 │   │   │   │   ├── SectionCard.tsx    # 卡片外壳(可选 id 走折叠门控)
 │   │   │   │   ├── SectionHeader.tsx  # chevron + 标题 + modified 点 + 段内重置
 │   │   │   │   └── HeightChip.tsx     # 订阅 engine 实时高度的 chip
-│   │   │   ├── sections/              # 6 个自包含段组件
+│   │   │   ├── sections/              # 7 个自包含段组件
 │   │   │   │   ├── ExpressionsSection.tsx
 │   │   │   │   ├── CameraSection.tsx           # FOV + min/max 距离 + 自动转身 toggle
 │   │   │   │   ├── SaturationSection.tsx       # 4 个 slider + 4 个预设
 │   │   │   │   ├── BoneMorphSection.tsx        # 27 个 slider 分 7 个身体区域
 │   │   │   │   ├── WardrobeSection.tsx         # 穿 / 未穿 / 未装配 3 态渲染
-│   │   │   │   └── LightingSection.tsx         # 6 通道 + 全局倍率
+│   │   │   │   ├── LightingSection.tsx         # 6 通道 + 全局倍率
+│   │   │   │   └── EmagePerfSection.tsx        # P0b wasm_env / 隔离 / 分阶段耗时
 │   │   │   └── hooks/                 # 共用段 hook(useCollapse)
 │   │   ├── AdvancedSettingsDialog.tsx  # 用户自定义系统提示词 + 记忆轮数 slider
 │   │   ├── SyncDialog.tsx     # 跨设备加密文本传输 (AES-GCM)
@@ -272,8 +278,8 @@ Project-XiaoChun/
 │   │   ├── speakIdle.ts       # 言谈微停顿手势悬浮自适应与缓沉
 │   │   ├── bodyTurn.ts        # 骨盆与下半身物理转身步态 (Layer 2)
 │   │   ├── footIK.ts          # 脚部物理贴地解算器 (Post-Pass)
-│   │   ├── emagePlayer.ts     # EMAGE 语音手势驱动与时序高斯滤波
-│   │   ├── emageWorker.ts     # ONNX Runtime Web 独立 Dedicated Worker
+│   │   ├── emagePlayer.ts     # EMAGE 播放：motion_chunk 流、A/V hold、接缝/hop（APP_CONFIG.emage.motion）
+│   │   ├── emageWorker.ts     # ONNX Runtime Web Dedicated Worker（wasm EP + INT8；T=64 窗）
 │   │   ├── vrmaPlayer.ts      # VRMA 动画播放驱动器
 │   │   └── vrmaRetarget.ts    # VRMA 骨骼重定向与标准化
 │   ├── memory/                # 端侧持久化多级记忆 (IndexedDB 存储 / 实体画像提取 / n-gram 检索)
@@ -295,16 +301,18 @@ Project-XiaoChun/
 │   ├── director/
 │   │   └── chatDirector.ts    # LLM → TTS → EMAGE 流式全链路状态编排
 │   ├── i18n/                  # zh-CN / en / ja 翻译字典 + 服务端 Cookie 提取
-│   ├── lib/                   # 横切工具 (cn className 合并助手)
-│   │   └── utils.ts
+│   ├── lib/                   # 横切工具
+│   │   ├── utils.ts           # cn() className 合并助手
+│   │   ├── constants.ts
+│   │   └── edge-tts-core.ts   # 原生 Edge-TTS WebSocket 客户端（无第三方 TTS SDK）
 │   ├── styles/
 │   │   └── main.css           # Tailwind v4 @theme tokens + 液态玻璃样式
 │   ├── App.tsx                # 应用主体与事件总线
 │   ├── client.tsx             # 客户端 Hydration 注水入口
-│   ├── server.ts              # Cloudflare Worker 统一入口 (SSR 流式渲染 + /api/tts WebSocket 直连)
+│   ├── server.ts              # Cloudflare Worker 统一入口 (SSR + /api/tts WS + COOP/COEP 隔离头)
 │   ├── router.tsx             # TanStack Router 实例工厂
 │   ├── routeTree.gen.ts       # 自动生成的类型安全路由树
-│   └── config.ts              # 单一可信源 (R2 / 相机 / 6路灯光 / 饱和度 / LLM / bodyMorph / 表情)
+│   └── config.ts              # 单一可信源 (R2 / 相机 / 灯光 / LLM / bodyMorph / emage.models + emage.motion hop/接缝)
 ├── vite.config.ts             # Vite 8 + TanStack Start + @cloudflare/vite-plugin
 ├── vite/                      # 自定义 Vite 插件 (从 vite.config.ts 抽出)
 │   ├── localApiPlugin.ts       # /api/tts 开发中间件 (TTS 转发 + EU 出口回退)
@@ -337,7 +345,7 @@ Project-XiaoChun/
 > * `public/xiaochun_v1.vrm` — VRM 角色模型,使用 **[VRoid Studio](https://vroid.com/en/studio)** (Pixiv Inc.) 生成。遵循 **VRoid Studio 许可证**:允许个人使用、修改及非商业再分发(需注明出处)。若需商业使用,请参阅 [VRoid Studio 许可证条款](https://vroid.com/en/license) 或联系 Pixiv Inc. 另行协商。
 > * `public/thinking.vrma` — VRM 动作。**许可证不明**,分发前请自行确认。
 
-`src/server.ts` 的 `/api/tts` 通过 [`edge-tts-universal`](https://github.com/Sterznode/edge-tts-universal) 公开协议调用 Microsoft Edge-TTS。`TRUSTED_CLIENT_TOKEN` 是公开的共享 token(所有开源 Edge-TTS 实现都用同一个值),**不是个人密钥**。
+`src/server.ts`(以及 Vite 中间件 `vite/localApiPlugin.ts`)的 `/api/tts` 通过自研原生 WebSocket 客户端 (`src/lib/edge-tts-core.ts`) 直接调用 Microsoft Edge-TTS,**无第三方 TTS SDK**。`TRUSTED_CLIENT_TOKEN` 是公开的共享 token(所有开源 Edge-TTS 实现都用同一个值),**不是个人密钥**。
 
 ---
 
@@ -346,7 +354,6 @@ Project-XiaoChun/
 * [pixiv / three-vrm](https://github.com/pixiv/three-vrm) — VRM 运行时
 * [Pixiv / VRoid Studio](https://vroid.com/en/studio) — 默认角色制作工具
 * [MLC AI / WebLLM](https://github.com/mlc-ai/web-llm) — 浏览器内 LLM
-* [Sterznode / edge-tts-universal](https://github.com/Sterznode/edge-tts-universal) — Edge-TTS 桥接
 * [TanStack Start](https://tanstack.com/start) — 全栈 React 框架
 * [Tailwind CSS](https://tailwindcss.com) — 原子化样式
 * [Qiuner / Qiuner.github.io](https://github.com/Qiuner/Qiuner.github.io)(`src/worlds/linework/`)— 线稿户外场景视觉灵感来源

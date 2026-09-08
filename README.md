@@ -82,15 +82,18 @@ The UI is fully **SSR-hydrated multi-language** (zh-CN / en / ja) via TanStack S
 * **LLM (Custom OpenAI-Compatible Providers, optional)** — Connect any OpenAI-compatible HTTP service via the in-app config dialog: Ollama / LM Studio / vLLM / LocalAI / cloud (OpenAI, DeepSeek, Qwen API …). Provider profiles are AES-GCM encrypted in IndexedDB; the active provider is one click away from switching. When a custom provider is active, WebLLM is **not** preloaded — saves 1-2 GB VRAM on local and avoids wasting bandwidth on a model you won't use.
 * **Unified Provider Factory (`chatWorkflow.runChat`)** — Same-shape `runChat(opts) → string` contract for both WebLLM and custom providers; the dispatcher picks one per request via a `ChatProvider` registry. Adding a new provider = drop in a descriptor.
 * **User-Customizable System Prompt & Memory Turns** — Open the chat-bar menu → **对话设置 / Chat Settings** to override the character system prompt (free-form text, falls back to default when empty/equal) and tune the conversation memory-turn count (1–50, default = device-recommended). Overrides persist in IndexedDB (`xiaochun-user-settings`); bound constants live in `APP_CONFIG.memory.userTurnsMin/Max` as the single source of truth shared between the slider UI and the storage setter.
-* **Motion** — **EMAGE** full-body motion (ONNX Runtime Web) in a Dedicated Web Worker, with temporal Gaussian smoothing and natural idle blends.
-* **TTS** — **Edge-TTS 晓伊 (XiaoyiNeural, zh-CN, +10 Hz)** via [`edge-tts-universal`](https://github.com/Sterznode/edge-tts-universal); emoji stripped before speech.
-* **LLM + TTS + EMAGE orchestrated** by the chat director on the main thread at 60 FPS.
+* **Motion** — **EMAGE** full-body co-speech motion (ONNX Runtime Web) in a Dedicated Web Worker: **wasm execution provider + INT8** (`useInt8`); **does not use WebGPU** (model tensors include int64). Temporal Gaussian smoothing and natural idle blends. Streaming windows **T=64** with per-window `motion_chunk` for TTFA; A/V hold until audible TTS; hop/seam tunables under `APP_CONFIG.emage.motion` (`advanceFrames` 60..64). See [`docs/EMAGE_MODEL.md`](docs/EMAGE_MODEL.md).
+* **TTS** — **Edge-TTS 晓伊 (XiaoyiNeural, zh-CN, +10 Hz)** via a hand-rolled native WebSocket client in `src/lib/edge-tts-core.ts` (no third-party TTS SDK); emoji stripped before speech.
+* **LLM + TTS + EMAGE orchestrated** by the chat director on the main thread at 60 FPS. **LLM may use WebGPU** (WebLLM); **EMAGE stays on wasm/INT8**.
 
 ### ⚡ Streaming Speech & Adaptive Gesture Pipeline
 * **Smart Speech Chunking**: Eliminates long-text generation wait bottlenecks by segmenting speech into natural 30~60 character clauses split at semantic punctuation (`.!?\n` or natural comma pauses).
 * **Zero-Latency Concurrent TTS Prefetching**: Downloads audio for all chunks concurrently via non-blocking network I/O, flattening TTS latency to 0ms.
 * **Dual-Condition Pre-buffering**: Balances chunk ratio ($\lceil N / 3 \rceil$) with an upper-bound cap (max 2 chunks, ~8~12s of audio). 1~2 segments start almost instantly; long paragraphs begin playback as soon as 2 chunks are ready while subsequent motions stream in the background.
 * **Continuous Latent Autoregressive Seed Carryover**: The Dedicated Web Worker retains the 4-frame latent seed (`continueFromPrevious`) across chunks, making multi-chunk generation mathematically identical to a single long-run autoregressive inference.
+* **Streaming EMAGE (`motion_chunk`)**: Worker steps **T=64** audio/motion windows and posts transferable `motion_chunk` after each successful `runStep` so gestures start before the full utterance finishes (TTFA). First chunk is buffered until TTS `AudioContext.start` (`releaseMotionForAudio`) so motion never leads audible audio.
+* **P0b isolation + wasm threads**: Document responses set **COOP `same-origin` + COEP `credentialless`** (`src/server.ts`, Vite preview/dev, `public/_headers`) so `crossOriginIsolated` enables SharedArrayBuffer and ORT wasm multi-thread when the browser isolates; scratch buffers are reused across windows.
+* **P0c / E1+E2 hop & seams**: Chunk seams and PCM hop are driven by `APP_CONFIG.emage.motion` — `advanceFrames` (60..64), `chunkSeamMaxFrames`, `seamJumpThreshold` / `seamJumpFramesScale`, pose micro-fade knobs. **Not shipped:** P0d residual-gate, WebGPU-EMAGE.
 * **Physiological Angular Velocity Limiting Transition**: Replaces arbitrary timer-based blend timers with human biomechanical angular velocity limits (arms 2.2 rad/s, neck/head 1.6 rad/s, torso 1.2 rad/s) and critical spring damping for time-free, snap-free transitions.
 * **Adaptive Conversational Idle (`SpeakIdleSystem`)**: Characters adaptively respond to the current gesture during inter-segment pauses — high gestures hover with breathing buoyancy and gentle micro-settling (>1.5s); fingers flex along the anatomical Z-axis; awareness gaze drifts and micro-nods eliminate frozen mannequins.
 * **Live Pipeline Console Table Tracker**: Real-time `console.table` monitors chunk TTS, EMAGE inference, playback progression, and transition modes.
@@ -128,13 +131,14 @@ The UI is fully **SSR-hydrated multi-language** (zh-CN / en / ja) via TanStack S
 * **Mobile** — preload stickers stay; the chat bar clears the home-indicator inset.
 
 ### 🛠️ Dev Tooling
-* **Debug drawer** (localhost only) — 6 sections in fixed order (🎭 预设表情 → 🎥 镜头设置 → 🎨 画面色彩 → ✨ 骨骼体型 → 🧩 模型部位 → 💡 灯光通道). Each section owns its own React state, has its own reset, and shows a "modified" dot only when the user has changed something since mount. Schema-driven render: add a section = one entry in `SECTIONS` + one in the component `REGISTRY`. See [`docs/ARCHITECTURE_AND_RULES.md` §3](docs/ARCHITECTURE_AND_RULES.md) for the full primitive breakdown.
+* **Debug drawer** (localhost only) — **7 sections** in fixed order (🎭 预设表情 → 🎥 镜头设置 → 🎨 画面色彩 → ✨ 骨骼体型 → 🧩 模型部位 → 💡 灯光通道 → ⚡ EMAGE Perf). Each section owns its own React state, has its own reset, and shows a "modified" dot only when the user has changed something since mount. Schema-driven render: add a section = one entry in `SECTIONS` + one in the component `REGISTRY`. `EmagePerfSection` surfaces wasm_env / isolation / numThreads / stage timings for P0b acceptance screenshots. See [`docs/ARCHITECTURE_AND_RULES.md` §3](docs/ARCHITECTURE_AND_RULES.md) for the full primitive breakdown.
+* **ChatBar test-speak dropdown** (dev) — spring / 蜀道难 presets with live segment counts via `splitIntoSpeechChunks`, for end-to-end TTS+EMAGE streaming checks without typing.
 * **Per-frame slider drag**: sliders split per-tick (engine) from commit-time (state + `localStorage`) so a 28-slider `BoneMorphSection` doesn't re-render its siblings on every pointer event. Display numbers next to each slider follow the thumb in real time via imperative `textContent` writes from `SliderWithAnchors`' `liveValueRef` mechanism — React reconciliation is bypassed entirely.
 * **Camera section**: FOV slider (with hover `ⓘ` tooltip listing 20°/30°/45°/60° reference values), `📷` min / `🔭` max camera distance sliders (mouse wheel + pinch zoom range), and the body-turn toggle. Default push-in distance is computed from FOV via `defaultShotExtent` so the framing stays consistent at 15°/20°/60° (no more "long-lens crops the face").
 * **Bone morph section**: 27 sliders grouped into 7 body regions (整体 / 头颈 / 躯干 / 臀部 / 胸部 / 上肢 / 下肢), each as a sub-card; search filter hides empty regions.
 * **Wardrobe section**: 3-state per-part rendering — `穿` (toggle on) / `未穿` (toggle off, line-through) / `未装配` (dashed disabled div, no checkbox). "Equipped" comes from `vrmEngine.materialManager.partMaterials[id]?.length`, not the user's visibility toggle.
-* **Cloudflare Workers** (`src/server.ts`) — handles full-stack TanStack Start SSR alongside native WebSocket streaming for Edge-TTS.
-* **Vite dev middleware** (`vite/localApiPlugin.ts`) — local development powered by Miniflare runtime for 100% dev/prod parity. Forwards `GET /api/tts` to your `TTS_PROXY_URL` (e.g., the deployed Worker) when set, else falls back to local `edge-tts-universal`.
+* **Cloudflare Workers** (`src/server.ts`) — handles full-stack TanStack Start SSR alongside native WebSocket streaming for Edge-TTS; also applies **COOP/COEP `credentialless`** on HTML/SSR document responses (Workers+Assets ignores `public/_headers` for documents) so EMAGE ORT wasm can use SAB threads when isolated.
+* **Vite dev middleware** (`vite/localApiPlugin.ts`) — local development powered by Miniflare runtime for 100% dev/prod parity. Forwards `GET /api/tts` to your `TTS_PROXY_URL` (e.g., the deployed Worker) when set, else opens a local native WebSocket to Edge-TTS (`src/lib/edge-tts-core.ts`).
 * **Single source of truth**: `src/config.ts` consolidates lighting / camera / expressions / saturation / LLM / R2 model config.
 
 ---
@@ -149,10 +153,10 @@ The UI is fully **SSR-hydrated multi-language** (zh-CN / en / ja) via TanStack S
 | **Router** | [TanStack Router](https://tanstack.com/router) | Type-safe file-based routing |
 | **LLM** | [WebLLM](https://github.com/mlc-ai/web-llm) + custom OpenAI-compatible providers (Ollama / LM Studio / vLLM / cloud) | Qwen2.5 1.5B q4f16_1 on WebGPU (fallback 0.5B), streaming; unified `runChat(opts)` factory pattern |
 | **Memory** | IndexedDB + Custom 3-Tier Pipeline | 100% client-side multi-tier persistence, entity extraction & n-gram note retrieval |
-| **Motion** | EMAGE + [ONNX Runtime Web](https://onnxruntime.ai) | Full-body generation in Dedicated Web Worker |
-| **TTS** | [edge-tts-universal](https://github.com/Sterznode/edge-tts-universal) | XiaoyiNeural zh-CN +10 Hz, emoji-stripped text |
+| **Motion** | EMAGE + [ONNX Runtime Web](https://onnxruntime.ai) | Dedicated Worker, **wasm EP + INT8** (no WebGPU; int64); streaming `motion_chunk` T=64 |
+| **TTS** | Native WebSocket client (`src/lib/edge-tts-core.ts`) | XiaoyiNeural zh-CN +10 Hz, emoji-stripped text; no third-party TTS SDK |
 | **Edge Runtime** | [Cloudflare Workers](https://developers.cloudflare.com/workers/) + [@cloudflare/vite-plugin](https://developers.cloudflare.com/workers/framework-guides/web-apps/tanstack-start/) | SSR streaming + WebSocket Edge-TTS + Static Assets |
-| **Object Storage** | [Cloudflare R2](https://developers.cloudflare.com/r2/) | 504 MB ONNX body models hosted with zero egress fees |
+| **Object Storage** | [Cloudflare R2](https://developers.cloudflare.com/r2/) | Both FP32 (504 MB) and INT8 (~195 MB) ONNX bodies hosted with zero egress; browser downloads via `useInt8` toggle in `src/config.ts` (INT8 on tip) |
 | **Styling** | [Tailwind CSS 4](https://tailwindcss.com) + `tailwindcss-animate` | `liquid-glass` aesthetic, mobile-first |
 | **i18n** | [i18next](https://www.i18next.com) + [react-i18next](https://react.i18next.com) | 3 languages, SSR-hydrated |
 | **UI Primitives** | [Radix UI](https://www.radix-ui.com) (Dropdown Menu, Slot) | shadcn-style components |
@@ -236,14 +240,15 @@ Project-XiaoChun/
 │   ├── BONE_MORPH.md
 │   ├── FOOT_IK.md
 │   ├── CHAT_DIRECTOR.md
-│   └── ON_DEVICE_AI.md
+│   ├── ON_DEVICE_AI.md
+│   └── EMAGE_MODEL.md         # EMAGE status & known limits (wasm/INT8, streaming, isolation)
 ├── wrangler.jsonc             # Cloudflare Workers declarative configuration
 ├── src/
 │   ├── routes/                # TanStack Start file-based routes
 │   │   ├── __root.tsx         # Root layout (i18n SSR hydration, GEO JSON-LD & meta tags)
 │   │   └── index.tsx          # Main index route
 │   ├── components/            # React UI components (TopHeader, ChatBar, HeadBubble, DevDrawer…)
-│   │   ├── dev-drawer/         # Debug drawer — schema-driven 6 sections (localhost only)
+│   │   ├── dev-drawer/         # Debug drawer — schema-driven 7 sections (localhost only)
 │   │   │   ├── DevDrawer.tsx          # Shell (header + SectionRenderer list)
 │   │   │   ├── schema.ts              # SECTIONS[] (id + order) — add a section = 1 line
 │   │   │   ├── renderer.tsx           # id → component REGISTRY
@@ -253,13 +258,14 @@ Project-XiaoChun/
 │   │   │   │   ├── SectionCard.tsx    # Card wrapper (optional collapse gate via id)
 │   │   │   │   ├── SectionHeader.tsx  # Chevron + title + modified dot + reset
 │   │   │   │   └── HeightChip.tsx     # Live height chip subscribing to engine
-│   │   │   ├── sections/              # 6 self-contained section components
+│   │   │   ├── sections/              # 7 self-contained section components
 │   │   │   │   ├── ExpressionsSection.tsx
 │   │   │   │   ├── CameraSection.tsx           # FOV + min/max distance + body-turn toggle
 │   │   │   │   ├── SaturationSection.tsx       # 4 sliders + 4 presets
 │   │   │   │   ├── BoneMorphSection.tsx        # 27 sliders grouped into 7 body regions
 │   │   │   │   ├── WardrobeSection.tsx         # 穿 / 未穿 / 未装配 3-state rendering
-│   │   │   │   └── LightingSection.tsx         # 6 channels + global mult
+│   │   │   │   ├── LightingSection.tsx         # 6 channels + global mult
+│   │   │   │   └── EmagePerfSection.tsx        # P0b wasm_env / isolation / stage timings
 │   │   │   └── hooks/                 # Shared section hooks
 │   │   ├── AdvancedSettingsDialog.tsx  # User-customizable system prompt + memory-turns slider
 │   │   ├── SyncDialog.tsx     # Cross-device encrypted text transfer (AES-GCM)
@@ -281,8 +287,8 @@ Project-XiaoChun/
 │   │   ├── speakIdle.ts       # Inter-clause hesitation gesture hover & slow descent
 │   │   ├── bodyTurn.ts        # Pelvis & lower-body procedural turning gait (Layer 2)
 │   │   ├── footIK.ts          # Foot grounding inverse kinematics solver (Post-Pass)
-│   │   ├── emagePlayer.ts     # EMAGE co-speech gesture player & temporal Gaussian filtering
-│   │   ├── emageWorker.ts     # ONNX Runtime Web dedicated Web Worker
+│   │   ├── emagePlayer.ts     # EMAGE player: motion_chunk stream, A/V hold, seam/hop via APP_CONFIG.emage.motion
+│   │   ├── emageWorker.ts     # ONNX Runtime Web Dedicated Worker (wasm EP + INT8; T=64 windows)
 │   │   ├── vrmaPlayer.ts      # VRMA animation playback driver
 │   │   └── vrmaRetarget.ts    # VRMA bone retargeting & normalization
 │   ├── memory/                # Client-side multi-tier memory (IndexedDB / entity extraction / n-gram retrieval)
@@ -304,16 +310,18 @@ Project-XiaoChun/
 │   ├── director/
 │   │   └── chatDirector.ts    # LLM → TTS → EMAGE streaming coordinator pipeline
 │   ├── i18n/                  # zh-CN / en / ja translation dictionaries + server cookie helper
-│   ├── lib/                   # Cross-cutting utilities (cn className merge helper)
-│   │   └── utils.ts
+│   ├── lib/                   # Cross-cutting utilities
+│   │   ├── utils.ts           # cn() className merge helper
+│   │   ├── constants.ts
+│   │   └── edge-tts-core.ts   # Native Edge-TTS WebSocket client (no third-party TTS SDK)
 │   ├── styles/
 │   │   └── main.css           # Tailwind v4 @theme tokens + liquid-glass styles
 │   ├── App.tsx                # Main application component & event bindings
 │   ├── client.tsx             # Client hydration entry
-│   ├── server.ts              # Cloudflare Worker entry (SSR router + /api/tts WebSocket proxy)
+│   ├── server.ts              # Cloudflare Worker entry (SSR + /api/tts WS + COOP/COEP isolation headers)
 │   ├── router.tsx             # TanStack Router factory
 │   ├── routeTree.gen.ts       # Auto-generated type-safe route tree
-│   └── config.ts              # Single source of truth (R2 / camera / 6-ch lights / saturation / LLM / bodyMorph / expressions)
+│   └── config.ts              # SSOT (R2 / camera / lights / LLM / bodyMorph / emage.models + emage.motion hop/seam)
 ├── vite.config.ts             # Vite 8 + TanStack Start + @cloudflare/vite-plugin
 ├── vite/                      # Custom vite plugins (extracted from vite.config.ts)
 │   ├── localApiPlugin.ts       # /api/tts dev middleware (TTS proxy with EU fallback)
@@ -346,7 +354,7 @@ This project is licensed under the **MIT License**.
 > * `public/xiaochun_v1.vrm` — VRM character model generated with **[VRoid Studio](https://vroid.com/en/studio)** (Pixiv Inc.). Subject to the **VRoid Studio License** — free for personal use, modification, and non-commercial redistribution with attribution. For commercial use, please review the [VRoid Studio License terms](https://vroid.com/en/license) or contact Pixiv Inc. for a separate agreement.
 > * `public/thinking.vrma` — VRM animation. **License unknown** — verify before redistribution.
 
-`/api/tts` in `src/server.ts` uses Microsoft's Edge-TTS service via the public [`edge-tts-universal`](https://github.com/Sterznode/edge-tts-universal) protocol. The `TRUSTED_CLIENT_TOKEN` constant is a publicly known shared token (the same value used by every open-source Edge-TTS implementation) and is **not** a personal secret.
+`/api/tts` in `src/server.ts` (and the Vite middleware in `vite/localApiPlugin.ts`) uses a hand-rolled native WebSocket client (`src/lib/edge-tts-core.ts`) to talk to Microsoft's Edge-TTS service directly — no third-party TTS SDK. The `TRUSTED_CLIENT_TOKEN` constant is a publicly known shared token (the same value used by every open-source Edge-TTS implementation) and is **not** a personal secret.
 
 ---
 
@@ -355,7 +363,7 @@ This project is licensed under the **MIT License**.
 * [pixiv / three-vrm](https://github.com/pixiv/three-vrm) — VRM runtime
 * [Pixiv / VRoid Studio](https://vroid.com/en/studio) — default character authoring
 * [MLC AI / WebLLM](https://github.com/mlc-ai/web-llm) — in-browser LLM
-* [Sterznode / edge-tts-universal](https://github.com/Sterznode/edge-tts-universal) — Edge-TTS bridge
+* [PantoMatrix / EMAGE](https://github.com/PantoMatrix/PantoMatrix) ([Yi 等人, CVPR 2024](https://pantomatrix.github.io/EMAGE/)) — full-body motion model
 * [TanStack Start](https://tanstack.com/start) — full-stack React framework
 * [Tailwind CSS](https://tailwindcss.com) — utility-first styling
 * [Qiuner / Qiuner.github.io](https://github.com/Qiuner/Qiuner.github.io) (`src/worlds/linework/`) — linework outdoor scene visual inspiration

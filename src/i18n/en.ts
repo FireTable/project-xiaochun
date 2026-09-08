@@ -42,6 +42,16 @@ export const en: Trans = {
     waitReadyHint: 'Your message will send when ready',
     sending: 'Replying…',
     send: 'Send',
+    // ponytail: dev-only one-click test — skip LLM, go straight to TTS → EMAGE → playback
+    testSpeak: 'Test',
+    // ponytail: intentionally ≥2 segments — tests multi-segment pipeline (tts concurrent + emage sequential cross-segment continuity)
+    testSpeakText: "The weather is wonderful today, with gentle spring breezes and blooming cherry blossoms. Shall we take a long walk together in the park by the lakeside?",
+    // ponytail: dev test dropdown — pick samples to cover different pipeline lengths
+    testSpeakSpring: 'Spring Walk',
+    testSpeakShudao: 'Shu Dao Nan (Li Bai)',
+    testSpeakSegments: '{{count}} segs',
+    // ponytail: classical Chinese poem — keep original; TTS Chinese voice reads it correctly
+    testSpeakShudaoText: '噫吁嚱，危乎高哉！蜀道之难，难于上青天！蚕丛及鱼凫，开国何茫然！尔来四万八千岁，不与秦塞通人烟。西当太白有鸟道，可以横绝峨眉巅。地崩山摧壮士死，然后天梯石栈相钩连。上有六龙回日之高标，下有冲波逆折之回川。黄鹤之飞尚不得过，猿猱欲度愁攀援。青泥何盘盘，百步九折萦岩峦。扪参历井仰胁息，以手抚膺坐长叹。问君西游何时还？畏途巉岩不可攀。但见悲鸟号古木，雄飞雌从绕林间。又闻子规啼夜月，愁空山。蜀道之难，难于上青天，使人听此凋朱颜！连峰去天不盈尺，枯松倒挂倚绝壁。飞湍瀑流争喧豗，砯崖转石万壑雷。其险也如此，嗟尔远道之人胡为乎来哉！剑阁峥嵘而崔嵬，一夫当关，万夫莫开。所守或匪亲，化为狼与豺。朝避猛虎，夕避长蛇。磨牙吮血，杀人如麻。锦城虽云乐，不如早还家。蜀道之难，难于上青天，侧身西望长咨嗟！',
     thinkingOn: 'Thinking on',
     thinkingOff: 'Thinking off',
     chatMenu: 'Chat settings',
@@ -164,6 +174,8 @@ export const en: Trans = {
     madCardName: 'XiaoChun',
     madTagHair: 'Coral-Pink Hair',
     madTagWebGpu: 'Native WebGPU Engine',
+    // ponytail: P0b EMAGE Worker WASM + SAB multithreading — paired with WebGPU tag for stack completeness
+    madTagWasm: 'EMAGE WASM · SAB Threads',
     madBreakBtn: 'Break Dimension into 3D Stage',
     madBreaking: '⚡ Crossing Dimensions...',
     madPreviewBreakBtn: '🚀 Experience 2D → 3D Dimension Break',
@@ -201,6 +213,18 @@ export const en: Trans = {
   panel: {
     title: 'Debug / Settings Panel',
     expressionsLabel: '🎭 Preset Expressions',
+    emagePerfLabel: '⚡ EMAGE Perf / P0b',
+    emagePerfClear: 'Clear step log',
+    emagePerfToggle: 'Profile next speak',
+    emagePerfPass: 'Threads OK',
+    emagePerfToggleHint: 'Applies only when the caller omits profileStages (chatDirector already forces true)',
+    emagePerfWaitWasm: 'Waiting for wasm_env (appears after model warm-up)',
+    emagePerfPassLine: 'PASS: numThreads≥2 and SAB + isolated',
+    emagePerfFailNotIsolated: 'FAIL: not crossOriginIsolated (missing COOP/COEP)',
+    emagePerfFailNoSab: 'FAIL: SharedArrayBuffer unavailable',
+    emagePerfFailThreads: 'FAIL: numThreads={{n}} (need ≥2)',
+    emagePerfFailUnknown: 'FAIL: unknown reason',
+    emagePerfRecentStages: 'Recent stages ({{n}}/12)',
     lightsLabel: '💡 Light Channels & Global Mult',
     cameraLabel: '🎥 Camera Settings',
     globalLight: 'Global Light Multiplier',

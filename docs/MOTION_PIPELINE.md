@@ -92,6 +92,18 @@ graph TD
 
 ---
 
+## 2.1 EMAGE as a Layer-1 streaming source
+
+`EmagePlayer` feeds Layer 1 with co-speech poses. On tip `perf/edge-inference`:
+
+- Inference runs in a Dedicated Worker with **wasm EP + INT8** (not WebGPU).
+- Streaming uses per-window **`motion_chunk`** (T=64) with A/V hold until audible TTS.
+- Hop / seam tunables live in `APP_CONFIG.emage.motion` (`advanceFrames` 60..64).
+
+When `motion_chunk` streaming is active, the Director must **not** reset playhead via `applyMotionData` / `switchSegment` on each window. See [`EMAGE_MODEL.md`](EMAGE_MODEL.md) and [`CHAT_DIRECTOR.md`](CHAT_DIRECTOR.md).
+
+**Source priority** (render loop): `universal` > `emage` > `vrma` > `idle`. `motionTransition` fires only on source change — not per chunk. Full speak orchestration diagram: [`CHAT_DIRECTOR.md`](CHAT_DIRECTOR.md#orchestration-flowchart-tip). Per-window Worker diagram: [`EMAGE_MODEL.md`](EMAGE_MODEL.md#31-single-window-worker-path-pcm--step--decode--chunk--seam).
+
 ## 3. Quintic Smootherstep Transition Algorithm
 
 Linear quaternion interpolation ($\text{Slerp}$) exhibits discontinuous second derivatives at boundary boundaries ($t=0, t=1$), resulting in visible mechanical jerks.

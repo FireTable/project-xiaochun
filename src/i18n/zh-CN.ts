@@ -41,6 +41,16 @@ export const zhCN = {
     waitReadyHint: '就绪后会自动发出刚才那句话',
     sending: '回复中…',
     send: '发送',
+    // ponytail: dev-only 一键测试 — 跳过 LLM,直接走 TTS → EMAGE → 播放
+    testSpeak: '测试',
+    // ponytail: 故意 ≥2 段 — 测试多段流水线(tts 并发 + emage 串行跨段连续)
+    testSpeakText: '今天阳光明媚，春风轻柔拂面而来，樱花粉嫩盛开正美呀。路边柳树嫩芽随风飘舞，湖面波光粼粼闪着光，我们一起去公园散步吧。',
+    // ponytail: dev 测试下拉菜单 — 选不同样本快速覆盖不同流水线长度
+    testSpeakSpring: '春日散步',
+    testSpeakShudao: '蜀道难（李白）',
+    testSpeakSegments: '{{count}} 段',
+    // ponytail: 蜀道难 ~280 字 — splitIntoSpeechChunks 会切 ~12 段,长会话压力测试
+    testSpeakShudaoText: '噫吁嚱，危乎高哉！蜀道之难，难于上青天！蚕丛及鱼凫，开国何茫然！尔来四万八千岁，不与秦塞通人烟。西当太白有鸟道，可以横绝峨眉巅。地崩山摧壮士死，然后天梯石栈相钩连。上有六龙回日之高标，下有冲波逆折之回川。黄鹤之飞尚不得过，猿猱欲度愁攀援。青泥何盘盘，百步九折萦岩峦。扪参历井仰胁息，以手抚膺坐长叹。问君西游何时还？畏途巉岩不可攀。但见悲鸟号古木，雄飞雌从绕林间。又闻子规啼夜月，愁空山。蜀道之难，难于上青天，使人听此凋朱颜！连峰去天不盈尺，枯松倒挂倚绝壁。飞湍瀑流争喧豗，砯崖转石万壑雷。其险也如此，嗟尔远道之人胡为乎来哉！剑阁峥嵘而崔嵬，一夫当关，万夫莫开。所守或匪亲，化为狼与豺。朝避猛虎，夕避长蛇。磨牙吮血，杀人如麻。锦城虽云乐，不如早还家。蜀道之难，难于上青天，侧身西望长咨嗟！',
     thinkingOn: '思考模式开',
     thinkingOff: '思考模式关',
     chatMenu: '聊天设置',
@@ -164,6 +174,8 @@ export const zhCN = {
     madCardName: '小 蠢 · XiaoChun',
     madTagHair: '珊瑚橘粉发',
     madTagWebGpu: '原生 WebGPU 引擎',
+    // ponytail: P0b EMAGE Worker WASM + SAB 多线程 — 跟 WebGPU 并列强调栈完整性
+    madTagWasm: 'EMAGE WASM · SAB 多线程',
     madBreakBtn: '破次元变身 3D 舞台',
     madBreaking: '⚡ 破次元穿越中...',
     madPreviewBreakBtn: '🚀 体验 2D 破次元 → 3D 入场',
@@ -191,7 +203,7 @@ export const zhCN = {
     thinking: '嗯嗯…让小蠢想想嘛…',
     speaking: '来啦来啦～',
     tts: '嗯…让嗓子热一下…',
-    emage: '嗯…想想怎么深情并茂地回复',
+    emage: '嗯…想想怎么声情并茂地回复',
     // ponytail: 这个本来该走 LoadingOverlay,但 webLLM milestone 走的是 bubble status 通道,
     // 兜底翻译一下避免 i18next 把 key 原样吐出来。
     loadingWebGpu: '小蠢的大脑要热身一下…',
@@ -203,6 +215,18 @@ export const zhCN = {
   panel: {
     title: '调试 / 设置面板',
     expressionsLabel: '🎭 预设表情',
+    emagePerfLabel: '⚡ EMAGE 性能 / P0b',
+    emagePerfClear: '清除 step 记录',
+    emagePerfToggle: '下一轮说话记录 step',
+    emagePerfPass: '线程 OK',
+    emagePerfToggleHint: '仅当调用方未传 profileStages 时生效（chatDirector 已显式开启）',
+    emagePerfWaitWasm: '等待 wasm_env（模型预热后出现）',
+    emagePerfPassLine: 'PASS：numThreads≥2 且 SAB + isolated',
+    emagePerfFailNotIsolated: 'FAIL：未 crossOriginIsolated（无 COOP/COEP）',
+    emagePerfFailNoSab: 'FAIL：无 SharedArrayBuffer',
+    emagePerfFailThreads: 'FAIL：numThreads={{n}}（需要 ≥2）',
+    emagePerfFailUnknown: 'FAIL：未知原因',
+    emagePerfRecentStages: '最近 stage（{{n}}/12）',
     lightsLabel: '💡 灯光通道与全局倍率',
     cameraLabel: '🎥 镜头设置',
     globalLight: '全局总光照倍率',

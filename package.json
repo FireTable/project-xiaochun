@@ -10,6 +10,8 @@
     "build": "vite build",
     "preview": "vite preview",
     "deploy": "pnpm build && wrangler deploy",
+    "deploy:dev": "pnpm build && wrangler deploy --config wrangler.dev.jsonc",
+    "dev:worker": "wrangler dev --config wrangler.dev.jsonc",
     "cf-typegen": "wrangler types"
   },
   "engines": {
@@ -49,9 +51,9 @@
     "@tanstack/react-start": "^1.168.49",
     "class-variance-authority": "^0.7.1",
     "clsx": "^2.1.1",
-    "edge-tts-universal": "^1.4.0",
     "i18next": "^26.4.1",
     "lucide-react": "^1.40.0",
+    "mpg123-decoder": "^1.0.3",
     "onnxruntime-web": "^1.22.0-dev.20250409-89f8206ba4",
     "react": "^19.2.8",
     "react-dom": "^19.2.8",

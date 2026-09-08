@@ -46,11 +46,11 @@ export const VRM_ALL_HUMANOID_BONES = [
  * 基于解剖学最大角位移的自适应动力学 S 曲线平滑系统 (Adaptive Biomechanical S-Curve System)
  *
  * 核心设计：
- * 1. 彻底打破死板固定写死 0.55s：
- *    - 姿态切换瞬间，系统瞬时计算全身 52 根骨骼的最大物理角位移 Δθ_max 与骨盆位移差 Δp；
- *    - 小动作 (Δθ < 15°)：自适应收敛时长缩短为 0.22s ~ 0.28s，毫秒级轻灵贴合，绝不拖沓；
- *    - 大动作 (Δθ > 70°)：自适应匹配 0.55s ~ 0.62s，给足大肌肉群与重力舒展时间；
- *    - 中等动作：自适应处于 0.35s ~ 0.48s。
+ * 1. 按 Δθ 自适应时长（P0c.1 整体约 +30%，避免源切换「划过去」）：
+ *    - 首帧对比快照与目标，取最大角位移 Δθ_max；
+ *    - 小动作 (Δθ < 15°)：约 0.29s ~ 0.36s；
+ *    - 大动作 (Δθ > 70°)：约 0.72s ~ 0.81s；
+ *    - 中等动作：约 0.45s ~ 0.72s。
  *
  * 2. 电影级五次平滑步阶曲线 (Quintic Smootherstep: 6t^5 - 15t^4 + 10t^3)：
  *    - 首尾速度为零、加速度严格连续，绝无第一帧撕扯冲击或最后一帧突然定格；
@@ -59,7 +59,9 @@ export const VRM_ALL_HUMANOID_BONES = [
 export class MotionTransitionManager {
   private isTransitioning = false;
   private transitionElapsed = 0;
-  private transitionDuration = 0.45;
+  private transitionDuration = 0.58;
+  private needsAdaptiveDuration = false;
+  private adaptiveMinDuration = 0.52;
 
   private boneSnapshots = new Map<string, THREE.Quaternion>();
   private hipsPosSnapshot = new THREE.Vector3();
@@ -76,7 +78,7 @@ export class MotionTransitionManager {
    */
   startTransition(
     vrm: VRM | null | undefined,
-    duration = 0.75,
+    duration = 0.98,
     lookAtOffsets?: { neck?: THREE.Quaternion; head?: THREE.Quaternion },
     boneFilter?: readonly string[],
   ): void {
@@ -114,11 +116,13 @@ export class MotionTransitionManager {
     }
     this.sceneYSnapshot = vrm.scene.position.y;
 
-    // 当指定了局部骨骼子集（如踱步交接）时，允许更短的过渡时间；全局全身切换时保持 >= 0.40s
-    const minDur = boneFilter ? 0.15 : 0.40;
+    // 局部子集可更短；全身切换默认更长（约 +30%），首帧再按 Δθ 自适应
+    const minDur = boneFilter ? 0.20 : 0.52;
+    this.adaptiveMinDuration = minDur;
     this.transitionDuration = Math.max(minDur, duration);
     this.transitionElapsed = 0;
     this.isTransitioning = true;
+    this.needsAdaptiveDuration = true;
   }
 
   /**
@@ -126,6 +130,22 @@ export class MotionTransitionManager {
    */
   apply(vrm: VRM | null | undefined, delta: number): void {
     if (!this.isTransitioning || !vrm?.humanoid) return;
+
+    if (this.needsAdaptiveDuration) {
+      let maxAngle = 0;
+      for (const [name, snapQ] of this.boneSnapshots.entries()) {
+        const node = vrm.humanoid.getNormalizedBoneNode(name as any);
+        if (!node) continue;
+        maxAngle = Math.max(maxAngle, snapQ.angleTo(node.quaternion));
+      }
+      const deg = maxAngle * (180 / Math.PI);
+      let d: number;
+      if (deg < 15) d = 0.29 + (deg / 15) * 0.07;
+      else if (deg > 70) d = 0.72 + Math.min(1, (deg - 70) / 40) * 0.09;
+      else d = 0.45 + ((deg - 15) / 55) * 0.27;
+      this.transitionDuration = Math.max(this.adaptiveMinDuration, d);
+      this.needsAdaptiveDuration = false;
+    }
 
     this.transitionElapsed += delta;
     const alpha = Math.min(1.0, this.transitionElapsed / this.transitionDuration);

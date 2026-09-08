@@ -2,7 +2,7 @@
  * chatDirector — 全本地说话链路:
  *   1. POST /director/plan        → {speech}
  *   2. POST /director/synthesize  → wav (Audio8 / MiniMax)
- *   3. EMAGE 用这段音频生成全身手势
+ *   3. EMAGE 流式用音频生成全身手势 (无限自回归长会话模式：整场回答会话长驻，跨段特征不断，Checkpoint 增量结算)[cite: 13]
  *   4. 起播 audio + EMAGE; RMS → 口型
  * 思考阶段仍用 thinking.vrma。
  */
@@ -11,25 +11,26 @@ import type * as THREE from 'three';
 import type { VRM } from '@pixiv/three-vrm';
 import { makeClipSeamless } from '@/motion/vrmaRetarget';
 import type { VRMAMotionPlayer } from '@/motion/vrmaPlayer';
-import { pcmFromAudioBuffer, type EmagePlayer, type EmageMotionData } from '@/motion/emagePlayer';
+import { type EmagePlayer, type EmageMotionData } from '@/motion/emagePlayer';
 import { generateSpeechReply } from '@/llm/chatWorkflow';
+import { MPEGDecoder } from 'mpg123-decoder';
 import { rememberTurn } from '@/memory';
 import type { MotionTransitionManager } from '@/motion/motionTransition';
 import type { Lang } from '@/i18n';
+import { APP_CONFIG } from '@/config';
 
 interface Plan { speech: string; llm_provider?: string }
 
 /**
  * 智能分句与切段器 (Smart Speech Chunk Slicer)
  * 目标:
- * 1. 统一各段语义完整度与抑扬顿挫 (约 30~60 个字，在句号、感叹号、问号或换行处自然切分)。
- * 2. 绝不在词语中硬切，严格在标点处分段；若长句超过 65 字无句号，则在逗号、分号处切分换气。
+ * 1. 统一各段语义完整度与抑扬顿挫 (约 30~60 个字，在句号、感叹号、问号或换行处自然切分)[cite: 13]。
+ * 2. 绝不在词语中硬切，严格在标点处分段；若长句超过 65 字无句号，则在逗号、分号处切分换气[cite: 13]。
  */
 export function splitIntoSpeechChunks(text: string): string[] {
   const clean = text.trim();
   if (!clean) return [];
 
-  // 如果总字数较少 (<= 45 字)，无需分段，单段直接开播体验最佳
   if (clean.length <= 45) {
     return [clean];
   }
@@ -37,7 +38,6 @@ export function splitIntoSpeechChunks(text: string): string[] {
   const chunks: string[] = [];
   let remaining = clean;
 
-  // 标点匹配：包括中英文句号、问号、感叹号、换行符（英文点号要求后面跟空格或结尾，避免小数 3.14 断开）
   const sentenceDelims = /(?:[。！？!?\n]|\.(?:\s+|$))/g;
   const commaDelims = /(?:[，,；;]|,(?:\s+|$)|;(?:\s+|$))/g;
 
@@ -51,7 +51,6 @@ export function splitIntoSpeechChunks(text: string): string[] {
     sentenceDelims.lastIndex = 0;
     let match: RegExpExecArray | null;
 
-    // 1. 优先在 25 ~ 65 字之间的句末标点处断句
     while ((match = sentenceDelims.exec(remaining)) !== null) {
       const idx = match.index + match[0].length;
       if (idx >= 25 && idx <= 65) {
@@ -63,7 +62,6 @@ export function splitIntoSpeechChunks(text: string): string[] {
       }
     }
 
-    // 2. 若未在 25~65 字找到句末标点，但在 25~60 字之间有逗号/分号，则在逗号处切分换气
     if (cutIdx === -1) {
       commaDelims.lastIndex = 0;
       while ((match = commaDelims.exec(remaining)) !== null) {
@@ -74,7 +72,6 @@ export function splitIntoSpeechChunks(text: string): string[] {
       }
     }
 
-    // 3. 若仍未找到合适标点，但在 15~75 字内有任意句末标点，顺畅断开
     if (cutIdx === -1) {
       sentenceDelims.lastIndex = 0;
       if ((match = sentenceDelims.exec(remaining)) !== null) {
@@ -85,7 +82,6 @@ export function splitIntoSpeechChunks(text: string): string[] {
       }
     }
 
-    // 4. 若无任何标点，尽量在空格处切断，避免在英文单词中间截断
     if (cutIdx === -1) {
       const target = Math.min(50, remaining.length);
       const lastSpace = remaining.lastIndexOf(' ', target);
@@ -104,30 +100,6 @@ export function splitIntoSpeechChunks(text: string): string[] {
   return chunks;
 }
 
-/**
- * 裁剪 AudioBuffer 末尾死寂静音 (保留 minKeepSec 自然缓冲)
- */
-function trimAudioBufferTrailingSilence(ctx: AudioContext, buf: AudioBuffer, threshold = 0.005, minKeepSec = 0.25): AudioBuffer {
-  const data = buf.getChannelData(0);
-  let lastActive = data.length - 1;
-  while (lastActive > 0 && Math.abs(data[lastActive]!) < threshold) {
-    lastActive--;
-  }
-  const pad = Math.floor(buf.sampleRate * minKeepSec);
-  const endSample = Math.min(data.length, lastActive + pad);
-  if (endSample >= data.length - 16 || endSample <= pad) return buf;
-
-  const trimmed = ctx.createBuffer(buf.numberOfChannels, endSample, buf.sampleRate);
-  for (let ch = 0; ch < buf.numberOfChannels; ch++) {
-    trimmed.getChannelData(ch).set(buf.getChannelData(ch).subarray(0, endSample));
-  }
-  return trimmed;
-}
-
-/**
- * 喂给 Edge-TTS 前先把表情符号剥掉。
- * ponytail: emoji 会被 Edge-TTS 解读成 prosody hint,触发"羞涩微笑/愉悦"等情绪变调。
- */
 function stripForTTS(s: string): string {
   return s
     .replace(/\p{Extended_Pictographic}/gu, '')
@@ -136,62 +108,234 @@ function stripForTTS(s: string): string {
 }
 
 /**
- * 专一专属语音合成 — 微软 Edge-TTS (小蠢 · 元气少女 +10Hz,跨语种恒定)
+ * 流式线性重采样辅助器：将任意采样率输入以 16000Hz 流式产出
  */
-async function synthesizeSentenceAudio(
+class Resampler16k {
+  private inSampleRate = 0;
+  private srcFrac = 0;
+
+  setSourceSampleRate(sr: number) {
+    this.inSampleRate = sr;
+  }
+
+  resample(input: Float32Array): Float32Array {
+    if (!this.inSampleRate || this.inSampleRate === 16000) {
+      return input;
+    }
+    const ratio = this.inSampleRate / 16000;
+    const outLen = Math.floor((input.length - this.srcFrac) / ratio);
+    if (outLen <= 0) return new Float32Array(0);
+
+    const out = new Float32Array(outLen);
+    let curr = this.srcFrac;
+    for (let i = 0; i < outLen; i++) {
+      const idx = Math.floor(curr);
+      const next = Math.min(input.length - 1, idx + 1);
+      const frac = curr - idx;
+      out[i] = input[idx]! * (1 - frac) + input[next]! * frac;
+      curr += ratio;
+    }
+    this.srcFrac = curr - input.length;
+    return out;
+  }
+}
+
+/**
+ * 计算 PCM 片段能量均方根 (RMS)
+ */
+function getChunkRMS(pcm: Float32Array): number {
+  if (pcm.length === 0) return 0;
+  let sum = 0;
+  for (let i = 0; i < pcm.length; i++) {
+    sum += pcm[i]! * pcm[i]!;
+  }
+  return Math.sqrt(sum / pcm.length);
+}
+
+/**
+ * 单切片音频合成与流式注入 (会话不关闭，通过 Checkpoint 增量结算动作，前置拦截尾静音对齐时钟)[cite: 13]
+ */
+async function streamChunkAudioToCheckpoint(
   text: string,
   ctx: AudioContext,
-): Promise<AudioBuffer> {
+  emage: EmagePlayer,
+  isStopped: () => boolean,
+  onEmagePhase?: (durationSec: number) => void,
+): Promise<{ audioBuffer: AudioBuffer; motion: EmageMotionData }> {
   const ttsText = stripForTTS(text);
-  // ponytail: emoji-only 输入剥完为空,跳过合成返回静音 buffer,避免 400。
   if (!ttsText) {
-    return ctx.createBuffer(1, Math.floor(ctx.sampleRate * 0.1), ctx.sampleRate);
+    const dummy = ctx.createBuffer(1, Math.floor(ctx.sampleRate * 0.1), ctx.sampleRate);
+    return {
+      audioBuffer: dummy,
+      motion: {
+        rot6d: new Float32Array(0),
+        trans: new Float32Array(0),
+        frameCount: 0,
+        duration: 0.1,
+        fps: 30,
+      },
+    };
   }
+
+  if (ctx.state === 'suspended') {
+    await ctx.resume();
+  }
+
+  const res = await fetch('/api/tts', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      text: ttsText,
+      voice: 'zh-CN-XiaoyiNeural',
+      pitch: '+10Hz',
+    }),
+  });
+
+  if (!res.ok) throw new Error(`语音合成服务异常: HTTP ${res.status}`);
+  if (!res.body) throw new Error('语音合成响应无 body');
+
+  const reader = res.body.getReader();
+  const decoder = new MPEGDecoder();
+  await decoder.ready;
+
+  let srcSampleRate = 0;
+  const committedMonoChunks: Float32Array[] = [];
+  let totalCommittedSamples = 0;
+  const resampler = new Resampler16k();
+
+  // ── 前置流式尾静音拦截器 ──
+  // 维护待确认的静音 chunks，避免 TTS 尾部的死寂大段静音提前喂进 EMAGE 造成动作垮掉[cite: 13]
+  let pendingSilenceMono: Float32Array[] = [];
+  let pendingSilence16k: Float32Array[] = [];
+  let pendingSamples = 0;
+  const silenceThreshold = 0.005;
 
   try {
-    const res = await fetch('/api/tts', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        text: ttsText,
-        voice: 'zh-CN-XiaoyiNeural',
-        pitch: '+10Hz',
-      }),
-    });
+    while (true) {
+      if (isStopped()) {
+        reader.cancel();
+        break;
+      }
+      const { value, done } = await reader.read();
+      if (done) break;
+      if (!value || value.length === 0) continue;
 
-    if (!res.ok) {
-      throw new Error(`语音合成服务异常: HTTP ${res.status}`);
+      const r = decoder.decode(value);
+      if (r.samplesDecoded <= 0) continue;
+
+      if (srcSampleRate === 0) {
+        srcSampleRate = r.sampleRate;
+        resampler.setSourceSampleRate(srcSampleRate);
+      }
+
+      // 提取当前 chunk 的 Mono PCM[cite: 13]
+      const numCh = r.channelData.length;
+      const chunkMono = new Float32Array(r.samplesDecoded);
+      for (let ch = 0; ch < numCh; ch++) {
+        const chData = r.channelData[ch]!;
+        for (let i = 0; i < r.samplesDecoded; i++) {
+          chunkMono[i] += chData[i]! / numCh;
+        }
+      }
+
+      const chunk16k = resampler.resample(chunkMono);
+      const isSilent = getChunkRMS(chunkMono) < silenceThreshold;
+
+      if (isSilent) {
+        // 低能量静音 chunk 先存入待定缓冲区，暂不 push 给 EMAGE，也不入已提交队列[cite: 13]
+        pendingSilenceMono.push(chunkMono);
+        if (chunk16k.length > 0) pendingSilence16k.push(chunk16k);
+        pendingSamples += r.samplesDecoded;
+      } else {
+        // 检测到正常声能！说明之前的静音只是词语间的正常气口/顿挫，立即全部释放并推给 EMAGE[cite: 13]
+        if (pendingSilenceMono.length > 0) {
+          for (let i = 0; i < pendingSilenceMono.length; i++) {
+            committedMonoChunks.push(pendingSilenceMono[i]!);
+            if (pendingSilence16k[i] && pendingSilence16k[i]!.length > 0) {
+              emage.pushAudioChunk(pendingSilence16k[i]!);
+            }
+          }
+          totalCommittedSamples += pendingSamples;
+          pendingSilenceMono = [];
+          pendingSilence16k = [];
+          pendingSamples = 0;
+        }
+
+        // 提交当前有声 chunk[cite: 13]
+        committedMonoChunks.push(chunkMono);
+        totalCommittedSamples += r.samplesDecoded;
+        if (chunk16k.length > 0) {
+          emage.pushAudioChunk(chunk16k);
+        }
+      }
     }
 
-    const arrayBuffer = await res.arrayBuffer();
-    if (!arrayBuffer || arrayBuffer.byteLength < 64) {
-      throw new Error(`语音合成数据无效或为空 (byteLength: ${arrayBuffer?.byteLength ?? 0})`);
+    // ── 流读取完毕（EOF）：处理待定尾部静音 ──
+    // 此时 pendingSilence 队列里的内容被证实是句末尾部静音！
+    // 仅保留最多 0.20 秒自然余响缓冲，多余的死寂静音直接丢弃，绝不喂给 EMAGE[cite: 13]
+    const maxKeepSamples = Math.floor(srcSampleRate * 0.20);
+    let keepSamplesCount = 0;
+    for (let i = 0; i < pendingSilenceMono.length; i++) {
+      const pMono = pendingSilenceMono[i]!;
+      const p16k = pendingSilence16k[i];
+      if (keepSamplesCount + pMono.length <= maxKeepSamples) {
+        committedMonoChunks.push(pMono);
+        totalCommittedSamples += pMono.length;
+        if (p16k && p16k.length > 0) {
+          emage.pushAudioChunk(p16k);
+        }
+        keepSamplesCount += pMono.length;
+      } else {
+        // 超过 200ms 的纯死寂静音全部抛弃，主线程与 Worker 完全同步截止[cite: 13]
+        break;
+      }
     }
-
-    const rawDecoded = await ctx.decodeAudioData(arrayBuffer);
-    return trimAudioBufferTrailingSilence(ctx, rawDecoded);
-  } catch (err) {
-    console.warn('[ChatDirector] 语音合成或解码失败，启动平稳降级轨道:', err);
-    // 降级轨道：按字数预估朗读时长生成轻柔静音轨道，驱动 EMAGE 动作与字幕正常播放，绝不崩溃中断
-    const fallbackDuration = Math.max(1.5, Math.min(8, ttsText.length * 0.2));
-    return ctx.createBuffer(1, Math.floor(ctx.sampleRate * fallbackDuration), ctx.sampleRate);
+  } finally {
+    decoder.free();
   }
+
+  if (totalCommittedSamples === 0) {
+    throw new Error('语音合成数据为空');
+  }
+
+  // ponytail: TTS 字节流已收完,EMAGE 还在收尾窗+decode → 这就是"emage 阶段",
+  // 给气泡一个独立的切换点(老 batch 路径靠串行天然分两阶段,streaming 把它压扁了)。[cite: 13]
+  onEmagePhase?.(totalCommittedSamples / srcSampleRate);
+
+  // 核心改动：调用 checkpointAudioStream() 增量提取切片动作，绝不关流，特征栈完整保留[cite: 13]
+  const motion = await emage.checkpointAudioStream();
+
+  // 将同步裁剪后的 Mono PCM 组装并重采样为 AudioBuffer[cite: 13]
+  const mono = new Float32Array(totalCommittedSamples);
+  let off = 0;
+  for (const seg of committedMonoChunks) {
+    mono.set(seg, off);
+    off += seg.length;
+  }
+
+  const targetSR = ctx.sampleRate;
+  const ratioCtx = srcSampleRate / targetSR;
+  const nCtx = Math.max(1, Math.floor(mono.length / ratioCtx));
+  const pcmCtx = new Float32Array(nCtx);
+  for (let i = 0; i < nCtx; i++) {
+    pcmCtx[i] = mono[Math.min(mono.length - 1, Math.floor(i * ratioCtx))]!;
+  }
+
+  const audioBuffer = ctx.createBuffer(1, pcmCtx.length, targetSR);
+  audioBuffer.copyToChannel(pcmCtx, 0);
+
+  return { audioBuffer, motion };
 }
 
 interface PipelineSliceRow {
   '#': number;
   'Text Preview': string;
   'Chars': number;
-  'TTS': string;
-  'EMAGE': string;
+  'TTS & EMAGE Stream': string;
   'Playback': string;
   'Transition Mode': string;
 }
 
-/**
- * 流式分段管线表格跟踪器 (Pipeline Table Tracker)
- * 实时以 console.table 输出与刷新各切片的 TTS 合成、EMAGE 推理和播放进度
- */
 class PipelineTableTracker {
   private rows: PipelineSliceRow[] = [];
 
@@ -200,15 +344,14 @@ class PipelineTableTracker {
       '#': i,
       'Text Preview': c.length > 20 ? c.slice(0, 20) + '…' : c,
       'Chars': c.length,
-      'TTS': '⚡ 并发合成中…',
-      'EMAGE': '⏳ 等待中',
+      'TTS & EMAGE Stream': '⏳ 等待中',
       'Playback': '⏸️ 待播放',
-      'Transition Mode': i === 0 ? '首段起播' : '物理角速度自收敛',
+      'Transition Mode': i === 0 ? '首段0.6s淡入' : '无缝切段混合',
     }));
     if (typeof window !== 'undefined') {
       (window as any).__pipelineTable = this.rows;
     }
-    this.print('⚡ 智能分段流式管线初始化');
+    this.print('⚡ 无限自回归长流管线初始化');
   }
 
   update(index: number, patch: Partial<PipelineSliceRow>, stageInfo?: string): void {
@@ -222,7 +365,7 @@ class PipelineTableTracker {
     const inPlace = typeof window !== 'undefined' && Boolean((window as any).__pipelineInPlace);
     if (inPlace && typeof console.clear === 'function') {
       console.clear();
-      console.log(`📊 [ChatDirector] 智能分段流式管线状态表 (${stageInfo})`);
+      console.log(`📊 [ChatDirector] 无限自回归长流管线状态表 (${stageInfo})`);
       console.table(this.rows);
       return;
     }
@@ -240,7 +383,7 @@ export class ChatDirector {
   private currentSource: AudioBufferSourceNode | null = null;
   private currentGain: GainNode | null = null;
   private audioBuffer: AudioBuffer | null = null;
-  private audioDone = false;          // 语音是否已结束 (与 VRMA 独立)
+  private audioDone = false;
   private audioDoneTime = 0;
 
   private plan: Plan | null = null;
@@ -257,20 +400,10 @@ export class ChatDirector {
     this.transition = tm;
   }
 
-  /** ponytail: 由 vrmEngine.translateSync 注入,LLM 空输出兜底走 i18n。 */
   public translateSync: ((key: string, vars?: Record<string, unknown>) => string) | null = null;
-
-  /** 由 vrmEngine.bindSystemPrompt 注入,根据当前 i18n 语言挑对应 system prompt。 */
   public getSystemPrompt: (() => string) | null = null;
-
-  /**
-   * ponytail: 新 API — 同时返回 prompt + lang。chatWorkflow 用 lang 给 user 消息打 lang 标记,
-   * 不再靠 prompt 内容反推 lang(用户改 prompt 后那个 trick 失效)。
-   * vrmEngine.bindSystemContext 注入;旧 bindSystemPrompt 内部会包一层同步版本兜底。
-   */
   public getSystemContext: (() => Promise<{ prompt: string; lang: Lang }>) | null = null;
 
-  /** 移动端推理期间动态调频与稳态保护 */
   public onSuspendRendering: (() => void) | null = null;
   public onResumeRendering: (() => void) | null = null;
   public onInferenceStart: (() => void) | null = null;
@@ -294,7 +427,6 @@ export class ChatDirector {
     }
   }
 
-  /** VRM 就绪后就把 thinking.vrma 解析成 clip,发送时不再卡主线程。 */
   async warmThinkingClip(vrm: VRM, player: VRMAMotionPlayer): Promise<void> {
     if (!this.thinkingVRMABuf) await this.preloadThinking();
     if (!this.thinkingVRMABuf) return;
@@ -307,13 +439,11 @@ export class ChatDirector {
     }
   }
 
-  // 播放思考等待姿态 (静默等待，不再展示与播报"让我想一下喔")
   private async playThinking(vrm: VRM, player: VRMAMotionPlayer): Promise<void> {
     document.body.classList.add('chat-playing');
     this.isThinking = true;
     this.currentVRM = vrm;
 
-    // 起播 3D 思考动作文件 (thinking.vrma 无缝循环播放)
     if (!this.thinkingVRMABuf) {
       await this.preloadThinking();
     }
@@ -324,7 +454,6 @@ export class ChatDirector {
           makeClipSeamless(clip);
           this.cachedThinkingClip = clip;
         }
-        // 起播思考循环动作，动作平滑过渡由 vrmEngine 统一调度
         player.playLoop(this.cachedThinkingClip, vrm, 0.65);
       } catch (e) {
         console.warn('播放 thinking.vrma 动作失败', e);
@@ -354,24 +483,17 @@ export class ChatDirector {
     this.emage = emage;
     await this.playThinking(vrm, player);
 
-    // 错峰调度：移动端软键盘收起动画通常持续 300~400ms，让出 380ms 确保键盘完全收拢平稳，
-    // 桌面端无软键盘则仅保留 50ms，彻底避免收键盘动画与 WebGPU 首字爆发在半空中冲突卡顿
     const isMobile = typeof navigator !== 'undefined' && /Mobi|Android|iPhone|iPad/i.test(navigator.userAgent);
     const staggerDelay = isMobile ? 380 : 50;
     await new Promise((r) => setTimeout(r, staggerDelay));
     if (this.stopped) return;
 
-    // 激活推理期 30FPS 稳态调频与阴影降级，把 95%+ GPU 算力让渡给 WebGPU Prefill
     this.onInferenceStart?.();
-
-    // 关键帧让渡：让出 1 帧 rAF，确保 Three.js 刚好平稳提交完当前稳态帧，再唤醒 WebGPU 算力，避免在同一帧内碰撞
     await new Promise((r) => requestAnimationFrame(r));
     if (this.stopped) return;
 
     let speechText = '';
     try {
-      // ponytail: webLLM 内部已用 onMilestone 转发 i18n key;worker 高频进度不进 bubble,避免刷屏。
-      // 系统 prompt + lang 由 bindSystemContext 注入(默认人设按 i18n 选,有 override 用 override)。
       const ctx = await (this.getSystemContext?.() ?? Promise.resolve({
         prompt: this.getSystemPrompt?.() ?? '',
         lang: 'zh-CN' as Lang,
@@ -383,54 +505,114 @@ export class ChatDirector {
         ctx.lang,
       );
     } catch (e: any) {
-      // ponytail: 1) console 必打,方便手机 chrome 用户从 DevTools 复制原文反馈;
-      //          2) message 为空时硬编码英文兜底("Unknown error"),避免出现
-      //             "Local LLM error: "秃尾巴 + 不依赖未定义的 i18n key;
-      //          3) HeadBubble 渲染时硬加 "bubble." 前缀 → 传 "error.llm" 实际查
-      //             "bubble.error.llm",所以 i18n 里要定义在 bubble.error.llm 而非 error.llm。
       console.error('[ChatDirector] LLM failed:', e);
       const rawMsg = (e?.message ?? String(e) ?? '').trim();
       status('error.llm', { message: rawMsg || 'Unknown error' }, true);
       this.stop();
       return;
     } finally {
-      // 推理结束，立即恢复 60FPS 全特效渲染与阴影更新
       this.onInferenceEnd?.();
     }
     if (this.stopped || !speechText.trim()) {
-      // ponytail: LLM 空输出时塞 i18n greeting,不再硬编码中文。
       speechText = this.translateSync?.('bubble.greeting') ?? '';
       if (!speechText.trim()) return;
     }
     this.plan = { speech: speechText.trim(), llm_provider: 'WebLLM (q4f16_1)' };
-    console.log('[ChatDirector] speech:', this.plan.speech, 'llm:', this.plan.llm_provider);
-    void rememberTurn(text, this.plan.speech);
+    await this.runSpeechPipeline(text, player, emage, status);
+  }
+
+  async speakText(
+    text: string,
+    vrm: VRM,
+    player: VRMAMotionPlayer,
+    emage: EmagePlayer,
+    status: (
+      key: string,
+      vars?: Record<string, unknown>,
+      isError?: boolean,
+      speechText?: string,
+      segmentIndex?: number,
+      totalSegments?: number,
+    ) => void,
+  ): Promise<void> {
+    this.stop();
+    this.stopped = false;
+    this.audioDone = false;
+    this.speaking = false;
+    this.player = player;
+    this.emage = emage;
+    await this.playThinking(vrm, player);
+
+    const isMobile = typeof navigator !== 'undefined' && /Mobi|Android|iPhone|iPad/i.test(navigator.userAgent);
+    const staggerDelay = isMobile ? 380 : 50;
+    await new Promise((r) => setTimeout(r, staggerDelay));
+    if (this.stopped) return;
+
+    await new Promise((r) => requestAnimationFrame(r));
+    if (this.stopped) return;
+
+    this.plan = { speech: text, llm_provider: 'DEV_BYPASS' };
+    await this.runSpeechPipeline(text, player, emage, status);
+  }
+
+  /**
+   * 无限自回归长流主流水线：
+   * 1. 整场对话期间，startAudioStream 仅在最外层打开一次[cite: 13]
+   * 2. 遍历各段切片持续 pushAudioChunk，通过 checkpointAudioStream() 增量提取切片动作[cite: 13]
+   * 3. 彻底删除 setTimeout(220) 硬挂起，动作切换由 switchSegment 的 Slerp 自动吸收断层[cite: 11]
+   * 4. 所有切片全部生成完毕后，在最外层调用 endAudioStream() 正式收尾闭环[cite: 13]
+   */
+  private async runSpeechPipeline(
+    userText: string,
+    player: VRMAMotionPlayer,
+    emage: EmagePlayer,
+    status: (
+      key: string,
+      vars?: Record<string, unknown>,
+      isError?: boolean,
+      segText?: string,
+      segmentIndex?: number,
+      totalSegments?: number,
+    ) => void,
+  ): Promise<void> {
+    console.log('[ChatDirector] speech:', this.plan!.speech, 'llm:', this.plan!.llm_provider);
+    void rememberTurn(userText, this.plan!.speech);
 
     this.ctx = this.ctx ?? new AudioContext();
     if (this.ctx.state === 'suspended') await this.ctx.resume();
 
-    // 智能分句与切段 (首句追求毫秒级开口，后续段追求完整抑扬顿挫)
-    const chunks = splitIntoSpeechChunks(this.plan.speech);
+    const chunks = splitIntoSpeechChunks(this.plan!.speech);
     const tracker = new PipelineTableTracker(chunks);
 
-    emage.resetSeed();
+    // ponytail: 不再调 emage.resetSeed() —— 下面的 startAudioStream({continueFromPrevious:false})
+    // 会在 Worker 内部全清状态(feed_audio_start handler 已 reset seed/buffer/features/cursor)。
     emage.loop = false;
     emage.playAudio = false;
     emage.holdLastFrame = false;
 
-    // ── 全量并发启动 TTS 语音合成 (纯 I/O 无自回归依赖，全部段落并行拉取，彻底消除 TTS 瓶颈) ──
-    const ttsAudioPromises = chunks.map(async (cText, i) => {
-      try {
-        const aBuf = await synthesizeSentenceAudio(cText, this.ctx!);
-        tracker.update(i, { 'TTS': `✅ 就绪 (${aBuf.duration.toFixed(1)}s)` }, `切片 #${i} TTS 语音合成就绪`);
-        return aBuf;
-      } catch (err) {
-        tracker.update(i, { 'TTS': '❌ 合成失败' }, `切片 #${i} TTS 语音合成失败`);
-        throw err;
-      }
+    // ── 开启全局长会话：整场回答期间状态机长驻，特征绝不中途清空[cite: 13] ──
+    // P0a: 窗级 motion_chunk；首块早于段 EOF 即可 status('emage')
+    // P0a-AV: 首块仅缓冲，可见动作等 playAudioSource → releaseMotionForAudio
+    let p0aFirstMotionLogged = false;
+    emage.onMotionChunk = (data, isFirst) => {
+      if (!isFirst || p0aFirstMotionLogged) return;
+      p0aFirstMotionLogged = true;
+      console.log('[P0a-AV] first motion_chunk buffered (before TTS play)', {
+        frameCount: data.frameCount,
+        duration: data.duration,
+        fps: data.fps,
+        awaitingAudioStart: emage.awaitingAudioStart,
+      });
+      status('emage', { seconds: data.duration.toFixed(1) }, false);
+    };
+    // ponyx-experiment: 003 patch 验证用,跑稳后改回 false
+    await emage.startAudioStream({
+      continueFromPrevious: false,
+      profileStages: true,
+      emitPerWindow: true,
+      advanceFrames: APP_CONFIG.emage.motion.advanceFrames,
     });
 
-    // ── 准备后台生产者预取队列 (Ready Queue) ──
     interface SpeechSegment {
       index: number;
       text: string;
@@ -441,6 +623,8 @@ export class ChatDirector {
     const readyQueue: SpeechSegment[] = [];
     let producerFinished = false;
     const notifyReady: (() => void)[] = [];
+    /** P0a-AV: 跨段累计已播 TTS 秒数，驱动连续 motion playhead */
+    let audioTimelineOffsetSec = 0;
 
     const wakeConsumer = () => {
       while (notifyReady.length > 0) {
@@ -449,7 +633,7 @@ export class ChatDirector {
       }
     };
 
-    // 启动后台异步生产者：顺序生成所有切片的 EMAGE 动作 (自回归跨段连续继承种子)
+    // ── 后台生产者：持续灌入同一个长流，按 Checkpoint 增量提帧[cite: 13] ──
     const producerPromise = (async () => {
       for (let i = 0; i < chunks.length; i++) {
         if (this.stopped) break;
@@ -459,44 +643,49 @@ export class ChatDirector {
             status('tts', undefined, false);
           }
 
-          // 取并发已就绪的 TTS 音频 (0ms 网络等待)
-          const aBuf = await ttsAudioPromises[i]!;
+          tracker.update(i, { 'TTS & EMAGE Stream': '⚡ 无限自回归推演中…' }, `切片 #${i} 连续推演`);
+
+          // 保持同一流式会话，持续 push PCM 并增量结算该段动作[cite: 13]
+          const result = await streamChunkAudioToCheckpoint(
+            cText,
+            this.ctx!,
+            emage,
+            () => this.stopped,
+            // ponytail: 仅 #0 触发 emage 阶段气泡 — 后续段切到 speaking 状态,避免重复刷屏。[cite: 13]
+            i === 0 ? (sec) => status('emage', { seconds: sec.toFixed(1) }, false) : undefined,
+          );
           if (this.stopped) break;
 
-          tracker.update(i, { 'EMAGE': '⚙️ 推理中…' }, `切片 #${i} EMAGE 动作推理启动`);
-          if (readyQueue.length === 0 && i === 0) {
-            status('emage', { seconds: aBuf.duration.toFixed(1) }, false);
-          }
+          tracker.update(i, {
+            'TTS & EMAGE Stream': `✅ 就绪 (${result.audioBuffer.duration.toFixed(1)}s / ${result.motion.frameCount}帧)`,
+          }, `切片 #${i} 流式就绪`);
 
-          const pcm = pcmFromAudioBuffer(aBuf);
-          const mot = await emage.generate(pcm, () => undefined, false, i > 0);
-          if (this.stopped) break;
-
-          tracker.update(i, { 'EMAGE': `✅ 就绪 (${mot.frameCount}帧)` }, `切片 #${i} EMAGE 动作推理就绪`);
-          readyQueue.push({ index: i, text: cText, audioBuffer: aBuf, motion: mot });
+          readyQueue.push({
+            index: i,
+            text: cText,
+            audioBuffer: result.audioBuffer,
+            motion: result.motion,
+          });
           wakeConsumer();
         } catch (e) {
           console.warn(`[ChatDirector] 生产第 ${i} 段动作异常:`, e);
-          tracker.update(i, { 'EMAGE': '❌ 异常中断' }, `切片 #${i} 异常中断`);
+          tracker.update(i, { 'TTS & EMAGE Stream': '❌ 异常中断' }, `切片 #${i} 异常中断`);
           producerFinished = true;
           wakeConsumer();
           break;
         }
       }
       producerFinished = true;
+      // 所有切片 push 完毕，调用全局唯一一次 endAudioStream 结清收尾[cite: 13]
+      try {
+        await emage.endAudioStream();
+      } catch { }
       wakeConsumer();
     })();
 
-    // ── 双条件预缓冲等待起播 ──
-    // 条件 1: 比例原则 — 约 1/3 切片数 Math.ceil(chunks.length / 3)
-    // 条件 2: 上下限约束 — 最多预缓冲 2 段 (2段音频时长通常 8~12s，足够后台产生后续段，防止段数很多时初始久等)
-    const targetPreload = chunks.length <= 1
-      ? 1
-      : Math.min(chunks.length, Math.min(2, Math.max(1, Math.ceil(chunks.length / 3))));
+    // 首段就绪立即起播 (流式下首段生成极快)[cite: 13]
+    const targetPreload = 1;
 
-    console.log(`[ChatDirector] 智能分段: 共 ${chunks.length} 段, 双条件预缓冲目标: ${targetPreload} 段`);
-
-    // 等待预缓冲切片达到 targetPreload，或者生产者已提前全部完成
     while (readyQueue.length < targetPreload && !producerFinished && !this.stopped) {
       await new Promise<void>((resolve) => notifyReady.push(resolve));
     }
@@ -509,10 +698,17 @@ export class ChatDirector {
           return;
         }
         this.stopPlaySegment = () => resolve();
+        const offset = audioTimelineOffsetSec;
         this.playAudioSource(buf, () => {
           this.stopPlaySegment = null;
+          audioTimelineOffsetSec = offset + buf.duration;
+          // E1: freeze streaming clock between TTS segments (avoid playhead rewind yank)
+          if (emage.streamingMotionActive) {
+            const frozen = audioTimelineOffsetSec;
+            emage.setExternalClock(() => frozen);
+          }
           resolve();
-        }, emage, player, isInitial);
+        }, emage, player, isInitial, offset);
       });
     };
 
@@ -520,37 +716,46 @@ export class ChatDirector {
     for (let i = 0; i < chunks.length; i++) {
       if (this.stopped) break;
 
-      // 如果待播切片尚未就绪，立即切入 SpeakIdle 言谈间歇微动待机 (胸腔呼吸、手臂微浮沉、头部微动)
       if (readyQueue.length === 0 && !producerFinished && !this.stopped) {
-        emage.clearExternalClock();
-        emage.enterSpeakIdle();
-        tracker.update(i, { 'Playback': '☕ 等待推理 (言谈微动待机)' }, `等待切片 #${i} 就绪`);
+        // P0c: streaming 路径勿 SpeakIdle、勿清 clock；段间空隙由 playhead 停帧 + catch-up 吸收
+        if (!emage.streamingMotionActive) {
+          emage.clearExternalClock();
+          emage.enterSpeakIdle();
+        }
+        tracker.update(
+          i,
+          { 'Playback': emage.streamingMotionActive ? '⏳ 等待下段 TTS（保持 EMAGE 末姿）' : '☕ 等待推理 (言谈微动待机)' },
+          `等待切片 #${i} 就绪`,
+        );
         while (readyQueue.length === 0 && !producerFinished && !this.stopped) {
           await new Promise<void>((resolve) => notifyReady.push(resolve));
         }
-        emage.exitSpeakIdle();
+        if (!emage.streamingMotionActive) {
+          emage.exitSpeakIdle();
+        }
       }
       if (this.stopped) break;
 
       const seg = readyQueue.shift();
       if (!seg) break;
 
-      if (i > 0) {
-        // 标点呼吸微停顿 (220ms，人类生理换气停顿，消除接缝爆音且给动作留足惯性减速期)
-        await new Promise((r) => setTimeout(r, 220));
-        if (this.stopped) break;
-      }
-
       this.audioBuffer = seg.audioBuffer;
       status('speaking', undefined, false, seg.text, i + 1, chunks.length);
       tracker.update(i, { 'Playback': '▶️ 播放中' });
 
-      if (i === 0) {
-        emage.applyMotionData(seg.motion, 0.60);
+      // P0a: 若已在 motion_chunk 流式播，勿 applyMotionData/switchSegment（会重置 playhead）
+      // checkpoint 若仍带回未交付尾巴（frameCount>0），追加即可
+      if (emage.streamingMotionActive) {
+        if (seg.motion.frameCount > 0) {
+          emage.appendMotionChunk(seg.motion);
+        }
+        await playSegmentAudio(seg.audioBuffer, i === 0);
+      } else if (i === 0) {
+        emage.applyMotionData(seg.motion, APP_CONFIG.emage.motion.fadeInDuration);
         await playSegmentAudio(seg.audioBuffer, true);
       } else {
-        // 段落间由 emagePlayer.switchSegment 在内部以生理角速度上限与惯性阻尼自适应连续收敛
-        emage.switchSegment(seg.motion);
+        // 后续段切段：P0c.1 时长自适应 Slerp（默认 ~0.24s）
+        emage.switchSegment(seg.motion, APP_CONFIG.emage.motion.switchSegmentCrossFade);
         await playSegmentAudio(seg.audioBuffer, false);
       }
       tracker.update(i, { 'Playback': '🏁 播放完成' });
@@ -558,26 +763,24 @@ export class ChatDirector {
 
     if (this.stopped) return;
 
-    // 全部段落播放完毕：立即由全局 motionTransition 统一接管 55 根骨骼从当前说话姿态丝滑融入 NaturalIdle
     this.audioDone = true;
     this.audioDoneTime = performance.now();
+    emage.onMotionChunk = null;
     emage.clearExternalClock();
     emage.stop();
     this.stop();
     this.onEnd?.();
 
-    await producerPromise.catch(() => {});
+    await producerPromise.catch(() => { });
   }
 
-  /**
-   * 统一音频源播放与 LipSync/Analyser 连接调度
-   */
   private playAudioSource(
     buf: AudioBuffer,
     onEnded: () => void,
     emage: EmagePlayer,
     player: VRMAMotionPlayer | null,
     isInitial = true,
+    audioTimelineOffsetSec = 0,
   ): void {
     if (!this.ctx || this.stopped) {
       onEnded();
@@ -589,8 +792,6 @@ export class ChatDirector {
     this.audioDone = false;
     this.audioDoneTime = 0;
     document.body.classList.add('chat-playing');
-
-    // 思考到说话动作平滑过渡由 vrmEngine 在活跃播放器状态转换时统一调度
 
     this.analyser = this.ctx.createAnalyser();
     this.analyser.fftSize = 512;
@@ -604,13 +805,24 @@ export class ChatDirector {
     src.connect(this.currentGain);
     this.currentSource = src;
 
-    const startAudioTime = this.ctx.currentTime;
+    // P0a-AV: 连续流 playhead 用累计 TTS 时间，跨段不回跳；
+    // clock 原点与 src.start(when) 对齐，避免 motion 早于可听 PCM。
+    const when = this.ctx.currentTime;
     emage.setExternalClock(() => {
       if (!this.ctx || this.stopped || this.audioDone) return -1;
-      return Math.max(0, this.ctx.currentTime - startAudioTime);
+      return Math.max(0, audioTimelineOffsetSec + (this.ctx.currentTime - when));
     });
+
+    console.log('[P0a-AV] audio_start', {
+      isInitial,
+      bufDuration: buf.duration,
+      audioTimelineOffsetSec,
+      streamingMotionActive: emage.streamingMotionActive,
+      awaitingAudioStart: emage.awaitingAudioStart,
+      when,
+    });
+
     if (isInitial) {
-      emage.play();
       player?.stop();
     }
 
@@ -620,12 +832,26 @@ export class ChatDirector {
         onEnded();
       }
     };
-    src.start(0);
+    // 先 start 可听 TTS，再释放可见动作（满足 motion 不早于 speech）
+    src.start(when);
+    console.log('[P0a-AV] AudioBufferSourceNode.start', {
+      when,
+      ctxTime: this.ctx.currentTime,
+      audioTimelineOffsetSec,
+    });
+
+    // P0a-AV: audio 已 start 后释放；已在播的后续段不重置 playhead
+    if (emage.streamingMotionActive) {
+      if (emage.awaitingAudioStart || !emage.isPlaying()) {
+        emage.releaseMotionForAudio(APP_CONFIG.emage.motion.fadeInDuration);
+      }
+    } else if (isInitial) {
+      emage.play();
+    }
   }
 
   setOnEnd(cb: () => void) { this.onEnd = cb; }
 
-  // ponytail: 外部判断"现在是否有 chat 在播",给 main.ts 的 idle 接管用
   isActive(): boolean {
     return !this.stopped && (this.ctx !== null);
   }
@@ -633,7 +859,6 @@ export class ChatDirector {
   tick(vrm: VRM, _player: VRMAMotionPlayer): void {
     if (!this.ctx || this.stopped) return;
 
-    // 1) 口型驱动 (音频 RMS → aa)
     if (this.audioBuffer && !this.audioDone && this.analyser && this.analyserBuf) {
       this.analyser.getByteTimeDomainData(this.analyserBuf as any);
       let sum = 0;
@@ -648,11 +873,9 @@ export class ChatDirector {
       vrm.expressionManager.setValue('aa', 0);
     }
 
-    // 2) 动作完整播放检查：音频播完 且 手势动作（EMAGE/VRMA）已彻底演完收势归位后，才正式结束说话态
     if (this.speaking && this.audioDone) {
       const emagePlaying = this.emage?.isPlaying() ?? false;
       const vrmaPlaying = this.player?.isPlaying() ?? false;
-      // 超时保护设置为 1.5 秒 (足够 0.6s 动作平滑淡出收势，绝不在角色面前多卡停滞或循环)
       const timeoutReached = this.audioDoneTime > 0 && (performance.now() - this.audioDoneTime > 1500);
 
       if ((!emagePlaying && !vrmaPlaying) || timeoutReached) {
@@ -679,7 +902,7 @@ export class ChatDirector {
         this.currentVRM.expressionManager.setValue('ou', 0);
       }
     }
-    try { this.currentSource?.stop(); } catch {}
+    try { this.currentSource?.stop(); } catch { }
     this.currentSource = null;
     this.audioBuffer = null;
     this.plan = null;

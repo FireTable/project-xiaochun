@@ -26,15 +26,113 @@ export interface MaterialSaturationConfig {
 }
 
 export interface EmageMotionConfig {
-  gestureIntensity: number;      // 手臂幅度缩放 (0.1~1.0，默认 1.0 满额手势)
-  fingerIntensity: number;       // 指关节活跃度 (0.1~1.0，默认 0.5，保持柔和半卷，消除乱指)
-  torsoIntensity: number;        // 胸腔微动权重 (默认 0.75，保留自然呼吸与起伏)
-  spineIntensity: number;        // 腰椎微动权重 (默认 0.3，自然微屈与说话起伏)
-  hipIntensity: number;          // 骨盆/胯部微动权重 (默认 0.70，赋予活人重心微移与说话律动)
-  legIntensity: number;          // 双腿跟随权重 (默认 0.70，配合骨盆重心自然微动，足部由 FootIK 稳妥贴地)
-  headIntensity: number;         // 头部/颈部权重 (默认 0.80，防止脖子前伸乌龟颈，保持抬头挺胸)
-  dampingStiffness: number;      // 惯性阻尼刚度 (默认 4.2，数值越小越柔顺轻盈，消除“动得太快”)
-  temporalSmoothRadius: number;  // 时序高斯平滑半径 (默认 12 帧/约0.8s，消除“切换太频繁”)
+  /**
+   * 手臂幅度相对 rest 的混合 (0.1~1.0，默认 1.0)。
+   * 调大：手势更开；调小：更收、更贴身。
+   */
+  gestureIntensity: number;
+  /**
+   * 指关节活跃度 (0.1~1.0，默认 0.5)。
+   * 调大：手指更活/更张；调小：更柔和半卷，少乱指。
+   */
+  fingerIntensity: number;
+  /**
+   * 胸腔微动权重 (0.1~1.0，默认 0.75)。
+   * 调大：呼吸/胸动更明显；调小：上身更稳。
+   */
+  torsoIntensity: number;
+  /**
+   * 腰椎微动权重 (0.1~1.0，默认 0.3)。
+   * 调大：腰部起伏更大；调小：站姿更直、少晃。
+   */
+  spineIntensity: number;
+  /**
+   * 骨盆/胯部微动权重 (0.1~1.0，默认 0.70)。
+   * 调大：重心微移更明显；调小：下盘更钉死。
+   */
+  hipIntensity: number;
+  /**
+   * 双腿跟随权重 (0.1~1.0，默认 0.70)；足部仍由 FootIK 贴地。
+   * 调大：腿更跟胯；调小：腿更静。
+   */
+  legIntensity: number;
+  /**
+   * 头/颈权重 (0.1~1.0，默认 0.80)。
+   * 调大：点头/转头更跟模型；调小：更少「乌龟颈」前伸感。
+   */
+  headIntensity: number;
+  /**
+   * 骨姿追目标的阻尼刚度 (约 2~8，默认 4.2)。
+   * 调大：跟手更快、更「硬」；调小：更柔顺，可能拖影。
+   */
+  dampingStiffness: number;
+  /**
+   * Worker 时序高斯平滑半径（帧，约 3~24，默认 12 ≈0.8s@30fps）。
+   * 调大：更糊、接缝更软、细节少；调小：更跟音频、窗边界可能更硬。
+   */
+  temporalSmoothRadius: number;
+  /**
+   * rot6d chunk 接缝几何缝合最大帧数（约 3~24，默认 14）。
+   * 调大：接缝更长更柔，可能略糊；调小：更短，大跳变更易「拽一下」。
+   */
+  chunkSeamMaxFrames: number;
+  /**
+   * streaming playhead 追赶倍率（约 1.0~1.3，默认 1.08）。
+   * 调大：欠载后更快追上音频钟，易 yank；调小：更稳但可能更久口型/动作滞后。
+   */
+  streamingCatchUpRate: number;
+  /**
+   * 每步 PCM hop（帧）。**不要随意改**。
+   * 合法约 **60..64**（EFF..WINDOW）：<60 重叠更大、窗次更多更慢；>64 音频空洞（Worker 会夹到 64）。
+   * 调大（在合法内）：少跑 step、墙钟略降，时域拉伸略多；调小：更密窗、更贴模型原生时序。
+   * 默认 64。回滚少窗策略改 60。
+   */
+  advanceFrames: number;
+  /**
+   * 首段/释放可听时的淡入秒数（约 0.2~1.2，默认 0.60）。
+   * 调大：切入更慢；调小：更快露动作（仍受 A/V hold 约束）。
+   */
+  fadeInDuration: number;
+  /**
+   * 非流式 switchSegment 的 crossfade 秒数（约 0.08~0.6，默认 0.24）。
+   * 调大：段切换更软；调小：更快切、大姿态差易顿。
+   * 流式 motion_chunk 路径不会走 switchSegment。
+   */
+  switchSegmentCrossFade: number;
+  /**
+   * 姿态微 crossfade：跳变→时长 的除数（约 0.8~2.0，默认 1.15）。
+   * duration ≈ clamp(jump / div, min, max)。调大：同样 jump 更短 fade。
+   */
+  poseMicroFadeJumpDiv: number;
+  /** 微 fade 最短秒（约 0.02~0.12，默认 0.05）。调大：小跳变也更拖。 */
+  poseMicroFadeMinSec: number;
+  /** 微 fade 最长秒（约 0.15~0.6，默认 0.36）。调大：大接缝更慢收。 */
+  poseMicroFadeMaxSec: number;
+  /**
+   * 微 fade 启动的最小 jump（约 0.005~0.05，默认 0.015）。
+   * 调大：更少触发微 fade；调小：更敏感。
+   */
+  poseMicroFadeJumpMin: number;
+  /**
+   * 接缝 L2 低于此则跳过几何缝合（约 0.005~0.05，默认 0.02）。
+   * 调大：少缝合；调小：更常缝。
+   */
+  seamJumpThreshold: number;
+  /**
+   * 接缝帧数公式尺度：frames ≈ 3+(jump-thresh)/scale（约 0.008~0.03，默认 0.015）。
+   * 调大：同样 jump 更少缝合帧；调小：更多帧。
+   */
+  seamJumpFramesScale: number;
+  /**
+   * VQ upper/hands Top-K 采样温度相关（约 0.5~1.2，默认 0.85；与 topK 联立）。
+   * 调大：手势更随机多样；调小：更贪心、更稳、更易重复。
+   */
+  vqSampleTemperature: number;
+  /**
+   * VQ upper/hands Top-K（约 1~16，默认 6）。
+   * 调大：更多样；调小（→1）：近 argmax，更稳。
+   */
+  vqSampleTopK: number;
 }
 
 export interface BodyMorphConfig {
@@ -103,6 +201,14 @@ export interface WardrobeConfig {
   defaultVisibility: Record<string, boolean>;
 }
 
+// ponytail: INT8 量化开关。useInt8 = true 时加载 _int8.onnx (体积 -67%,rot6d 误差 +33%,动作可能走样)。
+// FP16 暂不可用 (浏览器 FP16 tensor 输入 dtype 处理有 edge cases) → 不开
+const useInt8 = true;
+const q = (fp32: string) => {
+  if (useInt8) return fp32.replace('.onnx', '_int8.onnx');
+  return fp32;
+};
+
 export const APP_CONFIG = {
   brand: {
     name: 'Project XiaoChun',
@@ -122,17 +228,55 @@ export const APP_CONFIG = {
       ? ((import.meta.env?.VITE_EMAGE_BASE_PROD as string | undefined) ?? 'https://cdn.firetable.tech/xiaochun')
       : ((import.meta.env?.VITE_EMAGE_BASE as string | undefined) ?? '/onnx'),
     cacheName: 'emage-models-v1',
+    // ponytail: EMAGE 推理需要的 ONNX 模型文件清单 + 每个的元信息。
+    // emageWorker 通用调度器按 models 清单按需加载与推理，enabled=false 的模型自动跳过加载，
+    // 并由 runOptionalSession 自动补齐全零张量喂给 postprocess，增删改模型无需修改 Worker 核心代码。
+    models: {
+      // ─── 活跃推理核心 (Active Pipeline) ───
+      // 1. 主时序自回归 step (听音频 + 上一窗口 seed → 5 段 VQ 分类 + 潜空间 seed)
+      step: { file: q('emage_step.onnx'), enabled: true, label: 'step (autoregressive temporal)' },
+
+      // 2. 核心身体部位 VQ 解码 (把 step 输出的潜空间 / codebook 索引 → 物理姿态特征)
+      vqUpper: { file: q('vq_upper_idx.onnx'), enabled: true, label: 'vq_upper (head/neck/shoulders 78D)' },
+      vqHands: { file: q('vq_hands_idx.onnx'), enabled: true, label: 'vq_hands (30 finger joints 180D)' },
+      vqLower: { file: q('vq_lower_idx.onnx'), enabled: true, label: 'vq_lower (legs/hips/spine 61D)' },
+
+      // 3. 最终装配输出 (将已启用的解码特征拼接为 330 维 6D rot6d 骨骼姿态)
+      postprocess: { file: q('postprocess.onnx'), enabled: true, label: 'postprocess (VQ heads → 6D rot)' },
+
+      // ─── 旁路与禁用模型 (Disabled / Zero-padded Fallbacks) ───
+      // ponytail: 面部/下颌表情头 — VRM 模型的自然说话张嘴目前由 chatDirector 的 Web Audio RMS 实时驱动，
+      // 不需要跑 vqFace 的 106D 脸部形变模型；禁用后自动以全零 106 维向量喂给 postprocess，省去网络拉取与矩阵运算。
+      vqFace: { file: q('vq_face.onnx'), enabled: false, label: 'vq_face (jaw + face 106D, disabled)' },
+
+      // ponytail: 全局根骨骼位移 (trans X/Y/Z) — 小蠢当前作为立定交流的数字人，场景基准由 FootIK 锁定在 baseY，
+      // 未接入 scene.position，禁用省去 14.6MB 模型下载与 decode 推理。后续支持自由踱步走动时再设为 true。
+      vqGlobal: { file: q('vq_global.onnx'), enabled: false, label: 'vq_global (root translation 61D, disabled)' },
+    } satisfies Record<string, { file: string; enabled: boolean; label: string }>,
     // ─── 动作速度与频率优化权威配置 ───
     motion: {
-      gestureIntensity: 1.0,      // 手臂幅度缩放 (0.1~1.0，默认 1.0 满额手势)
-      fingerIntensity: 0.5,       // 指关节活跃度 (0.1~1.0，默认 0.5，保持柔和半卷，消除乱指)
-      torsoIntensity: 0.75,       // 胸腔微动权重 (默认 0.75，保留自然呼吸与起伏)
-      spineIntensity: 0.3,        // 腰椎微动权重 (默认 0.3，自然微屈与说话起伏)
-      hipIntensity: 0.70,         // 骨盆/胯部微动权重 (默认 0.70，赋予活人重心微移与说话律动)
-      legIntensity: 0.70,         // 双腿跟随权重 (默认 0.70，配合骨盆重心自然微动，足部由 FootIK 稳妥贴地)
-      headIntensity: 0.80,        // 头部/颈部权重 (默认 0.80，防止脖子前伸乌龟颈，保持抬头挺胸)
-      dampingStiffness: 4.2,      // 惯性阻尼刚度 (默认 4.2，数值越小越柔顺轻盈，消除“动得太快”)
-      temporalSmoothRadius: 12,   // 时序高斯平滑半径 (默认 12 帧/约0.8s，消除“切换太频繁”)
+      gestureIntensity: 1.0,           // 手臂幅度 0.1~1.0；↑更开手势，↓更收贴身
+      fingerIntensity: 0.5,            // 手指活跃 0.1~1.0；↑更张更活，↓更半卷少乱指
+      torsoIntensity: 0.75,            // 胸腔微动 0.1~1.0；↑呼吸更明显，↓上身更稳
+      spineIntensity: 0.3,             // 腰椎微动 0.1~1.0；↑腰更晃，↓站姿更直
+      hipIntensity: 0.70,              // 骨盆微动 0.1~1.0；↑重心微移，↓下盘更钉
+      legIntensity: 0.70,              // 腿跟随 0.1~1.0；↑更跟胯，↓腿更静（脚仍 FootIK）
+      headIntensity: 0.80,             // 头颈 0.1~1.0；↑更跟模型点头，↓少乌龟颈
+      dampingStiffness: 4.2,           // 阻尼刚度约 2~8；↑跟手更快更硬，↓更柔可能拖影
+      temporalSmoothRadius: 12,        // 时序平滑帧约 3~24（12≈0.8s@30fps）；↑更糊更软，↓更跟音频但窗缝更硬
+      chunkSeamMaxFrames: 14,          // chunk 接缝最大帧约 3~24；↑接缝更长更柔，↓大跳易拽一下
+      streamingCatchUpRate: 1.08,      // 追音频钟倍率约 1.0~1.3；↑追上更快易 yank，↓更稳但可能更滞后
+      advanceFrames: 64,               // hop 帧；仅 60~64 可改；↑少跑 step，↓更密窗；>64 会空洞被夹，<60 更慢
+      fadeInDuration: 0.60,            // 首段淡入秒约 0.2~1.2；↑切入更慢，↓更快露动作
+      switchSegmentCrossFade: 0.24,    // 非流式切段 crossfade 秒约 0.08~0.6；↑更软，↓更快易顿（流式 chunk 不走）
+      poseMicroFadeJumpDiv: 1.15,      // 微 fade：duration≈jump/div，div 约 0.8~2；↑同样跳变更短 fade
+      poseMicroFadeMinSec: 0.05,       // 微 fade 最短秒约 0.02~0.12；↑小跳变也更拖
+      poseMicroFadeMaxSec: 0.36,       // 微 fade 最长秒约 0.15~0.6；↑大接缝更慢收
+      poseMicroFadeJumpMin: 0.015,     // 触发微 fade 的最小 jump 约 0.005~0.05；↑更少触发，↓更敏感
+      seamJumpThreshold: 0.02,         // 低于此 L2 跳过几何缝合约 0.005~0.05；↑少缝，↓更常缝
+      seamJumpFramesScale: 0.015,      // 缝合帧尺度约 0.008~0.03；↑同样 jump 更少帧，↓更多帧
+      vqSampleTemperature: 0.85,       // VQ Top-K 温度约 0.5~1.2；↑更多样随机，↓更贪心更稳易重复
+      vqSampleTopK: 6,                 // VQ Top-K 约 1~16；↑更多样，↓近 argmax 更稳
     } as EmageMotionConfig,
   },
   // WebLLM 模型 id。改 model 即可换模型,必须是 WebLLM 预置表里的 model_id。

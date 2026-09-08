@@ -21,7 +21,7 @@ graph LR
         WebLLM --> Text[Streaming Text]
         Text --> TTS[Edge-TTS Stream Pre-fetch]
         TTS --> Audio[PCM Audio Stream]
-        Audio --> EMAGE[EMAGE Web Worker (ONNX Runtime Web)]
+        Audio --> EMAGE[EMAGE Worker (ORT wasm + INT8, T=64)]
         EMAGE --> Pose[52-Bone Pose Sequence]
         Pose --> VRM[VRM 3D Rendering]
     end
@@ -48,13 +48,13 @@ Besides local WebLLM execution, [`src/llm/customProvider/`](../src/llm/customPro
 
 ## 3. EMAGE Full-Body Gesture Generation (ONNX Runtime Web)
 
-- **Model Execution**: Runs the Web-adapted EMAGE model inside a dedicated worker, translating PCM audio streams into continuous 52-bone humanoid pose sequences;
-- **Autoregressive Seed Inheritance**:
-  When evaluating chunk $i$, the worker absorbs the last 4 latent frames from chunk $i-1$, guaranteeing mathematical continuity across speech segments and eliminating twitching;
-- **Gaussian Temporal Smoothing & Damping**:
-  Configured in [`src/config.ts`](../src/config.ts):
-  - `dampingStiffness = 4.2`: Mechanical inertia damping to prevent rapid jerks;
-  - `temporalSmoothRadius = 12`: 12-frame Gaussian convolution filter for gentle, humanlike conversational gesturing.
+- **Execution provider**: **`wasm` only** + **INT8** (`useInt8`). **Does not use WebGPU** (int64 tensors; E3-① closed — see [`EMAGE_MODEL.md` §2](EMAGE_MODEL.md#2-why-emage-stays-on-wasm-e3--closed) for the investigation context). LLM WebGPU ≠ EMAGE.
+- **Model Execution**: Dedicated Worker translates PCM into humanoid pose sequences; windows are fixed **T=64**.
+- **Streaming `motion_chunk` + A/V sync**: Each successful `runStep` posts a transferable chunk for TTFA; first visible motion waits for TTS audio start.
+- **P0b isolation**: COOP/COEP `credentialless` enables SAB / wasm threads when `crossOriginIsolated`.
+- **Autoregressive Seed Inheritance**: Last-4-frame latent seed carryover across windows/segments.
+- **Config**: Intensities, hop (`advanceFrames` 60..64), seams, and damping live under `APP_CONFIG.emage.motion`. `vqFace` / `vqGlobal` disabled by default.
+- **Full status & limits**: [`EMAGE_MODEL.md`](EMAGE_MODEL.md) (no fabricated ms SLAs).
 
 ---
 

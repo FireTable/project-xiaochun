@@ -1,6 +1,6 @@
-import React, { useState, useEffect, useRef, Fragment } from 'react';
+import React, { useState, useEffect, useRef, Fragment, useMemo } from 'react';
 import { useTranslation } from 'react-i18next';
-import { ChevronLeft, ChevronRight, Menu, Server } from 'lucide-react';
+import { ChevronLeft, ChevronRight, Menu, Mountain, Server, Sun, Zap } from 'lucide-react';
 import { vrmEngine } from '@/core/vrmEngine';
 import { DeviceStatusDialog } from '@/components/DeviceStatusDialog';
 import { ProviderConfigDialog } from '@/components/ProviderConfigDialog';
@@ -26,6 +26,7 @@ import { getActiveProviderId, getProvider, type ProviderProfile, subscribeProvid
 import { readActiveModel, subscribeActiveModel } from '@/llm/activeModel';
 import { Send, Sparkles, Loader2 } from '@/components/icons';
 import { Button } from '@/components/ui/button';
+import { splitIntoSpeechChunks } from '@/director/chatDirector';
 import {
   Tooltip,
   TooltipTrigger,
@@ -360,6 +361,24 @@ export const ChatBar: React.FC<{ onShowDevPanel?: () => void }> = ({ onShowDevPa
     }
   };
 
+  const handleSpeakText = async (which: 'spring' | 'shudao' = 'spring') => {
+    if (isSending || !isVRMReady) return;
+    // ponytail: dev 测试菜单 — spring 复用原 testSpeakText 键(向后兼容),
+    // shudao 是新增的 ~280 字长文(李白《蜀道难》),用于压测长会话流水线
+    const text = which === 'shudao'
+      ? t('chat.testSpeakShudaoText')
+      : t('chat.testSpeakText');
+    if (!text) return;
+    setIsSending(true);
+    try {
+      await vrmEngine.speakText(text);
+    } catch (e) {
+      console.error('[ChatBar SpeakText]', e);
+    } finally {
+      setIsSending(false);
+    }
+  };
+
   const handleKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
     if (e.key === 'Enter' && !e.nativeEvent.isComposing) {
       e.preventDefault();
@@ -378,6 +397,14 @@ export const ChatBar: React.FC<{ onShowDevPanel?: () => void }> = ({ onShowDevPa
       if (!val.trim()) setIsQueued(false);
     }
   };
+
+  // ponytail: dev 菜单段数从实际测试文本算出来 — 不写死,
+  // 改 testSpeakText / testSpeakShudaoText 后菜单里「N 段」自动跟上。
+  // 跟 [t] 绑定:语言切换时 i18n 文本变化,正则重跑一次。
+  const { springSegs, shudaoSegs } = useMemo(() => ({
+    springSegs: splitIntoSpeechChunks(t('chat.testSpeakText')).length,
+    shudaoSegs: splitIntoSpeechChunks(t('chat.testSpeakShudaoText')).length,
+  }), [t]);
 
   return (
     <div className="fixed bottom-[calc(0.75rem+env(safe-area-inset-bottom,0px)+var(--kb,0px))] sm:bottom-8 left-1/2 -translate-x-1/2 z-30 w-full max-w-xl px-3 sm:px-4 pointer-events-auto select-none">
@@ -736,6 +763,54 @@ export const ChatBar: React.FC<{ onShowDevPanel?: () => void }> = ({ onShowDevPa
             </Tooltip>
           );
         })()}
+
+        {/* ponytail: dev-only 测试菜单按钮 — 跳过 LLM 直接走 TTS→EMAGE→播放。
+            下拉 2 项:spring(原 2 段文本,向后兼容)+ shudao(~280 字李白《蜀道难》,长会话压力测试)。
+            只在 import.meta.env.DEV 时渲染,生产 build 整段被 Vite tree-shake 掉。 */}
+        {import.meta.env.DEV && (
+          <DropdownMenu modal={false}>
+            <DropdownMenuTrigger asChild>
+              <button
+                id="chatTestSpeak"
+                type="button"
+                disabled={isSending || !isVRMReady}
+                aria-label={t('chat.testSpeak')}
+                // ponytail: 不包 Tooltip — Radix 官方 anti-pattern,菜单打开即明,hover 提示冗余。
+                className={`h-11 sm:h-11 w-11 sm:w-11 rounded-full flex items-center justify-center shrink-0 select-none touch-manipulation active:scale-95 appearance-none outline-none border-none transition-colors ${
+                  isSending || !isVRMReady
+                    ? 'bg-[#13111c]/85 text-white/40 cursor-not-allowed'
+                    : 'text-[#f5aa9c] bg-[#13111c]/85 shadow-[inset_0_0_0_1px_rgba(245,170,156,0.4)] cursor-pointer hover:bg-[#ea8377]/20 hover:text-[#ea8377] data-[state=open]:bg-[#ea8377]/20 data-[state=open]:text-[#ea8377]'
+                }`}
+              >
+                <Zap className={`w-4 h-4 ${isSending ? '' : 'animate-pulse'}`} />
+              </button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent
+              side="top"
+              align="end"
+              collisionPadding={12}
+              onCloseAutoFocus={(e) => e.preventDefault()}
+              className="w-[min(16rem,calc(100vw-1.5rem))]"
+            >
+              <DropdownMenuItem
+                onSelect={() => void handleSpeakText('spring')}
+                className="flex items-center gap-2"
+              >
+                <Sun className="h-3.5 w-3.5 shrink-0 text-[#f5aa9c]" />
+                <span className="flex-1">{t('chat.testSpeakSpring')}</span>
+                <span className="shrink-0 text-[10px] font-mono text-white/40">{t('chat.testSpeakSegments', { count: springSegs })}</span>
+              </DropdownMenuItem>
+              <DropdownMenuItem
+                onSelect={() => void handleSpeakText('shudao')}
+                className="flex items-center gap-2"
+              >
+                <Mountain className="h-3.5 w-3.5 shrink-0 text-[#f5aa9c]" />
+                <span className="flex-1">{t('chat.testSpeakShudao')}</span>
+                <span className="shrink-0 text-[10px] font-mono text-white/40">{t('chat.testSpeakSegments', { count: shudaoSegs })}</span>
+              </DropdownMenuItem>
+            </DropdownMenuContent>
+          </DropdownMenu>
+        )}
       </div>
 
       <DeviceStatusDialog

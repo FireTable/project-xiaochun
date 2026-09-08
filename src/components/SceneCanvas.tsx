@@ -40,12 +40,10 @@ export const SceneCanvas: React.FC = () => {
       ref={canvasRef}
       id="vrm-canvas"
       // ponytail: canvas 一直 opacity-100,只挂载前禁用交互。
-      // 渲染前 canvas 透明 → 露出 page bg #0b0f19(跟 scene.background 同色,无缝)。
       // 渲染后 canvas 显示 scene + linework world + (后续揭示的)VRM。
       // VRM 自身的可见性由 vrmEngine 控制,这里只管 canvas 本身。
-      className={`absolute inset-0 w-full h-full block z-0 ${
-        isAttached ? '' : 'pointer-events-none'
-      }`}
+      className={`absolute inset-0 w-full h-full block z-0 ${isAttached ? '' : 'pointer-events-none'
+        }`}
     />
   );
 };

@@ -1,6 +1,7 @@
 import React from 'react';
 import type { SectionId } from './types';
 import { ExpressionsSection } from './sections/ExpressionsSection';
+import { EmagePerfSection } from './sections/EmagePerfSection';
 import { SaturationSection } from './sections/SaturationSection';
 import { BoneMorphSection } from './sections/BoneMorphSection';
 import { WardrobeSection } from './sections/WardrobeSection';
@@ -13,6 +14,7 @@ import { CameraSection } from './sections/CameraSection';
  */
 const REGISTRY: Record<SectionId, React.FC> = {
   expressions: ExpressionsSection,
+  emagePerf: EmagePerfSection,
   saturation: SaturationSection,
   bodyMorph: BoneMorphSection,
   wardrobe: WardrobeSection,

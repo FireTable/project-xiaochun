@@ -17,9 +17,14 @@ dist
 dist-ssr
 *.local
 public/onnx
+grok
+.grok
 
 # Local tooling scratch
 .maker-mcp/
+
+# ponytail: 本地性能基准测试 — 一次性测量,不入仓
+bench/
 
 # Editor directories and files
 .vscode/*

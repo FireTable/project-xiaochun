@@ -48,7 +48,7 @@ export class MotionPipeline {
   private activeMask: MotionBoneMask = 'all';
 
   private crossfadeElapsed = 0;
-  private crossfadeDuration = 0.75;
+  private crossfadeDuration = 0.98;
   private isCrossfading = false;
 
   // 步态混合权重
@@ -72,7 +72,7 @@ export class MotionPipeline {
     this.bind(vrm);
     const clip = await this.universalMotion.parseToClip(input, vrm);
 
-    const fadeDur = Math.max(0.20, options.fadeDuration ?? 0.75);
+    const fadeDur = Math.max(0.26, options.fadeDuration ?? 0.98);
     const mask = options.mask ?? 'all';
 
     // 启动管线平滑流转到通用动作源
@@ -86,7 +86,7 @@ export class MotionPipeline {
    * 停止当前通用动作播放，平滑淡出回待机
    */
   stopMotion(
-    fadeDuration = 0.75,
+    fadeDuration = 0.98,
     lookAtOffsets?: { neck?: THREE.Quaternion; head?: THREE.Quaternion },
   ): void {
     if (this.activeSource !== 'idle') {
@@ -100,7 +100,7 @@ export class MotionPipeline {
    */
   setMotionSource(
     source: PipelineMotionSource,
-    duration = 0.75,
+    duration = 0.98,
     lookAtOffsets?: { neck?: THREE.Quaternion; head?: THREE.Quaternion },
     mask: MotionBoneMask = 'all',
   ): void {
@@ -115,7 +115,7 @@ export class MotionPipeline {
     this.previousSource = this.activeSource;
     this.activeSource = source;
     this.activeMask = mask;
-    this.crossfadeDuration = Math.max(0.20, duration);
+    this.crossfadeDuration = Math.max(0.26, duration);
     this.crossfadeElapsed = 0;
     this.isCrossfading = true;
   }

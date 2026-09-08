@@ -6,7 +6,7 @@ import { retargetClip } from '../vrmaRetarget';
 import { PIPELINE_BONES, type MotionBoneMask } from './poseBuffer';
 
 export interface PlayMotionOptions {
-  /** 混合过渡时间（秒），默认 0.75s */
+  /** 混合过渡时间（秒），默认约 0.98s（P0c.1 +30%） */
   fadeDuration?: number;
   /** 是否循环播放，默认 false */
   loop?: boolean;
@@ -46,7 +46,7 @@ export class UniversalMotionController {
   private currentOptions: PlayMotionOptions = {};
   private active = false;
   private isFadingOut = false;
-  private fadeDuration = 0.75;
+  private fadeDuration = 0.98;
   private clipDuration = 0;
   private onEndTriggered = false;
 
@@ -122,7 +122,7 @@ export class UniversalMotionController {
     this.currentOptions = options;
     const isLoop = !!options.loop;
     const timeScale = options.timeScale ?? 1.0;
-    this.fadeDuration = Math.max(0.20, options.fadeDuration ?? 0.75);
+    this.fadeDuration = Math.max(0.26, options.fadeDuration ?? 0.98);
     this.clipDuration = clip.duration;
     this.isFadingOut = false;
     this.onEndTriggered = false;

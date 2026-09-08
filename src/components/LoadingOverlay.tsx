@@ -399,12 +399,17 @@ export const LoadingOverlay: React.FC<LoadingOverlayProps> = ({ state, onBreakSt
               <h3 className="text-xl sm:text-2xl font-black text-white tracking-tight">
                 {t('loading.madCardName')}
               </h3>
-              <div className="flex items-center gap-2 mt-1.5">
+              <div className="flex items-center gap-2 mt-1.5 flex-wrap">
                 <span className="px-2 py-0.5 rounded-md bg-white/10 text-[9px] font-mono text-[#f5aa9c]">
                   {t('loading.madTagHair')}
                 </span>
                 <span className="px-2 py-0.5 rounded-md bg-white/10 text-[9px] font-mono text-[#f5aa9c]">
                   {t('loading.madTagWebGpu')}
+                </span>
+                {/* ponytail: P0b — 把 EMAGE Worker WASM + SAB 多线程并列展示,
+                    跟 WebGPU 一起点明 3D 渲染 + 端侧动作推理双引擎栈。 */}
+                <span className="px-2 py-0.5 rounded-md bg-white/10 text-[9px] font-mono text-[#f5aa9c]">
+                  {t('loading.madTagWasm')}
                 </span>
               </div>
             </div>

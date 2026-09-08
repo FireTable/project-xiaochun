@@ -26,7 +26,7 @@ Project XiaoChun is a full-stack web application built on **Vite 8 + TanStack St
 
 ## 2. AI Inference Pipelines
 
-All AI runs in the browser tab via WebGPU + WebAssembly:
+AI runs in the browser tab. **WebLLM may use WebGPU**; **EMAGE uses ONNX Runtime Web wasm + INT8 only** (int64 blocks WebGPU-EMAGE; E3-① closed):
 
 ### 2.1 LLM (WebLLM, default)
 - **Engine**: `@mlc-ai/web-llm` v0.2.84
@@ -47,13 +47,15 @@ All AI runs in the browser tab via WebGPU + WebAssembly:
 
 ### 2.3 Motion (EMAGE & Universal Motion Pipeline)
 - **Model**: EMAGE full-body co-speech motion (PantoMatrix, [Yi et al., CVPR 2024](https://pantomatrix.github.io/EMAGE/))
-- **Runtime**: ONNX Runtime Web v1.22.0-dev inside a Dedicated Web Worker (`src/motion/emageWorker.ts`)
-- **Orchestrator**: `src/motion/emagePlayer.ts` — sentence-level streaming pipeline, temporal Gaussian smoothing, inertial tracking, natural idle blends
-- **Universal Pipeline Integration**: Seamlessly handed over to `UniversalMotionPipeline` for crossfading, root coordinate locking, and zero-snap return to `NaturalIdle`.
-- **Browser support**: WebGPU execution provider with multi-threaded WASM fallback for browsers without WebGPU
+- **Runtime**: ONNX Runtime Web inside a Dedicated Web Worker (`src/motion/emageWorker.ts`) — **executionProviders: ['wasm']** + **INT8** (`useInt8`). **Not WebGPU** (int64).
+- **Streaming**: Fixed **T=64** windows; per-window transferable **`motion_chunk`** for TTFA; A/V hold until TTS audible (`releaseMotionForAudio`).
+- **Isolation (P0b)**: COOP/COEP `credentialless` on documents; SAB + wasm multi-thread when `crossOriginIsolated`.
+- **Config**: `APP_CONFIG.emage.motion` hop/seams (`advanceFrames` 60..64). `vqFace` / `vqGlobal` disabled. Parallel VQ not viable on ORT WASM.
+- **Orchestrator**: `src/motion/emagePlayer.ts` — streaming player, temporal Gaussian smoothing, natural idle blends → Universal Motion Pipeline Layer 1.
+- **Status doc**: `docs/EMAGE_MODEL.md` (export = emage-onnx-export README scripts only). **Not shipped**: WebGPU-EMAGE, P0d residual-gate.
 
 ### 2.4 TTS (Edge-TTS)
-- **Engine**: `edge-tts-universal` v1.4.0 (browser build of Microsoft Edge-TTS protocol)
+- **Engine**: native WebSocket client `src/lib/edge-tts-core.ts` (Microsoft Edge-TTS protocol; no third-party TTS SDK)
 - **Default voice**: `zh-CN-XiaoyiNeural` with `+10Hz` pitch (energetic anime-girl timbre)
 - **Production endpoint**: Cloudflare Worker at `src/server.ts` — opens WebSocket to `speech.platform.bing.com`, streams audio chunks as `audio/mpeg`
 - **Dev endpoint**: Same shape, served by `vite.config.ts → localApiPlugin` middleware with Miniflare
@@ -130,12 +132,12 @@ pnpm build    # tsc + vite build → dist/
 ```
 
 ### 6.2 Vite Plugins (`vite/`)
-- **`localApiPlugin.ts`** — `/api/tts` dev middleware. If `TTS_PROXY_URL` env var is set, forwards the request to that endpoint (auto-appends `/api/tts` if missing); otherwise falls back to local `edge-tts-universal`. Solves EU egress issues where Microsoft TTS endpoints hang.
+- **`localApiPlugin.ts`** — `/api/tts` dev middleware. If `TTS_PROXY_URL` env var is set, forwards the request to that endpoint (auto-appends `/api/tts` if missing); otherwise falls back to local `src/lib/edge-tts-core.ts`. Solves EU egress issues where Microsoft TTS endpoints hang.
 - **`dropDockerfatAssets.ts`** — strips oversized assets from production build. Cloudflare Pages has a 25 MiB per-file limit; this removes `onnxruntime-web`'s `ort-wasm-simd-threaded.jsep.wasm` (26.5 MiB WebGPU EP variant, loaded from jsDelivr at runtime instead) and training data JSONs.
 
 ### 6.3 Cloudflare Workers (production)
 - **Configuration**: `wrangler.jsonc` (`nodejs_compat` enabled, static assets bound to `./dist/client`)
-- **Headers**: `public/_headers` defines COOP/COEP (required for WebGPU + SharedArrayBuffer), security headers, and cache policy (`/assets/*` immutable; root path `must-revalidate`)
+- **Headers**: `public/_headers` + `src/server.ts` document headers define COOP/COEP `credentialless` (SAB / ORT wasm threads when isolated; Workers+Assets ignores `_headers` for HTML), security headers, and cache policy (`/assets/*` immutable; root path `must-revalidate`)
 - **SSR & TTS Entry**: `src/server.ts` — full-stack SSR router + edge-runtime TTS WebSocket proxy
 - **Static assets**: `dist/client/*` served directly via Cloudflare Assets (robots.txt, sitemap.xml, llms.txt, llms-full.txt, VRM model, fonts)
 
@@ -174,7 +176,7 @@ GET /api/tts?text=你好&voice=zh-CN-XiaoyiNeural&pitch=%2B10Hz
 
 ## 8. Debug Drawer (localhost-only developer panel)
 
-Visible only when the page is served from a non-production host. Lives at `src/components/dev-drawer/` and is a 6-section schema-driven panel:
+Visible only when the page is served from a non-production host. Lives at `src/components/dev-drawer/` and is a **7-section** schema-driven panel:
 
 1. **🎭 预设表情 / Expressions** — 6 preset buttons (default / happy / angry / sad / relaxed / surprised) bound to `vrmEngine.setExpression()`.
 2. **🎥 镜头设置 / Camera** — FOV slider (15-60°, default 20°) with hover `ⓘ` tooltip explaining 20°/30°/45°/60° reference values; min / max camera distance sliders (mouse wheel / pinch zoom range, defaults 1.0-15.0); automatic body-turn toggle.
@@ -182,6 +184,7 @@ Visible only when the page is served from a non-production host. Lives at `src/c
 4. **✨ 骨骼体型微调 / Bone Morph** — 27 sliders grouped into 7 body-region sub-cards (整体 / 头颈 / 躯干 / 臀部 / 胸部 / 上肢 / 下肢). Each category is a self-contained sub-card with its label outside; search box filters and hides empty regions. Modified detection is per-section (uses a `useRef` baseline at mount, not `APP_CONFIG` defaults) so a freshly loaded model with non-default bone morphs doesn't show a "modified" dot.
 5. **🧩 模型部位调整 / Wardrobe** — 3-state per-part rendering: 穿 (checkbox on, normal) / 未穿 (checkbox off, line-through) / 未装配 (dashed disabled div, no checkbox). "Equipped" comes from `vrmEngine.materialManager.partMaterials[id]?.length > 0` — not the user's visibility toggle.
 6. **💡 灯光通道与全局倍率 / Lighting** — 6 channels (dir / hemi / front / fill / leg / arm) with independent enable toggle + brightness slider, plus a global multiplier slider.
+7. **⚡ EMAGE Perf / EmagePerfSection** — P0b acceptance panel: `crossOriginIsolated`, SharedArrayBuffer, `numThreads`, stage timings (screenshot-friendly; no public UX).
 
 ### Architecture highlights
 
@@ -190,7 +193,7 @@ Visible only when the page is served from a non-production host. Lives at `src/c
 - **Per-frame display without re-render**: Section passes `liveValueRef` + `liveValueFormatter` to `SliderWithAnchors`; a `useEffect([local])` writes `ref.current.textContent` imperatively, so the `90%` number follows the thumb in real time without React reconciliation.
 - **Global reset broadcast**: A `resetSignal` counter on `DevDrawerContext` is included in `<SectionRenderer key={...}>`; on global reset the shell bumps it, React unmounts and remounts every section, and each section's `useState` initializer re-runs against the now-defaulted engine.
 - **Schema-driven render order**: `src/components/dev-drawer/schema.ts` `SECTIONS[]` defines the order; `renderer.tsx` `REGISTRY` maps id → component. Adding a section = one line in `SECTIONS` + one in `REGISTRY`.
-- **Collapse gate**: `SectionCard` accepts an optional `id` prop — when set, it reads `collapsed.has(id)` from context and hides everything except the first child (the header). Six sections all set their `id`; nested cards (bone morph categories) leave it off.
+- **Collapse gate**: `SectionCard` accepts an optional `id` prop — when set, it reads `collapsed.has(id)` from context and hides everything except the first child (the header). Seven sections set their `id`; nested cards (bone morph categories) leave it off.
 
 Full implementation details in [`docs/ARCHITECTURE_AND_RULES.md` §3](https://github.com/FireTable/project-xiaochun/blob/main/docs/ARCHITECTURE_AND_RULES.md).
 
@@ -204,6 +207,7 @@ Full implementation details in [`docs/ARCHITECTURE_AND_RULES.md` §3](https://gi
 - [Animation Inc.](https://www.animation.inc) — Ani-2 architecture inspiration
 - [Qiuner / Qiuner.github.io](https://github.com/Qiuner/Qiuner.github.io) — linework outdoor scene visual inspiration
 - [MLC AI / WebLLM](https://github.com/mlc-ai/web-llm) — in-browser LLM
-- [Sterznode / edge-tts-universal](https://github.com/Sterznode/edge-tts-universal) — Edge-TTS bridge
+- Native `src/lib/edge-tts-core.ts` — Edge-TTS WebSocket client (no third-party TTS SDK)
+- [VolgaGerm / emage-onnx-export](https://github.com/VolgaGerm/emage-onnx-export) — README export scripts for ONNX / INT8 weights
 - [TanStack Start](https://tanstack.com/start) — full-stack React framework
 - [Tailwind CSS](https://tailwindcss.com) — utility-first styling

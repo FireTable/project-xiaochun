@@ -1,0 +1,21 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  // ponytail: 临时测试部署 — 独立 Worker name,不污染生产 xiaochun.firetable.tech。
+  // 跑 deploy:dev 后会拿到 https://project-xiaochun-dev.<account>.workers.dev 临时 URL。
+  // 测试完可以 wrangler delete 删掉,或等 Cloudflare 自动回收。
+  "name": "project-xiaochun-dev",
+  "compatibility_date": "2026-09-03",
+  "compatibility_flags": ["nodejs_compat"],
+  "main": "dist/server/index.js",
+  "assets": {
+    "binding": "ASSETS",
+    "directory": "./dist/client",
+    "not_found_handling": "none",
+  },
+  "observability": {
+    "enabled": true,
+  },
+  "vars": {
+    "EMAGE_MODELS_BASE": "https://cdn.firetable.tech/xiaochun",
+  },
+}

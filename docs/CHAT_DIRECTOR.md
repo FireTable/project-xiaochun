@@ -4,7 +4,9 @@
 > - [`src/director/chatDirector.ts`](../src/director/chatDirector.ts) (Director orchestration & pipeline scheduler)  
 > - [`src/components/HeadBubble.tsx`](../src/components/HeadBubble.tsx) (3D head bubble & status capsules)  
 > - [`src/motion/speakIdle.ts`](../src/motion/speakIdle.ts) (Speech-gap biomechanical micro-motion)  
-> - [`src/server.ts`](../src/server.ts) (Edge-TTS proxy worker endpoint)
+> - [`src/server.ts`](../src/server.ts) (Edge-TTS proxy + COOP/COEP document isolation)
+> - [`src/motion/emageWorker.ts`](../src/motion/emageWorker.ts) / [`emagePlayer.ts`](../src/motion/emagePlayer.ts) (streaming `motion_chunk`)
+> - [`EMAGE_MODEL.md`](EMAGE_MODEL.md) (EP / INT8 / limits)
 
 ---
 
@@ -92,6 +94,16 @@ Dialogue bubbles strictly follow the **Anti-Spoil Principle**:
 
 ---
 
+### 2.5 Streaming EMAGE (`motion_chunk`) & A/V Hold
+
+Beyond sentence-level TTS pre-fetch, EMAGE itself streams **inside** each speech chunk:
+
+1. Worker steps fixed **T=64** windows and posts transferable **`motion_chunk`** after each successful `runStep` (TTFA — gestures can start before the full utterance finishes).
+2. **A/V hold**: the first chunk is buffered; visible motion releases only when TTS `AudioContext.start` calls `releaseMotionForAudio`, so motion never leads audible audio.
+3. Hop / seam behavior is owned by `APP_CONFIG.emage.motion` (`advanceFrames` 60..64, seam + micro-fade knobs). Document COOP/COEP isolation enables SAB wasm threads when available (P0b).
+
+Details and non-goals (no WebGPU-EMAGE, no P0d): [`EMAGE_MODEL.md`](EMAGE_MODEL.md).
+
 ## 3. Developer Configuration Quick Reference
 
 - **Voices & Pitch**: Configured centrally in [`src/config.ts`](../src/config.ts):
@@ -103,3 +115,40 @@ Dialogue bubbles strictly follow the **Anti-Spoil Principle**:
   // Interrupt ongoing speech and flush queues upon new user prompts
   vrmEngine.chatDirector.resetClipCache();
   ```
+
+
+---
+
+## Flow: enter → message → source switch → speak → idle (tip)
+
+High-level path from idle through a spoken reply. **Source priority** in the render loop: `universal` > `emage` > `vrma` (thinking) > `idle`.
+
+`MotionTransitionManager` runs **only when the active source changes** (e.g. idle→thinking, thinking→emage, emage→idle). It does **not** run per `motion_chunk`; window seams are handled inside `EmagePlayer` (see [`EMAGE_MODEL.md`](EMAGE_MODEL.md) Worker diagram).
+
+```mermaid
+flowchart TD
+  A[Page enter / idle] --> B[NaturalIdle breathing]
+  B --> C[User sends message]
+  C --> D[ChatDirector.say / speakText]
+  D --> E[Play thinking.vrma]
+  E --> F[LLM finishes reply text]
+  F --> G[Split speech chunks]
+  G --> H[startAudioStream — one long EMAGE session]
+  H --> I[Producer: per-chunk TTS PCM → pushAudioChunk]
+  I --> J[Worker: per-window step → motion_chunk]
+  J --> K{Audio started?}
+  K -->|No| L[Buffer only — awaitingAudioStart]
+  K -->|Yes| M[releaseMotionForAudio + audio-clock playhead]
+  L --> M
+  M --> N[Play this TTS segment]
+  N --> O{More segments?}
+  O -->|Yes streaming| P[Hold last pose / freeze clock]
+  P --> I
+  O -->|No| Q[endAudioStream / stop EMAGE]
+  Q --> R[Back to NaturalIdle]
+  E -.->|source change| S[motionTransition crossfade]
+  M -.->|source change| S
+  R -.->|source change| S
+```
+
+Bubble status roughly tracks: `thinking` → early `emage` (first window ready) → `speaking` → inter-segment wait → idle.

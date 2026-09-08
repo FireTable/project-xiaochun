@@ -77,7 +77,7 @@ vrmEngine.dressAllClothing();
 
 ## 3. DevDrawer Architecture
 
-The debug drawer is a 6-section debug panel (`src/components/dev-drawer/`) shown only on localhost. Sections are schema-driven and each owns its own React state so per-frame UI work never cascades across sections.
+The debug drawer is a 7-section debug panel (`src/components/dev-drawer/`) shown only on localhost (includes `EmagePerfSection`). Sections are schema-driven and each owns its own React state so per-frame UI work never cascades across sections.
 
 ### 3.1 Component Primitives
 
@@ -117,7 +117,7 @@ The percentage text next to a slider (e.g. `90%`) lives in the section as a `<sp
 1. Resets every engine subsystem and writes defaults to `localStorage`.
 2. Bumps `resetSignal`, which becomes part of `<SectionRenderer key={`${s.id}-${resetSignal}`}>`.
 
-React unmounts and remounts every section on bump. Each section's `useState` initializer re-runs against the now-defaulted engine, so all 6 sections show their default state without per-section imperative sync.
+React unmounts and remounts every section on bump. Each section's `useState` initializer re-runs against the now-defaulted engine, so all 7 sections show their default state without per-section imperative sync.
 
 ### 3.7 Schema-Driven Render Order
 
@@ -131,16 +131,19 @@ export const SECTIONS: SectionConfig[] = [
   { id: 'bodyMorph',   defaultCollapsed: false },
   { id: 'wardrobe',    defaultCollapsed: false },
   { id: 'lighting',    defaultCollapsed: false },
+  { id: 'emagePerf',   defaultCollapsed: false },
 ];
 ```
 
-Current order: 预设表情 → 🎥 镜头设置 → 🎨 画面色彩 → ✨ 骨骼体型 → 🧩 模型部位 → 💡 灯光通道. Reordering = swapping entries in this array; no other file changes.
+Current order: 预设表情 → 🎥 镜头设置 → 🎨 画面色彩 → ✨ 骨骼体型 → 🧩 模型部位 → 💡 灯光通道 → ⚡ EMAGE Perf. Reordering = swapping entries in this array; no other file changes.
 
 ### 3.8 Section-Specific Patterns
 
 - **Wardrobe (`WardhouseSection.tsx`)**: Each part row has 3 states — `穿` (checkbox on, normal), `未穿` (checkbox off, line-through, dim), `未装配` (dashed disabled div, no checkbox). `equippedCount` per category uses `vrmEngine.materialManager.partMaterials[p.id]?.length > 0` — not the user's visibility toggle — to distinguish "model has this part" from "user has hidden it".
 - **Bone morph (`BoneMorphSection.tsx`)**: 27 sliders grouped into 7 body regions (overall / head / torso / hips / bust / arms / legs). Each category is a sub-card (`rounded-lg bg-white/[0.02] border`) with the label outside the card. Search filter hides empty regions.
 - **Camera (`CameraSection.tsx`)**: 3 sliders — FOV (with hover `ⓘ` tooltip and bullet list of reference values), min / max camera distance. Body-turn toggle also lives here since it shares the camera concept. `defaultShotExtent` in `config.ts` controls how tall a body the default FOV frames.
+
+- **EMAGE Perf (`EmagePerfSection.tsx`)**: Localhost acceptance panel for P0b — `crossOriginIsolated`, SharedArrayBuffer, `numThreads`, wasm_env, stage timings. Screenshot-friendly; not a public product surface.
 
 ---
 

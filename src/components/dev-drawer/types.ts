@@ -31,6 +31,7 @@ export interface DevDrawerFullSettings {
 /** 段 id — 跟 schema SECTIONS 一一对应 */
 export type SectionId =
   | 'expressions'
+  | 'emagePerf'
   | 'saturation'
   | 'bodyMorph'
   | 'wardrobe'
