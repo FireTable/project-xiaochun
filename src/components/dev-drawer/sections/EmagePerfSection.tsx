@@ -127,7 +127,7 @@ export const EmagePerfSection: React.FC = () => {
     if (tone === 'ok') return 'text-emerald-300';
     if (tone === 'bad') return 'text-rose-300';
     if (tone === 'muted') return 'text-white/45';
-    return 'text-brand-200';
+    return 'text-brand-300';
   };
 
   return (
@@ -142,7 +142,7 @@ export const EmagePerfSection: React.FC = () => {
       />
 
       <div
-        className={`rounded-lg px-3 py-2.5 text-[13px] font-semibold leading-snug border ${
+        className={`rounded-lg px-3 py-2 text-[11px] leading-snug border ${
           hint.ok
             ? 'bg-emerald-500/15 border-emerald-400/40 text-emerald-200'
             : 'bg-rose-500/15 border-rose-400/40 text-rose-200'
@@ -151,17 +151,14 @@ export const EmagePerfSection: React.FC = () => {
         {hint.ok ? `${t('panel.emagePerfPass')} — ${hint.line}` : hint.line}
       </div>
 
-      <div className="flex flex-col gap-1.5">
+      <div className="flex flex-col gap-1">
         {rows.map((r) => (
-          <div
-            key={r.label}
-            className="flex items-baseline justify-between gap-3 py-1.5 px-2 rounded-md bg-black/25 border border-white/5"
-          >
-            <span className="text-[12px] sm:text-[13px] text-white/65 shrink min-w-0 leading-tight">
+          <div key={r.label} className="flex items-baseline justify-between gap-3 min-w-0">
+            <span className="text-[11px] text-white/70 leading-tight min-w-0 truncate">
               {r.label}
             </span>
             <span
-              className={`font-mono text-[14px] sm:text-[15px] font-semibold tabular-nums text-right shrink-0 ${valueClass(r.tone)}`}
+              className={`font-mono text-[11px] tabular-nums text-right shrink-0 ${valueClass(r.tone)}`}
             >
               {r.value}
             </span>
@@ -172,7 +169,7 @@ export const EmagePerfSection: React.FC = () => {
       <div className="flex items-center justify-between gap-2 pt-1">
         <div className="flex flex-col gap-0.5 min-w-0">
           <span className="text-[12px] text-white/80">{t('panel.emagePerfToggle')}</span>
-          <span className="text-[10px] text-white/40 leading-relaxed">
+          <span className="text-[10px] text-white/45 leading-relaxed">
             {t('panel.emagePerfToggleHint')}
           </span>
         </div>
@@ -196,7 +193,7 @@ export const EmagePerfSection: React.FC = () => {
       <button
         type="button"
         onClick={handleClear}
-        className="w-full py-2 rounded-xl text-[12px] font-medium cursor-pointer bg-white/5 hover:bg-white/10 border border-white/10 text-white/70 hover:text-white transition-colors"
+        className="w-full py-2 rounded-lg text-[12px] font-medium cursor-pointer bg-white/5 hover:bg-white/10 border border-white/10 text-white/70 hover:text-white transition-colors"
       >
         {t('panel.emagePerfClear')}
       </button>
@@ -206,7 +203,7 @@ export const EmagePerfSection: React.FC = () => {
           <span className="text-[10px] uppercase tracking-wider text-white/40">
             {t('panel.emagePerfRecentStages', { n: snap.lastStageProfiles.length })}
           </span>
-          <div className="max-h-28 overflow-y-auto rounded-md bg-black/30 border border-white/5 p-2 font-mono text-[11px] text-white/55 space-y-0.5">
+          <div className="max-h-28 overflow-y-auto rounded-lg bg-white/[0.02] border border-white/10 p-2.5 font-mono text-[11px] text-white/55 space-y-0.5">
             {[...snap.lastStageProfiles].reverse().map((s, i) => (
               <div key={`${s.at}-${s.stage}-${i}`} className="flex justify-between gap-2">
                 <span className="truncate">{s.stage}</span>
