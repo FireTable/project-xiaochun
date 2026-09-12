@@ -8,11 +8,11 @@
  * webLLM 路径见 ./webLLMProvider,自定义 HTTP 见 ./customProvider。
  */
 
-import { langFromSystemPrompt, XIAOCHUN_SYSTEM_PROMPT, wrapUserContent } from '@/llm/prompts';
+import { langFromSystemPrompt, XIAOCHUN_SYSTEM_PROMPT } from '@/llm/prompts';
 import { applyRecall, recallForChat } from '@/memory';
 import type { Lang } from '@/i18n';
 import { customChatProvider } from './customProvider';
-import { webllmChatProvider, ModelSwitchedError, isThinkingEnabled, preloadWebLLM } from './webLLMProvider';
+import { webllmChatProvider, ModelSwitchedError, isThinkingEnabled, preloadWebLLM, resetWebLLMChat } from './webLLMProvider';
 import { resolveEffectiveSettings } from './userSettings';
 import type { ChatProvider, LlmMilestoneKey, MilestoneFn, ChatMessage, RunChatOptions, RunChatFn } from './chatTypes';
 
@@ -77,6 +77,7 @@ export async function generateSpeechReply(
   onMilestone?: MilestoneFn,
   systemPrompt: string = XIAOCHUN_SYSTEM_PROMPT['zh-CN'],
   lang?: Lang,
+  onSentenceChunk?: (sentence: string, isFirst: boolean) => void,
 ): Promise<string> {
   const effectiveLang: Lang = lang ?? langFromSystemPrompt(systemPrompt);
   // ponytail: 用户可能改了记忆轮数 — 走 effective 解析(override 优先,否则设备默认)。
@@ -84,12 +85,12 @@ export async function generateSpeechReply(
   const mem = await recallForChat(userText, memoryTurns);
   const recalled = applyRecall(systemPrompt, mem, effectiveLang);
 
-  // ponytail: messages 一次组装,两条路径共用 — 当前 user 文本走 wrapUserContent,
-  // 把 lang 编码到 prompt 里(让模型知道回答用哪种语言)。
+  // 组装标准 ChatML 格式的 messages 列表：直接使用用户原始纯文本，杜绝额外前缀包装，
+  // 确保历史记录与当轮输入的格式 100% 严格一致，让 WebLLM compareConversationObject 成功复用 KV Cache。
   const messages: ChatMessage[] = [
     { role: 'system', content: recalled.system },
     ...recalled.history,
-    { role: 'user', content: wrapUserContent(userText, effectiveLang) },
+    { role: 'user', content: userText.trim() },
   ];
 
   const wantThink = isThinkingEnabled();
@@ -98,6 +99,7 @@ export async function generateSpeechReply(
     messages,
     thinking: wantThink,
     onMilestone,
+    onSentenceChunk,
   };
 
   // ponytail: 选 provider 通过 factory — chatWorkflow 不知道 webllm / custom 谁在跑。
@@ -141,5 +143,5 @@ export async function generateSpeechReply(
   return cleanSpeech;
 }
 
-// ponytail: 重导出 webLLM 预热入口,方便 vrmEngine 等在启动时一次性 import。
-export { preloadWebLLM };
+// ponytail: 重导出 webLLM 预热与会话重置入口,方便 vrmEngine 等在启动时一次性 import。
+export { preloadWebLLM, resetWebLLMChat };

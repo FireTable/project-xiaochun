@@ -2,6 +2,7 @@
 
 > **Core Files**:  
 > - [`src/director/chatDirector.ts`](../src/director/chatDirector.ts) (Director orchestration & pipeline scheduler)  
+> - [`src/lib/utils.ts`](../src/lib/utils.ts) (Speech chunking single source of truth: `splitIntoSpeechChunks` & `extractNextSpeechChunk`)  
 > - [`src/components/HeadBubble.tsx`](../src/components/HeadBubble.tsx) (3D head bubble & status capsules)  
 > - [`src/motion/speakIdle.ts`](../src/motion/speakIdle.ts) (Speech-gap biomechanical micro-motion)  
 > - [`src/server.ts`](../src/server.ts) (Edge-TTS proxy + COOP/COEP document isolation)
@@ -46,14 +47,17 @@ sequenceDiagram
 
 ## 2. Algorithms & Pipeline Mechanisms
 
-### 2.1 Smart Speech Chunk Slicer (`splitIntoSpeechChunks`)
+### 2.1 Smart Speech Chunk Slicer (`src/lib/utils.ts`)
 
-To balance prompt first-sentence responsiveness with natural cadences:
+Speech segmentation is governed centrally by [`src/lib/utils.ts`](../src/lib/utils.ts) as the single source of truth for both online streaming (`extractNextSpeechChunk`) and offline batching (`splitIntoSpeechChunks`):
 1. **Short Text Passthrough**: Texts $\le 45\text{ characters}$ are dispatched as a single chunk for immediate playback;
 2. **Punctuation-First Boundary Alignment**:
    - Prefer sentence boundaries (`。！？!?\n` or `.\s`) between **$25 \sim 65\text{ characters}$**;
    - Fall back to commas or semicolons (`，,；;`) between **$25 \sim 60\text{ characters}$**;
    - Hard slice at character 55 only if no punctuation is found, preserving word integrity.
+3. **Dual Pipeline Modes**:
+   - `extractNextSpeechChunk(remaining, isStreamEnd)`: Used during WebLLM live streaming to detect and emit completed sentences on the fly;
+   - `splitIntoSpeechChunks(fullText)`: Iteratively uses `extractNextSpeechChunk` to segment finished text for batch audio/motion queueing.
 
 ---
 

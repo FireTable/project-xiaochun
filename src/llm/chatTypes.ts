@@ -25,6 +25,11 @@ export interface RunChatOptions {
   maxTokens?: number;
   signal?: AbortSignal;
   onMilestone?: MilestoneFn;
+  /**
+   * 可选首句/分句流式回调：每当流式生成产出完整标点句子时触发，
+   * 自动屏蔽 <think> 思考内容，让下游实现毫秒级首句开口。
+   */
+  onSentenceChunk?: (sentence: string, isFirst: boolean) => void;
 }
 
 /** provider 必须实现的最小接口 — 拿到 opts 返回原始 assistant 文本。 */
