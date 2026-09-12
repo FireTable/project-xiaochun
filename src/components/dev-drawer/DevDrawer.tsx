@@ -163,7 +163,7 @@ export const DevDrawer: React.FC<DevDrawerProps> = ({ isOpen, onClose }) => {
     <DevDrawerContext.Provider value={{ t, collapsed, toggleCollapsed, resetSignal }}>
       <aside
         id="control-panel"
-        className={`fixed top-0 right-0 bottom-0 z-40 w-84 max-w-[92vw] bg-slate-950/90 backdrop-blur-2xl border-l border-white/15 flex flex-col transition-transform duration-300 shadow-2xl ${
+        className={`fixed top-0 right-0 bottom-0 z-[60] sm:z-40 w-84 max-w-[92vw] bg-slate-950/90 backdrop-blur-2xl border-l border-white/15 flex flex-col transition-transform duration-300 shadow-2xl ${
           isOpen ? 'translate-x-0' : 'translate-x-full'
         }`}
       >

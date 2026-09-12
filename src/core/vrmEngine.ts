@@ -252,6 +252,7 @@ export class VRMEngine {
   constructor() {
     this.loader.register((parser) => new VRMLoaderPlugin(parser));
     this.emagePlayer.footIK = this.footIK;
+    this.emagePlayer.getLookAtOffsets = () => this.gazeController.getLookAtOffsets();
     this.initScene();
   }
 
@@ -1651,7 +1652,7 @@ export class VRMEngine {
         vrm.scene.position.y = currentSceneBaseY;
         if (this.emagePlayer) this.emagePlayer.baseY = currentSceneBaseY;
 
-        // 3. 全局平滑过渡器加权 Slerp 统一接管
+        // 3. 全局平滑过渡器加权 Slerp 统一接管 (Quintic Smootherstep 抹平一切跨状态切入切出)
         this.motionTransition.apply(vrm, delta);
 
         // 4. 同步管线最终姿态快照 (非破坏性只读采样)
@@ -1674,9 +1675,7 @@ export class VRMEngine {
         }
 
         const isStepping = this.enableBodyTurn && this.bodyTurn.isStepping();
-        if (vrmaLive || universalLive || !emageLive || isShoesOff) {
-          this.footIK.levelFeet(vrm, isStepping);
-        }
+        this.footIK.levelFeet(vrm, isStepping);
 
         this.chatDirector.tick(vrm, this.vrmaPlayer);
 

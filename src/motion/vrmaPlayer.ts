@@ -3,7 +3,8 @@ import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
 import { VRMAnimationLoaderPlugin, createVRMAnimationClip } from '@pixiv/three-vrm-animation';
 import type { VRM } from '@pixiv/three-vrm';
 import { retargetClip } from './vrmaRetarget';
-import { VRM_ALL_HUMANOID_BONES, type MotionTransitionManager } from './motionTransition';
+import { VRM_ALL_HUMANOID_BONES } from '@/lib/constants';
+import type { MotionTransitionManager } from './motionTransition';
 
 export interface VRMALoadResult {
   name: string;

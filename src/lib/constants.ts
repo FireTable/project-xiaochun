@@ -52,3 +52,80 @@ export const WEARING_OUTFIT_KEY = 'xiaochun_wearing_outfit';
 
 /** 场景线稿背景主题 ('light' | 'dark')。TopHeader 场景切换持久化。 */
 export const SCENE_THEME_KEY = 'xiaochun_scene_theme';
+
+// ──────────────────────────────────────────────────────────────────
+// VRM 骨骼结构常量定义 (Humanoid Bone Definitions)
+// ──────────────────────────────────────────────────────────────────
+
+/**
+ * VRM 人形骨骼清单（52 根：躯干、头颈、四肢、双手与左右手各 15 个指节；不含 jaw / 眼睛）
+ */
+export const VRM_ALL_HUMANOID_BONES = [
+  // ─ 躯干与下肢 ─
+  'hips', 'spine', 'chest', 'upperChest',
+  'leftUpperLeg', 'rightUpperLeg', 'leftLowerLeg', 'rightLowerLeg',
+  'leftFoot', 'rightFoot', 'leftToes', 'rightToes',
+
+  // ─ 双臂与头颈 ─
+  'neck', 'head',
+  'leftShoulder', 'rightShoulder',
+  'leftUpperArm', 'rightUpperArm',
+  'leftLowerArm', 'rightLowerArm',
+  'leftHand', 'rightHand',
+
+  // ─ 左手 15 根手指 ─
+  'leftThumbMetacarpal', 'leftThumbProximal', 'leftThumbDistal',
+  'leftIndexProximal', 'leftIndexIntermediate', 'leftIndexDistal',
+  'leftMiddleProximal', 'leftMiddleIntermediate', 'leftMiddleDistal',
+  'leftRingProximal', 'leftRingIntermediate', 'leftRingDistal',
+  'leftLittleProximal', 'leftLittleIntermediate', 'leftLittleDistal',
+
+  // ─ 右手 15 根手指 ─
+  'rightThumbMetacarpal', 'rightThumbProximal', 'rightThumbDistal',
+  'rightIndexProximal', 'rightIndexIntermediate', 'rightIndexDistal',
+  'rightMiddleProximal', 'rightMiddleIntermediate', 'rightMiddleDistal',
+  'rightRingProximal', 'rightRingIntermediate', 'rightRingDistal',
+  'rightLittleProximal', 'rightLittleIntermediate', 'rightLittleDistal',
+] as const;
+
+export type VRMAllHumanoidBoneName = typeof VRM_ALL_HUMANOID_BONES[number];
+
+/**
+ * MotionTransitionManager 默认过渡骨骼（躯干 + 头颈 + 四肢 + 双手 + 30 指节）。
+ *
+ * 手与手指必须包含在内：思考托腮 / 说话手势切回 idle 时，若只过渡手臂不过渡指节，
+ * NaturalIdle 会以 weight=1 立刻写入握拳，指尖会瞬切。过渡器在跨状态窗口内
+ * 从快照 Slerp 到当前驱动姿态，结束后仍由 EMAGE / NaturalIdle 单独写手指。
+ *
+ * 头颈通过 startTransition(lookAtOffsets) 逆四元数剔除注视与思考晃动增量，
+ * 保留纯净基底姿态，避免 LookAt 二次叠加。
+ */
+export const VRM_MOTION_CORE_BONES = [
+  // ─ 躯干与下肢 ─
+  'hips', 'spine', 'chest', 'upperChest',
+  'leftUpperLeg', 'rightUpperLeg', 'leftLowerLeg', 'rightLowerLeg',
+  'leftFoot', 'rightFoot', 'leftToes', 'rightToes',
+
+  // ─ 双臂、手与头颈 ─
+  'neck', 'head',
+  'leftShoulder', 'rightShoulder',
+  'leftUpperArm', 'rightUpperArm',
+  'leftLowerArm', 'rightLowerArm',
+  'leftHand', 'rightHand',
+
+  // ─ 左手 15 根手指 ─
+  'leftThumbMetacarpal', 'leftThumbProximal', 'leftThumbDistal',
+  'leftIndexProximal', 'leftIndexIntermediate', 'leftIndexDistal',
+  'leftMiddleProximal', 'leftMiddleIntermediate', 'leftMiddleDistal',
+  'leftRingProximal', 'leftRingIntermediate', 'leftRingDistal',
+  'leftLittleProximal', 'leftLittleIntermediate', 'leftLittleDistal',
+
+  // ─ 右手 15 根手指 ─
+  'rightThumbMetacarpal', 'rightThumbProximal', 'rightThumbDistal',
+  'rightIndexProximal', 'rightIndexIntermediate', 'rightIndexDistal',
+  'rightMiddleProximal', 'rightMiddleIntermediate', 'rightMiddleDistal',
+  'rightRingProximal', 'rightRingIntermediate', 'rightRingDistal',
+  'rightLittleProximal', 'rightLittleIntermediate', 'rightLittleDistal',
+] as const;
+
+export type VRMMotionCoreBoneName = typeof VRM_MOTION_CORE_BONES[number];

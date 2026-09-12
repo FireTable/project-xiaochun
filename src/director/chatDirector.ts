@@ -358,7 +358,6 @@ export class ChatDirector {
 
   private async playThinking(vrm: VRM, player: VRMAMotionPlayer): Promise<void> {
     document.body.classList.add('chat-playing');
-    this.isThinking = true;
     this.currentVRM = vrm;
 
     if (!this.thinkingVRMABuf) {
@@ -372,9 +371,13 @@ export class ChatDirector {
           this.cachedThinkingClip = clip;
         }
         player.playLoop(this.cachedThinkingClip, vrm, 0.65);
+        this.isThinking = true;
       } catch (e) {
         console.warn('播放 thinking.vrma 动作失败', e);
+        this.isThinking = true;
       }
+    } else {
+      this.isThinking = true;
     }
   }
 

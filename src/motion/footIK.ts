@@ -44,9 +44,9 @@ export class FootIKSolver {
   public enableWeightShift = true; // 启用重心转移与放松腿微屈
   public enableFootAnchors = true; // 启用物理地锚防滑
 
-  // ─── 连续重心与动态换腿参数 (0.0 = 左腿主支柱, 1.0 = 右腿主支柱) ───
-  public stanceRatio = 0.0;
-  public smoothStanceRatio = 0.0;
+  // ─── 连续重心与动态换腿参数 (0.0 = 左腿主支柱, 1.0 = 右腿主支柱, 0.5 = 双腿均衡) ───
+  public stanceRatio = 0.5;
+  public smoothStanceRatio = 0.5;
   public transferSpeed = 3.5; // 换腿重心过渡速度 (约 1.2~1.5 秒丝滑无感完成换脚)
 
   get stanceLeg(): 'left' | 'right' {
@@ -87,6 +87,22 @@ export class FootIKSolver {
   private _qTarget = new THREE.Quaternion();
   private _footLevelQ = new THREE.Quaternion();
   private _footLevelParentInv = new THREE.Quaternion();
+  public needsAnchorSnap = true; // 换动作或相机转向后立即硬对齐地面支点，彻底杜绝目标点滞后导致的交叉盘腿
+
+  /**
+   * 立即将双腿平滑地锚硬对齐至当前世界支点坐标，消除由于角色旋转或从睡眠状态唤醒导致的跨坐标系拉扯
+   */
+  public snapAnchors(): void {
+    this.needsAnchorSnap = true;
+    this.smoothHipsOffsetY = 0;
+    if (this.vrm?.scene && this.leftLeg && this.rightLeg) {
+      this.vrm.scene.updateMatrixWorld(true);
+      this.leftLeg.currentAnchorPos.copy(this.leftLeg.restAnchorLocalPos).applyMatrix4(this.vrm.scene.matrixWorld);
+      this.rightLeg.currentAnchorPos.copy(this.rightLeg.restAnchorLocalPos).applyMatrix4(this.vrm.scene.matrixWorld);
+      this.leftLeg.smoothTargetPos.copy(this.leftLeg.currentAnchorPos);
+      this.rightLeg.smoothTargetPos.copy(this.rightLeg.currentAnchorPos);
+    }
+  }
 
   bind(vrm: VRM): void {
     this.vrm = vrm;
@@ -207,6 +223,7 @@ export class FootIKSolver {
    */
   softReset(): void {
     this.smoothHipsOffsetY = 0;
+    this.needsAnchorSnap = true;
     if (this.leftLeg) {
       this.leftLeg.isStance = true;
       this.leftLeg.effectiveWeight = 1.0;
@@ -239,6 +256,13 @@ export class FootIKSolver {
     const lAnchorWorld = l.currentAnchorPos;
     const rAnchorWorld = r.currentAnchorPos;
 
+    if (this.needsAnchorSnap) {
+      l.smoothTargetPos.copy(lAnchorWorld);
+      r.smoothTargetPos.copy(rAnchorWorld);
+      this.smoothHipsOffsetY = 0;
+      this.needsAnchorSnap = false;
+    }
+
     // 2. 丝滑平滑过渡当前重心比例 sr ∈ [0, 1] (0.0 = 纯左腿支撑, 1.0 = 纯右腿支撑)
     const transferFilter = 1.0 - Math.exp(-this.transferSpeed * Math.max(0.001, delta));
     this.smoothStanceRatio += (this.stanceRatio - this.smoothStanceRatio) * transferFilter;
@@ -258,12 +282,15 @@ export class FootIKSolver {
     const midAnchorX = (lAnchorWorld.x + rAnchorWorld.x) * 0.5;
     const halfSpan = Math.abs(rAnchorWorld.x - lAnchorWorld.x) * 0.5;
     const leftSign = Math.sign(lAnchorWorld.x - midAnchorX) || -1;
-
-    // stanceDir: -1.0 为纯左腿支撑, +1.0 为纯右腿支撑
     const stanceDir = (sr - 0.5) * 2.0;
-    const maxShiftX = Math.min(0.042, halfSpan * 0.40);
-    const targetShiftX = stanceDir * (-leftSign) * maxShiftX * this.weight;
-    this.hips.position.x = this.restHipsLocalPos.x + targetShiftX;
+
+    if (this.enableWeightShift) {
+      const maxShiftX = Math.min(0.042, halfSpan * 0.40);
+      const targetShiftX = stanceDir * (-leftSign) * maxShiftX * this.weight;
+      this.hips.position.x = this.restHipsLocalPos.x + targetShiftX;
+    } else {
+      this.hips.position.x = this.restHipsLocalPos.x;
+    }
 
     // 4. 骨盆垂直高度补偿 (Ground Alignment):
     // 提取去除上一帧修正量后的真实内在对地距离，彻底消灭代数环弹簧回弹震荡
@@ -289,13 +316,15 @@ export class FootIKSolver {
     // 5. 对立平衡骨盆解剖学侧倾 (Contrapposto Pelvic Roll) 与脊柱反向代偿
     // 站立单腿承重时，承重侧骨盆微微抬高约 2.4° (0.042 rad)，呈现自然 S 型优美体态；
     // 脊柱向相反方向代偿倾斜，保持胸腔与头部端正水平，杜绝歪斜。
-    const rollAngle = -stanceDir * (-leftSign) * 0.042 * this.weight;
-    if (Math.abs(rollAngle) > 0.0005) {
-      this._qDelta.setFromAxisAngle(new THREE.Vector3(0, 0, 1), rollAngle);
-      this.hips.quaternion.multiply(this._qDelta);
-      if (this.spine) {
-        this._qDelta.setFromAxisAngle(new THREE.Vector3(0, 0, 1), -rollAngle * 0.82);
-        this.spine.quaternion.multiply(this._qDelta);
+    if (this.enableWeightShift) {
+      const rollAngle = -stanceDir * (-leftSign) * 0.042 * this.weight;
+      if (Math.abs(rollAngle) > 0.0005) {
+        this._qDelta.setFromAxisAngle(new THREE.Vector3(0, 0, 1), rollAngle);
+        this.hips.quaternion.multiply(this._qDelta);
+        if (this.spine) {
+          this._qDelta.setFromAxisAngle(new THREE.Vector3(0, 0, 1), -rollAngle * 0.82);
+          this.spine.quaternion.multiply(this._qDelta);
+        }
       }
     }
 
@@ -314,11 +343,18 @@ export class FootIKSolver {
     // freeAlpha: 0.0 = 纯主承重支柱腿, 1.0 = 纯从属放松微屈腿
     const freeAlpha = Math.max(0.0, Math.min(1.0, 1.0 - supportRatio));
 
-    // 地锚目标点：两脚始终扎根在地面 anchorWorld，高度贴合地表，消除任何漂浮悬挂感
-    const filterFactor = 1.0 - Math.exp(-15.0 * Math.max(0.001, delta));
-    leg.smoothTargetPos.x += (anchorWorld.x - leg.smoothTargetPos.x) * filterFactor;
-    leg.smoothTargetPos.y += (anchorWorld.y - leg.smoothTargetPos.y) * filterFactor;
-    leg.smoothTargetPos.z += (anchorWorld.z - leg.smoothTargetPos.z) * filterFactor;
+    // 地锚目标点：两脚始终扎根在地面 anchorWorld
+    // 关键修正：在未启用动态重心转移时、或世界距离偏差过大 (> 0.06m，如思考期间镜头旋转/踱步转向)，
+    // 立即硬贴合目标，彻底杜绝跨坐标系目标滞后导致的交叉盘腿与骨骼错位！
+    const distToAnchor = leg.smoothTargetPos.distanceTo(anchorWorld);
+    if (!this.enableWeightShift || distToAnchor > 0.06) {
+      leg.smoothTargetPos.copy(anchorWorld);
+    } else {
+      const filterFactor = 1.0 - Math.exp(-15.0 * Math.max(0.001, delta));
+      leg.smoothTargetPos.x += (anchorWorld.x - leg.smoothTargetPos.x) * filterFactor;
+      leg.smoothTargetPos.y += (anchorWorld.y - leg.smoothTargetPos.y) * filterFactor;
+      leg.smoothTargetPos.z += (anchorWorld.z - leg.smoothTargetPos.z) * filterFactor;
+    }
 
     const pT = this._vT.copy(leg.smoothTargetPos);
     const pA = this._vA;
@@ -353,9 +389,9 @@ export class FootIKSolver {
     const vBend = this._vBendDir.crossVectors(vNormal, vAT).normalize();
 
     // 生理级膝部微屈调控：
-    // 主承重腿保留微小的 0.015 rad (约 0.9°) 防止膝关节完全绷死异响，形成垂直支撑柱；
-    // 放松从属腿呈现解剖学自然微屈 0.16 rad (约 9.2°)，呈现经典的单脚重心待机姿态。
-    const flexion = THREE.MathUtils.lerp(0.015, 0.16, freeAlpha);
+    // 未启用重心转移时，双腿均保持自然微直的 0.015 rad (约 0.9°)，杜绝单侧大幅屈膝 9.2°；
+    // 启用重心转移时，从属腿呈现解剖学自然微屈 0.16 rad (约 9.2°)。
+    const flexion = this.enableWeightShift ? THREE.MathUtils.lerp(0.015, 0.16, freeAlpha) : 0.015;
     const effectiveAngleHip = angleHip + flexion;
 
     const newUpperDir = this._vUpperDir.copy(vAT).multiplyScalar(Math.cos(effectiveAngleHip))

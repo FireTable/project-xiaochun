@@ -36,6 +36,13 @@ export class GazeController {
   public lastHeadLookAtQ = new THREE.Quaternion();
   public hasLastLookAt = false;
 
+  // 内部平滑与思考微晃复用对象 (Zero-GC)
+  private _targetNeckLookAtQ = new THREE.Quaternion();
+  private _targetHeadLookAtQ = new THREE.Quaternion();
+  private _thinkSwayQ = new THREE.Quaternion();
+  private _eulerLookAt = new THREE.Euler(0, 0, 0, 'YXZ');
+  private lookAtInitialized = false;
+
   // 控制开关
   public isAutoBlink = true;
   public isLookAtEyes = true;
@@ -121,16 +128,15 @@ export class GazeController {
       }
     }
 
-    // ── 3. 思考头部自然正弦微晃 ──
-    const headBone = vrm.humanoid?.getNormalizedBoneNode('head');
-    if (headBone && tw > 0.01) {
+    // ── 3. 思考头部自然正弦微晃 (计算增量，统一在头颈注视阶段乘入) ──
+    if (tw > 0.01) {
       const thinkHeadSwayX = Math.sin(time * 1.6) * 0.025 * tw;
       const thinkHeadSwayY = Math.cos(time * 1.1) * 0.035 * tw;
       const thinkHeadSwayZ = Math.sin(time * 1.4) * 0.02 * tw;
-      const swayQ = new THREE.Quaternion().setFromEuler(
-        new THREE.Euler(thinkHeadSwayX, thinkHeadSwayY, thinkHeadSwayZ)
-      );
-      headBone.quaternion.multiply(swayQ);
+      this._eulerLookAt.set(thinkHeadSwayX, thinkHeadSwayY, thinkHeadSwayZ);
+      this._thinkSwayQ.setFromEuler(this._eulerLookAt);
+    } else {
+      this._thinkSwayQ.identity();
     }
 
     // ── 4. 自然生理眨眼 ──
@@ -190,7 +196,7 @@ export class GazeController {
       camera.position.z + this.gazeCurrentOffset.z
     );
 
-    // ── 6. 头颈部伴随注视 ──
+    // ── 6. 头颈部伴随注视与神态合成 ──
     if (this.isLookAtHead && headNode && neckNode) {
       const dx = camera.position.x - headPos.x;
       const dy = camera.position.y - headPos.y;
@@ -204,8 +210,24 @@ export class GazeController {
       const targetPitch = this.isLockHead ? 0 : -Math.atan2(dy, distXZ);
       const clampedPitch = this.isLockHead ? 0 : Math.max(-0.42, Math.min(0.38, targetPitch));
 
-      this.lastNeckLookAtQ.setFromEuler(new THREE.Euler(clampedPitch * 0.30, clampedYaw * 0.30, 0, 'YXZ'));
-      this.lastHeadLookAtQ.setFromEuler(new THREE.Euler(clampedPitch * 0.70, clampedYaw * 0.70, 0, 'YXZ'));
+      this._eulerLookAt.set(clampedPitch * 0.30, clampedYaw * 0.30, 0, 'YXZ');
+      this._targetNeckLookAtQ.setFromEuler(this._eulerLookAt);
+
+      this._eulerLookAt.set(clampedPitch * 0.70, clampedYaw * 0.70, 0, 'YXZ');
+      this._targetHeadLookAtQ.setFromEuler(this._eulerLookAt);
+      if (tw > 0.01) {
+        this._targetHeadLookAtQ.multiply(this._thinkSwayQ);
+      }
+
+      if (!this.lookAtInitialized) {
+        this.lastNeckLookAtQ.copy(this._targetNeckLookAtQ);
+        this.lastHeadLookAtQ.copy(this._targetHeadLookAtQ);
+        this.lookAtInitialized = true;
+      } else {
+        const smoothFactor = Math.min(1.0, delta * 12.0);
+        this.lastNeckLookAtQ.slerp(this._targetNeckLookAtQ, smoothFactor);
+        this.lastHeadLookAtQ.slerp(this._targetHeadLookAtQ, smoothFactor);
+      }
 
       neckNode.quaternion.multiply(this.lastNeckLookAtQ);
       headNode.quaternion.multiply(this.lastHeadLookAtQ);

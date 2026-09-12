@@ -60,11 +60,14 @@ The 3D motion pipeline involves complex layered logic. Follow these geometric an
      - **The Solution**: Render loop updates must adhere to the **non-destructive read-only sampling principle** (`motionPipeline.finalPose.sampleFromVRM(vrm)`). Let the active motion subsystems (NaturalIdle, UniversalMotion, EMAGE) drive bones safely, while `MotionTransitionManager` manages cross-state Quintic Smootherstep Slerping without blind overwrites.
 
 ### 2.2 State Transitions & `MotionTransitionManager`
-- File: `src/motion/motionTransition.ts`
+- Files: `src/motion/motionTransition.ts`, `src/lib/constants.ts`
+- **Bone Constant Architecture (`src/lib/constants.ts`)**:
+  - `VRM_ALL_HUMANOID_BONES` (52 bones): Standardized VRM humanoid bones including 30 finger phalanges (no jaw/eyes). Used by `VRMAMotionPlayer.stop()` to snapshot/restore before Three.js mixer stops, preventing T-pose flashes.
+  - `VRM_MOTION_CORE_BONES` (52 bones): Default `MotionTransitionManager` target list — torso, neck, head, limbs, both hands, and all 30 finger phalanges. Hands and fingers must be included so think/speak gestures Quintic-Slerp into idle instead of snapping to the idle fist. EMAGE / NaturalIdle still own fingers outside the cross-state window.
 - Principle: At the instant a state switch triggers (e.g. `Idle -> Think`, `Think -> Speaking`, `Speaking -> Idle`), it captures all normalized bone quaternions in milliseconds, then uses Quintic Smootherstep ($6t^5 - 15t^4 + 10t^3$) to Slerp-interpolate over physiological timeframes (0.70s ~ 0.88s, ~42~53 frames).
 - **⚠️ Critical Architecture Pitfall: LookAt Decoupling via Inverse Quaternions**:
   - **The Problem**: `vrmEngine.ts` applies multiplicative gaze tracking to `neck` and `head` at the end of every frame (`node.quaternion.multiply(offsetQ)`). If the transition manager blindly snapshots these bones, the snapshot contains the gaze offset; during interpolation it gets multiplied again, causing severe head flips or snap-back.
-  - **The Solution**: Instead of naively excluding neck/head, `MotionTransitionManager.startTransition(vrm, dur, lookAtOffsets)` receives the current LookAt offsets and multiplies the snapshot by the inverse offset: `snap.multiply(invLookAt)`. This preserves pure anatomical orientation and allows full 52-bone seamless interpolation without head spasms.
+  - **The Solution**: Instead of naively excluding neck/head, `MotionTransitionManager.startTransition(vrm, dur, lookAtOffsets)` receives the current LookAt offsets and multiplies the snapshot by the inverse offset: `snap.multiply(invLookAt)`. Similarly, `emagePlayer` inverts LookAt offsets on initial snapshot and re-applies LookAt cleanly. This preserves pure anatomical orientation and allows seamless interpolation without head spasms.
 
 ### 2.3 Three.js `AnimationMixer.stopAllAction()` Restore Trap (The `Think -> Emage` Drop-to-Idle Pitfall)
 - Files: `src/motion/vrmaPlayer.ts`, `src/director/chatDirector.ts`, `src/core/vrmEngine.ts`
@@ -72,7 +75,7 @@ The 3D motion pipeline involves complex layered logic. Follow these geometric an
 - **Root Cause**: In Three.js, calling `mixer.stopAllAction()` triggers an internal `restoreOriginalState()` on all active property bindings, **forcibly resetting all animated bones back to their rest pose / T-Pose (0)**. When `motionTransition.startTransition` sampled the VRM bones in the next render frame, it captured the already-reset idle pose rather than the actual thinking chin-resting pose!
 - **Engineering Standard & Rule**:
   - In `VRMAMotionPlayer.stop()`, **never call `mixer.stopAllAction()` nakedly**.
-  - Always snapshot all 52 humanoid bone quaternions and `hips.position` immediately **before** calling `mixer.stopAllAction()`, and write them back immediately **after** `mixer.stopAllAction()`.
+  - Always snapshot all 52 humanoid bone quaternions (`VRM_ALL_HUMANOID_BONES`) and `hips.position` immediately **before** calling `mixer.stopAllAction()`, and write them back immediately **after** `mixer.stopAllAction()`.
   - This ensures bone transforms remain continuous in 3D space across action stops, allowing `MotionTransitionManager` to capture the true anatomical pose.
 
 ### 2.4 State Machine Race Conditions & Premature Assignment Pitfall
@@ -98,7 +101,11 @@ The 3D motion pipeline involves complex layered logic. Follow these geometric an
 - **`NaturalIdleSystem` must continuously maintain upright lower-body posture**:
   - `NaturalIdleSystem` must bind and hold initial rest quaternions (`restQ`) for all leg, foot, toe, and pelvis bones: `leftUpperLeg`, `rightUpperLeg`, `leftLowerLeg`, `rightLowerLeg`, `leftFoot`, `rightFoot`, `leftToes`, `rightToes`, `hips`.
   - In `update(time, idleWeight)`, every lower-body bone must execute `slerp(restQ, idleWeight)`, giving the transition manager a definite upright target and preventing any bent-knee or crooked-leg residue during standby.
-  - In both idle and VRMA modes, call `levelFeet(vrm)` to keep soles absolutely level with the ground ($X=0, Z=0$), preventing toe-lift or foot roll.
+  - In all modes (idle, VRMA, and EMAGE speech), call `levelFeet(vrm)` continuously (except during active stepping) to keep soles flat ($X=0, Z=0$), preventing toe-lift or foot roll.
+  - **Lower-Body Standing Stability (`FootIKSolver` & `EmagePlayer`)**:
+    * `FootIKSolver.enableWeightShift` defaults to `true`: enables $\pm 4.2\text{cm}$ lateral pelvis shifting, pelvic rolling, and $9.2°$ unilateral knee flexion for natural contrapposto. When the foot IK target drifts more than $0.06\text{m}$ (camera orbit / turn), snap to the world anchor immediately to prevent crossed legs.
+    * `EmagePlayer.stancePillar` defaults to `'balanced'` (`stanceRatio = 0.5`): carries equal weight symmetrically, preventing alternating leg swaps and foot skating during speech.
+    * `APP_CONFIG.emage.motion.legIntensity` defaults to `0.70`: legs follow hip/audio motion; FootIK still plants the feet.
 
 ### 2.7 BodyTurn Stepping & Head Gaze Decoupling (`handleBodyTurnHandoff`)
 - Files: `src/motion/bodyTurn.ts`, `src/core/vrmEngine.ts`, `src/motion/motionTransition.ts`
@@ -213,14 +220,19 @@ When modifying any system-level configuration or parameter, follow the **central
 
 ## 5. Common Dev Commands & Validation Workflow
 
+> ⚠️ **Verification Rule (日常验证规范)**:
+> - **DO NOT run `pnpm build` after every routine change or edit**. Running full Vite builds on each small change is slow and produces unnecessary build artifacts.
+> - **Always use `npx tsc --noEmit` (or `pnpm exec tsc --noEmit`) for daily verification!** Strict TypeScript typechecking is fast (~1s) and guarantees strict type correctness without build overhead.
+> - Reserve `pnpm build` strictly for final pre-release validation or when explicitly instructed by the user.
+
 ```bash
 # 1. Start local dev server (uses Miniflare to emulate Cloudflare Workers runtime)
 pnpm dev
 
-# 2. Strict TypeScript type check (must pass with 0 errors before any commit!)
+# 2. Daily TypeScript type check (FAST & MANDATORY: must pass with 0 errors!)
 npx tsc --noEmit
 
-# 3. Production build
+# 3. Production build (ONLY for final pre-release checks or explicit testing, DO NOT run on every edit)
 pnpm build
 ```
 

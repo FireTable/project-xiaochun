@@ -119,10 +119,10 @@ export class EmagePlayer {
   dampingStiffness = APP_CONFIG.emage.motion.dampingStiffness;
   temporalSmoothRadius = APP_CONFIG.emage.motion.temporalSmoothRadius;
 
-  // ─── 动态单腿支柱与丝滑换腿控制 ───
-  stancePillar: 'left' | 'right' | 'alternate' | 'auto' = 'auto'; // 默认 auto 智能动态换腿
-  currentStanceRatio = 0.0; // 0.0 = 纯左腿支撑, 1.0 = 纯右腿支撑
-  private targetStanceRatio = 0.0;
+  // ─── 双腿支柱与重心控制 ───
+  stancePillar: 'left' | 'right' | 'alternate' | 'auto' | 'balanced' = 'balanced'; // 默认 balanced 双腿对称均衡立姿，杜绝单腿左右滑移与单膝微屈
+  currentStanceRatio = 0.5; // 0.5 = 双腿均衡承重
+  private targetStanceRatio = 0.5;
   private weightShiftTimer = 0; // 长句周期换腿计时器
 
   // ─── Dedicated Web Worker 异步推理调度 ───
@@ -233,7 +233,10 @@ export class EmagePlayer {
   private _q2 = new THREE.Quaternion();
   private _deltaQ = new THREE.Quaternion();
   private _euler = new THREE.Euler(0, 0, 0, 'YXZ');
+  private _invLookAt = new THREE.Quaternion();
   private startQ = Array.from({ length: NUM_JOINTS }, () => new THREE.Quaternion());
+
+  public getLookAtOffsets: (() => { neck?: THREE.Quaternion; head?: THREE.Quaternion } | undefined) | null = null;
 
   /**
    * 限制关节相对 restQ 的俯仰角 (Pitch)，彻底杜绝骨盆过度前顶与腰椎过度后仰塌腰 (Hyper-lordosis)
@@ -588,16 +591,31 @@ export class EmagePlayer {
     this.fadeInDuration = fadeIn;
 
     if (this.vrm) {
+      const lookAtOffsets = this.getLookAtOffsets?.();
       for (let i = 0; i < NUM_JOINTS; i++) {
         const b = this.bones[i];
         if (b) {
           this.startQ[i]!.copy(b.quaternion);
           this.currentBoneQ[i]!.copy(b.quaternion);
+          if (lookAtOffsets) {
+            if (i === 12 && lookAtOffsets.neck) {
+              this._invLookAt.copy(lookAtOffsets.neck).invert();
+              this.startQ[i]!.multiply(this._invLookAt);
+              this.currentBoneQ[i]!.multiply(this._invLookAt);
+            } else if (i === 15 && lookAtOffsets.head) {
+              this._invLookAt.copy(lookAtOffsets.head).invert();
+              this.startQ[i]!.multiply(this._invLookAt);
+              this.currentBoneQ[i]!.multiply(this._invLookAt);
+            }
+          }
         } else {
           this.startQ[i]!.identity();
         }
       }
       this.currentBoneInitialized = true;
+      if (this.enableFootIK) {
+        this.footIK.snapAnchors();
+      }
     }
   }
 
@@ -724,19 +742,36 @@ export class EmagePlayer {
     this.cachedF1 = -1;
     this.fadeInDuration = fadeIn;
 
+    const lookAtOffsets = this.getLookAtOffsets?.();
     for (let i = 0; i < NUM_JOINTS; i++) {
       const b = this.bones[i];
       if (b) {
         this.startQ[i]!.copy(b.quaternion);
         this.currentBoneQ[i]!.copy(b.quaternion);
+        if (lookAtOffsets) {
+          if (i === 12 && lookAtOffsets.neck) {
+            this._invLookAt.copy(lookAtOffsets.neck).invert();
+            this.startQ[i]!.multiply(this._invLookAt);
+            this.currentBoneQ[i]!.multiply(this._invLookAt);
+          } else if (i === 15 && lookAtOffsets.head) {
+            this._invLookAt.copy(lookAtOffsets.head).invert();
+            this.startQ[i]!.multiply(this._invLookAt);
+            this.currentBoneQ[i]!.multiply(this._invLookAt);
+          }
+        }
       } else {
         this.startQ[i]!.identity();
       }
     }
     this.currentBoneInitialized = true;
+    if (this.enableFootIK) {
+      this.footIK.snapAnchors();
+    }
 
-    // 每次开始播放新动作/语音时，智能交替主承重支柱腿
-    if (this.stancePillar === 'auto' || this.stancePillar === 'alternate') {
+    // 支柱腿重心设置：balanced 模式下双腿对称 0.5 承重，杜绝每次起播换腿跳跃
+    if (this.stancePillar === 'balanced') {
+      this.targetStanceRatio = 0.5;
+    } else if (this.stancePillar === 'auto' || this.stancePillar === 'alternate') {
       this.targetStanceRatio = (this.targetStanceRatio >= 0.5) ? 0.0 : 1.0;
     } else {
       this.targetStanceRatio = (this.stancePillar === 'right') ? 1.0 : 0.0;
@@ -983,6 +1018,8 @@ export class EmagePlayer {
         this.weightShiftTimer = 0;
         this.targetStanceRatio = (this.targetStanceRatio >= 0.5) ? 0.0 : 1.0;
       }
+    } else if (this.stancePillar === 'balanced') {
+      this.targetStanceRatio = 0.5;
     }
     const shiftFilter = 1.0 - Math.exp(-2.5 * Math.max(0.001, delta));
     this.currentStanceRatio += (this.targetStanceRatio - this.currentStanceRatio) * shiftFilter;

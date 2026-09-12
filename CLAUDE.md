@@ -19,14 +19,16 @@ Welcome to **Project XiaoChun** (100% browser-native anime companion with WebGPU
 
 ## 🛠️ Essential Development Commands
 
+> ⚠️ **Verification Rule**: Do NOT run `pnpm build` after every routine change. Use `npx tsc --noEmit` (fast, ~1s) for daily validation. Reserve `pnpm build` only for final pre-release checks.
+
 ```bash
 # Start local dev server (with Miniflare for 100% Cloudflare Workers dev/prod parity)
 pnpm dev
 
-# Strict TypeScript type check (MUST pass with 0 errors before committing)
+# Strict TypeScript type check (DAILY VERIFICATION: must pass with 0 errors!)
 npx tsc --noEmit
 
-# Production build test
+# Production build test (ONLY for final checks, DO NOT run on every edit)
 pnpm build
 ```
 
