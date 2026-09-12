@@ -24,9 +24,9 @@ To resolve these challenges, the **VRMBodyMorph** engine establishes three non-n
 (Define the unmovable surface)       (Convert 2-way expansion to 1-way)       (Cut off cascade to downstream bones)
 ```
 
-1. **Anatomical Boundary Locking (地锚锁死原则)**: Identify the fixed anatomical boundary (e.g., flat abdomen wall, ground-planted feet, upright skull). Compute the forward expansion amount $\Delta Z = Z_{\text{front}} \times (S_z - 1.0)$ and apply an immediate reverse translation $-\Delta Z$ to the bone, keeping the anchor boundary completely static ($0.000000\text{ mm}$ drift).
-2. **Downstream Inverse Compensation (级联逆补偿原则)**: Whenever a parent bone undergoes compensatory translation or scaling, its immediate child joints (e.g., `UpperChest` under `Chest`, or `Knee` under `UpperLeg`) invert the transformation ($1 / S_z$ and $-\Delta Z$) to preserve downstream world-space alignment.
-3. **Bone vs. Soft-Tissue Separation (骨架与软组织分治原则)**: Rigid and semi-rigid structural proportions (shoulders, height, torso thickness, limb lengths) are handled via skeletal transforms. Localized soft-tissue adiposity (such as belly fullness / roundness) is governed through **procedural vertex morphing**, completely isolating it from spinal curves and waist thickness.
+1. **Anatomical Boundary Locking**: Identify the fixed anatomical boundary (e.g., flat abdomen wall, ground-planted feet, upright skull). Compute the forward expansion amount $\Delta Z = Z_{\text{front}} \times (S_z - 1.0)$ and apply an immediate reverse translation $-\Delta Z$ to the bone, keeping the anchor boundary completely static ($0.000000\text{ mm}$ drift).
+2. **Downstream Inverse Compensation**: Whenever a parent bone undergoes compensatory translation or scaling, its immediate child joints (e.g., `UpperChest` under `Chest`, or `Knee` under `UpperLeg`) invert the transformation ($1 / S_z$ and $-\Delta Z$) to preserve downstream world-space alignment.
+3. **Bone vs. Soft-Tissue Separation**: Rigid and semi-rigid structural proportions (shoulders, height, torso thickness, limb lengths) are handled via skeletal transforms. Localized soft-tissue adiposity (such as belly fullness / roundness) is governed through **procedural vertex morphing**, completely isolating it from spinal curves and waist thickness.
 
 ---
 

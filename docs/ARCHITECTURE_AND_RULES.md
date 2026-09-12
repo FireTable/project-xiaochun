@@ -50,9 +50,9 @@ sequenceDiagram
 All clothing, accessory, and hair meshes are decoupled and categorized by [`src/core/material/vrmMaterialManager.ts`](../src/core/material/vrmMaterialManager.ts), driven by `APP_CONFIG.wardrobe`.
 
 > [!NOTE]
-> **概念区分**：
-> - **部件级穿脱 (Wardrobe)**：针对当前模型的 mesh 部件可见性开关（如隐藏鞋子、隐藏外套），由 `WardrobeSection.tsx` 管理；
-> - **整套无感换装 (Outfit Swap)**：跨模型资产重载与增量挂载（如切换女仆装/比基尼），由顶栏 [`TopHeader.tsx`](../src/components/TopHeader.tsx) 与 [`docs/OUTFIT_SWAP.md`](OUTFIT_SWAP.md) 管理。
+> **Conceptual Distinction**:
+> - **Component-Level Toggles (Wardrobe)**: Governs mesh visibility toggles on the active model (e.g. hiding shoes or jackets), managed by `WardrobeSection.tsx`;
+> - **Full-Outfit Swapping (Outfit Swap)**: Cross-model asset replacement and delta addon mounting (e.g. switching between Maid and Bikini outfits), managed by [`TopHeader.tsx`](../src/components/TopHeader.tsx) and [`docs/OUTFIT_SWAP.md`](OUTFIT_SWAP.md).
 
 ### 2.1 Component Categories & Slot Definitions
 
@@ -119,7 +119,7 @@ The percentage text next to a slider (e.g. `90%`) lives in the section as a `<sp
 
 ### 3.6 Global Reset Broadcast
 
-`DevDrawerContext` carries a `resetSignal: number`. When the header "重置" button fires, the shell:
+`DevDrawerContext` carries a `resetSignal: number`. When the header "Reset" button fires, the shell:
 1. Resets every engine subsystem and writes defaults to `localStorage`.
 2. Bumps `resetSignal`, which becomes part of `<SectionRenderer key={`${s.id}-${resetSignal}`}>`.
 
@@ -142,11 +142,11 @@ export const SECTIONS: SectionConfig[] = [
 ];
 ```
 
-Current order: 预设表情 → 🎥 镜头设置 → 🎨 画面色彩 → ✨ 骨骼体型 → 🧩 模型部位 → 💡 灯光通道 → 🔮 后期效果 → ⚡ EMAGE Perf. Reordering = swapping entries in this array; no other file changes.
+Current order: Expressions → 🎥 Camera Settings → 🎨 Color Saturation → ✨ Body Morph → 🧩 Model Wardrobe → 💡 Studio Lighting → 🔮 PostFx Pipeline → ⚡ EMAGE Perf. Reordering = swapping entries in this array; no other file changes.
 
 ### 3.8 Section-Specific Patterns
 
-- **Wardrobe (`WardrobeSection.tsx`)**: Each part row has 3 states — `穿` (checkbox on, normal), `未穿` (checkbox off, line-through, dim), `未装配` (dashed disabled div, no checkbox). `equippedCount` per category uses `vrmEngine.materialManager.partMaterials[p.id]?.length > 0` — not the user's visibility toggle — to distinguish "model has this part" from "user has hidden it".
+- **Wardrobe (`WardrobeSection.tsx`)**: Each part row has 3 states — `equipped/visible` (checkbox on, normal), `hidden` (checkbox off, line-through, dim), `not-equipped` (dashed disabled div, no checkbox). `equippedCount` per category uses `vrmEngine.materialManager.partMaterials[p.id]?.length > 0` — not the user's visibility toggle — to distinguish "model has this part" from "user has hidden it".
 - **Bone morph (`BoneMorphSection.tsx`)**: 28 sliders grouped into 7 body regions (overall / head / torso / hips / bust / arms / legs). Each category is a sub-card (`rounded-lg bg-white/[0.02] border`) with the label outside the card. Search filter hides empty regions.
 - **Camera (`CameraSection.tsx`)**: 3 sliders — FOV (with hover `ⓘ` tooltip and bullet list of reference values), min / max camera distance. Body-turn toggle also lives here since it shares the camera concept. `defaultShotExtent` in `config.ts` controls how tall a body the default FOV frames.
 - **PostFx (`PostFxSection.tsx`)**: Post-processing controller with bypass switch, ToneMapping mode capsule grid, and sliders for Bloom (strength/radius/threshold), Contrast, Brightness, Saturation, Hue, and Vignette. Full spec in [`docs/POSTFX.md`](POSTFX.md).

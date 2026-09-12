@@ -18,10 +18,10 @@ docs/
 ├── CHAT_DIRECTOR.md               # Director scheduler, 30~60 chars slicer, parallel TTS & anti-spoil bubble rules
 ├── ON_DEVICE_AI.md                # WebLLM (WebGPU) + EMAGE ONNX Worker + Client-side multi-tier IndexedDB memory
 ├── EMAGE_MODEL.md                 # EMAGE tip status + Worker PCM→chunk flowchart; limits (wasm/INT8, no WebGPU-EMAGE)
-├── OUTFIT_SWAP.md                 # Full-outfit swap (Delta .vrmaddon 增量分发 + 双层 IDB 缓存 + 0 帧抽搐原子交接)
-├── POSTFX.md                      # Anime post-processing pipeline (UnrealBloom 白底过滤, ToneMapping & 色彩通道)
-├── VRM_BUILD_WORKFLOW.md          # Offline VRM toolchain (.vrmbase + .vrmaddon 抽取, oxipng & SHA-256 幂等构建)
-└── VRM_ENGINE_AND_WORKER.md       # Core architecture (主线程 VRMEngine 调度 + 后台 vrmWorker WASM 补丁与双层 IDB)
+├── OUTFIT_SWAP.md                 # Full-outfit swap (Delta .vrmaddon packages, 2-tier IDB caching, 0-frame pop-in)
+├── POSTFX.md                      # Anime post-processing pipeline (UnrealBloom background bypass, ToneMapping & ColorGrading)
+├── VRM_BUILD_WORKFLOW.md          # Offline VRM toolchain (.vrmbase + .vrmaddon extraction, oxipng & deterministic builds)
+└── VRM_ENGINE_AND_WORKER.md       # Core architecture (Main VRMEngine orchestrator + background vrmWorker WASM synthesis)
 ```
 
 ---
@@ -39,7 +39,7 @@ When tasked with modifications or refactoring, consult the dedicated technical g
 | **Camera turning / Stepping legs frozen / Gaze drift** | [`BODY_TURN_AND_GAZE.md`](BODY_TURN_AND_GAZE.md) | Pass strictly `BODY_TURN_BONES` during stepping handoffs; respect biological gaze yaw ($\pm 45^\circ$) and pitch limits. |
 | **Wardrobe items / Clothing clipping / Lighting** | [`ARCHITECTURE_AND_RULES.md`](ARCHITECTURE_AND_RULES.md) | Respect VRoid material semantics; modify `src/config.ts` `wardrobe` as the single source of truth. |
 | **DevDrawer sections / Slider drag perf / Collapse / Reset broadcast** | [`ARCHITECTURE_AND_RULES.md` §3](ARCHITECTURE_AND_RULES.md#3-devdrawer-architecture) | Per-section state isolation; `onTick` for engine, `onChange` for state+storage only; `liveValueRef` for per-frame display without re-render. |
-| **Full-outfit swap / Delta addons / IDB cache / 换装时序** | [`OUTFIT_SWAP.md`](OUTFIT_SWAP.md) | `.vrmbase` + `.vrmaddon` (Worker bspatch); 2-tier IDB; pre-restore pose in memory before atomic swap; 0-frame pop-in. |
+| **Full-outfit swap / Delta addons / IDB cache / Swap sequence** | [`OUTFIT_SWAP.md`](OUTFIT_SWAP.md) | `.vrmbase` + `.vrmaddon` (Worker bspatch); 2-tier IDB; pre-restore pose in memory before atomic swap; 0-frame pop-in. |
 | **Post-processing / Bloom fog / ToneMapping / Color grading** | [`POSTFX.md`](POSTFX.md) | Filter white background in LuminosityHighPass; use Linear ToneMapping for anime skin; zero-overhead bypass when disabled. |
 | **Offline VRM build / Addon extraction / Model compression** | [`VRM_BUILD_WORKFLOW.md`](VRM_BUILD_WORKFLOW.md) | Run `node scripts/build-vrm/workflow.mjs`; check SHA-256 idempotency; fixed zip mtime UTC. |
 | **Latency tuning / Voice lag / Speech lip-sync** | [`CHAT_DIRECTOR.md`](CHAT_DIRECTOR.md) | Maintain 30~60 chars chunking; pre-fetch TTS in parallel; reveal text when speaking; EMAGE `motion_chunk` + A/V hold; **orchestration flowchart** in doc. |

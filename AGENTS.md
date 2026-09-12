@@ -29,35 +29,35 @@ Project XiaoChun is a **100% browser-native 3D AI companion** with strong on-dev
 
 The 3D motion pipeline involves complex layered logic. Follow these geometric and physics rules strictly:
 
-### 2.1 Unified Motion Blending Pipeline & Universal Motion API (万能动作融合管线与零障碍动作接入)
+### 2.1 Unified Motion Blending Pipeline & Universal Motion API
 - Files: `src/motion/pipeline/poseBuffer.ts`, `src/motion/pipeline/universalMotion.ts`, `src/motion/pipeline/motionPipeline.ts`, `src/core/vrmEngine.ts`
 - **Architecture Principle**:
-  1. **Single Bone Writer (唯一骨骼写入者)**: All sub-modules (Idle, VRMA, EMAGE, Universal Clips, BodyTurn) calculate desired transforms into preallocated `PoseBuffer` objects; only `MotionPipeline.evaluate()` commits final quaternions and positions atomically to VRM humanoid bones in the final pass.
+  1. **Single Bone Writer**: All sub-modules (Idle, VRMA, EMAGE, Universal Clips, BodyTurn) calculate desired transforms into preallocated `PoseBuffer` objects; only `MotionPipeline.evaluate()` commits final quaternions and positions atomically to VRM humanoid bones in the final pass.
   2. **Layered Blend Graph**:
      - **Layer 0 (Base)**: `NaturalIdle` procedural breathing and standby poise.
      - **Layer 1 (Main Action)**: Managed via continuous Quintic Smootherstep crossfading ($\sum W = 1.0$) between `idle`, `vrma`, `emage`, and `motion`.
      - **Layer 2 (Locomotion)**: `BodyTurnSystem` masked override applied strictly to `LOWER_BODY_MASK` (legs + hips) via `blendMasked()`.
      - **Post Constraints**: `FootIK` physical ground anchoring followed by `LookAtHead` gaze alignment.
-  3. **Universal Motion Ingestion (万能动作零门槛接入入口)**:
-     - 任何地方想要播放任何动作（无论是 VRMA 文件 URL、ArrayBuffer 二进制流、还是 THREE.AnimationClip），**严禁到处写死 if-else 或私自创建 Mixer**，必须统一调用顶层 API：
+  3. **Universal Motion Ingestion (Universal Motion API)**:
+     - To play any animation anywhere (whether a VRMA file URL, ArrayBuffer binary stream, or THREE.AnimationClip), **never hardcode custom if-else branches or instantiate private Mixers**. Always call the unified top-level API:
        ```ts
        const handle = await vrmEngine.playMotion(clipOrUrl, {
-         fadeDuration: 0.75, // 五次平滑步阶曲线过渡时长 (秒)
-         loop: false,        // 是否循环播放
-         mask: 'all' | 'upperBody', // 全身动作或仅上半身手势
-         timeScale: 1.0,     // 播放倍速
-         onEnd: () => { ... } // 播完并平滑淡出回归待机后的回调
+         fadeDuration: 0.75, // Quintic Smootherstep crossfade duration (seconds)
+         loop: false,        // Loop playback flag
+         mask: 'all' | 'upperBody', // Full-body motion or upper-body gesture only
+         timeScale: 1.0,     // Playback speed multiplier
+         onEnd: () => { ... } // Callback triggered after smooth fade-out and return to idle
        });
-       // 或随时平滑淡出停播：
+       // Or gracefully fade out and stop anytime:
        vrmEngine.stopMotion(0.75);
        ```
   4. **Automatic Frame Inbetweening & Lifecycle**:
-     - 当新动作塞入时，管线自动捕获当前物理瞬时姿态作为过渡起点，自动消除 LookAt 增量；
-     - 使用五次平滑步阶（Quintic Smootherstep: $6t^5 - 15t^4 + 10t^3$）在自适应生理时间窗（0.70s~0.88s）内逐帧 Slerp 插补，彻底消除跳帧与机械撕扯；
-     - 非循环动作到达尾声时，管线自动启动淡出过渡并从容回归 `NaturalIdle`，触发 `onEnd` 回调，外部调用者 0 维护负担。
+     - When a new motion is introduced, the pipeline automatically captures the current instantaneous physical pose as the transition start point, canceling out lookAt delta offsets;
+     - Applies Quintic Smootherstep ($6t^5 - 15t^4 + 10t^3$) to Slerp-interpolate frame-by-frame across physiological time windows (0.70s ~ 0.88s), completely eliminating frame pops and mechanical snapping;
+     - When a non-looping motion reaches its tail, the pipeline automatically initiates a fade-out crossfade to gracefully return to `NaturalIdle` and fires the `onEnd` callback with zero caller maintenance burden.
   5. **⚠️ Critical Architecture Pitfall: Zero-Buffer Commit Trap (T-Pose & Sinking Bug)**:
-     - **The Problem**: 预分配的 `PoseBuffer` 初始四元数均为默认的 `(0, 0, 0, 1)`（即 T-Pose），骨盆位置为 `(0, 0, 0)`（即深陷脚底原点）。如果直接在渲染循环末端执行 `finalPose.commitToVRM(vrm)`，而 `basePose` 尚未经过逐帧计算或采样，就会强行将全零姿态覆写至骨骼，导致模型瞬间变为 T-Pose 假人并下沉入地底！
-     - **The Solution**: 渲染主循环末尾对管线姿态的更新必须遵循**非破坏性只读采样原则**（`motionPipeline.finalPose.sampleFromVRM(vrm)`），让各个动作子系统（NaturalIdle、UniversalMotion、EMAGE）安全驱动骨骼，由 `MotionTransitionManager` 负责跨状态五次平滑步阶 Slerp，绝不在未经安全校验前盲目覆写骨骼。
+     - **The Problem**: Pre-allocated `PoseBuffer` instances initialize with default quaternions `(0, 0, 0, 1)` (T-pose) and pelvis positions at `(0, 0, 0)` (sunken into the floor origin). Directly calling `finalPose.commitToVRM(vrm)` at the end of the render loop when `basePose` has not undergone per-frame evaluation forcibly overwrites bones with all-zero rest transforms, causing the avatar to instantly snap into a sunken T-pose!
+     - **The Solution**: Render loop updates must adhere to the **non-destructive read-only sampling principle** (`motionPipeline.finalPose.sampleFromVRM(vrm)`). Let the active motion subsystems (NaturalIdle, UniversalMotion, EMAGE) drive bones safely, while `MotionTransitionManager` manages cross-state Quintic Smootherstep Slerping without blind overwrites.
 
 ### 2.2 State Transitions & `MotionTransitionManager`
 - File: `src/motion/motionTransition.ts`
@@ -102,7 +102,7 @@ The 3D motion pipeline involves complex layered logic. Follow these geometric an
 
 ### 2.7 BodyTurn Stepping & Head Gaze Decoupling (`handleBodyTurnHandoff`)
 - Files: `src/motion/bodyTurn.ts`, `src/core/vrmEngine.ts`, `src/motion/motionTransition.ts`
-- **Pitfall Symptom**: When the camera rotates around the character, `BodyTurnSystem` steps to rotate the body toward the lens. At the moment stepping finishes, the head abruptly jerks/snaps to the side before snapping back to face the camera ("头在转的时候注视镜头，在要结束的时候头突然偏一下").
+- **Pitfall Symptom**: When the camera rotates around the character, `BodyTurnSystem` steps to rotate the body toward the lens. At the moment stepping finishes, the head abruptly jerks/snaps to the side before snapping back to face the camera (head jerks during stepping completion).
 - **Root Causes**:
   1. `handleBodyTurnHandoff` originally called global `motionTransition.startTransition(vrm, 0.30)`. Because `VRM_ALL_HUMANOID_BONES` included `head` and `neck`, the transition manager captured a snapshot of the head/neck and forcibly interpolated them over 0.30s, fighting against the real-time `LookAt` system and pulling the head backward in time.
   2. `BodyTurnSystem` originally applied aggressive spine pre-rotation (`upperChestTarget = normYaw * 0.30`, total 0.60 across spine/chest). Because `neck` and `head` are child bones of `upperChest`, this caused the head's world yaw to overshoot by 160%; when stepping stopped, the spine snapped back to 0, whipping the head.
@@ -111,77 +111,77 @@ The 3D motion pipeline involves complex layered logic. Follow these geometric an
   - In `handleBodyTurnHandoff`, strictly pass `BODY_TURN_BONES` (only `hips`, `upperLeg`, `lowerLeg`, `foot`, `toes`). **Never snapshot or transition `head`, `neck`, or arms during stepping handoffs!**
   - Keep `BodyTurnSystem` spine yaw subtle ($\le 0.08$ total) to let real-time `LookAtHead` cleanly govern gaze orientation without spine whip.
 
-### 2.8 Biomechanical Bone Morphing & Orthogonal Decoupling Engine (体型骨骼正交解耦系统)
+### 2.8 Biomechanical Bone Morphing & Orthogonal Decoupling Engine
 - Files: `src/core/morph/vrmBodyMorph.ts`, `src/config.ts`, `src/components/DevDrawer.tsx`, and detailed specification in [`docs/BONE_MORPH.md`](docs/BONE_MORPH.md)
 - **Core Engineering Principle**:
-  1. **Anatomical Boundary Locking (地锚锁死原则)**: Bone scaling must never be symmetrically center-out. Always compute forward/backward expansion amounts and apply opposite translation offsets to lock the opposite anatomical face (e.g. flat abdomen wall remains $0\text{ mm}$ drift when buttocks or torso thickness scales).
-  2. **Downstream Inverse Compensation (级联逆补偿原则)**: When a parent bone undergoes compensatory translation or scaling, its immediate child joint (e.g. `UpperChest` under `Chest`, `Knee` under `UpperLeg`) must invert the transform ($1/S_z$ and $-\Delta P$) to preserve downstream world alignment (shoulders, neck, and feet stay 100% stable).
-  3. **Bone vs. Soft-Tissue Separation (骨架与软组织分治原则)**:
+  1. **Anatomical Boundary Locking**: Bone scaling must never be symmetrically center-out. Always compute forward/backward expansion amounts and apply opposite translation offsets to lock the opposite anatomical face (e.g. flat abdomen wall remains $0\text{ mm}$ drift when buttocks or torso thickness scales).
+  2. **Downstream Inverse Compensation**: When a parent bone undergoes compensatory translation or scaling, its immediate child joint (e.g. `UpperChest` under `Chest`, `Knee` under `UpperLeg`) must invert the transform ($1/S_z$ and $-\Delta P$) to preserve downstream world alignment (shoulders, neck, and feet stay 100% stable).
+  3. **Bone vs. Soft-Tissue Separation**:
      - Rigid/structural proportions (height, shoulder width, torso thickness, limb length) are driven via skeletal matrix transforms.
      - Soft-tissue adiposity (such as `belly` / belly size) is driven via **procedural vertex morphing with smooth cosine falloff** over the front abdominal wall. **Never mutate `Spine` scale or rotation for belly fullness**, as this distorts the lumbar curve and thickens the lower back!
   4. **Dynamic Crown Height Measurement**: Never hardcode character height constants. Compute height by dynamically projecting the highest mesh vertex crown down to physical ground ($Y=0$) across dynamic shoes, IK sink, and morph slider changes.
   5. **Shoulder Width Bounds**: `shoulderWidth` defaults to `1.55` (155%) with an extended biomechanical range of `0.75 ~ 2.50` (250%).
 
-### 2.9 Full-Outfit Swap & Delta Web Worker Architecture (原子换装与后台合成陷阱)
+### 2.9 Full-Outfit Swap & Delta Web Worker Architecture (Atomic Swap & Background Synthesis)
 - Files: `src/core/outfitSwap.ts`, `src/core/vrmWorker.ts`, `src/core/vrmEngine.ts`, `src/lib/idb-vrm-cache.ts`, detailed in [`docs/OUTFIT_SWAP.md`](docs/OUTFIT_SWAP.md) and [`docs/VRM_ENGINE_AND_WORKER.md`](docs/VRM_ENGINE_AND_WORKER.md).
 - **⚠️ Critical Architecture Pitfall: 1-Frame T-Pose & Premature Stop Trap**:
-  - **The Problem**: 传统换装在开始加载新模型时就提前停止正在播放的动作（导致角色发愣 150ms），且在将新模型挂载到场景后才调用姿态恢复函数，导致屏幕上闪现 1 帧 T-Pose 抽搐破绽。
+  - **The Problem**: Traditional outfit swapping abruptly stops active animations when loading begins (freezing the character for 150ms) and mounts the new model to the scene before restoring poses, causing a visible 1-frame T-pose flicker.
   - **The Solution (Deferred Snapshot & Pre-restoration)**:
-    1. **旧模型绝不提前刹车**：换装异步加载期间旧模型持续正常播放动作与呼吸；
-    2. **延迟快照捕获**：仅在新 GLB 解析完成后的微秒级瞬间调用 `captureOutfitSwapState(oldVrm)` 捕获物理瞬时姿态、表情权重与 LookAt 坐标；
-    3. **内存中直接预置姿态**：在调用 `scene.add(newVrm.scene)` 之前，先在内存中执行 `preRestoreOutfitSwapState(newVrm, snapshot)`，直接预设所有 52 根骨骼四元数；
-    4. **原子场景替换**：在单个微任务内原子执行 `scene.remove(old) + scene.add(new)`，并在下一帧完成 SpringBone 与视线重绑（`postRestoreOutfitSwapState`），达成绝对意义上的 0 帧 T-pose 闪烁与 0 卡顿。
+    1. **Never Stop Old Models Prematurely**: The old model continues animating and breathing at full 60 FPS while the new model is synthesized asynchronously;
+    2. **Deferred Snapshot Capture**: Only at the microsecond when GLTF parsing finishes does `captureOutfitSwapState(oldVrm)` snapshot current physical bone rotations, morph weights, and lookAt coordinates;
+    3. **In-Memory Pre-Restoration**: Before calling `scene.add(newVrm.scene)`, `preRestoreOutfitSwapState(newVrm, snapshot)` pre-populates all 52 bone quaternions directly in memory;
+    4. **Atomic Scene Swap**: Replaces avatars in a single microtask (`scene.remove(old) + scene.add(new)`) and rebinds SpringBones on the next tick (`postRestoreOutfitSwapState`), achieving 0-frame pop-in and zero freeze.
 - **⚠️ Critical Worker Offloading Rule**:
-  - `bspatch` 差分算法、`fflate` 解压与二进制重组**绝对严禁跑在主线程**，必须全量下放至 Dedicated Web Worker (`src/core/vrmWorker.ts`)，并通过 `Transferable ArrayBuffer` 零拷贝返回；
-  - `packRawGLB` 必须严格遵守 glTF 2.0 规范保持 4 字节边界对齐（JSON 尾部 0x20 空格对齐，BIN 尾部 0x00 零填充）；
-  - 必须维护 L1 base 与 L2 composed (`${baseSha}:${addonSha}`) 双层 IndexedDB 缓存，实现二次换装 10~30ms 秒开。
+  - `bspatch` differential synthesis, `fflate` decompression, and binary assembly **MUST NEVER run on the main thread**. All heavy binary operations must be offloaded to the Dedicated Web Worker (`src/core/vrmWorker.ts`) and returned via `Transferable ArrayBuffer` zero-copy transfer;
+  - `packRawGLB` must strictly enforce glTF 2.0 4-byte boundary alignment (trailing spaces `0x20` for JSON, null bytes `0x00` for BIN);
+  - Maintain L1 base and L2 composed (`${baseSha}:${addonSha}`) two-tier IndexedDB caches to achieve 10~30ms repeat swaps.
 
-### 2.10 Cinematic PostFx Pipeline & Anime Bloom Isolation (后期管线与辉光泛白规避)
+### 2.10 Cinematic PostFx Pipeline & Anime Bloom Isolation
 - Files: `src/core/postfx/postFxPipeline.ts`, detailed in [`docs/POSTFX.md`](docs/POSTFX.md).
-- **⚠️ Critical Architecture Pitfall: White-Background Bloom Blowout (全屏泛白死光)**:
-  - **The Problem**: 线稿世界背景地面与天空为极高亮白色（`#ffffff`），若直接对全屏应用 `UnrealBloomPass`，发光阈值会导致整个场景发白泛光、完全看不清角色轮廓。
-  - **The Solution (Luminance Bypass)**: 在片元着色器中对纯白/超高亮背景实施物理剔除 (`bloomBypassBackground`)，使得只有角色本体的高光、发丝与衣物产生软雾漫反射。
+- **⚠️ Critical Architecture Pitfall: White-Background Bloom Blowout**:
+  - **The Problem**: Minimalist linework scenes feature high-luminance white backgrounds (`#ffffff`). Applying generic `UnrealBloomPass` treats the entire background as a glow emitter, obliterating character silhouettes in white haze.
+  - **The Solution (Luminance Bypass)**: The fragment shader selectively rejects high-luminance background pixels (`bloomBypassBackground`), restricting bloom exclusively to character hair, clothes specular, and accessories.
 - **Zero-Overhead Render Bypass**:
-  - 当 `postfx.enabled === false` 时，渲染循环必须直接走 `renderer.render(scene, camera)`，彻底绕开 `EffectComposer` 的双重 FBO Blit 开销。
+  - When `postfx.enabled === false`, the render loop must directly invoke `renderer.render(scene, camera)`, bypassing `EffectComposer` multi-pass FBO blit overhead.
 
-### 2.11 VRMEngine Modularization & General-Purpose Facade Rules (保持通用、插件化解耦与业务瘦身原则)
+### 2.11 VRMEngine Modularization & General-Purpose Facade Rules
 - Files: `src/core/vrmEngine.ts`, `src/core/scene/`, `src/core/lighting/`, `src/core/materials/`, `src/core/morph/`, `src/core/postfx/`, `src/motion/`
-- **Core Positioning (核心定位与瘦中枢原则)**:
-  `VRMEngine` 的定位是 **纯粹的 3D 渲染调度中枢与对外的统一 Facade 门面**，**严禁退化为堆砌具体业务的「上帝类」(God Class)**。
-  1. **保持通用与领域无关 (Keep Generic & UI/Domain-Agnostic)**:
-     - `vrmEngine.ts` 内部**严禁直接编写具体业务逻辑**（如特定 UI 状态管理、复杂的对话分支策略、网络请求组装、特定 DOM 操作或硬编码的业务判断）；
-     - 面向外部上层（React 组件、UI Controls、DevDrawer）只暴露高层正交门面 API（如 `playMotion()`, `swapOutfit()`, `setLight()`, `setBodyMorph()`, `setLineworkTheme()`），内部实现一律委托给对应的领域子系统。
-  2. **相关逻辑全面插件化 / 子模块化 (Mandatory Subsystem / Plugin Pattern)**:
-     - 凡是具有明确职责边界的领域逻辑，**必须独立抽取为自包含的插件/子系统模块**，严禁在 `vrmEngine.ts` 中直接追加几十上百行具体算法：
-       * 场景与背景线稿世界 $\to$ `src/core/scene/lineworkWorld.ts` (`LineworkWorld`)
-       * 摄影棚三通道灯光系统 $\to$ `src/core/lighting/studioLighting.ts` (`StudioLighting`)
-       * MToon 材质与色彩饱和度管理器 $\to$ `src/core/materials/vrmMaterialManager.ts` (`VRMMaterialManager`)
-       * 28 参数正交骨骼形变系统 $\to$ `src/core/morph/vrmBodyMorph.ts` (`VRMBodyMorph`)
-       * 电影级后期渲染管线 $\to$ `src/core/postfx/postFxPipeline.ts` (`PostFxPipeline`)
-       * 视线追踪与仿生微跳视 $\to$ `src/core/scene/gazeController.ts` (`GazeController`)
-       * 动作管线与过渡融合 $\to$ `src/motion/pipeline/` (`MotionPipeline`, `UniversalMotionController`, `MotionTransitionManager`)
-       * 对话与语音动作导演 $\to$ `src/director/chatDirector.ts` (`ChatDirector`)
-     - **标准化生命周期契约**：子系统必须定义清晰的生命周期方法（如 `init(scene)`, `update(delta, time, vrm)`, `resize(w, h, ratio)`, `dispose()`），`VRMEngine` 仅在自身生命周期的对应阶段进行轻量代理调度。
-  3. **代码增量准入法则 (Code Ingestion Rule)**:
-     - 在为 3D 角色或场景增加新特性时，**第一原则是创建或拓展相应的子系统/插件模块**，而不是直接在 `vrmEngine.ts` 中堆叠代码。`vrmEngine.ts` 仅负责实例化挂载与门面代理。
+- **Core Positioning & Thin Orchestrator Principle**:
+  `VRMEngine` is strictly a **pure 3D rendering lifecycle coordinator and unified facade**, **NEVER a monolithic "God Class"**.
+  1. **Keep Generic & UI/Domain-Agnostic**:
+     - `vrmEngine.ts` must never contain UI state management, conversation logic, network request orchestration, direct DOM mutations, or hardcoded application branches;
+     - Exposes only orthogonal high-level facade APIs (e.g. `playMotion()`, `swapOutfit()`, `setLight()`, `setBodyMorph()`, `setLineworkTheme()`), delegating internal implementations entirely to domain subsystems.
+  2. **Mandatory Subsystem / Plugin Decoupling**:
+     - Any feature with distinct domain boundaries must be encapsulated into self-contained subsystem classes rather than bloating `vrmEngine.ts`:
+       * Scene & linework world $\to$ `src/core/scene/lineworkWorld.ts` (`LineworkWorld`)
+       * 3-channel studio lighting $\to$ `src/core/lighting/studioLighting.ts` (`StudioLighting`)
+       * MToon material & saturation $\to$ `src/core/materials/vrmMaterialManager.ts` (`VRMMaterialManager`)
+       * 28-parameter bone morphing $\to$ `src/core/morph/vrmBodyMorph.ts` (`VRMBodyMorph`)
+       * Cinematic postfx pipeline $\to$ `src/core/postfx/postFxPipeline.ts` (`PostFxPipeline`)
+       * Gaze tracking & micro-saccades $\to$ `src/core/scene/gazeController.ts` (`GazeController`)
+       * Motion pipeline & transitions $\to$ `src/motion/pipeline/` (`MotionPipeline`, `UniversalMotionController`, `MotionTransitionManager`)
+       * Dialogue director & audio sync $\to$ `src/director/chatDirector.ts` (`ChatDirector`)
+     - **Standard Lifecycle Contracts**: Subsystems must implement standardized lifecycle hooks (`init(scene)`, `update(delta, time, vrm)`, `resize(w, h, ratio)`, `dispose()`), invoked lightly by `VRMEngine` during corresponding frame phases.
+  3. **Code Ingestion Rule**:
+     - When adding new 3D features, the first rule is to create or extend dedicated subsystem modules. `vrmEngine.ts` only handles instantiation and facade delegation.
 
-### 2.12 Performance & Frame-Budget Disciplines (全链路性能保障红线与 60FPS 帧预算)
-- Target: 严格守护 16.6ms 帧预算，移动端与 PC 端全天候稳定 60 FPS，杜绝任何可察觉的掉帧、微卡顿与内存泄漏。
-- **Core Engineering Disciplines (核心性能军规)**:
-  1. **渲染主循环零动态分配 (Zero Allocation & Zero GC in Render Loop)**:
-     - 在 `requestAnimationFrame` 驱动的渲染循环及每帧 `tick`/`update`/`evaluate` 中，**严禁频繁创建短期对象**：
-       * ❌ 严禁在帧循环中调用 `new THREE.Vector3()`, `new THREE.Quaternion()`, `new THREE.Matrix4()`, `new THREE.Color()`
-       * ❌ 严禁在帧循环内动态分配空数组 `[]`、临时对象字面量 `{ ... }`、匿名箭头函数闭包、或高阶迭代器 (`.map()`, `.filter()`, `.forEach()`)
-     - **统一解决方案**：必须在模块外层或类内部预分配可复用的临时 Scratch 变量（如 `tempHeadTopPos`, `tempRulerEdgePos`, `tempSoleA` 等），在每帧计算中直接使用 `.copy()`, `.set()`, `.multiply()` 原地复用，彻底消灭 V8 引擎 GC（垃圾回收）停顿导致的肉眼可见撕裂与微卡顿。
-  2. **高开销计算 100% 异步 Worker 下放 (Dedicated Web Worker Offloading)**:
-     - 凡涉及繁重计算（glTF 二进制重打包、`bspatch` 差分算法、`fflate` 解压、EMAGE ONNX 神经网络推理、WebLLM 权重解算），**一律严禁在主线程执行**，必须全量派发给 Dedicated Web Worker (`vrmWorker.ts` / `emageWorker.ts` / `llmWorker.ts`)；
-     - 主线程与 Worker 通信时，海量 ArrayBuffer 数据必须使用 **Transferable Objects 零拷贝转移所有权**（例如 `postMessage({ buffer }, [buffer])`），严禁使用结构化克隆（`structuredClone`）复制大内存，避免产生百兆内存峰值与主线程瞬时冻结。
-  3. **计算短路与直通旁路 (Short-Circuiting & Zero-Overhead Bypass)**:
-     - **后期处理直通**：当 `postfx.enabled === false` 时，渲染器跳过 `EffectComposer` 的双重 FBO 全屏后处理 Pass，直接以原生 `renderer.render(scene, camera)` 直通输出；
-     - **视线计算短路**：当相机处于后方或视锥体极限外（`isOutOfView`）时，立即短路射线拾取与头部过度扭转运算；
-     - **物理像素超采样限制**：严格遵循 `getRenderPixelRatio(APP_CONFIG.renderer.maxPixelRatio)`，封顶 DPR（如 3），严禁在超高分辨率移动设备上任由原生 3x/4x 填充满屏，避免 GPU 填充率过载发热降频。
-  4. **二级持久化缓存 (Two-Tier IDB Caching)**:
-     - 换装底模（L1）与组合成品（L2 `${baseSha}:${addonSha}`）采用 IndexedDB 双层高速缓存，二次换装与二次进站全部 10~30ms 内存/磁盘秒开，彻底规避重复的网络拉取与 CPU 算力浪费。
+### 2.12 Performance & Frame-Budget Disciplines (Zero GC & 60 FPS Guarantees)
+- Target: Strictly protect the 16.6ms frame budget, maintaining stable 60 FPS on both mobile and desktop with zero visible frame drops, micro-stutters, or memory leaks.
+- **Core Engineering Disciplines**:
+  1. **Zero Dynamic Allocation in Render Loop (Zero GC in Tick / Update)**:
+     - Inside `requestAnimationFrame` loops and per-frame `tick`/`update`/`evaluate` routines, **NEVER instantiate short-lived objects**:
+       * ❌ Never call `new THREE.Vector3()`, `new THREE.Quaternion()`, `new THREE.Matrix4()`, `new THREE.Color()` in the frame loop
+       * ❌ Never allocate temporary arrays `[]`, object literals `{ ... }`, inline arrow closures, or high-order iterators (`.map()`, `.filter()`, `.forEach()`) per frame
+     - **Standard Solution**: Pre-allocate reusable module-level or class-level scratch variables (e.g. `tempHeadTopPos`, `tempRulerEdgePos`, `tempSoleA`), mutating them in-place via `.copy()`, `.set()`, `.multiply()` to completely eradicate V8 garbage collection pauses.
+  2. **100% Async Worker Offloading for Heavy Computation**:
+     - All heavy computational tasks (glTF binary repacking, `bspatch` differential patching, `fflate` decompression, EMAGE ONNX inference, WebLLM weight calculations) **must execute off the main thread** in Dedicated Web Workers (`vrmWorker.ts`, `emageWorker.ts`, `llmWorker.ts`);
+     - Inter-thread data transfers for large ArrayBuffers must use **Transferable Objects** (`postMessage({ buffer }, [buffer])`), strictly avoiding `structuredClone` memory spikes and main-thread freezes.
+  3. **Short-Circuiting & Zero-Overhead Render Bypass**:
+     - **PostFx Bypass**: When `postfx.enabled === false`, immediately bypass `EffectComposer` to render directly via `renderer.render(scene, camera)`, saving multi-pass blit overhead;
+     - **Gaze Short-Circuit**: When the camera is outside the field of view or behind the avatar (`isOutOfView`), bypass raycasting and excessive neck twisting;
+     - **Pixel Ratio Clamping**: Enforce `getRenderPixelRatio(APP_CONFIG.renderer.maxPixelRatio)` to cap DPR (e.g. 3), preventing excessive fill-rate saturation and thermal throttling on ultra-high-resolution mobile screens.
+  4. **Two-Tier IndexedDB Caching**:
+     - Caches base models (L1) and composed GLB binaries (L2 `${baseSha}:${addonSha}`) in IndexedDB, enabling 10~30ms instantaneous repeat swaps and eliminating duplicate network requests and CPU cycles.
 
 ---
 
@@ -228,7 +228,7 @@ pnpm build
 
 ## 6. Commit & PR Conventions
 
-- **Strict English-Only Commits (必须使用规范的全英文 Commit)**:
+- **Strict English-Only Commits**:
   - All commit messages **MUST be written in English**. Never use Chinese in commit messages.
   - Follow the **Conventional Commits** specification:
     * **Format**: `<type>(<scope>): <short summary in lowercase, imperative mood>`
