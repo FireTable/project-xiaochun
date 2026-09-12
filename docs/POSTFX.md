@@ -20,7 +20,7 @@ graph LR
     Scene[3D Scene Render] --> RenderPass
     RenderPass --> Bloom[UnrealBloomPass<br/>White Background Bypass]
     Bloom --> Grading[ColorGradingPass<br/>BC + HS + Vignette Merged]
-    Grading --> OutputPass[OutputPass<br/>ToneMapping + Color Space]
+    Grading --> OutputPass[OutputPass<br/>ToneMapping + Color Space + Dithering]
     OutputPass --> Screen[Canvas Presentation]
 
     subgraph Hardware Bypass
@@ -66,6 +66,18 @@ Provides runtime switching across 5 tone mapping algorithms:
 | **Neutral** | `THREE.NeutralToneMapping` | Khronos PBR standard tone curve; slightly compresses skin tones in anime settings. |
 | **Reinhard** | `THREE.ReinhardToneMapping` | Classic soft highlight roll-off. |
 | **Cineon** | `THREE.CineonToneMapping` | Film-stock response curve. |
+
+### 2.5 Jimenez IGN 8-Bit Dithering (Anti-Banding & Circular Halo Elimination)
+In dark mode or high-contrast scenes, the subtle falloff of Gaussian bloom and smooth background gradients can cross the 8-bit framebuffer quantization threshold (e.g. from `rgb(16, 16, 16)` to `rgb(15, 15, 15)`). Due to Mach Banding and human contrast sensitivity (Weber's law), this produces visible stepped rings (circular halos) around character hair and highlights.
+
+To eliminate this artifact without incurring heavy compute penalties:
+- Injected into the final `OutputPass` immediately following tone mapping and `sRGBTransferOETF`:
+  ```glsl
+  // Jimenez Interleaved Gradient Noise (IGN) 8-bit high-frequency dithering:
+  float ign = fract(52.9829189 * fract(dot(gl_FragCoord.xy, vec2(0.06711056, 0.00583715))));
+  gl_FragColor.rgb += (ign - 0.5) / 255.0;
+  ```
+- Statistically dithers the transition boundary over adjacent pixels, smoothly dispersing 1-bit quantization steps into human-imperceptible continuous gradients.
 
 ---
 

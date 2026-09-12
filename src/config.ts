@@ -342,11 +342,11 @@ export const APP_CONFIG = {
   // thinking: Qwen3 / Qwen3.5 的思考链。true=先想再答(更慢、更占 GPU);false=直接答。
   // 模型选项来自 WebLLM prebuiltAppConfig,按 provider 分组,同一模型优先 q4f16_1。
   llm: {
-    model: 'Qwen2.5-1.5B-Instruct-q4f16_1-MLC',
+    model: 'MiniCPM5-2B-q4f16_1-MLC',
     fallback: 'Qwen2.5-0.5B-Instruct-q4f16_1-MLC',
     thinking: false,
   },
-  // 端侧记忆: 小模型(0.5B/1.5B)对注意力与上下文长度极敏感，控制在 2 轮防止复读、人设漂移及 prefill 延迟
+  // 端侧记忆: 小模型(0.5B/2B)对注意力与上下文长度极敏感，控制在 2 轮防止复读、人设漂移及 prefill 延迟
   memory: {
     shortTermTurns: 2,
     turnMaxChars: 120,

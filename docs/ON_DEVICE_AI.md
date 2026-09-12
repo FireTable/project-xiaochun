@@ -34,8 +34,8 @@ graph LR
 ### 2.1 Engine Architecture & Thread Isolation
 - **Non-Blocking Render Thread**: WebLLM runs inside an isolated Web Worker via `@mlc-ai/web-llm` (`CreateWebWorkerMLCEngine`). Prompt prefill and autoregressive decoding never block Three.js 60 FPS animation;
 - **Tiered Device Adaptation**:
-  - **High-Tier Default**: `Qwen2.5-1.5B-Instruct-q4f16_1-MLC` (strikes an optimal balance of conversational charm, roleplay depth, and low latency);
-  - **Low-VRAM Fallback**: Automatically downgrades to `0.5B` on mobile or memory-constrained GPUs;
+  - **High-Tier Default**: `MiniCPM5-2B-q4f16_1-MLC` (OpenBMB 2B parameter edge model on WebGPU, striking optimal balance of conversational depth, bilingual proficiency, and low latency);
+  - **Low-VRAM Fallback**: Automatically downgrades to `Qwen2.5-0.5B-Instruct-q4f16_1-MLC` on mobile or memory-constrained GPUs;
 - **Cache API Persistence**: Weights cache directly via the browser's Cache API upon initial download, enabling instant startup on subsequent visits.
 
 ### 2.2 Custom Provider Bridge
@@ -73,7 +73,7 @@ IndexedDB: xiaochun-memory
 1. **Entity Extraction (`extract.ts`)**:
    Post-turn regex parsers extract user persona details (name, preferences, relationship nuance) into `entities`;
 2. **Device-Adaptive Short-Term Window (`inject.ts`)**:
-   Small models (0.5B ~ 1.5B) degrade quickly under lengthy contexts. The system caps short-term history (default 2 turns), preventing repetition, persona drift, and prefill delays;
+   Small models (0.5B ~ 2B) degrade quickly under lengthy contexts. The system caps short-term history (default 2 turns), preventing repetition, persona drift, and prefill delays;
 3. **System Prompt Hydration (`applyRecall`)**:
    Entities format cleanly into the system prompt, while conversational history injects via standard ChatML messages (`[{system}, {user}, {assistant}, ...]`).
 

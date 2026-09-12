@@ -24,7 +24,7 @@
 
 **Project XiaoChun (小蠢)** is a fully browser-native anime companion. The character renders through `@pixiv/three-vrm` with MToon NPR shading inside an immersive linework outdoor scene; all AI inference runs in your browser tab — no Python backend, no server GPUs.
 
-Entry is a 2D MAD preload into 3D — the camera pushes in from a distant 3.3× view while the overlay dissolves. You talk to her. She thinks (WebLLM Qwen2.5 1.5B q4f16_1 on WebGPU, falls back to 0.5B; thinking optional), speaks (Edge-TTS over a Cloudflare Workers WebSocket), and moves with her (EMAGE ONNX in a Dedicated Web Worker). If the model is not ready yet, typed messages queue instead of getting dropped. The chat-bar menu can switch models from WebLLM's prebuilt list, or connect any **custom OpenAI-compatible provider** (Ollama / LM Studio / vLLM / LocalAI / cloud) via the in-app config dialog — credentials stay AES-GCM encrypted in IndexedDB.
+Entry is a 2D MAD preload into 3D — the camera pushes in from a distant 3.3× view while the overlay dissolves. You talk to her. She thinks (WebLLM MiniCPM5 2B q4f16_1 on WebGPU, falls back to Qwen2.5 0.5B; thinking optional), speaks (Edge-TTS over a Cloudflare Workers WebSocket), and moves with her (EMAGE ONNX in a Dedicated Web Worker). If the model is not ready yet, typed messages queue instead of getting dropped. The chat-bar menu can switch models from WebLLM's prebuilt list, or connect any **custom OpenAI-compatible provider** (Ollama / LM Studio / vLLM / LocalAI / cloud) via the in-app config dialog — credentials stay AES-GCM encrypted in IndexedDB.
 
 The UI is fully **SSR-hydrated multi-language** (zh-CN / en / ja) via TanStack Start + i18next, and is mobile-first responsive (iOS HIG 44 pt / Material 48 dp touch targets).
 
@@ -90,7 +90,7 @@ The UI is fully **SSR-hydrated multi-language** (zh-CN / en / ja) via TanStack S
 * **Technical Docs Center**: Complete architecture sitemap and agent navigation available in [`docs/README.md`](docs/README.md).
 
 ### 🧠 100% Browser-Side AI Stack
-* **LLM (WebLLM, default)** — [`@mlc-ai/web-llm`](https://github.com/mlc-ai/web-llm) **Qwen2.5 1.5B (q4f16_1)** on WebGPU (fallback 0.5B). Lightweight and responsive on mobile and low-VRAM devices; chat-bar menu supports live model switching and thinking mode toggles; response language adaptively mirrors the user's prompt.
+* **LLM (WebLLM, default)** — [`@mlc-ai/web-llm`](https://github.com/mlc-ai/web-llm) **MiniCPM5 2B (q4f16_1)** on WebGPU (fallback Qwen2.5 0.5B). Lightweight and responsive on mobile and low-VRAM devices; chat-bar menu supports live model switching and thinking mode toggles; response language adaptively mirrors the user's prompt.
 * **LLM (Custom OpenAI-Compatible Providers, optional)** — Connect any OpenAI-compatible HTTP service via the in-app config dialog: Ollama / LM Studio / vLLM / LocalAI / cloud (OpenAI, DeepSeek, Qwen API …). Provider profiles are AES-GCM encrypted in IndexedDB; the active provider is one click away from switching. When a custom provider is active, WebLLM is **not** preloaded — saves 1-2 GB VRAM on local and avoids wasting bandwidth on a model you won't use.
 * **Unified Provider Factory (`chatWorkflow.runChat`)** — Same-shape `runChat(opts) → string` contract for both WebLLM and custom providers; the dispatcher picks one per request via a `ChatProvider` registry. Adding a new provider = drop in a descriptor.
 * **User-Customizable System Prompt & Memory Turns** — Open the chat-bar menu → **对话设置 / Chat Settings** to override the character system prompt (free-form text, falls back to default when empty/equal) and tune the conversation memory-turn count (1–50, default = device-recommended). Overrides persist in IndexedDB (`xiaochun-user-settings`); bound constants live in `APP_CONFIG.memory.userTurnsMin/Max` as the single source of truth shared between the slider UI and the storage setter.
@@ -165,7 +165,7 @@ The UI is fully **SSR-hydrated multi-language** (zh-CN / en / ja) via TanStack S
 | **Motion Pipeline** | Custom Layered Universal Pipeline (`MotionPipeline`) | Quintic smootherstep inbetweening, bone masking, biomechanical limits, inverse quaternion decoupling & T-Pose protection |
 | **App Framework** | [React 19](https://react.dev) + [TanStack Start](https://tanstack.com/start) | Full-stack SSR with cookie-based i18n hydration |
 | **Router** | [TanStack Router](https://tanstack.com/router) | Type-safe file-based routing |
-| **LLM** | [WebLLM](https://github.com/mlc-ai/web-llm) + custom OpenAI-compatible providers (Ollama / LM Studio / vLLM / cloud) | Qwen2.5 1.5B q4f16_1 on WebGPU (fallback 0.5B), streaming; unified `runChat(opts)` factory pattern |
+| **LLM** | [WebLLM](https://github.com/mlc-ai/web-llm) + custom OpenAI-compatible providers (Ollama / LM Studio / vLLM / cloud) | MiniCPM5 2B q4f16_1 on WebGPU (fallback Qwen2.5 0.5B), streaming; unified `runChat(opts)` factory pattern |
 | **Memory** | IndexedDB + Custom 3-Tier Pipeline | 100% client-side multi-tier persistence, entity extraction & n-gram note retrieval |
 | **Motion** | EMAGE + [ONNX Runtime Web](https://onnxruntime.ai) | Dedicated Worker, **wasm EP + INT8** (no WebGPU; int64); streaming `motion_chunk` T=64 |
 | **TTS** | Native WebSocket client (`src/lib/edge-tts-core.ts`) | XiaoyiNeural zh-CN +10 Hz, emoji-stripped text; no third-party TTS SDK |

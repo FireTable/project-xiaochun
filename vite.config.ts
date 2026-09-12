@@ -31,6 +31,9 @@ export default defineConfig({
   server: {
     host: '0.0.0.0',
     port: 5185,
+    watch: {
+      ignored: ['**/*.md', '**/docs/**', '**/public/llms*.txt'],
+    },
     headers: {
       // P0b B1: match public/_headers. R2 onnx CDN has CORS but no CORP;
       // require-corp would block SAB / multi-thread wasm when models are cross-origin.

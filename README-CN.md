@@ -24,7 +24,7 @@
 
 **Project XiaoChun (小蠢)** 是一个完全运行在浏览器里的二次元陪伴角色。角色用 `@pixiv/three-vrm` 渲染,采用 MToon NPR 着色,坐在沉浸式线稿户外场景中;**所有 AI 推理都在你当前的浏览器标签页里跑** —— 没有 Python 后端,没有服务器 GPU。
 
-进场是 2D MAD 预载破次元到 3D —— 镜头从 3.3 倍远景推近,splash 同步淡出。你跟她说话。她思考(WebLLM Qwen2.5 1.5B q4f16_1,失败降到 0.5B;思考模式可关)、她开口说话(Edge-TTS 走 Cloudflare Workers WebSocket)、她全身动作实时跟上(EMAGE ONNX 在 Dedicated Web Worker 里)。模型没就绪时输入会排队,不会丢字。对话条菜单可从 WebLLM 预置表换模型,也可在**应用内配置对话框**接入任意 **OpenAI 兼容 自定义服务**(Ollama / LM Studio / vLLM / LocalAI / 云厂商)——AES-GCM 加密存在 IndexedDB。
+进场是 2D MAD 预载破次元到 3D —— 镜头从 3.3 倍远景推近,splash 同步淡出。你跟她说话。她思考(WebLLM MiniCPM5 2B q4f16_1,失败降到 Qwen2.5 0.5B;思考模式可关)、她开口说话(Edge-TTS 走 Cloudflare Workers WebSocket)、她全身动作实时跟上(EMAGE ONNX 在 Dedicated Web Worker 里)。模型没就绪时输入会排队,不会丢字。对话条菜单可从 WebLLM 预置表换模型,也可在**应用内配置对话框**接入任意 **OpenAI 兼容 自定义服务**(Ollama / LM Studio / vLLM / LocalAI / 云厂商)——AES-GCM 加密存在 IndexedDB。
 
 UI 走 **TanStack Start SSR + i18next** 水合,**完整支持简体中文 / English / 日本語 三语切换**,并且按 iOS HIG 44 pt / Material 48 dp 触屏规范做了移动端优先适配。
 
@@ -90,7 +90,7 @@ UI 走 **TanStack Start SSR + i18next** 水合,**完整支持简体中文 / Engl
 * **完整技术文档中心**：架构全景与 Agent 快速路由导航详见 [`docs/README.md`](docs/README.md)。
 
 ### 🧠 100% 浏览器端 AI 推理栈 (Browser-Side AI)
-* **大语言模型 (WebLLM,默认)** — [`@mlc-ai/web-llm`](https://github.com/mlc-ai/web-llm) 默认 **Qwen2.5 1.5B (q4f16_1)**，低配设备自动降级至 0.5B。轻量高效，在移动端与低显存设备上兼顾推理速度与回复质量；对话条菜单可随时热切换模型或开关思考模式；回复语言随用户提问语系自适应匹配。
+* **大语言模型 (WebLLM,默认)** — [`@mlc-ai/web-llm`](https://github.com/mlc-ai/web-llm) 默认 **MiniCPM5 2B (q4f16_1)**，低配设备自动降级至 Qwen2.5 0.5B。轻量高效，在移动端与低显存设备上兼顾推理速度与回复质量；对话条菜单可随时热切换模型或开关思考模式；回复语言随用户提问语系自适应匹配。
 * **大语言模型 (OpenAI 兼容自定义服务,可选)** — 应用内配置对话框一键接入任意 OpenAI 兼容 HTTP 服务:Ollama / LM Studio / vLLM / LocalAI / 云厂商(OpenAI、DeepSeek、Qwen API 等)。Provider 配置 AES-GCM 加密存在 IndexedDB;激活后 WebLLM **不会**预热,省 1-2 GB 显存 + 模型下载带宽。
 * **统一 Provider 工厂 (`chatWorkflow.runChat`)** — WebLLM 与自定义 provider 共享同形 `runChat(opts) → string` 契约;dispatcher 通过 `ChatProvider` 注册表轮询,选第一个 `isActive` 命中的。加新 provider = 注册一个描述符。
 * **用户自定义系统提示词 + 记忆轮数** — 聊天菜单 → 「对话设置」可微调小蠢人设(留空/与默认相同则走默认人设)与对话记忆轮数(1-50,默认设备推荐)。配置持久化在 IndexedDB(`xiaochun-user-settings`);边界常量集中在 `APP_CONFIG.memory.userTurnsMin/Max` 一处,slider UI 与存储 setter 共享同一份 SSOT。
@@ -165,7 +165,7 @@ UI 走 **TanStack Start SSR + i18next** 水合,**完整支持简体中文 / Engl
 | **动作融合管线** | 自研分层万能动作管线 (`MotionPipeline`) | 全姿态五次平滑步阶曲线补帧、部位遮罩、解剖角速度限幅、逆四元数解耦与防 T-Pose 保护 |
 | **应用框架** | [React 19](https://react.dev) + [TanStack Start](https://tanstack.com/start) | 全栈 SSR + Cookie 水合 i18n |
 | **路由** | [TanStack Router](https://tanstack.com/router) | 类型安全文件路由 |
-| **大语言模型** | [WebLLM](https://github.com/mlc-ai/web-llm) | Qwen2.5 1.5B q4f16_1 WebGPU 流式推理 (自动降级至 0.5B) |
+| **大语言模型** | [WebLLM](https://github.com/mlc-ai/web-llm) | MiniCPM5 2B q4f16_1 WebGPU 流式推理 (自动降级至 Qwen2.5 0.5B) |
 | **端侧记忆** | IndexedDB + 自研三层画像管线 | 纯本地多级记忆持久化、实体画像提取与 n-gram 语义召回 |
 | **动作生成** | EMAGE + [ONNX Runtime Web](https://onnxruntime.ai) | Dedicated Worker，**wasm EP + INT8**（无 WebGPU；int64）；流式 `motion_chunk` T=64 |
 | **语音合成** | 原生 WebSocket 客户端 (`src/lib/edge-tts-core.ts`) | 晓伊 zh-CN +10 Hz, emoji 剥离;无第三方 TTS SDK |

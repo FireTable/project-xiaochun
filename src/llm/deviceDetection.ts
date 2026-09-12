@@ -94,10 +94,10 @@ function computeRecommendedMaxB(
  * 单轮历史开销：
  * - 历史由 user 与 assistant 对白组成，按 APP_CONFIG.memory.turnMaxChars (180字) 截断，
 /**
- * 根据端侧小模型 (0.5B / 1.5B) 的注意力特性与硬件分级，推断计划上下文窗口与短期记忆保留轮数
+ * 根据端侧小模型 (0.5B / 2B) 的注意力特性与硬件分级，推断计划上下文窗口与短期记忆保留轮数
  *
  * 核心考量（小模型长上下文痛点与 Token 敏感度）：
- * 1. 本项目运行的是端侧小型语言模型（Fallback 为 Qwen2.5-0.5B，主推为 Qwen2.5-1.5B）；
+ * 1. 本项目运行的是端侧小型语言模型（Fallback 为 Qwen2.5-0.5B，主推为 MiniCPM5-2B）；
  * 2. 小模型的参数量和注意力头容量有限，对 Prompt 中的历史 Token 极度敏感：
  *    - 历史轮数过多（如 ≥4~6 轮）会导致模型注意力被过往对白格式严重绑架，陷入可怕的复读死循环（Echo Loop）；
  *    - 历史长了会迅速冲淡 System Prompt 中严苛的“小蠢”傲娇萌系人设与负面提示词（Negative Constraints），
@@ -105,7 +105,7 @@ function computeRecommendedMaxB(
  *    - 移动端 WebGPU 的 Prefill（首字预填充）耗时随历史长度急剧恶化，多余历史 token 会让首字卡顿数秒；
  * 3. 黄金平衡点：
  *    - 0.5B（移动端 / 低配）：严格限制为 1 轮（仅保留上一次 Q/A），既有指代理解能力，又保证极低延迟与 0 复读；
- *    - 1.5B（桌面端）：限制为 2 轮（高配最多 3 轮），兼顾多轮自然对话深度，绝不给过多历史稀释人设。
+ *    - 2B（桌面端）：限制为 2 轮（高配最多 3 轮），兼顾多轮自然对话深度，绝不给过多历史稀释人设。
  */
 export function deduceContextAndMemory(
   tier: 'high' | 'low',

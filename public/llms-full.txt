@@ -35,7 +35,7 @@ AI runs in the browser tab. **WebLLM may use WebGPU**; **EMAGE uses ONNX Runtime
 
 ### 2.1 LLM (WebLLM, default)
 - **Engine**: `@mlc-ai/web-llm` v0.2.84
-- **Model**: Qwen2.5 1.5B (q4f16_1, default) / Qwen3 0.6B (optional) — downloaded on first launch and cached in `CacheStorage` for instant subsequent loads
+- **Model**: MiniCPM5 2B (`MiniCPM5-2B-q4f16_1-MLC`, default) / Qwen2.5 0.5B (fallback) — downloaded on first launch and cached in `CacheStorage` for instant subsequent loads
 - **Runtime**: WebGPU (falls back to WASM with reduced throughput)
 - **Streaming**: Chunked completion with milestone callbacks (`loading-webgpu`, `thinking` states)
 - **System Prompts**: Per-language (`src/llm/prompts.ts`) — each prompt enforces a `🌐 LANGUAGE RULE` so the LLM responds in the user's language regardless of input language

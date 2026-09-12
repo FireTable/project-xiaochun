@@ -73,7 +73,7 @@ export const HeadBubble: React.FC<HeadBubbleProps> = ({ state }) => {
         {/* 对话框微光小尾巴 — 倒三角，位于气泡底部外侧向下延伸，描边与气泡边框及光晕完美融合 */}
         <svg
           aria-hidden="true"
-          className="absolute top-[calc(100%+1px)] left-1/2 -translate-x-1/2 w-3.5 h-2 overflow-visible pointer-events-none z-10"
+          className="absolute top-[calc(100%-0px)] left-1/2 -translate-x-1/2 w-2.5 h-2 overflow-visible pointer-events-none z-10"
           viewBox="0 0 14 8"
           fill="none"
         >
