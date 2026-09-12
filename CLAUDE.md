@@ -42,3 +42,11 @@ pnpm build
 - `src/director/chatDirector.ts` — Pipeline orchestrator (LLM -> TTS -> EMAGE -> transitions).
 - `src/core/vrmEngine.ts` — Three.js + VRM 1.0 render loop, 6-channel lighting, LookAt tracking.
 - `src/memory/` — 100% client-side IndexedDB 3-tier memory system.
+
+---
+
+## 📝 Commit Conventions
+
+- **Strict English-Only Conventional Commits**: All commit messages must be written in English. Never use Chinese in commit messages.
+- Format: `<type>(<scope>): <imperative summary in lowercase>` (e.g. `feat(scene): auto-detect device dark mode`).
+

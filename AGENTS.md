@@ -228,5 +228,20 @@ pnpm build
 
 ## 6. Commit & PR Conventions
 
-- Keep commit messages concise and clear (recommended: semantic commit format, e.g. `feat: ...`, `fix: ...`, `refactor: ...`, `docs: ...`).
+- **Strict English-Only Commits (必须使用规范的全英文 Commit)**:
+  - All commit messages **MUST be written in English**. Never use Chinese in commit messages.
+  - Follow the **Conventional Commits** specification:
+    * **Format**: `<type>(<scope>): <short summary in lowercase, imperative mood>`
+    * **Allowed Types**: `feat`, `fix`, `refactor`, `perf`, `docs`, `style`, `test`, `chore`.
+    * **Common Scopes**: `(scene)`, `(outfit)`, `(postfx)`, `(lighting)`, `(morph)`, `(motion)`, `(llm)`, `(worker)`, `(config)`, `(ui)`, etc.
+    * **Imperative Mood**: Use imperative verbs ("add", "fix", "implement", "update", "refactor"), avoiding past tense ("added") or progressive ("adding").
+  - **Multi-line / Squash Commit Structure**:
+    * First line: high-level imperative summary (`<type>: <overall summary>`)
+    * Blank line
+    * Bullet points detailing individual sub-module changes in English.
+  - **Examples**:
+    * `feat(scene): auto-detect device dark mode for linework theme`
+    * `fix(motion): eliminate 1-frame T-pose flicker during outfit swap`
+    * `perf(vrmWorker): offload glTF repacking and bspatch diffing to dedicated worker`
+    * `docs(agents): document VRMEngine modularization and zero-allocation performance rules`
 - If changes touch motion smoothness, angular velocity, transition durations, or core dynamics parameters, update `src/config.ts`, `README-CN.md`, `README.md`, and this file accordingly.
