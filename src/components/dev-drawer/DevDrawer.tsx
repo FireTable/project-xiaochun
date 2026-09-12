@@ -41,7 +41,7 @@ export const DevDrawer: React.FC<DevDrawerProps> = ({ isOpen, onClose }) => {
     if (saved.saturation) vrmEngine.setMaterialSaturation(saved.saturation);
     if (saved.lights) {
       vrmEngine.setGlobalLight(saved.lights.globalMult);
-      (['dir', 'hemi', 'front', 'fill', 'leg', 'arm'] as const).forEach((k) => {
+      (['dir', 'hemi', 'fill'] as const).forEach((k) => {
         const ch = saved.lights?.[k];
         if (ch) vrmEngine.setLight(k, ch.enabled, ch.base);
       });
@@ -80,15 +80,13 @@ export const DevDrawer: React.FC<DevDrawerProps> = ({ isOpen, onClose }) => {
         globalMult: vrmEngine.lightChannels.globalMult ?? APP_CONFIG.lights.globalMult,
         dir:   { ...vrmEngine.lightChannels.dir },
         hemi:  { ...vrmEngine.lightChannels.hemi },
-        front: { ...vrmEngine.lightChannels.front },
         fill:  { ...vrmEngine.lightChannels.fill },
-        leg:   { ...vrmEngine.lightChannels.leg },
-        arm:   { ...vrmEngine.lightChannels.arm },
       },
       camera: { fov: saved?.camera?.fov ?? APP_CONFIG.camera.defaultFov },
       bodyTurnEnabled: saved?.bodyTurnEnabled ?? vrmEngine.getEnableBodyTurn(),
       wardrobeVisibility: saved?.wardrobeVisibility ?? { ...vrmEngine.materialManager.partsVisibility },
       activeExpr: saved?.activeExpr ?? 'neutral',
+      postfx: saved?.postfx ?? { ...vrmEngine.postFx.config },
     };
     const jsonStr = JSON.stringify(fullConfig, null, 2);
     try {
@@ -122,22 +120,20 @@ export const DevDrawer: React.FC<DevDrawerProps> = ({ isOpen, onClose }) => {
     const defaultLights = APP_CONFIG.lights;
     vrmEngine.setGlobalLight(defaultLights.globalMult);
     const resetCh = {
-      dir:   { ...defaultLights.dir },
-      hemi:  { ...defaultLights.hemi },
-      front: { ...defaultLights.front },
-      fill:  { ...defaultLights.fill },
-      leg:   { ...defaultLights.leg },
-      arm:   { ...defaultLights.arm },
+      dir:  { ...defaultLights.dir },
+      hemi: { ...defaultLights.hemi },
+      fill: { ...defaultLights.fill },
     };
-    (['dir', 'hemi', 'front', 'fill', 'leg', 'arm'] as const).forEach((k) => {
+    (['dir', 'hemi', 'fill'] as const).forEach((k) => {
       vrmEngine.setLight(k, resetCh[k].enabled, resetCh[k].base);
     });
     saveDevDrawerSettings({ lights: { globalMult: defaultLights.globalMult, ...resetCh } });
 
     vrmEngine.setFov(APP_CONFIG.camera.defaultFov);
     saveDevDrawerSettings({ camera: { fov: APP_CONFIG.camera.defaultFov } });
-    vrmEngine.setEnableBodyTurn(true);
-    saveDevDrawerSettings({ bodyTurnEnabled: true });
+    const defTurn = APP_CONFIG.camera.defaultEnableBodyTurn ?? true;
+    vrmEngine.setEnableBodyTurn(defTurn);
+    saveDevDrawerSettings({ bodyTurnEnabled: defTurn });
 
     vrmEngine.materialManager.resetToDefaultConfig();
     saveDevDrawerSettings({ wardrobeVisibility: { ...vrmEngine.materialManager.partsVisibility } });

@@ -6,14 +6,16 @@
 Project XiaoChun is a full-stack, browser-native web application that runs an interactive anime companion entirely in the user's browser tab. The 3D scene renders via `three.js` + `@pixiv/three-vrm` (MToon NPR shading); conversation, motion, and speech are generated client-side: WebLLM may use WebGPU; EMAGE uses ONNX Runtime Web **wasm + INT8** (not WebGPU). The only network calls are to a Cloudflare Worker edge proxy for Microsoft Edge-TTS streaming (no API keys or user data stored).
 
 ## Core Features
-- **Decoupled 3D Architecture**: Modular `VRMEngine` coordinating 5 specialized subsystems:
-  - `LineworkWorld`: Minimalist procedural line-art outdoor world (sun with radial rays, 19 buildings, wireframe ground, 5 tree archetypes).
-  - `StudioLighting`: 6-channel lighting (dir / hemi / front / fill / leg / arm) with 2048 PCFSoft shadow camera.
+- **Decoupled 3D Architecture**: Modular `VRMEngine` coordinating specialized subsystems:
+  - `LineworkWorld`: Minimalist procedural line-art outdoor world with Light / Dark dual themes (sun with radial rays, 19 buildings, wireframe ground, 5 tree archetypes).
+  - `StudioLighting`: 3-channel lighting (dir: 1.00 / hemi: 0.95 / fill: 1.40) with 2048 PCFSoft shadow camera.
+  - `PostFxPipeline`: Cinematic post-processing (UnrealBloomPass with background luminance filtering, merged ColorGrading LUT/BC/HS, ACESFilmic ToneMapping, and physical bypass).
   - `VRMMaterialManager`: Semantic material categorization with dynamic `uMatSaturation` fragment shader injection.
+  - `OutfitSwap & Delta Addons`: Atomic outfit switching with 0-frame T-pose pop-in (state snapshot & in-memory pre-restore). Delta packaging via `.vrmbase` (~5.9MB) + 5 `.vrmaddon` patches (Techwear, Cheongsam, Bikini, Maid, Swimsuit) with WASM bspatch and 2-tier IndexedDB caching.
   - `GazeController`: Level-head gaze tracking, micro-saccades, and thinking head sways.
   - `BubbleTracker`: High-performance 3D-to-2D screen projection with 1.5px dead-zone filtering.
 - **Universal Motion Pipeline**: Layered pose hierarchy with Quintic Smootherstep ($6t^5 - 15t^4 + 10t^3$) inbetweening, full/upper-body masking, inverse quaternion LookAt decoupling, and automated lifecycle return-to-idle.
-- **27-Parameter Orthogonal Bone Morphing**: Live customization across head, neck, shoulders, torso thickness, waist, belly, hips, buttocks, bust, arms, fingers, thighs, calves, and feet. UI groups the 27 sliders into 7 body-region sub-cards (整体 / 头颈 / 躯干 / 臀部 / 胸部 / 上肢 / 下肢). Dynamic crown height measured live from mesh vertices; per-section state isolation keeps a 28-slider drag fluid.
+- **28-Parameter Orthogonal Bone Morphing**: Live customization across head, neck, shoulders, torso thickness, waist, belly, hips, buttocks, bust, arms, fingers, thighs, calves, and feet. Shoulder width defaults to 155% with an extended range up to 250%. UI groups the 28 sliders into 7 body-region sub-cards. Dynamic crown height measured live from mesh vertices; per-section state isolation keeps dragging fluid.
 - **LLM (WebLLM, default)**: WebLLM running Qwen2.5 1.5B (q4f16_1) on WebGPU (fallback 0.5B), streaming with milestone callbacks.
 - **LLM (Custom OpenAI-Compatible Providers)**: Plug any OpenAI-compatible HTTP service (Ollama / LM Studio / vLLM / LocalAI / OpenAI / DeepSeek / Qwen API) via in-app config dialog. Profiles AES-GCM encrypted in IndexedDB. Active custom provider unloads WebLLM to free 1-2 GB VRAM. Unified `runChat(opts)` contract for both providers via `chatWorkflow` factory.
 - **Cinematic Intro**: When the loading overlay exits, `vrmEngine.cinematicIntro(1100)` tweens camera from a 3.3× distant position to the current position with `easeOutCubic`, synchronized with overlay's `scale-125 + blur-md` break transition.
@@ -22,7 +24,7 @@ Project XiaoChun is a full-stack, browser-native web application that runs an in
 - **Client-Side Memory**: IndexedDB (`xiaochun-memory`) local persistence — 3-tier architecture with short-term turns, multilingual entity profile extraction, and n-gram long-term note retrieval. 100% local privacy guarantee with zero telemetry.
 - **i18n & SSR**: TanStack Start full-stack SSR with cookie-based language hydration; ships zh-CN / en / ja; adaptive prompt matching user input language.
 - **Mobile-First UI**: iOS HIG 44 pt / Material 48 dp touch targets, liquid-glass aesthetic, SSR pre-rendered LoadingOverlay. Chat input remains editable during response so users can pre-type.
-- **Debug Drawer (localhost only)**: Schema-driven **7-section** panel (expressions / camera / saturation / bone morph / wardrobe / lighting / **EmagePerf**). Per-section state isolation + per-frame / commit slider split. Full architecture in `docs/ARCHITECTURE_AND_RULES.md` §3.
+- **Debug Drawer (localhost only)**: Schema-driven **8-section** panel (expressions / camera / saturation / bone morph / wardrobe / lighting / postfx / **EmagePerf**). Per-section state isolation + per-frame / commit slider split. Full architecture in `docs/ARCHITECTURE_AND_RULES.md` §3.
 
 ## Links & API Contracts
 - [Full Documentation](/llms-full.txt): Complete technical architecture, dependency list, motion/TTS pipelines, deployment guide.

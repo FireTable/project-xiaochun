@@ -4,6 +4,7 @@
  */
 import type { MaterialSaturationSettings } from '@/core/vrmEngine';
 import type { BodyMorphConfig } from '@/config';
+import type { PostFxConfig } from '@/core/postfx/postFxPipeline';
 
 /** localStorage 存的完整配置 (跟旧 DevDrawer 兼容) */
 export interface DevDrawerFullSettings {
@@ -13,11 +14,9 @@ export interface DevDrawerFullSettings {
     globalMult: number;
     dir: { enabled: boolean; base: number };
     hemi: { enabled: boolean; base: number };
-    front: { enabled: boolean; base: number };
     fill: { enabled: boolean; base: number };
-    leg: { enabled: boolean; base: number };
-    arm: { enabled: boolean; base: number };
   };
+  postfx: PostFxConfig;
   camera: {
     fov?: number;
     minDistance?: number;
@@ -36,7 +35,8 @@ export type SectionId =
   | 'bodyMorph'
   | 'wardrobe'
   | 'lighting'
-  | 'camera';
+  | 'camera'
+  | 'postfx';
 
 /** drawer 上下文 — 壳通过 DevDrawerContext.Provider 注入,段组件 useContext 读取 */
 export interface DevDrawerContextValue {

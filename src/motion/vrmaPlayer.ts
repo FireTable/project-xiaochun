@@ -27,6 +27,10 @@ export class VRMAMotionPlayer {
   private idleWeight = 1.0;
   private isFadingToIdle = false;
   private fadeDuration = 0.5;
+  /** Last URL passed to loadVRMA (null for buffer / playLoop-from-clip). */
+  private lastUrl: string | null = null;
+  private lastBuffer: ArrayBuffer | null = null;
+  private lastLoop = false;
 
   public transitionManager: MotionTransitionManager | null = null;
 
@@ -39,6 +43,7 @@ export class VRMAMotionPlayer {
   }
 
   async parseBufferToClip(buf: ArrayBuffer, vrm: VRM): Promise<THREE.AnimationClip> {
+    this.lastBuffer = buf;
     const loader = new GLTFLoader();
     loader.register((p) => new VRMAnimationLoaderPlugin(p));
     const gltf = await loader.parseAsync(buf, '');
@@ -67,7 +72,7 @@ export class VRMAMotionPlayer {
     return retargetClip(clip, vrm);
   }
 
-  private playClipOnMixer(clip: THREE.AnimationClip, vrm: VRM, fadeDur = 0.65): THREE.AnimationAction {
+  public playClipOnMixer(clip: THREE.AnimationClip, vrm: VRM, fadeDur = 0.65): THREE.AnimationAction {
     this.vrm = vrm;
     const mixer = this.mixer ?? new THREE.AnimationMixer(vrm.scene);
     this.mixer = mixer;
@@ -92,6 +97,7 @@ export class VRMAMotionPlayer {
     this.idleWeight = 0.0;
     this.isFadingToIdle = false;
     this.paused = false;
+    this.lastLoop = false;
     this.clock.start();
     return newAction;
   }
@@ -120,6 +126,7 @@ export class VRMAMotionPlayer {
     this.idleWeight = 0.0;
     this.isFadingToIdle = false;
     this.paused = false;
+    this.lastLoop = true;
     this.clock.start();
     return newAction;
   }
@@ -164,33 +171,13 @@ export class VRMAMotionPlayer {
   }
 
   async loadVRMA(url: string, vrm: VRM): Promise<VRMALoadResult> {
-    const loader = new GLTFLoader();
-    loader.register((p) => new VRMAnimationLoaderPlugin(p));
-    const gltf = await loader.loadAsync(url);
-    const vrmAnim = gltf.userData.vrmAnimations?.[0];
-    if (!vrmAnim) throw new Error(`No VRMAnimation found in ${url}`);
-    let clip = createVRMAnimationClip(vrmAnim, vrm);
+    const res = await fetch(url);
+    if (!res.ok) throw new Error(`Failed to load VRMA (${res.status}): ${url}`);
+    const buf = await res.arrayBuffer();
+    this.lastUrl = url;
+    this.lastBuffer = buf;
 
-    const hips = vrm.humanoid.getNormalizedBoneNode('hips');
-    if (hips) {
-      if (!this.hipsRest) {
-        this.hipsRest = { x: hips.position.x, y: hips.position.y, z: hips.position.z };
-      }
-      const { x: restX, y: restY, z: restZ } = this.hipsRest;
-      clip.tracks.forEach((t) => {
-        if (!t.name.endsWith('.position')) return;
-        const offX = t.values[0] - restX;
-        const offY = t.values[1] - restY;
-        const offZ = t.values[2] - restZ;
-        for (let i = 0; i < t.values.length; i += 3) {
-          t.values[i]     -= offX;
-          t.values[i + 1] -= offY;
-          t.values[i + 2] -= offZ;
-        }
-      });
-    }
-
-    clip = retargetClip(clip, vrm);
+    const clip = await this.parseBufferToClip(buf, vrm);
     this.playClipOnMixer(clip, vrm, 0.65);
 
     this.name = url.split('/').pop()?.replace(/\.vrma$/i, '') ?? 'vrma';
@@ -198,6 +185,7 @@ export class VRMAMotionPlayer {
   }
 
   async loadVRMAFromBuffer(buf: ArrayBuffer, vrm: VRM): Promise<VRMALoadResult> {
+    this.lastBuffer = buf;
     const clip = await this.parseBufferToClip(buf, vrm);
     this.playClipOnMixer(clip, vrm, 0.65);
     this.name = this.name || 'history';
@@ -363,5 +351,17 @@ export class VRMAMotionPlayer {
 
   getActiveMotionName(): string | null {
     return this.name || null;
+  }
+
+  getLastUrl(): string | null {
+    return this.lastUrl;
+  }
+
+  getLastBuffer(): ArrayBuffer | null {
+    return this.lastBuffer;
+  }
+
+  isLooping(): boolean {
+    return this.lastLoop || this.action?.loop === THREE.LoopRepeat;
   }
 }

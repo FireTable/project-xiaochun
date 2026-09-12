@@ -426,6 +426,33 @@ uniform float uMatSaturation;
     });
   }
 
+  /**
+   * ponytail: 运行时替换某个部件的主贴图(_MainTex / .map)。
+   * 不重建 GameObject、不动 Animator → VRMA / blendshape / physics 全部保留。
+   * 用于"加载 diff 文件"按钮:把 VRoid Studio 另一份导出的 body atlas 喂给当前 VRM 实例。
+   */
+  async replacePartTexture(partId: string, url: string): Promise<THREE.Texture> {
+    const loader = new THREE.TextureLoader();
+    const tex = await loader.loadAsync(url);
+    // VRoid Studio 导出的 PNG 用 top-left 原点 → flipY = false 才能正确朝向
+    tex.flipY = false;
+    tex.colorSpace = THREE.SRGBColorSpace;
+    tex.needsUpdate = true;
+
+    const mats = this.partMaterials[partId] || [];
+    if (mats.length === 0) {
+      console.warn(`[replacePartTexture] part ${partId} 没有材质,贴图未应用`);
+      return tex;
+    }
+    for (const mat of mats) {
+      // 释放旧贴图,避免 GPU 内存泄漏
+      if (mat.map && mat.map !== tex) mat.map.dispose();
+      mat.map = tex;
+      mat.needsUpdate = true;
+    }
+    return tex;
+  }
+
   resetAllPartsVisibility(): void {
     this.detectedParts.forEach((p) => {
       this.setPartVisibility(p.id, true);

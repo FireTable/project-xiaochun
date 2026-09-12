@@ -46,6 +46,37 @@ export class GazeController {
     scene.add(this.gazeTarget);
   }
 
+  /** Snapshot glance offsets for outfit swap (lookAt target is camera-driven each frame). */
+  captureSwapState(): {
+    gazeOffsetTarget: [number, number, number];
+    gazeCurrentOffset: [number, number, number];
+    isGlancingAway: boolean;
+    gazeShiftTimer: number;
+    gazeShiftInterval: number;
+  } {
+    return {
+      gazeOffsetTarget: [this.gazeOffsetTarget.x, this.gazeOffsetTarget.y, this.gazeOffsetTarget.z],
+      gazeCurrentOffset: [this.gazeCurrentOffset.x, this.gazeCurrentOffset.y, this.gazeCurrentOffset.z],
+      isGlancingAway: this.isGlancingAway,
+      gazeShiftTimer: this.gazeShiftTimer,
+      gazeShiftInterval: this.gazeShiftInterval,
+    };
+  }
+
+  restoreSwapState(state: {
+    gazeOffsetTarget: [number, number, number];
+    gazeCurrentOffset: [number, number, number];
+    isGlancingAway: boolean;
+    gazeShiftTimer: number;
+    gazeShiftInterval: number;
+  }): void {
+    this.gazeOffsetTarget.set(...state.gazeOffsetTarget);
+    this.gazeCurrentOffset.set(...state.gazeCurrentOffset);
+    this.isGlancingAway = state.isGlancingAway;
+    this.gazeShiftTimer = state.gazeShiftTimer;
+    this.gazeShiftInterval = state.gazeShiftInterval;
+  }
+
   getLookAtOffsets(): { neck?: THREE.Quaternion; head?: THREE.Quaternion } | undefined {
     return this.hasLastLookAt
       ? { neck: this.lastNeckLookAtQ, head: this.lastHeadLookAtQ }

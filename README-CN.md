@@ -47,16 +47,28 @@ UI 走 **TanStack Start SSR + i18next** 水合,**完整支持简体中文 / Engl
 ## ✨ 核心特性 (Key Features)
 
 ### 🎭 VRM 核心引擎与模块化子系统 (VRM Engine & Modular Architecture)
-* **VRM 1.0 渲染中枢**:基于 `@pixiv/three-vrm` 与 MToon NPR 着色，核心引擎经深度模块化解耦（`VRMEngine` 体积直降 55%），由 5 大专业子系统协同编排：
-  * **线稿世界环境 (`LineworkWorld`)**:纯代码程序化构建太阳与 12 条发散光线、19 栋线稿建筑天际线、网格地面与 5 种造型风格化树（松塔/伞盖/黑松/笔柏/椭圆）—— **纯白底黑线，零外部贴图**。
-  * **影棚 6 通道专业光照 (`StudioLighting`)**:主日光（带 2048 柔和阴影相机）/ 半球天光 / 面部射灯 / 背后轮廓 / 腿部立体 / 双臂专属高光，各通道独立可控。
+* **VRM 1.0 渲染中枢**:基于 `@pixiv/three-vrm` 与 MToon NPR 着色，核心引擎经深度模块化解耦，由专业子系统协同编排：
+  * **双主题线稿世界 (`LineworkWorld`)**:纯代码程序化构建太阳与 12 条发散光线、19 栋线稿建筑天际线、网格地面与 5 种风格化树木；原生支持 `linework-light`（亮色线稿）与 `linework-dark`（深色线稿）双主题随全局色彩一键切换 —— **纯白底黑线/黑底白线，零外部贴图**。
+  * **影棚 3 通道专业光照 (`StudioLighting`)**:主日光（dir 1.00，带 2048 PCFSoft 阴影相机）/ 半球天光（hemi 0.95）/ 背后轮廓补光（fill 1.40），去除冗余通道，打造通透干净的二次元光影。
   * **MToon 材质管线 (`VRMMaterialManager`)**:全自动网格材质语义分类（skin / hair / eyes / clothing），动态注入片元着色器 Uniform `uMatSaturation` 并在 Shader 层实施灰度混合校色；头发饱和度精细调优（默认 1.50），光泽通透。
   * **视线与微表情交互 (`GazeController`)**:陪伴式注视、微扫视、生理仰俯/偏航安全角限位、自然生理眨眼与思考神态摇头。
   * **3D 空间气泡追踪 (`BubbleTracker`)**:头部世界坐标到屏幕 2D 像素投影，带 1.5px 移动死区过滤算法，直接操控 DOM 变换，避免 60~120 FPS React 重渲染。
 * **运行时上传 VRM**:右上角上传按钮，支持任意标准 VRM 1.0 角色无缝导入。
 
+### 👗 原子级无缝换装与增量补丁体系 (Outfit Swap & Delta Addons)
+* **0 帧 T-pose 跳变与无感热更**：彻底废除换装时的重置与预停逻辑。换装前毫秒级抓取完整骨骼姿态、表情权重、视线与动作时间戳快照；在后台构建完成新 VRM 并在内存中直接预写入姿态快照后，实施微任务级原子场景替换，彻底消除 1 帧 T-pose 闪烁。
+* **增量 Delta 补丁分发 (`.vrmbase` + `.vrmaddon`)**：打破动辄数十兆的模型体积瓶颈，提取公用身体骨骼生成轻量底模 `xiaochun_base.vrmbase`（~5.9 MB，oxipng 极致压缩纹理）；5 套风格化服饰（常服科技风、国风旗袍、海滩比基尼、经典女仆、清凉泳装）以增量补丁 `.vrmaddon` 分发（单套仅 1~2 MB）。
+* **Web Worker WASM bspatch 动态重组**：后台 Web Worker 利用 WASM bspatch 极速重组完整 VRM，主线程 UI 0 掉帧。
+* **IndexedDB 二级双缓存体系**：底模与合成后的完整 VRM 全量缓存至浏览器本地 IndexedDB（`xiaochun-vrm-cache`），二次换装毫秒级直读。详见技术白皮书 [`docs/OUTFIT_SWAP.md`](docs/OUTFIT_SWAP.md) 与构建工作流 [`docs/VRM_BUILD_WORKFLOW.md`](docs/VRM_BUILD_WORKFLOW.md)。
+
+### 🔮 电影级后期渲染管线 (Cinematic Post-Processing Pipeline)
+* **UnrealBloomPass 二次元辉光透气算法**：在后处理管线内实现软雾辉光（默认强度 0.35、半径 0.65、阈值 0.75），角色高光通透泛光。
+* **背景几何级辉光剔除 (Background Luminance Bypass)**：独创背景物理剔除机制，在线稿高亮背景下，仅使角色发丝与衣物产生 Bloom 漫反射，彻底规避全屏泛白死光。
+* **多模式色调映射 (ToneMapping Capsule Grid)**：集成 ACESFilmic / Neutral / Cineon / Linear / None 5 种胶片色彩曲线与曝光度实时微调。
+* **全色调调色通道 (BC/HS Grading Pass)**：单次 Fullscreen Pass 融合亮度 (Brightness)、对比度 (Contrast)、饱和度 (Saturation) 与色相偏移 (Hue Shift) 矩阵调节。详见技术规范 [`docs/POSTFX.md`](docs/POSTFX.md)。
+
 ### 🧍 生物力学体型形变与正交解耦引擎 (Biomechanical Morphing Engine)
-* **27 项全维度正交体型微调**：覆盖头身比、天鹅颈、肩宽、躯干身长、躯干前后厚度、腰宽、肚子大小、胯宽、翘臀立体度、胸部挺拔度、手臂与手掌、大腿小腿粗细长短及足部大小。UI 上 27 个 slider 按身体区域(整体 / 头颈 / 躯干 / 臀部 / 胸部 / 上肢 / 下肢)分 7 组 sub-card,搜索框过滤时自动隐藏空 region。
+* **28 项全维度正交体型微调**：覆盖头身比、天鹅颈、肩宽、躯干身长、躯干前后厚度、腰宽、肚子大小、胯宽、翘臀立体度、胸部挺拔度、手臂与手掌、大腿小腿粗细长短及足部大小。肩宽预设默认优化至 155%（1.55），最大拓展至 250%（2.50），适配从纤细少女到霸气衣架的多元角色风格。UI 上 28 个 slider 按身体区域(整体 / 头颈 / 躯干 / 臀部 / 胸部 / 上肢 / 下肢)分 7 组 sub-card，搜索框过滤时自动隐藏空 region。
 * **解剖学前沿锁死机制 (Boundary Locking)**：将骨骼默认的居中对称膨胀重构为定向生长（躯干厚度 100% 往后背延展，前胸与前腹壁锁死平坦；臀部饱满挺翘，骨盆前沿 0 凸起）。
 * **程序化前腹壁微凸/收腹形变 (`belly`)**：采用余弦平滑衰减算法精准驱动前腹壁 687 个网格顶点，完全脱离 `Spine` 骨骼——后腰厚度与脊柱生理曲度 100% 独立稳定！
 * **膝足地锚反向对齐算法**：假胯与臀外侧丰满展宽的同时，在膝关节将外移量 100% 反向扣除，双脚依然平齐并拢笔直踩地。
@@ -131,15 +143,15 @@ UI 走 **TanStack Start SSR + i18next** 水合,**完整支持简体中文 / Engl
 * **移动端**:预载贴纸保留,ChatBar 避开底部安全区。
 
 ### 🛠️ 开发工具链 (Dev Tooling)
-* **调试抽屉**(仅本地):**7 段**固定顺序(🎭 预设表情 → 🎥 镜头设置 → 🎨 画面色彩 → ✨ 骨骼体型 → 🧩 模型部位 → 💡 灯光通道 → ⚡ EMAGE Perf)。每段独立 React state、独立重置、modified 点只在用户改过后才亮。Schema 驱动渲染:加新段只需在 `SECTIONS` 加一行 + 在组件 `REGISTRY` 加一行。`EmagePerfSection` 展示 wasm_env / 隔离 / numThreads / 分阶段耗时，便于 P0b 验收截图。完整拆解见 [`docs/ARCHITECTURE_AND_RULES.md` §3](docs/ARCHITECTURE_AND_RULES.md)。
+* **调试抽屉**(仅本地):**8 段**固定顺序(🎭 预设表情 → 🎥 镜头设置 → 🎨 画面色彩 → ✨ 骨骼体型 → 🧩 模型部位 → 💡 灯光通道 → 🔮 画面后期 → ⚡ EMAGE Perf)。每段独立 React state、独立重置、modified 点只在用户改过后才亮。Schema 驱动渲染:加新段只需在 `SECTIONS` 加一行 + 在组件 `REGISTRY` 加一行。`PostFxSection` 集中控制 Bloom 强度/半径/阈值、ToneMapping 模式与全色调调色；`EmagePerfSection` 展示 wasm_env / 隔离 / numThreads / 分阶段耗时，便于 P0b 验收截图。完整拆解见 [`docs/ARCHITECTURE_AND_RULES.md` §3](docs/ARCHITECTURE_AND_RULES.md)。
 * **ChatBar 试听下拉**(dev)：春日 / 蜀道难预设，段数由 `splitIntoSpeechChunks` 实时计算，方便端到端测 TTS+EMAGE 流式，无需手打长文。
 * **per-frame slider 拖动架构**:slider 把 per-tick 推 engine 跟 commit 时写 state + localStorage 拆开,28 个 slider 的 `BoneMorphSection` 拖一个 slider 时不会重渲其他 27 个。数字显示通过 `SliderWithAnchors` 的 `liveValueRef` 机制 imperative 写 textContent 跟手,完全绕过 React reconciliation。
 * **镜头段**:FOV slider(带 hover `ⓘ` tooltip,4 行 bullet list 解释 20°/30°/45°/60°)+ `📷` 最小 / `🔭` 最大距离 slider(鼠标滚轮 + pinch 缩放范围)+ 自动面朝镜头转身 toggle。默认推镜距离按 FOV 自动算(`defaultShotExtent`),15° 跟 60° 框选同一主体高度,不会再"长焦糊脸"。
-* **骨骼体型段**:27 个 slider 按身体区域(整体 / 头颈 / 躯干 / 臀部 / 胸部 / 上肢 / 下肢)分 7 组,每组独立 sub-card;搜索框过滤时自动隐藏空 region。
-* **模型部位段**:3 态渲染 — `穿`(勾选)/ `未穿`(勾掉,line-through)/ `未装配`(虚线禁用块,无勾选)。"已装配"判定走 `vrmEngine.materialManager.partMaterials[id]?.length`,不是用户可见性 toggle。
+* **骨骼体型段**:28 个 slider 按身体区域(整体 / 头颈 / 躯干 / 臀部 / 胸部 / 上肢 / 下肢)分 7 组,每组独立 sub-card;肩宽默认 155%,支持最大拉伸至 250%;搜索框过滤时自动隐藏空 region。
+* **模型部位段**:3 态渲染 — `穿`(勾选)/ `未穿`(勾掉,line-through)/ `未装配`(虚线禁用块,无勾选)。"已装配"判定走 `vrmEngine.materialManager.partMaterials[id]?.length`,不是用户可见性 toggle。注：整套换装请使用顶部导航栏的外观切换菜单。
 * **Cloudflare Workers**(`src/server.ts`):生产环境统一承载 TanStack Start SSR 与原生 WebSocket Edge-TTS 流式代理；并对 HTML/SSR 文档响应施加 **COOP/COEP `credentialless`**（Workers+Assets 不吃 `public/_headers` 的文档头），以便 EMAGE ORT wasm 在隔离环境下启用 SAB 多线程。
 * **Vite dev 中间件**(`vite/localApiPlugin.ts`):本地开发使用 Miniflare 虚拟运行时，与线上环境 100% 同构。`/api/tts` 默认转发到 `TTS_PROXY_URL`(部署的 Cloudflare Worker),未设置时走本地原生 WebSocket(`src/lib/edge-tts-core.ts`)直连 Edge-TTS。
-* **单一可信源**:`src/config.ts` 集中管理光照 / 相机 / 表情 / 饱和度 / LLM / R2 模型参数。
+* **单一可信源**:`src/config.ts` 集中管理光照 / 相机 / 表情 / 饱和度 / LLM / R2 模型参数 / 28 项体型微调。
 
 ---
 
@@ -147,7 +159,9 @@ UI 走 **TanStack Start SSR + i18next** 水合,**完整支持简体中文 / Engl
 
 | 架构层 | 技术方案 | 说明 |
 | :--- | :--- | :--- |
-| **3D 核心引擎** | [three.js 0.185](https://threejs.org) + [@pixiv/three-vrm 3.5](https://github.com/pixiv/three-vrm) | 模块化解耦中枢（5 大专业子系统：线稿世界 / 6 通道影棚打光 / MToon 饱和度注入 / 视线交互 / 3D 气泡追踪） |
+| **3D 核心引擎** | [three.js 0.185](https://threejs.org) + [@pixiv/three-vrm 3.5](https://github.com/pixiv/three-vrm) | 模块化解耦中枢（双主题线稿世界 / 3 通道影棚光照 / MToon 饱和度注入 / 视线交互 / 3D 气泡追踪） |
+| **后期与渲染管线** | 自研 PostFx 管线 (`postFxPipeline.ts`) | UnrealBloomPass 辉光 (背景物理剔除) + ToneMapping (ACESFilmic 等) + 全色调调色 (BC/HS) |
+| **换装与增量补丁** | Delta Addons + WASM bspatch + 快照预置 | `.vrmbase` + 5 套 `.vrmaddon`、Web Worker 补丁合成、双层 IDB 缓存、0 帧 T-pose 无缝热切 |
 | **动作融合管线** | 自研分层万能动作管线 (`MotionPipeline`) | 全姿态五次平滑步阶曲线补帧、部位遮罩、解剖角速度限幅、逆四元数解耦与防 T-Pose 保护 |
 | **应用框架** | [React 19](https://react.dev) + [TanStack Start](https://tanstack.com/start) | 全栈 SSR + Cookie 水合 i18n |
 | **路由** | [TanStack Router](https://tanstack.com/router) | 类型安全文件路由 |
@@ -214,7 +228,13 @@ pnpm deploy
 ```text
 Project-XiaoChun/
 ├── public/                    # 静态资产目录 (通过 Cloudflare Workers Assets 托管)
-│   ├── xiaochun_V1.vrm        # 默认 VRM 角色模型 (20 MB)
+│   ├── vrm/                   # 模块化 VRM 底模与增量服饰补丁
+│   │   ├── xiaochun_base.vrmbase  # 剥离服饰的轻量底模 (~5.9 MB, oxipng 纹理压缩)
+│   │   ├── xiaochun_default.vrmaddon   # 默认常服 (科技风)
+│   │   ├── xiaochun_cheongsam.vrmaddon  # 国风旗袍
+│   │   ├── xiaochun_bikini.vrmaddon    # 海滩比基尼
+│   │   ├── xiaochun_maid.vrmaddon      # 经典女仆装
+│   │   └── xiaochun_swimsuit.vrmaddon  # 清凉泳装
 │   ├── thinking.vrma          # 待机思考动作循环
 │   ├── materials/             # MAD 破次元卡素材 (立绘/徽章/服饰预览 PNG)
 │   ├── onnx/                  # EMAGE 全身动作模型权重 (vq_* / emage_step / postprocess)
@@ -224,22 +244,28 @@ Project-XiaoChun/
 │   ├── og.jpg                 # OpenGraph 分享卡片
 │   └── logo.png / favicon.*   # 品牌与图标资产
 ├── docs/                      # 架构与模块深度文档
-│   ├── README.md
-│   ├── ARCHITECTURE_AND_RULES.md
-│   ├── MOTION_PIPELINE.md
-│   ├── BODY_TURN_AND_GAZE.md
-│   ├── BONE_MORPH.md
-│   ├── FOOT_IK.md
-│   ├── CHAT_DIRECTOR.md
-│   ├── ON_DEVICE_AI.md
+│   ├── README.md              # 文档索引地图与 Agent 导航指南
+│   ├── ARCHITECTURE_AND_RULES.md # 架构全景、主循环 10 步生命周期与避坑红线
+│   ├── OUTFIT_SWAP.md         # 0 帧 T-pose 状态捕获、Delta 增量与双层 IDB 缓存
+│   ├── POSTFX.md              # UnrealBloomPass 辉光透气、背景剔除与胶片调色
+│   ├── VRM_BUILD_WORKFLOW.md  # 模型构建工作流、bspatch 增量拆分与构建幂等性
+│   ├── VRM_ENGINE_AND_WORKER.md # VRMEngine 渲染调度与 vrmWorker 补丁合成双核架构
+│   ├── MOTION_PIPELINE.md     # 统一万能动作融合管线与五次平滑补帧
+│   ├── BODY_TURN_AND_GAZE.md  # 步态转向状态机与眼部注视跳视
+│   ├── BONE_MORPH.md          # 28 项正交体型微调生物力学白皮书
+│   ├── FOOT_IK.md             # 脚部物理地锚与贴地解算
+│   ├── CHAT_DIRECTOR.md       # LLM + TTS + EMAGE 流式状态机编排
+│   ├── ON_DEVICE_AI.md        # 端侧 AI 推理全栈
 │   └── EMAGE_MODEL.md         # EMAGE 现状与已知限制（wasm/INT8、流式、隔离）
+├── scripts/                   # 构建与离线处理脚本
+│   └── build-vrm/             # VRM 增量差分构建与贴图压缩工具链 (workflow.mjs)
 ├── wrangler.jsonc             # Cloudflare Workers 声明式配置文件
 ├── src/
 │   ├── routes/                # TanStack Start 文件路由
 │   │   ├── __root.tsx         # 根布局 (i18n SSR 水合、GEO JSON-LD 与元信息)
 │   │   └── index.tsx          # 首页主路由
 │   ├── components/            # React UI 组件 (TopHeader, ChatBar, HeadBubble, DevDrawer…)
-│   │   ├── dev-drawer/         # 调试抽屉 — schema 驱动的 7 段(仅 localhost)
+│   │   ├── dev-drawer/         # 调试抽屉 — schema 驱动的 8 段(仅 localhost)
 │   │   │   ├── DevDrawer.tsx          # 壳 (头部 + SectionRenderer 列表)
 │   │   │   ├── schema.ts              # SECTIONS[] (id + 顺序) — 加新段 = 1 行
 │   │   │   ├── renderer.tsx           # id → 组件 REGISTRY
@@ -249,13 +275,14 @@ Project-XiaoChun/
 │   │   │   │   ├── SectionCard.tsx    # 卡片外壳(可选 id 走折叠门控)
 │   │   │   │   ├── SectionHeader.tsx  # chevron + 标题 + modified 点 + 段内重置
 │   │   │   │   └── HeightChip.tsx     # 订阅 engine 实时高度的 chip
-│   │   │   ├── sections/              # 7 个自包含段组件
+│   │   │   ├── sections/              # 8 个自包含段组件
 │   │   │   │   ├── ExpressionsSection.tsx
 │   │   │   │   ├── CameraSection.tsx           # FOV + min/max 距离 + 自动转身 toggle
 │   │   │   │   ├── SaturationSection.tsx       # 4 个 slider + 4 个预设
-│   │   │   │   ├── BoneMorphSection.tsx        # 27 个 slider 分 7 个身体区域
-│   │   │   │   ├── WardrobeSection.tsx         # 穿 / 未穿 / 未装配 3 态渲染
-│   │   │   │   ├── LightingSection.tsx         # 6 通道 + 全局倍率
+│   │   │   │   ├── BoneMorphSection.tsx        # 28 个 slider 分 7 个身体区域
+│   │   │   │   ├── WardrobeSection.tsx         # 部件可见性 (穿 / 未穿 / 未装配)
+│   │   │   │   ├── LightingSection.tsx         # 3 通道 (dir/hemi/fill) + 全局倍率
+│   │   │   │   ├── PostFxSection.tsx           # Bloom 辉光 / ToneMapping / 调色
 │   │   │   │   └── EmagePerfSection.tsx        # P0b wasm_env / 隔离 / 分阶段耗时
 │   │   │   └── hooks/                 # 共用段 hook(useCollapse)
 │   │   ├── AdvancedSettingsDialog.tsx  # 用户自定义系统提示词 + 记忆轮数 slider
@@ -264,10 +291,13 @@ Project-XiaoChun/
 │   │   └── ui/                # Radix UI 原语封装 (button, dialog, dropdown-menu, slider, tooltip)
 │   ├── core/                  # 3D 渲染与场景中枢 (解耦 Facade 架构)
 │   │   ├── vrmEngine.ts       # 核心引擎调度中枢 (轻量 Facade、渲染循环、VRM 加载挂载)
+│   │   ├── outfitSwap.ts      # 原子换装调度 (姿态表情视线快照捕获与在内存预还原)
+│   │   ├── vrmWorker.ts       # 后台 Worker (WASM bspatch 补丁应用与双层 IDB 缓存)
 │   │   ├── morph/             # DevDrawer 滑块驱动的运行时骨骼微调
-│   │   │   └── vrmBodyMorph.ts # VRMBodyMorph — 单骨绑定的 body part 缩放
-│   │   ├── scene/             # 线稿背景世界 (lineworkWorld.ts: 太阳光芒/大楼/地面/树木)
-│   │   ├── lighting/          # 6 通道影棚打光 (studioLighting.ts: 主光/半球光/补光/高光)
+│   │   │   └── vrmBodyMorph.ts # VRMBodyMorph — 28 项单骨绑定的 body part 缩放
+│   │   ├── scene/             # 线稿背景世界 (lineworkWorld.ts: 双主题/太阳光芒/大楼/地面/树木)
+│   │   ├── lighting/          # 3 通道影棚打光 (studioLighting.ts: 主光/半球天光/轮廓补光)
+│   │   ├── postfx/            # 电影级后期管线 (postFxPipeline.ts: Bloom/ToneMapping/ColorGrading)
 │   │   ├── material/          # MToon 材质管理 (vrmMaterialManager.ts: 部件可见性 + Shader 饱和度)
 │   │   └── ui/                # 空间 UI 投影 (bubbleTracker.ts: 头部 3D 坐标转 2D 气泡)
 │   ├── motion/                # 动作系统 (统一万能管线 + 仿生拟真姿态)
@@ -312,7 +342,7 @@ Project-XiaoChun/
 │   ├── server.ts              # Cloudflare Worker 统一入口 (SSR + /api/tts WS + COOP/COEP 隔离头)
 │   ├── router.tsx             # TanStack Router 实例工厂
 │   ├── routeTree.gen.ts       # 自动生成的类型安全路由树
-│   └── config.ts              # 单一可信源 (R2 / 相机 / 灯光 / LLM / bodyMorph / emage.models + emage.motion hop/接缝)
+│   └── config.ts              # 单一可信源 (R2 / 相机 / 灯光 / 后期 / LLM / bodyMorph / emage.models + emage.motion hop/接缝)
 ├── vite.config.ts             # Vite 8 + TanStack Start + @cloudflare/vite-plugin
 ├── vite/                      # 自定义 Vite 插件 (从 vite.config.ts 抽出)
 │   ├── localApiPlugin.ts       # /api/tts 开发中间件 (TTS 转发 + EU 出口回退)
@@ -342,7 +372,7 @@ Project-XiaoChun/
 本项目基于 **MIT 许可证** 开源。
 
 > **第三方素材** (默认场景使用):
-> * `public/xiaochun_v1.vrm` — VRM 角色模型,使用 **[VRoid Studio](https://vroid.com/en/studio)** (Pixiv Inc.) 生成。遵循 **VRoid Studio 许可证**:允许个人使用、修改及非商业再分发(需注明出处)。若需商业使用,请参阅 [VRoid Studio 许可证条款](https://vroid.com/en/license) 或联系 Pixiv Inc. 另行协商。
+> * `public/vrm/xiaochun_base.vrmbase` 与 `.vrmaddon` 增量包 — VRM 角色模型与服饰，使用 **[VRoid Studio](https://vroid.com/en/studio)** (Pixiv Inc.) 生成。遵循 **VRoid Studio 许可证**:允许个人使用、修改及非商业再分发(需注明出处)。若需商业使用,请参阅 [VRoid Studio 许可证条款](https://vroid.com/en/license) 或联系 Pixiv Inc. 另行协商。
 > * `public/thinking.vrma` — VRM 动作。**许可证不明**,分发前请自行确认。
 
 `src/server.ts`(以及 Vite 中间件 `vite/localApiPlugin.ts`)的 `/api/tts` 通过自研原生 WebSocket 客户端 (`src/lib/edge-tts-core.ts`) 直接调用 Microsoft Edge-TTS,**无第三方 TTS SDK**。`TRUSTED_CLIENT_TOKEN` 是公开的共享 token(所有开源 Edge-TTS 实现都用同一个值),**不是个人密钥**。

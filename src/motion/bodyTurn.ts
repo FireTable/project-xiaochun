@@ -158,6 +158,53 @@ export class BodyTurnSystem {
     return this.phase !== SP.IDLE;
   }
 
+  /** Outfit-swap: snapshot stepping/yaw internals (bind calls reset). */
+  captureSwapState(): {
+    yawVel: number;
+    isTurning: boolean;
+    phase: number;
+    phaseTimer: number;
+    stepLeft: boolean;
+    stepBlendWeight: number;
+    spineYawCurrent: number;
+    chestYawCurrent: number;
+    upperChestYawCur: number;
+  } {
+    return {
+      yawVel: this.yawVel,
+      isTurning: this.isTurning,
+      phase: this.phase,
+      phaseTimer: this.phaseTimer,
+      stepLeft: this.stepLeft,
+      stepBlendWeight: this.stepBlendWeight,
+      spineYawCurrent: this.spineYawCurrent,
+      chestYawCurrent: this.chestYawCurrent,
+      upperChestYawCur: this.upperChestYawCur,
+    };
+  }
+
+  restoreSwapState(s: {
+    yawVel: number;
+    isTurning: boolean;
+    phase: number;
+    phaseTimer: number;
+    stepLeft: boolean;
+    stepBlendWeight: number;
+    spineYawCurrent: number;
+    chestYawCurrent: number;
+    upperChestYawCur: number;
+  }): void {
+    this.yawVel = s.yawVel;
+    this.isTurning = s.isTurning;
+    this.phase = s.phase as StepPhase;
+    this.phaseTimer = s.phaseTimer;
+    this.stepLeft = s.stepLeft;
+    this.stepBlendWeight = s.stepBlendWeight;
+    this.spineYawCurrent = s.spineYawCurrent;
+    this.chestYawCurrent = s.chestYawCurrent;
+    this.upperChestYawCur = s.upperChestYawCur;
+  }
+
   /**
    * 每帧调用。
    * @param delta      帧时间（秒）

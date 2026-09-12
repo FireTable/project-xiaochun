@@ -36,10 +36,20 @@ const [released, setReleased] = useState(false);
 // ponytail: 当前激活的自定义 provider — dialog 打开时拉一次,跟 webllm 共存但分流渲染。
 const [activeCustom, setActiveCustom] = useState<ProviderProfile | null>(null);
 
-const handleReleaseResources = () => {
-// ponytail: 释放只对 webllm 有意义 — custom provider 走 HTTP,本机无显存可释放。
-if (activeCustom) return;
+const handleReleaseResources = async () => {
+// ponytail: 现在分两种 —
+//   webllm 路径: 释放显存 + 清 VRM IDB cache(同一按钮,一站式)
+//   custom 路径: 没显存可释放,只清 VRM IDB cache(以前整块按钮藏掉,
+//                现在改默认展示 — cache 任何时候都能清,不只 webllm)
+// 失败也不抛:catch 后只 log,UI 反馈靠 setReleased 短暂绿色确认。
+if (!activeCustom) {
 vrmEngine.releaseHeavyResources();
+}
+try {
+await vrmEngine.clearVrmAssetCache();
+} catch (e) {
+console.warn('[DeviceStatusDialog] clearVrmAssetCache failed:', e);
+}
 setReleased(true);
 setTimeout(() => {
 setReleased(false);
@@ -281,9 +291,9 @@ defaultValue: profile.reason,
 ) : null}
 
 <DialogFooter className="mt-2 flex flex-col sm:flex-row gap-2">
-{/* ponytail: 释放按钮对 custom 无意义(custom 不占本机显存) — 整块隐藏,
-    把关闭按钮拉成单按钮全宽。 */}
-{!activeCustom ? (
+{/* ponytail: 释放按钮 webllm / custom 都展示 —
+    任何 provider 都可能堆积 IDB cache(换装 base/addon 几 MB / 几十 MB),手动清理总比
+    "等浏览器自己 evict" 靠谱。custom 路径只清 cache(无显存可释放)。 */}
 <Button
 type="button"
 variant="outline"
@@ -307,14 +317,13 @@ className={`w-full sm:flex-1 h-9 sm:h-8 transition-all ${released
 </span>
 )}
 </Button>
-) : null}
 
 <Button
 type="button"
 variant="secondary"
 size="sm"
 onClick={() => onOpenChange(false)}
-className={`w-full h-9 sm:h-8 ${!activeCustom ? 'sm:flex-1' : ''}`}
+className="w-full sm:flex-1 h-9 sm:h-8"
 >
 {t('chat.deviceDialog.close')}
 </Button>

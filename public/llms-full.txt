@@ -8,12 +8,17 @@
 
 Project XiaoChun is a full-stack web application built on **Vite 8 + TanStack Start (full-stack SSR) + React 19 + three.js 0.185** deployed to **Cloudflare Workers**. Everything except Edge-TTS runs in the browser tab; the edge runtime handles SSR stream rendering and WebSocket Edge-TTS proxying.
 
-- **3D Engine Architecture**: Decoupled into five modular sub-engines:
+- **3D Engine Architecture**: Decoupled into modular sub-engines:
   - `src/core/vrmEngine.ts`: Master facade and lifecycle coordinator.
-  - `src/core/vrmCharacter.ts`: VRM 1.0 lifecycle, spring bones (`VRMSpringBoneManager`), MToon material calibration, facial expression presets, and LookAt head tracking.
-  - `src/core/vrmLighting.ts`: 6-channel lighting rig (directional sun, hemisphere sky/ground, front face spot, rim fill, leg fill, arm rim) with spherical sun mesh.
-  - `src/core/vrmEnvironment.ts`: Procedural linework city (19 buildings across 5 archetypes, 5 stylized trees, wireframe ground grid).
-  - `src/core/vrmRenderLoop.ts`: Adaptive requestAnimationFrame render loop with visibility-aware throttling and clock delta clamping.
+  - `src/core/character/vrmCharacter.ts`: VRM 1.0 lifecycle, spring bones (`VRMSpringBoneManager`), MToon material calibration, facial expression presets, and LookAt head tracking.
+  - `src/core/lighting/studioLighting.ts`: 3-channel studio lighting rig (directional sun `1.00`, hemisphere sky/ground `0.95`, back-rim fill `1.40`) with 2048 PCFSoft shadow camera.
+  - `src/core/scene/lineworkWorld.ts`: Procedural linework outdoor world with Light / Dark dual themes (sun with radial rays, 19 buildings, wireframe ground grid, 5 stylized trees).
+  - `src/core/material/vrmMaterialManager.ts`: Semantic material categorization with dynamic `uMatSaturation` fragment shader injection.
+  - `src/core/morph/vrmBodyMorph.ts`: 28-parameter body morphing with orthogonal bone scaling.
+  - `src/core/postfx/postFxPipeline.ts`: Cinematic post-processing pipeline (UnrealBloomPass background luminance filter, ToneMapping, ColorGrading, and physical bypass).
+  - `src/core/outfitSwap.ts`: Snapshot capture & in-memory pre-restore atomic outfit swapping.
+  - `src/core/vrmWorker.ts`: Dedicated worker with WASM bspatch and 2-tier IndexedDB delta cache.
+  - `src/core/render/vrmRenderLoop.ts`: Adaptive requestAnimationFrame render loop with visibility-aware throttling and clock delta clamping.
 - **Universal Motion Pipeline (`src/motion/universalMotionPipeline.ts`)**:
   - Unifies custom clips (mixamo, bvh, fbx, vrma), procedural natural idle/breathing, and AI co-speech motion (EMAGE) under a single pipeline.
   - Features dual-mode crossfade (smooth blending or instantaneous cuts), non-linear root displacement locking (anti-ground-penetration), and automated rest-pose restoration.
@@ -93,22 +98,28 @@ AI runs in the browser tab. **WebLLM may use WebGPU**; **EMAGE uses ONNX Runtime
 
 ## 4. VRM Character & Scene
 
-- **Default model**: `public/xiaochun_v1.vrm` (18 MB, VRM 1.0). Generated with [VRoid Studio](https://vroid.com/en/studio) (Pixiv Inc.), subject to the VRoid Studio License.
-- **Default thinking animation**: `public/thinking.vrma` (63 KB, VRM animation, license unverified — verify before redistribution)
+- **Default model & Delta Addons**:
+  - Base model: `public/vrm/xiaochun_base.vrmbase` (~5.9 MB stripped base model, oxipng texture-compressed). Generated with [VRoid Studio](https://vroid.com/en/studio) (Pixiv Inc.), subject to the VRoid Studio License.
+  - Addon outfits: 5 `.vrmaddon` files (`xiaochun_default.vrmaddon` Techwear, `xiaochun_cheongsam.vrmaddon`, `xiaochun_bikini.vrmaddon`, `xiaochun_maid.vrmaddon`, `xiaochun_swimsuit.vrmaddon`).
+  - Patched in background via WASM bspatch (`src/core/vrmWorker.ts`) and cached in 2-tier IndexedDB (`xiaochun-vrm-cache`, base & patched stores).
+  - Atomic Outfit Swapping (`src/core/outfitSwap.ts`): state snapshot & in-memory pre-restore guarantees zero-frame T-pose pop-in during clothing transitions.
+- **Default thinking animation**: `public/vrm/motion/thinking.vrma` (63 KB, VRM animation, license unverified — verify before redistribution)
 - **Runtime VRM upload**: Top-bar "上传 VRM" button (top-right) accepts any VRM 1.0 file via `<input type="file">` and `URL.createObjectURL`
-- **Scene composition** (`vrmEngine.ts → buildLineworkScene()`):
-  - **Sun**: Spherical mesh at `(10, 14, -22)`, radius 1.5
-  - **Ground**: 60×60 wireframe grid (`WireframeGeometry` + `LineSegments`)
-  - **Buildings**: 19 procedurally-placed wireframe buildings across 5 archetypes (cube / tall-rect / step-pyramid / cylinder / cross)
+- **Scene composition** (`src/core/scene/lineworkWorld.ts`):
+  - Procedural line-art outdoor world with Light / Dark dual themes (`linework-light` / `linework-dark`).
+  - **Sun**: Spherical mesh at `(10, 14, -22)`, radius 1.5 with 12 radial line rays.
+  - **Ground**: 60×60 wireframe grid (`WireframeGeometry` + `LineSegments`).
+  - **Buildings**: 19 procedurally-placed wireframe buildings across 5 archetypes (cube / tall-rect / step-pyramid / cylinder / cross).
   - **Trees**: 5 stylized trees across 5 archetypes (conifer / fan / layered / cypress / vertical-oval). Trunk height `max(1.7, totalH * 0.35)` so all trunks reach character waist level.
-- **Lighting** (6 independent channels):
-  - `dir`: Main directional (sun), `base: 1.0`, position aligned with sun mesh
-  - `hemi`: Hemisphere sky/ground, `base: 0.6`
-  - `front`: Face spot light, `base: 0.7`
-  - `fill`: Back-rim Fresnel-style fill, `base: 0.8`
-  - `leg`: Leg-only soft fill, `base: 0.45`
-  - `arm`: Arm-only rim, `base: 0.5`
-  - Global multiplier `1.1`
+- **Lighting** (`src/core/lighting/studioLighting.ts` — 3 independent channels):
+  - `dir`: Main directional (sun), `base: 1.00`, position aligned with sun mesh.
+  - `hemi`: Hemisphere sky/ground, `base: 0.95`.
+  - `fill`: Back-rim fill, `base: 1.40`.
+  - Global multiplier `1.0`.
+- **Post-Processing Pipeline** (`src/core/postfx/postFxPipeline.ts`):
+  - `UnrealBloomPass`: Luminance-filtered anime halo (threshold 0.75, strength 0.35, radius 0.65) with linework background rejection (`bloomBypassBackground: true`).
+  - `ToneMapping`: ACESFilmic / Neutral / Cineon / Linear / None selectable with exposure control.
+  - `ColorGrading`: Brightness, contrast, hue shift, and saturation adjustments.
 - **Camera**: PerspectiveCamera, default FOV 20° (configurable via `APP_CONFIG.camera.defaultFov`), target `(0, 1.2, 0)`. Default position is **computed** via `computeDefaultCameraPosition()` from `defaultShotExtent` (1.4m) and the current FOV using `distance = extent / (2·tan(fov/2))`, so 15°/20°/60° all frame the same subject height instead of the previous fixed 3.6m close-up at long focal lengths. `fitCamera()` uses the same formula against the head bone instead of the previous hardcoded `z + 2.2`. Mouse-wheel / pinch zoom is clamped by `OrbitControls.minDistance / maxDistance`, both editable from the debug drawer's Camera section (defaults 1.0 / 15.0).
 
 ---
@@ -176,15 +187,16 @@ GET /api/tts?text=你好&voice=zh-CN-XiaoyiNeural&pitch=%2B10Hz
 
 ## 8. Debug Drawer (localhost-only developer panel)
 
-Visible only when the page is served from a non-production host. Lives at `src/components/dev-drawer/` and is a **7-section** schema-driven panel:
+Visible only when the page is served from a non-production host. Lives at `src/components/dev-drawer/` and is an **8-section** schema-driven panel:
 
 1. **🎭 预设表情 / Expressions** — 6 preset buttons (default / happy / angry / sad / relaxed / surprised) bound to `vrmEngine.setExpression()`.
 2. **🎥 镜头设置 / Camera** — FOV slider (15-60°, default 20°) with hover `ⓘ` tooltip explaining 20°/30°/45°/60° reference values; min / max camera distance sliders (mouse wheel / pinch zoom range, defaults 1.0-15.0); automatic body-turn toggle.
 3. **🎨 画面色彩与饱和度 / Material Saturation** — 4 sliders (clothing / hair / eyes / skin) + 4 preset buttons (元气 vibrant / 甜美 sweet / 胶片 cinematic / 原画 original), driven by `uMatSaturation` shader uniform.
-4. **✨ 骨骼体型微调 / Bone Morph** — 27 sliders grouped into 7 body-region sub-cards (整体 / 头颈 / 躯干 / 臀部 / 胸部 / 上肢 / 下肢). Each category is a self-contained sub-card with its label outside; search box filters and hides empty regions. Modified detection is per-section (uses a `useRef` baseline at mount, not `APP_CONFIG` defaults) so a freshly loaded model with non-default bone morphs doesn't show a "modified" dot.
-5. **🧩 模型部位调整 / Wardrobe** — 3-state per-part rendering: 穿 (checkbox on, normal) / 未穿 (checkbox off, line-through) / 未装配 (dashed disabled div, no checkbox). "Equipped" comes from `vrmEngine.materialManager.partMaterials[id]?.length > 0` — not the user's visibility toggle.
-6. **💡 灯光通道与全局倍率 / Lighting** — 6 channels (dir / hemi / front / fill / leg / arm) with independent enable toggle + brightness slider, plus a global multiplier slider.
-7. **⚡ EMAGE Perf / EmagePerfSection** — P0b acceptance panel: `crossOriginIsolated`, SharedArrayBuffer, `numThreads`, stage timings (screenshot-friendly; no public UX).
+4. **✨ 骨骼体型微调 / Bone Morph** — 28 sliders grouped into 7 body-region sub-cards (整体 / 头颈 / 躯干 / 臀部 / 胸部 / 上肢 / 下肢). Shoulder width defaults to 155% with a range up to 250%. Each category is a self-contained sub-card with its label outside; search box filters and hides empty regions. Modified detection is per-section (uses a `useRef` baseline at mount, not `APP_CONFIG` defaults).
+5. **🧩 模型部位调整 / Wardrobe** — 3-state per-part rendering: 穿 (checkbox on, normal) / 未穿 (checkbox off, line-through) / 未装配 (dashed disabled div, no checkbox). "Equipped" comes from `vrmEngine.materialManager.partMaterials[id]?.length > 0` — not the user's visibility toggle. Note: For full-character outfit changing, use the TopHeader outfit selector.
+6. **💡 灯光通道与全局倍率 / Lighting** — 3 studio channels (dir / hemi / fill) with independent enable toggle + brightness slider, plus a global multiplier slider.
+7. **🔮 画面后期调色 / PostFx** — Post-processing toggle, Bloom sliders (strength, radius, threshold), ToneMapping selector (ACESFilmic, Neutral, Cineon, Linear, None) with exposure slider, Color grading sliders (brightness, contrast, hue shift, saturation), and background bloom bypass toggle.
+8. **⚡ EMAGE Perf / EmagePerfSection** — P0b acceptance panel: `crossOriginIsolated`, SharedArrayBuffer, `numThreads`, stage timings (screenshot-friendly; no public UX).
 
 ### Architecture highlights
 
@@ -193,7 +205,7 @@ Visible only when the page is served from a non-production host. Lives at `src/c
 - **Per-frame display without re-render**: Section passes `liveValueRef` + `liveValueFormatter` to `SliderWithAnchors`; a `useEffect([local])` writes `ref.current.textContent` imperatively, so the `90%` number follows the thumb in real time without React reconciliation.
 - **Global reset broadcast**: A `resetSignal` counter on `DevDrawerContext` is included in `<SectionRenderer key={...}>`; on global reset the shell bumps it, React unmounts and remounts every section, and each section's `useState` initializer re-runs against the now-defaulted engine.
 - **Schema-driven render order**: `src/components/dev-drawer/schema.ts` `SECTIONS[]` defines the order; `renderer.tsx` `REGISTRY` maps id → component. Adding a section = one line in `SECTIONS` + one in `REGISTRY`.
-- **Collapse gate**: `SectionCard` accepts an optional `id` prop — when set, it reads `collapsed.has(id)` from context and hides everything except the first child (the header). Seven sections set their `id`; nested cards (bone morph categories) leave it off.
+- **Collapse gate**: `SectionCard` accepts an optional `id` prop — when set, it reads `collapsed.has(id)` from context and hides everything except the first child (the header). Eight sections set their `id`; nested cards (bone morph categories) leave it off.
 
 Full implementation details in [`docs/ARCHITECTURE_AND_RULES.md` §3](https://github.com/FireTable/project-xiaochun/blob/main/docs/ARCHITECTURE_AND_RULES.md).
 

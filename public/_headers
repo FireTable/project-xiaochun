@@ -15,9 +15,11 @@
   Access-Control-Allow-Origin: *
 
 # === 默认 VRM / VRMA 模型(被默认场景引用,可缓存)===
-/xiaochun_v1.vrm
+/vrm/xiaochun_base.vrmbase
   Cache-Control: public, max-age=86400
-/thinking.vrma
+/vrm/addons/xiaochun_v1.vrmaddon
+  Cache-Control: public, max-age=86400
+/vrm/motion/thinking.vrma
   Cache-Control: public, max-age=86400
 
 # === 根路径与所有页面:安全头 + 短缓存(SSR 内容必须短缓存)===

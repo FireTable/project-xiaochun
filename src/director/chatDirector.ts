@@ -418,7 +418,7 @@ export class ChatDirector {
 
   async preloadThinking(): Promise<void> {
     try {
-      const vrmaRes = await fetch('/thinking.vrma');
+      const vrmaRes = await fetch('/vrm/motion/thinking.vrma');
       if (vrmaRes.ok) {
         this.thinkingVRMABuf = await vrmaRes.arrayBuffer();
       }

@@ -2,12 +2,13 @@ import * as THREE from 'three';
 import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js';
 import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
 import { VRM, VRMLoaderPlugin, VRMUtils, type VRMExpressionPresetName } from '@pixiv/three-vrm';
-import { CAMERA_STATE_KEY } from '@/lib/constants';
+import { CAMERA_STATE_KEY, SCENE_THEME_KEY } from '@/lib/constants';
 
 import { VRMAMotionPlayer } from '@/motion/vrmaPlayer';
 import { EmagePlayer } from '@/motion/emagePlayer';
 import { FootIKSolver } from '@/motion/footIK';
 import { VRMBodyMorph } from './morph/vrmBodyMorph';
+import { postFxPipeline, type PostFxPipeline } from './postfx/postFxPipeline';
 import { NaturalIdleSystem } from '@/motion/naturalIdle';
 import { ChatDirector } from '@/director/chatDirector';
 import { MotionTransitionManager } from '@/motion/motionTransition';
@@ -16,11 +17,12 @@ import { MotionPipeline, type PipelineMotionSource } from '@/motion/pipeline/mot
 import type { PlayMotionOptions, UniversalMotionHandle } from '@/motion/pipeline/universalMotion';
 import { preloadWebLLM, unloadWebLLM } from '@/llm/webLLMProvider';
 import { APP_CONFIG, type LightConfig } from '@/config';
+import { loadPostFxEnabledFromStorage, getRenderPixelRatio, resolveInitialSceneTheme } from '@/lib/utils';
 import type { Lang } from '@/i18n';
 import { langFromSystemPrompt } from '@/llm/prompts';
 
 // ── 抽离子系统导入 ──
-import { LineworkWorld } from './scene/lineworkWorld';
+import { LineworkWorld, type LineworkTheme } from './scene/lineworkWorld';
 import { StudioLighting } from './lighting/studioLighting';
 import {
   VRMMaterialManager,
@@ -33,6 +35,14 @@ import {
 } from './material/vrmMaterialManager';
 import { GazeController } from '@/motion/gazeController';
 import { BubbleTracker, type BubbleState } from './ui/bubbleTracker';
+import {
+  captureExpressions,
+  restoreExpressions,
+  captureSpringBones,
+  restoreSpringBones,
+  captureLookAtTarget,
+  type OutfitSwapState,
+} from './outfitSwap';
 
 export type {
   BubbleState,
@@ -48,6 +58,20 @@ export interface LoadingState {
   subtitleKey: string;
   subtitleVars?: Record<string, unknown>;
   progress: number;
+}
+
+/** Options for loadVRM — preserveMotion used by outfit swap (方案 A). */
+export interface LoadVRMOptions {
+  /**
+   * Outfit-swap / mid-session reload mode:
+   * - Keep EMAGE motion buffer (pause + rebind instead of stop).
+   * - Keep old VRM visible until the new one is ready (no empty-scene flash).
+   * - Do not fitCamera / cinematic (preserve current orbit).
+   * - Do not drive the full-screen loading overlay.
+   * VRMA / universal mixers still detach (bound to disposed scene).
+   * Caller restores via restoreAnimationState.
+   */
+  preserveMotion?: boolean;
 }
 
 export interface LightChannelState {
@@ -159,6 +183,14 @@ export class VRMEngine {
   private emagePlayer = new EmagePlayer();
   public readonly footIK = new FootIKSolver();
   public readonly bodyMorph = new VRMBodyMorph(APP_CONFIG.bodyMorph.default);
+  // ponytail: 后期管线单例 — attachCanvas 时 init,render() 走 composer
+  public readonly postFx: PostFxPipeline = postFxPipeline;
+  // ponytail: dev 探针 (浏览器 console 调试用),生产不影响 bundle tree-shake
+  private __dev_expose_once(): void {
+    if (typeof window === 'undefined') return;
+    (window as any).postFxPipeline = this.postFx;
+    (window as any).vrmEngine = this;
+  }
   private heightListeners = new Set<() => void>();
   // ponytail: 标记首次 VRM 加载完成。attachCanvas 只装 renderer/controls 不渲染,
   // 等 loadVRM 回调把场景 + 角色 + linework 一起 build 完,再 startAnimation + 推镜。
@@ -183,11 +215,11 @@ export class VRMEngine {
 
   // ── 实体状态 ──
   public currentVRM: VRM | null = null;
-  private currentUrl: string = APP_CONFIG.model.defaultVrm;
+  private currentUrl: string = APP_CONFIG.model.defaultSource;
   private activePlayer: PipelineMotionSource = 'idle';
   private manualExpression: string | null = null;
   private bodyTurnIsStepping = false;
-  public enableBodyTurn = true;
+  public enableBodyTurn: boolean = APP_CONFIG.camera.defaultEnableBodyTurn ?? true;
 
   // ─── 头顶实时身高测量指示线与 HUD 标牌 (Height Ruler) ───
   public isHeightRulerVisible = false;
@@ -205,6 +237,10 @@ export class VRMEngine {
   // ── 外部状态与回调 ──
   public translateSync: ((key: string, vars?: Record<string, unknown>) => string) | null = null;
   public onLoadingChange?: (state: LoadingState) => void;
+  // ponytail: 换装进度专给 TopHeader 按钮用 — 即便冷启动 LoadingOverlay 不显示
+  // (preserveMotion=true 时 overlay 被跳过),按钮也要有 spinner 反馈。
+  // shape 跟 LoadingState 一致,这样 UI 可以用同一个 component / 同样的字段。
+  public onSwapProgress?: (state: LoadingState) => void;
   private readyListeners = new Set<(ready: boolean) => void>();
   // ponytail: 渲染不再默认 suspend。LoadingOverlay 只是个视觉遮罩,不挡渲染循环。
   // 旧逻辑:prod 默认 isRenderingSuspended=true,要等 onBreakStart 触发 resumeRendering;
@@ -346,9 +382,10 @@ export class VRMEngine {
   private initScene(): void {
     this.scene.background = new THREE.Color(0x0b0f19);
 
-    // 实体阴影平面
+    // 实体阴影平面（自适应昼白/极夜深色主题的透明度，确保地面永远有扎实的接触阴影）
+    const initialTheme = resolveInitialSceneTheme();
     const shadowPlaneGeo = new THREE.PlaneGeometry(12, 12);
-    const shadowPlaneMat = new THREE.ShadowMaterial({ opacity: 0.25 });
+    const shadowPlaneMat = new THREE.ShadowMaterial({ opacity: initialTheme === 'dark' ? 0.45 : 0.20 });
     this.shadowPlane = new THREE.Mesh(shadowPlaneGeo, shadowPlaneMat);
     this.shadowPlane.rotation.x = -Math.PI / 2;
     this.shadowPlane.position.y = 0;
@@ -435,6 +472,27 @@ export class VRMEngine {
     }
   }
 
+  /**
+   * 统一获取渲染像素比：
+   * 统一走 @/lib/utils 的 getRenderPixelRatio()，无论 PostFX 是否启用，
+   * 均严格使用 Math.min(window.devicePixelRatio, maxPixelRatio)，消除额外超采样开销。
+   */
+  public getTargetPixelRatio(): number {
+    return getRenderPixelRatio();
+  }
+
+  public updatePixelRatio(): void {
+    if (!this.renderer) return;
+    const ratio = this.getTargetPixelRatio();
+    this.renderer.setPixelRatio(ratio);
+    const width = this.lastRenderWidth || window.innerWidth;
+    const height = window.innerHeight;
+    this.renderer.setSize(width, height);
+    if (this.postFx.isReady()) {
+      this.postFx.resize(width, height, ratio);
+    }
+  }
+
   public attachCanvas(canvas: HTMLCanvasElement): void {
     this.canvas = canvas;
     this.renderer = new THREE.WebGLRenderer({
@@ -442,12 +500,33 @@ export class VRMEngine {
       antialias: true,
       alpha: true,
       powerPreference: 'high-performance',
+      preserveDrawingBuffer: false,
     });
-    this.renderer.setPixelRatio(Math.min(window.devicePixelRatio, APP_CONFIG.renderer.maxPixelRatio));
+
+    const storedEnabled = loadPostFxEnabledFromStorage();
+    this.postFx.config = {
+      enabled: storedEnabled ?? APP_CONFIG.postfx.enabled,
+      bloom: { ...APP_CONFIG.postfx.bloom },
+      vignette: { ...APP_CONFIG.postfx.vignette },
+      toneMapping: { ...APP_CONFIG.postfx.toneMapping },
+      bc: { ...APP_CONFIG.postfx.bc },
+      hs: { ...APP_CONFIG.postfx.hs },
+    };
+
+    const ratio = this.getTargetPixelRatio();
+    this.renderer.setPixelRatio(ratio);
     this.renderer.setSize(window.innerWidth, window.innerHeight);
     this.lastRenderWidth = window.innerWidth;
-    this.renderer.toneMapping = THREE.LinearToneMapping;
+    this.renderer.toneMapping = THREE.LinearToneMapping;  // ponytail: 保持原 toneMapping,postfx 不接管 (避免双重映射)
     this.renderer.toneMappingExposure = 1.08;
+
+    this.postFx.init(this.renderer, this.scene, this.camera);
+    // 当 PostFX 开关切换时动态更新 pixelRatio，关闭时彻底还原原始基线分辨率
+    this.postFx.onEnabledChange = () => {
+      this.updatePixelRatio();
+    };
+    this.postFx.applyConfig();
+    this.postFx.resize(window.innerWidth, window.innerHeight, ratio);
     this.renderer.shadowMap.enabled = true;
     this.renderer.shadowMap.type = THREE.PCFSoftShadowMap;
 
@@ -484,6 +563,7 @@ export class VRMEngine {
     setTimeout(() => { cameraSaveReady = true; }, 2000);
 
     window.addEventListener('resize', this.handleResize);
+    this.__dev_expose_once();
 
     if (this.canvas) {
       this.canvas.style.filter = 'none';
@@ -522,12 +602,35 @@ export class VRMEngine {
       this.lastRenderWidth = newWidth;
       this.camera.aspect = newWidth / newHeight;
       this.camera.updateProjectionMatrix();
-      this.renderer.setPixelRatio(Math.min(window.devicePixelRatio, APP_CONFIG.renderer.maxPixelRatio));
+      const ratio = this.getTargetPixelRatio();
+      this.renderer.setPixelRatio(ratio);
       this.renderer.setSize(newWidth, newHeight);
+      this.postFx.resize(newWidth, newHeight, ratio);
     });
   };
 
   // ── 外部控制代理 API ──
+  public setLineworkTheme(theme: LineworkTheme, persist: boolean = true): void {
+    this.lineworkWorld.setTheme(theme, this.scene);
+    this.updateShadowForTheme(theme === 'dark');
+    if (persist && typeof window !== 'undefined') {
+      try {
+        localStorage.setItem(SCENE_THEME_KEY, theme);
+      } catch {}
+    }
+  }
+
+  public updateShadowForTheme(isDark: boolean): void {
+    if (this.shadowPlane && this.shadowPlane.material instanceof THREE.ShadowMaterial) {
+      this.shadowPlane.material.opacity = isDark ? 0.45 : 0.20;
+      this.shadowPlane.material.needsUpdate = true;
+    }
+  }
+
+  public getLineworkTheme(): LineworkTheme {
+    return this.lineworkWorld.currentTheme;
+  }
+
   public setLight(key: string, enabled: boolean, value: number): void {
     this.lighting.setLight(key, enabled, value);
   }
@@ -684,21 +787,35 @@ export class VRMEngine {
   }
 
   // ── 模型生命周期加载 ──
-  public loadVRM(url: string, filename = '小蠢 (xiaochun_v1)'): void {
+  /**
+   * ponytail: 加载 (或替换) 当前 VRM — 返回 Promise 让 swap 能 await bind 完成。
+   * options.preserveMotion=true 时自动 capture→load→restore 动画状态
+   * (动作/表情/视线/弹簧骨/转身/IK),同 swapOutfit 的语义。
+   * Existing callers may ignore the return value.
+   */
+  public loadVRM(
+    url: string,
+    filename = '小蠢 (xiaochun_v1)',
+    options: LoadVRMOptions = {},
+  ): Promise<VRM> {
+    const preserveMotion = !!options.preserveMotion;
+    const previousVrm = preserveMotion ? this.currentVRM : null;
     this.currentUrl = url;
-    this.onLoadingChange?.({
-      active: true,
-      subtitleKey: 'loadingModel',
-      subtitleVars: { name: filename },
-      progress: 0,
-    });
 
-    if (this.currentVRM) {
+    // ponytail: 非 preserveMotion 时(冷启动/完全重置)，立即清理旧模型并归零动作
+    if (this.currentVRM && !preserveMotion) {
       this.scene.remove(this.currentVRM.scene);
       VRMUtils.deepDispose(this.currentVRM.scene);
       this.currentVRM = null;
       this.notifyReady(false);
+      this.vrmaPlayer.stop();
+      try { this.motionPipeline.universalMotion.stop(0); } catch { /* ok if idle */ }
+      this.motionTransition.stop();
+      this.emagePlayer.stop();
+      this.manualExpression = null;
+      this.activePlayer = 'idle';
     }
+
     // 强制清理场景中历史遗留的任何 3D 标尺 mesh (彻底杜绝蓝色方块残留)
     const oldRulers: THREE.Object3D[] = [];
     this.scene.traverse((obj) => {
@@ -711,111 +828,627 @@ export class VRMEngine {
       if ((m as THREE.Mesh).geometry) (m as THREE.Mesh).geometry.dispose();
     });
     this.chatDirector.resetClipCache();
-    this.vrmaPlayer.stop();
-    this.emagePlayer.stop();
-    this.motionTransition.stop();
-    this.manualExpression = null;
-    this.activePlayer = 'idle';
 
-    this.loader.load(
-      url,
-      (gltf) => {
-        const vrm = gltf.userData.vrm as VRM;
-        if (!vrm) {
-          alert(this.translateSync!('error.loadVrmFailed'));
-          this.onLoadingChange?.({ active: false, subtitleKey: '', progress: 0 });
-          this.notifyReady(false);
-          return;
-        }
-        this.currentVRM = vrm;
-        this.notifyReady(true);
-
-        this.vrmaPlayer.bind(vrm);
-        this.vrmaPlayer.resetHipsRest();
-        this.motionPipeline.bind(vrm);
-        this.motionPipeline.finalPose.sampleFromVRM(vrm);
-
-        VRMUtils.removeUnnecessaryVertices(gltf.scene);
-        VRMUtils.removeUnnecessaryJoints(gltf.scene);
-
-        vrm.scene.traverse((obj) => {
-          obj.frustumCulled = false;
-          if ((obj as THREE.Mesh).isMesh) {
-            const mesh = obj as THREE.Mesh;
-            mesh.castShadow = true;
-            const meshName = (mesh.name || '').toLowerCase();
-            mesh.receiveShadow = !(meshName.includes('face') || meshName.includes('head') || meshName.includes('eye'));
+    return new Promise<VRM>((resolve, reject) => {
+      this.loader.load(
+        url,
+        async (gltf) => {
+          const vrm = gltf.userData.vrm as VRM;
+          if (!vrm) {
+            alert(this.translateSync!('error.loadVrmFailed'));
+            if (!preserveMotion) this.notifyReady(false);
+            reject(new Error('VRM missing in gltf.userData'));
+            return;
           }
-        });
 
-        // 委托材质管理器进行 MToon 优化与 Shader 注入
-        this.materialManager.optimize(vrm);
-        VRMUtils.rotateVRM0(vrm);
-        vrm.scene.position.set(0, 0, 0);
-        vrm.scene.rotation.y = 0;
-        // ponytail: 直接 visible = true,因为 loadVRM 回调才会触发 startAnimation,
-        // 之前的代码把 VRM 藏起来再揭示的逻辑在新设计里不需要了 — 渲染循环压根没起。
-        this.scene.add(vrm.scene);
+          VRMUtils.removeUnnecessaryVertices(gltf.scene);
+          // ponytail: combineSkeletons 取代了 removeUnnecessaryJoints (three-vrm 新版弃用旧 API)。
+          VRMUtils.combineSkeletons(gltf.scene);
 
-        this.resetBones(vrm);
-        vrm.scene.updateMatrixWorld(true);
-
-        const bbox = new THREE.Box3().setFromObject(vrm.scene);
-        vrm.scene.position.y += -bbox.min.y;
-        this.vrmBaseSceneY = vrm.scene.position.y;
-        vrm.scene.updateMatrixWorld(true);
-
-        this.footIK.bind(vrm);
-        this.bodyMorph.bind(vrm);
-        this.emagePlayer.bind(vrm);
-        this.naturalIdle.bind(vrm);
-        this.bodyTurn.bind(vrm);
-        if (typeof window !== 'undefined') {
-          (window as any).emagePlayer = this.emagePlayer;
-        }
-
-        // 后台预热大模型与语音动作模型
-        if (!this.emagePlayer.ready) void this.emagePlayer.ensureLoaded();
-        preloadWebLLM();
-
-        // attachCanvas 已经在跑(loadVRM 回调晚于 attachCanvas)→ 立刻揭示并 fit。
-        // 否则保持 invisible,等 attachCanvas 自己揭示。
-        if (this.controls && !this._sceneInitialized) {
-          this._sceneInitialized = true;
-          this.fitCamera();
-          this.lineworkWorld.build(this.scene);
-          this.startAnimation();
-          // ponytail: cinematic 永远在这里触发 — 单一触发点,dev / prod 行为一致。
-          // APP_CONFIG.dev.disableLoadingOverlayInDev 只管 overlay 是否显示,
-          // 跟 cinematic 无关。App.tsx 的 onBreakStart 只做 resumeRendering,
-          // 不再重复触发避免双 tween。
-          this.cinematicIntro(1100);
-        } else if (this.controls) {
-          this.fitCamera();
-          this.renderSingleFrame();
-        }
-        void this.chatDirector.warmThinkingClip(vrm, this.vrmaPlayer);
-
-        this.onLoadingChange?.({ active: false, subtitleKey: '', progress: 100 });
-      },
-      (progress) => {
-        if (progress.lengthComputable) {
-          const pct = Math.round((progress.loaded / progress.total) * 100);
-          this.onLoadingChange?.({
-            active: true,
-            subtitleKey: 'loadingModel',
-            subtitleVars: { name: filename },
-            progress: pct,
+          vrm.scene.traverse((obj) => {
+            obj.frustumCulled = false;
+            if ((obj as THREE.Mesh).isMesh) {
+              const mesh = obj as THREE.Mesh;
+              mesh.castShadow = true;
+              const meshName = (mesh.name || '').toLowerCase();
+              mesh.receiveShadow = !(meshName.includes('face') || meshName.includes('head') || meshName.includes('eye'));
+            }
           });
+
+          // 委托材质管理器进行 MToon 优化与 Shader 注入
+          this.materialManager.optimize(vrm);
+          VRMUtils.rotateVRM0(vrm);
+          vrm.scene.position.set(0, 0, 0);
+          vrm.scene.rotation.y = 0;
+
+          this.resetBones(vrm);
+          vrm.scene.updateMatrixWorld(true);
+
+          const bbox = new THREE.Box3().setFromObject(vrm.scene);
+          vrm.scene.position.y += -bbox.min.y;
+          this.vrmBaseSceneY = vrm.scene.position.y;
+          vrm.scene.updateMatrixWorld(true);
+
+          // ponytail: 无缝换装核心时序 —— 旧模型全速运动直到此时，新模型在内存就绪后原子交接
+          if (preserveMotion && previousVrm) {
+            // 1. 在交接瞬间抓取旧模型的最新姿态/时间戳/表情/惯性
+            const swapState = this.captureAnimationState();
+
+            // 2. 暂停/解绑旧动画控制器
+            this.vrmaPlayer.stop();
+            try { this.motionPipeline.universalMotion.stop(0); } catch { /* ok if idle */ }
+            this.motionTransition.stop();
+            this.emagePlayer.pause();
+
+            // 3. 将所有控制器重定向绑定到新模型
+            this.vrmaPlayer.bind(vrm);
+            this.vrmaPlayer.resetHipsRest();
+            this.motionPipeline.bind(vrm);
+            this.motionPipeline.finalPose.sampleFromVRM(vrm);
+            this.footIK.bind(vrm);
+            this.bodyMorph.bind(vrm);
+            this.emagePlayer.bind(vrm);
+            this.naturalIdle.bind(vrm);
+            this.bodyTurn.bind(vrm);
+            if (typeof window !== 'undefined') {
+              (window as any).emagePlayer = this.emagePlayer;
+            }
+
+            // 4. 在新模型上屏前，先在内存中预先恢复姿态与动画帧 (seek 到精准时刻)
+            try {
+              await this.restoreAnimationState(swapState, vrm);
+            } catch (e) {
+              console.warn('[vrmEngine] restoreAnimationState before scene attach failed:', e);
+            }
+            vrm.scene.updateMatrixWorld(true);
+
+            // 5. 同步原子切换：移除旧模型、挂入已处于正确动作姿势的新模型
+            this.scene.remove(previousVrm.scene);
+            VRMUtils.deepDispose(previousVrm.scene);
+            this.currentVRM = vrm;
+            this.scene.add(vrm.scene);
+            this.notifyReady(true);
+
+            if (!this.emagePlayer.ready) void this.emagePlayer.ensureLoaded();
+            preloadWebLLM();
+
+            if (this.controls) {
+              this.renderSingleFrame();
+            }
+            void this.chatDirector.warmThinkingClip(vrm, this.vrmaPlayer);
+            resolve(vrm);
+            return;
+          }
+
+          // 常规/冷启动加载路径
+          this.currentVRM = vrm;
+          this.scene.add(vrm.scene);
+          this.notifyReady(true);
+
+          this.vrmaPlayer.bind(vrm);
+          this.vrmaPlayer.resetHipsRest();
+          this.motionPipeline.bind(vrm);
+          this.motionPipeline.finalPose.sampleFromVRM(vrm);
+          this.footIK.bind(vrm);
+          this.bodyMorph.bind(vrm);
+          this.emagePlayer.bind(vrm);
+          this.naturalIdle.bind(vrm);
+          this.bodyTurn.bind(vrm);
+          if (typeof window !== 'undefined') {
+            (window as any).emagePlayer = this.emagePlayer;
+          }
+
+          if (!this.emagePlayer.ready) void this.emagePlayer.ensureLoaded();
+          preloadWebLLM();
+
+          if (this.controls && !this._sceneInitialized) {
+            this._sceneInitialized = true;
+            this.fitCamera();
+            const storedTheme = resolveInitialSceneTheme();
+            this.lineworkWorld.build(this.scene, storedTheme);
+            this.updateShadowForTheme(storedTheme === 'dark');
+            this.startAnimation();
+            this.cinematicIntro(1100);
+          } else if (this.controls) {
+            this.fitCamera();
+            this.renderSingleFrame();
+          }
+          void this.chatDirector.warmThinkingClip(vrm, this.vrmaPlayer);
+          resolve(vrm);
+        },
+        (progress) => {
+          if (progress.lengthComputable) {
+            const pct = Math.round((progress.loaded / progress.total) * 100);
+            // ponytail: HTTP fetch 字节进度 — swapOutfit 没拦截到这一步,所以这里直接
+            // emit 到 onSwapProgress (按钮) + onLoadingChange (overlay,仅 cold-start)。
+            const state = { active: true as const, subtitleKey: preserveMotion ? 'swappingOutfit' : 'loadingModel', subtitleVars: { name: filename }, progress: pct };
+            this.onSwapProgress?.(state);
+            if (!preserveMotion) this.onLoadingChange?.(state);
+          }
+        },
+        (error) => {
+          console.error('加载 VRM 错误:', error);
+          alert(this.translateSync!('error.loadFailed'));
+          reject(error instanceof Error ? error : new Error(String(error)));
         }
-      },
-      (error) => {
-        console.error('加载 VRM 错误:', error);
-        alert(this.translateSync!('error.loadFailed'));
-        this.onLoadingChange?.({ active: false, subtitleKey: '', progress: 0 });
-      }
-    );
+      );
+    });
   }
+
+  /** Snapshot animation / expression / gaze / spring state before whole-VRM outfit reload. */
+  public captureAnimationState(): OutfitSwapState {
+    const vrm = this.currentVRM;
+    const vrmaPlayback = this.vrmaPlayer.getPlayback();
+    const emagePlayback = this.emagePlayer.getPlayback();
+    const universalPlayback = this.motionPipeline.universalMotion.getPlayback();
+    const thinking = this.chatDirector.isThinking;
+    const emageActive = this.emagePlayer.isPlaying() || this.emagePlayer.streamingMotionActive;
+    const universalLive = this.motionPipeline.isMotionPlaying();
+    const vrmaLive = this.vrmaPlayer.isPlaying() || thinking;
+
+    let motionSource: OutfitSwapState['motionSource'] = 'idle';
+    if (universalLive) motionSource = 'motion';
+    else if (emageActive) motionSource = 'emage';
+    else if (thinking) motionSource = 'thinking';
+    else if (vrmaLive) motionSource = 'vrma';
+
+    return {
+      motionSource,
+      vrmaUrl: this.vrmaPlayer.getLastUrl(),
+      vrmaBuffer: this.vrmaPlayer.getLastBuffer(),
+      vrmaTime: vrmaPlayback?.time ?? 0,
+      vrmaLoop: this.vrmaPlayer.isLooping(),
+      thinking,
+      emageActive,
+      emageStreaming: this.emagePlayer.streamingMotionActive,
+      emageTime: emagePlayback?.time ?? this.emagePlayer.getCurrentTime(),
+      emagePlaying: this.emagePlayer.isPlaying(),
+      universalUrl: this.motionPipeline.universalMotion.getLastUrl(),
+      universalBuffer: this.motionPipeline.universalMotion.getLastBuffer(),
+      universalTime: universalPlayback?.time ?? 0,
+      universalLoop: !!(this.motionPipeline.universalMotion.getCurrentOptions().loop),
+      blendshapes: captureExpressions(vrm),
+      manualExpression: this.manualExpression,
+      gaze: this.gazeController.captureSwapState(),
+      lookAtTarget: captureLookAtTarget(vrm),
+      springBones: captureSpringBones(vrm),
+      sceneYaw: vrm?.scene.rotation.y ?? 0,
+      bodyTurn: this.bodyTurn.captureSwapState(),
+      footIK: this.footIK.captureSwapState(),
+    };
+  }
+
+  /** Re-apply captured state after a new VRM has been bound (can pre-restore onto targetVrm before scene attach). */
+  public async restoreAnimationState(state: OutfitSwapState, targetVrm?: VRM): Promise<void> {
+    const vrm = targetVrm ?? this.currentVRM;
+    if (!vrm) return;
+
+    restoreExpressions(vrm, state.blendshapes);
+    if (state.manualExpression) {
+      this.manualExpression = state.manualExpression;
+      this.setExpression(state.manualExpression);
+    }
+    if (state.gaze) {
+      this.gazeController.restoreSwapState(state.gaze);
+    }
+    if (vrm.lookAt) {
+      vrm.lookAt.target = this.gazeController.gazeTarget;
+      if (state.lookAtTarget) {
+        this.gazeController.gazeTarget.position.set(...state.lookAtTarget);
+      }
+    }
+    restoreSpringBones(vrm, state.springBones);
+
+    // Facing: loadVRM zeros scene.rotation.y — put it back before motion resumes.
+    vrm.scene.rotation.y = state.sceneYaw ?? 0;
+    if (state.bodyTurn) this.bodyTurn.restoreSwapState(state.bodyTurn);
+    if (state.footIK) this.footIK.restoreSwapState(state.footIK);
+
+    // EMAGE: bones rebound in loadVRM; resume buffer without forcing idle.
+    if (state.emageActive) {
+      if (state.emageTime > 0) {
+        try { this.emagePlayer.seek(state.emageTime); } catch (e) {
+          console.warn('[outfitSwap] EMAGE seek failed:', e);
+        }
+      }
+      if (state.emagePlaying || state.emageStreaming) {
+        this.emagePlayer.resume();
+      }
+      this.activePlayer = 'emage';
+    }
+
+    // Thinking clip (buffer) — re-warm then seek.
+    if (state.thinking || state.motionSource === 'thinking') {
+      try {
+        await this.chatDirector.warmThinkingClip(vrm, this.vrmaPlayer);
+        let buf = state.vrmaBuffer;
+        if (!buf) {
+          const res = await fetch('/vrm/motion/thinking.vrma');
+          if (res.ok) buf = await res.arrayBuffer();
+        }
+        if (buf) {
+          const clip = await this.vrmaPlayer.parseBufferToClip(buf, vrm);
+          this.vrmaPlayer.playLoop(clip, vrm, 0.01);
+          this.vrmaPlayer.seek(state.vrmaTime);
+          this.activePlayer = 'vrma';
+        }
+      } catch (e) {
+        console.warn('[outfitSwap] thinking restore failed:', e);
+      }
+      return;
+    }
+
+    // VRMA from in-memory buffer or URL
+    if (state.motionSource === 'vrma' && (state.vrmaBuffer || state.vrmaUrl)) {
+      try {
+        let buf = state.vrmaBuffer;
+        if (!buf && state.vrmaUrl) {
+          const res = await fetch(state.vrmaUrl);
+          if (!res.ok) throw new Error(`HTTP ${res.status}`);
+          buf = await res.arrayBuffer();
+        }
+        if (buf) {
+          const clip = await this.vrmaPlayer.parseBufferToClip(buf, vrm);
+          if (state.vrmaLoop) {
+            this.vrmaPlayer.playLoop(clip, vrm, 0.01);
+          } else {
+            this.vrmaPlayer.playClipOnMixer(clip, vrm, 0.01);
+          }
+          this.vrmaPlayer.seek(state.vrmaTime);
+          this.activePlayer = 'vrma';
+        }
+      } catch (e) {
+        console.warn('[outfitSwap] VRMA restore failed:', e);
+      }
+      return;
+    }
+
+    // Universal pipeline motion (buffer or URL)
+    if (state.motionSource === 'motion' && (state.universalBuffer || state.universalUrl)) {
+      try {
+        const lookAtOffsets = this.gazeController.getLookAtOffsets();
+        const prevOpts = this.motionPipeline.universalMotion.getCurrentOptions();
+        const motionInput = state.universalBuffer ?? state.universalUrl!;
+        await this.motionPipeline.playMotion(
+          vrm,
+          motionInput,
+          {
+            ...prevOpts,
+            loop: state.universalLoop,
+            fadeDuration: 0.01,
+            onEnd: prevOpts.onEnd,
+          },
+          lookAtOffsets,
+        );
+        this.motionPipeline.universalMotion.seek(state.universalTime);
+        this.activePlayer = 'motion';
+      } catch (e) {
+        console.warn('[outfitSwap] universal motion restore failed:', e);
+      }
+      return;
+    }
+
+    if (!state.emageActive) {
+      this.activePlayer = 'idle';
+    }
+  }
+
+  /**
+   * ponytail: 保留动画状态地加载新模型 — outfit swap / 上传文件 / 冷启动共用。
+   * 非-addon URL 走 loadVRM(内置 capture/restore);addon 走 worker 合成路径。
+   * 冷启动调到这里时 currentVRM 为 null,但 addon 路径仍然要走 (loadVRM 接 .vrmaddon URL 会挂),
+   * 所以 addon 检测放在 currentVRM 检查之前。
+   */
+  public async swapOutfit(url: string, filename: string): Promise<void> {
+    // ponytail: addon URL 走 composeOutfit 路径(worker 内 unzip + 合成完整 GLB),
+    // 普通 URL (.vrm / blob:) 走 loadVRM 直通。.vrmbase 是 cold-start 的 whole-glb zip,
+    // 跟 .vrmaddon 走同一条 worker 通道。
+    //
+    // 进度事件分发:
+    //   - onSwapProgress — 始终发,TopHeader 按钮 spinner 用。
+    //   - onLoadingChange — 只在 preserveMotion=false 时发(冷启动),LoadingOverlay 用。
+    //   中途换装 (preserveMotion=true) overlay 已被 loadVRM 跳过,只靠按钮反馈。
+    const preserveMotion = this.currentVRM !== null;
+    const phaseLabel = preserveMotion ? 'swappingOutfit' : 'loadingModel';
+    const subtitleVars = { name: filename };
+    if (!preserveMotion) {
+      this.onLoadingChange?.({ active: true, subtitleKey: phaseLabel, subtitleVars, progress: 0 });
+    }
+    this.onSwapProgress?.({ active: true, subtitleKey: phaseLabel, subtitleVars, progress: 0 });
+    try {
+      if (url.endsWith('.vrmaddon') || url.endsWith('.vrmbase')) {
+        // ponytail: 从 config.ts 找 sha — addon 按文件名后缀匹配(addon source 的 basename
+        // = addon key 在 config 里),base 直接读 defaultSha。找不到就传空,worker 跳过 cache。
+        const addonKey = Object.keys(APP_CONFIG.model.addons).find(
+          (k) => APP_CONFIG.model.addons[k].source === url,
+        );
+        const addonSha = addonKey ? APP_CONFIG.model.addons[addonKey].sha : '';
+        const composed = await this.composeVRMFromAddon(url, addonSha, { phaseLabel, subtitleVars, preserveMotion });
+        await this.loadVRMFromBuffer(composed, filename, { preserveMotion });
+        return;
+      }
+      if (!this.currentVRM) {
+        await this.loadVRM(url, filename);
+        return;
+      }
+      await this.loadVRM(url, filename, { preserveMotion: true });
+    } finally {
+      // ponytail: 末尾回调 — 成功 / 失败都发,UI 收起 spinner + overlay。
+      // 用 progress:100 而非 0 — 上一版本用 0 让 bar 倒带回 0%,看着像失败。
+      this.onSwapProgress?.({ active: false, subtitleKey: '', progress: 100 });
+      if (!preserveMotion) {
+        this.onLoadingChange?.({ active: false, subtitleKey: '', progress: 100 });
+      }
+    }
+  }
+
+  // ─── Delta 路线 (A 方案) ────────────────────────────────────────────
+
+  /** ponytail: 直接喂 ArrayBuffer 进 GLTFLoader (合成好的 v1_1 GLB)。options.preserveMotion=true 时内联 capture/restore。 */
+  public loadVRMFromBuffer(
+    buffer: ArrayBuffer,
+    filename = '小蠢 (xiaochun_v1)',
+    options: LoadVRMOptions = {},
+  ): Promise<VRM> {
+    this.currentUrl = `data:glb-buffer:${filename}`;
+    const preserveMotion = !!options.preserveMotion;
+    const previousVrm = preserveMotion ? this.currentVRM : null;
+
+    // ponytail: 非 preserveMotion 时(冷启动/完全重置)，立即清理旧模型并归零动作
+    if (this.currentVRM && !preserveMotion) {
+      this.scene.remove(this.currentVRM.scene);
+      VRMUtils.deepDispose(this.currentVRM.scene);
+      this.currentVRM = null;
+      this.notifyReady(false);
+      this.vrmaPlayer.stop();
+      try { this.motionPipeline.universalMotion.stop(0); } catch { /* ok if idle */ }
+      this.motionTransition.stop();
+      this.emagePlayer.stop();
+      this.manualExpression = null;
+      this.activePlayer = 'idle';
+    }
+
+    return new Promise<VRM>((resolve, reject) => {
+      this.loader.parse(
+        buffer,
+        '',
+        async (gltf) => {
+          const vrm = gltf.userData.vrm as VRM | undefined;
+          if (!vrm) {
+            reject(new Error('[loadVRMFromBuffer] gltf.userData.vrm is empty'));
+            return;
+          }
+
+          VRMUtils.removeUnnecessaryVertices(gltf.scene);
+          // ponytail: combineSkeletons 取代了 removeUnnecessaryJoints (three-vrm 新版弃用旧 API)。
+          VRMUtils.combineSkeletons(gltf.scene);
+
+          vrm.scene.traverse((obj) => {
+            obj.frustumCulled = false;
+            if ((obj as THREE.Mesh).isMesh) {
+              const mesh = obj as THREE.Mesh;
+              mesh.castShadow = true;
+              const meshName = (mesh.name || '').toLowerCase();
+              mesh.receiveShadow = !(meshName.includes('face') || meshName.includes('head') || meshName.includes('eye'));
+            }
+          });
+
+          this.materialManager.optimize(vrm);
+          VRMUtils.rotateVRM0(vrm);
+          vrm.scene.position.set(0, 0, 0);
+          vrm.scene.rotation.y = 0;
+
+          this.resetBones(vrm);
+          vrm.scene.updateMatrixWorld(true);
+
+          const bbox = new THREE.Box3().setFromObject(vrm.scene);
+          vrm.scene.position.y += -bbox.min.y;
+          this.vrmBaseSceneY = vrm.scene.position.y;
+          vrm.scene.updateMatrixWorld(true);
+
+          // ponytail: 无缝换装核心时序 —— 旧模型全速运动直到此时，新模型在内存就绪后原子交接
+          if (preserveMotion && previousVrm) {
+            // 1. 在交接瞬间抓取旧模型的最新姿态/时间戳/表情/惯性
+            const swapState = this.captureAnimationState();
+
+            // 2. 暂停/解绑旧动画控制器
+            this.vrmaPlayer.stop();
+            try { this.motionPipeline.universalMotion.stop(0); } catch { /* ok if idle */ }
+            this.motionTransition.stop();
+            this.emagePlayer.pause();
+
+            // 3. 将所有控制器重定向绑定到新模型
+            this.vrmaPlayer.bind(vrm);
+            this.vrmaPlayer.resetHipsRest();
+            this.motionPipeline.bind(vrm);
+            this.motionPipeline.finalPose.sampleFromVRM(vrm);
+            this.footIK.bind(vrm);
+            this.bodyMorph.bind(vrm);
+            this.emagePlayer.bind(vrm);
+            this.naturalIdle.bind(vrm);
+            this.bodyTurn.bind(vrm);
+            if (typeof window !== 'undefined') {
+              (window as any).emagePlayer = this.emagePlayer;
+            }
+
+            // 4. 在新模型上屏前，先在内存中预先恢复姿态与动画帧 (seek 到精准时刻)
+            try {
+              await this.restoreAnimationState(swapState, vrm);
+            } catch (e) {
+              console.warn('[vrmEngine] restoreAnimationState before scene attach failed:', e);
+            }
+            vrm.scene.updateMatrixWorld(true);
+
+            // 5. 同步原子切换：移除旧模型、挂入已处于正确动作姿势的新模型
+            this.scene.remove(previousVrm.scene);
+            VRMUtils.deepDispose(previousVrm.scene);
+            this.currentVRM = vrm;
+            this.scene.add(vrm.scene);
+            this.notifyReady(true);
+
+            if (!this.emagePlayer.ready) void this.emagePlayer.ensureLoaded();
+            preloadWebLLM();
+
+            if (this.controls) {
+              this.renderSingleFrame();
+            }
+            void this.chatDirector.warmThinkingClip(vrm, this.vrmaPlayer);
+            resolve(vrm);
+            return;
+          }
+
+          // 常规/冷启动加载路径
+          this.currentVRM = vrm;
+          this.scene.add(vrm.scene);
+          this.notifyReady(true);
+
+          this.vrmaPlayer.bind(vrm);
+          this.vrmaPlayer.resetHipsRest();
+          this.motionPipeline.bind(vrm);
+          this.motionPipeline.finalPose.sampleFromVRM(vrm);
+          this.footIK.bind(vrm);
+          this.bodyMorph.bind(vrm);
+          this.emagePlayer.bind(vrm);
+          this.naturalIdle.bind(vrm);
+          this.bodyTurn.bind(vrm);
+          if (typeof window !== 'undefined') (window as any).emagePlayer = this.emagePlayer;
+
+          if (!this.emagePlayer.ready) void this.emagePlayer.ensureLoaded();
+          preloadWebLLM();
+
+          if (this.controls && !this._sceneInitialized) {
+            this._sceneInitialized = true;
+            this.fitCamera();
+            const storedTheme = resolveInitialSceneTheme();
+            this.lineworkWorld.build(this.scene, storedTheme);
+            this.updateShadowForTheme(storedTheme === 'dark');
+            this.startAnimation();
+            this.cinematicIntro(1100);
+          } else if (this.controls) {
+            this.renderSingleFrame();
+          }
+          void this.chatDirector.warmThinkingClip(vrm, this.vrmaPlayer);
+          resolve(vrm);
+        },
+        (err) => reject(err instanceof Error ? err : new Error(String(err))),
+      );
+    });
+  }
+
+  /**
+   * ponytail: 主线程只发两个 URL 给 vrmWorker — baseUrl + addonUrl。
+   * worker 内 fetch base + addon → extractBin → unzip → bspatch → packGLB,
+   * 主线程零网络、零 CPU、零 16MB bin 拷贝。
+   */
+  private composeVRMFromAddon(addonUrl: string, addonSha: string, meta: { phaseLabel: string; subtitleVars?: Record<string, unknown>; preserveMotion: boolean }): Promise<ArrayBuffer> {
+    // ponytail: base 复用 /vrm/xiaochun_base.vrmbase — addon 里 whole-glb.bin 就是裸 BIN chunk,
+    // worker 解出后直接当 bspatch 输入。base 跟 cold-start 共用同一份资产。
+    // sha 透传给 worker 当 IDB cache key — 没传 sha 时 worker 跳过 cache。
+    return this.runComposeOutfit('/vrm/xiaochun_base.vrmbase', APP_CONFIG.model.defaultSha, addonUrl, addonSha, meta);
+  }
+
+  // ponytail: bspatch 现在跑在 vrmWorker,主线程不再被 ~450ms 同步 C 调用阻塞。
+  // Worker 通过 postMessage + Transferable ArrayBuffer 通信,零拷贝。
+  private bspatchWorker: Worker | null = null;
+  private bspatchRequestId = 0;
+  private bspatchPending = new Map<number, {
+    resolve: (out: ArrayBuffer | Uint8Array) => void;
+    reject: (err: Error) => void;
+  }>();
+  // ponytail: 每个 compose 请求带 i18n 文案/相位标签 — worker 发 compose_progress
+  // 时只带 raw pct,这里取 meta 转成完整 LoadingState 转发到 onSwapProgress。
+  // preserveMotion:false 时 cold-start,LoadingOverlay 也需要 progress 推;
+  // preserveMotion:true 时中途换装,只推 TopHeader 按钮,overlay 被 loadVRM 跳过。
+  private bspatchPendingMeta = new Map<number, {
+    phaseLabel: string;
+    subtitleVars?: Record<string, unknown>;
+    preserveMotion: boolean;
+  }>();
+
+  private ensureBspatchWorker(): Worker {
+    if (this.bspatchWorker) return this.bspatchWorker;
+    // ponytail: vite 自动识别这个 pattern,产出独立 worker bundle
+    this.bspatchWorker = new Worker(new URL('./vrmWorker.ts', import.meta.url), { type: 'module' });
+    this.bspatchWorker.onmessage = (e: MessageEvent<
+      | { id: number; type: 'compose_ok'; composedGLB: ArrayBuffer; elapsedMs: number }
+      | { id: number; type: 'compose_err'; error: string }
+      | { id: number; type: 'compose_progress'; phase: string; loaded?: number; total?: number; pct: number }
+      | { id: number; type: 'bspatch_ok'; newBin: ArrayBuffer; elapsedMs: number }
+      | { id: number; type: 'bspatch_err'; error: string }
+      | { id: number; type: 'log'; level: 'log' | 'error'; args: string[] }
+    >) => {
+      // ponytail: worker 内的 console.log/error 通过 postMessage 转发到主线程,
+      // 这里 forward 到主线程 console,DevTools 主页面 console 面板就能看到。
+      if (e.data.type === 'log') {
+        (e.data.level === 'error' ? console.error : console.log)(
+          `[vrmWorker] ${e.data.args.join(' ')}`,
+        );
+        return;
+      }
+      // ponytail: compose_progress 不 resolve/reject — 仅 forward 到 onSwapProgress,
+      // 让 TopHeader 按钮 spinner / LoadingOverlay 滚动条拿到实时进度。loading 文本
+      // 跟 swapOutfit 启动时设的保持一致(挂在 pending meta 上,见 runComposeOutfit)。
+      // cold-start 路径 (preserveMotion=false) 同时推 onLoadingChange,LoadingOverlay 才
+      // 看到中段进度;中途换装只推 onSwapProgress 给 TopHeader。
+      if (e.data.type === 'compose_progress') {
+        const meta = this.bspatchPendingMeta.get(e.data.id);
+        const phaseLabel = meta?.phaseLabel ?? 'swappingOutfit';
+        const state = { active: true as const, subtitleKey: phaseLabel, subtitleVars: meta?.subtitleVars, progress: e.data.pct };
+        this.onSwapProgress?.(state);
+        if (meta && !meta.preserveMotion) this.onLoadingChange?.(state);
+        return;
+      }
+      const req = this.bspatchPending.get(e.data.id);
+      if (!req) return;
+      this.bspatchPending.delete(e.data.id);
+      this.bspatchPendingMeta.delete(e.data.id);
+      if (e.data.type === 'compose_ok') {
+        req.resolve(e.data.composedGLB);
+      } else if (e.data.type === 'bspatch_ok') {
+        req.resolve(new Uint8Array(e.data.newBin));
+      } else {
+        req.reject(new Error(`[vrmWorker ${e.data.type}] ${e.data.error}`));
+      }
+    };
+    this.bspatchWorker.onerror = (e) => {
+      // ponytail: worker 整个崩了,把所有 pending 都拒掉,下次调用会重启 worker
+      console.error('[vrmWorker] worker error:', e.message);
+      const pending = Array.from(this.bspatchPending.values());
+      this.bspatchPending.clear();
+      this.bspatchPendingMeta.clear();
+      this.bspatchWorker?.terminate();
+      this.bspatchWorker = null;
+      pending.forEach((p) => p.reject(new Error(`[vrmWorker] crashed: ${e.message}`)));
+    };
+    return this.bspatchWorker;
+  }
+
+  /**
+   * ponytail: 主线程入口 — 发 baseUrl + addonUrl 给 worker。
+   * worker 全权负责 fetch / extract / unzip / bspatch / packGLB,
+   * transfer 回 GLB ArrayBuffer。
+   *
+   * meta 跟 promise 一起存 — worker 发 compose_progress 时只带 raw pct,
+   * 这里拼上 i18n 文本转发到 onSwapProgress。addons (raw bsdiff 直接调)
+   * 不走 progress,不需要 meta。
+   */
+  private async runComposeOutfit(
+    baseUrl: string,
+    baseSha: string,
+    addonUrl: string,
+    addonSha: string,
+    meta: { phaseLabel: string; subtitleVars?: Record<string, unknown>; preserveMotion: boolean },
+  ): Promise<ArrayBuffer> {
+    const worker = this.ensureBspatchWorker();
+    const id = ++this.bspatchRequestId;
+    return new Promise<ArrayBuffer>((resolve, reject) => {
+      this.bspatchPending.set(id, { resolve: resolve as (out: ArrayBuffer | Uint8Array) => void, reject });
+      this.bspatchPendingMeta.set(id, meta);
+      worker.postMessage({ id, type: 'compose_outfit', baseUrl, baseSha, addonUrl, addonSha });
+    });
+  }
+
+  // ──────────────────────────────────────────────────────────────────
 
   private resetBones(vrm: VRM): void {
     if (!vrm.humanoid) return;
@@ -916,6 +1549,7 @@ export class VRMEngine {
     await this.chatDirector.speakText(text, this.currentVRM, this.vrmaPlayer, this.emagePlayer, setStatus);
   }
 
+
   public releaseHeavyResources(): void {
     try { this.chatDirector.stop(); } catch { }
     try { unloadWebLLM(); } catch (e) { console.warn('[VRMEngine] 释放 WebLLM 异常:', e); }
@@ -923,9 +1557,24 @@ export class VRMEngine {
     console.log('[VRMEngine] 已成功释放 WebLLM 显存与 EMAGE 运行内存');
   }
 
+  // ponytail: 清 IDB 里 .vrmaddon / .vrmbase 缓存。DeviceStatusDialog 的释放按钮调,
+  // 主要给 custom provider (没显存可释放,但 IDB cache 仍要清理的场景)用。
+  // 失败也不抛 — UI 反馈靠 await idbClearAll 的 reason 字段。
+  public async clearVrmAssetCache(): Promise<{ cleared: boolean; reason?: string }> {
+    const { idbClearAll } = await import('@/lib/idb-vrm-cache');
+    const result = await idbClearAll();
+    console.log('[VRMEngine] VRM asset cache cleared:', result);
+    return result;
+  }
+
   public renderSingleFrame(): void {
     if (this.renderer && this.currentVRM) {
-      this.renderer.render(this.scene, this.camera);
+      // ponytail: postfx enabled 时走 composer,disabled 时回退 renderer 直接渲
+      if (this.postFx.isReady() && this.postFx.config.enabled) {
+        this.postFx.render(0);
+      } else {
+        this.renderer.render(this.scene, this.camera);
+      }
     }
   }
 
@@ -1115,7 +1764,12 @@ export class VRMEngine {
       }
 
       this.controls?.update();
-      this.renderer?.render(this.scene, this.camera);
+      // ponytail: postfx 接管 render,disabled 时回退到原始 renderer
+      if (this.postFx.isReady() && this.postFx.config.enabled) {
+        this.postFx.render(delta);
+      } else {
+        this.renderer?.render(this.scene, this.camera);
+      }
     };
 
     animate(0);
@@ -1140,3 +1794,4 @@ export class VRMEngine {
 }
 
 export const vrmEngine = new VRMEngine();
+export type { LineworkTheme } from './scene/lineworkWorld';

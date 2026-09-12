@@ -427,6 +427,29 @@ export class FootIKSolver {
     return this.autoBarefootSink * this.barefootFactor;
   }
 
+  /** Outfit-swap: keep barefoot blend / stance; geometry re-detected in bind(). */
+  captureSwapState(): {
+    barefootFactor: number;
+    stanceRatio: number;
+    smoothStanceRatio: number;
+  } {
+    return {
+      barefootFactor: this.barefootFactor,
+      stanceRatio: this.stanceRatio,
+      smoothStanceRatio: this.smoothStanceRatio,
+    };
+  }
+
+  restoreSwapState(s: {
+    barefootFactor: number;
+    stanceRatio: number;
+    smoothStanceRatio: number;
+  }): void {
+    this.barefootFactor = s.barefootFactor;
+    this.stanceRatio = s.stanceRatio;
+    this.smoothStanceRatio = s.smoothStanceRatio;
+  }
+
   /**
    * 足底水平对齐与放平算子：
    * 无论模型处于待机还是动作过渡，均确保双足平行水平贴地，彻底消除脚尖翘起或内翻外翻

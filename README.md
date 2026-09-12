@@ -47,16 +47,28 @@ The UI is fully **SSR-hydrated multi-language** (zh-CN / en / ja) via TanStack S
 ## ✨ Key Features
 
 ### 🎭 VRM Core Engine & Modular Architecture
-* **VRM 1.0 Modular Pipeline**: Powered by `@pixiv/three-vrm` with MToon NPR shading. The core engine (`VRMEngine`) is decoupled into 5 specialized subsystems (reducing monolithic engine size by 55%):
-  * **Linework Outdoor Scene (`LineworkWorld`)**: Pure procedural code generating a minimalist wireframe outdoor world (sun with 12 radial rays, 19 stylized skyline buildings, ground grid, and 5 tree archetypes) — **100% white-on-white, zero external textures**.
-  * **Studio 6-Channel Lighting (`StudioLighting`)**: Hemisphere ambient, directional sunlight with 2048 PCFSoft shadow camera, front face fill, leg light, and dual-arm highlights with independent live tuning.
+* **VRM 1.0 Modular Pipeline**: Powered by `@pixiv/three-vrm` with MToon NPR shading. The core engine (`VRMEngine`) is decoupled into specialized subsystems:
+  * **Dual-Theme Linework Outdoor Scene (`LineworkWorld`)**: Pure procedural code generating a minimalist wireframe outdoor world (sun with 12 radial rays, 19 stylized skyline buildings, ground grid, and 5 tree archetypes); natively supports `linework-light` and `linework-dark` dual themes linked to the global color mode — **100% white-on-white / black-on-white, zero external textures**.
+  * **Studio 3-Channel Lighting (`StudioLighting`)**: Streamlined directional sunlight (dir 1.00 with 2048 PCFSoft shadow camera), hemisphere sky/ground light (hemi 0.95), and back-rim fill light (fill 1.40), delivering clean and crisp anime contours without redundant lighting overhead.
   * **MToon Material Manager (`VRMMaterialManager`)**: Automatic mesh semantic categorization (skin / hair / eyes / clothing); dynamic fragment shader injection with uniform `uMatSaturation` for live color calibration; tuned hair saturation (default 1.50) for rich anime highlights.
   * **Companion Gaze Controller (`GazeController`)**: Companion eye & head tracking, physiological yaw/pitch safety clamping, micro-saccades, and thinking head sways.
   * **3D Head Bubble Tracker (`BubbleTracker`)**: 3D world-to-screen 2D projection with a 1.5px dead-zone filter, writing directly to DOM transforms to bypass 60~120 FPS React re-renders.
 * **Upload your own VRM** at runtime via the top-bar upload button.
 
+### 👗 Atomic Outfit Swap & Delta Addons
+* **Zero-Frame T-Pose Pop-in & Seamless Hot Reloading**: Completely eliminates pre-stopping or animation resets during outfit changes. Before swapping, a millisecond-level snapshot captures bone rotations, expression weights, gaze coordinates, and playback timestamps. The new VRM is built in the background, pose-restored in memory before scene mounting, and atomically swapped within a microtask — guaranteeing 0 frames of T-pose glitching.
+* **Delta Patch Distribution (`.vrmbase` + `.vrmaddon`)**: Eliminates bloated multi-megabyte model downloads by stripping shared body geometry into a compact base model `xiaochun_base.vrmbase` (~5.9 MB, oxipng texture-compressed); 5 distinct wardrobe sets (Techwear, Cheongsam, Bikini, Maid, Swimsuit) are distributed as incremental `.vrmaddon` patches (1~2 MB each).
+* **Web Worker WASM bspatch Assembly**: Reconstructs the complete VRM in a Dedicated Web Worker using WASM bspatch with zero main-thread frame drops.
+* **Two-Tier IndexedDB Cache**: Base models and patched VRMs are locally cached in IndexedDB (`xiaochun-vrm-cache`) for instant subsequent swaps. Detailed in [`docs/OUTFIT_SWAP.md`](docs/OUTFIT_SWAP.md) and [`docs/VRM_BUILD_WORKFLOW.md`](docs/VRM_BUILD_WORKFLOW.md).
+
+### 🔮 Cinematic Post-Processing Pipeline
+* **UnrealBloomPass Anime Halos**: Renders soft bloom glow (default strength 0.35, radius 0.65, threshold 0.75) for luminous character highlights.
+* **Background Luminance Bypass**: Solves over-exposure in bright linework scenes by selectively applying bloom to character hair and clothing while rejecting high-luminance background linework.
+* **ToneMapping Capsule Grid**: Integrates 5 film curve mappings (ACESFilmic, Neutral, Cineon, Linear, None) with real-time exposure tuning.
+* **Full-Spectrum Color Grading (BC/HS)**: A unified single-pass fullscreen shader controlling Brightness, Contrast, Saturation, and Hue Shift. Full technical specifications in [`docs/POSTFX.md`](docs/POSTFX.md).
+
 ### 🧍 Biomechanical Bone Morphing & Decoupling Engine
-* **27-Parameter Orthogonal Morphing**: Complete live anatomical customization across head, neck, shoulders, torso thickness, waist, belly, hips, buttocks, bust, arms, fingers, thighs, calves, and feet. UI groups the 27 sliders into 7 body regions (整体 / 头颈 / 躯干 / 臀部 / 胸部 / 上肢 / 下肢) inside sub-cards with a search filter.
+* **28-Parameter Orthogonal Morphing**: Complete live anatomical customization across head, neck, shoulders, torso thickness, waist, belly, hips, buttocks, bust, arms, fingers, thighs, calves, and feet. Shoulder width defaults to 155% (1.55) with an expanded range up to 250% (2.50) to support diverse proportions from slender anime figures to tailored jacket silhouettes. UI groups the 28 sliders into 7 body regions inside sub-cards with a search filter.
 * **Anatomical Boundary Locking**: Converts symmetrical center-out bone scaling into directional expansion (e.g., torso thickness expands posteriorly, locking the anterior chest and abdomen flat; buttocks volume expands backwards without pelvic protrusion).
 * **Procedural Abdominal Morphing (`belly`)**: Deforms 687 front abdominal wall vertices with smooth cosine falloff ($0.70\times \sim 1.80\times$), completely decoupled from `Spine` bones — zero impact on lumbar thickness or spinal curvature!
 * **Knee-Foot Ground Anchor Alignment**: Broadens saddlebag hips while automatically neutralizing lateral femur shifts at the knee, keeping legs strictly plumb and feet planted together.
@@ -131,15 +143,15 @@ The UI is fully **SSR-hydrated multi-language** (zh-CN / en / ja) via TanStack S
 * **Mobile** — preload stickers stay; the chat bar clears the home-indicator inset.
 
 ### 🛠️ Dev Tooling
-* **Debug drawer** (localhost only) — **7 sections** in fixed order (🎭 预设表情 → 🎥 镜头设置 → 🎨 画面色彩 → ✨ 骨骼体型 → 🧩 模型部位 → 💡 灯光通道 → ⚡ EMAGE Perf). Each section owns its own React state, has its own reset, and shows a "modified" dot only when the user has changed something since mount. Schema-driven render: add a section = one entry in `SECTIONS` + one in the component `REGISTRY`. `EmagePerfSection` surfaces wasm_env / isolation / numThreads / stage timings for P0b acceptance screenshots. See [`docs/ARCHITECTURE_AND_RULES.md` §3](docs/ARCHITECTURE_AND_RULES.md) for the full primitive breakdown.
+* **Debug drawer** (localhost only) — **8 sections** in fixed order (🎭 预设表情 → 🎥 镜头设置 → 🎨 画面色彩 → ✨ 骨骼体型 → 🧩 模型部位 → 💡 灯光通道 → 🔮 画面后期 → ⚡ EMAGE Perf). Each section owns its own React state, has its own reset, and shows a "modified" dot only when the user has changed something since mount. Schema-driven render: add a section = one entry in `SECTIONS` + one in the component `REGISTRY`. `PostFxSection` manages bloom intensity/radius/threshold, tone mapping modes, and color grading matrix; `EmagePerfSection` surfaces wasm_env / isolation / numThreads / stage timings for P0b acceptance screenshots. See [`docs/ARCHITECTURE_AND_RULES.md` §3](docs/ARCHITECTURE_AND_RULES.md) for the full primitive breakdown.
 * **ChatBar test-speak dropdown** (dev) — spring / 蜀道难 presets with live segment counts via `splitIntoSpeechChunks`, for end-to-end TTS+EMAGE streaming checks without typing.
 * **Per-frame slider drag**: sliders split per-tick (engine) from commit-time (state + `localStorage`) so a 28-slider `BoneMorphSection` doesn't re-render its siblings on every pointer event. Display numbers next to each slider follow the thumb in real time via imperative `textContent` writes from `SliderWithAnchors`' `liveValueRef` mechanism — React reconciliation is bypassed entirely.
 * **Camera section**: FOV slider (with hover `ⓘ` tooltip listing 20°/30°/45°/60° reference values), `📷` min / `🔭` max camera distance sliders (mouse wheel + pinch zoom range), and the body-turn toggle. Default push-in distance is computed from FOV via `defaultShotExtent` so the framing stays consistent at 15°/20°/60° (no more "long-lens crops the face").
-* **Bone morph section**: 27 sliders grouped into 7 body regions (整体 / 头颈 / 躯干 / 臀部 / 胸部 / 上肢 / 下肢), each as a sub-card; search filter hides empty regions.
-* **Wardrobe section**: 3-state per-part rendering — `穿` (toggle on) / `未穿` (toggle off, line-through) / `未装配` (dashed disabled div, no checkbox). "Equipped" comes from `vrmEngine.materialManager.partMaterials[id]?.length`, not the user's visibility toggle.
+* **Bone morph section**: 28 sliders grouped into 7 body regions (整体 / 头颈 / 躯干 / 臀部 / 胸部 / 上肢 / 下肢), each as a sub-card; shoulder width defaults to 155% with a maximum range of 250%; search filter hides empty regions.
+* **Wardrobe section**: 3-state per-part rendering — `穿` (toggle on) / `未穿` (toggle off, line-through) / `未装配` (dashed disabled div, no checkbox). "Equipped" comes from `vrmEngine.materialManager.partMaterials[id]?.length`, not the user's visibility toggle. Note: For full wardrobe changes, use the top navigation bar's outfit selector.
 * **Cloudflare Workers** (`src/server.ts`) — handles full-stack TanStack Start SSR alongside native WebSocket streaming for Edge-TTS; also applies **COOP/COEP `credentialless`** on HTML/SSR document responses (Workers+Assets ignores `public/_headers` for documents) so EMAGE ORT wasm can use SAB threads when isolated.
 * **Vite dev middleware** (`vite/localApiPlugin.ts`) — local development powered by Miniflare runtime for 100% dev/prod parity. Forwards `GET /api/tts` to your `TTS_PROXY_URL` (e.g., the deployed Worker) when set, else opens a local native WebSocket to Edge-TTS (`src/lib/edge-tts-core.ts`).
-* **Single source of truth**: `src/config.ts` consolidates lighting / camera / expressions / saturation / LLM / R2 model config.
+* **Single source of truth**: `src/config.ts` consolidates lighting / camera / expressions / saturation / LLM / R2 model config / 28 bone morph params.
 
 ---
 
@@ -147,7 +159,9 @@ The UI is fully **SSR-hydrated multi-language** (zh-CN / en / ja) via TanStack S
 
 | Layer | Technology | Description |
 | :--- | :--- | :--- |
-| **3D Core Engine** | [three.js 0.185](https://threejs.org) + [@pixiv/three-vrm 3.5](https://github.com/pixiv/three-vrm) | Decoupled modular core (LineworkWorld, StudioLighting, VRMMaterialManager, GazeController, BubbleTracker) |
+| **3D Core Engine** | [three.js 0.185](https://threejs.org) + [@pixiv/three-vrm 3.5](https://github.com/pixiv/three-vrm) | Decoupled modular core (Dual-Theme LineworkWorld, Studio 3-Channel Lighting, VRMMaterialManager, GazeController, BubbleTracker) |
+| **Post-Processing** | Custom PostFx Pipeline (`postFxPipeline.ts`) | UnrealBloomPass (background luminance bypass) + ToneMapping (ACESFilmic, etc.) + BC/HS Color Grading |
+| **Wardrobe & Delta Addons** | Delta Addons + WASM bspatch + Pose Pre-restore | `.vrmbase` + 5 `.vrmaddon` files, Web Worker patch assembly, 2-tier IDB cache, zero-frame T-pose swapping |
 | **Motion Pipeline** | Custom Layered Universal Pipeline (`MotionPipeline`) | Quintic smootherstep inbetweening, bone masking, biomechanical limits, inverse quaternion decoupling & T-Pose protection |
 | **App Framework** | [React 19](https://react.dev) + [TanStack Start](https://tanstack.com/start) | Full-stack SSR with cookie-based i18n hydration |
 | **Router** | [TanStack Router](https://tanstack.com/router) | Type-safe file-based routing |
@@ -223,7 +237,13 @@ To deploy automatically on every `git push`:
 ```text
 Project-XiaoChun/
 ├── public/                    # Static assets (hosted via Cloudflare Workers Assets)
-│   ├── xiaochun_V1.vrm        # Default VRM character model (20 MB)
+│   ├── vrm/                   # Modular VRM base and delta clothing addons
+│   │   ├── xiaochun_base.vrmbase  # Stripped base model (~5.9 MB, oxipng compressed textures)
+│   │   ├── xiaochun_default.vrmaddon   # Default Techwear outfit
+│   │   ├── xiaochun_cheongsam.vrmaddon  # Traditional Cheongsam
+│   │   ├── xiaochun_bikini.vrmaddon    # Beach Bikini
+│   │   ├── xiaochun_maid.vrmaddon      # Classic Maid dress
+│   │   └── xiaochun_swimsuit.vrmaddon  # Summer Swimsuit
 │   ├── thinking.vrma          # Idle thinking animation loop
 │   ├── materials/             # MAD preload chibi / badge / outfit preview PNGs
 │   ├── onnx/                  # EMAGE body motion model weights (vq_*, emage_step, postprocess)
@@ -233,22 +253,28 @@ Project-XiaoChun/
 │   ├── og.jpg                 # OpenGraph share card
 │   └── logo.png / favicon.*   # Brand and icon assets
 ├── docs/                      # Architecture and module deep-dive docs
-│   ├── README.md
-│   ├── ARCHITECTURE_AND_RULES.md
-│   ├── MOTION_PIPELINE.md
-│   ├── BODY_TURN_AND_GAZE.md
-│   ├── BONE_MORPH.md
-│   ├── FOOT_IK.md
-│   ├── CHAT_DIRECTOR.md
-│   ├── ON_DEVICE_AI.md
+│   ├── README.md              # Documentation index and agent routing guide
+│   ├── ARCHITECTURE_AND_RULES.md # System architecture, 10-step lifecycle & developer rules
+│   ├── OUTFIT_SWAP.md         # 0-frame T-pose state snapshot, delta addons & IDB caching
+│   ├── POSTFX.md              # UnrealBloomPass halos, background bypass & tone grading
+│   ├── VRM_BUILD_WORKFLOW.md  # VRM build toolchain, bspatch delta splitting & byte idempotency
+│   ├── VRM_ENGINE_AND_WORKER.md # VRMEngine facade coordinator & vrmWorker binary synthesis
+│   ├── MOTION_PIPELINE.md     # Universal motion blending & quintic smootherstep inbetweening
+│   ├── BODY_TURN_AND_GAZE.md  # Stepping locomotion state machine & saccadic gaze
+│   ├── BONE_MORPH.md          # 28-parameter orthogonal biomechanical morphing whitepaper
+│   ├── FOOT_IK.md             # Ground anchoring & foot inverse kinematics solver
+│   ├── CHAT_DIRECTOR.md       # LLM + TTS + EMAGE streaming orchestration
+│   ├── ON_DEVICE_AI.md        # On-device AI inference full stack
 │   └── EMAGE_MODEL.md         # EMAGE status & known limits (wasm/INT8, streaming, isolation)
+├── scripts/                   # Build and offline asset processing scripts
+│   └── build-vrm/             # VRM delta packaging and texture optimization (workflow.mjs)
 ├── wrangler.jsonc             # Cloudflare Workers declarative configuration
 ├── src/
 │   ├── routes/                # TanStack Start file-based routes
 │   │   ├── __root.tsx         # Root layout (i18n SSR hydration, GEO JSON-LD & meta tags)
 │   │   └── index.tsx          # Main index route
 │   ├── components/            # React UI components (TopHeader, ChatBar, HeadBubble, DevDrawer…)
-│   │   ├── dev-drawer/         # Debug drawer — schema-driven 7 sections (localhost only)
+│   │   ├── dev-drawer/         # Debug drawer — schema-driven 8 sections (localhost only)
 │   │   │   ├── DevDrawer.tsx          # Shell (header + SectionRenderer list)
 │   │   │   ├── schema.ts              # SECTIONS[] (id + order) — add a section = 1 line
 │   │   │   ├── renderer.tsx           # id → component REGISTRY
@@ -258,13 +284,14 @@ Project-XiaoChun/
 │   │   │   │   ├── SectionCard.tsx    # Card wrapper (optional collapse gate via id)
 │   │   │   │   ├── SectionHeader.tsx  # Chevron + title + modified dot + reset
 │   │   │   │   └── HeightChip.tsx     # Live height chip subscribing to engine
-│   │   │   ├── sections/              # 7 self-contained section components
+│   │   │   ├── sections/              # 8 self-contained section components
 │   │   │   │   ├── ExpressionsSection.tsx
 │   │   │   │   ├── CameraSection.tsx           # FOV + min/max distance + body-turn toggle
 │   │   │   │   ├── SaturationSection.tsx       # 4 sliders + 4 presets
-│   │   │   │   ├── BoneMorphSection.tsx        # 27 sliders grouped into 7 body regions
-│   │   │   │   ├── WardrobeSection.tsx         # 穿 / 未穿 / 未装配 3-state rendering
-│   │   │   │   ├── LightingSection.tsx         # 6 channels + global mult
+│   │   │   │   ├── BoneMorphSection.tsx        # 28 sliders grouped into 7 body regions
+│   │   │   │   ├── WardrobeSection.tsx         # Part visibility (穿 / 未穿 / 未装配)
+│   │   │   │   ├── LightingSection.tsx         # 3 channels (dir/hemi/fill) + global mult
+│   │   │   │   ├── PostFxSection.tsx           # Bloom / ToneMapping / Color grading
 │   │   │   │   └── EmagePerfSection.tsx        # P0b wasm_env / isolation / stage timings
 │   │   │   └── hooks/                 # Shared section hooks
 │   │   ├── AdvancedSettingsDialog.tsx  # User-customizable system prompt + memory-turns slider
@@ -273,10 +300,13 @@ Project-XiaoChun/
 │   │   └── ui/                # Radix UI primitives (button, dialog, dropdown-menu, slider, tooltip)
 │   ├── core/                  # 3D rendering & scene core (Decoupled Facade architecture)
 │   │   ├── vrmEngine.ts       # Central engine coordinator (slim Facade, render loop, VRM loading)
+│   │   ├── outfitSwap.ts      # Atomic outfit swapping (pose snapshot capture & in-memory pre-restore)
+│   │   ├── vrmWorker.ts       # Background worker (WASM bspatch assembly & 2-tier IDB cache)
 │   │   ├── morph/             # Runtime body part scaling driven by DevDrawer sliders
-│   │   │   └── vrmBodyMorph.ts # VRMBodyMorph — bone-by-bone scale bindings
-│   │   ├── scene/             # Linework background world (lineworkWorld.ts: sun rays / skyline / grid / trees)
-│   │   ├── lighting/          # 6-channel studio lighting rig (studioLighting.ts: main / hemi / fill / rims)
+│   │   │   └── vrmBodyMorph.ts # VRMBodyMorph — 28-parameter bone-by-bone scale bindings
+│   │   ├── scene/             # Linework world (lineworkWorld.ts: dual themes / sun rays / skyline / grid / trees)
+│   │   ├── lighting/          # 3-channel studio lighting (studioLighting.ts: dir / hemi / fill)
+│   │   ├── postfx/            # Post-processing pipeline (postFxPipeline.ts: Bloom/ToneMapping/ColorGrading)
 │   │   ├── material/          # MToon material management (vrmMaterialManager.ts: part visibility + Shader saturation)
 │   │   └── ui/                # Spatial UI tracker (bubbleTracker.ts: 3D head position to 2D bubble)
 │   ├── motion/                # Motion system (Universal pipeline + bio-inspired natural posture)
@@ -321,7 +351,7 @@ Project-XiaoChun/
 │   ├── server.ts              # Cloudflare Worker entry (SSR + /api/tts WS + COOP/COEP isolation headers)
 │   ├── router.tsx             # TanStack Router factory
 │   ├── routeTree.gen.ts       # Auto-generated type-safe route tree
-│   └── config.ts              # SSOT (R2 / camera / lights / LLM / bodyMorph / emage.models + emage.motion hop/seam)
+│   └── config.ts              # SSOT (R2 / camera / lights / postfx / LLM / bodyMorph / emage.models + emage.motion hop/seam)
 ├── vite.config.ts             # Vite 8 + TanStack Start + @cloudflare/vite-plugin
 ├── vite/                      # Custom vite plugins (extracted from vite.config.ts)
 │   ├── localApiPlugin.ts       # /api/tts dev middleware (TTS proxy with EU fallback)
@@ -351,7 +381,7 @@ Switching language:
 This project is licensed under the **MIT License**.
 
 > **Third-party assets** used by the default scene:
-> * `public/xiaochun_v1.vrm` — VRM character model generated with **[VRoid Studio](https://vroid.com/en/studio)** (Pixiv Inc.). Subject to the **VRoid Studio License** — free for personal use, modification, and non-commercial redistribution with attribution. For commercial use, please review the [VRoid Studio License terms](https://vroid.com/en/license) or contact Pixiv Inc. for a separate agreement.
+> * `public/vrm/xiaochun_base.vrmbase` and `.vrmaddon` bundles — VRM character model and wardrobe addons, generated with **[VRoid Studio](https://vroid.com/en/studio)** (Pixiv Inc.). Subject to the **VRoid Studio License** — free for personal use, modification, and non-commercial redistribution with attribution. For commercial use, please review the [VRoid Studio License terms](https://vroid.com/en/license) or contact Pixiv Inc. for a separate agreement.
 > * `public/thinking.vrma` — VRM animation. **License unknown** — verify before redistribution.
 
 `/api/tts` in `src/server.ts` (and the Vite middleware in `vite/localApiPlugin.ts`) uses a hand-rolled native WebSocket client (`src/lib/edge-tts-core.ts`) to talk to Microsoft's Edge-TTS service directly — no third-party TTS SDK. The `TRUSTED_CLIENT_TOKEN` constant is a publicly known shared token (the same value used by every open-source Edge-TTS implementation) and is **not** a personal secret.

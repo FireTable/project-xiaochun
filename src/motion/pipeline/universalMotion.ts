@@ -49,6 +49,9 @@ export class UniversalMotionController {
   private fadeDuration = 0.98;
   private clipDuration = 0;
   private onEndTriggered = false;
+  /** Remember string URL inputs for outfit-swap restore. */
+  private lastUrl: string | null = null;
+  private lastBuffer: ArrayBuffer | null = null;
 
   bind(vrm: VRM): void {
     this.vrm = vrm;
@@ -65,14 +68,17 @@ export class UniversalMotionController {
 
     let buffer: ArrayBuffer;
     if (typeof input === 'string') {
+      this.lastUrl = input;
       const resp = await fetch(input);
       if (!resp.ok) {
         throw new Error(`[UniversalMotion] 无法加载动作文件: ${input} (HTTP ${resp.status})`);
       }
       buffer = await resp.arrayBuffer();
     } else {
+      this.lastUrl = null;
       buffer = input;
     }
+    this.lastBuffer = buffer;
 
     const loader = new GLTFLoader();
     loader.register((p) => new VRMAnimationLoaderPlugin(p));
@@ -247,5 +253,34 @@ export class UniversalMotionController {
 
   getCurrentOptions(): Readonly<PlayMotionOptions> {
     return this.currentOptions;
+  }
+
+  getLastUrl(): string | null {
+    return this.lastUrl;
+  }
+
+  getLastBuffer(): ArrayBuffer | null {
+    return this.lastBuffer;
+  }
+
+  getPlayback(): { time: number; duration: number; running: boolean } | null {
+    if (!this.currentAction || !this.active) return null;
+    const clip = this.currentAction.getClip();
+    return {
+      time: this.currentAction.time,
+      duration: clip?.duration ?? this.clipDuration,
+      running: this.currentAction.isRunning() && !this.currentAction.paused,
+    };
+  }
+
+  seek(time: number): void {
+    if (!this.currentAction) return;
+    const clip = this.currentAction.getClip();
+    const dur = clip?.duration ?? this.clipDuration;
+    const wasPaused = this.currentAction.paused;
+    this.currentAction.paused = false;
+    this.currentAction.time = Math.max(0, Math.min(time, Math.max(dur - 0.001, 0)));
+    this.mixer?.update(0);
+    this.currentAction.paused = wasPaused;
   }
 }

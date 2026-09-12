@@ -17,8 +17,10 @@ dist
 dist-ssr
 *.local
 public/onnx
+public/*_extracted/
 grok
 .grok
+public/vrm/.vroid
 
 # Local tooling scratch
 .maker-mcp/

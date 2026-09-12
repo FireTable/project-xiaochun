@@ -7,13 +7,25 @@ export interface LightChannelConfig {
   enabled: boolean;
 }
 
+/**
+ * ponytail: 后期管线配置。Drawer 改这里 → applyConfig 同步到 effect。
+ * 注意:这套默认针对 maid 站姿 + 棚灯调过,换 outfit 后可微调。
+ */
+import * as THREE from 'three';
+
+export const POSTFX_TONE_MAPPING_MODE = {
+  NEUTRAL: THREE.NeutralToneMapping,        // 7: Khronos PBR Neutral (自然透亮，二次元首选)
+  ACES_FILMIC: THREE.ACESFilmicToneMapping, // 4: 真正的好莱坞电影胶片曲线
+  LINEAR: THREE.LinearToneMapping,          // 1: 原色直出 (无曲线映射)
+} as const;
+
 export interface LightConfig {
+  // ponytail: 精简到 3 盏 — dir (key) / hemi (ambient) / fill (冷补)。
+  // 之前的 front / leg / arm 是额外 SpotLight 调试通道,Unity / Three.js 标准
+  // 影棚配置不需要,删干净避免误用。
   dir: LightChannelConfig;
   hemi: LightChannelConfig;
-  front: LightChannelConfig;
   fill: LightChannelConfig;
-  leg: LightChannelConfig;
-  arm: LightChannelConfig;
   globalMult: number;
 }
 
@@ -137,7 +149,9 @@ export interface EmageMotionConfig {
 
 export interface BodyMorphConfig {
   // 全身与整体
-  overallScale: number;     // 全身大小 (默认 1.00，范围 0.70 ~ 1.30)
+  // ponytail: overallScale 用户版默认移除,但 vrmBodyMorph.ts 5 处直接读它,
+  // 留 required + default 1.00 — UI 不渲染 slider 即可,不影响 UI 简洁。
+  overallScale: number;     // 全局大小 (默认 1.00，范围 0.70 ~ 1.30)
 
   // 头部与颈部
   head: number;             // 头部比例/头身比 (默认 1.00，范围 0.85 ~ 1.20)
@@ -146,7 +160,7 @@ export interface BodyMorphConfig {
   neckLength: number;       // 颈部长短 (默认 1.00，范围 0.80 ~ 1.30)
 
   // 躯干、肩宽与腰臀
-  shoulderWidth: number;    // 肩宽 (默认 1.00，范围 0.75 ~ 1.35)
+  shoulderWidth: number;    // 肩宽 (默认 1.00，范围 0.75 ~ 2.50)
   torsoLength: number;      // 躯干长度 (默认 1.00，范围 0.75 ~ 1.35)
   torsoThickness: number;   // 躯干厚度 (默认 1.00，范围 0.70 ~ 1.40，统一控制胸背与腰腹前后厚度)
   waist: number;            // 纤细腰部 (默认 1.00，范围 0.70 ~ 1.40，控制腰部横向宽度)
@@ -217,8 +231,47 @@ export const APP_CONFIG = {
     github: 'https://github.com/FireTable/project-xiaochun',
   },
   model: {
-    defaultVrm: '/xiaochun_v1.vrm',
-    defaultName: '小蠢 (xiaochun_v1)',
+    // ponytail: 冷启动默认 base (.vrmbase zip)。
+    defaultSource: '/vrm/xiaochun_base.vrmbase',
+    defaultName: 'XiaoChun',
+    // ponytail: base 产物 sha256 — IDB cache key 的一部分,build 后产物变了 runtime
+    // 就 miss,自动重 fetch。短截(16 字符)够去重,sha256 完整值在 build 时会跟
+    // HEAD sha 比对。workflow 跑完会打 "actual" / "config" mismatch 提示更新。
+    defaultSha: 'eb090d94e8793e0f',
+    // 换装 addons: key 是 addon 唯一 id(用作按钮标识 + 持久化匹配),
+    // source 是 .vrmaddon / .vrmbase 路径,name 是 UI 展示的名字,
+    // sha 是产物 sha256 (见 defaultSha 注释,跟 base 同作用)。
+    // 加新 outfit: 加一行,TopHeader dropdown 自动出现按钮(无需改组件)。
+    // default: true 标默认加载的 addon,冷启动无 user 偏好时用这个,普通用户
+    // 进站就穿衣服,不用先点菜单。多个 default 时 workflow 警告,取第一个。
+    addons: {
+      'xiaochun_default': {
+        source: '/vrm/addons/xiaochun_default.vrmaddon',
+        name: 'XiaoChun Techwear',
+        sha: '32b02fcf5ee21da2',
+        default: true,
+      },
+      'xiaochun_cheongsam': {
+        source: '/vrm/addons/xiaochun_cheongsam.vrmaddon',
+        name: 'XiaoChun Cheongsam',
+        sha: 'bcd248a210724664',
+      },
+      'xiaochun_bikini': {
+        source: '/vrm/addons/xiaochun_bikini.vrmaddon',
+        name: 'XiaoChun Bikini',
+        sha: 'b3dd472430eac4e1',
+      },
+      'xiaochun_maid': {
+        source: '/vrm/addons/xiaochun_maid.vrmaddon',
+        name: 'XiaoChun Maid',
+        sha: '3ceb4eb087027c4e',
+      },
+      'xiaochun_swimsuit': {
+        source: '/vrm/addons/xiaochun_swimsuit.vrmaddon',
+        name: 'XiaoChun Swimsuit',
+        sha: '7757778f88392f50',
+      },
+    } as Record<string, { source: string; name: string; sha: string; default?: boolean }>,
   },
   // ponytail: EMAGE ONNX 模型文件基础 URL。
   // 生产环境 (PROD) 始终强制走 Cloudflare R2 (https://cdn.firetable.tech/xiaochun)；
@@ -316,26 +369,42 @@ export const APP_CONFIG = {
     // "镜头距离范围" 两 slider 的默认值;运行时调整会覆盖并写 localStorage。
     defaultMinDistance: 1.0,
     defaultMaxDistance: 15.0,
+    // 镜头跟随自动转身：默认开启 true。如果在 devDrawer 导出的结果中看到 bodyTurnEnabled，可以忽略不要更新
+    defaultEnableBodyTurn: true as boolean,
   },
   renderer: {
     // iPhone 多是 3x;封顶 2 会按 2/3 分辨率画,头发和网袜特别容易锯齿。
     maxPixelRatio: 3,
   },
+  scene: {
+    // 线稿背景世界主题：'light' (昼白线稿) 或 'dark' (极夜深蓝黑线稿)
+    theme: 'light' as 'light' | 'dark',
+  },
   lights: {
-    dir: { base: 0.90, enabled: true },
-    hemi: { base: 0.72, enabled: true },
-    front: { base: 1.0, enabled: true },
-    fill: { base: 0.70, enabled: true },
-    leg: { base: 1.50, enabled: true },
-    arm: { base: 0.40, enabled: true },
+    dir: { base: 1.00, enabled: true },
+    hemi: { base: 0.95, enabled: true },
+    fill: { base: 1.40, enabled: true },
     globalMult: 1.0,
   } as LightConfig,
+  // ponytail: 后期管线配置。针对浅色/白底二次元优化：
+  // 1. 默认采用 Linear 原色直出 + 1.05 曝光，避免 Neutral 压暗肤色变灰黄；
+  // 2. 暗角默认 0，避免浅底周围一圈灰脏感；
+  // 3. Bloom 在着色器层精准剔除白底后，阈值设在 0.72，微量强度 0.015 + 半径 0.32，发丝与高光极简纯净绝不起雾；
+  // 4. 微量对比度 +0.02，瞳孔更透亮，原画纯净直出。
+  postfx: {
+    enabled: true,
+    bloom: { strength: 0.015, radius: 0.32, threshold: 0.72 },
+    vignette: { darkness: 0.0, offset: 0.5 },
+    toneMapping: { mode: THREE.LinearToneMapping, exposure: 1.05 },
+    bc: { brightness: 0.0, contrast: 0.02 },
+    hs: { hue: 0.0, saturation: 0.0 },
+  },
   saturation: {
     default: {
-      preset: 'vibrant',
-      clothing: 1.20,
-      hair: 1.30,
-      eyes: 1.30,
+      preset: 'custom',
+      clothing: 1.00,
+      hair: 1.40,
+      eyes: 1.40,
       skin: 0.95,
     } as MaterialSaturationConfig,
     presets: {
@@ -367,15 +436,19 @@ export const APP_CONFIG = {
   },
   bodyMorph: {
     default: {
+      // ponytail: 用户最新 bodyMorph 默认值 — 肩宽 +0.2 / 腰 -0.2 / 大腿 +0.06
+      // 小腿 -0.02 / 臀 pitch +0.05 等,目标偏"slim + athletic"。
+      // overallScale 留 1.00 (接口 optional 但 vrmBodyMorph.ts 5 处直接读 config.overallScale,
+      // 不设 → NaN → 模型缩放 / 头部偏移炸)。用户 UI 不渲染 slider,但 runtime 仍用 1.00。
       overallScale: 1.00,
       head: 1.00,
       neck: 1.00,
       neckDepth: 1.00,
       neckLength: 1.00,
-      shoulderWidth: 1.10,
+      shoulderWidth: 1.55,
       torsoLength: 1.00,
       torsoThickness: 0.90,
-      waist: 0.90,
+      waist: 0.70,
       belly: 0.90,
       hips: 1.00,
       buttocks: 1.05,
@@ -386,13 +459,13 @@ export const APP_CONFIG = {
       bustThickness: 1.00,
       bustPitch: 0.10,
       bustSpread: -0.010,
-      arms: 0.90,
+      arms: 0.86,
       armLength: 1.00,
       hands: 1.00,
-      fingerWidth: 1.00,
-      thighs: 1.00,
+      fingerWidth: 0.96,
+      thighs: 1.06,
       thighLength: 1.00,
-      calves: 0.86,
+      calves: 0.84,
       calfLength: 1.00,
       feet: 1.00,
     } as BodyMorphConfig,
@@ -402,7 +475,7 @@ export const APP_CONFIG = {
       neck: { min: 0.70, max: 1.40, step: 0.02 },
       neckDepth: { min: 0.70, max: 1.40, step: 0.02 },
       neckLength: { min: 0.80, max: 1.30, step: 0.01 },
-      shoulderWidth: { min: 0.75, max: 1.35, step: 0.01 },
+      shoulderWidth: { min: 0.75, max: 2.50, step: 0.01 },
       torsoLength: { min: 0.75, max: 1.35, step: 0.01 },
       torsoThickness: { min: 0.70, max: 1.40, step: 0.01 },
       waist: { min: 0.70, max: 1.40, step: 0.02 },

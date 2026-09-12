@@ -1,30 +1,69 @@
 import React, { useState } from 'react';
 import { vrmEngine } from '@/core/vrmEngine';
 import { APP_CONFIG } from '@/config';
-import { SliderWithAnchors } from '@/components/SliderWithAnchors';
+import { SliderWithAnchors, thumbInBoundsOffset } from '@/components/SliderWithAnchors';
+import { Tooltip, TooltipTrigger, TooltipContent } from '@/components/ui/tooltip';
 import { useDevDrawer } from '../context';
 import { SectionCard } from '../components/SectionCard';
 import { SectionHeader } from '../components/SectionHeader';
 import { saveDevDrawerSettings, loadDevDrawerSettings } from '../storage';
 
-type ChannelKey = 'dir' | 'hemi' | 'front' | 'fill' | 'leg' | 'arm';
+// ponytail: 精简到 3 通道 — dir / hemi / fill。devDrawer 调整实时生效。
+type ChannelKey = 'dir' | 'hemi' | 'fill';
 
 interface ChannelState { enabled: boolean; base: number; }
 
-const CHANNEL_KEYS: ChannelKey[] = ['dir', 'hemi', 'front', 'fill', 'leg', 'arm'];
+const CHANNEL_KEYS: ChannelKey[] = ['dir', 'hemi', 'fill'];
 
-const RANGE_BY_KEY: Record<ChannelKey, { min: number; max: number; step: number; labelKey: string }> = {
-  dir:   { min: 0.0, max: 2.5, step: 0.05, labelKey: 'panel.lightChannels.dir' },
-  hemi:  { min: 0.0, max: 2.0, step: 0.05, labelKey: 'panel.lightChannels.hemi' },
-  front: { min: 0.0, max: 2.0, step: 0.05, labelKey: 'panel.lightChannels.front' },
-  fill:  { min: 0.0, max: 1.5, step: 0.02, labelKey: 'panel.lightChannels.fill' },
-  leg:   { min: 0.0, max: 2.0, step: 0.05, labelKey: 'panel.lightChannels.leg' },
-  arm:   { min: 0.2, max: 2.5, step: 0.1,  labelKey: 'panel.lightChannels.arm' },
+const RANGE_BY_KEY: Record<ChannelKey, {
+  min: number;
+  max: number;
+  step: number;
+  labelKey: string;
+  minLabelKey: string;
+  centerVal: number;
+  centerLabel: string;
+  maxLabelKey: string;
+  tooltipKey: string;
+}> = {
+  dir: {
+    min: 0.0,
+    max: 2.5,
+    step: 0.05,
+    labelKey: 'panel.lightChannels.dir',
+    minLabelKey: 'panel.lightSliderLabels.dir.min',
+    centerVal: 1.0,
+    centerLabel: '1.00',
+    maxLabelKey: 'panel.lightSliderLabels.dir.max',
+    tooltipKey: 'panel.lightTooltips.dir',
+  },
+  hemi: {
+    min: 0.0,
+    max: 2.0,
+    step: 0.05,
+    labelKey: 'panel.lightChannels.hemi',
+    minLabelKey: 'panel.lightSliderLabels.hemi.min',
+    centerVal: 1.0,
+    centerLabel: '1.00',
+    maxLabelKey: 'panel.lightSliderLabels.hemi.max',
+    tooltipKey: 'panel.lightTooltips.hemi',
+  },
+  fill: {
+    min: 0.0,
+    max: 1.5,
+    step: 0.02,
+    labelKey: 'panel.lightChannels.fill',
+    minLabelKey: 'panel.lightSliderLabels.fill.min',
+    centerVal: 0.70,
+    centerLabel: '0.70',
+    maxLabelKey: 'panel.lightSliderLabels.fill.max',
+    tooltipKey: 'panel.lightTooltips.fill',
+  },
 };
 
 /**
- * ponytail: 6 个独立灯光通道(每通道 toggle + slider) + 全局倍率 slider + reset。
- * 自带 state,setChannels 不影响 drawer 其它部分。移动端拖动 6 个 slider 都不会被打断。
+ * ponytail: 3 个独立灯光通道(每通道 toggle + slider) + 全局倍率 slider + reset。
+ * 自带 state,setChannels 不影响 drawer 其它部分。移动端拖动 3 个 slider 都不会被打断。
  */
 export const LightingSection: React.FC = () => {
   const { t } = useDevDrawer();
@@ -40,12 +79,9 @@ export const LightingSection: React.FC = () => {
   const [channels, setChannels] = useState<Record<ChannelKey, ChannelState>>(() => {
     const l = loadDevDrawerSettings()?.lights;
     return {
-      dir:   l?.dir   ? { ...l.dir }   : { ...vrmEngine.lightChannels.dir },
-      hemi:  l?.hemi  ? { ...l.hemi }  : { ...vrmEngine.lightChannels.hemi },
-      front: l?.front ? { ...l.front } : { ...vrmEngine.lightChannels.front },
-      fill:  l?.fill  ? { ...l.fill }  : { ...vrmEngine.lightChannels.fill },
-      leg:   l?.leg   ? { ...l.leg }   : { ...vrmEngine.lightChannels.leg },
-      arm:   l?.arm   ? { ...l.arm }   : { ...vrmEngine.lightChannels.arm },
+      dir:  l?.dir  ? { ...l.dir  } : { ...vrmEngine.lightChannels.dir  },
+      hemi: l?.hemi ? { ...l.hemi } : { ...vrmEngine.lightChannels.hemi },
+      fill: l?.fill ? { ...l.fill } : { ...vrmEngine.lightChannels.fill },
     };
   });
 
@@ -65,7 +101,7 @@ export const LightingSection: React.FC = () => {
   };
 
   // ponytail: per-frame 推 engine 让场景灯光实时跟手;React state + localStorage
-  // 只在 onValueCommit(手指抬起)触发,避免 60Hz 重渲 6 通道 + 1 全局 slider。
+  // 只在 onValueCommit(手指抬起)触发,避免 60Hz 重渲 3 通道 + 1 全局 slider。
   const handleChannelBaseTick = (key: ChannelKey, val: number) => {
     vrmEngine.setLight(key, channels[key].enabled, val);
   };
@@ -85,12 +121,9 @@ export const LightingSection: React.FC = () => {
 
   const handleReset = () => {
     const next = {
-      dir:   { ...APP_CONFIG.lights.dir },
-      hemi:  { ...APP_CONFIG.lights.hemi },
-      front: { ...APP_CONFIG.lights.front },
-      fill:  { ...APP_CONFIG.lights.fill },
-      leg:   { ...APP_CONFIG.lights.leg },
-      arm:   { ...APP_CONFIG.lights.arm },
+      dir:  { ...APP_CONFIG.lights.dir  },
+      hemi: { ...APP_CONFIG.lights.hemi },
+      fill: { ...APP_CONFIG.lights.fill },
     } as Record<ChannelKey, ChannelState>;
     setChannels(next);
     setGlobalMult(APP_CONFIG.lights.globalMult);
@@ -130,7 +163,21 @@ export const LightingSection: React.FC = () => {
             }`}
           >
             <div className="flex justify-between items-center">
-              <span className="text-xs font-medium text-white/90">{t(cfg.labelKey)}</span>
+              <span className="text-xs font-medium text-white/90 flex items-center gap-1">
+                {t(cfg.labelKey)}
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <button
+                      type="button"
+                      className="text-white/40 hover:text-white/90 transition-colors leading-none cursor-help outline-none"
+                      aria-label="说明"
+                    >ⓘ</button>
+                  </TooltipTrigger>
+                  <TooltipContent side="right" className="max-w-[240px] leading-relaxed text-[11px]">
+                    {t(cfg.tooltipKey)}
+                  </TooltipContent>
+                </Tooltip>
+              </span>
               <input
                 type="checkbox"
                 checked={ch.enabled}
@@ -160,33 +207,79 @@ export const LightingSection: React.FC = () => {
                   { value: def.base, label: t('panel.sliderAnchors.configDefault'), color: 'brand' },
                 ]}
               />
+              {(() => {
+                const centerPct = ((cfg.centerVal - cfg.min) / (cfg.max - cfg.min)) * 100;
+                return (
+                  <div className="relative h-3 text-[9px] text-white/35 font-mono">
+                    <span className="absolute whitespace-nowrap left-0">{t(cfg.minLabelKey)}</span>
+                    <span
+                      className="absolute whitespace-nowrap -translate-x-1/2"
+                      style={{ left: `calc(${centerPct}% + ${thumbInBoundsOffset(centerPct)}px)` }}
+                    >
+                      {cfg.centerLabel}
+                    </span>
+                    <span className="absolute whitespace-nowrap right-0">{t(cfg.maxLabelKey)}</span>
+                  </div>
+                );
+              })()}
             </div>
           </div>
         );
       })}
-      <div
-        className="flex flex-col gap-1 pt-3 border-t border-dashed border-white/15"
-        title={`${t('panel.globalLight')} | 当前 ${globalMult.toFixed(2)} | 范围 [0.20, 2.50] | 默认 ${APP_CONFIG.lights.globalMult} | 步长 0.10`}
-      >
-        <div className="flex justify-between text-[11px] text-white/70">
-          <span>{t('panel.globalLight')}</span>
-          <span ref={getRef('globalMult')} className="text-brand-300 font-mono">{globalMult.toFixed(1)}</span>
-        </div>
-        <SliderWithAnchors
-          value={globalMult}
-          min={0.2}
-          max={2.5}
-          step={0.1}
-          onTick={handleGlobalMultTick}
-          onChange={handleGlobalMultChange}
-          liveValueRef={getRef('globalMult')}
-          liveValueFormatter={(v) => v.toFixed(1)}
-          anchors={[
-            { value: 1.0, label: t('panel.sliderAnchors.center'), color: 'emerald' },
-            { value: APP_CONFIG.lights.globalMult, label: t('panel.sliderAnchors.configDefault'), color: 'brand' },
-          ]}
-        />
-      </div>
+      {(() => {
+        const globalMin = 0.2;
+        const globalMax = 2.5;
+        const centerPct = ((1.0 - globalMin) / (globalMax - globalMin)) * 100;
+        return (
+          <div
+            className="flex flex-col gap-1 pt-3 border-t border-dashed border-white/15"
+            title={`${t('panel.globalLight')} | 当前 ${globalMult.toFixed(2)} | 范围 [0.20, 2.50] | 默认 ${APP_CONFIG.lights.globalMult} | 步长 0.10`}
+          >
+            <div className="flex justify-between text-[11px] text-white/70">
+              <span className="flex items-center gap-1">
+                {t('panel.globalLight')}
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <button
+                      type="button"
+                      className="text-white/40 hover:text-white/90 transition-colors leading-none cursor-help outline-none"
+                      aria-label="说明"
+                    >ⓘ</button>
+                  </TooltipTrigger>
+                  <TooltipContent side="right" className="max-w-[240px] leading-relaxed text-[11px]">
+                    {t('panel.lightTooltips.globalMult')}
+                  </TooltipContent>
+                </Tooltip>
+              </span>
+              <span ref={getRef('globalMult')} className="text-brand-300 font-mono">{globalMult.toFixed(1)}</span>
+            </div>
+            <SliderWithAnchors
+              value={globalMult}
+              min={globalMin}
+              max={globalMax}
+              step={0.1}
+              onTick={handleGlobalMultTick}
+              onChange={handleGlobalMultChange}
+              liveValueRef={getRef('globalMult')}
+              liveValueFormatter={(v) => v.toFixed(1)}
+              anchors={[
+                { value: 1.0, label: t('panel.sliderAnchors.center'), color: 'emerald' },
+                { value: APP_CONFIG.lights.globalMult, label: t('panel.sliderAnchors.configDefault'), color: 'brand' },
+              ]}
+            />
+            <div className="relative h-3 text-[9px] text-white/35 font-mono">
+              <span className="absolute whitespace-nowrap left-0">{t('panel.lightSliderLabels.globalMult.min')}</span>
+              <span
+                className="absolute whitespace-nowrap -translate-x-1/2"
+                style={{ left: `calc(${centerPct}% + ${thumbInBoundsOffset(centerPct)}px)` }}
+              >
+                1.0
+              </span>
+              <span className="absolute whitespace-nowrap right-0">{t('panel.lightSliderLabels.globalMult.max')}</span>
+            </div>
+          </div>
+        );
+      })()}
     </SectionCard>
   );
 };

@@ -13,58 +13,79 @@ type TreeShape = 'conifer' | 'fan' | 'layered' | 'cypress' | 'oval';
  * - 远景山峦：Z = +13 ~ +16 (建筑正对面，山顶高度约 Y = 3.5 ~ 5.4)
  * - 线描飞鸟：Z = +13.5 ~ +15.5，高度降至 Y = 5.2 ~ 6.5 (紧贴山头上方掠过)
  */
+export type LineworkTheme = 'light' | 'dark';
+
 export class LineworkWorld {
   private rootGroup = new THREE.Group();
   private isBuilt = false;
   private disposables: Array<{ dispose: () => void }> = [];
+  private sceneRef: THREE.Scene | null = null;
 
-  build(scene: THREE.Scene): void {
-    if (this.isBuilt) return;
-    this.rootGroup.clear();
-    this.disposables = [];
+  public currentTheme: LineworkTheme = 'light';
+  private bgTextureLight: THREE.CanvasTexture | null = null;
+  private bgColorDark: THREE.Color = new THREE.Color(0x0a0812);
+  private lineMat: THREE.LineBasicMaterial | null = null;
+  private buildingWireMat: THREE.MeshBasicMaterial | null = null;
+  private groundTreeMat: THREE.MeshBasicMaterial | null = null;
 
-    // ── 0. 第一版原生背景渐变 ──
+  /** 创建双色阶竖向渐变 CanvasTexture */
+  private createGradientTexture(topColor: string, bottomColor: string): THREE.CanvasTexture {
     const canvas = document.createElement('canvas');
     canvas.width = 2;
     canvas.height = 2;
     const ctx = canvas.getContext('2d')!;
-
     const grad = ctx.createLinearGradient(0, 0, 0, 2);
-    grad.addColorStop(0, '#FAFAF5'); // 上
-    grad.addColorStop(1, '#F5F3ED'); // 下
-
+    grad.addColorStop(0, topColor);
+    grad.addColorStop(1, bottomColor);
     ctx.fillStyle = grad;
     ctx.fillRect(0, 0, 2, 2);
+    const texture = new THREE.CanvasTexture(canvas);
+    this.disposables.push(texture);
+    return texture;
+  }
 
-    const bgTexture = new THREE.CanvasTexture(canvas);
-    scene.background = bgTexture;
-    this.disposables.push(bgTexture);
+  build(scene: THREE.Scene, initialTheme: LineworkTheme = 'light'): void {
+    if (this.isBuilt) return;
+    this.sceneRef = scene;
+    this.rootGroup.clear();
+    this.disposables = [];
+    this.currentTheme = initialTheme;
+
+    // ── 0. 预制浅白渐变背景与极夜纯净炭黑(#0a0812) ──
+    // 暗黑模式使用纯色 THREE.Color(0x0a0812)，杜绝任何贴图双色采样产生的中间水平横向分界线
+    this.bgTextureLight = this.createGradientTexture('#FAFAF5', '#F5F3ED');
+    this.bgColorDark = new THREE.Color(0x0a0812);
+
+    scene.background = initialTheme === 'dark' ? this.bgColorDark : this.bgTextureLight;
 
     // ── 材质单例池 ──
-    // ponytail: 注释里写「白色线稿」但实际颜色 0x222222 / 0x2a334a 偏深,移动端
-    // 高 DPI 渲染下深线特别压抑。这里换成真正的浅灰线 + 低透明度,贴合命名。
-    const lineMat = new THREE.LineBasicMaterial({
-      color: 0x8a8a8a,
+    // 暗黑模式下使用内敛的淡银灰白（低对比度微泛冷调，不刺眼，柔和沉静）
+    const isDark = initialTheme === 'dark';
+    this.lineMat = new THREE.LineBasicMaterial({
+      color: isDark ? 0x94a3b8 : 0x8a8a8a, // 柔和银灰 (slate-400)
       transparent: true,
-      opacity: 0.55,
+      opacity: isDark ? 0.50 : 0.55,
       depthWrite: false,
     });
-    const buildingWireMat = new THREE.MeshBasicMaterial({
-      color: 0x9aa5c4,
+    this.buildingWireMat = new THREE.MeshBasicMaterial({
+      color: isDark ? 0x64748b : 0x9aa5c4, // 暮色灰白 (slate-500)
       wireframe: true,
       transparent: true,
-      opacity: 0.5,
+      opacity: isDark ? 0.35 : 0.50,
       depthWrite: false,
     });
-    const groundTreeMat = new THREE.MeshBasicMaterial({
-      color: 0x8a8a8a,
+    this.groundTreeMat = new THREE.MeshBasicMaterial({
+      color: isDark ? 0x475569 : 0x8a8a8a, // 沉底冷灰 (slate-600)
       wireframe: true,
       transparent: true,
-      opacity: 0.55,
+      opacity: isDark ? 0.30 : 0.55,
       depthWrite: false,
     });
 
-    this.disposables.push(lineMat, buildingWireMat, groundTreeMat);
+    this.disposables.push(this.lineMat, this.buildingWireMat, this.groundTreeMat);
+    const lineMat = this.lineMat;
+    const buildingWireMat = this.buildingWireMat;
+    const groundTreeMat = this.groundTreeMat;
 
     // 几何体分桶
     const lineGeos: THREE.BufferGeometry[] = [];
@@ -247,6 +268,30 @@ export class LineworkWorld {
     this.isBuilt = true;
   }
 
+  /** 动态无缝切换背景主题 (0ms 开销，无需重建几何体) */
+  setTheme(theme: LineworkTheme, scene?: THREE.Scene): void {
+    this.currentTheme = theme;
+    const targetScene = scene || this.sceneRef;
+    if (targetScene) {
+      targetScene.background = theme === 'dark' ? this.bgColorDark : this.bgTextureLight;
+    }
+
+    if (this.lineMat && this.buildingWireMat && this.groundTreeMat) {
+      const isDark = theme === 'dark';
+      this.lineMat.color.setHex(isDark ? 0x94a3b8 : 0x8a8a8a);
+      this.lineMat.opacity = isDark ? 0.50 : 0.55;
+      this.lineMat.needsUpdate = true;
+
+      this.buildingWireMat.color.setHex(isDark ? 0x64748b : 0x9aa5c4);
+      this.buildingWireMat.opacity = isDark ? 0.35 : 0.50;
+      this.buildingWireMat.needsUpdate = true;
+
+      this.groundTreeMat.color.setHex(isDark ? 0x475569 : 0x8a8a8a);
+      this.groundTreeMat.opacity = isDark ? 0.30 : 0.55;
+      this.groundTreeMat.needsUpdate = true;
+    }
+  }
+
   dispose(scene: THREE.Scene): void {
     if (!this.isBuilt) return;
 
@@ -259,6 +304,11 @@ export class LineworkWorld {
       item.dispose();
     }
     this.disposables = [];
+    this.bgTextureLight = null;
+    this.lineMat = null;
+    this.buildingWireMat = null;
+    this.groundTreeMat = null;
+    this.sceneRef = null;
 
     scene.remove(this.rootGroup);
     this.rootGroup.clear();

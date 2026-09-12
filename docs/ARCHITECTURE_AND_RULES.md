@@ -22,7 +22,7 @@ sequenceDiagram
     participant Gaze as GazeController (LookAt & Blink)
     participant VRM as vrm.update(delta)
     participant Morph as VRMBodyMorph (Scale & Bone Length)
-    participant Render as Three.js WebGLRenderer
+    participant PostFx as PostFxPipeline / WebGLRenderer
 
     Engine->>Motion: 1. Evaluate active motion source & write transforms (Idle / Think / Speech / Universal)
     Engine->>FootIK: 2. Update barefoot sink factor (updateBarefoot) & set scene.position.y
@@ -33,7 +33,7 @@ sequenceDiagram
     Engine->>Gaze: 7. Apply companion gaze tracking, micro-saccades & blinking (GazeController.update)
     Engine->>VRM: 8. Update VRM internal skeleton (vrm.update: normalized -> raw bones & SpringBone)
     Engine->>Morph: 9. Apply 28-parameter scale, anchor offsets & vertex morphing (VRMBodyMorph.update)
-    Engine->>Render: 10. Frame render output (renderer.render)
+    Engine->>PostFx: 10. Frame render output (composer.render when postfx enabled, or raw renderer.render)
 ```
 
 ### Critical Lifecycle Milestones:
@@ -41,12 +41,18 @@ sequenceDiagram
 - **Step 5~6 (Stepping & Leveling)**: While `bodyTurn.isStepping()` is `true`, `levelFeet` must exit to preserve dynamic ankle flexion;
 - **Step 8 (`vrm.update`)**: `@pixiv/three-vrm` transfers normalized transforms to raw humanoid bones;
 - **Step 9 (`bodyMorph.update`)**: Scales bones, applies femoral/knee offsets, and updates abdominal vertices. **Never call `quaternion.copy(baseRot)` here** as it destroys the motion computed in Steps 1–8!
+- **Step 10 (`PostFx / Render`)**: When `postfx.enabled` is true, routes through `PostFxPipeline` (UnrealBloom + ColorGrading + ToneMapping); when false, bypasses straight to `renderer.render` with zero overhead.
 
 ---
 
 ## 2. Wardrobe & Material Structure (VRoid Standard)
 
-All clothing, accessory, and hair meshes are decoupled and categorized by [`src/core/material/vrmMaterialManager.ts`](../src/core/material/vrmMaterialManager.ts), driven by `APP_CONFIG.wardrobe`:
+All clothing, accessory, and hair meshes are decoupled and categorized by [`src/core/material/vrmMaterialManager.ts`](../src/core/material/vrmMaterialManager.ts), driven by `APP_CONFIG.wardrobe`.
+
+> [!NOTE]
+> **概念区分**：
+> - **部件级穿脱 (Wardrobe)**：针对当前模型的 mesh 部件可见性开关（如隐藏鞋子、隐藏外套），由 `WardrobeSection.tsx` 管理；
+> - **整套无感换装 (Outfit Swap)**：跨模型资产重载与增量挂载（如切换女仆装/比基尼），由顶栏 [`TopHeader.tsx`](../src/components/TopHeader.tsx) 与 [`docs/OUTFIT_SWAP.md`](OUTFIT_SWAP.md) 管理。
 
 ### 2.1 Component Categories & Slot Definitions
 
@@ -77,7 +83,7 @@ vrmEngine.dressAllClothing();
 
 ## 3. DevDrawer Architecture
 
-The debug drawer is a 7-section debug panel (`src/components/dev-drawer/`) shown only on localhost (includes `EmagePerfSection`). Sections are schema-driven and each owns its own React state so per-frame UI work never cascades across sections.
+The debug drawer is an 8-section debug panel (`src/components/dev-drawer/`) shown only on localhost (includes `PostFxSection` and `EmagePerfSection`). Sections are schema-driven and each owns its own React state so per-frame UI work never cascades across sections.
 
 ### 3.1 Component Primitives
 
@@ -109,7 +115,7 @@ The percentage text next to a slider (e.g. `90%`) lives in the section as a `<sp
 
 ### 3.5 Modified Detection — Per-Section Baseline
 
-`modified` is computed against a `useRef` baseline captured on mount, **not** against `APP_CONFIG` defaults. This is because the loaded VRM model (or a previous session's `localStorage`) may carry non-default values (e.g. `shoulderWidth = 1.10`), and the user should not see a "modified" dot just from opening the page. `modified` means "the user has changed something since the section mounted". The section's `handleReset` updates the baseline so the dot disappears after reset.
+`modified` is computed against a `useRef` baseline captured on mount, **not** against `APP_CONFIG` defaults. This is because the loaded VRM model (or a previous session's `localStorage`) may carry non-default values (e.g. `shoulderWidth = 1.55`), and the user should not see a "modified" dot just from opening the page. `modified` means "the user has changed something since the section mounted". The section's `handleReset` updates the baseline so the dot disappears after reset.
 
 ### 3.6 Global Reset Broadcast
 
@@ -117,7 +123,7 @@ The percentage text next to a slider (e.g. `90%`) lives in the section as a `<sp
 1. Resets every engine subsystem and writes defaults to `localStorage`.
 2. Bumps `resetSignal`, which becomes part of `<SectionRenderer key={`${s.id}-${resetSignal}`}>`.
 
-React unmounts and remounts every section on bump. Each section's `useState` initializer re-runs against the now-defaulted engine, so all 7 sections show their default state without per-section imperative sync.
+React unmounts and remounts every section on bump. Each section's `useState` initializer re-runs against the now-defaulted engine, so all 8 sections show their default state without per-section imperative sync.
 
 ### 3.7 Schema-Driven Render Order
 
@@ -131,18 +137,19 @@ export const SECTIONS: SectionConfig[] = [
   { id: 'bodyMorph',   defaultCollapsed: false },
   { id: 'wardrobe',    defaultCollapsed: false },
   { id: 'lighting',    defaultCollapsed: false },
+  { id: 'postfx',      defaultCollapsed: false },
   { id: 'emagePerf',   defaultCollapsed: false },
 ];
 ```
 
-Current order: 预设表情 → 🎥 镜头设置 → 🎨 画面色彩 → ✨ 骨骼体型 → 🧩 模型部位 → 💡 灯光通道 → ⚡ EMAGE Perf. Reordering = swapping entries in this array; no other file changes.
+Current order: 预设表情 → 🎥 镜头设置 → 🎨 画面色彩 → ✨ 骨骼体型 → 🧩 模型部位 → 💡 灯光通道 → 🔮 后期效果 → ⚡ EMAGE Perf. Reordering = swapping entries in this array; no other file changes.
 
 ### 3.8 Section-Specific Patterns
 
-- **Wardrobe (`WardhouseSection.tsx`)**: Each part row has 3 states — `穿` (checkbox on, normal), `未穿` (checkbox off, line-through, dim), `未装配` (dashed disabled div, no checkbox). `equippedCount` per category uses `vrmEngine.materialManager.partMaterials[p.id]?.length > 0` — not the user's visibility toggle — to distinguish "model has this part" from "user has hidden it".
-- **Bone morph (`BoneMorphSection.tsx`)**: 27 sliders grouped into 7 body regions (overall / head / torso / hips / bust / arms / legs). Each category is a sub-card (`rounded-lg bg-white/[0.02] border`) with the label outside the card. Search filter hides empty regions.
+- **Wardrobe (`WardrobeSection.tsx`)**: Each part row has 3 states — `穿` (checkbox on, normal), `未穿` (checkbox off, line-through, dim), `未装配` (dashed disabled div, no checkbox). `equippedCount` per category uses `vrmEngine.materialManager.partMaterials[p.id]?.length > 0` — not the user's visibility toggle — to distinguish "model has this part" from "user has hidden it".
+- **Bone morph (`BoneMorphSection.tsx`)**: 28 sliders grouped into 7 body regions (overall / head / torso / hips / bust / arms / legs). Each category is a sub-card (`rounded-lg bg-white/[0.02] border`) with the label outside the card. Search filter hides empty regions.
 - **Camera (`CameraSection.tsx`)**: 3 sliders — FOV (with hover `ⓘ` tooltip and bullet list of reference values), min / max camera distance. Body-turn toggle also lives here since it shares the camera concept. `defaultShotExtent` in `config.ts` controls how tall a body the default FOV frames.
-
+- **PostFx (`PostFxSection.tsx`)**: Post-processing controller with bypass switch, ToneMapping mode capsule grid, and sliders for Bloom (strength/radius/threshold), Contrast, Brightness, Saturation, Hue, and Vignette. Full spec in [`docs/POSTFX.md`](POSTFX.md).
 - **EMAGE Perf (`EmagePerfSection.tsx`)**: Localhost acceptance panel for P0b — `crossOriginIsolated`, SharedArrayBuffer, `numThreads`, wasm_env, stage timings. Screenshot-friendly; not a public product surface.
 
 ---

@@ -34,7 +34,7 @@
       sans-serif;
     color: #f8fafc;
     user-select: none;
-    background-color: #0b0f19;
+    background-color: #0a0812;
     /* ponytail: 禁止横向滚动 — 移动端任何定位元素溢出都会被截,避免界面"跳动"。 */
     overflow-x: hidden;
     /* ponytail: iOS 点击高亮关掉,避免 button 闪蓝光。 */

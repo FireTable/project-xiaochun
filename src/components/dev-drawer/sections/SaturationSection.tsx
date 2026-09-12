@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import { vrmEngine, type MaterialSaturationSettings, type MaterialSaturationPresetKey } from '@/core/vrmEngine';
 import { APP_CONFIG } from '@/config';
-import { SliderWithAnchors } from '@/components/SliderWithAnchors';
+import { SliderWithAnchors, thumbInBoundsOffset } from '@/components/SliderWithAnchors';
 import { useDevDrawer } from '../context';
 import { SectionCard } from '../components/SectionCard';
 import { SectionHeader } from '../components/SectionHeader';
@@ -12,15 +12,17 @@ type SatKey = keyof Omit<MaterialSaturationSettings, 'preset'>;
 interface SatField {
   key: SatKey;
   labelKey: string;
+  minLabelKey: string;
+  maxLabelKey: string;
   range: [number, number];
   step: number;
 }
 
 const FIELDS: SatField[] = [
-  { key: 'clothing', labelKey: 'panel.clothingSat', range: [0.80, 2.00], step: 0.02 },
-  { key: 'hair',     labelKey: 'panel.hairSat',     range: [0.80, 2.00], step: 0.02 },
-  { key: 'eyes',     labelKey: 'panel.eyesSat',     range: [0.80, 2.00], step: 0.02 },
-  { key: 'skin',     labelKey: 'panel.skinSat',     range: [0.80, 1.30], step: 0.01 },
+  { key: 'clothing', labelKey: 'panel.clothingSat', minLabelKey: 'panel.satSliderLabels.clothing.min', maxLabelKey: 'panel.satSliderLabels.clothing.max', range: [0.80, 2.00], step: 0.02 },
+  { key: 'hair',     labelKey: 'panel.hairSat',     minLabelKey: 'panel.satSliderLabels.hair.min',     maxLabelKey: 'panel.satSliderLabels.hair.max',     range: [0.80, 2.00], step: 0.02 },
+  { key: 'eyes',     labelKey: 'panel.eyesSat',     minLabelKey: 'panel.satSliderLabels.eyes.min',     maxLabelKey: 'panel.satSliderLabels.eyes.max',     range: [0.80, 2.00], step: 0.02 },
+  { key: 'skin',     labelKey: 'panel.skinSat',     minLabelKey: 'panel.satSliderLabels.skin.min',     maxLabelKey: 'panel.satSliderLabels.skin.max',     range: [0.80, 1.30], step: 0.01 },
 ];
 
 const PRESETS: MaterialSaturationPresetKey[] = ['vibrant', 'sweet', 'cinematic', 'original'];
@@ -38,8 +40,13 @@ export const SaturationSection: React.FC = () => {
     if (!liveRefs.current[key]) liveRefs.current[key] = React.createRef<HTMLSpanElement>();
     return liveRefs.current[key];
   };
+  // ponytail: stored merge with default — 兜底 localStorage 缺字段或脏数据，避免渲染崩溃
+  const merge = (a: Partial<MaterialSaturationSettings>): MaterialSaturationSettings => ({
+    ...APP_CONFIG.saturation.default,
+    ...a,
+  });
   const [matSat, setMatSat] = useState<MaterialSaturationSettings>(
-    () => loadDevDrawerSettings()?.saturation ?? { ...vrmEngine.materialSaturation }
+    () => merge(loadDevDrawerSettings()?.saturation ?? vrmEngine.materialSaturation)
   );
 
   const handlePreset = (presetKey: MaterialSaturationPresetKey) => {
@@ -122,6 +129,21 @@ export const SaturationSection: React.FC = () => {
                 { value: APP_CONFIG.saturation.default[f.key], label: t('panel.sliderAnchors.configDefault'), color: 'brand' },
               ]}
             />
+            {(() => {
+              const centerPct = ((1.0 - f.range[0]) / (f.range[1] - f.range[0])) * 100;
+              return (
+                <div className="relative h-3 text-[9px] text-white/35 font-mono">
+                  <span className="absolute whitespace-nowrap left-0">{t(f.minLabelKey)}</span>
+                  <span
+                    className="absolute whitespace-nowrap -translate-x-1/2"
+                    style={{ left: `calc(${centerPct}% + ${thumbInBoundsOffset(centerPct)}px)` }}
+                  >
+                    100%
+                  </span>
+                  <span className="absolute whitespace-nowrap right-0">{t(f.maxLabelKey)}</span>
+                </div>
+              );
+            })()}
           </div>
         ))}
       </div>

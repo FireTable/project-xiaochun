@@ -35,8 +35,20 @@ export const CAMERA_STATE_KEY = 'xiaochun_camera_state';
 /** DevDrawer 所有面板的展开 / 值合并存储 */
 export const DEV_DRAWER_STORAGE_KEY = 'xiaochun_dev_drawer_all_settings';
 
+/**
+ * postfx 独立存储 key — 值同 DEV_DRAWER_STORAGE_KEY (postfx 字段存在里面),
+ * 但语义独立,core 模块 import 这个而不是 DEV_DRAWER_STORAGE_KEY,避免
+ * 跟 dev-drawer 类型耦合。旧 stored 数据完全兼容。
+ */
+export const POSTFX_STORAGE_KEY = DEV_DRAWER_STORAGE_KEY;
+
 /** DevDrawer 折叠状态(Set of section id) */
 export const DEV_DRAWER_COLLAPSED_KEY = 'xiaochun_dev_drawer_collapsed';
 
 /** DevDrawer 浮窗开 / 关 — App.tsx 头部齿轮按钮状态 */
 export const DEV_DRAWER_OPEN_KEY = 'xiaochun_dev_drawer_open';
+/** 当前 wearing 的 outfit addon key (null = 裸模 base)。TopHeader 持久化。 */
+export const WEARING_OUTFIT_KEY = 'xiaochun_wearing_outfit';
+
+/** 场景线稿背景主题 ('light' | 'dark')。TopHeader 场景切换持久化。 */
+export const SCENE_THEME_KEY = 'xiaochun_scene_theme';

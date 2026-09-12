@@ -7,6 +7,7 @@ import { BoneMorphSection } from './sections/BoneMorphSection';
 import { WardrobeSection } from './sections/WardrobeSection';
 import { LightingSection } from './sections/LightingSection';
 import { CameraSection } from './sections/CameraSection';
+import { PostFxSection } from './sections/PostFxSection';
 
 /**
  * SectionRenderer — 按 schema SECTIONS 数组渲染对应段组件。
@@ -20,6 +21,7 @@ const REGISTRY: Record<SectionId, React.FC> = {
   wardrobe: WardrobeSection,
   lighting: LightingSection,
   camera: CameraSection,
+  postfx: PostFxSection,
 };
 
 export const SectionRenderer: React.FC<{ id: SectionId }> = ({ id }) => {

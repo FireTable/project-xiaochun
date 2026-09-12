@@ -8,6 +8,9 @@ import { saveDevDrawerSettings, loadDevDrawerSettings } from '../storage';
 /**
  * ponytail: 服装部件穿脱调试 — 按类别分组,每个 part 一个 checkbox。
  * 每行单独 toggle,setPartVis 只改自己,不影响 drawer 其它部分。
+ *
+ * 注意:整套换装 (.vrmaddon) 按钮已迁到 TopHeader (面向普通用户),
+ * 这里只管单部件穿脱的 dev 调试。
  */
 export const WardrobeSection: React.FC = () => {
   const { t } = useDevDrawer();
@@ -89,13 +92,15 @@ export const WardrobeSection: React.FC = () => {
         showReset={modified}
         uppercase={false}
       />
-      <div className="flex justify-end -mt-1">
+      <div className="flex justify-end -mt-1 gap-1.5 flex-wrap">
         <button
           onClick={handleResetAllVisible}
           className="text-[10px] text-brand-300 hover:text-brand-200 border border-brand-500/30 hover:border-brand-400/50 bg-brand-500/10 px-2 py-0.5 rounded transition-all active:scale-95"
         >
           {t('panel.devDrawer.showAllParts')}
         </button>
+        {/* ponytail: 换装按钮已迁到 TopHeader (面向普通用户,不是 dev 调试)。
+            这里只管部件穿脱 (part visibility),与 swap 无关。 */}
       </div>
       <div className="flex flex-col gap-4">
         {MODEL_PART_CATEGORIES.map((cat) => {

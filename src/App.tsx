@@ -6,15 +6,21 @@ import { HeadBubble } from '@/components/HeadBubble';
 import { ChatBar } from '@/components/ChatBar';
 import { LoadingOverlay } from '@/components/LoadingOverlay';
 import { DevDrawer } from '@/components/dev-drawer';
+import { SceneCanvas } from '@/components/SceneCanvas';
 import { XIAOCHUN_SYSTEM_PROMPT } from '@/llm/prompts';
 import { resolveSystemPrompt, getCachedUserSettings, subscribeUserSettings } from '@/llm/userSettings';
 import { DEV_DRAWER_OPEN_KEY } from '@/lib/constants';
 import type { Lang } from '@/i18n';
 import { APP_CONFIG } from '@/config';
 
-const SceneCanvas = React.lazy(() =>
-  import('@/components/SceneCanvas').then((m) => ({ default: m.SceneCanvas }))
-);
+// ponytail: SceneCanvas 直接 eager import,不用 React.lazy + Suspense。
+// 原 lazy 是为了 chunk 拆分延迟首屏,但导致 mount 时机不可控:
+//   - lazy chunk 异步加载,SceneCanvas 实际 mount 时刻晚于 App 其他 children
+//   - TopHeader 的 120ms cold-start timer 不等 lazy,先触发 swapOutfit
+//   - loadVRMFromBuffer 回调跑时 this.controls 还没设(attachCanvas 在 SceneCanvas
+//     useEffect 里),'if (this.controls && !_sceneInitialized)' 分支跳过 startAnimation,
+//     模型加进 scene 但渲染循环没起 → 看不见。
+// SceneCanvas 只有 49 行,eager import 没 bundle 成本,但消除整条 race。
 
 export const App: React.FC = () => {
   const { t, i18n } = useTranslation();
@@ -124,7 +130,10 @@ export const App: React.FC = () => {
       const file = e.dataTransfer?.files?.[0];
       if (file && file.name.toLowerCase().endsWith('.vrm')) {
         const url = URL.createObjectURL(file);
-        engineModule?.vrmEngine.loadVRM(url, file.name);
+        // ponytail: 走 swapOutfit — 拖入文件也保留当前镜头/动作/视线。
+        engineModule?.vrmEngine.swapOutfit(url, file.name).catch((e) => {
+          console.error('[App] drop swap failed:', e);
+        });
       }
     };
 
@@ -142,11 +151,9 @@ export const App: React.FC = () => {
   }, [i18n]);
 
   return (
-    <div id="app" className="relative w-full h-screen h-[100dvh] overflow-hidden bg-[#0b0f19]">
+    <div id="app" className="relative w-full h-screen h-[100dvh] overflow-hidden bg-[#0a0812]">
       {/* 3D Canvas (按需异步挂载，不阻塞首屏骨架) */}
-      <React.Suspense fallback={<canvas id="vrm-canvas" className="absolute inset-0 w-full h-full block z-0" />}>
-        <SceneCanvas />
-      </React.Suspense>
+      <SceneCanvas />
 
       {/* 3D 角色头顶悬浮对话框 */}
       <HeadBubble state={bubble} />

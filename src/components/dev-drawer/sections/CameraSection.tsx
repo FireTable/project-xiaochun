@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import { vrmEngine } from '@/core/vrmEngine';
 import { APP_CONFIG } from '@/config';
-import { SliderWithAnchors } from '@/components/SliderWithAnchors';
+import { SliderWithAnchors, thumbInBoundsOffset } from '@/components/SliderWithAnchors';
 import { Tooltip, TooltipTrigger, TooltipContent } from '@/components/ui/tooltip';
 import { useDevDrawer } from '../context';
 import { SectionCard } from '../components/SectionCard';
@@ -71,17 +71,22 @@ export const CameraSection: React.FC = () => {
     saveDevDrawerSettings({
       camera: { minDistance: APP_CONFIG.camera.defaultMinDistance, maxDistance: APP_CONFIG.camera.defaultMaxDistance },
     });
-    setBodyTurnEnabled(true);
-    vrmEngine.setEnableBodyTurn(true);
-    saveDevDrawerSettings({ bodyTurnEnabled: true });
+    const defTurn = APP_CONFIG.camera.defaultEnableBodyTurn ?? true;
+    setBodyTurnEnabled(defTurn);
+    vrmEngine.setEnableBodyTurn(defTurn);
+    saveDevDrawerSettings({ bodyTurnEnabled: defTurn });
   };
 
   // ponytail: 任一项被改过都标 modified;reset 按钮一并显示
   const fovModified = Math.abs(fov - APP_CONFIG.camera.defaultFov) >= 1e-4;
   const minDistModified = Math.abs(minDist - APP_CONFIG.camera.defaultMinDistance) >= 1e-4;
   const maxDistModified = Math.abs(maxDist - APP_CONFIG.camera.defaultMaxDistance) >= 1e-4;
-  const bodyTurnModified = bodyTurnEnabled !== true;
+  const bodyTurnModified = bodyTurnEnabled !== (APP_CONFIG.camera.defaultEnableBodyTurn ?? true);
   const modified = fovModified || minDistModified || maxDistModified || bodyTurnModified;
+
+  const fovCenterPct = ((30 - 15) / (60 - 15)) * 100;
+  const minDistCenterPct = ((5.0 - 0.5) / (10 - 0.5)) * 100;
+  const maxDistCenterPct = ((15.0 - 3) / (30 - 3)) * 100;
 
   return (
     <SectionCard id="camera">
@@ -136,6 +141,16 @@ export const CameraSection: React.FC = () => {
             { value: APP_CONFIG.camera.defaultFov, label: t('panel.sliderAnchors.configDefault'), color: 'brand' },
           ]}
         />
+        <div className="relative h-3 text-[9px] text-white/35 font-mono">
+          <span className="absolute whitespace-nowrap left-0">{t('panel.cameraSliderLabels.fov.min')}</span>
+          <span
+            className="absolute whitespace-nowrap -translate-x-1/2"
+            style={{ left: `calc(${fovCenterPct}% + ${thumbInBoundsOffset(fovCenterPct)}px)` }}
+          >
+            30°
+          </span>
+          <span className="absolute whitespace-nowrap right-0">{t('panel.cameraSliderLabels.fov.max')}</span>
+        </div>
       </div>
       {/* 镜头距离范围 — 鼠标滚轮 / pinch 缩放的钳位上下限,改完立即生效 */}
       <div
@@ -158,6 +173,16 @@ export const CameraSection: React.FC = () => {
             { value: APP_CONFIG.camera.defaultMinDistance, label: t('panel.sliderAnchors.configDefault'), color: 'brand' },
           ]}
         />
+        <div className="relative h-3 text-[9px] text-white/35 font-mono">
+          <span className="absolute whitespace-nowrap left-0">{t('panel.cameraSliderLabels.minDist.min')}</span>
+          <span
+            className="absolute whitespace-nowrap -translate-x-1/2"
+            style={{ left: `calc(${minDistCenterPct}% + ${thumbInBoundsOffset(minDistCenterPct)}px)` }}
+          >
+            5.0m
+          </span>
+          <span className="absolute whitespace-nowrap right-0">{t('panel.cameraSliderLabels.minDist.max')}</span>
+        </div>
       </div>
       <div
         className="flex flex-col gap-1"
@@ -179,6 +204,16 @@ export const CameraSection: React.FC = () => {
             { value: APP_CONFIG.camera.defaultMaxDistance, label: t('panel.sliderAnchors.configDefault'), color: 'brand' },
           ]}
         />
+        <div className="relative h-3 text-[9px] text-white/35 font-mono">
+          <span className="absolute whitespace-nowrap left-0">{t('panel.cameraSliderLabels.maxDist.min')}</span>
+          <span
+            className="absolute whitespace-nowrap -translate-x-1/2"
+            style={{ left: `calc(${maxDistCenterPct}% + ${thumbInBoundsOffset(maxDistCenterPct)}px)` }}
+          >
+            15.0m
+          </span>
+          <span className="absolute whitespace-nowrap right-0">{t('panel.cameraSliderLabels.maxDist.max')}</span>
+        </div>
       </div>
       <div className="flex items-center justify-between gap-2">
         <div className="flex flex-col gap-0.5 min-w-0">
