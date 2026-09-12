@@ -150,11 +150,10 @@ export const PostFxSection: React.FC = () => {
   };
 
   const handleReset = () => {
-    const def = APP_CONFIG.postfx;
-    postFxPipeline.config = { ...def };
-    postFxPipeline.applyConfig();
-    setConfig({ ...def });
-    saveDevDrawerSettings({ postfx: { ...def } });
+    postFxPipeline.resetToDefault();
+    const def = { ...postFxPipeline.config };
+    setConfig(def);
+    saveDevDrawerSettings({ postfx: def });
   };
 
   // 启动时把 config 同步到 pipeline (vrmEngine 已经在 init 时 set 过,这里只是保险)

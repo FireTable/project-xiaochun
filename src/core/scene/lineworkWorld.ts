@@ -23,22 +23,22 @@ export class LineworkWorld {
 
   public currentTheme: LineworkTheme = 'light';
   private bgTextureLight: THREE.CanvasTexture | null = null;
-  private bgColorDark: THREE.Color = new THREE.Color(0x0a0812);
+  private bgColorDark: THREE.Color = new THREE.Color(0x202020);
   private lineMat: THREE.LineBasicMaterial | null = null;
   private buildingWireMat: THREE.MeshBasicMaterial | null = null;
   private groundTreeMat: THREE.MeshBasicMaterial | null = null;
 
-  /** 创建双色阶竖向渐变 CanvasTexture */
+  /** 创建高采样双色阶竖向渐变 CanvasTexture */
   private createGradientTexture(topColor: string, bottomColor: string): THREE.CanvasTexture {
     const canvas = document.createElement('canvas');
-    canvas.width = 2;
-    canvas.height = 2;
+    canvas.width = 4;
+    canvas.height = 512;
     const ctx = canvas.getContext('2d')!;
-    const grad = ctx.createLinearGradient(0, 0, 0, 2);
+    const grad = ctx.createLinearGradient(0, 0, 0, 512);
     grad.addColorStop(0, topColor);
     grad.addColorStop(1, bottomColor);
     ctx.fillStyle = grad;
-    ctx.fillRect(0, 0, 2, 2);
+    ctx.fillRect(0, 0, 4, 512);
     const texture = new THREE.CanvasTexture(canvas);
     this.disposables.push(texture);
     return texture;
@@ -51,34 +51,35 @@ export class LineworkWorld {
     this.disposables = [];
     this.currentTheme = initialTheme;
 
-    // ── 0. 预制浅白渐变背景与极夜纯净炭黑(#0a0812) ──
-    // 暗黑模式使用纯色 THREE.Color(0x0a0812)，杜绝任何贴图双色采样产生的中间水平横向分界线
+    // ── 0. 预制浅白渐变背景与中性纯净炭黑纯色背景 ──
+    // 暗黑模式使用纯色 THREE.Color(0x202020)，彻底根除 8-bit 显示器在暗色平缓渐变下
+    // 必然出现的色阶断层阶梯横线（Color Banding / Mach Banding），纯净平滑且绝不吃黑衣服。
     this.bgTextureLight = this.createGradientTexture('#FAFAF5', '#F5F3ED');
-    this.bgColorDark = new THREE.Color(0x0a0812);
+    this.bgColorDark = new THREE.Color(0x202020);
 
     scene.background = initialTheme === 'dark' ? this.bgColorDark : this.bgTextureLight;
 
     // ── 材质单例池 ──
-    // 暗黑模式下使用内敛的淡银灰白（低对比度微泛冷调，不刺眼，柔和沉静）
+    // 暗黑模式下使用高可见度纯中性银白线稿（彻底消除蓝色偏色，让树木、建筑与地面清晰呈现）
     const isDark = initialTheme === 'dark';
     this.lineMat = new THREE.LineBasicMaterial({
-      color: isDark ? 0x94a3b8 : 0x8a8a8a, // 柔和银灰 (slate-400)
+      color: isDark ? 0xe4e4e7 : 0x8a8a8a, // 纯净银白 (gray-200)
       transparent: true,
-      opacity: isDark ? 0.50 : 0.55,
+      opacity: isDark ? 0.70 : 0.55,
       depthWrite: false,
     });
     this.buildingWireMat = new THREE.MeshBasicMaterial({
-      color: isDark ? 0x64748b : 0x9aa5c4, // 暮色灰白 (slate-500)
+      color: isDark ? 0xa1a1aa : 0x9aa5c4, // 纯净中灰线框 (gray-400)
       wireframe: true,
       transparent: true,
-      opacity: isDark ? 0.35 : 0.50,
+      opacity: isDark ? 0.50 : 0.50,
       depthWrite: false,
     });
     this.groundTreeMat = new THREE.MeshBasicMaterial({
-      color: isDark ? 0x475569 : 0x8a8a8a, // 沉底冷灰 (slate-600)
+      color: isDark ? 0xd4d4d8 : 0x8a8a8a, // 高可见纯银白树木与地面线框 (gray-300，清晰透亮)
       wireframe: true,
       transparent: true,
-      opacity: isDark ? 0.30 : 0.55,
+      opacity: isDark ? 0.75 : 0.55,
       depthWrite: false,
     });
 
@@ -278,16 +279,16 @@ export class LineworkWorld {
 
     if (this.lineMat && this.buildingWireMat && this.groundTreeMat) {
       const isDark = theme === 'dark';
-      this.lineMat.color.setHex(isDark ? 0x94a3b8 : 0x8a8a8a);
-      this.lineMat.opacity = isDark ? 0.50 : 0.55;
+      this.lineMat.color.setHex(isDark ? 0xe4e4e7 : 0x8a8a8a);
+      this.lineMat.opacity = isDark ? 0.70 : 0.55;
       this.lineMat.needsUpdate = true;
 
-      this.buildingWireMat.color.setHex(isDark ? 0x64748b : 0x9aa5c4);
-      this.buildingWireMat.opacity = isDark ? 0.35 : 0.50;
+      this.buildingWireMat.color.setHex(isDark ? 0xa1a1aa : 0x9aa5c4);
+      this.buildingWireMat.opacity = isDark ? 0.50 : 0.50;
       this.buildingWireMat.needsUpdate = true;
 
-      this.groundTreeMat.color.setHex(isDark ? 0x475569 : 0x8a8a8a);
-      this.groundTreeMat.opacity = isDark ? 0.30 : 0.55;
+      this.groundTreeMat.color.setHex(isDark ? 0xd4d4d8 : 0x8a8a8a);
+      this.groundTreeMat.opacity = isDark ? 0.75 : 0.55;
       this.groundTreeMat.needsUpdate = true;
     }
   }

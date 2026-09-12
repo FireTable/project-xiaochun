@@ -696,6 +696,10 @@ export class VRMEngine {
     this.notifyHeightChange();
   }
 
+  public resetPostFx(): void {
+    this.postFx.resetToDefault();
+  }
+
   // 保持旧接口 100% 兼容
   public setHipScale(scale: number): void {
     this.bodyMorph.setPart('hips', scale);

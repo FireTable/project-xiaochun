@@ -33,9 +33,8 @@ export const HeadBubble: React.FC<HeadBubbleProps> = ({ state }) => {
       <div className="relative max-w-[240px] sm:max-w-xs px-3.5 sm:px-4 py-2 sm:py-2.5 rounded-2xl bg-slate-950/90 border border-white/20 shadow-2xl backdrop-blur-2xl flex flex-col gap-1 text-center ring-1 ring-brand-400/30 animate-in fade-in zoom-in-95 duration-200 pointer-events-auto">
         {state.statusKey && (
           <div
-            className={`flex items-center justify-center gap-1.5 text-[11px] font-medium tracking-wide shrink-0 ${
-              state.isError ? 'text-rose-400 font-semibold' : 'text-brand-300'
-            }`}
+            className={`flex items-center justify-center gap-1.5 text-[11px] font-medium tracking-wide shrink-0 ${state.isError ? 'text-rose-400 font-semibold' : 'text-brand-300'
+              }`}
           >
             {state.isError ? (
               <AlertCircle className="w-3 h-3 text-rose-400 shrink-0" />
@@ -65,19 +64,41 @@ export const HeadBubble: React.FC<HeadBubbleProps> = ({ state }) => {
         {/* 只有在“来啦来啦～” (speaking) 状态时才展示文本，其他时候仅展示状态提示 */}
         {isSpeaking && state.speechText && (
           <div
-            className={`text-sm font-medium text-white leading-snug break-words max-h-[calc(5*1.375em)] overflow-y-auto pr-1.5 pl-0.5 select-text custom-bubble-scrollbar pointer-events-auto ${
-              state.speechText.length > 30 ? 'text-left' : 'text-center'
-            }`}
+            className={`text-sm font-medium text-white leading-snug break-words max-h-[calc(5*1.375em)] overflow-y-auto pr-1.5 pl-0.5 select-text custom-bubble-scrollbar pointer-events-auto ${state.speechText.length > 30 ? 'text-left' : 'text-center'
+              }`}
           >
             {state.speechText}
           </div>
         )}
-        {/* 对话框微光小尾巴 — 纯下三角(clip-path) */}
-        <div
-          aria-hidden
-          className="absolute -bottom-1.5 left-1/2 -translate-x-1/2 w-3 h-2 bg-slate-950/90"
-          style={{ clipPath: 'polygon(0% 0%, 100% 0%, 50% 100%)' }}
-        />
+        {/* 对话框微光小尾巴 — 倒三角，位于气泡底部外侧向下延伸，描边与气泡边框及光晕完美融合 */}
+        <svg
+          aria-hidden="true"
+          className="absolute top-[calc(100%+1px)] left-1/2 -translate-x-1/2 w-3.5 h-2 overflow-visible pointer-events-none z-10"
+          viewBox="0 0 14 8"
+          fill="none"
+        >
+          {/* 填充：顶部向上延伸 1px 覆盖住气泡底边框，气泡内部与小尾巴完全连通 */}
+          <path
+            d="M-0.5 -1 L14.5 -1 L14 0 L7 7.5 L0 0 Z"
+            className="fill-slate-950"
+          />
+          {/* 光晕外描边：与气泡 ring-1 ring-brand-400/30 严丝合缝 */}
+          <path
+            d="M0 0 L7 7.5 L14 0"
+            stroke="rgba(234, 131, 119, 0.30)"
+            strokeWidth="2"
+            strokeLinecap="round"
+            strokeLinejoin="round"
+          />
+          {/* 核心边框描边：与气泡 border-white/20 严格对齐一致 */}
+          <path
+            d="M0 0 L7 7.5 L14 0"
+            stroke="rgba(255, 255, 255, 0.20)"
+            strokeWidth="1"
+            strokeLinecap="round"
+            strokeLinejoin="round"
+          />
+        </svg>
       </div>
     </div>
   );

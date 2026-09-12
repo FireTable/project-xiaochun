@@ -9,8 +9,11 @@ import huggingface from '@/assets/llm-providers/huggingface.svg?raw';
 import stability from '@/assets/llm-providers/stability.svg?raw';
 import together from '@/assets/llm-providers/together.svg?raw';
 import ai2 from '@/assets/llm-providers/ai2.svg?raw';
+import minicpm from '@/assets/llm-providers/minicpm.svg?raw';
 
 const SVG: Record<string, string> = {
+  MiniCPM: minicpm,
+  OpenBMB: minicpm,
   Qwen: qwen,
   DeepSeek: deepseek,
   Llama: meta,

@@ -188,8 +188,23 @@ export class PostFxPipeline {
     this.colorGrading = new ShaderPass(ColorGradingShader);
     this.composer.addPass(this.colorGrading);
 
-    // OutputPass: 收尾,自动应用 toneMapping + sRGB
-    this.composer.addPass(new OutputPass());
+    // OutputPass: 收尾,自动应用 toneMapping + sRGB，并注入 Jimenez IGN 8-bit 高频抖色（Dithering）
+    // 彻底消除暗黑背景在辉光扩散边缘、暗角衰减、平滑渐变处的 8-bit 色阶断层（Mach Banding / 圆弧硬光圈）
+    const outputPass = new OutputPass();
+    if (outputPass.material) {
+      const origFrag = outputPass.material.fragmentShader;
+      const lastBraceIdx = origFrag.lastIndexOf('}');
+      if (lastBraceIdx !== -1) {
+        outputPass.material.fragmentShader = `${origFrag.slice(0, lastBraceIdx)}
+      // Jimenez Interleaved Gradient Noise (IGN) 8-bit 高频抖色（Dithering）：
+      // 将 15 与 16 之间的硬阶跃边缘彻底抹平成平滑自然的人眼连续过渡
+      float ign = fract(52.9829189 * fract(dot(gl_FragCoord.xy, vec2(0.06711056, 0.00583715))));
+      gl_FragColor.rgb += (ign - 0.5) / 255.0;
+    }`;
+        outputPass.material.needsUpdate = true;
+      }
+    }
+    this.composer.addPass(outputPass);
 
     this._ready = true;
   }
@@ -259,6 +274,19 @@ export class PostFxPipeline {
 
   setEnabled(on: boolean): void {
     this.config.enabled = on;
+    this.applyConfig();
+  }
+
+  /** 重置所有后期效果至默认配置 DEFAULT_POSTFX_CONFIG */
+  resetToDefault(): void {
+    this.config = {
+      enabled: DEFAULT_POSTFX_CONFIG.enabled,
+      bloom: { ...DEFAULT_POSTFX_CONFIG.bloom },
+      vignette: { ...DEFAULT_POSTFX_CONFIG.vignette },
+      toneMapping: { ...DEFAULT_POSTFX_CONFIG.toneMapping },
+      bc: { ...DEFAULT_POSTFX_CONFIG.bc },
+      hs: { ...DEFAULT_POSTFX_CONFIG.hs },
+    };
     this.applyConfig();
   }
 

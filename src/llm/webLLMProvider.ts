@@ -6,7 +6,13 @@
  * 自定义 HTTP provider 见 ./customProvider.ts。
  */
 
-import { CreateWebWorkerMLCEngine, prebuiltAppConfig, type WebWorkerMLCEngine } from '@mlc-ai/web-llm';
+import {
+  CreateWebWorkerMLCEngine,
+  prebuiltAppConfig,
+  type WebWorkerMLCEngine,
+  type ModelRecord,
+  type AppConfig,
+} from '@mlc-ai/web-llm';
 import { APP_CONFIG } from '@/config';
 import { readActiveModel, writeActiveModel } from './activeModel';
 import { THINKING_PREF_KEY } from '@/lib/constants';
@@ -18,6 +24,24 @@ import { detectGpuDeviceProfile, getQuickDeviceTier, getCachedDeviceProfile, typ
 export { detectGpuDeviceProfile, getQuickDeviceTier, getCachedDeviceProfile, type GpuDeviceProfile };
 
 import './polyfill';
+
+export const CUSTOM_WEBLLM_MODELS: ModelRecord[] = [
+  {
+    model: 'https://huggingface.co/ozhyhinas/MiniCPM5-2B-q4f16_1-MLC',
+    model_id: 'MiniCPM5-2B-q4f16_1-MLC',
+    model_lib:
+      'https://huggingface.co/ozhyhinas/MiniCPM5-2B-q4f16_1-MLC/resolve/main/libs/MiniCPM5-2B-q4f16_1-MLC-webgpu.wasm',
+    vram_required_MB: 1600,
+    low_resource_required: false,
+    overrides: {
+      context_window_size: 4096,
+    },
+  },
+];
+
+export const APP_LLM_CONFIG: AppConfig = {
+  model_list: [...CUSTOM_WEBLLM_MODELS, ...prebuiltAppConfig.model_list],
+};
 
 export const DEFAULT_LLM_MODEL = APP_CONFIG.llm.model;
 export const FALLBACK_LLM_MODEL = APP_CONFIG.llm.fallback;
@@ -62,12 +86,13 @@ const llmReadyListeners = new Set<() => void>();
 const readyChangeListeners = new Set<(ready: boolean) => void>();
 
 function isKnownModelId(id: string): boolean {
-  return prebuiltAppConfig.model_list.some((m) => m.model_id === id);
+  return APP_LLM_CONFIG.model_list.some((m) => m.model_id === id);
 }
 
 const QUANT_SUF = /-(q[0-9]f[0-9]+(?:_[0-9]+)?)-MLC(?:-1k)?$/i;
 
 const PROVIDER_RE: [RegExp, string][] = [
+  [/^minicpm/i, 'MiniCPM'],
   [/^deepseek/i, 'DeepSeek'],
   [/^openhermes/i, 'OpenHermes'],
   [/^neuralhermes/i, 'NeuralHermes'],
@@ -101,7 +126,7 @@ export type LlmModelGroup = { provider: string; models: LlmModelOption[] };
 /** ponytail: 跳过 embedding / -1k;同一模型优先 q4f16_1。 */
 export function listModelGroups(): LlmModelGroup[] {
   const byName = new Map<string, { id: string; quant: string; shortCtx: boolean }[]>();
-  for (const rec of prebuiltAppConfig.model_list) {
+  for (const rec of APP_LLM_CONFIG.model_list) {
     const id = rec.model_id;
     if (/embed/i.test(id)) continue;
     const m = id.match(/^(.*)-(q[0-9]f[0-9]+(?:_[0-9]+)?)-MLC(-1k)?$/i);
@@ -124,9 +149,13 @@ export function listModelGroups(): LlmModelGroup[] {
     groups.set(provider, arr);
   }
 
-  const keys = [...groups.keys()].sort((a, b) =>
-    a === 'Qwen' ? -1 : b === 'Qwen' ? 1 : a.localeCompare(b),
-  );
+  const keys = [...groups.keys()].sort((a, b) => {
+    if (a === 'MiniCPM') return -1;
+    if (b === 'MiniCPM') return 1;
+    if (a === 'Qwen') return -1;
+    if (b === 'Qwen') return 1;
+    return a.localeCompare(b);
+  });
   return keys.map((provider) => ({ provider, models: groups.get(provider)! }));
 }
 
@@ -282,6 +311,7 @@ export async function getWebLLMEngine(opts?: {
 
     try {
       const engine = await CreateWebWorkerMLCEngine(worker, modelId, {
+        appConfig: APP_LLM_CONFIG,
         initProgressCallback: (report) => {
           if (gen !== loadGen) return;
           notifyLoadProgress(report.progress, report.text);
@@ -304,6 +334,7 @@ export async function getWebLLMEngine(opts?: {
         engineWorker = freshWorker;
         activeModelId = FALLBACK_LLM_MODEL;
         const engine = await CreateWebWorkerMLCEngine(freshWorker, FALLBACK_LLM_MODEL, {
+          appConfig: APP_LLM_CONFIG,
           initProgressCallback: (report) => {
             if (gen !== loadGen) return;
             notifyLoadProgress(report.progress, report.text);

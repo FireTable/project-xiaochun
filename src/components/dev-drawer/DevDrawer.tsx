@@ -141,6 +141,19 @@ export const DevDrawer: React.FC<DevDrawerProps> = ({ isOpen, onClose }) => {
     vrmEngine.setExpression('neutral');
     saveDevDrawerSettings({ activeExpr: 'neutral' });
 
+    // 重置 PostFx 后期效果管线至默认状态并持久化
+    vrmEngine.resetPostFx();
+    saveDevDrawerSettings({
+      postfx: {
+        enabled: APP_CONFIG.postfx.enabled,
+        bloom: { ...APP_CONFIG.postfx.bloom },
+        vignette: { ...APP_CONFIG.postfx.vignette },
+        toneMapping: { ...APP_CONFIG.postfx.toneMapping },
+        bc: { ...APP_CONFIG.postfx.bc },
+        hs: { ...APP_CONFIG.postfx.hs },
+      },
+    });
+
     // ponytail: 自增 resetSignal,让所有 SectionRenderer remount,每段 useState
     // initializer 重新从已重置的 engine 读值,补回段级 state 同步
     setResetSignal((s) => s + 1);
