@@ -40,6 +40,7 @@ const ANTI_CLIP_BONES: Record<string, number> = {
   rightLowerArm:   Math.PI / 2.5,
 };
 
+
 // ponytail: 旋转四元数按比例 factor 缩放 (用于衰减肩膀/锁骨异常旋转)
 function scaleQuaternion(values: Float32Array, offset: number, factor: number) {
   const x = values[offset], y = values[offset + 1], z = values[offset + 2], w = values[offset + 3];

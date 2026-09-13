@@ -24,14 +24,12 @@ To guarantee sub-second outfit swapping without inducing frame drops or UI hitch
 │                                               │ (Sends URL + SHA metadata)  │
 │   ┌───────────────────────────────────────────┼──────────────────────────┐  │
 │   │ 3D Render Loop (60 FPS, 16.6ms Strict Order)│                          │  │
-│   │  ├─ 1. Motion Pose Evaluation             │                          │  │
-│   │  ├─ 2. FootIK Barefoot Sink               ▼                          │  │
-│   │  ├─ 3. Smootherstep Crossfade         [ensureBspatchWorker()]        │  │
-│   │  ├─ 5. BodyTurn Stepping Locomotion       │                          │  │
-│   │  ├─ 7. GazeController LookAt & Blink     │ postMessage(req)         │  │
-│   │  ├─ 8. vrm.update() Bones & Physics       │ (Transferable Zero-Copy) │  │
-│   │  ├─ 9. VRMBodyMorph 28 Proportions        │                          │  │
-│   │  └─ 10. PostFx Bloom & Tone Pipeline      ▼                          │  │
+│   │  ├─ 1. FootIK sink + scene.y              │                          │  │
+│   │  ├─ 2. pipeline.tick (Quintic 0.75s)      ▼                          │  │
+│   │  ├─ 3. draft → FootIK + Gaze → compose  [ensureBspatchWorker()]      │  │
+│   │  ├─ 4. vrm.update() Bones & Physics       │ postMessage(req)         │  │
+│   │  ├─ 5. VRMBodyMorph + head-top HUD        │ (Transferable Zero-Copy) │  │
+│   │  └─ 6. PostFx Bloom & Tone Pipeline       ▼                          │  │
 │   └──────────────────────────────────────────────────────────────────────┘  │
 └───────────────────────────────────────────────┼─────────────────────────────┘
                                                 │ IPC (Web Worker API)
@@ -66,9 +64,9 @@ To guarantee sub-second outfit swapping without inducing frame drops or UI hitch
 | **StudioLighting** | `this.studioLighting` (`./lighting/studioLighting.ts`) | 3-channel studio lighting (dir 1.00 key with 2048 shadow map, hemi 0.95 ambient sky, fill 1.40 backlight contour). |
 | **VRMMaterialManager** | `this.materialManager` (`./material/vrmMaterialManager.ts`) | Mesh classification (skin / hair / eyes / clothing), `uMatSaturation` uniform injection, and component visibility toggle. |
 | **VRMBodyMorph** | `this.bodyMorph` (`./morph/vrmBodyMorph.ts`) | 28-parameter bone morphing, posterior boundary anchoring, cosine falloff abdominal vertex morphing, and dynamic crown measurement. |
-| **GazeController** | `this.gazeController` (`@/motion/gazeController.ts`) | Eye contact, micro-saccades, biological limits (Yaw $\pm 45^\circ$, Pitch $-20^\circ \sim +30^\circ$), and thinking head tilts. |
-| **BubbleTracker** | `this.bubbleTracker` (`./ui/bubbleTracker.ts`) | Projects head 3D world coordinates to screen 2D positions; applies 1.5px deadzone smoothing and directly updates DOM Transforms. |
-| **UniversalMotion** | `this.motionPipeline` (`@/motion/pipeline/motionPipeline.ts`) | 5-layer blend graph (Layer 0 Idle, Layer 1 Action/Speech, Layer 2 Locomotion), Quintic Smootherstep crossfade. |
+| **GazeController** | `this.gazeController` (`@/motion/constraints/gaze.ts`) | Eye contact, micro-saccades, biological limits (Yaw $\pm 45^\circ$, Pitch $-20^\circ \sim +30^\circ$); thinking sway from `MotionTraits.thinkSway`. |
+| **BubbleTracker** | `this.bubbleTracker` (`./ui/bubbleTracker.ts`) | Projects `getHeadTopWorldPosition` (raw crown) to screen; 1.5px deadzone; direct DOM transforms. |
+| **MotionPipeline** | `this.motionPipeline` (`@/motion/pipeline/motionPipeline.ts`) | Exclusive live writer, Quintic 0.75s, FootIK+Gaze on draft, then `composeLayeredSmooth`. |
 | **PostFxPipeline** | `postFxPipeline` (`./postfx/postFxPipeline.ts`) | Anime bloom (UnrealBloomPass with background bypass), tone mapping selection, and single-pass BC/HS color grading. |
 
 ### 2.2 The 10-Step Render Loop Order & Delta Clamping
@@ -81,16 +79,12 @@ let delta = this.clock.getDelta();
 if (delta > 0.1) delta = 0.016; // Clamped to ~60 FPS single step
 ```
 
-1. **Step 1 (Motion)**: Evaluates active motion source (Idle / Think / Speech / Universal) into pre-allocated pose buffers;
-2. **Step 2 (FootIK Sink)**: Computes barefoot sink (`updateBarefoot`) and updates `scene.position.y` to align with the ground plane;
-3. **Step 3 (Transition)**: Evaluates Quintic Smootherstep interpolation ($6t^5 - 15t^4 + 10t^3$);
-4. **Step 4 (Sync)**: Non-destructive pose snapshot sampling (`sampleFromVRM`);
-5. **Step 5 (BodyTurn)**: Locomotion stepping FSM and critically damped spring yaw tracking;
-6. **Step 6 (FootIK Leveling)**: Ground sole leveling and contrapposto weight-shift (yields during stepping);
-7. **Step 7 (Gaze)**: Companion eye gaze interpolation, saccades, and natural blinking;
-8. **Step 8 (VRM Internal)**: Calls `vrm.update(delta)` to propagate normalized humanoid bones and drive secondary SpringBone physics;
-9. **Step 9 (BodyMorph)**: Applies 28-parameter bone scaling and vertex deformation (**never overwrites bone quaternions here!**);
-10. **Step 10 (PostFx)**: Renders via `postFxPipeline.render()` when enabled, or straight-through `renderer.render()` when disabled.
+1. **Step 1 (Sink)**: Barefoot sink and `scene.position.y` before motion so IK sees the floor;
+2. **Step 2 (Motion tick)**: `selectLiveMotionSource`, Quintic 0.75s, BodyTurn `LEGS_MASK`;
+3. **Step 3 (inside tick)**: Draft commit → FootIK (EMAGE, faded) + Gaze multiply → sample → `composeLayeredSmooth` → commit;
+4. **Step 4 (VRM Internal)**: `vrm.update(delta)` copies normalized → raw and drives SpringBone;
+5. **Step 5 (BodyMorph + HUD)**: 28-parameter morph; bubble/ruler use `getHeadTopWorldPosition`;
+6. **Step 6 (PostFx)**: `postFxPipeline.render()` when enabled, or `renderer.render()` when disabled.
 
 ### 2.3 Camera Framing & Frustum Adaptation
 

@@ -1,5 +1,6 @@
 import * as THREE from 'three';
 import type { VRM, VRMHumanBoneName } from '@pixiv/three-vrm';
+import { TORSO_PITCH_BONES, TORSO_PITCH_LIMITS, clampQuaternionPitch } from '../biomechanics';
 
 /**
  * VRM 全量人形骨骼权威清单 (52 根标准人形骨骼)
@@ -35,11 +36,47 @@ export const BONE_INDEX_MAP = new Map<VRMHumanBoneName, number>(
   PIPELINE_BONES.map((name, i) => [name, i])
 );
 
+const BONE_BLEND_SPEED = new Float32Array(PIPELINE_BONES.length);
+const BONE_MAX_SPEED = new Float32Array(PIPELINE_BONES.length);
+
+(function initBoneSmoothTables(): void {
+  for (let i = 0; i < PIPELINE_BONES.length; i++) {
+    const name = PIPELINE_BONES[i]!;
+    if (name === 'neck' || name === 'head') {
+      BONE_BLEND_SPEED[i] = 22;
+      BONE_MAX_SPEED[i] = 12;
+    } else if (
+      name.includes('Thumb') || name.includes('Index') || name.includes('Middle')
+      || name.includes('Ring') || name.includes('Little')
+    ) {
+      BONE_BLEND_SPEED[i] = 32;
+      BONE_MAX_SPEED[i] = 16;
+    } else if (
+      name.includes('Shoulder') || name.includes('UpperArm')
+      || name.includes('LowerArm') || name === 'leftHand' || name === 'rightHand'
+    ) {
+      BONE_BLEND_SPEED[i] = 28;
+      BONE_MAX_SPEED[i] = 12;
+    } else {
+      BONE_BLEND_SPEED[i] = 28;
+      BONE_MAX_SPEED[i] = 12;
+    }
+  }
+})();
+
 /**
  * 身体部位遮罩 (Bone Masks)
  */
 export const LOWER_BODY_MASK: readonly VRMHumanBoneName[] = [
   'hips',
+  'leftUpperLeg', 'rightUpperLeg',
+  'leftLowerLeg', 'rightLowerLeg',
+  'leftFoot', 'rightFoot',
+  'leftToes', 'rightToes',
+] as const;
+
+/** BodyTurn overlay: legs only. Hips rotation stays with Layer-1 (EMAGE/idle). */
+export const LEGS_MASK: readonly VRMHumanBoneName[] = [
   'leftUpperLeg', 'rightUpperLeg',
   'leftLowerLeg', 'rightLowerLeg',
   'leftFoot', 'rightFoot',
@@ -128,6 +165,18 @@ export class PoseBuffer {
   }
 
   /**
+   * 将头颈骨骼重置为标准中立 (Identity) 姿态，
+   * 确保待机底图等无头动作图层保持纯净中立，完全由 GazeController 独立接管
+   */
+  resetHeadNeck(): this {
+    const neckIdx = BONE_INDEX_MAP.get('neck');
+    if (neckIdx !== undefined) this.quaternions[neckIdx]!.identity();
+    const headIdx = BONE_INDEX_MAP.get('head');
+    if (headIdx !== undefined) this.quaternions[headIdx]!.identity();
+    return this;
+  }
+
+  /**
    * 全身四元数球形线性插值 (Slerp)：this = this.slerp(target, alpha)
    */
   slerp(target: PoseBuffer, alpha: number): this {
@@ -162,7 +211,98 @@ export class PoseBuffer {
   }
 
   /**
-   * 剔除快照中的 LookAt 增量，确保姿态为纯净基底姿态，绝不发生视线二次叠加
+   * 解剖学双层复合 (Layered Compositor):
+   * 自身作为最终姿态容器，下半身（hips, legs, feet）来自 lower，上半身（spine, chest, arms, hands, fingers）来自 upper
+   */
+  composeLayered(lower: PoseBuffer, upper: PoseBuffer): this {
+    for (const boneName of LOWER_BODY_MASK) {
+      const idx = BONE_INDEX_MAP.get(boneName);
+      if (idx !== undefined) {
+        this.quaternions[idx]!.copy(lower.quaternions[idx]!);
+      }
+    }
+    this.hipsPosition.copy(lower.hipsPosition);
+    this.sceneY = lower.sceneY;
+
+    for (const boneName of UPPER_BODY_MASK) {
+      const idx = BONE_INDEX_MAP.get(boneName);
+      if (idx !== undefined) {
+        this.quaternions[idx]!.copy(upper.quaternions[idx]!);
+      }
+    }
+    return this;
+  }
+
+  /** Rest-relative sagittal clamp on torso + neck. */
+  clampTorsoPitch(rest: PoseBuffer): this {
+    for (let i = 0; i < TORSO_PITCH_BONES.length; i++) {
+      const boneName = TORSO_PITCH_BONES[i]!;
+      const idx = BONE_INDEX_MAP.get(boneName);
+      const limit = TORSO_PITCH_LIMITS[boneName];
+      if (idx === undefined || !limit) continue;
+      clampQuaternionPitch(this.quaternions[idx]!, limit.min, limit.max, rest.quaternions[idx]!);
+    }
+    return this;
+  }
+
+  /**
+   * 解剖学双层平滑复合 (Smooth Layered Compositor):
+   * 结合下半身与上半身姿态，并施加人体生理角速度限幅与连续时间阻尼滤波，
+   * 彻底消除任何单帧突变、图层接缝跳变与机械撕扯，确保全身每个部位均符合生理运动连续曲线。
+   *
+   * @param lower 下半身姿态源
+   * @param upper 上半身姿态源
+   * @param delta 帧耗时 (秒)
+   */
+  composeLayeredSmooth(
+    lower: PoseBuffer,
+    upper: PoseBuffer,
+    delta: number,
+  ): this {
+    const dt = Math.max(0.0001, Math.min(delta, 0.1));
+
+    for (const boneName of LOWER_BODY_MASK) {
+      const idx = BONE_INDEX_MAP.get(boneName);
+      if (idx === undefined) continue;
+      this.smoothBoneQuaternion(idx, lower.quaternions[idx]!, dt);
+    }
+
+    const hipsK = BONE_BLEND_SPEED[BONE_INDEX_MAP.get('hips') ?? 0]!;
+    const hipsAlpha = 1.0 - Math.exp(-hipsK * dt);
+    const maxPosDelta = 2.5 * dt;
+    const posDist = this.hipsPosition.distanceTo(lower.hipsPosition);
+    if (posDist > 0.00001) {
+      const step = Math.min(posDist * hipsAlpha, maxPosDelta);
+      this.hipsPosition.lerp(lower.hipsPosition, step / posDist);
+    }
+    this.sceneY = THREE.MathUtils.damp(this.sceneY, lower.sceneY, hipsK, dt);
+
+    for (const boneName of UPPER_BODY_MASK) {
+      const idx = BONE_INDEX_MAP.get(boneName);
+      if (idx === undefined) continue;
+      this.smoothBoneQuaternion(idx, upper.quaternions[idx]!, dt);
+    }
+
+    return this;
+  }
+
+  private smoothBoneQuaternion(idx: number, targetQ: THREE.Quaternion, dt: number): void {
+    const curQ = this.quaternions[idx]!;
+    const dot = Math.abs(curQ.dot(targetQ));
+    const angleDist = 2.0 * Math.acos(Math.min(1.0, Math.max(0.0, dot)));
+    if (angleDist < 0.0001) return;
+
+    const k = BONE_BLEND_SPEED[idx]!;
+    const maxSpeed = BONE_MAX_SPEED[idx]!;
+    const filterAlpha = 1.0 - Math.exp(-k * dt);
+    const stepAlpha = Math.min(filterAlpha, Math.min(1.0, (maxSpeed * dt) / angleDist));
+    curQ.slerp(targetQ, stepAlpha);
+  }
+
+  /**
+   * Strip LookAt only when this buffer was sampled from VRM bones that already
+   * have gaze multiplied on. Anatomical pipeline buffers (`finalPose`) must not
+   * be stripped — that bakes inverse gaze into the Quintic start.
    */
   removeLookAtOffsets(lookAtOffsets?: { neck?: THREE.Quaternion; head?: THREE.Quaternion }): void {
     if (!lookAtOffsets) return;
@@ -202,4 +342,19 @@ export class PoseBuffer {
     }
     vrm.scene.position.y = this.sceneY;
   }
+}
+
+/**
+ * Copy a pose for Quintic crossfade. `srcIncludesGaze` is true only for
+ * snapshots taken from live VRM after GazeController. Pipeline `finalPose`
+ * is committed before gaze — pass false.
+ */
+export function copyTransitionSnapshot(
+  dest: PoseBuffer,
+  src: PoseBuffer,
+  lookAtOffsets: { neck?: THREE.Quaternion; head?: THREE.Quaternion } | undefined,
+  srcIncludesGaze: boolean,
+): void {
+  dest.copyFrom(src);
+  if (srcIncludesGaze) dest.removeLookAtOffsets(lookAtOffsets);
 }

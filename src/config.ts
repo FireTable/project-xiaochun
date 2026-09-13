@@ -237,7 +237,7 @@ export const APP_CONFIG = {
     // ponytail: base 产物 sha256 — IDB cache key 的一部分,build 后产物变了 runtime
     // 就 miss,自动重 fetch。短截(16 字符)够去重,sha256 完整值在 build 时会跟
     // HEAD sha 比对。workflow 跑完会打 "actual" / "config" mismatch 提示更新。
-    defaultSha: 'eb090d94e8793e0f',
+    defaultSha: 'e99fcc335a512b5a',
     // 换装 addons: key 是 addon 唯一 id(用作按钮标识 + 持久化匹配),
     // source 是 .vrmaddon / .vrmbase 路径,name 是 UI 展示的名字,
     // sha 是产物 sha256 (见 defaultSha 注释,跟 base 同作用)。
@@ -248,28 +248,28 @@ export const APP_CONFIG = {
       'xiaochun_default': {
         source: '/vrm/addons/xiaochun_default.vrmaddon',
         name: 'XiaoChun Techwear',
-        sha: '32b02fcf5ee21da2',
+        sha: '6f774a958e133307',
         default: true,
       },
       'xiaochun_cheongsam': {
         source: '/vrm/addons/xiaochun_cheongsam.vrmaddon',
         name: 'XiaoChun Cheongsam',
-        sha: 'bcd248a210724664',
+        sha: 'c2bf3c1591a5a22a',
       },
       'xiaochun_bikini': {
         source: '/vrm/addons/xiaochun_bikini.vrmaddon',
         name: 'XiaoChun Bikini',
-        sha: 'b3dd472430eac4e1',
+        sha: 'a70c7d5a10665b72',
       },
       'xiaochun_maid': {
         source: '/vrm/addons/xiaochun_maid.vrmaddon',
         name: 'XiaoChun Maid',
-        sha: '3ceb4eb087027c4e',
+        sha: '318e2d2914d76b4d',
       },
       'xiaochun_swimsuit': {
         source: '/vrm/addons/xiaochun_swimsuit.vrmaddon',
         name: 'XiaoChun Swimsuit',
-        sha: '7757778f88392f50',
+        sha: 'b118fc2f8550cbaf',
       },
     } as Record<string, { source: string; name: string; sha: string; default?: boolean }>,
   },
@@ -315,7 +315,7 @@ export const APP_CONFIG = {
       hipIntensity: 0.70,              // 骨盆微动 0.1~1.0；↑重心微移，↓下盘更钉
       legIntensity: 0.70,              // 腿跟随 0.1~1.0；↑更跟胯，↓腿更静（脚仍 FootIK）
       headIntensity: 0.80,             // 头颈 0.1~1.0；↑更跟模型点头，↓少乌龟颈
-      dampingStiffness: 4.2,           // 阻尼刚度约 2~8；↑跟手更快更硬，↓更柔可能拖影
+      dampingStiffness: 6.5,           // 阻尼刚度约 2~8；↑跟手更快更硬，↓更柔可能拖影
       temporalSmoothRadius: 12,        // 时序平滑帧约 3~24（12≈0.8s@30fps）；↑更糊更软，↓更跟音频但窗缝更硬
       chunkSeamMaxFrames: 14,          // chunk 接缝最大帧约 3~24；↑接缝更长更柔，↓大跳易拽一下
       streamingCatchUpRate: 1.08,      // 追音频钟倍率约 1.0~1.3；↑追上更快易 yank，↓更稳但可能更滞后
@@ -449,11 +449,11 @@ export const APP_CONFIG = {
       torsoLength: 1.00,
       torsoThickness: 0.90,
       waist: 0.70,
-      belly: 0.90,
+      belly: 0.80,
       hips: 1.00,
-      buttocks: 1.05,
+      buttocks: 1.12,
       buttocksThickness: 1.00,
-      buttocksPitch: -0.05,
+      buttocksPitch: 0.02,
       buttocksSpread: 0.002,
       bust: 1.00,
       bustThickness: 1.00,

@@ -4,9 +4,10 @@
 > - [`src/director/chatDirector.ts`](../src/director/chatDirector.ts) (Director orchestration & pipeline scheduler)  
 > - [`src/lib/utils.ts`](../src/lib/utils.ts) (Speech chunking single source of truth: `splitIntoSpeechChunks` & `extractNextSpeechChunk`)  
 > - [`src/components/HeadBubble.tsx`](../src/components/HeadBubble.tsx) (3D head bubble & status capsules)  
-> - [`src/motion/speakIdle.ts`](../src/motion/speakIdle.ts) (Speech-gap biomechanical micro-motion)  
+> - [`src/motion/sources/speakIdle.ts`](../src/motion/sources/speakIdle.ts) (Speech-gap biomechanical micro-motion)  
 > - [`src/server.ts`](../src/server.ts) (Edge-TTS proxy + COOP/COEP document isolation)
-> - [`src/motion/emageWorker.ts`](../src/motion/emageWorker.ts) / [`emagePlayer.ts`](../src/motion/emagePlayer.ts) (streaming `motion_chunk`)
+> - [`src/motion/sources/emageWorker.ts`](../src/motion/sources/emageWorker.ts) / [`emage.ts`](../src/motion/sources/emage.ts) (streaming `motion_chunk`; `copyToPoseBuffer`)
+> - [`src/motion/pipeline/motionPipeline.ts`](../src/motion/pipeline/motionPipeline.ts) (`playThinkingClip` / `beginEmageSpeech`)
 > - [`EMAGE_MODEL.md`](EMAGE_MODEL.md) (EP / INT8 / limits)
 
 ---
@@ -95,6 +96,8 @@ Dialogue bubbles strictly follow the **Anti-Spoil Principle**:
 | **TTS Synthesis** | `'tts'` | Blue capsule: `🎙️ Preparing voice...` | Maintains conversational pacing |
 | **EMAGE Synthesis** | `'emage'` | Amber capsule: `✨ Rehearsing gestures...` | Displays pipeline state only |
 | **Active Speech** | `'speaking'` | **Expands full speech bubble with text** | **Reveals dialogue text exclusively when audio & motion play!** |
+
+Screen position uses `VRMBodyMorph.getHeadTopWorldPosition` (raw crown), the same anchor as the dev height ruler — not the normalized `head` joint + 0.24m.
 
 ---
 

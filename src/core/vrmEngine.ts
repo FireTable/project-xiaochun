@@ -4,17 +4,11 @@ import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
 import { VRM, VRMLoaderPlugin, VRMUtils, type VRMExpressionPresetName } from '@pixiv/three-vrm';
 import { CAMERA_STATE_KEY, SCENE_THEME_KEY } from '@/lib/constants';
 
-import { VRMAMotionPlayer } from '@/motion/vrmaPlayer';
-import { EmagePlayer } from '@/motion/emagePlayer';
-import { FootIKSolver } from '@/motion/footIK';
 import { VRMBodyMorph } from './morph/vrmBodyMorph';
 import { postFxPipeline, type PostFxPipeline } from './postfx/postFxPipeline';
-import { NaturalIdleSystem } from '@/motion/naturalIdle';
 import { ChatDirector } from '@/director/chatDirector';
-import { MotionTransitionManager } from '@/motion/motionTransition';
-import { BodyTurnSystem } from '@/motion/bodyTurn';
-import { MotionPipeline, type PipelineMotionSource } from '@/motion/pipeline/motionPipeline';
-import type { PlayMotionOptions, UniversalMotionHandle } from '@/motion/pipeline/universalMotion';
+import { MotionPipeline } from '@/motion/pipeline/motionPipeline';
+import type { PlayMotionOptions, UniversalMotionHandle } from '@/motion/sources/clip';
 import { preloadWebLLM, unloadWebLLM } from '@/llm/webLLMProvider';
 import { APP_CONFIG, type LightConfig } from '@/config';
 import { loadPostFxEnabledFromStorage, getRenderPixelRatio, resolveInitialSceneTheme } from '@/lib/utils';
@@ -33,7 +27,6 @@ import {
   MODEL_PARTS_CONFIG,
   MODEL_PART_CATEGORIES,
 } from './material/vrmMaterialManager';
-import { GazeController } from '@/motion/gazeController';
 import { BubbleTracker, type BubbleState } from './ui/bubbleTracker';
 import {
   captureExpressions,
@@ -78,15 +71,6 @@ export interface LightChannelState {
   base: number;
   enabled: boolean;
 }
-
-// 踱步转身过渡专用骨骼清单：仅限于下半身腿部与髋部，绝对不污染头颈视线追踪与上身呼吸手势
-const BODY_TURN_BONES = [
-  'hips',
-  'leftUpperLeg', 'rightUpperLeg',
-  'leftLowerLeg', 'rightLowerLeg',
-  'leftFoot', 'rightFoot',
-  'leftToes', 'rightToes',
-] as const;
 
 // ponytail: 相机视点持久化 — 用户在 OrbitControls 里调过的位置 / target
 // 写到 localStorage,下次构造 OrbitControls 时直接还原,免得每次刷新都回默认。
@@ -173,15 +157,16 @@ export class VRMEngine {
   private lineworkWorld = new LineworkWorld();
   public readonly lighting = new StudioLighting();
   public readonly materialManager = new VRMMaterialManager();
-  public readonly gazeController = new GazeController();
   public readonly bubbleTracker = new BubbleTracker();
 
-  // ── 动作管线与驱动模块 ──
+  // ── 动作管线（sources + constraints 由 pipeline 持有）──
   public readonly motionPipeline = new MotionPipeline();
-  private motionTransition = new MotionTransitionManager();
-  private vrmaPlayer = new VRMAMotionPlayer();
-  private emagePlayer = new EmagePlayer();
-  public readonly footIK = new FootIKSolver();
+  public get gazeController() { return this.motionPipeline.gaze; }
+  public get footIK() { return this.motionPipeline.footIK; }
+  public get emagePlayer() { return this.motionPipeline.emage; }
+  private get motionTransition() { return this.motionPipeline.transition; }
+  private get vrmaPlayer() { return this.motionPipeline.vrma; }
+  private get bodyTurn() { return this.motionPipeline.bodyTurn; }
   public readonly bodyMorph = new VRMBodyMorph(APP_CONFIG.bodyMorph.default);
   // ponytail: 后期管线单例 — attachCanvas 时 init,render() 走 composer
   public readonly postFx: PostFxPipeline = postFxPipeline;
@@ -209,16 +194,12 @@ export class VRMEngine {
       try { cb(); } catch (e) { console.warn('[VRMEngine] onHeightChange 回调异常:', e); }
     });
   }
-  private naturalIdle = new NaturalIdleSystem();
-  private bodyTurn = new BodyTurnSystem();
   private chatDirector = new ChatDirector();
 
   // ── 实体状态 ──
   public currentVRM: VRM | null = null;
   private currentUrl: string = APP_CONFIG.model.defaultSource;
-  private activePlayer: PipelineMotionSource = 'idle';
   private manualExpression: string | null = null;
-  private bodyTurnIsStepping = false;
   public enableBodyTurn: boolean = APP_CONFIG.camera.defaultEnableBodyTurn ?? true;
 
   // ─── 头顶实时身高测量指示线与 HUD 标牌 (Height Ruler) ───
@@ -251,8 +232,6 @@ export class VRMEngine {
 
   constructor() {
     this.loader.register((parser) => new VRMLoaderPlugin(parser));
-    this.emagePlayer.footIK = this.footIK;
-    this.emagePlayer.getLookAtOffsets = () => this.gazeController.getLookAtOffsets();
     this.initScene();
   }
 
@@ -401,7 +380,7 @@ export class VRMEngine {
 
     // 动作与聊天控制器事件绑定
     this.vrmaPlayer.bindTransitionManager(this.motionTransition);
-    this.chatDirector.bindTransitionManager(this.motionTransition);
+    this.chatDirector.bindPipeline(this.motionPipeline);
     this.chatDirector.onSuspendRendering = () => this.suspendRendering();
     this.chatDirector.onResumeRendering = () => this.resumeRendering();
     this.chatDirector.onInferenceStart = () => this.setInferenceMode(true);
@@ -818,7 +797,7 @@ export class VRMEngine {
       this.motionTransition.stop();
       this.emagePlayer.stop();
       this.manualExpression = null;
-      this.activePlayer = 'idle';
+      this.motionPipeline.setMotionSource('idle', 0.01);
     }
 
     // 强制清理场景中历史遗留的任何 3D 标尺 mesh (彻底杜绝蓝色方块残留)
@@ -886,15 +865,10 @@ export class VRMEngine {
             this.emagePlayer.pause();
 
             // 3. 将所有控制器重定向绑定到新模型
-            this.vrmaPlayer.bind(vrm);
-            this.vrmaPlayer.resetHipsRest();
             this.motionPipeline.bind(vrm);
+            this.vrmaPlayer.resetHipsRest();
             this.motionPipeline.finalPose.sampleFromVRM(vrm);
-            this.footIK.bind(vrm);
             this.bodyMorph.bind(vrm);
-            this.emagePlayer.bind(vrm);
-            this.naturalIdle.bind(vrm);
-            this.bodyTurn.bind(vrm);
             if (typeof window !== 'undefined') {
               (window as any).emagePlayer = this.emagePlayer;
             }
@@ -930,15 +904,10 @@ export class VRMEngine {
           this.scene.add(vrm.scene);
           this.notifyReady(true);
 
-          this.vrmaPlayer.bind(vrm);
-          this.vrmaPlayer.resetHipsRest();
           this.motionPipeline.bind(vrm);
+          this.vrmaPlayer.resetHipsRest();
           this.motionPipeline.finalPose.sampleFromVRM(vrm);
-          this.footIK.bind(vrm);
           this.bodyMorph.bind(vrm);
-          this.emagePlayer.bind(vrm);
-          this.naturalIdle.bind(vrm);
-          this.bodyTurn.bind(vrm);
           if (typeof window !== 'undefined') {
             (window as any).emagePlayer = this.emagePlayer;
           }
@@ -986,16 +955,15 @@ export class VRMEngine {
     const vrmaPlayback = this.vrmaPlayer.getPlayback();
     const emagePlayback = this.emagePlayer.getPlayback();
     const universalPlayback = this.motionPipeline.universalMotion.getPlayback();
-    const thinking = this.chatDirector.isThinking;
+    const writer = this.motionPipeline.getLiveWriter();
     const emageActive = this.emagePlayer.isPlaying() || this.emagePlayer.streamingMotionActive;
-    const universalLive = this.motionPipeline.isMotionPlaying();
-    const vrmaLive = this.vrmaPlayer.isPlaying() || thinking;
+    const thinking = this.motionPipeline.vrma.traits.thinkSway || this.motionPipeline.idle.traits.thinkSway;
 
     let motionSource: OutfitSwapState['motionSource'] = 'idle';
-    if (universalLive) motionSource = 'motion';
-    else if (emageActive) motionSource = 'emage';
+    if (writer === 'clip') motionSource = 'motion';
+    else if (emageActive || writer === 'emage') motionSource = 'emage';
     else if (thinking) motionSource = 'thinking';
-    else if (vrmaLive) motionSource = 'vrma';
+    else if (writer === 'vrma') motionSource = 'vrma';
 
     return {
       motionSource,
@@ -1059,7 +1027,7 @@ export class VRMEngine {
       if (state.emagePlaying || state.emageStreaming) {
         this.emagePlayer.resume();
       }
-      this.activePlayer = 'emage';
+      this.motionPipeline.setMotionSource('emage', 0.01);
     }
 
     // Thinking clip (buffer) — re-warm then seek.
@@ -1073,9 +1041,10 @@ export class VRMEngine {
         }
         if (buf) {
           const clip = await this.vrmaPlayer.parseBufferToClip(buf, vrm);
-          this.vrmaPlayer.playLoop(clip, vrm, 0.01);
+          this.motionPipeline.playThinkingClip(clip, vrm, 0.01);
           this.vrmaPlayer.seek(state.vrmaTime);
-          this.activePlayer = 'vrma';
+        } else {
+          this.motionPipeline.setIdleThinkSway(true);
         }
       } catch (e) {
         console.warn('[outfitSwap] thinking restore failed:', e);
@@ -1100,7 +1069,7 @@ export class VRMEngine {
             this.vrmaPlayer.playClipOnMixer(clip, vrm, 0.01);
           }
           this.vrmaPlayer.seek(state.vrmaTime);
-          this.activePlayer = 'vrma';
+          this.motionPipeline.setMotionSource('vrma', 0.01);
         }
       } catch (e) {
         console.warn('[outfitSwap] VRMA restore failed:', e);
@@ -1126,7 +1095,7 @@ export class VRMEngine {
           lookAtOffsets,
         );
         this.motionPipeline.universalMotion.seek(state.universalTime);
-        this.activePlayer = 'motion';
+        this.motionPipeline.setMotionSource('motion', 0.01);
       } catch (e) {
         console.warn('[outfitSwap] universal motion restore failed:', e);
       }
@@ -1134,7 +1103,7 @@ export class VRMEngine {
     }
 
     if (!state.emageActive) {
-      this.activePlayer = 'idle';
+      this.motionPipeline.setMotionSource('idle', 0.01);
     }
   }
 
@@ -1210,7 +1179,7 @@ export class VRMEngine {
       this.motionTransition.stop();
       this.emagePlayer.stop();
       this.manualExpression = null;
-      this.activePlayer = 'idle';
+      this.motionPipeline.setMotionSource('idle', 0.01);
     }
 
     return new Promise<VRM>((resolve, reject) => {
@@ -1263,15 +1232,10 @@ export class VRMEngine {
             this.emagePlayer.pause();
 
             // 3. 将所有控制器重定向绑定到新模型
-            this.vrmaPlayer.bind(vrm);
-            this.vrmaPlayer.resetHipsRest();
             this.motionPipeline.bind(vrm);
+            this.vrmaPlayer.resetHipsRest();
             this.motionPipeline.finalPose.sampleFromVRM(vrm);
-            this.footIK.bind(vrm);
             this.bodyMorph.bind(vrm);
-            this.emagePlayer.bind(vrm);
-            this.naturalIdle.bind(vrm);
-            this.bodyTurn.bind(vrm);
             if (typeof window !== 'undefined') {
               (window as any).emagePlayer = this.emagePlayer;
             }
@@ -1307,15 +1271,10 @@ export class VRMEngine {
           this.scene.add(vrm.scene);
           this.notifyReady(true);
 
-          this.vrmaPlayer.bind(vrm);
-          this.vrmaPlayer.resetHipsRest();
           this.motionPipeline.bind(vrm);
+          this.vrmaPlayer.resetHipsRest();
           this.motionPipeline.finalPose.sampleFromVRM(vrm);
-          this.footIK.bind(vrm);
           this.bodyMorph.bind(vrm);
-          this.emagePlayer.bind(vrm);
-          this.naturalIdle.bind(vrm);
-          this.bodyTurn.bind(vrm);
           if (typeof window !== 'undefined') (window as any).emagePlayer = this.emagePlayer;
 
           if (!this.emagePlayer.ready) void this.emagePlayer.ensureLoaded();
@@ -1489,12 +1448,7 @@ export class VRMEngine {
   }
 
   public isMotionPlaying(): boolean {
-    return (
-      this.motionPipeline.isMotionPlaying() ||
-      this.vrmaPlayer.isPlaying() ||
-      this.emagePlayer.isPlaying() ||
-      this.chatDirector.isThinking
-    );
+    return this.motionPipeline.getLiveWriter() !== 'idle';
   }
 
   // ── 聊天与气泡追踪 ──
@@ -1509,6 +1463,9 @@ export class VRMEngine {
       segmentIndex?: number,
       totalSegments?: number,
     ) => {
+      if (this.currentVRM) {
+        this.bodyMorph.getHeadTopWorldPosition(this.tempHeadTopPos);
+      }
       this.bubbleTracker.setStatus(
         key,
         this.currentVRM,
@@ -1517,7 +1474,8 @@ export class VRMEngine {
         isError,
         speechText,
         segmentIndex,
-        totalSegments
+        totalSegments,
+        this.currentVRM ? this.tempHeadTopPos : undefined,
       );
     };
 
@@ -1539,6 +1497,9 @@ export class VRMEngine {
       segmentIndex?: number,
       totalSegments?: number,
     ) => {
+      if (this.currentVRM) {
+        this.bodyMorph.getHeadTopWorldPosition(this.tempHeadTopPos);
+      }
       this.bubbleTracker.setStatus(
         key,
         this.currentVRM,
@@ -1547,7 +1508,8 @@ export class VRMEngine {
         isError,
         speechText,
         segmentIndex,
-        totalSegments
+        totalSegments,
+        this.currentVRM ? this.tempHeadTopPos : undefined,
       );
     };
 
@@ -1604,92 +1566,23 @@ export class VRMEngine {
 
       const vrm = this.currentVRM;
       if (vrm) {
-        const universalLive = this.motionPipeline.isMotionPlaying();
-        const emageLive = this.emagePlayer.isPlaying();
-        const vrmaLive = this.vrmaPlayer.isPlaying() || this.chatDirector.isThinking;
-        const lookAtOffsets = this.gazeController.getLookAtOffsets();
-
-        // 1. 统一动作源判定与流转 (Universal Motion State Graph)
-        let targetSource: PipelineMotionSource = 'idle';
-        let targetDuration = 0.88;
-
-        if (universalLive) {
-          targetSource = 'motion';
-          targetDuration = this.motionPipeline.universalMotion.getCurrentOptions().fadeDuration ?? 0.75;
-        } else if (emageLive) {
-          targetSource = 'emage';
-          targetDuration = 0.70;
-        } else if (vrmaLive) {
-          targetSource = 'vrma';
-          targetDuration = 0.78;
-        } else {
-          targetSource = 'idle';
-          targetDuration = 0.88;
-        }
-
-        if (this.activePlayer !== targetSource) {
-          this.motionPipeline.setMotionSource(targetSource, targetDuration, lookAtOffsets);
-          this.motionTransition.startTransition(vrm, targetDuration, lookAtOffsets);
-          this.activePlayer = targetSource;
-        }
-
-        // 2. 驱动对应主动作更新
-        if (universalLive) {
-          this.motionPipeline.universalMotion.update(delta);
-        } else if (emageLive) {
-          this.emagePlayer.update(delta);
-        } else if (vrmaLive) {
-          this.vrmaPlayer.update(delta);
-        } else {
-          this.naturalIdle.update(time, 1.0, this.bodyTurn.isStepping());
-        }
-
-        // 裸足地锚与高度自适应：由 FootIK 解算器统一管理下沉量与背屈
         const isShoesOff = this.materialManager.partsVisibility['shoes'] === false;
         this.footIK.updateBarefoot(isShoesOff, delta);
 
         const currentSceneBaseY = this.vrmBaseSceneY - this.footIK.getSinkOffset() + this.bodyMorph.getLegHeightDelta();
         vrm.scene.position.y = currentSceneBaseY;
-        if (this.emagePlayer) this.emagePlayer.baseY = currentSceneBaseY;
+        this.emagePlayer.baseY = currentSceneBaseY;
 
-        // 3. 全局平滑过渡器加权 Slerp 统一接管 (Quintic Smootherstep 抹平一切跨状态切入切出)
-        this.motionTransition.apply(vrm, delta);
-
-        // 4. 同步管线最终姿态快照 (非破坏性只读采样)
-        this.motionPipeline.finalPose.sampleFromVRM(vrm);
-
-        // 5. 转身物理踱步系统 (BodyTurn)
-        if (this.enableBodyTurn) {
-          const _btHead = vrm.humanoid?.getNormalizedBoneNode('head');
-          const _btPos = new THREE.Vector3();
-          if (_btHead) _btHead.getWorldPosition(_btPos);
-          else _btPos.copy(vrm.scene.position);
-          const _dx = this.camera.position.x - _btPos.x;
-          const _dz = this.camera.position.z - _btPos.z;
-          const _targetYaw = Math.atan2(_dx, _dz) - vrm.scene.rotation.y;
-          const normYaw = Math.atan2(Math.sin(_targetYaw), Math.cos(_targetYaw));
-          const yawDelta = this.bodyTurn.update(delta, normYaw, emageLive);
-          vrm.scene.rotation.y += yawDelta;
-
-          this.handleBodyTurnHandoff(vrm);
-        }
-
-        const isStepping = this.enableBodyTurn && this.bodyTurn.isStepping();
-        this.footIK.levelFeet(vrm, isStepping);
-
-        this.chatDirector.tick(vrm, this.vrmaPlayer);
-
-        // 6. 委托 GazeController 处理眨眼、视线追踪、思考神态与头颈微晃
-        this.gazeController.update(
-          vrm,
+        this.motionPipeline.tick(vrm, {
+          camera: this.camera,
           delta,
           time,
-          this.camera,
-          this.chatDirector.isThinking,
-          this.chatDirector.speaking,
-          emageLive,
-          this.manualExpression,
-        );
+          enableBodyTurn: this.enableBodyTurn,
+          isSpeaking: this.chatDirector.speaking,
+          manualExpression: this.manualExpression,
+        });
+
+        this.chatDirector.tick(vrm, this.vrmaPlayer);
 
         vrm.update(delta);
         this.bodyMorph.update(vrm);
@@ -1712,7 +1605,8 @@ export class VRMEngine {
         }
 
         // 8. 委托 BubbleTracker 更新 3D 头部气泡屏幕坐标 (带 1.5px 死区过滤)
-        this.bubbleTracker.update(vrm, this.camera);
+        this.bodyMorph.getHeadTopWorldPosition(this.tempHeadTopPos);
+        this.bubbleTracker.update(vrm, this.camera, this.tempHeadTopPos);
 
         // 9. 头顶实时身高指示折线与 3D 浮动 HUD 胶囊标牌 (彻底去掉蓝色方块，发光指示线优雅连接)
         // ponytail: liveHeight 每帧无条件读,与 canvas ruler / drawer chip 共用同一个值;
@@ -1776,13 +1670,6 @@ export class VRMEngine {
     };
 
     animate(0);
-  }
-
-  private handleBodyTurnHandoff(vrm: VRM): void {
-    const isStepping = this.bodyTurn.isStepping();
-    if (isStepping === this.bodyTurnIsStepping) return;
-    this.bodyTurnIsStepping = isStepping;
-    this.motionTransition.startTransition(vrm, 0.30, undefined, BODY_TURN_BONES);
   }
 
   public dispose(): void {

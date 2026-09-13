@@ -1,9 +1,9 @@
 # Procedural Locomotion Stepping & Gaze Tracking Systems
 
 > **Core Files**:  
-> - [`src/motion/bodyTurn.ts`](../src/motion/bodyTurn.ts) (Procedural physical locomotion stepping state machine)  
-> - [`src/motion/gazeController.ts`](../src/motion/gazeController.ts) (Companion gaze, micro-saccades & blink controller)  
-> - [`src/core/vrmEngine.ts`](../src/core/vrmEngine.ts) (Render loop coordination for stepping & gaze)
+> - [`src/motion/constraints/bodyTurn.ts`](../src/motion/constraints/bodyTurn.ts) (Procedural physical locomotion stepping state machine)  
+> - [`src/motion/constraints/gaze.ts`](../src/motion/constraints/gaze.ts) (Companion gaze, micro-saccades & blink controller)  
+> - [`src/motion/pipeline/motionPipeline.ts`](../src/motion/pipeline/motionPipeline.ts) (`tick()`: BodyTurn in Layer-2; FootIK + Gaze on the draft before `composeLayeredSmooth`)
 
 ---
 
@@ -11,7 +11,7 @@
 
 When orbiting the camera around an avatar, naively rotating `vrm.scene.rotation.y` produces an artificial, floating swivel effect.
 Project XiaoChun couples two complementary systems to deliver organic presence:
-1. **`BodyTurnSystem`**: Drives procedural footsteps through an "intent-first $\to$ stepping $\to$ pelvic weight shift $\to$ settle" biomechanical progression;
+1. **`BodyTurnSystem`**: Drives procedural footsteps through spring yaw + stepping + pelvic weight shift + settle. It does **not** rotate the spine.
 2. **`GazeController`**: Delivers organic ocular micro-saccades, physiological blinking, contemplative eye wandering, and decoupled head tracking.
 
 ---
@@ -20,16 +20,17 @@ Project XiaoChun couples two complementary systems to deliver organic presence:
 
 ### 2.1 Critical Damped Spring Yaw Tracking
 
-When camera angle offset exceeds `TURN_START_THRESHOLD = 0.90 rad` ($\sim 51.5^\circ$), turning engages:
-- **Spring Formulation**: Let target relative yaw be $\text{normYaw} \in [-\pi, \pi]$, stiffness $k = 8.0$;
-- **Critical Damping**: $d = 2\sqrt{k} \approx 5.657$, guaranteeing smooth angular convergence with zero oscillations:
+When camera angle offset exceeds `TURN_START_THRESHOLD = 0.42 rad` ($\sim 24^\circ$), turning engages:
+- **Spring Formulation**: Let target relative yaw be $\text{normYaw} \in [-\pi, \pi]$, stiffness $k = 7.0$;
+- **Critical Damping**: $d = 2\sqrt{k} \approx 5.29$, guaranteeing smooth angular convergence with zero oscillations:
   $$F_{\text{yaw}} = k \cdot \text{normYaw} - d \cdot \omega_{\text{yaw}}$$
-  $$\omega_{\text{yaw}} \leftarrow \text{clamp}\big(\omega_{\text{yaw}} + F_{\text{yaw}} \cdot \Delta t, \; -4.0, \; 4.0\big)$$
+  $$\omega_{\text{yaw}} \leftarrow \text{clamp}\big(\omega_{\text{yaw}} + F_{\text{yaw}} \cdot \Delta t, \; -3.5, \; 3.5\big)$$
   $$\Delta \text{Yaw}_{\text{scene}} = \omega_{\text{yaw}} \cdot \Delta t$$
+- **Stopping Deadband & Anti-Overstepping**: Once the offset drops below `TURN_STOP_THRESHOLD = 0.20 rad` ($\sim 11.5^\circ$), `isTurning` flags false. When the active step completes its `SETTLE` phase, if the remaining angle is within $11.5^\circ$, the character immediately settles into `IDLE` on two planted feet without taking an unnecessary, redundant extra step. Remaining minor angles are absorbed naturally by `GazeController`.
 
 ### 2.2 Four-Phase Stepping State Machine
 
-During locomotion, alternating legs progress through four physiological phases:
+During locomotion, alternating legs progress through four physiological phases. **A step once started is guaranteed to complete its full cycle (`LIFT -> SWING -> PLANT -> SETTLE`)**, eliminating mid-air abrupt truncations and pelvic jolting.
 
 ```
        [SP.LIFT] (0.18s)         [SP.SWING] (0.14s)
@@ -43,19 +44,14 @@ During locomotion, alternating legs progress through four physiological phases:
 
 | Phase (`SP`) | Duration | Stepping Leg Action | Support Leg Action | Pelvic Sway (`Hip Sway`) |
 | :--- | :--- | :--- | :--- | :--- |
-| **`LIFT`** | 0.18s | Thigh lifts $-0.20\text{ rad}$, knee flexes $+0.36\text{ rad}$, ankle $-0.12\text{ rad}$ | Stays upright & grounded | Pelvis shifts $1.8\text{ cm}$ toward support leg |
-| **`SWING`** | 0.14s | Thigh stays raised, lower leg extends, ankle returns | Firm support | Sustains lateral balance |
-| **`PLANT`** | 0.08s | Leg slerps smoothly to ground | Prepares transition | Shifts weight onto newly planted foot |
-| **`SETTLE`** | 0.18s | Both legs settle to neutral; swaps stepping leg if turn continues | Symmetric settle | Centers over base of support |
+| **`LIFT`** | 0.18s | Thigh lifts $-0.30\text{ rad}$, knee flexes $+0.70\text{ rad}$, ankle $-0.12\text{ rad}$ | Stays upright & grounded | Pelvis lateral sway subdued ($0.9\text{ cm}$) to decouple upper torso |
+| **`SWING`** | 0.14s | Thigh stays raised, lower leg extends, ankle returns | Firm support | Upper torso remains steady and upright |
+| **`PLANT`** | 0.08s | Leg slerps smoothly to ground | Prepares transition | Foot touches down naturally |
+| **`SETTLE`** | 0.18s | Both legs settle to neutral; swaps stepping leg if turn continues | Symmetric settle | Centers over base of support; transitions to `IDLE` if $\le 11.5^\circ$ |
 
-### 2.3 Spine Pre-rotation (Intent-First Dynamics)
+### 2.3 No spine yaw
 
-Human turns initiate through subtle thoracic and lumbar rotation before the feet move.
-The system pushes `normYaw` into a temporal delay buffer:
-- `upperChest`: Delay $\sim 80\text{ms}$, subtle factor $0.04$;
-- `chest`: Delay $\sim 160\text{ms}$, subtle factor $0.03$;
-- `spine`: Factor $0.01$;
-Total spine yaw is bounded under $\le 0.08\text{ rad}$, providing natural anticipation without pulling the head away from camera gaze.
+BodyTurn owns `vrm.scene.rotation.y` and **legs only** (`LEGS_MASK`). Hip rotation stays with Layer-1. `spine` / `chest` / `upperChest` stay with Layer-1. Gaze multiplies LookAt on the draft VRM; compose follows that head.
 
 ---
 
@@ -80,15 +76,15 @@ Natural human gaze continuously shifts with subtle subconscious dynamics:
 
 > [!CAUTION]
 > ### Rule 1: Bone Filtering in Stepping Handoffs (`handleBodyTurnHandoff`)
-> When stepping concludes (`isStepping` toggles from `true` to `false`), a $0.30\text{s}$ transition smooths the final settling.  
-> **Always pass `BODY_TURN_BONES`** (restricted strictly to `hips`, `upperLeg`, `lowerLeg`, `foot`, `toes`).  
-> **Never include `head` or `neck` in stepping handoffs**, otherwise the transition manager fights against the real-time `LookAt` system and causes severe head jerking.
+> Stepping overlays `LEGS_MASK` only. Do not slerp hip rotation or spine from BodyTurn. `MotionTransitionManager` is unused on this path.
 
 > [!IMPORTANT]
-> ### Rule 2: FootIK Leveling Exits During Stepping
+> ### Rule 2: FootIK Leveling Exits During Stepping & FootIK Isolated to EMAGE
 > Inside the render loop:
 > ```typescript
-> const isStepping = this.enableBodyTurn && this.bodyTurn.isStepping();
-> this.footIK.levelFeet(vrm, isStepping);
+> Fade `footIkMix` toward 1 while `writer === 'emage'`. Solve on the draft VRM, then `composeLayeredSmooth`.
+> `levelFeet` still yields while stepping. On speech start use `anchorToCurrentFeet()`, not `snapAnchors()`.
 > ```
-> While stepping is active, `levelFeet` must exit immediately to preserve dynamic ankle dorsiflexion.
+> - **Idle & Clip Bypass**: In idle and clip playback, FootIK is completely bypassed, eliminating two-bone solver knee bending and hips Y pull-down.
+> - **Locomotion Yield**: While stepping is active (`isStepping || locomotionWeight > 0.05`), `levelFeet` exits immediately to preserve dynamic ankle dorsiflexion.
+> - **Step-End Anchor Update**: When stepping finishes (`this.bodyTurnIsStepping && !isStepping`), `anchorToCurrentFeet()` captures the character's newly settled feet positions into FootIK world anchors.

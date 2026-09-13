@@ -1,18 +1,36 @@
 import * as THREE from 'three';
-import type { VRM } from '@pixiv/three-vrm';
+import type { VRM, VRMHumanBoneName } from '@pixiv/three-vrm';
 import {
   PoseBuffer,
-  LOWER_BODY_MASK,
-  UPPER_BODY_MASK,
+  LEGS_MASK,
+  copyTransitionSnapshot,
   type MotionBoneMask,
 } from './poseBuffer';
 import {
   UniversalMotionController,
   type PlayMotionOptions,
   type UniversalMotionHandle,
-} from './universalMotion';
+} from '../sources/clip';
+import { NaturalIdleSystem } from '../sources/idle';
+import { VRMAMotionPlayer } from '../sources/vrma';
+import { EmagePlayer } from '../sources/emage';
+import { FootIKSolver } from '../constraints/footIK';
+import { BodyTurnSystem } from '../constraints/bodyTurn';
+import { GazeController } from '../constraints/gaze';
+import { MotionTransitionManager } from './transition';
+import { DEFAULT_MOTION_TRAITS, type MotionConstraint, type MotionSource, type MotionTraits } from './types';
+import {
+  selectLiveMotionSource,
+  writerToPipelineSource,
+  SOURCE_FADE_DURATION,
+  WRITER_FADE_DURATION,
+  type LiveMotionWriter,
+} from './selectLiveMotionSource';
 
 export type PipelineMotionSource = 'idle' | 'vrma' | 'emage' | 'motion';
+export type { MotionTraits, MotionSource, MotionConstraint, PlayHandle } from './types';
+export { selectLiveMotionSource, writerToPipelineSource } from './selectLiveMotionSource';
+export type { LiveMotionWriter, LiveMotionFlags } from './selectLiveMotionSource';
 
 /**
  * MotionPipeline — 统一动作融合管线调度器 (Universal Motion Pipeline)
@@ -37,10 +55,31 @@ export class MotionPipeline {
   public readonly actionPose = new PoseBuffer();         // Layer 1: 当前主动作姿态 (VRMA / Clip / EMAGE)
   public readonly transitionFromPose = new PoseBuffer(); // 过渡起点快照 (用于连续平滑插值)
   public readonly locomotionPose = new PoseBuffer();     // Layer 2: 步态踱步姿态
+  public readonly lowerPose = new PoseBuffer();          // 分层下半身姿态缓冲
+  public readonly upperPose = new PoseBuffer();          // 分层上半身姿态缓冲
   public readonly finalPose = new PoseBuffer();          // 最终合成姿态
+  public readonly draftPose = new PoseBuffer();          // Quintic layered pose for FootIK / Gaze world solve
+  public readonly restPose = new PoseBuffer();           // bind-pose rest (pitch clamp reference)
 
-  // ── 通用万能动作播放子控制器 ──
+  // ── Plugins (sources + constraints). tick() is the unique per-frame driver. ──
+  public readonly idle = new NaturalIdleSystem();
+  public readonly vrma = new VRMAMotionPlayer();
   public readonly universalMotion = new UniversalMotionController();
+  public readonly emage = new EmagePlayer();
+  public readonly footIK = new FootIKSolver();
+  public readonly bodyTurn = new BodyTurnSystem();
+  public readonly gaze = new GazeController();
+  public readonly transition = new MotionTransitionManager();
+
+  /** Registered sources for later tick-driven playback. Not sampled yet. */
+  public readonly sources: MotionSource[] = [];
+  /** Registered constraints. Not applied yet. */
+  public readonly constraints: MotionConstraint[] = [];
+
+  constructor() {
+    this.emage.footIK = this.footIK;
+    this.emage.getLookAtOffsets = () => this.gaze.getLookAtOffsets();
+  }
 
   // ── 主动作平滑 Crossfader ──
   private activeSource: PipelineMotionSource = 'idle';
@@ -48,14 +87,39 @@ export class MotionPipeline {
   private activeMask: MotionBoneMask = 'all';
 
   private crossfadeElapsed = 0;
-  private crossfadeDuration = 0.98;
+  private crossfadeDuration = SOURCE_FADE_DURATION;
   private isCrossfading = false;
+  private currentTransitionT = 1.0;
+  /** Freeze Quintic at t=0 until the new Layer-1 source actually sampled into actionPose. */
+  private waitingForActionSample = false;
 
-  // 步态混合权重
-  private locomotionWeight = 0.0;
+  private sampledThisFrame = false;
+  private bodyTurnIsStepping = false;
+  private footIkMix = 0;
+  private locomotionWeight = 0; // 下半身步态连续混合权重 [0: 动作源下半身, 1: 步态踱步]
+  private boundVrm: VRM | null = null;
+  private _btPos = new THREE.Vector3();
+
+
 
   bind(vrm: VRM): void {
+    const same = this.boundVrm === vrm;
     this.universalMotion.bind(vrm);
+    this.vrma.bind(vrm);
+    if (!same) {
+      this.restPose.sampleFromVRM(vrm);
+      this.emage.bind(vrm);
+      this.idle.bind(vrm);
+    }
+    this.footIK.bind(vrm);
+    this.bodyTurn.bind(vrm);
+    this.boundVrm = vrm;
+
+    this.finalPose.sampleFromVRM(vrm);
+    this.draftPose.sampleFromVRM(vrm);
+    this.basePose.sampleFromVRM(vrm);
+    this.actionPose.sampleFromVRM(vrm);
+    this.transitionFromPose.sampleFromVRM(vrm);
   }
 
   /**
@@ -72,7 +136,7 @@ export class MotionPipeline {
     this.bind(vrm);
     const clip = await this.universalMotion.parseToClip(input, vrm);
 
-    const fadeDur = Math.max(0.26, options.fadeDuration ?? 0.98);
+    const fadeDur = Math.max(0.26, options.fadeDuration ?? SOURCE_FADE_DURATION);
     const mask = options.mask ?? 'all';
 
     // 启动管线平滑流转到通用动作源
@@ -86,7 +150,7 @@ export class MotionPipeline {
    * 停止当前通用动作播放，平滑淡出回待机
    */
   stopMotion(
-    fadeDuration = 0.98,
+    fadeDuration = SOURCE_FADE_DURATION,
     lookAtOffsets?: { neck?: THREE.Quaternion; head?: THREE.Quaternion },
   ): void {
     if (this.activeSource !== 'idle') {
@@ -95,22 +159,57 @@ export class MotionPipeline {
     }
   }
 
+  /** Play thinking VRMA as the live pipeline source (thinkSway trait, no director flag). */
+  playThinkingClip(clip: THREE.AnimationClip, vrm: VRM, fadeDuration = SOURCE_FADE_DURATION): void {
+    this.idle.traits.thinkSway = false;
+    this.vrma.traits = { allowLocomotion: true, thinkSway: true };
+    this.vrma.playLoop(clip, vrm, fadeDuration);
+    this.setMotionSource('vrma', fadeDuration, this.gaze.getLookAtOffsets(), 'upperBody');
+  }
+
+  /** Gaze-only think sway when the thinking clip is missing. Idle remains the writer. */
+  setIdleThinkSway(on: boolean): void {
+    this.idle.traits.thinkSway = on;
+  }
+
+  /** Switch Layer-1 to EMAGE speech (planted stance, no think sway). */
+  beginEmageSpeech(): void {
+    this.idle.traits.thinkSway = false;
+    this.vrma.traits = { ...DEFAULT_MOTION_TRAITS };
+    this.actionPose.copyFrom(this.finalPose);
+    this.emage.traits = { allowLocomotion: true, thinkSway: false, glanceChance: 0.40 };
+    this.setMotionSource('emage', SOURCE_FADE_DURATION, this.gaze.getLookAtOffsets(), 'all');
+  }
+
+  /** End chat motion sources; tick will return to idle when nothing is playing. */
+  resetChatMotion(): void {
+    this.idle.traits = { ...DEFAULT_MOTION_TRAITS };
+    this.vrma.traits = { ...DEFAULT_MOTION_TRAITS };
+    this.emage.traits = { allowLocomotion: true, thinkSway: false, glanceChance: 0.40 };
+  }
+
+  traitsForWriter(writer: LiveMotionWriter): MotionTraits {
+    if (writer === 'emage') return this.emage.traits;
+    if (writer === 'vrma') return this.vrma.traits;
+    if (writer === 'clip') return this.universalMotion.traits;
+    return this.idle.traits;
+  }
+
   /**
    * 设置当前目标主动作源，自动启动连续平滑融合
    */
   setMotionSource(
     source: PipelineMotionSource,
-    duration = 0.98,
+    duration = SOURCE_FADE_DURATION,
     lookAtOffsets?: { neck?: THREE.Quaternion; head?: THREE.Quaternion },
     mask: MotionBoneMask = 'all',
   ): void {
-    if (source === this.activeSource && !this.isCrossfading) return;
+    if (source === this.activeSource && mask === this.activeMask && !this.isCrossfading) return;
 
-    // 快照当前合成姿态作为过渡起点
-    this.transitionFromPose.copyFrom(this.finalPose);
-    if (lookAtOffsets) {
-      this.transitionFromPose.removeLookAtOffsets(lookAtOffsets);
-    }
+    copyTransitionSnapshot(this.transitionFromPose, this.finalPose, lookAtOffsets, true);
+
+    // 动作源切换瞬间无缝捕获当前脚部真实物理位置，保证小腿与两足连续平滑过渡，绝不单帧瞬移拉扯
+    this.footIK.anchorToCurrentFeet();
 
     this.previousSource = this.activeSource;
     this.activeSource = source;
@@ -118,10 +217,19 @@ export class MotionPipeline {
     this.crossfadeDuration = Math.max(0.26, duration);
     this.crossfadeElapsed = 0;
     this.isCrossfading = true;
+    this.waitingForActionSample = source !== 'idle';
   }
 
   getActiveSource(): PipelineMotionSource {
     return this.activeSource;
+  }
+
+  getLiveWriter(): LiveMotionWriter {
+    return selectLiveMotionSource({
+      clip: this.universalMotion.isPlaying(),
+      emage: this.emage.isPlaying(),
+      vrma: this.vrma.isPlaying(),
+    });
   }
 
   isTransitioning(): boolean {
@@ -139,7 +247,7 @@ export class MotionPipeline {
   blendExternalPose(
     pose: PoseBuffer,
     weight: number,
-    mask?: readonly (keyof typeof LOWER_BODY_MASK[number])[],
+    mask?: readonly VRMHumanBoneName[],
   ): void {
     if (weight <= 0.0001) return;
     if (mask) {
@@ -153,85 +261,222 @@ export class MotionPipeline {
     return this.finalPose;
   }
 
+  getCurrentTransitionT(): number {
+    return this.currentTransitionT;
+  }
+
   /**
-   * 每帧流水线核心求值与分层融合 (Motion Evaluation & Inbetweening)
-   * 无论输入帧率多少，每帧在当前 delta 下自适应球形插值补全中间帧，永不跳帧。
-   *
-   * @param vrm             VRM 模型实例
-   * @param delta           单帧时间间隔 (秒)
-   * @param isStepping      当前是否处于踱步步态中
-   * @param lookAtOffsets   可选的头颈视线偏移量 (供动作尾部淡出时安全采样)
+   * Per-frame motion: sample sources → Quintic blend → commit once →
+   * BodyTurn / FootIK / Gaze. Engine loop should not write bones.
    */
-  evaluate(
+  tick(
     vrm: VRM,
-    delta: number,
-    isStepping: boolean,
-    lookAtOffsets?: { neck?: THREE.Quaternion; head?: THREE.Quaternion },
+    ctx: {
+      camera: THREE.Camera;
+      delta: number;
+      time: number;
+      enableBodyTurn: boolean;
+      isSpeaking: boolean;
+      manualExpression: string | null;
+    },
   ): void {
-    // ── 0. 如果当前处于 universalMotion 模式，更新时间轴并采样姿态 ──
-    if (this.activeSource === 'motion') {
+    const { delta, time, camera } = ctx;
+    const lookAtOffsets = this.gaze.getLookAtOffsets();
+    this.sampledThisFrame = false;
+
+    // 1. 动态选择上层活跃动作源
+    const writer = selectLiveMotionSource({
+      clip: this.universalMotion.isPlaying(),
+      emage: this.emage.isPlaying(),
+      vrma: this.vrma.isPlaying(),
+    });
+    const target = writerToPipelineSource(writer);
+    const traits = this.traitsForWriter(writer);
+    const targetDuration = writer === 'clip'
+      ? (this.universalMotion.getCurrentOptions().fadeDuration ?? WRITER_FADE_DURATION.clip)
+      : WRITER_FADE_DURATION[writer];
+
+    const targetMask: MotionBoneMask = target === 'vrma'
+      ? 'upperBody'
+      : (writer === 'clip' ? (this.universalMotion.getCurrentOptions().mask ?? 'all') : 'all');
+
+    if (target !== this.activeSource || targetMask !== this.activeMask) {
+      const holdEmage = this.activeSource === 'emage'
+        && (this.isCrossfading || this.waitingForActionSample)
+        && (target === 'idle' || target === 'vrma');
+      if (!holdEmage) {
+        this.setMotionSource(target, targetDuration, lookAtOffsets, targetMask);
+      }
+    }
+
+    // 2. 物理转向与下半身步态求值 (BodyTurn update)
+    if (ctx.enableBodyTurn) {
+      // 使用角色世界坐标基准（vrm.scene.position），避免采样随 Gaze 偏转的 headNode 引起步态与头部的交叉耦合震荡
+      this._btPos.copy(vrm.scene.position);
+      const dx = camera.position.x - this._btPos.x;
+      const dz = camera.position.z - this._btPos.z;
+      const targetYaw = Math.atan2(dx, dz) - vrm.scene.rotation.y;
+      const normYaw = Math.atan2(Math.sin(targetYaw), Math.cos(targetYaw));
+      vrm.scene.rotation.y += this.bodyTurn.update(delta, normYaw, true);
+      this.bodyTurn.copyToLowerBodyBuffer(this.locomotionPose);
+    }
+
+    const isStepping = ctx.enableBodyTurn && this.bodyTurn.isStepping();
+
+    // 步态层连续解剖学混合权重计算：
+    // 进入踱步响应迅速 (~0.18s)，避免启动迟滞；
+    // 退出踱步平滑释放 (~0.85s)，从落脚平稳从容地融入 EMAGE / 待机动作，抹平单帧顿挫与身体折回感
+    const targetLocomotionWeight = isStepping ? 1.0 : 0.0;
+    const blendRate = isStepping ? 10.0 : 6.0;
+    this.locomotionWeight = THREE.MathUtils.damp(this.locomotionWeight, targetLocomotionWeight, blendRate, delta);
+    if (Math.abs(this.locomotionWeight - targetLocomotionWeight) < 0.0005) {
+      this.locomotionWeight = targetLocomotionWeight;
+    }
+
+    // 3. Idle into PoseBuffer only (never a VRM writer while another source is live)
+    this.idle.sampleInto(this.basePose, time, 1.0, isStepping ? 1.0 : this.locomotionWeight);
+    this.basePose.sceneY = vrm.scene.position.y;
+
+    // 4. Layer-1 action
+    if (writer === 'clip') {
       const { isFadingOut, justEnded } = this.universalMotion.update(delta);
       this.actionPose.sampleFromVRM(vrm);
-
+      this.waitingForActionSample = false;
+      this.sampledThisFrame = true;
       if (isFadingOut && !this.isCrossfading) {
-        // 自动触发平滑淡出回待机
         this.setMotionSource('idle', this.crossfadeDuration, lookAtOffsets);
       } else if (justEnded && this.activeSource === 'motion') {
-        this.setMotionSource('idle', 0.40, lookAtOffsets);
-      }
-    }
-
-    // ── 1. 步态过渡权重平滑追踪 (0.15s 柔和升降) ──
-    const targetLocoW = isStepping ? 1.0 : 0.0;
-    const locoBlendFactor = 1.0 - Math.exp(-12.0 * Math.min(delta, 0.1));
-    this.locomotionWeight += (targetLocoW - this.locomotionWeight) * locoBlendFactor;
-
-    // ── 2. 主动作 Crossfade 权重计算 (五次平滑步阶 Quintic Smootherstep: 零初速、零末速、加速度连续) ──
-    let t = 1.0;
-    if (this.isCrossfading) {
-      this.crossfadeElapsed += delta;
-      const alpha = Math.min(1.0, this.crossfadeElapsed / this.crossfadeDuration);
-      t = alpha * alpha * alpha * (alpha * (alpha * 6 - 15) + 10);
-      if (alpha >= 1.0) {
-        this.isCrossfading = false;
-      }
-    }
-
-    // ── 3. 分层混合合成 FinalPose (自动补全中间帧) ──
-    if (this.activeSource === 'idle') {
-      if (this.isCrossfading) {
-        // 从上一动作平滑淡出回 Idle
-        this.finalPose.copyFrom(this.transitionFromPose).slerp(this.basePose, t);
-      } else {
-        this.finalPose.copyFrom(this.basePose);
+        this.setMotionSource('idle', SOURCE_FADE_DURATION, lookAtOffsets);
       }
     } else {
-      // 目标为主动作 (VRMA、EMAGE 或通用动作 Motion)
-      if (this.activeMask === 'upperBody') {
-        // 局部上半身手势动作：下半身保持自然待机，上半身平滑混合动作姿态
-        this.finalPose.copyFrom(this.basePose);
-        if (this.isCrossfading) {
-          this.finalPose.blendMasked(this.transitionFromPose, 1.0 - t, UPPER_BODY_MASK);
-          this.finalPose.blendMasked(this.actionPose, t, UPPER_BODY_MASK);
-        } else {
-          this.finalPose.blendMasked(this.actionPose, 1.0, UPPER_BODY_MASK);
+      if (this.universalMotion.isActive()) this.universalMotion.update(delta);
+      if (writer === 'emage') {
+        const wrote = this.emage.update(delta);
+        if (wrote) {
+          this.emage.copyToPoseBuffer(this.actionPose, 'all');
+          this.waitingForActionSample = false;
+          if (this.vrma.isPlaying()) this.vrma.stop();
+        } else if (this.activeSource === 'idle') {
+          this.actionPose.copyFrom(this.basePose);
         }
+        this.sampledThisFrame = true;
+      } else if (writer === 'vrma') {
+        this.vrma.update(delta);
+        this.actionPose.sampleFromVRM(vrm);
+        this.waitingForActionSample = false;
+        this.sampledThisFrame = true;
       } else {
-        // 全身主动作
-        if (this.isCrossfading) {
-          this.finalPose.copyFrom(this.transitionFromPose).slerp(this.actionPose, t);
-        } else {
-          this.finalPose.copyFrom(this.actionPose);
+        if (this.activeSource === 'idle') {
+          this.actionPose.copyFrom(this.basePose);
         }
+        this.sampledThisFrame = true;
       }
     }
 
-    // ── 4. 步态下半身遮罩覆盖 (Lower Body Mask Override) ──
-    if (this.locomotionWeight > 0.001) {
-      this.finalPose.blendMasked(this.locomotionPose, this.locomotionWeight, LOWER_BODY_MASK);
+    this.blendConstraintsAndCommit(vrm, delta, writer, {
+      time,
+      camera,
+      traits,
+      isSpeaking: ctx.isSpeaking,
+      manualExpression: ctx.manualExpression,
+      isStepping,
+    });
+  }
+
+  /**
+   * Quintic layers → draft commit → FootIK + Gaze → composeLayeredSmooth → commit.
+   */
+  private blendConstraintsAndCommit(
+    vrm: VRM,
+    delta: number,
+    writer: LiveMotionWriter,
+    ctx: {
+      time: number;
+      camera: THREE.Camera;
+      traits: MotionTraits;
+      isSpeaking: boolean;
+      manualExpression: string | null;
+      isStepping: boolean;
+    },
+  ): void {
+    if (!this.sampledThisFrame) return;
+
+    let t = 1.0;
+    if (this.isCrossfading) {
+      if (this.waitingForActionSample) {
+        t = 0;
+      } else {
+        this.crossfadeElapsed += delta;
+        const alpha = Math.min(1.0, this.crossfadeElapsed / this.crossfadeDuration);
+        t = alpha * alpha * alpha * (alpha * (alpha * 6 - 15) + 10);
+        if (alpha >= 1.0) {
+          this.isCrossfading = false;
+        }
+      }
+    }
+    this.currentTransitionT = t;
+
+    this.basePose.clampTorsoPitch(this.restPose);
+    this.actionPose.clampTorsoPitch(this.restPose);
+
+    const targetUpper = (this.activeSource === 'idle') ? this.basePose : this.actionPose;
+    const targetLowerBase = (this.activeSource === 'idle' || this.activeMask === 'upperBody')
+      ? this.basePose
+      : this.actionPose;
+
+    if (this.isCrossfading) {
+      this.upperPose.copyFrom(this.transitionFromPose).slerp(targetUpper, t);
+      this.lowerPose.copyFrom(this.transitionFromPose).slerp(targetLowerBase, t);
+    } else {
+      this.upperPose.copyFrom(targetUpper);
+      this.lowerPose.copyFrom(targetLowerBase);
     }
 
-    // ── 5. 原子化唯一提交写入 VRM 骨骼 (Single Bone Writer) ──
+    if (this.locomotionWeight > 0.0001) {
+      const w = this.locomotionWeight;
+      const smoothW = w * w * w * (w * (w * 6 - 15) + 10);
+      this.lowerPose.blendMasked(this.locomotionPose, smoothW, LEGS_MASK);
+      this.lowerPose.hipsPosition.lerp(this.locomotionPose.hipsPosition, smoothW);
+    }
+
+    this.draftPose.composeLayered(this.lowerPose, this.upperPose);
+    this.draftPose.sceneY = vrm.scene.position.y;
+    this.draftPose.commitToVRM(vrm);
+
+    const grounding = this.bodyTurn.getFootGroundedAlpha();
+    const wantFootIk = this.footIK.enabled && writer === 'emage' && this.emage.enableFootIK;
+    this.footIkMix = THREE.MathUtils.damp(this.footIkMix, wantFootIk ? 1 : 0, 6, delta);
+    if (this.footIkMix < 0.002) this.footIkMix = 0;
+    this.footIK.weight = this.footIkMix;
+    if (this.footIkMix > 0) {
+      this.footIK.solve(delta, grounding.left, grounding.right, 1.0);
+      this.footIK.levelFeet(
+        vrm,
+        ctx.isStepping || this.locomotionWeight > 0.05,
+        grounding.left,
+        grounding.right,
+      );
+      if (this.bodyTurnIsStepping && !ctx.isStepping) {
+        this.footIK.anchorToCurrentFeet();
+      }
+    }
+    this.bodyTurnIsStepping = ctx.isStepping;
+
+    this.gaze.update(
+      vrm,
+      delta,
+      ctx.time,
+      ctx.camera,
+      ctx.traits,
+      ctx.isSpeaking,
+      ctx.manualExpression,
+    );
+
+    this.lowerPose.sampleFromVRM(vrm);
+    this.upperPose.sampleFromVRM(vrm);
+
+    this.finalPose.composeLayeredSmooth(this.lowerPose, this.upperPose, delta);
+    this.finalPose.sceneY = vrm.scene.position.y;
     this.finalPose.commitToVRM(vrm);
   }
 }

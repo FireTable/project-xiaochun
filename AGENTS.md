@@ -15,9 +15,9 @@ Project XiaoChun is a **100% browser-native 3D AI companion** with strong on-dev
 | **Outfit Swap & Delta System** | `outfitSwap.ts` + `.vrmaddon`<br/>(`src/core/outfitSwap.ts`, `vrmWorker.ts`) | 0-frame T-pose elimination, deferred snapshot & pre-restore, delta packaging, detailed in [`docs/OUTFIT_SWAP.md`](docs/OUTFIT_SWAP.md) |
 | **Post-Processing Pipeline** | `PostFxPipeline`<br/>(`src/core/postfx/postFxPipeline.ts`) | UnrealBloomPass, background luminance bypass, tone mapping, color grading, detailed in [`docs/POSTFX.md`](docs/POSTFX.md) |
 | **VRM Build Toolchain** | `workflow.mjs` + `oxipng`<br/>(`scripts/build-vrm/`) | Delta extraction, PNG texture recompression, fixed zip mtime & byte idempotency, detailed in [`docs/VRM_BUILD_WORKFLOW.md`](docs/VRM_BUILD_WORKFLOW.md) |
-| **Motion Pipeline** | `UniversalMotionController` + `MotionPipeline`<br/>(`src/motion/pipeline/`) | Universal motion input, 5-layer blend graph, detailed in [`docs/MOTION_PIPELINE.md`](docs/MOTION_PIPELINE.md) |
-| **FootIK & Ground Anchors** | `FootIKSolver`<br/>(`src/motion/footIK.ts`) | Two-bone analytical IK, weight shift (contrapposto), auto-sink, detailed in [`docs/FOOT_IK.md`](docs/FOOT_IK.md) |
-| **Locomotion & Gaze** | `BodyTurnSystem` + `GazeController`<br/>(`src/motion/bodyTurn.ts`, `gazeController.ts`) | 4-phase stepping FSM, spring yaw tracking, bio saccades, detailed in [`docs/BODY_TURN_AND_GAZE.md`](docs/BODY_TURN_AND_GAZE.md) |
+| **Motion Pipeline** | `MotionPipeline` + plugin sources/constraints<br/>(`src/motion/pipeline/`, `src/motion/sources/`, `src/motion/constraints/`) | Exclusive live writer (`selectLiveMotionSource`), Quintic 0.75s, FootIK+Gaze then `composeLayeredSmooth`, detailed in [`docs/MOTION_PIPELINE.md`](docs/MOTION_PIPELINE.md) |
+| **FootIK & Ground Anchors** | `FootIKSolver`<br/>(`src/motion/constraints/footIK.ts`) | Two-bone analytical IK, weight shift (contrapposto), auto-sink, detailed in [`docs/FOOT_IK.md`](docs/FOOT_IK.md) |
+| **Locomotion & Gaze** | `BodyTurnSystem` + `GazeController`<br/>(`src/motion/constraints/bodyTurn.ts`, `gaze.ts`) | 4-phase stepping FSM, spring yaw tracking; traits `allowLocomotion` / `thinkSway`, detailed in [`docs/BODY_TURN_AND_GAZE.md`](docs/BODY_TURN_AND_GAZE.md) |
 | **Biomechanical Morphing** | `VRMBodyMorph`<br/>(`src/core/morph/vrmBodyMorph.ts`) | 28-parameter orthogonal decoupled bone & vertex morphing engine, detailed in [`docs/BONE_MORPH.md`](docs/BONE_MORPH.md) |
 | **Chat Director & TTS** | `ChatDirector` + `speechSlicer` (`src/lib/utils.ts`) + native WebSocket client (`src/lib/edge-tts-core.ts`)<br/>(`src/director/chatDirector.ts`, `src/lib/utils.ts`, `src/server.ts`) | Smart 25~65 chars slicer, parallel TTS prefetch, stream sync, detailed in [`docs/CHAT_DIRECTOR.md`](docs/CHAT_DIRECTOR.md) |
 | **On-device AI & Memory** | `webLLM` + `EMAGE Worker` + `IndexedDB`<br/>(`src/llm/`, `src/motion/`, `src/memory/`) | 100% local WebGPU inference, EMAGE Worker, 3-tier memory, detailed in [`docs/ON_DEVICE_AI.md`](docs/ON_DEVICE_AI.md) |
@@ -30,15 +30,15 @@ Project XiaoChun is a **100% browser-native 3D AI companion** with strong on-dev
 The 3D motion pipeline involves complex layered logic. Follow these geometric and physics rules strictly:
 
 ### 2.1 Unified Motion Blending Pipeline & Universal Motion API
-- Files: `src/motion/pipeline/poseBuffer.ts`, `src/motion/pipeline/universalMotion.ts`, `src/motion/pipeline/motionPipeline.ts`, `src/core/vrmEngine.ts`
+- Files: `src/motion/pipeline/motionPipeline.ts`, `src/motion/pipeline/selectLiveMotionSource.ts`, `src/motion/pipeline/poseBuffer.ts`, `src/motion/sources/`, `src/motion/constraints/`, `src/core/vrmEngine.ts`
 - **Architecture Principle**:
-  1. **Single Bone Writer**: All sub-modules (Idle, VRMA, EMAGE, Universal Clips, BodyTurn) calculate desired transforms into preallocated `PoseBuffer` objects; only `MotionPipeline.evaluate()` commits final quaternions and positions atomically to VRM humanoid bones in the final pass.
-  2. **Layered Blend Graph**:
-     - **Layer 0 (Base)**: `NaturalIdle` procedural breathing and standby poise.
-     - **Layer 1 (Main Action)**: Managed via continuous Quintic Smootherstep crossfading ($\sum W = 1.0$) between `idle`, `vrma`, `emage`, and `motion`.
-     - **Layer 2 (Locomotion)**: `BodyTurnSystem` masked override applied strictly to `LOWER_BODY_MASK` (legs + hips) via `blendMasked()`.
-     - **Post Constraints**: `FootIK` physical ground anchoring followed by `LookAtHead` gaze alignment.
-  3. **Universal Motion Ingestion (Universal Motion API)**:
+  1. **Single Bone Writer**: `MotionPipeline.tick()` is the only per-frame driver. `selectLiveMotionSource({ clip, emage, vrma })` picks exactly one Layer-1 writer (`clip > emage > vrma > idle`). Idle rest is **never** applied to the live skeleton while another source is active (idle+EMAGE arm mix / crossed hands).
+  2. **No motion flags**: The engine loop and Gaze/BodyTurn must not consult `isThinking` / `emageLive` / `activePlayer`. Thinking VRMA and EMAGE are `pipeline.playThinkingClip` / `beginEmageSpeech`. Gaze think-sway and “no stepping while speaking” come from the live source’s `MotionTraits` (`thinkSway`, `allowLocomotion`).
+  3. **Layered Blend Graph**:
+     - **Layer 0 (Base)**: `NaturalIdle` procedural breathing and standby poise (only when idle is the selected writer, or as `basePose` for upper-body masks).
+     - **Layer 1 (Main Action)**: Exclusive `idle` | `vrma` | `emage` | `clip`, Quintic Smootherstep crossfade on `PoseBuffer`, then `commitToVRM`.
+     - **Compose**: Draft-commit anatomical layers → FootIK (EMAGE, faded mix) + Gaze `multiply` on the draft → sample VRM → `composeLayeredSmooth` (per-bone ω) → final `commitToVRM`. Quintic window is `SOURCE_FADE_DURATION` (0.75s).
+  4. **Universal Motion Ingestion (Universal Motion API)**:
      - To play any animation anywhere (whether a VRMA file URL, ArrayBuffer binary stream, or THREE.AnimationClip), **never hardcode custom if-else branches or instantiate private Mixers**. Always call the unified top-level API:
        ```ts
        const handle = await vrmEngine.playMotion(clipOrUrl, {
@@ -51,26 +51,26 @@ The 3D motion pipeline involves complex layered logic. Follow these geometric an
        // Or gracefully fade out and stop anytime:
        vrmEngine.stopMotion(0.75);
        ```
-  4. **Automatic Frame Inbetweening & Lifecycle**:
+  5. **Automatic Frame Inbetweening & Lifecycle**:
      - When a new motion is introduced, the pipeline automatically captures the current instantaneous physical pose as the transition start point, canceling out lookAt delta offsets;
-     - Applies Quintic Smootherstep ($6t^5 - 15t^4 + 10t^3$) to Slerp-interpolate frame-by-frame across physiological time windows (0.70s ~ 0.88s), completely eliminating frame pops and mechanical snapping;
+     - Applies Quintic Smootherstep ($6t^5 - 15t^4 + 10t^3$) to Slerp-interpolate over a unified 0.75s window, completely eliminating frame pops and mechanical snapping;
      - When a non-looping motion reaches its tail, the pipeline automatically initiates a fade-out crossfade to gracefully return to `NaturalIdle` and fires the `onEnd` callback with zero caller maintenance burden.
-  5. **⚠️ Critical Architecture Pitfall: Zero-Buffer Commit Trap (T-Pose & Sinking Bug)**:
+  6. **⚠️ Critical Architecture Pitfall: Zero-Buffer Commit Trap (T-Pose & Sinking Bug)**:
      - **The Problem**: Pre-allocated `PoseBuffer` instances initialize with default quaternions `(0, 0, 0, 1)` (T-pose) and pelvis positions at `(0, 0, 0)` (sunken into the floor origin). Directly calling `finalPose.commitToVRM(vrm)` at the end of the render loop when `basePose` has not undergone per-frame evaluation forcibly overwrites bones with all-zero rest transforms, causing the avatar to instantly snap into a sunken T-pose!
-     - **The Solution**: Render loop updates must adhere to the **non-destructive read-only sampling principle** (`motionPipeline.finalPose.sampleFromVRM(vrm)`). Let the active motion subsystems (NaturalIdle, UniversalMotion, EMAGE) drive bones safely, while `MotionTransitionManager` manages cross-state Quintic Smootherstep Slerping without blind overwrites.
+     - **The Solution**: Only commit after this frame sampled a live source into `basePose`/`actionPose` (`sampledThisFrame`). Never `commitToVRM` from an untouched identity buffer. Cross-state Quintic Slerp lives in `MotionPipeline` (`transitionFromPose` → action/idle). `MotionTransitionManager` remains for BodyTurn leg-only handoffs.
 
 ### 2.2 State Transitions & `MotionTransitionManager`
-- Files: `src/motion/motionTransition.ts`, `src/lib/constants.ts`
+- Files: `src/motion/pipeline/transition.ts`, `src/lib/constants.ts`
 - **Bone Constant Architecture (`src/lib/constants.ts`)**:
   - `VRM_ALL_HUMANOID_BONES` (52 bones): Standardized VRM humanoid bones including 30 finger phalanges (no jaw/eyes). Used by `VRMAMotionPlayer.stop()` to snapshot/restore before Three.js mixer stops, preventing T-pose flashes.
   - `VRM_MOTION_CORE_BONES` (52 bones): Default `MotionTransitionManager` target list — torso, neck, head, limbs, both hands, and all 30 finger phalanges. Hands and fingers must be included so think/speak gestures Quintic-Slerp into idle instead of snapping to the idle fist. EMAGE / NaturalIdle still own fingers outside the cross-state window.
-- Principle: At the instant a state switch triggers (e.g. `Idle -> Think`, `Think -> Speaking`, `Speaking -> Idle`), it captures all normalized bone quaternions in milliseconds, then uses Quintic Smootherstep ($6t^5 - 15t^4 + 10t^3$) to Slerp-interpolate over physiological timeframes (0.70s ~ 0.88s, ~42~53 frames).
+- Principle: At the instant a state switch triggers (e.g. `Idle -> Think`, `Think -> Speaking`, `Speaking -> Idle`), it captures all normalized bone quaternions in milliseconds, then uses Quintic Smootherstep ($6t^5 - 15t^4 + 10t^3$) to Slerp-interpolate over 0.75s (~45 frames).
 - **⚠️ Critical Architecture Pitfall: LookAt Decoupling via Inverse Quaternions**:
   - **The Problem**: `vrmEngine.ts` applies multiplicative gaze tracking to `neck` and `head` at the end of every frame (`node.quaternion.multiply(offsetQ)`). If the transition manager blindly snapshots these bones, the snapshot contains the gaze offset; during interpolation it gets multiplied again, causing severe head flips or snap-back.
-  - **The Solution**: Instead of naively excluding neck/head, `MotionTransitionManager.startTransition(vrm, dur, lookAtOffsets)` receives the current LookAt offsets and multiplies the snapshot by the inverse offset: `snap.multiply(invLookAt)`. Similarly, `emagePlayer` inverts LookAt offsets on initial snapshot and re-applies LookAt cleanly. This preserves pure anatomical orientation and allows seamless interpolation without head spasms.
+  - **The Solution**: `finalPose` includes Gaze after sample+compose. `copyTransitionSnapshot(..., srcIncludesGaze=true)` so Quintic starts anatomical. `EmagePlayer` still inverts LookAt on its initial VRM snapshot. Head-bubble HUD uses `getHeadTopWorldPosition` (raw crown), not normalized `head` + 0.24m.
 
 ### 2.3 Three.js `AnimationMixer.stopAllAction()` Restore Trap (The `Think -> Emage` Drop-to-Idle Pitfall)
-- Files: `src/motion/vrmaPlayer.ts`, `src/director/chatDirector.ts`, `src/core/vrmEngine.ts`
+- Files: `src/motion/sources/vrma.ts`, `src/director/chatDirector.ts`, `src/core/vrmEngine.ts`
 - **Pitfall Symptom**: When switching from thinking posture to speech gestures (`think -> emage`), the character abruptly dropped their hand back to idle, froze for a split second, and then began the speech gesture from scratch ("seemed to be switched back to idle then to emage").
 - **Root Cause**: In Three.js, calling `mixer.stopAllAction()` triggers an internal `restoreOriginalState()` on all active property bindings, **forcibly resetting all animated bones back to their rest pose / T-Pose (0)**. When `motionTransition.startTransition` sampled the VRM bones in the next render frame, it captured the already-reset idle pose rather than the actual thinking chin-resting pose!
 - **Engineering Standard & Rule**:
@@ -80,24 +80,26 @@ The 3D motion pipeline involves complex layered logic. Follow these geometric an
 
 ### 2.4 State Machine Race Conditions & Premature Assignment Pitfall
 - **Pitfall Symptom**: Clicking "Send" caused the character to twitch/flicker back to idle for one frame before resuming `think`.
-- **Root Cause**: Prematurely writing `this.activePlayer = 'vrma'` before the animation clip actually starts playing. In the intermediate render frame, `vrmaPlayer.isPlaying()` was still `false`, causing the render loop's state machine to demote `activePlayer` back to `'idle'` and trigger an unintended reverse transition.
+- **Root Cause**: Historically, `activePlayer = 'vrma'` was written before the clip actually played. The next frame saw `vrmaPlayer.isPlaying() === false` and demoted the writer to idle.
 - **Engineering Standard & Rule**:
-  - `activePlayer` must be driven **strictly and atomically by the render loop** (`vrmEngine.ts`) based on real-time module status (`isPlaying()` / `isThinking`).
-  - Never prematurely mutate `activePlayer` outside the render loop in async event handlers or caller methods (`sendMessage()`, etc.).
+  - There is no engine-level `activePlayer` / `isThinking` motion flag. `MotionPipeline.tick()` calls `selectLiveMotionSource` from live `isPlaying()` only.
+  - ChatDirector starts thinking with `pipeline.playThinkingClip` **after** `playLoop`, never by setting a flag the render loop consults.
+  - `beginEmageSpeech` does not `vrma.stop()` immediately. Think keeps playing until EMAGE writes a pose; then stop the mixer so speech-end goes to idle.
+  - Never invent a new motion flag in `sendMessage()` / `say()` for the engine loop to read.
 
 ### 2.5 EMAGE Cross-Segment Streaming Continuity (`switchSegment`)
-- File: `src/motion/emagePlayer.ts`
+- File: `src/motion/sources/emage.ts`
 - **Autoregressive Seed Inheritance**: When the Worker generates segment $i$, it must pass `continueFromPrevious = true` to absorb the last 4 frames' latent representation from the previous segment, guaranteeing mathematical motion continuity.
 - **Physical Angular Velocity & Damping Following**:
-  - Arms / fingers max angular speed: $1.5\ \text{rad/s}$ (~$86°/\text{s}$).
-  - Neck / head max angular speed: $1.3\ \text{rad/s}$ (~$74°/\text{s}$).
-  - Torso / lumbar / pelvis max angular speed: $1.0\ \text{rad/s}$ (~$57°/\text{s}$).
-  - Inertial damping stiffness: read from `APP_CONFIG.emage.motion.dampingStiffness` (default 4.2).
+  - Arms / fingers max angular speed: $2.2\ \text{rad/s}$ (~$126°/\text{s}$).
+  - Neck / head max angular speed: $2.0\ \text{rad/s}$ (~$115°/\text{s}$).
+  - Torso / lumbar / pelvis max angular speed: $2.2\ \text{rad/s}$ (~$126°/\text{s}$).
+  - Inertial damping stiffness: read from `APP_CONFIG.emage.motion.dampingStiffness` (default 6.5).
 - **⚠️ Critical Rule**: Segment switching is handled internally inside the EMAGE player via `currentBoneQ` physical catch-up. **Never call `motionTransition.startTransition` externally during a segment switch** — it will produce duplicate snapshots and motion contention.
 
 ### 2.6 Speech-End Smooth Recovery & Idle Upright Posture Guarantee
-- After all speech segments finish, call `emage.stop()` and fire `this.motionTransition.startTransition(vrm, 0.88)`.
-- **⚠️ Critical Rule**: Never use `bone.quaternion.copy(rest)` in `emage.stop()` or `resetPose()` to snap lower-body bones straight! Always preserve the current real-time bone orientation and hand off to the global `motionTransition` to smoothly Slerp back into NaturalIdle — eliminates any 0.6s freeze/stutter.
+- After all speech segments finish, call `emage.stop()` and `pipeline.resetChatMotion()` so the next tick selects idle and Quintic-crossfades on `PoseBuffer` (`commitToVRM`).
+- **⚠️ Critical Rule**: Never use `bone.quaternion.copy(rest)` in `emage.stop()` or `resetPose()` to snap lower-body bones straight! Preserve the current pose in `currentBoneQ` / the last committed buffer and let the pipeline Slerp into NaturalIdle — eliminates any 0.6s freeze/stutter.
 - **`NaturalIdleSystem` must continuously maintain upright lower-body posture**:
   - `NaturalIdleSystem` must bind and hold initial rest quaternions (`restQ`) for all leg, foot, toe, and pelvis bones: `leftUpperLeg`, `rightUpperLeg`, `leftLowerLeg`, `rightLowerLeg`, `leftFoot`, `rightFoot`, `leftToes`, `rightToes`, `hips`.
   - In `update(time, idleWeight)`, every lower-body bone must execute `slerp(restQ, idleWeight)`, giving the transition manager a definite upright target and preventing any bent-knee or crooked-leg residue during standby.
@@ -107,16 +109,10 @@ The 3D motion pipeline involves complex layered logic. Follow these geometric an
     * `EmagePlayer.stancePillar` defaults to `'balanced'` (`stanceRatio = 0.5`): carries equal weight symmetrically, preventing alternating leg swaps and foot skating during speech.
     * `APP_CONFIG.emage.motion.legIntensity` defaults to `0.70`: legs follow hip/audio motion; FootIK still plants the feet.
 
-### 2.7 BodyTurn Stepping & Head Gaze Decoupling (`handleBodyTurnHandoff`)
-- Files: `src/motion/bodyTurn.ts`, `src/core/vrmEngine.ts`, `src/motion/motionTransition.ts`
-- **Pitfall Symptom**: When the camera rotates around the character, `BodyTurnSystem` steps to rotate the body toward the lens. At the moment stepping finishes, the head abruptly jerks/snaps to the side before snapping back to face the camera (head jerks during stepping completion).
-- **Root Causes**:
-  1. `handleBodyTurnHandoff` originally called global `motionTransition.startTransition(vrm, 0.30)`. Because `VRM_ALL_HUMANOID_BONES` included `head` and `neck`, the transition manager captured a snapshot of the head/neck and forcibly interpolated them over 0.30s, fighting against the real-time `LookAt` system and pulling the head backward in time.
-  2. `BodyTurnSystem` originally applied aggressive spine pre-rotation (`upperChestTarget = normYaw * 0.30`, total 0.60 across spine/chest). Because `neck` and `head` are child bones of `upperChest`, this caused the head's world yaw to overshoot by 160%; when stepping stopped, the spine snapped back to 0, whipping the head.
-- **Engineering Standard & Rule**:
-  - `MotionTransitionManager.startTransition` must support `boneFilter?: readonly string[]`.
-  - In `handleBodyTurnHandoff`, strictly pass `BODY_TURN_BONES` (only `hips`, `upperLeg`, `lowerLeg`, `foot`, `toes`). **Never snapshot or transition `head`, `neck`, or arms during stepping handoffs!**
-  - Keep `BodyTurnSystem` spine yaw subtle ($\le 0.08$ total) to let real-time `LookAtHead` cleanly govern gaze orientation without spine whip.
+### 2.7 BodyTurn Stepping & Head Gaze Decoupling
+- Files: `src/motion/constraints/bodyTurn.ts`, `src/motion/pipeline/motionPipeline.ts`
+- Overlay **`LEGS_MASK` only** (no hip rotation, no spine yaw). Gaze owns the head via draft LookAt then compose.
+- Do not call `MotionTransitionManager` for stepping handoffs.
 
 ### 2.8 Biomechanical Bone Morphing & Orthogonal Decoupling Engine
 - Files: `src/core/morph/vrmBodyMorph.ts`, `src/config.ts`, `src/components/DevDrawer.tsx`, and detailed specification in [`docs/BONE_MORPH.md`](docs/BONE_MORPH.md)
@@ -165,8 +161,8 @@ The 3D motion pipeline involves complex layered logic. Follow these geometric an
        * MToon material & saturation $\to$ `src/core/materials/vrmMaterialManager.ts` (`VRMMaterialManager`)
        * 28-parameter bone morphing $\to$ `src/core/morph/vrmBodyMorph.ts` (`VRMBodyMorph`)
        * Cinematic postfx pipeline $\to$ `src/core/postfx/postFxPipeline.ts` (`PostFxPipeline`)
-       * Gaze tracking & micro-saccades $\to$ `src/core/scene/gazeController.ts` (`GazeController`)
-       * Motion pipeline & transitions $\to$ `src/motion/pipeline/` (`MotionPipeline`, `UniversalMotionController`, `MotionTransitionManager`)
+       * Gaze tracking & micro-saccades $\to$ `src/motion/constraints/gaze.ts` (`GazeController`)
+       * Motion pipeline & transitions $\to$ `src/motion/pipeline/` (`MotionPipeline`, `selectLiveMotionSource`) + `src/motion/sources/` + `src/motion/constraints/`
        * Dialogue director & audio sync $\to$ `src/director/chatDirector.ts` (`ChatDirector`)
      - **Standard Lifecycle Contracts**: Subsystems must implement standardized lifecycle hooks (`init(scene)`, `update(delta, time, vrm)`, `resize(w, h, ratio)`, `dispose()`), invoked lightly by `VRMEngine` during corresponding frame phases.
   3. **Code Ingestion Rule**:

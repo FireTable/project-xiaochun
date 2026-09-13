@@ -1,6 +1,6 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { vrmEngine } from '@/core/vrmEngine';
-import type { EmagePerfSnapshot } from '@/motion/emagePlayer';
+import type { EmagePerfSnapshot } from '@/motion/sources/emage';
 import { useDevDrawer } from '../context';
 import { SectionCard } from '../components/SectionCard';
 import { SectionHeader } from '../components/SectionHeader';

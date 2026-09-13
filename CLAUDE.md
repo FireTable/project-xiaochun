@@ -8,8 +8,8 @@ Welcome to **Project XiaoChun** (100% browser-native anime companion with WebGPU
 > 👉 **[`AGENTS.md`](./AGENTS.md)**
 
 `AGENTS.md` contains crucial engineering standards, including:
-1. **Motion Transition & Blending Rules (`src/motion/motionTransition.ts`)**: Why `neck` and `head` MUST be excluded from global bone snapshotting (avoiding double-LookAt flash/jerking).
-2. **EMAGE Streaming Segments (`src/motion/emagePlayer.ts`)**: Continuous latent seed inheritance (`continueFromPrevious`) and physiological angular velocity clamping.
+1. **Motion Pipeline (`src/motion/pipeline/motionPipeline.ts`)**: Exclusive live writer (`selectLiveMotionSource`); Quintic on `PoseBuffer`; LookAt stripped only from VRM-bone snapshots, not anatomical `finalPose`.
+2. **EMAGE Streaming Segments (`src/motion/sources/emage.ts`)**: Continuous latent seed inheritance (`continueFromPrevious`) and physiological angular velocity clamping; pose goes to the pipeline via `copyToPoseBuffer`, not a second bone write.
 3. **End-of-Speech Cleanup**: Zero-snap return to `NaturalIdle` via Quintic Smootherstep.
 4. **Streaming Speech Pipeline (`src/director/chatDirector.ts`)**: 30~60 character clause chunking, concurrent TTS prefetching, dual-condition pre-buffering.
 5. **HeadBubble Display Logic (`src/components/HeadBubble.tsx`)**: Text revealed only when `speaking` ("来啦来啦～").
@@ -37,10 +37,11 @@ pnpm build
 ## 🧭 Key Project Files
 
 - `src/config.ts` — Single source of truth for motion parameters, memory limits, lighting, camera.
-- `src/motion/motionTransition.ts` — Quintic Smootherstep transition manager (53 bones, excludes head/neck).
-- `src/motion/emagePlayer.ts` — EMAGE ONNX worker integration, physiological angular speed clamps.
-- `src/motion/speakIdle.ts` — Adaptive conversational hover & breathing during inter-chunk wait.
-- `src/motion/naturalIdle.ts` — Organic multi-harmonic breathing, relaxed finger curling, Lissajous sway.
+- `src/motion/pipeline/motionPipeline.ts` — Exclusive live writer + Quintic blend + commit; `selectLiveMotionSource`.
+- `src/motion/pipeline/transition.ts` — Quintic Smootherstep (BodyTurn leg handoff).
+- `src/motion/sources/emage.ts` — EMAGE ONNX worker integration, physiological angular speed clamps.
+- `src/motion/sources/speakIdle.ts` — Adaptive conversational hover & breathing during inter-chunk wait.
+- `src/motion/sources/idle.ts` — Organic multi-harmonic breathing, relaxed finger curling, Lissajous sway.
 - `src/director/chatDirector.ts` — Pipeline orchestrator (LLM -> TTS -> EMAGE -> transitions).
 - `src/core/vrmEngine.ts` — Three.js + VRM 1.0 render loop, 6-channel lighting, LookAt tracking.
 - `src/memory/` — 100% client-side IndexedDB 3-tier memory system.

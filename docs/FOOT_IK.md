@@ -1,7 +1,7 @@
 # FootIK — Biomechanical Foot Ground Anchoring & Analytical IK System
 
-> **File Reference**: [`src/motion/footIK.ts`](../src/motion/footIK.ts)  
-> **Key Dependents**: [`src/core/vrmEngine.ts`](../src/core/vrmEngine.ts), [`src/motion/emagePlayer.ts`](../src/motion/emagePlayer.ts), [`src/motion/bodyTurn.ts`](../src/motion/bodyTurn.ts)
+> **File Reference**: [`src/motion/constraints/footIK.ts`](../src/motion/constraints/footIK.ts)  
+> **Key Dependents**: [`src/motion/pipeline/motionPipeline.ts`](../src/motion/pipeline/motionPipeline.ts), [`src/motion/sources/emage.ts`](../src/motion/sources/emage.ts), [`src/motion/constraints/bodyTurn.ts`](../src/motion/constraints/bodyTurn.ts)
 
 ---
 
@@ -110,14 +110,40 @@ To handle footwear toggles in the wardrobe:
 ## 3. Critical Architecture Rules & Coordination
 
 > [!CAUTION]
-> **Rule 1: Yielding During Locomotion Stepping (`isStepping`)**  
-> When [`BodyTurnSystem`](../src/motion/bodyTurn.ts) executes procedural stepping, `levelFeet(vrm, isStepping)` must exit immediately if `isStepping === true`! Forcing ankle leveling during steps destroys ankle dorsiflexion and breaks stepping visuals.
+> **Rule 0: Execution Domain Isolation — EMAGE Co-Speech Only**  
+> `footIK.solve` and `footIK.levelFeet` are **dedicated strictly to EMAGE speech animation** (`writer === 'emage' && this.emage.enableFootIK`):
+> ```typescript
+> const isEmage = writer === 'emage' && this.emage.enableFootIK;
+> if (this.footIK.enabled && isEmage) {
+>   this.footIK.solve(delta, grounding.left, grounding.right, 1.0);
+>   this.footIK.levelFeet(
+>     vrm,
+>     isStepping || this.locomotionWeight > 0.05,
+>     grounding.left,
+>     grounding.right,
+>   );
+>   if (this.bodyTurnIsStepping && !isStepping) {
+>     this.footIK.anchorToCurrentFeet();
+>   }
+> }
+> ```
+> - **Why Bypass in Idle & Clip?** The 2-bone analytical IK solver calculates knee flexion from hips height to foot anchors. Running it during `idle` creates an algebraic feedback loop against `NaturalIdleSystem`'s subtle pelvic breathing sway, forcing knees forward and causing vertical hips/head bobbing. Bypassing FootIK in `idle` and `clip` keeps the avatar standing tall and pristine.
+> - **Zero Foot Skating in Speech**: When EMAGE is speaking, FootIK firmly pins the feet to world ground anchors, neutralizing neural motion drifting.
+
+> [!IMPORTANT]
+> **Rule 1: Yielding During Locomotion Stepping (`isStepping || locomotionWeight > 0.05`)**  
+> When [`BodyTurnSystem`](../src/motion/constraints/bodyTurn.ts) executes procedural stepping, `levelFeet` must yield whenever `isStepping` is true or `locomotionWeight > 0.05`. Forcing ankle leveling during steps destroys dynamic ankle dorsiflexion and creates unnatural foot warping.
+> Furthermore, when stepping concludes (`this.bodyTurnIsStepping && !isStepping`), `footIK.anchorToCurrentFeet()` instantly synchronizes the ground anchors to the newly settled feet positions.
 
 > [!IMPORTANT]
 > **Rule 2: FootIK vs. VRMBodyMorph Separation of Concerns**  
 > - `FootIK` governs physical floor contact, weight-shift kinematics, and sole leveling;
 > - `VRMBodyMorph` governs skeletal scale and limb-length height offsets (`getLegHeightDelta`);
 > - **Neither system may use `quaternion.copy(baseRot)` to wipe leg transforms**. Upper and lower leg orientations belong strictly to the motion and stepping pipelines.
+
+> [!TIP]
+> **Rule 3: FootIK is a compose target**  
+> Solve on the **draft** VRM (after anatomical layer commit, before `composeLayeredSmooth`). Sample hips/legs/feet back into `lowerPose`. Fade `footIkMix` in/out (damp 6). Lerp `hips.position` toward the IK target — never assign rest X in one frame. Speech start: `anchorToCurrentFeet()`, not `snapAnchors()`. `softReset()` sets `stanceRatio = 0.5` without zeroing `smoothHipsOffsetY`.
 
 ---
 

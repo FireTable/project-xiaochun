@@ -114,8 +114,7 @@ export class SpeakIdleSystem {
     const followFactor = 1.0 - Math.exp(-6.5 * Math.max(0.001, delta));
 
     for (let i = 0; i < NUM_JOINTS; i++) {
-      const bone = bones[i];
-      if (!bone) continue;
+      if (!bones[i]) continue;
 
       const qGoal = this._qGoal.copy(this.baseQ[i]!);
 
@@ -185,7 +184,6 @@ export class SpeakIdleSystem {
       }
 
       currentBoneQ[i]!.slerp(qGoal, followFactor);
-      bone.quaternion.copy(currentBoneQ[i]!);
     }
   }
 }

@@ -78,14 +78,14 @@ The UI is fully **SSR-hydrated multi-language** (zh-CN / en / ja) via TanStack S
 
 ### 🩰 Universal Motion Blending Pipeline & Ground Dynamics
 * **Zero-Friction Any-Motion Ingestion (`playMotion`)**: Ingest VRMA URLs, raw ArrayBuffers, or `THREE.AnimationClip`s through a single call; automatically performs humanoid retargeting, hips normalization, and supports whole-body (`all`) or upper-body (`upperBody`) masking.
-* **Quintic Smootherstep Inbetweening**: Eliminates linear interpolation and jerk artifacts using $6t^5 - 15t^4 + 10t^3$ curves over biomechanical timeframes (0.70s~0.88s) with strictly continuous velocity and acceleration. Detailed in [`docs/MOTION_PIPELINE.md`](docs/MOTION_PIPELINE.md).
+* **Quintic Smootherstep Inbetweening**: Eliminates linear interpolation and jerk artifacts using $6t^5 - 15t^4 + 10t^3$ curves over a unified **0.75s** window with strictly continuous velocity and acceleration. Detailed in [`docs/MOTION_PIPELINE.md`](docs/MOTION_PIPELINE.md).
 * **Biomechanical FootIK & Ground Anchoring**: Two-bone analytical IK with physical ground anchors, contrapposto weight shift, and automatic shoe-off sink compensation (4.6cm/3.9cm). Detailed in [`docs/FOOT_IK.md`](docs/FOOT_IK.md).
 * **Procedural Locomotion Stepping & Gaze**: 4-phase stepping state machine with spring yaw tracking and bio-saccades. Detailed in [`docs/BODY_TURN_AND_GAZE.md`](docs/BODY_TURN_AND_GAZE.md).
 * **Layered Pose Evaluation Graph**:
   * **Layer 0 (Base)**: `NaturalIdleSystem` procedural breathing, 8-figure pelvic postural sway, and relaxed biomechanical finger curling;
   * **Layer 1 (Main Action)**: `VRMA` thinking loops, `EMAGE` streaming gestures, and universal clips crossfading smoothly;
-  * **Layer 2 (Locomotion)**: `BodyTurnSystem` procedural stepping footsteps overlaid strictly on `LOWER_BODY_MASK` (legs & hips) without distorting the torso or gaze;
-  * **Post-Pass**: Physical `FootIK` ground anchoring.
+  * **Layer 2 (Locomotion)**: `BodyTurnSystem` procedural stepping on `LEGS_MASK` only (no hip rotation, no spine yaw);
+  * **Compose**: `composeLayeredSmooth` after FootIK + Gaze so ground plant and look-at are follow targets, then `commitToVRM`.
 * **Architecture Rules & Lifecycle Order**: Full 10-step render loop lifecycle and developer anti-patterns detailed in [`docs/ARCHITECTURE_AND_RULES.md`](docs/ARCHITECTURE_AND_RULES.md).
 * **Technical Docs Center**: Complete architecture sitemap and agent navigation available in [`docs/README.md`](docs/README.md).
 
@@ -308,18 +308,11 @@ Project-XiaoChun/
 │   │   ├── lighting/          # 3-channel studio lighting (studioLighting.ts: dir / hemi / fill)
 │   │   ├── postfx/            # Post-processing pipeline (postFxPipeline.ts: Bloom/ToneMapping/ColorGrading)
 │   │   ├── material/          # MToon material management (vrmMaterialManager.ts: part visibility + Shader saturation)
-│   │   └── ui/                # Spatial UI tracker (bubbleTracker.ts: 3D head position to 2D bubble)
-│   ├── motion/                # Motion system (Universal pipeline + bio-inspired natural posture)
-│   │   ├── pipeline/          # Universal motion pipeline (MotionPipeline / PoseBuffer / UniversalMotion)
-│   │   ├── motionTransition.ts # Quintic Smootherstep Slerp interpolation
-│   │   ├── gazeController.ts  # Human-interactive gaze & head tracking (limits, blink, micro-jitter, thinking shake)
-│   │   ├── naturalIdle.ts     # Multi-harmonic bio-breathing idle & finger curl (Layer 0)
-│   │   ├── speakIdle.ts       # Inter-clause hesitation gesture hover & slow descent
-│   │   ├── bodyTurn.ts        # Pelvis & lower-body procedural turning gait (Layer 2)
-│   │   ├── footIK.ts          # Foot grounding inverse kinematics solver (Post-Pass)
-│   │   ├── emagePlayer.ts     # EMAGE player: motion_chunk stream, A/V hold, seam/hop via APP_CONFIG.emage.motion
-│   │   ├── emageWorker.ts     # ONNX Runtime Web Dedicated Worker (wasm EP + INT8; T=64 windows)
-│   │   ├── vrmaPlayer.ts      # VRMA animation playback driver
+│   │   └── ui/                # Spatial UI tracker (bubbleTracker.ts: raw crown → 2D bubble)
+│   ├── motion/                # Motion system (plugin pipeline + bio-inspired posture)
+│   │   ├── pipeline/          # tick / selectLiveMotionSource / PoseBuffer / transition
+│   │   ├── sources/           # idle, vrma, emage (+ worker), clip, speakIdle
+│   │   ├── constraints/       # footIK, bodyTurn, gaze (on draft, then compose)
 │   │   └── vrmaRetarget.ts    # VRMA bone retargeting & normalization
 │   ├── memory/                # Client-side multi-tier memory (IndexedDB / entity extraction / n-gram retrieval)
 │   ├── llm/                   # LLM layer — WebLLM + custom OpenAI-compatible provider factory

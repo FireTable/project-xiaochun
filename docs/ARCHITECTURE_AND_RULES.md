@@ -24,24 +24,21 @@ sequenceDiagram
     participant Morph as VRMBodyMorph (Scale & Bone Length)
     participant PostFx as PostFxPipeline / WebGLRenderer
 
-    Engine->>Motion: 1. Evaluate active motion source & write transforms (Idle / Think / Speech / Universal)
-    Engine->>FootIK: 2. Update barefoot sink factor (updateBarefoot) & set scene.position.y
-    Engine->>Motion: 3. Apply global Smootherstep transition crossfading (MotionTransition.apply)
-    Engine->>Motion: 4. Synchronize pipeline snapshot (non-destructive sampleFromVRM)
-    Engine->>BodyTurn: 5. Update procedural locomotion stepping (BodyTurn.update & scene yaw)
-    Engine->>FootIK: 6. Ground sole leveling (levelFeet, yields during stepping)
-    Engine->>Gaze: 7. Apply companion gaze tracking, micro-saccades & blinking (GazeController.update)
-    Engine->>VRM: 8. Update VRM internal skeleton (vrm.update: normalized -> raw bones & SpringBone)
-    Engine->>Morph: 9. Apply 28-parameter scale, anchor offsets & vertex morphing (VRMBodyMorph.update)
-    Engine->>PostFx: 10. Frame render output (composer.render when postfx enabled, or raw renderer.render)
+    Engine->>FootIK: 1. updateBarefoot + scene.position.y (before tick)
+    Engine->>Motion: 2. pipeline.tick — selectLiveMotionSource, Quintic 0.75s, BodyTurn legs
+    Engine->>FootIK: 3. (inside tick) draft commit → FootIK solve/levelFeet (EMAGE, faded mix)
+    Engine->>Gaze: 4. (inside tick) LookAt multiply on draft, then composeLayeredSmooth + commit
+    Engine->>VRM: 5. vrm.update (normalized → raw & SpringBone)
+    Engine->>Morph: 6. VRMBodyMorph.update (rawHead world compose; bubble uses getHeadTopWorldPosition)
+    Engine->>PostFx: 7. composer.render or renderer.render
 ```
 
 ### Critical Lifecycle Milestones:
-- **Step 2 (Shoe-off Sink)**: Dynamic sink height must be applied to `vrm.scene.position.y` before bone computations so analytical two-bone IK can accurately reference the physical floor;
-- **Step 5~6 (Stepping & Leveling)**: While `bodyTurn.isStepping()` is `true`, `levelFeet` must exit to preserve dynamic ankle flexion;
-- **Step 8 (`vrm.update`)**: `@pixiv/three-vrm` transfers normalized transforms to raw humanoid bones;
-- **Step 9 (`bodyMorph.update`)**: Scales bones, applies femoral/knee offsets, and updates abdominal vertices. **Never call `quaternion.copy(baseRot)` here** as it destroys the motion computed in Steps 1–8!
-- **Step 10 (`PostFx / Render`)**: When `postfx.enabled` is true, routes through `PostFxPipeline` (UnrealBloom + ColorGrading + ToneMapping); when false, bypasses straight to `renderer.render` with zero overhead.
+- **Step 1 (Shoe-off Sink)**: Dynamic sink height must be applied to `vrm.scene.position.y` before bone computations so analytical two-bone IK can accurately reference the physical floor;
+- **Step 3~4 (IK & Gaze on draft)**: FootIK and Gaze run on the draft VRM inside `tick`, then `composeLayeredSmooth`. `levelFeet` yields while stepping.
+- **Step 5 (`vrm.update`)**: `@pixiv/three-vrm` transfers normalized transforms to raw humanoid bones;
+- **Step 6 (`bodyMorph.update`)**: Scales bones and recomposes `rawHead.matrixWorld`. Head HUD uses this crown, not the normalized `head` joint.
+- **Step 7 (`PostFx / Render`)**: When `postfx.enabled` is true, routes through `PostFxPipeline`; when false, `renderer.render`.
 
 ---
 
@@ -174,10 +171,10 @@ Any AI Coding Agent working on this repository **must strictly obey these 5 rule
 - **Past Pitfall**: Adding `quaternion.copy(baseRot)` inside `bodyMorph.apply()` paralyzed all leg movement during BodyTurn stepping;
 - **Rule**: Morphing governs scale and translation. Except for differential tilt adjustments (e.g. non-zero `buttocksPitch` via `multiply`), **never reset quaternions to static rest poses**.
 
-### ❌ Rule 3: Never Mutate `activePlayer` Inside Async Event Handlers
-- **Reason**: The state machine must transition based on real-time module states (`isPlaying()`, `isThinking`);
+### ❌ Rule 3: Never Invent Motion Flags for the Render Loop
+- **Reason**: Writer selection is `selectLiveMotionSource({ clip, emage, vrma })` inside `MotionPipeline.tick()` — not `isThinking` / `emageLive` / `activePlayer`;
 - **Past Pitfall**: Setting `activePlayer = 'vrma'` upon clicking send caused a 1-frame visual flicker back to idle before thinking began;
-- **Rule**: Let `activePlayer` be determined atomically inside the main render loop.
+- **Rule**: ChatDirector only `playThinkingClip` / `beginEmageSpeech` / `resetChatMotion`. Gaze and BodyTurn read `MotionTraits`.
 
 ### ❌ Rule 4: Never Hardcode Avatar Heights or World Positions
 - **Reason**: World coordinates shift dynamically with heel height, FootIK sink, and bone length sliders;

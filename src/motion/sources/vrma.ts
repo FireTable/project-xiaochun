@@ -2,9 +2,10 @@ import * as THREE from 'three';
 import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
 import { VRMAnimationLoaderPlugin, createVRMAnimationClip } from '@pixiv/three-vrm-animation';
 import type { VRM } from '@pixiv/three-vrm';
-import { retargetClip } from './vrmaRetarget';
+import { retargetClip } from '../vrmaRetarget';
 import { VRM_ALL_HUMANOID_BONES } from '@/lib/constants';
-import type { MotionTransitionManager } from './motionTransition';
+import type { MotionTransitionManager } from '../pipeline/transition';
+import { DEFAULT_MOTION_TRAITS, type MotionTraits } from '../pipeline/types';
 
 export interface VRMALoadResult {
   name: string;
@@ -12,6 +13,7 @@ export interface VRMALoadResult {
 }
 
 export class VRMAMotionPlayer {
+  public traits: MotionTraits = { ...DEFAULT_MOTION_TRAITS };
   private vrm: VRM | null = null;
   private mixer: THREE.AnimationMixer | null = null;
   private action: THREE.AnimationAction | null = null;
@@ -23,6 +25,7 @@ export class VRMAMotionPlayer {
   private sequenceActions: THREE.AnimationAction[] = [];
   private sequenceIdx = -1;
   private transitioningSequence = false;
+  private sequenceFadeLock = 0;
   private isSequenceMode = false;
 
   private idleWeight = 1.0;
@@ -90,7 +93,7 @@ export class VRMAMotionPlayer {
 
     const oldAction = this.action;
     if (oldAction && oldAction !== newAction) {
-      oldAction.stop();
+      this.preserveHumanoidPose(() => oldAction.stop());
     }
 
     newAction.play();
@@ -119,7 +122,7 @@ export class VRMAMotionPlayer {
 
     const oldAction = this.action;
     if (oldAction && oldAction !== newAction) {
-      oldAction.stop();
+      this.preserveHumanoidPose(() => oldAction.stop());
     }
 
     newAction.play();
@@ -161,7 +164,7 @@ export class VRMAMotionPlayer {
     const oldAction = this.action;
     const firstAction = this.sequenceActions[0];
     if (oldAction && oldAction !== firstAction) {
-      oldAction.stop();
+      this.preserveHumanoidPose(() => oldAction.stop());
     }
     firstAction.play();
     this.action = firstAction;
@@ -197,6 +200,10 @@ export class VRMAMotionPlayer {
     if (!this.mixer || this.paused) return;
     const dt = delta > 0 ? delta : this.clock.getDelta();
     this.mixer.update(dt);
+    if (this.sequenceFadeLock > 0) {
+      this.sequenceFadeLock -= dt;
+      if (this.sequenceFadeLock <= 0) this.transitioningSequence = false;
+    }
 
     if (this.isSequenceMode && this.sequenceActions.length > 0) {
       const curAction = this.sequenceActions[this.sequenceIdx];
@@ -216,7 +223,7 @@ export class VRMAMotionPlayer {
             nextAction.crossFadeFrom(curAction, fadeDur, true);
             this.sequenceIdx = nextIdx;
             this.action = nextAction;
-            setTimeout(() => { this.transitioningSequence = false; }, 100);
+            this.sequenceFadeLock = fadeDur;
           }
         } else {
           // 动作序列播完最后一段后直接顺滑淡出到待机，绝不重复播放
@@ -267,11 +274,7 @@ export class VRMAMotionPlayer {
     this.sequenceActions.forEach((act) => act.fadeOut(duration));
   }
 
-  stop() {
-    // 关键修正：Three.js 的 AnimationMixer.stopAllAction() 会默认触发 restoreOriginalState()，
-    // 将受控骨骼粗暴重置回 T-Pose / Rest Pose（0），导致姿态闪现顿挫！
-    // 在 stopAllAction 执行前后截获并完整保护当前姿态，确保处于自然连续的人体生理姿态，
-    // 供全局 MotionTransitionManager 或下一段动作无缝接管！
+  private preserveHumanoidPose(run: () => void): void {
     const boneTransforms: { node: THREE.Object3D; q: THREE.Quaternion; p?: THREE.Vector3 }[] = [];
     if (this.vrm?.humanoid) {
       for (const name of VRM_ALL_HUMANOID_BONES) {
@@ -285,13 +288,15 @@ export class VRMAMotionPlayer {
         }
       }
     }
-
-    this.mixer?.stopAllAction();
-
+    run();
     for (const item of boneTransforms) {
       item.node.quaternion.copy(item.q);
       if (item.p) item.node.position.copy(item.p);
     }
+  }
+
+  stop() {
+    this.preserveHumanoidPose(() => { this.mixer?.stopAllAction(); });
 
     this.action = null;
     this.mixer = null;
@@ -300,6 +305,7 @@ export class VRMAMotionPlayer {
     this.sequenceActions = [];
     this.sequenceIdx = -1;
     this.transitioningSequence = false;
+    this.sequenceFadeLock = 0;
     this.idleWeight = 1.0;
     this.isFadingToIdle = false;
     this.clock.stop();

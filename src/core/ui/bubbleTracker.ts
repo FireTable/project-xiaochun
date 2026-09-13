@@ -49,6 +49,7 @@ export class BubbleTracker {
     speechText?: string,
     segmentIndex?: number,
     totalSegments?: number,
+    headTopWorld?: THREE.Vector3,
   ): void {
     if (!key || key === 'silent') {
       this.state.visible = false;
@@ -64,7 +65,7 @@ export class BubbleTracker {
       this.state.totalSegments = totalSegments;
 
       if (vrm) {
-        this.computeScreenPosition(vrm, camera);
+        this.computeScreenPosition(vrm, camera, headTopWorld);
       }
     }
     this.onBubbleChange?.({ ...this.state });
@@ -78,10 +79,10 @@ export class BubbleTracker {
   /**
    * 每帧渲染主循环中调用：若气泡可见，执行高频死区过滤与 DOM 直接位移更新
    */
-  update(vrm: VRM | null, camera: THREE.Camera): void {
+  update(vrm: VRM | null, camera: THREE.Camera, headTopWorld?: THREE.Vector3): void {
     if (!this.state.visible || !vrm) return;
 
-    this.computeScreenPosition(vrm, camera);
+    this.computeScreenPosition(vrm, camera, headTopWorld);
 
     const dx = this.state.x - this.lastBubbleX;
     const dy = this.state.y - this.lastBubbleY;
@@ -99,13 +100,21 @@ export class BubbleTracker {
     }
   }
 
-  private computeScreenPosition(vrm: VRM, camera: THREE.Camera): void {
-    const head = vrm.humanoid?.getNormalizedBoneNode('head');
-    if (head) {
-      head.getWorldPosition(this.tempHeadPos);
-      this.tempHeadPos.y += 0.24;
+  private computeScreenPosition(
+    vrm: VRM,
+    camera: THREE.Camera,
+    headTopWorld?: THREE.Vector3,
+  ): void {
+    if (headTopWorld) {
+      this.tempHeadPos.copy(headTopWorld);
     } else {
-      this.tempHeadPos.set(0, 1.7, 0);
+      const head = vrm.humanoid?.getNormalizedBoneNode('head');
+      if (head) {
+        head.getWorldPosition(this.tempHeadPos);
+        this.tempHeadPos.y += 0.24;
+      } else {
+        this.tempHeadPos.set(0, 1.7, 0);
+      }
     }
 
     this.tempHeadPos.project(camera);

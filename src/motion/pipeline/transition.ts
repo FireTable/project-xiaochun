@@ -50,7 +50,7 @@ export class MotionTransitionManager {
    */
   startTransition(
     vrm: VRM | null | undefined,
-    duration = 0.98,
+    duration = 0.75,
     lookAtOffsets?: { neck?: THREE.Quaternion; head?: THREE.Quaternion },
     boneFilter?: readonly string[],
   ): void {

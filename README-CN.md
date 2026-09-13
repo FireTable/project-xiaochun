@@ -78,14 +78,14 @@ UI 走 **TanStack Start SSR + i18next** 水合,**完整支持简体中文 / Engl
 
 ### 🩰 统一万能动作融合管线与动力学体系 (Universal Motion Pipeline & Ground Dynamics)
 * **万能动作零门槛接入 (`playMotion`)**：无论是 VRMA 文件 URL、ArrayBuffer 二进制流还是 `THREE.AnimationClip`，均通过单一管线一键播放；自动完成骨骼重定向、Hips 偏移归一化，支持全身（`all`）与半身（`upperBody`）部位遮罩。
-* **电影级五次平滑步阶曲线补帧 (Quintic Smootherstep Inbetweening)**：废除机械线性插值，基于 $6t^5 - 15t^4 + 10t^3$ 曲线在生理时间窗（0.70s~0.88s）内逐帧自适应 Slerp 插补，首尾速度与加速度严格连续。详见 [`docs/MOTION_PIPELINE.md`](docs/MOTION_PIPELINE.md)。
+* **电影级五次平滑步阶曲线补帧 (Quintic Smootherstep Inbetweening)**：废除机械线性插值，基于 $6t^5 - 15t^4 + 10t^3$ 曲线在统一 **0.75s** 窗口内逐帧自适应 Slerp 插补，首尾速度与加速度严格连续。详见 [`docs/MOTION_PIPELINE.md`](docs/MOTION_PIPELINE.md)。
 * **仿生 FootIK 与地面地锚系统**：工业级两骨解析式 IK、世界地锚防滑步、对立平衡（Contrapposto）单腿重心转移与脱鞋自适应下沉（4.6cm/3.9cm）。详见 [`docs/FOOT_IK.md`](docs/FOOT_IK.md)。
 * **程序化转身步态与视线跳视**：四阶段迈步状态机、临界阻尼弹簧偏航角追踪与眼神微动。详见 [`docs/BODY_TURN_AND_GAZE.md`](docs/BODY_TURN_AND_GAZE.md)。
 * **分层动作姿态求值图 (Layered Pose Hierarchy)**：
   * **Layer 0 (Base)**：`NaturalIdleSystem` 仿生自然待机（多频胸腹呼吸、8 字骨盆慢速重心微摆、真十指松弛微卷）；
   * **Layer 1 (Main Action)**：`vrma` 思考动作、`emage` 语音手势与通用动作剪辑平滑 Crossfade 流转；
-  * **Layer 2 (Locomotion)**：`BodyTurnSystem` 物理转身步态，仅通过 `LOWER_BODY_MASK`（双腿与骨盆）加权覆盖，绝不污染上身姿态与视线；
-  * **Post-Pass**：`FootIK` 脚部物理贴地解算。
+  * **Layer 2 (Locomotion)**：`BodyTurnSystem` 物理转身步态，仅覆盖 `LEGS_MASK`（不含髋旋转、无脊柱预旋）；
+  * **Compose**：FootIK + Gaze 写入目标后，每帧 `composeLayeredSmooth` 再 `commitToVRM`。
 * **系统生命周期与主循环规约**：一帧生命周期 10 步精确时序图与开发者避坑红线详见 [`docs/ARCHITECTURE_AND_RULES.md`](docs/ARCHITECTURE_AND_RULES.md)。
 * **完整技术文档中心**：架构全景与 Agent 快速路由导航详见 [`docs/README.md`](docs/README.md)。
 
@@ -300,17 +300,10 @@ Project-XiaoChun/
 │   │   ├── postfx/            # 电影级后期管线 (postFxPipeline.ts: Bloom/ToneMapping/ColorGrading)
 │   │   ├── material/          # MToon 材质管理 (vrmMaterialManager.ts: 部件可见性 + Shader 饱和度)
 │   │   └── ui/                # 空间 UI 投影 (bubbleTracker.ts: 头部 3D 坐标转 2D 气泡)
-│   ├── motion/                # 动作系统 (统一万能管线 + 仿生拟真姿态)
-│   │   ├── pipeline/          # 统一万能动作融合管线 (MotionPipeline / PoseBuffer / UniversalMotion)
-│   │   ├── motionTransition.ts # 五次平滑步阶曲线补帧 (Quintic Smootherstep Slerp)
-│   │   ├── gazeController.ts  # 人机视线伴随系统 (眼部微颤/眨眼/生理限位/思考摇头)
-│   │   ├── naturalIdle.ts     # 多频仿生呼吸待机与十指微卷 (Layer 0)
-│   │   ├── speakIdle.ts       # 言谈微停顿手势悬浮自适应与缓沉
-│   │   ├── bodyTurn.ts        # 骨盆与下半身物理转身步态 (Layer 2)
-│   │   ├── footIK.ts          # 脚部物理贴地解算器 (Post-Pass)
-│   │   ├── emagePlayer.ts     # EMAGE 播放：motion_chunk 流、A/V hold、接缝/hop（APP_CONFIG.emage.motion）
-│   │   ├── emageWorker.ts     # ONNX Runtime Web Dedicated Worker（wasm EP + INT8；T=64 窗）
-│   │   ├── vrmaPlayer.ts      # VRMA 动画播放驱动器
+│   ├── motion/                # 动作系统（插件化管线 + 仿生姿态）
+│   │   ├── pipeline/          # tick / selectLiveMotionSource / PoseBuffer / transition
+│   │   ├── sources/           # idle、vrma、emage（含 worker）、clip、speakIdle
+│   │   ├── constraints/       # footIK、bodyTurn、gaze（draft 上求解，再 compose）
 │   │   └── vrmaRetarget.ts    # VRMA 骨骼重定向与标准化
 │   ├── memory/                # 端侧持久化多级记忆 (IndexedDB 存储 / 实体画像提取 / n-gram 检索)
 │   ├── llm/                   # LLM 层 — WebLLM + 自定义 OpenAI 兼容 provider 工厂

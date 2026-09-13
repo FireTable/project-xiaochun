@@ -1,9 +1,11 @@
 import * as THREE from 'three';
 import type { VRM } from '@pixiv/three-vrm';
 import type { VRMHumanBoneName } from '@pixiv/three-vrm';
-import { FootIKSolver } from './footIK';
+import { APP_CONFIG } from '../../config';
+import { FootIKSolver } from '../constraints/footIK';
 import { SpeakIdleSystem } from './speakIdle';
-import { APP_CONFIG } from '@/config';
+import { type MotionTraits } from '../pipeline/types';
+import { BONE_INDEX_MAP, type PoseBuffer, type MotionBoneMask } from '../pipeline/poseBuffer';
 
 const FPS = 30;
 const SR = 16000;
@@ -97,6 +99,11 @@ export interface EmagePerfSnapshot {
 }
 
 export class EmagePlayer {
+  public traits: MotionTraits = {
+    allowLocomotion: true,
+    thinkSway: false,
+    glanceChance: 0.40,
+  };
   ready = false;
   loop = false;
   playAudio = false;
@@ -104,6 +111,8 @@ export class EmagePlayer {
   lockLowerBody = false; // 默认不强制锁定下半身，释放骨盆与腰椎生理律动；由生理权重与 PitchClamping 保证挺拔立姿
   fadeDuration = 0.6; // 平滑淡出到 Idle 的过渡时长 (秒)
   public enableFootIK = true; // FootIK 功能临时开关：设为 false 完全旁路 FootIK 查看原生 EMAGE；设为 true 开启物理地锚与重心解算
+  /** When false, `update()` skips `footIK.solve` so the pipeline can run it post-commit. */
+  public solveFootIkInUpdate = false;
   public footIK = new FootIKSolver();
   public fadingOut = false;
   private fadeElapsed = 0;
@@ -182,6 +191,7 @@ export class EmagePlayer {
   private vrmParentSmplx = new Int8Array(NUM_JOINTS).fill(-1);
   private parentRestWorldQ: (THREE.Quaternion | null)[] = new Array(NUM_JOINTS).fill(null);
   public baseY = 0;
+  private restHipsPos = new THREE.Vector3();
 
   private motion: Float32Array | null = null;
   private frameCount = 0;
@@ -231,23 +241,10 @@ export class EmagePlayer {
   private _m4 = new THREE.Matrix4();
   private _q1 = new THREE.Quaternion();
   private _q2 = new THREE.Quaternion();
-  private _deltaQ = new THREE.Quaternion();
-  private _euler = new THREE.Euler(0, 0, 0, 'YXZ');
   private _invLookAt = new THREE.Quaternion();
   private startQ = Array.from({ length: NUM_JOINTS }, () => new THREE.Quaternion());
 
   public getLookAtOffsets: (() => { neck?: THREE.Quaternion; head?: THREE.Quaternion } | undefined) | null = null;
-
-  /**
-   * 限制关节相对 restQ 的俯仰角 (Pitch)，彻底杜绝骨盆过度前顶与腰椎过度后仰塌腰 (Hyper-lordosis)
-   */
-  private clampBonePitch(qGoal: THREE.Quaternion, rest: THREE.Quaternion, minPitch: number, maxPitch: number): void {
-    this._deltaQ.copy(rest).invert().multiply(qGoal);
-    this._euler.setFromQuaternion(this._deltaQ, 'YXZ');
-    this._euler.x = THREE.MathUtils.clamp(this._euler.x, minPitch, maxPitch);
-    this._deltaQ.setFromEuler(this._euler);
-    qGoal.copy(rest).multiply(this._deltaQ);
-  }
 
   constructor() {
     this.initWorker();
@@ -364,29 +361,46 @@ export class EmagePlayer {
     for (let i = 0; i < NUM_JOINTS; i++) {
       const name = SMPLX_TO_VRM[i];
       if (!name) continue;
-      const node = vrm.humanoid.getNormalizedBoneNode(name) ?? vrm.humanoid.getRawBoneNode(name);
+      // PoseBuffer commits normalized bones; rest/parent must be that same space.
+      const node = vrm.humanoid.getNormalizedBoneNode(name);
       if (!node) continue;
       this.bones[i] = node;
       this.restQ[i] = node.quaternion.clone();
+      if (i === HIPS_INDEX) this.restHipsPos.copy(node.position);
       const restWorld = new THREE.Quaternion();
       node.getWorldQuaternion(restWorld);
       this.restWorldQ[i] = restWorld;
     }
 
     for (let i = 0; i < NUM_JOINTS; i++) {
-      const bone = this.bones[i];
-      if (!bone) continue;
-      let p: THREE.Object3D | null = bone.parent;
-      while (p) {
-        const idx = this.bones.indexOf(p);
-        if (idx >= 0) { this.vrmParentSmplx[i] = idx; break; }
-        p = p.parent;
-      }
-      if (bone.parent) {
+      if (!this.bones[i]) continue;
+      const pi = SMPLX_PARENT[i]!;
+      if (pi >= 0 && this.bones[pi] && this.restWorldQ[pi]) {
+        this.vrmParentSmplx[i] = pi;
+        this.parentRestWorldQ[i] = this.restWorldQ[pi]!.clone();
+      } else if (this.bones[i]!.parent) {
         const parentRest = new THREE.Quaternion();
-        bone.parent.getWorldQuaternion(parentRest);
+        this.bones[i]!.parent!.getWorldQuaternion(parentRest);
         this.parentRestWorldQ[i] = parentRest;
       }
+    }
+  }
+
+  /** Copy this frame's pose into a pipeline buffer. Does not write VRM bones. */
+  copyToPoseBuffer(out: PoseBuffer, mask: MotionBoneMask = 'all'): void {
+    for (let i = 0; i < NUM_JOINTS; i++) {
+      if (mask === 'upperBody' && (i === HIPS_INDEX || LEG_INDICES.has(i))) continue;
+      const name = SMPLX_TO_VRM[i];
+      if (!name) continue;
+      const idx = BONE_INDEX_MAP.get(name);
+      if (idx === undefined) continue;
+      const q = this.currentBoneInitialized
+        ? this.currentBoneQ[i]!
+        : (this.restQ[i] ?? this.currentBoneQ[i]!);
+      out.quaternions[idx]!.copy(q);
+    }
+    if (mask !== 'upperBody') {
+      out.hipsPosition.copy(this.restHipsPos);
     }
   }
 
@@ -614,7 +628,7 @@ export class EmagePlayer {
       }
       this.currentBoneInitialized = true;
       if (this.enableFootIK) {
-        this.footIK.snapAnchors();
+        this.footIK.anchorToCurrentFeet();
       }
     }
   }
@@ -765,7 +779,7 @@ export class EmagePlayer {
     }
     this.currentBoneInitialized = true;
     if (this.enableFootIK) {
-      this.footIK.snapAnchors();
+      this.footIK.anchorToCurrentFeet();
     }
 
     // 支柱腿重心设置：balanced 模式下双腿对称 0.5 承重，杜绝每次起播换腿跳跃
@@ -926,7 +940,6 @@ export class EmagePlayer {
       if (this.lockLowerBody && LOWER_BODY_INDICES.has(i)) {
         if (this.restQ[i]) {
           this.currentBoneQ[i]!.copy(this.restQ[i]!);
-          bone.quaternion.copy(this.restQ[i]!);
         }
         continue;
       }
@@ -944,16 +957,16 @@ export class EmagePlayer {
           qGoal.slerp(rest, 1.0 - this.gestureIntensity);
         } else if (FINGER_INDICES.has(i) && this.fingerIntensity < 0.999) {
           qGoal.slerp(rest, 1.0 - this.fingerIntensity);
-        } else if (TORSO_INDICES.has(i) && this.torsoIntensity < 0.999) {
-          qGoal.slerp(rest, 1.0 - this.torsoIntensity);
+        } else if (TORSO_INDICES.has(i)) {
+          if (this.torsoIntensity < 0.999) {
+            qGoal.slerp(rest, 1.0 - this.torsoIntensity);
+          }
         } else if (HEAD_INDICES.has(i) && this.headIntensity < 0.999) {
           qGoal.slerp(rest, 1.0 - this.headIntensity);
         } else if (i === HIPS_INDEX) {
           qGoal.slerp(rest, 1.0 - this.hipIntensity);
-          this.clampBonePitch(qGoal, rest, -0.04, 0.15);
         } else if (i === SPINE_INDEX) {
           qGoal.slerp(rest, 1.0 - this.spineIntensity);
-          this.clampBonePitch(qGoal, rest, -0.05, 0.18);
         } else if (LEG_INDICES.has(i)) {
           if (!this.enableFootIK) {
             if (rest && this.legIntensity < 0.999) {
@@ -976,13 +989,13 @@ export class EmagePlayer {
       const clamped = Math.min(1.0, Math.max(0.0, dot));
       const angleDist = 2 * Math.acos(clamped);
 
-      let maxSpeed = 1.4;
+      let maxSpeed = 2.0;
       if (ARM_INDICES.has(i) || FINGER_INDICES.has(i)) {
-        maxSpeed = 1.5;
+        maxSpeed = 2.2;
       } else if (i === SPINE_INDEX || i === HIPS_INDEX || TORSO_INDICES.has(i)) {
-        maxSpeed = 1.0;
+        maxSpeed = 2.2;
       } else if (HEAD_INDICES.has(i)) {
-        maxSpeed = 1.3;
+        maxSpeed = 2.0;
       }
 
       const maxDeltaAngle = maxSpeed * Math.min(delta, 0.1);
@@ -995,21 +1008,20 @@ export class EmagePlayer {
       let finalQ = this.currentBoneQ[i]!;
 
       if (idleWeight > 0.0001 && LOWER_BODY_INDICES.has(i) && rest) {
-        finalQ = this._q2.copy(finalQ).slerp(rest, idleWeight);
+        this.currentBoneQ[i]!.copy(this._q2.copy(finalQ).slerp(rest, idleWeight));
       }
-
-      bone.quaternion.copy(finalQ);
     }
   }
 
-  update(delta: number, _lookAtEnabled = false): void {
-    if (!this.playing && !this.fadingOut && !this.speakIdle.isActive()) return;
-    if (!this.motion || this.frameCount <= 0) return;
+  /** @returns whether this frame wrote bone quaternions (false = awaiting audio / idle). */
+  update(delta: number, _lookAtEnabled = false): boolean {
+    if (!this.playing && !this.fadingOut && !this.speakIdle.isActive()) return false;
+    if (!this.motion || this.frameCount <= 0) return false;
 
     if (this.speakIdle.isActive()) {
       this.speakIdle.update(delta, this.bones, this.currentBoneQ);
-      if (this.enableFootIK) this.footIK.solve(delta);
-      return;
+      if (this.enableFootIK && this.solveFootIkInUpdate) this.footIK.solve(delta);
+      return true;
     }
 
     if (this.stancePillar === 'auto') {
@@ -1030,13 +1042,13 @@ export class EmagePlayer {
       const p = Math.min(1.0, this.fadeElapsed / Math.max(0.1, this.fadeDuration));
       this.idleWeight = p * p * (3 - 2 * p);
       this.applyFrame(this.playhead, this.idleWeight, delta);
-      if (this.enableFootIK) this.footIK.solve(delta);
+      if (this.enableFootIK && this.solveFootIkInUpdate) this.footIK.solve(delta);
       if (p >= 1.0) {
         this.fadingOut = false;
         this.playing = false;
         this.resetPose();
       }
-      return;
+      return true;
     }
 
     if (this.externalClock) {
@@ -1061,14 +1073,14 @@ export class EmagePlayer {
         }
         this.idleWeight = 0.0;
         this.applyFrame(this.playhead, 0.0, delta);
-        if (this.enableFootIK) this.footIK.solve(delta);
-        return;
+        if (this.enableFootIK && this.solveFootIkInUpdate) this.footIK.solve(delta);
+        return true;
       }
     }
 
     // P0a-AV: 流式动作在缺少 audio clock 时禁止自由跑表（避免早于 TTS）
     if (this.streamingMotionActive) {
-      return;
+      return false;
     }
 
     const nextPlayhead = this.playhead + delta * this.fps;
@@ -1080,7 +1092,7 @@ export class EmagePlayer {
         this.applyFrame(this.playhead, 0.0, delta);
       } else {
         this.fadeOutToIdle(this.fadeDuration);
-        return;
+        return false;
       }
     } else {
       this.playhead = nextPlayhead;
@@ -1088,7 +1100,8 @@ export class EmagePlayer {
       this.applyFrame(this.playhead, 0.0, delta);
     }
 
-    if (this.enableFootIK) this.footIK.solve(delta);
+    if (this.enableFootIK && this.solveFootIkInUpdate) this.footIK.solve(delta);
+    return true;
   }
 
   fadeOutToIdle(duration = 0.8): void {
@@ -1137,7 +1150,7 @@ export class EmagePlayer {
     if (this.audio) { this.audio.pause(); this.audio.currentTime = 0; }
     this.footIK.softReset();
     this.idleWeight = 0.0;
-    this.currentBoneInitialized = false;
+    // 保留 currentBoneQ 与 currentBoneInitialized 供管线捕获平滑过渡起点快照
   }
 
   pause(): void {

@@ -3,7 +3,8 @@ import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
 import { VRMAnimationLoaderPlugin, createVRMAnimationClip } from '@pixiv/three-vrm-animation';
 import type { VRM } from '@pixiv/three-vrm';
 import { retargetClip } from '../vrmaRetarget';
-import { PIPELINE_BONES, type MotionBoneMask } from './poseBuffer';
+import { PIPELINE_BONES, type MotionBoneMask } from '../pipeline/poseBuffer';
+import { DEFAULT_MOTION_TRAITS, type MotionTraits } from '../pipeline/types';
 
 export interface PlayMotionOptions {
   /** 混合过渡时间（秒），默认约 0.98s（P0c.1 +30%） */
@@ -38,6 +39,7 @@ export interface UniversalMotionHandle {
  * 具备自动人体骨骼重定向、Hips 归一化、骨骼状态保护与生命周期回调。
  */
 export class UniversalMotionController {
+  public traits: MotionTraits = { ...DEFAULT_MOTION_TRAITS };
   private vrm: VRM | null = null;
   private mixer: THREE.AnimationMixer | null = null;
   private currentAction: THREE.AnimationAction | null = null;
@@ -46,7 +48,7 @@ export class UniversalMotionController {
   private currentOptions: PlayMotionOptions = {};
   private active = false;
   private isFadingOut = false;
-  private fadeDuration = 0.98;
+  private fadeDuration = 0.75;
   private clipDuration = 0;
   private onEndTriggered = false;
   /** Remember string URL inputs for outfit-swap restore. */
@@ -128,7 +130,7 @@ export class UniversalMotionController {
     this.currentOptions = options;
     const isLoop = !!options.loop;
     const timeScale = options.timeScale ?? 1.0;
-    this.fadeDuration = Math.max(0.26, options.fadeDuration ?? 0.98);
+    this.fadeDuration = Math.max(0.26, options.fadeDuration ?? 0.75);
     this.clipDuration = clip.duration;
     this.isFadingOut = false;
     this.onEndTriggered = false;
@@ -248,7 +250,11 @@ export class UniversalMotionController {
   }
 
   isPlaying(): boolean {
-    return this.active && (this.currentAction?.isRunning() ?? false);
+    return this.active && !this.isFadingOut && (this.currentAction?.isRunning() ?? false);
+  }
+
+  isActive(): boolean {
+    return this.active;
   }
 
   getCurrentOptions(): Readonly<PlayMotionOptions> {

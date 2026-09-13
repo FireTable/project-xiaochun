@@ -6,6 +6,15 @@
  * rewrites the BIN chunk with the smaller bytes, writes a new .vrm.
  * Byte-identical re-runs are a no-op (oxipng is idempotent).
  *
+ * 自定义压缩元数据 — glTF JSON extras.compressedBy:
+ *   - 在 glTF JSON 根级 extras.compressedBy 里写压缩元数据
+ *   - 内容包含 tool / oxipngLevel / oxipngVersion / timestamp / compressedBinSha256 / per-image stats
+ *   - 下次跑这个脚本时,先看 extras.compressedBy:
+ *     - compressedBinSha256 === sha256(inputBin 当前) && level 匹配 → 直接 return(几十秒省掉)
+ *     - level 不匹配或 sha 变了(input 被改)→ 重新跑 oxipng + 更新 compressedBy
+ *   - extras 是 glTF spec 允许的自定义字段,VRoid Studio / three-vrm 都安全忽略未知字段
+ *   - 根级 extras 是空的(xiaochun_base.vrm 验证过),不与 VRoid Studio 的 meshes[*].extras.targetNames 冲突
+ *
  * Usage:
  *   node scripts/compress_vrm.mjs <input.vrm> <output.vrm> [-o level]
  *
@@ -18,6 +27,7 @@ import { promisify } from 'node:util';
 import { readFile, writeFile, mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { createHash } from 'node:crypto';
 const execFile = promisify(execFileCb);
 
 const args = process.argv.slice(2);
@@ -50,8 +60,12 @@ async function whichOxipng() {
   }
 }
 
+function sha256(buf) {
+  return createHash('sha256').update(buf).digest('hex');
+}
+
 function extractBin(buf) {
-  if (buf.toString('utf8', 0, 4) !== 'glTF') throw new Error('not a GLB/VRM (bad magic)');
+  if (buf.toString('utf8', 0, 4) !== 'glTF') throw new Error('not GLB (bad magic)');
   if (buf.readUInt32LE(4) !== 2) throw new Error('not GLB version 2');
   const jsonLen = buf.readUInt32LE(12);
   const json = JSON.parse(buf.subarray(20, 20 + jsonLen).toString('utf8'));
@@ -60,17 +74,52 @@ function extractBin(buf) {
   return { json, bin: buf.subarray(binChunkStart + 8, binChunkStart + 8 + binLen) };
 }
 
+async function getOxipngVersion() {
+  try {
+    const { stdout } = await execFile('oxipng', ['--version']);
+    const m = stdout.match(/\d+\.\d+\.\d+/);
+    return m ? m[0] : stdout.trim();
+  } catch {
+    return 'unknown';
+  }
+}
+
 async function main() {
   await whichOxipng();
 
+  const origBuf = await readFile(src);
+
+  // 1. 拆 GLB
+  let json, oldBin;
+  try {
+    ({ json, bin: oldBin } = extractBin(origBuf));
+  } catch (e) {
+    console.error(`[compress_vrm]   ERROR parsing GLB: ${e.message}`);
+    process.exit(1);
+  }
+  const inputBinHash = sha256(oldBin);
+
+  // 2. 跳过检测 — 看 glTF extras.compressedBy
+  const prev = json?.extras?.compressedBy;
+  if (prev && prev.oxipngLevel === optLevel && prev.compressedBinSha256 === inputBinHash) {
+    console.log(`[compress_vrm]   ${dst}  skip: already compressed at level ${optLevel} (extras.compressedBy sha matches)`);
+    return;
+  }
+  if (prev) {
+    const why = prev.compressedBinSha256 === inputBinHash
+      ? `level differs (was ${prev.oxipngLevel}, now ${optLevel})`
+      : 'input BIN sha changed (source .vrm modified)';
+    console.log(`[compress_vrm]   ${dst}  re-compress at level ${optLevel}: ${why}`);
+  } else {
+    console.log(`[compress_vrm]   ${dst}  first compression at level ${optLevel}`);
+  }
+
+  // 3. 跑 oxipng 压缩
   // ponytail: 保留原始输入字节 — 跑完一遍后如果新字节 == 原始字节,完全跳过
   // writeFileSync。compress_vrm 内部 JSON.stringify 会重排 key / 改数字格式
   // (1.0 → 1) 等小变化,跑第一遍时产物 ≠ 原文件,污染 git diff;
   // 跑第二遍时输入已经是"上次的产物",JSON.stringify 输出稳定 → idempotent。
   // 字节相等就跳过,无视中间状态,根因不用查。
-  const origBuf = await readFile(src);
-  const buf = origBuf;
-  const { json, bin: oldBin } = extractBin(buf);
   const bvs = json.bufferViews || [];
   const images = json.images || [];
 
@@ -109,7 +158,7 @@ async function main() {
   }
   await rm(tmp, { recursive: true, force: true });
 
-  // rebuild BIN: walk bufferViews in original offset order, place back-to-back
+  // rebuild BIN
   const ordered = bvs.map((bv, idx) => ({ bv, idx }))
                      .sort((a, b) => (a.bv.byteOffset || 0) - (b.bv.byteOffset || 0));
   const parts = [];
@@ -128,39 +177,56 @@ async function main() {
   json.bufferViews = newBvMeta;
   if (json.buffer) json.buffer.byteLength = newBin.length;
 
+  // 4. 构造 metadata,塞进 glTF extras
+  const oxipngVer = await getOxipngVersion();
+  json.extras = {
+    ...(json.extras || {}),
+    compressedBy: {
+      tool: 'compress_vrm.mjs',
+      oxipngLevel: optLevel,
+      oxipngVersion: oxipngVer,
+      timestamp: new Date().toISOString(),
+      compressedBinSha256: sha256(newBin),
+      bufferViewCount: replacements.size,
+      bufferViews: Object.fromEntries(
+        rows.map((r) => [r.idx.toString(), { old: r.old, new: r.new, status: r.status }])
+      ),
+    },
+  };
+
   let newJsonBytes = Buffer.from(JSON.stringify(json), 'utf8');
   const jsonPad = (4 - (newJsonBytes.length % 4)) % 4;
   if (jsonPad) newJsonBytes = Buffer.concat([newJsonBytes, Buffer.alloc(jsonPad, 0x20)]);
 
+  // 5. 组装新 GLB
   const totalLen = 12 + 8 + newJsonBytes.length + 8 + newBin.length;
-  const header = Buffer.alloc(12);
-  header.write('glTF', 0, 'utf8');
-  header.writeUInt32LE(2, 4);
-  header.writeUInt32LE(totalLen, 8);
-  const jsonHdr = Buffer.alloc(8);
-  jsonHdr.writeUInt32LE(newJsonBytes.length, 0);
-  jsonHdr.write('JSON', 4, 'utf8');
-  const binHdr = Buffer.alloc(8);
-  binHdr.writeUInt32LE(newBin.length, 0);
-  binHdr.write('BIN\0', 4, 'utf8');
+  const out = Buffer.alloc(totalLen);
+  out.write('glTF', 0, 'utf8');
+  out.writeUInt32LE(2, 4);
+  out.writeUInt32LE(totalLen, 8);
+  let p = 12;
+  out.writeUInt32LE(newJsonBytes.length, p);
+  out.write('JSON', p + 4, 'utf8');
+  newJsonBytes.copy(out, p + 8);
+  p += 8 + newJsonBytes.length;
+  out.writeUInt32LE(newBin.length, p);
+  out.write('BIN\0', p + 4, 'utf8');
+  newBin.copy(out, p + 8);
 
-  const newVrmBytes = Buffer.concat([header, jsonHdr, newJsonBytes, binHdr, newBin]);
-  // ponytail: 字节级相等 → 跳过写盘 (preserve mtime + 内容),跟 build_vrmbase/addon
-  // 的 sha256 skip 是同一思路。replacements.size===0 但 JSON.stringify 重排过 key
-  // 也会被这一行抓住。
-  if (newVrmBytes.equals(origBuf)) {
-    console.log(`[compress_vrm]   ${dst}  unchanged (${newVrmBytes.length} bytes), skipped`);
+  // 6. 字节级相等 → 跳过写盘
+  if (out.equals(origBuf)) {
+    console.log(`[compress_vrm]   ${dst}  unchanged (${out.length} bytes), skipped`);
   } else {
-    await writeFile(dst, newVrmBytes);
+    await writeFile(dst, out);
   }
 
-  // ponytail: 输出统一 stage header,人类 + AI 都能 grep 解析。
-  // 其它 build_*.mjs 也用相同前缀 ('[stage] xxx')。
+  // 输出 stats
   const saved = origImageBytes - newImageBytes;
   console.log(`[compress_vrm]   ${src} → ${dst}  ${inPlace ? '(in-place)' : ''}`);
   console.log(`[compress_vrm]   oxipng -o ${optLevel}`);
-  console.log(`[compress_vrm]   vrm size: ${(buf.length/1024/1024).toFixed(2)} MB → ${(totalLen/1024/1024).toFixed(2)} MB  (saved ${(saved/1024/1024).toFixed(2)} MB image bytes, ${origImageBytes ? ((saved/origImageBytes)*100).toFixed(2) : '0.00'}%)`);
+  console.log(`[compress_vrm]   vrm size: ${(origBuf.length/1024/1024).toFixed(2)} MB → ${(out.length/1024/1024).toFixed(2)} MB  (saved ${(saved/1024/1024).toFixed(2)} MB image bytes, ${origImageBytes ? ((saved/origImageBytes)*100).toFixed(2) : '0.00'}%)`);
   console.log(`[compress_vrm]   images : ${replacements.size}/${images.length} compressed`);
+  console.log(`[compress_vrm]   meta   : level=${optLevel} oxipng=${oxipngVer} binSha=${sha256(newBin).slice(0, 16)}...`);
   for (const r of rows) {
     const before = (r.old / 1024).toFixed(1);
     const after  = (r.new / 1024).toFixed(1);
@@ -169,4 +235,4 @@ async function main() {
   }
 }
 
-main().catch(err => { console.error(err.message); process.exit(1); });
+main().catch((err) => { console.error(err.message); process.exit(1); });

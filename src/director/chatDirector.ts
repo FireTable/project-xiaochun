@@ -10,12 +10,12 @@
 import type * as THREE from 'three';
 import type { VRM } from '@pixiv/three-vrm';
 import { makeClipSeamless } from '@/motion/vrmaRetarget';
-import type { VRMAMotionPlayer } from '@/motion/vrmaPlayer';
-import { type EmagePlayer, type EmageMotionData } from '@/motion/emagePlayer';
+import type { VRMAMotionPlayer } from '@/motion/sources/vrma';
+import { type EmagePlayer, type EmageMotionData } from '@/motion/sources/emage';
 import { generateSpeechReply } from '@/llm/chatWorkflow';
 import { MPEGDecoder } from 'mpg123-decoder';
 import { rememberTurn } from '@/memory';
-import type { MotionTransitionManager } from '@/motion/motionTransition';
+import type { MotionPipeline } from '@/motion/pipeline/motionPipeline';
 import type { Lang } from '@/i18n';
 import { APP_CONFIG } from '@/config';
 
@@ -293,7 +293,6 @@ class PipelineTableTracker {
 }
 
 export class ChatDirector {
-  public isThinking = false;
   private ctx: AudioContext | null = null;
   private analyser: AnalyserNode | null = null;
   private analyserBuf: Uint8Array | null = null;
@@ -310,11 +309,11 @@ export class ChatDirector {
   private player: VRMAMotionPlayer | null = null;
   private emage: EmagePlayer | null = null;
   private currentVRM: VRM | null = null;
-  public transition: MotionTransitionManager | null = null;
+  private pipeline: MotionPipeline | null = null;
   private stopPlaySegment: (() => void) | null = null;
 
-  bindTransitionManager(tm: MotionTransitionManager): void {
-    this.transition = tm;
+  bindPipeline(pipeline: MotionPipeline): void {
+    this.pipeline = pipeline;
   }
 
   public translateSync: ((key: string, vars?: Record<string, unknown>) => string) | null = null;
@@ -370,14 +369,13 @@ export class ChatDirector {
           makeClipSeamless(clip);
           this.cachedThinkingClip = clip;
         }
-        player.playLoop(this.cachedThinkingClip, vrm, 0.65);
-        this.isThinking = true;
+        this.pipeline?.playThinkingClip(this.cachedThinkingClip, vrm, 0.65);
       } catch (e) {
         console.warn('播放 thinking.vrma 动作失败', e);
-        this.isThinking = true;
+        this.pipeline?.setIdleThinkSway(true);
       }
     } else {
-      this.isThinking = true;
+      this.pipeline?.setIdleThinkSway(true);
     }
   }
 
@@ -698,7 +696,7 @@ export class ChatDirector {
     buf: AudioBuffer,
     onEnded: () => void,
     emage: EmagePlayer,
-    player: VRMAMotionPlayer | null,
+    _player: VRMAMotionPlayer | null,
     isInitial = true,
     audioTimelineOffsetSec = 0,
   ): void {
@@ -707,7 +705,7 @@ export class ChatDirector {
       return;
     }
 
-    this.isThinking = false;
+    if (isInitial) this.pipeline?.beginEmageSpeech();
     this.speaking = true;
     this.audioDone = false;
     this.audioDoneTime = 0;
@@ -741,10 +739,6 @@ export class ChatDirector {
       awaitingAudioStart: emage.awaitingAudioStart,
       when,
     });
-
-    if (isInitial) {
-      player?.stop();
-    }
 
     src.onended = () => {
       if (this.currentSource === src) {
@@ -808,7 +802,7 @@ export class ChatDirector {
   stop(): void {
     if (this.stopped && !this.ctx) return;
     this.stopped = true;
-    this.isThinking = false;
+    this.pipeline?.resetChatMotion();
     this.speaking = false;
     this.audioDoneTime = 0;
     this.onResumeRendering?.();

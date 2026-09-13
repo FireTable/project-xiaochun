@@ -2,7 +2,7 @@
 
 > **Core Files**:  
 > - [`src/llm/webLLMProvider.ts`](../src/llm/webLLMProvider.ts) (WebGPU WebWorker LLM inference engine)  
-> - [`src/motion/emageWorker.ts`](../src/motion/emageWorker.ts) & [`emagePlayer.ts`](../src/motion/emagePlayer.ts) (ONNX full-body gesture generation)  
+> - [`src/motion/sources/emageWorker.ts`](../src/motion/sources/emageWorker.ts) & [`emage.ts`](../src/motion/sources/emage.ts) (ONNX full-body gesture generation; `copyToPoseBuffer`)  
 > - [`src/memory/`](../src/memory/) (Pure client-side IndexedDB multi-tier memory system)  
 > - [`src/llm/chatWorkflow.ts`](../src/llm/chatWorkflow.ts) (Multi-provider dispatcher & workflow coordinator)
 

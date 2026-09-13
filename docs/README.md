@@ -33,10 +33,10 @@ When tasked with modifications or refactoring, consult the dedicated technical g
 | Task Objective | Primary Guide | Core Invariants & Rules |
 | :--- | :--- | :--- |
 | **VRMEngine facade / vrmWorker IPC / 2-tier IDB / Threading model** | [`VRM_ENGINE_AND_WORKER.md`](VRM_ENGINE_AND_WORKER.md) | Transferable ArrayBuffer zero-copy; 4-byte packRawGLB alignment; L1 base + L2 composed IDB keys; 0-freeze 60 FPS. |
-| **New motions / Motion jitter / Blending artifacts** | [`MOTION_PIPELINE.md`](MOTION_PIPELINE.md) | Always call `vrmEngine.playMotion`; decouple LookAt via inverse quaternions; avoid naked `stopAllAction` calls. |
-| **Foot floating / Shoe-off height / Ground skating** | [`FOOT_IK.md`](FOOT_IK.md) | Anchors operate in world space; `levelFeet` must yield during locomotion; auto-sink driven by `footIK.getSinkOffset()`. |
+| **New motions / Motion jitter / Blending artifacts** | [`MOTION_PIPELINE.md`](MOTION_PIPELINE.md) | Always `playMotion`; Quintic 0.75s; FootIK+Gaze on draft then `composeLayeredSmooth`; invert LookAt on `finalPose` snapshots. |
+| **Foot floating / Shoe-off height / Ground skating** | [`FOOT_IK.md`](FOOT_IK.md) | Solve on draft VRM; fade `footIkMix`; `anchorToCurrentFeet` on speech start; `levelFeet` yields while stepping. |
 | **Morph sliders / Mesh distortion / Head shearing** | [`BONE_MORPH.md`](BONE_MORPH.md) | Obey "Bone vs. Soft-Tissue Separation" (`belly` is vertex-only); never overwrite `quaternion` in morph updates. |
-| **Camera turning / Stepping legs frozen / Gaze drift** | [`BODY_TURN_AND_GAZE.md`](BODY_TURN_AND_GAZE.md) | Pass strictly `BODY_TURN_BONES` during stepping handoffs; respect biological gaze yaw ($\pm 45^\circ$) and pitch limits. |
+| **Camera turning / Stepping legs frozen / Gaze drift** | [`BODY_TURN_AND_GAZE.md`](BODY_TURN_AND_GAZE.md) | Overlay `LEGS_MASK` only (no spine yaw); gaze yaw $\pm 45^\circ$; bubble/ruler share `getHeadTopWorldPosition`. |
 | **Wardrobe items / Clothing clipping / Lighting** | [`ARCHITECTURE_AND_RULES.md`](ARCHITECTURE_AND_RULES.md) | Respect VRoid material semantics; modify `src/config.ts` `wardrobe` as the single source of truth. |
 | **DevDrawer sections / Slider drag perf / Collapse / Reset broadcast** | [`ARCHITECTURE_AND_RULES.md` §3](ARCHITECTURE_AND_RULES.md#3-devdrawer-architecture) | Per-section state isolation; `onTick` for engine, `onChange` for state+storage only; `liveValueRef` for per-frame display without re-render. |
 | **Full-outfit swap / Delta addons / IDB cache / Swap sequence** | [`OUTFIT_SWAP.md`](OUTFIT_SWAP.md) | `.vrmbase` + `.vrmaddon` (Worker bspatch); 2-tier IDB; pre-restore pose in memory before atomic swap; 0-frame pop-in. |
@@ -55,6 +55,6 @@ When tasked with modifications or refactoring, consult the dedicated technical g
    pnpm exec tsc --noEmit
    ```
 2. ❌ **Never overwrite bone `quaternion`s in body morphing**: Rotations belong strictly to the motion and stepping pipelines;
-3. ❌ **Never mutate `activePlayer` inside async event handlers**: State machine flow is driven by the render loop;
+3. ❌ **Never invent motion flags for the render loop**: `selectLiveMotionSource` inside `pipeline.tick()` picks the writer; ChatDirector only play/stop;
 4. ❌ **Never hardcode avatar heights or world positions**: Always measure dynamically via `bodyMorph.getCurrentHeightCm()`;
 5. ⚠️ **Respect the Single Source of Truth**: All global configuration parameters live centralized in [`src/config.ts`](../src/config.ts).

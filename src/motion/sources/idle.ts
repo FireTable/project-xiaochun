@@ -1,5 +1,7 @@
 import * as THREE from 'three';
 import type { VRM, VRMHumanBoneName } from '@pixiv/three-vrm';
+import { BONE_INDEX_MAP, type PoseBuffer } from '../pipeline/poseBuffer';
+import { DEFAULT_MOTION_TRAITS, type MotionTraits } from '../pipeline/types';
 
 interface FingerBoneGroup {
   proximal: THREE.Object3D | null;
@@ -33,17 +35,11 @@ interface HandFingers {
  */
 export class NaturalIdleSystem {
   public enabled = true;
+  public traits: MotionTraits = { ...DEFAULT_MOTION_TRAITS };
 
   private vrm: VRM | null = null;
   private hips: THREE.Object3D | null = null;
-  private spine: THREE.Object3D | null = null;
-  private chest: THREE.Object3D | null = null;
-  private upperChest: THREE.Object3D | null = null;
-  private neck: THREE.Object3D | null = null;
-  private head: THREE.Object3D | null = null;
 
-  private leftShoulder: THREE.Object3D | null = null;
-  private rightShoulder: THREE.Object3D | null = null;
   private leftUpperArm: THREE.Object3D | null = null;
   private rightUpperArm: THREE.Object3D | null = null;
   private leftLowerArm: THREE.Object3D | null = null;
@@ -110,14 +106,6 @@ export class NaturalIdleSystem {
     if (this.leftToes) this.restLeftToesQ.copy(this.leftToes.quaternion);
     this.rightToes = getBone('rightToes');
     if (this.rightToes) this.restRightToesQ.copy(this.rightToes.quaternion);
-    this.spine = getBone('spine');
-    this.chest = getBone('chest');
-    this.upperChest = getBone('upperChest');
-    this.neck = getBone('neck');
-    this.head = getBone('head');
-
-    this.leftShoulder = getBone('leftShoulder');
-    this.rightShoulder = getBone('rightShoulder');
     this.leftUpperArm = getBone('leftUpperArm');
     this.rightUpperArm = getBone('rightUpperArm');
     this.leftLowerArm = getBone('leftLowerArm');
@@ -267,188 +255,125 @@ export class NaturalIdleSystem {
     setBone(f.little.distal, 0.0, 0.0, -0.42);
   }
 
-  update(time: number, idleWeight: number, bodyTurnActive = false): void {
+  /**
+   * Evaluate idle into `out`. Does not write VRM bones — pipeline is the only writer.
+   */
+  sampleInto(out: PoseBuffer, time: number, idleWeight: number, locomotionWeight: number = 0): void {
     if (!this.enabled || !this.vrm || idleWeight <= 0.001) return;
 
     const t = time;
-
-    // ─── 1. 生理多频呼吸波形 ───
-    // 主频约 0.25Hz (每 4 秒一次完整胸腹吸呼)，叠加轻微二次谐波
     const breathCycle = t * 1.15;
     const breathMain = Math.sin(breathCycle);
     const breathHarmonic = Math.sin(breathCycle * 2.0 + 0.4) * 0.22;
-    const breath = breathMain + breathHarmonic; // [-1.22, 1.22]
-
-    // ─── 2. 8 字形慢频骨盆重心移动 (9~12s 周期微平衡) ───
+    const breath = breathMain + breathHarmonic;
     const swayX = Math.sin(t * 0.42) * 0.007 * idleWeight;
     const swayZ = Math.cos(t * 0.31) * 0.005 * idleWeight;
+    const idleLowerBlend = Math.max(0.0, Math.min(1.0, 1.0 - locomotionWeight)) * idleWeight;
 
-    // ponytail: bodyTurn 踱步中让出下半身控制权 — naturalIdle 每帧 slerp 腿/髋回 rest
-    // 会直接把 bodyTurn 的踱步姿态清零。头/颈/手指/呼吸不 gate,继续维持 LookAt 基础姿态,
-    // 防止 LookAt.multiply() 在 head/neck 上逐帧累积造成 360° 旋转。
-    const legWeight = bodyTurnActive ? 0.0 : idleWeight;
-
-    if (this.hips && !bodyTurnActive) {
+    const hipsIdx = BONE_INDEX_MAP.get('hips');
+    if (hipsIdx !== undefined) {
       this._hipsPos.set(
-        this.restHipsPos.x + swayX,
-        this.restHipsPos.y + (breathMain * 0.004 + 0.002) * idleWeight,
-        this.restHipsPos.z + swayZ
+        this.restHipsPos.x + swayX * idleLowerBlend,
+        this.restHipsPos.y + (breathMain * 0.004 + 0.002) * idleLowerBlend,
+        this.restHipsPos.z + swayZ * idleLowerBlend,
       );
-      this.hips.position.copy(this._hipsPos);
-
-      // 骨盆朝向平滑回归端正站姿（微小重心摆动）
-      this._euler.set(0.0, swayX * 0.25, -swayX * 0.3);
-      this._tempQ.setFromEuler(this._euler);
-      this._targetQ.copy(this.restHipsQ).multiply(this._tempQ);
-      this.hips.quaternion.slerp(this._targetQ, idleWeight);
+      const hipRate = idleLowerBlend > 0.0001 ? Math.min(1.0, idleLowerBlend * 0.15 + 0.05) : 0;
+      if (hipRate > 0) {
+        out.hipsPosition.lerp(this._hipsPos, hipRate);
+        this._euler.set(0.0, swayX * 0.25 * idleLowerBlend, -swayX * 0.3 * idleLowerBlend);
+        this._tempQ.setFromEuler(this._euler);
+        this._targetQ.copy(this.restHipsQ).multiply(this._tempQ);
+        out.quaternions[hipsIdx]!.slerp(this._targetQ, hipRate);
+      }
     }
 
-    // ─── 2.1 下半身双腿与脚掌端正站姿保障（平滑插值回归标准立姿，彻底消除任何 EMAGE 或动作残留的歪斜、弯曲与脱臼） ───
-    if (this.leftUpperLeg) this.leftUpperLeg.quaternion.slerp(this.restLeftUpperLegQ, legWeight);
-    if (this.rightUpperLeg) this.rightUpperLeg.quaternion.slerp(this.restRightUpperLegQ, legWeight);
-    if (this.leftLowerLeg) this.leftLowerLeg.quaternion.slerp(this.restLeftLowerLegQ, legWeight);
-    if (this.rightLowerLeg) this.rightLowerLeg.quaternion.slerp(this.restRightLowerLegQ, legWeight);
-    if (this.leftFoot) this.leftFoot.quaternion.slerp(this.restLeftFootQ, legWeight);
-    if (this.rightFoot) this.rightFoot.quaternion.slerp(this.restRightFootQ, legWeight);
-    if (this.leftToes) this.leftToes.quaternion.slerp(this.restLeftToesQ, legWeight);
-    if (this.rightToes) this.rightToes.quaternion.slerp(this.restRightToesQ, legWeight);
-
-    // ─── 3. 胸腔与脊柱呼吸扩张 ───
-    if (this.chest) {
-      this._euler.set(-0.024 * breath, swayX * 0.4, swayZ * 0.6);
-      this._targetQ.setFromEuler(this._euler);
-      this.chest.quaternion.slerp(this._targetQ, idleWeight);
-    }
-    if (this.upperChest) {
-      this._euler.set(-0.018 * breath, 0, 0);
-      this._targetQ.setFromEuler(this._euler);
-      this.upperChest.quaternion.slerp(this._targetQ, idleWeight);
-    }
-    if (this.spine) {
-      this._euler.set(0.008 * breath, swayX * 0.5, swayZ * 0.5);
-      this._targetQ.setFromEuler(this._euler);
-      this.spine.quaternion.slerp(this._targetQ, idleWeight);
+    const legSlerpRate = idleLowerBlend * 0.1;
+    if (legSlerpRate > 0.0001) {
+      this.slerpNamed(out, 'leftUpperLeg', this.restLeftUpperLegQ, legSlerpRate);
+      this.slerpNamed(out, 'rightUpperLeg', this.restRightUpperLegQ, legSlerpRate);
+      this.slerpNamed(out, 'leftLowerLeg', this.restLeftLowerLegQ, legSlerpRate);
+      this.slerpNamed(out, 'rightLowerLeg', this.restRightLowerLegQ, legSlerpRate);
+      this.slerpNamed(out, 'leftFoot', this.restLeftFootQ, legSlerpRate);
+      this.slerpNamed(out, 'rightFoot', this.restRightFootQ, legSlerpRate);
+      this.slerpNamed(out, 'leftToes', this.restLeftToesQ, legSlerpRate);
+      this.slerpNamed(out, 'rightToes', this.restRightToesQ, legSlerpRate);
     }
 
-    // ─── 4. 肩膀/锁骨微耸 (吸气时微滞后向上微抬微滚) ───
+    this.slerpEuler(out, 'chest', -0.024 * breath, swayX * 0.4, 0, idleWeight);
+    this.slerpEuler(out, 'upperChest', -0.018 * breath, 0, 0, idleWeight);
+    this.slerpEuler(out, 'spine', 0.008 * breath, swayX * 0.5, 0, idleWeight);
+
     const shoulderLift = Math.sin(breathCycle - 0.25) * 0.016;
-    if (this.leftShoulder) {
-      this._euler.set(0, 0, Math.max(0, shoulderLift));
-      this._targetQ.setFromEuler(this._euler);
-      this.leftShoulder.quaternion.slerp(this._targetQ, idleWeight);
-    }
-    if (this.rightShoulder) {
-      this._euler.set(0, 0, -Math.max(0, shoulderLift));
-      this._targetQ.setFromEuler(this._euler);
-      this.rightShoulder.quaternion.slerp(this._targetQ, idleWeight);
-    }
+    this.slerpEuler(out, 'leftShoulder', 0, 0, Math.max(0, shoulderLift), idleWeight);
+    this.slerpEuler(out, 'rightShoulder', 0, 0, -Math.max(0, shoulderLift), idleWeight);
 
-    // ─── 5. 双臂完全自然垂顺（手掌自然贴近/顺应裙身与大腿侧面，彻底去除向后支撑的僵硬感） ───
-    // UpperArm: 自然垂挂 (~ -76°)，随呼吸极其轻微舒张；零后弓，零多余扭曲
-    const armHangZ_L = -1.33 + breath * 0.012;
-    const armHangZ_R =  1.33 - breath * 0.012;
+    this.slerpEuler(out, 'leftUpperArm', 0, 0, -1.33 + breath * 0.012, idleWeight);
+    this.slerpEuler(out, 'rightUpperArm', 0, 0, 1.33 - breath * 0.012, idleWeight);
+    this.slerpEuler(out, 'leftLowerArm', 0, 0, 0.04, idleWeight);
+    this.slerpEuler(out, 'rightLowerArm', 0, 0, -0.04, idleWeight);
+    this.slerpEuler(out, 'leftHand', 0, 0, 0, idleWeight);
+    this.slerpEuler(out, 'rightHand', 0, 0, 0, idleWeight);
 
-    if (this.leftUpperArm) {
-      this._euler.set(0.0, 0.0, armHangZ_L);
-      this._targetQ.setFromEuler(this._euler);
-      this.leftUpperArm.quaternion.slerp(this._targetQ, idleWeight);
-    }
-    if (this.rightUpperArm) {
-      this._euler.set(0.0, 0.0, armHangZ_R);
-      this._targetQ.setFromEuler(this._euler);
-      this.rightUpperArm.quaternion.slerp(this._targetQ, idleWeight);
-    }
-
-    // 肘关节自然微弯 slack
-    if (this.leftLowerArm) {
-      this._euler.set(0.0, 0.0, 0.04);
-      this._targetQ.setFromEuler(this._euler);
-      this.leftLowerArm.quaternion.slerp(this._targetQ, idleWeight);
-    }
-    if (this.rightLowerArm) {
-      this._euler.set(0.0, 0.0, -0.04);
-      this._targetQ.setFromEuler(this._euler);
-      this.rightLowerArm.quaternion.slerp(this._targetQ, idleWeight);
-    }
-
-    // 手腕自然垂顺：掌心自然贴合裙侧，手指自然沿大腿/裙边优雅垂下
-    if (this.leftHand) {
-      this._euler.set(0.0, 0.0, 0.0);
-      this._targetQ.setFromEuler(this._euler);
-      this.leftHand.quaternion.slerp(this._targetQ, idleWeight);
-    }
-    if (this.rightHand) {
-      this._euler.set(0.0, 0.0, 0.0);
-      this._targetQ.setFromEuler(this._euler);
-      this.rightHand.quaternion.slerp(this._targetQ, idleWeight);
-    }
-
-    // ─── 6. 核心：十指 Z 轴真指节向内自然半卷 (Biomechanical Knuckle Flexion) ───
-    // 在 VRM 1.0 规范中，Z 轴是真正的关节屈伸轴！配合呼吸动态张弛 (pulse) 产生清晰可见的指关节微动
     const fingerPulse = Math.sin(breathCycle * 0.95) * 0.06;
-
-    if (this.leftFingers) {
-      this.applyFingerPose(this.leftFingers, fingerPulse, idleWeight, 1);
-    }
-    if (this.rightFingers) {
-      this.applyFingerPose(this.rightFingers, fingerPulse, idleWeight, -1);
-    }
-
-    // ─── 7. 头部生命感微视线漂移 (Micro-Gaze Wander) ───
-    if (this.head) {
-      const headX = (Math.sin(t * 1.15) * 0.012 - 0.008) * idleWeight;
-      const headY = Math.sin(t * 0.65) * 0.022 * idleWeight;
-      const headZ = (-swayZ * 0.6 + Math.sin(t * 0.9) * 0.015) * idleWeight;
-      this._euler.set(headX, headY, headZ);
-      this._targetQ.setFromEuler(this._euler);
-      this.head.quaternion.slerp(this._targetQ, idleWeight);
-    }
-    if (this.neck) {
-      const neckY = Math.sin(t * 0.65) * 0.012 * idleWeight;
-      this._euler.set(0, neckY, 0);
-      this._targetQ.setFromEuler(this._euler);
-      this.neck.quaternion.slerp(this._targetQ, idleWeight);
-    }
+    this.applyFingerPose(out, 'left', fingerPulse, idleWeight);
+    this.applyFingerPose(out, 'right', fingerPulse, idleWeight);
   }
 
-  /**
-   * 应用自然半卷放松手势 (以 Z 轴实施真指关节内屈)
-   * @param f 手指骨骼引用
-   * @param pulse 呼吸微律动 (约 ±3.5 度呼吸浮沉)
-   * @param weight 混合权重
-   * @param sign 左右对称标志 (1: 左手, -1: 右手)
-   */
-  private applyFingerPose(f: HandFingers, pulse: number, weight: number, sign: number): void {
-    const slerpBone = (b: THREE.Object3D | null | undefined, x: number, y: number, z: number) => {
-      if (!b) return;
+  private slerpNamed(out: PoseBuffer, name: VRMHumanBoneName, target: THREE.Quaternion, weight: number): void {
+    const idx = BONE_INDEX_MAP.get(name);
+    if (idx === undefined) return;
+    out.quaternions[idx]!.slerp(target, weight);
+  }
+
+  private slerpEuler(
+    out: PoseBuffer,
+    name: VRMHumanBoneName,
+    x: number,
+    y: number,
+    z: number,
+    weight: number,
+  ): void {
+    const idx = BONE_INDEX_MAP.get(name);
+    if (idx === undefined) return;
+    this._euler.set(x, y, z);
+    this._targetQ.setFromEuler(this._euler);
+    out.quaternions[idx]!.slerp(this._targetQ, weight);
+  }
+
+  private applyFingerPose(out: PoseBuffer, side: 'left' | 'right', pulse: number, weight: number): void {
+    const sign = side === 'left' ? 1 : -1;
+    const slerpBone = (name: VRMHumanBoneName, x: number, y: number, z: number) => {
+      const idx = BONE_INDEX_MAP.get(name);
+      if (idx === undefined) return;
       this._euler.set(x, y * sign, z * sign);
       this._targetQ.setFromEuler(this._euler);
-      b.quaternion.slerp(this._targetQ, weight);
+      out.quaternions[idx]!.slerp(this._targetQ, weight);
     };
 
-    // ── 拇指 (自然前倾对掌，拇指在身前内侧) ──
-    slerpBone(f.thumb.metacarpal, -0.10, 0.22, -0.25);
-    slerpBone(f.thumb.proximal, -0.06, 0.15, -0.35 - pulse * 0.5);
-    slerpBone(f.thumb.distal, 0.0, 0.08, -0.30 - pulse * 0.5);
+    const thumb = side === 'left' ? 'leftThumb' : 'rightThumb';
+    const index = side === 'left' ? 'leftIndex' : 'rightIndex';
+    const middle = side === 'left' ? 'leftMiddle' : 'rightMiddle';
+    const ring = side === 'left' ? 'leftRing' : 'rightRing';
+    const little = side === 'left' ? 'leftLittle' : 'rightLittle';
 
-    // ── 食指 (顺应大腿下垂，指尖向掌心自然半卷弧线) ──
-    slerpBone(f.index.proximal, 0.02, 0.01, -0.32 - pulse);
-    slerpBone(f.index.intermediate, 0.0, 0.0, -0.48 - pulse);
-    slerpBone(f.index.distal, 0.0, 0.0, -0.30 - pulse * 0.5);
+    slerpBone(`${thumb}Metacarpal` as VRMHumanBoneName, -0.10, 0.22, -0.25);
+    slerpBone(`${thumb}Proximal` as VRMHumanBoneName, -0.06, 0.15, -0.35 - pulse * 0.5);
+    slerpBone(`${thumb}Distal` as VRMHumanBoneName, 0.0, 0.08, -0.30 - pulse * 0.5);
 
-    // ── 中指 (卷度略增) ──
-    slerpBone(f.middle.proximal, 0.0, 0.0, -0.38 - pulse);
-    slerpBone(f.middle.intermediate, 0.0, 0.0, -0.58 - pulse);
-    slerpBone(f.middle.distal, 0.0, 0.0, -0.35 - pulse * 0.5);
+    slerpBone(`${index}Proximal` as VRMHumanBoneName, 0.02, 0.01, -0.32 - pulse);
+    slerpBone(`${index}Intermediate` as VRMHumanBoneName, 0.0, 0.0, -0.48 - pulse);
+    slerpBone(`${index}Distal` as VRMHumanBoneName, 0.0, 0.0, -0.30 - pulse * 0.5);
 
-    // ── 无名指 ──
-    slerpBone(f.ring.proximal, -0.02, -0.01, -0.44 - pulse);
-    slerpBone(f.ring.intermediate, 0.0, 0.0, -0.66 - pulse);
-    slerpBone(f.ring.distal, 0.0, 0.0, -0.38 - pulse * 0.5);
+    slerpBone(`${middle}Proximal` as VRMHumanBoneName, 0.0, 0.0, -0.38 - pulse);
+    slerpBone(`${middle}Intermediate` as VRMHumanBoneName, 0.0, 0.0, -0.58 - pulse);
+    slerpBone(`${middle}Distal` as VRMHumanBoneName, 0.0, 0.0, -0.35 - pulse * 0.5);
 
-    // ── 小指 (经典动漫美型放松卷度最深) ──
-    slerpBone(f.little.proximal, -0.04, -0.02, -0.52 - pulse);
-    slerpBone(f.little.intermediate, 0.0, 0.0, -0.74 - pulse);
-    slerpBone(f.little.distal, 0.0, 0.0, -0.42 - pulse * 0.5);
+    slerpBone(`${ring}Proximal` as VRMHumanBoneName, -0.02, -0.01, -0.44 - pulse);
+    slerpBone(`${ring}Intermediate` as VRMHumanBoneName, 0.0, 0.0, -0.66 - pulse);
+    slerpBone(`${ring}Distal` as VRMHumanBoneName, 0.0, 0.0, -0.38 - pulse * 0.5);
+
+    slerpBone(`${little}Proximal` as VRMHumanBoneName, -0.04, -0.02, -0.52 - pulse);
+    slerpBone(`${little}Intermediate` as VRMHumanBoneName, 0.0, 0.0, -0.74 - pulse);
+    slerpBone(`${little}Distal` as VRMHumanBoneName, 0.0, 0.0, -0.42 - pulse * 0.5);
   }
 }

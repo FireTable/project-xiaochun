@@ -31,9 +31,6 @@ export interface BodyTurnSwapSnap {
   phaseTimer: number;
   stepLeft: boolean;
   stepBlendWeight: number;
-  spineYawCurrent: number;
-  chestYawCurrent: number;
-  upperChestYawCur: number;
 }
 
 /** Light FootIK continuity (geometry re-detects on bind; keep stance/barefoot blend). */

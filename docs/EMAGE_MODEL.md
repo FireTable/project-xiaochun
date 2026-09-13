@@ -1,7 +1,7 @@
 # EMAGE On-Device Model — Status & Known Limits
 
 > **State captured on tip**: `perf/edge-inference` (the branch is expected to merge; re-validate after main-line merges change worker / config / config.ts `useInt8`).
-> **Core files**: [`src/motion/emageWorker.ts`](../src/motion/emageWorker.ts), [`src/motion/emagePlayer.ts`](../src/motion/emagePlayer.ts), [`src/config.ts`](../src/config.ts) (`APP_CONFIG.emage`), [`src/components/dev-drawer/sections/EmagePerfSection.tsx`](../src/components/dev-drawer/sections/EmagePerfSection.tsx)  
+> **Core files**: [`src/motion/sources/emageWorker.ts`](../src/motion/sources/emageWorker.ts), [`src/motion/sources/emage.ts`](../src/motion/sources/emage.ts), [`src/config.ts`](../src/config.ts) (`APP_CONFIG.emage`), [`src/components/dev-drawer/sections/EmagePerfSection.tsx`](../src/components/dev-drawer/sections/EmagePerfSection.tsx)  
 > **Export upstream**: [VolgaGerm / emage-onnx-export](https://github.com/VolgaGerm/emage-onnx-export) — **README-documented scripts only** (`export_onnx.py`, `--quantize`, etc.). Non-README converters are not part of the supported path.
 > **Weights shipped**: R2 hosts both **FP32** (504 MB on `emage_step.onnx`) and **INT8** (~167 MB on `emage_step_int8.onnx`) variants of every model. The browser download path is chosen by `useInt8` in `src/config.ts` (`q()` rewrites filenames to `_int8.onnx` when true). Tip ships with `useInt8 = true`; the FP32 row is kept as a fallback for users who need the fidelity.
 
@@ -120,7 +120,7 @@ Notable fields:
 | `advanceFrames` | PCM **hop** frames per step; legal **60..64** (EFF..WINDOW). Higher → fewer steps; lower → denser windows / more work. Worker clamps &gt;64. |
 | `chunkSeamMaxFrames` | Max frames used when blending chunk seams |
 | `seamJumpThreshold` / `seamJumpFramesScale` | Skip or size geometric seam repair from L2 jump |
-| `poseMicroFadeJumpDiv` / `MinSec` / `MaxSec` / `JumpMin` | Micro crossfade `duration = clamp(MinSec, MaxSec, jump / JumpDiv)`; fires only when L2 jump &gt; `JumpMin`. Reads at `src/motion/emagePlayer.ts:169-172, 690-695`. |
+| `poseMicroFadeJumpDiv` / `MinSec` / `MaxSec` / `JumpMin` | Micro crossfade `duration = clamp(MinSec, MaxSec, jump / JumpDiv)`; fires only when L2 jump &gt; `JumpMin`. Reads at `src/motion/sources/emage.ts`. |
 | `streamingCatchUpRate` | How aggressively playhead may catch the audio clock (&gt;1 risks yank) |
 | `dampingStiffness` / `temporalSmoothRadius` | Inertia + Gaussian temporal smooth |
 | `vqSampleTemperature` / `vqSampleTopK` | Upper/hands VQ sampling (lower body stays argmax) |
