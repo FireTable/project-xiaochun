@@ -184,10 +184,12 @@ export const LoadingOverlay: React.FC<LoadingOverlayProps> = ({ state, onBreakSt
       // 早期 paint 帧会看到背后的 three.js clear color。
       // --mx/--my 是视差源 — 子元素 transform 都通过 calc(var(--mx) * Npx) 派生,
       // JS 只 setProperty 这两个,3 个元素的 transform 浏览器自己重算,React 0 介入。
+      // zIndex: 55 → 在 TopHeader (z-50) 之上,加载期间覆盖所有 UI 控件;但仍在
+      // DevDrawer mobile (z-60) 之下,debug 通道始终可达。
       style={{
         position: 'fixed',
         inset: 0,
-        zIndex: 50,
+        zIndex: 55,
         backgroundColor: '#0a0812',
         perspective: '1200px',
         // ponytail: 初始 0,JS 第一次 mousemove 时覆写。
