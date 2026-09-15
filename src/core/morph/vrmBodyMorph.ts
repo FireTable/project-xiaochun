@@ -640,9 +640,18 @@ export class VRMBodyMorph {
       this.rawRFoot.scale.set(fx, fy, fz);
     }
 
-    // ── 6. 腰部 (Waist / Spine) 粗细、躯干整体前后厚度与脊柱位置解剖学生理自然形变 ──
+    // ── 6. 躯干高度 (torsoLength) 解剖学三段式垂直拉伸与腰部 (Spine) 形变 ──
     // 躯干长度由专门的正交垂直平移系统独立驱动，彻底切断 Spine ➔ Chest 间的倾斜剪切畸变链。
-    // 同时对 Y 与 Z 轴位置施加严格反向逆补偿，消除臀部后移与提臀对脊柱与上半身身长的拖拽影响 (身长 0 偏移)！
+    // 解剖学三段式分配：
+    // 1. Hips ➔ Spine (下腹与肚脐区): 22% 身长位移，骨盆与大腿根 100% 锁死，但腰椎/肚脐与下腹参与自然拉伸
+    // 2. Spine ➔ Chest (中腹与下肋骨): 48% 身长位移
+    // 3. Chest ➔ UpperChest (胸廓与锁骨): 30% 身长位移
+    // 合计 22% + 48% + 30% = 100% deltaH，全段躯干均匀协调缩放，骨盆与下半身零畸变！
+    const deltaH = (torsoLength - 1.0) * (this.baseTorsoLen > 0.05 ? this.baseTorsoLen : 0.21);
+    const deltaSpine = deltaH * 0.22;
+    const deltaChest = deltaH * 0.48;
+    const deltaUpperChest = deltaH * 0.30;
+
     const targetSpineX = waist;
     // targetSpineZ: 躯干厚度前后深度由 torsoThickness 独立驱动，绝对不受腰部宽度 (waist) 污染！
     const spineThickFactor = 1.0 + (torsoThickness - 1.0) * 0.70;
@@ -660,7 +669,7 @@ export class VRMBodyMorph {
       this.rawSpine.scale.set(sx, 1.0, sz);
       this.rawSpine.position.set(
         this.baseSpinePos.x,
-        (this.baseSpinePos.y - pitchLiftY) / Math.max(0.01, hy),
+        (this.baseSpinePos.y - pitchLiftY + deltaSpine) / Math.max(0.01, hy),
         (this.baseSpinePos.z - hipsZOffset + torsoZComp) / Math.max(0.01, hz)
       );
 
@@ -681,10 +690,7 @@ export class VRMBodyMorph {
     const targetChestX = Math.max(0.60, ribWaistCoupling);
     const targetChestZ = chestThickFactor;
 
-    // ── 8. 躯干高度 (torsoLength) 正交垂直拉伸与胸腔/上胸位置精确合成 ──
-    const deltaH = (torsoLength - 1.0) * (this.baseTorsoLen > 0.05 ? this.baseTorsoLen : 0.21);
-    const deltaChest = deltaH * 0.60;
-    const deltaUpperChest = deltaH * 0.40;
+    // ── 8. 躯干高度 (torsoLength) 胸腔与上胸位置精确合成 ──
 
     const localUpSpine = new THREE.Vector3(0, 1, 0);
     if (this.rawSpine) {

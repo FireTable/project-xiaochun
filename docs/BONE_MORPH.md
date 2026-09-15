@@ -42,7 +42,7 @@ The system currently exposes **28 fine-grained morph parameters**, categorized i
 | **`neckDepth`** | Head / Neck | `1.00` | `0.70 ~ 1.40` | `0.02` | Neck sagittal thickness (Z-axis) | Inverse scaled on Head; eliminates cranial flattening or neck elongation. |
 | **`neckLength`** | Head / Neck | `1.00` | `0.80 ~ 1.30` | `0.01` | Cervical spine vertical span | Vertical translation along cervical vector; head pitch unchanged. |
 | **`shoulderWidth`**| Torso / Shoulders | `1.00` | `0.75 ~ 2.50` | `0.01` | Clavicle span (Shoulder width) | Symmetrical X-axis translation on `leftShoulder` & `rightShoulder`. |
-| **`torsoLength`** | Torso / Shoulders | `1.00` | `0.75 ~ 1.35` | `0.01` | Lumbar spine length (Height) | Pure orthogonal vertical translation ($60\%$ Chest, $40\%$ UpperChest); body Z-tilt is $0^\circ$. |
+| **`torsoLength`** | Torso / Shoulders | `1.00` | `0.75 ~ 1.35` | `0.01` | Lumbar spine length (Height) | Pure orthogonal vertical translation (22% Spine, 48% Chest, 30% UpperChest); pelvic base locked, zero leg distortion. |
 | **`torsoThickness`**| Torso / Shoulders | `1.00` | `0.70 ~ 1.40` | `0.01` | Torso sagittal depth (Back & Waist) | Drives Chest & Spine concurrently; front chest & abdomen locked flat, growth directed to back. |
 | **`waist`** | Torso / Shoulders | `1.00` | `0.50 ~ 1.40` | `0.02` | Hourglass waist width (X-axis) | Pure lateral scaling of Spine (lumbar curve); Chest, UpperChest, shoulders, and sagittal depth are 100% decoupled. |
 | **`belly`** | Torso / Shoulders | `1.00` | `0.70 ~ 1.80` | `0.01` | Abdomen protrusion / flatness | **Procedural vertex morph**: 687 front abdominal vertices deformed via smooth cosine falloff; spine curve & waist thickness are 100% untouched. |
