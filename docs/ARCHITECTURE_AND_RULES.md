@@ -149,6 +149,25 @@ Current order: Expressions → 🎥 Camera Settings → 🎨 Color Saturation �
 - **PostFx (`PostFxSection.tsx`)**: Post-processing controller with bypass switch, ToneMapping mode capsule grid, and sliders for Bloom (strength/radius/threshold), Contrast, Brightness, Saturation, Hue, and Vignette. Full spec in [`docs/POSTFX.md`](POSTFX.md).
 - **EMAGE Perf (`EmagePerfSection.tsx`)**: Localhost acceptance panel for P0b — `crossOriginIsolated`, SharedArrayBuffer, `numThreads`, wasm_env, stage timings. Screenshot-friendly; not a public product surface.
 
+### 3.9 Undo / Redo Command Stack & Global Shortcuts
+
+To enhance parameter exploration and comparative tuning, `DevDrawerContext` provides an in-memory Undo/Redo history stack:
+- **Architecture**:
+  - `recordChange(action: HistoryAction)`: Stores parameter modification closures (`undo()`, `redo()`, `description`).
+  - `undoStack` and `redoStack` maintain full reversibility across slider adjustments and presets.
+  - Non-intrusive animated HUD Toast displays at drawer top indicating the action reverted or reapplied (e.g. `🔁 重做: 腰部宽度`).
+- **Keyboard Shortcuts (Active when DevDrawer is open)**:
+  - `Cmd+Z` (Mac) / `Ctrl+Z` (Windows): Undo last parameter modification.
+  - `Cmd+Shift+Z` (Mac) / `Ctrl+Y` (Windows): Redo last undone modification.
+  - **Single-Key `Z` A/B Comparison Toggle**: When not focused in a text input field, pressing `Z` immediately toggles between previous and current states, providing rapid single-handed visual comparison on the 3D canvas.
+
+### 3.10 Icon-Only Action Bar & Density Optimization
+
+The drawer sticky header integrates live height monitoring with essential panel controls:
+- **Layout**: `Sliders` icon + `HeightChip` (dynamic vertex crown height) on the left, action button group on the right.
+- **Icon-Only Buttons**: To prevent text overflow and badge collisions, all action buttons (Undo, Redo, Copy Config, Reset, Close) are standardized to `w-7 h-7 rounded-lg` compact icon buttons.
+- **Accessibility & Tooltips**: All buttons expose native `title` tooltips detailing active shortcut keys (`[Cmd+Z / Z]`, `[Cmd+Shift+Z]`) and description labels.
+
 ---
 
 ---

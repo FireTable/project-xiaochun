@@ -129,6 +129,46 @@ Because the VRM Neck has an intrinsic $+26.2^\circ$ pitch, applying non-uniform 
 $$\mathbf{M}_{\text{world}}^{\text{Head}} = \text{compose}\left(\mathbf{P}_{\text{neck}}^{\text{world}} + \mathbf{R}_{\text{neck}}^{\text{world}}(\mathbf{O}_{\text{head}}), \; \mathbf{R}_{\text{neck}}^{\text{world}} \times \mathbf{R}_{\text{head}}^{\text{local}}, \; \mathbf{S}_{\text{head}} \times \text{overallScale}\right)$$
 Eye globes and 11 hair bones inherit a pure, unskewed orthogonal frame.
 
+### 3.7 Three-Stage Anatomical Torso Stretch (`torsoLength`)
+In human anatomy, torso height variance originates primarily from the lumbar spine and thoracic ribcage, not solely the upper collarbone. Directly translating only `UpperChest` leaves the navel and lower abdomen completely static while elongating the clavicle into an unnatural tube. Conversely, shifting `Hips` disrupts the pelvic root and foot ground anchors.
+`VRMBodyMorph` solves this via a **3-stage golden-ratio vertical distribution**:
+$$\Delta Y = (\text{torsoLength} - 1.0) \times 0.12\text{ m}$$
+$$\mathbf{P}_{\text{Spine}, y} = \mathbf{P}_{\text{base}, y}^{\text{Spine}} + \Delta Y \times 0.22$$
+$$\mathbf{P}_{\text{Chest}, y} = \mathbf{P}_{\text{base}, y}^{\text{Chest}} + \Delta Y \times 0.48$$
+$$\mathbf{P}_{\text{UpperChest}, y} = \mathbf{P}_{\text{base}, y}^{\text{UpperChest}} + \Delta Y \times 0.30$$
+* **Pelvic Root & Leg Independence**: `Hips` remains completely unshifted; zero leg displacement or ground penetration.
+* **Proportional Abdominal Elongation**: The lower abdomen and navel smoothly stretch by $22\%$, the mid-ribcage by $48\%$, and the clavicle base by $30\%$, preserving harmonious feminine proportions across the entire $0.75 \sim 1.35$ range.
+
+### 3.8 Anatomical Rib-Waist Transition Smoothing (`waist` vs. Tight Clothes Clipping)
+When shrinking the waist towards hourglass proportions ($\text{waist} \in [0.50, 1.0)$), extremely tight garments (such as evening gowns, dinner dresses, and one-piece swimsuits) risk flank mesh poke-through because the lower ribcage (`Chest`) remains rigid while the lumbar `Spine` contracts inward.
+`VRMBodyMorph` introduces **lateral rib-waist coupling**:
+$$\text{ribCouple} = (1.0 - \text{waist}) \times 0.42 \quad (\text{only when } \text{waist} < 1.0)$$
+$$\text{targetChestX} = 1.0 - \text{ribCouple}$$
+$$S_{\text{UpperChest}, x}^{\text{world}} = 1.000000 \implies S_{\text{UpperChest}, x}^{\text{local}} = \frac{1.0}{\text{targetChestX}}$$
+* The lower rib rim contracts gently by up to $-21\%$, completely eliminating dress flank penetration.
+* `UpperChest` applies an exact local reciprocal scale, locking clavicle width and shoulder armatures 100% rigid.
+
+### 3.9 Anatomical Teardrop Volumetric Coupling (`bustThickness`)
+Linear sagittal scaling along the Z-axis causes large busts to deform into sharp, unnatural "missile cones" or flat-topped wedges. Natural breasts adhere to a teardrop volume distribution where forward projection is supported by transverse fullness and vertical gravity drape:
+$$\Delta = \text{bustThickness} - 1.0$$
+$$S_z = 1.0 + \Delta \times 0.65, \quad S_y = 1.0 + \Delta \times 0.28, \quad S_x = 1.0 + \Delta \times 0.12$$
+* **$Z$-Axis Damped Projection ($0.65\times$)**: Produces prominent forward projection without reaching an acute triangular apex.
+* **$Y$-Axis Vertical Teardrop Arc ($0.28\times$)**: Expands the lower hemisphere volume, maintaining a soft, rounded bottom teardrop curve.
+* **$X$-Axis Base Support ($0.12\times$)**: Widens the pectoral attachment rim, eliminating knife-edge lateral seams.
+
+### 3.10 Slender Forearm Taper (`arms`) & Hand Decoupling
+In aesthetic anime character design, slimming the arms requires the forearm (wrist transition) to taper more aggressively than the upper biceps/deltoids:
+$$\text{targetForearmThickness} = 1.0 + (\text{arms} - 1.0) \times 1.45$$
+$$S_{\text{LowerArm}, yz} = \frac{\text{targetForearmThickness}}{\max(0.01, \text{arms})}$$
+$$S_{\text{Hand}, yz} = \frac{\text{hands}}{\max(0.01, \text{targetForearmThickness})}$$
+* When `arms = 0.86`, the upper arm scales to $0.86$ while the lower arm gracefully tapers to $\sim 0.797$ at the wrist.
+* Hands dynamically invert the forearm thickness, keeping palm and finger scales completely independent.
+
+### 3.11 Multi-Layer Depth Offsets (`polygonOffset` Anti-Bleed)
+To eliminate depth-fighting between snug underwear meshes, tight dress fabrics, and the underlying body skin:
+1. `Body_00_SKIN` sets a depth buffer push (`polygonOffset = true`, `factor = 1.0`, `units = 1.0`), guaranteeing that close-fitting dress geometry always renders cleanly on top.
+2. `Face` surfaces apply an inverse pull to render expressive brows and highlights distinctly over front hair fringe.
+
 ---
 
 ## 4. Developer API & Usage Guide

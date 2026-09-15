@@ -57,7 +57,7 @@ UI 走 **TanStack Start SSR + i18next** 水合,**完整支持简体中文 / Engl
 
 ### 👗 原子级无缝换装与增量补丁体系 (Outfit Swap & Delta Addons)
 * **0 帧 T-pose 跳变与无感热更**：彻底废除换装时的重置与预停逻辑。换装前毫秒级抓取完整骨骼姿态、表情权重、视线与动作时间戳快照；在后台构建完成新 VRM 并在内存中直接预写入姿态快照后，实施微任务级原子场景替换，彻底消除 1 帧 T-pose 闪烁。
-* **增量 Delta 补丁分发 (`.vrmbase` + `.vrmaddon`)**：打破动辄数十兆的模型体积瓶颈，提取公用身体骨骼生成轻量底模 `xiaochun_base.vrmbase`（~5.9 MB，oxipng 极致压缩纹理）；5 套风格化服饰（常服科技风、国风旗袍、海滩比基尼、经典女仆、清凉泳装）以增量补丁 `.vrmaddon` 分发（单套仅 1~2 MB）。
+* **增量 Delta 补丁分发 (`.vrmbase` + `.vrmaddon`)**：打破动辄数十兆的模型体积瓶颈，提取公用身体骨骼生成轻量底模 `xiaochun_base.vrmbase`（~5.9 MB，oxipng 极致压缩纹理）；8 套风格化服饰（晚礼服、常服科技风、国风旗袍、海滩比基尼、经典女仆、清凉泳装、职场 OL、梦幻婚纱）以增量补丁 `.vrmaddon` 分发（单套仅 1~4 MB，婚纱含复杂大裙摆骨骼 13 MB）。
 * **Web Worker WASM bspatch 动态重组**：后台 Web Worker 利用 WASM bspatch 极速重组完整 VRM，主线程 UI 0 掉帧。
 * **IndexedDB 二级双缓存体系**：底模与合成后的完整 VRM 全量缓存至浏览器本地 IndexedDB（`xiaochun-vrm-cache`），二次换装毫秒级直读。详见技术白皮书 [`docs/OUTFIT_SWAP.md`](docs/OUTFIT_SWAP.md) 与构建工作流 [`docs/VRM_BUILD_WORKFLOW.md`](docs/VRM_BUILD_WORKFLOW.md)。
 

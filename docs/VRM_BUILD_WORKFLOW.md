@@ -10,10 +10,10 @@
 
 ## 1. Why an Offline Packaging Pipeline?
 
-- **The Problem**: VRM models directly exported from VRoid Studio weigh 18MB ~ 25MB each. Distributing 5 complete outfits would demand over **100MB of network download**, resulting in unacceptable cold starts and poor outfit-swap latency.
+- **The Problem**: VRM models directly exported from VRoid Studio weigh 18MB ~ 25MB each. Distributing 8 complete outfits would demand over **150MB of network download**, resulting in unacceptable cold starts and poor outfit-swap latency.
 - **The Solution**:
   - **Base Model (`.vrmbase`)**: Contains only the naked base mesh, head, armature, and shared materials (~5.9MB);
-  - **Outfit Addon (`.vrmaddon`)**: Extracts delta binary patches via `bsdiff` against the base (containing only outfit meshes, clothes textures, and delta JSON metadata), reducing package size to 0.7MB ~ 4.7MB (**~65% overall payload reduction**);
+  - **Outfit Addon (`.vrmaddon`)**: Extracts delta binary patches via `bsdiff` against the base (containing only outfit meshes, clothes textures, and delta JSON metadata), reducing package size to 0.7MB ~ 13.3MB (**~65% overall payload reduction**);
   - **Client-Side Synthesis**: Assembles complete VRM binary files inside a Dedicated Web Worker using WebAssembly `bspatch` with zero-copy transfer.
 
 ---
@@ -22,23 +22,29 @@
 
 ```
 public/vrm/
-├── .vroid/                        # [git-ignored] Source development assets workspace
+├── .vroid/                            # [git-ignored] Source development assets workspace
 │   ├── base/
-│   │   └── xiaochun_base.vrm      # Dedicated naked base source model
+│   │   └── xiaochun_base.vrm          # Dedicated naked base source model
 │   └── addons/
-│       ├── xiaochun_default.vrm   # Default techwear source model
-│       ├── xiaochun_cheongsam.vrm # Cheongsam source model
-│       ├── xiaochun_bikini.vrm    # Bikini source model
-│       ├── xiaochun_maid.vrm      # Maid outfit source model
-│       └── xiaochun_swimsuit.vrm  # One-piece swimsuit source model
+│       ├── xiaochun_default.vrm       # Default techwear source model
+│       ├── xiaochun_cheongsam.vrm     # Cheongsam source model
+│       ├── xiaochun_bikini.vrm        # Bikini source model
+│       ├── xiaochun_maid.vrm          # Maid outfit source model
+│       ├── xiaochun_swimsuit.vrm      # One-piece swimsuit source model
+│       ├── xiaochun_dinner_dress.vrm  # Dinner dress source model
+│       ├── xiaochun_office_lady.vrm   # Office lady source model
+│       └── xiaochun_wedding.vrm       # Wedding dress source model
 │
-├── xiaochun_base.vrmbase          # [Output] Compressed base package (~5.9 MB)
-└── addons/                        # [Output] 5 delta patch packages
-    ├── xiaochun_default.vrmaddon  (~3.8 MB)
-    ├── xiaochun_cheongsam.vrmaddon(~4.7 MB)
-    ├── xiaochun_bikini.vrmaddon   (~2.5 MB)
-    ├── xiaochun_maid.vrmaddon     (~4.1 MB)
-    └── xiaochun_swimsuit.vrmaddon (~0.7 MB)
+├── xiaochun_base.vrmbase              # [Output] Compressed base package (~5.9 MB)
+└── addons/                            # [Output] 8 delta patch packages
+    ├── xiaochun_default.vrmaddon      (~3.7 MB)
+    ├── xiaochun_cheongsam.vrmaddon    (~4.5 MB)
+    ├── xiaochun_bikini.vrmaddon       (~2.4 MB)
+    ├── xiaochun_maid.vrmaddon         (~4.0 MB)
+    ├── xiaochun_swimsuit.vrmaddon     (~2.3 MB)
+    ├── xiaochun_dinner_dress.vrmaddon (~4.1 MB)
+    ├── xiaochun_office_lady.vrmaddon  (~4.0 MB)
+    └── xiaochun_wedding.vrmaddon      (~13.3 MB)
 ```
 
 ---

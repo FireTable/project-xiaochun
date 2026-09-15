@@ -51,7 +51,7 @@ To eliminate the network bottleneck of downloading multiple 20MB+ VRM models, Pr
 ```
 [Source Models] xiaochun_base.vrm + official addons
                       ↓ (scripts/build-vrm/workflow.mjs)
-[Distributed]   xiaochun_base.vrmbase (5.9MB) + 5 *.vrmaddon packages (0.7~4.7MB)
+[Distributed]   xiaochun_base.vrmbase (5.9MB) + 8 *.vrmaddon packages (0.7~13.9MB)
                       ↓ (Network savings: ~65% overall payload reduction)
 [Web Worker]    WASM bspatch (src/core/vrmWorker.ts, 0 main-thread blocking)
                       ↓
@@ -103,11 +103,14 @@ Traditional model reloads stop current animations when download begins (causing 
 
 ## 5. Official Outfits Roster
 
-1. **`xiaochun_default`** (Techwear, loaded by default)
-2. **`xiaochun_cheongsam`** (Cheongsam)
-3. **`xiaochun_bikini`** (Bikini)
-4. **`xiaochun_maid`** (Maid)
-5. **`xiaochun_swimsuit`** (One-piece swimsuit)
+1. **`xiaochun_dinner_dress`** (Dinner Dress / 晚礼服，默认加载装扮)
+2. **`xiaochun_default`** (Techwear / 常服科技风)
+3. **`xiaochun_cheongsam`** (Cheongsam / 国风旗袍)
+4. **`xiaochun_bikini`** (Bikini / 海滩比基尼)
+5. **`xiaochun_maid`** (Maid / 经典女仆装)
+6. **`xiaochun_swimsuit`** (One-piece swimsuit / 清凉死库水连体泳装)
+7. **`xiaochun_office_lady`** (Office Lady / 职场 OL 正装)
+8. **`xiaochun_wedding`** (Wedding Dress / 梦幻婚纱礼服)
 
 ---
 
