@@ -246,7 +246,7 @@ export const BoneMorphSection: React.FC = () => {
     });
   };
 
-  // 复制当前服装的差量属性 (Diff Only)
+  // 复制当前服装的差量属性 (Diff Only，带上服装 key)
   const handleCopyOutfitDiff = () => {
     const diff: Record<string, number> = {};
     outfitDiffKeys.forEach((it) => {
@@ -254,7 +254,14 @@ export const BoneMorphSection: React.FC = () => {
       diff[it.key] = Number(val.toFixed(3));
     });
 
-    const diffJson = JSON.stringify({ bodyMorph: diff }, null, 2);
+    const outfitId = currentOutfitKey ?? 'base';
+    const payload = {
+      outfit: outfitId,
+      name: currentOutfitDisplayName,
+      bodyMorph: diff,
+    };
+
+    const diffJson = JSON.stringify(payload, null, 2);
     navigator.clipboard.writeText(diffJson).then(() => {
       showToast(t('panel.devDrawerExtra.copyDiffSuccess'));
     }).catch(() => {
