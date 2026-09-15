@@ -337,7 +337,7 @@ export const APP_CONFIG = {
         bodyMorph: {
           shoulderWidth: 1.2,
           torsoThickness: 0.8,
-          waist: 0.7,
+          waist: 0.66,
           bust: 1.1,
           bustSpread: -0.016,
         },
