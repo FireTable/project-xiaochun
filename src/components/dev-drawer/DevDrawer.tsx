@@ -237,8 +237,13 @@ export const DevDrawer: React.FC<DevDrawerProps> = ({ isOpen, onClose }) => {
   const handleResetAllToConfig = useCallback(() => {
     clearAllDevDrawerStorage();
 
-    vrmEngine.resetBodyMorph();
-    saveDevDrawerSettings({ bodyMorph: { ...APP_CONFIG.bodyMorph.default } });
+    const currentOutfitKey = vrmEngine.currentOutfitKey;
+    const activeOutfitMorph = vrmEngine.getOutfitBaselineMorph(currentOutfitKey);
+    vrmEngine.bodyMorph.setConfig(activeOutfitMorph);
+    saveDevDrawerSettings({
+      bodyMorph: { ...APP_CONFIG.bodyMorph.default },
+      outfitBodyMorph: {},
+    });
 
     const defaultSat = { ...APP_CONFIG.saturation.default };
     vrmEngine.setMaterialSaturation(defaultSat);

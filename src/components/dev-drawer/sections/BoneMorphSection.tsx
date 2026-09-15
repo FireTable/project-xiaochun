@@ -72,9 +72,6 @@ const CATEGORIES: { id: BoneMorphItem['category']; labelKey: string; icon: strin
 export const BoneMorphSection: React.FC = () => {
   const { t, recordChange, showToast } = useDevDrawer();
 
-  // 当前选中的 Tab: 'global' (全局基准) | 'outfit' (当前服装特化)
-  const [activeTab, setActiveTab] = useState<'global' | 'outfit'>('global');
-
   // 当前穿戴的服装 key (如 'xiaochun_dinner_dress' 或 null 为 base)
   const [currentOutfitKey, setCurrentOutfitKey] = useState<string | null>(() => {
     if (vrmEngine.currentOutfitKey !== undefined && vrmEngine.currentOutfitKey !== null) {
@@ -89,6 +86,14 @@ export const BoneMorphSection: React.FC = () => {
     return defaultEntry ? defaultEntry[0] : null;
   });
 
+  // 判断当前服装是否在 config.ts 中配置了特化基准
+  const hasOutfitBaseline = Boolean(currentOutfitKey && APP_CONFIG.model.addons[currentOutfitKey]?.bodyMorph);
+
+  // 当前选中的 Tab: 如果当前服装有特化基准，默认优先选择当前服装 Tab
+  const [activeTab, setActiveTab] = useState<'global' | 'outfit'>(() => {
+    return hasOutfitBaseline ? 'outfit' : 'global';
+  });
+
   // 全局基准配置 (对应 APP_CONFIG.bodyMorph.default 与 localStorage.bodyMorph)
   const [globalBodyMorph, setGlobalBodyMorph] = useState<BodyMorphConfig>(() => {
     return loadDevDrawerSettings()?.bodyMorph ?? { ...APP_CONFIG.bodyMorph.default };
@@ -99,15 +104,16 @@ export const BoneMorphSection: React.FC = () => {
     return loadDevDrawerSettings()?.outfitBodyMorph ?? {};
   });
 
-  // 监听换装事件，保持 currentOutfitKey 同步
+  // 监听换装事件：保持 currentOutfitKey 同步；若新服装有专属体型基准，自动优先切换到服装 Tab
   useEffect(() => {
     return vrmEngine.onOutfitChange((key) => {
       setCurrentOutfitKey(key);
+      if (key && APP_CONFIG.model.addons[key]?.bodyMorph) {
+        setActiveTab('outfit');
+      }
     });
   }, []);
 
-  // 挂载时锁定一份基线用于计算 modified dot
-  const initialBaseline = useRef<BodyMorphConfig>(globalBodyMorph);
 
   // 每个 slider 的 display span 一个稳定 ref
   const liveRefs = useRef<Record<string, React.RefObject<HTMLSpanElement | null>>>({});
@@ -156,11 +162,8 @@ export const BoneMorphSection: React.FC = () => {
     return APP_CONFIG.model.addons[currentOutfitKey]?.name ?? currentOutfitKey;
   }, [currentOutfitKey, t]);
 
-  // Tab 切换时把对应态的值刷新给 engine
-  const handleTabSwitch = (tab: 'global' | 'outfit') => {
-    setActiveTab(tab);
-    const target = tab === 'global' ? globalBodyMorph : activeOutfitMorph;
-    vrmEngine.bodyMorph.setConfig(target);
+  // 统一更新全部 slider 的 DOM display 数值
+  const updateLiveRefs = (target: BodyMorphConfig) => {
     ITEMS.forEach((it) => {
       const span = liveRefs.current[it.key]?.current;
       if (span) {
@@ -169,6 +172,14 @@ export const BoneMorphSection: React.FC = () => {
         span.textContent = isOffset ? (val >= 0 ? `+${val.toFixed(3)}` : val.toFixed(3)) : `${Math.round(val * 100)}%`;
       }
     });
+  };
+
+  // Tab 切换时把对应态的值刷新给 engine 与界面
+  const handleTabSwitch = (tab: 'global' | 'outfit') => {
+    setActiveTab(tab);
+    const target = tab === 'global' ? globalBodyMorph : activeOutfitMorph;
+    vrmEngine.bodyMorph.setConfig(target);
+    updateLiveRefs(target);
   };
 
   // Slider 拖拽每帧回调 (极速写入 3D Engine，不重绘 React)
@@ -279,67 +290,128 @@ export const BoneMorphSection: React.FC = () => {
     });
   };
 
-  // 清除当前服装的特化设置，恢复继承全局
-  const handleResetOutfitToGlobal = () => {
-    if (!currentOutfitKey) return;
-    const prevOutfitOverrides = { ...outfitOverrides };
-    const nextAll = { ...outfitOverrides };
-    delete nextAll[currentOutfitKey];
-    setOutfitOverrides(nextAll);
-    saveDevDrawerSettings({ outfitBodyMorph: nextAll });
+  // 服装官方基准（全局默认 + config.addons[key]?.bodyMorph）
+  const outfitBaseline = useMemo<BodyMorphConfig>(() => {
+    return vrmEngine.getOutfitBaselineMorph(currentOutfitKey);
+  }, [currentOutfitKey]);
 
-    const baseline = vrmEngine.getOutfitBaselineMorph(currentOutfitKey);
-    vrmEngine.bodyMorph.setConfig(baseline);
-    showToast(t('panel.devDrawerExtra.resetOutfitMorph'));
-
-    recordChange({
-      id: `morph-reset-outfit-${Date.now()}`,
-      description: `${currentOutfitDisplayName} (${t('panel.devDrawerExtra.reset')})`,
-      undo: () => {
-        setOutfitOverrides(prevOutfitOverrides);
-        saveDevDrawerSettings({ outfitBodyMorph: prevOutfitOverrides });
-        vrmEngine.bodyMorph.setConfig(activeOutfitMorph);
-      },
-      redo: () => {
-        setOutfitOverrides(nextAll);
-        saveDevDrawerSettings({ outfitBodyMorph: nextAll });
-        vrmEngine.bodyMorph.setConfig(baseline);
-      },
+  // 服装态下是否有偏离基准（如果配置了基准，判断是否偏离该基准；若无特化基准，判断是否偏离全局）
+  const outfitModified = useMemo(() => {
+    return ITEMS.some((item) => {
+      const cur = activeOutfitMorph[item.key] ?? 1.0;
+      const base = outfitBaseline[item.key] ?? 1.0;
+      return Math.abs(cur - base) >= 1e-4;
     });
-  };
+  }, [activeOutfitMorph, outfitBaseline]);
 
-  // 重置全局基准
-  const handleResetGlobal = () => {
-    const prevMorph = { ...globalBodyMorph };
-    const defaultMorph = { ...APP_CONFIG.bodyMorph.default };
-    setGlobalBodyMorph(defaultMorph);
-    initialBaseline.current = defaultMorph;
-    saveDevDrawerSettings({ bodyMorph: defaultMorph });
-    vrmEngine.bodyMorph.setConfig(defaultMorph);
-    showToast(`${t('panel.devDrawerExtra.bodyMorphTitle')} ${t('panel.devDrawerExtra.reset')}`);
-
-    recordChange({
-      id: `morph-reset-global-${Date.now()}`,
-      description: `${t('panel.devDrawerExtra.bodyMorphTitle')} (${t('panel.devDrawerExtra.reset')})`,
-      undo: () => {
-        setGlobalBodyMorph(prevMorph);
-        saveDevDrawerSettings({ bodyMorph: prevMorph });
-        vrmEngine.bodyMorph.setConfig(prevMorph);
-      },
-      redo: () => {
-        setGlobalBodyMorph(defaultMorph);
-        saveDevDrawerSettings({ bodyMorph: defaultMorph });
-        vrmEngine.bodyMorph.setConfig(defaultMorph);
-      },
+  // 全局态下是否有偏离 config.default
+  const globalModified = useMemo(() => {
+    return ITEMS.some((item) => {
+      const cur = globalBodyMorph[item.key] ?? 1.0;
+      const def = APP_CONFIG.bodyMorph.default[item.key] ?? 1.0;
+      return Math.abs(cur - def) >= 1e-4;
     });
-  };
+  }, [globalBodyMorph]);
 
-  const modified = activeTab === 'global'
-    ? ITEMS.some(item => {
-        const init = initialBaseline.current[item.key] ?? 1.0;
-        return Math.abs((globalBodyMorph[item.key] ?? 1.0) - init) >= 1e-4;
-      })
-    : outfitDiffCount > 0;
+  // 重置按钮展示依据：在对应 tab 下是否有调试变更；若当前服装有特化基准且被改动，随时可重置
+  const modified = activeTab === 'global' ? globalModified : outfitModified;
+
+  // 统一重置逻辑：如果有服装基准，优先用服装的数值，tab 也是优先选择服装的
+  const handleReset = () => {
+    if (hasOutfitBaseline && currentOutfitKey) {
+      // 1. 如果有服装基准：优先重置为服装基准，优先切换至服装 Tab
+      setActiveTab('outfit');
+      const prevOutfitOverrides = { ...outfitOverrides };
+      const nextAll = { ...outfitOverrides };
+      delete nextAll[currentOutfitKey];
+      setOutfitOverrides(nextAll);
+      saveDevDrawerSettings({ outfitBodyMorph: nextAll });
+
+      const baseline = outfitBaseline;
+      vrmEngine.bodyMorph.setConfig(baseline);
+      updateLiveRefs(baseline);
+      showToast(`${currentOutfitDisplayName} ${t('panel.devDrawerExtra.reset')}`);
+
+      recordChange({
+        id: `morph-reset-outfit-${Date.now()}`,
+        description: `${currentOutfitDisplayName} (${t('panel.devDrawerExtra.reset')})`,
+        undo: () => {
+          setActiveTab('outfit');
+          setOutfitOverrides(prevOutfitOverrides);
+          saveDevDrawerSettings({ outfitBodyMorph: prevOutfitOverrides });
+          vrmEngine.bodyMorph.setConfig(activeOutfitMorph);
+          updateLiveRefs(activeOutfitMorph);
+        },
+        redo: () => {
+          setActiveTab('outfit');
+          setOutfitOverrides(nextAll);
+          saveDevDrawerSettings({ outfitBodyMorph: nextAll });
+          vrmEngine.bodyMorph.setConfig(baseline);
+          updateLiveRefs(baseline);
+        },
+      });
+    } else if (activeTab === 'outfit' && currentOutfitKey) {
+      // 2. 无预置特化基准但当前在服装 Tab，重置该服装的临时调试 override
+      const prevOutfitOverrides = { ...outfitOverrides };
+      const nextAll = { ...outfitOverrides };
+      delete nextAll[currentOutfitKey];
+      setOutfitOverrides(nextAll);
+      saveDevDrawerSettings({ outfitBodyMorph: nextAll });
+
+      const baseline = outfitBaseline;
+      vrmEngine.bodyMorph.setConfig(baseline);
+      updateLiveRefs(baseline);
+      showToast(t('panel.devDrawerExtra.resetOutfitMorph'));
+
+      recordChange({
+        id: `morph-reset-outfit-${Date.now()}`,
+        description: `${currentOutfitDisplayName} (${t('panel.devDrawerExtra.reset')})`,
+        undo: () => {
+          setActiveTab('outfit');
+          setOutfitOverrides(prevOutfitOverrides);
+          saveDevDrawerSettings({ outfitBodyMorph: prevOutfitOverrides });
+          vrmEngine.bodyMorph.setConfig(activeOutfitMorph);
+          updateLiveRefs(activeOutfitMorph);
+        },
+        redo: () => {
+          setActiveTab('outfit');
+          setOutfitOverrides(nextAll);
+          saveDevDrawerSettings({ outfitBodyMorph: nextAll });
+          vrmEngine.bodyMorph.setConfig(baseline);
+          updateLiveRefs(baseline);
+        },
+      });
+    } else {
+      // 3. 全局基准重置为默认值
+      setActiveTab('global');
+      const prevMorph = { ...globalBodyMorph };
+      const defaultMorph = { ...APP_CONFIG.bodyMorph.default };
+      setGlobalBodyMorph(defaultMorph);
+      saveDevDrawerSettings({ bodyMorph: defaultMorph });
+      vrmEngine.bodyMorph.setConfig(defaultMorph);
+      updateLiveRefs(defaultMorph);
+      showToast(`${t('panel.devDrawerExtra.bodyMorphTitle')} ${t('panel.devDrawerExtra.reset')}`);
+
+      recordChange({
+        id: `morph-reset-global-${Date.now()}`,
+        description: `${t('panel.devDrawerExtra.bodyMorphTitle')} (${t('panel.devDrawerExtra.reset')})`,
+        undo: () => {
+          setActiveTab('global');
+          setGlobalBodyMorph(prevMorph);
+          saveDevDrawerSettings({ bodyMorph: prevMorph });
+          vrmEngine.bodyMorph.setConfig(prevMorph);
+          updateLiveRefs(prevMorph);
+        },
+        redo: () => {
+          setActiveTab('global');
+          setGlobalBodyMorph(defaultMorph);
+          saveDevDrawerSettings({ bodyMorph: defaultMorph });
+          vrmEngine.bodyMorph.setConfig(defaultMorph);
+          updateLiveRefs(defaultMorph);
+        },
+      });
+    }
+  };
 
   return (
     <SectionCard id="bodyMorph">
@@ -347,7 +419,7 @@ export const BoneMorphSection: React.FC = () => {
         id="bodyMorph"
         title={t('panel.devDrawerExtra.bodyMorphTitle')}
         modified={modified}
-        onReset={activeTab === 'global' ? handleResetGlobal : handleResetOutfitToGlobal}
+        onReset={handleReset}
         showReset={modified}
         uppercase={false}
       />
@@ -418,10 +490,10 @@ export const BoneMorphSection: React.FC = () => {
                 <Copy className="w-3 h-3 text-brand-300" />
                 <span className="hidden sm:inline">{t('panel.devDrawerExtra.copyDiffConfig')}</span>
               </button>
-              {outfitDiffCount > 0 && (
+              {outfitModified && (
                 <button
                   type="button"
-                  onClick={handleResetOutfitToGlobal}
+                  onClick={handleReset}
                   className="flex items-center gap-1 p-1 rounded-md bg-white/5 hover:bg-white/15 border border-white/10 text-white/60 hover:text-amber-300 transition-all text-[11px] active:scale-95 cursor-pointer"
                   title={t('panel.devDrawerExtra.resetOutfitMorph')}
                 >
