@@ -291,6 +291,13 @@ export const APP_CONFIG = {
         source: '/vrm/addons/xiaochun_office_lady.vrmaddon',
         name: 'XiaoChun Office Lady',
         sha: '7d4f1f5c98bb0434',
+        bodyMorph: {
+          shoulderWidth: 0.96,
+          waist: 0.82,
+          bust: 1.02,
+          bustPitch: 0.19,
+          bustSpread: -0.018,
+        },
       },
       'xiaochun_wedding': {
         source: '/vrm/addons/xiaochun_wedding.vrmaddon',
