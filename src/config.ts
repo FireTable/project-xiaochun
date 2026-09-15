@@ -272,6 +272,13 @@ export const APP_CONFIG = {
         source: '/vrm/addons/xiaochun_cheongsam.vrmaddon',
         name: 'XiaoChun Cheongsam',
         sha: 'c2bf3c1591a5a22a',
+        bodyMorph: {
+          waist: 0.74,
+          bust: 1.2,
+          bustThickness: 1.04,
+          bustPitch: 0.03,
+          bustSpread: -0.012,
+        },
       },
       'xiaochun_bikini': {
         source: '/vrm/addons/xiaochun_bikini.vrmaddon',
@@ -327,6 +334,13 @@ export const APP_CONFIG = {
         source: '/vrm/addons/xiaochun_wedding.vrmaddon',
         name: 'XiaoChun Wedding',
         sha: '3214c9a2cb40d310',
+        bodyMorph: {
+          shoulderWidth: 1.2,
+          torsoThickness: 0.8,
+          waist: 0.7,
+          bust: 1.1,
+          bustSpread: -0.016,
+        },
       },
     } as Record<string, AddonDefinition>,
   },
