@@ -256,10 +256,17 @@ export const APP_CONFIG = {
     // default: true 标默认加载的 addon,冷启动无 user 偏好时用这个,普通用户
     // 进站就穿衣服,不用先点菜单。多个 default 时 workflow 警告,取第一个。
     addons: {
-      'xiaochun_default': {
-        source: '/vrm/addons/xiaochun_default.vrmaddon',
+      'xiaochun_techwear': {
+        source: '/vrm/addons/xiaochun_techwear.vrmaddon',
         name: 'XiaoChun Techwear',
         sha: '6f774a958e133307',
+        bodyMorph: {
+          shoulderWidth: 1,
+          buttocks: 1.2,
+          bust: 1.1,
+          bustThickness: 1,
+          bustPitch: 0,
+        },
       },
       'xiaochun_cheongsam': {
         source: '/vrm/addons/xiaochun_cheongsam.vrmaddon',
@@ -270,6 +277,13 @@ export const APP_CONFIG = {
         source: '/vrm/addons/xiaochun_bikini.vrmaddon',
         name: 'XiaoChun Bikini',
         sha: 'a70c7d5a10665b72',
+        bodyMorph: {
+          shoulderWidth: 0.95,
+          buttocks: 1.16,
+          bustThickness: 1.12,
+          bustPitch: -0.04,
+          bustSpread: -0.02,
+        },
       },
       'xiaochun_maid': {
         source: '/vrm/addons/xiaochun_maid.vrmaddon',
