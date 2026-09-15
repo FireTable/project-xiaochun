@@ -140,7 +140,16 @@ export const DevDrawer: React.FC<DevDrawerProps> = ({ isOpen, onClose }) => {
   useEffect(() => {
     const saved = loadDevDrawerSettings();
     if (!saved) return;
-    if (saved.bodyMorph) vrmEngine.bodyMorph.setConfig(saved.bodyMorph);
+    if (saved.bodyMorph) {
+      const outfitKey = vrmEngine.currentOutfitKey;
+      const outfitOverride = outfitKey && saved.outfitBodyMorph?.[outfitKey];
+      const addonDef = outfitKey ? APP_CONFIG.model.addons[outfitKey]?.bodyMorph : null;
+      vrmEngine.bodyMorph.setConfig({
+        ...saved.bodyMorph,
+        ...(addonDef || {}),
+        ...(outfitOverride || {}),
+      });
+    }
     if (saved.saturation) vrmEngine.setMaterialSaturation(saved.saturation);
     if (saved.lights) {
       vrmEngine.setGlobalLight(saved.lights.globalMult);
@@ -157,6 +166,21 @@ export const DevDrawer: React.FC<DevDrawerProps> = ({ isOpen, onClose }) => {
       });
     }
     if (saved.activeExpr && saved.activeExpr !== 'neutral') vrmEngine.setExpression(saved.activeExpr);
+  }, []);
+
+  // 换装时同步应用当前服装的有效体型
+  useEffect(() => {
+    return vrmEngine.onOutfitChange((outfitKey) => {
+      const saved = loadDevDrawerSettings();
+      const globalMorph = saved?.bodyMorph ?? APP_CONFIG.bodyMorph.default;
+      const addonDef = outfitKey ? APP_CONFIG.model.addons[outfitKey]?.bodyMorph : null;
+      const outfitOverride = outfitKey && saved?.outfitBodyMorph?.[outfitKey];
+      vrmEngine.bodyMorph.setConfig({
+        ...globalMorph,
+        ...(addonDef || {}),
+        ...(outfitOverride || {}),
+      });
+    });
   }, []);
 
   // 控制 canvas 浮动身高尺可见性:drawer 开 + 非移动端
@@ -278,6 +302,7 @@ export const DevDrawer: React.FC<DevDrawerProps> = ({ isOpen, onClose }) => {
         redo,
         canUndo: undoStack.length > 0,
         canRedo: redoStack.length > 0,
+        showToast,
       }}
     >
       <aside

@@ -9,6 +9,7 @@ import type { PostFxConfig } from '@/core/postfx/postFxPipeline';
 /** localStorage 存的完整配置 (跟旧 DevDrawer 兼容) */
 export interface DevDrawerFullSettings {
   bodyMorph: BodyMorphConfig;
+  outfitBodyMorph?: Record<string, Partial<BodyMorphConfig>>;
   saturation: MaterialSaturationSettings;
   lights: {
     globalMult: number;
@@ -59,4 +60,5 @@ export interface DevDrawerContextValue {
   redo: () => void;
   canUndo: boolean;
   canRedo: boolean;
+  showToast: (msg: string) => void;
 }

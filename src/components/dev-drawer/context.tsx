@@ -15,6 +15,7 @@ export const DevDrawerContext = createContext<DevDrawerContextValue>({
   redo: () => {},
   canUndo: false,
   canRedo: false,
+  showToast: () => {},
 });
 
 export const useDevDrawer = () => useContext(DevDrawerContext);

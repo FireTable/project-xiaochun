@@ -202,6 +202,38 @@ export class VRMEngine {
   private manualExpression: string | null = null;
   public enableBodyTurn: boolean = APP_CONFIG.camera.defaultEnableBodyTurn ?? true;
 
+  // ── 服装状态与监听 ──
+  public currentOutfitKey: string | null = null;
+  private outfitChangeListeners = new Set<(outfitKey: string | null) => void>();
+
+  public onOutfitChange(callback: (outfitKey: string | null) => void): () => void {
+    this.outfitChangeListeners.add(callback);
+    return () => {
+      this.outfitChangeListeners.delete(callback);
+    };
+  }
+
+  public notifyOutfitChange(outfitKey: string | null): void {
+    this.currentOutfitKey = outfitKey;
+    this.outfitChangeListeners.forEach((cb) => {
+      try { cb(outfitKey); } catch (e) { console.warn('[VRMEngine] onOutfitChange error:', e); }
+    });
+  }
+
+  /**
+   * 获取指定服装的基准体型配置（全局默认 + 服装特定覆盖）
+   */
+  public getOutfitBaselineMorph(outfitKey: string | null): import('@/config').BodyMorphConfig {
+    const globalDefault = APP_CONFIG.bodyMorph.default;
+    if (!outfitKey) return { ...globalDefault };
+    const addon = APP_CONFIG.model.addons[outfitKey];
+    if (!addon?.bodyMorph) return { ...globalDefault };
+    return {
+      ...globalDefault,
+      ...addon.bodyMorph,
+    };
+  }
+
   // ─── 头顶实时身高测量指示线与 HUD 标牌 (Height Ruler) ───
   public isHeightRulerVisible = false;
   private tempHeadTopPos = new THREE.Vector3();
@@ -1135,17 +1167,20 @@ export class VRMEngine {
         // = addon key 在 config 里),base 直接读 defaultSha。找不到就传空,worker 跳过 cache。
         const addonKey = Object.keys(APP_CONFIG.model.addons).find(
           (k) => APP_CONFIG.model.addons[k].source === url,
-        );
+        ) ?? null;
         const addonSha = addonKey ? APP_CONFIG.model.addons[addonKey].sha : '';
         const composed = await this.composeVRMFromAddon(url, addonSha, { phaseLabel, subtitleVars, preserveMotion });
         await this.loadVRMFromBuffer(composed, filename, { preserveMotion });
+        this.notifyOutfitChange(addonKey);
         return;
       }
       if (!this.currentVRM) {
         await this.loadVRM(url, filename);
+        this.notifyOutfitChange('__upload__');
         return;
       }
       await this.loadVRM(url, filename, { preserveMotion: true });
+      this.notifyOutfitChange('__upload__');
     } finally {
       // ponytail: 末尾回调 — 成功 / 失败都发,UI 收起 spinner + overlay。
       // 用 progress:100 而非 0 — 上一版本用 0 让 bar 倒带回 0%,看着像失败。

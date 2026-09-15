@@ -215,6 +215,17 @@ export interface WardrobeConfig {
   defaultVisibility: Record<string, boolean>;
 }
 
+export interface AddonDefinition {
+  source: string;
+  name: string;
+  sha: string;
+  default?: boolean;
+  /**
+   * 针对该服装特化的体型微调覆盖项（覆盖全局 APP_CONFIG.bodyMorph.default）
+   */
+  bodyMorph?: Partial<BodyMorphConfig>;
+}
+
 // ponytail: INT8 量化开关。useInt8 = true 时加载 _int8.onnx (体积 -67%,rot6d 误差 +33%,动作可能走样)。
 // FP16 暂不可用 (浏览器 FP16 tensor 输入 dtype 处理有 edge cases) → 不开
 const useInt8 = true;
@@ -279,14 +290,14 @@ export const APP_CONFIG = {
       'xiaochun_office_lady': {
         source: '/vrm/addons/xiaochun_office_lady.vrmaddon',
         name: 'XiaoChun Office Lady',
-        sha: '6f4610744f279905',
+        sha: '7d4f1f5c98bb0434',
       },
       'xiaochun_wedding': {
         source: '/vrm/addons/xiaochun_wedding.vrmaddon',
         name: 'XiaoChun Wedding',
         sha: '3214c9a2cb40d310',
       },
-    } as Record<string, { source: string; name: string; sha: string; default?: boolean }>,
+    } as Record<string, AddonDefinition>,
   },
   // ponytail: EMAGE ONNX 模型文件基础 URL。
   // 生产环境 (PROD) 始终强制走 Cloudflare R2 (https://cdn.firetable.tech/xiaochun)；
