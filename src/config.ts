@@ -289,6 +289,10 @@ export const APP_CONFIG = {
         source: '/vrm/addons/xiaochun_maid.vrmaddon',
         name: 'XiaoChun Maid',
         sha: '318e2d2914d76b4d',
+        bodyMorph: {
+          shoulderWidth: 1.4,
+          waist: 0.7,
+        },
       },
       'xiaochun_swimsuit': {
         source: '/vrm/addons/xiaochun_swimsuit.vrmaddon',
@@ -300,6 +304,12 @@ export const APP_CONFIG = {
         name: 'XiaoChun Dinner Dress',
         sha: 'bc2e42f754e635af',
         default: true,
+        bodyMorph: {
+          shoulderWidth: 1.05,
+          waist: 0.7,
+          bustPitch: 0.01,
+          bustSpread: -0.024,
+        },
       },
       'xiaochun_office_lady': {
         source: '/vrm/addons/xiaochun_office_lady.vrmaddon',
