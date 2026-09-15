@@ -259,7 +259,7 @@ export const APP_CONFIG = {
       'xiaochun_techwear': {
         source: '/vrm/addons/xiaochun_techwear.vrmaddon',
         name: 'XiaoChun Techwear',
-        sha: '6f774a958e133307',
+        sha: '5b82a059455ce7bc',
         bodyMorph: {
           shoulderWidth: 1,
           buttocks: 1.2,
