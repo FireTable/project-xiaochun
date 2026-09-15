@@ -269,7 +269,22 @@ export const APP_CONFIG = {
       'xiaochun_swimsuit': {
         source: '/vrm/addons/xiaochun_swimsuit.vrmaddon',
         name: 'XiaoChun Swimsuit',
-        sha: 'b118fc2f8550cbaf',
+        sha: 'b7511150c85ce0c1',
+      },
+      'xiaochun_dinner_dress': {
+        source: '/vrm/addons/xiaochun_dinner_dress.vrmaddon',
+        name: 'XiaoChun Dinner Dress',
+        sha: 'bc2e42f754e635af',
+      },
+      'xiaochun_office_lady': {
+        source: '/vrm/addons/xiaochun_office_lady.vrmaddon',
+        name: 'XiaoChun Office Lady',
+        sha: '6f4610744f279905',
+      },
+      'xiaochun_wedding': {
+        source: '/vrm/addons/xiaochun_wedding.vrmaddon',
+        name: 'XiaoChun Wedding',
+        sha: '3214c9a2cb40d310',
       },
     } as Record<string, { source: string; name: string; sha: string; default?: boolean }>,
   },
