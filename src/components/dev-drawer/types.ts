@@ -38,6 +38,14 @@ export type SectionId =
   | 'camera'
   | 'postfx';
 
+/** 历史撤销操作动作 */
+export interface DevDrawerHistoryAction {
+  id: string;
+  description: string;
+  undo: () => void;
+  redo: () => void;
+}
+
 /** drawer 上下文 — 壳通过 DevDrawerContext.Provider 注入,段组件 useContext 读取 */
 export interface DevDrawerContextValue {
   t: (key: string, opts?: Record<string, unknown>) => string;
@@ -46,4 +54,9 @@ export interface DevDrawerContextValue {
   // ponytail: 全局重置信号 — 自增时强制所有 section remount,从刚重置的 engine
   // 重新读 state,补回 handleResetAllToConfig 漏掉的段级同步
   resetSignal: number;
+  recordChange: (action: DevDrawerHistoryAction) => void;
+  undo: () => void;
+  redo: () => void;
+  canUndo: boolean;
+  canRedo: boolean;
 }

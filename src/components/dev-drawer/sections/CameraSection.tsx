@@ -13,7 +13,7 @@ import { saveDevDrawerSettings, loadDevDrawerSettings } from '../storage';
  * 合并进来,两者的 modified 一起算,reset 一次性把两个都归位。
  */
 export const CameraSection: React.FC = () => {
-  const { t } = useDevDrawer();
+  const { t, recordChange } = useDevDrawer();
   const initSaved = loadDevDrawerSettings();
   const [fov, setFov] = useState<number>(initSaved?.camera?.fov ?? APP_CONFIG.camera.defaultFov);
   const [minDist, setMinDist] = useState<number>(initSaved?.camera?.minDistance ?? APP_CONFIG.camera.defaultMinDistance);
@@ -38,8 +38,27 @@ export const CameraSection: React.FC = () => {
     vrmEngine.setFov(val);
   };
   const handleFovChange = (val: number) => {
+    const prev = fov;
+    if (Math.abs(prev - val) < 1e-4) return;
     setFov(val);
     saveDevDrawerSettings({ camera: { fov: val } });
+
+    recordChange({
+      id: `fov-${Date.now()}`,
+      description: `FOV: ${val}° → ${prev}°`,
+      undo: () => {
+        setFov(prev);
+        vrmEngine.setFov(prev);
+        saveDevDrawerSettings({ camera: { fov: prev } });
+        if (fovDisplayRef.current) fovDisplayRef.current.textContent = `${prev}°`;
+      },
+      redo: () => {
+        setFov(val);
+        vrmEngine.setFov(val);
+        saveDevDrawerSettings({ camera: { fov: val } });
+        if (fovDisplayRef.current) fovDisplayRef.current.textContent = `${val}°`;
+      },
+    });
   };
 
   // ponytail: 距离上下限是钳位属性,改 min/max 立即生效;per-frame 也只是写一下,无重副作用

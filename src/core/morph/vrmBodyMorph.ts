@@ -671,11 +671,14 @@ export class VRMBodyMorph {
       }
     }
 
-    // ── 7. 胸腔 (Chest) 宽度正交解耦与躯干前后厚度 (Torso Thickness) ──
-    // 核心解耦：胸腔与上胸基准宽度严格为 1.0，完全不受腰宽 (waist) 影响！
-    // 使得腰部变细（如 70% 蜂腰）时，胸围、胸腔、上胸和双肩宽度 100% 挺拔恒定，绝对不被挤扁或缩水！
+    // ── 7. 胸腔 (Chest) 宽度解耦与解剖学生理顺滑过渡 (Rib-Waist Anatomical Smoothing) ──
+    // 核心改进：当腰部收窄（如 70% 蜂腰）时，下胸廓/肋骨下缘在解剖学上需自然顺滑收拢微量（0.25 阻尼），
+    // 彻底根除下肋骨在侧腰接缝处形成断崖式外撑横向突刺，使身体下肋骨与侧腰完美退回紧身裙/礼服内部！
+    // 同时在 UpperChest 节点施加 1/targetChestX 逆缩放补偿，使双肩、锁骨与头颈的世界宽度 100% 挺拔恒定！
     const chestThickFactor = 1.0 + (torsoThickness - 1.0) * 0.50;
-    const targetChestX = 1.0;
+    // 0.42 阻尼系数：在腰部 70% 极限细腰时收拢约 12.6%，彻底消除侧腰接缝残余的尖角穿模，使裙身与素体严丝合缝
+    const ribWaistCoupling = 1.0 + (waist - 1.0) * 0.42;
+    const targetChestX = Math.max(0.60, ribWaistCoupling);
     const targetChestZ = chestThickFactor;
 
     // ── 8. 躯干高度 (torsoLength) 正交垂直拉伸与胸腔/上胸位置精确合成 ──
@@ -715,7 +718,9 @@ export class VRMBodyMorph {
     // ── 8.5 上胸 (UpperChest) 局部正交解耦 ──
     // 严格在相对骨盆 (Hips) 的骨骼树中完成变换，彻底杜绝全局固定世界坐标导致的大腿长拉伸躯干与全身缩放爆炸！
     if (this.rawUpperChest) {
-      this.rawUpperChest.scale.set(1.0, 1.0, 1.0);
+      // 逆缩放锁定：使 UpperChest 及其子级（双肩、手臂、头颈）的世界横向比例完全不受下胸廓微调影响，恒定为 1.0
+      const ucx = 1.0 / Math.max(0.01, targetChestX);
+      this.rawUpperChest.scale.set(ucx, 1.0, 1.0);
       this.rawUpperChest.position.set(
         (this.baseUpperChestPos.x + localUpChest.x * deltaUpperChest) / Math.max(0.01, targetChestX),
         this.baseUpperChestPos.y + localUpChest.y * deltaUpperChest,

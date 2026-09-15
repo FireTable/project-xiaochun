@@ -331,7 +331,7 @@ export const en: Trans = {
       shoulderWidth: { label: 'Shoulder Width', minLabel: '75% (Narrow)', maxLabel: '250% (Wide)' },
       torsoLength: { label: 'Torso Length', minLabel: '75% (Short)', maxLabel: '135% (Long)' },
       torsoThickness: { label: 'Torso Thickness', minLabel: '70% (Slim)', maxLabel: '140% (Thick)' },
-      waist: { label: 'Waist Width', minLabel: '70% (Hourglass)', maxLabel: '140% (Full)' },
+      waist: { label: 'Waist Width', minLabel: '50% (Hourglass)', maxLabel: '140% (Full)' },
       belly: { label: 'Belly Size', minLabel: '70% (Flat)', maxLabel: '180% (Round)' },
       hips: { label: 'Hips Width', minLabel: '70% (Slim)', maxLabel: '150% (Wide)' },
       buttocks: { label: 'Buttocks Size', minLabel: '70% (Flat)', maxLabel: '120% (Full)' },

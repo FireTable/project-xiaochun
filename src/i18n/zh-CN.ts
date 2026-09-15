@@ -334,7 +334,7 @@ export const zhCN = {
       shoulderWidth: { label: '肩宽 (Shoulder Width)', minLabel: '75% (窄肩)', maxLabel: '250% (宽肩)' },
       torsoLength: { label: '躯干长度 (Torso Length)', minLabel: '75% (娇小)', maxLabel: '135% (高挑)' },
       torsoThickness: { label: '躯干厚度 (Torso Thickness)', minLabel: '70% (纤薄)', maxLabel: '140% (厚实)' },
-      waist: { label: '腰部宽度 (Waist Width)', minLabel: '70% (蜂腰)', maxLabel: '140% (丰腴)' },
+      waist: { label: '腰部宽度 (Waist Width)', minLabel: '50% (蜂腰)', maxLabel: '140% (丰腴)' },
       belly: { label: '肚子大小 (Belly Size)', minLabel: '70% (平坦)', maxLabel: '180% (圆润)' },
       hips: { label: '胯部宽度 (Hips Width)', minLabel: '70% (纤窄)', maxLabel: '150% (丰胯)' },
       buttocks: { label: '臀部大小 (Buttocks)', minLabel: '70% (扁平)', maxLabel: '120% (丰满)' },

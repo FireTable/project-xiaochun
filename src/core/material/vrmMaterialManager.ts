@@ -60,7 +60,7 @@ export function classifyMaterialToPart(matName: string): ModelPartDefinition {
     name.includes('scarf') ||
     name.includes('ribbon') ||
     name.includes('pendant') ||
-    (name.includes('onepiece') && (name.includes('010') || name.includes('acc') || name.includes('chain')))
+    (name.includes('onepiece') && (name.includes('acc') || name.includes('chain') || name.includes('necklace') || name.includes('choker')))
   ) {
     return { id: 'neckwear', category: 'clothing', label: 'panel.partItems.neckwear', icon: '👔' };
   }
@@ -229,11 +229,11 @@ export class VRMMaterialManager {
     clothing: any[];
     eyes: any[];
   } = {
-    skin: [],
-    hair: [],
-    clothing: [],
-    eyes: [],
-  };
+      skin: [],
+      hair: [],
+      clothing: [],
+      eyes: [],
+    };
 
   constructor() {
     this.restoreFromStorage();
@@ -247,7 +247,7 @@ export class VRMMaterialManager {
           this.saturation = { ...APP_CONFIG.saturation.default, ...JSON.parse(saved) };
         }
       }
-    } catch {}
+    } catch { }
   }
 
   /**
@@ -364,6 +364,11 @@ uniform float uMatSaturation;
               mat.shadeShift = 0.0;
               mat.shadeToony = 0.92;
               if (mat.shadeColor) mat.shadeColor.setHex(0xf4cfbf);
+
+              // 深度分层防穿模 (Layer 0): 素体皮肤微量向后推 (Positive polygonOffset)
+              mat.polygonOffset = true;
+              mat.polygonOffsetFactor = 2.0;
+              mat.polygonOffsetUnits = 8.0;
             } else {
               mat.shadeShift = 0.03;
               mat.shadeToony = 0.96;
@@ -376,6 +381,11 @@ uniform float uMatSaturation;
             mat.rimLift = 0.15;
             mat.shadeShift = -0.05;
             mat.shadeToony = 0.80;
+
+            // 深度分层防穿模: 袜子在腿部皮肤之上
+            mat.polygonOffset = true;
+            mat.polygonOffsetFactor = -1.0;
+            mat.polygonOffsetUnits = -4.0;
           } else if (isCloth) {
             mat.rimLightingMix = 0.35;
             mat.rimMultiply = new THREE.Color(0xf0f4ff);
@@ -383,6 +393,27 @@ uniform float uMatSaturation;
             mat.rimLift = 0.10;
             mat.shadeShift = 0.0;
             mat.shadeToony = 0.85;
+
+            const isInner =
+              partDef.id === 'inner_top' ||
+              partDef.id === 'inner_bottom' ||
+              name.includes('underwear') ||
+              name.includes('inner') ||
+              name.includes('bra') ||
+              name.includes('panties') ||
+              name.includes('panty') ||
+              name.includes('002_') ||
+              name.includes('003_');
+
+            // 深度分层防穿模: 内衣居中 (Layer 1)，外层衣服向前拉 (Layer 2)，最外层紧身裙永远覆盖素体与内衬
+            mat.polygonOffset = true;
+            if (isInner) {
+              mat.polygonOffsetFactor = 0.5;
+              mat.polygonOffsetUnits = 2.0;
+            } else {
+              mat.polygonOffsetFactor = -2.0;
+              mat.polygonOffsetUnits = -8.0;
+            }
           }
           mat.needsUpdate = true;
         });
@@ -532,7 +563,7 @@ uniform float uMatSaturation;
       if (typeof localStorage !== 'undefined') {
         localStorage.setItem(MAT_SATURATION_KEY, JSON.stringify(this.saturation));
       }
-    } catch {}
+    } catch { }
   }
 
   applyPreset(presetKey: MaterialSaturationPresetKey): void {

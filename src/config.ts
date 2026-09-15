@@ -163,7 +163,7 @@ export interface BodyMorphConfig {
   shoulderWidth: number;    // 肩宽 (默认 1.00，范围 0.75 ~ 2.50)
   torsoLength: number;      // 躯干长度 (默认 1.00，范围 0.75 ~ 1.35)
   torsoThickness: number;   // 躯干厚度 (默认 1.00，范围 0.70 ~ 1.40，统一控制胸背与腰腹前后厚度)
-  waist: number;            // 纤细腰部 (默认 1.00，范围 0.70 ~ 1.40，控制腰部横向宽度)
+  waist: number;            // 纤细腰部 (默认 1.00，范围 0.50 ~ 1.40，控制腰部横向宽度)
   belly: number;            // 肚子大小 (默认 1.00，范围 0.70 ~ 1.80，纯粹控制小腹平坦或微凸，绝不影响后腰)
   hips: number;             // 胯部左右宽度 (默认 1.00，范围 0.70 ~ 1.50)
   buttocks: number;         // 臀部大小 (默认 1.00，范围 0.70 ~ 1.20，对齐胸部大小)
@@ -493,7 +493,7 @@ export const APP_CONFIG = {
       shoulderWidth: { min: 0.75, max: 2.50, step: 0.01 },
       torsoLength: { min: 0.75, max: 1.35, step: 0.01 },
       torsoThickness: { min: 0.70, max: 1.40, step: 0.01 },
-      waist: { min: 0.70, max: 1.40, step: 0.02 },
+      waist: { min: 0.50, max: 1.40, step: 0.02 },
       belly: { min: 0.70, max: 2.00, step: 0.01 },
       hips: { min: 0.70, max: 1.50, step: 0.02 },
       buttocks: { min: 0.70, max: 1.20, step: 0.01 },

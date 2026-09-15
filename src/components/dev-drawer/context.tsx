@@ -10,6 +10,11 @@ export const DevDrawerContext = createContext<DevDrawerContextValue>({
   collapsed: new Set(),
   toggleCollapsed: () => {},
   resetSignal: 0,
+  recordChange: () => {},
+  undo: () => {},
+  redo: () => {},
+  canUndo: false,
+  canRedo: false,
 });
 
 export const useDevDrawer = () => useContext(DevDrawerContext);

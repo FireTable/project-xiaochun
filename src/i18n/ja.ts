@@ -331,7 +331,7 @@ export const ja: Trans = {
       shoulderWidth: { label: '肩幅', minLabel: '75% (狭め)', maxLabel: '250% (広め)' },
       torsoLength: { label: '胴体の長さ', minLabel: '75% (小柄)', maxLabel: '135% (高身長)' },
       torsoThickness: { label: '胴体の厚み (Torso Thickness)', minLabel: '70% (スリム)', maxLabel: '140% (厚め)' },
-      waist: { label: 'ウエスト幅 (Waist Width)', minLabel: '70% (くびれ)', maxLabel: '140% (ふくよか)' },
+      waist: { label: 'ウエスト幅 (Waist Width)', minLabel: '50% (くびれ)', maxLabel: '140% (ふくよか)' },
       belly: { label: 'お腹のサイズ (Belly Size)', minLabel: '70% (フラット)', maxLabel: '180% (ぽっこり)' },
       hips: { label: 'ヒップ幅 (Hips Width)', minLabel: '70% (スリム)', maxLabel: '150% (ワイド)' },
       buttocks: { label: 'ヒップサイズ (Buttocks)', minLabel: '70% (フラット)', maxLabel: '120% (豊満)' },

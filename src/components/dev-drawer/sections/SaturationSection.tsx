@@ -32,7 +32,7 @@ const PRESETS: MaterialSaturationPresetKey[] = ['vibrant', 'sweet', 'cinematic',
  * 自带 state,setMatSat 不会触发 drawer 其它部分重渲染,移动端 slider 拖动顺滑。
  */
 export const SaturationSection: React.FC = () => {
-  const { t } = useDevDrawer();
+  const { t, recordChange } = useDevDrawer();
   // ponytail: 每个 slider 的 display span 一个稳定 ref,SliderWithAnchors 拖动期间
   // imperative 写入 textContent,绕过 React — display 跟手但本段不重渲。
   const liveRefs = React.useRef<Record<string, React.RefObject<HTMLSpanElement | null>>>({});
@@ -62,9 +62,44 @@ export const SaturationSection: React.FC = () => {
     vrmEngine.setMaterialSaturation({ [key]: val, preset: 'custom' });
   };
   const handleParamChange = (key: SatKey, val: number) => {
+    const prev = matSat[key];
+    if (Math.abs(prev - val) < 1e-4) return;
+
     const next = { ...matSat, [key]: val, preset: 'custom' as const };
     setMatSat(next);
     saveDevDrawerSettings({ saturation: next });
+
+    const field = FIELDS.find((f) => f.key === key);
+    const label = field ? t(field.labelKey) : key;
+    const prevPct = Math.round(prev * 100);
+    const nextPct = Math.round(val * 100);
+
+    recordChange({
+      id: `sat-${key}-${Date.now()}`,
+      description: `${label}: ${nextPct}% → ${prevPct}%`,
+      undo: () => {
+        vrmEngine.setMaterialSaturation({ [key]: prev, preset: 'custom' });
+        setMatSat((curr) => {
+          const u = { ...curr, [key]: prev, preset: 'custom' as const };
+          saveDevDrawerSettings({ saturation: u });
+          return u;
+        });
+        if (liveRefs.current[key]?.current) {
+          liveRefs.current[key].current.textContent = `${prevPct}%`;
+        }
+      },
+      redo: () => {
+        vrmEngine.setMaterialSaturation({ [key]: val, preset: 'custom' });
+        setMatSat((curr) => {
+          const u = { ...curr, [key]: val, preset: 'custom' as const };
+          saveDevDrawerSettings({ saturation: u });
+          return u;
+        });
+        if (liveRefs.current[key]?.current) {
+          liveRefs.current[key].current.textContent = `${nextPct}%`;
+        }
+      },
+    });
   };
 
   const handleReset = () => {

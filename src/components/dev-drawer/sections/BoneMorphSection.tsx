@@ -69,7 +69,7 @@ const CATEGORIES: { id: BoneMorphItem['category']; labelKey: string; icon: strin
  * 协调按 key 复用节点,drag 期间只重渲本段 — 移动端拖动 28 个 slider 完全不打架。
  */
 export const BoneMorphSection: React.FC = () => {
-  const { t } = useDevDrawer();
+  const { t, recordChange } = useDevDrawer();
 
   const [bodyMorph, setBodyMorph] = useState<BodyMorphConfig>(
     () => loadDevDrawerSettings()?.bodyMorph ?? vrmEngine.getBodyMorphConfig()
@@ -99,17 +99,68 @@ export const BoneMorphSection: React.FC = () => {
     vrmEngine.setBodyPartScale(part, val);
   };
   const handleChange = (part: BodyMorphPartKey, val: number) => {
+    const prev = bodyMorph[part] ?? 1.0;
+    if (Math.abs(prev - val) < 1e-4) return;
+
     const next = { ...bodyMorph, [part]: val };
     setBodyMorph(next);
     saveDevDrawerSettings({ bodyMorph: next });
+
+    const item = ITEMS.find((it) => it.key === part);
+    const label = item ? t(item.labelKey) : part;
+    const prevPct = Math.round(prev * 100);
+    const nextPct = Math.round(val * 100);
+
+    recordChange({
+      id: `morph-${part}-${Date.now()}`,
+      description: `${label}: ${nextPct}% → ${prevPct}%`,
+      undo: () => {
+        vrmEngine.setBodyPartScale(part, prev);
+        setBodyMorph((curr) => {
+          const u = { ...curr, [part]: prev };
+          saveDevDrawerSettings({ bodyMorph: u });
+          return u;
+        });
+        if (liveRefs.current[part]?.current) {
+          liveRefs.current[part].current.textContent = `${prevPct}%`;
+        }
+      },
+      redo: () => {
+        vrmEngine.setBodyPartScale(part, val);
+        setBodyMorph((curr) => {
+          const u = { ...curr, [part]: val };
+          saveDevDrawerSettings({ bodyMorph: u });
+          return u;
+        });
+        if (liveRefs.current[part]?.current) {
+          liveRefs.current[part].current.textContent = `${nextPct}%`;
+        }
+      },
+    });
   };
 
   const handleReset = () => {
+    const prevMorph = { ...bodyMorph };
     vrmEngine.resetBodyMorph();
     const next = vrmEngine.getBodyMorphConfig();
     setBodyMorph(next);
     initialBaseline.current = next;
     saveDevDrawerSettings({ bodyMorph: next });
+
+    recordChange({
+      id: `morph-reset-${Date.now()}`,
+      description: `${t('panel.devDrawerExtra.bodyMorphTitle')} (重置)`,
+      undo: () => {
+        vrmEngine.bodyMorph.setConfig(prevMorph);
+        setBodyMorph(prevMorph);
+        saveDevDrawerSettings({ bodyMorph: prevMorph });
+      },
+      redo: () => {
+        vrmEngine.resetBodyMorph();
+        setBodyMorph(next);
+        saveDevDrawerSettings({ bodyMorph: next });
+      },
+    });
   };
 
   const modified = ITEMS.some(item => {
