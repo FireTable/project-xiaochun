@@ -482,7 +482,7 @@ export const APP_CONFIG = {
       thighLength: 1.00,
       calves: 0.82,
       calfLength: 1.00,
-      feet: 1.00,
+      feet: 0.96,
     } as BodyMorphConfig,
     limits: {
       overallScale: { min: 0.70, max: 1.30, step: 0.01 },

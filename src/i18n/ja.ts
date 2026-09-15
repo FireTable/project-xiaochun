@@ -340,7 +340,7 @@ export const ja: Trans = {
       buttocksSpread: { label: 'ヒップ幅 (Buttocks Width)', minLabel: '-0.05 (スリム)', maxLabel: '+0.08 (ワイド)' },
       bust: { label: '胸サイズ', minLabel: '60% (小さめ)', maxLabel: '220% (豊か)' },
       bustThickness: { label: '胸の厚み', minLabel: '60% (平坦)', maxLabel: '180% (豊か)' },
-      bustPitch: { label: '胸の角度 (縦)', minLabel: '-0.30 (上向き)', maxLabel: '+0.30 (下向き)' },
+      bustPitch: { label: '胸の角度 (縦)', minLabel: '-0.30 (下向き)', maxLabel: '+0.30 (上向き)' },
       bustSpread: { label: '胸の広がり', minLabel: '-0.04 (中央寄せ)', maxLabel: '+0.06 (外側)' },
       arms: { label: '腕の太さ', minLabel: '70% (細め)', maxLabel: '140% (肉感)' },
       armLength: { label: '腕の長さ', minLabel: '80% (小柄)', maxLabel: '120% (長め)' },

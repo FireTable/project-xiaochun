@@ -340,7 +340,7 @@ export const en: Trans = {
       buttocksSpread: { label: 'Buttocks Width', minLabel: '-0.05 (Slim)', maxLabel: '+0.08 (Full)' },
       bust: { label: 'Bust Size', minLabel: '60% (Petite)', maxLabel: '220% (Bountiful)' },
       bustThickness: { label: 'Bust Thickness', minLabel: '60% (Flat)', maxLabel: '180% (Full)' },
-      bustPitch: { label: 'Bust Pitch', minLabel: '-0.30 (Up)', maxLabel: '+0.30 (Down)' },
+      bustPitch: { label: 'Bust Pitch', minLabel: '-0.30 (Down)', maxLabel: '+0.30 (Up / Perky)' },
       bustSpread: { label: 'Bust Spread', minLabel: '-0.04 (Closed)', maxLabel: '+0.06 (Open)' },
       arms: { label: 'Arm Width', minLabel: '70% (Slim)', maxLabel: '140% (Full)' },
       armLength: { label: 'Arm Length', minLabel: '80% (Short)', maxLabel: '120% (Long)' },

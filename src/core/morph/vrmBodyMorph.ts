@@ -843,12 +843,12 @@ export class VRMBodyMorph {
 
     if (this.rawLBust) {
       this.rawLBust.position.x = this.baseLBustPos.x + spreadX;
-      this.rawLBust.position.y = this.baseLBustPos.y - bustPitch * 0.05;
+      this.rawLBust.position.y = this.baseLBustPos.y + bustPitch * 0.05;
       this.rawLBust.position.z = this.baseLBustPos.z;
 
       this.rawLBust.quaternion.copy(this.baseLBustRot);
       if (Math.abs(bustPitch) > 0.001) {
-        const pitchQ = new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(1, 0, 0), bustPitch * 1.5);
+        const pitchQ = new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(1, 0, 0), -bustPitch * 1.5);
         this.rawLBust.quaternion.multiply(pitchQ);
       }
       if (Math.abs(spreadYaw) > 0.0001) {
@@ -863,12 +863,12 @@ export class VRMBodyMorph {
 
     if (this.rawRBust) {
       this.rawRBust.position.x = this.baseRBustPos.x - spreadX;
-      this.rawRBust.position.y = this.baseRBustPos.y - bustPitch * 0.05;
+      this.rawRBust.position.y = this.baseRBustPos.y + bustPitch * 0.05;
       this.rawRBust.position.z = this.baseRBustPos.z;
 
       this.rawRBust.quaternion.copy(this.baseRBustRot);
       if (Math.abs(bustPitch) > 0.001) {
-        const pitchQ = new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(1, 0, 0), bustPitch * 1.5);
+        const pitchQ = new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(1, 0, 0), -bustPitch * 1.5);
         this.rawRBust.quaternion.multiply(pitchQ);
       }
       if (Math.abs(spreadYaw) > 0.0001) {

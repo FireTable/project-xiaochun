@@ -343,7 +343,7 @@ export const zhCN = {
       buttocksSpread: { label: '臀部宽度 (Buttocks Width)', minLabel: '-0.05 (纤窄)', maxLabel: '+0.08 (丰盈)' },
       bust: { label: '胸部大小 (Bust)', minLabel: '60% (小巧)', maxLabel: '220% (丰满)' },
       bustThickness: { label: '胸部厚度 (Bust Thickness)', minLabel: '60% (扁平)', maxLabel: '180% (丰挺)' },
-      bustPitch: { label: '胸部纵向朝向 (Bust Pitch)', minLabel: '-0.30 (上扬)', maxLabel: '+0.30 (下垂)' },
+      bustPitch: { label: '胸部纵向朝向 (Bust Pitch)', minLabel: '-0.30 (下垂)', maxLabel: '+0.30 (挺拔上扬)' },
       bustSpread: { label: '胸口敞开程度 (Bust Spread)', minLabel: '-0.04 (聚拢)', maxLabel: '+0.06 (外扩)' },
       arms: { label: '手臂粗细 (Arm Width)', minLabel: '70% (纤细)', maxLabel: '140% (肉感)' },
       armLength: { label: '手臂长度 (Arm Length)', minLabel: '80% (娇小)', maxLabel: '120% (修长)' },
