@@ -47,7 +47,7 @@ The system currently exposes **28 fine-grained morph parameters**, categorized i
 | **`waist`** | Torso / Shoulders | `1.00` | `0.50 ~ 1.40` | `0.02` | Hourglass waist width (X-axis) | Pure lateral scaling of Spine (lumbar curve); Chest, UpperChest, shoulders, and sagittal depth are 100% decoupled. |
 | **`belly`** | Torso / Shoulders | `1.00` | `0.70 ~ 1.80` | `0.01` | Abdomen protrusion / flatness | **Procedural vertex morph**: 687 front abdominal vertices deformed via smooth cosine falloff; spine curve & waist thickness are 100% untouched. |
 | **`hips`** | Hips / Pelvis | `1.00` | `0.70 ~ 1.50` | `0.02` | Pelvic lateral width (Hourglass) | Transverse X-axis expansion; abdomen and lower back remain flat. |
-| **`buttocks`** | Hips / Pelvis | `1.00` | `0.70 ~ 1.20` | `0.01` | Gluteus volume & projection | Pelvis pushed back by $-(S_z - 1.0) \times 0.045$ to lock the lower stomach boundary completely flat. |
+| **`buttocks`** | Hips / Pelvis | `1.00` | `0.70 ~ 1.50` | `0.01` | Gluteus volume & projection | Pelvis pushed back by $-(S_z - 1.0) \times 0.045$ to lock the lower stomach boundary completely flat. |
 | **`buttocksThickness`**| Hips / Pelvis | `1.00` | `0.70 ~ 1.20` | `0.01` | Gluteal Z-axis projection | Pure posterior expansion; zero vertical torso distortion. |
 | **`buttocksPitch`** | Hips / Pelvis | `0.00` | `-0.20 ~ +0.20` | `0.01` | Pelvic tilt (Upright / Droop) | $100\%$ counter-rotated on upper leg bones; legs remain plumb vertical in world space. |
 | **`buttocksSpread`**| Hips / Pelvis | `0.00` | `-0.05 ~ +0.08` | `0.002`| Outer gluteal & saddlebag curve | **Knee-Foot Ground Anchor Alignment**: Outer femur spread is negated at the knee; feet remain planted together. |
@@ -55,7 +55,7 @@ The system currently exposes **28 fine-grained morph parameters**, categorized i
 | **`bustThickness`** | Bust (Chest) | `1.00` | `0.60 ~ 1.80` | `0.02` | Forward bust projection (Z-axis) | Sagittal bust extension without widening the ribcage. |
 | **`bustPitch`** | Bust (Chest) | `0.00` | `-0.30 ~ +0.30` | `0.01` | Bust elevation / ptosis | Dual rotation ($1.5\times$) + base vertical translation; natural perky vs. downward drape. |
 | **`bustSpread`** | Bust (Chest) | `0.00` | `-0.04 ~ +0.06` | `0.002`| Cleavage convergence / outward spread | Symmetrical lateral displacement of bust roots. |
-| **`arms`** | Arms / Hands | `1.00` | `0.70 ~ 1.40` | `0.02` | Upper & lower arm thickness | Scaled on arm cross-sections; hand size is decoupled. |
+| **`arms`** | Arms / Hands | `1.00` | `0.70 ~ 1.40` | `0.02` | Upper & lower arm thickness | Upper arm scaled by `arms`; forearm applies 1.45 anatomical taper to keep wrists delicate and slender; hand size is decoupled. |
 | **`armLength`** | Arms / Hands | `1.00` | `0.80 ~ 1.20` | `0.01` | Arm reach | Longitudinal scaling along local X-axis. |
 | **`hands`** | Arms / Hands | `1.00` | `0.70 ~ 1.30` | `0.01` | Palm and hand size | Normalized against arm length and thickness. |
 | **`fingerWidth`** | Arms / Hands | `1.00` | `0.60 ~ 1.50` | `0.02` | Finger joint cross-section | Applied strictly to Y/Z cross-section of 30 finger phalanges; finger lengths remain constant. |

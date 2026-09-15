@@ -166,7 +166,7 @@ export interface BodyMorphConfig {
   waist: number;            // 纤细腰部 (默认 1.00，范围 0.50 ~ 1.40，控制腰部横向宽度)
   belly: number;            // 肚子大小 (默认 1.00，范围 0.70 ~ 1.80，纯粹控制小腹平坦或微凸，绝不影响后腰)
   hips: number;             // 胯部左右宽度 (默认 1.00，范围 0.70 ~ 1.50)
-  buttocks: number;         // 臀部大小 (默认 1.00，范围 0.70 ~ 1.20，对齐胸部大小)
+  buttocks: number;         // 臀部大小 (默认 1.00，范围 0.70 ~ 1.50，对齐胸部大小)
   buttocksThickness: number;// 臀部厚度 (默认 1.00，范围 0.70 ~ 1.20，对齐胸部厚度，纯Z轴后凸，绝不改变身长)
   buttocksPitch: number;    // 臀部纵向朝向 (俯仰角弧度，默认 0.00，范围 -0.20 ~ +0.20，对齐胸部纵向朝向)
   buttocksSpread: number;   // 臀部宽度 (假胯与臀外侧丰满度，默认 0.00，范围 -0.05 ~ +0.08)
@@ -249,7 +249,6 @@ export const APP_CONFIG = {
         source: '/vrm/addons/xiaochun_default.vrmaddon',
         name: 'XiaoChun Techwear',
         sha: '6f774a958e133307',
-        default: true,
       },
       'xiaochun_cheongsam': {
         source: '/vrm/addons/xiaochun_cheongsam.vrmaddon',
@@ -275,6 +274,7 @@ export const APP_CONFIG = {
         source: '/vrm/addons/xiaochun_dinner_dress.vrmaddon',
         name: 'XiaoChun Dinner Dress',
         sha: 'bc2e42f754e635af',
+        default: true,
       },
       'xiaochun_office_lady': {
         source: '/vrm/addons/xiaochun_office_lady.vrmaddon',
@@ -460,20 +460,20 @@ export const APP_CONFIG = {
       neck: 0.96,
       neckDepth: 1.00,
       neckLength: 1.00,
-      shoulderWidth: 1.30,
-      torsoLength: 0.95,
-      torsoThickness: 0.90,
+      shoulderWidth: 1.38,
+      torsoLength: 0.92,
+      torsoThickness: 0.88,
       waist: 0.86,
       belly: 0.80,
       hips: 1.00,
-      buttocks: 1.12,
+      buttocks: 1.13,
       buttocksThickness: 1.00,
       buttocksPitch: 0.02,
       buttocksSpread: 0.002,
-      bust: 1.20,
-      bustThickness: 1.00,
-      bustPitch: 0.11,
-      bustSpread: -0.026,
+      bust: 1.24,
+      bustThickness: 1.08,
+      bustPitch: 0.06,
+      bustSpread: -0.032,
       arms: 0.86,
       armLength: 1.00,
       hands: 1.00,
@@ -496,7 +496,7 @@ export const APP_CONFIG = {
       waist: { min: 0.50, max: 1.40, step: 0.02 },
       belly: { min: 0.70, max: 2.00, step: 0.01 },
       hips: { min: 0.70, max: 1.50, step: 0.02 },
-      buttocks: { min: 0.70, max: 1.20, step: 0.01 },
+      buttocks: { min: 0.70, max: 1.50, step: 0.01 },
       buttocksThickness: { min: 0.70, max: 1.20, step: 0.01 },
       buttocksPitch: { min: -0.20, max: 0.20, step: 0.01 },
       buttocksSpread: { min: -0.05, max: 0.08, step: 0.002 },

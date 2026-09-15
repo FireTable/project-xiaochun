@@ -750,22 +750,30 @@ export class VRMBodyMorph {
       );
     }
 
-    // ── 9. 手臂 (Arms) 粗细与长度 ──
+    // ── 9. 手臂 (Arms) 粗细、长度与小臂优雅锥度收窄 (Forearm Slender Taper) ──
+    // 人体解剖学纤细天鹅臂：大臂保持自然微肉感，小臂向手腕方向呈更明显的纤细锥度收窄。
+    // 缩窄梯度（1.45 锥度增强）：
+    // 1. 大臂 (UpperArm)：应用 arms 缩放（如 0.86），保持上臂自然充盈；
+    // 2. 小臂 (LowerArm)：收细幅度比大臂进一步收窄 (arms=0.86 时小臂达到约 0.797)，腕部纤细小巧；
+    // 3. 手掌 (Hand)：除以小臂实际世界缩放 targetForearmThickness，手掌尺寸严格 100% 独立！
+    const targetForearmThickness = 1.0 + (arms - 1.0) * 1.45;
+    const lowerArmScale = targetForearmThickness / Math.max(0.01, arms);
+
     if (this.rawLUpperArm && this.rawRUpperArm) {
       this.rawLUpperArm.scale.set(armLength, arms, arms);
       this.rawRUpperArm.scale.set(armLength, arms, arms);
     }
 
     if (this.rawLLowerArm && this.rawRLowerArm) {
-      this.rawLLowerArm.scale.set(1.0, 1.0, 1.0);
-      this.rawRLowerArm.scale.set(1.0, 1.0, 1.0);
+      this.rawLLowerArm.scale.set(1.0, lowerArmScale, lowerArmScale);
+      this.rawRLowerArm.scale.set(1.0, lowerArmScale, lowerArmScale);
     }
 
-    // ── 10. 手部大小独立调节 ──
+    // ── 10. 手部大小独立调节与小臂逆缩放解耦 ──
     if (this.rawLHand && this.rawRHand) {
       const handX = hands / Math.max(0.01, armLength);
-      const handY = hands / Math.max(0.01, arms);
-      const handZ = hands / Math.max(0.01, arms);
+      const handY = hands / Math.max(0.01, targetForearmThickness);
+      const handZ = hands / Math.max(0.01, targetForearmThickness);
       this.rawLHand.scale.set(handX, handY, handZ);
       this.rawRHand.scale.set(handX, handY, handZ);
     }
@@ -834,12 +842,22 @@ export class VRMBodyMorph {
     }
 
     // ── 14. 胸部精细形变 (Bust Size / Thickness / Pitch / Spread) ──
-    // 解决胸口敞开 (bustSpread) 造成内衣与胸骨网格撕裂穿模：
-    // 1. 将粗暴的大距离纯位移重构为解剖学安全微量位移 (spreadX = bustSpread * 0.25，最大仅约 1.5cm)；
-    // 2. 引入真实乳房散开/聚拢偏转角度 (spreadYaw = bustSpread * 0.60)，使胸部自然外展或向内聚拢，
-    //    100% 杜绝深色内衬撕裂穿模与胸腔空洞！
+    // 解剖学自然水滴体积协同系统 (Anatomical Teardrop Volumetric Coupling)：
+    // 此前单纯在 Z 轴线性粗暴单向拉伸，导致厚度加大时乳房被强行拉成扁长尖锐的"导弹锥/圆锥体"，下半球圆润度彻底丧失。
+    // 优雅解决方案：
+    // 1. Z 轴前向挺翘：引入 0.65 柔化阻尼曲线，确保向前挺拔深邃的同时，绝不拉成锐角锥刺；
+    // 2. Y 轴纵向水滴协同：厚度增大时，纵向高度获得 28% 协同充盈体积，始终保留圆润饱满的水滴型下胸弧线；
+    // 3. X 轴横向自然承托：获得 12% 自然承托微量扩容，维持浑圆饱满的乳房基底，消除侧面薄刃感。
     const spreadX = bustSpread * 0.25;
     const spreadYaw = bustSpread * 0.60;
+
+    const deltaThickness = bustThickness - 1.0;
+    const thickScaleX = deltaThickness >= 0 ? 1.0 + deltaThickness * 0.12 : 1.0 + deltaThickness * 0.10;
+    const thickScaleY = deltaThickness >= 0 ? 1.0 + deltaThickness * 0.28 : 1.0 + deltaThickness * 0.20;
+    const thickScaleZ = deltaThickness >= 0 ? 1.0 + deltaThickness * 0.65 : 1.0 + deltaThickness * 0.70;
+
+    const finalBustScaleX = bust * thickScaleX;
+    const finalBustScaleY = bust * thickScaleY;
 
     if (this.rawLBust) {
       this.rawLBust.position.x = this.baseLBustPos.x + spreadX;
@@ -857,7 +875,8 @@ export class VRMBodyMorph {
       }
 
       const bustParentScaleZ = (this.rawLBust.parent === this.rawChest) ? targetChestZ : 1.0;
-      this.rawLBust.scale.set(bust, bust, (bust * bustThickness) / Math.max(0.01, bustParentScaleZ));
+      const finalBustScaleZ = (bust * thickScaleZ) / Math.max(0.01, bustParentScaleZ);
+      this.rawLBust.scale.set(finalBustScaleX, finalBustScaleY, finalBustScaleZ);
       this.rawLBust.updateMatrixWorld(true);
     }
 
@@ -877,7 +896,8 @@ export class VRMBodyMorph {
       }
 
       const bustParentScaleZ = (this.rawRBust.parent === this.rawChest) ? targetChestZ : 1.0;
-      this.rawRBust.scale.set(bust, bust, (bust * bustThickness) / Math.max(0.01, bustParentScaleZ));
+      const finalBustScaleZ = (bust * thickScaleZ) / Math.max(0.01, bustParentScaleZ);
+      this.rawRBust.scale.set(finalBustScaleX, finalBustScaleY, finalBustScaleZ);
       this.rawRBust.updateMatrixWorld(true);
     }
   }
