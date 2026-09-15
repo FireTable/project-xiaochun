@@ -68,7 +68,7 @@ UI 走 **TanStack Start SSR + i18next** 水合,**完整支持简体中文 / Engl
 * **全色调调色通道 (BC/HS Grading Pass)**：单次 Fullscreen Pass 融合亮度 (Brightness)、对比度 (Contrast)、饱和度 (Saturation) 与色相偏移 (Hue Shift) 矩阵调节。详见技术规范 [`docs/POSTFX.md`](docs/POSTFX.md)。
 
 ### 🧍 生物力学体型形变与正交解耦引擎 (Biomechanical Morphing Engine)
-* **28 项全维度正交体型微调**：覆盖头身比、天鹅颈、肩宽、躯干身长、躯干前后厚度、腰宽、肚子大小、胯宽、翘臀立体度、胸部挺拔度、手臂与手掌、大腿小腿粗细长短及足部大小。肩宽预设默认优化至 155%（1.55），最大拓展至 250%（2.50），适配从纤细少女到霸气衣架的多元角色风格。UI 上 28 个 slider 按身体区域(整体 / 头颈 / 躯干 / 臀部 / 胸部 / 上肢 / 下肢)分 7 组 sub-card，搜索框过滤时自动隐藏空 region。
+* **28 项全维度正交体型微调**：覆盖头身比、天鹅颈、肩宽、躯干身长、躯干前后厚度、腰宽、肚子大小、胯宽、翘臀立体度、胸部挺拔度、手臂与手掌、大腿小腿粗细长短及足部大小。肩宽预设默认优化至 110%（1.10），最大拓展至 250%（2.50），适配从纤细少女到霸气衣架的多元角色风格。UI 上 28 个 slider 按身体区域(整体 / 头颈 / 躯干 / 臀部 / 胸部 / 上肢 / 下肢)分 7 组 sub-card，搜索框过滤时自动隐藏空 region。
 * **解剖学前沿锁死机制 (Boundary Locking)**：将骨骼默认的居中对称膨胀重构为定向生长（躯干厚度 100% 往后背延展，前胸与前腹壁锁死平坦；臀部饱满挺翘，骨盆前沿 0 凸起）。
 * **程序化前腹壁微凸/收腹形变 (`belly`)**：采用余弦平滑衰减算法精准驱动前腹壁 687 个网格顶点，完全脱离 `Spine` 骨骼——后腰厚度与脊柱生理曲度 100% 独立稳定！
 * **膝足地锚反向对齐算法**：假胯与臀外侧丰满展宽的同时，在膝关节将外移量 100% 反向扣除，双脚依然平齐并拢笔直踩地。
@@ -147,7 +147,7 @@ UI 走 **TanStack Start SSR + i18next** 水合,**完整支持简体中文 / Engl
 * **ChatBar 试听下拉**(dev)：春日 / 蜀道难预设，段数由 `splitIntoSpeechChunks` 实时计算，方便端到端测 TTS+EMAGE 流式，无需手打长文。
 * **per-frame slider 拖动架构**:slider 把 per-tick 推 engine 跟 commit 时写 state + localStorage 拆开,28 个 slider 的 `BoneMorphSection` 拖一个 slider 时不会重渲其他 27 个。数字显示通过 `SliderWithAnchors` 的 `liveValueRef` 机制 imperative 写 textContent 跟手,完全绕过 React reconciliation。
 * **镜头段**:FOV slider(带 hover `ⓘ` tooltip,4 行 bullet list 解释 20°/30°/45°/60°)+ `📷` 最小 / `🔭` 最大距离 slider(鼠标滚轮 + pinch 缩放范围)+ 自动面朝镜头转身 toggle。默认推镜距离按 FOV 自动算(`defaultShotExtent`),15° 跟 60° 框选同一主体高度,不会再"长焦糊脸"。
-* **骨骼体型段**:28 个 slider 按身体区域(整体 / 头颈 / 躯干 / 臀部 / 胸部 / 上肢 / 下肢)分 7 组,每组独立 sub-card;肩宽默认 155%,支持最大拉伸至 250%;搜索框过滤时自动隐藏空 region。
+* **骨骼体型段**:28 个 slider 按身体区域(整体 / 头颈 / 躯干 / 臀部 / 胸部 / 上肢 / 下肢)分 7 组,每组独立 sub-card;肩宽默认 110%,支持最大拉伸至 250%;搜索框过滤时自动隐藏空 region。
 * **模型部位段**:3 态渲染 — `穿`(勾选)/ `未穿`(勾掉,line-through)/ `未装配`(虚线禁用块,无勾选)。"已装配"判定走 `vrmEngine.materialManager.partMaterials[id]?.length`,不是用户可见性 toggle。注：整套换装请使用顶部导航栏的外观切换菜单。
 * **Cloudflare Workers**(`src/server.ts`):生产环境统一承载 TanStack Start SSR 与原生 WebSocket Edge-TTS 流式代理；并对 HTML/SSR 文档响应施加 **COOP/COEP `credentialless`**（Workers+Assets 不吃 `public/_headers` 的文档头），以便 EMAGE ORT wasm 在隔离环境下启用 SAB 多线程。
 * **Vite dev 中间件**(`vite/localApiPlugin.ts`):本地开发使用 Miniflare 虚拟运行时，与线上环境 100% 同构。`/api/tts` 默认转发到 `TTS_PROXY_URL`(部署的 Cloudflare Worker),未设置时走本地原生 WebSocket(`src/lib/edge-tts-core.ts`)直连 Edge-TTS。

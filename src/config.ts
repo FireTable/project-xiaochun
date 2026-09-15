@@ -460,7 +460,7 @@ export const APP_CONFIG = {
       neck: 0.96,
       neckDepth: 1.00,
       neckLength: 1.00,
-      shoulderWidth: 1.38,
+      shoulderWidth: 1.10,
       torsoLength: 0.92,
       torsoThickness: 0.88,
       waist: 0.86,
