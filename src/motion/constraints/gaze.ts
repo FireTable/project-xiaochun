@@ -56,6 +56,7 @@ export class GazeController {
   private lastSceneYaw = 0;
   private _yAxis = new THREE.Vector3(0, 1, 0);
   private _deltaSceneQ = new THREE.Quaternion();
+  private _scratchVrm0Q = new THREE.Quaternion();
 
   // VRM 眼球注视灵敏度动态增强状态
   private lastLookAtVRM: VRM | null = null;
@@ -270,7 +271,10 @@ export class GazeController {
       const dz = camera.position.z - this._gazeOrigin.z;
       const distXZ = Math.max(0.08, Math.sqrt(dx * dx + dz * dz));
 
-      const targetYaw = Math.atan2(dx, dz) - vrm.scene.rotation.y;
+      const isVrm0 = vrm.meta?.metaVersion === '0';
+      const baseYaw = isVrm0 ? Math.PI : 0;
+      const currentFacingYaw = vrm.scene.rotation.y - baseYaw;
+      const targetYaw = Math.atan2(dx, dz) - currentFacingYaw;
       const normYaw = Math.atan2(Math.sin(targetYaw), Math.cos(targetYaw));
       // 充分恢复头颈可旋转角度 (±0.85 rad，约 ±49°)，让头部在 BodyTurn 前和转身过程中能够灵敏、充分地转头注视目标
       const clampedYaw = Math.max(-0.85, Math.min(0.85, normYaw));
@@ -328,8 +332,25 @@ export class GazeController {
       // 头骨局部旋转为相较于颈骨同轴前向旋转的增量：inv(neckQ) * headGoalQ
       this.lastHeadLookAtQ.copy(this.lastNeckLookAtQ).invert().multiply(this._scratchHeadGoalQ);
 
-      neckNode.quaternion.multiply(this.lastNeckLookAtQ);
-      headNode.quaternion.multiply(this.lastHeadLookAtQ);
+      if (isVrm0) {
+        this._scratchVrm0Q.set(
+          -this.lastNeckLookAtQ.x,
+          this.lastNeckLookAtQ.y,
+          -this.lastNeckLookAtQ.z,
+          this.lastNeckLookAtQ.w,
+        );
+        neckNode.quaternion.multiply(this._scratchVrm0Q);
+        this._scratchVrm0Q.set(
+          -this.lastHeadLookAtQ.x,
+          this.lastHeadLookAtQ.y,
+          -this.lastHeadLookAtQ.z,
+          this.lastHeadLookAtQ.w,
+        );
+        headNode.quaternion.multiply(this._scratchVrm0Q);
+      } else {
+        neckNode.quaternion.multiply(this.lastNeckLookAtQ);
+        headNode.quaternion.multiply(this.lastHeadLookAtQ);
+      }
 
       // 及时更新头骨世界矩阵，确保眼球 VRMLookAt 计算基于当前帧头部的实际世界朝向
       headNode.updateWorldMatrix(true, false);

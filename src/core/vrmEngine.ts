@@ -875,7 +875,9 @@ export class VRMEngine {
           this.materialManager.optimize(vrm);
           VRMUtils.rotateVRM0(vrm);
           vrm.scene.position.set(0, 0, 0);
-          vrm.scene.rotation.y = 0;
+          if (vrm.meta?.metaVersion !== '0') {
+            vrm.scene.rotation.y = 0;
+          }
 
           this.resetBones(vrm);
           vrm.scene.updateMatrixWorld(true);
@@ -1018,6 +1020,7 @@ export class VRMEngine {
       lookAtTarget: captureLookAtTarget(vrm),
       springBones: captureSpringBones(vrm),
       sceneYaw: vrm?.scene.rotation.y ?? 0,
+      metaVersion: vrm?.meta?.metaVersion,
       bodyTurn: this.bodyTurn.captureSwapState(),
       footIK: this.footIK.captureSwapState(),
     };
@@ -1044,8 +1047,10 @@ export class VRMEngine {
     }
     restoreSpringBones(vrm, state.springBones);
 
-    // Facing: loadVRM zeros scene.rotation.y — put it back before motion resumes.
-    vrm.scene.rotation.y = state.sceneYaw ?? 0;
+    // Facing: loadVRM preserves VRM 0.0 Math.PI rotation; adapt relative yaw across versions.
+    const prevBaseYaw = state.metaVersion === '0' ? Math.PI : 0;
+    const targetBaseYaw = vrm.meta?.metaVersion === '0' ? Math.PI : 0;
+    vrm.scene.rotation.y = targetBaseYaw + ((state.sceneYaw ?? 0) - prevBaseYaw);
     if (state.bodyTurn) this.bodyTurn.restoreSwapState(state.bodyTurn);
     if (state.footIK) this.footIK.restoreSwapState(state.footIK);
 
@@ -1245,7 +1250,9 @@ export class VRMEngine {
           this.materialManager.optimize(vrm);
           VRMUtils.rotateVRM0(vrm);
           vrm.scene.position.set(0, 0, 0);
-          vrm.scene.rotation.y = 0;
+          if (vrm.meta?.metaVersion !== '0') {
+            vrm.scene.rotation.y = 0;
+          }
 
           this.resetBones(vrm);
           vrm.scene.updateMatrixWorld(true);
@@ -1451,6 +1458,11 @@ export class VRMEngine {
 
   private resetBones(vrm: VRM): void {
     if (!vrm.humanoid) return;
+    try {
+      vrm.humanoid.resetNormalizedPose();
+    } catch {
+      // fallback
+    }
     const boneNames = [
       'hips', 'spine', 'chest', 'upperChest', 'neck', 'head',
       'leftShoulder', 'leftUpperArm', 'leftLowerArm', 'leftHand',
@@ -1620,7 +1632,9 @@ export class VRMEngine {
         this.chatDirector.tick(vrm, this.vrmaPlayer);
 
         vrm.update(delta);
-        this.bodyMorph.update(vrm);
+        if (this.bodyMorph.isCompatible) {
+          this.bodyMorph.update(vrm);
+        }
 
         // 7. 实体脚下影子平面中心与地面高度贴合
         if (this.shadowPlane && vrm.humanoid) {

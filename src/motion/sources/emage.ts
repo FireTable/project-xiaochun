@@ -358,6 +358,8 @@ export class EmagePlayer {
     vrm.scene.updateMatrixWorld(true);
     this.footIK.bind(vrm);
 
+    const invSceneQ = vrm.scene.quaternion.clone().invert();
+
     for (let i = 0; i < NUM_JOINTS; i++) {
       const name = SMPLX_TO_VRM[i];
       if (!name) continue;
@@ -369,6 +371,7 @@ export class EmagePlayer {
       if (i === HIPS_INDEX) this.restHipsPos.copy(node.position);
       const restWorld = new THREE.Quaternion();
       node.getWorldQuaternion(restWorld);
+      restWorld.premultiply(invSceneQ);
       this.restWorldQ[i] = restWorld;
     }
 
@@ -381,6 +384,7 @@ export class EmagePlayer {
       } else if (this.bones[i]!.parent) {
         const parentRest = new THREE.Quaternion();
         this.bones[i]!.parent!.getWorldQuaternion(parentRest);
+        parentRest.premultiply(invSceneQ);
         this.parentRestWorldQ[i] = parentRest;
       }
     }

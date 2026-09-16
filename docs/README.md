@@ -48,7 +48,7 @@ When tasked with modifications or refactoring, consult the dedicated technical g
 
 ---
 
-## 🚨 The Five Tenets of Truth for All Agents
+## 🚨 The Six Tenets of Truth for All Agents
 
 1. ❌ **Never run `pnpm run build` for routine checks**: Daily verification must use exclusively:
    ```bash
@@ -57,4 +57,6 @@ When tasked with modifications or refactoring, consult the dedicated technical g
 2. ❌ **Never overwrite bone `quaternion`s in body morphing**: Rotations belong strictly to the motion and stepping pipelines;
 3. ❌ **Never invent motion flags for the render loop**: `selectLiveMotionSource` inside `pipeline.tick()` picks the writer; ChatDirector only play/stop;
 4. ❌ **Never hardcode avatar heights or world positions**: Always measure dynamically via `bodyMorph.getCurrentHeightCm()`;
-5. ⚠️ **Respect the Single Source of Truth**: All global configuration parameters live centralized in [`src/config.ts`](../src/config.ts).
+5. ⚠️ **Respect the Single Source of Truth**: All global configuration parameters live centralized in [`src/config.ts`](../src/config.ts);
+6. ❌ **Never branch motion generators for VRM 0.x vs 1.0**: All motion generators author strictly in VRM 1.0 coordinates ($+Z$ facing); coordinate translation is encapsulated at the pipeline boundary in `PoseBuffer`.
+

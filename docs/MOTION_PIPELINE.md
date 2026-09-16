@@ -183,12 +183,23 @@ $$S(t) = 6t^5 - 15t^4 + 10t^3 \quad (t \in [0, 1])$$
 > **Root Causes**:
 > 1. **FootIK Over-Constraint in Idle**: The 2-bone analytical IK solver calculates knee flexion from femoral root (`hips`) to ground target anchor. In idle, `NaturalIdleSystem` drives subtle vertical breathing; FootIK interpreted this height variance as leg extension/compression, forcibly bending the knees forward and creating an algebraic feedback loop on `hips.position.y`.
 > 2. **Stepping Truncation Mid-Stride**: The turning state machine previously forced `phase = PLANT` whenever remaining yaw dropped below threshold during `LIFT` or `SWING`. Truncating a mid-air foot instantaneously slammed it down, creating severe pelvic jolts.
-> 3. **Missing Stopping Deadband**: Without a deadband hysteresis, dropping slightly below the trigger threshold at the edge of the field of view would trigger single micro-steps that immediately cut off.
+> [!CAUTION]
+> ### Pitfall 7: VRM 0.x / 1.0 Unified Pipeline Mapping (VRM 0.x / 1.0 全局动作管线统一适配规范)
+> **Symptom**: When loading a VRM 0.x model, arms fold backward, fingers invert, body turning walks backward, or knees bend into the body during EMAGE speech.  
+> **Root Cause**:
+> 1. **Bone Axis Discrepancy**: The VRM 0.0 standard defines characters facing $-Z$ in rest pose, with inverted bone local $X/Z$ axes compared to the modern VRM 1.0 standard ($+Z$ facing).
+> 2. **Ad-Hoc Source Branching Danger**: Hardcoding `isVrm0` branch checks inside individual motion sources (`idle.ts`, `bodyTurn.ts`, `emage.ts`, `clip.ts`) fragments the codebase, making future motion authoring error-prone and brittle.
 > 
-> **Solutions & Rules**:
-> 1. **Strict EMAGE Domain Isolation**: `footIK.solve` and `footIK.levelFeet` are active **exclusively** during `writer === 'emage' && this.emage.enableFootIK`. In `idle` and `clip`, FootIK is completely bypassed, allowing native anatomical poses to stand tall with straight legs.
-> 2. **Step Cycle Completion Guarantee**: A step once initiated (`LIFT`) is guaranteed to complete its full trajectory: `LIFT -> SWING -> PLANT -> SETTLE`. Truncation mid-flight is strictly forbidden.
-> 3. **Stopping Deadband (`TURN_STOP_THRESHOLD = 0.20 rad` $\approx 11.5^\circ$)**: When a step's `SETTLE` phase concludes, if remaining relative yaw is $\le 11.5^\circ$, the character cleanly transitions to `IDLE` with both feet planted, avoiding redundant extra stepping. Minor residual angles are absorbed smoothly by `GazeController`.
-> 4. **Torso Sway Decoupling (`HIP_SWAY_AMOUNT = 0.009m`)**: Pelvic lateral sway is restricted to $0.9\text{ cm}$, preventing stepping momentum from transferring up through the spine to the head.
+> **Architecture Solution & Invariants**:
+> 1. **100% VRM 1.0-Standard Authoring**: All upstream motion generators (`NaturalIdleSystem`, `BodyTurnSystem`, `EmagePlayer`, `UniversalMotion`, `GazeController`) author poses strictly in the **VRM 1.0 standard coordinate space**. Motion sources contain zero VRM version branching.
+> 2. **Centralized Transparent Translation in `PoseBuffer`**:
+>    - In `PoseBuffer.commitToVRM(vrm)`: If `vrm.meta.metaVersion === '0'`, automatically mirror local quaternions:
+>      $$\mathbf{Q}_{\text{vrm0}} = (-q_x, \; q_y, \; -q_z, \; q_w)$$
+>    - In `PoseBuffer.sampleFromVRM(vrm)`: Symmetrically reverse the translation:
+>      $$q_{\text{vrm1}} = (-\mathbf{Q}_x, \; \mathbf{Q}_y, \; -\mathbf{Q}_z, \; \mathbf{Q}_w)$$
+> 3. **Facing & Pole Vector Neutralization**:
+>    - `VRMUtils.rotateVRM0(vrm)` sets `vrm.scene.rotation.y = Math.PI` to face forward in world space; Gaze and BodyTurn offset targeting yaw by `vrm.scene.rotation.y - baseYaw`.
+>    - `FootIK` adapts the forward pole vector $\mathbf{V}_{\text{forward}}$ to $(0, 0, -1)$ in local hips space so knees bend forward in world space, and clamps ankle targets to $\ge \text{restAnkleY}$ to prevent floor penetration.
+
 
 

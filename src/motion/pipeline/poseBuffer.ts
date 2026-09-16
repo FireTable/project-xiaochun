@@ -148,17 +148,27 @@ export class PoseBuffer {
     const h = vrm.humanoid;
     if (!h) return this;
 
+    const isVrm0 = vrm.meta?.metaVersion === '0';
     for (let i = 0; i < PIPELINE_BONES.length; i++) {
       const name = PIPELINE_BONES[i]!;
       const node = h.getNormalizedBoneNode(name);
       if (node) {
-        this.quaternions[i]!.copy(node.quaternion);
+        if (isVrm0) {
+          const nq = node.quaternion;
+          this.quaternions[i]!.set(-nq.x, nq.y, -nq.z, nq.w);
+        } else {
+          this.quaternions[i]!.copy(node.quaternion);
+        }
       }
     }
 
     const hips = h.getNormalizedBoneNode('hips');
     if (hips) {
-      this.hipsPosition.copy(hips.position);
+      if (isVrm0) {
+        this.hipsPosition.set(-hips.position.x, hips.position.y, -hips.position.z);
+      } else {
+        this.hipsPosition.copy(hips.position);
+      }
     }
     this.sceneY = vrm.scene.position.y;
     return this;
@@ -328,17 +338,27 @@ export class PoseBuffer {
     const h = vrm.humanoid;
     if (!h) return;
 
+    const isVrm0 = vrm.meta?.metaVersion === '0';
     for (let i = 0; i < PIPELINE_BONES.length; i++) {
       const name = PIPELINE_BONES[i]!;
       const node = h.getNormalizedBoneNode(name);
       if (node) {
-        node.quaternion.copy(this.quaternions[i]!);
+        const q = this.quaternions[i]!;
+        if (isVrm0) {
+          node.quaternion.set(-q.x, q.y, -q.z, q.w);
+        } else {
+          node.quaternion.copy(q);
+        }
       }
     }
 
     const hips = h.getNormalizedBoneNode('hips');
     if (hips) {
-      hips.position.copy(this.hipsPosition);
+      if (isVrm0) {
+        hips.position.set(-this.hipsPosition.x, this.hipsPosition.y, -this.hipsPosition.z);
+      } else {
+        hips.position.copy(this.hipsPosition);
+      }
     }
     vrm.scene.position.y = this.sceneY;
   }

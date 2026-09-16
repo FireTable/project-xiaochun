@@ -205,3 +205,8 @@ Any AI Coding Agent working on this repository **must strictly obey these 5 rule
 - Global configuration constants must reside in [`src/config.ts`](../src/config.ts);
 - Localization strings are anchored by [`src/i18n/zh-CN.ts`](../src/i18n/zh-CN.ts) (`Trans` type); all three languages (ZH, EN, JA) must remain 100% symmetric;
 - Synchronize client and server language state via `document.cookie` and `readServerLang` to eliminate SSR hydration mismatches.
+
+### ❌ Rule 6: Never Branch Motion Generators for VRM 0.x vs 1.0
+- **Reason**: The motion pipeline guarantees **single-coordinate-space authoring**. Upstream motion generators (`idle.ts`, `bodyTurn.ts`, `emage.ts`, `vrma.ts`, `gaze.ts`) author poses exclusively in VRM 1.0 coordinates ($+Z$ forward);
+- **Past Pitfall**: Branching inside `emage.ts` or `idle.ts` with `vrm.meta.metaVersion === '0'` caused double inversions, broken foot anchors, and architectural bloat;
+- **Rule**: Coordinate conversion ($[-q_x, q_y, -q_z, q_w]$ mirroring and $180^\circ$ yaw) is encapsulated **strictly at the pipeline boundary** in `PoseBuffer.commitToVRM()` and `sampleFromVRM()`. Keep motion sources 100% VRM-version agnostic.

@@ -99,6 +99,7 @@ export class VRMBodyMorph {
   private baseNeckLen = 0;
   private headBoneToTopOffset = 0;
   private baseRestHeight = 0;
+  public isCompatible = true;
 
   constructor(initialConfig?: Partial<BodyMorphConfig>) {
     let saved: Partial<BodyMorphConfig> | null = null;
@@ -135,6 +136,10 @@ export class VRMBodyMorph {
     const h = vrm.humanoid;
     const s = vrm.scene;
 
+    const isVrm0 = vrm.meta?.metaVersion === '0';
+    const hasVRoidBones = !!s.getObjectByName('J_Bip_C_Hips');
+    this.isCompatible = !isVrm0 && hasVRoidBones;
+
     // 1. 骨盆与躯干
     this.rawHips = h?.getRawBoneNode('hips') ?? s.getObjectByName('J_Bip_C_Hips') ?? null;
     this.rawSpine = h?.getRawBoneNode('spine') ?? s.getObjectByName('J_Bip_C_Spine') ?? null;
@@ -155,7 +160,11 @@ export class VRMBodyMorph {
     if (this.rawUpperChest) this.baseUpperChestPos.copy(this.rawUpperChest.position);
     if (this.rawHead) {
       this.baseHeadPos.copy(this.rawHead.position);
-      this.rawHead.matrixWorldAutoUpdate = false;
+      if (this.isCompatible) {
+        this.rawHead.matrixWorldAutoUpdate = false;
+      } else {
+        this.rawHead.matrixWorldAutoUpdate = true;
+      }
     }
     this.baseTorsoLen = Math.abs(this.baseChestPos.y) + Math.abs(this.baseUpperChestPos.y);
 
@@ -398,6 +407,7 @@ export class VRMBodyMorph {
       this.bind(vrm);
       return;
     }
+    if (!this.isCompatible) return;
     this.apply();
   }
 
@@ -419,6 +429,14 @@ export class VRMBodyMorph {
    * 无论脚踩地面、IK 下沉、穿脱鞋还是体型滑块伸缩，测量尺均毫米级严密贴合头顶！
    */
   public getHeadTopWorldPosition(target: THREE.Vector3): THREE.Vector3 {
+    if (!this.isCompatible) {
+      const normHead = this.currentVRM?.humanoid?.getNormalizedBoneNode('head');
+      if (normHead) {
+        normHead.getWorldPosition(target);
+        target.y += 0.18;
+        return target;
+      }
+    }
     if (this.rawHead) {
       this.rawHead.getWorldPosition(target);
       target.y += this.headBoneToTopOffset * this.config.head * this.config.overallScale;
@@ -456,7 +474,7 @@ export class VRMBodyMorph {
    * 执行全身体型正交解耦逆缩放补偿计算并刷新骨骼变换矩阵
    */
   public apply(): void {
-    if (!this.currentVRM) return;
+    if (!this.currentVRM || !this.isCompatible) return;
 
     const {
       overallScale,

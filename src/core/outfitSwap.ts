@@ -66,6 +66,7 @@ export interface OutfitSwapState {
   springBones: SpringBoneJointSnap[];
   /** vrm.scene.rotation.y — loadVRM zeros this; restore to avoid facing pop. */
   sceneYaw: number;
+  metaVersion?: string;
   bodyTurn: BodyTurnSwapSnap | null;
   footIK: FootIKSwapSnap | null;
 }

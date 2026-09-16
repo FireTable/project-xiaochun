@@ -113,9 +113,11 @@ export class FootIKSolver {
     this.needsAnchorSnap = false;
     if (this.leftLeg?.foot) {
       this.leftLeg.foot.getWorldPosition(this.leftLeg.smoothTargetPos);
+      this.leftLeg.smoothTargetPos.y = Math.max(this.leftLeg.smoothTargetPos.y, this.leftLeg.restAnkleY);
     }
     if (this.rightLeg?.foot) {
       this.rightLeg.foot.getWorldPosition(this.rightLeg.smoothTargetPos);
+      this.rightLeg.smoothTargetPos.y = Math.max(this.rightLeg.smoothTargetPos.y, this.rightLeg.restAnkleY);
     }
   }
 
@@ -297,38 +299,41 @@ export class FootIKSolver {
     l.effectiveWeight = this.weight * lGrounded * blendFactor;
     r.effectiveWeight = this.weight * rGrounded * blendFactor;
 
+    const isVrm0 = this.vrm?.meta?.metaVersion === '0';
+
     // 3. 仿生重心横向转移 (Lateral Pelvis Center of Mass Shift)
     // 关键原理：双足横向间距约 20cm，当单脚受力站立时，骨盆必须横向平移至承重脚上方 (~3.8cm~4.2cm)，
     // 使得承重腿股骨头垂直对齐脚踝，形成顶天立地的承重柱！
+    // VRM 0.0 scene 旋转 180°，本地 X 轴与世界 X 轴相反，因此 targetShiftX 取反
     const midAnchorX = (lAnchorWorld.x + rAnchorWorld.x) * 0.5;
     const halfSpan = Math.abs(rAnchorWorld.x - lAnchorWorld.x) * 0.5;
     const leftSign = Math.sign(lAnchorWorld.x - midAnchorX) || -1;
     const stanceDir = (sr - 0.5) * 2.0;
 
     const maxShiftX = this.enableWeightShift ? Math.min(0.042, halfSpan * 0.40) : 0;
-    const targetShiftX = this.enableWeightShift ? stanceDir * (-leftSign) * maxShiftX : 0;
+    const targetShiftX = this.enableWeightShift ? (isVrm0 ? -1 : 1) * stanceDir * (-leftSign) * maxShiftX : 0;
     const hipsBlend = Math.max(0, Math.min(1, this.weight * blendFactor));
     const targetHipsX = this.restHipsLocalPos.x + targetShiftX;
     this.hips.position.x += (targetHipsX - this.hips.position.x) * hipsBlend;
 
     // 4. 骨盆垂直高度补偿 (Ground Alignment):
-    // 提取去除上一帧修正量后的真实内在对地距离，彻底消灭代数环弹簧回弹震荡
-    const prevOffset = this.smoothHipsOffsetY * this.weight;
+    // draftPose.commitToVRM 每帧在 FootIK 前重设 hips.position 至 restHipsPos，
+    // 因此当前 lFootY / rFootY 不包含上一帧累积 offset，直接计算与地锚的距离，杜绝代数环下沉漂移
     l.foot.getWorldPosition(this._vTemp);
     const lFootY = this._vTemp.y;
     r.foot.getWorldPosition(this._vTemp);
     const rFootY = this._vTemp.y;
 
     // 对比当前帧随 scene 矩阵动态更新的地面锚点 Y，消除场景高度沉降/拉升对骨盆造成的误补偿
-    const intrinsicLDist = (lFootY - prevOffset) - lAnchorWorld.y;
-    const intrinsicRDist = (rFootY - prevOffset) - rAnchorWorld.y;
+    const intrinsicLDist = lFootY - lAnchorWorld.y;
+    const intrinsicRDist = rFootY - rAnchorWorld.y;
     const weightedGroundDist = intrinsicLDist * lSupport + intrinsicRDist * rSupport;
 
     const heightFilter = 1.0 - Math.exp(-8.0 * Math.max(0.001, delta));
     const targetHipsOffset = -weightedGroundDist;
     this.smoothHipsOffsetY += (targetHipsOffset - this.smoothHipsOffsetY) * heightFilter;
 
-    const effHipsOffset = THREE.MathUtils.clamp(this.smoothHipsOffsetY * this.weight, -0.06, 0.02);
+    const effHipsOffset = THREE.MathUtils.clamp(this.smoothHipsOffsetY * this.weight, -0.04, 0.02);
     const targetHipsY = this.restHipsLocalPos.y + effHipsOffset;
     this.hips.position.y += (targetHipsY - this.hips.position.y) * hipsBlend;
     this.hips.updateMatrixWorld(true);
@@ -356,7 +361,11 @@ export class FootIKSolver {
     // freeAlpha: 0.0 = 纯主承重支柱腿, 1.0 = 纯从属放松微屈腿
     const freeAlpha = Math.max(0.0, Math.min(1.0, 1.0 - supportRatio));
 
-    // 地锚目标点：两脚始终扎根在地面 anchorWorld
+    // 地锚目标点：两脚始终扎根在地面 anchorWorld，且决不低于模型站立原足踝高度（保底防穿地）
+    const minAnkleY = leg.restAnkleY;
+    if (anchorWorld.y < minAnkleY) anchorWorld.y = minAnkleY;
+    if (leg.smoothTargetPos.y < minAnkleY) leg.smoothTargetPos.y = minAnkleY;
+
     // 关键修正：在未启用动态重心转移时、或世界距离偏差过大 (> 0.06m，如思考期间镜头旋转/踱步转向)，
     // 立即硬贴合目标，彻底杜绝跨坐标系目标滞后导致的交叉盘腿与骨骼错位！
     const distToAnchor = leg.smoothTargetPos.distanceTo(anchorWorld);
@@ -368,8 +377,11 @@ export class FootIKSolver {
       leg.smoothTargetPos.y += (anchorWorld.y - leg.smoothTargetPos.y) * filterFactor;
       leg.smoothTargetPos.z += (anchorWorld.z - leg.smoothTargetPos.z) * filterFactor;
     }
+    if (leg.smoothTargetPos.y < minAnkleY) leg.smoothTargetPos.y = minAnkleY;
 
     const pT = this._vT.copy(leg.smoothTargetPos);
+    pT.y = Math.max(pT.y, minAnkleY);
+
     const pA = this._vA;
     const pB = this._vB;
     const pC = this._vC;
@@ -390,10 +402,12 @@ export class FootIKSolver {
     const angleHip = Math.acos(cosHip);
 
     // 人体解剖学正交极向量 (Forward Pole Vector)，膝盖永恒正向向前弯曲，杜绝侧滑翻转
+    // VRM 0.0 规范中模型原生朝向 -Z，scene.rotation.y = PI，故 hips 本地朝前为 (0, 0, -1)
+    const isVrm0 = this.vrm?.meta?.metaVersion === '0';
     const vForward = this._vTemp;
     if (this.hips) {
       this.hips.getWorldQuaternion(this._qWorld);
-      vForward.set(0, 0, 1).applyQuaternion(this._qWorld);
+      vForward.set(0, 0, isVrm0 ? -1 : 1).applyQuaternion(this._qWorld);
     } else {
       vForward.set(0, 0, 1);
     }
@@ -433,9 +447,13 @@ export class FootIKSolver {
     upperLeg.quaternion.slerp(this._qTarget, ikStrength);
     upperLeg.updateWorldMatrix(true, false);
 
-    // 纠偏 LowerLeg
-    const origLowerDir = this._vDir.subVectors(pC, pB).normalize();
-    this._qDelta.setFromUnitVectors(origLowerDir, newLowerDir);
+    // 纠偏 LowerLeg: 基于 upperLeg 纠偏后实际刷新的下肢世界位置计算，精确对齐 pT
+    lowerLeg.updateWorldMatrix(true, false);
+    foot.updateWorldMatrix(true, false);
+    lowerLeg.getWorldPosition(this._vB);
+    foot.getWorldPosition(this._vC);
+    const currentLowerDir = this._vDir.subVectors(this._vC, this._vB).normalize();
+    this._qDelta.setFromUnitVectors(currentLowerDir, newLowerDir);
     lowerLeg.getWorldQuaternion(this._qWorld);
     this._qWorld.premultiply(this._qDelta);
 

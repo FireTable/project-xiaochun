@@ -315,7 +315,10 @@ export class MotionPipeline {
       this._btPos.copy(vrm.scene.position);
       const dx = camera.position.x - this._btPos.x;
       const dz = camera.position.z - this._btPos.z;
-      const targetYaw = Math.atan2(dx, dz) - vrm.scene.rotation.y;
+      const isVrm0 = vrm.meta?.metaVersion === '0';
+      const baseYaw = isVrm0 ? Math.PI : 0;
+      const currentFacingYaw = vrm.scene.rotation.y - baseYaw;
+      const targetYaw = Math.atan2(dx, dz) - currentFacingYaw;
       const normYaw = Math.atan2(Math.sin(targetYaw), Math.cos(targetYaw));
       vrm.scene.rotation.y += this.bodyTurn.update(delta, normYaw, true);
       this.bodyTurn.copyToLowerBodyBuffer(this.locomotionPose);

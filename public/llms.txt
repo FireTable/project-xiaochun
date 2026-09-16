@@ -3,7 +3,7 @@
 > 100% browser-native anime companion — WebLLM (WebGPU) + EMAGE (ONNX wasm + INT8, streaming T=64) + Edge-TTS. Private interactive VRM companion in-tab, zero backend.
 
 ## Overview
-Project XiaoChun is a full-stack, browser-native web application that runs an interactive anime companion entirely in the user's browser tab. The 3D scene renders via `three.js` + `@pixiv/three-vrm` (MToon NPR shading); conversation, motion, and speech are generated client-side: WebLLM may use WebGPU; EMAGE uses ONNX Runtime Web **wasm + INT8** (not WebGPU). The only network calls are to a Cloudflare Worker edge proxy for Microsoft Edge-TTS streaming (no API keys or user data stored).
+Project XiaoChun is a full-stack, browser-native web application that runs an interactive anime companion entirely in the user's browser tab. The 3D scene renders via `three.js` + `@pixiv/three-vrm` (MToon NPR shading) with native **VRM 1.0 & VRM 0.x dual-standard compatibility**; conversation, motion, and speech are generated client-side: WebLLM may use WebGPU; EMAGE uses ONNX Runtime Web **wasm + INT8** (not WebGPU). The only network calls are to a Cloudflare Worker edge proxy for Microsoft Edge-TTS streaming (no API keys or user data stored).
 
 ## Core Features
 - **Decoupled 3D Architecture**: Modular `VRMEngine` coordinating specialized subsystems:
@@ -14,8 +14,9 @@ Project XiaoChun is a full-stack, browser-native web application that runs an in
   - `OutfitSwap & Delta Addons`: Atomic outfit switching with 0-frame T-pose pop-in (state snapshot & in-memory pre-restore). Delta packaging via `.vrmbase` (~5.9MB) + 5 `.vrmaddon` patches (Techwear, Cheongsam, Bikini, Maid, Swimsuit) with WASM bspatch and 2-tier IndexedDB caching.
   - `GazeController`: Level-head gaze tracking, micro-saccades, and thinking head sways.
   - `BubbleTracker`: High-performance 3D-to-2D screen projection with 1.5px dead-zone filtering.
-- **Universal Motion Pipeline**: Layered pose hierarchy with Quintic Smootherstep ($6t^5 - 15t^4 + 10t^3$) inbetweening, full/upper-body masking, inverse quaternion LookAt decoupling, and automated lifecycle return-to-idle.
-- **28-Parameter Orthogonal Bone Morphing**: Live customization across head, neck, shoulders, torso thickness, waist, belly, hips, buttocks, bust, arms, fingers, thighs, calves, and feet. Shoulder width defaults to 110% with an extended range up to 250%. UI groups the 28 sliders into 7 body-region sub-cards. Dynamic crown height measured live from mesh vertices; per-section state isolation keeps dragging fluid.
+  - `Runtime VRM Upload`: Live drag-and-drop or file upload supporting arbitrary standard VRM 1.0 and VRM 0.x avatars.
+- **Universal Motion Pipeline**: Layered pose hierarchy with Quintic Smootherstep ($6t^5 - 15t^4 + 10t^3$) inbetweening, full/upper-body masking, inverse quaternion LookAt decoupling, automated lifecycle return-to-idle, and transparent VRM 0.x / 1.0 coordinate space translation.
+- **28-Parameter Orthogonal Bone Morphing**: Live customization across head, neck, shoulders, torso thickness, waist, belly, hips, buttocks, bust, arms, fingers, thighs, calves, and feet (VRoid 1.0 guarded). Shoulder width defaults to 110% with an extended range up to 250%. UI groups the 28 sliders into 7 body-region sub-cards. Dynamic crown height measured live from mesh vertices; per-section state isolation keeps dragging fluid.
 - **LLM (WebLLM, default)**: WebLLM running MiniCPM5 2B (q4f16_1) on WebGPU (fallback Qwen2.5 0.5B), streaming with milestone callbacks.
 - **LLM (Custom OpenAI-Compatible Providers)**: Plug any OpenAI-compatible HTTP service (Ollama / LM Studio / vLLM / LocalAI / OpenAI / DeepSeek / Qwen API) via in-app config dialog. Profiles AES-GCM encrypted in IndexedDB. Active custom provider unloads WebLLM to free 1-2 GB VRAM. Unified `runChat(opts)` contract for both providers via `chatWorkflow` factory.
 - **Cinematic Intro**: When the loading overlay exits, `vrmEngine.cinematicIntro(1100)` tweens camera from a 3.3× distant position to the current position with `easeOutCubic`, synchronized with overlay's `scale-125 + blur-md` break transition.

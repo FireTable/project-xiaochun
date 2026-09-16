@@ -9,19 +9,20 @@
 Project XiaoChun is a full-stack web application built on **Vite 8 + TanStack Start (full-stack SSR) + React 19 + three.js 0.185** deployed to **Cloudflare Workers**. Everything except Edge-TTS runs in the browser tab; the edge runtime handles SSR stream rendering and WebSocket Edge-TTS proxying.
 
 - **3D Engine Architecture**: Decoupled into modular sub-engines:
-  - `src/core/vrmEngine.ts`: Master facade and lifecycle coordinator.
-  - `src/core/character/vrmCharacter.ts`: VRM 1.0 lifecycle, spring bones (`VRMSpringBoneManager`), MToon material calibration, facial expression presets, and LookAt head tracking.
+  - `src/core/vrmEngine.ts`: Master facade and lifecycle coordinator, supporting both **VRM 1.0** and **VRM 0.x** avatars seamlessly.
+  - `src/core/character/vrmCharacter.ts`: VRM 1.0 & VRM 0.x lifecycle, spring bones (`VRMSpringBoneManager`), MToon material calibration, facial expression presets, and LookAt head tracking.
   - `src/core/lighting/studioLighting.ts`: 3-channel studio lighting rig (directional sun `1.00`, hemisphere sky/ground `0.95`, back-rim fill `1.40`) with 2048 PCFSoft shadow camera.
   - `src/core/scene/lineworkWorld.ts`: Procedural linework outdoor world with Light / Dark dual themes (sun with radial rays, 19 buildings, wireframe ground grid, 5 stylized trees).
   - `src/core/material/vrmMaterialManager.ts`: Semantic material categorization with dynamic `uMatSaturation` fragment shader injection.
-  - `src/core/morph/vrmBodyMorph.ts`: 28-parameter body morphing with orthogonal bone scaling.
+  - `src/core/morph/vrmBodyMorph.ts`: 28-parameter body morphing with orthogonal bone scaling (VRoid 1.0 guarded).
   - `src/core/postfx/postFxPipeline.ts`: Cinematic post-processing pipeline (UnrealBloomPass background luminance filter, ToneMapping, ColorGrading, and physical bypass).
   - `src/core/outfitSwap.ts`: Snapshot capture & in-memory pre-restore atomic outfit swapping.
   - `src/core/vrmWorker.ts`: Dedicated worker with WASM bspatch and 2-tier IndexedDB delta cache.
   - `src/core/render/vrmRenderLoop.ts`: Adaptive requestAnimationFrame render loop with visibility-aware throttling and clock delta clamping.
-- **Universal Motion Pipeline (`src/motion/universalMotionPipeline.ts`)**:
+- **Universal Motion Pipeline (`src/motion/pipeline/motionPipeline.ts`)**:
   - Unifies custom clips (mixamo, bvh, fbx, vrma), procedural natural idle/breathing, and AI co-speech motion (EMAGE) under a single pipeline.
-  - Features dual-mode crossfade (smooth blending or instantaneous cuts), non-linear root displacement locking (anti-ground-penetration), and automated rest-pose restoration.
+  - Transparently bridges VRM 1.0 ($+Z$ facing) authoring into VRM 0.0 ($-Z$ facing, local $X/Z$ mirrored) in `PoseBuffer.commitToVRM` and `sampleFromVRM`.
+  - Features dual-mode crossfade (smooth blending or instantaneous cuts), Quintic Smootherstep 0.75s inbetweening, non-linear root displacement locking (anti-ground-penetration), and automated rest-pose restoration.
 - **Application Framework**: TanStack Start provides file-based routing, full-stack SSR, and server-only helpers (`createServerOnlyFn`, `getCookie` from `@tanstack/react-start/server`).
 - **Bundler**: Vite 8 with `@cloudflare/vite-plugin` and custom plugins in `vite/`: `localApiPlugin.ts` (TTS dev middleware + EU proxy), `dropDockerfatAssets.ts` (Cloudflare 25 MiB asset limit workaround).
 - **LLM Layer**: Unified factory (`src/llm/chatWorkflow.ts`) dispatches between WebLLM and any custom OpenAI-compatible provider. Both implement the same `runChat(opts: RunChatOptions) → string` contract; new providers just need a `ChatProvider` descriptor.
@@ -104,7 +105,7 @@ AI runs in the browser tab. **WebLLM may use WebGPU**; **EMAGE uses ONNX Runtime
   - Patched in background via WASM bspatch (`src/core/vrmWorker.ts`) and cached in 2-tier IndexedDB (`xiaochun-vrm-cache`, base & patched stores).
   - Atomic Outfit Swapping (`src/core/outfitSwap.ts`): state snapshot & in-memory pre-restore guarantees zero-frame T-pose pop-in during clothing transitions.
 - **Default thinking animation**: `public/vrm/motion/thinking.vrma` (63 KB, VRM animation, license unverified — verify before redistribution)
-- **Runtime VRM upload**: Top-bar "上传 VRM" button (top-right) accepts any VRM 1.0 file via `<input type="file">` and `URL.createObjectURL`
+- **Runtime VRM upload**: Top-bar "上传 VRM" button (top-right) accepts any standard VRM 1.0 or VRM 0.x file via `<input type="file">` and `URL.createObjectURL`, seamlessly adapting bone coordinate spaces and ground anchors.
 - **Scene composition** (`src/core/scene/lineworkWorld.ts`):
   - Procedural line-art outdoor world with Light / Dark dual themes (`linework-light` / `linework-dark`).
   - **Sun**: Spherical mesh at `(10, 14, -22)`, radius 1.5 with 12 radial line rays.

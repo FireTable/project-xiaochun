@@ -51,7 +51,11 @@ $$\theta_{\text{hip}} = \arccos\big(\cos(\theta_{\text{hip}})\big)$$
 
 #### Forward Pole Vector & Knee Bend Plane
 To ensure the knee always bends strictly forward along the anatomical sagittal plane without lateral flipping, the solver computes an orthogonal reference frame from the pelvis world rotation:
-$$\mathbf{V}_{\text{forward}} = \mathbf{R}_{\text{hips}}^{\text{world}} \cdot \begin{bmatrix} 0 \\ 0 \\ 1 \end{bmatrix}$$
+$$\mathbf{V}_{\text{forward}} = \mathbf{R}_{\text{hips}}^{\text{world}} \cdot \begin{bmatrix} 0 \\ 0 \\ \text{forwardSign} \end{bmatrix}$$
+- For **VRM 1.0**: Model faces $+Z$ natively ($\mathbf{R}_{\text{scene}}^{\text{world}} = \mathbf{I}$), $\text{forwardSign} = +1$;
+- For **VRM 0.x**: Model faces $-Z$ natively ($\mathbf{R}_{\text{scene}}^{\text{world}} = \mathbf{R}_y(\pi)$), $\text{forwardSign} = -1$.
+Applying this sign correction ensures $\mathbf{V}_{\text{forward}}$ strictly points along world $+Z$ (character's anatomical front) regardless of VRM version, eliminating backward knee inversion artifacts.
+
 $$\mathbf{V}_{\text{normal}} = \text{normalize}(\mathbf{V}_{AT} \times \mathbf{V}_{\text{forward}})$$
 $$\mathbf{V}_{\text{bend}} = \text{normalize}(\mathbf{V}_{\text{normal}} \times \mathbf{V}_{AT})$$
 
@@ -60,14 +64,17 @@ $$\mathbf{V}_{\text{upper}}^{\text{new}} = \mathbf{V}_{AT} \cdot \cos(\theta_{\t
 
 ---
 
-### 2.2 Physical World Ground Anchoring
+### 2.2 Physical World Ground Anchoring & Anti-Penetration Guard
 
-To eliminate foot skating:
-1. **Anchor Capture**: During `bind(vrm)`, the solver captures the initial rest position of each foot relative to the avatar root: $\mathbf{P}_{\text{local}}^{\text{rest}}$;
+To eliminate foot skating and floor sinking:
+1. **Anchor Capture**: During `bind(vrm)`, the solver captures the initial rest position of each foot relative to the avatar root: $\mathbf{P}_{\text{local}}^{\text{rest}}$, and stores the rest ankle height $\text{restAnkleY}$;
 2. **Per-Frame World Projection**: In each frame, anchor targets update according to the scene matrix:
    $$\mathbf{P}_{\text{anchor}}^{\text{world}} = \text{applyMatrix4}\big(\mathbf{P}_{\text{local}}^{\text{rest}}, \; \mathbf{M}_{\text{scene}}^{\text{world}}\big)$$
-3. **Exponential Smoothing**:
-   $$\text{target} \leftarrow \text{target} + (\mathbf{P}_{\text{anchor}} - \text{target}) \times (1 - e^{-15 \Delta t})$$
+3. **Hard Ground Clamping (Anti-Penetration)**:
+   $$\mathbf{P}_{\text{target}.y} = \max\left(\mathbf{P}_{\text{target}.y}, \; \text{restAnkleY}\right)$$
+   Guarantees that regardless of AI motion variance or weight shifting, the ankle target never descends below the model's resting contact elevation, preventing shoe penetration through the floor plane ($Y = 0$).
+4. **Exponential Smoothing**:
+   $$\text{target} \leftarrow \text{target} + (\mathbf{P}_{\text{anchor}} - \text{target}) \times (1 - e^{-12 \Delta t})$$
    The primary weight-bearing foot remains firmly planted at $\mathbf{P}_{\text{anchor}}$, locking horizontal drift to $0\text{ mm}$.
 
 ---
@@ -81,7 +88,8 @@ A human pelvis naturally translates laterally over the weight-bearing foot ($3.8
    - $sr = 1.0$: 100% Right leg support;
    - Transition speed $\text{transferSpeed} = 3.5$ (yielding smooth, unhurried 1.2s~1.5s weight transitions).
 2. **Lateral Pelvis Translation**:
-   $$\Delta X_{\text{pelvis}} = (sr - 0.5) \cdot 2.0 \cdot \min(0.042\text{ m}, \; \text{halfSpan} \times 0.40)$$
+   $$\Delta X_{\text{pelvis}} = (\text{isVrm0} ? -1 : 1) \cdot (sr - 0.5) \cdot 2.0 \cdot \min(0.042\text{ m}, \; \text{halfSpan} \times 0.40)$$
+   *(Note: Negated for VRM 0.x because the scene root is rotated by $180^\circ$, inverting local $X$ relative to world $X$)*
 3. **Pelvic Roll & Spinal Counter-Compensation**:
    The weight-bearing hip elevates by $\sim 2.4^\circ$ ($0.042\text{ rad}$), producing an aesthetic S-curve silhouette. The lumbar spine compensates in the reverse direction by $82\%$, maintaining an upright chest and head:
    $$\Delta \mathbf{Q}_{\text{hips}}^{\text{roll}} = \text{fromAxisAngle}\left(\hat{z}, \; -\text{stanceDir} \times 0.042\right)$$
