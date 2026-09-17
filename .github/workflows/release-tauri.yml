@@ -2,6 +2,8 @@ name: Release Tauri App
 
 on:
   push:
+    branches:
+      - main
     tags:
       - 'v*'
   workflow_dispatch:
@@ -95,5 +97,5 @@ jobs:
           releaseName: "${{ github.ref_type == 'tag' && format('XiaoChun {0}', github.ref_name) || format('XiaoChun v0.1.0-preview.{0}', github.run_number) }}"
           releaseBody: "See the release assets below for downloads on macOS, Windows, and Linux."
           releaseDraft: ${{ github.event_name == 'workflow_dispatch' && inputs.draft || false }}
-          prerelease: false
+          prerelease: ${{ github.ref_type != 'tag' }}
           args: ${{ matrix.args }}
