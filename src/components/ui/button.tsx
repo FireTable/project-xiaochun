@@ -9,9 +9,9 @@ const buttonVariants = cva(
     variants: {
       variant: {
         default:
-          'bg-gradient-to-r from-brand-500 via-brand-400 to-brand-300 text-white shadow-lg shadow-brand-500/30 hover:from-brand-600 hover:via-brand-500 hover:to-brand-400 hover:shadow-brand-500/45 active:scale-95',
+          'bg-gradient-to-r from-brand-500 via-brand-400 to-brand-300 text-white hover:from-brand-600 hover:via-brand-500 hover:to-brand-400 active:scale-95',
         glass:
-          'bg-slate-950/80 hover:bg-slate-900/90 text-white/90 hover:text-white border border-white/20 hover:border-brand-300/60 backdrop-blur-xl shadow-lg shadow-black/40 active:scale-95',
+          'bg-slate-950/80 hover:bg-slate-900/90 text-white/90 hover:text-white border border-white/20 hover:border-brand-300/60 backdrop-blur-xl active:scale-95',
         secondary:
           'bg-white/10 hover:bg-white/20 text-white border border-white/10 backdrop-blur-md active:scale-95',
         ghost:

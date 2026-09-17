@@ -8,9 +8,12 @@ import path from 'path';
 import { localApiPlugin } from './vite/localApiPlugin';
 import { dropDockerfatAssets } from './vite/dropDockerfatAssets';
 
+const isTauri = Boolean(process.env.TAURI_ENV_PLATFORM || process.env.TAURI_DEV_HOST);
+const defaultPort = isTauri ? 5186 : 5185;
+
 export default defineConfig({
   plugins: [
-    basicSsl(),
+    ...(!isTauri ? [basicSsl()] : []),
     cloudflare({ viteEnvironment: { name: 'ssr' } }),
     tailwindcss(),
     tanstackStart(),
@@ -30,7 +33,8 @@ export default defineConfig({
   },
   server: {
     host: '0.0.0.0',
-    port: 5185,
+    port: Number(process.env.PORT) || defaultPort,
+    strictPort: true,
     watch: {
       ignored: ['**/*.md', '**/docs/**', '**/public/llms*.txt'],
     },

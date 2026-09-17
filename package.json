@@ -13,7 +13,14 @@
     "deploy:dev": "pnpm build && wrangler deploy --config wrangler.dev.jsonc",
     "dev:worker": "wrangler dev --config wrangler.dev.jsonc",
     "cf-typegen": "wrangler types",
-    "build:vrm": "node scripts/build-vrm/workflow.mjs"
+    "build:vrm": "node scripts/build-vrm/workflow.mjs",
+    "tauri": "tauri",
+    "tauri:dev": "tauri dev",
+    "tauri:attach": "tauri dev --no-dev-server",
+    "tauri:build": "tauri build",
+    "protocol": "node scripts/protocol-call.mjs",
+    "speak": "node scripts/protocol-call.mjs speak",
+    "check:i18n": "npx tsx scripts/check-i18n.ts"
   },
   "engines": {
     "pnpm": ">=10.0.0",
@@ -25,6 +32,7 @@
     "@cloudflare/workers-types": "^5.20260903.1",
     "@gltf-transform/extensions": "^4.5.0",
     "@tailwindcss/vite": "^4.3.3",
+    "@tauri-apps/cli": "^2.11.5",
     "@types/react": "^19.2.18",
     "@types/react-dom": "^19.2.7",
     "@types/three": "^0.185.4",
@@ -53,6 +61,7 @@
     "@radix-ui/react-tooltip": "^1.2.16",
     "@tanstack/react-router": "^1.170.32",
     "@tanstack/react-start": "^1.168.49",
+    "@tauri-apps/api": "^2.11.5",
     "bsdiff-wasm": "^0.1.4",
     "class-variance-authority": "^0.7.1",
     "clsx": "^2.1.1",

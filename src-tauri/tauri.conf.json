@@ -1,0 +1,63 @@
+{
+  "$schema": "../node_modules/@tauri-apps/cli/config.schema.json",
+  "productName": "Project-XiaoChun",
+  "version": "0.1.0",
+  "identifier": "tech.firetable.xiaochun",
+  "build": {
+    "frontendDist": "../dist",
+    "devUrl": "http://localhost:5186",
+    "beforeDevCommand": "pnpm dev",
+    "beforeBuildCommand": "pnpm build"
+  },
+  "app": {
+    "macOSPrivateApi": true,
+    "windows": [
+      {
+        "label": "main",
+        "title": "XiaoChun",
+        "width": 560,
+        "height": 820,
+        "minWidth": 320,
+        "minHeight": 468,
+        "resizable": true,
+        "fullscreen": false,
+        "decorations": false,
+        "transparent": true,
+        "shadow": false,
+        "alwaysOnTop": true
+      }
+    ],
+    "security": {
+      "csp": null
+    }
+  },
+  "bundle": {
+    "active": true,
+    "targets": "all",
+    "icon": [
+      "icons/32x32.png",
+      "icons/128x128.png",
+      "icons/128x128@2x.png",
+      "icons/icon.icns",
+      "icons/icon.ico",
+      "icons/icon.png"
+    ],
+    "copyright": "Copyright © 2026 FireTable",
+    "category": "Entertainment",
+    "shortDescription": "100% Client-Native Anime Companion & Transparent Desktop Pet",
+    "longDescription": "Project XiaoChun is an interactive 3D anime companion with WebLLM, EMAGE motion, transparent desktop pet mode, and inter-process speech protocol.",
+    "macOS": {
+      "minimumSystemVersion": "10.15"
+    },
+    "android": {
+      "debugApplicationIdSuffix": ".debug"
+    }
+  },
+  "plugins": {
+    "deep-link": {
+      "desktop": {
+        "schemes": ["xiaochun"]
+      }
+    }
+  }
+}

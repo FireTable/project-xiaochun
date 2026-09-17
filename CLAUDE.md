@@ -25,6 +25,12 @@ Welcome to **Project XiaoChun** (100% browser-native anime companion with WebGPU
 # Start local dev server (with Miniflare for 100% Cloudflare Workers dev/prod parity)
 pnpm dev
 
+# Start Tauri 2.x hybrid desktop app in dev mode
+pnpm tauri:dev
+
+# Fast protocol trigger for speech testing
+pnpm speak "Hello XiaoChun"
+
 # Strict TypeScript type check (DAILY VERIFICATION: must pass with 0 errors!)
 npx tsc --noEmit
 
@@ -37,6 +43,9 @@ pnpm build
 ## 🧭 Key Project Files
 
 - `src/config.ts` — Single source of truth for motion parameters, memory limits, lighting, camera.
+- `src-tauri/src/lib.rs` — Tauri 2.x desktop layer, 60Hz alpha bitmask click-through, IPC dispatcher.
+- `src/core/protocol/` — External IPC URL scheme (`xiaochun://`) handler and action types.
+- `src/core/interaction/` — 3D holographic interaction guides (TurnGuide3D, PitchGuide3D, CameraYGuide3D).
 - `src/motion/pipeline/motionPipeline.ts` — Exclusive live writer + Quintic blend + commit; `selectLiveMotionSource`; dual VRM 1.0 / 0.x coordinate bridge.
 - `src/motion/pipeline/transition.ts` — Quintic Smootherstep (BodyTurn leg handoff).
 - `src/motion/sources/emage.ts` — EMAGE ONNX worker integration, physiological angular speed clamps.

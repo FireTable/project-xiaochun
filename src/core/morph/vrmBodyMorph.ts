@@ -91,6 +91,25 @@ export class VRMBodyMorph {
   // 反推, 让 head 在世界空间的位置/大小完全脱离 neck 形变, 否则 neckDepth 改 Z 缩放
   // 会通过继承链把 head.position.z 一起放大, 看起来 "颈部前后深影响头部前后"
   private baseHeadPos: THREE.Vector3 = new THREE.Vector3();
+  private _headOffsetLocal = new THREE.Vector3();
+  private _headWorldPos = new THREE.Vector3();
+  private _pureNeckWorldQuat = new THREE.Quaternion();
+  private _headWorldQuat = new THREE.Quaternion();
+  private _headWorldScale = new THREE.Vector3();
+
+  /**
+   * 纯四元数自底向上链式世界旋转提取：
+   * 直接相乘父级各骨骼的纯单位四元数，完全避开带剪切矩阵的 decompose() 奇异翻转，在全空间无穷阶光滑连续
+   */
+  private getPureWorldQuaternion(node: THREE.Object3D, target: THREE.Quaternion): THREE.Quaternion {
+    target.identity();
+    let curr: THREE.Object3D | null = node;
+    while (curr) {
+      target.premultiply(curr.quaternion);
+      curr = curr.parent;
+    }
+    return target;
+  }
 
   // 100% 纯动态从 VRM 几何体与骨骼测量的原生几何尺寸与身高基准 (零写死魔数，完全自适应任意模型)
   private baseUpperLegLen = 0;
@@ -160,11 +179,7 @@ export class VRMBodyMorph {
     if (this.rawUpperChest) this.baseUpperChestPos.copy(this.rawUpperChest.position);
     if (this.rawHead) {
       this.baseHeadPos.copy(this.rawHead.position);
-      if (this.isCompatible) {
-        this.rawHead.matrixWorldAutoUpdate = false;
-      } else {
-        this.rawHead.matrixWorldAutoUpdate = true;
-      }
+      this.rawHead.matrixWorldAutoUpdate = !this.isCompatible;
     }
     this.baseTorsoLen = Math.abs(this.baseChestPos.y) + Math.abs(this.baseUpperChestPos.y);
 
@@ -829,31 +844,33 @@ export class VRMBodyMorph {
     // 6. 手动 compose 写入 rawHead.matrixWorld，并递归刷新 Head 的所有子骨骼 (updateMatrixWorld(true))，
     //    使头发、眼睛 100% 保持原生正交结构，剪切畸变彻底归零 (0 Shear)！
     if (this.rawHead && this.rawNeck) {
-      const neckWorldPos = new THREE.Vector3();
-      const neckWorldQuat = new THREE.Quaternion();
-      this.rawNeck.getWorldPosition(neckWorldPos);
-      this.rawNeck.getWorldQuaternion(neckWorldQuat);
-
-      const headOffsetLocal = new THREE.Vector3(
+      this._headOffsetLocal.set(
         this.baseHeadPos.x,
         this.baseHeadPos.y * neckLength,
         this.baseHeadPos.z
       );
 
-      // 同步 Head 本地属性
-      this.rawHead.position.copy(headOffsetLocal);
+      // 1. 同步 Head 本地属性
+      this.rawHead.position.copy(this._headOffsetLocal);
       this.rawHead.scale.set(head, head, head);
       this.rawHead.updateMatrix();
 
-      // 在世界空间中纯正交合成世界变换矩阵（彻底切断来自 Neck 旋转与非等比缩放的非对角剪切畸变）
-      const worldHeadOffset = headOffsetLocal.clone().multiplyScalar(overallScale).applyQuaternion(neckWorldQuat);
-      const headWorldPos = neckWorldPos.clone().add(worldHeadOffset);
-      const headWorldQuat = neckWorldQuat.clone().multiply(this.rawHead.quaternion);
-      const headWorldScale = new THREE.Vector3(head * overallScale, head * overallScale, head * overallScale);
+      // 2. 纯几何仿射位置映射：通过 4x4 矩阵向量变换精确挂接在颈椎顶端世界坐标
+      // 绝对不依赖任何四元数分解 (Zero Decompose)，在全三维空间严格无穷阶连续光滑，从数学根源彻底杜绝跳变
+      this._headWorldPos.copy(this._headOffsetLocal).applyMatrix4(this.rawNeck.matrixWorld);
 
-      this.rawHead.matrixWorld.compose(headWorldPos, headWorldQuat, headWorldScale);
+      // 3. 纯四元数链式旋转合成：从节点逐级向上提取纯旋转四元数累乘，完全屏蔽父级非等比缩放矩阵引起的剪切畸变
+      this.getPureWorldQuaternion(this.rawNeck, this._pureNeckWorldQuat);
+      this._headWorldQuat.copy(this._pureNeckWorldQuat).multiply(this.rawHead.quaternion);
 
-      // 递归刷新 Head 的所有子骨骼（眼睛与 11 根头发骨骼），继承绝对正交的世界矩阵
+      // 4. 绝对正交等比缩放 (100% 消除非等比剪切对眼睛与头发的挤压扁平感)
+      const s = head * overallScale;
+      this._headWorldScale.set(s, s, s);
+
+      // 5. 纯正交世界变换合成写入
+      this.rawHead.matrixWorld.compose(this._headWorldPos, this._headWorldQuat, this._headWorldScale);
+
+      // 6. 递归刷新 Head 的所有子骨骼（眼睛与 11 根头发骨骼），继承绝对正交无剪切的世界矩阵
       for (let i = 0; i < this.rawHead.children.length; i++) {
         this.rawHead.children[i].updateMatrixWorld(true);
       }
@@ -882,7 +899,8 @@ export class VRMBodyMorph {
       this.rawLBust.position.y = this.baseLBustPos.y + bustPitch * 0.05;
       this.rawLBust.position.z = this.baseLBustPos.z;
 
-      this.rawLBust.quaternion.copy(this.baseLBustRot);
+      // 仅在用户主动调节了纵向俯仰或外扩偏角时叠加旋转增量；
+      // 绝不强行将四元数 reset 为静态 baseLBustRot，从而完整保留 VRM SpringBone 动力学物理模拟（乳摇）
       if (Math.abs(bustPitch) > 0.001) {
         const pitchQ = new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(1, 0, 0), -bustPitch * 1.5);
         this.rawLBust.quaternion.multiply(pitchQ);
@@ -903,7 +921,7 @@ export class VRMBodyMorph {
       this.rawRBust.position.y = this.baseRBustPos.y + bustPitch * 0.05;
       this.rawRBust.position.z = this.baseRBustPos.z;
 
-      this.rawRBust.quaternion.copy(this.baseRBustRot);
+      // 仅在用户主动调节了纵向俯仰或外扩偏角时叠加旋转增量；保留 SpringBone 实时动力学
       if (Math.abs(bustPitch) > 0.001) {
         const pitchQ = new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(1, 0, 0), -bustPitch * 1.5);
         this.rawRBust.quaternion.multiply(pitchQ);

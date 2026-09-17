@@ -18,8 +18,8 @@ export const CameraSection: React.FC = () => {
   const [fov, setFov] = useState<number>(initSaved?.camera?.fov ?? APP_CONFIG.camera.defaultFov);
   const [minDist, setMinDist] = useState<number>(initSaved?.camera?.minDistance ?? APP_CONFIG.camera.defaultMinDistance);
   const [maxDist, setMaxDist] = useState<number>(initSaved?.camera?.maxDistance ?? APP_CONFIG.camera.defaultMaxDistance);
-  const [bodyTurnEnabled, setBodyTurnEnabled] = useState<boolean>(
-    initSaved?.bodyTurnEnabled ?? vrmEngine.getEnableBodyTurn()
+  const [gazeEnabled, setGazeEnabled] = useState<boolean>(
+    initSaved?.gazeEnabled ?? vrmEngine.getEnableGaze()
   );
   // ponytail: FOV / 距离 display 跟手,SliderWithAnchors 拖动期间 imperative 写入 textContent
   const fovDisplayRef = React.useRef<HTMLSpanElement>(null);
@@ -73,11 +73,11 @@ export const CameraSection: React.FC = () => {
     saveDevDrawerSettings({ camera: { maxDistance: val } });
   };
 
-  const handleBodyTurnToggle = () => {
-    const next = !bodyTurnEnabled;
-    setBodyTurnEnabled(next);
-    vrmEngine.setEnableBodyTurn(next);
-    saveDevDrawerSettings({ bodyTurnEnabled: next });
+  const handleGazeToggle = () => {
+    const next = !gazeEnabled;
+    setGazeEnabled(next);
+    vrmEngine.setEnableGaze(next);
+    saveDevDrawerSettings({ gazeEnabled: next });
   };
 
   const handleReset = () => {
@@ -90,18 +90,18 @@ export const CameraSection: React.FC = () => {
     saveDevDrawerSettings({
       camera: { minDistance: APP_CONFIG.camera.defaultMinDistance, maxDistance: APP_CONFIG.camera.defaultMaxDistance },
     });
-    const defTurn = APP_CONFIG.camera.defaultEnableBodyTurn ?? true;
-    setBodyTurnEnabled(defTurn);
-    vrmEngine.setEnableBodyTurn(defTurn);
-    saveDevDrawerSettings({ bodyTurnEnabled: defTurn });
+    const defGaze = APP_CONFIG.camera.defaultEnableGaze ?? true;
+    setGazeEnabled(defGaze);
+    vrmEngine.setEnableGaze(defGaze);
+    saveDevDrawerSettings({ gazeEnabled: defGaze });
   };
 
   // ponytail: 任一项被改过都标 modified;reset 按钮一并显示
   const fovModified = Math.abs(fov - APP_CONFIG.camera.defaultFov) >= 1e-4;
   const minDistModified = Math.abs(minDist - APP_CONFIG.camera.defaultMinDistance) >= 1e-4;
   const maxDistModified = Math.abs(maxDist - APP_CONFIG.camera.defaultMaxDistance) >= 1e-4;
-  const bodyTurnModified = bodyTurnEnabled !== (APP_CONFIG.camera.defaultEnableBodyTurn ?? true);
-  const modified = fovModified || minDistModified || maxDistModified || bodyTurnModified;
+  const gazeModified = gazeEnabled !== (APP_CONFIG.camera.defaultEnableGaze ?? true);
+  const modified = fovModified || minDistModified || maxDistModified || gazeModified;
 
   const fovCenterPct = ((30 - 15) / (60 - 15)) * 100;
   const minDistCenterPct = ((5.0 - 0.5) / (10 - 0.5)) * 100;
@@ -236,22 +236,22 @@ export const CameraSection: React.FC = () => {
       </div>
       <div className="flex items-center justify-between gap-2">
         <div className="flex flex-col gap-0.5 min-w-0">
-          <span className="text-[11px] text-white/80">{t('panel.devDrawerExtra.autoBodyTurn')}</span>
+          <span className="text-[11px] text-white/80">{t('panel.devDrawerExtra.gazeFollow')}</span>
           <span className="text-[10px] text-white/45 leading-relaxed">
-            {t('panel.devDrawerTips.bodyTurnOn')}
+            {t('panel.devDrawerTips.gazeHint')}
           </span>
         </div>
         <button
           type="button"
-          onClick={handleBodyTurnToggle}
+          onClick={handleGazeToggle}
           className={`relative inline-flex h-5 w-9 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none ${
-            bodyTurnEnabled ? 'bg-brand-500' : 'bg-white/20'
+            gazeEnabled ? 'bg-brand-500' : 'bg-white/20'
           }`}
-          title={bodyTurnEnabled ? t('panel.devDrawerTips.bodyTurnOff') : t('panel.devDrawerTips.bodyTurnOn')}
+          title={gazeEnabled ? t('panel.devDrawerTips.gazeOff') : t('panel.devDrawerTips.gazeOn')}
         >
           <span
             className={`pointer-events-none inline-block h-4 w-4 transform rounded-full bg-white shadow-lg ring-0 transition duration-200 ease-in-out ${
-              bodyTurnEnabled ? 'translate-x-4' : 'translate-x-0'
+              gazeEnabled ? 'translate-x-4' : 'translate-x-0'
             }`}
           />
         </button>

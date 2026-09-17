@@ -1,9 +1,9 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { vrmEngine } from '@/core/vrmEngine';
 
-export const SceneCanvas: React.FC = () => {
+export const SceneCanvas: React.FC = React.memo(() => {
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
-  const [isAttached, setIsAttached] = useState(false);
+  const [isAttached, setIsAttached] = useState(() => vrmEngine.isCanvasAttached);
 
   useEffect(() => {
     // 延迟与空闲调度：先让出主线程优先完成 LoadingOverlay 的布局与首次动画渲染，
@@ -19,10 +19,16 @@ export const SceneCanvas: React.FC = () => {
     };
 
     const win = typeof window !== 'undefined' ? (window as any) : null;
-    if (win && typeof win.requestIdleCallback === 'function') {
-      idleId = win.requestIdleCallback(setupCanvas, { timeout: 250 });
+
+    // HMR 或已初始化场景时：无需再等待 idle 延迟，立即同步挂载接续渲染！
+    if (vrmEngine.currentVRM || vrmEngine.isCanvasAttached) {
+      setupCanvas();
     } else {
-      timerId = setTimeout(setupCanvas, 80);
+      if (win && typeof win.requestIdleCallback === 'function') {
+        idleId = win.requestIdleCallback(setupCanvas, { timeout: 250 });
+      } else {
+        timerId = setTimeout(setupCanvas, 80);
+      }
     }
 
     return () => {
@@ -46,4 +52,6 @@ export const SceneCanvas: React.FC = () => {
         }`}
     />
   );
-};
+});
+
+SceneCanvas.displayName = 'SceneCanvas';

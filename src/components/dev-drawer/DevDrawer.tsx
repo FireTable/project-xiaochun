@@ -159,7 +159,7 @@ export const DevDrawer: React.FC<DevDrawerProps> = ({ isOpen, onClose }) => {
       });
     }
     if (saved.camera?.fov) vrmEngine.setFov(saved.camera.fov);
-    if (typeof saved.bodyTurnEnabled === 'boolean') vrmEngine.setEnableBodyTurn(saved.bodyTurnEnabled);
+    if (typeof saved.gazeEnabled === 'boolean') vrmEngine.setEnableGaze(saved.gazeEnabled);
     if (saved.wardrobeVisibility) {
       Object.entries(saved.wardrobeVisibility).forEach(([partId, vis]) => {
         vrmEngine.setPartVisibility(partId, vis);
@@ -210,7 +210,7 @@ export const DevDrawer: React.FC<DevDrawerProps> = ({ isOpen, onClose }) => {
         fill:  { ...vrmEngine.lightChannels.fill },
       },
       camera: { fov: saved?.camera?.fov ?? APP_CONFIG.camera.defaultFov },
-      bodyTurnEnabled: saved?.bodyTurnEnabled ?? vrmEngine.getEnableBodyTurn(),
+      gazeEnabled: saved?.gazeEnabled ?? vrmEngine.getEnableGaze(),
       wardrobeVisibility: saved?.wardrobeVisibility ?? { ...vrmEngine.materialManager.partsVisibility },
       activeExpr: saved?.activeExpr ?? 'neutral',
       postfx: saved?.postfx ?? { ...vrmEngine.postFx.config },
@@ -263,9 +263,9 @@ export const DevDrawer: React.FC<DevDrawerProps> = ({ isOpen, onClose }) => {
 
     vrmEngine.setFov(APP_CONFIG.camera.defaultFov);
     saveDevDrawerSettings({ camera: { fov: APP_CONFIG.camera.defaultFov } });
-    const defTurn = APP_CONFIG.camera.defaultEnableBodyTurn ?? true;
-    vrmEngine.setEnableBodyTurn(defTurn);
-    saveDevDrawerSettings({ bodyTurnEnabled: defTurn });
+    const defGaze = APP_CONFIG.camera.defaultEnableGaze ?? true;
+    vrmEngine.setEnableGaze(defGaze);
+    saveDevDrawerSettings({ gazeEnabled: defGaze });
 
     vrmEngine.materialManager.resetToDefaultConfig();
     saveDevDrawerSettings({ wardrobeVisibility: { ...vrmEngine.materialManager.partsVisibility } });
@@ -312,7 +312,7 @@ export const DevDrawer: React.FC<DevDrawerProps> = ({ isOpen, onClose }) => {
     >
       <aside
         id="control-panel"
-        className={`fixed top-0 right-0 bottom-0 z-[60] sm:z-40 w-84 max-w-[92vw] bg-slate-950/90 backdrop-blur-2xl border-l border-white/15 flex flex-col transition-transform duration-300 shadow-2xl ${
+        className={`fixed top-0 right-0 bottom-0 z-[60] sm:z-40 w-84 max-w-[92vw] bg-slate-950/90 backdrop-blur-2xl border-l border-white/15 flex flex-col transition-transform duration-300 ${
           isOpen ? 'translate-x-0' : 'translate-x-full'
         }`}
       >

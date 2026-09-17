@@ -23,21 +23,21 @@ export class StudioLighting {
   init(scene: THREE.Scene): void {
     scene.add(this.hemiLight);
 
-    // 主方向光 + 2048 阴影相机精准视锥体配置（收紧投影视锥体，成倍提升地面阴影清晰度）
-    this.dirLight.position.set(10, 14, -22);
-    this.dirLight.target.position.set(0, 1, 0);
+    // 主方向光 + 2048 阴影相机精准视锥体配置（人物左前方偏上打光，投影优雅落在身后地面，正面光泽透亮）
+    this.dirLight.position.set(4.0, 7.0, 4.5);
+    this.dirLight.target.position.set(0, 0.9, 0);
     scene.add(this.dirLight.target);
     this.dirLight.castShadow = true;
     this.dirLight.shadow.mapSize.width = 2048;
     this.dirLight.shadow.mapSize.height = 2048;
     this.dirLight.shadow.bias = -0.00015;
     this.dirLight.shadow.radius = 2.0;
-    this.dirLight.shadow.camera.left = -2.5;
-    this.dirLight.shadow.camera.right = 2.5;
-    this.dirLight.shadow.camera.top = 2.8;
-    this.dirLight.shadow.camera.bottom = -2.5;
-    this.dirLight.shadow.camera.near = 15.0;
-    this.dirLight.shadow.camera.far = 38.0;
+    this.dirLight.shadow.camera.left = -3.0;
+    this.dirLight.shadow.camera.right = 3.0;
+    this.dirLight.shadow.camera.top = 3.0;
+    this.dirLight.shadow.camera.bottom = -3.0;
+    this.dirLight.shadow.camera.near = 1.0;
+    this.dirLight.shadow.camera.far = 16.0;
     scene.add(this.dirLight);
 
     // 冷色补光 (-1.5, 1.8, -1.2 反方向，精准对准胸口高度，勾勒轮廓微光)

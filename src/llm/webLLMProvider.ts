@@ -42,6 +42,7 @@ export const CUSTOM_WEBLLM_MODELS: ModelRecord[] = [
 
 export const APP_LLM_CONFIG: AppConfig = {
   model_list: [...CUSTOM_WEBLLM_MODELS, ...prebuiltAppConfig.model_list],
+  cacheBackend: 'indexeddb',
 };
 
 export const DEFAULT_LLM_MODEL = APP_CONFIG.llm.model;

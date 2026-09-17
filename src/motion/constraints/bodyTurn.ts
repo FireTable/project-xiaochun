@@ -1,18 +1,21 @@
 import * as THREE from 'three';
 import type { VRM, VRMHumanBoneName } from '@pixiv/three-vrm';
 import { BONE_INDEX_MAP, type PoseBuffer } from '../pipeline/poseBuffer';
+import { APP_CONFIG } from '../../config';
 
 // ─── 踱步状态机 ───────────────────────────────────────────────────────────────
 const SP = { IDLE: 0, LIFT: 1, SWING: 2, PLANT: 3, SETTLE: 4 } as const;
 type StepPhase = typeof SP[keyof typeof SP];
 
-const PHASE_DURATION: Record<StepPhase, number> = {
-  [SP.IDLE]: 0,
-  [SP.LIFT]: 0.18,
-  [SP.SWING]: 0.14,
-  [SP.PLANT]: 0.08,
-  [SP.SETTLE]: 0.18,
-};
+function getPhaseDuration(phase: StepPhase): number {
+  switch (phase) {
+    case SP.LIFT: return APP_CONFIG.bodyTurn.phaseDuration.lift;
+    case SP.SWING: return APP_CONFIG.bodyTurn.phaseDuration.swing;
+    case SP.PLANT: return APP_CONFIG.bodyTurn.phaseDuration.plant;
+    case SP.SETTLE: return APP_CONFIG.bodyTurn.phaseDuration.settle;
+    default: return 0;
+  }
+}
 
 /**
  * BodyTurnSystem — 程序化物理转身踱步系统
@@ -31,21 +34,23 @@ const PHASE_DURATION: Record<StepPhase, number> = {
  *   reset()                            — 模型卸载时调用，清空状态
  */
 export class BodyTurnSystem {
-  // ─── 配置常量 ────────────────────────────────────────────────────────────────
+  // ─── 配置常量（统一从 APP_CONFIG.bodyTurn 读取） ───────────────────────────
   /** normYaw 超过此阈值（rad）才触发踱步转身 (约 24°，适中意图延迟) */
-  private readonly TURN_START_THRESHOLD = 0.42;
+  private get TURN_START_THRESHOLD() { return APP_CONFIG.bodyTurn.turnStartThreshold; }
   /** normYaw 小于此阈值（rad）时结束转身 (约 11.5°，进入舒适视线区并收步定住) */
-  private readonly TURN_STOP_THRESHOLD = 0.20;
+  private get TURN_STOP_THRESHOLD() { return APP_CONFIG.bodyTurn.turnStopThreshold; }
   /** 弹簧刚度（临界阻尼：d = 2*√k） */
-  private readonly SPRING_K = 7.0;
+  private get SPRING_K() { return APP_CONFIG.bodyTurn.springK; }
   /** 踱步抬腿时 lowerLeg 弯曲角度（rad） */
-  private readonly STEP_LOWER_LEG_BEND = 0.6;
+  private get STEP_LOWER_LEG_BEND() { return APP_CONFIG.bodyTurn.stepLowerLegBend; }
   /** 踱步时 upperLeg 前抬角度（rad） */
-  private readonly STEP_UPPER_LEG_LIFT = 0.30;
+  private get STEP_UPPER_LEG_LIFT() { return APP_CONFIG.bodyTurn.stepUpperLegLift; }
   /** 踱步时脚踝背屈角度（rad） */
-  private readonly STEP_ANKLE_FLEX = 0.12;
+  private get STEP_ANKLE_FLEX() { return APP_CONFIG.bodyTurn.stepAnkleFlex; }
   /** 踱步时髋部侧移量（hips local X，m） */
-  private readonly HIP_SWAY_AMOUNT = 0.009;
+  private get HIP_SWAY_AMOUNT() { return APP_CONFIG.bodyTurn.hipSwayAmount; }
+  /** 踱步时重心上下沉浮（Bounce，Y轴，m） */
+  private get HIP_BOUNCE_AMOUNT() { return APP_CONFIG.bodyTurn.hipBounceAmount; }
 
   // ─── VRM 骨骼引用 ────────────────────────────────────────────────────────────
   private vrm: VRM | null = null;
@@ -221,7 +226,7 @@ export class BodyTurnSystem {
       return { left: 1.0, right: 1.0 };
     }
 
-    const dur = PHASE_DURATION[this.phase];
+    const dur = getPhaseDuration(this.phase);
     const rawT = dur > 0 ? Math.min(1.0, this.phaseTimer / dur) : 1.0;
 
     let steppingAlpha = 1.0;
@@ -292,12 +297,13 @@ export class BodyTurnSystem {
     const d = 2.0 * Math.sqrt(k);   // 临界阻尼系数
     const yawForce = k * normYaw - d * this.yawVel;
     this.yawVel += yawForce * dt;
-    this.yawVel = Math.max(-4.0, Math.min(4.0, this.yawVel));
+    const maxVel = APP_CONFIG.bodyTurn.maxYawVel;
+    this.yawVel = Math.max(-maxVel, Math.min(maxVel, this.yawVel));
 
     // 在收步阶段 (SETTLE 且不再继续转) 随落脚自然平稳减速归零
     let stepDecel = 1.0;
     if (this.phase === SP.SETTLE && !this.isTurning) {
-      const settleDur = PHASE_DURATION[SP.SETTLE];
+      const settleDur = getPhaseDuration(SP.SETTLE);
       const t = settleDur > 0 ? Math.min(1.0, this.phaseTimer / settleDur) : 1.0;
       stepDecel = 1.0 - t;
     }
@@ -310,7 +316,7 @@ export class BodyTurnSystem {
     // ── 4. 踱步状态机（不允许 locomotion 时已在上方置 IDLE 跳过）───────────
     if (allowLocomotion && this.phase !== SP.IDLE) {
       this.phaseTimer += dt;
-      const phaseDur = PHASE_DURATION[this.phase];
+      const phaseDur = getPhaseDuration(this.phase);
 
       // 当前步的 t ∈ [0,1]，使用平滑曲线
       const rawT = phaseDur > 0 ? Math.min(1.0, this.phaseTimer / phaseDur) : 1.0;
@@ -361,8 +367,10 @@ export class BodyTurnSystem {
           curSupportUpper.slerp(restSupportUpper, Math.min(1.0, dt * 8.0));
           curSupportLower.slerp(restSupportLower, Math.min(1.0, dt * 8.0));
 
-          // 髋部向支撑腿侧微移（重心转移）
-          this._applyHipSway(steppingLeft ? 1.0 : -1.0, t * this.stepBlendWeight, dt);
+          // 髋部向支撑腿侧微移（重心转移，骨盆侧倾，重心微浮）
+          const supportSign = steppingLeft ? 1.0 : -1.0;
+          const liftBounce = Math.sin(t * Math.PI) * 0.2;
+          this._applyHipDynamics(supportSign * t, -liftBounce, this.stepBlendWeight, dt);
           break;
         }
 
@@ -388,7 +396,9 @@ export class BodyTurnSystem {
           this._q2.copy(restSteppingFoot).multiply(this._q);
           curSteppingFoot.slerp(this._q2, Math.min(1.0, dt * 10.0));
 
-          this._applyHipSway(steppingLeft ? 1.0 : -1.0, this.stepBlendWeight, dt);
+          // 前摆：支撑侧受力，维持轻柔的骨盆横滚侧倾与微旋
+          const supportSign = steppingLeft ? 1.0 : -1.0;
+          this._applyHipDynamics(supportSign, 0.05, this.stepBlendWeight, dt);
           break;
         }
 
@@ -398,8 +408,11 @@ export class BodyTurnSystem {
           curSteppingLower.slerp(restSteppingLower, Math.min(1.0, dt * 15.0));
           curSteppingFoot.slerp(restSteppingFoot, Math.min(1.0, dt * 15.0));
 
-          // 重心切换到刚落地的腿
-          this._applyHipSway(steppingLeft ? -1.0 : 1.0, t * this.stepBlendWeight, dt);
+          // 落脚踩实：身体重心从支撑腿平稳过渡回正，产生轻柔的落地减震 (Bounce)
+          const supportSign = steppingLeft ? 1.0 : -1.0;
+          const plantBounce = Math.sin(t * Math.PI) * 0.8;
+          const plantSide = supportSign * (1.0 - t * 0.5);
+          this._applyHipDynamics(plantSide, plantBounce, this.stepBlendWeight, dt);
           break;
         }
 
@@ -410,7 +423,10 @@ export class BodyTurnSystem {
           curSupportUpper.slerp(restSupportUpper, Math.min(1.0, dt * 6.0));
           curSupportLower.slerp(restSupportLower, Math.min(1.0, dt * 6.0));
 
-          this._applyHipSway(0, 1.0 - t, dt);
+          const supportSign = steppingLeft ? 1.0 : -1.0;
+          const settleSide = supportSign * 0.5 * (1.0 - t);
+          const settleBounce = (1.0 - t) * 0.3;
+          this._applyHipDynamics(settleSide, settleBounce, (1.0 - t) * this.stepBlendWeight, dt);
           break;
         }
       }
@@ -461,14 +477,19 @@ export class BodyTurnSystem {
   // ─── 内部辅助 ────────────────────────────────────────────────────────────────
 
   /**
-   * 应用髋部侧移重心（相对静息位置的 X 轴偏移）。
-   * @param sideSign  +1 = 向右移（支撑腿在右），-1 = 向左移，0 = 归中
-   * @param weight    混合权重 0~1
-   * @param dt        帧时间
+   * 应用骨盆拟人生理动力学（侧移 X、沉浮 Y Bounce、横滚 Roll 倾角、偏航 Yaw 旋动）。
+   * @param sideSign   +1 = 支撑腿在右（重心右移），-1 = 支撑腿在左，0 = 归中
+   * @param bounceMult 重心下沉系数 [-0.3, 1.0] (落脚踩实缓冲达到峰值)
+   * @param weight     步态混合权重 0~1
+   * @param dt         帧时间
    */
-  private _applyHipSway(sideSign: number, weight: number, dt: number): void {
+  private _applyHipDynamics(sideSign: number, bounceMult: number, weight: number, dt: number): void {
     const targetX = this.restHipsPos.x + sideSign * this.HIP_SWAY_AMOUNT * weight;
-    this._v.set(targetX, this.restHipsPos.y, this.restHipsPos.z);
+    const targetY = this.restHipsPos.y - bounceMult * this.HIP_BOUNCE_AMOUNT * weight;
+    this._v.set(targetX, targetY, this.restHipsPos.z);
     this.currentHipsPos.lerp(this._v, Math.min(1.0, dt * 8.0));
+
+    // 骨盆旋转保持与 Layer-1 呼吸待机姿态一致（避免孤立扭转破坏脊柱平衡与腿部协调）
+    this.currentHipsQ.slerp(this.restHipsQ, Math.min(1.0, dt * 8.0));
   }
 }

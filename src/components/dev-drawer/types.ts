@@ -23,7 +23,8 @@ export interface DevDrawerFullSettings {
     minDistance?: number;
     maxDistance?: number;
   };
-  bodyTurnEnabled: boolean;
+  gazeEnabled?: boolean;
+  bodyTurnEnabled?: boolean;
   wardrobeVisibility: Record<string, boolean>;
   activeExpr: string;
 }

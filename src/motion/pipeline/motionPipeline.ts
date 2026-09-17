@@ -97,6 +97,7 @@ export class MotionPipeline {
   private bodyTurnIsStepping = false;
   private footIkMix = 0;
   private locomotionWeight = 0; // 下半身步态连续混合权重 [0: 动作源下半身, 1: 步态踱步]
+  public targetYawOffset = 0.0;
   private boundVrm: VRM | null = null;
   private _btPos = new THREE.Vector3();
 
@@ -159,10 +160,33 @@ export class MotionPipeline {
     }
   }
 
-  /** Play thinking VRMA as the live pipeline source (thinkSway trait, no director flag). */
+  /**
+   * 同步当前角色朝向，使 targetYawOffset 与当前朝向严格一致，
+   * 并复位下半身步态系统，避免手动转动角色时触发任何迈步动作。
+   */
+  public syncFacingYaw(vrm: VRM, camera: THREE.Camera): void {
+    this._btPos.copy(vrm.scene.position);
+    const dx = camera.position.x - this._btPos.x;
+    const dz = camera.position.z - this._btPos.z;
+    const isVrm0 = vrm.meta?.metaVersion === '0';
+    const baseYaw = isVrm0 ? Math.PI : 0;
+    const currentFacingYaw = vrm.scene.rotation.y - baseYaw;
+    this.targetYawOffset = currentFacingYaw - Math.atan2(dx, dz);
+    this.resetLocomotion();
+  }
+
+  /**
+   * 复位下半身步态系统与混合权重，立即平息踏步动作
+   */
+  public resetLocomotion(): void {
+    this.bodyTurn.reset();
+    this.locomotionWeight = 0;
+  }
+
+  /** Play thinking VRMA as the live pipeline source (thinkSway trait disabled to prevent asynchronous sinusoidal collision with clip). */
   playThinkingClip(clip: THREE.AnimationClip, vrm: VRM, fadeDuration = SOURCE_FADE_DURATION): void {
     this.idle.traits.thinkSway = false;
-    this.vrma.traits = { allowLocomotion: true, thinkSway: true };
+    this.vrma.traits = { allowLocomotion: true, thinkSway: false };
     this.vrma.playLoop(clip, vrm, fadeDuration);
     this.setMotionSource('vrma', fadeDuration, this.gaze.getLookAtOffsets(), 'upperBody');
   }
@@ -318,8 +342,20 @@ export class MotionPipeline {
       const isVrm0 = vrm.meta?.metaVersion === '0';
       const baseYaw = isVrm0 ? Math.PI : 0;
       const currentFacingYaw = vrm.scene.rotation.y - baseYaw;
-      const targetYaw = Math.atan2(dx, dz) - currentFacingYaw;
-      const normYaw = Math.atan2(Math.sin(targetYaw), Math.cos(targetYaw));
+      const desiredYaw = Math.atan2(dx, dz) + this.targetYawOffset;
+      let targetYaw = desiredYaw - currentFacingYaw;
+      // 限制前瞻角位移差值在 [-2π, 2π]，避免极速甩动时积压过多圈数
+      if (targetYaw > Math.PI * 2) {
+        this.targetYawOffset = currentFacingYaw - Math.atan2(dx, dz) + Math.PI * 2;
+        targetYaw = Math.PI * 2;
+      } else if (targetYaw < -Math.PI * 2) {
+        this.targetYawOffset = currentFacingYaw - Math.atan2(dx, dz) - Math.PI * 2;
+        targetYaw = -Math.PI * 2;
+      }
+      // 关键修复：严禁在此使用 atan2(sin, cos) 模折叠！
+      // 否则只要偏角越过 180° (π)，角位移符号就会瞬间倒置反转，导致角色在 180° 处卡死或反向抽搐。
+      // 保持目标方向单调一致，平滑限幅弹簧加速度上限：
+      const normYaw = Math.max(-2.5, Math.min(2.5, targetYaw));
       vrm.scene.rotation.y += this.bodyTurn.update(delta, normYaw, true);
       this.bodyTurn.copyToLowerBodyBuffer(this.locomotionPose);
     }
@@ -337,7 +373,20 @@ export class MotionPipeline {
     }
 
     // 3. Idle into PoseBuffer only (never a VRM writer while another source is live)
-    this.idle.sampleInto(this.basePose, time, 1.0, isStepping ? 1.0 : this.locomotionWeight);
+    const isBusyAction = ctx.isSpeaking || this.activeSource !== 'idle' || this.isCrossfading;
+    if (this.idle.enabled) {
+      this.idle.sampleInto(
+        this.basePose,
+        time,
+        1.0,
+        isStepping ? 1.0 : this.locomotionWeight,
+        delta,
+        ctx.isSpeaking,
+        isBusyAction,
+      );
+    } else {
+      this.basePose.copyFrom(this.restPose);
+    }
     this.basePose.sceneY = vrm.scene.position.y;
 
     // 4. Layer-1 action

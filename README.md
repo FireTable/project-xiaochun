@@ -46,6 +46,17 @@ The UI is fully **SSR-hydrated multi-language** (zh-CN / en / ja) via TanStack S
 
 ## ✨ Key Features
 
+### 🖥️ Native Hybrid Desktop Companion (Tauri 2.x)
+* **Frameless Transparent Desktop Pet (桌宠)**: Floats borderless and chromeless directly over the desktop environment with 100% transparent operating system compositing.
+* **60Hz Real-Time Canvas Alpha Bitmask Click-Through**: 16ms high-frequency thread evaluates true character alpha pixels using 1-ns bitwise shift tests. Clicks seamlessly pass through transparent pixels to desktop apps beneath, while retaining solid interaction on the character and UI.
+* **Persistent Window Coordinates & Freeform Dragging**: Built-in `tauri-plugin-window-state` automatically restores window position and size. Four corner handles enable fluid resizing without canvas flickering, alongside an `Option/Alt + Drag` shortcut anywhere on the character.
+* **Cross-Process Protocol (`xiaochun://`)**: Custom OS URL Scheme enabling external scripts, AI agents, browsers, and CLI tools to wake up XiaoChun and trigger `speakText` with full body motion and lip-syncing.
+
+### 🌐 3D Holographic Interaction Guides & Physics Dynamics
+* **In-World Holographic Guides**: Replaces flat 2D sliders with embedded 3D controls — `TurnGuide3D` (horizontal yaw ring with responsive light beacon), `PitchGuide3D` (elevation arc), and `CameraYGuide3D` (floating 3D height rail).
+* **Localized Mouse Wind Aerodynamics**: Cursor velocity induces real-time 3D wind drag impulses (`windForce.ts`), causing hair ribbons, clothing fabrics, and accessories to flutter dynamically.
+* **Pure Quaternion Chain & Biomechanical Fixes**: Eradicates head rotation snap and non-uniform shearing distortions through pure affine coordinates and quaternion interpolation.
+
 ### 🎭 VRM Core Engine & Modular Architecture
 * **VRM 1.0 & VRM 0.x Dual-Standard Modular Pipeline**: Powered by `@pixiv/three-vrm` with MToon NPR shading. The core engine (`VRMEngine`) is decoupled into specialized subsystems, natively accommodating both modern **VRM 1.0** and classic **VRM 0.x** avatars:
   * **Transparent Pipeline Translation**: All upstream motion generators (idle, EMAGE, VRMA clips, locomotion stepping, gaze) author poses strictly in the VRM 1.0 standard coordinate space. `PoseBuffer` automatically handles bone axis inversions and coordinate mapping under the hood, ensuring VRM 0.0 avatars work out-of-the-box with zero joint inversions.
@@ -237,6 +248,9 @@ To deploy automatically on every `git push`:
 
 ```text
 Project-XiaoChun/
+├── .github/                   # Continuous Integration & Delivery
+│   └── workflows/
+│       └── release-tauri.yml  # Multi-platform (macOS/Win/Linux) matrix build & GitHub release workflow
 ├── public/                    # Static assets (hosted via Cloudflare Workers Assets)
 │   ├── vrm/                   # Modular VRM base and delta clothing addons
 │   │   ├── xiaochun_base.vrmbase  # Stripped base model (~5.9 MB, oxipng compressed textures)
@@ -253,8 +267,17 @@ Project-XiaoChun/
 │   ├── llms.txt / llms-full.* # AI agent & LLM GEO documentation specs
 │   ├── og.jpg                 # OpenGraph share card
 │   └── logo.png / favicon.*   # Brand and icon assets
+├── src-tauri/                 # Tauri 2.x native desktop hybrid application layer
+│   ├── src/lib.rs             # 60Hz alpha bitmask click-through, single-instance IPC, deep-link routing
+│   ├── capabilities/          # Desktop permission capability declarations
+│   └── tauri.conf.json        # Desktop window, transparent compositing & URL scheme configs
 ├── docs/                      # Architecture and module deep-dive docs
 │   ├── README.md              # Documentation index and agent routing guide
+│   ├── INTERACTION_AND_CONTROLS.md # User interaction, shortcuts, mouse gestures & platform differences
+│   ├── HYBRID_DESKTOP_APP.md  # Desktop companion mode, click-through, and Tauri 2.x setup
+│   ├── PROTOCOL.md            # Inter-process protocol (xiaochun://) specification & actions
+│   ├── AGENT_SKILL.md         # Autonomous AI Agent skill specification for companion control
+│   ├── INTERACTION_AND_3D_GUIDES.md # 3D holographic guides, wind dynamics & quaternion fixes
 │   ├── ARCHITECTURE_AND_RULES.md # System architecture, 10-step lifecycle & developer rules
 │   ├── OUTFIT_SWAP.md         # 0-frame T-pose state snapshot, delta addons & IDB caching
 │   ├── POSTFX.md              # UnrealBloomPass halos, background bypass & tone grading
@@ -267,48 +290,38 @@ Project-XiaoChun/
 │   ├── CHAT_DIRECTOR.md       # LLM + TTS + EMAGE streaming orchestration
 │   ├── ON_DEVICE_AI.md        # On-device AI inference full stack
 │   └── EMAGE_MODEL.md         # EMAGE status & known limits (wasm/INT8, streaming, isolation)
-├── scripts/                   # Build and offline asset processing scripts
-│   └── build-vrm/             # VRM delta packaging and texture optimization (workflow.mjs)
+├── scripts/                   # Build, offline asset processing, and protocol runners
+│   ├── build-vrm/             # VRM delta packaging and texture optimization (workflow.mjs)
+│   └── protocol-call.mjs      # Fast CLI runner for protocol speech testing
 ├── wrangler.jsonc             # Cloudflare Workers declarative configuration
 ├── src/
 │   ├── routes/                # TanStack Start file-based routes
 │   │   ├── __root.tsx         # Root layout (i18n SSR hydration, GEO JSON-LD & meta tags)
 │   │   └── index.tsx          # Main index route
-│   ├── components/            # React UI components (TopHeader, ChatBar, HeadBubble, DevDrawer…)
-│   │   ├── dev-drawer/         # Debug drawer — schema-driven 8 sections (localhost only)
-│   │   │   ├── DevDrawer.tsx          # Shell (header + SectionRenderer list)
-│   │   │   ├── schema.ts              # SECTIONS[] (id + order) — add a section = 1 line
-│   │   │   ├── renderer.tsx           # id → component REGISTRY
-│   │   │   ├── context.tsx            # DevDrawerContext (t / collapsed / resetSignal)
-│   │   │   ├── storage.ts             # localStorage helpers (settings + collapsed)
-│   │   │   ├── components/            # Shared primitives
-│   │   │   │   ├── SectionCard.tsx    # Card wrapper (optional collapse gate via id)
-│   │   │   │   ├── SectionHeader.tsx  # Chevron + title + modified dot + reset
-│   │   │   │   └── HeightChip.tsx     # Live height chip subscribing to engine
-│   │   │   ├── sections/              # 8 self-contained section components
-│   │   │   │   ├── ExpressionsSection.tsx
-│   │   │   │   ├── CameraSection.tsx           # FOV + min/max distance + body-turn toggle
-│   │   │   │   ├── SaturationSection.tsx       # 4 sliders + 4 presets
-│   │   │   │   ├── BoneMorphSection.tsx        # 28 sliders grouped into 7 body regions
-│   │   │   │   ├── WardrobeSection.tsx         # Part visibility (穿 / 未穿 / 未装配)
-│   │   │   │   ├── LightingSection.tsx         # 3 channels (dir/hemi/fill) + global mult
-│   │   │   │   ├── PostFxSection.tsx           # Bloom / ToneMapping / Color grading
-│   │   │   │   └── EmagePerfSection.tsx        # P0b wasm_env / isolation / stage timings
-│   │   │   └── hooks/                 # Shared section hooks
-│   │   ├── AdvancedSettingsDialog.tsx  # User-customizable system prompt + memory-turns slider
-│   │   ├── SyncDialog.tsx     # Cross-device encrypted text transfer (AES-GCM)
-│   │   ├── SliderWithAnchors.tsx       # Slider + visual anchor ticks (Radix-aligned, onTick/onCommit split)
-│   │   └── ui/                # Radix UI primitives (button, dialog, dropdown-menu, slider, tooltip)
+│   ├── components/            # React UI components
+│   │   ├── TauriWindowFrame.tsx   # Native desktop frameless resize handles & corner glow
+│   │   ├── TauriTopHeader.tsx     # Desktop window power & dev reload controls
+│   │   ├── TopHeader.tsx          # Responsive top navigation (scene / wardrobe / lang / settings)
+│   │   ├── ChatBar.tsx            # Streaming chat interface & model switcher
+│   │   ├── HeadBubble.tsx         # 3D projected speech dialogue bubbles
+│   │   ├── dev-drawer/            # Schema-driven 8-section debug drawer (localhost only)
+│   │   ├── SliderWithAnchors.tsx  # Optimized slider with onTick / onCommit split
+│   │   └── ui/                    # Radix UI primitives
+│   ├── hooks/                 # Reusable UI & platform hooks
+│   │   ├── usePetUiVisibility.ts  # Intentional click-to-toggle desk-pet UI state management
+│   │   └── useDeferredUnmount.ts  # Smooth 300ms transition with complete DOM unmounting
 │   ├── core/                  # 3D rendering & scene core (Decoupled Facade architecture)
 │   │   ├── vrmEngine.ts       # Central engine coordinator (slim Facade, render loop, VRM loading)
-│   │   ├── outfitSwap.ts      # Atomic outfit swapping (pose snapshot capture & in-memory pre-restore)
-│   │   ├── vrmWorker.ts       # Background worker (WASM bspatch assembly & 2-tier IDB cache)
-│   │   ├── morph/             # Runtime body part scaling driven by DevDrawer sliders
-│   │   │   └── vrmBodyMorph.ts # VRMBodyMorph — 28-parameter bone-by-bone scale bindings
-│   │   ├── scene/             # Linework world (lineworkWorld.ts: dual themes / sun rays / skyline / grid / trees)
+│   │   ├── protocol/          # Inter-process protocol layer (types.ts, handler.ts, index.ts)
+│   │   ├── interaction/       # 3D holographic controls (interactionController, turnGuide, pitchGuide, cameraYGuide)
+│   │   ├── wind/              # Aerodynamic localized cursor wind forces (windForce.ts)
+│   │   ├── scene/             # Scene manager, lineworkWorld, characterShadow, and passthroughManager
 │   │   ├── lighting/          # 3-channel studio lighting (studioLighting.ts: dir / hemi / fill)
 │   │   ├── postfx/            # Post-processing pipeline (postFxPipeline.ts: Bloom/ToneMapping/ColorGrading)
-│   │   ├── material/          # MToon material management (vrmMaterialManager.ts: part visibility + Shader saturation)
+│   │   ├── material/          # MToon material management (vrmMaterialManager.ts: saturation injection)
+│   │   ├── morph/             # 28-parameter bone-by-bone scale bindings (vrmBodyMorph.ts)
+│   │   ├── outfitSwap.ts      # Atomic outfit swapping (pose snapshot capture & in-memory pre-restore)
+│   │   ├── vrmWorker.ts       # Background worker (WASM bspatch assembly & 2-tier IDB cache)
 │   │   └── ui/                # Spatial UI tracker (bubbleTracker.ts: raw crown → 2D bubble)
 │   ├── motion/                # Motion system (plugin pipeline + bio-inspired posture)
 │   │   ├── pipeline/          # tick / selectLiveMotionSource / PoseBuffer / transition
@@ -317,25 +330,12 @@ Project-XiaoChun/
 │   │   └── vrmaRetarget.ts    # VRMA bone retargeting & normalization
 │   ├── memory/                # Client-side multi-tier memory (IndexedDB / entity extraction / n-gram retrieval)
 │   ├── llm/                   # LLM layer — WebLLM + custom OpenAI-compatible provider factory
-│   │   ├── webLLMProvider.ts   # WebLLM engine + runChat
-│   │   ├── customProvider/     # Custom OpenAI-compatible providers
-│   │   │   ├── index.ts        #   Public exports
-│   │   │   ├── client.ts       #   fetch + SSE + probeProvider
-│   │   │   ├── crypto.ts       #   AES-GCM API key encryption (PBKDF2)
-│   │   │   ├── speech.ts       #   Custom provider's runChat
-│   │   │   ├── store.ts        #   IndexedDB profile persistence (incl. listProvidersDecrypted)
-│   │   │   └── types.ts        #   ProviderProfile + KNOWN_TEMPLATES
-│   │   ├── chatTypes.ts        # Shared RunChatOptions / ChatProvider / ChatMessage
-│   │   ├── chatWorkflow.ts     # Cross-provider dispatcher + clean speech + fallback
-│   │   ├── activeModel.ts      # Unified active key in localStorage `xiaochun.llm.model` (`webllm:{modelId}` | `custom:{providerId}`)
-│   │   ├── userSettings.ts     # User-customizable settings (system prompt / memory turns) IDB
-│   │   ├── syncPayload.ts      # Cross-device sync payload (AES-GCM + xs:v1:iv.ct.key format)
-│   │   └── progress.ts         # llmPct event bus
 │   ├── director/
 │   │   └── chatDirector.ts    # LLM → TTS → EMAGE streaming coordinator pipeline
 │   ├── i18n/                  # zh-CN / en / ja translation dictionaries + server cookie helper
 │   ├── lib/                   # Cross-cutting utilities
-│   │   ├── utils.ts           # cn() className merge helper
+│   │   ├── platform.ts        # Desktop/Tauri/Browser environment detection & window actions
+│   │   ├── utils.ts           # Shared class merge and speech chunk slicer
 │   │   ├── constants.ts
 │   │   └── edge-tts-core.ts   # Native Edge-TTS WebSocket client (no third-party TTS SDK)
 │   ├── styles/
@@ -345,7 +345,7 @@ Project-XiaoChun/
 │   ├── server.ts              # Cloudflare Worker entry (SSR + /api/tts WS + COOP/COEP isolation headers)
 │   ├── router.tsx             # TanStack Router factory
 │   ├── routeTree.gen.ts       # Auto-generated type-safe route tree
-│   └── config.ts              # SSOT (R2 / camera / lights / postfx / LLM / bodyMorph / emage.models + emage.motion hop/seam)
+│   └── config.ts              # SSOT (R2 / camera / lights / postfx / LLM / bodyMorph / emage.models + emage.motion)
 ├── vite.config.ts             # Vite 8 + TanStack Start + @cloudflare/vite-plugin
 ├── vite/                      # Custom vite plugins (extracted from vite.config.ts)
 │   ├── localApiPlugin.ts       # /api/tts dev middleware (TTS proxy with EU fallback)

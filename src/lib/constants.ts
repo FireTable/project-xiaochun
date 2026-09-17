@@ -29,8 +29,17 @@ export const MAT_SATURATION_KEY = 'xiaochun.mat_saturation_settings';
 /** 体型微调(Bone Morph) 配置 */
 export const BODY_MORPH_KEY = 'xiaochun_dev_body_morph';
 
-/** 摄像机状态(position / target / fov 等) */
+/** @deprecated 原相机全量坐标已废弃，已拆分为独立的 BODY_YAW_KEY 与 CAMERA_PITCH_KEY */
 export const CAMERA_STATE_KEY = 'xiaochun_camera_state';
+
+/** 角色水平身体旋转偏角 (bodyTurn yaw, 弧度 rad) */
+export const BODY_YAW_KEY = 'xiaochun_body_yaw';
+
+/** 摄像机垂直俯仰角与视距 (polar pitch 弧度及可选 distance) */
+export const CAMERA_PITCH_KEY = 'xiaochun_camera_pitch';
+
+/** 调试滑条: 相机 + target 同步平移 Y 偏移 (米, -1 ~ +1), 用于视点微调 */
+export const CAMERA_Y_OFFSET_KEY = 'xiaochun_camera_y_offset';
 
 /** DevDrawer 所有面板的展开 / 值合并存储 */
 export const DEV_DRAWER_STORAGE_KEY = 'xiaochun_dev_drawer_all_settings';
@@ -129,3 +138,11 @@ export const VRM_MOTION_CORE_BONES = [
 ] as const;
 
 export type VRMMotionCoreBoneName = typeof VRM_MOTION_CORE_BONES[number];
+
+export { hasInteractionModifier, getPrimaryModifierLabel, isMacOS } from './platform';
+
+/**
+ * 桌面桌宠端辅助交互修饰键（Mac 上精准判定 Command ⌘，Windows/Linux 上精准判定 Ctrl）
+ */
+export const INTERACTION_MODIFIERS = ['metaKey', 'ctrlKey'] as const;
+

@@ -212,7 +212,24 @@ Full implementation details in [`docs/ARCHITECTURE_AND_RULES.md` §3](https://gi
 
 ---
 
-## 9. Third-Party Attributions
+## 9. Native Hybrid Desktop Companion (Tauri 2.x) & IPC Protocol
+
+Project XiaoChun features a cross-platform desktop build powered by **Tauri 2.x**:
+
+### 9.1 Transparent Desktop Companion
+- **Frameless OS Compositing**: Floats borderless and chromeless with true alpha transparency directly above the user's workspace.
+- **60Hz Alpha Bitmask Click-Through Engine**: A dedicated background thread in `src-tauri/src/lib.rs` computes real-time 1-nanosecond bitwise hit tests on the rendered canvas alpha channel. Transparent spaces pass clicks through to background OS windows, while solid parts (character, clothing, UI) capture mouse events.
+- **Window State Persistence**: Automatically records and restores window dimensions and screen coordinates via `tauri-plugin-window-state`.
+
+### 9.2 Cross-Process Protocol (`xiaochun://`)
+- **System URL Scheme**: Registered custom protocol (`xiaochun://`) allows external tools, AI coding agents, and shell scripts to awaken XiaoChun.
+- **Single-Instance Multiplexing**: If XiaoChun is already running, triggering a URL unminimizes and focuses the companion without launching redundant processes.
+- **Action Dispatcher**: Invoking `xiaochun://speak?text=...` or `xiaochun://speak?file=/path/to/txt` queues speech directly to `vrmEngine.speakText` with real-time lip-sync and 3D EMAGE gestures.
+- **Agent Skill Integration**: Out-of-the-box standard AI Agent skill specification defined in `docs/AGENT_SKILL.md`.
+
+---
+
+## 10. Third-Party Attributions
 
 - [pixiv / three-vrm](https://github.com/pixiv/three-vrm) — VRM runtime (MIT)
 - [Pixiv / VRoid Studio](https://vroid.com/en/studio) — default character authoring tool (VRoid Studio License)

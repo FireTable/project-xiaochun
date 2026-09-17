@@ -2,7 +2,8 @@ import React, { useEffect, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Globe, Shirt, Check, Upload, Loader2, MountainSnow } from 'lucide-react';
 import { vrmEngine } from '@/core/vrmEngine';
-import type { LineworkTheme } from '@/core/scene/lineworkWorld';
+import { sceneManager, useCurrentScene } from '@/core/scene/sceneManager';
+import { passthroughManager } from '@/core/scene/passthroughManager';
 import { Settings, Github } from '@/components/icons';
 import { Button } from '@/components/ui/button';
 import {
@@ -18,23 +19,27 @@ import {
   TooltipContent,
 } from '@/components/ui/tooltip';
 import { APP_CONFIG } from '@/config';
-import { WEARING_OUTFIT_KEY, SCENE_THEME_KEY } from '@/lib/constants';
-import { resolveInitialSceneTheme } from '@/lib/utils';
+import { WEARING_OUTFIT_KEY } from '@/lib/constants';
 import { changeLang, LANG_LABELS, SUPPORTED_LANGS, type Lang } from '@/i18n';
+import { isTauri } from '@/lib/platform';
+import { useDeferredUnmount } from '@/hooks/useDeferredUnmount';
+import { TauriTopHeader } from '@/components/TauriTopHeader';
 
 interface TopHeaderProps {
   isDev: boolean;
   isDrawerOpen: boolean;
+  isPetUIVisible?: boolean;
   onToggleDrawer: () => void;
 }
 
 export const TopHeader: React.FC<TopHeaderProps> = ({
   isDev,
   isDrawerOpen,
+  isPetUIVisible = false,
   onToggleDrawer,
 }) => {
   const { t, i18n } = useTranslation();
-  const fileInputRef = useRef<HTMLInputElement | null>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
   // 当前 wearing 的 addon key (null = 裸模 base)。
   // 持久化到 localStorage (WEARING_OUTFIT_KEY),刷新后从 base 走 swapOutfit 还原 — 不需要
   // 重新走 cinematicIntro / 全 reset 路径。
@@ -52,36 +57,43 @@ export const TopHeader: React.FC<TopHeaderProps> = ({
   // TopHeader 不直接管理 isSwapping,而是订阅 vrmEngine.onSwapProgress 单一来源,
   // 让按钮 spinner / disabled 跟 worker 真实进度严格对齐,不靠本地 setTimeout 估时。
   const [isSwapping, setIsSwapping] = useState(false);
+  const headerRef = useRef<HTMLElement>(null);
+
   useEffect(() => {
     vrmEngine.onSwapProgress = (state) => setIsSwapping(state.active);
     return () => { vrmEngine.onSwapProgress = undefined; };
   }, []);
 
-  const [sceneTheme, setSceneTheme] = useState<LineworkTheme>(() => resolveInitialSceneTheme());
-
-  const handleSceneThemeChange = (theme: LineworkTheme) => {
-    if (sceneTheme === theme) return;
-    setSceneTheme(theme);
-    vrmEngine.setLineworkTheme(theme, true);
-  };
-
-  // 初次访问且用户未手动切换主题时，监听系统亮暗模式变化自动无感切换
   useEffect(() => {
-    if (typeof window === 'undefined' || typeof window.matchMedia !== 'function') return;
-    const mediaQuery = window.matchMedia('(prefers-color-scheme: dark)');
-    const handleChange = (e: MediaQueryListEvent) => {
-      try {
-        // 仅当用户未显式存储主题偏好时跟随系统，不持久化至 localStorage
-        if (localStorage.getItem(SCENE_THEME_KEY) === null) {
-          const autoTheme: LineworkTheme = e.matches ? 'dark' : 'light';
-          setSceneTheme(autoTheme);
-          vrmEngine.setLineworkTheme(autoTheme, false);
-        }
-      } catch {}
+    const updateHeaderBounds = () => {
+      if (headerRef.current) {
+        const rect = headerRef.current.getBoundingClientRect();
+        passthroughManager.registerUIRect('top-header', {
+          x: rect.left,
+          y: rect.top,
+          width: rect.width,
+          height: rect.height,
+        });
+      }
     };
-    mediaQuery.addEventListener('change', handleChange);
-    return () => mediaQuery.removeEventListener('change', handleChange);
+    updateHeaderBounds();
+    window.addEventListener('resize', updateHeaderBounds);
+    return () => {
+      window.removeEventListener('resize', updateHeaderBounds);
+      passthroughManager.registerUIRect('top-header', null);
+    };
   }, []);
+
+  // 场景管理：订阅单一可信源 sceneManager
+  const currentScene = useCurrentScene();
+  const isTransparent = Boolean(currentScene.isTransparent);
+  // ponytail: 不再有 hover-show — 透明桌宠模式只靠点击角色身体 (App.tsx 的 isPetUIVisible) 唤出/收起
+  const [openMenuCount, setOpenMenuCount] = useState(0);
+
+  const handleSceneChange = (sceneId: string) => {
+    if (currentScene.id === sceneId) return;
+    void sceneManager.setScene(sceneId, true);
+  };
 
   // ponytail: C 方案 — '__upload__' 哨兵表示"当前穿的是用户上传的 VRM"。
   // blob URL 是临时,不能持久化 (会变成 stale key),所以仅驻留内存,
@@ -174,11 +186,24 @@ export const TopHeader: React.FC<TopHeaderProps> = ({
   // 给抽屉 w-84 (21rem) 让位,留 1rem gap。移动端 drawer 占 92vw,header 没地方让,不动。
   const headerRightClass = isDrawerOpen ? 'sm:right-[22rem]' : 'sm:right-5';
 
+  const showHeader = !isTransparent || isPetUIVisible || openMenuCount > 0 || isDrawerOpen || isSwapping;
+  // ponytail: 延迟 unmount 让淡出动画跑完 (300ms = transition duration), 之后彻底从 DOM 摘掉,
+  // 避免 Radix Tooltip 在 opacity-0 / pointer-events-none 下仍被触发。
+  // animated 拆出来: 首帧停在 opacity-0 让 CSS transition 有起点, 入场动画才会触发。
+  const { mounted, animated } = useDeferredUnmount(showHeader, 300);
+  if (!mounted) return null;
+  const visibilityClass = showHeader && animated
+    ? 'opacity-100 translate-y-0 pointer-events-auto'
+    : 'opacity-0 -translate-y-2 pointer-events-none';
+
   return (
     // ponytail: z-50 永远在 drawer (z-40) 之上 — drawer 打开时按钮不被 drawer 半透明背景糊掉。
     // 其它按钮(Upload / Lang / GitHub / Settings)只要位置压到 drawer 区都会被挡,
     // 统一提到 z-50 一次解决,不必为每个按钮单独处理。
-    <header className={`absolute top-3 left-3 right-3 sm:top-5 sm:left-5 ${headerRightClass} z-50 flex justify-end items-center pointer-events-none transition-[right] duration-300`}>
+    <header
+      ref={headerRef}
+      className={`absolute top-3 left-3 right-3 sm:top-5 sm:left-5 ${headerRightClass} z-50 flex justify-end items-center transition-all duration-300 ease-out ${visibilityClass}`}
+    >
       {/* 顶部操作区 — ponytail: TW mobile-first,移动端按钮统一 h-10(40px,iOS HIG 44 允许按钮密集布局),
           sm 起拉回默认 size 的 h-9;icon 按钮 h-11(44)→ sm:h-9(36)。
           字号 text-sm → sm:text-xs,图标 w-4 h-4 → sm:w-3.5 sm:h-3.5。 */}
@@ -192,8 +217,8 @@ export const TopHeader: React.FC<TopHeaderProps> = ({
           onChange={handleFileUpload}
         />
 
-        {/* 场景风格切换菜单 — 昼白/极夜黑线稿背景 */}
-        <DropdownMenu>
+        {/* 场景风格切换菜单 — 昼白/极夜黑线稿背景 (透明仅在 Tauri 端可选) */}
+        <DropdownMenu onOpenChange={(open) => setOpenMenuCount((c) => open ? c + 1 : Math.max(0, c - 1))}>
           <DropdownMenuTrigger asChild>
             <Button
               id="btn-switch-scene"
@@ -207,20 +232,18 @@ export const TopHeader: React.FC<TopHeaderProps> = ({
             </Button>
           </DropdownMenuTrigger>
           <DropdownMenuContent align="end">
-            <DropdownMenuItem
-              onSelect={() => handleSceneThemeChange('light')}
-              className="justify-between"
-            >
-              <span>{t('header.switchScene.light')}</span>
-              {sceneTheme === 'light' && <Check className="w-3 h-3 text-brand-300" />}
-            </DropdownMenuItem>
-            <DropdownMenuItem
-              onSelect={() => handleSceneThemeChange('dark')}
-              className="justify-between"
-            >
-              <span>{t('header.switchScene.dark')}</span>
-              {sceneTheme === 'dark' && <Check className="w-3 h-3 text-brand-300" />}
-            </DropdownMenuItem>
+            {Object.values(APP_CONFIG.scenes.items)
+              .filter((scene) => !scene.isTransparent || isTauri())
+              .map((scene) => (
+                <DropdownMenuItem
+                  key={scene.id}
+                  onSelect={() => handleSceneChange(scene.id)}
+                  className="justify-between"
+                >
+                  <span>{t(scene.nameKey)}</span>
+                  {currentScene.id === scene.id && <Check className="w-3 h-3 text-brand-300" />}
+                </DropdownMenuItem>
+              ))}
           </DropdownMenuContent>
         </DropdownMenu>
 
@@ -228,7 +251,7 @@ export const TopHeader: React.FC<TopHeaderProps> = ({
             触发器是 icon-only 按钮(Shirt 图标),菜单里列 N 个 addon,激活态打 ✓。
             isSwapping 期间按钮 disabled + Loader2 旋转,防用户连点重复请求。 */}
         {Object.keys(addons).length > 0 && (
-          <DropdownMenu>
+          <DropdownMenu onOpenChange={(open) => setOpenMenuCount((c) => open ? c + 1 : Math.max(0, c - 1))}>
             <DropdownMenuTrigger asChild>
               <Button
                 id="btn-switch-outfit"
@@ -306,7 +329,7 @@ export const TopHeader: React.FC<TopHeaderProps> = ({
 
         <Tooltip>
           <TooltipTrigger asChild>
-            <DropdownMenu>
+            <DropdownMenu onOpenChange={(open) => setOpenMenuCount((c) => open ? c + 1 : Math.max(0, c - 1))}>
               <DropdownMenuTrigger asChild>
                 <Button
                   id="btn-switch-lang"
@@ -373,7 +396,7 @@ export const TopHeader: React.FC<TopHeaderProps> = ({
                 title={t('header.settingsPanel')}
                 aria-label={t('header.settingsPanel')}
                 onClick={onToggleDrawer}
-                className={`h-11 w-11 sm:h-9 sm:w-9 ${isDrawerOpen ? 'bg-brand-500/25 border-brand-300 text-brand-100 rotate-90 shadow-lg shadow-brand-500/25' : ''}`}
+                className={`h-11 w-11 sm:h-9 sm:w-9 ${isDrawerOpen ? 'bg-brand-500/25 border-brand-300 text-brand-100 rotate-90' : ''}`}
               >
                 <Settings className={`w-4 h-4 sm:w-3.5 sm:h-3.5 ${isDrawerOpen ? 'text-slate-900' : ''}`} />
               </Button>
@@ -383,6 +406,9 @@ export const TopHeader: React.FC<TopHeaderProps> = ({
             </TooltipContent>
           </Tooltip>
         ) : null}
+
+        {/* ponytail: 桌面端专属 power 按钮, 嵌在 TopHeader 末尾, 浏览器/移动端不渲染 */}
+        <TauriTopHeader />
       </div>
     </header>
   );

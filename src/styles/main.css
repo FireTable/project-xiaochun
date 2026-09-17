@@ -34,7 +34,7 @@
       sans-serif;
     color: #f8fafc;
     user-select: none;
-    background-color: #0a0812;
+    background-color: transparent;
     /* ponytail: 禁止横向滚动 — 移动端任何定位元素溢出都会被截,避免界面"跳动"。 */
     overflow-x: hidden;
     /* ponytail: iOS 点击高亮关掉,避免 button 闪蓝光。 */
@@ -44,6 +44,7 @@
   html {
     -webkit-text-size-adjust: 100%;
   }
+
 
   /* ponytail: ChatBar useEffect 在 keyboard 出现时把键盘高度写到 --kb。
    ChatBar 用 calc(... + var(--kb)) 浮起 — 3D 场景保持原尺寸不被挤压。
@@ -251,3 +252,57 @@ input[type="range"]::-webkit-slider-thumb:hover {
 .animate-stream-rotate {
   animation: stream-rotate 3.2s linear infinite;
 }
+
+/* ─────────────────────────────────────────────────────────────
+ * 桌面端/桌宠/透明模式：位于所有 @layer 之外（Unlayered CSS），
+ * 拥有超越任何 Tailwind utility 类的最高级联优先级。
+ * 彻底铲除 html, body, #root, #app, canvas 等容器上的任何深色底色、边框、外阴影与滤镜。
+ * ───────────────────────────────────────────────────────────── */
+html.scene-transparent,
+html.scene-transparent body,
+html.scene-transparent #root,
+html.scene-transparent #app,
+html.scene-transparent canvas {
+  background-color: transparent !important;
+  background: transparent !important;
+  box-shadow: none !important;
+  border: none !important;
+  outline: none !important;
+  filter: none !important;
+  backdrop-filter: none !important;
+}
+
+/* ─────────────────────────────────────────────────────────────
+ * Tauri 桌面端专属全局无框圆角视口规范 (仅在 is-tauri 生效)
+ * 1. 严格隔离：标准 Web 浏览器环境完全不触发，保留原生浏览器视口与滚动特性；
+ * 2. 全局生效：不论处于启动 Loading 遮罩、3D 房间、线稿世界还是透明桌宠场景，
+ *    整个窗口均统一由 20px 硬件级圆角与防溢出裁切接管；
+ * 3. 极客微光边框：提供极细腻的 1px 晶透内高光，契合 macOS/VSCode 高级原生质感。
+ * ───────────────────────────────────────────────────────────── */
+html.is-tauri,
+html.is-tauri body {
+  background-color: transparent !important;
+  background: transparent !important;
+  overflow: hidden !important;
+}
+
+html.is-tauri #root {
+  position: fixed !important;
+  inset: 0 !important;
+  width: 100vw !important;
+  height: 100vh !important;
+  border-radius: 20px !important;
+  overflow: hidden !important;
+  transform: translateZ(0) !important;
+}
+
+html.is-tauri #app {
+  border-radius: 20px !important;
+  overflow: hidden !important;
+}
+
+html.is-tauri #loading-overlay {
+  border-radius: 20px !important;
+  overflow: hidden !important;
+}
+

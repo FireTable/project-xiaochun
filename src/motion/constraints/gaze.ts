@@ -1,6 +1,7 @@
 import * as THREE from 'three';
 import type { VRM } from '@pixiv/three-vrm';
 import type { MotionTraits } from '../pipeline/types';
+import { APP_CONFIG } from '@/config';
 
 /**
  * GazeController — 仿生人机交互视线伴随、眨眼与思考神态微动系统
@@ -137,6 +138,9 @@ export class GazeController {
   /**
    * 每帧渲染主循环中统一更新
    */
+  /**
+   * 每帧渲染主循环中统一更新
+   */
   update(
     vrm: VRM,
     delta: number,
@@ -176,7 +180,7 @@ export class GazeController {
         vrm.expressionManager.setValue('relaxed', 0);
         vrm.expressionManager.setValue('happy', 0);
       } else {
-        // 待机或思考态：思考嘴型随 tw 平滑渐变；待机默认闭嘴微带温婉浅笑
+        // 待机态：思考嘴型随 tw 渐变，保持平淡素雅自然神态
         vrm.expressionManager.setValue('ou', 0.65 * tw);
         vrm.expressionManager.setValue('relaxed', 0.15 * tw);
         vrm.expressionManager.setValue('happy', 0);
@@ -245,7 +249,6 @@ export class GazeController {
       this.isGlancingAway = !this.isGlancingAway && Math.random() < baseGlanceChance;
       if (this.isGlancingAway) {
         const side = Math.random() < 0.5 ? -1 : 1;
-        // 漂移幅度收紧至自然的 0.04~0.08m，避免“眼神飘到屏幕外”
         this.gazeOffsetTarget.set(side * (0.04 + Math.random() * 0.04), -0.03 - Math.random() * 0.03, 0);
         this.gazeShiftInterval = 0.6 + Math.random() * 0.4;
       } else {
@@ -255,43 +258,61 @@ export class GazeController {
     }
     this.gazeCurrentOffset.lerp(this.gazeOffsetTarget, Math.min(1.0, delta * 4.0));
 
+    const dx = camera.position.x - this._gazeOrigin.x;
+    const dy = camera.position.y - this._gazeOrigin.y;
+    const dz = camera.position.z - this._gazeOrigin.z;
+    const distXZ = Math.max(0.08, Math.sqrt(dx * dx + dz * dz));
+
+    const isVrm0 = vrm.meta?.metaVersion === '0';
+    const baseYaw = isVrm0 ? Math.PI : 0;
+    const currentFacingYaw = vrm.scene.rotation.y - baseYaw;
+    const targetYaw = Math.atan2(dx, dz) - currentFacingYaw;
+    const normYaw = Math.atan2(Math.sin(targetYaw), Math.cos(targetYaw));
+
+    // 生理视线扇区衰减 (Natural Vision FOV Attenuation)：
+    const absNormYaw = Math.abs(normYaw);
+    const fovComfort = APP_CONFIG.gaze.fovComfortHalfAngle; // ~1.57 rad (90°)
+    const fovBlind = APP_CONFIG.gaze.fovBlindHalfAngle;     // ~2.35 rad (135°)
+    let fovWeight = 1.0;
+    if (absNormYaw > fovComfort) {
+      if (absNormYaw >= fovBlind) {
+        fovWeight = 0.0;
+      } else {
+        const rawW = 1.0 - (absNormYaw - fovComfort) / (fovBlind - fovComfort);
+        fovWeight = rawW * rawW * (3.0 - 2.0 * rawW); // smoothstep
+      }
+    }
+
     const microSaccadeX = Math.sin(time * 6.7) * 0.012;
     const microSaccadeY = Math.cos(time * 5.3) * 0.008;
 
+    const naturalLookDistance = 3.0;
+    const forwardTargetX = this._gazeOrigin.x + Math.sin(currentFacingYaw) * naturalLookDistance;
+    const forwardTargetY = this._gazeOrigin.y;
+    const forwardTargetZ = this._gazeOrigin.z + Math.cos(currentFacingYaw) * naturalLookDistance;
+
+    const camTargetX = camera.position.x + this.gazeCurrentOffset.x + microSaccadeX;
+    const camTargetY = camera.position.y + this.gazeCurrentOffset.y + microSaccadeY;
+    const camTargetZ = camera.position.z + this.gazeCurrentOffset.z;
+
     this.gazeTarget.position.set(
-      camera.position.x + this.gazeCurrentOffset.x + microSaccadeX,
-      camera.position.y + this.gazeCurrentOffset.y + microSaccadeY,
-      camera.position.z + this.gazeCurrentOffset.z
+      forwardTargetX + (camTargetX - forwardTargetX) * fovWeight,
+      forwardTargetY + (camTargetY - forwardTargetY) * fovWeight,
+      forwardTargetZ + (camTargetZ - forwardTargetZ) * fovWeight,
     );
 
     // ── 6. 头颈部伴随注视与神态合成 ──
     if (this.isLookAtHead && headNode && neckNode) {
-      const dx = camera.position.x - this._gazeOrigin.x;
-      const dy = camera.position.y - this._gazeOrigin.y;
-      const dz = camera.position.z - this._gazeOrigin.z;
-      const distXZ = Math.max(0.08, Math.sqrt(dx * dx + dz * dz));
+      const clampedYaw = Math.max(-0.85, Math.min(0.85, normYaw)) * fovWeight;
 
-      const isVrm0 = vrm.meta?.metaVersion === '0';
-      const baseYaw = isVrm0 ? Math.PI : 0;
-      const currentFacingYaw = vrm.scene.rotation.y - baseYaw;
-      const targetYaw = Math.atan2(dx, dz) - currentFacingYaw;
-      const normYaw = Math.atan2(Math.sin(targetYaw), Math.cos(targetYaw));
-      // 充分恢复头颈可旋转角度 (±0.85 rad，约 ±49°)，让头部在 BodyTurn 前和转身过程中能够灵敏、充分地转头注视目标
-      const clampedYaw = Math.max(-0.85, Math.min(0.85, normYaw));
-
-      // 俯仰跟随 (Pitch)：仰角最大 ~24° (-0.42 rad)，俯角最大 ~21° (+0.36 rad)
+      // 俯仰跟随 (Pitch)
       const targetPitch = this.isLockHead ? 0 : -Math.atan2(dy, distXZ);
-      const clampedPitch = this.isLockHead ? 0 : Math.max(-0.42, Math.min(0.36, targetPitch));
+      const clampedPitch = (this.isLockHead ? 0 : Math.max(-0.42, Math.min(0.36, targetPitch))) * fovWeight;
       this.lastClampedYaw = clampedYaw;
       this.lastClampedPitch = clampedPitch;
       this.lastTargetYaw = normYaw;
       this.lastTargetPitch = targetPitch;
 
-      // ── 解剖学零侧倾注视 (Geodesic Roll-Free LookAt) ──
-      // 传统分骨欧拉角（分别对 neck 与 head 设 YXZ）在非零俯仰与偏航复合时，乘积必然产生非零的复合侧倾 (Roll)，
-      // 俯仰角越大（例如摄像机向下俯视），诱发的歪头越剧烈。
-      // 此处将整体视线目标构造为单一无侧倾总四元数，并沿同一测地线同轴球面插值分解到颈椎与头部：
-      // 保证整个运动过程中头骨与颈椎在局部与全局坐标系中绝对零侧倾，彻底杜绝任何歪头与停步回弹！
       this._eulerLookAt.set(clampedPitch, clampedYaw, 0, 'YXZ');
       this._targetTotalLookAtQ.setFromEuler(this._eulerLookAt);
 
@@ -317,11 +338,21 @@ export class GazeController {
         }
 
         const dt = Math.max(0.0001, Math.min(delta, 0.1));
-        // 动态自适应追踪刚度：当角色处于身体旋转或大角度视线调整时提升至 18.0，确保头身停步节奏高度一致，杜绝停步后长达 250ms 的滞后追尾感
+        // 动态自适应追踪刚度：结合人体转头生理角速度上限
         const isTurningOrLargeYaw = Math.abs(deltaSceneYaw) > 0.0001 || Math.abs(normYaw) > 0.15;
-        const trackSpeed = isTurningOrLargeYaw ? 18.0 : 12.0;
+        const trackSpeed = isTurningOrLargeYaw ? APP_CONFIG.gaze.trackSpeed : (APP_CONFIG.gaze.trackSpeed * 0.75);
         const smoothAlpha = 1.0 - Math.exp(-trackSpeed * dt);
-        this.lastTotalLookAtQ.slerp(this._targetTotalLookAtQ, smoothAlpha);
+
+        // 人体生理极限角速度约束 (Anatomical Angular Velocity Clamping)：
+        // 严格限制头颈单帧最大角位移不超过 maxHeadTurnSpeed * dt，彻底消除大角度转头速度过快甩飞头发
+        const dot = Math.min(1.0, Math.max(-1.0, Math.abs(this.lastTotalLookAtQ.dot(this._targetTotalLookAtQ))));
+        const angleDist = 2.0 * Math.acos(dot);
+        let finalAlpha = smoothAlpha;
+        if (angleDist > 0.0001) {
+          const maxAngleStep = APP_CONFIG.gaze.maxHeadTurnSpeed * dt;
+          finalAlpha = Math.min(smoothAlpha, maxAngleStep / angleDist);
+        }
+        this.lastTotalLookAtQ.slerp(this._targetTotalLookAtQ, finalAlpha);
       }
 
       // 颈部分担 28% 旋转，头颈合计传导 96%

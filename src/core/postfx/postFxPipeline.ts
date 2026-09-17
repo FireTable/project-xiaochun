@@ -127,7 +127,10 @@ export class PostFxPipeline {
   private _lastAppliedEnabled: boolean | null = null;
 
   init(renderer: THREE.WebGLRenderer, scene: THREE.Scene, camera: THREE.PerspectiveCamera): void {
-    if (this._ready) return;
+    if (this._ready && this._renderer === renderer) return;
+    if (this._ready) {
+      this.dispose();
+    }
     this._renderer = renderer;
 
     const pixelRatio = getRenderPixelRatio();

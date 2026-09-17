@@ -29,6 +29,51 @@ export interface LightConfig {
   globalMult: number;
 }
 
+export type LineworkTheme = 'light' | 'dark' | 'transparent';
+
+export interface SceneComponentConfig {
+  /** 顶部控制栏 */
+  topHeader?: boolean;
+  /** 底部对话条 */
+  chatBar?: boolean;
+  /** 角色头顶气泡 */
+  headBubble?: boolean;
+  /** 身高测量 HUD 虚线与标牌 */
+  heightRuler?: boolean;
+  /** 拖拽模型/换装触发层 */
+  dropZone?: boolean;
+}
+
+export interface SceneTauriConfig {
+  /** 待机状态下是否允许调整窗口大小（在透明桌宠叠加模式下默认 false，普通窗口模式下为 true） */
+  resizable: boolean;
+  /** 是否启用 corner 缩放拉伸把手（透明模式下通常需要 corner 边标） */
+  cornerHandles?: boolean;
+  /** 默认窗口是否置顶 */
+  alwaysOnTop?: boolean;
+}
+
+export interface SceneItemConfig {
+  id: string;
+  /** i18n 语言包 key */
+  nameKey: string;
+  /** 图标名称或类型 */
+  icon?: string;
+  /** 关联的 3D 背景线稿主题 */
+  lineworkTheme: LineworkTheme;
+  /** 是否开启透明叠加模式 (Overlay) */
+  isTransparent?: boolean;
+  /** 该场景下各 UI 组件的可见性控制 */
+  components: SceneComponentConfig;
+  /** 该场景在 Tauri 桌面端下的原生窗口表现 */
+  tauri: SceneTauriConfig;
+}
+
+export interface SceneRegistryConfig {
+  defaultSceneId: string;
+  items: Record<string, SceneItemConfig>;
+}
+
 export interface MaterialSaturationConfig {
   preset: 'vibrant' | 'sweet' | 'cinematic' | 'original' | 'custom';
   clothing: number;
@@ -249,6 +294,16 @@ export const APP_CONFIG = {
     // 就 miss,自动重 fetch。短截(16 字符)够去重,sha256 完整值在 build 时会跟
     // HEAD sha 比对。workflow 跑完会打 "actual" / "config" mismatch 提示更新。
     defaultSha: 'e99fcc335a512b5a',
+
+    // 角色出生点 (世界坐标, 米):
+    // - x/z: 场景水平位置 (默认 0 = 场景中心)
+    // - y: 在自动贴地后再加这个高度偏移 (默认 0 = 脚踩地面)
+    //   改 spawn.y = 0.5 让角色悬浮半米,改 x = 0.3 让角色偏移到右
+    spawn: {
+      x: 0,
+      y: 0,
+      z: -4,
+    },
     // 换装 addons: key 是 addon 唯一 id(用作按钮标识 + 持久化匹配),
     // source 是 .vrmaddon / .vrmbase 路径,name 是 UI 展示的名字,
     // sha 是产物 sha256 (见 defaultSha 注释,跟 base 同作用)。
@@ -285,11 +340,12 @@ export const APP_CONFIG = {
         name: 'XiaoChun Bikini',
         sha: 'a70c7d5a10665b72',
         bodyMorph: {
-          shoulderWidth: 0.95,
-          buttocks: 1.16,
-          bustThickness: 1.12,
-          bustPitch: -0.04,
-          bustSpread: -0.02,
+          "shoulderWidth": 0.95,
+          "buttocks": 1.16,
+          "buttocksPitch": 0.15,
+          "bustThickness": 1.12,
+          "bustPitch": -0.04,
+          "bustSpread": -0.02
         },
       },
       'xiaochun_maid': {
@@ -427,21 +483,181 @@ export const APP_CONFIG = {
     userTurnsMax: 50,
   },
   camera: {
-    defaultFov: 20,
+    defaultFov: 30,
     minFov: 15,
     maxFov: 60,
-    defaultPosition: [0.0, 1.5, 3.6] as [number, number, number],
-    defaultTarget: [0.0, 1.2, 0.0] as [number, number, number],
+    defaultPosition: [0.0, 0.95, 2.2] as [number, number, number],
+    defaultTarget: [0.0, 0.9, 0.0] as [number, number, number],
     // ponytail: 默认推镜按"想看多高(米)"反推距离 = extent / (2*tan(fov/2)),
-    // 这样 FOV 20° 跟 60° 都能框出相同的主体大小,不会出现"长焦糊脸"。
-    // 1.4m ≈ 头到小腿(半身再多一点),1.6m = 全身,0.9m = 标准半身。
-    defaultShotExtent: 1.4,
+    // 这样 FOV 30° 跟 60° 都能框出相同的主体大小,不会出现"长焦糊脸"。
+    // 1.34m ≈ 75% 视口饱满人像景别，下方自然展示到大腿上部，对齐 ani 标准人像质感
+    defaultShotExtent: 1.34,
     // ponytail: 鼠标滚轮 / 双指 pinch 缩放的距离上下限。改这里同时也是 devDrawer
     // "镜头距离范围" 两 slider 的默认值;运行时调整会覆盖并写 localStorage。
     defaultMinDistance: 1.0,
     defaultMaxDistance: 15.0,
     // 镜头跟随自动转身：默认开启 true。如果在 devDrawer 导出的结果中看到 bodyTurnEnabled，可以忽略不要更新
     defaultEnableBodyTurn: true as boolean,
+    // 视线与头部注视跟随：默认开启 true
+    defaultEnableGaze: true as boolean,
+    // 垂直俯仰极角可视扇区范围 (rad): 0.01 俯视头顶，Math.PI - 0.01 仰视脚底 (180° 扇区)
+    minPolarAngle: 0.01,
+    maxPolarAngle: Math.PI - 0.01,
+    // 垂直拖拽俯仰灵敏度 (rad / 像素，调谐至贴合手感，顺畅微调)
+    pitchSensitivityY: 0.0065,
+  },
+  interaction: {
+    // 鼠标水平拖拽驱动角色转向灵敏度 (rad / 像素，较原版降低 15% 保证跟手更温和)
+    characterTurnSensitivityX: 0.0102,
+    // ponytail: 相机 Y 高度尺 (cameraYGuide3D) 距角色脚底的水平偏移 (米, 负=左侧)。
+    // 调大往角色靠近, 调小远离。改这里不需要碰 cameraYGuide3D.ts。
+    cameraYGuide: {
+      xOffset: -0.4,
+    },
+    // 3D 空间交互导引轨（TurnGuide / PitchGuide / CameraYGuide）全息纯白发光基色
+    guideColor: '#ffffff',
+  },
+  bodyTurn: {
+    // 触发转身踏步的偏角阈值 (rad，约 24°)
+    turnStartThreshold: 0.42,
+    // 结束转身踏步的舒适区阈值 (rad，约 11.5°)
+    turnStopThreshold: 0.20,
+    // 转向追踪弹簧刚度 (临界阻尼 d = 2*√k，降低 15% 柔化角加速度)
+    springK: 5.95,
+    // 角色生理最大角速度上限 (rad/s，约 195°/s，降低 15% 更拟真)
+    maxYawVel: 3.4,
+    // 步态状态机单步各阶段时长 (秒，步频与角速度同步慢 15%，总计 0.67s 优雅拟人生理单步周期)
+    phaseDuration: {
+      idle: 0,
+      lift: 0.21,
+      swing: 0.16,
+      plant: 0.09,
+      settle: 0.21,
+    },
+    // 踱步抬腿时 lowerLeg 弯曲角度 (rad)
+    stepLowerLegBend: 0.5,
+    // 踱步时 upperLeg 前抬角度 (rad)
+    stepUpperLegLift: 0.30,
+    // 踱步时脚踝背屈角度 (rad)
+    stepAnkleFlex: 0.12,
+    // 踱步时髋部侧移量 (hips local X，m，轻柔自然的重心微移 ~12mm)
+    hipSwayAmount: 0.012,
+    // 踱步时骨盆生理横滚倾角 (Roll，rad，约 1.0°，支撑腿受力侧骨盆优雅微提)
+    hipRollAmount: 0.012,
+    // 踱步时骨盆跟随偏航微旋 (Yaw，rad，约 0.7°，迈步腿带动骨盆自然微扭)
+    hipYawAmount: 0.012,
+    // 踱步时重心上下沉浮回弹 (Bounce，Y 轴 m，落脚时轻柔缓冲 ~36mm)
+    hipBounceAmount: 0.036,
+  },
+  gaze: {
+    // 最大转头角速度上限 (rad/s，约 240°/s，严格对齐人体颈椎最大生理转动速度，彻底消除大角度剧烈甩头甩发)
+    maxHeadTurnSpeed: 4.2,
+    // 视线舒适扇区半角 (rad，约 90°，超出此角度视线开始平滑淡出回正)
+    fovComfortHalfAngle: 1.57,
+    // 视线背后盲区半角 (rad，约 135°，完全超出进入盲区时头部处于自然中立位)
+    fovBlindHalfAngle: 2.35,
+    // 视线追踪平滑阻尼基础速率
+    trackSpeed: 10.0,
+  },
+  springBone: {
+    bust: {
+      // 1. 刚度 stiffness (弹性回正力)：
+      //    - 【官方默认值】: 0.75 (实测 VRoid 导出值，极度僵硬像硬塑料/盔甲，微动几乎不形变)
+      //    - 往大调 (0.6 ~ 1.0): 越来越硬挺，摆动幅度极小；
+      //    - 往小调 (0.10 ~ 0.25): 越来越柔软，惯性摆幅增大；调过小 (<0.08) 会松垮变形像水球；
+      //    - 【推荐甜点值】: 0.20 ~ 0.25 (柔软而有支撑力，灵动富有弹性)
+      stiffness: 0.22,
+
+      // 2. 空气阻尼 dragForce (能量衰减速率 / 粘滞度)：
+      //    - 【官方默认值】: 0.05 (实测 VRoid 导出值，阻尼极低)
+      //    - 往大调 (0.5 ~ 0.8): 像泡在浓稠糖浆里，粘滞迟缓，摆一下就瞬间定住；
+      //    - 往小调 (0.01 ~ 0.10): 缺乏阻尼，柔软时会像果冻一样高频剧烈“余震”，极假；
+      //    - 【推荐甜点值】: 0.26 ~ 0.32 (优雅吸收动能，摆动后回弹 1~2 下自然平稳收敛)
+      dragForce: 0.06,
+
+      // 3. 重力强度 gravityPower (垂直下坠受力)：
+      //    - 【官方默认值】: 0.0 (实测 VRoid 导出值，完全处于失重状态)
+      //    - 往大调 (> 0.15): 明显受重力下拽，胸型变沉、下垂；
+      //    - 往小调 (0.0): 纯失重，缺乏纵向回弹的沉浮韵律；
+      //    - 【推荐甜点值】: 0.03 ~ 0.05 (赋予水滴形下胸自然的自重下垂与踏步回弹)
+      gravityPower: 0.005,
+
+      // 4. 碰撞体安全半径 hitRadius (防穿模球体半径，单位 m)：
+      //    - 【官方默认值】: 0.0232 (实测 VRoid 导出值，约 2.32cm)
+      //    - 往大调 (> 0.04): 容易与身体/手臂碰撞体隔空反弹产生悬空畸变；
+      //    - 往小调 (< 0.01): 剧烈晃动时可能与胸腔网格或衣服穿模；
+      //    - 【推荐甜点值】: 0.0232 ~ 0.025
+      hitRadius: 0.0232,
+    },
+    skirt: {
+      // 1. 裙摆刚度 stiffness (回弹速度与布料挺括度)：
+      //    - 调至 0.35：赋予百褶裙扎实有型的织物质感，避免过于轻薄松散
+      stiffness: 0.35,
+      // 2. 空气阻尼 dragForce：
+      //    - 调至 0.18：吸收高频多余晃动，裙摆摆动沉稳优雅
+      dragForce: 0.18,
+      // 3. 裙摆自重重力 gravityPower：
+      //    - 调至 0.10：充沛的下垂自重感，风过即自然利落垂坠，彻底告别轻飘浮空感
+      gravityPower: 0.10,
+      // 4. 碰撞体安全半径 hitRadius (m)：
+      hitRadius: 0.018,
+    },
+    ribbon: {
+      // 1. 飘带/腰带配饰刚度 stiffness (丝绸轻盈回弹)：
+      //    - 适度柔韧 (0.42)：既杜绝 0.75 的硬塑料木讷无动静，又避免 0.28 的下垂塌陷穿模
+      stiffness: 0.42,
+      // 2. 空气阻尼 dragForce：
+      dragForce: 0.16,
+      // 3. 自重重力 gravityPower (极轻丝绸)：
+      gravityPower: 0.005,
+      // 4. 防穿模安全半径 hitRadius (m)：
+      hitRadius: 0.025,
+    },
+  },
+  wind: {
+    // 1. 鼠标局部核心风场半径 (米)：
+    //    - 适度扩大至 0.58m，确保在 3D 正切截面上稳定覆盖短裙 (Y~0.65m, Z~0.13m) 与前胸配饰
+    mouseRadius: 0.58,
+
+    // 2. 扩散波及微风半径 (米)：
+    //    - 扩展至 0.95m，提供平滑自然的空气外层涟漪
+    wakeRadius: 0.95,
+
+    // 3. 鼠标快划最大风力强度 (m/s²)：
+    //    - 调优至 0.32 (温和舒适同时具备足够的掀风动量)
+    mouseWindStrength: 0.32,
+
+    // 4. 周边波及微风比例 (0~1)：
+    //    - 轻柔波及 (0.12)
+    wakeStrengthRatio: 0.12,
+
+    // 5. 鼠标滑动速度归一化参考 (px/s)：
+    //    - 优化至 2000 px/s，手感更线性灵敏，来回扇动清风拂面
+    mouseSpeedReference: 2000,
+
+    // 6. 速度平滑 EMA 系数 (0~1)：
+    mouseSpeedSmoothing: 0.35,
+
+    // 7. 裙摆受力增益系数：
+    //    - 适度调至 1.45：既能克服大腿碰撞体自然掀拂，又保持百褶裙应有的厚实质感与垂坠感
+    skirtMultiplier: 1.45,
+
+    // 8. 飘带配饰受力增益系数：
+    //    - 1.35，赋予丝绸飘带灵敏轻灵的受风响应
+    ribbonMultiplier: 1.35,
+
+    // 9. 鼠标停滞超时 (ms)，超过此时间未动风力自然收敛归零
+    idleTimeoutMs: 120,
+
+    // 10. 胸部专属风感动态调优 (解决“稍微划过动作大、快划上限低”的问题)：
+    bust: {
+      // 基础受力敏感度 (降低慢速基础扰动)
+      sensitivity: 0.23,
+      // 速度幂律响应指数 (慢移超微弱，快划迅速起量，拉开动态范围)
+      speedExponent: 0.85,
+      // 快速划动冲量补偿倍率 (快划时瞬时接触时间短，通过冲量补偿打开动作上限)
+      impulseBonus: 1.35,
+    },
   },
   renderer: {
     // iPhone 多是 3x;封顶 2 会按 2/3 分辨率画,头发和网袜特别容易锯齿。
@@ -451,6 +667,86 @@ export const APP_CONFIG = {
     // 线稿背景世界主题：'light' (昼白线稿) 或 'dark' (极夜深蓝黑线稿)
     theme: 'light' as 'light' | 'dark',
   },
+  // ponytail: 角色脚下阴影配置。softShadow 仅在 transparent 桌宠主题下生效,
+  // 走 radial alpha mask + 屏幕边界 fade; light/dark 主题下走原版 plane 全显。
+  // opacity 直接调阴影黑度 (值越高阴影越深), 改这里调完不需要碰 vrmEngine.ts。
+  shadow: {
+    planeSize: 12,                          // shadowPlane 几何尺寸 (米)
+    planeY: 0.0005,                         // 紧贴世界地面底层, 低于 linework 网格
+    opacityDark: 0.50,                      // dark 主题透明度
+    opacityLight: 0.40,                     // light/transparent 主题透明度
+    softShadow: {
+      enabled: true,                        // 软影开关 — transparent 主题下自动用 1.0, 其他自动 0.0
+      radialStops: [                        // radial mask CanvasTexture 5 个 stop (UV 归一化距离)
+        { pos: 0.00, alpha: 1.00 },
+        { pos: 0.03, alpha: 0.70 },
+        { pos: 0.06, alpha: 0.30 },
+        { pos: 0.09, alpha: 0.00 },
+        { pos: 1.00, alpha: 0.00 },
+      ],
+      edgeFadeStart: 0.5,                   // 脚底 NDC 距中心 max(|x|,|y|) 超过 0.5 起 fade
+      edgeFadeEnd: 0.8,                    // 到 0.8 全淡出
+    },
+  },
+  scenes: {
+    defaultSceneId: 'light',
+    items: {
+      light: {
+        id: 'light',
+        nameKey: 'header.switchScene.light',
+        icon: 'Sun',
+        lineworkTheme: 'light',
+        isTransparent: false,
+        components: {
+          topHeader: true,
+          chatBar: true,
+          headBubble: true,
+          heightRuler: true,
+          dropZone: true,
+        },
+        tauri: {
+          resizable: true,
+          cornerHandles: false,
+        },
+      },
+      dark: {
+        id: 'dark',
+        nameKey: 'header.switchScene.dark',
+        icon: 'Moon',
+        lineworkTheme: 'dark',
+        isTransparent: false,
+        components: {
+          topHeader: true,
+          chatBar: true,
+          headBubble: true,
+          heightRuler: true,
+          dropZone: true,
+        },
+        tauri: {
+          resizable: true,
+          cornerHandles: false,
+        },
+      },
+      transparent: {
+        id: 'transparent',
+        nameKey: 'header.switchScene.transparent',
+        icon: 'Ghost',
+        lineworkTheme: 'transparent',
+        isTransparent: true,
+        components: {
+          topHeader: true,
+          chatBar: true,
+          headBubble: true,
+          heightRuler: false,
+          dropZone: true,
+        },
+        tauri: {
+          resizable: false, // 待机下 false 屏蔽透明区域拉伸，交互时动态激活
+          cornerHandles: true,
+        },
+      },
+    },
+  } as SceneRegistryConfig,
   lights: {
     dir: { base: 1.00, enabled: true },
     hemi: { base: 0.95, enabled: true },

@@ -9,6 +9,7 @@ import { useMemo } from 'react';
 import { I18nextProvider } from 'react-i18next';
 import { TooltipProvider } from '@/components/ui/tooltip';
 import { WebConsole } from '@/components/WebConsole';
+import { TauriWindowFrame } from '@/components/TauriWindowFrame';
 import appCss from '@/styles/main.css?url';
 import '@/styles/main.css';
 import {
@@ -25,8 +26,8 @@ export const Route = createRootRoute({
       { charSet: 'utf-8' },
       { name: 'viewport', content: 'width=device-width, initial-scale=1' },
       { name: 'theme-color', content: '#ea8377' },
-      { name: 'description', content: '100% browser-native anime companion — WebLLM (WebGPU) + EMAGE full-body motion (ONNX wasm + INT8) + Edge-TTS. Features 0-pop outfit swapping, cinematic Bloom post-processing, 28-parameter body morphing, and zero-backend local privacy.' },
-      { name: 'keywords', content: 'Project XiaoChun, 二次元伴侣, 虚拟伴侣, AI伴侣, 二次元换装, 角色穿脱, 后期处理, Bloom辉光, 线稿主题, 骨骼微调, anime companion, virtual companion, outfit swap, postfx, anime bloom, VRM, VRM morph, WebLLM, WebGPU, ONNX Runtime Web, wasm, INT8, Edge-TTS, EMAGE, streaming motion, three.js, browser-native, リアルタイムAI, バーチャルコンパニオン, 3Dアバター' },
+      { name: 'description', content: 'Dual-mode anime companion & transparent desktop pet (Tauri 2.x + Web) — WebLLM (WebGPU) + EMAGE motion (ONNX wasm INT8) + Edge-TTS. Features zero-pop outfit swap, 3D holographic guides, 60Hz alpha click-through, and external protocol (xiaochun://).' },
+      { name: 'keywords', content: 'Project XiaoChun, 二次元伴侣, 桌面宠物, 桌宠, 透明桌宠, 虚拟伴侣, AI伴侣, 二次元换装, 角色穿脱, 后期处理, Bloom辉光, 线稿主题, 骨骼微调, desktop pet, transparent companion, Tauri 2, deep link, anime companion, virtual companion, outfit swap, postfx, anime bloom, VRM, VRM morph, WebLLM, WebGPU, ONNX Runtime Web, wasm, INT8, Edge-TTS, EMAGE, streaming motion, three.js, browser-native, リアルタイムAI, バーチャルコンパニオン, 3Dアバター, デスクトップマスコット' },
       { name: 'robots', content: 'index, follow, max-snippet:-1, max-image-preview:large, max-video-preview:-1' },
       { name: 'format-detection', content: 'telephone=no' },
       { name: 'application-name', content: 'Project XiaoChun' },
@@ -34,9 +35,9 @@ export const Route = createRootRoute({
       // GEO & Dublin Core
       { name: 'geo.region', content: 'GLOBAL' },
       { name: 'geo.placename', content: 'Global' },
-      { name: 'DC.title', content: 'Project XiaoChun — 100% 浏览器原生二次元伴侣' },
+      { name: 'DC.title', content: 'Project XiaoChun — 100% 客户端原生二次元伴侣与透明桌宠' },
       { name: 'DC.creator', content: 'FireTable' },
-      { name: 'DC.subject', content: '3D Anime Companion, WebLLM, WebGPU LLM, EMAGE ONNX wasm INT8, VRM, Outfit Swap, Post-processing' },
+      { name: 'DC.subject', content: '3D Anime Companion, Desktop Pet, Tauri 2, WebLLM, WebGPU LLM, EMAGE ONNX wasm INT8, VRM, Outfit Swap, Post-processing' },
       { name: 'DC.language', content: 'zh-CN, ja, en' },
       { name: 'DC.coverage', content: 'World' },
 
@@ -155,6 +156,7 @@ function RootDocument({ children, lang }: { children: ReactNode; lang: Lang }) {
         <HeadContent />
       </head>
       <body suppressHydrationWarning>
+        <TauriWindowFrame />
         <div id="root">{children}</div>
         <Scripts />
       </body>

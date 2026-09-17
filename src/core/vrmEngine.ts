@@ -2,7 +2,7 @@ import * as THREE from 'three';
 import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js';
 import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
 import { VRM, VRMLoaderPlugin, VRMUtils, type VRMExpressionPresetName } from '@pixiv/three-vrm';
-import { CAMERA_STATE_KEY, SCENE_THEME_KEY } from '@/lib/constants';
+import { CAMERA_STATE_KEY, BODY_YAW_KEY, CAMERA_PITCH_KEY, SCENE_THEME_KEY, CAMERA_Y_OFFSET_KEY } from '@/lib/constants';
 
 import { VRMBodyMorph } from './morph/vrmBodyMorph';
 import { postFxPipeline, type PostFxPipeline } from './postfx/postFxPipeline';
@@ -17,6 +17,7 @@ import { langFromSystemPrompt } from '@/llm/prompts';
 
 // ── 抽离子系统导入 ──
 import { LineworkWorld, type LineworkTheme } from './scene/lineworkWorld';
+import { passthroughManager } from './scene/passthroughManager';
 import { StudioLighting } from './lighting/studioLighting';
 import {
   VRMMaterialManager,
@@ -28,6 +29,9 @@ import {
   MODEL_PART_CATEGORIES,
 } from './material/vrmMaterialManager';
 import { BubbleTracker, type BubbleState } from './ui/bubbleTracker';
+import { InteractionController } from './interaction/interactionController';
+import { WindForceController } from './wind/windForce';
+import { CharacterShadowSystem } from './scene/characterShadow';
 import {
   captureExpressions,
   restoreExpressions,
@@ -55,15 +59,6 @@ export interface LoadingState {
 
 /** Options for loadVRM — preserveMotion used by outfit swap (方案 A). */
 export interface LoadVRMOptions {
-  /**
-   * Outfit-swap / mid-session reload mode:
-   * - Keep EMAGE motion buffer (pause + rebind instead of stop).
-   * - Keep old VRM visible until the new one is ready (no empty-scene flash).
-   * - Do not fitCamera / cinematic (preserve current orbit).
-   * - Do not drive the full-screen loading overlay.
-   * VRMA / universal mixers still detach (bound to disposed scene).
-   * Caller restores via restoreAnimationState.
-   */
   preserveMotion?: boolean;
 }
 
@@ -72,57 +67,94 @@ export interface LightChannelState {
   enabled: boolean;
 }
 
-// ponytail: 相机视点持久化 — 用户在 OrbitControls 里调过的位置 / target
-// 写到 localStorage,下次构造 OrbitControls 时直接还原,免得每次刷新都回默认。
-// 不暴露 UI 旋钮,纯无感持久化。
-const CAMERA_STATE_STORAGE_KEY = CAMERA_STATE_KEY;
-interface SavedCameraState {
-  position: [number, number, number];
-  target: [number, number, number];
-}
-function loadSavedCameraState(): SavedCameraState | null {
+// ── 1. 角色 bodyTurn 自转偏角持久化 ──
+function loadSavedBodyYaw(): number | null {
   if (typeof localStorage === 'undefined') return null;
   try {
-    const raw = localStorage.getItem(CAMERA_STATE_STORAGE_KEY);
+    const raw = localStorage.getItem(BODY_YAW_KEY);
     if (!raw) return null;
-    const parsed = JSON.parse(raw);
-    if (
-      Array.isArray(parsed?.position) && parsed.position.length === 3 &&
-      Array.isArray(parsed?.target) && parsed.target.length === 3 &&
-      parsed.position.every((n: unknown) => typeof n === 'number' && Number.isFinite(n)) &&
-      parsed.target.every((n: unknown) => typeof n === 'number' && Number.isFinite(n))
-    ) {
-      return parsed as SavedCameraState;
-    }
+    const val = Number(raw);
+    if (Number.isFinite(val)) return val;
   } catch (e) {
-    console.warn('[vrmEngine] Failed to load camera state:', e);
+    console.warn('[vrmEngine] Failed to load body yaw:', e);
   }
   return null;
 }
-function persistCameraState(state: SavedCameraState): void {
-  if (typeof localStorage === 'undefined') return;
+
+function persistBodyYaw(yaw: number): void {
+  if (typeof localStorage === 'undefined' || !Number.isFinite(yaw)) return;
   try {
-    localStorage.setItem(CAMERA_STATE_STORAGE_KEY, JSON.stringify(state));
+    localStorage.setItem(BODY_YAW_KEY, yaw.toString());
   } catch (e) {
-    console.warn('[vrmEngine] Failed to save camera state:', e);
+    console.warn('[vrmEngine] Failed to save body yaw:', e);
   }
 }
 
+// ── 2. 镜头俯仰角与视距持久化 ──
+export interface SavedCameraPitch {
+  pitch: number;          // 垂直极角 (rad, controls.getPolarAngle())
+  distance?: number;      // 视距 (m, controls.getDistance())
+}
+
+function loadSavedCameraPitch(): SavedCameraPitch | null {
+  if (typeof localStorage === 'undefined') return null;
+  try {
+    // 废弃并清理旧 key
+    if (localStorage.getItem(CAMERA_STATE_KEY)) {
+      localStorage.removeItem(CAMERA_STATE_KEY);
+    }
+    const raw = localStorage.getItem(CAMERA_PITCH_KEY);
+    if (!raw) return null;
+    const parsed = JSON.parse(raw);
+    if (typeof parsed?.pitch === 'number' && Number.isFinite(parsed.pitch)) {
+      return {
+        pitch: parsed.pitch,
+        distance: typeof parsed.distance === 'number' && Number.isFinite(parsed.distance) ? parsed.distance : undefined,
+      };
+    }
+  } catch (e) {
+    console.warn('[vrmEngine] Failed to load camera pitch:', e);
+  }
+  return null;
+}
+
+function persistCameraPitch(state: SavedCameraPitch): void {
+  if (typeof localStorage === 'undefined') return;
+  try {
+    localStorage.setItem(CAMERA_PITCH_KEY, JSON.stringify(state));
+  } catch (e) {
+    console.warn('[vrmEngine] Failed to save camera pitch:', e);
+  }
+}
+
+/** 获取相机默认视距 (m) */
+function getDefaultCameraDistance(): number {
+  const fovRad = (APP_CONFIG.camera.defaultFov * Math.PI) / 180;
+  return APP_CONFIG.camera.defaultShotExtent / (2 * Math.tan(fovRad / 2));
+}
+
+/** 获取相机默认俯仰角 (rad) */
+function getDefaultCameraPitch(): number {
+  const target = new THREE.Vector3(...APP_CONFIG.camera.defaultTarget);
+  const originalOffset = new THREE.Vector3(...APP_CONFIG.camera.defaultPosition).sub(target);
+  const distance = originalOffset.length();
+  return Math.acos(originalOffset.y / distance);
+}
+
 /**
- * VRMEngine — 3D 核心渲染引擎中枢 (Core Engine Facade)
- * 
- * 职责：
- * 1. 负责 Three.js WebGLRenderer, PerspectiveCamera, OrbitControls 与 Scene 核心基础设施；
- * 2. 调度模型加载卸载、材质优化与骨架绑定；
- * 3. 作为高层中枢统一编排各专用子系统：
- *    - LineworkWorld (线稿场景环境)
- *    - StudioLighting (影棚 6 通道灯光系统)
- *    - VRMMaterialManager (MToon 材质分类与 Shader 饱和度注入)
- *    - MotionPipeline (统一动作融合管线)
- *    - GazeController (人机视线伴随、眨眼与神态微动)
- *    - BubbleTracker (3D 头部空间投影与气泡追踪)
- *    - ChatDirector / WebLLM (聊天流程编排)
+ * 根据俯仰角 (pitch) 与视距 (distance) 计算相机三维世界坐标。
+ * 水平方位角严格锁定为 0（正前方），保证世界背景不发生水平横移，左键专职驱动角色自转。
  */
+function computeCameraPositionFromPitch(
+  pitch: number,
+  distance: number,
+  target: THREE.Vector3,
+): [number, number, number] {
+  const y = target.y + distance * Math.cos(pitch);
+  const z = target.z + distance * Math.sin(pitch);
+  return [target.x, y, z];
+}
+
 /**
  * ponytail: 默认相机位置按 FOV + shotExtent 反推距离,保证不同焦距下"主体框选
  * 大小"一致。distance = extent / (2 * tan(fov/2)),方向沿用 config 里 defaultPosition
@@ -132,8 +164,7 @@ function computeDefaultCameraPosition(): [number, number, number] {
   const target = new THREE.Vector3(...APP_CONFIG.camera.defaultTarget);
   const originalOffset = new THREE.Vector3(...APP_CONFIG.camera.defaultPosition).sub(target);
   const direction = originalOffset.clone().normalize();
-  const fovRad = (APP_CONFIG.camera.defaultFov * Math.PI) / 180;
-  const distance = APP_CONFIG.camera.defaultShotExtent / (2 * Math.tan(fovRad / 2));
+  const distance = getDefaultCameraDistance();
   return target.clone().add(direction.multiplyScalar(distance)).toArray() as [number, number, number];
 }
 
@@ -152,12 +183,13 @@ export class VRMEngine {
   private loader = new GLTFLoader();
   private clock = new THREE.Clock();
   private animFrameId: number | null = null;
-
   // ── 模块化独立子系统 ──
   private lineworkWorld = new LineworkWorld();
   public readonly lighting = new StudioLighting();
   public readonly materialManager = new VRMMaterialManager();
   public readonly bubbleTracker = new BubbleTracker();
+  public readonly interaction = new InteractionController();
+  public readonly windForce = new WindForceController();
 
   // ── 动作管线（sources + constraints 由 pipeline 持有）──
   public readonly motionPipeline = new MotionPipeline();
@@ -241,7 +273,9 @@ export class VRMEngine {
   private _lastRenderedHeight = 0;
 
   private vrmBaseSceneY = 0;
-  private shadowPlane: THREE.Mesh | null = null;
+  // ponytail: 角色阴影系统拆到 CharacterShadowSystem, 这里只持有引用 + 调它。
+  private shadow = new CharacterShadowSystem();
+  private _springBoneTunedVRM: VRM | null = null;
 
   // 临时向量复用
   private tempSoleA = new THREE.Vector3();
@@ -342,7 +376,7 @@ export class VRMEngine {
 
   // ponytail: 启动期 cinematic 推镜 — LoadingOverlay 破次元时调,沿当前相机方向
   // 推远 3.3 倍作为起点,1.1s 内 easeOutCubic 拉回终点。
-  // 终点 = loadSavedCameraState() 的记录点(若有);否则回退到默认相机位。
+  // 终点 = loadSavedViewOrientation() 的记录点(若有);否则回退到默认相机位。
   // 解耦于「调用瞬间 camera.position」,任何时机调都明确推向上次保存的视角。
   // 视觉上 VRM 是个小点,镜头平滑推进,跟 overlay 的 scale-125 + blur-md 同步。
   // Tween 期间禁用 OrbitControls,避免用户输入跟动画抢 camera。
@@ -355,9 +389,11 @@ export class VRMEngine {
       cancelAnimationFrame(this.cinematicIntroRafId);
       this.cinematicIntroRafId = null;
     }
-    const saved = loadSavedCameraState();
-    const finalPos = saved ? new THREE.Vector3(...saved.position) : camera.position.clone();
-    const finalTarget = saved ? new THREE.Vector3(...saved.target) : controls.target.clone();
+    const savedPitch = loadSavedCameraPitch();
+    const finalTarget = controls.target.clone();
+    const dist = savedPitch?.distance ?? getDefaultCameraDistance();
+    const pitch = savedPitch ? savedPitch.pitch : getDefaultCameraPitch();
+    const finalPos = new THREE.Vector3(...computeCameraPositionFromPitch(pitch, dist, finalTarget));
     // 把相机立即设到终点,让 tween 期间 render-loop 读者(gaze 等)看到正确值;
     // 再跳到 startPos 准备推进。
     camera.position.copy(finalPos);
@@ -395,19 +431,15 @@ export class VRMEngine {
     this.scene.background = new THREE.Color(0x0b0f19);
 
     // 实体阴影平面（自适应昼白/极夜深色主题的透明度，确保地面永远有扎实的接触阴影）
+    // ponytail: 全部塞 CharacterShadowSystem, 这边只 init。
     const initialTheme = resolveInitialSceneTheme();
-    const shadowPlaneGeo = new THREE.PlaneGeometry(12, 12);
-    const shadowPlaneMat = new THREE.ShadowMaterial({ opacity: initialTheme === 'dark' ? 0.45 : 0.20 });
-    this.shadowPlane = new THREE.Mesh(shadowPlaneGeo, shadowPlaneMat);
-    this.shadowPlane.rotation.x = -Math.PI / 2;
-    this.shadowPlane.position.y = 0;
-    this.shadowPlane.receiveShadow = true;
-    this.scene.add(this.shadowPlane);
+    this.shadow.init(this.scene, initialTheme);
 
 
 
     // 初始化视线系统与灯光系统
     this.gazeController.init(this.scene);
+    this.gazeController.enabled = APP_CONFIG.camera.defaultEnableGaze ?? true;
     this.lighting.init(this.scene);
 
     // 动作与聊天控制器事件绑定
@@ -466,7 +498,7 @@ export class VRMEngine {
   private isInferenceMode = false;
   private lastFrameTime = 0;
   private lastRenderWidth = 0;
-  private resizeRAFId: number | null = null;
+  private lastRenderHeight = 0;
 
   public setInferenceMode(enabled: boolean): void {
     this.isInferenceMode = enabled;
@@ -498,22 +530,53 @@ export class VRMEngine {
     const ratio = this.getTargetPixelRatio();
     this.renderer.setPixelRatio(ratio);
     const width = this.lastRenderWidth || window.innerWidth;
-    const height = window.innerHeight;
+    const height = this.lastRenderHeight || window.innerHeight;
     this.renderer.setSize(width, height);
     if (this.postFx.isReady()) {
       this.postFx.resize(width, height, ratio);
     }
+    this.renderFrameNow();
+  }
+
+  public get isCanvasAttached(): boolean {
+    return Boolean(this.canvas && this.renderer);
   }
 
   public attachCanvas(canvas: HTMLCanvasElement): void {
+    if (this.canvas === canvas && this.renderer) {
+      if (!this.animFrameId && (this.currentVRM || this._sceneInitialized)) {
+        this.startAnimation();
+      }
+      return;
+    }
+
+    const prevCamPos = this.camera ? this.camera.position.clone() : null;
+    const prevCamTarget = this.controls ? this.controls.target.clone() : null;
+
+    // HMR 与重挂载防御：清理旧动画循环与旧 WebGL 实例，防止上下文泄露或循环叠加卡死
+    if (this.animFrameId !== null) {
+      cancelAnimationFrame(this.animFrameId);
+      this.animFrameId = null;
+    }
+    if (this.controls) {
+      this.controls.dispose();
+      this.controls = null;
+    }
+    if (this.renderer) {
+      this.renderer.dispose();
+      this.renderer = null;
+    }
+    window.removeEventListener('resize', this.handleResize);
+
     this.canvas = canvas;
     this.renderer = new THREE.WebGLRenderer({
       canvas,
       antialias: true,
       alpha: true,
       powerPreference: 'high-performance',
-      preserveDrawingBuffer: false,
+      preserveDrawingBuffer: true,
     });
+    this.renderer.setClearColor(0x000000, 0);
 
     const storedEnabled = loadPostFxEnabledFromStorage();
     this.postFx.config = {
@@ -529,6 +592,7 @@ export class VRMEngine {
     this.renderer.setPixelRatio(ratio);
     this.renderer.setSize(window.innerWidth, window.innerHeight);
     this.lastRenderWidth = window.innerWidth;
+    this.lastRenderHeight = window.innerHeight;
     this.renderer.toneMapping = THREE.LinearToneMapping;  // ponytail: 保持原 toneMapping,postfx 不接管 (避免双重映射)
     this.renderer.toneMappingExposure = 1.08;
 
@@ -543,100 +607,268 @@ export class VRMEngine {
     this.renderer.shadowMap.type = THREE.PCFSoftShadowMap;
 
     this.camera.aspect = window.innerWidth / window.innerHeight;
-    this.camera.position.set(...computeDefaultCameraPosition());
+    this.controls = new OrbitControls(this.camera, canvas);
+
+    const savedPitch = loadSavedCameraPitch();
+    const defaultTarget = new THREE.Vector3(...APP_CONFIG.camera.defaultTarget);
+    const target = (prevCamTarget && (this.currentVRM || this._sceneInitialized))
+      ? prevCamTarget
+      : defaultTarget;
+    this.controls.target.copy(target);
+
+    if (prevCamPos && (this.currentVRM || this._sceneInitialized)) {
+      this.camera.position.copy(prevCamPos);
+    } else if (savedPitch) {
+      const dist = savedPitch.distance ?? getDefaultCameraDistance();
+      this.camera.position.set(...computeCameraPositionFromPitch(savedPitch.pitch, dist, target));
+    } else {
+      this.camera.position.set(...computeDefaultCameraPosition());
+    }
     this.camera.updateProjectionMatrix();
 
-    this.controls = new OrbitControls(this.camera, canvas);
-    this.controls.target.set(...APP_CONFIG.camera.defaultTarget);
     this.controls.enableDamping = true;
     this.controls.dampingFactor = 0.05;
-    this.controls.screenSpacePanning = true;
+    this.controls.screenSpacePanning = false;
+    this.controls.enablePan = false; // 彻底禁用平移相机 (Pan)，相机焦点永远锁定在角色身上，杜绝镜头乱晃漂移
     this.controls.minDistance = APP_CONFIG.camera.defaultMinDistance;
     this.controls.maxDistance = APP_CONFIG.camera.defaultMaxDistance;
+    this.controls.minPolarAngle = APP_CONFIG.camera.minPolarAngle;
+    this.controls.maxPolarAngle = APP_CONFIG.camera.maxPolarAngle;
 
-    // 监听 OrbitControls change,rAF 节流写入 localStorage。
-    // 前 2s 屏蔽 — 覆盖 cinematicIntro tween(1.1s) + 初始 damping 收敛,
-    // 避免把 tween 中间过渡位 / 默认位写进去覆盖真实状态。
-    // 还原由 cinematicIntro 自己处理,这里不重复。
+    // 禁用 OrbitControls 左键与右键平移/旋转，OrbitControls 仅保留中键/滚轮缩放，镜头焦点绝对死锁角色
+    this.controls.mouseButtons = {
+      LEFT: -1 as any,
+      MIDDLE: THREE.MOUSE.DOLLY,
+      RIGHT: -1 as any,
+    };
+    this.controls.enableRotate = false;
+    this.controls.enablePan = false;
+
+    // 监听 OrbitControls change，防抖 500ms 写入 localStorage，
+    // 避免在滚轮缩放与阻尼平滑期间每帧同步阻塞写磁盘导致渲染微卡顿
     let cameraSaveReady = false;
-    let cameraSaveRaf: number | null = null;
+    let cameraSaveTimeout: ReturnType<typeof setTimeout> | null = null;
     this.controls.addEventListener('change', () => {
       if (!cameraSaveReady) return;
-      if (cameraSaveRaf !== null) return;
-      cameraSaveRaf = requestAnimationFrame(() => {
-        cameraSaveRaf = null;
-        if (!this.controls) return;
-        persistCameraState({
-          position: [this.camera.position.x, this.camera.position.y, this.camera.position.z],
-          target: [this.controls.target.x, this.controls.target.y, this.controls.target.z],
-        });
-      });
+      if (cameraSaveTimeout !== null) {
+        clearTimeout(cameraSaveTimeout);
+      }
+      cameraSaveTimeout = setTimeout(() => {
+        cameraSaveTimeout = null;
+        this.saveCurrentCameraPitch();
+      }, 500);
     });
     setTimeout(() => { cameraSaveReady = true; }, 2000);
 
     window.addEventListener('resize', this.handleResize);
     this.__dev_expose_once();
 
+    // 插件化挂载多端统一交互控制器 (修饰键检测、指针手势拖拽、光标反馈与持久化)
+    // ponytail: 3 个 3D 引导轨 (TurnGuide + PitchGuide + CameraYGuide) 全在 InteractionController 内管理,
+    // 这里只透传回调 (camera + setCameraYOffset) + 透传 scene/controls/motionPipeline。
+    this.interaction.bindCanvas(canvas, {
+      scene: this.scene,
+      controls: this.controls,
+      camera: this.camera,
+      motionPipeline: this.motionPipeline,
+      onSaveBodyYaw: () => this.saveCurrentBodyYaw(),
+      onSaveCameraPitch: () => this.saveCurrentCameraPitch(),
+      onSetCameraYOffset: (offset) => this.setCameraYOffset(offset),
+    });
+
     if (this.canvas) {
       this.canvas.style.filter = 'none';
     }
 
-    // ponytail: 这里不构建场景、不起渲染、不推镜,等 loadVRM 回调里
-    // 跟 VRM 一起初始化,避免「空场景在 default 角度先露脸 → 角色出现 → 推镜
-    // 终点又被 fitCamera 头部框选位覆盖」的三段撕裂。
-  }
-
-  private handleResize = () => {
-    if (!this.renderer) return;
-
-    if (this.resizeRAFId !== null) {
-      cancelAnimationFrame(this.resizeRAFId);
+    // 若当前已有场景对象或已加载模型，执行新 WebGL 上下文的自愈与材质/纹理重建同步
+    if (this.currentVRM || this._sceneInitialized) {
+      this.syncSceneToNewRenderer();
     }
 
-    this.resizeRAFId = requestAnimationFrame(() => {
-      this.resizeRAFId = null;
-      if (!this.renderer) return;
+    // ponytail: 这里初次冷启时不构建场景、不起渲染、不推镜,等 loadVRM 回调里一起初始化；
+    // 但在 Vite HMR 重新挂载 canvas 时：模型早已就绪，必须立即唤醒 startAnimation() 接续渲染，杜绝卡死黑屏！
+    if (this.currentVRM || this._sceneInitialized) {
+      this.startAnimation();
+    }
+  }
 
-      const newWidth = window.innerWidth;
-      const newHeight = window.innerHeight;
 
-      // 移动端软键盘解耦保护：
-      // 在移动端，软键盘弹起与收起仅改变高度 (宽度完全不变)，
-      // 绝不调用昂贵的 renderer.setSize 销毁重建 WebGL Framebuffer，
-      // 仅更新相机纵横比即可消除所有视觉拉伸与 100ms+ 的重建掉帧！
-      const isMobile = typeof navigator !== 'undefined' && /Mobi|Android|iPhone|iPad/i.test(navigator.userAgent);
-      if (isMobile && this.lastRenderWidth === newWidth) {
-        this.camera.aspect = newWidth / newHeight;
-        this.camera.updateProjectionMatrix();
-        return;
-      }
 
-      this.lastRenderWidth = newWidth;
-      this.camera.aspect = newWidth / newHeight;
-      this.camera.updateProjectionMatrix();
-      const ratio = this.getTargetPixelRatio();
-      this.renderer.setPixelRatio(ratio);
-      this.renderer.setSize(newWidth, newHeight);
-      this.postFx.resize(newWidth, newHeight, ratio);
+  /** 保存当前人物 bodyTurn 目标自转偏角 */
+  public saveCurrentBodyYaw(): void {
+    persistBodyYaw(this.motionPipeline.targetYawOffset);
+  }
+
+  /** 保存当前相机垂直俯仰角与视距 */
+  public saveCurrentCameraPitch(): void {
+    if (!this.controls) return;
+    persistCameraPitch({
+      pitch: this.controls.getPolarAngle(),
+      distance: this.controls.getDistance(),
     });
+  }
+
+  /**
+   * 将持久化的人物 bodyTurn 目标角度还原至 VRM 实例与动作管线
+   */
+  private applySavedBodyYawToVRM(vrm: VRM): void {
+    const savedYaw = loadSavedBodyYaw();
+    if (savedYaw !== null) {
+      const isVrm0 = vrm.meta?.metaVersion === '0';
+      const baseYaw = isVrm0 ? Math.PI : 0;
+      vrm.scene.rotation.y = baseYaw + savedYaw;
+      this.motionPipeline.targetYawOffset = savedYaw;
+      this.motionPipeline.resetLocomotion();
+    }
+  }
+
+  /**
+   * 当 WebGL 上下文在 HMR 或重新挂载重建时，深度同步所有 Mesh、MToon 材质、纹理与阴影
+   */
+  private syncSceneToNewRenderer(): void {
+    if (!this.renderer) return;
+
+    // 1. 深度遍历场景所有 Mesh，通知新 WebGLContext 重新编译着色器与重新上传显存纹理
+    this.scene.traverse((obj) => {
+      if ((obj as THREE.Mesh).isMesh) {
+        const mesh = obj as THREE.Mesh;
+        const mats = Array.isArray(mesh.material) ? mesh.material : [mesh.material];
+        mats.forEach((m) => {
+          if (m) {
+            m.needsUpdate = true;
+            for (const k in m) {
+              const val = (m as any)[k];
+              if (val && (val as THREE.Texture).isTexture) {
+                (val as THREE.Texture).needsUpdate = true;
+              }
+            }
+            if ((m as any).uniforms) {
+              for (const uk in (m as any).uniforms) {
+                const uVal = (m as any).uniforms[uk]?.value;
+                if (uVal && (uVal as THREE.Texture).isTexture) {
+                  (uVal as THREE.Texture).needsUpdate = true;
+                }
+              }
+            }
+          }
+        });
+      }
+    });
+
+    // 2. 重新应用 VRM MToon 材质的深度分层防穿模 (polygonOffset)、边缘光、阴影色与独立饱和度 Uniform
+    if (this.currentVRM) {
+      this.materialManager.optimize(this.currentVRM);
+    }
+
+    // 3. 刷新地面阴影材质
+    this.shadow.markNeedsUpdate();
+
+    // 4. 着色器预热编译，杜绝首帧错误与丢帧
+    try {
+      this.renderer.compile(this.scene, this.camera);
+    } catch (compileErr) {
+      console.warn('[VRMEngine] compile warning during WebGL context re-sync:', compileErr);
+    }
+  }
+
+  /**
+   * 同步立即补绘当前帧：
+   * 在 setSize 重建 WebGL DrawingBuffer 后立即同步执行，
+   * 确保在交还事件循环给浏览器/OS合成器之前，画布就已经被渲染填满，
+   * 从根源彻底消灭因 WebGL setSize 清空机制导致的“一闪而过透明背景”与“一直拖一直闪”！
+   */
+  public renderFrameNow(): void {
+    if (!this.renderer || !this.scene || !this.camera) return;
+    try {
+      if (this.postFx.isReady() && this.postFx.config.enabled) {
+        this.postFx.render(0.016);
+      } else {
+        this.renderer.render(this.scene, this.camera);
+      }
+    } catch (err) {
+      // 容错保护：避免 resize 期间偶发着色器未就绪抛出异常
+      console.warn('[VRMEngine] renderFrameNow skipped frame:', err);
+    }
+  }
+
+  /**
+   * 真正执行物理分辨率与 GPU Framebuffer 重建：
+   * 采用逐帧 rAF 合并（Vsync Coalescing）：
+   * 在每一次显示器刷新周期内仅执行一次精确的物理尺寸变更与同步绘制，
+   * 彻底根除因 CSS 双线性拉伸延迟产生的“果冻拉伸/忽胖忽瘦”形变感，
+   * 同时 renderFrameNow() 保证绝对零闪烁。
+   */
+  private applyResize = (newWidth: number, newHeight: number): void => {
+    if (!this.renderer || !this.camera) return;
+    if (newWidth <= 0 || newHeight <= 0) return;
+    if (this.lastRenderWidth === newWidth && this.lastRenderHeight === newHeight) return;
+
+    this.lastRenderWidth = newWidth;
+    this.lastRenderHeight = newHeight;
+
+    this.camera.aspect = newWidth / newHeight;
+    this.camera.updateProjectionMatrix();
+
+    const ratio = this.getTargetPixelRatio();
+    this.renderer.setPixelRatio(ratio);
+    this.renderer.setSize(newWidth, newHeight);
+    if (this.postFx.isReady()) {
+      this.postFx.resize(newWidth, newHeight, ratio);
+    }
+
+    // ★ 关键防闪核心：在 WebGL 清空 DrawingBuffer 后，同步立即将场景补绘上屏！
+    this.renderFrameNow();
+  };
+
+  /**
+   * 视口尺寸同步策略（单主循环原生高刷驱动）：
+   * 1. 彻底消除双重 rAF 竞争：
+   *    原本 handleResize 自己启动一个 requestAnimationFrame，与 startAnimation 的 rAF
+   *    在同一帧内两度争抢 GPU 并导致 PostFX 每一帧被双重重绘（30+ 次离屏 Pass），造成严重掉帧卡顿；
+   * 2. 现改由单一的主渲染循环 (animate) 统一驱动：
+   *    handleResize 仅同步更新相机 aspect；主循环在每一帧开头检测窗口尺寸变化，
+   *    一帧内仅执行一次 setSize 并紧接着随 VRM 物理动画直接上屏，保证 120Hz 丝滑流畅、零闪烁、零形变！
+   */
+  private handleResize = () => {
+    if (!this.camera) return;
+    const w = window.innerWidth;
+    const h = window.innerHeight;
+    if (w <= 0 || h <= 0) return;
+
+    this.camera.aspect = w / h;
+    this.camera.updateProjectionMatrix();
+
+    // 当主动画循环未在运行时（如挂起或模型加载前），兜底同步重绘
+    if (this.animFrameId === null || this.isRenderingSuspended) {
+      this.applyResize(w, h);
+    }
   };
 
   // ── 外部控制代理 API ──
   public setLineworkTheme(theme: LineworkTheme, persist: boolean = true): void {
     this.lineworkWorld.setTheme(theme, this.scene);
     this.updateShadowForTheme(theme === 'dark');
+    // ponytail: shadowPlane 现在带 radial alpha mask, 边缘自然 fade 到全透明,
+    // 不再有"12x12 大网格污染穿透位图"的隐患, transparent 下保持显示让 directional
+    // 影子投到带 mask 的 plane 上, 边界软渐隐 (ani 风格)。visibility 不再随 theme 切换。
+    if (this.shadow.group) this.shadow.group.visible = true;
+    if (typeof document !== 'undefined') {
+      document.documentElement.classList.toggle('scene-transparent', theme === 'transparent');
+    }
+    // 切换到透明背景时立即应用专属定死镜头；切回普通场景时恢复正常控制与 FOV
+    this.fitCamera();
+    if (typeof window !== 'undefined') {
+      window.dispatchEvent(new CustomEvent('scene-theme-changed', { detail: theme }));
+    }
     if (persist && typeof window !== 'undefined') {
       try {
         localStorage.setItem(SCENE_THEME_KEY, theme);
-      } catch {}
+      } catch { }
     }
   }
 
   public updateShadowForTheme(isDark: boolean): void {
-    if (this.shadowPlane && this.shadowPlane.material instanceof THREE.ShadowMaterial) {
-      this.shadowPlane.material.opacity = isDark ? 0.45 : 0.20;
-      this.shadowPlane.material.needsUpdate = true;
-    }
+    this.shadow.updateOpacity(isDark);
   }
 
   public getLineworkTheme(): LineworkTheme {
@@ -737,6 +969,14 @@ export class VRMEngine {
     return this.enableBodyTurn;
   }
 
+  public setEnableGaze(enabled: boolean): void {
+    this.gazeController.enabled = enabled;
+  }
+
+  public getEnableGaze(): boolean {
+    return this.gazeController.enabled;
+  }
+
   /** DevDrawer / P0b: thin forward to EmagePlayer.getPerfSnapshot(). */
   public getEmagePerfSnapshot() {
     return this.emagePlayer.getPerfSnapshot();
@@ -755,6 +995,28 @@ export class VRMEngine {
     this.camera.updateProjectionMatrix();
   }
 
+  /**
+   * ponytail: 临时偏移相机 Y (调试视角用, 修饰键+滑条触发)。
+   * 同时平移 camera.position.y 和 controls.target.y (相对偏移),
+   * OrbitControls 内部 spherical 不变 (两向量同步移动), 用户输入保持不变。
+   * offset 米, 正向上抬 (相机+目标一起上移, 视觉上场景下移), 负向下压。
+   */
+  public setCameraYOffset(offset: number): void {
+    if (!this.controls) return;
+    const delta = offset - this._cameraYOffsetAccum;
+    this.controls.target.y += delta;
+    this.camera.position.y += delta;
+    this._cameraYOffsetAccum = offset;
+    // ponytail: 单向数据流 — vrmEngine 是 source of truth, 写 localStorage 并通知 App 同步 state
+    if (typeof window !== 'undefined') {
+      try {
+        window.localStorage.setItem(CAMERA_Y_OFFSET_KEY, String(offset));
+      } catch {}
+      window.dispatchEvent(new CustomEvent('camera-y-offset-change', { detail: { offset } }));
+    }
+  }
+  private _cameraYOffsetAccum = 0;
+
   // ponytail: devDrawer 调相机推拉上下限 — minDistance/maxDistance 是 OrbitControls
   // 的钳位属性,clamp 当前 camera-to-target 距离落在新范围内,避免改完后视角"跳"。
   public setCameraDistanceRange(minDist: number, maxDist: number): void {
@@ -772,17 +1034,39 @@ export class VRMEngine {
   }
 
   public fitCamera(): void {
+    if (this.controls) {
+      this.controls.enabled = true;
+    }
     const head = this.currentVRM?.humanoid?.getNormalizedBoneNode('head');
     if (head && this.controls) {
       const p = new THREE.Vector3();
       head.getWorldPosition(p);
-      this.controls.target.set(p.x, p.y - 0.25, p.z);
-      // ponytail: 同 computeDefaultCameraPosition — 距离按当前 FOV + shotExtent 算,
-      // 不再硬编码 z+2.2,这样 FOV 改了 fitCamera 也不会糊脸。
+      const target = new THREE.Vector3(p.x, p.y - 0.25, p.z);
+      this.controls.target.copy(target);
+      // 距离按当前 FOV + shotExtent 算，结合保存的俯仰角 pitch 与视距还原
+      const savedPitch = loadSavedCameraPitch();
       const fovRad = (this.camera.fov * Math.PI) / 180;
-      const distance = APP_CONFIG.camera.defaultShotExtent / (2 * Math.tan(fovRad / 2));
-      this.camera.position.set(p.x, p.y - 0.1, p.z + distance);
+      const defaultDist = APP_CONFIG.camera.defaultShotExtent / (2 * Math.tan(fovRad / 2));
+      const dist = savedPitch?.distance ?? defaultDist;
+      const pitch = savedPitch ? savedPitch.pitch : getDefaultCameraPitch();
+      this.camera.position.set(...computeCameraPositionFromPitch(pitch, dist, target));
       this.controls.update();
+
+      // ponytail: 应用持久化的 camera Y 偏移 (调试视角用), 避免 outfit swap / 重置
+      // 覆盖默认 fitCamera 的 camera.position. accum 也要同步, 否则下次 setCameraYOffset
+      // 会算 delta 出错.
+      if (typeof window !== 'undefined') {
+        try {
+          const raw = window.localStorage.getItem(CAMERA_Y_OFFSET_KEY);
+          if (raw !== null) {
+            const v = Number(raw);
+            if (Number.isFinite(v) && v !== 0) {
+              this._cameraYOffsetAccum = 0;       // 重置 accum 让 delta = v - 0 = v
+              this.setCameraYOffset(v);
+            }
+          }
+        } catch {}
+      }
     }
   }
 
@@ -882,8 +1166,13 @@ export class VRMEngine {
           this.resetBones(vrm);
           vrm.scene.updateMatrixWorld(true);
 
+          // 角色出生点 (从 config.model.spawn 读 x/z, y 在 floor snap 后再加偏移)
+          const spawn = APP_CONFIG.model.spawn;
+          vrm.scene.position.set(spawn.x, 0, spawn.z);
+          vrm.scene.updateMatrixWorld(true);
+
           const bbox = new THREE.Box3().setFromObject(vrm.scene);
-          vrm.scene.position.y += -bbox.min.y;
+          vrm.scene.position.y += -bbox.min.y + spawn.y;
           this.vrmBaseSceneY = vrm.scene.position.y;
           vrm.scene.updateMatrixWorld(true);
 
@@ -903,8 +1192,10 @@ export class VRMEngine {
             this.vrmaPlayer.resetHipsRest();
             this.motionPipeline.finalPose.sampleFromVRM(vrm);
             this.bodyMorph.bind(vrm);
+            this.applySpringBoneTuning(vrm);
             if (typeof window !== 'undefined') {
               (window as any).emagePlayer = this.emagePlayer;
+              (window as any).vrmEngine = this;
             }
 
             // 4. 在新模型上屏前，先在内存中预先恢复姿态与动画帧 (seek 到精准时刻)
@@ -942,8 +1233,11 @@ export class VRMEngine {
           this.vrmaPlayer.resetHipsRest();
           this.motionPipeline.finalPose.sampleFromVRM(vrm);
           this.bodyMorph.bind(vrm);
+          this.applySpringBoneTuning(vrm);
+          this.applySavedBodyYawToVRM(vrm);
           if (typeof window !== 'undefined') {
             (window as any).emagePlayer = this.emagePlayer;
+            (window as any).vrmEngine = this;
           }
 
           if (!this.emagePlayer.ready) void this.emagePlayer.ensureLoaded();
@@ -981,6 +1275,60 @@ export class VRMEngine {
         }
       );
     });
+  }
+
+  /**
+   * 应用胸部等 SpringBone 动力学物理调优：
+   * 将 VRoid 官方默认的高刚度硬塑料参数 (stiffness 0.75) 优化为富有弹性、反应自然的仿生乳摇效果。
+   */
+  public applySpringBoneTuning(vrm: VRM | null = this.currentVRM): void {
+    const mgr = vrm?.springBoneManager;
+    if (!mgr) return;
+    const cfg = APP_CONFIG.springBone.bust;
+    for (const joint of mgr.joints) {
+      const name = joint.bone?.name ?? '';
+      if (/bust/i.test(name)) {
+        const isTip = /bust2/i.test(name);
+        joint.settings.stiffness = isTip ? cfg.stiffness * 0.85 : cfg.stiffness;
+        joint.settings.dragForce = cfg.dragForce;
+        joint.settings.gravityPower = cfg.gravityPower;
+        if (cfg.hitRadius > 0) {
+          joint.settings.hitRadius = cfg.hitRadius;
+        }
+      }
+    }
+    this.windForce.resetGravityCache();
+  }
+
+  /**
+   * 动态调节胸部弹簧骨骼刚度与阻尼物理属性
+   */
+  public updateBustSpringPhysics(params?: {
+    stiffness?: number;
+    dragForce?: number;
+    gravityPower?: number;
+  }): void {
+    if (!params) {
+      this.applySpringBoneTuning();
+      return;
+    }
+    const mgr = this.currentVRM?.springBoneManager;
+    if (!mgr) return;
+    for (const joint of mgr.joints) {
+      const name = joint.bone?.name ?? '';
+      if (/bust/i.test(name)) {
+        const isTip = /bust2/i.test(name);
+        if (params.stiffness !== undefined) {
+          joint.settings.stiffness = isTip ? params.stiffness * 0.85 : params.stiffness;
+        }
+        if (params.dragForce !== undefined) {
+          joint.settings.dragForce = params.dragForce;
+        }
+        if (params.gravityPower !== undefined) {
+          joint.settings.gravityPower = params.gravityPower;
+        }
+      }
+    }
   }
 
   /** Snapshot animation / expression / gaze / spring state before whole-VRM outfit reload. */
@@ -1257,8 +1605,13 @@ export class VRMEngine {
           this.resetBones(vrm);
           vrm.scene.updateMatrixWorld(true);
 
+          // 角色出生点 (从 config.model.spawn 读 x/z, y 在 floor snap 后再加偏移)
+          const spawn = APP_CONFIG.model.spawn;
+          vrm.scene.position.set(spawn.x, 0, spawn.z);
+          vrm.scene.updateMatrixWorld(true);
+
           const bbox = new THREE.Box3().setFromObject(vrm.scene);
-          vrm.scene.position.y += -bbox.min.y;
+          vrm.scene.position.y += -bbox.min.y + spawn.y;
           this.vrmBaseSceneY = vrm.scene.position.y;
           vrm.scene.updateMatrixWorld(true);
 
@@ -1278,8 +1631,10 @@ export class VRMEngine {
             this.vrmaPlayer.resetHipsRest();
             this.motionPipeline.finalPose.sampleFromVRM(vrm);
             this.bodyMorph.bind(vrm);
+            this.applySpringBoneTuning(vrm);
             if (typeof window !== 'undefined') {
               (window as any).emagePlayer = this.emagePlayer;
+              (window as any).vrmEngine = this;
             }
 
             // 4. 在新模型上屏前，先在内存中预先恢复姿态与动画帧 (seek 到精准时刻)
@@ -1317,7 +1672,12 @@ export class VRMEngine {
           this.vrmaPlayer.resetHipsRest();
           this.motionPipeline.finalPose.sampleFromVRM(vrm);
           this.bodyMorph.bind(vrm);
-          if (typeof window !== 'undefined') (window as any).emagePlayer = this.emagePlayer;
+          this.applySpringBoneTuning(vrm);
+          this.applySavedBodyYawToVRM(vrm);
+          if (typeof window !== 'undefined') {
+            (window as any).emagePlayer = this.emagePlayer;
+            (window as any).vrmEngine = this;
+          }
 
           if (!this.emagePlayer.ready) void this.emagePlayer.ensureLoaded();
           preloadWebLLM();
@@ -1583,7 +1943,6 @@ export class VRMEngine {
 
   public renderSingleFrame(): void {
     if (this.renderer && this.currentVRM) {
-      // ponytail: postfx enabled 时走 composer,disabled 时回退 renderer 直接渲
       if (this.postFx.isReady() && this.postFx.config.enabled) {
         this.postFx.render(0);
       } else {
@@ -1594,9 +1953,35 @@ export class VRMEngine {
 
   // ── 核心高内聚主渲染循环 ──
   private startAnimation(): void {
+    if (this.animFrameId !== null) {
+      cancelAnimationFrame(this.animFrameId);
+      this.animFrameId = null;
+    }
     const animate = (timestamp: number) => {
       this.animFrameId = requestAnimationFrame(animate);
       if (this.isRenderingSuspended) return;
+
+      // 视口动态物理尺寸跟随（单主循环同步驱动，消除多重 rAF 竞争与双重绘制开销）
+      const curW = window.innerWidth;
+      const curH = window.innerHeight;
+      if (curW > 0 && curH > 0 && (curW !== this.lastRenderWidth || curH !== this.lastRenderHeight)) {
+        const isMobile = typeof navigator !== 'undefined' && /Mobi|Android|iPhone|iPad/i.test(navigator.userAgent);
+        if (isMobile && this.lastRenderWidth === curW) {
+          this.camera.aspect = curW / curH;
+          this.camera.updateProjectionMatrix();
+        } else {
+          this.lastRenderWidth = curW;
+          this.lastRenderHeight = curH;
+          this.camera.aspect = curW / curH;
+          this.camera.updateProjectionMatrix();
+          const ratio = this.getTargetPixelRatio();
+          this.renderer?.setPixelRatio(ratio);
+          this.renderer?.setSize(curW, curH);
+          if (this.postFx.isReady()) {
+            this.postFx.resize(curW, curH, ratio);
+          }
+        }
+      }
 
       // 移动端/推理期动态调频 (Throttle to ~30 FPS):
       // 将 GPU 瞬时算力让渡给 WebGPU Prefill，保持角色 30FPS 稳定动态呼吸，消除卡死与掉帧
@@ -1611,8 +1996,15 @@ export class VRMEngine {
       const delta = Math.min(this.clock.getDelta(), 0.1);
       const time = this.clock.getElapsedTime();
 
+      // 持续驱动线稿背景世界的动态喷水花坛（水珠物理重力飞溅与同心涟漪波纹）
+      this.lineworkWorld.update(delta, time);
+
       const vrm = this.currentVRM;
       if (vrm) {
+        if (this._springBoneTunedVRM !== vrm) {
+          this.applySpringBoneTuning(vrm);
+          this._springBoneTunedVRM = vrm;
+        }
         const isShoesOff = this.materialManager.partsVisibility['shoes'] === false;
         this.footIK.updateBarefoot(isShoesOff, delta);
 
@@ -1631,26 +2023,34 @@ export class VRMEngine {
 
         this.chatDirector.tick(vrm, this.vrmaPlayer);
 
+        // ponytail: 注入 wind (ambient + 鼠标冲量) 到 springBone joints 的 gravityDir/Power,
+        // 必须在 vrm.update(delta) 之前, 因为 springBoneManager.update() 内部读取这些 settings.
+        this.windForce.applyTo(vrm, delta, this.camera);
         vrm.update(delta);
+
+        // ponytail: 3D 引导轨 (TurnGuide + PitchGuide + CameraYGuide) 全在 interaction 内每帧 update,
+        // 这里什么都不做 — interaction.update() 在下面 shadow.update() 之后调一次。
+
         if (this.bodyMorph.isCompatible) {
           this.bodyMorph.update(vrm);
         }
 
-        // 7. 实体脚下影子平面中心与地面高度贴合
-        if (this.shadowPlane && vrm.humanoid) {
+        // 7. 实体脚下影子平面中心与地面高度贴合 — ponytail: 全部交给 CharacterShadowSystem
+        if (vrm.humanoid) {
           const lf = vrm.humanoid.getNormalizedBoneNode('leftFoot');
           const rf = vrm.humanoid.getNormalizedBoneNode('rightFoot');
           if (lf && rf) {
             lf.getWorldPosition(this.tempSoleA);
             rf.getWorldPosition(this.tempSoleB);
-            this.shadowPlane.position.x = (this.tempSoleA.x + this.tempSoleB.x) * 0.5;
-            this.shadowPlane.position.z = (this.tempSoleA.z + this.tempSoleB.z) * 0.5;
+            this.shadow.feetWorld.set(
+              (this.tempSoleA.x + this.tempSoleB.x) * 0.5,
+              0,
+              (this.tempSoleA.z + this.tempSoleB.z) * 0.5,
+            );
           } else {
-            this.shadowPlane.position.x = vrm.scene.position.x;
-            this.shadowPlane.position.z = vrm.scene.position.z;
+            this.shadow.feetWorld.set(vrm.scene.position.x, 0, vrm.scene.position.z);
           }
-          // 阴影平面高度永远紧密贴合在世界地面表面 (Y = 0.0015)，彻底杜绝空中浮空或地表错位
-          this.shadowPlane.position.y = 0.0015;
+          this.shadow.update(this.camera, this.getLineworkTheme() === 'transparent');
         }
 
         // 8. 委托 BubbleTracker 更新 3D 头部气泡屏幕坐标 (带 1.5px 死区过滤)
@@ -1709,26 +2109,73 @@ export class VRMEngine {
         }
       }
 
+      if (vrm) {
+        this.interaction.update(delta, vrm.scene.position, this._cameraYOffsetAccum, this.camera);
+      }
+
       this.controls?.update();
-      // ponytail: postfx 接管 render,disabled 时回退到原始 renderer
-      if (this.postFx.isReady() && this.postFx.config.enabled) {
-        this.postFx.render(delta);
-      } else {
-        this.renderer?.render(this.scene, this.camera);
+      try {
+        const isTransparent = this.getLineworkTheme() === 'transparent';
+        if (!isTransparent && this.postFx.isReady() && this.postFx.config.enabled) {
+          this.postFx.render(delta);
+        } else {
+          this.renderer?.render(this.scene, this.camera);
+        }
+
+        // 真实像素提取：在 WebGL 画布渲染完成的第一时间提取 Alpha 蒙版，保证动作姿态零延迟、100% 对应画面
+        if (this.canvas && passthroughManager.isPassthroughEnabled()) {
+          passthroughManager.updateCanvasAlphaMask(this.canvas);
+        }
+      } catch (renderErr) {
+        // 渲染异常安全降级：避免 HMR 期间 WebGL 瞬态错误无限轰炸导致主线程卡死
+        console.warn('[VRMEngine] skipped frame render error during HMR/resize:', renderErr);
       }
     };
 
     animate(0);
   }
 
+  private _hitRaycaster = new THREE.Raycaster();
+  private _hitNdc = new THREE.Vector2();
+
+  /**
+   * 射线检测屏幕坐标 (clientX, clientY) 是否击中小春 3D 角色模型实体
+   */
+  public isHitModel(clientX: number, clientY: number): boolean {
+    if (!this.currentVRM || !this.camera || typeof window === 'undefined') return false;
+    this._hitNdc.x = (clientX / window.innerWidth) * 2 - 1;
+    this._hitNdc.y = -(clientY / window.innerHeight) * 2 + 1;
+    this._hitRaycaster.setFromCamera(this._hitNdc, this.camera);
+    const intersects = this._hitRaycaster.intersectObject(this.currentVRM.scene, true);
+    for (const hit of intersects) {
+      const obj = hit.object;
+      if (!obj.visible) continue;
+      if (obj instanceof THREE.Mesh) {
+        const mat = obj.material;
+        if (mat) {
+          if (Array.isArray(mat)) {
+            if (mat.some((m) => m.visible && m.opacity > 0.05)) return true;
+          } else if (mat.visible && mat.opacity > 0.05) {
+            return true;
+          }
+        }
+      }
+    }
+    return false;
+  }
+
   public dispose(): void {
     if (this.animFrameId !== null) {
       cancelAnimationFrame(this.animFrameId);
     }
+    this.interaction.dispose();
+    this.windForce.dispose();
     window.removeEventListener('resize', this.handleResize);
     this.controls?.dispose();
     this.renderer?.dispose();
     this.lineworkWorld.dispose(this.scene);
+    // ponytail: 角色阴影系统释放 (含 shadowPlane geometry/material + mask texture)
+    this.shadow.dispose();
   }
 }
 

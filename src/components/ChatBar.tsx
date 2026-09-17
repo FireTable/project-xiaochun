@@ -2,6 +2,7 @@ import React, { useState, useEffect, useRef, Fragment, useMemo } from 'react';
 import { useTranslation } from 'react-i18next';
 import { ChevronLeft, ChevronRight, Menu, Mountain, Server, Sun, Zap } from 'lucide-react';
 import { vrmEngine } from '@/core/vrmEngine';
+import { useCurrentScene } from '@/core/scene/sceneManager';
 import { DeviceStatusDialog } from '@/components/DeviceStatusDialog';
 import { ProviderConfigDialog } from '@/components/ProviderConfigDialog';
 import { AdvancedSettingsDialog } from '@/components/AdvancedSettingsDialog';
@@ -41,6 +42,7 @@ import {
   DropdownMenuItem,
 } from '@/components/ui/dropdown-menu';
 import { LlmProviderIcon } from '@/components/LlmProviderIcon';
+import { useDeferredUnmount } from '@/hooks/useDeferredUnmount';
 
 function MenuSwitch({ on }: { on: boolean }) {
   return (
@@ -68,8 +70,16 @@ function AccentFill({ on }: { on: boolean }) {
   );
 }
 
-export const ChatBar: React.FC<{ onShowDevPanel?: () => void }> = ({ onShowDevPanel }) => {
+export const ChatBar: React.FC<{
+  isPetUIVisible?: boolean;
+  onShowDevPanel?: () => void;
+}> = ({ isPetUIVisible = false, onShowDevPanel }) => {
   const { t } = useTranslation();
+  const currentScene = useCurrentScene();
+  const isTransparent = Boolean(currentScene.isTransparent);
+  // ponytail: 不再有 hover-show — 透明桌宠模式只靠点击角色身体 (App.tsx 的 isPetUIVisible) 唤出/收起
+  const [isMenuOpen, setIsMenuOpen] = useState(false);
+
   const inputRef = useRef<HTMLInputElement>(null);
   const [hasText, setHasText] = useState(false);
   const [isSending, setIsSending] = useState(false);
@@ -406,12 +416,25 @@ export const ChatBar: React.FC<{ onShowDevPanel?: () => void }> = ({ onShowDevPa
     shudaoSegs: splitIntoSpeechChunks(t('chat.testSpeakShudaoText')).length,
   }), [t]);
 
+  const showChatBar = !isTransparent || isPetUIVisible || isMenuOpen || isInputFocused || hasText || isSending;
+  // ponytail: 延迟 unmount 让淡出动画跑完 (300ms = transition duration), 之后彻底摘掉,
+  // 避免 Radix Tooltip / 输入 focus 残留触发。
+  // animated 拆出来: 首帧停在 opacity-0 让 CSS transition 有起点, 入场动画才会触发。
+  const { mounted, animated } = useDeferredUnmount(showChatBar, 300);
+  if (!mounted) return null;
+  const visibilityClass = showChatBar && animated
+    ? 'opacity-100 translate-y-0 pointer-events-auto'
+    : 'opacity-0 translate-y-4 pointer-events-none';
+
   return (
-    <div className="fixed bottom-[calc(0.75rem+env(safe-area-inset-bottom,0px)+var(--kb,0px))] sm:bottom-8 left-1/2 -translate-x-1/2 z-30 w-full max-w-xl px-3 sm:px-4 pointer-events-auto select-none">
+    <div
+      className={`fixed bottom-[calc(0.75rem+env(safe-area-inset-bottom,0px)+var(--kb,0px))] sm:bottom-8 left-1/2 -translate-x-1/2 z-30 w-full max-w-xl px-3 sm:px-4 select-none transition-all duration-300 ease-out ${visibilityClass}`}
+    >
       <div className="flex items-center gap-2 sm:gap-2.5 w-full">
         <DropdownMenu
           modal={false}
           onOpenChange={(open) => {
+            setIsMenuOpen(open);
             if (!open) setPickingModel(false);
           }}
         >
@@ -582,7 +605,7 @@ export const ChatBar: React.FC<{ onShowDevPanel?: () => void }> = ({ onShowDevPa
         <form
           autoComplete="off"
           onSubmit={(e) => e.preventDefault()}
-          className={`flex-1 flex items-center h-11 sm:h-11 rounded-full bg-[#13111c]/85 border shadow-[0_8px_32px_rgba(0,0,0,0.5)] backdrop-blur-2xl px-3.5 sm:px-4 transition-all duration-300 relative ${
+          className={`flex-1 flex items-center h-11 sm:h-11 rounded-full bg-[#13111c]/85 border backdrop-blur-2xl px-3.5 sm:px-4 transition-all duration-300 relative ${
             isQueued
               ? 'border-[#ea8377] ring-2 ring-[#ea8377]/40 shadow-[0_0_24px_rgba(234,131,119,0.35)]'
               : 'border-white/15 focus-within:border-[#ea8377] focus-within:ring-2 focus-within:ring-[#ea8377]/30 focus-within:shadow-[0_0_24px_rgba(234,131,119,0.3)]'

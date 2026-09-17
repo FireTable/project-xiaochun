@@ -7,23 +7,19 @@ import { ChatBar } from '@/components/ChatBar';
 import { LoadingOverlay } from '@/components/LoadingOverlay';
 import { DevDrawer } from '@/components/dev-drawer';
 import { SceneCanvas } from '@/components/SceneCanvas';
+
 import { XIAOCHUN_SYSTEM_PROMPT } from '@/llm/prompts';
 import { resolveSystemPrompt, getCachedUserSettings, subscribeUserSettings } from '@/llm/userSettings';
 import { DEV_DRAWER_OPEN_KEY } from '@/lib/constants';
 import type { Lang } from '@/i18n';
 import { APP_CONFIG } from '@/config';
-
-// ponytail: SceneCanvas 直接 eager import,不用 React.lazy + Suspense。
-// 原 lazy 是为了 chunk 拆分延迟首屏,但导致 mount 时机不可控:
-//   - lazy chunk 异步加载,SceneCanvas 实际 mount 时刻晚于 App 其他 children
-//   - TopHeader 的 120ms cold-start timer 不等 lazy,先触发 swapOutfit
-//   - loadVRMFromBuffer 回调跑时 this.controls 还没设(attachCanvas 在 SceneCanvas
-//     useEffect 里),'if (this.controls && !_sceneInitialized)' 分支跳过 startAnimation,
-//     模型加进 scene 但渲染循环没起 → 看不见。
-// SceneCanvas 只有 49 行,eager import 没 bundle 成本,但消除整条 race。
+import { useCurrentScene } from '@/core/scene/sceneManager';
+import { usePetUiVisibility } from '@/hooks/usePetUiVisibility';
+import { initProtocolListener } from '@/core/protocol';
 
 export const App: React.FC = () => {
   const { t, i18n } = useTranslation();
+  const currentScene = useCurrentScene();
 
   // dev 调试模式或 HMR 热更新时跳过 LoadingOverlay
   // 严格遵守 APP_CONFIG.dev.disableLoadingOverlayInDev 开关：若为 false 则说明需要调试遮罩，绝不盲目跳过
@@ -61,6 +57,17 @@ export const App: React.FC = () => {
   // ponytail: 10 次连击暗号触发后,生产构建也要能看见右上角调试按钮 — 用户已经
   // 「发现」了隐藏 dev 通道,继续藏按钮不合理。一次性解锁,刷新页面后重置。
   const [hasDevEasterEgg, setHasDevEasterEgg] = useState(false);
+
+  // 外部协议调用 (Deep Link / Single-Instance / 调试桥接) 监听初始化
+  useEffect(() => {
+    let unlisten: (() => void) | undefined;
+    initProtocolListener().then((fn) => {
+      unlisten = fn;
+    });
+    return () => {
+      unlisten?.();
+    };
+  }, []);
 
   useEffect(() => {
     let engineModule: typeof import('@/core/vrmEngine') | null = null;
@@ -146,26 +153,36 @@ export const App: React.FC = () => {
       window.removeEventListener('dragleave', handleDragLeave);
       window.removeEventListener('drop', handleDrop);
       unsubUserSettings?.();
-      engineModule?.vrmEngine.dispose();
     };
   }, [i18n]);
 
+  // ── 桌宠透明模式：点击人物主体触发 UI 唤起与收起 ──
+  const isTransparent = Boolean(currentScene.isTransparent);
+  const { isPetUIVisible } = usePetUiVisibility(isTransparent);
+
+  // ponytail: 3D 引导轨 (TurnGuide + PitchGuide + CameraYGuide) 全部由 InteractionController
+  // 直接管 keydown/keyup + 修饰键检测, 不再走 App.tsx 这层 useState (React state batch 滞后
+  // 会让快按 / 快松修饰键时漏掉 cameraYGuide)。
+
   return (
-    <div id="app" className="relative w-full h-screen h-[100dvh] overflow-hidden bg-[#0a0812]">
+    <div id="app" className="relative w-full h-screen h-[100dvh] overflow-hidden">
       {/* 3D Canvas (按需异步挂载，不阻塞首屏骨架) */}
       <SceneCanvas />
 
-      {/* 3D 角色头顶悬浮对话框 */}
-      <HeadBubble state={bubble} />
+      {/* ponytail: 3D 场景里的虚线高度尺 + 相机高度指示 (按修饰键显示, 由 vrmEngine.cameraYGuide 控制可见性) */}
 
-      {/* 底部对话输入条 — 启动 splash 期间不渲染,避免跟 LoadingOverlay 重叠。
-          之前 ChatBar tooltip 在 !isModelReady 时常驻,会跟启动动画叠在一起看着像两个页面。
-          ponytail: 只用 `loading.active` 一个标志就够了,VRM ready 后 loading.active=false,
-          ChatBar 这时候挂载,自带 tooltip 接管剩余的 LLM 下载/就绪提示。
-          onShowDevPanel: 10 次连击暗号只解锁 hasDevEasterEgg — 让 TopHeader 上的 ⚙️
-          按钮在生产构建里亮起来,面板本身要用户主动再点 ⚙️ 才打开。vconsole 仍由
-          ChatBar 内部独立触发。 */}
-      {!loading.active && <ChatBar onShowDevPanel={() => setHasDevEasterEgg(true)} />}
+
+
+      {/* 3D 角色头顶悬浮对话框 */}
+      {currentScene.components.headBubble !== false && <HeadBubble state={bubble} />}
+
+      {/* 底部对话输入条 — 启动 splash 期间不渲染,避免跟 LoadingOverlay 重叠 */}
+      {!loading.active && currentScene.components.chatBar !== false && (
+        <ChatBar
+          isPetUIVisible={isPetUIVisible}
+          onShowDevPanel={() => setHasDevEasterEgg(true)}
+        />
+      )}
 
       {/* 模型加载进度遮罩 (dev 或 HMR 时彻底免除) */}
       {!skipLoadingOverlay && (
@@ -182,11 +199,14 @@ export const App: React.FC = () => {
       )}
 
       {/* 顶部控制栏 */}
-      <TopHeader
-        isDev={isDev || hasDevEasterEgg}
-        isDrawerOpen={isDrawerOpen}
-        onToggleDrawer={() => setIsDrawerOpen((prev) => !prev)}
-      />
+      {currentScene.components.topHeader !== false && (
+        <TopHeader
+          isDev={isDev || hasDevEasterEgg}
+          isDrawerOpen={isDrawerOpen}
+          isPetUIVisible={isPetUIVisible}
+          onToggleDrawer={() => setIsDrawerOpen((prev) => !prev)}
+        />
+      )}
 
       {/* ponytail: DevDrawer 不再受 isDev 守卫 — 10 次连击暗号触发后,生产构建也要能
           拉出调试面板(只走 10 次连击路径,TopHeader 上的 dev 按钮仍受 isDev 隐藏)。 */}
@@ -196,47 +216,51 @@ export const App: React.FC = () => {
       />
 
       {/* 实时身高 3D 浮动指示线与 HUD 标牌 (头顶发光微点 + 科技感延伸指示线) */}
-      <svg
-        id="height-ruler-svg"
-        className="fixed inset-0 pointer-events-none z-40 w-full h-full"
-        style={{ display: 'none' }}
-      >
-        <defs>
-          <filter id="ruler-glow" x="-50%" y="-50%" width="200%" height="200%">
-            <feDropShadow dx="0" dy="0" stdDeviation="2" floodColor="#e06d64" floodOpacity="0.8" />
-          </filter>
-        </defs>
-        <path
-          id="height-ruler-line"
-          stroke="#e06d64"
-          strokeWidth="1.5"
-          strokeDasharray="4 3"
-          strokeLinecap="round"
-          strokeLinejoin="round"
-          fill="none"
-          filter="url(#ruler-glow)"
-        />
-        <circle
-          id="height-ruler-dot"
-          r="3"
-          fill="#ffffff"
-          stroke="#e06d64"
-          strokeWidth="1.5"
-          filter="url(#ruler-glow)"
-        />
-      </svg>
+      {currentScene.components.heightRuler !== false && (
+        <>
+          <svg
+            id="height-ruler-svg"
+            className="fixed inset-0 pointer-events-none z-40 w-full h-full"
+            style={{ display: 'none' }}
+          >
+            <defs>
+              <filter id="ruler-glow" x="-50%" y="-50%" width="200%" height="200%">
+                <feDropShadow dx="0" dy="0" stdDeviation="2" floodColor="#e06d64" floodOpacity="0.8" />
+              </filter>
+            </defs>
+            <path
+              id="height-ruler-line"
+              stroke="#e06d64"
+              strokeWidth="1.5"
+              strokeDasharray="4 3"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+              fill="none"
+              filter="url(#ruler-glow)"
+            />
+            <circle
+              id="height-ruler-dot"
+              r="3"
+              fill="#ffffff"
+              stroke="#e06d64"
+              strokeWidth="1.5"
+              filter="url(#ruler-glow)"
+            />
+          </svg>
 
-      <div
-        id="height-ruler-badge"
-        className="fixed top-0 left-0 z-50 pointer-events-none will-change-transform transition-opacity duration-150 select-none flex items-center gap-1 font-bold text-white text-[11px] sm:text-xs px-2 py-0.5 rounded-md bg-brand-500/90 backdrop-blur-sm border border-brand-300/40 shadow-lg shadow-brand-500/30 tracking-wide"
-        style={{ display: 'none', opacity: 0 }}
-      >
-        <span className="text-[10px] opacity-80 font-normal">📏</span>
-        <span id="height-ruler-text">--.-cm</span>
-      </div>
+          <div
+            id="height-ruler-badge"
+            className="fixed top-0 left-0 z-50 pointer-events-none will-change-transform transition-opacity duration-150 select-none flex items-center gap-1 font-bold text-white text-[11px] sm:text-xs px-2 py-0.5 rounded-md bg-brand-500/90 backdrop-blur-sm border border-brand-300/40 shadow-lg shadow-brand-500/30 tracking-wide"
+            style={{ display: 'none', opacity: 0 }}
+          >
+            <span className="text-[10px] opacity-80 font-normal">📏</span>
+            <span id="height-ruler-text">--.-cm</span>
+          </div>
+        </>
+      )}
 
       {/* 拖拽上传提示层 */}
-      {isDragOver && (
+      {isDragOver && currentScene.components.dropZone !== false && (
         <div id="drop-zone" className="drop-zone">
           <div className="drop-card">
             <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">

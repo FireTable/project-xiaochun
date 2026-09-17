@@ -1,9 +1,9 @@
 # Project XiaoChun
 
-> 100% browser-native anime companion — WebLLM (WebGPU) + EMAGE (ONNX wasm + INT8, streaming T=64) + Edge-TTS. Private interactive VRM companion in-tab, zero backend.
+> 100% client-native anime companion & transparent desktop pet (Tauri 2.x + Web) — WebLLM (WebGPU) + EMAGE (ONNX wasm + INT8) + Edge-TTS + Inter-process Protocol (`xiaochun://`). Private interactive VRM companion, zero cloud backend.
 
 ## Overview
-Project XiaoChun is a full-stack, browser-native web application that runs an interactive anime companion entirely in the user's browser tab. The 3D scene renders via `three.js` + `@pixiv/three-vrm` (MToon NPR shading) with native **VRM 1.0 & VRM 0.x dual-standard compatibility**; conversation, motion, and speech are generated client-side: WebLLM may use WebGPU; EMAGE uses ONNX Runtime Web **wasm + INT8** (not WebGPU). The only network calls are to a Cloudflare Worker edge proxy for Microsoft Edge-TTS streaming (no API keys or user data stored).
+Project XiaoChun is a dual-mode anime companion application running both in modern browser tabs and as a native, borderless, transparent desktop pet powered by **Tauri 2.x**. The 3D scene renders via `three.js` + `@pixiv/three-vrm` (MToon NPR shading) with native **VRM 1.0 & VRM 0.x dual-standard compatibility**; conversation, motion, and speech are generated 100% client-side: WebLLM on WebGPU, EMAGE on ONNX Runtime Web **wasm + INT8**, and Edge-TTS audio streaming. The desktop build features a real-time 60Hz Alpha Bitmask click-through engine and a system-level IPC URL scheme (`xiaochun://`) allowing external applications and AI agents to awaken and command her.
 
 ## Core Features
 - **Decoupled 3D Architecture**: Modular `VRMEngine` coordinating specialized subsystems:
@@ -22,6 +22,9 @@ Project XiaoChun is a full-stack, browser-native web application that runs an in
 - **Cinematic Intro**: When the loading overlay exits, `vrmEngine.cinematicIntro(1100)` tweens camera from a 3.3× distant position to the current position with `easeOutCubic`, synchronized with overlay's `scale-125 + blur-md` break transition.
 - **Motion Generation**: EMAGE (PantoMatrix, CVPR 2024) in a Dedicated Worker — **wasm EP + INT8**, streaming `motion_chunk` (T=64), A/V hold, hop/seams via `APP_CONFIG.emage.motion`. **Not** WebGPU-EMAGE. See `/docs` EMAGE_MODEL.
 - **TTS**: Microsoft Edge-TTS XiaoyiNeural zh-CN (+10 Hz) via native `src/lib/edge-tts-core.ts` (no third-party TTS SDK). Dev proxy via `TTS_PROXY_URL` (EU egress workaround). ChatBar dev test-speak dropdown for spring / 蜀道难 presets.
+- **Desktop Companion Mode (Tauri 2.x)**: Operates borderless and chromeless with true transparent desktop compositing, 60Hz Alpha Bitmask hit-testing thread for click-through, and persistent window state (`tauri-plugin-window-state`).
+- **Inter-Process Protocol (`xiaochun://`)**: System-wide IPC URL Scheme allowing external applications, CLI scripts, and autonomous AI agents to wake up XiaoChun and drive `speakText` with full-body motion, lip-syncing, and dialog bubbles.
+- **3D Holographic Guides & Aerodynamics**: In-world WebGL controls including `TurnGuide3D` (yaw guide ring with reactive light beacon), `PitchGuide3D` (elevation arc), `CameraYGuide3D` (floating 3D height rail), and localized cursor wind drag impulses (`windForce.ts`).
 - **Client-Side Memory**: IndexedDB (`xiaochun-memory`) local persistence — 3-tier architecture with short-term turns, multilingual entity profile extraction, and n-gram long-term note retrieval. 100% local privacy guarantee with zero telemetry.
 - **i18n & SSR**: TanStack Start full-stack SSR with cookie-based language hydration; ships zh-CN / en / ja; adaptive prompt matching user input language.
 - **Mobile-First UI**: iOS HIG 44 pt / Material 48 dp touch targets, liquid-glass aesthetic, SSR pre-rendered LoadingOverlay. Chat input remains editable during response so users can pre-type.
@@ -29,7 +32,10 @@ Project XiaoChun is a full-stack, browser-native web application that runs an in
 
 ## Links & API Contracts
 - [Full Documentation](/llms-full.txt): Complete technical architecture, dependency list, motion/TTS pipelines, deployment guide.
-- [GitHub Repository](#): Source code, setup instructions, and issue tracker.
+- [Desktop Companion Docs](/docs/HYBRID_DESKTOP_APP.md): Architecture of the Tauri 2.x hybrid desktop mode.
+- [Protocol Specification](/docs/PROTOCOL.md): Detailed specification of the `xiaochun://` URL scheme.
+- [Agent Skill Guide](/docs/AGENT_SKILL.md): Standard AI Agent skill for autonomous control of XiaoChun.
 - [Live Demo](https://xiaochun.firetable.tech): Full-stack SSR deploy on Cloudflare Workers.
+- [GitHub Repository](https://github.com/FireTable/Project-XiaoChun): Source code, setup instructions, and issue tracker.
 - Edge API: `GET /api/tts?text=...&voice=zh-CN-XiaoyiNeural&pitch=%2B10Hz` returns `audio/mpeg`. CORS open.
 - Custom Providers: in-app **Custom Model Service** dialog (top-bar / chat-bar). Templates: Ollama, LM Studio, vLLM, LocalAI, Generic OpenAI-compatible. Test connection button probes `/v1/models` endpoint before save.

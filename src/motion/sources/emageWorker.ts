@@ -290,8 +290,10 @@ async function ensureLoaded(onStatus?: (msg: string) => void): Promise<void> {
     const sabOk = typeof SharedArrayBuffer !== 'undefined';
     const isolated = typeof self !== 'undefined' && !!(self as unknown as { crossOriginIsolated?: boolean }).crossOriginIsolated;
     const hw = (typeof navigator !== 'undefined' && navigator.hardwareConcurrency) || 1;
-    // Cap at 4: enough for ORT wasm; leaves headroom for WebLLM / main-thread render on phones.
-    const numThreads = sabOk ? Math.min(Math.max(1, hw), 4) : 1;
+    // Mobile phones cap at 4 to prevent thermal throttling; Desktop platforms unlock up to 8 threads for peak performance.
+    const isDesktopEnv = typeof navigator !== 'undefined' && !/Android|iPhone|iPad|iPod|Mobile/i.test(navigator.userAgent);
+    const maxThreads = isDesktopEnv ? 8 : 4;
+    const numThreads = sabOk ? Math.min(Math.max(1, hw), maxThreads) : 1;
     ort.env.wasm.numThreads = numThreads;
     // simd defaults on modern builds; set explicitly so profile logs are unambiguous.
     (ort.env.wasm as any).simd = true;
