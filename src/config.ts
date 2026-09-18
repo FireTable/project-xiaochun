@@ -840,23 +840,24 @@ export const APP_CONFIG = {
     },
   } as SceneRegistryConfig,
   lights: {
-    dir: { base: 1.00, enabled: true },
-    hemi: { base: 0.95, enabled: true },
-    fill: { base: 1.40, enabled: true },
+    // 电影级主从三点布光：强化主光雕刻感，适度收敛过强平光补光，让角色告别大平光
+    dir: { base: 1.20, enabled: true },
+    hemi: { base: 0.90, enabled: true },
+    fill: { base: 1.05, enabled: true },
     globalMult: 1.0,
   } as LightConfig,
   // ponytail: 后期管线配置。针对浅色/白底二次元优化：
-  // 1. 默认采用 Linear 原色直出 + 1.05 曝光，避免 Neutral 压暗肤色变灰黄；
-  // 2. 暗角默认 0，避免浅底周围一圈灰脏感；
-  // 3. Bloom 在着色器层精准剔除白底后，阈值设在 0.72，微量强度 0.015 + 半径 0.32，发丝与高光极简纯净绝不起雾；
-  // 4. 微量对比度 +0.02，瞳孔更透亮，原画纯净直出。
+  // 1. 坚持采用 Linear 原色直出（1.06 曝光），严格保持肤色白嫩通透，杜绝 PBR/Neutral 压缩导致的肤色灰黄变暗；
+  // 2. 暗角保持 0，避免浅底周围一圈灰脏感；
+  // 3. Bloom 阈值精准卡在 0.76，仅对项链金属、银色高跟鞋与双眸高光生效，注入 0.045 晶莹呼吸感，纯净绝不起雾；
+  // 4. 微量对比度 +0.035，让黑裙深邃、白裙透亮，二次元层次更分明。
   postfx: {
     enabled: true,
-    bloom: { strength: 0.015, radius: 0.32, threshold: 0.72 },
+    bloom: { strength: 0.045, radius: 0.36, threshold: 0.76 },
     vignette: { darkness: 0.0, offset: 0.5 },
-    toneMapping: { mode: THREE.LinearToneMapping, exposure: 1.05 },
-    bc: { brightness: 0.0, contrast: 0.02 },
-    hs: { hue: 0.0, saturation: 0.0 },
+    toneMapping: { mode: THREE.LinearToneMapping, exposure: 1.06 },
+    bc: { brightness: 0.0, contrast: 0.035 },
+    hs: { hue: 0.0, saturation: 0.01 },
   },
   saturation: {
     default: {
@@ -922,7 +923,7 @@ export const APP_CONFIG = {
      * - 'worldCoordinates': 世界物理坐标模式。固定外推物理厚度，会导致特写极粗、拉远消失。
      * - 'none': 不进行外推。
      */
-    widthMode: 'screenCoordinates',
+    widthMode: 'worldCoordinates',
 
     /**
      * 描边外推宽度系数。
@@ -931,7 +932,7 @@ export const APP_CONFIG = {
      *   线条细腻平滑，避免在发梢、指尖等高曲率锐角处产生过多粗糙堆积。
      * - 0.0020+: 线条较重，呈现强烈粗边漫画感。
      */
-    widthFactor: 0.0010,
+    widthFactor: 0.0006,
 
     /**
      * 描边颜色（HEX 颜色字符串）：
@@ -960,22 +961,25 @@ export const APP_CONFIG = {
   mtoon: {
     skin: {
       face: {
-        shadeShift: 0.03,
-        shadeToony: 0.96,
-        shadeColor: '#fde4db',
+        // 下颌投影：微提 shadeShift 至 0.04，让下巴在脖颈上投下干净分明的赛璐璐阴影，立体感立现
+        shadeShift: 0.04,
+        shadeToony: 0.95,
+        shadeColor: '#fce2d8', // 纯净微粉透亮阴影，绝不发灰发黑
         rimLightingMix: 0.0,
         rimColor: '#000000',
         rimFresnelPower: 100.0,
         rimLift: 0.0,
       },
       body: {
-        shadeShift: 0.0,
-        shadeToony: 0.92,
-        shadeColor: '#f4cfbf',
-        rimLightingMix: 0.0,
-        rimColor: '#000000',
-        rimFresnelPower: 100.0,
-        rimLift: 0.0,
+        // 锁骨与四肢立体感：极为克制的 0.02，既让锁骨凹陷显现精致阴影，又杜绝大腿内侧大黑块
+        shadeShift: 0.02,
+        shadeToony: 0.93,
+        shadeColor: '#f5d1c2', // 温润白皙暖蜜桃阴影
+        // 柔嫩欲滴奶油肌边缘光：肩头、手臂与锁骨弧度泛出轻微珍珠透光感，消除死板塑料感
+        rimLightingMix: 0.22,
+        rimColor: '#fff0e8',   // 极柔和珍珠微粉透光色，模拟真人体温血色透光
+        rimFresnelPower: 4.2,  // 掠射角紧凑收敛，仅在极细外缘泛光，不泛白不油腻
+        rimLift: 0.06,
       },
       // 🚫 素体皮肤作为物理基准层 (Layer 0)，保持物理深度真实，绝不向内推深
       polygonOffset: {
