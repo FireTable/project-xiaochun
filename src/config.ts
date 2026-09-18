@@ -380,6 +380,10 @@ export const APP_CONFIG = {
     favicon: '/favicon.png',
     github: 'https://github.com/FireTable/project-xiaochun',
   },
+  api: {
+    // 线上生产 API 统一基地址，桌面端客户端运行时自动通过透明网关路由至此
+    baseUrl: (import.meta.env?.VITE_API_BASE_URL as string | undefined) ?? 'https://xiaochun.firetable.tech',
+  },
   model: {
     // ponytail: 冷启动默认 base (.vrmbase zip)。
     defaultSource: '/vrm/xiaochun_base.vrmbase',

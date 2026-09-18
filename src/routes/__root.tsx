@@ -1,3 +1,4 @@
+import '@/lib/api';
 import {
   Outlet,
   createRootRoute,

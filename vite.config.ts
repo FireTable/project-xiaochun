@@ -1,4 +1,5 @@
 import { defineConfig, loadEnv } from 'vite';
+process.env.NODE_TLS_REJECT_UNAUTHORIZED = '0';
 import tailwindcss from '@tailwindcss/vite';
 import { tanstackStart } from '@tanstack/react-start/plugin/vite';
 import { cloudflare } from '@cloudflare/vite-plugin';
@@ -11,9 +12,9 @@ import { dropDockerfatAssets } from './vite/dropDockerfatAssets';
 const isTauri = Boolean(process.env.TAURI_ENV_PLATFORM || process.env.TAURI_DEV_HOST);
 const defaultPort = isTauri ? 5186 : 5185;
 
-export default defineConfig({
+export default defineConfig(({ command }) => ({
   plugins: [
-    ...(!isTauri ? [basicSsl()] : []),
+    ...(command === 'serve' && !isTauri ? [basicSsl()] : []),
     cloudflare({ viteEnvironment: { name: 'ssr' } }),
     tailwindcss(),
     tanstackStart({
@@ -63,4 +64,4 @@ export default defineConfig({
   optimizeDeps: {
     exclude: ['@mlc-ai/web-llm'],
   },
-});
+}));
