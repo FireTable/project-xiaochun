@@ -139,7 +139,7 @@ jobs:
           else
             TAG="v$VERSION"
           fi
-          echo "Updating homebrew/project-xiaochun.rb for version $VERSION ($TAG)..."
+          echo "Updating Casks/project-xiaochun.rb for version $VERSION ($TAG)..."
 
           RELEASE_JSON=$(curl -s -H "Authorization: token $GITHUB_TOKEN" \
             "https://api.github.com/repos/${{ github.repository }}/releases/tags/$TAG")
@@ -166,21 +166,20 @@ jobs:
           fi
 
           if [ "$ARM_SHA256" != "SKIP" ] || [ "$INTEL_SHA256" != "SKIP" ]; then
-            for f in Casks/project-xiaochun.rb homebrew/project-xiaochun.rb; do
-              if [ -f "$f" ]; then
-                sed -i "s/version \".*\"/version \"$VERSION\"/" "$f"
-                if [ "$ARM_SHA256" != "SKIP" ]; then
-                  sed -i "s/sha256 arm:   \".*\"/sha256 arm:   \"$ARM_SHA256\"/" "$f"
-                fi
-                if [ "$INTEL_SHA256" != "SKIP" ]; then
-                  sed -i "s/^[[:space:]]*intel: \".*\"/         intel: \"$INTEL_SHA256\"/" "$f"
-                fi
+            f="Casks/project-xiaochun.rb"
+            if [ -f "$f" ]; then
+              sed -i "s/version \".*\"/version \"$VERSION\"/" "$f"
+              if [ "$ARM_SHA256" != "SKIP" ]; then
+                sed -i "s/sha256 arm:   \".*\"/sha256 arm:   \"$ARM_SHA256\"/" "$f"
               fi
-            done
+              if [ "$INTEL_SHA256" != "SKIP" ]; then
+                sed -i "s/^[[:space:]]*intel: \".*\"/         intel: \"$INTEL_SHA256\"/" "$f"
+              fi
+            fi
 
             git config user.name "github-actions[bot]"
             git config user.email "github-actions[bot]@users.noreply.github.com"
-            git add Casks/project-xiaochun.rb homebrew/project-xiaochun.rb
+            git add Casks/project-xiaochun.rb
             if git diff --staged --quiet; then
               echo "No changes in homebrew cask formula."
             else
