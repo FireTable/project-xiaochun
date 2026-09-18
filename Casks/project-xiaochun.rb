@@ -14,6 +14,10 @@ cask "project-xiaochun" do
 
   app "Project XiaoChun.app"
 
+  postflight_steps do
+    run "/usr/bin/xattr", args: ["-cr", "/Applications/Project XiaoChun.app"]
+  end
+
   zap trash: [
     "~/Library/Application Support/tech.firetable.xiaochun",
     "~/Library/Preferences/tech.firetable.xiaochun.plist",
