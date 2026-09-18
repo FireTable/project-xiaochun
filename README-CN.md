@@ -9,13 +9,16 @@
 </p>
 
 <p align="center">
-  <a href="https://xiaochun.firetable.tech"><b>🌐 在线体验 (Live Demo)</b></a> •
   <a href="README.md">English</a> •
-  <a href="README-CN.md">简体中文</a>
+  简体中文
 </p>
 
 <p align="center">
-  <a href="https://github.com/FireTable/Project-XiaoChun/releases"><img src="https://img.shields.io/badge/Desktop_Release-v0.1.0-3b82f6?logo=apple&logoColor=white" alt="Desktop Release" /></a>
+  <a href="https://xiaochun.firetable.tech"><b>🌐 在线体验</b></a>
+</p>
+
+<p align="center">
+  <a href="https://github.com/FireTable/Project-XiaoChun/releases"><img src="https://img.shields.io/badge/Desktop_Release-v0.1.2-3b82f6?logo=apple&logoColor=white" alt="Desktop Release" /></a>
   <a href="https://xiaochun.firetable.tech"><img src="https://img.shields.io/badge/Live_Demo-xiaochun.firetable.tech-10b981?logo=cloudflare&logoColor=white" alt="Live Demo" /></a>
   <a href="LICENSE"><img src="https://img.shields.io/badge/License-MIT-amber.svg" alt="License" /></a>
 </p>

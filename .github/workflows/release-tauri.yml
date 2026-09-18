@@ -106,12 +106,16 @@ jobs:
 
   update-homebrew:
     needs: release
+    if: github.ref_type == 'tag'
     runs-on: ubuntu-latest
+    continue-on-error: true
     permissions:
       contents: write
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
+        with:
+          ref: main
 
       - name: Update Homebrew Cask with release sha256
         env:
@@ -151,13 +155,22 @@ jobs:
               sed -i "s/sha256 arm:   \".*\"/sha256 arm:   \"$ARM_SHA256\"/" homebrew/project-xiaochun.rb
             fi
             if [ "$INTEL_SHA256" != "SKIP" ]; then
-              sed -i "s/intel: \".*\"/intel: \"$INTEL_SHA256\"/" homebrew/project-xiaochun.rb
+              sed -i "s/^[[:space:]]*intel: \".*\"/         intel: \"$INTEL_SHA256\"/" homebrew/project-xiaochun.rb
             fi
 
             git config user.name "github-actions[bot]"
             git config user.email "github-actions[bot]@users.noreply.github.com"
             git add homebrew/project-xiaochun.rb
-            git diff --quiet && git diff --staged --quiet || (git commit -m "chore(brew): auto-update homebrew cask to $VERSION [skip ci]" && git push)
+            if git diff --staged --quiet; then
+              echo "No changes in homebrew cask formula."
+            else
+              git commit -m "chore(brew): auto-update homebrew cask to $VERSION [skip ci]" || true
+              echo "Pushing updated homebrew cask to main..."
+              git push origin HEAD:main || {
+                echo "Warning: git push failed or target branch unavailable, skipping homebrew push."
+                exit 0
+              }
+            fi
           else
-            echo "No DMG assets found to update homebrew cask."
+            echo "No DMG assets found to update homebrew cask, skipping."
           fi
