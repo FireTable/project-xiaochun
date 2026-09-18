@@ -263,9 +263,54 @@ export class VRMMaterialManager {
     vrm.scene.traverse((obj) => {
       if ((obj as THREE.Mesh).isMesh) {
         const mesh = obj as THREE.Mesh;
+
+        // 1. 如果全局配置关闭了描边，彻底剥离网格中的描边材质并清理 geometry.groups
+        if (!APP_CONFIG.outline.enabled && Array.isArray(mesh.material)) {
+          const nonOutline = mesh.material.filter((m: any) => !m?.isOutline && !m?.name?.includes('(Outline)'));
+          mesh.material.forEach((m: any) => {
+            if (m?.isOutline || m?.name?.includes('(Outline)')) {
+              m.visible = false;
+              m.opacity = 0.0;
+            }
+          });
+          if (nonOutline.length === 1) {
+            mesh.material = nonOutline[0];
+            mesh.geometry.clearGroups();
+          } else if (nonOutline.length > 0 && nonOutline.length < mesh.material.length) {
+            mesh.material = nonOutline;
+            mesh.geometry.clearGroups();
+          }
+        }
+
         const materials = Array.isArray(mesh.material) ? mesh.material : [mesh.material];
         materials.forEach((mat: any) => {
           if (!mat || !mat.isMToonMaterial) return;
+
+          // 2. 根据全局配置 APP_CONFIG.outline 统一应用描边参数（消除硬编码魔法值）
+          if (!APP_CONFIG.outline.enabled) {
+            if (mat.isOutline || mat.name?.includes('(Outline)')) {
+              mat.visible = false;
+              mat.opacity = 0.0;
+              return;
+            }
+            mat.outlineWidthMode = 'none';
+            mat.outlineWidthFactor = 0.0;
+          } else {
+            // 确保描边材质本身绝不启用 polygonOffset，防止轮廓线被掠射角斜率撕扯变形
+            if (mat.isOutline || mat.name?.includes('(Outline)')) {
+              mat.polygonOffset = false;
+              mat.polygonOffsetFactor = 0.0;
+              mat.polygonOffsetUnits = 0.0;
+            }
+            mat.outlineWidthMode = APP_CONFIG.outline.widthMode;
+            mat.outlineWidthFactor = APP_CONFIG.outline.widthFactor;
+            if (APP_CONFIG.outline.color && mat.outlineColorFactor) {
+              mat.outlineColorFactor.set(APP_CONFIG.outline.color);
+            }
+            if (APP_CONFIG.outline.lightingMix !== undefined && mat.outlineLightingMixFactor !== undefined) {
+              mat.outlineLightingMixFactor = APP_CONFIG.outline.lightingMix;
+            }
+          }
 
           const rawName = mat.name || '';
           const name = rawName.toLowerCase();
@@ -365,16 +410,28 @@ uniform float uMatSaturation;
               mat.shadeToony = 0.92;
               if (mat.shadeColor) mat.shadeColor.setHex(0xf4cfbf);
 
-              // 深度分层防穿模 (Layer 0): 素体皮肤微量向后推 (Positive polygonOffset)
-              mat.polygonOffset = true;
-              mat.polygonOffsetFactor = 2.0;
-              mat.polygonOffsetUnits = 8.0;
+              // 🚫 素体皮肤作为绝对基准面，必须保持物理深度真实 (polygonOffset = false)
+              // 绝不能使用正向 offset 将皮肤向深处推，否则在掠射角 (Slope -> 无穷大) 处会导致
+              // 轮廓描边被大量露出形成粗黑块，同时在大腿内侧产生撕裂断线。
+              mat.polygonOffset = false;
+              mat.polygonOffsetFactor = 0.0;
+              mat.polygonOffsetUnits = 0.0;
             } else {
               mat.shadeShift = 0.03;
               mat.shadeToony = 0.96;
               if (mat.shadeColor) mat.shadeColor.setHex(0xfde4db);
+              mat.polygonOffset = false;
             }
           } else if (isSocks) {
+            // 贴身丝袜/袜子无论全局配置如何，自身都绝不开启描边（防止圆柱体 UV 接缝处出现断裂黑线）
+            if (mat.isOutline || mat.name?.includes('(Outline)')) {
+              mat.visible = false;
+              mat.opacity = 0.0;
+              return;
+            }
+            mat.outlineWidthMode = 'none';
+            mat.outlineWidthFactor = 0.0;
+
             mat.rimLightingMix = 0.60;
             mat.rimMultiply = new THREE.Color(0xffffff);
             mat.rimFresnelPower = 3.0;
@@ -382,7 +439,7 @@ uniform float uMatSaturation;
             mat.shadeShift = -0.05;
             mat.shadeToony = 0.80;
 
-            // 深度分层防穿模: 袜子在腿部皮肤之上
+            // 深度分层防穿模: 袜子在腿部皮肤之上 (向相机拉近)
             mat.polygonOffset = true;
             mat.polygonOffsetFactor = -1.0;
             mat.polygonOffsetUnits = -4.0;
@@ -405,14 +462,14 @@ uniform float uMatSaturation;
               name.includes('002_') ||
               name.includes('003_');
 
-            // 深度分层防穿模: 内衣居中 (Layer 1)，外层衣服向前拉 (Layer 2)，最外层紧身裙永远覆盖素体与内衬
+            // 深度分层防穿模: 全部向前拉 (负 offset)，内衬向前拉 1 级，外衣向前拉 2 级，永远覆盖素体
             mat.polygonOffset = true;
             if (isInner) {
-              mat.polygonOffsetFactor = 0.5;
-              mat.polygonOffsetUnits = 2.0;
+              mat.polygonOffsetFactor = -1.0;
+              mat.polygonOffsetUnits = -2.0;
             } else {
               mat.polygonOffsetFactor = -2.0;
-              mat.polygonOffsetUnits = -8.0;
+              mat.polygonOffsetUnits = -6.0;
             }
           }
           mat.needsUpdate = true;

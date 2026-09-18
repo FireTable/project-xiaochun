@@ -31,8 +31,8 @@ jobs:
             target: 'aarch64-apple-darwin'
             args: '--target aarch64-apple-darwin'
 
-          # macOS Intel
-          - platform: 'macos-13'
+          # macOS Intel (使用 macos-14 交叉编译 x86_64)
+          - platform: 'macos-14'
             target: 'x86_64-apple-darwin'
             args: '--target x86_64-apple-darwin'
 

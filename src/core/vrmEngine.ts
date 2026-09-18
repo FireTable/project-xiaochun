@@ -1,7 +1,7 @@
 import * as THREE from 'three';
 import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js';
 import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
-import { VRM, VRMLoaderPlugin, VRMUtils, type VRMExpressionPresetName } from '@pixiv/three-vrm';
+import { VRM, VRMLoaderPlugin, MToonMaterialLoaderPlugin, VRMUtils, type VRMExpressionPresetName } from '@pixiv/three-vrm';
 import { CAMERA_STATE_KEY, BODY_YAW_KEY, CAMERA_PITCH_KEY, SCENE_THEME_KEY, CAMERA_Y_OFFSET_KEY } from '@/lib/constants';
 
 import { VRMBodyMorph } from './morph/vrmBodyMorph';
@@ -297,7 +297,14 @@ export class VRMEngine {
   public isRenderingSuspended = false;
 
   constructor() {
-    this.loader.register((parser) => new VRMLoaderPlugin(parser));
+    this.loader.register((parser) => {
+      const mtoonPlugin = new MToonMaterialLoaderPlugin(parser);
+      // 根据全局配置 APP_CONFIG.outline.enabled 控制是否在加载阶段生成 (Outline) 材质与几何体 Group
+      if (!APP_CONFIG.outline.enabled) {
+        (mtoonPlugin as any)._shouldGenerateOutline = () => false;
+      }
+      return new VRMLoaderPlugin(parser, { mtoonMaterialPlugin: mtoonPlugin });
+    });
     this.initScene();
   }
 

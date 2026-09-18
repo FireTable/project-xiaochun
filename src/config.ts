@@ -82,6 +82,49 @@ export interface MaterialSaturationConfig {
   skin: number;
 }
 
+/**
+ * MToon 材质外轮廓描边计算模式
+ * - 'none': 关闭背面法线外推描边
+ * - 'worldCoordinates': 世界坐标模式（根据与相机距离自然缩放，近粗远细）
+ * - 'screenCoordinates': 屏幕坐标模式（固定屏幕像素宽度，无论远近粗细恒定）
+ */
+export type VrmOutlineWidthMode = 'none' | 'worldCoordinates' | 'screenCoordinates';
+
+/**
+ * VRM MToon 材质轮廓描边全局配置
+ */
+export interface VrmOutlineConfig {
+  /**
+   * 是否全局启用角色的 MToon 背面膨胀外轮廓描边。
+   * - false: 彻底关闭角色描边（推荐）。根除大腿内侧/四肢圆柱体 UV 接缝处因法线断开外推暴露的黑色缝隙线，
+   *   呈现自然柔和的高级 3D 原生手办质感，并彻底省去模型每个 Mesh 的第二遍背面 Draw Call；
+   * - true: 启用传统二次元动漫黑边勾线风格。
+   */
+  enabled: boolean;
+  /**
+   * 描边宽度模式
+   */
+  widthMode: VrmOutlineWidthMode;
+  /**
+   * 描边外推宽度系数（仅在 enabled: true 时生效）。
+   * 推荐精细范围：0.001 ~ 0.005，过大会引起复杂曲面破面与穿插。
+   */
+  widthFactor: number;
+  /**
+   * 描边颜色（HEX 颜色字符串，如 '#000000'、'#2e2226'）。
+   * 默认 '#000000' (纯黑墨水勾线)。
+   * 💡 动漫美学技巧：尝试使用深暖棕/深褐紫（如 '#2c2024' 或 '#332429'），
+   * 相比死黑能让角色视觉边缘更柔和、更透光，消除生硬的剪纸塑料感。
+   */
+  color: string;
+  /**
+   * 描边与光照及材质原本贴图颜色的混合系数 (0.0 ~ 1.0)。
+   * - 0.0 (默认): 纯色无光照墨线（不受明暗阴影影响，对比度最强、线条最鲜明稳定）；
+   * - 1.0: 描边完全参与光照计算并与漫反射贴图相乘。
+   */
+  lightingMix: number;
+}
+
 export interface EmageMotionConfig {
   /**
    * 手臂幅度相对 rest 的混合 (0.1~1.0，默认 1.0)。
@@ -801,6 +844,62 @@ export const APP_CONFIG = {
       },
     },
   },
+  /**
+   * VRM 角色 MToon 轮廓描边全局配置
+   *
+   * 💡 切换方案说明：
+   * 1. 【当前方案・粗细均匀的二次元发丝描边】：
+   *    - enabled: true
+   *    - widthMode: 'screenCoordinates' (根据深度反向补偿相机透视，无论走近拉远全屏粗细恒定，彻底避免近大远小)
+   *    - widthFactor: 0.0012 (精细 1 像素克制墨线，杜绝发梢/下巴等尖锐拐角处过度外扩膨胀)
+   *    - 注意：贴身丝袜已在底层强制关闭描边，大腿内侧接缝黑线绝不复发。
+   *
+   * 2. 【备选方案・无描边的现代手办质感（推荐）】：
+   *    - enabled: false, widthMode: 'none', widthFactor: 0.0
+   */
+  outline: {
+    /**
+     * 是否全局启用 MToon 轮廓描边。
+     * - true: 开启精细二次元墨线描边；
+     * - false: 彻底关闭角色所有部件的描边 Pass，展现无描边的纯净手办质感。
+     */
+    enabled: true,
+
+    /**
+     * 描边计算模式：
+     * - 'screenCoordinates': 【推荐・粗细均匀】屏幕像素坐标模式。
+     *   通过深度值反向补偿相机的透视投影（抵消近大远小），使整个模型从头到脚在屏幕上
+     *   始终保持恒定粗细的 1 像素高画质墨线，避免近处大粗边、远处断裂的粗细不均。
+     * - 'worldCoordinates': 世界物理坐标模式。固定外推物理厚度，会导致特写极粗、拉远消失。
+     * - 'none': 不进行外推。
+     */
+    widthMode: 'screenCoordinates',
+
+    /**
+     * 描边外推宽度系数。
+     * 在 screenCoordinates 模式下：
+     * - 0.0010 ~ 0.0015: 黄金推荐值。刚好呈现高品质二次元番剧的 1 像素发丝级边缘勾勒，
+     *   线条细腻平滑，避免在发梢、指尖等高曲率锐角处产生过多粗糙堆积。
+     * - 0.0020+: 线条较重，呈现强烈粗边漫画感。
+     */
+    widthFactor: 0.0010,
+
+    /**
+     * 描边颜色（HEX 颜色字符串）：
+     * - '#000000': 经典纯黑墨水线条（鲜明硬朗）；
+     * - '#2a1e24': 深暖褐紫（极佳二次元插画推荐，比死黑更通透高级）；
+     * - '#3b2f2f': 柔和深咖啡色（手办模型常用）；
+     * 甚至可以设为你想要的任意主题色（如浅金色 '#d4af37'、天蓝色等）。
+     */
+    color: '#2a1e24',
+
+    /**
+     * 描边与环境光照混合度：
+     * - 0.0: 纯色不变，线条无论在背光暗处还是亮处都保持一致；
+     * - 1.0: 随光影变暗，融入场景光照。
+     */
+    lightingMix: 0.7,
+  } as VrmOutlineConfig,
   bodyMorph: {
     default: {
       // ponytail: 用户最新 bodyMorph 默认值 — 肩宽 +0.2 / 腰 -0.2 / 大腿 +0.06
