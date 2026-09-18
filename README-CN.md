@@ -9,13 +9,14 @@
 </p>
 
 <p align="center">
+  <a href="https://xiaochun.firetable.tech"><b>🌐 在线体验 (Live Demo)</b></a> •
   <a href="README.md">English</a> •
   <a href="README-CN.md">简体中文</a>
 </p>
 
 <p align="center">
-  <a href="https://github.com/FireTable/project-xiaochun/releases"><img src="https://img.shields.io/github/v/release/FireTable/project-xiaochun?label=桌面端下载&color=3b82f6" alt="Desktop Release" /></a>
-  <a href="https://github.com/FireTable/project-xiaochun/releases"><img src="https://img.shields.io/github/downloads/FireTable/project-xiaochun/total?label=下载量&color=10b981" alt="Downloads" /></a>
+  <a href="https://github.com/FireTable/Project-XiaoChun/releases"><img src="https://img.shields.io/badge/Desktop_Release-v0.1.0-3b82f6?logo=apple&logoColor=white" alt="Desktop Release" /></a>
+  <a href="https://xiaochun.firetable.tech"><img src="https://img.shields.io/badge/Live_Demo-xiaochun.firetable.tech-10b981?logo=cloudflare&logoColor=white" alt="Live Demo" /></a>
   <a href="LICENSE"><img src="https://img.shields.io/badge/License-MIT-amber.svg" alt="License" /></a>
 </p>
 
@@ -115,7 +116,7 @@ brew install --cask https://raw.githubusercontent.com/FireTable/project-xiaochun
 * **运行时上传 VRM**:右上角上传按钮，支持用户导入任意标准 **VRM 1.0** 或 **VRM 0.x** 自定义角色，动作管线与足部地锚自动全套无缝适配。
 
 ### 👗 原子级无缝换装与增量补丁体系 (Outfit Swap & Delta Addons)
-* **0 帧 T-pose 跳变与无感热更**：彻底废除换装时的重置与预停逻辑。换装前毫秒级抓取完整骨骼姿态、表情权重、视线与动作时间戳快照；在后台构建完成新 VRM 并在内存中直接预写入姿态快照后，实施微任务级原子场景替换，彻底消除 1 帧 T-pose 闪烁。
+* **0 帧 T-pose 跳变与无感热更**：换装前毫秒级抓取完整骨骼姿态、表情权重、视线与动作时间戳快照；在后台构建完成新 VRM 并在内存中直接预写入姿态快照后，实施微任务级原子场景替换，彻底消除 1 帧 T-pose 闪烁。
 * **增量 Delta 补丁分发 (`.vrmbase` + `.vrmaddon`)**：打破动辄数十兆的模型体积瓶颈，提取公用身体骨骼生成轻量底模 `xiaochun_base.vrmbase`（~5.9 MB，oxipng 极致压缩纹理）；8 套风格化服饰（晚礼服、常服科技风、国风旗袍、海滩比基尼、经典女仆、清凉泳装、职场 OL、梦幻婚纱）以增量补丁 `.vrmaddon` 分发（单套仅 1~4 MB，婚纱含复杂大裙摆骨骼 13 MB）。
 * **Web Worker WASM bspatch 动态重组**：后台 Web Worker 利用 WASM bspatch 极速重组完整 VRM，主线程 UI 0 掉帧。
 * **IndexedDB 二级双缓存体系**：底模与合成后的完整 VRM 全量缓存至浏览器本地 IndexedDB（`xiaochun-vrm-cache`），二次换装毫秒级直读。详见技术白皮书 [`docs/OUTFIT_SWAP.md`](docs/OUTFIT_SWAP.md) 与构建工作流 [`docs/VRM_BUILD_WORKFLOW.md`](docs/VRM_BUILD_WORKFLOW.md)。
@@ -137,7 +138,7 @@ brew install --cask https://raw.githubusercontent.com/FireTable/project-xiaochun
 
 ### 🩰 统一万能动作融合管线与动力学体系 (Universal Motion Pipeline & Ground Dynamics)
 * **万能动作零门槛接入 (`playMotion`)**：无论是 VRMA 文件 URL、ArrayBuffer 二进制流还是 `THREE.AnimationClip`，均通过单一管线一键播放；自动完成骨骼重定向、Hips 偏移归一化，支持全身（`all`）与半身（`upperBody`）部位遮罩。
-* **电影级五次平滑步阶曲线补帧 (Quintic Smootherstep Inbetweening)**：废除机械线性插值，基于 $6t^5 - 15t^4 + 10t^3$ 曲线在统一 **0.75s** 窗口内逐帧自适应 Slerp 插补，首尾速度与加速度严格连续。详见 [`docs/MOTION_PIPELINE.md`](docs/MOTION_PIPELINE.md)。
+* **电影级五次平滑步阶曲线补帧 (Quintic Smootherstep Inbetweening)**：基于 $6t^5 - 15t^4 + 10t^3$ 曲线在统一 **0.75s** 窗口内逐帧自适应 Slerp 插补，首尾速度与加速度严格连续。详见 [`docs/MOTION_PIPELINE.md`](docs/MOTION_PIPELINE.md)。
 * **仿生 FootIK 与地面地锚系统**：工业级两骨解析式 IK、世界地锚防滑步、对立平衡（Contrapposto）单腿重心转移与脱鞋自适应下沉（4.6cm/3.9cm）。详见 [`docs/FOOT_IK.md`](docs/FOOT_IK.md)。
 * **程序化转身步态与视线跳视**：四阶段迈步状态机、临界阻尼弹簧偏航角追踪与眼神微动。详见 [`docs/BODY_TURN_AND_GAZE.md`](docs/BODY_TURN_AND_GAZE.md)。
 * **分层动作姿态求值图 (Layered Pose Hierarchy)**：
@@ -164,8 +165,8 @@ brew install --cask https://raw.githubusercontent.com/FireTable/project-xiaochun
 * **跨段潜空间自回归种子连续继承 (Latent Seed Carryover)**：Worker 内部继承上一段尾部 4 帧潜空间种子 (`continueFromPrevious`)，分段动作在数学与物理上完全等同于单次长程自回归推理，消除断接割裂。
 * **流式 EMAGE（`motion_chunk`）**：Worker 按 **T=64** 窗步进 PCM/动作，每次 `runStep` 成功即 Transferable 投递 `motion_chunk`，首窗即可开播（TTFA）。首块仅缓冲，待 TTS `AudioContext.start` 后 `releaseMotionForAudio`，动作不早于可听音频。
 * **P0b 隔离 + wasm 多线程**：文档响设置 **COOP `same-origin` + COEP `credentialless`**（`src/server.ts`、Vite、`public/_headers`），`crossOriginIsolated` 时启用 SharedArrayBuffer 与 ORT wasm 多线程；step scratch 跨窗复用。
-* **P0c / E1+E2 hop 与接缝**：由 `APP_CONFIG.emage.motion` 驱动 — `advanceFrames`（60..64）、`chunkSeamMaxFrames`、`seamJumpThreshold` / `seamJumpFramesScale`、姿态微 fade 等。**未交付**：P0d residual-gate、WebGPU-EMAGE。
-* **纯生理角速度与阻尼弹簧无感切段过渡**：废除时间倒计时生硬插值，基于真实人体生理极限（手臂 2.2 rad/s，颈头 1.6 rad/s，躯干 1.2 rad/s）+ 指数弹簧阻尼自适应收敛，无论段间动作差异多大均平滑自收敛。
+* **P0c / E1+E2 hop 与接缝**：由 `APP_CONFIG.emage.motion` 驱动 — `advanceFrames`（60..64）、`chunkSeamMaxFrames`、`seamJumpThreshold` / `seamJumpFramesScale`、姿态微 fade 等参数调控。
+* **纯生理角速度与阻尼弹簧无感切段过渡**：基于真实人体生理极限（手臂 2.2 rad/s，颈头 1.6 rad/s，躯干 1.2 rad/s）+ 指数弹簧阻尼自适应收敛，无论段间动作差异多大均平滑自收敛。
 * **自适应言谈间歇待机 (`SpeakIdleSystem`)**：段间等待时角色不再定格成蜡像，根据前序手势随机应变 —— 身前手势保持悬浮交谈态（带呼吸浮沉与超 1.5s 极缓重力自然微沉降）；严格按 VRM 1.0 真指节沿 Z 轴实施微脉搏舒缩；配合意识流头部微偏转与倾听微点头。
 * **控制台多切片动态表格看板**：`console.table` 实时呈现各段 TTS、EMAGE 推理、播放状态与切段过渡模式。
 * **气泡流式进度呼吸徽标**：头顶跟随气泡顶栏「来啦来啦～」右侧实时指示 `🟢 1 / 5` 进度胶囊，释放正文空间。
@@ -174,7 +175,7 @@ brew install --cask https://raw.githubusercontent.com/FireTable/project-xiaochun
 * **纯文本传输** — 聊天菜单 → 「跨设备同步」→ 勾选要同步的项(provider 配置 + 当前激活 / 思考模式 / 对话设置)→ AES-GCM-256 加密生成 `xs:v1:iv.ct.key` 单行文本 → 复制粘到另一台设备。**密钥内嵌密文,粘一次就行**,不需要单独传密钥。
 * **Provider 配置同步** — 自定义 OpenAI 兼容 provider(含 AES 加密的 API key)走发送端 `listProvidersDecrypted()` 解密 → 接收端 `saveProvider()` 用本机 salt 重新加密入库,设备间无缝迁移。
 * **预览后导入** — 接收端本地解密后展示「将导入」的完整列表(active 服务 / N 个 provider / 思考模式 / 对话设置),用户点「确认导入」才落库,可逆可控。
-* **零服务端、零二维码** — QR 方案已放弃(payload 装不下完整 provider 配置)。纯前端,无遥测,无后端协调。
+* **纯前端无服务端架构** — 纯客户端处理，无需第三方服务器中转，无遥测，无后端协调。
 
 ### 💾 端侧持久化多级记忆系统 (Client-Side Memory System)
 * **100% 纯本地隐私安全 (IndexedDB)**：基于浏览器原生 IndexedDB（`xiaochun-memory` 独立数据库），对话轮次、用户称呼、性格喜好与长期记忆全部保留在用户设备本地，绝不向任何云端服务器回传。

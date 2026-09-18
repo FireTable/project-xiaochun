@@ -9,13 +9,14 @@
 </p>
 
 <p align="center">
+  <a href="https://xiaochun.firetable.tech"><b>🌐 Live Demo (在线体验)</b></a> •
   <a href="README.md">English</a> •
   <a href="README-CN.md">简体中文</a>
 </p>
 
 <p align="center">
-  <a href="https://github.com/FireTable/project-xiaochun/releases"><img src="https://img.shields.io/github/v/release/FireTable/project-xiaochun?label=Desktop%20Release&color=3b82f6" alt="Desktop Release" /></a>
-  <a href="https://github.com/FireTable/project-xiaochun/releases"><img src="https://img.shields.io/github/downloads/FireTable/project-xiaochun/total?label=Downloads&color=10b981" alt="Downloads" /></a>
+  <a href="https://github.com/FireTable/Project-XiaoChun/releases"><img src="https://img.shields.io/badge/Desktop_Release-v0.1.0-3b82f6?logo=apple&logoColor=white" alt="Desktop Release" /></a>
+  <a href="https://xiaochun.firetable.tech"><img src="https://img.shields.io/badge/Live_Demo-xiaochun.firetable.tech-10b981?logo=cloudflare&logoColor=white" alt="Live Demo" /></a>
   <a href="LICENSE"><img src="https://img.shields.io/badge/License-MIT-amber.svg" alt="License" /></a>
 </p>
 
@@ -126,7 +127,7 @@ You can download installer packages directly from the official Releases page:
 * **Runtime VRM Upload**: Top-bar upload button accepting arbitrary standard **VRM 1.0** or **VRM 0.x** avatars with automated full-pipeline motion and ground-anchor adaptation.
 
 ### 👗 Atomic Outfit Swap & Delta Addons
-* **Zero-Frame T-Pose Pop-in & Seamless Hot Reloading**: Completely eliminates pre-stopping or animation resets during outfit changes. Before swapping, a millisecond-level snapshot captures bone rotations, expression weights, gaze coordinates, and playback timestamps. The new VRM is built in the background, pose-restored in memory before scene mounting, and atomically swapped within a microtask — guaranteeing 0 frames of T-pose glitching.
+* **Zero-Frame T-Pose Pop-in & Seamless Hot Reloading**: Captures a millisecond-level snapshot of bone rotations, expression weights, gaze coordinates, and playback timestamps before swapping. The new VRM is built in the background, pose-restored in memory before scene mounting, and atomically swapped within a microtask — guaranteeing 0 frames of T-pose glitching.
 * **Delta Patch Distribution (`.vrmbase` + `.vrmaddon`)**: Eliminates bloated multi-megabyte model downloads by stripping shared body geometry into a compact base model `xiaochun_base.vrmbase` (~5.9 MB, oxipng texture-compressed); 8 distinct wardrobe sets (Dinner Dress, Techwear, Cheongsam, Bikini, Maid, Swimsuit, Office Lady, Wedding Dress) are distributed as incremental `.vrmaddon` patches (1~4 MB each, 13 MB for grand wedding gown).
 * **Web Worker WASM bspatch Assembly**: Reconstructs the complete VRM in a Dedicated Web Worker using WASM bspatch with zero main-thread frame drops.
 * **Two-Tier IndexedDB Cache**: Base models and patched VRMs are locally cached in IndexedDB (`xiaochun-vrm-cache`) for instant subsequent swaps. Detailed in [`docs/OUTFIT_SWAP.md`](docs/OUTFIT_SWAP.md) and [`docs/VRM_BUILD_WORKFLOW.md`](docs/VRM_BUILD_WORKFLOW.md).
@@ -148,7 +149,7 @@ You can download installer packages directly from the official Releases page:
 
 ### 🩰 Universal Motion Blending Pipeline & Ground Dynamics
 * **Zero-Friction Any-Motion Ingestion (`playMotion`)**: Ingest VRMA URLs, raw ArrayBuffers, or `THREE.AnimationClip`s through a single call; automatically performs humanoid retargeting, hips normalization, and supports whole-body (`all`) or upper-body (`upperBody`) masking.
-* **Quintic Smootherstep Inbetweening**: Eliminates linear interpolation and jerk artifacts using $6t^5 - 15t^4 + 10t^3$ curves over a unified **0.75s** window with strictly continuous velocity and acceleration. Detailed in [`docs/MOTION_PIPELINE.md`](docs/MOTION_PIPELINE.md).
+* **Quintic Smootherstep Inbetweening**: Based on $6t^5 - 15t^4 + 10t^3$ curves over a unified **0.75s** window with strictly continuous velocity and acceleration. Detailed in [`docs/MOTION_PIPELINE.md`](docs/MOTION_PIPELINE.md).
 * **Biomechanical FootIK & Ground Anchoring**: Two-bone analytical IK with physical ground anchors, contrapposto weight shift, and automatic shoe-off sink compensation (4.6cm/3.9cm). Detailed in [`docs/FOOT_IK.md`](docs/FOOT_IK.md).
 * **Procedural Locomotion Stepping & Gaze**: 4-phase stepping state machine with spring yaw tracking and bio-saccades. Detailed in [`docs/BODY_TURN_AND_GAZE.md`](docs/BODY_TURN_AND_GAZE.md).
 * **Layered Pose Evaluation Graph**:
@@ -175,8 +176,8 @@ You can download installer packages directly from the official Releases page:
 * **Continuous Latent Autoregressive Seed Carryover**: The Dedicated Web Worker retains the 4-frame latent seed (`continueFromPrevious`) across chunks, making multi-chunk generation mathematically identical to a single long-run autoregressive inference.
 * **Streaming EMAGE (`motion_chunk`)**: Worker steps **T=64** audio/motion windows and posts transferable `motion_chunk` after each successful `runStep` so gestures start before the full utterance finishes (TTFA). First chunk is buffered until TTS `AudioContext.start` (`releaseMotionForAudio`) so motion never leads audible audio.
 * **P0b isolation + wasm threads**: Document responses set **COOP `same-origin` + COEP `credentialless`** (`src/server.ts`, Vite preview/dev, `public/_headers`) so `crossOriginIsolated` enables SharedArrayBuffer and ORT wasm multi-thread when the browser isolates; scratch buffers are reused across windows.
-* **P0c / E1+E2 hop & seams**: Chunk seams and PCM hop are driven by `APP_CONFIG.emage.motion` — `advanceFrames` (60..64), `chunkSeamMaxFrames`, `seamJumpThreshold` / `seamJumpFramesScale`, pose micro-fade knobs. **Not shipped:** P0d residual-gate, WebGPU-EMAGE.
-* **Physiological Angular Velocity Limiting Transition**: Replaces arbitrary timer-based blend timers with human biomechanical angular velocity limits (arms 2.2 rad/s, neck/head 1.6 rad/s, torso 1.2 rad/s) and critical spring damping for time-free, snap-free transitions.
+* **P0c / E1+E2 hop & seams**: Chunk seams and PCM hop are driven by `APP_CONFIG.emage.motion` — `advanceFrames` (60..64), `chunkSeamMaxFrames`, `seamJumpThreshold` / `seamJumpFramesScale`, pose micro-fade knobs.
+* **Physiological Angular Velocity Limiting Transition**: Biomechanical angular velocity limits (arms 2.2 rad/s, neck/head 1.6 rad/s, torso 1.2 rad/s) and critical spring damping ensure natural, snap-free transitions.
 * **Adaptive Conversational Idle (`SpeakIdleSystem`)**: Characters adaptively respond to the current gesture during inter-segment pauses — high gestures hover with breathing buoyancy and gentle micro-settling (>1.5s); fingers flex along the anatomical Z-axis; awareness gaze drifts and micro-nods eliminate frozen mannequins.
 * **Live Pipeline Console Table Tracker**: Real-time `console.table` monitors chunk TTS, EMAGE inference, playback progression, and transition modes.
 * **Head Bubble Progress Indicator**: A pulsing progress pill (`🟢 1 / 5`) in the bubble status bar cleanly displays segment progress without intruding on dialogue text.
@@ -185,7 +186,7 @@ You can download installer packages directly from the official Releases page:
 * **Text-Only Transfer** — Open the chat-bar menu → **跨设备同步 / Cross-Device Sync** → pick what to sync (custom providers + active model / thinking mode / chat settings) → an AES-GCM-256 encrypted blob (`xs:v1:iv.ct.key`) is generated and put in a copyable text block. The key travels inside the ciphertext — paste once on the other device, no separate key channel needed.
 * **Provider Config Sync** — Custom OpenAI-compatible providers (including their AES-encrypted API keys) round-trip across devices via `listProvidersDecrypted()` on the sender side and `saveProvider()` re-encryption on the receiver side, using each device's local salt.
 * **Preview-Before-Apply** — The receiving device decrypts locally, shows exactly what will change (active service / N providers / thinking on-off / chat settings), and only commits after the user clicks **确认导入**.
-* **Zero Server, Zero QR** — QR codes were dropped (payload too large with full provider configs). Pure-frontend, no telemetry, no backend coordination.
+* **Pure Client-Side Architecture** — Pure client-side execution with no third-party telemetry and no backend coordination.
 
 ### 💾 Client-Side Multi-Tier Memory System
 * **100% Local Privacy (IndexedDB)**: Powered by browser-native IndexedDB (`xiaochun-memory` database). Dialogue turns, personal preferences, and recalled facts stay entirely on the client device — zero telemetry or chat logs sent to any server.
