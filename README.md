@@ -72,7 +72,11 @@ curl -fsSL https://raw.githubusercontent.com/FireTable/project-xiaochun/main/scr
 ### Method 2: 🍺 Homebrew Cask (Recommended for macOS Power Users)
 If you are on macOS with Homebrew installed, manage installation and future updates with a single command:
 ```bash
-brew install --cask https://raw.githubusercontent.com/FireTable/project-xiaochun/main/homebrew/project-xiaochun.rb
+brew install --cask FireTable/project-xiaochun/project-xiaochun
+```
+To upgrade in the future:
+```bash
+brew upgrade --cask project-xiaochun
 ```
 
 ---

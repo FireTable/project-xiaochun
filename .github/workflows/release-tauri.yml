@@ -166,17 +166,21 @@ jobs:
           fi
 
           if [ "$ARM_SHA256" != "SKIP" ] || [ "$INTEL_SHA256" != "SKIP" ]; then
-            sed -i "s/version \".*\"/version \"$VERSION\"/" homebrew/project-xiaochun.rb
-            if [ "$ARM_SHA256" != "SKIP" ]; then
-              sed -i "s/sha256 arm:   \".*\"/sha256 arm:   \"$ARM_SHA256\"/" homebrew/project-xiaochun.rb
-            fi
-            if [ "$INTEL_SHA256" != "SKIP" ]; then
-              sed -i "s/^[[:space:]]*intel: \".*\"/         intel: \"$INTEL_SHA256\"/" homebrew/project-xiaochun.rb
-            fi
+            for f in Casks/project-xiaochun.rb homebrew/project-xiaochun.rb; do
+              if [ -f "$f" ]; then
+                sed -i "s/version \".*\"/version \"$VERSION\"/" "$f"
+                if [ "$ARM_SHA256" != "SKIP" ]; then
+                  sed -i "s/sha256 arm:   \".*\"/sha256 arm:   \"$ARM_SHA256\"/" "$f"
+                fi
+                if [ "$INTEL_SHA256" != "SKIP" ]; then
+                  sed -i "s/^[[:space:]]*intel: \".*\"/         intel: \"$INTEL_SHA256\"/" "$f"
+                fi
+              fi
+            done
 
             git config user.name "github-actions[bot]"
             git config user.email "github-actions[bot]@users.noreply.github.com"
-            git add homebrew/project-xiaochun.rb
+            git add Casks/project-xiaochun.rb homebrew/project-xiaochun.rb
             if git diff --staged --quiet; then
               echo "No changes in homebrew cask formula."
             else

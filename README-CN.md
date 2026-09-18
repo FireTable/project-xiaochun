@@ -72,7 +72,11 @@ curl -fsSL https://raw.githubusercontent.com/FireTable/project-xiaochun/main/scr
 ### 方式 2：🍺 Homebrew Cask 安装（macOS 极客推荐）
 如果你是 Mac 用户且安装了 Homebrew，一行命令即可由包管理器接管安装与后续升级（内置自动解除隔离）：
 ```bash
-brew install --cask https://raw.githubusercontent.com/FireTable/project-xiaochun/main/homebrew/project-xiaochun.rb
+brew install --cask FireTable/project-xiaochun/project-xiaochun
+```
+后续升级更新只需：
+```bash
+brew upgrade --cask project-xiaochun
 ```
 
 ---

@@ -58,7 +58,7 @@ curl -fsSL https://raw.githubusercontent.com/FireTable/project-xiaochun/main/scr
 
 ### 3.2 macOS via Homebrew Cask (Alternative)
 ```bash
-brew install --cask https://raw.githubusercontent.com/FireTable/project-xiaochun/main/homebrew/project-xiaochun.rb
+brew install --cask FireTable/project-xiaochun/project-xiaochun
 ```
 
 ### 3.3 Post-Install Verification & Launch
