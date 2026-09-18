@@ -10,13 +10,9 @@ cask "project-xiaochun" do
   desc "100% Client-Native Anime Companion & Transparent Desktop Pet"
   homepage "https://github.com/FireTable/project-xiaochun"
 
-  app "Project XiaoChun.app"
+  depends_on macos: ">= :catalina"
 
-  postflight do
-    system_command "/usr/bin/xattr",
-                   args: ["-cr", "#{appdir}/Project XiaoChun.app"],
-                   sudo: false
-  end
+  app "Project XiaoChun.app"
 
   zap trash: [
     "~/Library/Application Support/tech.firetable.xiaochun",
