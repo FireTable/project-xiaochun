@@ -1,5 +1,5 @@
 use std::sync::{
-  atomic::{AtomicBool, Ordering},
+  atomic::{AtomicBool, AtomicU64, Ordering},
   Arc, Mutex,
 };
 use std::thread;
@@ -8,12 +8,40 @@ use serde::{Deserialize, Serialize};
 use tauri::{AppHandle, Emitter, Manager, WebviewWindow};
 use tauri_plugin_window_state::StateFlags;
 
+static MSG_COUNTER: AtomicU64 = AtomicU64::new(1);
+
+fn generate_msg_id() -> String {
+  let ms = std::time::SystemTime::now()
+    .duration_since(std::time::UNIX_EPOCH)
+    .map(|d| d.as_millis())
+    .unwrap_or(0);
+  let seq = MSG_COUNTER.fetch_add(1, Ordering::SeqCst);
+  format!("{}_{}", ms, seq)
+}
+
+fn resolve_file_path(path_str: &str) -> std::path::PathBuf {
+  let p = path_str.trim();
+  if p.starts_with("~/") || p == "~" {
+    if let Ok(home) = std::env::var("HOME").or_else(|_| std::env::var("USERPROFILE")) {
+      let rest = if p == "~" { "" } else { &p[2..] };
+      return std::path::Path::new(&home).join(rest);
+    }
+  }
+  std::path::PathBuf::from(p)
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ProtocolMessage {
+  pub id: Option<String>,
   pub action: String,
   pub payload: serde_json::Value,
   #[serde(rename = "rawUrl")]
   pub raw_url: Option<String>,
+}
+
+#[derive(Default)]
+pub struct ProtocolState {
+  pub pending_messages: Mutex<Vec<ProtocolMessage>>,
 }
 
 fn parse_deep_link_url(raw_url: &str) -> Option<ProtocolMessage> {
@@ -50,7 +78,34 @@ fn parse_deep_link_url(raw_url: &str) -> Option<ProtocolMessage> {
     }
   }
 
+  // 如果包含 file 路径且没有有效的 text，在原生 Rust 端直接读取文件内容（绕过浏览器沙箱）
+  if let Some(serde_json::Value::String(file_path_str)) = payload_map.get("file").cloned() {
+    let has_empty_text = payload_map
+      .get("text")
+      .and_then(|v| v.as_str())
+      .map(|s| s.trim().is_empty())
+      .unwrap_or(true);
+
+    if has_empty_text {
+      let resolved = resolve_file_path(&file_path_str);
+      match std::fs::read_to_string(&resolved) {
+        Ok(content) => {
+          log::info!("[Protocol] 成功从本地文件读取文本 (路径: {:?}, 字符数: {})", resolved, content.len());
+          payload_map.insert("text".to_string(), serde_json::Value::String(content));
+        }
+        Err(err) => {
+          log::error!("[Protocol] 读取文件失败 (路径: {:?}): {}", resolved, err);
+          payload_map.insert(
+            "fileError".to_string(),
+            serde_json::Value::String(format!("无法读取文件 {:?}: {}", resolved, err)),
+          );
+        }
+      }
+    }
+  }
+
   Some(ProtocolMessage {
+    id: Some(generate_msg_id()),
     action,
     payload: serde_json::Value::Object(payload_map),
     raw_url: Some(raw_url.to_string()),
@@ -65,6 +120,13 @@ fn dispatch_protocol_url(app: &AppHandle, url_str: &str) {
       let _ = win.show();
       let _ = win.set_focus();
     }
+    // 1. 存入待处理队列（解决冷启动时前端尚未初始化完成导致的事件丢失）
+    if let Some(state) = app.try_state::<Arc<ProtocolState>>() {
+      if let Ok(mut pending) = state.pending_messages.lock() {
+        pending.push(msg.clone());
+      }
+    }
+    // 2. 同时 emit 给可能已经就绪的前端监听器
     let _ = app.emit("protocol:action", msg);
   }
 }
@@ -155,13 +217,24 @@ fn update_alpha_bitmask(
   Ok(())
 }
 
+#[tauri::command]
+fn get_pending_protocol_actions(
+  state: tauri::State<'_, Arc<ProtocolState>>,
+) -> Result<Vec<ProtocolMessage>, String> {
+  let mut lock = state.pending_messages.lock().map_err(|e| e.to_string())?;
+  let messages = lock.drain(..).collect();
+  Ok(messages)
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
   let passthrough_state = Arc::new(PassthroughState::default());
   let monitor_state = Arc::clone(&passthrough_state);
+  let protocol_state = Arc::new(ProtocolState::default());
 
   tauri::Builder::default()
     .manage(passthrough_state)
+    .manage(protocol_state)
     // ponytail: 持久化窗口尺寸 / 位置 — 启动时回放, resize/move 自动保存
     // 缩窄到只持久化 POSITION | SIZE, 不动 decorations/visible/fullscreen/maximized,
     // 避免和 tauri.conf.json 的硬配置 (decorations:false, transparent:true, alwaysOnTop:true)
@@ -183,7 +256,8 @@ pub fn run() {
       set_passthrough_enabled,
       set_is_interacting,
       update_interactive_rects,
-      update_alpha_bitmask
+      update_alpha_bitmask,
+      get_pending_protocol_actions
     ])
     .setup(move |app| {
       #[cfg(any(target_os = "macos", target_os = "windows", target_os = "linux"))]

@@ -26,7 +26,13 @@ export async function executeProtocolMessage(message: ProtocolMessage): Promise<
     case 'speak': {
       const payload = message.payload as SpeakPayload;
       if (!payload || !payload.text) {
-        console.warn('[Protocol] speak 指令缺少 text 内容:', message);
+        if (payload?.fileError) {
+          console.error(`[Protocol] speak 指令读取文件失败: ${payload.fileError}`, message);
+        } else if (payload?.file) {
+          console.warn(`[Protocol] speak 指令文件路径未解析出有效文本 (文件为空或路径不存在): ${payload.file}`, message);
+        } else {
+          console.warn('[Protocol] speak 指令缺少 text 内容:', message);
+        }
         return;
       }
 

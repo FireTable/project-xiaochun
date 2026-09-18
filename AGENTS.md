@@ -257,3 +257,45 @@ pnpm build
     * `perf(vrmWorker): offload glTF repacking and bspatch diffing to dedicated worker`
     * `docs(agents): document VRMEngine modularization and zero-allocation performance rules`
 - If changes touch motion smoothness, angular velocity, transition durations, or core dynamics parameters, update `src/config.ts`, `README-CN.md`, `README.md`, and this file accordingly.
+
+---
+
+## 7. Release & Bundle Versioning Standards
+
+### 7.1 Single Source of Truth for Versioning
+- **Primary Source**: `src-tauri/tauri.conf.json` (`"version": "x.y.z"`) is the authoritative source of truth for the application version.
+- **Synchronized Targets**:
+  Whenever releasing a new version, the version number **must be strictly synchronized** across three files:
+  1. `src-tauri/tauri.conf.json` $\to$ `"version": "x.y.z"`
+  2. `package.json` $\to$ `"version": "x.y.z"`
+  3. `src-tauri/Cargo.toml` $\to$ `version = "x.y.z"`
+
+### 7.2 macOS Bundle Identity & Artifact Naming
+- **Product Name**: `"productName": "Project XiaoChun"`
+- **Bundle Identifier**: `"identifier": "tech.firetable.project-xiaochun"`
+- **Generated Artifacts**:
+  * macOS DMG: `Project XiaoChun_${VERSION}_${ARCH}.dmg` (e.g. `Project XiaoChun_0.1.2_aarch64.dmg`)
+  * Target Platforms: Apple Silicon (`aarch64-apple-darwin`) & Intel (`x86_64-apple-darwin`).
+
+### 7.3 CI/CD & Homebrew Distribution Pipeline
+- **Workflow File**: `.github/workflows/release-tauri.yml`
+- **Dynamic Version Resolution**:
+  CI automatically parses the release version directly from `src-tauri/tauri.conf.json` (`jq -r .version`).
+- **Release Tagging**:
+  GitHub Releases and Git tags are formatted as `v${VERSION}` (e.g. `v0.1.2`).
+- **Homebrew Cask Auto-Update**:
+  * The CI job `update-homebrew` automatically computes the SHA256 checksum of the published DMG.
+  * Updates `Casks/project-xiaochun.rb` on the `main` branch with the new version, download URL, and SHA256 hash.
+  * End users install and update via:
+    ```bash
+    brew install --cask FireTable/project-xiaochun/project-xiaochun
+    # or upgrade:
+    brew upgrade --cask project-xiaochun
+    ```
+
+### 7.4 Pre-Release Verification Checklist
+Before releasing or cutting a new version:
+1. `npx tsc --noEmit` passes with 0 errors.
+2. `cd src-tauri && cargo check` passes cleanly.
+3. Commit messages adhere to Conventional Commits: `chore(release): bump version to x.y.z`.
+
