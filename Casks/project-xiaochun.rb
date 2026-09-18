@@ -10,7 +10,7 @@ cask "project-xiaochun" do
   desc "100% Client-Native Anime Companion & Transparent Desktop Pet"
   homepage "https://github.com/FireTable/project-xiaochun"
 
-  depends_on macos: ">= :catalina"
+  depends_on :macos
 
   app "Project XiaoChun.app"
 
