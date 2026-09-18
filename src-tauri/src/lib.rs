@@ -42,6 +42,8 @@ pub struct ProtocolMessage {
 #[derive(Default)]
 pub struct ProtocolState {
   pub pending_messages: Mutex<Vec<ProtocolMessage>>,
+  /// Short-window dedupe of raw URLs (cold-start get_current retries / Opened + on_open_url).
+  pub recent_raw_urls: Mutex<Vec<(String, u64)>>,
 }
 
 fn parse_deep_link_url(raw_url: &str) -> Option<ProtocolMessage> {
@@ -112,8 +114,49 @@ fn parse_deep_link_url(raw_url: &str) -> Option<ProtocolMessage> {
   })
 }
 
+fn protocol_trace(line: &str) {
+  log::info!("{line}");
+  if cfg!(debug_assertions) {
+    let _ = std::fs::OpenOptions::new()
+      .create(true)
+      .append(true)
+      .open("/tmp/xiaochun-protocol-trace.log")
+      .and_then(|mut f| {
+        use std::io::Write;
+        let ms = std::time::SystemTime::now()
+          .duration_since(std::time::UNIX_EPOCH)
+          .map(|d| d.as_millis())
+          .unwrap_or(0);
+        writeln!(f, "{ms} {line}")
+      });
+  }
+}
+
+fn should_skip_duplicate_url(app: &AppHandle, url_str: &str) -> bool {
+  let Some(state) = app.try_state::<Arc<ProtocolState>>() else {
+    return false;
+  };
+  let Ok(mut recent) = state.recent_raw_urls.lock() else {
+    return false;
+  };
+  let now = std::time::SystemTime::now()
+    .duration_since(std::time::UNIX_EPOCH)
+    .map(|d| d.as_millis() as u64)
+    .unwrap_or(0);
+  recent.retain(|(_, t)| now.saturating_sub(*t) < 5000);
+  if recent.iter().any(|(u, _)| u == url_str) {
+    return true;
+  }
+  recent.push((url_str.to_string(), now));
+  false
+}
+
 fn dispatch_protocol_url(app: &AppHandle, url_str: &str) {
-  log::info!("[Protocol] 收到协议 URL: {}", url_str);
+  protocol_trace(&format!("[Protocol] 收到协议 URL: {url_str}"));
+  if should_skip_duplicate_url(app, url_str) {
+    protocol_trace(&format!("[Protocol] skip duplicate raw URL within 5s: {url_str}"));
+    return;
+  }
   if let Some(msg) = parse_deep_link_url(url_str) {
     if let Some(win) = app.get_webview_window("main") {
       let _ = win.unminimize();
@@ -128,6 +171,8 @@ fn dispatch_protocol_url(app: &AppHandle, url_str: &str) {
     }
     // 2. 同时 emit 给可能已经就绪的前端监听器
     let _ = app.emit("protocol:action", msg);
+  } else {
+    protocol_trace(&format!("[Protocol] URL parse failed: {url_str}"));
   }
 }
 
@@ -260,14 +305,79 @@ pub fn run() {
       get_pending_protocol_actions
     ])
     .setup(move |app| {
+      // Install file logger before any protocol dispatch so cold-start lines are captured.
+      if cfg!(debug_assertions) {
+        app.handle().plugin(
+          tauri_plugin_log::Builder::default()
+            .level(log::LevelFilter::Info)
+            .build(),
+        )?;
+      }
+
       #[cfg(any(target_os = "macos", target_os = "windows", target_os = "linux"))]
       {
         use tauri_plugin_deep_link::DeepLinkExt;
         let _ = app.deep_link().register_all();
         let app_handle = app.handle().clone();
         app.deep_link().on_open_url(move |event| {
+          protocol_trace("[Protocol] on_open_url fired");
           for url in event.urls() {
             dispatch_protocol_url(&app_handle, url.as_str());
+          }
+        });
+
+        // Cold start (esp. macOS): launch URL often is NOT in argv.
+        // RunEvent::Opened may arrive slightly after setup, so poll get_current.
+        let cold_handle = app.handle().clone();
+        let drain_current = move |label: &str| {
+          match cold_handle.deep_link().get_current() {
+            Ok(Some(urls)) => {
+              for url in urls {
+                protocol_trace(&format!(
+                  "[Protocol] cold-start URL recovered via get_current ({label}): {url}"
+                ));
+                dispatch_protocol_url(&cold_handle, url.as_str());
+              }
+              true
+            }
+            Ok(None) => {
+              protocol_trace(&format!(
+                "[Protocol] get_current ({label}): no cold-start deep link URLs"
+              ));
+              false
+            }
+            Err(err) => {
+              protocol_trace(&format!("[Protocol] get_current ({label}) failed: {err}"));
+              false
+            }
+          }
+        };
+        let _ = drain_current("setup-immediate");
+        let poll_handle = app.handle().clone();
+        thread::spawn(move || {
+          for (i, delay_ms) in [100u64, 500, 1500].into_iter().enumerate() {
+            thread::sleep(Duration::from_millis(delay_ms));
+            match poll_handle.deep_link().get_current() {
+              Ok(Some(urls)) if !urls.is_empty() => {
+                for url in urls {
+                  protocol_trace(&format!(
+                    "[Protocol] cold-start URL recovered via get_current (poll#{i}): {url}"
+                  ));
+                  dispatch_protocol_url(&poll_handle, url.as_str());
+                }
+                break;
+              }
+              Ok(_) => {
+                protocol_trace(&format!(
+                  "[Protocol] get_current (poll#{i}): still empty"
+                ));
+              }
+              Err(err) => {
+                protocol_trace(&format!(
+                  "[Protocol] get_current (poll#{i}) failed: {err}"
+                ));
+              }
+            }
           }
         });
       }
@@ -276,16 +386,9 @@ pub fn run() {
       let startup_handle = app.handle().clone();
       for arg in std::env::args() {
         if arg.starts_with("xiaochun://") {
+          protocol_trace(&format!("[Protocol] argv deep link: {arg}"));
           dispatch_protocol_url(&startup_handle, &arg);
         }
-      }
-
-      if cfg!(debug_assertions) {
-        app.handle().plugin(
-          tauri_plugin_log::Builder::default()
-            .level(log::LevelFilter::Info)
-            .build(),
-        )?;
       }
 
       #[cfg(target_os = "macos")]
@@ -399,6 +502,19 @@ pub fn run() {
 
       Ok(())
     })
-    .run(tauri::generate_context!())
-    .expect("error while running tauri application");
+    .build(tauri::generate_context!())
+    .expect("error while building tauri application")
+    .run(|app_handle, event| {
+      #[cfg(any(target_os = "macos", target_os = "ios"))]
+      if let tauri::RunEvent::Opened { urls } = &event {
+        protocol_trace(&format!(
+          "[Protocol] RunEvent::Opened ({} url(s))",
+          urls.len()
+        ));
+        for url in urls {
+          dispatch_protocol_url(app_handle, url.as_str());
+        }
+      }
+      let _ = (app_handle, &event);
+    });
 }

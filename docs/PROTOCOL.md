@@ -126,3 +126,20 @@ In the webview or browser Developer Tools console, simulate a protocol trigger d
 ```javascript
 window.__triggerXiaoChunProtocol('speak', { text: 'Console test message' });
 ```
+
+---
+
+## 5. Cold Start vs Warm Start (Desktop)
+
+On **warm start** (app already running), the deep-link plugin delivers URLs via `on_open_url`, which the native host dispatches to the same `pending_messages` + `protocol:action` path as CLI argv.
+
+On **cold start** (app fully quit), especially on **macOS**, the launch URL is often **not** present in process argv. The host recovers it via:
+
+1. `RunEvent::Opened` (primary on macOS/iOS)
+2. `DeepLinkExt::get_current()` during setup, plus short delayed polls if Opened races setup
+3. Existing `on_open_url` / argv / pending queue paths
+
+Raw URLs are deduped within 5s so Opened + get_current + `on_open_url` do not double-speak. The frontend still drains `get_pending_protocol_actions` and dedupes by message `id`.
+
+Prefer **URL-encoded** `text` (e.g. Chinese) for portability; unencoded Chinese in `open "xiaochun://speak?text=..."` is usually OK on macOS but encoding is safer across shells and platforms.
+

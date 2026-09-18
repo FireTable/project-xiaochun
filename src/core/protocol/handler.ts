@@ -4,7 +4,7 @@ import type { ProtocolMessage, SpeakPayload } from './types';
 /**
  * 等待 VRM 模型加载完毕（应对应用刚冷启动时立即收到协议调用的场景）
  */
-async function waitForVRMReady(timeoutMs = 15000): Promise<boolean> {
+async function waitForVRMReady(timeoutMs = 60000): Promise<boolean> {
   if (vrmEngine.currentVRM) return true;
   const startTime = Date.now();
   while (Date.now() - startTime < timeoutMs) {
@@ -39,7 +39,7 @@ export async function executeProtocolMessage(message: ProtocolMessage): Promise<
       // 等待模型就绪
       const ready = await waitForVRMReady();
       if (!ready) {
-        console.error('[Protocol] 等待 VRM 加载超时，无法播放 speakText');
+        console.error('[Protocol] 等待 VRM 加载超时 (60s)，无法播放 speakText。冷启动较慢时请确认模型已加载后再重试。');
         return;
       }
 
