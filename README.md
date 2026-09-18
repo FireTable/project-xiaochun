@@ -13,6 +13,12 @@
   <a href="README-CN.md">简体中文</a>
 </p>
 
+<p align="center">
+  <a href="https://github.com/FireTable/project-xiaochun/releases"><img src="https://img.shields.io/github/v/release/FireTable/project-xiaochun?label=Desktop%20Release&color=3b82f6" alt="Desktop Release" /></a>
+  <a href="https://github.com/FireTable/project-xiaochun/releases"><img src="https://img.shields.io/github/downloads/FireTable/project-xiaochun/total?label=Downloads&color=10b981" alt="Downloads" /></a>
+  <a href="LICENSE"><img src="https://img.shields.io/badge/License-MIT-amber.svg" alt="License" /></a>
+</p>
+
 ---
 
 > [!IMPORTANT]
@@ -41,6 +47,23 @@ The UI is fully **SSR-hydrated multi-language** (zh-CN / en / ja) via TanStack S
   <img src="screenshots/preview-3d.jpg" width="100%" alt="XiaoChun chatting in the linework outdoor scene" /><br/>
   <i>3D stage: MToon NPR character, linework city, head bubble, and chat bar</i>
 </p>
+
+---
+
+## 📥 Download Desktop App
+
+In addition to running directly in the browser, Project XiaoChun provides a **cross-platform native desktop client** (built with Tauri 2.0). It supports both **Full-Stage 3D Mode** and **Frameless Transparent Desktop Pet Mode** with minimal memory overhead and instant startup.
+
+👉 **[Go to GitHub Releases for All Downloads](https://github.com/FireTable/project-xiaochun/releases)**
+
+| Platform / Architecture | Package | Description | Quick Download |
+| :--- | :--- | :--- | :--- |
+| 🍏 **macOS (Apple Silicon)** | `.dmg` | For Apple Silicon (M1 / M2 / M3 / M4) Macs | [Get Latest DMG](https://github.com/FireTable/project-xiaochun/releases) |
+| 🍏 **macOS (Intel)** | `.dmg` | For Intel-based Macs | [Get Latest DMG](https://github.com/FireTable/project-xiaochun/releases) |
+| 🪟 **Windows (x64)** | `.msi` / `.exe` | For Windows 10 / 11 (64-bit) | [Get Windows Installer](https://github.com/FireTable/project-xiaochun/releases) |
+| 🐧 **Linux (x64)** | `.deb` / `.AppImage` | For Ubuntu / Debian and mainstream distros | [Get Linux Package](https://github.com/FireTable/project-xiaochun/releases) |
+
+> 💡 **macOS Note**: If you encounter an "unverified developer" dialog on first launch, navigate to **System Settings -> Privacy & Security** and click **Open Anyway**.
 
 ---
 

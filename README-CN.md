@@ -13,6 +13,12 @@
   <a href="README-CN.md">简体中文</a>
 </p>
 
+<p align="center">
+  <a href="https://github.com/FireTable/project-xiaochun/releases"><img src="https://img.shields.io/github/v/release/FireTable/project-xiaochun?label=桌面端下载&color=3b82f6" alt="Desktop Release" /></a>
+  <a href="https://github.com/FireTable/project-xiaochun/releases"><img src="https://img.shields.io/github/downloads/FireTable/project-xiaochun/total?label=下载量&color=10b981" alt="Downloads" /></a>
+  <a href="LICENSE"><img src="https://img.shields.io/badge/License-MIT-amber.svg" alt="License" /></a>
+</p>
+
 ---
 
 > [!IMPORTANT]
@@ -41,6 +47,23 @@ UI 走 **TanStack Start SSR + i18next** 水合,**完整支持简体中文 / Engl
   <img src="screenshots/preview-3d.jpg" width="100%" alt="小蠢在线稿户外场景中对话" /><br/>
   <i>3D 舞台：MToon NPR 角色、线稿场景、头顶气泡与底部对话条</i>
 </p>
+
+---
+
+## 📥 桌面客户端下载 (Download Desktop App)
+
+小蠢除了支持纯 Web 浏览器运行外，还提供了**跨平台原生桌面客户端**（基于 Tauri 2.0 构建）。支持**全屏 3D 沉浸舞台**与**无边框透明置顶桌面宠物**双模式，占用内存极小、开箱即用。
+
+👉 **[前往 Releases 发布页下载最新安装包](https://github.com/FireTable/project-xiaochun/releases)**
+
+| 平台 / 架构 | 安装包格式 | 说明 | 快速下载 |
+| :--- | :--- | :--- | :--- |
+| 🍏 **macOS (Apple Silicon)** | `.dmg` | 适用于 M1 / M2 / M3 / M4 系列 Mac | [获取最新 DMG](https://github.com/FireTable/project-xiaochun/releases) |
+| 🍏 **macOS (Intel)** | `.dmg` | 适用于 Intel 处理器 Mac | [获取最新 DMG](https://github.com/FireTable/project-xiaochun/releases) |
+| 🪟 **Windows (x64)** | `.msi` / `.exe` | 适用于 Windows 10 / 11 (64 位) | [获取 Windows 安装包](https://github.com/FireTable/project-xiaochun/releases) |
+| 🐧 **Linux (x64)** | `.deb` / `.AppImage` | 适用于 Ubuntu / Debian 及主流发行版 | [获取 Linux 安装包](https://github.com/FireTable/project-xiaochun/releases) |
+
+> 💡 **macOS 首次安装提示**：若打开时提示“无法打开，因为无法验证开发者”，请前往系统 **设置 -> 隐私与安全性**，点击“仍要打开”即可。
 
 ---
 
