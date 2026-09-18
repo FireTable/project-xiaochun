@@ -352,16 +352,8 @@ export class VRMMaterialManager {
           const isEye = name.includes('eye') || name.includes('iris');
           const isHair = name.includes('hair');
           const isSocks = name.includes('socks') || name.includes('stocking') || name.includes('tights');
-          const isCloth =
-            name.includes('cloth') ||
-            name.includes('shirt') ||
-            name.includes('top') ||
-            name.includes('skirt') ||
-            name.includes('coat') ||
-            name.includes('bottom') ||
-            name.includes('dress') ||
-            name.includes('onepiece') ||
-            name.includes('shoes');
+          // 服装材质识别：只要不是脸部皮肤、素体、眼睛、头发与袜子，均属于服装范畴，必须严格赋予 polygonOffset 深度防穿模
+          const isCloth = !isFaceSkin && !isEye && !isHair && !isSocks;
 
           let category: 'skin' | 'hair' | 'eyes' | 'clothing' = 'clothing';
           if (isEye) {
@@ -416,6 +408,9 @@ uniform float uMatSaturation;
             mat.shadeToony = skinNpr.shadeToony;
             if (skinNpr.shadeColor && mat.shadeColor) {
               mat.shadeColor.set(skinNpr.shadeColor);
+            }
+            if (mat.color) {
+              mat.color.set(skinNpr.litColor || '#ffffff');
             }
 
             // 🚫 素体皮肤作为绝对基准面，保持物理深度真实 (polygonOffset = false)

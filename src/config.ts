@@ -135,6 +135,8 @@ export interface VrmMaterialNprShadingConfig {
   shadeToony: number;
   /** 阴影暗部偏色（HEX 字符串，如 '#f4cfbf'） */
   shadeColor?: string;
+  /** 受光面亮部微调色（默认纯白，设为微暖乳粉色如 '#fff8f4' 可让皮肤亮部极其柔嫩，消除死白刺眼感） */
+  litColor?: string;
   /** 边缘光强度与光照混合度 (0.0 ~ 1.0) */
   rimLightingMix: number;
   /** 边缘光颜色（HEX 字符串，如 '#ffffff'） */
@@ -453,6 +455,11 @@ export const APP_CONFIG = {
         source: '/vrm/addons/xiaochun_swimsuit.vrmaddon',
         name: 'XiaoChun Swimsuit',
         sha: 'b7511150c85ce0c1',
+        bodyMorph: {
+          shoulderWidth: 1.38,
+          bustPitch: 0.0,
+          bustSpread: -0.018,
+        },
       },
       'xiaochun_dinner_dress': {
         source: '/vrm/addons/xiaochun_dinner_dress.vrmaddon',
@@ -663,9 +670,9 @@ export const APP_CONFIG = {
       // 2. 空气阻尼 dragForce (能量衰减速率 / 粘滞度)：
       //    - 【官方默认值】: 0.05 (实测 VRoid 导出值，阻尼极低)
       //    - 往大调 (0.5 ~ 0.8): 像泡在浓稠糖浆里，粘滞迟缓，摆一下就瞬间定住；
-      //    - 往小调 (0.01 ~ 0.10): 缺乏阻尼，柔软时会像果冻一样高频剧烈“余震”，极假；
-      //    - 【推荐甜点值】: 0.26 ~ 0.32 (优雅吸收动能，摆动后回弹 1~2 下自然平稳收敛)
-      dragForce: 0.06,
+      //    - 往小调 (0.01 ~ 0.10): 缺乏阻尼，柔软时会像果冻一样高频剧烈“余震”，极假，且会导致大幅晃动穿模；
+      //    - 【推荐甜点值】: 0.26 ~ 0.32 (优雅吸收动能，摆动后回弹 1~2 下自然平稳收敛，杜绝剧烈甩动穿透衣服)
+      dragForce: 0.26,
 
       // 3. 重力强度 gravityPower (垂直下坠受力)：
       //    - 【官方默认值】: 0.0 (实测 VRoid 导出值，完全处于失重状态)
@@ -971,15 +978,18 @@ export const APP_CONFIG = {
         rimLift: 0.0,
       },
       body: {
-        // 锁骨与四肢立体感：极为克制的 0.02，既让锁骨凹陷显现精致阴影，又杜绝大腿内侧大黑块
-        shadeShift: 0.02,
-        shadeToony: 0.93,
-        shadeColor: '#f5d1c2', // 温润白皙暖蜜桃阴影
+        // 锁骨与四肢立体感：极为克制的 0.01，既让锁骨凹陷显现精致阴影，又杜绝大腿内侧大黑块
+        shadeShift: 0.01,
+        // 柔和度大幅提升：将硬度从 0.93 降为 0.80，亮部与阴影之间产生 20% 细腻平滑的过渡，消除迎面骨与小腿生硬的死白断层
+        shadeToony: 0.80,
+        shadeColor: '#f6dbce', // 柔嫩微粉透亮阴影
+        // 亮部柔化：微暖柔光乳白（#fff8f4），消除漫反射惨白死硬感，让肌肤亮部如牛奶浴般柔嫩
+        litColor: '#fff8f4',
         // 柔嫩欲滴奶油肌边缘光：肩头、手臂与锁骨弧度泛出轻微珍珠透光感，消除死板塑料感
-        rimLightingMix: 0.22,
+        rimLightingMix: 0.18,
         rimColor: '#fff0e8',   // 极柔和珍珠微粉透光色，模拟真人体温血色透光
         rimFresnelPower: 4.2,  // 掠射角紧凑收敛，仅在极细外缘泛光，不泛白不油腻
-        rimLift: 0.06,
+        rimLift: 0.05,
       },
       // 🚫 素体皮肤作为物理基准层 (Layer 0)，保持物理深度真实，绝不向内推深
       polygonOffset: {
@@ -1021,8 +1031,8 @@ export const APP_CONFIG = {
       },
       outerPolygonOffset: {
         enabled: true,
-        factor: -2.0,
-        units: -6.0,
+        factor: -3.0,
+        units: -10.0,
       },
     },
   } as VrmMToonConfig,
