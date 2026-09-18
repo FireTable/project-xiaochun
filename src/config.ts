@@ -125,6 +125,55 @@ export interface VrmOutlineConfig {
   lightingMix: number;
 }
 
+/**
+ * MToon 材质 NPR 赛璐璐光影与边缘光配置
+ */
+export interface VrmMaterialNprShadingConfig {
+  /** 阴影偏移阈值（控制阴影面积与起始位置） */
+  shadeShift: number;
+  /** 阴影二值化过渡锐度 (0.0 渐变软阴影 ~ 1.0 极致硬边赛璐璐) */
+  shadeToony: number;
+  /** 阴影暗部偏色（HEX 字符串，如 '#f4cfbf'） */
+  shadeColor?: string;
+  /** 边缘光强度与光照混合度 (0.0 ~ 1.0) */
+  rimLightingMix: number;
+  /** 边缘光颜色（HEX 字符串，如 '#ffffff'） */
+  rimColor: string;
+  /** 菲涅尔边缘光指数（数值越大边缘光圈越窄越集中，数值越小光晕越宽） */
+  rimFresnelPower: number;
+  /** 边缘光抬升微晕 (0.0 ~ 1.0) */
+  rimLift: number;
+}
+
+/**
+ * WebGL 深度分层防穿模 polygonOffset 配置
+ */
+export interface PolygonOffsetConfig {
+  enabled: boolean;
+  factor: number;
+  units: number;
+}
+
+/**
+ * VRM MToon NPR 材质光影与深度分层全局配置
+ */
+export interface VrmMToonConfig {
+  skin: {
+    face: VrmMaterialNprShadingConfig;
+    body: VrmMaterialNprShadingConfig;
+    polygonOffset: PolygonOffsetConfig;
+  };
+  socks: {
+    npr: VrmMaterialNprShadingConfig;
+    polygonOffset: PolygonOffsetConfig;
+  };
+  cloth: {
+    npr: VrmMaterialNprShadingConfig;
+    innerPolygonOffset: PolygonOffsetConfig;
+    outerPolygonOffset: PolygonOffsetConfig;
+  };
+}
+
 export interface EmageMotionConfig {
   /**
    * 手臂幅度相对 rest 的混合 (0.1~1.0，默认 1.0)。
@@ -900,6 +949,79 @@ export const APP_CONFIG = {
      */
     lightingMix: 0.7,
   } as VrmOutlineConfig,
+  /**
+   * VRM MToon NPR 材质赛璐璐光影与深度分层全局配置
+   *
+   * 集中统管面部、素体皮肤、丝袜与衣物的：
+   * 1. NPR 阴影起始阈值 (shadeShift)、赛璐璐阶调过渡硬度 (shadeToony)、阴影暗部偏色 (shadeColor)；
+   * 2. 菲涅尔边缘光 (rimLightingMix, rimColor, rimFresnelPower, rimLift)；
+   * 3. 深度分层防穿模 (polygonOffset)，杜绝代码中写死魔法数字。
+   */
+  mtoon: {
+    skin: {
+      face: {
+        shadeShift: 0.03,
+        shadeToony: 0.96,
+        shadeColor: '#fde4db',
+        rimLightingMix: 0.0,
+        rimColor: '#000000',
+        rimFresnelPower: 100.0,
+        rimLift: 0.0,
+      },
+      body: {
+        shadeShift: 0.0,
+        shadeToony: 0.92,
+        shadeColor: '#f4cfbf',
+        rimLightingMix: 0.0,
+        rimColor: '#000000',
+        rimFresnelPower: 100.0,
+        rimLift: 0.0,
+      },
+      // 🚫 素体皮肤作为物理基准层 (Layer 0)，保持物理深度真实，绝不向内推深
+      polygonOffset: {
+        enabled: false,
+        factor: 0.0,
+        units: 0.0,
+      },
+    },
+    socks: {
+      npr: {
+        shadeShift: -0.05,
+        shadeToony: 0.80,
+        rimLightingMix: 0.60,
+        rimColor: '#ffffff',
+        rimFresnelPower: 3.0,
+        rimLift: 0.15,
+      },
+      // 深度分层 (Layer 1): 贴身袜子在皮肤之上，轻微向相机拉近
+      polygonOffset: {
+        enabled: true,
+        factor: -1.0,
+        units: -4.0,
+      },
+    },
+    cloth: {
+      npr: {
+        shadeShift: 0.0,
+        shadeToony: 0.85,
+        rimLightingMix: 0.35,
+        rimColor: '#f0f4ff',
+        rimFresnelPower: 4.0,
+        rimLift: 0.10,
+      },
+      // 深度分层: 内衬向前拉 1 级，外衣向前拉 2 级，永远覆盖素体与内衣
+      innerPolygonOffset: {
+        enabled: true,
+        factor: -1.0,
+        units: -2.0,
+      },
+      outerPolygonOffset: {
+        enabled: true,
+        factor: -2.0,
+        units: -6.0,
+      },
+    },
+  } as VrmMToonConfig,
   bodyMorph: {
     default: {
       // ponytail: 用户最新 bodyMorph 默认值 — 肩宽 +0.2 / 腰 -0.2 / 大腿 +0.06

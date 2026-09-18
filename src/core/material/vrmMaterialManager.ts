@@ -399,29 +399,29 @@ uniform float uMatSaturation;
 
           // NPR 边缘光与冷暖阴影调配
           if (isFaceSkin) {
-            mat.rimLightingMix = 0.0;
-            mat.rimMultiply = new THREE.Color(0x000000);
-            mat.rimFresnelPower = 100.0;
-            mat.rimLift = 0.0;
-
             const isBody = name.includes('body');
-            if (isBody) {
-              mat.shadeShift = 0.0;
-              mat.shadeToony = 0.92;
-              if (mat.shadeColor) mat.shadeColor.setHex(0xf4cfbf);
+            const skinNpr = isBody ? APP_CONFIG.mtoon.skin.body : APP_CONFIG.mtoon.skin.face;
+            const skinOffset = APP_CONFIG.mtoon.skin.polygonOffset;
 
-              // 🚫 素体皮肤作为绝对基准面，必须保持物理深度真实 (polygonOffset = false)
-              // 绝不能使用正向 offset 将皮肤向深处推，否则在掠射角 (Slope -> 无穷大) 处会导致
-              // 轮廓描边被大量露出形成粗黑块，同时在大腿内侧产生撕裂断线。
-              mat.polygonOffset = false;
-              mat.polygonOffsetFactor = 0.0;
-              mat.polygonOffsetUnits = 0.0;
+            mat.rimLightingMix = skinNpr.rimLightingMix;
+            if (mat.rimMultiply) {
+              mat.rimMultiply.set(skinNpr.rimColor);
             } else {
-              mat.shadeShift = 0.03;
-              mat.shadeToony = 0.96;
-              if (mat.shadeColor) mat.shadeColor.setHex(0xfde4db);
-              mat.polygonOffset = false;
+              mat.rimMultiply = new THREE.Color(skinNpr.rimColor);
             }
+            mat.rimFresnelPower = skinNpr.rimFresnelPower;
+            mat.rimLift = skinNpr.rimLift;
+
+            mat.shadeShift = skinNpr.shadeShift;
+            mat.shadeToony = skinNpr.shadeToony;
+            if (skinNpr.shadeColor && mat.shadeColor) {
+              mat.shadeColor.set(skinNpr.shadeColor);
+            }
+
+            // 🚫 素体皮肤作为绝对基准面，保持物理深度真实 (polygonOffset = false)
+            mat.polygonOffset = skinOffset.enabled;
+            mat.polygonOffsetFactor = skinOffset.factor;
+            mat.polygonOffsetUnits = skinOffset.units;
           } else if (isSocks) {
             // 贴身丝袜/袜子无论全局配置如何，自身都绝不开启描边（防止圆柱体 UV 接缝处出现断裂黑线）
             if (mat.isOutline || mat.name?.includes('(Outline)')) {
@@ -432,24 +432,42 @@ uniform float uMatSaturation;
             mat.outlineWidthMode = 'none';
             mat.outlineWidthFactor = 0.0;
 
-            mat.rimLightingMix = 0.60;
-            mat.rimMultiply = new THREE.Color(0xffffff);
-            mat.rimFresnelPower = 3.0;
-            mat.rimLift = 0.15;
-            mat.shadeShift = -0.05;
-            mat.shadeToony = 0.80;
+            const socksNpr = APP_CONFIG.mtoon.socks.npr;
+            const socksOffset = APP_CONFIG.mtoon.socks.polygonOffset;
+
+            mat.rimLightingMix = socksNpr.rimLightingMix;
+            if (mat.rimMultiply) {
+              mat.rimMultiply.set(socksNpr.rimColor);
+            } else {
+              mat.rimMultiply = new THREE.Color(socksNpr.rimColor);
+            }
+            mat.rimFresnelPower = socksNpr.rimFresnelPower;
+            mat.rimLift = socksNpr.rimLift;
+            mat.shadeShift = socksNpr.shadeShift;
+            mat.shadeToony = socksNpr.shadeToony;
+            if (socksNpr.shadeColor && mat.shadeColor) {
+              mat.shadeColor.set(socksNpr.shadeColor);
+            }
 
             // 深度分层防穿模: 袜子在腿部皮肤之上 (向相机拉近)
-            mat.polygonOffset = true;
-            mat.polygonOffsetFactor = -1.0;
-            mat.polygonOffsetUnits = -4.0;
+            mat.polygonOffset = socksOffset.enabled;
+            mat.polygonOffsetFactor = socksOffset.factor;
+            mat.polygonOffsetUnits = socksOffset.units;
           } else if (isCloth) {
-            mat.rimLightingMix = 0.35;
-            mat.rimMultiply = new THREE.Color(0xf0f4ff);
-            mat.rimFresnelPower = 4.0;
-            mat.rimLift = 0.10;
-            mat.shadeShift = 0.0;
-            mat.shadeToony = 0.85;
+            const clothNpr = APP_CONFIG.mtoon.cloth.npr;
+            mat.rimLightingMix = clothNpr.rimLightingMix;
+            if (mat.rimMultiply) {
+              mat.rimMultiply.set(clothNpr.rimColor);
+            } else {
+              mat.rimMultiply = new THREE.Color(clothNpr.rimColor);
+            }
+            mat.rimFresnelPower = clothNpr.rimFresnelPower;
+            mat.rimLift = clothNpr.rimLift;
+            mat.shadeShift = clothNpr.shadeShift;
+            mat.shadeToony = clothNpr.shadeToony;
+            if (clothNpr.shadeColor && mat.shadeColor) {
+              mat.shadeColor.set(clothNpr.shadeColor);
+            }
 
             const isInner =
               partDef.id === 'inner_top' ||
@@ -463,14 +481,13 @@ uniform float uMatSaturation;
               name.includes('003_');
 
             // 深度分层防穿模: 全部向前拉 (负 offset)，内衬向前拉 1 级，外衣向前拉 2 级，永远覆盖素体
-            mat.polygonOffset = true;
-            if (isInner) {
-              mat.polygonOffsetFactor = -1.0;
-              mat.polygonOffsetUnits = -2.0;
-            } else {
-              mat.polygonOffsetFactor = -2.0;
-              mat.polygonOffsetUnits = -6.0;
-            }
+            const clothOffset = isInner
+              ? APP_CONFIG.mtoon.cloth.innerPolygonOffset
+              : APP_CONFIG.mtoon.cloth.outerPolygonOffset;
+
+            mat.polygonOffset = clothOffset.enabled;
+            mat.polygonOffsetFactor = clothOffset.factor;
+            mat.polygonOffsetUnits = clothOffset.units;
           }
           mat.needsUpdate = true;
         });
