@@ -288,7 +288,8 @@ pnpm build
   * Updates `Casks/project-xiaochun.rb` on the `main` branch with the new version, download URL, and SHA256 hash.
   * End users install and update via:
     ```bash
-    brew install --cask FireTable/project-xiaochun/project-xiaochun
+    brew tap FireTable/project-xiaochun https://github.com/FireTable/project-xiaochun
+    brew install --cask project-xiaochun
     # or upgrade:
     brew upgrade --cask project-xiaochun
     ```
