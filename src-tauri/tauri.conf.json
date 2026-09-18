@@ -1,10 +1,10 @@
 {
   "$schema": "../node_modules/@tauri-apps/cli/config.schema.json",
-  "productName": "Project-XiaoChun",
+  "productName": "Project XiaoChun",
   "version": "0.1.0",
   "identifier": "tech.firetable.xiaochun",
   "build": {
-    "frontendDist": "../dist",
+    "frontendDist": "../dist/client",
     "devUrl": "http://localhost:5186",
     "beforeDevCommand": "pnpm dev",
     "beforeBuildCommand": "pnpm build"
@@ -14,7 +14,7 @@
     "windows": [
       {
         "label": "main",
-        "title": "XiaoChun",
+        "title": "Project XiaoChun",
         "width": 560,
         "height": 820,
         "minWidth": 320,

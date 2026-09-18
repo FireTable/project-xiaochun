@@ -99,3 +99,61 @@ jobs:
           releaseDraft: ${{ github.event_name == 'workflow_dispatch' && inputs.draft || false }}
           prerelease: ${{ github.ref_type != 'tag' }}
           args: ${{ matrix.args }}
+
+  update-homebrew:
+    needs: release
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Update Homebrew Cask with release sha256
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          TAG="${{ github.ref_type == 'tag' && github.ref_name || format('v0.1.0-preview.{0}', github.run_number) }}"
+          VERSION="${TAG#v}"
+          echo "Updating homebrew/project-xiaochun.rb for version $VERSION ($TAG)..."
+
+          RELEASE_JSON=$(curl -s -H "Authorization: token $GITHUB_TOKEN" \
+            "https://api.github.com/repos/${{ github.repository }}/releases/tags/$TAG")
+
+          ARM_URL=$(echo "$RELEASE_JSON" | grep -o 'https://[^"]*aarch64[^"]*\.dmg' | head -n 1 || true)
+          INTEL_URL=$(echo "$RELEASE_JSON" | grep -o 'https://[^"]*x64[^"]*\.dmg' | grep -v 'aarch64' | head -n 1 || true)
+
+          if [ -n "$ARM_URL" ]; then
+            echo "Downloading ARM DMG from $ARM_URL..."
+            curl -sL "$ARM_URL" -o arm.dmg
+            ARM_SHA256=$(sha256sum arm.dmg | awk '{print $1}')
+            echo "ARM SHA256: $ARM_SHA256"
+          else
+            ARM_SHA256="SKIP"
+          fi
+
+          if [ -n "$INTEL_URL" ]; then
+            echo "Downloading Intel DMG from $INTEL_URL..."
+            curl -sL "$INTEL_URL" -o intel.dmg
+            INTEL_SHA256=$(sha256sum intel.dmg | awk '{print $1}')
+            echo "Intel SHA256: $INTEL_SHA256"
+          else
+            INTEL_SHA256="SKIP"
+          fi
+
+          if [ "$ARM_SHA256" != "SKIP" ] || [ "$INTEL_SHA256" != "SKIP" ]; then
+            sed -i "s/version \".*\"/version \"$VERSION\"/" homebrew/project-xiaochun.rb
+            if [ "$ARM_SHA256" != "SKIP" ]; then
+              sed -i "s/sha256 arm:   \".*\"/sha256 arm:   \"$ARM_SHA256\"/" homebrew/project-xiaochun.rb
+            fi
+            if [ "$INTEL_SHA256" != "SKIP" ]; then
+              sed -i "s/intel: \".*\"/intel: \"$INTEL_SHA256\"/" homebrew/project-xiaochun.rb
+            fi
+
+            git config user.name "github-actions[bot]"
+            git config user.email "github-actions[bot]@users.noreply.github.com"
+            git add homebrew/project-xiaochun.rb
+            git diff --quiet && git diff --staged --quiet || (git commit -m "chore(brew): auto-update homebrew cask to $VERSION [skip ci]" && git push)
+          else
+            echo "No DMG assets found to update homebrew cask."
+          fi

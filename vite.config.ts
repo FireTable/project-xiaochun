@@ -16,7 +16,11 @@ export default defineConfig({
     ...(!isTauri ? [basicSsl()] : []),
     cloudflare({ viteEnvironment: { name: 'ssr' } }),
     tailwindcss(),
-    tanstackStart(),
+    tanstackStart({
+      prerender: {
+        enabled: true,
+      },
+    }),
     react(),
     // ponytail: TTS_PROXY_URL 走 loadEnv 读 .env.local, EU 出口连不上 Microsoft 时反代到远端。
     localApiPlugin(loadEnv('development', process.cwd(), '').TTS_PROXY_URL?.trim()),

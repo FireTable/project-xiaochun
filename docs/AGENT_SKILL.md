@@ -21,7 +21,7 @@ Before issuing commands, an agent can verify installation by checking OS standar
 ### 2.1 macOS
 ```bash
 # Check if registered in macOS Applications
-ls /Applications/Project-XiaoChun.app >/dev/null 2>&1 || ls /Applications/XiaoChun.app >/dev/null 2>&1
+ls "/Applications/Project XiaoChun.app" >/dev/null 2>&1 || ls /Applications/Project-XiaoChun.app >/dev/null 2>&1 || ls /Applications/XiaoChun.app >/dev/null 2>&1
 
 # Check if URL Scheme 'xiaochun' is claimed by LaunchServices
 /System/Library/Frameworks/CoreServices.framework/Versions/A/Frameworks/LaunchServices.framework/Versions/A/Support/lsregister -dump | grep -i "xiaochun:"
@@ -42,7 +42,41 @@ test -f "src-tauri/target/debug/project-xiaochun" || test -f "src-tauri/target/r
 
 ---
 
-## 3. Invocation Strategy for Agents
+## 3. Autonomous Installation for AI Agents (Zero-Interaction)
+
+If the detection checks in Section 2 fail, an autonomous agent (such as Claude Code, OpenClaw, Cursor Agent) should execute one of the following commands to install XiaoChun automatically:
+
+### 3.1 One-Line Universal Install (Recommended for All Platforms)
+Agents can execute the non-interactive installation script:
+```bash
+curl -fsSL https://raw.githubusercontent.com/FireTable/project-xiaochun/main/scripts/install.sh | bash
+```
+> **What the script handles autonomously**:
+> - Detects CPU architecture (`arm64` vs `x86_64`) and OS (`macOS`, `Linux`, `Windows Git-Bash`).
+> - Downloads the matching release binary.
+> - Automatically strips macOS Gatekeeper quarantine tags via `xattr -cr "/Applications/Project XiaoChun.app"` so the companion launches immediately without human security dialogs.
+
+### 3.2 macOS via Homebrew Cask (Alternative)
+```bash
+brew install --cask https://raw.githubusercontent.com/FireTable/project-xiaochun/main/homebrew/project-xiaochun.rb
+```
+
+### 3.3 Post-Install Verification & Launch
+After installation, the agent should wake up XiaoChun into the background:
+```bash
+# macOS
+open -a "Project XiaoChun"
+
+# Windows
+start "" "Project XiaoChun"
+
+# Linux
+project-xiaochun &
+```
+
+---
+
+## 4. Invocation Strategy for Agents
 
 When an agent wants XiaoChun to vocalize an update:
 
@@ -63,7 +97,7 @@ When an agent wants XiaoChun to vocalize an update:
 
 ---
 
-## 4. Agent Function Calling (Tool Schema Definition)
+## 5. Agent Function Calling (Tool Schema Definition)
 
 For agents supporting OpenAI / Anthropic Function Calling or MCP (Model Context Protocol), define the tool using the following JSON schema:
 
@@ -116,7 +150,7 @@ export async function xiaochunSpeak(message: string): Promise<void> {
 
 ---
 
-## 5. Typical Agent Scenarios
+## 6. Typical Agent Scenarios
 
 - **Task Completion Notification**:
   `xiaochunSpeak("Master! All unit tests have passed and the build succeeded.")`

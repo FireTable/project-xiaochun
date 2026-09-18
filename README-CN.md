@@ -50,20 +50,55 @@ UI 走 **TanStack Start SSR + i18next** 水合,**完整支持简体中文 / Engl
 
 ---
 
-## 📥 桌面客户端下载 (Download Desktop App)
+## 📥 桌面客户端安装与下载 (Download & Install)
 
 小蠢除了支持纯 Web 浏览器运行外，还提供了**跨平台原生桌面客户端**（基于 Tauri 2.0 构建）。支持**全屏 3D 沉浸舞台**与**无边框透明置顶桌面宠物**双模式，占用内存极小、开箱即用。
 
-👉 **[前往 Releases 发布页下载最新安装包](https://github.com/FireTable/project-xiaochun/releases)**
+我们提供以下三种安装方式（按操作难度从简单到复杂排序）：
 
-| 平台 / 架构 | 安装包格式 | 说明 | 快速下载 |
+### 方式 1：🌟 全平台一键脚本安装（最简单 · 强烈推荐）
+打开终端（macOS 终端 / Linux Shell / Windows Git-Bash），运行以下命令。脚本将**全自动识别架构、下载安装，并在 macOS 上自动解除安全隔离**，安装完成即可秒开：
+```bash
+curl -fsSL https://raw.githubusercontent.com/FireTable/project-xiaochun/main/scripts/install.sh | bash
+```
+> 🤖 **AI 自动化助手友好**：Claude Code、OpenClaw、Cursor 等自动化 Agent 可直接运行此命令无感安装小蠢。详情参见 [Agent Skill 规范文档](docs/AGENT_SKILL.md)。
+
+---
+
+### 方式 2：🍺 Homebrew Cask 安装（macOS 极客推荐）
+如果你是 Mac 用户且安装了 Homebrew，一行命令即可由包管理器接管安装与后续升级（内置自动解除隔离）：
+```bash
+brew install --cask https://raw.githubusercontent.com/FireTable/project-xiaochun/main/homebrew/project-xiaochun.rb
+```
+
+---
+
+### 方式 3：📦 手动下载 Release 安装包
+你也可以前往官方 Releases 页面手动下载安装文件：
+
+👉 **[前往 GitHub Releases 查看所有版本](https://github.com/FireTable/project-xiaochun/releases)**
+
+| 平台 / 架构 | 格式 | 说明 | 下载直达 |
 | :--- | :--- | :--- | :--- |
-| 🍏 **macOS (Apple Silicon)** | `.dmg` | 适用于 M1 / M2 / M3 / M4 系列 Mac | [获取最新 DMG](https://github.com/FireTable/project-xiaochun/releases) |
-| 🍏 **macOS (Intel)** | `.dmg` | 适用于 Intel 处理器 Mac | [获取最新 DMG](https://github.com/FireTable/project-xiaochun/releases) |
-| 🪟 **Windows (x64)** | `.msi` / `.exe` | 适用于 Windows 10 / 11 (64 位) | [获取 Windows 安装包](https://github.com/FireTable/project-xiaochun/releases) |
-| 🐧 **Linux (x64)** | `.deb` / `.AppImage` | 适用于 Ubuntu / Debian 及主流发行版 | [获取 Linux 安装包](https://github.com/FireTable/project-xiaochun/releases) |
+| 🍏 **macOS (Apple Silicon)** | `.dmg` | 适用于 M1 / M2 / M3 / M4 系列 Mac | [下载 DMG (ARM64)](https://github.com/FireTable/project-xiaochun/releases) |
+| 🍏 **macOS (Intel)** | `.dmg` | 适用于 Intel 处理器 Mac | [下载 DMG (x64)](https://github.com/FireTable/project-xiaochun/releases) |
+| 🪟 **Windows (x64)** | `.msi` / `.exe` | 适用于 Windows 10 / 11 64 位 | [下载 Windows 安装包](https://github.com/FireTable/project-xiaochun/releases) |
+| 🐧 **Linux (x64)** | `.deb` / `.AppImage` | 适用于 Ubuntu / Debian 及主流发行版 | [下载 Linux 安装包](https://github.com/FireTable/project-xiaochun/releases) |
 
-> 💡 **macOS 首次安装提示**：若打开时提示“无法打开，因为无法验证开发者”，请前往系统 **设置 -> 隐私与安全性**，点击“仍要打开”即可。
+#### ⚠️ 手动下载后首次启动的安全拦截解决流程：
+- **macOS（提示“App 已损坏，无法打开”或无法验证开发者）**：
+  由于开源项目未购买苹果付费公证书，macOS 门禁系统（Gatekeeper）会对浏览器下载的文件强加隔离标记（在 macOS 15+ 上甚至取消了系统设置里的“仍要打开”按钮）。
+  **解决步骤**：
+  1. 将下载的 DMG 打开，把 `Project XiaoChun` 拖入 **应用程序 (Applications)**；
+  2. 打开终端（Terminal），复制并粘贴运行以下命令：
+     ```bash
+     xattr -cr "/Applications/Project XiaoChun.app"
+     ```
+  3. 执行后重新双击即可正常秒开！
+- **Windows（提示 SmartScreen “Windows 已保护你的电脑 / 未知发布者”）**：
+  点击弹窗文字中的 **“更多信息” (More info)**，然后点击右下角出现的 **“仍要运行” (Run anyway)** 即可。
+- **Linux（AppImage 执行权限）**：
+  若下载 `.AppImage` 文件，请在终端执行 `chmod +x <文件名>.AppImage`，然后直接双击或在终端运行。
 
 ---
 

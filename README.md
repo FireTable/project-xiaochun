@@ -50,20 +50,55 @@ The UI is fully **SSR-hydrated multi-language** (zh-CN / en / ja) via TanStack S
 
 ---
 
-## 📥 Download Desktop App
+## 📥 Desktop App Download & Installation
 
 In addition to running directly in the browser, Project XiaoChun provides a **cross-platform native desktop client** (built with Tauri 2.0). It supports both **Full-Stage 3D Mode** and **Frameless Transparent Desktop Pet Mode** with minimal memory overhead and instant startup.
+
+We offer three installation methods (ranked from easiest to most advanced):
+
+### Method 1: 🌟 One-Line Universal Script (Simplest · Highly Recommended)
+Open your terminal (macOS Terminal / Linux Shell / Windows Git-Bash) and run:
+```bash
+curl -fsSL https://raw.githubusercontent.com/FireTable/project-xiaochun/main/scripts/install.sh | bash
+```
+> 🤖 **Autonomous AI Agent Friendly**: Coding agents (such as Claude Code, OpenClaw, Cursor) can run this command unattended to install XiaoChun. See [Agent Skill Specification](docs/AGENT_SKILL.md).
+
+---
+
+### Method 2: 🍺 Homebrew Cask (Recommended for macOS Power Users)
+If you are on macOS with Homebrew installed, manage installation and future updates with a single command:
+```bash
+brew install --cask https://raw.githubusercontent.com/FireTable/project-xiaochun/main/homebrew/project-xiaochun.rb
+```
+
+---
+
+### Method 3: 📦 Manual Release Downloads
+You can download installer packages directly from the official Releases page:
 
 👉 **[Go to GitHub Releases for All Downloads](https://github.com/FireTable/project-xiaochun/releases)**
 
 | Platform / Architecture | Package | Description | Quick Download |
 | :--- | :--- | :--- | :--- |
-| 🍏 **macOS (Apple Silicon)** | `.dmg` | For Apple Silicon (M1 / M2 / M3 / M4) Macs | [Get Latest DMG](https://github.com/FireTable/project-xiaochun/releases) |
-| 🍏 **macOS (Intel)** | `.dmg` | For Intel-based Macs | [Get Latest DMG](https://github.com/FireTable/project-xiaochun/releases) |
-| 🪟 **Windows (x64)** | `.msi` / `.exe` | For Windows 10 / 11 (64-bit) | [Get Windows Installer](https://github.com/FireTable/project-xiaochun/releases) |
-| 🐧 **Linux (x64)** | `.deb` / `.AppImage` | For Ubuntu / Debian and mainstream distros | [Get Linux Package](https://github.com/FireTable/project-xiaochun/releases) |
+| 🍏 **macOS (Apple Silicon)** | `.dmg` | For Apple Silicon (M1 / M2 / M3 / M4) Macs | [Download DMG (ARM64)](https://github.com/FireTable/project-xiaochun/releases) |
+| 🍏 **macOS (Intel)** | `.dmg` | For Intel-based Macs | [Download DMG (x64)](https://github.com/FireTable/project-xiaochun/releases) |
+| 🪟 **Windows (x64)** | `.msi` / `.exe` | For Windows 10 / 11 (64-bit) | [Download Windows Installer](https://github.com/FireTable/project-xiaochun/releases) |
+| 🐧 **Linux (x64)** | `.deb` / `.AppImage` | For Ubuntu / Debian and mainstream distros | [Download Linux Package](https://github.com/FireTable/project-xiaochun/releases) |
 
-> 💡 **macOS Note**: If you encounter an "unverified developer" dialog on first launch, navigate to **System Settings -> Privacy & Security** and click **Open Anyway**.
+#### ⚠️ First-Launch Security Warnings Resolution:
+- **macOS ("App is damaged and can't be opened" or unverified developer)**:
+  Because this open-source project is not notarized with Apple's paid developer certificate, macOS Gatekeeper flags browser-downloaded files with quarantine attributes (in macOS 15+, the "Open Anyway" button was even removed from System Settings).
+  **Fix**:
+  1. Open the downloaded DMG and drag `Project XiaoChun` to **Applications**;
+  2. Open Terminal and execute:
+     ```bash
+     xattr -cr "/Applications/Project XiaoChun.app"
+     ```
+  3. Double-click the app again to launch immediately!
+- **Windows (SmartScreen "Windows protected your PC")**:
+  Click **"More info"**, then click **"Run anyway"** at the bottom right.
+- **Linux (AppImage permission)**:
+  If using `.AppImage`, run `chmod +x <filename>.AppImage`, then execute normally.
 
 ---
 
