@@ -92,21 +92,33 @@ jobs:
       - name: Install frontend dependencies
         run: pnpm install --frozen-lockfile
 
+      - name: Get App Version
+        id: app_version
+        shell: bash
+        run: |
+          VERSION=$(node -p "require('./src-tauri/tauri.conf.json').version")
+          echo "version=$VERSION" >> $GITHUB_OUTPUT
+          if [ "${{ github.ref_type }}" = "tag" ]; then
+            TAG_NAME="${{ github.ref_name }}"
+          else
+            TAG_NAME="v$VERSION"
+          fi
+          echo "tag_name=$TAG_NAME" >> $GITHUB_OUTPUT
+
       - name: Build Tauri Application
         uses: tauri-apps/tauri-action@v0
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
-          tagName: "${{ github.ref_type == 'tag' && github.ref_name || format('v0.1.0-preview.{0}', github.run_number) }}"
-          releaseName: "${{ github.ref_type == 'tag' && format('Project XiaoChun {0}', github.ref_name) || format('Project XiaoChun v0.1.0-preview.{0}', github.run_number) }}"
+          tagName: "${{ steps.app_version.outputs.tag_name }}"
+          releaseName: "Project XiaoChun ${{ steps.app_version.outputs.tag_name }}"
           releaseBody: "See the release assets below for downloads on macOS, Windows, and Linux."
           releaseDraft: ${{ github.event_name == 'workflow_dispatch' && inputs.draft || false }}
-          prerelease: ${{ github.ref_type != 'tag' }}
+          prerelease: false
           args: ${{ matrix.args }}
 
   update-homebrew:
     needs: release
-    if: github.ref_type == 'tag'
     runs-on: ubuntu-latest
     continue-on-error: true
     permissions:
@@ -121,8 +133,12 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          TAG="${{ github.ref_type == 'tag' && github.ref_name || format('v0.1.0-preview.{0}', github.run_number) }}"
-          VERSION="${TAG#v}"
+          VERSION=$(jq -r .version src-tauri/tauri.conf.json)
+          if [ "${{ github.ref_type }}" = "tag" ]; then
+            TAG="${{ github.ref_name }}"
+          else
+            TAG="v$VERSION"
+          fi
           echo "Updating homebrew/project-xiaochun.rb for version $VERSION ($TAG)..."
 
           RELEASE_JSON=$(curl -s -H "Authorization: token $GITHUB_TOKEN" \
