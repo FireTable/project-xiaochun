@@ -28,6 +28,7 @@ In transparent desk-pet mode, user clicks should interact with XiaoChun when hov
 - **Implementation Architecture (`src-tauri/src/lib.rs`)**:
   - A dedicated background thread running at **60Hz (16ms interval)**.
   - The webview dynamically uploads an 8-bit alpha bitmask of the rendered character canvas.
+  - While 3D adjust guides are active, the webview calls `set_is_interacting(true)` so thin guide pixels are not click-through.
   - Using **1-nanosecond bitwise shift indexing**:
     $$\text{pixel\_idx} = y \times \text{width} + x, \quad \text{hit} = (\text{mask}[\text{byte\_idx}] \ \& \ (1 \ll \text{bit\_idx})) \neq 0$$
   - When the cursor rests on transparent pixels, `window.set_ignore_cursor_events(true)` is activated without lag or deadlocks.

@@ -146,3 +146,20 @@ export { hasInteractionModifier, getPrimaryModifierLabel, isMacOS } from './plat
  */
 export const INTERACTION_MODIFIERS = ['metaKey', 'ctrlKey'] as const;
 
+// ──────────────────────────────────────────────────────────────────
+// 交互导轨（转身 / 俯仰 / 相机 Y）时序
+// ──────────────────────────────────────────────────────────────────
+
+/** 全端长按进入调整模式的时长 (ms) */
+export const INTERACTION_TOUCH_ARM_MS = 480;
+
+/** 长按期间允许的最大位移 (px)，超出则取消武装，滑动还给浏览器 */
+export const INTERACTION_TOUCH_ARM_SLOP_PX = 10;
+
+/**
+ * 调整导轨自动隐藏空闲时长 (ms)。
+ * 长按武装后、或松手结束拖拽后开始计时；再次交互会重置。
+ */
+export const INTERACTION_GUIDE_AUTO_HIDE_MS = 2800;
+
+

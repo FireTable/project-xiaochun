@@ -37,11 +37,11 @@ When tasked with modifications or refactoring, consult the dedicated technical g
 
 | Task Objective | Primary Guide | Core Invariants & Rules |
 | :--- | :--- | :--- |
-| **User interactions / Hotkeys / Platform differences / Gestures** | [`INTERACTION_AND_CONTROLS.md`](INTERACTION_AND_CONTROLS.md) | Option/Alt drag anywhere; 60Hz alpha click-through; ESC menu close; 4-corner resize. |
+| **User interactions / Hotkeys / Platform differences / Gestures** | [`INTERACTION_AND_CONTROLS.md`](INTERACTION_AND_CONTROLS.md) | Long-press adjust mode (all platforms); Cmd/Ctrl instant 3D; Tauri short-drag window; 60Hz alpha click-through + guide passthrough capture. |
 | **Desktop companion / Tauri 2.x / Alpha click-through / Window state** | [`HYBRID_DESKTOP_APP.md`](HYBRID_DESKTOP_APP.md) | 60Hz alpha bitmask pass-through; window-state position/size; corner handles; deferred unmount. |
 | **External app control / URL scheme / IPC / speakText** | [`PROTOCOL.md`](PROTOCOL.md) | Custom `xiaochun://` protocol; safe query string limits; file paths for long text; single-instance. |
 | **Autonomous AI Agent Skill / Tool Calling / Automation** | [`AGENT_SKILL.md`](AGENT_SKILL.md) | Tool schema definition; OS detection checks; short vs long text strategy; companion alerts. |
-| **3D Holographic Guides / Camera elevation / Wind dynamics** | [`INTERACTION_AND_3D_GUIDES.md`](INTERACTION_AND_3D_GUIDES.md) | TurnGuide3D light beacon; CameraYGuide3D height rail; localized mouse wind; pure quaternion head morph. |
+| **3D Holographic Guides / Camera elevation / Wind dynamics** | [`INTERACTION_AND_3D_GUIDES.md`](INTERACTION_AND_3D_GUIDES.md) | Long-press / modifier arming; TurnGuide3D; PitchGuide3D; CameraYGuide3D; passthrough capture while guides up. |
 | **VRMEngine facade / vrmWorker IPC / 2-tier IDB / Threading model** | [`VRM_ENGINE_AND_WORKER.md`](VRM_ENGINE_AND_WORKER.md) | Transferable ArrayBuffer zero-copy; 4-byte packRawGLB alignment; L1 base + L2 composed IDB keys; 0-freeze 60 FPS. |
 | **New motions / Motion jitter / Blending artifacts** | [`MOTION_PIPELINE.md`](MOTION_PIPELINE.md) | Always `playMotion`; Quintic 0.75s; FootIK+Gaze on draft then `composeLayeredSmooth`; invert LookAt on `finalPose` snapshots. |
 | **Foot floating / Shoe-off height / Ground skating** | [`FOOT_IK.md`](FOOT_IK.md) | Solve on draft VRM; fade `footIkMix`; `anchorToCurrentFeet` on speech start; `levelFeet` yields while stepping. |

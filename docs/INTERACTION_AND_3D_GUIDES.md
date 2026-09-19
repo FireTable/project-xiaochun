@@ -9,8 +9,10 @@ Project XiaoChun introduces a revolutionary set of **3D Holographic Interaction 
 
 ### 2.1 Decoupled Interaction Controller (`src/core/interaction/interactionController.ts`)
 The `InteractionController` manages all user-initiated 3D transformations, completely isolating mouse/touch manipulation logic from rendering routines:
-- **Left-Click Orbit & Drag**: Controls yaw, pitch, and camera focal target.
-- **Right-Click / Two-Finger Pan**: Translates the camera plane.
+- **Long-press adjust mode (all platforms)**: After `INTERACTION_TOUCH_ARM_MS` with finger/mouse almost still, guides appear; then drag for body yaw + camera pitch, or drag **CameraYGuide3D**. Idle `INTERACTION_GUIDE_AUTO_HIDE_MS` hides guides. Constants: `src/lib/constants.ts`.
+- **Modifier shortcut (desktop)**: <kbd>Cmd</kbd>/<kbd>Ctrl</kbd> enters the same guide state immediately.
+- **Tauri short drag**: Move before arming cancels long-press and starts window drag (desk-pet).
+- **Passthrough capture**: While guides are active / dragging, `passthroughManager.setInteracting(true)` so thin guide pixels are not treated as click-through.
 - **Pinch / Scroll Zoom**: Smooth exponential zooming bounded by configured safe camera distances.
 
 ### 2.2 TurnGuide3D: Horizontal Yaw Guide Ring (`src/core/interaction/turnGuide3D.ts`)
@@ -23,9 +25,9 @@ The `InteractionController` manages all user-initiated 3D transformations, compl
 - Provides visual feedback for camera pitch clamping, ensuring the camera never flips upside down or clips into the ground plane.
 
 ### 2.4 CameraYGuide3D: Floating Height Rail (`src/core/interaction/cameraYGuide3D.ts`)
-- **Replaces the 2D Height Slider**: Instead of an awkward floating UI slider, a 3D holographic vertical guide rail floats alongside the character ($x = -0.4\text{m}$).
-- Displays an interactive bead indicating the camera height target.
-- Dragging the bead adjusts camera elevation with smooth quintic damping, aligning the viewing line of sight with eye level or waist level.
+- **Replaces the 2D Height Slider**: A 3D holographic vertical guide rail floats alongside the character. Horizontal offset is `APP_CONFIG.interaction.cameraYGuide.xOffset` (meters, negative = left of character).
+- Displays an interactive photon + minimal camera icon indicating the camera height target.
+- Dragging the rail / icon writes `cameraYOffset` (−1…+1) via `onSetCameraYOffset`. Enter adjust mode (long-press or modifier) first so the guide is visible and Tauri passthrough stays captured.
 
 ---
 
