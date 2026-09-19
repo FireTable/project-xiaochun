@@ -1,5 +1,6 @@
 import * as THREE from 'three';
 import { APP_CONFIG } from '@/config';
+import { INTERACTION_GUIDE_PHOTON } from '@/lib/constants';
 
 /**
  * CameraYGuide3D — 极简全息垂直高度尺 + 相机 Y 位置导引轨
@@ -39,9 +40,6 @@ export class CameraYGuide3D {
     private readonly heightRange = 3.6;
     private readonly heightMin = -0.8;
 
-    // 基础尺寸
-    private readonly basePhotonWidth = 0.05;
-    private readonly basePhotonHeight = 0.18;
     private readonly baseCameraScale = 0.10;
 
     constructor() {
@@ -118,41 +116,49 @@ export class CameraYGuide3D {
         const pCtx = photonCanvas.getContext('2d');
 
         if (pCtx) {
+            // 纵向彗尾：与 Turn/Pitch 同一 flowUFrac + 色停
             const w = 128;
             const h = 256;
             const midX = w / 2;
             const midY = h / 2;
+            const half = INTERACTION_GUIDE_PHOTON.flowUFrac * 0.5;
+            const beamStart = midY - half * h;
+            const beamEnd = midY + half * h;
 
             pCtx.clearRect(0, 0, w, h);
 
-            const beamGrad = pCtx.createLinearGradient(0, midY - 60, 0, midY + 60);
+            const beamGrad = pCtx.createLinearGradient(0, beamStart, 0, beamEnd);
             beamGrad.addColorStop(0.00, rgba(0.0));
-            beamGrad.addColorStop(0.30, rgba(0.35));
+            beamGrad.addColorStop(0.25, rgba(0.25));
+            beamGrad.addColorStop(0.44, rgba(0.85));
             beamGrad.addColorStop(0.50, rgba(1.0));
-            beamGrad.addColorStop(0.70, rgba(0.35));
+            beamGrad.addColorStop(0.56, rgba(0.85));
+            beamGrad.addColorStop(0.75, rgba(0.25));
             beamGrad.addColorStop(1.00, rgba(0.0));
 
             pCtx.strokeStyle = beamGrad;
-            pCtx.lineWidth = 4;
+            pCtx.lineWidth = 5.5;
             pCtx.shadowColor = hexStr;
-            pCtx.shadowBlur = 10;
+            pCtx.shadowBlur = 16;
             pCtx.beginPath();
-            pCtx.moveTo(midX, midY - 60);
-            pCtx.lineTo(midX, midY + 60);
+            pCtx.moveTo(midX, beamStart);
+            pCtx.lineTo(midX, beamEnd);
             pCtx.stroke();
 
-            const coreGrad = pCtx.createRadialGradient(midX, midY, 0, midX, midY, 12);
+            const coreGrad = pCtx.createRadialGradient(midX, midY, 0, midX, midY, 28);
             coreGrad.addColorStop(0.0, rgba(1.0));
-            coreGrad.addColorStop(0.4, rgba(0.85));
+            coreGrad.addColorStop(0.25, rgba(0.85));
+            coreGrad.addColorStop(0.60, rgba(0.25));
             coreGrad.addColorStop(1.0, rgba(0.0));
             pCtx.fillStyle = coreGrad;
             pCtx.beginPath();
-            pCtx.arc(midX, midY, 12, 0, Math.PI * 2);
+            pCtx.arc(midX, midY, 28, 0, Math.PI * 2);
             pCtx.fill();
 
             pCtx.fillStyle = hexStr;
+            pCtx.shadowBlur = 10;
             pCtx.beginPath();
-            pCtx.arc(midX, midY, 2.2, 0, Math.PI * 2);
+            pCtx.arc(midX, midY, 3.5, 0, Math.PI * 2);
             pCtx.fill();
         }
 
@@ -160,7 +166,10 @@ export class CameraYGuide3D {
         this.photonTexture.wrapS = THREE.ClampToEdgeWrapping;
         this.photonTexture.wrapT = THREE.ClampToEdgeWrapping;
 
-        const photonGeo = new THREE.PlaneGeometry(this.basePhotonWidth, this.basePhotonHeight);
+        const photonGeo = new THREE.PlaneGeometry(
+            INTERACTION_GUIDE_PHOTON.thickness,
+            INTERACTION_GUIDE_PHOTON.cameraLength,
+        );
         this.photonMat = new THREE.MeshBasicMaterial({
             map: this.photonTexture,
             transparent: true,

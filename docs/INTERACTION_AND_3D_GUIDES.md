@@ -13,6 +13,7 @@ The `InteractionController` manages all user-initiated 3D transformations, compl
 - **Modifier shortcut (desktop)**: <kbd>Cmd</kbd>/<kbd>Ctrl</kbd> enters the same guide state immediately.
 - **Tauri short drag**: Move before arming cancels long-press and starts window drag (desk-pet).
 - **Passthrough capture**: While guides are active / dragging, `passthroughManager.setInteracting(true)` so thin guide pixels are not treated as click-through.
+- **Photon knobs**: `INTERACTION_GUIDE_PHOTON` (`thickness` / `flowUFrac` / `cameraLength`) — shared paint ratios; each guide keeps its own track/flow mesh (no shared photon plane).
 - **Pinch / Scroll Zoom**: Smooth exponential zooming bounded by configured safe camera distances.
 
 ### 2.2 TurnGuide3D: Horizontal Yaw Guide Ring (`src/core/interaction/turnGuide3D.ts`)

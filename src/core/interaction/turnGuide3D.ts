@@ -1,5 +1,6 @@
 import * as THREE from 'three';
 import { APP_CONFIG } from '@/config';
+import { INTERACTION_GUIDE_PHOTON } from '@/lib/constants';
 
 /**
  * TurnGuide3D — 极简全息光子导引环（强化显眼点阵版）
@@ -35,7 +36,7 @@ export class TurnGuide3D {
 
   private initGuide(): void {
     const radius = 0.36;
-    const bandHeight = 0.056;
+    const bandHeight = INTERACTION_GUIDE_PHOTON.thickness;
 
     const baseColor = new THREE.Color(APP_CONFIG.interaction?.guideColor ?? '#ffffff');
     const hexStr = `#${baseColor.getHexString()}`;
@@ -111,8 +112,9 @@ export class TurnGuide3D {
       fCtx.clearRect(0, 0, w, h);
 
       // 外围能量彗尾
-      const beamStart = 0.22 * w;
-      const beamEnd = 0.78 * w;
+      const half = INTERACTION_GUIDE_PHOTON.flowUFrac * 0.5;
+      const beamStart = (0.5 - half) * w;
+      const beamEnd = (0.5 + half) * w;
       const beamGrad = fCtx.createLinearGradient(beamStart, 0, beamEnd, 0);
       beamGrad.addColorStop(0.00, rgba(0.0));
       beamGrad.addColorStop(0.25, rgba(0.25));

@@ -615,7 +615,7 @@ export const APP_CONFIG = {
     // ponytail: 相机 Y 高度尺 (cameraYGuide3D) 距角色脚底的水平偏移 (米, 负=左侧)。
     // 调大往角色靠近, 调小远离。改这里不需要碰 cameraYGuide3D.ts。
     cameraYGuide: {
-      xOffset: -0.35,
+      xOffset: -0.38,
     },
     // 3D 空间交互导引轨（TurnGuide / PitchGuide / CameraYGuide）全息纯白发光基色
     guideColor: '#ffffff',

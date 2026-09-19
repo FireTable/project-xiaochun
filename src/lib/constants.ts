@@ -162,4 +162,15 @@ export const INTERACTION_TOUCH_ARM_SLOP_PX = 10;
  */
 export const INTERACTION_GUIDE_AUTO_HIDE_MS = 2800;
 
+/**
+ * 三导轨光子 / 流光共用参数（保留各自圆柱/平面绘制，不共用 Mesh）。
+ * - thickness：Turn/Pitch 轨带高度；CameraY 光子宽度（米）
+ * - flowUFrac：彗尾占导轨纹理 U 的比例（三轨绘制同一占比）
+ * - cameraLength：CameraY 光子平面沿轨长度（米）
+ */
+export const INTERACTION_GUIDE_PHOTON = {
+  thickness: 0.056,
+  flowUFrac: 0.55,
+  cameraLength: 0.50,
+} as const;
 

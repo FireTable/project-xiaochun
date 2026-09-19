@@ -1,5 +1,6 @@
 import * as THREE from 'three';
 import { APP_CONFIG } from '@/config';
+import { INTERACTION_GUIDE_PHOTON } from '@/lib/constants';
 
 /**
  * PitchGuide3D — 极简全息垂直弧形俯仰角导引轨（长弧线 + 镜头对齐修正版）
@@ -33,9 +34,9 @@ export class PitchGuide3D {
     }
 
     private initGuide(): void {
-        // 空间弧度尺寸：半径 0.42m，高度加宽至 0.056m 容纳大光晕
+        // 空间弧度尺寸：半径 0.42m；轨带厚度走共用常量
         const radius = 0.42;
-        const bandHeight = 0.056;
+        const bandHeight = INTERACTION_GUIDE_PHOTON.thickness;
 
         const baseColor = new THREE.Color(APP_CONFIG.interaction?.guideColor ?? '#ffffff');
         const hexStr = `#${baseColor.getHexString()}`;
@@ -125,13 +126,16 @@ export class PitchGuide3D {
             fCtx.clearRect(0, 0, w, h);
 
             // 宽幅彗尾
-            const beamStart = 0.25 * w;
-            const beamEnd = 0.75 * w;
+            const half = INTERACTION_GUIDE_PHOTON.flowUFrac * 0.5;
+            const beamStart = (0.5 - half) * w;
+            const beamEnd = (0.5 + half) * w;
             const beamGrad = fCtx.createLinearGradient(beamStart, 0, beamEnd, 0);
             beamGrad.addColorStop(0.00, rgba(0.0));
-            beamGrad.addColorStop(0.28, rgba(0.25));
+            beamGrad.addColorStop(0.25, rgba(0.25));
+            beamGrad.addColorStop(0.44, rgba(0.85));
             beamGrad.addColorStop(0.50, rgba(1.0));
-            beamGrad.addColorStop(0.72, rgba(0.25));
+            beamGrad.addColorStop(0.56, rgba(0.85));
+            beamGrad.addColorStop(0.75, rgba(0.25));
             beamGrad.addColorStop(1.00, rgba(0.0));
 
             fCtx.strokeStyle = beamGrad;
@@ -143,22 +147,23 @@ export class PitchGuide3D {
             fCtx.lineTo(beamEnd, midY);
             fCtx.stroke();
 
-            // 核心光斑
-            const coreGrad = fCtx.createRadialGradient(centerX, midY, 0, centerX, midY, 26);
+            // 中心大光核（与 Turn 对齐）
+            const coreGrad = fCtx.createRadialGradient(centerX, midY, 0, centerX, midY, 28);
             coreGrad.addColorStop(0.0, rgba(1.0));
-            coreGrad.addColorStop(0.3, rgba(0.85));
+            coreGrad.addColorStop(0.25, rgba(0.85));
+            coreGrad.addColorStop(0.60, rgba(0.25));
             coreGrad.addColorStop(1.0, rgba(0.0));
             fCtx.fillStyle = coreGrad;
             fCtx.beginPath();
-            fCtx.arc(centerX, midY, 26, 0, Math.PI * 2);
+            fCtx.arc(centerX, midY, 28, 0, Math.PI * 2);
             fCtx.fill();
 
-            // 针尖高光
+            // 针尖高亮点
             fCtx.fillStyle = hexStr;
             fCtx.shadowColor = hexStr;
-            fCtx.shadowBlur = 8;
+            fCtx.shadowBlur = 10;
             fCtx.beginPath();
-            fCtx.arc(centerX, midY, 3.2, 0, Math.PI * 2);
+            fCtx.arc(centerX, midY, 3.5, 0, Math.PI * 2);
             fCtx.fill();
         }
 
