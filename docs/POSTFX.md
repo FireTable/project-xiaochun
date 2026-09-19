@@ -35,6 +35,7 @@ graph LR
 ### 2.1 Physical Zero-Cost Render Bypass
 - When `enabled = false`, the render loop **100% bypasses** `EffectComposer`, directly invoking native `renderer.render(this.scene, this.camera)`;
 - Completely eliminates redundant FBO allocations, RenderTarget context switches, and full-screen quad blits during disabled states.
+- **Transparent desk-pet uses the composer when PostFX is on** (MSAA lives on the main RT). Bloom high-pass skips `alpha < 0.04`; additive bloom writes RGB only so click-through alpha stays the scene silhouette.
 
 ### 2.2 Anti-Fogging UnrealBloomPass (Background Luminance Bypass)
 - **Shader-level White Filtering**: Modifies the `LuminosityHighPass` shader logic to selectively reject pixels approaching pure white `(1.0, 1.0, 1.0)`. Bloom is strictly constrained to character hair highlights, clothing specular, and metallic accessories.
@@ -88,7 +89,7 @@ Internal composer resolution still follows `getRenderPixelRatio()` (see `APP_CON
 | Knob | Role |
 |------|------|
 | `postfx.bloomInputScaleMobile` / `bloomInputScaleDesktop` | Scale passed into `UnrealBloomPass.setSize` (Pass also halves once more). Mobile `0.3` / desktop `0.5`. |
-| `postfx.composerMSAASamplesMobile` / `composerMSAASamplesDesktop` | Main RT MSAA sample count. Mobile `3` / desktop `4`. `0` disables MSAA. Outline needs some MSAA. |
+| `postfx.composerMSAASamplesMobile` / `composerMSAASamplesDesktop` | Main RT MSAA sample count. Mobile `3` / desktop `4`. `0` disables MSAA. Outline needs some MSAA. Used for linework **and** transparent desk-pet whenever PostFX is on. |
 
 Sim cadence (`renderer.targetFpsMobile` / `targetFpsDesktop`) is owned by `VRMEngine`’s animation loop, not by this pipeline.
 

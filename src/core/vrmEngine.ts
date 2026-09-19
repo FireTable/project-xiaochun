@@ -621,18 +621,18 @@ export class VRMEngine {
   }
 
   /**
-   * PostFX 开：默认帧缓冲不开 MSAA（抗锯齿来自 composer 主 RT 的 4x）。
+   * PostFX 开：默认帧缓冲不开 MSAA（抗锯齿来自 composer 主 RT）。
    * 穿透桌宠才 preserveDrawingBuffer；电池 low-power，插电 high-performance。
    */
   private getRendererContextAttributes(): THREE.WebGLRendererParameters {
     const theme = this.getLineworkTheme();
-    const composerDraws = this.postFx.config.enabled && theme !== 'transparent';
+    const composerDraws = this.postFx.config.enabled;
     const preserve = isTauri() && (
       theme === 'transparent' || passthroughManager.isPassthroughEnabled()
     );
     return {
       canvas: this.canvas ?? undefined,
-      // composer 主 RT 已是 MSAA 4；只有直出 framebuffer 时才开默认 AA
+      // composer 主 RT 已带 MSAA；只有直出 framebuffer 时才开默认 AA
       antialias: !composerDraws,
       alpha: true,
       powerPreference: this._onBattery ? 'low-power' : 'high-performance',
@@ -1183,7 +1183,7 @@ export class VRMEngine {
     if (typeof window !== 'undefined') {
       try {
         window.localStorage.setItem(CAMERA_Y_OFFSET_KEY, String(offset));
-      } catch {}
+      } catch { }
       window.dispatchEvent(new CustomEvent('camera-y-offset-change', { detail: { offset } }));
     }
   }
@@ -1237,7 +1237,7 @@ export class VRMEngine {
               this.setCameraYOffset(v);
             }
           }
-        } catch {}
+        } catch { }
       }
     }
   }
@@ -2355,8 +2355,7 @@ export class VRMEngine {
 
       this.controls?.update();
       try {
-        const isTransparent = this.getLineworkTheme() === 'transparent';
-        if (!isTransparent && this.postFx.isReady() && this.postFx.config.enabled) {
+        if (this.postFx.isReady() && this.postFx.config.enabled) {
           this.postFx.render(delta);
         } else {
           this.renderer?.render(this.scene, this.camera);

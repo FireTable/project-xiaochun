@@ -11,7 +11,8 @@
  * Pass 顺序: RenderPass → UnrealBloomPass → ColorGrading → OutputPass
  *
  * 主 RT 全分辨率呈现；Bloom 经 bloomInputScale 后再 /2（默认实际 ≈ 主 RT 1/4）。
- * 移动端 / 桌面默认一致；主 RT MSAA 均为 4x。
+ * 主 RT MSAA：移动 `composerMSAASamplesMobile` / 桌面 `composerMSAASamplesDesktop`。
+ * 透明桌宠同样走 composer（抗锯齿在主 RT）；bloom 不加 alpha。
  */
 import * as THREE from 'three';
 import { EffectComposer } from 'three/examples/jsm/postprocessing/EffectComposer.js';
@@ -110,6 +111,10 @@ const ColorGradingShader = {
         col.rgb *= mix(1.0 - darkness, 1.0, vig);
       }
 
+      if (col.a < 1.0e-4) {
+        gl_FragColor = vec4(0.0);
+        return;
+      }
       gl_FragColor = col;
     }
   `,
@@ -191,6 +196,11 @@ export class PostFxPipeline {
         this.bloom.materialHighPassFilter.fragmentShader = origFrag.replace(
           targetStr,
           `${targetStr}
+      // 透明桌宠：空像素不进高通，避免辉光把桌面点穿做成实心光晕
+      if (texel.a < 0.04) {
+        gl_FragColor = vec4( defaultColor.rgb, defaultOpacity );
+        return;
+      }
       // 精准排除浅白平涂渐变背景 (#FAFAF5 ~ #F5F3ED)，免除全屏漫射白雾，确保角色白衣服/浅色发丝不受误伤
       bool isSceneBg = (texel.r > 0.950 && texel.r < 0.988 && abs(texel.r - texel.g) < 0.015 && abs(texel.r - texel.b - 0.025) < 0.020);
       if (isSceneBg) {
@@ -200,6 +210,21 @@ export class PostFxPipeline {
         );
         this.bloom.materialHighPassFilter.needsUpdate = true;
       }
+    }
+
+    // Additive bloom 默认会把 src alpha 叠进目标，透明桌宠会在角色外圈留下可点穿的实心光晕。
+    // RGB 照常加，alpha 保持场景原值。
+    if (this.bloom.blendMaterial) {
+      this.bloom.blendMaterial.fragmentShader = /* glsl */ `
+        uniform float opacity;
+        uniform sampler2D tDiffuse;
+        varying vec2 vUv;
+        void main() {
+          vec4 texel = texture2D( tDiffuse, vUv );
+          gl_FragColor = vec4( opacity * texel.rgb, 0.0 );
+        }
+      `;
+      this.bloom.blendMaterial.needsUpdate = true;
     }
 
     this.composer.addPass(this.bloom);
@@ -220,6 +245,7 @@ export class PostFxPipeline {
       // 将 15 与 16 之间的硬阶跃边缘彻底抹平成平滑自然的人眼连续过渡
       float ign = fract(52.9829189 * fract(dot(gl_FragCoord.xy, vec2(0.06711056, 0.00583715))));
       gl_FragColor.rgb += (ign - 0.5) / 255.0;
+      if (gl_FragColor.a < 1.0e-4) gl_FragColor = vec4(0.0);
     }`;
         outputPass.material.needsUpdate = true;
       }

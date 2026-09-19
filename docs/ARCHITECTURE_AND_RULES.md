@@ -38,7 +38,7 @@ sequenceDiagram
 - **Step 3~4 (IK & Gaze on draft)**: FootIK and Gaze run on the draft VRM inside `tick`, then `composeLayeredSmooth`. `levelFeet` yields while stepping.
 - **Step 5 (`vrm.update`)**: `@pixiv/three-vrm` transfers normalized transforms to raw humanoid bones;
 - **Step 6 (`bodyMorph.update`)**: Scales bones and recomposes `rawHead.matrixWorld`. Head HUD uses this crown, not the normalized `head` joint.
-- **Step 7 (`PostFx / Render`)**: When `postfx.enabled` is true, routes through `PostFxPipeline`; when false, `renderer.render`.
+- **Step 7 (`PostFx / Render`)**: When `postfx.enabled` is true (including transparent desk-pet), routes through `PostFxPipeline` so the main RT carries MSAA; when false, `renderer.render`.
 
 ---
 
@@ -80,7 +80,7 @@ vrmEngine.dressAllClothing();
 
 ## 3. DevDrawer Architecture
 
-The debug drawer is an 8-section debug panel (`src/components/dev-drawer/`) shown only on localhost (includes `PostFxSection` and `EmagePerfSection`). Sections are schema-driven and each owns its own React state so per-frame UI work never cascades across sections.
+The debug drawer is an 8-section debug panel (`src/components/dev-drawer/`) shown when `isDev()` is true (`src/lib/utils.ts`: Vite DEV, or browser loopback that is **not** the Tauri webview). Tauri production (`tauri://localhost` on macOS) must not count as dev. Includes `PostFxSection` and `EmagePerfSection`. Sections are schema-driven and each owns its own React state so per-frame UI work never cascades across sections.
 
 ### 3.1 Component Primitives
 

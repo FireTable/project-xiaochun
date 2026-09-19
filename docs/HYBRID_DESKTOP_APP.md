@@ -34,6 +34,7 @@ In transparent desk-pet mode, user clicks should interact with XiaoChun when hov
     $$\text{pixel\_idx} = y \times \text{width} + x, \quad \text{hit} = (\text{mask}[\text{byte\_idx}] \ \& \ (1 \ll \text{bit\_idx})) \neq 0$$
   - When the cursor rests on transparent pixels, `window.set_ignore_cursor_events(true)` is activated without lag or deadlocks.
   - Left-click drag protection ensures window dragging is never broken mid-stroke.
+  - **PostFX stays on** in transparent mode when `postfx.enabled` is true: composer main RT MSAA is desktop **4x**. Bloom high-pass skips empty pixels; additive bloom writes RGB only so the 60Hz bitmask still matches the silhouette. Turning PostFX off falls back to the default framebuffer `antialias`. Details: [`POSTFX.md`](POSTFX.md).
 
 ### 3.2 Window State Persistence
 - Powered by `tauri-plugin-window-state`.

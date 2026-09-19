@@ -84,7 +84,7 @@ if (delta > 0.1) delta = 0.016; // Clamped to ~60 FPS single step
 3. **Step 3 (inside tick)**: Draft commit → FootIK (EMAGE, faded) + Gaze multiply → sample → `composeLayeredSmooth` → commit;
 4. **Step 4 (VRM Internal)**: `vrm.update(delta)` copies normalized → raw and drives SpringBone;
 5. **Step 5 (BodyMorph + HUD)**: 28-parameter morph; bubble/ruler use `getHeadTopWorldPosition`;
-6. **Step 6 (PostFx)**: `postFxPipeline.render()` when enabled, or `renderer.render()` when disabled.
+6. **Step 6 (PostFx)**: `postFxPipeline.render()` when enabled (linework **and** transparent desk-pet), or `renderer.render()` when disabled. Transparent bloom must not add alpha.
 
 ### 2.3 Camera Framing & Frustum Adaptation
 

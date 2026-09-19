@@ -154,6 +154,8 @@ The 3D motion pipeline involves complex layered logic. Follow these geometric an
   - **The Solution (Luminance Bypass)**: The fragment shader selectively rejects high-luminance background pixels (`bloomBypassBackground`), restricting bloom exclusively to character hair, clothes specular, and accessories.
 - **Zero-Overhead Render Bypass**:
   - When `postfx.enabled === false`, the render loop must directly invoke `renderer.render(scene, camera)`, bypassing `EffectComposer` multi-pass FBO blit overhead.
+  - Transparent desk-pet **uses the composer when PostFX is on** (MSAA lives on the main RT). Do not special-case `theme === 'transparent'` to skip it — WKWebView default-framebuffer AA is too weak for MToon outlines.
+  - Bloom high-pass skips `alpha < 0.04`; additive bloom writes RGB only so click-through alpha stays the scene silhouette.
 
 ### 2.11 VRMEngine Modularization & General-Purpose Facade Rules
 - Files: `src/core/vrmEngine.ts`, `src/core/scene/`, `src/core/lighting/`, `src/core/materials/`, `src/core/morph/`, `src/core/postfx/`, `src/motion/`
@@ -188,7 +190,7 @@ The 3D motion pipeline involves complex layered logic. Follow these geometric an
      - All heavy computational tasks (glTF binary repacking, `bspatch` differential patching, `fflate` decompression, EMAGE ONNX inference, WebLLM weight calculations) **must execute off the main thread** in Dedicated Web Workers (`vrmWorker.ts`, `emageWorker.ts`, `llmWorker.ts`);
      - Inter-thread data transfers for large ArrayBuffers must use **Transferable Objects** (`postMessage({ buffer }, [buffer])`), strictly avoiding `structuredClone` memory spikes and main-thread freezes.
   3. **Short-Circuiting & Zero-Overhead Render Bypass**:
-     - **PostFx Bypass**: When `postfx.enabled === false`, immediately bypass `EffectComposer` to render directly via `renderer.render(scene, camera)`, saving multi-pass blit overhead;
+     - **PostFx Bypass**: When `postfx.enabled === false`, immediately bypass `EffectComposer` to render directly via `renderer.render(scene, camera)`, saving multi-pass blit overhead. Transparent pet still uses the composer when enabled (4x desktop MSAA).
      - **Gaze Short-Circuit**: When the camera is outside the field of view or behind the avatar (`isOutOfView`), bypass raycasting and excessive neck twisting;
      - **Pixel Ratio Clamping**: Enforce `getRenderPixelRatio()` → `min(devicePixelRatio, APP_CONFIG.renderer.maxPixelRatioMobile | maxPixelRatioDesktop)` (platform via `isMobile()`), preventing excessive fill-rate saturation and thermal throttling on ultra-high-resolution mobile screens. Tune mobile/desktop caps independently; do not reintroduce a single shared `maxPixelRatio`.
      - **Sim Frame Cap**: `APP_CONFIG.renderer.targetFpsMobile` / `targetFpsDesktop` phase-lock the heavy `animate` path (≤0 = uncapped). Idle animation still runs; this only thins update/render cadence.

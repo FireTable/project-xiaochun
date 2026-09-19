@@ -130,7 +130,8 @@ function RootComponent() {
     <I18nextProvider i18n={i18n}>
       <TooltipProvider delayDuration={300} skipDelayDuration={500}>
         <RootDocument lang={i18n.language as Lang}>
-          {/* ponytail: vconsole 只在 dev 模式挂载,生产 build 不带 WebConsole 实例。 */}
+          {/* Vite compile-time DEV only — keep raw import.meta.env.DEV so
+              production bundles tree-shake vconsole. Runtime UI uses isDev(). */}
           {import.meta.env.DEV && <WebConsole />}
           <Outlet />
         </RootDocument>

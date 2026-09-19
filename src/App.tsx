@@ -17,6 +17,7 @@ import { APP_CONFIG } from '@/config';
 import { useCurrentScene } from '@/core/scene/sceneManager';
 import { usePetUiVisibility } from '@/hooks/usePetUiVisibility';
 import { initProtocolListener } from '@/core/protocol';
+import { isDev } from '@/lib/utils';
 
 export const App: React.FC = () => {
   const { t, i18n } = useTranslation();
@@ -25,7 +26,7 @@ export const App: React.FC = () => {
   // dev 调试模式或 HMR 热更新时跳过 LoadingOverlay
   // 严格遵守 APP_CONFIG.dev.disableLoadingOverlayInDev 开关：若为 false 则说明需要调试遮罩，绝不盲目跳过
   const skipLoadingOverlay = Boolean(
-    (import.meta.env.DEV && APP_CONFIG.dev.disableLoadingOverlayInDev) ||
+    (isDev() && APP_CONFIG.dev.disableLoadingOverlayInDev) ||
     (APP_CONFIG.dev.disableLoadingOverlayInDev && typeof window !== 'undefined' && Boolean((window as any).__VRM_ALREADY_READY__))
   );
 
@@ -44,7 +45,6 @@ export const App: React.FC = () => {
     y: 0,
   });
 
-  const isDev = import.meta.env.DEV || (typeof window !== 'undefined' && ['localhost', '127.0.0.1'].includes(window.location.hostname));
   // ponytail: 抽屉开关状态记到 localStorage,刷新后保持原样,调试不用每次手动打开。
   const [isDrawerOpen, setIsDrawerOpen] = useState(() => {
     if (typeof localStorage === 'undefined') return false;
@@ -58,6 +58,7 @@ export const App: React.FC = () => {
   // ponytail: 10 次连击暗号触发后,生产构建也要能看见右上角调试按钮 — 用户已经
   // 「发现」了隐藏 dev 通道,继续藏按钮不合理。一次性解锁,刷新页面后重置。
   const [hasDevEasterEgg, setHasDevEasterEgg] = useState(false);
+  const showDevUi = isDev() || hasDevEasterEgg;
 
   // 外部协议调用 (Deep Link / Single-Instance / 调试桥接) 监听初始化
   useEffect(() => {
@@ -204,17 +205,16 @@ export const App: React.FC = () => {
       {/* 顶部控制栏 */}
       {currentScene.components.topHeader !== false && (
         <TopHeader
-          isDev={isDev || hasDevEasterEgg}
-          isDrawerOpen={isDrawerOpen}
+          isDev={showDevUi}
+          isDrawerOpen={isDrawerOpen && showDevUi}
           isPetUIVisible={isPetUIVisible}
           onToggleDrawer={() => setIsDrawerOpen((prev) => !prev)}
         />
       )}
 
-      {/* ponytail: DevDrawer 不再受 isDev 守卫 — 10 次连击暗号触发后,生产构建也要能
-          拉出调试面板(只走 10 次连击路径,TopHeader 上的 dev 按钮仍受 isDev 隐藏)。 */}
+      {/* 生产包默认不露抽屉；10 次连击后 hasDevEasterEgg 打开同一套面板。 */}
       <DevDrawer
-        isOpen={isDrawerOpen}
+        isOpen={isDrawerOpen && showDevUi}
         onClose={() => setIsDrawerOpen(false)}
       />
 

@@ -43,6 +43,7 @@ import {
 } from '@/components/ui/dropdown-menu';
 import { LlmProviderIcon } from '@/components/LlmProviderIcon';
 import { useDeferredUnmount } from '@/hooks/useDeferredUnmount';
+import { isDev } from '@/lib/utils';
 
 function MenuSwitch({ on }: { on: boolean }) {
   return (
@@ -806,9 +807,8 @@ export const ChatBar: React.FC<{
         })()}
 
         {/* ponytail: dev-only 测试菜单按钮 — 跳过 LLM 直接走 TTS→EMAGE→播放。
-            下拉 2 项:spring(原 2 段文本,向后兼容)+ shudao(~280 字李白《蜀道难》,长会话压力测试)。
-            只在 import.meta.env.DEV 时渲染,生产 build 整段被 Vite tree-shake 掉。 */}
-        {import.meta.env.DEV && (
+            下拉 2 项:spring(原 2 段文本,向后兼容)+ shudao(~280 字李白《蜀道难》,长会话压力测试)。 */}
+        {isDev() && (
           <DropdownMenu modal={false}>
             <DropdownMenuTrigger asChild>
               <button

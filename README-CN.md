@@ -215,7 +215,7 @@ brew upgrade --cask project-xiaochun
 * **移动端**:预载贴纸保留,ChatBar 避开底部安全区。
 
 ### 🛠️ 开发工具链 (Dev Tooling)
-* **调试抽屉**(仅本地):**8 段**固定顺序(🎭 预设表情 → 🎥 镜头设置 → 🎨 画面色彩 → ✨ 骨骼体型 → 🧩 模型部位 → 💡 灯光通道 → 🔮 画面后期 → ⚡ EMAGE Perf)。每段独立 React state、独立重置、modified 点只在用户改过后才亮。Schema 驱动渲染:加新段只需在 `SECTIONS` 加一行 + 在组件 `REGISTRY` 加一行。`PostFxSection` 集中控制 Bloom 强度/半径/阈值、ToneMapping 模式与全色调调色；`EmagePerfSection` 展示 wasm_env / 隔离 / numThreads / 分阶段耗时，便于 P0b 验收截图。完整拆解见 [`docs/ARCHITECTURE_AND_RULES.md` §3](docs/ARCHITECTURE_AND_RULES.md)。
+* **调试抽屉**（`isDev()`：Vite 开发或浏览器 loopback，不含 Tauri 正式包）:**8 段**固定顺序(🎭 预设表情 → 🎥 镜头设置 → 🎨 画面色彩 → ✨ 骨骼体型 → 🧩 模型部位 → 💡 灯光通道 → 🔮 画面后期 → ⚡ EMAGE Perf)。每段独立 React state、独立重置、modified 点只在用户改过后才亮。Schema 驱动渲染:加新段只需在 `SECTIONS` 加一行 + 在组件 `REGISTRY` 加一行。`PostFxSection` 集中控制 Bloom 强度/半径/阈值、ToneMapping 模式与全色调调色；`EmagePerfSection` 展示 wasm_env / 隔离 / numThreads / 分阶段耗时，便于 P0b 验收截图。完整拆解见 [`docs/ARCHITECTURE_AND_RULES.md` §3](docs/ARCHITECTURE_AND_RULES.md)。
 * **ChatBar 试听下拉**(dev)：春日 / 蜀道难预设，段数由 `splitIntoSpeechChunks` 实时计算，方便端到端测 TTS+EMAGE 流式，无需手打长文。
 * **per-frame slider 拖动架构**:slider 把 per-tick 推 engine 跟 commit 时写 state + localStorage 拆开,28 个 slider 的 `BoneMorphSection` 拖一个 slider 时不会重渲其他 27 个。数字显示通过 `SliderWithAnchors` 的 `liveValueRef` 机制 imperative 写 textContent 跟手,完全绕过 React reconciliation。
 * **镜头段**:FOV slider(带 hover `ⓘ` tooltip,4 行 bullet list 解释 20°/30°/45°/60°)+ `📷` 最小 / `🔭` 最大距离 slider(鼠标滚轮 + pinch 缩放范围)+ 自动面朝镜头转身 toggle。默认推镜距离按 FOV 自动算(`defaultShotExtent`),15° 跟 60° 框选同一主体高度,不会再"长焦糊脸"。

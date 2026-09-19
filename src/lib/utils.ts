@@ -1,12 +1,33 @@
 import { clsx, type ClassValue } from 'clsx';
 import { twMerge } from 'tailwind-merge';
 import { APP_CONFIG } from '@/config';
-import { isMobile } from '@/lib/platform';
+import { isMobile, isTauri } from '@/lib/platform';
 import { POSTFX_STORAGE_KEY, SCENE_THEME_KEY } from '@/lib/constants';
 import type { LineworkTheme } from '@/core/scene/lineworkWorld';
 
 export function cn(...inputs: ClassValue[]) {
   return twMerge(clsx(inputs));
+}
+
+const LOOPBACK_HOSTS = new Set(['localhost', '127.0.0.1', '[::1]']);
+
+/**
+ * Runtime "are we in a developer session?"
+ *
+ * True: Vite `import.meta.env.DEV` (`pnpm dev` / `pnpm tauri:dev`), or a
+ * browser on loopback (vite preview) that is **not** the Tauri webview.
+ *
+ * False: production web, and Tauri production (Homebrew / DMG). macOS ships
+ * as `tauri://localhost` — hostname is localhost, but it is still a shipped app.
+ *
+ * Do not use this to gate modules that must be tree-shaken from production
+ * (e.g. `WebConsole`). Keep a raw `import.meta.env.DEV` check there.
+ */
+export function isDev(): boolean {
+  if (import.meta.env.DEV) return true;
+  if (typeof window === 'undefined') return false;
+  if (isTauri()) return false;
+  return LOOPBACK_HOSTS.has(window.location.hostname);
 }
 
 /**

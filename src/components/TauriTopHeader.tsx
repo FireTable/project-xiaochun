@@ -2,6 +2,7 @@ import React from 'react';
 import { Download, MoreHorizontal, Power, RotateCw } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import { isTauri, closeWindow, reloadWindow } from '@/lib/platform';
+import { isDev } from '@/lib/utils';
 import { requestAppUpdateCheck } from '@/lib/appUpdater';
 import { Button } from '@/components/ui/button';
 import {
@@ -25,7 +26,6 @@ interface TauriTopHeaderProps {
  */
 export const TauriTopHeader: React.FC<TauriTopHeaderProps> = ({ onMenuOpenChange }) => {
   const { t } = useTranslation();
-  const isDev = import.meta.env.DEV;
 
   if (!isTauri()) return null;
 
@@ -53,7 +53,7 @@ export const TauriTopHeader: React.FC<TauriTopHeaderProps> = ({ onMenuOpenChange
           <Download className="w-3.5 h-3.5" />
           {t('header.checkUpdate')}
         </DropdownMenuItem>
-        {isDev && (
+        {isDev() && (
           <DropdownMenuItem onSelect={reloadWindow}>
             <RotateCw className="w-3.5 h-3.5" />
             {t('header.reloadApp')}
