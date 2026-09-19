@@ -768,7 +768,7 @@ export const APP_CONFIG = {
     maxPixelRatioMobile: 2.75,
     maxPixelRatioDesktop: 3,
     // 主循环目标帧率：≤0 不限（原版）；60 ≈ 60Hz 屏上原版；30/45 = 降帧省电。
-    targetFpsMobile: 50,
+    targetFpsMobile: 40,
     targetFpsDesktop: 60,
   },
   scene: {
@@ -882,7 +882,7 @@ export const APP_CONFIG = {
      */
     bloomInputScaleMobile: 0.3,
     bloomInputScaleDesktop: 0.5,
-    composerMSAASamplesMobile: 2,
+    composerMSAASamplesMobile: 3,
     composerMSAASamplesDesktop: 4,
   },
   saturation: {
