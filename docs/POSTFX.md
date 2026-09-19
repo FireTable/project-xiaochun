@@ -81,6 +81,17 @@ To eliminate this artifact without incurring heavy compute penalties:
 
 ---
 
+## 2.1 Platform render-target knobs (`APP_CONFIG`)
+
+Internal composer resolution still follows `getRenderPixelRatio()` (see `APP_CONFIG.renderer.maxPixelRatioMobile` / `maxPixelRatioDesktop`). On top of that, PostFX exposes:
+
+| Knob | Role |
+|------|------|
+| `postfx.bloomInputScaleMobile` / `bloomInputScaleDesktop` | Scale passed into `UnrealBloomPass.setSize` (Pass also halves once more). Default `0.5` → bloom ≈ 1/4 of main RT. |
+| `postfx.composerMSAASamplesMobile` / `composerMSAASamplesDesktop` | Main RT MSAA sample count (default `4` on both). `0` disables MSAA. |
+
+Sim cadence (`renderer.targetFpsMobile` / `targetFpsDesktop`) is owned by `VRMEngine`’s animation loop, not by this pipeline.
+
 ## 3. DevDrawer Control Interface (`PostFxSection.tsx`)
 
 Integrated as Section 7 in the developer drawer:

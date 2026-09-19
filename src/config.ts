@@ -763,10 +763,12 @@ export const APP_CONFIG = {
     },
   },
   renderer: {
-    // iPhone 多是 3x;封顶 2 会按 2/3 分辨率画,头发和网袜特别容易锯齿。
-    maxPixelRatio: 3,
+    // 渲染像素比封顶：min(devicePixelRatio, maxPixelRatio*)。
+    // iPhone 多是 3x；封顶过低头发/网袜易锯齿。合法约 1~3。
+    maxPixelRatioMobile: 2.75,
+    maxPixelRatioDesktop: 3,
     // 主循环目标帧率：≤0 不限（原版）；60 ≈ 60Hz 屏上原版；30/45 = 降帧省电。
-    targetFpsMobile: 45,
+    targetFpsMobile: 50,
     targetFpsDesktop: 60,
   },
   scene: {

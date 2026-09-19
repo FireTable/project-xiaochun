@@ -186,7 +186,8 @@ The 3D motion pipeline involves complex layered logic. Follow these geometric an
   3. **Short-Circuiting & Zero-Overhead Render Bypass**:
      - **PostFx Bypass**: When `postfx.enabled === false`, immediately bypass `EffectComposer` to render directly via `renderer.render(scene, camera)`, saving multi-pass blit overhead;
      - **Gaze Short-Circuit**: When the camera is outside the field of view or behind the avatar (`isOutOfView`), bypass raycasting and excessive neck twisting;
-     - **Pixel Ratio Clamping**: Enforce `getRenderPixelRatio(APP_CONFIG.renderer.maxPixelRatio)` to cap DPR (e.g. 3), preventing excessive fill-rate saturation and thermal throttling on ultra-high-resolution mobile screens.
+     - **Pixel Ratio Clamping**: Enforce `getRenderPixelRatio()` → `min(devicePixelRatio, APP_CONFIG.renderer.maxPixelRatioMobile | maxPixelRatioDesktop)` (platform via `isMobile()`), preventing excessive fill-rate saturation and thermal throttling on ultra-high-resolution mobile screens. Tune mobile/desktop caps independently; do not reintroduce a single shared `maxPixelRatio`.
+     - **Sim Frame Cap**: `APP_CONFIG.renderer.targetFpsMobile` / `targetFpsDesktop` phase-lock the heavy `animate` path (≤0 = uncapped). Idle animation still runs; this only thins update/render cadence.
   4. **Two-Tier IndexedDB Caching**:
      - Caches base models (L1) and composed GLB binaries (L2 `${baseSha}:${addonSha}`) in IndexedDB, enabling 10~30ms instantaneous repeat swaps and eliminating duplicate network requests and CPU cycles.
 
@@ -212,7 +213,8 @@ When modifying any system-level configuration or parameter, follow the **central
 - **Motion intensity & damping**: `APP_CONFIG.emage.motion` (gesture amplitude, finger curl, chest sway, lumbar motion, pelvis micro-shift, leg follow, head uprightness, damping stiffness, temporal smoothing radius).
 - **Model files & Delta addons**: `APP_CONFIG.model` (base model URL + SHA, default outfit addon, and 5 official outfit addons list).
 - **Body Morph boundaries**: `APP_CONFIG.bodyMorphDefaults` and `APP_CONFIG.bodyMorphLimits` (28 orthogonal parameters, `shoulderWidth` default 1.55, range 0.75~2.50).
-- **Post-processing**: `APP_CONFIG.postfx` (UnrealBloom strength/radius/threshold, toneMapping exposure, and color grading matrix).
+- **Renderer (platform)**: `APP_CONFIG.renderer` — `maxPixelRatioMobile` / `maxPixelRatioDesktop` (DPR caps), `targetFpsMobile` / `targetFpsDesktop` (sim cadence; ≤0 uncapped).
+- **Post-processing**: `APP_CONFIG.postfx` (UnrealBloom strength/radius/threshold, toneMapping exposure, color grading matrix, plus `bloomInputScaleMobile|Desktop` and `composerMSAASamplesMobile|Desktop`).
 - **Lighting & Saturation**: `APP_CONFIG.lights` (3-channel studio lighting: dir 1.00, hemi 0.95, fill 1.40) and `APP_CONFIG.saturation`.
 - **Memory capacity**: `APP_CONFIG.memory` (`shortTermTurns`, `turnMaxChars`, `longTermKeep`, `longTermTopK`).
 

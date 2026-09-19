@@ -545,7 +545,7 @@ export class VRMEngine {
   /**
    * 统一获取渲染像素比：
    * 统一走 @/lib/utils 的 getRenderPixelRatio()，无论 PostFX 是否启用，
-   * 均严格使用 Math.min(window.devicePixelRatio, maxPixelRatio)，消除额外超采样开销。
+   * 均严格使用 getRenderPixelRatio()（按 mobile/desktop 封顶），消除额外超采样开销。
    */
   public getTargetPixelRatio(): number {
     return getRenderPixelRatio();

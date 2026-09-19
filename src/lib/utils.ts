@@ -1,6 +1,7 @@
 import { clsx, type ClassValue } from 'clsx';
 import { twMerge } from 'tailwind-merge';
 import { APP_CONFIG } from '@/config';
+import { isMobile } from '@/lib/platform';
 import { POSTFX_STORAGE_KEY, SCENE_THEME_KEY } from '@/lib/constants';
 import type { LineworkTheme } from '@/core/scene/lineworkWorld';
 
@@ -10,12 +11,17 @@ export function cn(...inputs: ClassValue[]) {
 
 /**
  * 统一获取渲染像素比 (VRMEngine / PostFX 通用)：
- * 严格限制在物理 devicePixelRatio 与 APP_CONFIG.renderer.maxPixelRatio 之间，
+ * min(devicePixelRatio, 平台 maxPixelRatioMobile/Desktop)。
  * 杜绝无节制的超采样 (supersampling) 造成 GPU 显存与填充率浪费。
  */
-export function getRenderPixelRatio(maxRatio: number = APP_CONFIG.renderer.maxPixelRatio): number {
+export function getRenderPixelRatio(maxRatio?: number): number {
   if (typeof window === 'undefined') return 1;
-  return Math.min(window.devicePixelRatio || 1, maxRatio);
+  const cap =
+    maxRatio ??
+    (isMobile()
+      ? (APP_CONFIG.renderer.maxPixelRatioMobile ?? 3)
+      : (APP_CONFIG.renderer.maxPixelRatioDesktop ?? 3));
+  return Math.min(window.devicePixelRatio || 1, cap);
 }
 
 /**
