@@ -12,6 +12,7 @@ import type { PlayMotionOptions, UniversalMotionHandle } from '@/motion/sources/
 import { preloadWebLLM, unloadWebLLM } from '@/llm/webLLMProvider';
 import { APP_CONFIG, type LightConfig } from '@/config';
 import { loadPostFxEnabledFromStorage, getRenderPixelRatio, resolveInitialSceneTheme } from '@/lib/utils';
+import { isMobile } from '@/lib/platform';
 import type { Lang } from '@/i18n';
 import { langFromSystemPrompt } from '@/llm/prompts';
 
@@ -183,6 +184,9 @@ export class VRMEngine {
   private loader = new GLTFLoader();
   private clock = new THREE.Clock();
   private animFrameId: number | null = null;
+  /** 下一帧允许跑重活的 rAF 时间戳；targetFpsMobile / targetFpsDesktop（≤0 不限） */
+  private _lastAnimTs = 0;
+  private _animFrameIntervalMs = 0;
   // ── 模块化独立子系统 ──
   private lineworkWorld = new LineworkWorld();
   public readonly lighting = new StudioLighting();
@@ -273,6 +277,10 @@ export class VRMEngine {
   private _lastRenderedHeight = 0;
 
   private vrmBaseSceneY = 0;
+  /** Outfit swap: ease floor baseY after matching previous hips height (reduces body-proportion pop). */
+  private _outfitBaseYFrom = 0;
+  private _outfitBaseYTo = 0;
+  private _outfitBaseYEase = 1; // 1 = idle
   // ponytail: 角色阴影系统拆到 CharacterShadowSystem, 这里只持有引用 + 调它。
   private shadow = new CharacterShadowSystem();
   private _springBoneTunedVRM: VRM | null = null;
@@ -1224,6 +1232,10 @@ export class VRMEngine {
             }
             vrm.scene.updateMatrixWorld(true);
 
+            // 4b. 体型差：对齐旧髋世界高度，再缓回真实贴地 baseY（减轻穿脱瞬间抖）
+            const trueFloorY = this.vrmBaseSceneY;
+            this.applyOutfitHeightContinuity(previousVrm, vrm, trueFloorY);
+
             // 5. 同步原子切换：移除旧模型、挂入已处于正确动作姿势的新模型
             this.scene.remove(previousVrm.scene);
             VRMUtils.deepDispose(previousVrm.scene);
@@ -1663,6 +1675,10 @@ export class VRMEngine {
             }
             vrm.scene.updateMatrixWorld(true);
 
+            // 4b. 体型差：对齐旧髋世界高度，再缓回真实贴地 baseY（减轻穿脱瞬间抖）
+            const trueFloorY = this.vrmBaseSceneY;
+            this.applyOutfitHeightContinuity(previousVrm, vrm, trueFloorY);
+
             // 5. 同步原子切换：移除旧模型、挂入已处于正确动作姿势的新模型
             this.scene.remove(previousVrm.scene);
             VRMUtils.deepDispose(previousVrm.scene);
@@ -1834,6 +1850,37 @@ export class VRMEngine {
 
   // ──────────────────────────────────────────────────────────────────
 
+
+  /**
+   * After floor-snap on a replacement VRM: match previous hips world Y (body-size continuity),
+   * then ease vrmBaseSceneY back to the true floor over ~280ms so feet settle without a hard pop.
+   */
+  private applyOutfitHeightContinuity(previousVrm: VRM, nextVrm: VRM, trueFloorY: number): void {
+    const scratch = new THREE.Vector3();
+    const prevHips = previousVrm.humanoid?.getNormalizedBoneNode('hips');
+    const nextHips = nextVrm.humanoid?.getNormalizedBoneNode('hips');
+    if (!prevHips || !nextHips) {
+      this.vrmBaseSceneY = trueFloorY;
+      this._outfitBaseYEase = 1;
+      return;
+    }
+    previousVrm.scene.updateMatrixWorld(true);
+    nextVrm.scene.updateMatrixWorld(true);
+    prevHips.getWorldPosition(scratch);
+    const prevY = scratch.y;
+    nextHips.getWorldPosition(scratch);
+    const dy = prevY - scratch.y;
+    if (Math.abs(dy) > 1e-4) {
+      nextVrm.scene.position.y += dy;
+      nextVrm.scene.updateMatrixWorld(true);
+    }
+    this.vrmBaseSceneY = nextVrm.scene.position.y;
+    this._outfitBaseYFrom = this.vrmBaseSceneY;
+    this._outfitBaseYTo = trueFloorY;
+    // Only ease when the jump is meaningful (different body / shoes)
+    this._outfitBaseYEase = Math.abs(this._outfitBaseYFrom - this._outfitBaseYTo) > 0.008 ? 0 : 1;
+  }
+
   private resetBones(vrm: VRM): void {
     if (!vrm.humanoid) return;
     try {
@@ -1976,9 +2023,31 @@ export class VRMEngine {
       cancelAnimationFrame(this.animFrameId);
       this.animFrameId = null;
     }
-    const animate = (_timestamp: number) => {
+    const targetFps = isMobile()
+      ? (APP_CONFIG.renderer.targetFpsMobile ?? 0)
+      : (APP_CONFIG.renderer.targetFpsDesktop ?? 0);
+    this._animFrameIntervalMs = targetFps > 0 ? 1000 / targetFps : 0;
+    this._lastAnimTs = 0;
+
+    const animate = (timestamp: number) => {
       this.animFrameId = requestAnimationFrame(animate);
       if (this.isRenderingSuspended) return;
+
+      // 平台限帧：仍按 vsync 挂 rAF，未到下一拍则跳过 update/render。
+      // 用累加 interval 锁相（避免严格 < 在 ~33.3ms 时连跳成 ~20fps）；掉队超过 1 拍则重置。
+      if (this._animFrameIntervalMs > 0) {
+        if (this._lastAnimTs === 0) {
+          // 本帧立刻跑，下一拍锁在 +interval
+          this._lastAnimTs = timestamp + this._animFrameIntervalMs;
+        } else if (timestamp < this._lastAnimTs) {
+          return;
+        } else {
+          this._lastAnimTs += this._animFrameIntervalMs;
+          if (this._lastAnimTs < timestamp - this._animFrameIntervalMs) {
+            this._lastAnimTs = timestamp + this._animFrameIntervalMs;
+          }
+        }
+      }
 
       // 视口动态物理尺寸跟随（单主循环同步驱动，消除多重 rAF 竞争与双重绘制开销）
       const curW = window.innerWidth;
@@ -2017,6 +2086,12 @@ export class VRMEngine {
         const isShoesOff = this.materialManager.partsVisibility['shoes'] === false;
         this.footIK.updateBarefoot(isShoesOff, delta);
 
+        if (this._outfitBaseYEase < 1) {
+          this._outfitBaseYEase = Math.min(1, this._outfitBaseYEase + delta / 0.28);
+          const u = this._outfitBaseYEase;
+          const t = u * u * (3 - 2 * u);
+          this.vrmBaseSceneY = THREE.MathUtils.lerp(this._outfitBaseYFrom, this._outfitBaseYTo, t);
+        }
         const currentSceneBaseY = this.vrmBaseSceneY - this.footIK.getSinkOffset() + this.bodyMorph.getLegHeightDelta();
         vrm.scene.position.y = currentSceneBaseY;
         this.emagePlayer.baseY = currentSceneBaseY;

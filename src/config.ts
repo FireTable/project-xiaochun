@@ -765,6 +765,9 @@ export const APP_CONFIG = {
   renderer: {
     // iPhone 多是 3x;封顶 2 会按 2/3 分辨率画,头发和网袜特别容易锯齿。
     maxPixelRatio: 3,
+    // 主循环目标帧率：≤0 不限（原版）；60 ≈ 60Hz 屏上原版；30/45 = 降帧省电。
+    targetFpsMobile: 45,
+    targetFpsDesktop: 60,
   },
   scene: {
     // 线稿背景世界主题：'light' (昼白线稿) 或 'dark' (极夜深蓝黑线稿)
