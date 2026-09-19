@@ -108,14 +108,17 @@ The 3D motion pipeline involves complex layered logic. Follow these geometric an
   - In `update(time, idleWeight)`, every lower-body bone must execute `slerp(restQ, idleWeight)`, giving the transition manager a definite upright target and preventing any bent-knee or crooked-leg residue during standby.
   - In all modes (idle, VRMA, and EMAGE speech), call `levelFeet(vrm)` continuously (except during active stepping) to keep soles flat ($X=0, Z=0$), preventing toe-lift or foot roll.
   - **Lower-Body Standing Stability (`FootIKSolver` & `EmagePlayer`)**:
-    * `FootIKSolver.enableWeightShift` defaults to `true`: enables $\pm 4.2\text{cm}$ lateral pelvis shifting, pelvic rolling, and $9.2°$ unilateral knee flexion for natural contrapposto. When the foot IK target drifts more than $0.06\text{m}$ (camera orbit / turn), snap to the world anchor immediately to prevent crossed legs.
-    * `EmagePlayer.stancePillar` defaults to `'balanced'` (`stanceRatio = 0.5`): carries equal weight symmetrically, preventing alternating leg swaps and foot skating during speech.
-    * `APP_CONFIG.emage.motion.legIntensity` defaults to `0.70`: legs follow hip/audio motion; FootIK still plants the feet.
+    * EMAGE-only: `solve`/`levelFeet` while `writer === 'emage'` **and** `!(isStepping || locomotionWeight > 0.08)`. Idle/clip never run FootIK.
+    * Plant from the **previous motion's feet** (`recapturePlantFromCurrent` on source switch and when FootIK fades back in), mixed with live EMAGE feet via `APP_CONFIG.emage.motion.footIkIdlePlant` (default `0.92`). Height stays on that plant Y.
+    * Hips: EMAGE does not write root translation. FootIK adds a small damped XZ follow (≤3.5 cm) and `writeHipsInto(lowerPose)` so the final commit keeps it.
+    * `EmagePlayer.stancePillar` defaults to `'balanced'` (`stanceRatio = 0.5`).
+    * `APP_CONFIG.emage.motion.legIntensity` defaults to `0.40`: legs follow hip/audio; FootIK still stands the character.
 
 ### 2.7 BodyTurn Stepping & Head Gaze Decoupling
 - Files: `src/motion/constraints/bodyTurn.ts`, `src/motion/pipeline/motionPipeline.ts`
 - Overlay **`LEGS_MASK` only** (no hip rotation, no spine yaw). Gaze owns the head via draft LookAt then compose.
 - Do not call `MotionTransitionManager` for stepping handoffs.
+- While BodyTurn is busy, skip FootIK `solve`/`levelFeet` (fade mix out damp 14). After locomotion settles, recapture plants from the new stance, then fade FootIK back (damp 6).
 
 ### 2.8 Biomechanical Bone Morphing & Orthogonal Decoupling Engine
 - Files: `src/core/morph/vrmBodyMorph.ts`, `src/config.ts`, `src/components/DevDrawer.tsx`, and detailed specification in [`docs/BONE_MORPH.md`](docs/BONE_MORPH.md)
@@ -210,7 +213,7 @@ The 3D motion pipeline involves complex layered logic. Follow these geometric an
 ## 4. Single Source of Truth (`src/config.ts`)
 
 When modifying any system-level configuration or parameter, follow the **centralized single source of truth** principle:
-- **Motion intensity & damping**: `APP_CONFIG.emage.motion` (gesture amplitude, finger curl, chest sway, lumbar motion, pelvis micro-shift, leg follow, head uprightness, damping stiffness, temporal smoothing radius).
+- **Motion intensity & damping**: `APP_CONFIG.emage.motion` (gesture amplitude, finger curl, chest sway, lumbar motion, pelvis micro-shift, leg follow, `footIkIdlePlant`, head uprightness, damping stiffness, temporal smoothing radius).
 - **Model files & Delta addons**: `APP_CONFIG.model` (base model URL + SHA, default outfit addon, and 5 official outfit addons list).
 - **Body Morph boundaries**: `APP_CONFIG.bodyMorphDefaults` and `APP_CONFIG.bodyMorphLimits` (28 orthogonal parameters, `shoulderWidth` default 1.55, range 0.75~2.50).
 - **Renderer (platform)**: `APP_CONFIG.renderer` — `maxPixelRatioMobile` / `maxPixelRatioDesktop` (DPR caps), `targetFpsMobile` / `targetFpsDesktop` (sim cadence; ≤0 uncapped).

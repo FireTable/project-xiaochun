@@ -79,12 +79,14 @@ Natural human gaze continuously shifts with subtle subconscious dynamics:
 > Stepping overlays `LEGS_MASK` only. Do not slerp hip rotation or spine from BodyTurn. `MotionTransitionManager` is unused on this path.
 
 > [!IMPORTANT]
-> ### Rule 2: FootIK Leveling Exits During Stepping & FootIK Isolated to EMAGE
+> ### Rule 2: FootIK Yields Completely During Stepping & Isolated to EMAGE
 > Inside the render loop:
 > ```typescript
-> Fade `footIkMix` toward 1 while `writer === 'emage'`. Solve on the draft VRM, then `composeLayeredSmooth`.
-> `levelFeet` still yields while stepping. On speech start use `anchorToCurrentFeet()`, not `snapAnchors()`.
+> const locomotionBusy = isStepping || locomotionWeight > 0.08;
+> const wantFootIk = writer === 'emage' && enableFootIK && !locomotionBusy;
+> // rising edge: recapturePlantFromCurrent() + anchorToCurrentFeet()
+> // then fade footIkMix (in damp 6 / out damp 14) and solve only while wantFootIk
 > ```
-> - **Idle & Clip Bypass**: In idle and clip playback, FootIK is completely bypassed, eliminating two-bone solver knee bending and hips Y pull-down.
-> - **Locomotion Yield**: While stepping is active (`isStepping || locomotionWeight > 0.05`), `levelFeet` exits immediately to preserve dynamic ankle dorsiflexion.
-> - **Step-End Anchor Update**: When stepping finishes (`this.bodyTurnIsStepping && !isStepping`), `anchorToCurrentFeet()` captures the character's newly settled feet positions into FootIK world anchors.
+> - **Idle & Clip Bypass**: FootIK does not `solve` outside EMAGE.
+> - **Locomotion Yield**: While BodyTurn owns the legs, skip `solve` and `levelFeet` so stride ankles are not flattened or yanked to the speech plant.
+> - **Step-End Plant**: After `locomotionWeight` settles, recapture plants from the new stance, then fade FootIK back. Do not recapture on the `isStepping` falling edge while mix is still 1.

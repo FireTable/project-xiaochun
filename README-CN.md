@@ -147,7 +147,7 @@ brew upgrade --cask project-xiaochun
 ### 🩰 统一万能动作融合管线与动力学体系 (Universal Motion Pipeline & Ground Dynamics)
 * **万能动作零门槛接入 (`playMotion`)**：无论是 VRMA 文件 URL、ArrayBuffer 二进制流还是 `THREE.AnimationClip`，均通过单一管线一键播放；自动完成骨骼重定向、Hips 偏移归一化，支持全身（`all`）与半身（`upperBody`）部位遮罩。
 * **电影级五次平滑步阶曲线补帧 (Quintic Smootherstep Inbetweening)**：基于 $6t^5 - 15t^4 + 10t^3$ 曲线在统一 **0.75s** 窗口内逐帧自适应 Slerp 插补，首尾速度与加速度严格连续。详见 [`docs/MOTION_PIPELINE.md`](docs/MOTION_PIPELINE.md)。
-* **仿生 FootIK 与地面地锚系统**：工业级两骨解析式 IK、世界地锚防滑步、对立平衡（Contrapposto）单腿重心转移与脱鞋自适应下沉（4.6cm/3.9cm）。详见 [`docs/FOOT_IK.md`](docs/FOOT_IK.md)。
+* **仿生 FootIK 与地面地锚系统**：仅在 EMAGE 说话时解算；脚锚取上一动作脚位（`footIkIdlePlant`），BodyTurn 迈步时完全让出腿，迈完再重采锚。脱鞋自适应下沉（4.6cm/3.9cm）。详见 [`docs/FOOT_IK.md`](docs/FOOT_IK.md)。
 * **程序化转身步态与视线跳视**：四阶段迈步状态机、临界阻尼弹簧偏航角追踪与眼神微动。详见 [`docs/BODY_TURN_AND_GAZE.md`](docs/BODY_TURN_AND_GAZE.md)。
 * **分层动作姿态求值图 (Layered Pose Hierarchy)**：
   * **Layer 0 (Base)**：`NaturalIdleSystem` 仿生自然待机（多频胸腹呼吸、8 字骨盆慢速重心微摆、真十指松弛微卷）；

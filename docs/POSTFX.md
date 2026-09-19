@@ -87,8 +87,8 @@ Internal composer resolution still follows `getRenderPixelRatio()` (see `APP_CON
 
 | Knob | Role |
 |------|------|
-| `postfx.bloomInputScaleMobile` / `bloomInputScaleDesktop` | Scale passed into `UnrealBloomPass.setSize` (Pass also halves once more). Default `0.5` → bloom ≈ 1/4 of main RT. |
-| `postfx.composerMSAASamplesMobile` / `composerMSAASamplesDesktop` | Main RT MSAA sample count (default `4` on both). `0` disables MSAA. |
+| `postfx.bloomInputScaleMobile` / `bloomInputScaleDesktop` | Scale passed into `UnrealBloomPass.setSize` (Pass also halves once more). Mobile `0.3` / desktop `0.5`. |
+| `postfx.composerMSAASamplesMobile` / `composerMSAASamplesDesktop` | Main RT MSAA sample count. Mobile `3` / desktop `4`. `0` disables MSAA. Outline needs some MSAA. |
 
 Sim cadence (`renderer.targetFpsMobile` / `targetFpsDesktop`) is owned by `VRMEngine`’s animation loop, not by this pipeline.
 

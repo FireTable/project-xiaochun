@@ -884,8 +884,8 @@ export const APP_CONFIG = {
     /**
      * 移动端 PostFX 降本（主画面仍全分辨率呈现）：
      * - bloomInputScale: 传给 UnrealBloomPass.setSize 的系数；Pass 内部还会 /2。
-     *   移动端 / 桌面均 0.5 → 实际 Bloom ≈ 主 RT 的 1/4（与改前一致，更省）。
-     * - composerMSAASamples: 主 RT MSAA。移动端也保持 4x，与桌面一致保描边锐利。
+     *   移动 0.3 / 桌面 0.5。
+     * - composerMSAASamples: 主 RT MSAA。移动 3 / 桌面 4（描边需要一点 MSAA）。
      */
     bloomInputScaleMobile: 0.3,
     bloomInputScaleDesktop: 0.5,

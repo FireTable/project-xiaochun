@@ -119,29 +119,22 @@ To handle footwear toggles in the wardrobe:
 
 > [!CAUTION]
 > **Rule 0: Execution Domain Isolation — EMAGE Co-Speech Only**  
-> `footIK.solve` and `footIK.levelFeet` are **dedicated strictly to EMAGE speech animation** (`writer === 'emage' && this.emage.enableFootIK`):
+> `footIK.solve` and `footIK.levelFeet` run only while EMAGE is the live writer **and** BodyTurn is not owning the legs:
 > ```typescript
-> const isEmage = writer === 'emage' && this.emage.enableFootIK;
-> if (this.footIK.enabled && isEmage) {
->   this.footIK.solve(delta, grounding.left, grounding.right, 1.0);
->   this.footIK.levelFeet(
->     vrm,
->     isStepping || this.locomotionWeight > 0.05,
->     grounding.left,
->     grounding.right,
->   );
->   if (this.bodyTurnIsStepping && !isStepping) {
->     this.footIK.anchorToCurrentFeet();
->   }
+> const locomotionBusy = isStepping || this.locomotionWeight > 0.08;
+> const wantFootIk = this.footIK.enabled && writer === 'emage' && this.emage.enableFootIK && !locomotionBusy;
+> if (wantFootIk && !this.footIkWanted) {
+>   this.footIK.recapturePlantFromCurrent();
+>   this.footIK.anchorToCurrentFeet();
 > }
 > ```
-> - **Why Bypass in Idle & Clip?** The 2-bone analytical IK solver calculates knee flexion from hips height to foot anchors. Running it during `idle` creates an algebraic feedback loop against `NaturalIdleSystem`'s subtle pelvic breathing sway, forcing knees forward and causing vertical hips/head bobbing. Bypassing FootIK in `idle` and `clip` keeps the avatar standing tall and pristine.
-> - **Zero Foot Skating in Speech**: When EMAGE is speaking, FootIK firmly pins the feet to world ground anchors, neutralizing neural motion drifting.
+> - **Why Bypass in Idle & Clip?** The 2-bone solver fights `NaturalIdleSystem` pelvic breathing (knees bend, hips bob). Idle/clip never call `solve`.
+> - **Plant source**: On source switch and when FootIK fades back in, `recapturePlantFromCurrent()` samples the **previous motion's** feet (idle / think / post-step), not bind T-pose. Horizontal mix is `APP_CONFIG.emage.motion.footIkIdlePlant` (0 = live EMAGE feet, 1 = hold that plant). Height stays on that plant's ground Y.
+> - **Hips**: EMAGE does not write root translation. FootIK adds a small damped XZ follow (≤3.5 cm) so the pelvis is not left at rest while legs plant, then `writeHipsInto(lowerPose)` so the final commit keeps it.
 
 > [!IMPORTANT]
-> **Rule 1: Yielding During Locomotion Stepping (`isStepping || locomotionWeight > 0.05`)**  
-> When [`BodyTurnSystem`](../src/motion/constraints/bodyTurn.ts) executes procedural stepping, `levelFeet` must yield whenever `isStepping` is true or `locomotionWeight > 0.05`. Forcing ankle leveling during steps destroys dynamic ankle dorsiflexion and creates unnatural foot warping.
-> Furthermore, when stepping concludes (`this.bodyTurnIsStepping && !isStepping`), `footIK.anchorToCurrentFeet()` instantly synchronizes the ground anchors to the newly settled feet positions.
+> **Rule 1: Yield completely during BodyTurn**  
+> While `isStepping || locomotionWeight > 0.08`, do **not** `solve` or `levelFeet`. BodyTurn owns `LEGS_MASK`. Fade `footIkMix` out faster (damp 14) than in (damp 6). After locomotion settles, recapture plants from the new stance, then fade FootIK back. Never yank toward the pre-turn anchors mid-stride.
 
 > [!IMPORTANT]
 > **Rule 2: FootIK vs. VRMBodyMorph Separation of Concerns**  
@@ -151,7 +144,7 @@ To handle footwear toggles in the wardrobe:
 
 > [!TIP]
 > **Rule 3: FootIK is a compose target**  
-> Solve on the **draft** VRM (after anatomical layer commit, before `composeLayeredSmooth`). Sample hips/legs/feet back into `lowerPose`. Fade `footIkMix` in/out (damp 6). Lerp `hips.position` toward the IK target — never assign rest X in one frame. Speech start: `anchorToCurrentFeet()`, not `snapAnchors()`. `softReset()` sets `stanceRatio = 0.5` without zeroing `smoothHipsOffsetY`.
+> Solve on the **draft** VRM (after anatomical layer commit, before `composeLayeredSmooth`). Sample hips/legs/feet back into `lowerPose`; `writeHipsInto` so the pelvis offset survives the final commit. Fade `footIkMix` in (damp 6) / out (damp 14). Speech start and post-step: `recapturePlantFromCurrent()` then `anchorToCurrentFeet()`, not bind-rest `snapAnchors()`. `softReset()` sets `stanceRatio = 0.5` without zeroing `smoothHipsOffsetY`.
 
 ---
 

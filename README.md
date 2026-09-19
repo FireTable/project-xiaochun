@@ -158,7 +158,7 @@ You can download installer packages directly from the official Releases page:
 ### 🩰 Universal Motion Blending Pipeline & Ground Dynamics
 * **Zero-Friction Any-Motion Ingestion (`playMotion`)**: Ingest VRMA URLs, raw ArrayBuffers, or `THREE.AnimationClip`s through a single call; automatically performs humanoid retargeting, hips normalization, and supports whole-body (`all`) or upper-body (`upperBody`) masking.
 * **Quintic Smootherstep Inbetweening**: Based on $6t^5 - 15t^4 + 10t^3$ curves over a unified **0.75s** window with strictly continuous velocity and acceleration. Detailed in [`docs/MOTION_PIPELINE.md`](docs/MOTION_PIPELINE.md).
-* **Biomechanical FootIK & Ground Anchoring**: Two-bone analytical IK with physical ground anchors, contrapposto weight shift, and automatic shoe-off sink compensation (4.6cm/3.9cm). Detailed in [`docs/FOOT_IK.md`](docs/FOOT_IK.md).
+* **Biomechanical FootIK & Ground Anchoring**: Two-bone analytical IK during EMAGE speech; plants from the previous motion's feet (`footIkIdlePlant`), yields completely to BodyTurn strides, then recaptures after the step. Shoe-off sink 4.6cm/3.9cm. Detailed in [`docs/FOOT_IK.md`](docs/FOOT_IK.md).
 * **Procedural Locomotion Stepping & Gaze**: 4-phase stepping state machine with spring yaw tracking and bio-saccades. Detailed in [`docs/BODY_TURN_AND_GAZE.md`](docs/BODY_TURN_AND_GAZE.md).
 * **Layered Pose Evaluation Graph**:
   * **Layer 0 (Base)**: `NaturalIdleSystem` procedural breathing, 8-figure pelvic postural sway, and relaxed biomechanical finger curling;
