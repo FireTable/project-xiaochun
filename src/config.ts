@@ -869,6 +869,16 @@ export const APP_CONFIG = {
     toneMapping: { mode: THREE.LinearToneMapping, exposure: 1.06 },
     bc: { brightness: 0.0, contrast: 0.035 },
     hs: { hue: 0.0, saturation: 0.01 },
+    /**
+     * 移动端 PostFX 降本（主画面仍全分辨率呈现）：
+     * - bloomInputScale: 传给 UnrealBloomPass.setSize 的系数；Pass 内部还会 /2。
+     *   移动端 / 桌面均 0.5 → 实际 Bloom ≈ 主 RT 的 1/4（与改前一致，更省）。
+     * - composerMSAASamples: 主 RT MSAA。移动端也保持 4x，与桌面一致保描边锐利。
+     */
+    bloomInputScaleMobile: 0.5,
+    bloomInputScaleDesktop: 0.5,
+    composerMSAASamplesMobile: 4,
+    composerMSAASamplesDesktop: 4,
   },
   saturation: {
     default: {

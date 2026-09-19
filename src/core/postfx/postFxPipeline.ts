@@ -8,7 +8,10 @@
  * 实现选择 (踩坑记录): 一开始用 pmndrs/postprocessing 的 EffectComposer,跟 three
  * 的 outputColorSpace / toneMapping 兼容有问题,色彩要么过曝要么全黑。改用 three
  * 自带的 EffectComposer (颜色链路稳)。
- * Pass 顺序: RenderPass → UnrealBloomPass → BC → HS → Vignette → OutputPass
+ * Pass 顺序: RenderPass → UnrealBloomPass → ColorGrading → OutputPass
+ *
+ * 主 RT 全分辨率呈现；Bloom 经 bloomInputScale 后再 /2（默认实际 ≈ 主 RT 1/4）。
+ * 移动端 / 桌面默认一致；主 RT MSAA 均为 4x。
  */
 import * as THREE from 'three';
 import { EffectComposer } from 'three/examples/jsm/postprocessing/EffectComposer.js';
@@ -17,6 +20,8 @@ import { UnrealBloomPass } from 'three/examples/jsm/postprocessing/UnrealBloomPa
 import { ShaderPass } from 'three/examples/jsm/postprocessing/ShaderPass.js';
 import { OutputPass } from 'three/examples/jsm/postprocessing/OutputPass.js';
 import { getRenderPixelRatio } from '@/lib/utils';
+import { isMobile } from '@/lib/platform';
+import { APP_CONFIG } from '@/config';
 
 export interface PostFxConfig {
   enabled: boolean;
@@ -135,33 +140,45 @@ export class PostFxPipeline {
 
     const pixelRatio = getRenderPixelRatio();
     const size = renderer.getSize(new THREE.Vector2());
-    // ponytail: 使用 WebGL 2 原生 4x MSAA 渲染目标。
-    // 在几何光栅化阶段由显卡硬件计算子采样覆盖率，实现真硬件抗锯齿，
-    // 完全不模糊像素，彻底恢复二次元 MToon 1 像素黑色描边线条的纯黑与锐利！
+    const mobile = isMobile();
+    const msaa = mobile
+      ? (APP_CONFIG.postfx.composerMSAASamplesMobile ?? 0)
+      : (APP_CONFIG.postfx.composerMSAASamplesDesktop ?? 4);
+    // ponytail: 主 RT 仍按全分辨率（× DPR）呈现。
+    // 主 RT MSAA：移动端 / 桌面均默认 4x，保 MToon 描边锐利。
     const renderTarget = new THREE.WebGLRenderTarget(
-      size.width * pixelRatio,
-      size.height * pixelRatio,
+      Math.max(1, Math.round(size.width * pixelRatio)),
+      Math.max(1, Math.round(size.height * pixelRatio)),
       {
         type: THREE.HalfFloatType,
-        samples: 4,
+        samples: msaa,
       }
     );
     this.composer = new EffectComposer(renderer, renderTarget);
     this.composer.setPixelRatio(pixelRatio);
     this.composer.addPass(new RenderPass(scene, camera));
 
-    // UnrealBloomPass: 通用 bloom,作用于整个画面
+    // UnrealBloomPass: 低频光晕。setSize(w,h) 内部还会把第一级 mip 设为 w/2×h/2。
+    // bloomInputScale=1 → 实际 Bloom = 主 RT 的 1/2。
+    // bloomInputScale=0.5 → 实际 = 主 RT 的 1/4（移动端 / 桌面默认，更柔、更省）。
+    const bloomInputScale = mobile
+      ? (APP_CONFIG.postfx.bloomInputScaleMobile ?? 0.5)
+      : (APP_CONFIG.postfx.bloomInputScaleDesktop ?? 0.5);
     this.bloom = new UnrealBloomPass(
-      new THREE.Vector2(Math.round(window.innerWidth * 0.5), Math.round(window.innerHeight * 0.5)),
+      new THREE.Vector2(
+        Math.max(1, Math.round(window.innerWidth * pixelRatio * bloomInputScale)),
+        Math.max(1, Math.round(window.innerHeight * pixelRatio * bloomInputScale)),
+      ),
       this.config.bloom.strength,
       this.config.bloom.radius,
       this.config.bloom.threshold,
     );
-    // 劫持 Bloom 的 setSize：由于泛光属于低频漫射光晕，固定在 0.5x 渲染不仅光晕更加柔和，
-    // 而且能节省 75% 的显存与 11 次 Shader Pass 的填充率带宽，并避免 composer.setSize 时二次分配
     const origBloomSetSize = this.bloom.setSize.bind(this.bloom);
     this.bloom.setSize = (w: number, h: number) => {
-      origBloomSetSize(Math.round(w * 0.5), Math.round(h * 0.5));
+      origBloomSetSize(
+        Math.max(1, Math.round(w * bloomInputScale)),
+        Math.max(1, Math.round(h * bloomInputScale)),
+      );
     };
 
     // 智能背景剔除 Shader 注入：
