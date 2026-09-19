@@ -33,6 +33,7 @@
   },
   "bundle": {
     "active": true,
+    "createUpdaterArtifacts": true,
     "targets": "all",
     "icon": [
       "icons/32x32.png",
@@ -59,6 +60,15 @@
         "schemes": [
           "xiaochun"
         ]
+      }
+    },
+    "updater": {
+      "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IDNBMjAyOERGNzE5RTg0NUYKUldSZmhKNXgzeWdnT2lJekdOa2d3cEhWV1IyQlhRWVU4ZUluQVZFSTFuVVo4L0pKTFN2TDl1YWMK",
+      "endpoints": [
+        "https://github.com/FireTable/project-xiaochun/releases/latest/download/latest.json"
+      ],
+      "windows": {
+        "installMode": "passive"
       }
     }
   }

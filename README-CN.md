@@ -79,6 +79,7 @@ brew install --cask project-xiaochun
 ```bash
 brew upgrade --cask project-xiaochun
 ```
+桌面端也可以在应用内检查 GitHub Releases（顶栏 **⋯** → 检查更新）。Homebrew 与应用内更新两条通道都可用。
 
 ---
 
@@ -112,6 +113,9 @@ brew upgrade --cask project-xiaochun
 ---
 
 ## ✨ 核心特性 (Key Features)
+
+### 🖥️ 原生混合桌面端 (Tauri 2.x)
+* **应用内更新**：官方 `tauri-plugin-updater` 读取 GitHub Releases 的 `latest.json`，启动后有新版本再弹窗，整包替换（不是模型文件热更）。顶栏 **⋯** → 检查更新。详见 [`docs/HYBRID_DESKTOP_APP.md`](docs/HYBRID_DESKTOP_APP.md)。
 
 ### 🎭 VRM 核心引擎与模块化子系统 (VRM Engine & Modular Architecture)
 * **VRM 1.0 & VRM 0.x 双规格渲染中枢**:基于 `@pixiv/three-vrm` 与 MToon NPR 着色，核心引擎经深度模块化解耦，原生兼顾现代 **VRM 1.0** 与经典 **VRM 0.x** 模型体系：

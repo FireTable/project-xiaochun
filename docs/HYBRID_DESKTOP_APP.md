@@ -17,6 +17,7 @@ Project XiaoChun extends beyond traditional in-browser execution into a high-per
 | **External Inter-Process Protocol** | Only web URLs (cannot be cold-started by OS) | **Custom URL Scheme (`xiaochun://`)** with cold-start & hot-wake |
 | **Resource Overhead** | Heavy browser engine overhead + extensions | Extremely lightweight OS-native webview (~30MB binary footprint) |
 | **Window Level** | Normal browser window | Configurable **Always-on-Top** pin state |
+| **App updates** | Reload the page / new deploy | Official **in-app updater** (`latest.json` on GitHub Releases) |
 
 ---
 
@@ -40,18 +41,50 @@ In transparent desk-pet mode, user clicks should interact with XiaoChun when hov
 - Replaying window coordinates on launch ensures the avatar reappears exactly where the user last placed her.
 
 ### 3.3 Interactive Window Frame & Corner Handles
-- [TauriWindowFrame.tsx](file:///Users/FireTable/OpenClaw/Code/Project-XiaoChun/src/components/TauriWindowFrame.tsx):
+- [TauriWindowFrame.tsx](../src/components/TauriWindowFrame.tsx):
   - 4 invisible interactive corner resize grips (`n`, `s`, `e`, `w`, `ne`, `nw`, `se`, `sw`) invoking native `startResizeDragging()`.
   - Top drag bar with `data-tauri-drag-region` for smooth repositioning.
   - Global `Option / Alt + Mouse Drag` hotkey allowing effortless dragging from any point on the character.
-  - Compact power controls: Pin always-on-top, minimize, and close directly integrated in the top header.
+
+### 3.3.1 Tauri header overflow menu
+- [TauriTopHeader.tsx](../src/components/TauriTopHeader.tsx) is Tauri-only (web renders nothing).
+- One **MoreHorizontal (⋯)** icon at the end of the top header, tooltip `header.more`. Tooltip wraps the dropdown *trigger*, not the menu root (otherwise hover never reaches the button).
+- Menu items:
+  - **Check for updates** — every Tauri install (dev, DMG, Homebrew).
+  - **Reload** — `import.meta.env.DEV` only (`tauri:dev`).
+  - **Close app** — always.
 
 ### 3.4 Pet UI Ergonomics & Unmount Lifecycle
 - **No Hover Flashing**: Hover-show popups are disabled in desk-pet mode. The control header and chat bar are toggled intentionally by clicking the avatar's body.
 - **Deferred Unmount Lifecycle**:
-  - Controlled by [useDeferredUnmount.ts](file:///Users/FireTable/OpenClaw/Code/Project-XiaoChun/src/hooks/useDeferredUnmount.ts).
+  - Controlled by [useDeferredUnmount.ts](../src/hooks/useDeferredUnmount.ts).
   - When dismissed, UI elements run a 300ms fade-out transition before being completely unmounted from the DOM tree.
   - This eliminates lingering ghost hover regions or Radix UI Tooltip popups under `opacity: 0`.
+
+### 3.5 In-app updater (official plugin)
+Whole-app replace via [`tauri-plugin-updater`](https://v2.tauri.app/plugin/updater/) + `@tauri-apps/plugin-updater`. After install, macOS/Linux call `@tauri-apps/plugin-process` `relaunch()`; Windows the installer exits the process.
+
+- **Not a delta of `onnx/` / `vrm/`**. Each update downloads the signed updater artifact (macOS `.app.tar.gz`, Windows NSIS/MSI, Linux AppImage), not the Homebrew `.dmg`.
+- **Web is a no-op.** `src/lib/appUpdater.ts` returns immediately unless `isTauri()`.
+- **Who is eligible**: every Tauri desktop session, including `tauri:dev` and Homebrew cask installs. `brew upgrade --cask project-xiaochun` remains a second channel; the two can overwrite each other.
+- **Check flow** (`src/lib/appUpdater.ts`, `src/components/AppUpdateDialog.tsx`):
+  1. On launch, `check()` against `https://github.com/FireTable/project-xiaochun/releases/latest/download/latest.json`.
+  2. Quiet if already current or the request fails.
+  3. If a newer SemVer exists, wait until the loading overlay is gone, then prompt. Never auto-download.
+  4. Header ⋯ → Check for updates runs the same `check()`; “already current” / errors only surface on this manual path.
+  5. Confirm → `downloadAndInstall` (progress bar, dialog cannot be dismissed) → relaunch.
+- **Endpoint & pubkey**: `src-tauri/tauri.conf.json` → `plugins.updater` (`createUpdaterArtifacts: true`). Signing cannot be disabled.
+- **Capabilities**: `updater:default` in `src-tauri/capabilities/desktop.json`; `process:default` in `default.json`.
+
+### 3.6 Updater signing & CD
+Private key is **not** in git (`.tauri/` is gitignored). Public key is the `plugins.updater.pubkey` string in `tauri.conf.json`. Losing the private key means already-installed clients can never receive another in-app update (reinstall only).
+
+| Where | Variable | Notes |
+| :--- | :--- | :--- |
+| Local `pnpm tauri:build` | `TAURI_SIGNING_PRIVATE_KEY` or `TAURI_SIGNING_PRIVATE_KEY_PATH` | Bundler **does not** read `.env`. Export in the shell. See `.env.example`. |
+| GitHub Actions | Secrets of the same names | `.github/workflows/release-tauri.yml` fails the job if `TAURI_SIGNING_PRIVATE_KEY` is empty. |
+
+CI (`tauri-apps/tauri-action`, `includeUpdaterJson: true`) uploads `.sig` files and merges `latest.json` across the matrix. First desktop build that contains this plugin is a **reinstall** for older clients that had no updater; later versions can self-update.
 
 ---
 
@@ -68,5 +101,7 @@ In transparent desk-pet mode, user clicks should interact with XiaoChun when hov
   pnpm tauri:dev
 
   # Build standalone release binaries and installer bundles
+  # Requires TAURI_SIGNING_PRIVATE_KEY or TAURI_SIGNING_PRIVATE_KEY_PATH
+  export TAURI_SIGNING_PRIVATE_KEY_PATH="$PWD/.tauri/xiaochun.key"
   pnpm tauri:build
   ```

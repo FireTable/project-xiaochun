@@ -15,6 +15,7 @@
     "core:window:allow-set-ignore-cursor-events",
     "core:window:allow-cursor-position",
     "window-state:default",
-    "deep-link:default"
+    "deep-link:default",
+    "process:default"
   ]
 }

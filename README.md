@@ -79,6 +79,7 @@ To upgrade in the future:
 ```bash
 brew upgrade --cask project-xiaochun
 ```
+The desktop app can also check GitHub Releases in-app (top-bar **⋯** → Check for updates). Homebrew and in-app updates are both valid.
 
 ---
 
@@ -118,6 +119,7 @@ You can download installer packages directly from the official Releases page:
 * **60Hz Real-Time Canvas Alpha Bitmask Click-Through**: 16ms high-frequency thread evaluates true character alpha pixels using 1-ns bitwise shift tests. Clicks seamlessly pass through transparent pixels to desktop apps beneath, while retaining solid interaction on the character and UI.
 * **Persistent Window Coordinates & Freeform Dragging**: Built-in `tauri-plugin-window-state` automatically restores window position and size. Four corner handles enable fluid resizing without canvas flickering, alongside an `Option/Alt + Drag` shortcut anywhere on the character.
 * **Cross-Process Protocol (`xiaochun://`)**: Custom OS URL Scheme enabling external scripts, AI agents, browsers, and CLI tools to wake up XiaoChun and trigger `speakText` with full body motion and lip-syncing.
+* **In-app updates**: Official Tauri updater reads `latest.json` from GitHub Releases, prompts after the splash, and replaces the whole app (not a model-file patch). Details: [`docs/HYBRID_DESKTOP_APP.md`](docs/HYBRID_DESKTOP_APP.md).
 
 ### 🌐 3D Holographic Interaction Guides & Physics Dynamics
 * **In-World Holographic Guides**: Replaces flat 2D sliders with embedded 3D controls — `TurnGuide3D` (horizontal yaw ring with responsive light beacon), `PitchGuide3D` (elevation arc), and `CameraYGuide3D` (floating 3D height rail).

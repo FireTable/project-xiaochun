@@ -21,6 +21,7 @@ Project XiaoChun is a **100% browser-native 3D AI companion** with strong on-dev
 | **Biomechanical Morphing** | `VRMBodyMorph`<br/>(`src/core/morph/vrmBodyMorph.ts`) | 28-parameter orthogonal decoupled bone & vertex morphing engine (VRoid 1.0 guarded), detailed in [`docs/BONE_MORPH.md`](docs/BONE_MORPH.md) |
 | **Chat Director & TTS** | `ChatDirector` + `speechSlicer` (`src/lib/utils.ts`) + native WebSocket client (`src/lib/edge-tts-core.ts`)<br/>(`src/director/chatDirector.ts`, `src/lib/utils.ts`, `src/server.ts`) | Smart 25~65 chars slicer, parallel TTS prefetch, stream sync, detailed in [`docs/CHAT_DIRECTOR.md`](docs/CHAT_DIRECTOR.md) |
 | **On-device AI & Memory** | `webLLM` + `EMAGE Worker` + `IndexedDB`<br/>(`src/llm/`, `src/motion/`, `src/memory/`) | 100% local WebGPU inference, EMAGE Worker, 3-tier memory, detailed in [`docs/ON_DEVICE_AI.md`](docs/ON_DEVICE_AI.md) |
+| **Hybrid desktop & in-app updater** | Tauri 2.x + `tauri-plugin-updater` + `tauri-plugin-process`<br/>(`src-tauri/`, `src/lib/appUpdater.ts`, `src/components/AppUpdateDialog.tsx`, `TauriTopHeader.tsx`) | Frameless pet, 60Hz alpha click-through, GitHub Releases `latest.json` whole-app updates, detailed in [`docs/HYBRID_DESKTOP_APP.md`](docs/HYBRID_DESKTOP_APP.md) |
 | **Documentation Index** | Complete Architecture Index & Sitemap | Complete agent fast-path guide, detailed in [`docs/README.md`](docs/README.md) |
 
 ---
@@ -288,6 +289,13 @@ pnpm build
   CI automatically parses the release version directly from `src-tauri/tauri.conf.json` (`jq -r .version`).
 - **Release Tagging**:
   GitHub Releases and Git tags are formatted as `v${VERSION}` (e.g. `v0.1.2`).
+- **In-app updater (official plugin)**:
+  * `bundle.createUpdaterArtifacts: true` plus `plugins.updater.pubkey` / `endpoints` in `src-tauri/tauri.conf.json`.
+  * Endpoint: `https://github.com/FireTable/project-xiaochun/releases/latest/download/latest.json`.
+  * CI must have GitHub secret `TAURI_SIGNING_PRIVATE_KEY` (full contents of `.tauri/xiaochun.key`). Password secret is optional when the key has none. Workflow fails closed if the key is missing.
+  * `tauri-action` `includeUpdaterJson: true` uploads `.sig` files and a merged `latest.json`. macOS in-app payload is `.app.tar.gz`, not the Homebrew `.dmg`.
+  * Local `pnpm tauri:build` must `export TAURI_SIGNING_PRIVATE_KEY` or `TAURI_SIGNING_PRIVATE_KEY_PATH` — the bundler does not read `.env`. See `.env.example` and [`docs/HYBRID_DESKTOP_APP.md`](docs/HYBRID_DESKTOP_APP.md) §3.5–3.6.
+  * All Tauri installs (dev / DMG / Homebrew) use the in-app checker. `brew upgrade --cask` remains available.
 - **Homebrew Cask Auto-Update**:
   * The CI job `update-homebrew` automatically computes the SHA256 checksum of the published DMG.
   * Updates `Casks/project-xiaochun.rb` on the `main` branch with the new version, download URL, and SHA256 hash.
@@ -303,5 +311,6 @@ pnpm build
 Before releasing or cutting a new version:
 1. `npx tsc --noEmit` passes with 0 errors.
 2. `cd src-tauri && cargo check` passes cleanly.
-3. Commit messages adhere to Conventional Commits: `chore(release): bump version to x.y.z`.
+3. GitHub secret `TAURI_SIGNING_PRIVATE_KEY` is set (otherwise the release workflow fails).
+4. Commit messages adhere to Conventional Commits: `chore(release): bump version to x.y.z`.
 

@@ -278,6 +278,7 @@ pub fn run() {
   let protocol_state = Arc::new(ProtocolState::default());
 
   tauri::Builder::default()
+    .plugin(tauri_plugin_process::init())
     .manage(passthrough_state)
     .manage(protocol_state)
     // ponytail: 持久化窗口尺寸 / 位置 — 启动时回放, resize/move 自动保存
@@ -305,6 +306,9 @@ pub fn run() {
       get_pending_protocol_actions
     ])
     .setup(move |app| {
+      #[cfg(desktop)]
+      app.handle().plugin(tauri_plugin_updater::Builder::new().build())?;
+
       // Install file logger before any protocol dispatch so cold-start lines are captured.
       if cfg!(debug_assertions) {
         app.handle().plugin(

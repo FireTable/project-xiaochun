@@ -24,6 +24,7 @@ This document serves as the definitive reference for how all user interactions a
 | | **Aero Wind Interaction** | Move cursor swiftly past character | Move cursor swiftly past character | Move cursor swiftly past character | Rapid swipe gesture |
 | **System & IPC** | **External Speech Protocol** | `open "xiaochun://speak?..."` | `start "" "xiaochun://speak?..."` | Custom scheme link / JS bridge | Custom URL handler |
 | | **Built-in CLI Trigger** | `pnpm speak "Message"` | `pnpm speak "Message"` | `window.__triggerXiaoChunProtocol` | In-app input bar |
+| **App updates (Tauri)** | **Header ⋯ menu** | Check for updates / Reload (dev) / Close app | Same | N/A (web has no updater) | N/A |
 | **Developer Tools** | **Open Inspect / Console** | <kbd>Cmd</kbd> + <kbd>Option</kbd> + <kbd>I</kbd> | <kbd>Ctrl</kbd> + <kbd>Shift</kbd> + <kbd>I</kbd> or <kbd>F12</kbd> | <kbd>F12</kbd> / DevTools | Shake or vConsole toggle |
 | | **Unlock Hidden DevDrawer** | 10 rapid clicks on avatar badge | 10 rapid clicks on avatar badge | 10 rapid clicks on avatar badge | 10 rapid taps on avatar badge |
 
@@ -38,9 +39,12 @@ This document serves as the definitive reference for how all user interactions a
   - Hovering over transparent empty space: Clicks fall through to your desktop, IDE, or browser beneath without taking focus.
   - **While adjust guides are visible** (long-press armed / <kbd>Cmd</kbd>·<kbd>Ctrl</kbd> held / actively dragging): `setInteracting(true)` forces the window to accept input so thin holographic guides (e.g. Camera Y icon) are not misclassified as transparent and click-through.
   - Left-drag protection ensures window motion is never interrupted mid-flight.
-- **Top Header Controls**:
-  - **Pin Always-on-Top**: Keeps XiaoChun visible above all full-screen windows and IDEs.
-  - **Minimize & Quit**: Native OS power management directly from the UI header.
+- **Top Header Controls** (Tauri overflow, `TauriTopHeader`):
+  - One **⋯** button (tooltip “More”). Hover tooltip must wrap the dropdown *trigger*, not the menu root.
+  - **Check for updates**: quiet `check()` on launch; prompt only when a newer GitHub Release exists. Manual check from this menu also reports “already current”.
+  - **Reload**: `tauri:dev` only.
+  - **Close app**: quits the native window.
+  - Always-on-top is a window flag in `tauri.conf.json`, not a header toggle.
 - **Window Geometry Memory**: Restores your exact window coordinate position and scale when relaunched.
 
 ### 3.2 Web Browser Mode (Chrome / Edge / Safari / Firefox)

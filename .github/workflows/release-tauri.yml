@@ -105,16 +105,29 @@ jobs:
           fi
           echo "tag_name=$TAG_NAME" >> $GITHUB_OUTPUT
 
+      - name: Require updater signing key
+        env:
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+        shell: bash
+        run: |
+          if [ -z "$TAURI_SIGNING_PRIVATE_KEY" ]; then
+            echo "::error::Missing GitHub secret TAURI_SIGNING_PRIVATE_KEY (full contents of .tauri/xiaochun.key). In-app updates cannot be signed without it."
+            exit 1
+          fi
+
       - name: Build Tauri Application
         uses: tauri-apps/tauri-action@v0
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
         with:
           tagName: "${{ steps.app_version.outputs.tag_name }}"
           releaseName: "Project XiaoChun ${{ steps.app_version.outputs.tag_name }}"
           releaseBody: "See the release assets below for downloads on macOS, Windows, and Linux."
           releaseDraft: ${{ github.event_name == 'workflow_dispatch' && inputs.draft || false }}
           prerelease: false
+          includeUpdaterJson: true
           args: ${{ matrix.args }}
 
   update-homebrew:

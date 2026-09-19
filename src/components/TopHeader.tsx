@@ -407,8 +407,9 @@ export const TopHeader: React.FC<TopHeaderProps> = ({
           </Tooltip>
         ) : null}
 
-        {/* ponytail: 桌面端专属 power 按钮, 嵌在 TopHeader 末尾, 浏览器/移动端不渲染 */}
-        <TauriTopHeader />
+        <TauriTopHeader
+          onMenuOpenChange={(open) => setOpenMenuCount((c) => (open ? c + 1 : Math.max(0, c - 1)))}
+        />
       </div>
     </header>
   );

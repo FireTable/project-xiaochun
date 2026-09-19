@@ -2,6 +2,7 @@ import React, { useState, useEffect, startTransition } from 'react';
 import { useTranslation } from 'react-i18next';
 import type { LoadingState, BubbleState } from '@/core/vrmEngine';
 import { TopHeader } from '@/components/TopHeader';
+import { AppUpdateDialog } from '@/components/AppUpdateDialog';
 import { HeadBubble } from '@/components/HeadBubble';
 import { ChatBar } from '@/components/ChatBar';
 import { LoadingOverlay } from '@/components/LoadingOverlay';
@@ -197,6 +198,8 @@ export const App: React.FC = () => {
           }}
         />
       )}
+
+      <AppUpdateDialog allowPrompt={!loading.active} />
 
       {/* 顶部控制栏 */}
       {currentScene.components.topHeader !== false && (

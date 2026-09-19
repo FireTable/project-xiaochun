@@ -25,6 +25,9 @@ public/vrm/.vroid
 # Local tooling scratch
 .maker-mcp/
 
+# Tauri updater minisign private key (pubkey lives in src-tauri/tauri.conf.json)
+.tauri/
+
 # ponytail: 本地性能基准测试 — 一次性测量,不入仓
 bench/
 
