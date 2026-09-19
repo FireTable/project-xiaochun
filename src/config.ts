@@ -208,6 +208,12 @@ export interface EmageMotionConfig {
    */
   legIntensity: number;
   /**
+   * EMAGE 时 FootIK 水平脚锚收向上一次动作脚位的比例 (0~1，默认 0.78)。
+   * 切到说话时从当前脚（idle / think 等）采样锚，不再用加载时的 bind 站姿。
+   * 1：钉死上一动作脚位；0：完全跟本帧 EMAGE 脚。高度钉该锚的地面。
+   */
+  footIkIdlePlant: number;
+  /**
    * 头/颈权重 (0.1~1.0，默认 0.80)。
    * 调大：点头/转头更跟模型；调小：更少「乌龟颈」前伸感。
    */
@@ -542,8 +548,9 @@ export const APP_CONFIG = {
       fingerIntensity: 0.5,            // 手指活跃 0.1~1.0；↑更张更活，↓更半卷少乱指
       torsoIntensity: 0.75,            // 胸腔微动 0.1~1.0；↑呼吸更明显，↓上身更稳
       spineIntensity: 0.3,             // 腰椎微动 0.1~1.0；↑腰更晃，↓站姿更直
-      hipIntensity: 0.50,              // 骨盆微动 0.1~1.0；↑重心微移，↓下盘更钉
-      legIntensity: 0.250,              // 腿跟随 0.1~1.0；↑更跟胯，↓腿更静（脚仍 FootIK）
+      hipIntensity: 0.70,              // 骨盆微动 0.1~1.0；↑重心微移，↓下盘更钉
+      legIntensity: 0.40,              // 腿跟随 0.1~1.0；↑更跟胯，↓腿更静（脚仍 FootIK）
+      footIkIdlePlant: 0.92,           // EMAGE 脚锚收向上一动作脚位：0~1；↑更钉住，↓更跟本帧脚
       headIntensity: 0.80,             // 头颈 0.1~1.0；↑更跟模型点头，↓少乌龟颈
       dampingStiffness: 6.5,           // 阻尼刚度约 2~8；↑跟手更快更硬，↓更柔可能拖影
       temporalSmoothRadius: 12,        // 时序平滑帧约 3~24（12≈0.8s@30fps）；↑更糊更软，↓更跟音频但窗缝更硬
@@ -1085,7 +1092,7 @@ export const APP_CONFIG = {
       armLength: 1.00,
       hands: 1.00,
       fingerWidth: 0.96,
-      thighs: 1.06,
+      thighs: 1.02,
       thighLength: 1.00,
       calves: 0.82,
       calfLength: 1.00,

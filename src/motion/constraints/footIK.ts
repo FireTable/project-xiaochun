@@ -1,5 +1,6 @@
 import * as THREE from 'three';
 import type { VRM } from '@pixiv/three-vrm';
+import { APP_CONFIG } from '@/config';
 
 interface LegChain {
   upperLeg: THREE.Object3D;
@@ -68,6 +69,9 @@ export class FootIKSolver {
   private restHipsLocalPos = new THREE.Vector3();
   private restHipsWorldPos = new THREE.Vector3();
   private smoothHipsOffsetY = 0;
+  /** 胯跟随脚锚的水平位移（draft 每帧重置 position，此偏移不累积） */
+  private smoothHipsOffset = new THREE.Vector3();
+  private _vHipsTarget = new THREE.Vector3();
 
   // 临时数学计算复用变量 (零 GC 垃圾回收压力)
   private _vA = new THREE.Vector3();
@@ -93,16 +97,43 @@ export class FootIKSolver {
   /**
    * 立即将双腿平滑地锚硬对齐至当前世界支点坐标，消除由于角色旋转或从睡眠状态唤醒导致的跨坐标系拉扯
    */
+  /** 纠正后的髋局部位移写入管线，避免 final commit 盖回 EMAGE rest。 */
+  writeHipsInto(out: THREE.Vector3, vrm: VRM): void {
+    if (!this.hips) return;
+    if (vrm.meta?.metaVersion === '0') {
+      out.set(-this.hips.position.x, this.hips.position.y, -this.hips.position.z);
+    } else {
+      out.copy(this.hips.position);
+    }
+  }
+
+  /** 用当前双脚（上一动作）重采样地面锚，之后 EMAGE 往这对接而不是 bind idle。 */
+  recapturePlantFromCurrent(): void {
+    const scene = this.vrm?.scene;
+    if (!scene || !this.leftLeg || !this.rightLeg) return;
+    scene.updateMatrixWorld(true);
+    this.captureLegPlant(this.leftLeg, scene);
+    this.captureLegPlant(this.rightLeg, scene);
+    if (this.hips) {
+      this.restHipsLocalPos.copy(this.hips.position);
+      this.hips.getWorldPosition(this.restHipsWorldPos);
+    }
+  }
+
+  private captureLegPlant(leg: LegChain, scene: THREE.Object3D): void {
+    leg.foot.getWorldPosition(leg.restAnchorPos);
+    leg.restAnchorLocalPos.copy(leg.restAnchorPos);
+    scene.worldToLocal(leg.restAnchorLocalPos);
+    leg.restAnkleY = leg.restAnchorPos.y;
+    leg.currentAnchorPos.copy(leg.restAnchorPos);
+    leg.smoothTargetPos.copy(leg.restAnchorPos);
+  }
+
   public snapAnchors(): void {
     this.needsAnchorSnap = true;
     this.smoothHipsOffsetY = 0;
-    if (this.vrm?.scene && this.leftLeg && this.rightLeg) {
-      this.vrm.scene.updateMatrixWorld(true);
-      this.leftLeg.currentAnchorPos.copy(this.leftLeg.restAnchorLocalPos).applyMatrix4(this.vrm.scene.matrixWorld);
-      this.rightLeg.currentAnchorPos.copy(this.rightLeg.restAnchorLocalPos).applyMatrix4(this.vrm.scene.matrixWorld);
-      this.leftLeg.smoothTargetPos.copy(this.leftLeg.currentAnchorPos);
-      this.rightLeg.smoothTargetPos.copy(this.rightLeg.currentAnchorPos);
-    }
+    this.smoothHipsOffset.set(0, 0, 0);
+    this.recapturePlantFromCurrent();
   }
 
   /**
@@ -111,6 +142,7 @@ export class FootIKSolver {
    */
   public anchorToCurrentFeet(): void {
     this.needsAnchorSnap = false;
+    this.smoothHipsOffset.set(0, 0, 0);
     if (this.leftLeg?.foot) {
       this.leftLeg.foot.getWorldPosition(this.leftLeg.smoothTargetPos);
       this.leftLeg.smoothTargetPos.y = Math.max(this.leftLeg.smoothTargetPos.y, this.leftLeg.restAnkleY);
@@ -210,10 +242,12 @@ export class FootIKSolver {
     }
 
     this.smoothHipsOffsetY = 0;
+    this.smoothHipsOffset.set(0, 0, 0);
   }
 
   reset(): void {
     this.smoothHipsOffsetY = 0;
+    this.smoothHipsOffset.set(0, 0, 0);
     if (this.hips) {
       this.hips.position.copy(this.restHipsLocalPos);
     }
@@ -269,9 +303,20 @@ export class FootIKSolver {
     const l = this.leftLeg;
     const r = this.rightLeg;
 
-    // 1. 刷新地面世界物理支点坐标 (World Ground Anchors)
+    // 1. EMAGE 脚锚：高度钉上一动作地面；水平按 footIkIdlePlant 收向上一动作脚位。
+    const idlePlant = THREE.MathUtils.clamp(APP_CONFIG.emage.motion.footIkIdlePlant, 0, 1);
     l.currentAnchorPos.copy(l.restAnchorLocalPos).applyMatrix4(scene.matrixWorld);
     r.currentAnchorPos.copy(r.restAnchorLocalPos).applyMatrix4(scene.matrixWorld);
+    const lIdleY = l.currentAnchorPos.y;
+    const rIdleY = r.currentAnchorPos.y;
+    l.foot.getWorldPosition(this._vA);
+    r.foot.getWorldPosition(this._vB);
+    l.currentAnchorPos.x = this._vA.x * (1 - idlePlant) + l.currentAnchorPos.x * idlePlant;
+    l.currentAnchorPos.z = this._vA.z * (1 - idlePlant) + l.currentAnchorPos.z * idlePlant;
+    l.currentAnchorPos.y = Math.max(lIdleY, this.floorY);
+    r.currentAnchorPos.x = this._vB.x * (1 - idlePlant) + r.currentAnchorPos.x * idlePlant;
+    r.currentAnchorPos.z = this._vB.z * (1 - idlePlant) + r.currentAnchorPos.z * idlePlant;
+    r.currentAnchorPos.y = Math.max(rIdleY, this.floorY);
     const lAnchorWorld = l.currentAnchorPos;
     const rAnchorWorld = r.currentAnchorPos;
 
@@ -300,21 +345,45 @@ export class FootIKSolver {
     r.effectiveWeight = this.weight * rGrounded * blendFactor;
 
     const isVrm0 = this.vrm?.meta?.metaVersion === '0';
+    const hipsBlend = Math.max(0, Math.min(1, this.weight * blendFactor));
+    const dt = Math.max(0.0001, Math.min(delta, 0.1));
 
-    // 3. 仿生重心横向转移 (Lateral Pelvis Center of Mass Shift)
-    // 关键原理：双足横向间距约 20cm，当单脚受力站立时，骨盆必须横向平移至承重脚上方 (~3.8cm~4.2cm)，
-    // 使得承重腿股骨头垂直对齐脚踝，形成顶天立地的承重柱！
-    // VRM 0.0 scene 旋转 180°，本地 X 轴与世界 X 轴相反，因此 targetShiftX 取反
+    // 3. 胯跟着脚走：IK 要把脚拽向 idle 锚多少，髋平移同样的水平量，避免腿飞胯钉死。
+    l.foot.getWorldPosition(this._vA);
+    r.foot.getWorldPosition(this._vB);
+    this._vHipsTarget.set(
+      (lAnchorWorld.x - this._vA.x) * lSupport + (rAnchorWorld.x - this._vB.x) * rSupport,
+      0,
+      (lAnchorWorld.z - this._vA.z) * lSupport + (rAnchorWorld.z - this._vB.z) * rSupport,
+    );
+    this.hips.getWorldPosition(this._vC);
+    this._vC.add(this._vHipsTarget);
+    if (this.hips.parent) {
+      this.hips.parent.updateWorldMatrix(true, false);
+      this.hips.parent.worldToLocal(this._vC);
+    }
+    this._vC.sub(this.hips.position);
+    this._vC.x = THREE.MathUtils.clamp(this._vC.x, -0.035, 0.035);
+    this._vC.y = 0;
+    this._vC.z = THREE.MathUtils.clamp(this._vC.z, -0.035, 0.035);
+    const pelvisAlpha = 1.0 - Math.exp(-8.0 * dt);
+    const pelvisMaxStep = 0.22 * dt;
+    this._vTemp.subVectors(this._vC, this.smoothHipsOffset);
+    const pelvisDist = this._vTemp.length();
+    if (pelvisDist > 1e-6) {
+      const step = Math.min(pelvisDist * pelvisAlpha, pelvisMaxStep) * hipsBlend;
+      this.smoothHipsOffset.addScaledVector(this._vTemp, step / pelvisDist);
+    }
+    this.hips.position.add(this.smoothHipsOffset);
+
+    // 承重横移叠在跟随之后（balanced 时为 0）
     const midAnchorX = (lAnchorWorld.x + rAnchorWorld.x) * 0.5;
     const halfSpan = Math.abs(rAnchorWorld.x - lAnchorWorld.x) * 0.5;
     const leftSign = Math.sign(lAnchorWorld.x - midAnchorX) || -1;
     const stanceDir = (sr - 0.5) * 2.0;
-
     const maxShiftX = this.enableWeightShift ? Math.min(0.042, halfSpan * 0.40) : 0;
     const targetShiftX = this.enableWeightShift ? (isVrm0 ? -1 : 1) * stanceDir * (-leftSign) * maxShiftX : 0;
-    const hipsBlend = Math.max(0, Math.min(1, this.weight * blendFactor));
-    const targetHipsX = this.restHipsLocalPos.x + targetShiftX;
-    this.hips.position.x += (targetHipsX - this.hips.position.x) * hipsBlend;
+    this.hips.position.x += targetShiftX * hipsBlend;
 
     // 4. 骨盆垂直高度补偿 (Ground Alignment):
     // draftPose.commitToVRM 每帧在 FootIK 前重设 hips.position 至 restHipsPos，
@@ -430,7 +499,7 @@ export class FootIKSolver {
     const newLowerDir = this._vLowerDir.subVectors(pT, newB).normalize();
 
     // 旋转增量柔和施加
-    const ikStrength = THREE.MathUtils.lerp(0.95, 0.88, freeAlpha) * leg.effectiveWeight;
+    const ikStrength = THREE.MathUtils.lerp(0.42, 0.32, freeAlpha) * leg.effectiveWeight;
 
     // 纠偏 UpperLeg
     const origUpperDir = this._vDir.subVectors(pB, pA).normalize();

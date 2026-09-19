@@ -94,8 +94,8 @@ export class MotionPipeline {
   private waitingForActionSample = false;
 
   private sampledThisFrame = false;
-  private bodyTurnIsStepping = false;
   private footIkMix = 0;
+  private footIkWanted = false;
   private locomotionWeight = 0; // 下半身步态连续混合权重 [0: 动作源下半身, 1: 步态踱步]
   public targetYawOffset = 0.0;
   private boundVrm: VRM | null = null;
@@ -232,7 +232,8 @@ export class MotionPipeline {
 
     copyTransitionSnapshot(this.transitionFromPose, this.finalPose, lookAtOffsets, true);
 
-    // 动作源切换瞬间无缝捕获当前脚部真实物理位置，保证小腿与两足连续平滑过渡，绝不单帧瞬移拉扯
+    // 切源时把脚锚改成上一动作的脚位（idle/think 等），EMAGE 往这对齐而不是 bind 站姿
+    this.footIK.recapturePlantFromCurrent();
     this.footIK.anchorToCurrentFeet();
 
     this.previousSource = this.activeSource;
@@ -496,23 +497,20 @@ export class MotionPipeline {
     this.draftPose.commitToVRM(vrm);
 
     const grounding = this.bodyTurn.getFootGroundedAlpha();
-    const wantFootIk = this.footIK.enabled && writer === 'emage' && this.emage.enableFootIK;
-    this.footIkMix = THREE.MathUtils.damp(this.footIkMix, wantFootIk ? 1 : 0, 6, delta);
+    const locomotionBusy = ctx.isStepping || this.locomotionWeight > 0.08;
+    const wantFootIk = this.footIK.enabled && writer === 'emage' && this.emage.enableFootIK && !locomotionBusy;
+    if (wantFootIk && !this.footIkWanted) {
+      this.footIK.recapturePlantFromCurrent();
+      this.footIK.anchorToCurrentFeet();
+    }
+    this.footIkWanted = wantFootIk;
+    this.footIkMix = THREE.MathUtils.damp(this.footIkMix, wantFootIk ? 1 : 0, wantFootIk ? 6 : 14, delta);
     if (this.footIkMix < 0.002) this.footIkMix = 0;
     this.footIK.weight = this.footIkMix;
-    if (this.footIkMix > 0) {
+    if (wantFootIk && this.footIkMix > 0) {
       this.footIK.solve(delta, grounding.left, grounding.right, 1.0);
-      this.footIK.levelFeet(
-        vrm,
-        ctx.isStepping || this.locomotionWeight > 0.05,
-        grounding.left,
-        grounding.right,
-      );
-      if (this.bodyTurnIsStepping && !ctx.isStepping) {
-        this.footIK.anchorToCurrentFeet();
-      }
+      this.footIK.levelFeet(vrm, false, grounding.left, grounding.right);
     }
-    this.bodyTurnIsStepping = ctx.isStepping;
 
     this.gaze.update(
       vrm,
@@ -526,6 +524,9 @@ export class MotionPipeline {
 
     this.lowerPose.sampleFromVRM(vrm);
     this.upperPose.sampleFromVRM(vrm);
+    if (this.footIkMix > 0) {
+      this.footIK.writeHipsInto(this.lowerPose.hipsPosition, vrm);
+    }
 
     this.finalPose.composeLayeredSmooth(this.lowerPose, this.upperPose, delta);
     this.finalPose.sceneY = vrm.scene.position.y;
