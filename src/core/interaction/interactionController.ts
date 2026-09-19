@@ -256,6 +256,9 @@ export class InteractionController {
       || this.isLeftDragging
       || this.isYGuideDragging;
     void passthroughManager.setInteracting(capture);
+    // interaction 武装/拖拽中禁止滚轮与双指 pinch 缩放，避免跟转身/俯仰抢手势
+    const controls = this.context?.controls;
+    if (controls) controls.enableZoom = !capture;
   }
 
   private clearTouchArm(opts?: { hideGuides?: boolean }): void {
