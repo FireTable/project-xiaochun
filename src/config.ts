@@ -939,7 +939,7 @@ export const APP_CONFIG = {
      * - true: 开启精细二次元墨线描边；
      * - false: 彻底关闭角色所有部件的描边 Pass，展现无描边的纯净手办质感。
      */
-    enabled: false,
+    enabled: true,
 
     /**
      * 描边计算模式：
