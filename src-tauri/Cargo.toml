@@ -1,6 +1,6 @@
 [package]
 name = "project-xiaochun"
-version = "0.1.6"
+version = "0.1.7"
 description = "100% Client-Native Anime Companion & Transparent Desktop Pet"
 authors = ["FireTable <firetable@foxmail.com>"]
 license = "MIT"
@@ -28,6 +28,7 @@ tauri-plugin-deep-link = "2"
 tauri-plugin-single-instance = "2"
 url = "2"
 tauri-plugin-process = "2"
+tauri-plugin-opener = "2.5.5"
 
 [features]
 default = []
