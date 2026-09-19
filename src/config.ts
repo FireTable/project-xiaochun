@@ -880,7 +880,7 @@ export const APP_CONFIG = {
      *   移动端 / 桌面均 0.5 → 实际 Bloom ≈ 主 RT 的 1/4（与改前一致，更省）。
      * - composerMSAASamples: 主 RT MSAA。移动端也保持 4x，与桌面一致保描边锐利。
      */
-    bloomInputScaleMobile: 0.5,
+    bloomInputScaleMobile: 0.3,
     bloomInputScaleDesktop: 0.5,
     composerMSAASamplesMobile: 4,
     composerMSAASamplesDesktop: 4,
@@ -939,7 +939,7 @@ export const APP_CONFIG = {
      * - true: 开启精细二次元墨线描边；
      * - false: 彻底关闭角色所有部件的描边 Pass，展现无描边的纯净手办质感。
      */
-    enabled: true,
+    enabled: false,
 
     /**
      * 描边计算模式：
