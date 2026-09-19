@@ -436,7 +436,7 @@ export const APP_CONFIG = {
       'xiaochun_bikini': {
         source: '/vrm/addons/xiaochun_bikini.vrmaddon',
         name: 'XiaoChun Bikini',
-        sha: 'a70c7d5a10665b72',
+        sha: '92d19fdee413d436',
         bodyMorph: {
           "shoulderWidth": 0.95,
           "buttocks": 1.16,
@@ -542,8 +542,8 @@ export const APP_CONFIG = {
       fingerIntensity: 0.5,            // 手指活跃 0.1~1.0；↑更张更活，↓更半卷少乱指
       torsoIntensity: 0.75,            // 胸腔微动 0.1~1.0；↑呼吸更明显，↓上身更稳
       spineIntensity: 0.3,             // 腰椎微动 0.1~1.0；↑腰更晃，↓站姿更直
-      hipIntensity: 0.70,              // 骨盆微动 0.1~1.0；↑重心微移，↓下盘更钉
-      legIntensity: 0.70,              // 腿跟随 0.1~1.0；↑更跟胯，↓腿更静（脚仍 FootIK）
+      hipIntensity: 0.50,              // 骨盆微动 0.1~1.0；↑重心微移，↓下盘更钉
+      legIntensity: 0.250,              // 腿跟随 0.1~1.0；↑更跟胯，↓腿更静（脚仍 FootIK）
       headIntensity: 0.80,             // 头颈 0.1~1.0；↑更跟模型点头，↓少乌龟颈
       dampingStiffness: 6.5,           // 阻尼刚度约 2~8；↑跟手更快更硬，↓更柔可能拖影
       temporalSmoothRadius: 12,        // 时序平滑帧约 3~24（12≈0.8s@30fps）；↑更糊更软，↓更跟音频但窗缝更硬
@@ -628,7 +628,7 @@ export const APP_CONFIG = {
     // 转向追踪弹簧刚度 (临界阻尼 d = 2*√k，降低 15% 柔化角加速度)
     springK: 5.95,
     // 角色生理最大角速度上限 (rad/s，约 195°/s，降低 15% 更拟真)
-    maxYawVel: 3.4,
+    maxYawVel: 2.6,
     // 步态状态机单步各阶段时长 (秒，步频与角速度同步慢 15%，总计 0.67s 优雅拟人生理单步周期)
     phaseDuration: {
       idle: 0,
@@ -638,9 +638,9 @@ export const APP_CONFIG = {
       settle: 0.21,
     },
     // 踱步抬腿时 lowerLeg 弯曲角度 (rad)
-    stepLowerLegBend: 0.5,
+    stepLowerLegBend: 0.48,
     // 踱步时 upperLeg 前抬角度 (rad)
-    stepUpperLegLift: 0.30,
+    stepUpperLegLift: 0.24,
     // 踱步时脚踝背屈角度 (rad)
     stepAnkleFlex: 0.12,
     // 踱步时髋部侧移量 (hips local X，m，轻柔自然的重心微移 ~12mm)
