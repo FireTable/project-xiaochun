@@ -882,7 +882,7 @@ export const APP_CONFIG = {
      */
     bloomInputScaleMobile: 0.3,
     bloomInputScaleDesktop: 0.5,
-    composerMSAASamplesMobile: 4,
+    composerMSAASamplesMobile: 2,
     composerMSAASamplesDesktop: 4,
   },
   saturation: {
@@ -924,13 +924,14 @@ export const APP_CONFIG = {
    * VRM 角色 MToon 轮廓描边全局配置
    *
    * 💡 切换方案说明：
-   * 1. 【当前方案・粗细均匀的二次元发丝描边】：
+   * 1. 【当前方案・略粗屏幕墨线，减轻 1px 爬齿】：
    *    - enabled: true
-   *    - widthMode: 'screenCoordinates' (根据深度反向补偿相机透视，无论走近拉远全屏粗细恒定，彻底避免近大远小)
-   *    - widthFactor: 0.0012 (精细 1 像素克制墨线，杜绝发梢/下巴等尖锐拐角处过度外扩膨胀)
+   *    - widthMode: 'screenCoordinates'（远近同粗，避免 world 模式远处亚像素闪边）
+   *    - widthFactor: 0.0016（比发丝级 0.0012 略宽，MSAA 更好覆盖）
+   *    - color: '#968890'，lightingMix: 0.25（浅暖褐灰，避免墨线过死黑）
    *    - 注意：贴身丝袜已在底层强制关闭描边，大腿内侧接缝黑线绝不复发。
    *
-   * 2. 【备选方案・无描边的现代手办质感（推荐）】：
+   * 2. 【备选方案・无描边的现代手办质感】：
    *    - enabled: false, widthMode: 'none', widthFactor: 0.0
    */
   outline: {
@@ -945,20 +946,20 @@ export const APP_CONFIG = {
      * 描边计算模式：
      * - 'screenCoordinates': 【推荐・粗细均匀】屏幕像素坐标模式。
      *   通过深度值反向补偿相机的透视投影（抵消近大远小），使整个模型从头到脚在屏幕上
-     *   始终保持恒定粗细的 1 像素高画质墨线，避免近处大粗边、远处断裂的粗细不均。
+     *   始终保持恒定粗细，避免近处大粗边、远处断裂的粗细不均。
      * - 'worldCoordinates': 世界物理坐标模式。固定外推物理厚度，会导致特写极粗、拉远消失。
      * - 'none': 不进行外推。
      */
-    widthMode: 'worldCoordinates',
+    widthMode: 'screenCoordinates',
 
     /**
      * 描边外推宽度系数。
      * 在 screenCoordinates 模式下：
-     * - 0.0010 ~ 0.0015: 黄金推荐值。刚好呈现高品质二次元番剧的 1 像素发丝级边缘勾勒，
-     *   线条细腻平滑，避免在发梢、指尖等高曲率锐角处产生过多粗糙堆积。
+     * - 0.0010 ~ 0.0012: 发丝级 1px，最容易爬齿。
+     * - 0.0015 ~ 0.0018: 略宽，倒壳更好被 MSAA 盖住。
      * - 0.0020+: 线条较重，呈现强烈粗边漫画感。
      */
-    widthFactor: 0.0006,
+    widthFactor: 0.0016,
 
     /**
      * 描边颜色（HEX 颜色字符串）：
@@ -967,14 +968,14 @@ export const APP_CONFIG = {
      * - '#3b2f2f': 柔和深咖啡色（手办模型常用）；
      * 甚至可以设为你想要的任意主题色（如浅金色 '#d4af37'、天蓝色等）。
      */
-    color: '#2a1e24',
+    color: '#968890',
 
     /**
      * 描边与环境光照混合度：
      * - 0.0: 纯色不变，线条无论在背光暗处还是亮处都保持一致；
      * - 1.0: 随光影变暗，融入场景光照。
      */
-    lightingMix: 0.7,
+    lightingMix: 0.25,
   } as VrmOutlineConfig,
   /**
    * VRM MToon NPR 材质赛璐璐光影与深度分层全局配置
