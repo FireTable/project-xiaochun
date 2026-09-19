@@ -81,6 +81,8 @@ export const ChatBar: React.FC<{
   const [isMenuOpen, setIsMenuOpen] = useState(false);
 
   const inputRef = useRef<HTMLInputElement>(null);
+  /** 未聚焦时记录 visualViewport 高度，用来判断 Android 键盘是否挤矮了可视区 */
+  const restingVvHeightRef = useRef<number>(typeof window !== 'undefined' && window.visualViewport ? window.visualViewport.height : 0);
   const [hasText, setHasText] = useState(false);
   const [isSending, setIsSending] = useState(false);
   const [isQueued, setIsQueued] = useState(false);
@@ -271,27 +273,56 @@ export const ChatBar: React.FC<{
    * 视觉策略:
    * - App 根仍走 h-screen / h-[100dvh] (锁原 viewport),3D 场景不变
    * - 用 visualViewport API 算键盘高度,写到 --kb CSS 变量
-   * - ChatBar 的 bottom 用 calc(env(safe-area-inset-bottom) + var(--kb,0px)),键盘顶多高它就浮多高
-   * - 键盘消失时 --kb 复位为 0,ChatBar 回到底部
+   * - ChatBar bottom 公式不变（唤醒前样式不变）
+   * - 键盘打开时 --kb 固定 16px（不叠加 visualViewport gap），失焦清 0
+   * - cover 保留；不用 resizes-content（会挤扁 3D）
    * 同时强制 scrollTo(0,0) 抵消 iOS 自动滚到 input 的行为。
    */
   useEffect(() => {
     if (typeof window === 'undefined') return;
     const vv = window.visualViewport;
     if (!vv) return;
-    const update = () => {
-      // ponytail: keyboard height = 全屏高度(layout viewport) - 可见视口高度(visual viewport)。
-      // layout viewport 一般就是 window.innerHeight,visible viewport 是 vv.height。
-      // 二者差值即键盘占的空间,实时同步到 --kb。
-      const kb = Math.max(0, window.innerHeight - vv.height);
+    const KEYBOARD_GAP_PX = 16;
+    let raf = 0;
+
+    const apply = () => {
+      raf = 0;
+      const gap = Math.max(0, window.innerHeight - vv.offsetTop - vv.height);
+      const focused = document.activeElement === inputRef.current;
+      if (!focused) {
+        restingVvHeightRef.current = vv.height;
+        document.documentElement.style.setProperty('--kb', '0px');
+        document.documentElement.style.setProperty('--kb-safe', '');
+        return;
+      }
+      // Android 上 layout 常已随键盘变矮，只需固定 16px 贴合间距；
+      // 不再把 gap 写进 --kb，避免 cover 下飞中间再贴回。
+      const shrunk = restingVvHeightRef.current > 0 && vv.height < restingVvHeightRef.current - 80;
+      const keyboardOpen = gap > 40 || shrunk;
+      const kb = keyboardOpen ? KEYBOARD_GAP_PX : 0;
       document.documentElement.style.setProperty('--kb', `${kb}px`);
+      document.documentElement.style.setProperty('--kb-safe', keyboardOpen ? '0px' : '');
     };
-    vv.addEventListener('resize', update);
-    vv.addEventListener('scroll', update);
-    update();
+
+    const schedule = () => {
+      if (raf) cancelAnimationFrame(raf);
+      raf = requestAnimationFrame(() => {
+        raf = requestAnimationFrame(apply);
+      });
+    };
+
+    vv.addEventListener('resize', schedule);
+    vv.addEventListener('scroll', schedule);
+    window.addEventListener('resize', schedule);
+    apply();
     return () => {
-      vv.removeEventListener('resize', update);
-      vv.removeEventListener('scroll', update);
+      if (raf) cancelAnimationFrame(raf);
+      vv.removeEventListener('resize', schedule);
+      vv.removeEventListener('scroll', schedule);
+      window.removeEventListener('resize', schedule);
+      document.documentElement.style.removeProperty('--kb');
+      document.documentElement.style.removeProperty('--kb-safe');
+      document.documentElement.style.removeProperty('--kb-busy');
     };
   }, []);
 
@@ -428,7 +459,7 @@ export const ChatBar: React.FC<{
 
   return (
     <div
-      className={`fixed bottom-[calc(0.75rem+env(safe-area-inset-bottom,0px)+var(--kb,0px))] sm:bottom-8 left-1/2 -translate-x-1/2 z-30 w-full max-w-xl px-3 sm:px-4 select-none transition-all duration-300 ease-out ${visibilityClass}`}
+      className={`fixed bottom-[calc(0.75rem+var(--kb-safe,env(safe-area-inset-bottom,0px))+var(--kb,0px))] sm:bottom-8 left-1/2 -translate-x-1/2 z-30 w-full max-w-xl px-3 sm:px-4 select-none transition-[opacity,box-shadow,border-color,background-color] duration-300 ease-out ${visibilityClass}`}
     >
       <div className="flex items-center gap-2 sm:gap-2.5 w-full">
         <DropdownMenu
@@ -598,41 +629,15 @@ export const ChatBar: React.FC<{
         </DropdownMenu>
 
         {/* 输入框主胶囊：高度严格 h-11 (44px)，非阻塞可随时聚焦输入，排队时呼吸高亮。
-            ponytail: 用 <form autoComplete="off"> 包住 chat input,显式声明这个 form 不是
-            登录表单 — Chrome / Safari 的密码管理器会基于 form 上下文判断要不要弹 autofill,
-            这样 ProviderConfigDialog 里的 type="password" 保存的 credential 就不会回流到
-            chat input 上。 */}
-        <form
-          autoComplete="off"
-          onSubmit={(e) => e.preventDefault()}
+            ponytail: 不用 username/password decoy — 隐藏登录字段反而会让 Chrome 弹出
+            「密码 / 信用卡 / 地址」自动填充条。用非 form 容器 + type=search 降低启发式。 */}
+        <div
           className={`flex-1 flex items-center h-11 sm:h-11 rounded-full bg-[#13111c]/85 border backdrop-blur-2xl px-3.5 sm:px-4 transition-all duration-300 relative ${
             isQueued
               ? 'border-[#ea8377] ring-2 ring-[#ea8377]/40 shadow-[0_0_24px_rgba(234,131,119,0.35)]'
               : 'border-white/15 focus-within:border-[#ea8377] focus-within:ring-2 focus-within:ring-[#ea8377]/30 focus-within:shadow-[0_0_24px_rgba(234,131,119,0.3)]'
           }`}
         >
-          {/* ponytail: Chrome 内置密码管理器看到 URL 命中 saved credential 就会弹 autofill,
-              autoComplete="off" / data-form-type / 1p-ignore 都不管用。decoy pattern — 在
-              chat input 前面塞两个视觉隐藏的 username + current-password,Chrome 会把
-              autofill 目标锁定到这两个 decoy,真正可见的 chat input 被绕过。tabIndex=-1 +
-              aria-hidden + pointer-events-none 保证它们不进 tab 顺序、不影响布局、不被无
-              障碍树读出来。absolute 定位脱离 flex 流,不影响 chat input 的对齐。 */}
-          <input
-            type="text"
-            name="username"
-            autoComplete="username"
-            tabIndex={-1}
-            aria-hidden="true"
-            className="absolute left-[-9999px] top-0 w-px h-px opacity-0 pointer-events-none"
-          />
-          <input
-            type="password"
-            name="password"
-            autoComplete="current-password"
-            tabIndex={-1}
-            aria-hidden="true"
-            className="absolute left-[-9999px] top-0 w-px h-px opacity-0 pointer-events-none"
-          />
           {/* 左侧状态感知指示器 */}
           {isQueued ? (
             <Loader2 className="w-4 h-4 text-[#ea8377] animate-spin shrink-0 mr-2 sm:mr-2.5" />
@@ -649,24 +654,24 @@ export const ChatBar: React.FC<{
 
           <input
             ref={inputRef}
-            type="text"
-            id="chatText"
-            // ponytail: name 故意取 chatMessage — Chrome password manager heuristic
-            // 会扫 username / email / password 关键词,不在白名单里就不会把 chat input
-            // 当成 username 字段触发 autofill。
-            name="chatMessage"
+            // ponytail: type=search 比 text 更少被 Chrome 当成登录/地址字段；
+            // 避免页面里再出现 password decoy，否则会直接弹出自动填充工具条。
+            type="search"
+            id="xiaochun-chat-compose"
+            name="xiaochun-chat-compose"
             inputMode="text"
-            // ponytail: 通用的 password manager 忽略标记 — 1Password / LastPass / Dashlane /
-            // Bitwarden 等见到这些属性就跳过本字段。Chrome 内置密码管理不一定遵守,
-            // 但配合外层 <form autoComplete="off"> 通常就够。
+            enterKeyHint="send"
             data-form-type="other"
             data-1p-ignore="true"
             data-lpignore="true"
             data-bwignore="true"
+            data-dashlane-ignore="true"
             autoComplete="off"
             autoCorrect="off"
             autoCapitalize="off"
             spellCheck={false}
+            // 部分 WebKit 会给 search 画清除按钮，这里关掉
+            style={{ WebkitAppearance: 'none' } as React.CSSProperties}
             placeholder={isModelReady ? t('chat.placeholder') : t('chat.syncingPlaceholder')}
             onInput={handleInput}
             onKeyDown={handleKeyDown}
@@ -674,12 +679,22 @@ export const ChatBar: React.FC<{
               setIsInputFocused(true);
               handleInputFocus();
             }}
-            onBlur={() => setIsInputFocused(false)}
+            onBlur={() => {
+              setIsInputFocused(false);
+              // 失焦立刻清额外抬升，避免等 visualViewport 事件导致「收起仍抬高」。
+              const vv = window.visualViewport;
+              if (vv) {
+                restingVvHeightRef.current = vv.height;
+                document.documentElement.style.setProperty('--kb', '0px');
+                document.documentElement.style.setProperty('--kb-safe', '');
+                document.documentElement.style.setProperty('--kb-busy', '0');
+              }
+            }}
             // ponytail: 回复中也允许输入 — 用户可以预先打下一句,点 send 时
             // handleSend 内部用 isSending 拦截,不重复发。按钮单独 disable。
-            className="w-full h-full bg-transparent border-none outline-none text-white placeholder:text-white/40 text-sm sm:text-sm touch-manipulation select-text"
+            className="w-full h-full bg-transparent border-none outline-none text-white placeholder:text-white/40 text-sm sm:text-sm touch-manipulation select-text [&::-webkit-search-cancel-button]:hidden [&::-webkit-search-decoration]:hidden"
           />
-        </form>
+        </div>
 
         {/* 发送按钮：高度严格 h-11 (44px)，状态随就绪度与排队状态联动 */}
         {(() => {

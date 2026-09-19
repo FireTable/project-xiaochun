@@ -25,7 +25,7 @@ export const Route = createRootRoute({
   head: () => ({
     meta: [
       { charSet: 'utf-8' },
-      { name: 'viewport', content: 'width=device-width, initial-scale=1' },
+      { name: 'viewport', content: 'width=device-width, initial-scale=1, viewport-fit=cover' },
       { name: 'theme-color', content: '#ea8377' },
       { name: 'description', content: 'Dual-mode anime companion & transparent desktop pet (Tauri 2.x + Web) — WebLLM (WebGPU) + EMAGE motion (ONNX wasm INT8) + Edge-TTS. Features zero-pop outfit swap, 3D holographic guides, 60Hz alpha click-through, and external protocol (xiaochun://).' },
       { name: 'keywords', content: 'Project XiaoChun, 二次元伴侣, 桌面宠物, 桌宠, 透明桌宠, 虚拟伴侣, AI伴侣, 二次元换装, 角色穿脱, 后期处理, Bloom辉光, 线稿主题, 骨骼微调, desktop pet, transparent companion, Tauri 2, deep link, anime companion, virtual companion, outfit swap, postfx, anime bloom, VRM, VRM morph, WebLLM, WebGPU, ONNX Runtime Web, wasm, INT8, Edge-TTS, EMAGE, streaming motion, three.js, browser-native, リアルタイムAI, バーチャルコンパニオン, 3Dアバター, デスクトップマスコット' },
