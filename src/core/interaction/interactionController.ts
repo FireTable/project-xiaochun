@@ -77,6 +77,8 @@ export class InteractionController {
   private touchDownY = 0;
   /** 长按刚武装、手指仍按着，等位移再决定开拖 / 点 Y */
   private touchPendingDrag = false;
+  /** 移动端当前按下的 touch pointer；≥2 时不做 turn/pitch（留给 pinch 缩放） */
+  private activeTouchPointers = new Set<number>();
 
   // cameraYGuide 拖拽状态
   private isYGuideDragging = false;
@@ -256,9 +258,6 @@ export class InteractionController {
       || this.isLeftDragging
       || this.isYGuideDragging;
     void passthroughManager.setInteracting(capture);
-    // interaction 武装/拖拽中禁止滚轮与双指 pinch 缩放，避免跟转身/俯仰抢手势
-    const controls = this.context?.controls;
-    if (controls) controls.enableZoom = !capture;
   }
 
   private clearTouchArm(opts?: { hideGuides?: boolean }): void {
@@ -274,6 +273,41 @@ export class InteractionController {
       this.isModifierActive = false;
     }
     this.syncGuidePassthrough();
+  }
+
+  private isMultiTouchActive(): boolean {
+    return this.activeTouchPointers.size >= 2;
+  }
+
+  private trackTouchPointerDown(e: PointerEvent): void {
+    if (e.pointerType !== 'touch') return;
+    this.activeTouchPointers.add(e.pointerId);
+  }
+
+  private trackTouchPointerUp(e: PointerEvent): void {
+    if (e.pointerType !== 'touch') return;
+    this.activeTouchPointers.delete(e.pointerId);
+  }
+
+  /** 双指出现：取消长按武装与 turn/pitch/Y 拖，释放 capture，把手势还给 OrbitControls pinch */
+  private abortTurnPitchForMultiTouch(): void {
+    if (this.touchArmTimer !== null) {
+      clearTimeout(this.touchArmTimer);
+      this.touchArmTimer = null;
+    }
+    this.touchPendingDrag = false;
+    if (this.isLeftDragging) this.endDrag();
+    if (this.isYGuideDragging) this.endYGuideDrag();
+    if (this.activePointerId !== null && this.canvas) {
+      try {
+        if (this.canvas.hasPointerCapture(this.activePointerId)) {
+          this.canvas.releasePointerCapture(this.activePointerId);
+        }
+      } catch { /* ignore */ }
+      this.activePointerId = null;
+    }
+    this.updateCursor();
+    this.notifyStateChange();
   }
 
   private enterTouchAdjustMode(pointerId: number, canvas: HTMLCanvasElement): void {
@@ -417,6 +451,13 @@ export class InteractionController {
     const onPointerDown = (e: PointerEvent) => {
       if (e.button !== 0) return;
 
+      this.trackTouchPointerDown(e);
+      // 双指：不进 turn/pitch / 长按武装，交给 pinch
+      if (this.isMultiTouchActive()) {
+        this.abortTurnPitchForMultiTouch();
+        return;
+      }
+
       const hasMod = hasInteractionModifier(e);
 
       // ── 已在调整模式（全端长按武装后）→ 可直接点 Y 尺或开转身/俯仰拖 ──
@@ -489,6 +530,12 @@ export class InteractionController {
         return;
       }
 
+      // 第二指落下：打断 turn/pitch，留给 pinch
+      if (e.pointerType === 'touch' && this.isMultiTouchActive()) {
+        this.abortTurnPitchForMultiTouch();
+        return;
+      }
+
       // 刚武装、手指仍按着：位移后决定 Y 尺 or 转身/俯仰
       if (this.touchPendingDrag && this.touchArmed && this.activePointerId === e.pointerId) {
         const adx = e.clientX - this.touchDownX;
@@ -544,6 +591,11 @@ export class InteractionController {
         return;
       }
 
+      if (e.pointerType === 'touch' && this.isMultiTouchActive()) {
+        this.abortTurnPitchForMultiTouch();
+        return;
+      }
+
       if (!this.can3DInteract(e)) {
         this.isModifierActive = false;
         this.endDrag();
@@ -575,6 +627,7 @@ export class InteractionController {
     };
 
     const onPointerUp = (e: PointerEvent) => {
+      this.trackTouchPointerUp(e);
       if (e.button !== 0) return;
 
       // 长按中松手 → 取消武装计时（未进入调整）
@@ -614,7 +667,9 @@ export class InteractionController {
       this.notifyStateChange();
     };
 
-    const onPointerCancel = () => {
+    const onPointerCancel = (e?: PointerEvent) => {
+      if (e) this.trackTouchPointerUp(e);
+      else this.activeTouchPointers.clear();
       if (this.touchArmTimer !== null) {
         clearTimeout(this.touchArmTimer);
         this.touchArmTimer = null;
