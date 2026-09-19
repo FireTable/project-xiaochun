@@ -9,7 +9,65 @@ import * as DropdownMenuPrimitive from '@radix-ui/react-dropdown-menu';
 import { Check, ChevronRight } from 'lucide-react';
 import { cn } from '@/lib/utils';
 
-const DropdownMenu = DropdownMenuPrimitive.Root;
+const exclusiveMenuClosers = new Map<number, () => void>();
+let exclusiveMenuSeq = 0;
+
+function DropdownMenu({
+  children,
+  open: openProp,
+  defaultOpen,
+  onOpenChange,
+  ...props
+}: React.ComponentProps<typeof DropdownMenuPrimitive.Root>) {
+  const [uncontrolled, setUncontrolled] = React.useState(defaultOpen ?? false);
+  const isControlled = openProp !== undefined;
+  const open = isControlled ? openProp : uncontrolled;
+  const openRef = React.useRef(open);
+  openRef.current = open;
+  const onOpenChangeRef = React.useRef(onOpenChange);
+  onOpenChangeRef.current = onOpenChange;
+  const idRef = React.useRef(0);
+  if (idRef.current === 0) idRef.current = ++exclusiveMenuSeq;
+
+  const setOpen = React.useCallback(
+    (next: boolean) => {
+      if (!isControlled) setUncontrolled(next);
+      onOpenChangeRef.current?.(next);
+    },
+    [isControlled],
+  );
+
+  React.useEffect(() => {
+    const id = idRef.current;
+    const close = () => {
+      if (!openRef.current) return;
+      setOpen(false);
+    };
+    exclusiveMenuClosers.set(id, close);
+    return () => {
+      exclusiveMenuClosers.delete(id);
+    };
+  }, [setOpen]);
+
+  return (
+    <DropdownMenuPrimitive.Root
+      {...props}
+      open={open}
+      onOpenChange={(next) => {
+        if (next) {
+          const self = idRef.current;
+          for (const [id, close] of exclusiveMenuClosers) {
+            if (id !== self) close();
+          }
+        }
+        setOpen(next);
+      }}
+    >
+      {children}
+    </DropdownMenuPrimitive.Root>
+  );
+}
+
 const DropdownMenuTrigger = DropdownMenuPrimitive.Trigger;
 const DropdownMenuGroup = DropdownMenuPrimitive.Group;
 const DropdownMenuPortal = DropdownMenuPrimitive.Portal;

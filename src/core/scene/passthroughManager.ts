@@ -8,20 +8,44 @@ export interface InteractiveRect {
   height: number;
 }
 
+function isEffectivelyHidden(el: Element): boolean {
+  let node: HTMLElement | null = el as HTMLElement;
+  // Stop before body: Radix modal menus set `pointer-events: none` on body
+  // and `auto` on the portaled content. Treating body as hidden dropped
+  // every dropdown rect, so clicks passed through to the desktop.
+  while (node && node !== document.body && node !== document.documentElement) {
+    const style = window.getComputedStyle(node);
+    if (style.display === 'none' || style.visibility === 'hidden') return true;
+    if (style.pointerEvents === 'none') return true;
+    if (parseFloat(style.opacity) < 0.05) return true;
+    node = node.parentElement;
+  }
+  return false;
+}
+
+function visibleRect(el: Element | null): InteractiveRect | null {
+  if (!el || isEffectivelyHidden(el)) return null;
+  const r = el.getBoundingClientRect();
+  if (r.width < 4 || r.height < 4) return null;
+  return { x: r.left, y: r.top, width: r.width, height: r.height };
+}
+
 /**
- * PassthroughManager — 方案 3：基于 Canvas 像素透明度位图 (Alpha Bitmask) + 全局 UI 自动守卫的原生穿透管理
- * 
- * 1. 角色 3D 画布部分：
- *    每秒以 ~30 FPS 从主 WebGL Canvas 提取 140×205 分辨率的 Alpha 掩码（仅 3.5 KB），
- *    压缩成 1-bit 位图同步给 Rust，支持双腿缝隙、裙摆镂空与身体两侧空白的像素级无缝穿透；
- * 
- * 2. 界面 DOM UI 部分（DevDrawer 抽屉、ChatBar 对话栏、TopHeader 顶栏、Radix 弹窗与下拉菜单等）：
- *    每帧自动扫描活动交互 DOM 区域并同步至 Rust 守护列表，绝对防止非 Canvas 的界面元素被误穿透！
+ * PassthroughManager
+ *
+ * Canvas empty pixels → ignore_cursor_events (click through to desktop).
+ * Pointer on HTML (header / chat / menu / dialog) → never passthrough.
+ *
+ * Overlay menus cannot use elementFromPoint while passthrough is already on
+ * (webview gets no mouse events). Opening a menu/dialog sets `dom_blocks`
+ * so the whole window captures until it closes.
  */
 class PassthroughManager {
   private enabled = false;
   private isInteracting = false;
   private uiRects = new Map<string, InteractiveRect>();
+  private lastDomBlocks: boolean | null = null;
+  private pointerAttached = false;
 
   // 离屏微型 Canvas 用于提取 WebGL 的 Alpha 通道
   private maskCanvas: HTMLCanvasElement | null = null;
@@ -52,7 +76,12 @@ class PassthroughManager {
       const { invoke } = await import('@tauri-apps/api/core');
       await invoke('set_passthrough_enabled', { enabled });
       if (enabled) {
+        this.attachPointerTracking();
+        this.syncDomBlocks();
         this.syncAllUIRects(true);
+      } else {
+        this.detachPointerTracking();
+        this.lastDomBlocks = null;
       }
     } catch (err) {
       console.warn('[PassthroughManager] setEnabled failed:', err);
@@ -106,34 +135,15 @@ class PassthroughManager {
     if (now - this.lastSyncTime < 16) return;
     this.lastSyncTime = now;
 
-    // 1. 同步非 Canvas 的 DOM UI 区域 (DevDrawer, ChatBar, 下拉菜单等)
+    this.syncDomBlocks();
     this.syncAllUIRects();
 
-    // 2. 提取并压缩 WebGL 真实画面像素 Alpha 通道
     this.initMaskCanvas();
     if (!this.maskCtx || !this.maskCanvas) return;
 
     try {
       this.maskCtx.clearRect(0, 0, this.maskWidth, this.maskHeight);
-      // 1. 绘制 3D 角色 WebGL 画布 (当前帧渲染后的绝对真实画面)
       this.maskCtx.drawImage(webglCanvas, 0, 0, this.maskWidth, this.maskHeight);
-
-      // 2. 将整个 Webview 中的 DOM UI 元素 (DevDrawer 抽屉、ChatBar、TopHeader、弹窗) 也作为实体画到位图上
-      // 从而形成一张真正代表【整个 Webview 实体 vs 透明空白】的一体化像素掩码！
-      const uiRects = this.collectAllUIRects();
-      if (window.innerWidth > 0 && window.innerHeight > 0) {
-        const scaleX = this.maskWidth / window.innerWidth;
-        const scaleY = this.maskHeight / window.innerHeight;
-        this.maskCtx.fillStyle = '#ffffff';
-        for (const r of uiRects) {
-          this.maskCtx.fillRect(
-            r.x * scaleX,
-            r.y * scaleY,
-            r.width * scaleX,
-            r.height * scaleY
-          );
-        }
-      }
 
       const imgData = this.maskCtx.getImageData(0, 0, this.maskWidth, this.maskHeight);
       const data = imgData.data;
@@ -181,111 +191,77 @@ class PassthroughManager {
     }
   }
 
-  /**
-   * 自动收集页面中所有非 Canvas 的可交互 DOM 界面元素：
-   * - DevDrawer 控制面板抽屉 (#control-panel)
-   * - 底部 ChatBar 对话栏
-   * - 顶部 TopHeader 操作栏
-   * - 各种 Radix 弹窗、下拉菜单、Tooltip 等
-   */
   private collectAllUIRects(): InteractiveRect[] {
     const rects: InteractiveRect[] = [];
 
-    // 手动注册的 UI 矩形 (如右键菜单、边角把手)
     for (const r of this.uiRects.values()) {
       rects.push(r);
     }
 
     if (typeof document === 'undefined') return rects;
 
-    // 1. DevDrawer 侧边抽屉 (仅当可见/滑入屏幕时)
-    const drawer = document.getElementById('control-panel');
-    if (drawer) {
-      const r = drawer.getBoundingClientRect();
-      if (r.width > 10 && r.right > 0 && r.left < window.innerWidth) {
-        rects.push({
-          x: Math.max(0, r.left),
-          y: Math.max(0, r.top),
-          width: r.width,
-          height: r.height,
-        });
-      }
-    }
+    const pushIfVisible = (el: Element | null) => {
+      const r = visibleRect(el);
+      if (r) rects.push(r);
+    };
 
-    // 2. 底部对话胶囊与输入栏 (ChatBar) — 精准注册实际控件，释放两侧大片透明穿透区
-    const chatInput = document.getElementById('chatText');
-    if (chatInput) {
-      const form = chatInput.closest('form');
-      if (form) {
-        const r = form.getBoundingClientRect();
-        rects.push({
-          x: r.left,
-          y: r.top,
-          width: r.width,
-          height: r.height,
-        });
-      }
-      const menuBtn = document.getElementById('chat-menu');
-      if (menuBtn) {
-        const r = menuBtn.getBoundingClientRect();
-        rects.push({
-          x: r.left,
-          y: r.top,
-          width: r.width,
-          height: r.height,
-        });
-      }
-      const sendBtn = form?.parentElement?.querySelector('button:last-child');
-      if (sendBtn && sendBtn !== menuBtn) {
-        const r = sendBtn.getBoundingClientRect();
-        rects.push({
-          x: r.left,
-          y: r.top,
-          width: r.width,
-          height: r.height,
-        });
-      }
-    }
+    pushIfVisible(document.getElementById('control-panel'));
+    pushIfVisible(document.getElementById('xiaochun-chatbar'));
 
-    // 3. 顶部操作栏 (TopHeader) — 精准收集可见的真实按钮组，绝不收集全宽 header 透明拖拽条
     const header = document.querySelector('header');
-    if (header) {
-      const buttons = header.querySelectorAll('button, a, [role="button"]');
-      buttons.forEach((btn) => {
-        const r = btn.getBoundingClientRect();
-        if (r.width > 5 && r.height > 5) {
-          rects.push({
-            x: r.left,
-            y: r.top,
-            width: r.width,
-            height: r.height,
-          });
-        }
+    if (header && !isEffectivelyHidden(header)) {
+      header.querySelectorAll('button, a, [role="button"]').forEach((btn) => {
+        pushIfVisible(btn);
       });
     }
 
-    // 4. 所有动态弹出层、下拉菜单与对话框 (剔除覆盖全屏的 data-radix-portal 容器)
-    const poppers = document.querySelectorAll(
-      '[data-radix-popper-content-wrapper], [role="dialog"], [role="menu"], [data-radix-menu-content]'
-    );
-    poppers.forEach((el) => {
-      const r = el.getBoundingClientRect();
-      if (
-        r.width > 5 &&
-        r.height > 5 &&
-        r.width < window.innerWidth * 0.85 &&
-        r.height < window.innerHeight * 0.85
-      ) {
-        rects.push({
-          x: r.left,
-          y: r.top,
-          width: r.width,
-          height: r.height,
-        });
-      }
-    });
-
     return rects;
+  }
+
+  private hasBlockingOverlay(): boolean {
+    if (typeof document === 'undefined') return false;
+    return Boolean(
+      document.querySelector(
+        '[data-state="open"][role="menu"], [data-state="open"][role="listbox"], [data-state="open"][role="dialog"], [data-radix-menu-content][data-state="open"], .dialog-overlay[data-state="open"]',
+      ),
+    );
+  }
+
+  private isOverDomUi(clientX: number, clientY: number): boolean {
+    const el = document.elementFromPoint(clientX, clientY);
+    if (!el) return false;
+    return !el.closest('canvas');
+  }
+
+  private syncDomBlocks(clientX?: number, clientY?: number): void {
+    if (!isTauri() || !this.enabled) return;
+    let blocks = this.hasBlockingOverlay();
+    if (!blocks && clientX != null && clientY != null) {
+      blocks = this.isOverDomUi(clientX, clientY);
+    }
+    if (blocks === this.lastDomBlocks) return;
+    this.lastDomBlocks = blocks;
+    void import('@tauri-apps/api/core').then(({ invoke }) => {
+      void invoke('set_dom_blocks_passthrough', { blocks });
+    });
+  }
+
+  private onPointerProbe = (e: PointerEvent): void => {
+    this.syncDomBlocks(e.clientX, e.clientY);
+  };
+
+  private attachPointerTracking(): void {
+    if (this.pointerAttached || typeof window === 'undefined') return;
+    this.pointerAttached = true;
+    window.addEventListener('pointermove', this.onPointerProbe, { passive: true });
+    window.addEventListener('pointerdown', this.onPointerProbe, { passive: true });
+  }
+
+  private detachPointerTracking(): void {
+    if (!this.pointerAttached || typeof window === 'undefined') return;
+    this.pointerAttached = false;
+    window.removeEventListener('pointermove', this.onPointerProbe);
+    window.removeEventListener('pointerdown', this.onPointerProbe);
   }
 
   private syncAllUIRects(force: boolean = false): void {

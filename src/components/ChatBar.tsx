@@ -42,7 +42,7 @@ import {
   DropdownMenuItem,
 } from '@/components/ui/dropdown-menu';
 import { LlmProviderIcon } from '@/components/LlmProviderIcon';
-import { useDeferredUnmount } from '@/hooks/useDeferredUnmount';
+import { holdPetUi, releasePetUi } from '@/hooks/usePetUiVisibility';
 import { isDev } from '@/lib/utils';
 
 function MenuSwitch({ on }: { on: boolean }) {
@@ -452,20 +452,17 @@ export const ChatBar: React.FC<{
   }), [t]);
 
   const showChatBar = !isTransparent || isPetUIVisible || isMenuOpen || isInputFocused || hasText || isSending;
-  // ponytail: 延迟 unmount 让淡出动画跑完 (300ms = transition duration), 之后彻底摘掉,
-  // 避免 Radix Tooltip / 输入 focus 残留触发。
-  // animated 拆出来: 首帧停在 opacity-0 让 CSS transition 有起点, 入场动画才会触发。
-  const { mounted, animated } = useDeferredUnmount(showChatBar, 300);
-  if (!mounted) return null;
-  const visibilityClass = showChatBar && animated
-    ? 'opacity-100 translate-y-0 pointer-events-auto'
-    : 'opacity-0 translate-y-4 pointer-events-none';
+  const visibilityClass = showChatBar
+    ? 'opacity-100 pointer-events-auto'
+    : 'opacity-0 pointer-events-none';
 
   return (
     <div
-      className={`fixed bottom-[calc(0.75rem+var(--kb-safe,env(safe-area-inset-bottom,0px))+var(--kb,0px))] sm:bottom-8 left-1/2 -translate-x-1/2 z-30 w-full max-w-xl px-3 sm:px-4 select-none transition-[opacity,box-shadow,border-color,background-color] duration-300 ease-out ${visibilityClass}`}
+      onPointerEnter={() => holdPetUi('chatbar')}
+      onPointerLeave={() => releasePetUi('chatbar')}
+      className={`fixed bottom-[calc(0.75rem+var(--kb-safe,env(safe-area-inset-bottom,0px))+var(--kb,0px))] sm:bottom-8 left-1/2 -translate-x-1/2 z-30 w-full max-w-xl px-3 sm:px-4 select-none transition-opacity duration-300 ease-out ${visibilityClass}`}
     >
-      <div className="flex items-center gap-2 sm:gap-2.5 w-full">
+      <div id="xiaochun-chatbar" className="flex items-center gap-2 sm:gap-2.5 w-full">
         <DropdownMenu
           modal={false}
           onOpenChange={(open) => {

@@ -369,7 +369,7 @@ Project-XiaoChun/
 │   │   └── index.tsx          # Main index route
 │   ├── components/            # React UI components
 │   │   ├── TauriWindowFrame.tsx   # Native desktop frameless resize handles & corner glow
-│   │   ├── TauriTopHeader.tsx     # Desktop window power & dev reload controls
+│   │   ├── TauriTopHeader.tsx     # Desktop ⋯ menu (updates / reload / quit)
 │   │   ├── TopHeader.tsx          # Responsive top navigation (scene / wardrobe / lang / settings)
 │   │   ├── ChatBar.tsx            # Streaming chat interface & model switcher
 │   │   ├── HeadBubble.tsx         # 3D projected speech dialogue bubbles
@@ -377,8 +377,8 @@ Project-XiaoChun/
 │   │   ├── SliderWithAnchors.tsx  # Optimized slider with onTick / onCommit split
 │   │   └── ui/                    # Radix UI primitives
 │   ├── hooks/                 # Reusable UI & platform hooks
-│   │   ├── usePetUiVisibility.ts  # Intentional click-to-toggle desk-pet UI state management
-│   │   └── useDeferredUnmount.ts  # Smooth 300ms transition with complete DOM unmounting
+│   │   ├── usePetUiVisibility.ts  # Click-to-toggle desk-pet UI; hover/dialog holds auto-hide
+│   │   └── useDeferredUnmount.ts  # Optional delayed unmount (pet chrome uses opacity instead)
 │   ├── core/                  # 3D rendering & scene core (Decoupled Facade architecture)
 │   │   ├── vrmEngine.ts       # Central engine coordinator (slim Facade, render loop, VRM loading)
 │   │   ├── protocol/          # Inter-process protocol layer (types.ts, handler.ts, index.ts)

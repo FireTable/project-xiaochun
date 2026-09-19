@@ -34,16 +34,18 @@ This document serves as the definitive reference for how all user interactions a
 
 ### 3.1 Native Desktop Companion Mode (Tauri 2.x)
 - **100% Desktop Compositing**: Operates borderless with transparent background compositing.
-- **60Hz Real-Time Alpha Click-Through** (`passthroughManager` → Rust alpha bitmask):
-  - Hovering over XiaoChun's body/clothes/shoes: Clicks interact with the character.
-  - Hovering over transparent empty space: Clicks fall through to your desktop, IDE, or browser beneath without taking focus.
-  - **While adjust guides are visible** (long-press armed / <kbd>Cmd</kbd>·<kbd>Ctrl</kbd> held / actively dragging): `setInteracting(true)` forces the window to accept input so thin holographic guides (e.g. Camera Y icon) are not misclassified as transparent and click-through.
+- **60Hz Real-Time Alpha Click-Through** (`passthroughManager` → Rust):
+  - Pointer on **HTML** (header, chat bar, open menu/dialog): window captures; no click-through. Open overlays set `set_dom_blocks_passthrough` because the webview gets no mouse events while already ignoring the cursor.
+  - Pointer on **canvas character**: clicks interact with the avatar.
+  - Pointer on **canvas empty pixels**: clicks fall through to the desktop.
+  - **While adjust guides are visible** (long-press armed / <kbd>Cmd</kbd>·<kbd>Ctrl</kbd> held / actively dragging): `setInteracting(true)` so thin holographic guides are not click-through.
   - Left-drag protection ensures window motion is never interrupted mid-flight.
 - **Top Header Controls** (Tauri overflow, `TauriTopHeader`):
-  - One **⋯** button (tooltip “More”). Hover tooltip must wrap the dropdown *trigger*, not the menu root.
-  - **Check for updates**: quiet `check()` on launch; prompt only when a newer GitHub Release exists. Manual check from this menu also reports “already current”.
-  - **Reload**: `tauri:dev` only.
+  - One **⋯** button (tooltip “More”). Tooltip wraps the dropdown *trigger*, not the menu root.
+  - **Check for updates**: launch check is quiet; **manual** check opens the dialog first, then fetches. “View release notes” uses `plugin-opener`.
+  - **Reload**: `isDev()` only.
   - **Close app**: quits the native window.
+  - Dropdowns are exclusive (one open at a time) at `DropdownMenu`.
   - Always-on-top is a window flag in `tauri.conf.json`, not a header toggle.
 - **Window Geometry Memory**: Restores your exact window coordinate position and scale when relaunched.
 

@@ -38,7 +38,7 @@ When tasked with modifications or refactoring, consult the dedicated technical g
 | Task Objective | Primary Guide | Core Invariants & Rules |
 | :--- | :--- | :--- |
 | **User interactions / Hotkeys / Platform differences / Gestures** | [`INTERACTION_AND_CONTROLS.md`](INTERACTION_AND_CONTROLS.md) | Long-press adjust mode (all platforms); Cmd/Ctrl instant 3D; Tauri short-drag window; 60Hz alpha click-through + guide passthrough capture. |
-| **Desktop companion / Tauri 2.x / Alpha click-through / Window state / In-app updater** | [`HYBRID_DESKTOP_APP.md`](HYBRID_DESKTOP_APP.md) | 60Hz alpha bitmask pass-through; window-state position/size; corner handles; deferred unmount; official updater + `latest.json`; signing secrets. |
+| **Desktop companion / Tauri 2.x / Alpha click-through / Window state / In-app updater** | [`HYBRID_DESKTOP_APP.md`](HYBRID_DESKTOP_APP.md) | Canvas alpha bitmask + DOM capture; window-state; corner handles; opacity pet chrome; official updater + opener; signing secrets. |
 | **External app control / URL scheme / IPC / speakText** | [`PROTOCOL.md`](PROTOCOL.md) | Custom `xiaochun://` protocol; safe query string limits; file paths for long text; single-instance. |
 | **Autonomous AI Agent Skill / Tool Calling / Automation** | [`AGENT_SKILL.md`](AGENT_SKILL.md) | Tool schema definition; OS detection checks; short vs long text strategy; companion alerts. |
 | **3D Holographic Guides / Camera elevation / Wind dynamics** | [`INTERACTION_AND_3D_GUIDES.md`](INTERACTION_AND_3D_GUIDES.md) | Long-press / modifier arming; TurnGuide3D; PitchGuide3D; CameraYGuide3D; passthrough capture while guides up. |

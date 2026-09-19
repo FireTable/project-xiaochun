@@ -5,6 +5,7 @@
  */
 
 import type { Update } from '@tauri-apps/plugin-updater';
+import { APP_CONFIG } from '@/config';
 import { isTauri } from '@/lib/platform';
 
 export const APP_UPDATE_CHECK_EVENT = 'xiaochun:check-app-update';
@@ -20,6 +21,11 @@ let pendingUpdate: Update | null = null;
 export function requestAppUpdateCheck(): void {
   if (typeof window === 'undefined') return;
   window.dispatchEvent(new Event(APP_UPDATE_CHECK_EVENT));
+}
+
+export function githubReleaseUrl(version: string): string {
+  const tag = version.startsWith('v') ? version : `v${version}`;
+  return `${APP_CONFIG.brand.github}/releases/tag/${tag}`;
 }
 
 export async function checkForAppUpdate(): Promise<AppUpdateInfo | null> {

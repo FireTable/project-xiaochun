@@ -306,3 +306,8 @@ html.is-tauri #loading-overlay {
   overflow: hidden !important;
 }
 
+/* Radix Dialog 挂到 body，不在 #root 裁切内；遮罩必须自己圆角，否则盖住窗口 20px 圆角。 */
+html.is-tauri .dialog-overlay {
+  border-radius: 20px !important;
+}
+

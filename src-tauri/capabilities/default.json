@@ -16,6 +16,12 @@
     "core:window:allow-cursor-position",
     "window-state:default",
     "deep-link:default",
-    "process:default"
+    "process:default",
+    {
+      "identifier": "opener:allow-open-url",
+      "allow": [
+        { "url": "https://github.com/*" }
+      ]
+    }
   ]
 }

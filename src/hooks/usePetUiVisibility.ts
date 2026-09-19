@@ -1,23 +1,19 @@
 /**
  * usePetUiVisibility — 桌宠模式 UI 唤起/收起的统一入口
  *
- * 集中三件事:
  * 1. isPetUIVisible 单一可信源 — TopHeader / ChatBar 都从这里取;
- * 2. show() 与 toggle() 唤起时自动 dispatch `corner-flash` — 与 TauriWindowFrame
- *    4 角短暂可见共用同一触发, 共享同一时长 (PET_UI_DURATION_MS);
- * 3. 鼠标点击人物主体 → toggle, 点击空白 → hide;
- * 4. 10s 无操作自动收起 — 同步 dispatch `pet-ui-hide` 让 TauriWindowFrame 也清角标,
- *    保证 pet UI 和 corner fade 同步进行, 不会出现"topHeader 没了但 corner 还亮"的脱节。
- *
- * ponytail: corner flash 与 pet UI 共享同一个倒计时源, 任何修改时长 / 加自定义行为
- * (例如鼠标活动重置 timer) 都只改 hook 一处。
+ * 2. show() / toggle() 唤起时 dispatch `corner-flash`;
+ * 3. 点击人物主体 → toggle, 点击空白 → hide;
+ * 4. 10s 无操作自动收起 — 悬停顶栏/输入条、或任意 Dialog 打开时暂停计时。
  */
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 
 const PET_UI_DURATION_MS = 10_000;
 export { PET_UI_DURATION_MS };
 
 const CLICK_DEBOUNCE_PX = 6;
+const PET_UI_HOLD_EVENT = 'pet-ui-hold';
+const PET_UI_RELEASE_EVENT = 'pet-ui-release';
 
 function flashCorners(): void {
   if (typeof window === 'undefined') return;
@@ -29,23 +25,75 @@ function emitPetUiHide(): void {
   window.dispatchEvent(new CustomEvent('pet-ui-hide'));
 }
 
+export function holdPetUi(id: string): void {
+  if (typeof window === 'undefined') return;
+  window.dispatchEvent(new CustomEvent(PET_UI_HOLD_EVENT, { detail: id }));
+}
+
+export function releasePetUi(id: string): void {
+  if (typeof window === 'undefined') return;
+  window.dispatchEvent(new CustomEvent(PET_UI_RELEASE_EVENT, { detail: id }));
+}
+
+function isDialogOpen(): boolean {
+  if (typeof document === 'undefined') return false;
+  return Boolean(document.querySelector('[role="dialog"][data-state="open"]'));
+}
+
 export function usePetUiVisibility(enabled: boolean) {
   const [isPetUIVisible, setIsPetUIVisible] = useState(false);
+  const [held, setHeld] = useState(false);
+  const holdsRef = useRef(new Set<string>());
 
-  // 透明模式关闭时强制收起
+  const syncHeld = useCallback(() => {
+    setHeld(holdsRef.current.size > 0 || isDialogOpen());
+  }, []);
+
   useEffect(() => {
     if (!enabled) setIsPetUIVisible(false);
   }, [enabled]);
 
-  // 自动收起 — PET_UI_DURATION_MS 无操作后 hide, 同步 dispatch pet-ui-hide 让 corner 跟着淡
   useEffect(() => {
-    if (!isPetUIVisible) return;
+    if (!enabled) return;
+
+    const onHold = (e: Event) => {
+      const id = (e as CustomEvent<string>).detail;
+      if (id) holdsRef.current.add(id);
+      syncHeld();
+    };
+    const onRelease = (e: Event) => {
+      const id = (e as CustomEvent<string>).detail;
+      if (id) holdsRef.current.delete(id);
+      syncHeld();
+    };
+
+    window.addEventListener(PET_UI_HOLD_EVENT, onHold);
+    window.addEventListener(PET_UI_RELEASE_EVENT, onRelease);
+
+    const mo = new MutationObserver(syncHeld);
+    mo.observe(document.body, {
+      subtree: true,
+      childList: true,
+      attributes: true,
+      attributeFilter: ['data-state'],
+    });
+    syncHeld();
+
+    return () => {
+      window.removeEventListener(PET_UI_HOLD_EVENT, onHold);
+      window.removeEventListener(PET_UI_RELEASE_EVENT, onRelease);
+      mo.disconnect();
+    };
+  }, [enabled, syncHeld]);
+
+  useEffect(() => {
+    if (!isPetUIVisible || held) return;
     const t = setTimeout(() => {
       setIsPetUIVisible(false);
       emitPetUiHide();
     }, PET_UI_DURATION_MS);
     return () => clearTimeout(t);
-  }, [isPetUIVisible]);
+  }, [isPetUIVisible, held]);
 
   const show = useCallback(() => {
     setIsPetUIVisible((prev) => {
@@ -69,7 +117,6 @@ export function usePetUiVisibility(enabled: boolean) {
     });
   }, []);
 
-  // 桌宠模式: 点击人物主体 → toggle, 点击空白 → hide
   useEffect(() => {
     if (!enabled) return;
 
@@ -84,10 +131,8 @@ export function usePetUiVisibility(enabled: boolean) {
       const dist = Math.hypot(e.clientX - downPos.x, e.clientY - downPos.y);
       downPos = null;
 
-      // 6px 防抖 — 拖动窗口位移不触发 toggle
       if (dist > CLICK_DEBOUNCE_PX) return;
 
-      // 命中 UI 控件 / 菜单 / 表单 / 自定义热区 → 不接管
       const target = e.target as HTMLElement | null;
       if (target?.closest('header, form, [role="menu"], [role="dialog"], button, input, textarea, #chat-menu, .drop-card')) {
         return;
@@ -112,7 +157,6 @@ export function usePetUiVisibility(enabled: boolean) {
     show,
     hide,
     toggle,
-    /** 自动收起时长 (ms) — 与 corner 共享同一常量 */
     durationMs: PET_UI_DURATION_MS,
   };
 }

@@ -43,8 +43,8 @@ pnpm build
 ## 🧭 Key Project Files
 
 - `src/config.ts` — Single source of truth for motion parameters, memory limits, lighting, camera.
-- `src-tauri/src/lib.rs` — Tauri 2.x desktop layer, 60Hz alpha bitmask click-through, IPC dispatcher.
-- `src/lib/appUpdater.ts` — Official in-app updater (`latest.json` on GitHub Releases); UI in `AppUpdateDialog.tsx` / `TauriTopHeader.tsx`. See `docs/HYBRID_DESKTOP_APP.md`.
+- `src-tauri/src/lib.rs` — Tauri 2.x desktop layer, canvas-alpha click-through + DOM capture, IPC dispatcher.
+- `src/lib/appUpdater.ts` — Official in-app updater; `openExternal.ts` for GitHub links. UI in `AppUpdateDialog.tsx` / `TauriTopHeader.tsx`. See `docs/HYBRID_DESKTOP_APP.md`.
 - `src/core/protocol/` — External IPC URL scheme (`xiaochun://`) handler and action types.
 - `src/core/interaction/` — 3D holographic interaction guides (TurnGuide3D, PitchGuide3D, CameraYGuide3D).
 - `src/motion/pipeline/motionPipeline.ts` — Exclusive live writer + Quintic blend + commit; `selectLiveMotionSource`; dual VRM 1.0 / 0.x coordinate bridge.

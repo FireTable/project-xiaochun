@@ -3,7 +3,6 @@ import { useTranslation } from 'react-i18next';
 import { Globe, Shirt, Check, Upload, Loader2, MountainSnow } from 'lucide-react';
 import { vrmEngine } from '@/core/vrmEngine';
 import { sceneManager, useCurrentScene } from '@/core/scene/sceneManager';
-import { passthroughManager } from '@/core/scene/passthroughManager';
 import { Settings, Github } from '@/components/icons';
 import { Button } from '@/components/ui/button';
 import {
@@ -22,7 +21,8 @@ import { APP_CONFIG } from '@/config';
 import { WEARING_OUTFIT_KEY } from '@/lib/constants';
 import { changeLang, LANG_LABELS, SUPPORTED_LANGS, type Lang } from '@/i18n';
 import { isTauri } from '@/lib/platform';
-import { useDeferredUnmount } from '@/hooks/useDeferredUnmount';
+import { openExternal } from '@/lib/openExternal';
+import { holdPetUi, releasePetUi } from '@/hooks/usePetUiVisibility';
 import { TauriTopHeader } from '@/components/TauriTopHeader';
 
 interface TopHeaderProps {
@@ -62,26 +62,6 @@ export const TopHeader: React.FC<TopHeaderProps> = ({
   useEffect(() => {
     vrmEngine.onSwapProgress = (state) => setIsSwapping(state.active);
     return () => { vrmEngine.onSwapProgress = undefined; };
-  }, []);
-
-  useEffect(() => {
-    const updateHeaderBounds = () => {
-      if (headerRef.current) {
-        const rect = headerRef.current.getBoundingClientRect();
-        passthroughManager.registerUIRect('top-header', {
-          x: rect.left,
-          y: rect.top,
-          width: rect.width,
-          height: rect.height,
-        });
-      }
-    };
-    updateHeaderBounds();
-    window.addEventListener('resize', updateHeaderBounds);
-    return () => {
-      window.removeEventListener('resize', updateHeaderBounds);
-      passthroughManager.registerUIRect('top-header', null);
-    };
   }, []);
 
   // 场景管理：订阅单一可信源 sceneManager
@@ -187,14 +167,9 @@ export const TopHeader: React.FC<TopHeaderProps> = ({
   const headerRightClass = isDrawerOpen ? 'sm:right-[22rem]' : 'sm:right-5';
 
   const showHeader = !isTransparent || isPetUIVisible || openMenuCount > 0 || isDrawerOpen || isSwapping;
-  // ponytail: 延迟 unmount 让淡出动画跑完 (300ms = transition duration), 之后彻底从 DOM 摘掉,
-  // 避免 Radix Tooltip 在 opacity-0 / pointer-events-none 下仍被触发。
-  // animated 拆出来: 首帧停在 opacity-0 让 CSS transition 有起点, 入场动画才会触发。
-  const { mounted, animated } = useDeferredUnmount(showHeader, 300);
-  if (!mounted) return null;
-  const visibilityClass = showHeader && animated
-    ? 'opacity-100 translate-y-0 pointer-events-auto'
-    : 'opacity-0 -translate-y-2 pointer-events-none';
+  const visibilityClass = showHeader
+    ? 'opacity-100 pointer-events-auto'
+    : 'opacity-0 pointer-events-none';
 
   return (
     // ponytail: z-50 永远在 drawer (z-40) 之上 — drawer 打开时按钮不被 drawer 半透明背景糊掉。
@@ -202,12 +177,14 @@ export const TopHeader: React.FC<TopHeaderProps> = ({
     // 统一提到 z-50 一次解决,不必为每个按钮单独处理。
     <header
       ref={headerRef}
-      className={`absolute top-3 left-3 right-3 sm:top-5 sm:left-5 ${headerRightClass} z-50 flex justify-end items-center transition-all duration-300 ease-out ${visibilityClass}`}
+      onPointerEnter={() => holdPetUi('header')}
+      onPointerLeave={() => releasePetUi('header')}
+      className={`absolute top-3 left-3 right-3 sm:top-5 sm:left-5 ${headerRightClass} z-50 flex justify-end items-center transition-opacity duration-300 ease-out ${visibilityClass}`}
     >
       {/* 顶部操作区 — ponytail: TW mobile-first,移动端按钮统一 h-10(40px,iOS HIG 44 允许按钮密集布局),
           sm 起拉回默认 size 的 h-9;icon 按钮 h-11(44)→ sm:h-9(36)。
           字号 text-sm → sm:text-xs,图标 w-4 h-4 → sm:w-3.5 sm:h-3.5。 */}
-      <div className="pointer-events-auto flex flex-wrap items-center justify-end gap-2 sm:gap-2.5 max-w-full">
+      <div className="flex flex-wrap items-center justify-end gap-2 sm:gap-2.5 max-w-full">
         <input
           type="file"
           id="vrm-file-input"
@@ -376,6 +353,11 @@ export const TopHeader: React.FC<TopHeaderProps> = ({
                 target="_blank"
                 rel="noopener noreferrer"
                 aria-label={t('header.github')}
+                onClick={(e) => {
+                  if (!isTauri()) return;
+                  e.preventDefault();
+                  void openExternal(APP_CONFIG.brand.github);
+                }}
               >
                 <Github className="w-4 h-4 sm:w-3.5 sm:h-3.5" />
               </a>

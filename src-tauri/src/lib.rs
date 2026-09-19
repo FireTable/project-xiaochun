@@ -197,6 +197,8 @@ pub struct AlphaMaskData {
 pub struct PassthroughState {
   pub enabled: AtomicBool,
   pub interacting: AtomicBool,
+  /// HTML overlay (menu / dialog) or pointer currently over DOM, not canvas.
+  pub dom_blocks: AtomicBool,
   pub ui_rects: Mutex<Vec<InteractiveRect>>,
   pub alpha_mask: Mutex<Option<AlphaMaskData>>,
   pub ignoring: AtomicBool,
@@ -225,6 +227,21 @@ fn set_is_interacting(
 ) -> Result<(), String> {
   state.interacting.store(interacting, Ordering::SeqCst);
   if interacting {
+    if state.ignoring.swap(false, Ordering::SeqCst) {
+      let _ = window.set_ignore_cursor_events(false);
+    }
+  }
+  Ok(())
+}
+
+#[tauri::command]
+fn set_dom_blocks_passthrough(
+  state: tauri::State<'_, Arc<PassthroughState>>,
+  window: WebviewWindow,
+  blocks: bool,
+) -> Result<(), String> {
+  state.dom_blocks.store(blocks, Ordering::SeqCst);
+  if blocks {
     if state.ignoring.swap(false, Ordering::SeqCst) {
       let _ = window.set_ignore_cursor_events(false);
     }
@@ -279,6 +296,7 @@ pub fn run() {
 
   tauri::Builder::default()
     .plugin(tauri_plugin_process::init())
+    .plugin(tauri_plugin_opener::init())
     .manage(passthrough_state)
     .manage(protocol_state)
     // ponytail: 持久化窗口尺寸 / 位置 — 启动时回放, resize/move 自动保存
@@ -301,6 +319,7 @@ pub fn run() {
     .invoke_handler(tauri::generate_handler![
       set_passthrough_enabled,
       set_is_interacting,
+      set_dom_blocks_passthrough,
       update_interactive_rects,
       update_alpha_bitmask,
       get_pending_protocol_actions
@@ -413,8 +432,8 @@ pub fn run() {
               continue;
             }
 
-            // 如果当前正处于用户长按拖拽/交互状态，强制保持可响应，避免拖拽中途断开
-            if state.interacting.load(Ordering::SeqCst) {
+            // 长按拖拽、或指针在 HTML（菜单/对话框/顶栏）上：整窗吃点击，不查 canvas 位图
+            if state.interacting.load(Ordering::SeqCst) || state.dom_blocks.load(Ordering::SeqCst) {
               if state.ignoring.swap(false, Ordering::SeqCst) {
                 if let Some(window) = app_handle.get_webview_window("main") {
                   let _ = window.set_ignore_cursor_events(false);
