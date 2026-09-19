@@ -152,6 +152,7 @@ export class GazeController {
   ): void {
     if (!this.enabled) {
       this.hasLastLookAt = false;
+      if (vrm.lookAt) vrm.lookAt.autoUpdate = false;
       return;
     }
 
@@ -395,11 +396,15 @@ export class GazeController {
     }
 
     // ── 7. 眼球 VRMLookAt 跟踪与敏捷注视补偿 ──
+    // 本帧由 Gaze 调用 lookAt.update；关掉 autoUpdate，避免随后 vrm.update 再算一遍。
     if (this.isLookAtEyes && vrm.lookAt) {
       this.ensureEnhancedRangeMap(vrm);
       vrm.lookAt.target = this.gazeTarget;
       vrm.lookAt.autoUpdate = true;
       vrm.lookAt.update(delta);
+      vrm.lookAt.autoUpdate = false;
+    } else if (vrm.lookAt) {
+      vrm.lookAt.autoUpdate = false;
     }
   }
 }

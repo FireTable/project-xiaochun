@@ -566,7 +566,8 @@ export class LineworkWorld {
 
   /** 动态更新：持续驱动大范围水花喷洒下落与八角水面同心涟漪扩展 (极速零分配，耗时 < 0.015ms) */
   update(_delta: number, time: number): void {
-    if (!this.isBuilt) return;
+    // 透明桌宠 root 不可见：喷泉/飞鸟用户看不到，不必每帧积分
+    if (!this.isBuilt || !this.rootGroup.visible) return;
 
     const nozzle = this.fountainOrigin;
 
