@@ -322,8 +322,6 @@ export class ChatDirector {
 
   public onSuspendRendering: (() => void) | null = null;
   public onResumeRendering: (() => void) | null = null;
-  public onInferenceStart: (() => void) | null = null;
-  public onInferenceEnd: (() => void) | null = null;
 
   private thinkingVRMABuf: ArrayBuffer | null = null;
   private cachedThinkingClip: THREE.AnimationClip | null = null;
@@ -406,10 +404,6 @@ export class ChatDirector {
     await new Promise((r) => setTimeout(r, staggerDelay));
     if (this.stopped) return;
 
-    this.onInferenceStart?.();
-    await new Promise((r) => requestAnimationFrame(r));
-    if (this.stopped) return;
-
     let speechText = '';
     try {
       const ctx = await (this.getSystemContext?.() ?? Promise.resolve({
@@ -428,8 +422,6 @@ export class ChatDirector {
       status('error.llm', { message: rawMsg || 'Unknown error' }, true);
       this.stop();
       return;
-    } finally {
-      this.onInferenceEnd?.();
     }
     if (this.stopped || !speechText.trim()) {
       speechText = this.translateSync?.('bubble.greeting') ?? '';

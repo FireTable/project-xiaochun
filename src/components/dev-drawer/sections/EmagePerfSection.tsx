@@ -39,18 +39,20 @@ type Row = { label: string; value: string; tone?: 'ok' | 'bad' | 'muted' };
 
 /**
  * EMAGE P0b 验收面板：大字号 key/value，方便直接截图，无需开远程 console。
- * 每 500ms 轮询 getEmagePerfSnapshot；不改动动作混合逻辑。
+ * DevDrawer 打开时每 500ms 轮询 getEmagePerfSnapshot；关闭即停。不改动动作混合逻辑。
  */
 export const EmagePerfSection: React.FC = () => {
-  const { t } = useDevDrawer();
+  const { t, isOpen } = useDevDrawer();
   const [snap, setSnap] = useState<EmagePerfSnapshot>(() => vrmEngine.getEmagePerfSnapshot());
 
+  // 抽屉关闭时不轮询（DevDrawer 关闭仍 mount，避免空闲 500ms 空转）
   useEffect(() => {
+    if (!isOpen) return;
     const tick = () => setSnap(vrmEngine.getEmagePerfSnapshot());
     tick();
     const id = window.setInterval(tick, 500);
     return () => window.clearInterval(id);
-  }, []);
+  }, [isOpen]);
 
   const hint = useMemo(() => passFailHint(snap, t), [snap, t]);
   const env = snap.wasmEnv;

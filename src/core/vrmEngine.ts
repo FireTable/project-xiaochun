@@ -295,6 +295,8 @@ export class VRMEngine {
   // 渲染永远被卡住,黑屏。现在:dev / prod 都从 startAnimation 立即开始渲染,
   // overlay 只是叠加在上层的 UI。VRM 加载完后,fitCamera + cinematicIntro 直接显示。
   public isRenderingSuspended = false;
+  /** document.visibilitychange → 后台 suspend / 前台 resume */
+  private visibilityPauseHandler: (() => void) | null = null;
 
   constructor() {
     this.loader.register((parser) => {
@@ -372,13 +374,43 @@ export class VRMEngine {
     this.chatDirector.getSystemContext = provider;
   }
 
+  private bindVisibilityPause(): void {
+    if (typeof document === 'undefined' || this.visibilityPauseHandler) return;
+    this.visibilityPauseHandler = () => {
+      if (document.hidden) {
+        this.suspendRendering();
+      } else {
+        this.resumeRendering();
+      }
+    };
+    document.addEventListener('visibilitychange', this.visibilityPauseHandler);
+  }
+
+  private unbindVisibilityPause(): void {
+    if (!this.visibilityPauseHandler || typeof document === 'undefined') return;
+    document.removeEventListener('visibilitychange', this.visibilityPauseHandler);
+    this.visibilityPauseHandler = null;
+  }
+
   public suspendRendering(): void {
     this.isRenderingSuspended = true;
+    // 真正停 rAF，避免后台仍每帧空转烧电发热
+    if (this.animFrameId !== null) {
+      cancelAnimationFrame(this.animFrameId);
+      this.animFrameId = null;
+    }
   }
 
   public resumeRendering(): void {
+    if (!this.isRenderingSuspended && this.animFrameId !== null) {
+      return;
+    }
     this.isRenderingSuspended = false;
     this.clock.start();
+    // 有画布且场景已就绪时重启主循环
+    if (this.animFrameId === null && this.renderer && (this.currentVRM || this._sceneInitialized)) {
+      this.startAnimation();
+    }
   }
 
   // ponytail: 启动期 cinematic 推镜 — LoadingOverlay 破次元时调,沿当前相机方向
@@ -454,8 +486,6 @@ export class VRMEngine {
     this.chatDirector.bindPipeline(this.motionPipeline);
     this.chatDirector.onSuspendRendering = () => this.suspendRendering();
     this.chatDirector.onResumeRendering = () => this.resumeRendering();
-    this.chatDirector.onInferenceStart = () => this.setInferenceMode(true);
-    this.chatDirector.onInferenceEnd = () => this.setInferenceMode(false);
     this.chatDirector.setOnEnd(() => this.bubbleTracker.hide());
   }
 
@@ -501,27 +531,8 @@ export class VRMEngine {
     return this.bodyMorph.getCurrentHeightCm();
   }
 
-  // ── 推理期间动态调频 (稳态 30FPS + 阴影降级) ──
-  private isInferenceMode = false;
-  private lastFrameTime = 0;
   private lastRenderWidth = 0;
   private lastRenderHeight = 0;
-
-  public setInferenceMode(enabled: boolean): void {
-    this.isInferenceMode = enabled;
-    if (!this.renderer) return;
-    if (enabled) {
-      // 大模型推理期间挂起阴影贴图高频重绘，将 GPU 算力让出给 WebGPU Prefill
-      if (this.renderer.shadowMap.enabled) {
-        this.renderer.shadowMap.autoUpdate = false;
-      }
-    } else {
-      if (this.renderer.shadowMap.enabled) {
-        this.renderer.shadowMap.autoUpdate = true;
-        this.renderer.shadowMap.needsUpdate = true;
-      }
-    }
-  }
 
   /**
    * 统一获取渲染像素比：
@@ -1960,11 +1971,12 @@ export class VRMEngine {
 
   // ── 核心高内聚主渲染循环 ──
   private startAnimation(): void {
+    this.bindVisibilityPause();
     if (this.animFrameId !== null) {
       cancelAnimationFrame(this.animFrameId);
       this.animFrameId = null;
     }
-    const animate = (timestamp: number) => {
+    const animate = (_timestamp: number) => {
       this.animFrameId = requestAnimationFrame(animate);
       if (this.isRenderingSuspended) return;
 
@@ -1989,16 +2001,6 @@ export class VRMEngine {
           }
         }
       }
-
-      // 移动端/推理期动态调频 (Throttle to ~30 FPS):
-      // 将 GPU 瞬时算力让渡给 WebGPU Prefill，保持角色 30FPS 稳定动态呼吸，消除卡死与掉帧
-      if (this.isInferenceMode) {
-        const elapsedSinceLast = timestamp - this.lastFrameTime;
-        if (elapsedSinceLast < 31) {
-          return;
-        }
-      }
-      this.lastFrameTime = timestamp;
 
       const delta = Math.min(this.clock.getDelta(), 0.1);
       const time = this.clock.getElapsedTime();
@@ -2172,6 +2174,9 @@ export class VRMEngine {
   }
 
   public dispose(): void {
+    this.unbindVisibilityPause();
+    this.suspendRendering();
+
     if (this.animFrameId !== null) {
       cancelAnimationFrame(this.animFrameId);
     }

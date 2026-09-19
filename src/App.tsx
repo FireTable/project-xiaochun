@@ -79,7 +79,7 @@ export const App: React.FC = () => {
       engineModule = mod;
       // ponytail: 渲染循环不再被 LoadingOverlay suspend —— overlay 只是视觉遮罩,
       // 渲染从 startAnimation 一直跑,fitCamera + cinematicIntro 在 VRM 加载完后直接生效。
-      // (推理降频等真正的节流仍走 chatDirector.onSuspendRendering。)
+      // 后台页 visibilitychange 由 vrmEngine 自行 suspend/resume。
       mod.vrmEngine.resumeRendering();
       mod.vrmEngine.onLoadingChange = (state) => {
         if (skipLoadingOverlay && state.progress < 100) return;

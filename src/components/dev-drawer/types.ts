@@ -50,6 +50,8 @@ export interface DevDrawerHistoryAction {
 
 /** drawer 上下文 — 壳通过 DevDrawerContext.Provider 注入,段组件 useContext 读取 */
 export interface DevDrawerContextValue {
+  /** 抽屉是否打开 — EmagePerf 等轮询仅在 true 时跑 */
+  isOpen: boolean;
   t: (key: string, opts?: Record<string, unknown>) => string;
   collapsed: Set<string>;
   toggleCollapsed: (id: string) => void;

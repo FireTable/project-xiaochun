@@ -6,6 +6,7 @@ import type { DevDrawerContextValue } from './types';
  * ponytail: 这样 section 组件不用一层层 prop drilling,新增 section 直接 import 即可。
  */
 export const DevDrawerContext = createContext<DevDrawerContextValue>({
+  isOpen: false,
   t: (k) => k,
   collapsed: new Set(),
   toggleCollapsed: () => {},

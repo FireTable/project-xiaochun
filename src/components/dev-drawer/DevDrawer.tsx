@@ -298,6 +298,7 @@ export const DevDrawer: React.FC<DevDrawerProps> = ({ isOpen, onClose }) => {
   return (
     <DevDrawerContext.Provider
       value={{
+        isOpen,
         t,
         collapsed,
         toggleCollapsed,
