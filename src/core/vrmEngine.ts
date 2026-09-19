@@ -12,7 +12,7 @@ import type { PlayMotionOptions, UniversalMotionHandle } from '@/motion/sources/
 import { preloadWebLLM, unloadWebLLM } from '@/llm/webLLMProvider';
 import { APP_CONFIG, type LightConfig } from '@/config';
 import { loadPostFxEnabledFromStorage, getRenderPixelRatio, resolveInitialSceneTheme } from '@/lib/utils';
-import { isMobile } from '@/lib/platform';
+import { isMobile, isTauri } from '@/lib/platform';
 import type { Lang } from '@/i18n';
 import { langFromSystemPrompt } from '@/llm/prompts';
 
@@ -305,6 +305,17 @@ export class VRMEngine {
   public isRenderingSuspended = false;
   /** document.visibilitychange → 后台 suspend / 前台 resume */
   private visibilityPauseHandler: (() => void) | null = null;
+  /** 当前 WebGL 上下文属性指纹（antialias / preserveDrawingBuffer / powerPreference） */
+  private _rendererContextKey = '';
+  /** 电池未充电 → low-power；插电或未知桌面 → high-performance */
+  private _onBattery = typeof navigator !== 'undefined' && isMobile();
+  private _batteryUnsub: (() => void) | null = null;
+  private _rendererContextDirty = false;
+  private _rulerLastHx = -1;
+  private _rulerLastHy = -1;
+  private _rulerLastBx = -1;
+  private _rulerLastBy = -1;
+  private _rulerLastInView: boolean | null = null;
 
   constructor() {
     this.loader.register((parser) => {
@@ -388,16 +399,46 @@ export class VRMEngine {
       if (document.hidden) {
         this.suspendRendering();
       } else {
-        this.resumeRendering();
+        this.resumeForeground();
       }
     };
     document.addEventListener('visibilitychange', this.visibilityPauseHandler);
+    document.addEventListener('freeze', this.onPageFreeze);
+    document.addEventListener('resume', this.onPageResume);
+    window.addEventListener('pagehide', this.onPageHide);
+    window.addEventListener('pageshow', this.onPageShow);
   }
 
   private unbindVisibilityPause(): void {
     if (!this.visibilityPauseHandler || typeof document === 'undefined') return;
     document.removeEventListener('visibilitychange', this.visibilityPauseHandler);
+    document.removeEventListener('freeze', this.onPageFreeze);
+    document.removeEventListener('resume', this.onPageResume);
+    window.removeEventListener('pagehide', this.onPageHide);
+    window.removeEventListener('pageshow', this.onPageShow);
     this.visibilityPauseHandler = null;
+  }
+
+  private onPageFreeze = (): void => {
+    this.suspendRendering();
+  };
+
+  private onPageResume = (): void => {
+    this.resumeForeground();
+  };
+
+  private onPageHide = (): void => {
+    this.suspendRendering();
+  };
+
+  private onPageShow = (): void => {
+    this.resumeForeground();
+  };
+
+  /** 仅当前台可见时恢复；后台 pageshow/resume 不把 GPU 叫醒。 */
+  private resumeForeground(): void {
+    if (typeof document !== 'undefined' && document.hidden) return;
+    this.resumeRendering();
   }
 
   public suspendRendering(): void {
@@ -407,6 +448,11 @@ export class VRMEngine {
       cancelAnimationFrame(this.animFrameId);
       this.animFrameId = null;
     }
+    if (this.cinematicIntroRafId !== null) {
+      cancelAnimationFrame(this.cinematicIntroRafId);
+      this.cinematicIntroRafId = null;
+      if (this.controls) this.controls.enabled = true;
+    }
   }
 
   public resumeRendering(): void {
@@ -414,8 +460,9 @@ export class VRMEngine {
       return;
     }
     this.isRenderingSuspended = false;
+    this._lastAnimTs = 0;
     this.clock.start();
-    // 有画布且场景已就绪时重启主循环
+    // 有画布且场景已就绪时重启主循环；startAnimation 会立刻跑一帧，避免回前台空白
     if (this.animFrameId === null && this.renderer && (this.currentVRM || this._sceneInitialized)) {
       this.startAnimation();
     }
@@ -521,6 +568,11 @@ export class VRMEngine {
     } else {
       this._unsubHeightRuler?.();
       this._unsubHeightRuler = null;
+      this._rulerLastHx = -1;
+      this._rulerLastHy = -1;
+      this._rulerLastBx = -1;
+      this._rulerLastBy = -1;
+      this._rulerLastInView = null;
     }
   }
 
@@ -568,6 +620,101 @@ export class VRMEngine {
     return Boolean(this.canvas && this.renderer);
   }
 
+  /**
+   * PostFX 开：默认帧缓冲不开 MSAA（抗锯齿来自 composer 主 RT 的 4x）。
+   * 穿透桌宠才 preserveDrawingBuffer；电池 low-power，插电 high-performance。
+   */
+  private getRendererContextAttributes(): THREE.WebGLRendererParameters {
+    const theme = this.getLineworkTheme();
+    const composerDraws = this.postFx.config.enabled && theme !== 'transparent';
+    const preserve = isTauri() && (
+      theme === 'transparent' || passthroughManager.isPassthroughEnabled()
+    );
+    return {
+      canvas: this.canvas ?? undefined,
+      // composer 主 RT 已是 MSAA 4；只有直出 framebuffer 时才开默认 AA
+      antialias: !composerDraws,
+      alpha: true,
+      powerPreference: this._onBattery ? 'low-power' : 'high-performance',
+      preserveDrawingBuffer: preserve,
+    };
+  }
+
+  private rendererContextKey(): string {
+    const a = this.getRendererContextAttributes();
+    return `${a.antialias ? 1 : 0}|${a.preserveDrawingBuffer ? 1 : 0}|${a.powerPreference}`;
+  }
+
+  private bindBatteryPowerPreference(): void {
+    if (this._batteryUnsub || typeof navigator === 'undefined') return;
+    type BatteryLike = {
+      charging: boolean;
+      addEventListener(type: 'chargingchange', listener: () => void): void;
+      removeEventListener(type: 'chargingchange', listener: () => void): void;
+    };
+    const nav = navigator as Navigator & { getBattery?: () => Promise<BatteryLike> };
+    if (typeof nav.getBattery !== 'function') {
+      this._onBattery = isMobile();
+      return;
+    }
+    void nav.getBattery().then((bat) => {
+      const apply = () => {
+        const next = !bat.charging;
+        if (next === this._onBattery) return;
+        this._onBattery = next;
+        this.syncRendererContextIfNeeded();
+      };
+      this._onBattery = !bat.charging;
+      bat.addEventListener('chargingchange', apply);
+      this._batteryUnsub = () => bat.removeEventListener('chargingchange', apply);
+      this.syncRendererContextIfNeeded();
+    }).catch(() => {
+      this._onBattery = isMobile();
+    });
+  }
+
+  private syncRendererContextIfNeeded(): void {
+    if (!this.canvas || !this.renderer) return;
+    if (this.rendererContextKey() === this._rendererContextKey) {
+      this._rendererContextDirty = false;
+      return;
+    }
+    if (this.chatDirector.speaking) {
+      this._rendererContextDirty = true;
+      return;
+    }
+    this.recreateRendererContext();
+  }
+
+  private recreateRendererContext(): void {
+    const canvas = this.canvas;
+    if (!canvas) return;
+    if (this.renderer) {
+      this.renderer.dispose();
+      this.renderer = null;
+    }
+    this.renderer = new THREE.WebGLRenderer(this.getRendererContextAttributes());
+    this._rendererContextKey = this.rendererContextKey();
+    this._rendererContextDirty = false;
+    this.renderer.setClearColor(0x000000, 0);
+    const ratio = this.getTargetPixelRatio();
+    const width = this.lastRenderWidth || (typeof window !== 'undefined' ? window.innerWidth : 1);
+    const height = this.lastRenderHeight || (typeof window !== 'undefined' ? window.innerHeight : 1);
+    this.renderer.setPixelRatio(ratio);
+    this.renderer.setSize(width, height);
+    this.renderer.toneMapping = THREE.LinearToneMapping;
+    this.renderer.toneMappingExposure = 1.08;
+    this.renderer.shadowMap.enabled = true;
+    this.renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+    this.postFx.init(this.renderer, this.scene, this.camera);
+    this.postFx.applyConfig();
+    this.postFx.resize(width, height, ratio);
+    if (this.currentVRM || this._sceneInitialized) {
+      this.syncSceneToNewRenderer();
+    }
+    this.renderFrameNow();
+  }
+
   public attachCanvas(canvas: HTMLCanvasElement): void {
     if (this.canvas === canvas && this.renderer) {
       if (!this.animFrameId && (this.currentVRM || this._sceneInitialized)) {
@@ -595,14 +742,6 @@ export class VRMEngine {
     window.removeEventListener('resize', this.handleResize);
 
     this.canvas = canvas;
-    this.renderer = new THREE.WebGLRenderer({
-      canvas,
-      antialias: true,
-      alpha: true,
-      powerPreference: 'high-performance',
-      preserveDrawingBuffer: true,
-    });
-    this.renderer.setClearColor(0x000000, 0);
 
     const storedEnabled = loadPostFxEnabledFromStorage();
     this.postFx.config = {
@@ -614,6 +753,11 @@ export class VRMEngine {
       hs: { ...APP_CONFIG.postfx.hs },
     };
 
+    this.bindBatteryPowerPreference();
+    this.renderer = new THREE.WebGLRenderer(this.getRendererContextAttributes());
+    this._rendererContextKey = this.rendererContextKey();
+    this.renderer.setClearColor(0x000000, 0);
+
     const ratio = this.getTargetPixelRatio();
     this.renderer.setPixelRatio(ratio);
     this.renderer.setSize(window.innerWidth, window.innerHeight);
@@ -623,8 +767,9 @@ export class VRMEngine {
     this.renderer.toneMappingExposure = 1.08;
 
     this.postFx.init(this.renderer, this.scene, this.camera);
-    // 当 PostFX 开关切换时动态更新 pixelRatio，关闭时彻底还原原始基线分辨率
+    // PostFX 开关会改默认帧缓冲是否需要 MSAA，必要时重建上下文；同时刷新 pixelRatio
     this.postFx.onEnabledChange = () => {
+      this.syncRendererContextIfNeeded();
       this.updatePixelRatio();
     };
     this.postFx.applyConfig();
@@ -891,6 +1036,7 @@ export class VRMEngine {
         localStorage.setItem(SCENE_THEME_KEY, theme);
       } catch { }
     }
+    this.syncRendererContextIfNeeded();
   }
 
   public updateShadowForTheme(isDark: boolean): void {
@@ -2019,6 +2165,10 @@ export class VRMEngine {
   // ── 核心高内聚主渲染循环 ──
   private startAnimation(): void {
     this.bindVisibilityPause();
+    if (typeof document !== 'undefined' && document.hidden) {
+      this.suspendRendering();
+      return;
+    }
     if (this.animFrameId !== null) {
       cancelAnimationFrame(this.animFrameId);
       this.animFrameId = null;
@@ -2032,6 +2182,9 @@ export class VRMEngine {
     const animate = (timestamp: number) => {
       this.animFrameId = requestAnimationFrame(animate);
       if (this.isRenderingSuspended) return;
+      if (this._rendererContextDirty && !this.chatDirector.speaking) {
+        this.syncRendererContextIfNeeded();
+      }
 
       // 平台限帧：仍按 vsync 挂 rAF，未到下一拍则跳过 update/render。
       // 用累加 interval 锁相（避免严格 < 在 ~33.3ms 时连跳成 ~20fps）；掉队超过 1 拍则重置。
@@ -2137,7 +2290,7 @@ export class VRMEngine {
           this.shadow.update(this.camera, this.getLineworkTheme() === 'transparent');
         }
 
-        // 8. 委托 BubbleTracker 更新 3D 头部气泡屏幕坐标 (带 1.5px 死区过滤)
+        // 8. 头顶世界坐标同帧只采一次：气泡 / 身高 / 尺子共用
         this.bodyMorph.getHeadTopWorldPosition(this.tempHeadTopPos);
         this.bubbleTracker.update(vrm, this.camera, this.tempHeadTopPos);
 
@@ -2145,50 +2298,53 @@ export class VRMEngine {
         // ponytail: liveHeight 每帧无条件读,与 canvas ruler / drawer chip 共用同一个值;
         // 只有当数字变化 ≥0.05cm 才广播 notifyHeightChange,drawer 收到后再读一次
         // (这次 scene Y 已经更新到最新),从而消灭"chip 显示旧 sceneY 虚高"的串号 bug。
-        const liveHeight = this.bodyMorph.getCurrentHeightCm();
+        const liveHeight = this.bodyMorph.heightCmFromHeadTopY(this.tempHeadTopPos.y);
         if (Math.abs(liveHeight - this._lastRenderedHeight) >= 0.05) {
           this._lastRenderedHeight = liveHeight;
           this.notifyHeightChange();
         }
-        if (this.isHeightRulerVisible) {
-          this._refreshHeightRulerText();
+        if (this.isHeightRulerVisible && this.camera) {
+          this.tempRulerEdgePos.copy(this.tempHeadTopPos).project(this.camera);
 
-          if (this.camera) {
-            this.bodyMorph.getHeadTopWorldPosition(this.tempHeadTopPos);
-            this.tempRulerEdgePos.copy(this.tempHeadTopPos).project(this.camera);
-
-            const inView = this.tempRulerEdgePos.z <= 1.0;
-            const badgeEl = typeof document !== 'undefined' ? document.getElementById('height-ruler-badge') : null;
-            const svgEl = typeof document !== 'undefined' ? document.getElementById('height-ruler-svg') : null;
-            const lineEl = typeof document !== 'undefined' ? document.getElementById('height-ruler-line') : null;
-            const dotEl = typeof document !== 'undefined' ? document.getElementById('height-ruler-dot') : null;
-
-            if (inView) {
-              const hx = (this.tempRulerEdgePos.x * 0.5 + 0.5) * window.innerWidth;
-              const hy = (-this.tempRulerEdgePos.y * 0.5 + 0.5) * window.innerHeight;
-
-              // 标牌放置于角色头顶右上方
-              const bx = Math.round(hx + 42);
-              const by = Math.round(hy - 28);
-
+          const inView = this.tempRulerEdgePos.z <= 1.0;
+          if (inView) {
+            const hx = Math.round((this.tempRulerEdgePos.x * 0.5 + 0.5) * window.innerWidth);
+            const hy = Math.round((-this.tempRulerEdgePos.y * 0.5 + 0.5) * window.innerHeight);
+            const bx = hx + 42;
+            const by = hy - 28;
+            if (
+              this._rulerLastInView !== true
+              || hx !== this._rulerLastHx
+              || hy !== this._rulerLastHy
+              || bx !== this._rulerLastBx
+              || by !== this._rulerLastBy
+            ) {
+              this._rulerLastHx = hx;
+              this._rulerLastHy = hy;
+              this._rulerLastBx = bx;
+              this._rulerLastBy = by;
+              this._rulerLastInView = true;
+              const badgeEl = document.getElementById('height-ruler-badge');
+              const svgEl = document.getElementById('height-ruler-svg');
+              const lineEl = document.getElementById('height-ruler-line');
+              const dotEl = document.getElementById('height-ruler-dot');
               if (badgeEl) {
                 badgeEl.style.transform = `translate3d(${bx}px, ${by}px, 0)`;
                 badgeEl.style.opacity = '1';
               }
-
               if (svgEl && lineEl && dotEl) {
                 svgEl.style.display = 'block';
-                const midX = Math.round(hx + 20);
-                const midY = Math.round(hy - 14);
-                const targetY = Math.round(by + 13);
-                lineEl.setAttribute('d', `M ${Math.round(hx)} ${Math.round(hy)} L ${midX} ${midY} L ${bx} ${targetY}`);
-                dotEl.setAttribute('cx', String(Math.round(hx)));
-                dotEl.setAttribute('cy', String(Math.round(hy)));
+                lineEl.setAttribute('d', `M ${hx} ${hy} L ${hx + 20} ${hy - 14} L ${bx} ${by + 13}`);
+                dotEl.setAttribute('cx', String(hx));
+                dotEl.setAttribute('cy', String(hy));
               }
-            } else {
-              if (badgeEl) badgeEl.style.opacity = '0';
-              if (svgEl) svgEl.style.display = 'none';
             }
+          } else if (this._rulerLastInView !== false) {
+            this._rulerLastInView = false;
+            const badgeEl = document.getElementById('height-ruler-badge');
+            const svgEl = document.getElementById('height-ruler-svg');
+            if (badgeEl) badgeEl.style.opacity = '0';
+            if (svgEl) svgEl.style.display = 'none';
           }
         }
       }
@@ -2250,6 +2406,8 @@ export class VRMEngine {
 
   public dispose(): void {
     this.unbindVisibilityPause();
+    this._batteryUnsub?.();
+    this._batteryUnsub = null;
     this.suspendRendering();
 
     if (this.animFrameId !== null) {

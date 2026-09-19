@@ -212,7 +212,10 @@ export const ChatBar: React.FC<{
     // 那样 cb(true) 永远到不了,tooltip 就关不掉。每秒 poll 一次直到 ready。
     if (isWebLLMReady()) setIsLLMReady(true);
     const pollId = window.setInterval(() => {
-      if (isWebLLMReady()) setIsLLMReady(true);
+      if (isWebLLMReady()) {
+        setIsLLMReady(true);
+        window.clearInterval(pollId);
+      }
     }, 1000);
     const unsubLLM = onWebLLMReadyChange((ready) => {
       setIsLLMReady(ready);

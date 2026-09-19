@@ -467,11 +467,15 @@ export class VRMBodyMorph {
    * 彻底杜绝 Blendshape 极端包围盒撑大虚高与静态写死硬编码，
    * 穿鞋动态自适应（小春模型为 163.6cm ~ 163.8cm），脱鞋 IK 下沉实时反映，换任意新模型 100% 动态自适应！
    */
+  /** 头顶世界 Y（米）→ 身高 cm。供同帧已采样的 head-top 复用，避免再走一遍 getWorldPosition。 */
+  public heightCmFromHeadTopY(y: number): number {
+    return Math.round(Math.max(0.2, y) * 1000) / 10;
+  }
+
   public getCurrentHeightCm(): number {
     if (this.currentVRM && this.rawHead) {
       this.getHeadTopWorldPosition(this._tempHeadTopPos);
-      const liveMeters = Math.max(0.2, this._tempHeadTopPos.y);
-      return Math.round(liveMeters * 1000) / 10;
+      return this.heightCmFromHeadTopY(this._tempHeadTopPos.y);
     }
 
     // 静态纯数值推算兜底 (无 rawHead 时)
