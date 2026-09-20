@@ -12,11 +12,11 @@
  * 同步范围(selection-driven,用户勾选决定):
  * - 模型切换 + 自定义 provider 配置(含 apiKey)
  * - 思考模式
- * - 对话设置(system prompt override + memory turns override)
+ * - 对话设置(system prompt override + memory turns override + 头顶气泡开关)
  */
 
 import type { ProviderProfile } from './customProvider/types';
-import type { UserSettings } from './userSettings';
+import { resolveShowHeadBubble, type UserSettings } from './userSettings';
 import { readActiveModel } from './activeModel';
 import { THINKING_PREF_KEY } from '@/lib/constants';
 
@@ -96,7 +96,12 @@ export function buildSyncPayload(input: CollectInputs): SyncPayload {
     if (t !== undefined) data.thinkingEnabled = t;
   }
   if (input.selection.chatSettings) {
-    if (input.userSettings !== undefined) data.userSettings = input.userSettings;
+    if (input.userSettings !== undefined) {
+      data.userSettings = {
+        ...input.userSettings,
+        showHeadBubble: resolveShowHeadBubble(input.userSettings),
+      };
+    }
   }
   return { v: PROTOCOL_VERSION, ts: Date.now(), data };
 }
@@ -219,6 +224,7 @@ export interface ImportPreview {
   thinkingEnabled?: boolean;
   hasCustomPrompt: boolean;
   memoryTurnsOverride?: number;
+  showHeadBubble?: boolean;
 }
 
 export function previewImport(payload: SyncPayload): ImportPreview {
@@ -243,5 +249,6 @@ export function previewImport(payload: SyncPayload): ImportPreview {
     thinkingEnabled: d.thinkingEnabled,
     hasCustomPrompt: !!(d.userSettings?.systemPromptOverride?.trim()),
     memoryTurnsOverride: d.userSettings?.memoryTurnsOverride,
+    showHeadBubble: d.userSettings ? resolveShowHeadBubble(d.userSettings) : undefined,
   };
 }

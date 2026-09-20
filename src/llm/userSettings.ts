@@ -5,7 +5,8 @@
  * 加密只挡同源脚本偷看;用户改的 prompt / 轮数在 DevTools 里能看到也没关系。
  *
  * 默认值不在这里写 — system prompt 默认走 XIAOCHUN_SYSTEM_PROMPT[lang],
- * memory turns 默认走 deviceDetection.getDeviceMemoryTurns()。resolve 函数
+ * memory turns 默认走 deviceDetection.getDeviceMemoryTurns(),
+ * 头顶气泡默认走 APP_CONFIG.chat.showHeadBubble。resolve 函数
  * 在读写时合并 override + 默认,UI 层只关心 override 字段。
  */
 
@@ -23,7 +24,15 @@ const RECORD_KEY = 'main';
 export interface UserSettings {
   systemPromptOverride?: string;
   memoryTurnsOverride?: number;
+  /** undefined = 走 APP_CONFIG.chat.showHeadBubble */
+  showHeadBubble?: boolean;
 }
+
+// ponytail: 内存缓存 + 订阅 — dialog 改完不用重 bind,vrmEngine 每次 getSystemContext
+// 都走 getUserSettings() 拿最新值;但 UI(ChatBar 等)想立刻反映,可以用 subscribe
+// 拉一次回调刷新自己的派生 state。
+let cached: UserSettings | null = null;
+const listeners = new Set<() => void>();
 
 function openDb(): Promise<IDBDatabase> {
   return new Promise((resolve, reject) => {
@@ -47,7 +56,9 @@ export async function getUserSettings(): Promise<UserSettings> {
       const req = tx.objectStore(DB_STORE).get(RECORD_KEY);
       req.onsuccess = () => {
         db.close();
-        resolve((req.result as UserSettings | undefined) ?? {});
+        const s = (req.result as UserSettings | undefined) ?? {};
+        if (cached === null) cached = s;
+        resolve(s);
       };
       req.onerror = () => {
         db.close();
@@ -60,27 +71,24 @@ export async function getUserSettings(): Promise<UserSettings> {
 }
 
 export async function saveUserSettings(next: UserSettings): Promise<void> {
-  if (typeof indexedDB === 'undefined') return;
-  const db = await openDb();
-  await new Promise<void>((resolve, reject) => {
-    const tx = db.transaction(DB_STORE, 'readwrite');
-    tx.objectStore(DB_STORE).put(next, RECORD_KEY);
-    tx.oncomplete = () => {
-      db.close();
-      resolve();
-    };
-    tx.onerror = () => {
-      db.close();
-      reject(tx.error);
-    };
-  });
+  if (typeof indexedDB !== 'undefined') {
+    const db = await openDb();
+    await new Promise<void>((resolve, reject) => {
+      const tx = db.transaction(DB_STORE, 'readwrite');
+      tx.objectStore(DB_STORE).put(next, RECORD_KEY);
+      tx.oncomplete = () => {
+        db.close();
+        resolve();
+      };
+      tx.onerror = () => {
+        db.close();
+        reject(tx.error);
+      };
+    });
+  }
+  cached = next;
+  listeners.forEach((cb) => cb());
 }
-
-// ponytail: 内存缓存 + 订阅 — dialog 改完不用重 bind,vrmEngine 每次 getSystemContext
-// 都走 getUserSettings() 拿最新值;但 UI(ChatBar 等)想立刻反映,可以用 subscribe
-// 拉一次回调刷新自己的派生 state。
-let cached: UserSettings | null = null;
-const listeners = new Set<() => void>();
 
 export function subscribeUserSettings(cb: () => void): () => void {
   listeners.add(cb);
@@ -91,11 +99,9 @@ export function getCachedUserSettings(): UserSettings {
   return cached ?? {};
 }
 
-/** ponytail: 内部用 — 写入 IDB 后顺手刷缓存 + 通知订阅者,保证下次解析用新值。 */
+/** 内部用 — 走 saveUserSettings（写 IDB + 刷缓存 + 通知订阅者）。 */
 async function persist(next: UserSettings): Promise<void> {
-  cached = next;
   await saveUserSettings(next);
-  listeners.forEach((cb) => cb());
 }
 
 export async function setSystemPromptOverride(text: string | null): Promise<void> {
@@ -129,6 +135,22 @@ export function resolveMemoryTurns(settings: UserSettings): number {
   const ov = settings.memoryTurnsOverride;
   if (typeof ov === 'number' && ov > 0) return ov;
   return getDeviceMemoryTurns();
+}
+
+export async function setShowHeadBubbleOverride(on: boolean | null): Promise<void> {
+  const next: UserSettings = { ...cached };
+  if (typeof on === 'boolean' && on !== APP_CONFIG.chat.showHeadBubble) {
+    next.showHeadBubble = on;
+  } else {
+    delete next.showHeadBubble;
+  }
+  await persist(next);
+}
+
+/** 头顶气泡 — 有 override 用 override,否则走 APP_CONFIG.chat.showHeadBubble。 */
+export function resolveShowHeadBubble(settings: UserSettings): boolean {
+  if (typeof settings.showHeadBubble === 'boolean') return settings.showHeadBubble;
+  return APP_CONFIG.chat.showHeadBubble;
 }
 
 /** ponytail: 异步便利函数 — 一次 getUserSettings + 两次 resolve,给生成时单点调用。 */

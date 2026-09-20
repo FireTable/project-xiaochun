@@ -196,6 +196,9 @@ The 3D motion pipeline involves complex layered logic. Follow these geometric an
      - **Sim Frame Cap**: `APP_CONFIG.renderer.targetFpsMobile` / `targetFpsDesktop` phase-lock the heavy `animate` path (≤0 = uncapped). Idle animation still runs; this only thins update/render cadence.
   4. **Two-Tier IndexedDB Caching**:
      - Caches base models (L1) and composed GLB binaries (L2 `${baseSha}:${addonSha}`) in IndexedDB, enabling 10~30ms instantaneous repeat swaps and eliminating duplicate network requests and CPU cycles.
+  5. **Official three-vrm load/unload utils (global, not platform-gated)**:
+     - After GLTF parse, always `removeUnnecessaryVertices` → `combineSkeletons` → `combineMorphs` (`applyVrmUtilsOptimizations` in `vrmEngine.ts`). Never call deprecated `removeUnnecessaryJoints`.
+     - On unload / swap / `VRMEngine.dispose()`, `VRMUtils.deepDispose(vrm.scene)`. `vrm.dispose()` was removed in three-vrm 1.0.
 
 ---
 
@@ -210,6 +213,7 @@ The 3D motion pipeline involves complex layered logic. Follow these geometric an
 - **Chat Bubble Text Display Rules (`HeadBubble.tsx`)**:
   - Only render the dialogue text when `state.statusKey === 'speaking'` (i.e., when speech and motion are actively playing).
   - During `thinking`, `tts`, `emage` preparation/buffering phases, only show the corresponding micro status icon/capsule — never spoil the dialogue text early.
+  - User pref `APP_CONFIG.chat.showHeadBubble` (override in `userSettings`): when off, `HeadBubble` returns null. Do **not** stop ChatDirector / `bubbleTracker` events.
 
 ---
 
@@ -223,6 +227,7 @@ When modifying any system-level configuration or parameter, follow the **central
 - **Post-processing**: `APP_CONFIG.postfx` (UnrealBloom strength/radius/threshold, toneMapping exposure, color grading matrix, plus `bloomInputScaleMobile|Desktop` and `composerMSAASamplesMobile|Desktop`).
 - **Lighting & Saturation**: `APP_CONFIG.lights` (3-channel studio lighting: dir 1.00, hemi 0.95, fill 1.40) and `APP_CONFIG.saturation`.
 - **Memory capacity**: `APP_CONFIG.memory` (`shortTermTurns`, `turnMaxChars`, `longTermKeep`, `longTermTopK`).
+- **Chat UI**: `APP_CONFIG.chat.showHeadBubble` (default `true`). User override lives in `userSettings`; `HeadBubble` returns null when off — do not gate ChatDirector / `bubbleTracker` events.
 
 ---
 

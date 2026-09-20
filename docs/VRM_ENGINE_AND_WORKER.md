@@ -94,13 +94,26 @@ if (delta > 0.1) delta = 0.016; // Clamped to ~60 FPS single step
 - **Cinematic Entrance (`cinematicIntro`)**:
   On cold start, initiates camera position at $3.3 \times \text{distance}$ and tweens back via `easeOutCubic` over 1100ms in sync with loading overlay dismissal.
 
-### 2.4 Resource Disposal & Memory Leak Prevention (`dispose`)
+### 2.4 Official three-vrm Load Utils (`applyVrmUtilsOptimizations`)
+
+After GLTF parse, both `loadVRM` and `loadVRMFromBuffer` run the pixiv example trio. **Global — not platform-gated** (skeleton matrix work and morph-target caps exist on every GPU):
+
+```ts
+VRMUtils.removeUnnecessaryVertices(gltf.scene); // unused verts → smaller morph textures
+VRMUtils.combineSkeletons(gltf.scene);          // one skeleton; replaces deprecated removeUnnecessaryJoints
+VRMUtils.combineMorphs(vrm);                    // one morph target per VRM expression (mobile crash cap)
+```
+
+Then `frustumCulled = false` (VRM bounds are often wrong) and `VRMUtils.rotateVRM0(vrm)` for 0.x facing. Expression I/O stays on `expressionManager.setValue` / `getValue`, so outfit-swap restore is compatible with combined morphs. `VRMBodyMorph` belly displacement is custom vertex math, not morph targets.
+
+### 2.5 Resource Disposal & Memory Leak Prevention (`dispose`)
+
+three.js GPU resources are not GC'd. `vrm.dispose()` was removed in three-vrm 1.0.
 
 When reloading models or unloading the engine:
-1. Recursively traverses `scene` to release all mesh `BufferGeometry` instances;
-2. Disposes all material textures (`map`, `normalMap`, `roughnessMap`, etc.) via `texture.dispose()`;
-3. Calls `vrm.dispose()` and `VRMUtils.deepDispose(vrm.scene)`;
-4. Cleans up `PostFxPipeline` intermediate `WebGLRenderTarget`s.
+1. `scene.remove(vrm.scene)` then `VRMUtils.deepDispose(vrm.scene)` (swap/reload paths and `VRMEngine.dispose()`);
+2. `PostFxPipeline.dispose()` releases composer / bloom render targets;
+3. Renderer, linework world, and character shadow dispose their own GPU objects.
 
 ---
 

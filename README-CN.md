@@ -165,7 +165,7 @@ brew upgrade --cask project-xiaochun
 * **大语言模型 (WebLLM,默认)** — [`@mlc-ai/web-llm`](https://github.com/mlc-ai/web-llm) 默认 **MiniCPM5 2B (q4f16_1)**，低配设备自动降级至 Qwen2.5 0.5B。轻量高效，在移动端与低显存设备上兼顾推理速度与回复质量；对话条菜单可随时热切换模型或开关思考模式；回复语言随用户提问语系自适应匹配。
 * **大语言模型 (OpenAI 兼容自定义服务,可选)** — 应用内配置对话框一键接入任意 OpenAI 兼容 HTTP 服务:Ollama / LM Studio / vLLM / LocalAI / 云厂商(OpenAI、DeepSeek、Qwen API 等)。Provider 配置 AES-GCM 加密存在 IndexedDB;激活后 WebLLM **不会**预热,省 1-2 GB 显存 + 模型下载带宽。
 * **统一 Provider 工厂 (`chatWorkflow.runChat`)** — WebLLM 与自定义 provider 共享同形 `runChat(opts) → string` 契约;dispatcher 通过 `ChatProvider` 注册表轮询,选第一个 `isActive` 命中的。加新 provider = 注册一个描述符。
-* **用户自定义系统提示词 + 记忆轮数** — 聊天菜单 → 「对话设置」可微调小蠢人设(留空/与默认相同则走默认人设)与对话记忆轮数(1-50,默认设备推荐)。配置持久化在 IndexedDB(`xiaochun-user-settings`);边界常量集中在 `APP_CONFIG.memory.userTurnsMin/Max` 一处,slider UI 与存储 setter 共享同一份 SSOT。
+* **用户自定义系统提示词 + 记忆轮数 + 头顶气泡** — 聊天菜单 → 「对话设置」可微调小蠢人设(留空/与默认相同则走默认人设)、对话记忆轮数(1-50,默认设备推荐)与头顶对话气泡(`APP_CONFIG.chat.showHeadBubble`,默认开)。关掉后 `HeadBubble` 不渲染,ChatDirector / `bubbleTracker` 事件照发。配置持久化在 IndexedDB(`xiaochun-user-settings`);轮数边界集中在 `APP_CONFIG.memory.userTurnsMin/Max`。
 * **动作生成** — **EMAGE** 全身协同动作 (ONNX Runtime Web) 在 Dedicated Web Worker 中运行：**wasm 执行提供者 + INT8**（`useInt8`）；**不使用 WebGPU**（模型含 int64）。时序高斯滤波与自然待机混合。流式窗长 **T=64**，每窗 `motion_chunk` 降低 TTFA；可听 TTS 前 A/V hold；hop/接缝参数集中在 `APP_CONFIG.emage.motion`（`advanceFrames` 60..64）。详情见 [`docs/EMAGE_MODEL.md`](docs/EMAGE_MODEL.md)。
 * **语音合成** — **Edge-TTS 晓伊 (XiaoyiNeural, zh-CN, +10 Hz)**，基于自研原生 WebSocket 客户端（`src/lib/edge-tts-core.ts`,无第三方 TTS SDK）；网络传输前智能剥离 emoji。
 * **LLM + TTS + EMAGE 一体编排**：chat director 全链路统一协调，主线程满帧 60 FPS。**LLM 可用 WebGPU**（WebLLM）；**EMAGE 固定 wasm/INT8**。
@@ -186,7 +186,7 @@ brew upgrade --cask project-xiaochun
 ### 🔄 跨设备同步(纯前端)
 * **纯文本传输** — 聊天菜单 → 「跨设备同步」→ 勾选要同步的项(provider 配置 + 当前激活 / 思考模式 / 对话设置)→ AES-GCM-256 加密生成 `xs:v1:iv.ct.key` 单行文本 → 复制粘到另一台设备。**密钥内嵌密文,粘一次就行**,不需要单独传密钥。
 * **Provider 配置同步** — 自定义 OpenAI 兼容 provider(含 AES 加密的 API key)走发送端 `listProvidersDecrypted()` 解密 → 接收端 `saveProvider()` 用本机 salt 重新加密入库,设备间无缝迁移。
-* **预览后导入** — 接收端本地解密后展示「将导入」的完整列表(active 服务 / N 个 provider / 思考模式 / 对话设置),用户点「确认导入」才落库,可逆可控。
+* **预览后导入** — 接收端本地解密后展示「将导入」的完整列表(active 服务 / N 个 provider / 思考模式 / 对话设置含头顶气泡开/关),用户点「确认导入」才落库。导入走 `saveUserSettings`,内存缓存与 `HeadBubble` 订阅立刻刷新。
 * **纯前端无服务端架构** — 纯客户端处理，无需第三方服务器中转，无遥测，无后端协调。
 
 ### 💾 端侧持久化多级记忆系统 (Client-Side Memory System)
@@ -390,7 +390,7 @@ Project-XiaoChun/
 │   │   ├── chatTypes.ts        # 共享 RunChatOptions / ChatProvider / ChatMessage
 │   │   ├── chatWorkflow.ts     # 跨 provider 调度 + 输出清洗 + 兜底台词
 │   │   ├── activeModel.ts      # 统一 active key,存 localStorage `xiaochun.llm.model` (`webllm:{modelId}` | `custom:{providerId}`)
-│   │   ├── userSettings.ts     # 用户自定义设置(系统提示词/记忆轮数)IDB
+│   │   ├── userSettings.ts     # 用户自定义设置(系统提示词/记忆轮数/头顶气泡)IDB
 │   │   ├── syncPayload.ts      # 跨设备同步 payload (AES-GCM + xs:v1:iv.ct.key 格式)
 │   │   └── progress.ts         # LLM 进度事件总线
 │   ├── director/

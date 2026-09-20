@@ -99,6 +99,8 @@ Dialogue bubbles strictly follow the **Anti-Spoil Principle**:
 
 Screen position uses `VRMBodyMorph.getHeadTopWorldPosition` (raw crown), the same anchor as the dev height ruler — not the normalized `head` joint + 0.24m.
 
+User pref `APP_CONFIG.chat.showHeadBubble` (override in `userSettings`): when off, `HeadBubble` returns null. ChatDirector / `bubbleTracker` events still fire.
+
 ---
 
 ### 2.5 Streaming EMAGE (`motion_chunk`) & A/V Hold

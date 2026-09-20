@@ -4,7 +4,8 @@
  * ponytail: 跟 ProviderConfigDialog 同套视觉(dark glass card,圆角,bg-white/[0.04])。
  * 字段:
  * - 系统提示词:textarea,留空 = 用默认人设
- * - 记忆轮数:`-` `+` 数字步进,1-10,有 override 时显示 override,否则显示设备推荐
+ * - 记忆轮数:slider,1-50,有 override 时显示 override,否则显示设备推荐
+ * - 头顶气泡:switch,默认 APP_CONFIG.chat.showHeadBubble;关了只藏 HeadBubble,不拦 ChatDirector
  *
  * 写入 userSettings IDB;App.tsx 订阅变化 → 重新 bindSystemContext,下次 send 自动生效。
  */
@@ -19,6 +20,7 @@ import {
   History,
   AlertTriangle,
   Save,
+  MessageCircle,
 } from 'lucide-react';
 import {
   Dialog,
@@ -35,6 +37,8 @@ import {
   getUserSettings,
   setSystemPromptOverride,
   setMemoryTurnsOverride,
+  setShowHeadBubbleOverride,
+  resolveShowHeadBubble,
   type UserSettings,
 } from '@/llm/userSettings';
 import { XIAOCHUN_SYSTEM_PROMPT } from '@/llm/prompts';
@@ -48,6 +52,7 @@ interface AdvancedSettingsDialogProps {
 
 const TURNS_MIN = APP_CONFIG.memory.userTurnsMin;
 const TURNS_MAX = APP_CONFIG.memory.userTurnsMax;
+const DEFAULT_SHOW_HEAD_BUBBLE = APP_CONFIG.chat.showHeadBubble;
 
 export const AdvancedSettingsDialog: React.FC<AdvancedSettingsDialogProps> = ({
   open,
@@ -58,6 +63,7 @@ export const AdvancedSettingsDialog: React.FC<AdvancedSettingsDialogProps> = ({
   const [settings, setSettings] = useState<UserSettings>({});
   const [draftPrompt, setDraftPrompt] = useState('');
   const [draftTurns, setDraftTurns] = useState<number>(0);
+  const [draftShowBubble, setDraftShowBubble] = useState(DEFAULT_SHOW_HEAD_BUBBLE);
   const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -73,6 +79,7 @@ export const AdvancedSettingsDialog: React.FC<AdvancedSettingsDialogProps> = ({
   // 表单是否被用户改过 — 用来显示「使用默认」按钮
   const promptOverridden = (settings.systemPromptOverride?.trim() ?? '') !== '';
   const turnsOverridden = typeof settings.memoryTurnsOverride === 'number' && settings.memoryTurnsOverride > 0;
+  const bubbleOverridden = typeof settings.showHeadBubble === 'boolean';
 
   useEffect(() => {
     if (!open) return;
@@ -82,6 +89,7 @@ export const AdvancedSettingsDialog: React.FC<AdvancedSettingsDialogProps> = ({
       // 表单初值:override 有就用,否则预填默认人设(让用户看到「当前是什么」,方便微调)
       setDraftPrompt(s.systemPromptOverride ?? defaultPrompt);
       setDraftTurns(s.memoryTurnsOverride ?? deviceRecommended);
+      setDraftShowBubble(resolveShowHeadBubble(s));
       setError(null);
       setSaved(false);
     })();
@@ -95,6 +103,10 @@ export const AdvancedSettingsDialog: React.FC<AdvancedSettingsDialogProps> = ({
     setDraftTurns(deviceRecommended);
   };
 
+  const handleResetBubble = () => {
+    setDraftShowBubble(DEFAULT_SHOW_HEAD_BUBBLE);
+  };
+
   const handleSave = async () => {
     setSaving(true);
     setError(null);
@@ -103,12 +115,15 @@ export const AdvancedSettingsDialog: React.FC<AdvancedSettingsDialogProps> = ({
       const trimmed = draftPrompt.trim();
       const promptChanged = trimmed && trimmed !== defaultPrompt;
       const turnsChanged = draftTurns !== deviceRecommended;
+      const bubbleChanged = draftShowBubble !== DEFAULT_SHOW_HEAD_BUBBLE;
       await setSystemPromptOverride(promptChanged ? trimmed : null);
       await setMemoryTurnsOverride(turnsChanged ? draftTurns : null);
+      await setShowHeadBubbleOverride(bubbleChanged ? draftShowBubble : null);
       // 同步本地 settings,让 "已使用 override" 提示立刻更新
       const next: UserSettings = {};
       if (promptChanged) next.systemPromptOverride = trimmed;
       if (turnsChanged) next.memoryTurnsOverride = draftTurns;
+      if (bubbleChanged) next.showHeadBubble = draftShowBubble;
       setSettings(next);
       setSaved(true);
       setTimeout(() => setSaved(false), 2200);
@@ -220,6 +235,46 @@ export const AdvancedSettingsDialog: React.FC<AdvancedSettingsDialogProps> = ({
             </div>
             <p className="text-[10px] sm:text-[11px] text-white/50 leading-relaxed">
               {t('chat.advancedDialog.memoryTurnsHint')}
+            </p>
+          </div>
+
+          {/* 头顶对话气泡 */}
+          <div className="rounded-xl bg-white/[0.04] border border-white/10 p-2.5 sm:p-3 space-y-2">
+            <div className="flex items-center justify-between gap-3">
+              <span className="text-white/40 text-[11px] font-medium flex items-center gap-1.5 min-w-0">
+                <MessageCircle className="h-3.5 w-3.5 text-white/40 shrink-0" />
+                {t('chat.advancedDialog.showHeadBubbleLabel')}
+              </span>
+              <div className="flex items-center gap-2 shrink-0">
+                <button
+                  type="button"
+                  onClick={handleResetBubble}
+                  disabled={!bubbleOverridden}
+                  className="inline-flex items-center gap-1 px-2 py-1 rounded-md text-[10px] text-white/60 hover:text-white border border-white/10 hover:border-white/20 focus:outline-none focus-visible:ring-1 focus-visible:ring-white/30 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
+                >
+                  <RotateCcw className="h-3 w-3" />
+                  {t('chat.advancedDialog.reset')}
+                </button>
+                <button
+                  type="button"
+                  role="switch"
+                  aria-checked={draftShowBubble}
+                  aria-label={t('chat.advancedDialog.showHeadBubbleLabel')}
+                  onClick={() => setDraftShowBubble((v) => !v)}
+                  className={`flex h-5 w-9 items-center rounded-full p-0.5 transition-colors focus:outline-none focus-visible:ring-1 focus-visible:ring-white/30 ${
+                    draftShowBubble ? 'bg-[#ea8377]' : 'bg-white/20'
+                  }`}
+                >
+                  <span
+                    className={`h-4 w-4 rounded-full bg-white shadow transition-transform ${
+                      draftShowBubble ? 'translate-x-4' : 'translate-x-0'
+                    }`}
+                  />
+                </button>
+              </div>
+            </div>
+            <p className="text-[10px] sm:text-[11px] text-white/50 leading-relaxed">
+              {t('chat.advancedDialog.showHeadBubbleHint')}
             </p>
           </div>
 

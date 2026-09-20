@@ -535,12 +535,23 @@ const PreviewRows: React.FC<{ preview: ImportPreview; t: ReturnType<typeof useTr
       tone: 'plain',
     });
   }
-  if (preview.hasCustomPrompt || preview.memoryTurnsOverride !== undefined) {
+  if (
+    preview.hasCustomPrompt
+    || preview.memoryTurnsOverride !== undefined
+    || preview.showHeadBubble !== undefined
+  ) {
     const parts: string[] = [];
     if (preview.hasCustomPrompt) parts.push(t('chat.sync.valuePromptCustom'));
     else parts.push(t('chat.sync.valuePromptDefault'));
     if (preview.memoryTurnsOverride !== undefined) {
       parts.push(t('chat.sync.valueTurns', { count: preview.memoryTurnsOverride }));
+    }
+    if (preview.showHeadBubble !== undefined) {
+      parts.push(
+        preview.showHeadBubble
+          ? t('chat.sync.valueHeadBubbleOn')
+          : t('chat.sync.valueHeadBubbleOff'),
+      );
     }
     rows.push({
       label: t('chat.sync.rowChatSettings'),

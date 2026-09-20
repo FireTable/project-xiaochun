@@ -1,7 +1,13 @@
-import React from 'react';
+import React, { useEffect, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import type { BubbleState } from '@/core/vrmEngine';
 import { Sparkles, Volume2, Activity, AlertCircle } from '@/components/icons';
+import {
+  getUserSettings,
+  getCachedUserSettings,
+  subscribeUserSettings,
+  resolveShowHeadBubble,
+} from '@/llm/userSettings';
 
 interface HeadBubbleProps {
   state: BubbleState;
@@ -16,7 +22,24 @@ const ICON_BY_KEY: Record<string, 'thinking' | 'speaking' | 'emoting' | 'idle'> 
 
 export const HeadBubble: React.FC<HeadBubbleProps> = ({ state }) => {
   const { t } = useTranslation();
-  if (!state.visible) return null;
+  const [enabled, setEnabled] = useState(() => resolveShowHeadBubble(getCachedUserSettings()));
+
+  useEffect(() => {
+    let cancelled = false;
+    void getUserSettings().then((s) => {
+      if (!cancelled) setEnabled(resolveShowHeadBubble(s));
+    });
+    const unsub = subscribeUserSettings(() => {
+      setEnabled(resolveShowHeadBubble(getCachedUserSettings()));
+    });
+    return () => {
+      cancelled = true;
+      unsub();
+    };
+  }, []);
+
+  // 对话设置关气泡：组件自己不画，ChatDirector / bubbleTracker 事件照发。
+  if (!enabled || !state.visible) return null;
 
   const iconKind = state.isError ? 'idle' : ICON_BY_KEY[state.statusKey] ?? 'idle';
   const isSpeaking = state.statusKey === 'speaking';

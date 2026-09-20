@@ -169,6 +169,18 @@ function computeDefaultCameraPosition(): [number, number, number] {
   return target.clone().add(direction.multiplyScalar(distance)).toArray() as [number, number, number];
 }
 
+/**
+ * Official three-vrm post-parse opts (`basic.html` / `dnd.html`). Global — not
+ * platform-gated: skeleton matrix work and morph-target caps exist on every GPU.
+ * Order matches pixiv: vertices → skeletons → morphs.
+ * `removeUnnecessaryJoints` is deprecated; `combineSkeletons` replaced it.
+ */
+function applyVrmUtilsOptimizations(scene: THREE.Object3D, vrm: VRM): void {
+  VRMUtils.removeUnnecessaryVertices(scene);
+  VRMUtils.combineSkeletons(scene);
+  VRMUtils.combineMorphs(vrm);
+}
+
 export class VRMEngine {
   // ── Three.js 核心基础设施 ──
   private canvas: HTMLCanvasElement | null = null;
@@ -1313,9 +1325,7 @@ export class VRMEngine {
             return;
           }
 
-          VRMUtils.removeUnnecessaryVertices(gltf.scene);
-          // ponytail: combineSkeletons 取代了 removeUnnecessaryJoints (three-vrm 新版弃用旧 API)。
-          VRMUtils.combineSkeletons(gltf.scene);
+          applyVrmUtilsOptimizations(gltf.scene, vrm);
 
           vrm.scene.traverse((obj) => {
             obj.frustumCulled = false;
@@ -1757,9 +1767,7 @@ export class VRMEngine {
             return;
           }
 
-          VRMUtils.removeUnnecessaryVertices(gltf.scene);
-          // ponytail: combineSkeletons 取代了 removeUnnecessaryJoints (three-vrm 新版弃用旧 API)。
-          VRMUtils.combineSkeletons(gltf.scene);
+          applyVrmUtilsOptimizations(gltf.scene, vrm);
 
           vrm.scene.traverse((obj) => {
             obj.frustumCulled = false;
@@ -2416,10 +2424,18 @@ export class VRMEngine {
     this.windForce.dispose();
     window.removeEventListener('resize', this.handleResize);
     this.controls?.dispose();
+
+    if (this.currentVRM) {
+      this.scene.remove(this.currentVRM.scene);
+      VRMUtils.deepDispose(this.currentVRM.scene);
+      this.currentVRM = null;
+    }
+
     this.renderer?.dispose();
     this.lineworkWorld.dispose(this.scene);
     // ponytail: 角色阴影系统释放 (含 shadowPlane geometry/material + mask texture)
     this.shadow.dispose();
+    this.postFx.dispose();
   }
 }
 

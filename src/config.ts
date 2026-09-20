@@ -592,6 +592,10 @@ export const APP_CONFIG = {
     userTurnsMin: 1,
     userTurnsMax: 50,
   },
+  // 对话 UI。showHeadBubble 默认开；用户在「对话设置」可关，覆盖写进 userSettings。
+  chat: {
+    showHeadBubble: true as boolean,
+  },
   camera: {
     defaultFov: 30,
     minFov: 15,
