@@ -471,6 +471,11 @@ export const APP_CONFIG = {
           bustSpread: -0.018,
         },
       },
+      'xiaochun_shroud': {
+        source: '/vrm/addons/xiaochun_shroud.vrmaddon',
+        name: 'XiaoChun Shroud',
+        sha: 'dad3db435b21af3c',
+      },
       'xiaochun_dinner_dress': {
         source: '/vrm/addons/xiaochun_dinner_dress.vrmaddon',
         name: 'XiaoChun Dinner Dress',
