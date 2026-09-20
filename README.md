@@ -138,7 +138,7 @@ You can download installer packages directly from the official Releases page:
 
 ### 👗 Atomic Outfit Swap & Delta Addons
 * **Zero-Frame T-Pose Pop-in & Seamless Hot Reloading**: Captures a millisecond-level snapshot of bone rotations, expression weights, gaze coordinates, and playback timestamps before swapping. The new VRM is built in the background, pose-restored in memory before scene mounting, and atomically swapped within a microtask — guaranteeing 0 frames of T-pose glitching.
-* **Delta Patch Distribution (`.vrmbase` + `.vrmaddon`)**: Eliminates bloated multi-megabyte model downloads by stripping shared body geometry into a compact base model `xiaochun_base.vrmbase` (~5.9 MB, oxipng texture-compressed); 8 distinct wardrobe sets (Dinner Dress, Techwear, Cheongsam, Bikini, Maid, Swimsuit, Office Lady, Wedding Dress) are distributed as incremental `.vrmaddon` patches (1~4 MB each, 13 MB for grand wedding gown).
+* **Delta Patch Distribution (`.vrmbase` + `.vrmaddon`)**: Eliminates bloated multi-megabyte model downloads by stripping shared body geometry into a compact base model `xiaochun_base.vrmbase` (~5.9 MB, oxipng texture-compressed); 9 distinct wardrobe sets (Dinner Dress, Techwear, Cheongsam, Bikini, Maid, Swimsuit, Office Lady, Wedding Dress, Shroud) are distributed as incremental `.vrmaddon` patches (1~4 MB each, 13 MB for grand wedding gown).
 * **Web Worker WASM bspatch Assembly**: Reconstructs the complete VRM in a Dedicated Web Worker using WASM bspatch with zero main-thread frame drops.
 * **Two-Tier IndexedDB Cache**: Base models and patched VRMs are locally cached in IndexedDB (`xiaochun-vrm-cache`) for instant subsequent swaps. Detailed in [`docs/OUTFIT_SWAP.md`](docs/OUTFIT_SWAP.md) and [`docs/VRM_BUILD_WORKFLOW.md`](docs/VRM_BUILD_WORKFLOW.md).
 
@@ -327,7 +327,12 @@ Project-XiaoChun/
 │   │   ├── xiaochun_cheongsam.vrmaddon  # Traditional Cheongsam
 │   │   ├── xiaochun_bikini.vrmaddon    # Beach Bikini
 │   │   ├── xiaochun_maid.vrmaddon      # Classic Maid dress
-│   │   └── xiaochun_swimsuit.vrmaddon  # Summer Swimsuit
+│   │   ├── xiaochun_swimsuit.vrmaddon  # Summer Swimsuit
+│   │   ├── xiaochun_dinner_dress.vrmaddon  # Dinner Dress
+│   │   ├── xiaochun_office_lady.vrmaddon   # Office Lady
+│   │   ├── xiaochun_techwear.vrmaddon      # Techwear
+│   │   ├── xiaochun_wedding.vrmaddon       # Wedding Dress (13 MB)
+│   │   └── xiaochun_shroud.vrmaddon       # Shroud (with per-outfit bodyMorph baseline)
 │   ├── thinking.vrma          # Idle thinking animation loop
 │   ├── materials/             # MAD preload chibi / badge / outfit preview PNGs
 │   ├── onnx/                  # EMAGE body motion model weights (vq_*, emage_step, postprocess)
