@@ -474,7 +474,15 @@ export const APP_CONFIG = {
       'xiaochun_shroud': {
         source: '/vrm/addons/xiaochun_shroud.vrmaddon',
         name: 'XiaoChun Shroud',
-        sha: 'dad3db435b21af3c',
+        sha: 'f4a49a7ae2cd2dc5',
+        bodyMorph: {
+          waist: 0.72,
+          belly: 0.81,
+          bust: 1.18,
+          bustThickness: 1.06,
+          bustPitch: 0,
+          thighs: 0.98,
+        },
       },
       'xiaochun_dinner_dress': {
         source: '/vrm/addons/xiaochun_dinner_dress.vrmaddon',
