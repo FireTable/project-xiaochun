@@ -13,13 +13,13 @@
  *   - README / docs                   手动写,无强一致要求
  *
  * 用法:
- *   node scripts/bump-version.mjs 0.1.9                ← 显式版本
- *   node scripts/bump-version.mjs patch               ← 自动 bump (0.1.8 → 0.1.9)
- *   node scripts/bump-version.mjs minor               ← (0.1.8 → 0.2.0)
- *   node scripts/bump-version.mjs major               ← (0.1.8 → 1.0.0)
- *   node scripts/bump-version.mjs 0.1.9 --tag         ← 同步创建 v0.1.9 tag
- *   node scripts/bump-version.mjs 0.1.9 --commit      ← 自动 git commit
- *   node scripts/bump-version.mjs 0.1.9 --tag --push ← tag + push --follow-tags
+ *   node scripts/bump-version.mjs 0.1.9                ← 显式版本 (默认打 tag)
+ *   node scripts/bump-version.mjs patch               ← 自动 bump + 打 tag (默认)
+ *   node scripts/bump-version.mjs minor               ← (0.1.8 → 0.2.0) + 打 tag
+ *   node scripts/bump-version.mjs major               ← (0.1.8 → 1.0.0) + 打 tag
+ *   node scripts/bump-version.mjs 0.1.9 --no-tag     ← 只改文件不打 tag
+ *   node scripts/bump-version.mjs 0.1.9 --commit      ← 改文件 + tag + git commit
+ *   node scripts/bump-version.mjs 0.1.9 --commit --push ← 改文件 + tag + commit + push (触发 release)
  *   node scripts/bump-version.mjs patch --dry-run     ← 只打印,不落盘
  *
  * 退出码:
@@ -44,15 +44,15 @@ if (argv.includes('-h') || argv.includes('--help')) {
   console.error('usage: node scripts/bump-version.mjs <version|patch|minor|major> [--tag] [--commit] [--push] [--dry-run]');
   console.error('  version     explicit semver e.g. 0.1.9');
   console.error('  patch|minor|major   bump relative to current package.json');
-  console.error('  --tag       also create + push vX.Y.Z git tag (or only create without --push)');
+  console.error('  --no-tag    skip git tag creation (default: create vX.Y.Z tag locally)');
   console.error('  --commit    also git commit the three bumped files');
-  console.error('  --push      push commits (and tag if --tag) to origin main');
+  console.error('  --push      push commits (and tag) to origin main');
   console.error('  --dry-run   print diff, do not write');
   process.exit(0);
 }
 const flag = (k) => argv.includes(k);
 const dryRun = flag('--dry-run');
-const doTag = flag('--tag');
+const doTag = !flag('--no-tag');  // 默认打 tag, --no-tag opt-out
 const doCommit = flag('--commit');
 const doPush = flag('--push');
 
