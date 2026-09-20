@@ -1,7 +1,7 @@
 {
   "name": "Project-XiaoChun",
   "private": true,
-  "version": "0.1.9",
+  "version": "0.1.10",
   "type": "module",
   "packageManager": "pnpm@10.12.2",
   "scripts": {
@@ -14,6 +14,10 @@
     "dev:worker": "wrangler dev --config wrangler.dev.jsonc",
     "cf-typegen": "wrangler types",
     "build:vrm": "node scripts/build-vrm/workflow.mjs",
+    "bump:patch": "node scripts/bump-version.mjs patch",
+    "bump:minor": "node scripts/bump-version.mjs minor",
+    "bump:major": "node scripts/bump-version.mjs major",
+    "bump:set": "node scripts/bump-version.mjs",
     "tauri": "tauri",
     "tauri:dev": "tauri dev",
     "tauri:attach": "tauri dev --no-dev-server",
