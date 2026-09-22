@@ -470,3 +470,4 @@ This project is licensed under the **MIT License**.
 * [Animation Inc.](https://www.animation.inc) — First tried their Ani-2 product and got hooked on the idea of real-time on-device full-body motion synthesis; this project's EMAGE pipeline is our homegrown attempt at the same dream, running entirely in the browser
 * [PantoMatrix / EMAGE](https://github.com/PantoMatrix/PantoMatrix) ([Yi et al., CVPR 2024](https://pantomatrix.github.io/EMAGE/)) — the ONNX full-body co-speech motion model that powers our chat-time gesture generation
 * [VolgaGerm / emage-onnx-export](https://github.com/VolgaGerm/emage-onnx-export) — the PyTorch → ONNX export script and the pre-converted `.onnx` weights we run in-browser
+* [snomiao / otoji](https://github.com/snomiao/otoji) ([otoji.org](https://otoji.org)) — open on-device voice graph; our ChatBar SenseVoice dictation (energy VAD + Worker) learned a great deal from their `?simple` path and sherpa-onnx wiring

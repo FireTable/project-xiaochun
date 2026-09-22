@@ -462,3 +462,4 @@ Project-XiaoChun/
 * [Animation Inc.](https://www.animation.inc) — 亲身体验过他们的 Ani-2 端侧实时全身动作产品后,萌生了"在浏览器里也能跑通"的想法;本项目自研的 EMAGE 管线,就是这次动手的尝试
 * [PantoMatrix / EMAGE](https://github.com/PantoMatrix/PantoMatrix)([Yi 等人,CVPR 2024](https://pantomatrix.github.io/EMAGE/))— 驱动本项目对话时手势生成的 ONNX 全身协同动作模型
 * [VolgaGerm / emage-onnx-export](https://github.com/VolgaGerm/emage-onnx-export)— PyTorch → ONNX 的导出脚本,以及我们浏览器里直接跑的那批预转换 `.onnx` 权重
+* [snomiao / otoji](https://github.com/snomiao/otoji)（[otoji.org](https://otoji.org)）— 开源端上 voice graph；本项目 ChatBar SenseVoice 听写（能量 VAD + Worker）大量参考了他们的 `?simple` 路径与 sherpa-onnx 接法
