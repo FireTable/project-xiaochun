@@ -590,7 +590,7 @@ export const ChatBar: React.FC<{
         {/* Unified composer: ONE permanent textarea; single↔multi via CSS grid only (no remount). */}
         {(() => {
           // Single/multi share the same shell padding.
-          const shellPad = 'px-2.5 sm:px-3 pt-2.5 pb-2';
+          const shellPad = 'px-2.5 sm:px-3 py-2.5';
 
           // Left slot: full hamburger menu (moved inside shell; no external round button).
           const leftEl = (
@@ -885,9 +885,9 @@ export const ChatBar: React.FC<{
                 </svg>
               )}
               {sttState === 'loading' ? (
-                <Loader2 className="w-4 h-4 animate-spin relative z-10" />
+                <Loader2 className="w-5 h-5 animate-spin relative z-10" />
               ) : (
-                <Mic className="w-4 h-4 relative z-10" />
+                <Mic className="w-5 h-5 relative z-10" />
               )}
             </button>
           );
@@ -1005,7 +1005,7 @@ export const ChatBar: React.FC<{
                       : 'text-[#f5aa9c] hover:bg-[#ea8377]/20 hover:text-[#ea8377] data-[state=open]:bg-[#ea8377]/20 data-[state=open]:text-[#ea8377]'
                   }`}
                 >
-                  <Zap className={`w-4 h-4 ${isSending ? '' : 'animate-pulse'}`} />
+                  <Zap className={`w-5 h-5 ${isSending ? '' : 'animate-pulse'}`} />
                 </button>
               </DropdownMenuTrigger>
               <DropdownMenuContent
