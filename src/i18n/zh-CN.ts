@@ -73,6 +73,16 @@ export const zhCN = {
     waitReadyHint: '就绪后会自动发出刚才那句话',
     sending: '回复中…',
     send: '发送',
+    sttIdle: '语音输入',
+    sttLoading: '加载语音模型…',
+    sttListening: '正在听…（再点结束）',
+    sttRecognizing: '识别中…',
+    sttError: '语音识别失败',
+    sttEmpty: '没有听清，请再说一次',
+    sttDownload: '下载语音模型 {{percent}}%',
+    sttInit: '初始化语音引擎…',
+    sttReady: '语音就绪',
+    sttMicDenied: '无法使用麦克风',
     // ponytail: dev-only 一键测试 — 跳过 LLM,直接走 TTS → EMAGE → 播放
     testSpeak: '测试',
     // ponytail: 故意 ≥2 段 — 测试多段流水线(tts 并发 + emage 串行跨段连续)

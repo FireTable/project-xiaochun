@@ -5,6 +5,7 @@
 > - [`src/motion/sources/emageWorker.ts`](../src/motion/sources/emageWorker.ts) & [`emage.ts`](../src/motion/sources/emage.ts) (ONNX full-body gesture generation; `copyToPoseBuffer`)  
 > - [`src/memory/`](../src/memory/) (Pure client-side IndexedDB multi-tier memory system)  
 > - [`src/llm/chatWorkflow.ts`](../src/llm/chatWorkflow.ts) (Multi-provider dispatcher & workflow coordinator)
+> - [`src/stt/`](../src/stt/) (SenseVoice ChatBar dictation — see [`STT.md`](STT.md))
 
 ---
 
@@ -26,6 +27,12 @@ graph LR
         Pose --> VRM[VRM 3D Rendering]
     end
 ```
+
+---
+
+## 1.1 ChatBar On-Device STT (SenseVoice)
+
+Microphone dictation uses **SenseVoice Small int8** in a Dedicated Worker with energy-VAD auto-segmentation (otoji `?simple` style). Weights load from CDN (`APP_CONFIG.stt`). Details, UX states, and agent invariants: [`STT.md`](STT.md).
 
 ---
 

@@ -22,6 +22,7 @@ docs/
 ├── BODY_TURN_AND_GAZE.md          # Critically damped spring yaw, 4-phase stepping state machine & companion gaze
 ├── CHAT_DIRECTOR.md               # Director scheduler, 30~60 chars slicer, parallel TTS & anti-spoil bubble rules
 ├── ON_DEVICE_AI.md                # WebLLM (WebGPU) + EMAGE ONNX Worker + Client-side multi-tier IndexedDB memory
+├── STT.md                         # SenseVoice Small int8 ChatBar dictation (energy VAD + ORT Worker)
 ├── EMAGE_MODEL.md                 # EMAGE tip status + Worker PCM→chunk flowchart; limits (wasm/INT8, no WebGPU-EMAGE)
 ├── OUTFIT_SWAP.md                 # Full-outfit swap (Delta .vrmaddon packages, 2-tier IDB caching, 0-frame pop-in)
 ├── POSTFX.md                      # Anime post-processing pipeline (UnrealBloom background bypass, ToneMapping & ColorGrading)
@@ -54,6 +55,7 @@ When tasked with modifications or refactoring, consult the dedicated technical g
 | **Offline VRM build / Addon extraction / Model compression** | [`VRM_BUILD_WORKFLOW.md`](VRM_BUILD_WORKFLOW.md) | Run `node scripts/build-vrm/workflow.mjs`; check SHA-256 idempotency; fixed zip mtime UTC. |
 | **Latency tuning / Voice lag / Speech lip-sync** | [`CHAT_DIRECTOR.md`](CHAT_DIRECTOR.md) | Maintain 30~60 chars chunking; pre-fetch TTS in parallel; reveal text when speaking; EMAGE `motion_chunk` + A/V hold; **orchestration flowchart** in doc. |
 | **Upgrading LLM / Memory optimization / Custom APIs**| [`ON_DEVICE_AI.md`](ON_DEVICE_AI.md) | WebLLM runs in Web Worker (may use WebGPU); cap short-term turns (default 2); 100% zero-backend privacy for local path. |
+| **ChatBar mic / SenseVoice STT / VAD / Worker** | [`STT.md`](STT.md) | Energy VAD auto-segment + SenseVoice int8 Worker; CDN `…/stt/…-2024-07-17`; no Zipformer; keep listening, insert at caret. |
 | **EMAGE EP / INT8 / WebGPU myths / hop & seams** | [`EMAGE_MODEL.md`](EMAGE_MODEL.md) | EMAGE = **wasm + INT8 only**; T=64; `emage.motion`; **Worker flowchart**; no fake ms. |
 
 ---

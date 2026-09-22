@@ -5,7 +5,7 @@
 <h1 align="center">Project XiaoChun</h1>
 
 <p align="center">
-  <b>A 100% browser-native anime companion — local LLM + EMAGE motion + Edge-TTS, zero backend</b>
+  <b>A 100% browser-native anime companion — local LLM + on-device STT + EMAGE motion + Edge-TTS, zero backend</b>
 </p>
 
 <p align="center">
@@ -34,7 +34,7 @@
 
 **Project XiaoChun (小蠢)** is a fully browser-native anime companion. The character renders through `@pixiv/three-vrm` with MToon NPR shading inside an immersive linework outdoor scene; all AI inference runs in your browser tab — no Python backend, no server GPUs.
 
-Entry is a 2D MAD preload into 3D — the camera pushes in from a distant 3.3× view while the overlay dissolves. You talk to her. She thinks (WebLLM MiniCPM5 2B q4f16_1 on WebGPU, falls back to Qwen2.5 0.5B; thinking optional), speaks (Edge-TTS over a Cloudflare Workers WebSocket), and moves with her (EMAGE ONNX in a Dedicated Web Worker). If the model is not ready yet, typed messages queue instead of getting dropped. The chat-bar menu can switch models from WebLLM's prebuilt list, or connect any **custom OpenAI-compatible provider** (Ollama / LM Studio / vLLM / LocalAI / cloud) via the in-app config dialog — credentials stay AES-GCM encrypted in IndexedDB.
+Entry is a 2D MAD preload into 3D — the camera pushes in from a distant 3.3× view while the overlay dissolves. You talk to her (ChatBar mic dictation via on-device SenseVoice, or type). She thinks (WebLLM MiniCPM5 2B q4f16_1 on WebGPU, falls back to Qwen2.5 0.5B; thinking optional), speaks (Edge-TTS over a Cloudflare Workers WebSocket), and moves with her (EMAGE ONNX in a Dedicated Web Worker). If the model is not ready yet, typed messages queue instead of getting dropped. The chat-bar menu can switch models from WebLLM's prebuilt list, or connect any **custom OpenAI-compatible provider** (Ollama / LM Studio / vLLM / LocalAI / cloud) via the in-app config dialog — credentials stay AES-GCM encrypted in IndexedDB.
 
 The UI is fully **SSR-hydrated multi-language** (zh-CN / en / ja) via TanStack Start + i18next, and is mobile-first responsive (iOS HIG 44 pt / Material 48 dp touch targets).
 
@@ -177,6 +177,7 @@ You can download installer packages directly from the official Releases page:
 * **User-Customizable System Prompt, Memory Turns & Head Bubble** — Open the chat-bar menu → **对话设置 / Chat Settings** to override the character system prompt (free-form text, falls back to default when empty/equal), tune the conversation memory-turn count (1–50, default = device-recommended), and toggle the head chat bubble (`APP_CONFIG.chat.showHeadBubble`, default on). When off, `HeadBubble` does not render; ChatDirector / `bubbleTracker` events still fire. Overrides persist in IndexedDB (`xiaochun-user-settings`); turn bounds live in `APP_CONFIG.memory.userTurnsMin/Max`.
 * **Motion** — **EMAGE** full-body co-speech motion (ONNX Runtime Web) in a Dedicated Web Worker: **wasm execution provider + INT8** (`useInt8`); **does not use WebGPU** (model tensors include int64). Temporal Gaussian smoothing and natural idle blends. Streaming windows **T=64** with per-window `motion_chunk` for TTFA; A/V hold until audible TTS; hop/seam tunables under `APP_CONFIG.emage.motion` (`advanceFrames` 60..64). See [`docs/EMAGE_MODEL.md`](docs/EMAGE_MODEL.md).
 * **TTS** — **Edge-TTS 晓伊 (XiaoyiNeural, zh-CN, +10 Hz)** via a hand-rolled native WebSocket client in `src/lib/edge-tts-core.ts` (no third-party TTS SDK); emoji stripped before speech.
+* **STT** — **SenseVoice Small int8** (zh/en/ja/ko/yue) in a Dedicated Worker: energy VAD auto-segments utterances, recognizes on-device, inserts at the ChatBar caret. CDN weights under `cdn.firetable.tech/xiaochun/stt/…-2024-07-17`. See [`docs/STT.md`](docs/STT.md).
 * **LLM + TTS + EMAGE orchestrated** by the chat director on the main thread at 60 FPS. **LLM may use WebGPU** (WebLLM); **EMAGE stays on wasm/INT8**.
 
 ### ⚡ Streaming Speech & Adaptive Gesture Pipeline
@@ -362,6 +363,7 @@ Project-XiaoChun/
 │   ├── BONE_MORPH.md          # 28-parameter orthogonal biomechanical morphing whitepaper
 │   ├── FOOT_IK.md             # Ground anchoring & foot inverse kinematics solver
 │   ├── CHAT_DIRECTOR.md       # LLM + TTS + EMAGE streaming orchestration
+│   ├── STT.md                   # SenseVoice ChatBar dictation (VAD + ORT Worker)
 │   ├── ON_DEVICE_AI.md        # On-device AI inference full stack
 │   └── EMAGE_MODEL.md         # EMAGE status & known limits (wasm/INT8, streaming, isolation)
 ├── scripts/                   # Build, offline asset processing, and protocol runners

@@ -27,8 +27,8 @@ export const Route = createRootRoute({
       { charSet: 'utf-8' },
       { name: 'viewport', content: 'width=device-width, initial-scale=1, viewport-fit=cover' },
       { name: 'theme-color', content: '#ea8377' },
-      { name: 'description', content: 'Dual-mode anime companion & transparent desktop pet (Tauri 2.x + Web) — WebLLM (WebGPU) + EMAGE motion (ONNX wasm INT8) + Edge-TTS. Features zero-pop outfit swap, 3D holographic guides, 60Hz alpha click-through, and external protocol (xiaochun://).' },
-      { name: 'keywords', content: 'Project XiaoChun, 二次元伴侣, 桌面宠物, 桌宠, 透明桌宠, 虚拟伴侣, AI伴侣, 二次元换装, 角色穿脱, 后期处理, Bloom辉光, 线稿主题, 骨骼微调, desktop pet, transparent companion, Tauri 2, deep link, anime companion, virtual companion, outfit swap, postfx, anime bloom, VRM, VRM morph, WebLLM, WebGPU, ONNX Runtime Web, wasm, INT8, Edge-TTS, EMAGE, streaming motion, three.js, browser-native, リアルタイムAI, バーチャルコンパニオン, 3Dアバター, デスクトップマスコット' },
+      { name: 'description', content: 'Dual-mode anime companion & transparent desktop pet (Tauri 2.x + Web) — WebLLM (WebGPU) + on-device SenseVoice STT + EMAGE motion (ONNX wasm INT8) + Edge-TTS. Features ChatBar mic dictation, zero-pop outfit swap, 3D holographic guides, 60Hz alpha click-through, and external protocol (xiaochun://).' },
+      { name: 'keywords', content: 'Project XiaoChun, 二次元伴侣, 桌面宠物, 桌宠, 透明桌宠, 虚拟伴侣, AI伴侣, 语音识别, 端上STT, SenseVoice, 二次元换装, 角色穿脱, 后期处理, Bloom辉光, 线稿主题, 骨骼微调, desktop pet, transparent companion, Tauri 2, deep link, anime companion, virtual companion, speech to text, on-device STT, SenseVoice, outfit swap, postfx, anime bloom, VRM, VRM morph, WebLLM, WebGPU, ONNX Runtime Web, wasm, INT8, Edge-TTS, EMAGE, streaming motion, three.js, browser-native, リアルタイムAI, バーチャルコンパニオン, 3Dアバター, デスクトップマスコット, 音声認識' },
       { name: 'robots', content: 'index, follow, max-snippet:-1, max-image-preview:large, max-video-preview:-1' },
       { name: 'format-detection', content: 'telephone=no' },
       { name: 'application-name', content: 'Project XiaoChun' },
@@ -45,7 +45,7 @@ export const Route = createRootRoute({
       // Open Graph
       { property: 'og:type', content: 'website' },
       { property: 'og:title', content: 'Project XiaoChun — 100% 浏览器原生二次元伴侣' },
-      { property: 'og:description', content: '100% 浏览器原生二次元伴侣 — WebLLM + EMAGE 全身动作 + Edge-TTS。内置无缝原子换装、电影级辉光后期、28项形体微调与双主题线稿世界，纯本地隐私零后端。' },
+      { property: 'og:description', content: '100% 浏览器原生二次元伴侣 — WebLLM + 端上 SenseVoice 听写 + EMAGE 全身动作 + Edge-TTS。内置 ChatBar 麦克风听写、无缝原子换装、电影级辉光后期、28项形体微调与双主题线稿世界，纯本地隐私零后端。' },
       { property: 'og:url', content: 'https://xiaochun.firetable.tech' },
       { property: 'og:image', content: 'https://xiaochun.firetable.tech/og.jpg' },
       { property: 'og:image:type', content: 'image/jpeg' },
@@ -62,7 +62,7 @@ export const Route = createRootRoute({
       { name: 'twitter:site', content: 'FireTablePlus' },
       { name: 'twitter:creator', content: 'FireTablePlus' },
       { name: 'twitter:title', content: 'Project XiaoChun — 100% 浏览器原生二次元伴侣' },
-      { name: 'twitter:description', content: '100% 浏览器原生二次元伴侣 — WebLLM + EMAGE + Edge-TTS。支持无缝换装、电影级Bloom后期与28项骨骼微调。' },
+      { name: 'twitter:description', content: '100% 浏览器原生二次元伴侣 — WebLLM + SenseVoice 端上听写 + EMAGE + Edge-TTS。支持麦克风听写、无缝换装、电影级Bloom后期与28项骨骼微调。' },
       { name: 'twitter:image', content: 'https://xiaochun.firetable.tech/og.jpg' },
       { name: 'twitter:image:alt', content: 'Project XiaoChun — 100% 浏览器原生二次元伴侣' },
 
@@ -95,7 +95,7 @@ export const Route = createRootRoute({
             name: 'FireTable',
             url: 'https://github.com/FireTable',
           },
-          description: '100% 浏览器原生二次元伴侣 — WebLLM（可用 WebGPU）+ EMAGE 全身动作（ONNX wasm + INT8，流式 motion_chunk）+ Edge-TTS。内置原子级无缝换装、电影级后期处理管线与28项骨骼微调。',
+          description: '100% 浏览器原生二次元伴侣 — WebLLM（可用 WebGPU）+ SenseVoice 端上听写 + EMAGE 全身动作（ONNX wasm + INT8，流式 motion_chunk）+ Edge-TTS。内置 ChatBar 麦克风听写、原子级无缝换装、电影级后期处理管线与28项骨骼微调。',
           browserRequirements: 'Modern browser with WebGL2; WebGPU recommended for WebLLM; EMAGE uses wasm (SharedArrayBuffer when cross-origin isolated)',
           offers: {
             '@type': 'Offer',

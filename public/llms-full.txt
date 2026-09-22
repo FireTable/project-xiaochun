@@ -6,7 +6,7 @@
 
 ## 1. System Architecture
 
-Project XiaoChun is a full-stack web application built on **Vite 8 + TanStack Start (full-stack SSR) + React 19 + three.js 0.185** deployed to **Cloudflare Workers**. Everything except Edge-TTS runs in the browser tab; the edge runtime handles SSR stream rendering and WebSocket Edge-TTS proxying.
+Project XiaoChun is a full-stack web application built on **Vite 8 + TanStack Start (full-stack SSR) + React 19 + three.js 0.185** deployed to **Cloudflare Workers**. WebLLM, EMAGE, and on-device SenseVoice STT run in the browser tab; Edge-TTS audio is proxied at the edge; the edge runtime handles SSR stream rendering and WebSocket Edge-TTS proxying.
 
 - **3D Engine Architecture**: Decoupled into modular sub-engines:
   - `src/core/vrmEngine.ts`: Master facade and lifecycle coordinator, supporting both **VRM 1.0** and **VRM 0.x** avatars seamlessly.
@@ -241,3 +241,14 @@ Project XiaoChun features a cross-platform desktop build powered by **Tauri 2.x*
 - [VolgaGerm / emage-onnx-export](https://github.com/VolgaGerm/emage-onnx-export) — README export scripts for ONNX / INT8 weights
 - [TanStack Start](https://tanstack.com/start) — full-stack React framework
 - [Tailwind CSS](https://tailwindcss.com) — utility-first styling
+
+## On-Device STT (SenseVoice)
+
+ChatBar microphone dictation runs locally:
+- Model: sherpa-onnx SenseVoice Small **int8** `2024-07-17` (zh/en/ja/ko/yue) with ITN/punctuation
+- CDN: `https://cdn.firetable.tech/xiaochun/stt/sensevoice-zh-en-ja-ko-yue-int8-2024-07-17/{model.int8.onnx,tokens.txt}`
+- Pipeline: getUserMedia → energy VAD (preroll ~300ms, auto-segment, keep tail silence) → Dedicated Worker ORT wasm → insert at caret
+- UX: continuous listening until mic toggled off; recognizing keeps mic icon with denser ripples
+- Not included: Zipformer streaming ASR; prefer int8 on mobile (not fp32)
+- Spec: `/docs/STT.md`
+

@@ -5,7 +5,7 @@
 <h1 align="center">Project XiaoChun</h1>
 
 <p align="center">
-  <b>100% 浏览器原生二次元陪伴角色 — 本地 LLM + EMAGE 动作 + Edge-TTS,零后端</b>
+  <b>100% 浏览器原生二次元陪伴角色 — 本地 LLM + 端上语音识别 + EMAGE 动作 + Edge-TTS,零后端</b>
 </p>
 
 <p align="center">
@@ -34,7 +34,7 @@
 
 **Project XiaoChun (小蠢)** 是一个完全运行在浏览器里的二次元陪伴角色。角色用 `@pixiv/three-vrm` 渲染,采用 MToon NPR 着色,坐在沉浸式线稿户外场景中;**所有 AI 推理都在你当前的浏览器标签页里跑** —— 没有 Python 后端,没有服务器 GPU。
 
-进场是 2D MAD 预载破次元到 3D —— 镜头从 3.3 倍远景推近,splash 同步淡出。你跟她说话。她思考(WebLLM MiniCPM5 2B q4f16_1,失败降到 Qwen2.5 0.5B;思考模式可关)、她开口说话(Edge-TTS 走 Cloudflare Workers WebSocket)、她全身动作实时跟上(EMAGE ONNX 在 Dedicated Web Worker 里)。模型没就绪时输入会排队,不会丢字。对话条菜单可从 WebLLM 预置表换模型,也可在**应用内配置对话框**接入任意 **OpenAI 兼容 自定义服务**(Ollama / LM Studio / vLLM / LocalAI / 云厂商)——AES-GCM 加密存在 IndexedDB。
+进场是 2D MAD 预载破次元到 3D —— 镜头从 3.3 倍远景推近,splash 同步淡出。你跟她说话（ChatBar 麦克风端上 SenseVoice 听写，或打字）。她思考(WebLLM MiniCPM5 2B q4f16_1,失败降到 Qwen2.5 0.5B;思考模式可关)、她开口说话(Edge-TTS 走 Cloudflare Workers WebSocket)、她全身动作实时跟上(EMAGE ONNX 在 Dedicated Web Worker 里)。模型没就绪时输入会排队,不会丢字。对话条菜单可从 WebLLM 预置表换模型,也可在**应用内配置对话框**接入任意 **OpenAI 兼容 自定义服务**(Ollama / LM Studio / vLLM / LocalAI / 云厂商)——AES-GCM 加密存在 IndexedDB。
 
 UI 走 **TanStack Start SSR + i18next** 水合,**完整支持简体中文 / English / 日本語 三语切换**,并且按 iOS HIG 44 pt / Material 48 dp 触屏规范做了移动端优先适配。
 
@@ -167,6 +167,7 @@ brew upgrade --cask project-xiaochun
 * **统一 Provider 工厂 (`chatWorkflow.runChat`)** — WebLLM 与自定义 provider 共享同形 `runChat(opts) → string` 契约;dispatcher 通过 `ChatProvider` 注册表轮询,选第一个 `isActive` 命中的。加新 provider = 注册一个描述符。
 * **用户自定义系统提示词 + 记忆轮数 + 头顶气泡** — 聊天菜单 → 「对话设置」可微调小蠢人设(留空/与默认相同则走默认人设)、对话记忆轮数(1-50,默认设备推荐)与头顶对话气泡(`APP_CONFIG.chat.showHeadBubble`,默认开)。关掉后 `HeadBubble` 不渲染,ChatDirector / `bubbleTracker` 事件照发。配置持久化在 IndexedDB(`xiaochun-user-settings`);轮数边界集中在 `APP_CONFIG.memory.userTurnsMin/Max`。
 * **动作生成** — **EMAGE** 全身协同动作 (ONNX Runtime Web) 在 Dedicated Web Worker 中运行：**wasm 执行提供者 + INT8**（`useInt8`）；**不使用 WebGPU**（模型含 int64）。时序高斯滤波与自然待机混合。流式窗长 **T=64**，每窗 `motion_chunk` 降低 TTFA；可听 TTS 前 A/V hold；hop/接缝参数集中在 `APP_CONFIG.emage.motion`（`advanceFrames` 60..64）。详情见 [`docs/EMAGE_MODEL.md`](docs/EMAGE_MODEL.md)。
+* **语音识别** — **SenseVoice Small int8**（中/英/日/韩/粤）Dedicated Worker：能量 VAD 自动切段、端上识别、回填 ChatBar 光标处。CDN：`cdn.firetable.tech/xiaochun/stt/…-2024-07-17`。详见 [`docs/STT.md`](docs/STT.md)。
 * **语音合成** — **Edge-TTS 晓伊 (XiaoyiNeural, zh-CN, +10 Hz)**，基于自研原生 WebSocket 客户端（`src/lib/edge-tts-core.ts`,无第三方 TTS SDK）；网络传输前智能剥离 emoji。
 * **LLM + TTS + EMAGE 一体编排**：chat director 全链路统一协调，主线程满帧 60 FPS。**LLM 可用 WebGPU**（WebLLM）；**EMAGE 固定 wasm/INT8**。
 
@@ -332,6 +333,7 @@ Project-XiaoChun/
 │   ├── BONE_MORPH.md          # 28 项正交体型微调生物力学白皮书
 │   ├── FOOT_IK.md             # 脚部物理地锚与贴地解算
 │   ├── CHAT_DIRECTOR.md       # LLM + TTS + EMAGE 流式状态机编排
+│   ├── STT.md                   # SenseVoice ChatBar 听写（VAD + ORT Worker）
 │   ├── ON_DEVICE_AI.md        # 端侧 AI 推理全栈
 │   └── EMAGE_MODEL.md         # EMAGE 现状与已知限制（wasm/INT8、流式、隔离）
 ├── scripts/                   # 构建与离线处理脚本

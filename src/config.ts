@@ -582,6 +582,41 @@ export const APP_CONFIG = {
       vqSampleTopK: 6,                 // VQ Top-K 约 1~16；↑更多样，↓近 argmax 更稳
     } as EmageMotionConfig,
   },
+  /**
+   * ChatBar mic dictation — SenseVoice Small int8 (sherpa-onnx 2024-07-17).
+   * CDN layout (mirror of official tarball files):
+   *   ${base}/model.int8.onnx  (~228MB)
+   *   ${base}/tokens.txt
+   * Official: https://github.com/k2-fsa/sherpa-onnx/releases/download/asr-models/sherpa-onnx-sense-voice-zh-en-ja-ko-yue-int8-2024-07-17.tar.bz2
+   * Point VITE_STT_BASE / VITE_STT_BASE_PROD at your CDN folder that hosts those two files.
+   */
+  stt: {
+    base: Boolean(import.meta.env?.PROD)
+      ? ((import.meta.env?.VITE_STT_BASE_PROD as string | undefined) ??
+        'https://cdn.firetable.tech/xiaochun/stt/sensevoice-zh-en-ja-ko-yue-int8-2024-07-17')
+      : ((import.meta.env?.VITE_STT_BASE as string | undefined) ??
+        'https://cdn.firetable.tech/xiaochun/stt/sensevoice-zh-en-ja-ko-yue-int8-2024-07-17'),
+    /** Cache Storage bucket name */
+    cacheName: 'xiaochun-stt-v2024-07-17',
+    /** Stable Cache API key prefix → `${cacheKeyPrefix}/{modelFile|tokensFile}` */
+    cacheKeyPrefix: 'xiaochun-stt/v2024-07-17',
+    modelFile: 'model.int8.onnx',
+    tokensFile: 'tokens.txt',
+    /** Inverse text normalization / punctuation (SenseVoice text_norm=with_itn) */
+    useItn: true,
+    vadSilenceMs: 600,
+    vadMaxMs: 20_000,
+    sampleRate: 16_000,
+    /** RMS enter-speech (~otoji 0.012; slight headroom). */
+    vadStartThreshold: 0.014,
+    vadSilenceThreshold: 0.008,
+    /** Hold loud frames before latching speech (ms). */
+    vadStartMs: 80,
+    /** Keep this many ms before onset (otoji preroll). */
+    vadPrerollMs: 300,
+    /** Drop only ultra-short segments before decode (ms). */
+    minUtteranceMs: 250,
+  },
   // WebLLM 模型 id。改 model 即可换模型,必须是 WebLLM 预置表里的 model_id。
   // 在线列表: https://github.com/mlc-ai/web-llm/blob/main/src/config.ts
   //   打开后搜 `prebuiltAppConfig` → `model_list` → 复制 `model_id`。

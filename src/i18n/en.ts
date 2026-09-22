@@ -74,6 +74,16 @@ export const en: Trans = {
     waitReadyHint: 'Your message will send when ready',
     sending: 'Replying…',
     send: 'Send',
+    sttIdle: 'Voice input',
+    sttLoading: 'Loading speech model…',
+    sttListening: 'Listening… (tap to stop)',
+    sttRecognizing: 'Recognizing…',
+    sttError: 'Speech recognition failed',
+    sttEmpty: "Didn't catch that - try again",
+    sttDownload: 'Downloading speech model {{percent}}%',
+    sttInit: 'Initializing speech engine…',
+    sttReady: 'Speech ready',
+    sttMicDenied: 'Microphone unavailable',
     // ponytail: dev-only one-click test — skip LLM, go straight to TTS → EMAGE → playback
     testSpeak: 'Test',
     // ponytail: intentionally ≥2 segments — tests multi-segment pipeline (tts concurrent + emage sequential cross-segment continuity)

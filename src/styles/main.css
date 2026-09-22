@@ -311,3 +311,32 @@ html.is-tauri .dialog-overlay {
   border-radius: 20px !important;
 }
 
+/* ChatBar STT: repeating ripple while listening */
+@keyframes mic-ripple {
+  0% { transform: scale(0.95); opacity: 0.5; }
+  100% { transform: scale(1.35); opacity: 0; }
+}
+.mic-ripple {
+  position: absolute;
+  inset: 0;
+  border-radius: 9999px;
+  border: 1.5px solid rgba(234, 131, 119, 0.8);
+  pointer-events: none;
+  animation: mic-ripple 1.4s cubic-bezier(0, 0, 0.2, 1) infinite;
+}
+.mic-ripple--d1 { animation-delay: 0.5s; }
+.mic-ripple--d2 { animation-delay: 1s; }
+
+/* recognizing: denser/faster ripples; keep mic glyph */
+@keyframes mic-ripple-busy {
+  0% { transform: scale(0.92); opacity: 0.65; }
+  100% { transform: scale(1.28); opacity: 0; }
+}
+.mic-ripple--busy {
+  animation: mic-ripple-busy 0.7s cubic-bezier(0, 0, 0.2, 1) infinite;
+  border-color: rgba(234, 131, 119, 0.95);
+  border-width: 1.5px;
+}
+.mic-ripple--busy-d1 { animation-delay: 0.175s; }
+.mic-ripple--busy-d2 { animation-delay: 0.35s; }
+.mic-ripple--busy-d3 { animation-delay: 0.525s; }

@@ -74,6 +74,16 @@ export const ja: Trans = {
     waitReadyHint: '準備できたら今のメッセージを送ります',
     sending: '返信中…',
     send: '送信',
+    sttIdle: '音声入力',
+    sttLoading: '音声モデルを読み込み中…',
+    sttListening: '聞いています…（再タップで停止）',
+    sttRecognizing: '認識中…',
+    sttError: '音声認識に失敗しました',
+    sttEmpty: '聞き取れませんでした。もう一度',
+    sttDownload: '音声モデルをダウンロード {{percent}}%',
+    sttInit: '音声エンジンを初期化中…',
+    sttReady: '音声準備完了',
+    sttMicDenied: 'マイクを使えません',
     // ponytail: dev-only 一括テスト — LLM をスキップし、直接 TTS → EMAGE → 再生へ
     testSpeak: 'テスト',
     // ponytail: 意図的に ≥2 セグメント — マルチセグメントパイプラインをテスト

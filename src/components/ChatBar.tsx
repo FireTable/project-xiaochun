@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef, Fragment, useMemo } from 'react';
 import { useTranslation } from 'react-i18next';
-import { ChevronLeft, ChevronRight, Menu, Mountain, Server, Sun, Zap } from 'lucide-react';
+import { ChevronLeft, ChevronRight, Menu, Mic, Mountain, Server, Sun, Zap } from 'lucide-react';
 import { vrmEngine } from '@/core/vrmEngine';
 import { useCurrentScene } from '@/core/scene/sceneManager';
 import { DeviceStatusDialog } from '@/components/DeviceStatusDialog';
@@ -26,7 +26,6 @@ import {
 import { getActiveProviderId, getProvider, type ProviderProfile, subscribeProvidersChange } from '@/llm/customProvider';
 import { readActiveModel, subscribeActiveModel } from '@/llm/activeModel';
 import { Send, Sparkles, Loader2 } from '@/components/icons';
-import { Button } from '@/components/ui/button';
 import { splitIntoSpeechChunks } from '@/director/chatDirector';
 import {
   Tooltip,
@@ -44,6 +43,7 @@ import {
 import { LlmProviderIcon } from '@/components/LlmProviderIcon';
 import { holdPetUi, releasePetUi } from '@/hooks/usePetUiVisibility';
 import { isDev } from '@/lib/utils';
+import { SttClient, insertAtCursor, type SttUiState } from '@/stt/sttClient';
 
 function MenuSwitch({ on }: { on: boolean }) {
   return (
@@ -81,7 +81,13 @@ export const ChatBar: React.FC<{
   // ponytail: 不再有 hover-show — 透明桌宠模式只靠点击角色身体 (App.tsx 的 isPetUIVisible) 唤出/收起
   const [isMenuOpen, setIsMenuOpen] = useState(false);
 
-  const inputRef = useRef<HTMLInputElement>(null);
+  const inputRef = useRef<HTMLTextAreaElement>(null);
+
+  const sttRef = useRef<SttClient | null>(null);
+  const [sttState, setSttState] = useState<SttUiState>('idle');
+  const [sttPercent, setSttPercent] = useState(0);
+  const [inputRows, setInputRows] = useState(1);
+  const composerExpanded = inputRows > 1;
   /** 未聚焦时记录 visualViewport 高度，用来判断 Android 键盘是否挤矮了可视区 */
   const restingVvHeightRef = useRef<number>(typeof window !== 'undefined' && window.visualViewport ? window.visualViewport.height : 0);
   const [hasText, setHasText] = useState(false);
@@ -96,6 +102,63 @@ export const ChatBar: React.FC<{
   const [showProviderDialog, setShowProviderDialog] = useState(false);
   const [showAdvancedDialog, setShowAdvancedDialog] = useState(false);
   const [showSyncDialog, setShowSyncDialog] = useState(false);
+
+  // STT (SenseVoice) — lazy client; preload on first mic click
+  useEffect(() => {
+    const client = new SttClient();
+    sttRef.current = client;
+    const off = client.on((ev) => {
+      if (ev.type === 'state') setSttState(ev.state);
+      else if (ev.type === 'progress') setSttPercent(ev.percent);
+      else if (ev.type === 'text') {
+        const el = inputRef.current;
+        if (el) {
+          insertAtCursor(el, ev.text);
+          setHasText(el.value.trim().length > 0);
+          requestAnimationFrame(() => {
+            const box = inputRef.current;
+            if (!box) return;
+            const MAX = 4;
+            if (box.value.trim().length === 0) {
+              box.style.height = '';
+              box.style.overflowY = 'hidden';
+              setInputRows(1);
+              return;
+            }
+            box.style.height = '0px';
+            box.style.overflowY = 'hidden';
+            const cs = window.getComputedStyle(box);
+            let lineHeight = parseFloat(cs.lineHeight);
+            if (!Number.isFinite(lineHeight) || lineHeight <= 0) {
+              const fs = parseFloat(cs.fontSize) || 15;
+              lineHeight = fs * 1.5;
+            }
+            const content = box.scrollHeight;
+            const measuredRows = Math.max(1, Math.min(MAX, Math.ceil(content / lineHeight - 0.01)));
+            setInputRows((prev) => {
+              const next = Math.max(prev, measuredRows);
+              box.style.height = `${lineHeight * Math.min(MAX, next)}px`;
+              box.style.overflowY = content > lineHeight * MAX + 0.5 ? 'auto' : 'hidden';
+              return next === prev ? prev : next;
+            });
+          });
+        }
+      } else if (ev.type === 'error') {
+        if (ev.message === 'empty_transcript') {
+          // soft: no alert spam
+          console.warn('[STT]', t('chat.sttEmpty'));
+        } else {
+          console.error('[STT]', ev.message);
+        }
+      }
+    });
+    return () => {
+      off();
+      client.dispose();
+      sttRef.current = null;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- mount once
+  }, []);
   // ponytail: 当前激活的自定义 provider(webllm 与 custom 二选一)。用来在模型下拉里
   // 显示真实生效的服务名 / 模型,而不是 webLLM 的兜底。
   const [activeCustom, setActiveCustom] = useState<ProviderProfile | null>(null);
@@ -365,8 +428,13 @@ export const ChatBar: React.FC<{
     if (isModelReady && isQueued && queuedTextRef.current) {
       const toSend = queuedTextRef.current;
       queuedTextRef.current = '';
-      if (inputRef.current) inputRef.current.value = '';
+      if (inputRef.current) {
+        inputRef.current.value = '';
+        inputRef.current.style.height = '';
+        inputRef.current.style.overflowY = 'hidden';
+      }
       setHasText(false);
+      setInputRows(1);
       setIsQueued(false);
       setIsSending(true);
 
@@ -392,8 +460,13 @@ export const ChatBar: React.FC<{
       return;
     }
 
-    if (inputRef.current) inputRef.current.value = '';
+    if (inputRef.current) {
+      inputRef.current.value = '';
+      inputRef.current.style.height = '';
+      inputRef.current.style.overflowY = 'hidden';
+    }
     setHasText(false);
+    setInputRows(1);
     setIsQueued(false);
     setIsSending(true);
 
@@ -424,11 +497,48 @@ export const ChatBar: React.FC<{
     }
   };
 
-  const handleKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
-    if (e.key === 'Enter' && !e.nativeEvent.isComposing) {
+  const handleKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
+    // Enter sends; Shift+Enter newline (expandable textarea)
+    if (e.key === 'Enter' && !e.shiftKey && !e.nativeEvent.isComposing) {
       e.preventDefault();
       void handleSend();
     }
+  };
+
+  const handleSttToggle = () => {
+    void sttRef.current?.toggle();
+  };
+
+  /** Height only grows (cap 4). Shrink back to 1 only when content is cleared. */
+  const syncComposerHeight = () => {
+    const el = inputRef.current;
+    if (!el) return;
+    const MAX = 4;
+    if (el.value.trim().length === 0) {
+      el.style.height = '';
+      el.style.overflowY = 'hidden';
+      setInputRows((prev) => (prev === 1 ? prev : 1));
+      return;
+    }
+
+    el.style.height = '0px';
+    el.style.overflowY = 'hidden';
+    const cs = window.getComputedStyle(el);
+    let lineHeight = parseFloat(cs.lineHeight);
+    if (!Number.isFinite(lineHeight) || lineHeight <= 0) {
+      const fs = parseFloat(cs.fontSize) || 15;
+      lineHeight = fs * 1.5;
+    }
+    const content = el.scrollHeight;
+    const measuredRows = Math.max(1, Math.min(MAX, Math.ceil(content / lineHeight - 0.01)));
+
+    setInputRows((prev) => {
+      const next = Math.max(prev, measuredRows); // unidirectional: never shrink while typing
+      const nextPx = lineHeight * Math.min(MAX, next);
+      el.style.height = `${nextPx}px`;
+      el.style.overflowY = content > lineHeight * MAX + 0.5 ? 'auto' : 'hidden';
+      return next === prev ? prev : next;
+    });
   };
 
   const handleInput = () => {
@@ -437,6 +547,7 @@ export const ChatBar: React.FC<{
     if (nowHasText !== hasText) {
       setHasText(nowHasText);
     }
+    syncComposerHeight();
     if (isQueued) {
       queuedTextRef.current = val.trim();
       if (!val.trim()) setIsQueued(false);
@@ -451,7 +562,7 @@ export const ChatBar: React.FC<{
     shudaoSegs: splitIntoSpeechChunks(t('chat.testSpeakShudaoText')).length,
   }), [t]);
 
-  const showChatBar = !isTransparent || isPetUIVisible || isMenuOpen || isInputFocused || hasText || isSending;
+  const showChatBar = !isTransparent || isPetUIVisible || isMenuOpen || isInputFocused || hasText || isSending || sttState === 'listening' || sttState === 'recognizing' || sttState === 'loading';
   const visibilityClass = showChatBar
     ? 'opacity-100 pointer-events-auto'
     : 'opacity-0 pointer-events-none';
@@ -462,256 +573,318 @@ export const ChatBar: React.FC<{
       onPointerLeave={() => releasePetUi('chatbar')}
       className={`fixed bottom-[calc(0.75rem+var(--kb-safe,env(safe-area-inset-bottom,0px))+var(--kb,0px))] sm:bottom-8 left-1/2 -translate-x-1/2 z-30 w-full max-w-xl px-3 sm:px-4 select-none transition-opacity duration-300 ease-out ${visibilityClass}`}
     >
-      <div id="xiaochun-chatbar" className="flex items-center gap-2 sm:gap-2.5 w-full">
-        <DropdownMenu
-          modal={false}
-          onOpenChange={(open) => {
-            setIsMenuOpen(open);
-            if (!open) setPickingModel(false);
-          }}
-        >
-          {/* ponytail: 不包 Tooltip — Radix 官方 anti-pattern,无论 controlled 还是
-            blur 都治不干净(focus 状态变化太多)。aria-label 已经提供无障碍支持,
-            触发过一次用户就知道是什么,hover tooltip 提示是冗余。 */}
-          <DropdownMenuTrigger asChild>
-            <Button
-              type="button"
-              id="chat-menu"
-              variant="glass"
-              size="icon"
-              aria-label={t('chat.chatMenu')}
-              className="h-11 w-11 shrink-0"
-              onClick={handleMenuClickForVConsole}
-            >
-              <Menu className="w-4 h-4" />
-            </Button>
-          </DropdownMenuTrigger>
-          {/* ponytail: modal={false} 允许菜单打开时点击外部(input)直接聚焦,不会被 Radix
-            的覆盖层拦掉。onCloseAutoFocus 阻止菜单关闭时把焦点弹回 trigger — 否则 input
-            刚拿到焦点(键盘弹起、ChatBar 浮起)就会被抢回去,键盘收起、ChatBar 回到底部,
-            视觉上「折叠」。两个配合才能让 input 稳定保持聚焦状态。 */}
-          <DropdownMenuContent
-            side="top"
-            align="start"
-            collisionPadding={12}
-            onCloseAutoFocus={(e) => e.preventDefault()}
-            className="w-[min(18rem,calc(100vw-1.5rem))] max-w-[calc(100vw-1.5rem)] overflow-x-hidden"
-          >
-            {pickingModel ? (
-              <>
-                <DropdownMenuItem
-                  onSelect={(e) => {
-                    e.preventDefault();
-                    setPickingModel(false);
-                  }}
-                >
-                  <ChevronLeft className="h-4 w-4 shrink-0 text-white/50" />
-                  <span className="flex-1">{t('chat.switchModel')}</span>
-                </DropdownMenuItem>
-                <DropdownMenuItem
-                  onSelect={() => setShowProviderDialog(true)}
-                  className="flex items-center gap-2"
-                >
-                  <Server className="h-3.5 w-3.5 shrink-0 text-white" />
-                  <span className="flex-1">{t('chat.providerMenu')}</span>
-                  {/* ponytail: 自定义 provider 已激活时,这里打勾,webLLM 行不打勾。 */}
-                  {activeCustom ? <span className="shrink-0 text-brand-300 text-xs">✓</span> : null}
-                </DropdownMenuItem>
-                <DropdownMenuSeparator />
-                <div className="max-h-[min(18rem,50dvh)] overflow-x-hidden overflow-y-auto">
-                  {llmGroups.map((group, i) => (
-                    <Fragment key={group.provider}>
-                      {i > 0 ? <DropdownMenuSeparator /> : null}
-                      <DropdownMenuLabel className="flex min-w-0 items-center gap-2 normal-case tracking-normal text-sm font-semibold text-white/70">
-                        <LlmProviderIcon name={group.provider} />
-                        <span className="truncate">{group.provider}</span>
-                      </DropdownMenuLabel>
-                      {group.models.map((m) => {
-                        const selected = !activeCustom && modelBaseId(m.id) === activeBase;
-                        return (
-                          <DropdownMenuItem
-                            key={m.id}
-                            disabled={isSending}
-                            onSelect={() => {
-                              if (selected) return;
-                              // ponytail: setActiveModelId 现在写统一 key 的 webllm 分支,
-                              // 自动覆盖 custom 分支。然后刷新 activeCustom React state,
-                              // 否则 UI 还显示旧 custom。
-                              setActiveModel(m.id);
-                              setActiveModelId(m.id);
-                              void refreshActiveCustom();
-                            }}
-                            className="min-w-0 justify-between"
-                          >
-                            <span className="min-w-0 flex-1 truncate">{m.label}</span>
-                            {selected ? <span className="shrink-0 text-brand-300 text-xs">✓</span> : null}
-                          </DropdownMenuItem>
-                        );
-                      })}
-                    </Fragment>
-                  ))}
-                </div>
-              </>
-            ) : (
-              <>
-                <DropdownMenuItem
-                  onSelect={(e) => {
-                    e.preventDefault();
-                    setPickingModel(true);
-                  }}
-                  className="justify-between"
-                >
-                  <span>{t('chat.switchModel')}</span>
-                  <span className="flex min-w-0 items-center gap-1">
-                    {activeCustom ? (
-                      <span className="flex min-w-0 flex-col items-end max-w-[8rem]">
-                        <span className="truncate text-xs text-white/70">{activeCustom.name || activeCustom.model}</span>
-                        {activeCustom.name && activeCustom.model !== activeCustom.name ? (
-                          <span className="truncate text-[10px] text-white/40 font-mono">{activeCustom.model}</span>
-                        ) : null}
-                      </span>
-                    ) : activeWebLLM ? (
-                      <span className="flex min-w-0 flex-col items-end max-w-[8rem]">
-                        <span className="truncate text-xs text-white/70">WebLLM</span>
-                        <span className="truncate text-[10px] text-white/40 font-mono">{activeWebLLM.label}</span>
-                      </span>
-                    ) : (
-                      <span className="max-w-[7.5rem] truncate text-xs text-white/50">{activeBase}</span>
-                    )}
-                    <ChevronRight className="h-4 w-4 shrink-0 text-white/50" />
-                  </span>
-                </DropdownMenuItem>
-                <DropdownMenuItem
-                  aria-checked={thinkingOn}
-                  onSelect={(e) => {
-                    e.preventDefault();
-                    const next = !thinkingOn;
-                    setThinkingOn(next);
-                    setThinkingEnabled(next);
-                  }}
-                  className="justify-between"
-                >
-                  <span>{t('chat.thinkingMode')}</span>
-                  <MenuSwitch on={thinkingOn} />
-                </DropdownMenuItem>
-                <p className="px-2.5 pb-1.5 text-[10px] leading-snug text-white/40">
-                  {t('chat.thinkingHint')}
-                </p>
-                <DropdownMenuSeparator />
-                <DropdownMenuItem
-                  onSelect={() => setShowAdvancedDialog(true)}
-                  className="justify-between"
-                >
-                  <span>{t('chat.advancedMenu')}</span>
-                  <ChevronRight className="h-4 w-4 shrink-0 text-white/50" />
-                </DropdownMenuItem>
-                <DropdownMenuItem
-                  onSelect={() => setShowSyncDialog(true)}
-                  className="justify-between"
-                >
-                  <span>{t('chat.syncMenu')}</span>
-                  <ChevronRight className="h-4 w-4 shrink-0 text-white/50" />
-                </DropdownMenuItem>
-                <DropdownMenuItem
-                  onSelect={() => setShowDeviceDialog(true)}
-                  className="justify-between"
-                >
-                  <span>{t('chat.deviceStatus')}</span>
-                  <span className="flex min-w-0 items-center gap-1">
-                    <span className="max-w-[7.5rem] truncate text-xs text-white/50">
-                      {deviceTier === 'high' ? 'High' : 'Low'}
-                    </span>
-                    <ChevronRight className="h-4 w-4 shrink-0 text-white/50" />
-                  </span>
-                </DropdownMenuItem>
-              </>
-            )}
-          </DropdownMenuContent>
-        </DropdownMenu>
-
-        {/* 输入框主胶囊：高度严格 h-11 (44px)，非阻塞可随时聚焦输入，排队时呼吸高亮。
-            ponytail: 不用 username/password decoy — 隐藏登录字段反而会让 Chrome 弹出
-            「密码 / 信用卡 / 地址」自动填充条。用非 form 容器 + type=search 降低启发式。 */}
-        <div
-          className={`flex-1 flex items-center h-11 sm:h-11 rounded-full bg-[#13111c]/85 border backdrop-blur-2xl px-3.5 sm:px-4 transition-all duration-300 relative ${
-            isQueued
-              ? 'border-[#ea8377] ring-2 ring-[#ea8377]/40 shadow-[0_0_24px_rgba(234,131,119,0.35)]'
-              : 'border-white/15 focus-within:border-[#ea8377] focus-within:ring-2 focus-within:ring-[#ea8377]/30 focus-within:shadow-[0_0_24px_rgba(234,131,119,0.3)]'
-          }`}
-        >
-          {/* 左侧状态感知指示器 */}
-          {isQueued ? (
-            <Loader2 className="w-4 h-4 text-[#ea8377] animate-spin shrink-0 mr-2 sm:mr-2.5" />
-          ) : !isModelReady ? (
-            <div className="flex items-center gap-1 shrink-0 mr-2 sm:mr-2.5">
-              <Sparkles className="w-4 h-4 text-[#f5aa9c] animate-pulse shrink-0 opacity-90" />
-              <span className="hidden sm:inline-block text-[9px] font-mono font-bold text-[#f5aa9c] bg-[#ea8377]/15 border border-[#ea8377]/30 px-1 py-0.2 rounded uppercase">
-                SYNC
-              </span>
-            </div>
-          ) : (
-            <Sparkles className="w-4 h-4 text-[#ea8377] shrink-0 mr-2 sm:mr-2.5 opacity-90 animate-pulse" />
-          )}
-
-          <input
-            ref={inputRef}
-            // ponytail: type=search 比 text 更少被 Chrome 当成登录/地址字段；
-            // 避免页面里再出现 password decoy，否则会直接弹出自动填充工具条。
-            type="search"
-            id="xiaochun-chat-compose"
-            name="xiaochun-chat-compose"
-            inputMode="text"
-            enterKeyHint="send"
-            data-form-type="other"
-            data-1p-ignore="true"
-            data-lpignore="true"
-            data-bwignore="true"
-            data-dashlane-ignore="true"
-            autoComplete="off"
-            autoCorrect="off"
-            autoCapitalize="off"
-            spellCheck={false}
-            // 部分 WebKit 会给 search 画清除按钮，这里关掉
-            style={{ WebkitAppearance: 'none' } as React.CSSProperties}
-            placeholder={isModelReady ? t('chat.placeholder') : t('chat.syncingPlaceholder')}
-            onInput={handleInput}
-            onKeyDown={handleKeyDown}
-            onFocus={() => {
-              setIsInputFocused(true);
-              handleInputFocus();
-            }}
-            onBlur={() => {
-              setIsInputFocused(false);
-              // 失焦立刻清额外抬升，避免等 visualViewport 事件导致「收起仍抬高」。
-              const vv = window.visualViewport;
-              if (vv) {
-                restingVvHeightRef.current = vv.height;
-                document.documentElement.style.setProperty('--kb', '0px');
-                document.documentElement.style.setProperty('--kb-safe', '');
-                document.documentElement.style.setProperty('--kb-busy', '0');
-              }
-            }}
-            // ponytail: 回复中也允许输入 — 用户可以预先打下一句,点 send 时
-            // handleSend 内部用 isSending 拦截,不重复发。按钮单独 disable。
-            className="w-full h-full bg-transparent border-none outline-none text-white placeholder:text-white/40 text-sm sm:text-sm touch-manipulation select-text [&::-webkit-search-cancel-button]:hidden [&::-webkit-search-decoration]:hidden"
-          />
-        </div>
-
-        {/* 发送按钮：高度严格 h-11 (44px)，状态随就绪度与排队状态联动 */}
+      <div id="xiaochun-chatbar" className="flex items-end gap-2 sm:gap-2.5 w-full">
+        {/* Unified composer: ONE permanent textarea; single↔multi via CSS grid only (no remount). */}
         {(() => {
+          // Single/multi share the same shell padding.
+          const shellPad = 'px-2.5 sm:px-3 pt-2.5 pb-2';
+
+          // Left slot: full hamburger menu (moved inside shell; no external round button).
+          const leftEl = (
+            <DropdownMenu
+              modal={false}
+              onOpenChange={(open) => {
+                setIsMenuOpen(open);
+                if (!open) setPickingModel(false);
+              }}
+            >
+              {/* ponytail: 不包 Tooltip — Radix 官方 anti-pattern,无论 controlled 还是
+                blur 都治不干净(focus 状态变化太多)。aria-label 已经提供无障碍支持,
+                触发过一次用户就知道是什么,hover tooltip 提示是冗余。 */}
+              <DropdownMenuTrigger asChild>
+                <button
+                  type="button"
+                  id="chat-menu"
+                  aria-label={t('chat.chatMenu')}
+                  title={t('chat.chatMenu')}
+                  onClick={handleMenuClickForVConsole}
+                  className="shrink-0 h-9 w-9 rounded-full flex items-center justify-center touch-manipulation active:scale-95 appearance-none outline-none border-none text-white/55 hover:text-[#f5aa9c] hover:bg-white/10 transition-colors data-[state=open]:text-[#f5aa9c] data-[state=open]:bg-white/10"
+                >
+                  {isQueued ? (
+                    <Loader2 className="w-4 h-4 text-[#ea8377] animate-spin" />
+                  ) : !isModelReady ? (
+                    <Menu className="w-4 h-4 text-[#f5aa9c] animate-pulse" />
+                  ) : (
+                    <Menu className="w-4 h-4" />
+                  )}
+                </button>
+              </DropdownMenuTrigger>
+              {/* ponytail: modal={false} 允许菜单打开时点击外部(input)直接聚焦,不会被 Radix
+                的覆盖层拦掉。onCloseAutoFocus 阻止菜单关闭时把焦点弹回 trigger — 否则 input
+                刚拿到焦点(键盘弹起、ChatBar 浮起)就会被抢回去,键盘收起、ChatBar 回到底部,
+                视觉上「折叠」。两个配合才能让 input 稳定保持聚焦状态。 */}
+              <DropdownMenuContent
+                side="top"
+                align="start"
+                collisionPadding={12}
+                onCloseAutoFocus={(e) => e.preventDefault()}
+                className="w-[min(18rem,calc(100vw-1.5rem))] max-w-[calc(100vw-1.5rem)] overflow-x-hidden"
+              >
+                {pickingModel ? (
+                  <>
+                    <DropdownMenuItem
+                      onSelect={(e) => {
+                        e.preventDefault();
+                        setPickingModel(false);
+                      }}
+                    >
+                      <ChevronLeft className="h-4 w-4 shrink-0 text-white/50" />
+                      <span className="flex-1">{t('chat.switchModel')}</span>
+                    </DropdownMenuItem>
+                    <DropdownMenuItem
+                      onSelect={() => setShowProviderDialog(true)}
+                      className="flex items-center gap-2"
+                    >
+                      <Server className="h-3.5 w-3.5 shrink-0 text-white" />
+                      <span className="flex-1">{t('chat.providerMenu')}</span>
+                      {/* ponytail: 自定义 provider 已激活时,这里打勾,webLLM 行不打勾。 */}
+                      {activeCustom ? <span className="shrink-0 text-brand-300 text-xs">✓</span> : null}
+                    </DropdownMenuItem>
+                    <DropdownMenuSeparator />
+                    <div className="max-h-[min(18rem,50dvh)] overflow-x-hidden overflow-y-auto">
+                      {llmGroups.map((group, i) => (
+                        <Fragment key={group.provider}>
+                          {i > 0 ? <DropdownMenuSeparator /> : null}
+                          <DropdownMenuLabel className="flex min-w-0 items-center gap-2 normal-case tracking-normal text-sm font-semibold text-white/70">
+                            <LlmProviderIcon name={group.provider} />
+                            <span className="truncate">{group.provider}</span>
+                          </DropdownMenuLabel>
+                          {group.models.map((m) => {
+                            const selected = !activeCustom && modelBaseId(m.id) === activeBase;
+                            return (
+                              <DropdownMenuItem
+                                key={m.id}
+                                disabled={isSending}
+                                onSelect={() => {
+                                  if (selected) return;
+                                  // ponytail: setActiveModelId 现在写统一 key 的 webllm 分支,
+                                  // 自动覆盖 custom 分支。然后刷新 activeCustom React state,
+                                  // 否则 UI 还显示旧 custom。
+                                  setActiveModel(m.id);
+                                  setActiveModelId(m.id);
+                                  void refreshActiveCustom();
+                                }}
+                                className="min-w-0 justify-between"
+                              >
+                                <span className="min-w-0 flex-1 truncate">{m.label}</span>
+                                {selected ? <span className="shrink-0 text-brand-300 text-xs">✓</span> : null}
+                              </DropdownMenuItem>
+                            );
+                          })}
+                        </Fragment>
+                      ))}
+                    </div>
+                  </>
+                ) : (
+                  <>
+                    <DropdownMenuItem
+                      onSelect={(e) => {
+                        e.preventDefault();
+                        setPickingModel(true);
+                      }}
+                      className="justify-between"
+                    >
+                      <span>{t('chat.switchModel')}</span>
+                      <span className="flex min-w-0 items-center gap-1">
+                        {activeCustom ? (
+                          <span className="flex min-w-0 flex-col items-end max-w-[8rem]">
+                            <span className="truncate text-xs text-white/70">{activeCustom.name || activeCustom.model}</span>
+                            {activeCustom.name && activeCustom.model !== activeCustom.name ? (
+                              <span className="truncate text-[10px] text-white/40 font-mono">{activeCustom.model}</span>
+                            ) : null}
+                          </span>
+                        ) : activeWebLLM ? (
+                          <span className="flex min-w-0 flex-col items-end max-w-[8rem]">
+                            <span className="truncate text-xs text-white/70">WebLLM</span>
+                            <span className="truncate text-[10px] text-white/40 font-mono">{activeWebLLM.label}</span>
+                          </span>
+                        ) : (
+                          <span className="max-w-[7.5rem] truncate text-xs text-white/50">{activeBase}</span>
+                        )}
+                        <ChevronRight className="h-4 w-4 shrink-0 text-white/50" />
+                      </span>
+                    </DropdownMenuItem>
+                    <DropdownMenuItem
+                      aria-checked={thinkingOn}
+                      onSelect={(e) => {
+                        e.preventDefault();
+                        const next = !thinkingOn;
+                        setThinkingOn(next);
+                        setThinkingEnabled(next);
+                      }}
+                      className="justify-between"
+                    >
+                      <span>{t('chat.thinkingMode')}</span>
+                      <MenuSwitch on={thinkingOn} />
+                    </DropdownMenuItem>
+                    <p className="px-2.5 pb-1.5 text-[10px] leading-snug text-white/40">
+                      {t('chat.thinkingHint')}
+                    </p>
+                    <DropdownMenuSeparator />
+                    <DropdownMenuItem
+                      onSelect={() => setShowAdvancedDialog(true)}
+                      className="justify-between"
+                    >
+                      <span>{t('chat.advancedMenu')}</span>
+                      <ChevronRight className="h-4 w-4 shrink-0 text-white/50" />
+                    </DropdownMenuItem>
+                    <DropdownMenuItem
+                      onSelect={() => setShowSyncDialog(true)}
+                      className="justify-between"
+                    >
+                      <span>{t('chat.syncMenu')}</span>
+                      <ChevronRight className="h-4 w-4 shrink-0 text-white/50" />
+                    </DropdownMenuItem>
+                    <DropdownMenuItem
+                      onSelect={() => setShowDeviceDialog(true)}
+                      className="justify-between"
+                    >
+                      <span>{t('chat.deviceStatus')}</span>
+                      <span className="flex min-w-0 items-center gap-1">
+                        <span className="max-w-[7.5rem] truncate text-xs text-white/50">
+                          {deviceTier === 'high' ? 'High' : 'Low'}
+                        </span>
+                        <ChevronRight className="h-4 w-4 shrink-0 text-white/50" />
+                      </span>
+                    </DropdownMenuItem>
+                  </>
+                )}
+              </DropdownMenuContent>
+            </DropdownMenu>
+          );
+
+          const textareaEl = (
+            <textarea
+              ref={inputRef}
+              id="xiaochun-chat-compose"
+              name="xiaochun-chat-compose"
+              rows={inputRows}
+              inputMode="text"
+              enterKeyHint="send"
+              data-form-type="other"
+              data-1p-ignore="true"
+              data-lpignore="true"
+              data-bwignore="true"
+              data-dashlane-ignore="true"
+              autoComplete="off"
+              autoCorrect="off"
+              autoCapitalize="off"
+              spellCheck={false}
+              placeholder={isModelReady ? t('chat.placeholder') : t('chat.syncingPlaceholder')}
+              onInput={handleInput}
+              onKeyDown={handleKeyDown}
+              onFocus={() => {
+                setIsInputFocused(true);
+                handleInputFocus();
+              }}
+              onBlur={() => {
+                setIsInputFocused(false);
+                const vv = window.visualViewport;
+                if (vv) {
+                  restingVvHeightRef.current = vv.height;
+                  document.documentElement.style.setProperty('--kb', '0px');
+                  document.documentElement.style.setProperty('--kb-safe', '');
+                  document.documentElement.style.setProperty('--kb-busy', '0');
+                }
+              }}
+              className={
+                composerExpanded
+                  ? 'min-h-[1.5rem] w-[calc(100%-1.25rem)] justify-self-center resize-none bg-transparent border-none outline-none text-white placeholder:text-white/40 text-[15px] sm:text-sm touch-manipulation select-text leading-6 px-0 mx-2.5 mt-1 col-span-3 row-start-1'
+                  : 'min-w-0 min-h-[1.5rem] resize-none overflow-hidden bg-transparent border-none outline-none text-white placeholder:text-white/40 text-[15px] sm:text-sm touch-manipulation select-text leading-6 py-0 self-center'
+              }
+            />
+          );
+
+          const micEl = (
+            <button
+              type="button"
+              id="chatSttMic"
+              aria-label={
+                sttState === 'loading'
+                  ? t('chat.sttLoading')
+                  : sttState === 'listening'
+                  ? t('chat.sttListening')
+                  : sttState === 'recognizing'
+                  ? t('chat.sttRecognizing')
+                  : sttState === 'error'
+                  ? t('chat.sttError')
+                  : t('chat.sttIdle')
+              }
+              title={
+                sttState === 'loading'
+                  ? t('chat.sttDownload', { percent: sttPercent })
+                  : sttState === 'listening'
+                  ? t('chat.sttListening')
+                  : sttState === 'recognizing'
+                  ? t('chat.sttRecognizing')
+                  : sttState === 'error'
+                  ? t('chat.sttError')
+                  : t('chat.sttIdle')
+              }
+              onClick={handleSttToggle}
+              disabled={sttState === 'recognizing'}
+              className={`relative shrink-0 h-9 w-9 rounded-full flex items-center justify-center touch-manipulation active:scale-95 appearance-none outline-none border-none transition-colors overflow-visible ${
+                sttState === 'listening' || sttState === 'recognizing'
+                  ? 'bg-transparent text-[#ea8377]'
+                  : sttState === 'error'
+                  ? 'bg-red-500/20 text-red-300'
+                  : sttState === 'loading'
+                  ? 'bg-white/10 text-white/70'
+                  : 'bg-transparent text-white/50 hover:text-[#f5aa9c] hover:bg-white/10'
+              }`}
+            >
+              {sttState === 'listening' && (
+                <>
+                  <span className="mic-ripple" aria-hidden />
+                  <span className="mic-ripple mic-ripple--d1" aria-hidden />
+                  <span className="mic-ripple mic-ripple--d2" aria-hidden />
+                </>
+              )}
+              {sttState === 'recognizing' && (
+                <>
+                  <span className="mic-ripple mic-ripple--busy" aria-hidden />
+                  <span className="mic-ripple mic-ripple--busy mic-ripple--busy-d1" aria-hidden />
+                  <span className="mic-ripple mic-ripple--busy mic-ripple--busy-d2" aria-hidden />
+                  <span className="mic-ripple mic-ripple--busy mic-ripple--busy-d3" aria-hidden />
+                </>
+              )}
+              {sttState === 'loading' && (
+                <svg className="absolute inset-0 h-9 w-9 -rotate-90" viewBox="0 0 36 36" aria-hidden>
+                  <circle cx="18" cy="18" r="14" fill="none" stroke="rgba(255,255,255,0.15)" strokeWidth="2" />
+                  <circle
+                    cx="18"
+                    cy="18"
+                    r="14"
+                    fill="none"
+                    stroke="#ea8377"
+                    strokeWidth="2"
+                    strokeLinecap="round"
+                    strokeDasharray={`${2 * Math.PI * 14}`}
+                    strokeDashoffset={`${2 * Math.PI * 14 * (1 - sttPercent / 100)}`}
+                  />
+                </svg>
+              )}
+              {sttState === 'loading' ? (
+                <Loader2 className="w-4 h-4 animate-spin relative z-10" />
+              ) : (
+                <Mic className="w-4 h-4 relative z-10" />
+              )}
+            </button>
+          );
+
           const llmPct = Math.round(Math.min(1, Math.max(0, llmProgress.progress)) * 100);
-          const llmEta = (llmBps > 0 && llmProgress.total > llmProgress.loaded)
-            ? (llmProgress.total - llmProgress.loaded) / llmBps
-            : 0;
-          // ponytail: 加载失败时 llmProgress.text = "加载失败: ..."(progressCallback 不标 100% 后,
-          // 出错路径里我们手动 notifyLoadProgress(0, '加载失败: ...', ...)),UI 切到错误态。
+          const llmEta =
+            llmBps > 0 && llmProgress.total > llmProgress.loaded
+              ? (llmProgress.total - llmProgress.loaded) / llmBps
+              : 0;
           const isError = !isLLMReady && llmProgress.text.startsWith('加载失败');
-          // ponytail: webLLM cached hit 也会 emit 一次含 'fetch' 的 progress 但 loaded/total=0,
-          // 直接走"下载 0%"再跳"加载 0%"很突兀。加 loaded/total>0 守卫后,
-          // 缓存命中或瞬时跳过 fetch 阶段都会直接进入"加载模型"。
           const hasBytes = llmProgress.loaded > 0 && llmProgress.total > 0;
           const isDownloading = !isError && /fetch/i.test(llmProgress.text) && hasBytes;
-          const stageKey = isError ? 'chat.waitLlm' : (isDownloading ? 'chat.downloading' : 'chat.loadingModelProgress');
+          const stageKey = isError
+            ? 'chat.waitLlm'
+            : isDownloading
+            ? 'chat.downloading'
+            : 'chat.loadingModelProgress';
           const waitTooltip = (
             <div className="flex flex-col gap-0.5 max-w-[18rem]">
               {!isVRMReady ? <span>{t('chat.waitVrm')}</span> : null}
@@ -740,115 +913,151 @@ export const ChatBar: React.FC<{
               {isQueued ? <span className="text-white/70">{t('chat.waitReadyHint')}</span> : null}
             </div>
           );
+
           const sendBtn = (
             <button
               id="chatSend"
               type="button"
               onClick={() => void handleSend()}
               disabled={isSending || !hasText}
-              className={`relative h-11 sm:h-11 px-4 sm:px-5 rounded-full font-medium text-sm flex items-center justify-center gap-1.5 shrink-0 select-none touch-manipulation active:scale-95 appearance-none outline-none border-none ${
+              aria-label={
                 isSending
-                  ? 'bg-[#13111c]/85 text-white/50 cursor-wait'
+                  ? t('chat.sending')
+                  : isQueued
+                  ? t('chat.queued')
+                  : hasText && !isModelReady
+                  ? t('chat.queueSend')
+                  : t('chat.send')
+              }
+              title={
+                isSending
+                  ? t('chat.sending')
+                  : isQueued
+                  ? `${t('chat.queued')}${!isLLMReady ? ` ${llmPct}%` : ''}`
+                  : hasText && !isModelReady
+                  ? t('chat.queueSend')
+                  : t('chat.send')
+              }
+              className={`relative h-9 w-9 shrink-0 rounded-full flex items-center justify-center select-none touch-manipulation active:scale-95 appearance-none outline-none border-none transition-colors ${
+                isSending
+                  ? 'bg-white/10 text-white/50 cursor-wait'
                   : isQueued || hasText
-                  ? 'text-white bg-[#ea8377] shadow-[0_4px_16px_rgba(234,131,119,0.35)] cursor-pointer'
-                  : 'text-white/40 bg-[#13111c]/85 shadow-[inset_0_0_0_1px_rgba(255,255,255,0.15)] cursor-not-allowed'
+                  ? 'text-white bg-[#ea8377] shadow-[0_4px_14px_rgba(234,131,119,0.35)] cursor-pointer'
+                  : 'text-white/35 bg-white/5 cursor-not-allowed'
               }`}
             >
               <AccentFill on={!isSending && (isQueued || hasText)} />
-              <span className="relative z-10 flex items-center gap-1.5">
-                {isSending ? (
-                  <>
-                    <Loader2 className="w-4 h-4 animate-spin text-white" />
-                    <span>{t('chat.sending')}</span>
-                  </>
-                ) : isQueued ? (
-                  <>
-                    <Loader2 className="w-4 h-4 animate-spin text-white" />
-                    <span>{t('chat.queued')}{!isLLMReady ? ` ${llmPct}%` : ''}</span>
-                  </>
+              <span className="relative z-10 flex items-center justify-center">
+                {isSending || isQueued ? (
+                  <Loader2 className="w-4 h-4 animate-spin text-white" />
                 ) : hasText && !isModelReady ? (
-                  <>
-                    <Sparkles className="w-4 h-4 text-white animate-pulse" />
-                    <span>{t('chat.queueSend')}</span>
-                  </>
+                  <Sparkles className="w-4 h-4 text-white animate-pulse" />
                 ) : (
-                  <>
-                    <Send className={`w-4 h-4 ${hasText ? 'text-white' : 'text-white/40'}`} />
-                    <span>{t('chat.send')}</span>
-                  </>
+                  <Send className={`w-4 h-4 ${hasText ? 'text-white' : 'text-white/40'}`} />
                 )}
               </span>
             </button>
           );
-          // ponytail: tooltip 按需显示 —— 只在用户跟输入框交互时才出现:
-          //   1. 输入框被聚焦(isInputFocused)
-          //   2. 输入框有内容(hasText)
-          //   3. 用户排了队等模型就绪(isQueued)
-          // 不再"模型没好就一直显示",那个太抢戏了。
-          if (isModelReady) return sendBtn;
-          if (!isInputFocused && !hasText && !isQueued) return sendBtn;
-          const forceOpen = true;
-          return (
-            <Tooltip delayDuration={0} open={forceOpen}>
-              <TooltipTrigger asChild>{sendBtn}</TooltipTrigger>
-              <TooltipContent
+
+          const sendWrapped =
+            isModelReady || (!isInputFocused && !hasText && !isQueued) ? (
+              sendBtn
+            ) : (
+              <Tooltip delayDuration={0} open>
+                <TooltipTrigger asChild>{sendBtn}</TooltipTrigger>
+                <TooltipContent side="top" align="end" sideOffset={8} collisionPadding={12}>
+                  {waitTooltip}
+                </TooltipContent>
+              </Tooltip>
+            );
+
+          const lightningEl = isDev() ? (
+            <DropdownMenu modal={false}>
+              <DropdownMenuTrigger asChild>
+                <button
+                  id="chatTestSpeak"
+                  type="button"
+                  disabled={isSending || !isVRMReady}
+                  aria-label={t('chat.testSpeak')}
+                  className={`shrink-0 h-9 w-9 rounded-full flex items-center justify-center select-none touch-manipulation active:scale-95 appearance-none outline-none border-none transition-colors ${
+                    isSending || !isVRMReady
+                      ? 'text-white/30 cursor-not-allowed'
+                      : 'text-[#f5aa9c] hover:bg-[#ea8377]/20 hover:text-[#ea8377] data-[state=open]:bg-[#ea8377]/20 data-[state=open]:text-[#ea8377]'
+                  }`}
+                >
+                  <Zap className={`w-4 h-4 ${isSending ? '' : 'animate-pulse'}`} />
+                </button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent
                 side="top"
                 align="end"
-                sideOffset={8}
                 collisionPadding={12}
+                onCloseAutoFocus={(e) => e.preventDefault()}
+                className="w-[min(16rem,calc(100vw-1.5rem))]"
               >
-                {waitTooltip}
-              </TooltipContent>
-            </Tooltip>
+                <DropdownMenuItem
+                  onSelect={() => void handleSpeakText('spring')}
+                  className="flex items-center gap-2"
+                >
+                  <Sun className="h-3.5 w-3.5 shrink-0 text-[#f5aa9c]" />
+                  <span className="flex-1">{t('chat.testSpeakSpring')}</span>
+                  <span className="shrink-0 text-[10px] font-mono text-white/40">{t('chat.testSpeakSegments', { count: springSegs })}</span>
+                </DropdownMenuItem>
+                <DropdownMenuItem
+                  onSelect={() => void handleSpeakText('shudao')}
+                  className="flex items-center gap-2"
+                >
+                  <Mountain className="h-3.5 w-3.5 shrink-0 text-[#f5aa9c]" />
+                  <span className="flex-1">{t('chat.testSpeakShudao')}</span>
+                  <span className="shrink-0 text-[10px] font-mono text-white/40">{t('chat.testSpeakSegments', { count: shudaoSegs })}</span>
+                </DropdownMenuItem>
+              </DropdownMenuContent>
+            </DropdownMenu>
+          ) : null;
+
+          const actionsEl = (
+            <div className="flex items-center gap-2 shrink-0">
+              {micEl}
+              {sendWrapped}
+              {lightningEl}
+            </div>
+          );
+
+          // Dual mode: single = one row centered; multi = text top + bottom bar. Hard cut (no FLIP/transition).
+          return (
+            <div
+              className={`w-full grid min-h-12 rounded-[1.75rem] bg-[#13111c]/85 border backdrop-blur-2xl ${shellPad} relative overflow-visible ${
+                composerExpanded
+                  ? 'grid-cols-[auto_1fr_auto] grid-rows-[minmax(0,1fr)_auto] gap-y-1'
+                  : 'grid-cols-[auto_minmax(0,1fr)_auto] grid-rows-1 items-center gap-x-2'
+              } ${
+                isQueued
+                  ? 'border-[#ea8377] ring-2 ring-[#ea8377]/40 shadow-[0_0_24px_rgba(234,131,119,0.35)]'
+                  : 'border-white/15 focus-within:border-[#ea8377] focus-within:ring-2 focus-within:ring-[#ea8377]/30 focus-within:shadow-[0_0_24px_rgba(234,131,119,0.3)]'
+              }`}
+            >
+              <div
+                className={
+                  composerExpanded
+                    ? 'row-start-2 col-start-1 self-center'
+                    : 'row-start-1 col-start-1 self-center'
+                }
+              >
+                {leftEl}
+              </div>
+              {textareaEl}
+              <div
+                className={
+                  composerExpanded
+                    ? 'row-start-2 col-start-3 self-center justify-self-end'
+                    : 'row-start-1 col-start-3 self-center'
+                }
+              >
+                {actionsEl}
+              </div>
+            </div>
           );
         })()}
-
-        {/* ponytail: dev-only 测试菜单按钮 — 跳过 LLM 直接走 TTS→EMAGE→播放。
-            下拉 2 项:spring(原 2 段文本,向后兼容)+ shudao(~280 字李白《蜀道难》,长会话压力测试)。 */}
-        {isDev() && (
-          <DropdownMenu modal={false}>
-            <DropdownMenuTrigger asChild>
-              <button
-                id="chatTestSpeak"
-                type="button"
-                disabled={isSending || !isVRMReady}
-                aria-label={t('chat.testSpeak')}
-                // ponytail: 不包 Tooltip — Radix 官方 anti-pattern,菜单打开即明,hover 提示冗余。
-                className={`h-11 sm:h-11 w-11 sm:w-11 rounded-full flex items-center justify-center shrink-0 select-none touch-manipulation active:scale-95 appearance-none outline-none border-none transition-colors ${
-                  isSending || !isVRMReady
-                    ? 'bg-[#13111c]/85 text-white/40 cursor-not-allowed'
-                    : 'text-[#f5aa9c] bg-[#13111c]/85 shadow-[inset_0_0_0_1px_rgba(245,170,156,0.4)] cursor-pointer hover:bg-[#ea8377]/20 hover:text-[#ea8377] data-[state=open]:bg-[#ea8377]/20 data-[state=open]:text-[#ea8377]'
-                }`}
-              >
-                <Zap className={`w-4 h-4 ${isSending ? '' : 'animate-pulse'}`} />
-              </button>
-            </DropdownMenuTrigger>
-            <DropdownMenuContent
-              side="top"
-              align="end"
-              collisionPadding={12}
-              onCloseAutoFocus={(e) => e.preventDefault()}
-              className="w-[min(16rem,calc(100vw-1.5rem))]"
-            >
-              <DropdownMenuItem
-                onSelect={() => void handleSpeakText('spring')}
-                className="flex items-center gap-2"
-              >
-                <Sun className="h-3.5 w-3.5 shrink-0 text-[#f5aa9c]" />
-                <span className="flex-1">{t('chat.testSpeakSpring')}</span>
-                <span className="shrink-0 text-[10px] font-mono text-white/40">{t('chat.testSpeakSegments', { count: springSegs })}</span>
-              </DropdownMenuItem>
-              <DropdownMenuItem
-                onSelect={() => void handleSpeakText('shudao')}
-                className="flex items-center gap-2"
-              >
-                <Mountain className="h-3.5 w-3.5 shrink-0 text-[#f5aa9c]" />
-                <span className="flex-1">{t('chat.testSpeakShudao')}</span>
-                <span className="shrink-0 text-[10px] font-mono text-white/40">{t('chat.testSpeakSegments', { count: shudaoSegs })}</span>
-              </DropdownMenuItem>
-            </DropdownMenuContent>
-          </DropdownMenu>
-        )}
       </div>
 
       <DeviceStatusDialog
