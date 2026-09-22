@@ -84,6 +84,7 @@ export const ja: Trans = {
     sttInit: '音声エンジンを初期化中…',
     sttReady: '音声準備完了',
     sttMicDenied: 'マイクを使えません',
+    sttMicDeniedHint: 'アドレスバー左のアイコン → サイトの設定 → 「マイク」を許可。プロンプトが出ない場合は https で開いてください。',
     // ponytail: dev-only 一括テスト — LLM をスキップし、直接 TTS → EMAGE → 再生へ
     testSpeak: 'テスト',
     // ponytail: 意図的に ≥2 セグメント — マルチセグメントパイプラインをテスト

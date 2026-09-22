@@ -83,6 +83,7 @@ export const zhCN = {
     sttInit: '初始化语音引擎…',
     sttReady: '语音就绪',
     sttMicDenied: '无法使用麦克风',
+    sttMicDeniedHint: '请点击地址栏左侧图标 → 网站设置 → 允许「麦克风」。若仍无弹窗，请确认以 https 打开本站。',
     // ponytail: dev-only 一键测试 — 跳过 LLM,直接走 TTS → EMAGE → 播放
     testSpeak: '测试',
     // ponytail: 故意 ≥2 段 — 测试多段流水线(tts 并发 + emage 串行跨段连续)

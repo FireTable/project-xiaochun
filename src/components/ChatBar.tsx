@@ -86,6 +86,8 @@ export const ChatBar: React.FC<{
   const sttRef = useRef<SttClient | null>(null);
   const [sttState, setSttState] = useState<SttUiState>('idle');
   const [sttPercent, setSttPercent] = useState(0);
+  /** mic_denied | mic_insecure | mic_unsupported | mic_not_found | other */
+  const [sttErrorKind, setSttErrorKind] = useState<string | null>(null);
   const [inputRows, setInputRows] = useState(1);
   const composerExpanded = inputRows > 1;
   /** 未聚焦时记录 visualViewport 高度，用来判断 Android 键盘是否挤矮了可视区 */
@@ -108,8 +110,10 @@ export const ChatBar: React.FC<{
     const client = new SttClient();
     sttRef.current = client;
     const off = client.on((ev) => {
-      if (ev.type === 'state') setSttState(ev.state);
-      else if (ev.type === 'progress') setSttPercent(ev.percent);
+      if (ev.type === 'state') {
+        setSttState(ev.state);
+        if (ev.state !== 'error') setSttErrorKind(null);
+      } else if (ev.type === 'progress') setSttPercent(ev.percent);
       else if (ev.type === 'text') {
         const el = inputRef.current;
         if (el) {
@@ -147,7 +151,16 @@ export const ChatBar: React.FC<{
         if (ev.message === 'empty_transcript') {
           // soft: no alert spam
           console.warn('[STT]', t('chat.sttEmpty'));
+        } else if (
+          ev.message === 'mic_denied' ||
+          ev.message === 'mic_insecure' ||
+          ev.message === 'mic_unsupported' ||
+          ev.message === 'mic_not_found'
+        ) {
+          setSttErrorKind(ev.message);
+          console.warn('[STT]', ev.message, t('chat.sttMicDeniedHint'));
         } else {
+          setSttErrorKind('other');
           console.error('[STT]', ev.message);
         }
       }
@@ -795,6 +808,13 @@ export const ChatBar: React.FC<{
             />
           );
 
+          const sttErrorLabel =
+            sttState === 'error' && sttErrorKind && sttErrorKind.startsWith('mic_')
+              ? `${t('chat.sttMicDenied')} — ${t('chat.sttMicDeniedHint')}`
+              : sttState === 'error'
+              ? t('chat.sttError')
+              : null;
+
           const micEl = (
             <button
               type="button"
@@ -806,8 +826,8 @@ export const ChatBar: React.FC<{
                   ? t('chat.sttListening')
                   : sttState === 'recognizing'
                   ? t('chat.sttRecognizing')
-                  : sttState === 'error'
-                  ? t('chat.sttError')
+                  : sttErrorLabel
+                  ? sttErrorLabel
                   : t('chat.sttIdle')
               }
               title={
@@ -817,8 +837,8 @@ export const ChatBar: React.FC<{
                   ? t('chat.sttListening')
                   : sttState === 'recognizing'
                   ? t('chat.sttRecognizing')
-                  : sttState === 'error'
-                  ? t('chat.sttError')
+                  : sttErrorLabel
+                  ? sttErrorLabel
                   : t('chat.sttIdle')
               }
               onClick={handleSttToggle}

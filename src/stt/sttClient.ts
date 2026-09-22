@@ -37,6 +37,28 @@ function resampleTo(targetRate: number, input: Float32Array, fromRate: number): 
   return out;
 }
 
+function classifyMediaError(e: unknown): string {
+  if (typeof window !== 'undefined' && !window.isSecureContext) {
+    return 'mic_insecure';
+  }
+  if (!navigator.mediaDevices?.getUserMedia) {
+    return 'mic_unsupported';
+  }
+  const name = e && typeof e === 'object' && 'name' in e ? String((e as { name: unknown }).name) : '';
+  const msg = e instanceof Error ? e.message : String(e ?? '');
+  if (
+    name === 'NotAllowedError' ||
+    name === 'PermissionDeniedError' ||
+    /permission|Permissions policy|not allowed|denied/i.test(msg)
+  ) {
+    return 'mic_denied';
+  }
+  if (name === 'NotFoundError' || /Requested device not found/i.test(msg)) {
+    return 'mic_not_found';
+  }
+  return msg || 'STT start failed';
+}
+
 export class SttClient {
   private worker: Worker | null = null;
   private listeners = new Set<Listener>();
@@ -166,6 +188,12 @@ export class SttClient {
   async start(): Promise<void> {
     try {
       this.preload();
+      if (typeof window !== 'undefined' && !window.isSecureContext) {
+        throw Object.assign(new Error('mic_insecure'), { name: 'SecurityError' });
+      }
+      if (!navigator.mediaDevices?.getUserMedia) {
+        throw Object.assign(new Error('mic_unsupported'), { name: 'NotSupportedError' });
+      }
       const stream = await navigator.mediaDevices.getUserMedia({
         audio: {
           channelCount: 1,
@@ -228,7 +256,7 @@ export class SttClient {
       this.setState('listening');
     } catch (e) {
       this.teardownAudio();
-      const message = e instanceof Error ? e.message : String(e);
+      const message = classifyMediaError(e);
       this.setState('error');
       this.emit({ type: 'error', message });
     }

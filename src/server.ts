@@ -238,6 +238,8 @@ async function handleTTS(request: Request): Promise<Response> {
 const ISOLATION_HEADERS: Record<string, string> = {
   'Cross-Origin-Opener-Policy': 'same-origin',
   'Cross-Origin-Embedder-Policy': 'credentialless',
+  // SenseVoice STT needs getUserMedia; empty allowlist never shows a prompt.
+  'Permissions-Policy': 'camera=(), microphone=(self), geolocation=(), interest-cohort=()',
 };
 
 function withIsolationHeaders(res: Response): Response {

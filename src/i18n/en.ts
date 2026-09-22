@@ -84,6 +84,7 @@ export const en: Trans = {
     sttInit: 'Initializing speech engine…',
     sttReady: 'Speech ready',
     sttMicDenied: 'Microphone unavailable',
+    sttMicDeniedHint: 'Click the lock/info icon in the address bar → Site settings → Allow Microphone. Use https if no prompt appears.',
     // ponytail: dev-only one-click test — skip LLM, go straight to TTS → EMAGE → playback
     testSpeak: 'Test',
     // ponytail: intentionally ≥2 segments — tests multi-segment pipeline (tts concurrent + emage sequential cross-segment continuity)

@@ -81,6 +81,8 @@ STT ONNX runs in `sttWorker` (same idea as `emageWorker` / `vrmWorker`):
 ## 5. Browser & Tauri
 
 - Needs microphone permission in both browser and Tauri WebView
+- **Production must allow mic in Permissions-Policy**: `microphone=(self)` (never `microphone=()` — empty allowlist suppresses the browser prompt and fails `getUserMedia` immediately). Set in `public/_headers` and `src/server.ts` `ISOLATION_HEADERS`.
+- macOS Tauri: `src-tauri/Info.plist` provides `NSMicrophoneUsageDescription` for the OS prompt
 - Same CDN URLs; Tauri must allow the CDN host in CSP / capability if locked down
 - Local override: point `VITE_STT_BASE` at a folder that serves the two files
 
