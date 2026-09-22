@@ -963,7 +963,7 @@ export const ChatBar: React.FC<{
                   ? 'bg-white/10 text-white/50 cursor-wait'
                   : isQueued || hasText
                   ? 'text-white bg-[#ea8377] shadow-[0_4px_14px_rgba(234,131,119,0.35)] cursor-pointer'
-                  : 'text-white/35 bg-white/5 cursor-not-allowed'
+                  : 'text-white/40 bg-transparent cursor-not-allowed'
               }`}
             >
               <AccentFill on={!isSending && (isQueued || hasText)} />
