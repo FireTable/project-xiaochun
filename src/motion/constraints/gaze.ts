@@ -128,7 +128,7 @@ export class GazeController {
       applier.rangeMapHorizontalInner.inputMaxValue = 45;
       applier.rangeMapHorizontalInner.outputScale = 12;
       applier.rangeMapVerticalDown.inputMaxValue = 32;
-      applier.rangeMapVerticalDown.outputScale = 10;
+      applier.rangeMapVerticalDown.outputScale = 6;
       applier.rangeMapVerticalUp.inputMaxValue = 32;
       applier.rangeMapVerticalUp.outputScale = 6;
       this.isRangeMapEnhanced = true;

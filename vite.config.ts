@@ -26,11 +26,24 @@ export default defineConfig(({ command }) => ({
     // ponytail: TTS_PROXY_URL 走 loadEnv 读 .env.local, EU 出口连不上 Microsoft 时反代到远端。
     localApiPlugin(loadEnv('development', process.cwd(), '').TTS_PROXY_URL?.trim()),
     dropDockerfatAssets(),
+    {
+      name: 'glsl-raw-loader',
+      transform(code, id) {
+        if (id.endsWith('.frag') || id.endsWith('.vert')) {
+          return {
+            code: `export default ${JSON.stringify(code)};`,
+            map: { mappings: '' },
+          };
+        }
+      },
+    },
   ],
   resolve: {
     tsconfigPaths: true,
     alias: {
       '@': path.resolve(import.meta.dirname, 'src'),
+      '@pixiv/three-vrm-materials-mtoon': path.resolve(import.meta.dirname, 'packages/three-vrm-materials-mtoon/src/index.ts'),
+      '@firetable/three-vrm-materials-mtoon': path.resolve(import.meta.dirname, 'packages/three-vrm-materials-mtoon/src/index.ts'),
     },
   },
   ssr: {

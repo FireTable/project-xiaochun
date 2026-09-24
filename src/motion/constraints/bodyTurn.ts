@@ -177,6 +177,15 @@ export class BodyTurnSystem {
     return this.phase !== SP.IDLE;
   }
 
+  public getPhase(): StepPhase {
+    return this.phase;
+  }
+
+  public getPhaseProgress(): number {
+    const dur = getPhaseDuration(this.phase);
+    return dur > 0 ? Math.min(1.0, this.phaseTimer / dur) : 0;
+  }
+
   getPhaseName(): string {
     const names = ['IDLE', 'LIFT', 'SWING', 'PLANT', 'SETTLE'];
     return names[this.phase] ?? 'UNKNOWN';
@@ -265,6 +274,8 @@ export class BodyTurnSystem {
     if (allowLocomotion) {
       if (!this.isTurning && absYaw > this.TURN_START_THRESHOLD) {
         this.isTurning = true;
+        // 生物力学生理匹配先导腿：向左转(normYaw > 0)先迈左腿；向右转(normYaw < 0)先迈右腿，彻底杜绝交叉内别腿顿挫
+        this.stepLeft = normYaw >= 0;
         // 从 IDLE 触发时立即开始第一步
         if (this.phase === SP.IDLE) {
           this.phase = SP.LIFT;
@@ -280,7 +291,7 @@ export class BodyTurnSystem {
     if (this.phase === SP.IDLE && !this.isTurning) {
       this.yawVel = 0;
       this.stepBlendWeight = 0;
-      const settleDt = Math.min(1.0, dt * 6.0);
+      const settleDt = Math.min(1.0, dt * 8.0);
       this.currentLeftUpperLegQ.slerp(this.restLeftUpperLegQ, settleDt);
       this.currentRightUpperLegQ.slerp(this.restRightUpperLegQ, settleDt);
       this.currentLeftLowerLegQ.slerp(this.restLeftLowerLegQ, settleDt);
@@ -292,9 +303,10 @@ export class BodyTurnSystem {
       return 0;
     }
 
-    // ── 2. 踱步过程中的角速度追踪 ─────────────────────────────────────────────
-    const k = this.SPRING_K;
-    const d = 2.0 * Math.sqrt(k);   // 临界阻尼系数
+    // ── 2. 踱步过程中的角速度追踪（带启动平滑 Ease-In，消除第一帧猛拽顿挫）─────
+    const startEase = Math.min(1.0, this.stepBlendWeight * 1.6 + 0.15);
+    const k = this.SPRING_K * startEase;
+    const d = 2.0 * Math.sqrt(this.SPRING_K);   // 保持全阻尼系数，防止欠阻尼过冲
     const yawForce = k * normYaw - d * this.yawVel;
     this.yawVel += yawForce * dt;
     const maxVel = APP_CONFIG.bodyTurn.maxYawVel;
@@ -305,7 +317,8 @@ export class BodyTurnSystem {
     if (this.phase === SP.SETTLE && !this.isTurning) {
       const settleDur = getPhaseDuration(SP.SETTLE);
       const t = settleDur > 0 ? Math.min(1.0, this.phaseTimer / settleDur) : 1.0;
-      stepDecel = 1.0 - t;
+      stepDecel = (1.0 - t) * (1.0 - t);
+      this.yawVel *= Math.max(0, 1.0 - dt * 8.0);
     }
     const yawDelta = this.yawVel * dt * stepDecel;
 

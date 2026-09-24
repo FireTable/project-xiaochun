@@ -9,9 +9,9 @@ import { APP_CONFIG, type LightConfig } from '@/config';
  * 现删掉,代码也清掉 — 不需要 toggleScene / 动态 add remove 这种 hack。
  */
 export class StudioLighting {
-  public hemiLight = new THREE.HemisphereLight(0xfffaf4, 0x6e6268, 0.82);
-  public dirLight = new THREE.DirectionalLight(0xfffbf5, 0.85);
-  public fillLight = new THREE.DirectionalLight(0xe8edff, 0.70);
+  public hemiLight = new THREE.HemisphereLight(0xfffaf8, 0xe2d6e6, 0.85);
+  public dirLight = new THREE.DirectionalLight(0xfffdfa, 0.90);
+  public fillLight = new THREE.DirectionalLight(0xf2f0ff, 0.65);
 
   public readonly channels: LightConfig = {
     dir: { ...APP_CONFIG.lights.dir },
@@ -23,14 +23,15 @@ export class StudioLighting {
   init(scene: THREE.Scene): void {
     scene.add(this.hemiLight);
 
-    // 主方向光 + 2048 阴影相机精准视锥体配置（人物左前方偏上打光，投影优雅落在身后地面，正面光泽透亮）
-    this.dirLight.position.set(4.0, 7.0, 4.5);
-    this.dirLight.target.position.set(0, 0.9, 0);
+    // 主方向光：二次元经典立体写真光 (右上方适度仰角，脸颊白净同时发丝优雅投射在胸前与衣服上)
+    this.dirLight.position.set(2.4, 5.8, 4.0);
+    this.dirLight.target.position.set(0, 1.0, 0);
     scene.add(this.dirLight.target);
     this.dirLight.castShadow = true;
     this.dirLight.shadow.mapSize.width = 2048;
     this.dirLight.shadow.mapSize.height = 2048;
-    this.dirLight.shadow.bias = -0.00015;
+    this.dirLight.shadow.bias = 0.00002;
+    this.dirLight.shadow.normalBias = 0.035;
     this.dirLight.shadow.radius = 2.0;
     this.dirLight.shadow.camera.left = -3.0;
     this.dirLight.shadow.camera.right = 3.0;
@@ -40,9 +41,9 @@ export class StudioLighting {
     this.dirLight.shadow.camera.far = 16.0;
     scene.add(this.dirLight);
 
-    // 冷色补光 (-1.5, 1.8, -1.2 反方向，精准对准胸口高度，勾勒轮廓微光)
-    this.fillLight.position.set(-1.5, 1.8, -1.2);
-    this.fillLight.target.position.set(0, 1.2, 0);
+    // 前侧柔和冷色补光 (左前侧斜上方，柔和提亮背光暗部，避免过度正面冲刷胸前阴影)
+    this.fillLight.position.set(-2.0, 2.8, 1.8);
+    this.fillLight.target.position.set(0, 1.0, 0);
     scene.add(this.fillLight.target);
     scene.add(this.fillLight);
 

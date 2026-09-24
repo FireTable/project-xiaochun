@@ -6,6 +6,7 @@ import {
   type ModelPartCategory,
   type ModelPartDefinition,
   type ModelPartCategoryDefinition,
+  type VrmMToonPartConfig,
 } from '@/config';
 import { MAT_SATURATION_KEY } from '@/lib/constants';
 
@@ -17,6 +18,169 @@ export type { ModelPartCategory, ModelPartDefinition, ModelPartCategoryDefinitio
 /**
  * 权威单一数据源 (Single Source of Truth) — 统一由 config.ts wardrobe 节点驱动
  */
+
+/**
+ * MToon part preset registrar: write APP_CONFIG.mtoon.parts preset onto MToonMaterial.
+ */
+function applyMToonPartPreset(
+  mat: any,
+  part: VrmMToonPartConfig,
+  opts?: {
+    shadow2ndColor?: [number, number, number];
+    shadow3rdColor?: [number, number, number];
+    materialName?: string;
+  },
+): void {
+  mat.softMix = part.softMix;
+  mat.blurBoost = part.blurBoost;
+  mat.shadow2ndStrength = part.shadow2ndStrength;
+  if (typeof part.shadow2ndBorder === 'number') mat.shadow2ndBorder = part.shadow2ndBorder;
+  if (typeof part.shadow2ndBlur === 'number') mat.shadow2ndBlur = part.shadow2ndBlur;
+  mat.shadow3rdStrength = part.shadow3rdStrength;
+  if (typeof part.shadow3rdBorder === 'number') mat.shadow3rdBorder = part.shadow3rdBorder;
+  if (typeof part.shadow3rdBlur === 'number') mat.shadow3rdBlur = part.shadow3rdBlur;
+  mat.rimBoost = part.rimBoost;
+  mat.rimBorder = part.rimBorder;
+  mat.rimBlur = part.rimBlur;
+  mat.rimDirStrength = part.rimDirStrength;
+  mat.hairSpecStrength = part.hairSpecStrength;
+  if (typeof part.hairSpecPower === 'number') mat.hairSpecPower = part.hairSpecPower;
+  if (typeof part.hairSpecShift === 'number') mat.hairSpecShift = part.hairSpecShift;
+
+  let clothSpec = part.clothSpecStrength;
+  const name = (opts?.materialName ?? '').toLowerCase();
+  if (
+    clothSpec > 0 &&
+    typeof part.clothSpecDarkLuma === 'number' &&
+    typeof part.clothSpecDarkBoost === 'number'
+  ) {
+    try {
+      const c = mat.color ?? mat.litFactor;
+      if (c && typeof c.r === 'number') {
+        const luma = 0.2126 * c.r + 0.7152 * c.g + 0.0722 * c.b;
+        if (
+          luma < part.clothSpecDarkLuma ||
+          name.includes('bow') ||
+          name.includes('ribbon') ||
+          name.includes('satin')
+        ) {
+          clothSpec = part.clothSpecDarkBoost;
+        }
+      }
+    } catch {
+      /* ignore */
+    }
+  }
+  mat.clothSpecStrength = clothSpec;
+  if (typeof part.clothSpecPower === 'number') mat.clothSpecPower = part.clothSpecPower;
+  mat.matcap2ndStrength = part.matcap2ndStrength;
+
+  if (typeof part.skinSpecStrength === 'number') mat.skinSpecStrength = part.skinSpecStrength;
+  if (typeof part.skinSpecPower === 'number') mat.skinSpecPower = part.skinSpecPower;
+  if (typeof part.skinSpecFresnel === 'number') mat.skinSpecFresnel = part.skinSpecFresnel;
+  const skinCol = part.skinSpecColor;
+  if (
+    skinCol &&
+    mat.skinSpecColor &&
+    typeof mat.skinSpecColor.setRGB === 'function'
+  ) {
+    mat.skinSpecColor.setRGB(skinCol[0], skinCol[1], skinCol[2]);
+  }
+
+  if (typeof part.ambientLift === 'number') mat.ambientLift = part.ambientLift;
+  if (typeof part.shadeMainStrength === 'number') mat.shadeMainStrength = part.shadeMainStrength;
+  if (typeof part.shadowBorder === 'number') mat.shadowBorder = part.shadowBorder;
+  if (typeof part.shadowBlur === 'number') mat.shadowBlur = part.shadowBlur;
+  if (typeof part.rimMainStrength === 'number') mat.rimMainStrength = part.rimMainStrength;
+  if (typeof part.rimShadowMask === 'number') mat.rimShadowMask = part.rimShadowMask;
+
+  if (typeof part.specularStrength === 'number') mat.specularStrength = part.specularStrength;
+  if (typeof part.specularPower === 'number') mat.specularPower = part.specularPower;
+  if (typeof part.specularBorder === 'number') mat.specularBorder = part.specularBorder;
+  if (typeof part.specularBlur === 'number') mat.specularBlur = part.specularBlur;
+  if (typeof part.reflectStrength === 'number') mat.reflectStrength = part.reflectStrength;
+  if (typeof part.reflectFresnel === 'number') mat.reflectFresnel = part.reflectFresnel;
+  if (typeof part.reflectMetallic === 'number') mat.reflectMetallic = part.reflectMetallic;
+  if (typeof part.reflectSmoothness === 'number') mat.reflectSmoothness = part.reflectSmoothness;
+  if (typeof part.backlightStrength === 'number') mat.backlightStrength = part.backlightStrength;
+  const blCol = part.backlightColor;
+  if (blCol && mat.backlightColor && typeof mat.backlightColor.setRGB === 'function') {
+    mat.backlightColor.setRGB(blCol[0], blCol[1], blCol[2]);
+  }
+  if (typeof part.rimFresnelPower === 'number') mat.rimFresnelPower = part.rimFresnelPower;
+  if (typeof part.rimIndirStrength === 'number') mat.rimIndirStrength = part.rimIndirStrength;
+  if (typeof part.matcap2ndContrast === 'number') mat.matcap2ndContrast = part.matcap2ndContrast;
+  if (typeof part.matcap2ndScale === 'number') mat.matcap2ndScale = part.matcap2ndScale;
+  if (typeof part.emissionBoost === 'number') mat.emissionBoost = part.emissionBoost;
+  if (typeof part.distanceFade === 'number') mat.distanceFade = part.distanceFade;
+  if (typeof part.faceSoft === 'number') mat.faceSoft = part.faceSoft;
+  if (typeof part.normalSkinBoost === 'number') mat.normalSkinBoost = part.normalSkinBoost;
+  if (typeof part.envStrength === 'number') mat.envStrength = part.envStrength;
+  if (typeof part.outlineMix === 'number') mat.outlineMix = part.outlineMix;
+  if (typeof part.receiveShadowRate === 'number') mat.receiveShadowRate = part.receiveShadowRate;
+  if (typeof part.fabricSheenStrength === 'number') mat.fabricSheenStrength = part.fabricSheenStrength;
+  if (typeof part.fabricSheenPower === 'number') mat.fabricSheenPower = part.fabricSheenPower;
+  const sheenCol = part.fabricSheenColor;
+  if (sheenCol && mat.fabricSheenColor && typeof mat.fabricSheenColor.setRGB === 'function') {
+    mat.fabricSheenColor.setRGB(sheenCol[0], sheenCol[1], sheenCol[2]);
+  }
+
+  let gem = typeof part.gemFresnel === 'number' ? part.gemFresnel : 0;
+  if (
+    gem <= 0 &&
+    (name.includes('jewel') ||
+      name.includes('gem') ||
+      name.includes('crystal') ||
+      name.includes('metal') ||
+      name.includes('gold') ||
+      name.includes('silver') ||
+      name.includes('ring') ||
+      name.includes('earring'))
+  ) {
+    gem = 0.18;
+  }
+  if (gem > 0) mat.gemFresnel = gem;
+
+  const c2 = opts?.shadow2ndColor;
+  if (c2 && mat.shadow2ndColor && typeof mat.shadow2ndColor.setRGB === 'function') {
+    mat.shadow2ndColor.setRGB(c2[0], c2[1], c2[2]);
+  }
+  const c3 = opts?.shadow3rdColor;
+  if (c3 && mat.shadow3rdColor && typeof mat.shadow3rdColor.setRGB === 'function') {
+    mat.shadow3rdColor.setRGB(c3[0], c3[1], c3[2]);
+  }
+}
+
+/** Reset extended uniforms to classic MToon defaults. */
+function resetMToonClassic(mat: any): void {
+  if (typeof mat.softMix !== 'number') return;
+  mat.softMix = 0.0;
+  mat.blurBoost = 0.0;
+  mat.shadow2ndStrength = 0.0;
+  mat.shadow3rdStrength = 0.0;
+  mat.rimBoost = 1.0;
+  mat.rimDirStrength = 0.0;
+  mat.rimMainStrength = 0.0;
+  mat.rimShadowMask = 0.0;
+  mat.rimIndirStrength = 0.0;
+  mat.hairSpecStrength = 0.0;
+  mat.clothSpecStrength = 0.0;
+  mat.matcap2ndStrength = 0.0;
+  mat.skinSpecStrength = 0.0;
+  mat.specularStrength = 0.0;
+  mat.reflectStrength = 0.0;
+  mat.backlightStrength = 0.0;
+  mat.ambientLift = 0.0;
+  mat.shadeMainStrength = 0.0;
+  mat.envStrength = 0.0;
+  mat.faceSoft = 0.0;
+  mat.normalSkinBoost = 0.0;
+  mat.emissionBoost = 0.0;
+  mat.distanceFade = 0.0;
+  mat.gemFresnel = 0.0;
+  mat.outlineMix = 0.0;
+}
+
 export const MODEL_PART_CATEGORIES = APP_CONFIG.wardrobe.categories;
 export const MODEL_PARTS_CONFIG = APP_CONFIG.wardrobe.parts;
 
@@ -217,6 +381,7 @@ export class VRMMaterialManager {
   // 时同步改 mesh.visible,bvh / bounding box / 渲染表现才一致。
   public partMeshes: Record<string, THREE.Mesh[]> = {};
   public partsVisibility: Record<string, boolean> = {};
+  public currentVRM: VRM | null = null;
   public detectedParts: ModelPartDefinition[] = [];
 
   public get clothingVisibility(): Record<string, boolean> {
@@ -254,11 +419,15 @@ export class VRMMaterialManager {
    * 遍历 VRM 实例的所有网格材质，执行语义化归类并注入独立饱和度 Uniform
    */
   optimize(vrm: VRM): void {
+    this.currentVRM = vrm;
     this.categorizedMaterials = { skin: [], hair: [], clothing: [], eyes: [] };
     this.partMaterials = {};
     this.partMeshes = {};
     const seenPartIds = new Set<string>();
     const newDetectedParts: ModelPartDefinition[] = [];
+    const xc = APP_CONFIG.mtoon.parts;
+    let softAppliedCount = 0;
+    let sampleSoftMix: number | null = null;
 
     vrm.scene.traverse((obj) => {
       if ((obj as THREE.Mesh).isMesh) {
@@ -392,6 +561,7 @@ uniform float uMatSaturation;
           // NPR 边缘光与冷暖阴影调配
           if (isFaceSkin) {
             const isBody = name.includes('body');
+            mesh.receiveShadow = isBody; // 纯面部不接收投射阴影防黑斑；身体/锁骨/胸口必须接收投射阴影！
             const skinNpr = isBody ? APP_CONFIG.mtoon.skin.body : APP_CONFIG.mtoon.skin.face;
             const skinOffset = APP_CONFIG.mtoon.skin.polygonOffset;
 
@@ -484,10 +654,79 @@ uniform float uMatSaturation;
             mat.polygonOffsetFactor = clothOffset.factor;
             mat.polygonOffsetUnits = clothOffset.units;
           }
+
+          // feat-mtoon: fork defaults are classic-off; always reset then optionally apply preset.
+          // (enabled:false used to leave shader defaults softMix=0.95 / bands / matcap2nd ON.)
+          if (typeof mat.softMix === 'number') {
+            resetMToonClassic(mat);
+            if (!xc?.enabled) {
+              mat.needsUpdate = true;
+              // fall through — stock NPR above already applied
+            } else {
+            softAppliedCount += 1;
+            const isFaceOnly =
+              name.includes('face') ||
+              name.includes('mouth') ||
+              name.includes('brow') ||
+              (name.includes('head') && !name.includes('body'));
+            const isBodySkin = isFaceSkin && (name.includes('body') || name.includes('skin')) && !isFaceOnly;
+
+            if (isHair) {
+              // 保持头发原版经典 MToon 质感与深邃发尾渐变（resetMToonClassic 已恢复所有扩展参数为关闭状态）
+            } else if (isEye) {
+              applyMToonPartPreset(mat, xc.eyes, {
+                shadow2ndColor: xc.shadow2ndColor,
+                shadow3rdColor: xc.shadow3rdColor,
+                materialName: name,
+              });
+            } else if (isFaceOnly) {
+              applyMToonPartPreset(mat, xc.face, {
+                shadow2ndColor: xc.faceShadow2ndColor ?? xc.shadow2ndColor,
+                shadow3rdColor: xc.shadow3rdColor,
+                materialName: name,
+              });
+            } else if (isFaceSkin || isBodySkin) {
+              applyMToonPartPreset(mat, xc.body, {
+                shadow2ndColor: xc.shadow2ndColor,
+                shadow3rdColor: xc.shadow3rdColor,
+                materialName: name,
+              });
+            } else if (isSocks) {
+              applyMToonPartPreset(mat, xc.socks, {
+                shadow2ndColor: xc.shadow2ndColor,
+                shadow3rdColor: xc.shadow3rdColor,
+                materialName: name,
+              });
+            } else if (isCloth) {
+              applyMToonPartPreset(mat, xc.cloth, {
+                shadow2ndColor: xc.shadow2ndColor,
+                shadow3rdColor: xc.shadow3rdColor,
+                materialName: name,
+              });
+            } else {
+              mat.hairSpecStrength = 0.0;
+              mat.clothSpecStrength = 0.0;
+              mat.skinSpecStrength = 0.0;
+            }
+            sampleSoftMix ??= mat.softMix;
+            } // end xc.enabled
+          }
+
           mat.needsUpdate = true;
         });
       }
     });
+
+    if (import.meta.env.DEV) {
+      console.info('[mtoon] extended parts', {
+        enabled: !!xc?.enabled,
+        count: softAppliedCount,
+        sampleSoftMix,
+      });
+      if (xc?.enabled && softAppliedCount === 0) {
+        console.warn('[mtoon] extended material not loaded (softMix missing)');
+      }
+    }
 
     this.detectedParts = newDetectedParts;
     this.applySaturations();
@@ -635,8 +874,43 @@ uniform float uMatSaturation;
     } catch { }
   }
 
+  /** 面部阴影隔离：true 时面部跳过 shadowmap 接收，保持白皙不毁容 */
+  public setFaceShadowIsolation(enable: boolean): void {
+    if (this.currentVRM) {
+      this.currentVRM.scene.traverse((obj: THREE.Object3D) => {
+        if ((obj as THREE.Mesh).isMesh) {
+          const mesh = obj as THREE.Mesh;
+          const meshName = (mesh.name || '').toLowerCase();
+          const isFace =
+            meshName.includes('face') ||
+            meshName.includes('head') ||
+            meshName.includes('eye') ||
+            meshName.includes('mouth') ||
+            meshName.includes('brow');
+          if (isFace) {
+            mesh.receiveShadow = !enable;
+          }
+        }
+      });
+    }
+    this.categorizedMaterials.skin?.forEach((mat: any) => {
+      const name = (mat.name || '').toLowerCase();
+      const isFaceMat = name.includes('face') || name.includes('head') || name.includes('mouth') || name.includes('brow');
+      if (isFaceMat) {
+        mat.receiveShadowRate = enable ? 0.0 : 1.0;
+      }
+    });
+  }
+
+  /** 衣服掠射角织物微光强度 (0.0 ~ 1.0) */
+  public setFabricSheenStrength(strength: number): void {
+    this.categorizedMaterials.clothing?.forEach((mat: any) => {
+      mat.fabricSheenStrength = strength;
+    });
+  }
+
   applyPreset(presetKey: MaterialSaturationPresetKey): void {
     const preset = APP_CONFIG.saturation.presets[presetKey];
-    this.setSaturation({ preset: presetKey, ...preset });
+    this.setSaturation({ ...preset, preset: presetKey });
   }
 }

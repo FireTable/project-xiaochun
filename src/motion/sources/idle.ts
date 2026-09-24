@@ -18,6 +18,14 @@ interface HandFingers {
   little: FingerBoneGroup;
 }
 
+export interface BodyTurnPhysicsContext {
+  yawVel: number;
+  isStepping: boolean;
+  stepLeft: boolean;
+  phase: number;
+  phaseProgress: number;
+}
+
 /**
  * 自然待机系统 (Natural Idle System)
  *
@@ -28,6 +36,7 @@ interface HandFingers {
  * 4. 偶发深吸气叹息 (Deep Sigh / Breath Relief): 每隔 28~48s 胸腔微起伏舒展。
  * 5. 偶发躯干轻微舒展 (Torso Stretch / Micro-turn)。
  * 6. 严格优先级让位: 说话 (isSpeaking) 或踱步 (locomotionWeight > 0) 时迅速平滑让位。
+ * 7. 步态动力学耦合 (Locomotion Inertia & Follow-through): 转身时躯干惯性滞后、摆臂随动与回弹。
  */
 export class NaturalIdleSystem {
   public enabled = true;
@@ -89,6 +98,8 @@ export class NaturalIdleSystem {
   private isDeepBreathing = false;
   private deepBreathElapsed = 0.0;
   private currentDeepBreathPower = 0.0;
+
+
   // 预分配临时复用对象，确保 60/120 FPS 满帧零垃圾回收 (Zero-GC)
   private _targetQ = new THREE.Quaternion();
   private _tempQ = new THREE.Quaternion();
@@ -285,6 +296,7 @@ export class NaturalIdleSystem {
     deltaParam?: number,
     isSpeaking: boolean = false,
     isActiveAction: boolean = false,
+    _bodyTurnCtx?: BodyTurnPhysicsContext,
   ): void {
     if (!this.enabled || !this.vrm || idleWeight <= 0.001) return;
 
@@ -362,7 +374,7 @@ export class NaturalIdleSystem {
       }
     } else if (this.torsoTurnPhase === 'exit') {
       this.torsoTurnElapsed += dt;
-      const exitDur = isBusy ? 0.3 : 1.4;
+      const exitDur = isBusy ? 0.75 : 1.4;
       const p = Math.min(1.0, this.torsoTurnElapsed / exitDur);
       const smoothP = p * p * (3 - 2 * p);
       this.currentTorsoTurnYaw = this.torsoTurnTargetYaw * (1.0 - smoothP);
@@ -408,12 +420,11 @@ export class NaturalIdleSystem {
     // 优先级防护：BodyTurn 介入或主动作激活时下半身与转体优雅让位
     const actionFade = isActiveAction ? 0.0 : 1.0;
     const idleLowerBlend = Math.max(0.0, Math.min(1.0, 1.0 - locomotionWeight)) * idleWeight;
-    const torsoTurnFade = Math.max(0.0, 1.0 - locomotionWeight * 0.85) * actionFade;
 
     // ── 身体慢速有机微晃 (Organic Sway: 周期 6~8s，横向 ±7mm，微侧转 ±1.2°，消除石膏雕像死板感) ──
     const organicSwayX = (Math.sin(time * 0.55) * 0.007 + Math.sin(time * 0.28) * 0.004) * idleLowerBlend * actionFade;
     const organicSwayZ = Math.cos(time * 0.42) * 0.005 * idleLowerBlend * actionFade;
-    const organicSwayYaw = Math.sin(time * 0.35) * 0.015 * torsoTurnFade;
+    const organicSwayYaw = Math.sin(time * 0.35) * 0.015 * actionFade;
 
     // ── 骨盆 Hips：换脚站姿停靠 + 有机微晃 + 浅呼吸微沉浮 ──
     const hipsIdx = BONE_INDEX_MAP.get('hips');
@@ -451,18 +462,19 @@ export class NaturalIdleSystem {
     }
 
     // ── 躯干脊柱与胸腔 (Spine & Chest) ──
+    // 原地小踱步转身保持上半身平稳端庄，不施加反向力矩扭扯与侧倾代偿，彻底消灭起步时的回正抽动与偏斜
     const spinePitch = 0.010 * baseBreath + 0.015 * this.currentDeepBreathPower;
-    const spineYaw = (this.currentTorsoTurnYaw * 0.65 - this.currentWeightShift * 0.010 + organicSwayYaw * 0.6) * torsoTurnFade;
+    const spineYaw = (this.currentTorsoTurnYaw * 0.65 - this.currentWeightShift * 0.010 + organicSwayYaw * 0.6) * actionFade;
     const spineRoll = this.currentWeightShift * 0.018 * idleLowerBlend;
     this.slerpEuler(out, 'spine', spinePitch, spineYaw, spineRoll, idleWeight);
 
     const chestPitch = -0.022 * baseBreath - 0.048 * this.currentDeepBreathPower;
-    const chestYaw = (this.currentTorsoTurnYaw * 0.85 - this.currentWeightShift * 0.008 + organicSwayYaw * 0.8) * torsoTurnFade;
+    const chestYaw = (this.currentTorsoTurnYaw * 0.85 - this.currentWeightShift * 0.008 + organicSwayYaw * 0.8) * actionFade;
     const chestRoll = this.currentWeightShift * 0.012 * idleLowerBlend;
     this.slerpEuler(out, 'chest', chestPitch, chestYaw, chestRoll, idleWeight);
 
     const upperChestPitch = -0.014 * baseBreath - 0.028 * this.currentDeepBreathPower;
-    const upperChestYaw = this.currentTorsoTurnYaw * 0.30 * torsoTurnFade;
+    const upperChestYaw = this.currentTorsoTurnYaw * 0.30 * actionFade;
     this.slerpEuler(out, 'upperChest', upperChestPitch, upperChestYaw, 0, idleWeight);
 
     // ── 双肩与锁骨 ──
@@ -471,11 +483,6 @@ export class NaturalIdleSystem {
     this.slerpEuler(out, 'rightShoulder', 0, 0, -shoulderLift, idleWeight);
 
     // ── 双臂与小臂芦苇晃动 (Organic Arm & Forearm Reed Sway) ──
-    // 告别撅肘摆拍与机械硬定！将手臂自然垂坠与芦苇晃动彻底融入 Idle 全局动力链：
-    // 1. 上臂 (UpperArm)：随胸腔呼吸与身体慢晃产生柔和的悬垂微浮沉与微幅内贴；
-    // 2. 小臂 (LowerArm 芦苇晃动核心)：肘部保留天然微弯 (~0.04 rad)，具有滞后大臂 80°~100° 的轻柔弹性芦苇摆动；
-    // 3. 手腕 (Hand 芦苇柔尖)：悬垂时在重力下自然微屈内敛 (~0.035 rad)，顺应小臂惯性轻柔呼吸；
-    // 4. 十指放松 (Relaxed Fingers)：解剖学休止自然半握，并伴随整条手臂重力波动产生极柔随息弛豫。
     const swaySlow = time * 0.55;
 
     // 上臂悬垂微动 (UpperArm Float)

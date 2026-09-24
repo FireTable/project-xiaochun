@@ -367,15 +367,25 @@ export class MotionPipeline {
     // 进入踱步响应迅速 (~0.18s)，避免启动迟滞；
     // 退出踱步平滑释放 (~0.85s)，从落脚平稳从容地融入 EMAGE / 待机动作，抹平单帧顿挫与身体折回感
     const targetLocomotionWeight = isStepping ? 1.0 : 0.0;
-    const blendRate = isStepping ? 10.0 : 6.0;
+    const blendRate = isStepping ? 10.0 : 8.0;
     this.locomotionWeight = THREE.MathUtils.damp(this.locomotionWeight, targetLocomotionWeight, blendRate, delta);
     if (Math.abs(this.locomotionWeight - targetLocomotionWeight) < 0.0005) {
       this.locomotionWeight = targetLocomotionWeight;
     }
 
     // 3. Idle into PoseBuffer only (never a VRM writer while another source is live)
-    const isBusyAction = ctx.isSpeaking || this.activeSource !== 'idle' || this.isCrossfading;
+    // 关键修正：从动作源平滑回归待机时，允许待机系统释放有机呼吸与肌肉放松曲线，杜绝整个人僵直机械拉拽
+    const isReturningToIdle = this.activeSource === 'idle' && !ctx.isSpeaking;
+    const isBusyAction = ctx.isSpeaking || this.activeSource !== 'idle' || (this.isCrossfading && !isReturningToIdle);
     if (this.idle.enabled) {
+      const btCtx = ctx.enableBodyTurn ? {
+        yawVel: this.bodyTurn.yawVel,
+        isStepping,
+        stepLeft: this.bodyTurn.stepLeft,
+        phase: this.bodyTurn.getPhase(),
+        phaseProgress: this.bodyTurn.getPhaseProgress(),
+      } : undefined;
+
       this.idle.sampleInto(
         this.basePose,
         time,
@@ -384,6 +394,7 @@ export class MotionPipeline {
         delta,
         ctx.isSpeaking,
         isBusyAction,
+        btCtx,
       );
     } else {
       this.basePose.copyFrom(this.restPose);
@@ -524,7 +535,7 @@ export class MotionPipeline {
 
     this.lowerPose.sampleFromVRM(vrm);
     this.upperPose.sampleFromVRM(vrm);
-    if (this.footIkMix > 0) {
+    if (wantFootIk && this.footIkMix > 0) {
       this.footIK.writeHipsInto(this.lowerPose.hipsPosition, vrm);
     }
 

@@ -1,0 +1,58 @@
+{
+  "name": "@firetable/three-vrm-materials-mtoon",
+  "version": "3.5.5",
+  "description": "Extended @pixiv/three-vrm-materials-mtoon with NPR shading controls while preserving MToon API",
+  "license": "MIT",
+  "author": "pixiv",
+  "contributors": [
+    "FireTable / Project-XiaoChun"
+  ],
+  "files": [
+    "/lib/",
+    "/types/",
+    "/src/",
+    "LICENSE",
+    "README.md"
+  ],
+  "type": "module",
+  "main": "lib/three-vrm-materials-mtoon.module.js",
+  "types": "types/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./types/index.d.ts",
+      "import": "./lib/three-vrm-materials-mtoon.module.js",
+      "require": "./lib/three-vrm-materials-mtoon.cjs"
+    },
+    "./nodes": {
+      "types": "./types/nodes/index.d.ts",
+      "import": "./lib/nodes/index.module.js",
+      "require": "./lib/nodes/index.cjs"
+    },
+    "./package.json": "./package.json"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/FireTable/project-xiaochun.git",
+    "directory": "packages/three-vrm-materials-mtoon"
+  },
+  "scripts": {
+    "clean": "rm -rf lib types",
+    "build": "node ./build.mjs",
+    "build-js": "node ./build.mjs",
+    "build-types": "tsc --declaration --declarationDir ./types --emitDeclarationOnly --pretty false || true",
+    "prepare": "node ./build.mjs"
+  },
+  "dependencies": {
+    "@pixiv/types-vrm-0.0": "3.5.5",
+    "@pixiv/types-vrmc-materials-mtoon-1.0": "3.5.5"
+  },
+  "devDependencies": {
+    "@types/three": "^0.185.0",
+    "esbuild": "^0.25.0",
+    "three": "^0.185.0",
+    "typescript": "~5.8.0"
+  },
+  "peerDependencies": {
+    "three": ">=0.137"
+  }
+}

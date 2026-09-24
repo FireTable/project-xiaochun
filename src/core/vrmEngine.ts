@@ -1,7 +1,9 @@
 import * as THREE from 'three';
 import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js';
 import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
-import { VRM, VRMLoaderPlugin, MToonMaterialLoaderPlugin, VRMUtils, type VRMExpressionPresetName } from '@pixiv/three-vrm';
+import { VRM, VRMLoaderPlugin, VRMUtils, type VRMExpressionPresetName } from '@pixiv/three-vrm';
+// @pixiv/three-vrm inlines stock MToon in its bundle — load fork explicitly (pnpm override → packages/...)
+import { MToonMaterial, MToonMaterialLoaderPlugin } from '@pixiv/three-vrm-materials-mtoon';
 import { CAMERA_STATE_KEY, BODY_YAW_KEY, CAMERA_PITCH_KEY, SCENE_THEME_KEY, CAMERA_Y_OFFSET_KEY } from '@/lib/constants';
 
 import { VRMBodyMorph } from './morph/vrmBodyMorph';
@@ -331,7 +333,9 @@ export class VRMEngine {
 
   constructor() {
     this.loader.register((parser) => {
-      const mtoonPlugin = new MToonMaterialLoaderPlugin(parser);
+      const mtoonPlugin = new MToonMaterialLoaderPlugin(parser, {
+        materialType: MToonMaterial,
+      });
       // 根据全局配置 APP_CONFIG.outline.enabled 控制是否在加载阶段生成 (Outline) 材质与几何体 Group
       if (!APP_CONFIG.outline.enabled) {
         (mtoonPlugin as any)._shouldGenerateOutline = () => false;
@@ -1105,6 +1109,14 @@ export class VRMEngine {
     this.notifyHeightChange();
   }
 
+  public setFaceShadowIsolation(enable: boolean): void {
+    this.materialManager.setFaceShadowIsolation(enable);
+  }
+
+  public setFabricSheenStrength(strength: number): void {
+    this.materialManager.setFabricSheenStrength(strength);
+  }
+
   // ── 骨骼体型微调系统 (Bone Morphing) ──
   public setBodyPartScale(part: import('@/config').BodyMorphPartKey, value: number): void {
     this.bodyMorph.setPart(part, value);
@@ -1333,7 +1345,13 @@ export class VRMEngine {
               const mesh = obj as THREE.Mesh;
               mesh.castShadow = true;
               const meshName = (mesh.name || '').toLowerCase();
-              mesh.receiveShadow = !(meshName.includes('face') || meshName.includes('head') || meshName.includes('eye'));
+              const isFaceMesh =
+                meshName.includes('face') ||
+                meshName.includes('head') ||
+                meshName.includes('eye') ||
+                meshName.includes('mouth') ||
+                meshName.includes('brow');
+              mesh.receiveShadow = !isFaceMesh;
             }
           });
 
@@ -1775,7 +1793,13 @@ export class VRMEngine {
               const mesh = obj as THREE.Mesh;
               mesh.castShadow = true;
               const meshName = (mesh.name || '').toLowerCase();
-              mesh.receiveShadow = !(meshName.includes('face') || meshName.includes('head') || meshName.includes('eye'));
+              const isFaceMesh =
+                meshName.includes('face') ||
+                meshName.includes('head') ||
+                meshName.includes('eye') ||
+                meshName.includes('mouth') ||
+                meshName.includes('brow');
+              mesh.receiveShadow = !isFaceMesh;
             }
           });
 

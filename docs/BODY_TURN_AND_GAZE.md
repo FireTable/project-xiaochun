@@ -49,9 +49,15 @@ During locomotion, alternating legs progress through four physiological phases. 
 | **`PLANT`** | 0.08s | Leg slerps smoothly to ground | Prepares transition | Foot touches down naturally |
 | **`SETTLE`** | 0.18s | Both legs settle to neutral; swaps stepping leg if turn continues | Symmetric settle | Centers over base of support; transitions to `IDLE` if $\le 11.5^\circ$ |
 
-### 2.3 No spine yaw
+### 2.3 转向步态平滑与先导腿生理匹配 (Smooth Locomotion & Leading Leg Alignment)
 
-BodyTurn owns `vrm.scene.rotation.y` and **legs only** (`LEGS_MASK`). Hip rotation stays with Layer-1. `spine` / `chest` / `upperChest` stay with Layer-1. Gaze multiplies LookAt on the draft VRM; compose follows that head.
+为了在保持 `LEGS_MASK` 严格解耦的同时杜绝起步突兀一顿、反向侧倾与机械拉拽感，管线实现了三项生物力学优化：
+1. **先导腿方向对齐 (Leading Leg Matching)**：
+   触发转向的第一步，严格根据转向目标方向选择先导腿——**左转必定迈左腿（外侧腿先行展开），右转必定迈右腿**，杜绝内侧腿别扭内收交叉迈步的生硬感；
+2. **弹簧力矩启动平滑包络 (Torque Ease-in Envelope)**：
+   针对相机急转产生的大角度跳变，底盘旋转力矩采用启动时间软包络（$\sim 0.2\text{s}$ 平滑渐入），彻底消灭起步第一帧角加速度过大造成的“突然一顿”；
+3. **姿态衔接无压制回归 (Unconstrained Posture Continuity)**：
+   彻底移除在 Layer-1 待机层注入的假惯性脊柱反向扭转与代偿弯曲，保持自然人体的侧倾（Weight-Shift）与呼吸生命力，消除转向结束回归待机时的左右来回抽动与机械式拉拽。
 
 ---
 

@@ -1,6 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { postFxPipeline, DEFAULT_POSTFX_CONFIG, type PostFxConfig } from '@/core/postfx/postFxPipeline';
-import { APP_CONFIG } from '@/config';
+import { postFxPipeline, getDefaultPostFxConfig, type PostFxConfig } from '@/core/postfx/postFxPipeline';
 import { SliderWithAnchors, thumbInBoundsOffset } from '@/components/SliderWithAnchors';
 import { useDevDrawer } from '../context';
 import { SectionCard } from '../components/SectionCard';
@@ -59,31 +58,50 @@ const TONE_MAP_OPTIONS = [
   { key: 'ACES_FILMIC', value: THREE.ACESFilmicToneMapping }, // 4: 真正的好莱坞电影胶片曲线
 ] as const;
 
+/** 脏检查：对比当前运行期 PostFxConfig 与基准默认值，容差 1e-4 免疫浮点精度扰动 */
+const isPostFxModified = (cur: PostFxConfig, baseline: PostFxConfig): boolean => {
+  if (cur.enabled !== baseline.enabled) return true;
+  if (cur.toneMapping.mode !== baseline.toneMapping.mode) return true;
+  const EPSILON = 1e-4;
+  if (Math.abs(cur.toneMapping.exposure - baseline.toneMapping.exposure) > EPSILON) return true;
+  if (Math.abs(cur.bloom.strength - baseline.bloom.strength) > EPSILON) return true;
+  if (Math.abs(cur.bloom.radius - baseline.bloom.radius) > EPSILON) return true;
+  if (Math.abs(cur.bloom.threshold - baseline.bloom.threshold) > EPSILON) return true;
+  if (Math.abs(cur.vignette.darkness - baseline.vignette.darkness) > EPSILON) return true;
+  if (Math.abs(cur.vignette.offset - baseline.vignette.offset) > EPSILON) return true;
+  if (Math.abs(cur.bc.brightness - baseline.bc.brightness) > EPSILON) return true;
+  if (Math.abs(cur.bc.contrast - baseline.bc.contrast) > EPSILON) return true;
+  if (Math.abs(cur.hs.hue - baseline.hs.hue) > EPSILON) return true;
+  if (Math.abs(cur.hs.saturation - baseline.hs.saturation) > EPSILON) return true;
+  return false;
+};
+
 export const PostFxSection: React.FC = () => {
   const { t } = useDevDrawer();
 
   // ponytail: stored merge with default — 兜底旧版 localStorage 缺字段或存在过时无效枚举值
   const merge = (a: Partial<PostFxConfig>): PostFxConfig => {
+    const base = getDefaultPostFxConfig();
     const storedMode = a.toneMapping?.mode;
     const isValidMode = TONE_MAP_OPTIONS.some(opt => opt.value === storedMode);
     return {
-      ...DEFAULT_POSTFX_CONFIG,
+      ...base,
       ...a,
-      bloom: { ...DEFAULT_POSTFX_CONFIG.bloom, ...(a.bloom || {}) },
-      vignette: { ...DEFAULT_POSTFX_CONFIG.vignette, ...(a.vignette || {}) },
+      bloom: { ...base.bloom, ...(a.bloom || {}) },
+      vignette: { ...base.vignette, ...(a.vignette || {}) },
       toneMapping: {
-        ...DEFAULT_POSTFX_CONFIG.toneMapping,
+        ...base.toneMapping,
         ...(a.toneMapping || {}),
-        mode: isValidMode ? (storedMode as THREE.ToneMapping) : DEFAULT_POSTFX_CONFIG.toneMapping.mode,
+        mode: isValidMode ? (storedMode as THREE.ToneMapping) : base.toneMapping.mode,
       },
-      bc: { ...DEFAULT_POSTFX_CONFIG.bc, ...(a.bc || {}) },
-      hs: { ...DEFAULT_POSTFX_CONFIG.hs, ...(a.hs || {}) },
+      bc: { ...base.bc, ...(a.bc || {}) },
+      hs: { ...base.hs, ...(a.hs || {}) },
     };
   };
 
   const [config, setConfig] = useState<PostFxConfig>(() => {
     const stored = loadDevDrawerSettings()?.postfx;
-    return stored ? merge(stored as Partial<PostFxConfig>) : merge(postFxPipeline.config);
+    return stored ? merge(stored as Partial<PostFxConfig>) : getDefaultPostFxConfig();
   });
 
   // 拖动时即时写回 pipeline,抬起时持久化
@@ -151,7 +169,7 @@ export const PostFxSection: React.FC = () => {
 
   const handleReset = () => {
     postFxPipeline.resetToDefault();
-    const def = { ...postFxPipeline.config };
+    const def = getDefaultPostFxConfig();
     setConfig(def);
     saveDevDrawerSettings({ postfx: def });
   };
@@ -226,8 +244,8 @@ export const PostFxSection: React.FC = () => {
     return liveRefs.current[k];
   };
 
-  const def = APP_CONFIG.postfx;
-  const modified = JSON.stringify(config) !== JSON.stringify(def);
+  const def = getDefaultPostFxConfig();
+  const modified = isPostFxModified(config, def);
 
   return (
     <SectionCard id="postfx">

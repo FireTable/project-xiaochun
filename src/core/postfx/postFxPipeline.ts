@@ -33,14 +33,16 @@ export interface PostFxConfig {
   hs: { hue: number; saturation: number };
 }
 
-export const DEFAULT_POSTFX_CONFIG: PostFxConfig = {
-  enabled: true,
-  bloom: { strength: 0.015, radius: 0.32, threshold: 0.72 },
-  vignette: { darkness: 0.0, offset: 0.5 },
-  toneMapping: { mode: THREE.LinearToneMapping, exposure: 1.05 },
-  bc: { brightness: 0.0, contrast: 0.02 },
-  hs: { hue: 0.0, saturation: 0.0 },
-};
+export const getDefaultPostFxConfig = (): PostFxConfig => ({
+  enabled: APP_CONFIG.postfx.enabled,
+  bloom: { ...APP_CONFIG.postfx.bloom },
+  vignette: { ...APP_CONFIG.postfx.vignette },
+  toneMapping: { ...APP_CONFIG.postfx.toneMapping },
+  bc: { ...APP_CONFIG.postfx.bc },
+  hs: { ...APP_CONFIG.postfx.hs },
+});
+
+export const DEFAULT_POSTFX_CONFIG: PostFxConfig = Object.freeze(getDefaultPostFxConfig());
 
 // ponytail: 共享顶点着色器
 const STD_VERTEX = /* glsl */ `
@@ -323,16 +325,9 @@ export class PostFxPipeline {
     this.applyConfig();
   }
 
-  /** 重置所有后期效果至默认配置 DEFAULT_POSTFX_CONFIG */
+  /** 重置所有后期效果至默认配置 (对齐 APP_CONFIG.postfx) */
   resetToDefault(): void {
-    this.config = {
-      enabled: DEFAULT_POSTFX_CONFIG.enabled,
-      bloom: { ...DEFAULT_POSTFX_CONFIG.bloom },
-      vignette: { ...DEFAULT_POSTFX_CONFIG.vignette },
-      toneMapping: { ...DEFAULT_POSTFX_CONFIG.toneMapping },
-      bc: { ...DEFAULT_POSTFX_CONFIG.bc },
-      hs: { ...DEFAULT_POSTFX_CONFIG.hs },
-    };
+    this.config = getDefaultPostFxConfig();
     this.applyConfig();
   }
 

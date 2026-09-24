@@ -1,13 +1,14 @@
 {
   "name": "Project-XiaoChun",
   "private": true,
-  "version": "0.1.11",
+  "version": "0.1.12",
   "type": "module",
   "packageManager": "pnpm@10.12.2",
   "scripts": {
     "preinstall": "npx only-allow pnpm",
     "dev": "vite --host 0.0.0.0",
-    "build": "vite build",
+    "build:packages": "pnpm --filter \"./packages/**\" build",
+    "build": "pnpm build:packages && vite build",
     "preview": "vite preview",
     "deploy": "pnpm build && wrangler deploy",
     "deploy:dev": "pnpm build && wrangler deploy --config wrangler.dev.jsonc",
@@ -84,13 +85,17 @@
     "three": "^0.185.1",
     "tw-animate-css": "^1.4.0",
     "vinxi": "^0.5.11",
-    "vite-tsconfig-paths": "^6.1.1"
+    "vite-tsconfig-paths": "^6.1.1",
+    "@firetable/three-vrm-materials-mtoon": "workspace:*"
   },
   "pnpm": {
     "onlyBuiltDependencies": [
       "esbuild",
       "workerd",
       "sharp"
-    ]
+    ],
+    "overrides": {
+      "@pixiv/three-vrm-materials-mtoon": "workspace:@firetable/three-vrm-materials-mtoon@*"
+    }
   }
 }
