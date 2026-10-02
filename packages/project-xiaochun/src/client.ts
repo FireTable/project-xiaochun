@@ -480,8 +480,25 @@ export function createXiaochun(options: XiaochunOptions): XiaochunInstance {
   }
 
   // ── 宿主 pointer → iframe (透明穿透模式) ──
+  // iframe 处于 pointer-events:none 时, 宿主页的 pointermove 才是唯一线索:
+  //  - 指针不在 iframe 范围内时只做一次廉价的矩形比较 (矩形缓存, 不在每帧 getBoundingClientRect 以免强制回流);
+  //  - 指针在范围内时每帧最多发一次 xc.pointer, 且移动不足 2px 或距上次不足 32ms 则跳过, 避免 iframe 里每帧一次射线检测。
+  const POINTER_MIN_INTERVAL_MS = 32;
+  const POINTER_MIN_MOVE_PX = 2;
   let pointerRaf = 0;
   let lastPtr: { x: number; y: number } | null = null;
+  let lastPosted: { x: number; y: number; t: number } | null = null;
+  let rectCache: DOMRect | null = null;
+  let rectRo: ResizeObserver | null = null;
+  let rectAt = 0;
+  const invalidateRect = () => { rectCache = null; };
+  const getRect = (): DOMRect | null => {
+    if (!iframe) return null;
+    const now = performance.now();
+    // 兜底 TTL: 内联布局被页面其它内容推动 (不触发 resize/scroll) 时, 最多 400ms 后自愈
+    if (!rectCache || now - rectAt > 400) { rectCache = iframe.getBoundingClientRect(); rectAt = now; }
+    return rectCache;
+  };
   const onHostPointer = (e: PointerEvent) => {
     if (!iframe || !port || iframe.style.pointerEvents === 'auto') return; // iframe 自己拿到事件时由它上报
     lastPtr = { x: e.clientX, y: e.clientY };
@@ -489,17 +506,30 @@ export function createXiaochun(options: XiaochunOptions): XiaochunInstance {
     pointerRaf = requestAnimationFrame(() => {
       pointerRaf = 0;
       if (!iframe || !port || !lastPtr) return;
-      const r = iframe.getBoundingClientRect();
+      const r = getRect();
+      if (!r) return;
       const x = lastPtr.x - r.left, y = lastPtr.y - r.top;
       if (x < 0 || y < 0 || x > r.width || y > r.height) {
+        lastPosted = null;
         if (lastHit) { lastHit = false; iframe.style.pointerEvents = 'none'; }
         return;
       }
+      const now = performance.now();
+      if (lastPosted && now - lastPosted.t < POINTER_MIN_INTERVAL_MS) return;
+      if (lastPosted && Math.abs(x - lastPosted.x) < POINTER_MIN_MOVE_PX && Math.abs(y - lastPosted.y) < POINTER_MIN_MOVE_PX) return;
+      lastPosted = { x, y, t: now };
       port.postMessage(xcMessage('xc.pointer', { x, y }));
     });
   };
   function setupPassthrough() {
-    if (passthrough) window.addEventListener('pointermove', onHostPointer, { passive: true });
+    if (!passthrough) return;
+    window.addEventListener('pointermove', onHostPointer, { passive: true });
+    window.addEventListener('scroll', invalidateRect, { passive: true, capture: true });
+    window.addEventListener('resize', invalidateRect, { passive: true });
+    if (typeof ResizeObserver !== 'undefined' && iframe) {
+      rectRo = new ResizeObserver(invalidateRect);
+      rectRo.observe(iframe);
+    }
   }
 
   // ── 视口外自动暂停 ──
@@ -567,6 +597,7 @@ export function createXiaochun(options: XiaochunOptions): XiaochunInstance {
       ws.left = `${Math.min(Math.max(0, e.clientX - drag.dx), window.innerWidth - 40)}px`;
       ws.top = `${Math.min(Math.max(0, e.clientY - drag.dy), window.innerHeight - 40)}px`;
       ws.right = 'auto'; ws.bottom = 'auto';
+      invalidateRect();
     });
     const end = () => { drag = null; };
     handle.addEventListener('pointerup', end);
@@ -604,6 +635,9 @@ export function createXiaochun(options: XiaochunOptions): XiaochunInstance {
       if (pointerRaf) cancelAnimationFrame(pointerRaf);
       window.removeEventListener('message', onWindowMessage);
       window.removeEventListener('pointermove', onHostPointer);
+      window.removeEventListener('scroll', invalidateRect, true);
+      window.removeEventListener('resize', invalidateRect);
+      rectRo?.disconnect();
       try { port?.close(); } catch { /* ignore */ }
       port = null;
       for (const p of pending.values()) p.reject(new Error('[project-xiaochun] instance destroyed'));

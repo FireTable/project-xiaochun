@@ -228,11 +228,72 @@ export function startEmbedBridge(opts: EmbedBridgeOptions): EmbedBridge {
     publishState(true);
   }
 
-  function reportHit(x: number, y: number) {
-    const hit = vrmEngine.isHitModel(x, y);
+  // ── 命中检测 (透明穿透) ──
+  // 原先每个 pointermove 都同步做一次 SkinnedMesh 射线检测, 并且 hit 一变就立刻回报,
+  // 指针沿轮廓走时会让宿主的 iframe pointer-events 在 auto/none 间来回抖动。现在:
+  //  0) 检测改为读渲染画面指针处的 1 个像素 alpha (vrmEngine.hitTest), 不再逐三角形射线检测 (单次 10~25ms);
+  //  1) 每帧最多检测一次 (rAF 合并, 取最新坐标); 指针几乎没动 (<1px) 且不是宿主发起时跳过;
+  //  2) 命中 → 立刻回报 (保证第一下就能点到角色); 未命中 → 延迟 HIT_RELEASE_MS 才回报,
+  //     期间再次命中就取消 (迟滞, 消除轮廓/动作造成的抖动);
+  //  3) 按住鼠标 (拖动旋转) 时不回报"离开", 避免拖动中途被切断;
+  //  4) 宿主发起的 xc.pointer 命中时总是回报 (宿主可能自行把 iframe 切回 none, 不能只靠去重)。
+  const HIT_RELEASE_MS = 160;
+  let hitRaf = 0;
+  let hitDelayTimer: ReturnType<typeof setTimeout> | null = null;
+  let hitReleaseTimer: ReturnType<typeof setTimeout> | null = null;
+  let pendingHit: { x: number; y: number; fromHost: boolean; buttons: number } | null = null;
+  let lastTested: { x: number; y: number } | null = null;
+
+  function sendHit(hit: boolean, x: number, y: number) {
     if (hit === lastHit) return;
     lastHit = hit;
     send('xc.hit-region', { hit, x, y });
+  }
+
+  let hitSeq = 0;
+  function processHit() {
+    hitRaf = 0;
+    const q = pendingHit;
+    pendingHit = null;
+    if (!q || disposed) return;
+    if (!q.fromHost && lastTested && Math.abs(q.x - lastTested.x) < 1 && Math.abs(q.y - lastTested.y) < 1) return;
+    lastTested = { x: q.x, y: q.y };
+    lastHitTestAt = performance.now();
+    const seq = ++hitSeq;
+    // 像素级检测: 结果在这一帧渲染完后给出 (见 vrmEngine.hitTest); 更新的检测已发出则丢弃旧结果
+    void vrmEngine.hitTest(q.x, q.y).then((hit) => {
+      if (disposed || seq !== hitSeq) return;
+      applyHitResult(q, hit);
+    });
+  }
+
+  function applyHitResult(q: { x: number; y: number; fromHost: boolean; buttons: number }, hit: boolean) {
+    if (hit) {
+      if (hitReleaseTimer) { clearTimeout(hitReleaseTimer); hitReleaseTimer = null; }
+      if (lastHit !== true) sendHit(true, q.x, q.y);
+      else if (q.fromHost) send('xc.hit-region', { hit: true, x: q.x, y: q.y }); // 宿主侧可能已切回 none, 重发以对齐
+      return;
+    }
+    if (lastHit !== true || hitReleaseTimer) return; // 本来就没命中 / 已在倒计时
+    if (q.buttons !== 0) return; // 拖动中不松手
+    hitReleaseTimer = setTimeout(() => {
+      hitReleaseTimer = null;
+      sendHit(false, q.x, q.y);
+    }, HIT_RELEASE_MS);
+  }
+
+  // 每次检测会触发一次 1×1 readPixels (GPU 同步): 再加一道最小间隔 (HIT_MIN_INTERVAL_MS), 距上次检测太近就等到间隔满再处理最新坐标
+  const HIT_MIN_INTERVAL_MS = 33;
+  let lastHitTestAt = 0;
+  function reportHit(x: number, y: number, fromHost = false, buttons = 0) {
+    pendingHit = { x, y, fromHost, buttons };
+    if (hitRaf || hitDelayTimer) return;
+    const wait = HIT_MIN_INTERVAL_MS - (performance.now() - lastHitTestAt);
+    if (wait > 0) {
+      hitDelayTimer = setTimeout(() => { hitDelayTimer = null; hitRaf = requestAnimationFrame(processHit); }, wait);
+    } else {
+      hitRaf = requestAnimationFrame(processHit);
+    }
   }
 
   async function ensureStt(): Promise<SttClient> {
@@ -417,7 +478,7 @@ export function startEmbedBridge(opts: EmbedBridgeOptions): EmbedBridge {
         }
         case 'xc.pointer': {
           if (!Number.isFinite(p.x) || !Number.isFinite(p.y)) throw new CmdError('bad_request', 'x/y must be numbers');
-          reportHit(p.x, p.y);
+          reportHit(p.x, p.y, true);
           break;
         }
         case 'xc.setModel': {
@@ -494,8 +555,11 @@ export function startEmbedBridge(opts: EmbedBridgeOptions): EmbedBridge {
   }
 
   // 本地点击/移动: iframe 自己拿到 pointer 事件时, 也上报 hit-region (SDK 据此在离开角色时切回 pointer-events:none)
-  const onLocalPointer = (e: PointerEvent) => reportHit(e.clientX, e.clientY);
+  const onLocalPointer = (e: PointerEvent) => reportHit(e.clientX, e.clientY, false, e.buttons);
   const onLocalLeave = () => {
+    if (hitReleaseTimer) { clearTimeout(hitReleaseTimer); hitReleaseTimer = null; }
+    pendingHit = null;
+    hitSeq++;
     if (lastHit === false) return;
     lastHit = false;
     send('xc.hit-region', { hit: false, x: -1, y: -1 });
@@ -509,6 +573,9 @@ export function startEmbedBridge(opts: EmbedBridgeOptions): EmbedBridge {
     // React 卸载 (含 StrictMode 的假卸载) 只摘监听, 不销毁引擎; 引擎只在宿主 xc.destroy 时释放。
     dispose: () => {
       disposed = true;
+      if (hitRaf) cancelAnimationFrame(hitRaf);
+      if (hitDelayTimer) clearTimeout(hitDelayTimer);
+      if (hitReleaseTimer) clearTimeout(hitReleaseTimer);
       readyOff();
       window.removeEventListener('message', onWindowMessage);
       window.removeEventListener('pointermove', onLocalPointer);

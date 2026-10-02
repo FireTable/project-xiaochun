@@ -2443,6 +2443,9 @@ export class VRMEngine {
           this.renderer?.render(this.scene, this.camera);
         }
 
+        // 命中检测请求: 趁这一帧刚渲染完, 读指针处 1 个像素的 alpha (见 hitTest)
+        if (this._hitReqs.length > 0) this.flushHitRequests();
+
         // 真实像素提取：在 WebGL 画布渲染完成的第一时间提取 Alpha 蒙版，保证动作姿态零延迟、100% 对应画面
         if (this.canvas && passthroughManager.isPassthroughEnabled()) {
           passthroughManager.updateCanvasAlphaMask(this.canvas);
@@ -2458,29 +2461,121 @@ export class VRMEngine {
 
   private _hitRaycaster = new THREE.Raycaster();
   private _hitNdc = new THREE.Vector2();
+  // 命中检测的缓存: SkinnedMesh.raycast 是 CPU 蒙皮 + 逐三角形求交, 单次可达十几毫秒 (实测占主线程大头),
+  // 所以先用"骨骼包围盒"粗筛 (指针不在角色附近就零成本), 再只对可见网格求交, 命中即返回。
+  private _hitMeshes: THREE.Mesh[] = [];
+  private _hitBones: THREE.Bone[] = [];
+  private _hitMeshesAt = 0;
+  private _hitMeshesScene: THREE.Object3D | null = null;
+  private _hitBox = new THREE.Box3();
+  private _hitBoxAt = 0;
+  private _hitVec = new THREE.Vector3();
+
+  // ── 像素级命中检测 (透明穿透用) ──
+  // SkinnedMesh 射线检测是 CPU 蒙皮 + 逐三角形, 实测单次约 10~25ms, 指针一动就卡住 3D 渲染。
+  // 改成: 请求先排队, 在 animate 里这一帧渲染完后读指针处 1×1 像素的 alpha (透明背景下 alpha>0 即角色),
+  // 与画面 100% 一致、零 CPU 蒙皮。读不了 (背景不透明 / 暂停渲染超时 / WebGL 异常) 时退回上面的射线检测。
+  private _hitReqs: { x: number; y: number; resolve: (hit: boolean) => void; timer: ReturnType<typeof setTimeout> }[] = [];
+  private _hitPixel = new Uint8Array(4);
+
+  public hitTest(clientX: number, clientY: number): Promise<boolean> {
+    return new Promise((resolve) => {
+      const renderer = this.renderer;
+      if (!renderer || !this.currentVRM || renderer.getClearAlpha() > 0.01) {
+        resolve(this.isHitModel(clientX, clientY)); // 非透明场景: 像素 alpha 恒为 1, 没有意义
+        return;
+      }
+      const req = {
+        x: clientX,
+        y: clientY,
+        resolve,
+        // 渲染被暂停 (页面不可见 / 离屏) 时一直等不到帧: 150ms 后退回射线检测
+        timer: setTimeout(() => {
+          const i = this._hitReqs.indexOf(req);
+          if (i >= 0) this._hitReqs.splice(i, 1);
+          resolve(this.isHitModel(clientX, clientY));
+        }, 150),
+      };
+      this._hitReqs.push(req);
+    });
+  }
+
+  private flushHitRequests(): void {
+    const renderer = this.renderer;
+    const reqs = this._hitReqs.splice(0);
+    if (!renderer || reqs.length === 0) return;
+    const canvas = renderer.domElement;
+    const gl = renderer.getContext();
+    const rect = canvas.getBoundingClientRect();
+    const sx = rect.width > 0 ? canvas.width / rect.width : 1;
+    const sy = rect.height > 0 ? canvas.height / rect.height : 1;
+    for (const r of reqs) {
+      clearTimeout(r.timer);
+      let hit: boolean;
+      try {
+        const px = Math.floor((r.x - rect.left) * sx);
+        const py = Math.floor(canvas.height - (r.y - rect.top) * sy - 1);
+        if (px < 0 || py < 0 || px >= canvas.width || py >= canvas.height) {
+          hit = false;
+        } else {
+          gl.readPixels(px, py, 1, 1, gl.RGBA, gl.UNSIGNED_BYTE, this._hitPixel);
+          hit = this._hitPixel[3] >= 128;
+        }
+      } catch {
+        hit = this.isHitModel(r.x, r.y);
+      }
+      r.resolve(hit);
+    }
+  }
+
+  private refreshHitCandidates(now: number, root: THREE.Object3D): void {
+    if (this._hitMeshesScene === root && now - this._hitMeshesAt < 1000) return;
+    this._hitMeshesScene = root;
+    this._hitMeshesAt = now;
+    this._hitBoxAt = 0;
+    const meshes: THREE.Mesh[] = [];
+    const bones = new Set<THREE.Bone>();
+    root.traverse((obj) => {
+      if (!(obj instanceof THREE.Mesh)) return;
+      const skinned = obj as THREE.SkinnedMesh;
+      if (skinned.isSkinnedMesh && skinned.skeleton) for (const b of skinned.skeleton.bones) bones.add(b);
+      meshes.push(obj);
+    });
+    this._hitMeshes = meshes;
+    this._hitBones = [...bones];
+  }
 
   /**
    * 射线检测屏幕坐标 (clientX, clientY) 是否击中小春 3D 角色模型实体
    */
   public isHitModel(clientX: number, clientY: number): boolean {
     if (!this.currentVRM || !this.camera || typeof window === 'undefined') return false;
+    const now = performance.now();
+    const root = this.currentVRM.scene;
     this._hitNdc.x = (clientX / window.innerWidth) * 2 - 1;
     this._hitNdc.y = -(clientY / window.innerHeight) * 2 + 1;
     this._hitRaycaster.setFromCamera(this._hitNdc, this.camera);
-    const intersects = this._hitRaycaster.intersectObject(this.currentVRM.scene, true);
-    for (const hit of intersects) {
-      const obj = hit.object;
-      if (!obj.visible) continue;
-      if (obj instanceof THREE.Mesh) {
-        const mat = obj.material;
-        if (mat) {
-          if (Array.isArray(mat)) {
-            if (mat.some((m) => m.visible && m.opacity > 0.05)) return true;
-          } else if (mat.visible && mat.opacity > 0.05) {
-            return true;
-          }
-        }
+    this.refreshHitCandidates(now, root);
+
+    // 粗筛: 骨骼世界坐标的包围盒 (每 150ms 重算一次, 跟得上动作) + 边距覆盖头发/裙摆
+    if (this._hitBones.length > 0) {
+      if (now - this._hitBoxAt > 150) {
+        this._hitBoxAt = now;
+        this._hitBox.makeEmpty();
+        for (const b of this._hitBones) this._hitBox.expandByPoint(b.getWorldPosition(this._hitVec));
+        const size = this._hitBox.getSize(this._hitVec);
+        const pad = Math.max(0.3, Math.max(size.x, size.y, size.z) * 0.2);
+        this._hitBox.expandByScalar(pad);
       }
+      if (!this._hitRaycaster.ray.intersectsBox(this._hitBox)) return false;
+    }
+
+    for (const mesh of this._hitMeshes) {
+      if (!mesh.visible) continue;
+      const mat = mesh.material;
+      const opaque = Array.isArray(mat) ? mat.some((m) => m.visible && m.opacity > 0.05) : !!mat && mat.visible && mat.opacity > 0.05;
+      if (!opaque) continue;
+      if (this._hitRaycaster.intersectObject(mesh, false).length > 0) return true; // 命中即返回
     }
     return false;
   }
