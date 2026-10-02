@@ -1,4 +1,4 @@
-import { isTauri } from '@/lib/platform';
+import { isEmbed, isTauri } from '@/lib/platform';
 import { executeProtocolMessage } from './handler';
 import type { ProtocolMessage } from './types';
 
@@ -31,6 +31,9 @@ async function executeProtocolWithDedupe(message: ProtocolMessage): Promise<void
  * 并自动拉取冷启动阶段（Webview 尚未就绪时）原生层暂存的待处理协议指令。
  */
 export async function initProtocolListener(): Promise<() => void> {
+  // /embed (iframe) 绝不响应 xiaochun:// 与 protocol:action: 那是 OS/Tauri 壳的传输层; iframe 只走 xc.* postMessage。
+  // 即使有人在 Tauri 壳里直接打开 /embed 也一样 (同时不挂 window.__triggerXiaoChunProtocol 调试桥)。
+  if (isEmbed()) return () => {};
   if (isInitialized) {
     return () => {};
   }

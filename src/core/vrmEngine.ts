@@ -9,9 +9,11 @@ import { CAMERA_STATE_KEY, BODY_YAW_KEY, CAMERA_PITCH_KEY, SCENE_THEME_KEY, CAME
 import { VRMBodyMorph } from './morph/vrmBodyMorph';
 import { postFxPipeline, type PostFxPipeline } from './postfx/postFxPipeline';
 import { ChatDirector } from '@/director/chatDirector';
+import type { HostAudioInput } from '@/director/hostAudio';
 import { MotionPipeline } from '@/motion/pipeline/motionPipeline';
 import type { PlayMotionOptions, UniversalMotionHandle } from '@/motion/sources/clip';
 import { preloadWebLLM, unloadWebLLM } from '@/llm/webLLMProvider';
+import { isHeavyPreloadAllowed } from '@/lib/heavyPreload';
 import { APP_CONFIG, type LightConfig } from '@/config';
 import { loadPostFxEnabledFromStorage, getRenderPixelRatio, resolveInitialSceneTheme } from '@/lib/utils';
 import { isMobile, isTauri } from '@/lib/platform';
@@ -317,6 +319,10 @@ export class VRMEngine {
   // 渲染永远被卡住,黑屏。现在:dev / prod 都从 startAnimation 立即开始渲染,
   // overlay 只是叠加在上层的 UI。VRM 加载完后,fitCamera + cinematicIntro 直接显示。
   public isRenderingSuspended = false;
+  /** /embed 专用: true 时 OrbitControls 不响应滚轮缩放 (在 attachCanvas 前设置)。 */
+  public lockWheelZoom = false;
+  /** /embed 专用: 宿主显式 xc.pause 后为 true, resumeRendering() 会被忽略直到 xc.resume。 */
+  public hostPaused = false;
   /** document.visibilitychange → 后台 suspend / 前台 resume */
   private visibilityPauseHandler: (() => void) | null = null;
   /** 当前 WebGL 上下文属性指纹（antialias / preserveDrawingBuffer / powerPreference） */
@@ -472,6 +478,8 @@ export class VRMEngine {
   }
 
   public resumeRendering(): void {
+    // /embed: 宿主 xc.pause 期间, 前台恢复/pageshow 也不唤醒渲染 (宿主 xc.resume 才放行)
+    if (this.hostPaused) return;
     if (!this.isRenderingSuspended && this.animFrameId !== null) {
       return;
     }
@@ -830,6 +838,8 @@ export class VRMEngine {
     };
     this.controls.enableRotate = false;
     this.controls.enablePan = false;
+    // /embed: 默认锁滚轮缩放, 避免 iframe 吞掉宿主页面的滚动 (宿主 ?controls=1 可放开)
+    if (this.lockWheelZoom) this.controls.enableZoom = false;
 
     // 监听 OrbitControls change，防抖 500ms 写入 localStorage，
     // 避免在滚轮缩放与阻尼平滑期间每帧同步阻塞写磁盘导致渲染微卡顿
@@ -1417,8 +1427,7 @@ export class VRMEngine {
             this.scene.add(vrm.scene);
             this.notifyReady(true);
 
-            if (!this.emagePlayer.ready) void this.emagePlayer.ensureLoaded();
-            preloadWebLLM();
+            this.preloadHeavyResources();
 
             if (this.controls) {
               this.renderSingleFrame();
@@ -1444,8 +1453,7 @@ export class VRMEngine {
             (window as any).vrmEngine = this;
           }
 
-          if (!this.emagePlayer.ready) void this.emagePlayer.ensureLoaded();
-          preloadWebLLM();
+          this.preloadHeavyResources();
 
           if (this.controls && !this._sceneInitialized) {
             this._sceneInitialized = true;
@@ -1864,8 +1872,7 @@ export class VRMEngine {
             this.scene.add(vrm.scene);
             this.notifyReady(true);
 
-            if (!this.emagePlayer.ready) void this.emagePlayer.ensureLoaded();
-            preloadWebLLM();
+            this.preloadHeavyResources();
 
             if (this.controls) {
               this.renderSingleFrame();
@@ -1891,8 +1898,7 @@ export class VRMEngine {
             (window as any).vrmEngine = this;
           }
 
-          if (!this.emagePlayer.ready) void this.emagePlayer.ensureLoaded();
-          preloadWebLLM();
+          this.preloadHeavyResources();
 
           if (this.controls && !this._sceneInitialized) {
             this._sceneInitialized = true;
@@ -2166,6 +2172,50 @@ export class VRMEngine {
     await this.chatDirector.speakText(text, this.currentVRM, this.vrmaPlayer, this.emagePlayer, setStatus);
   }
 
+  /**
+   * 宿主直接给音频: 跳过 LLM 与 TTS, 音频 → EMAGE → 动作 + 播放 + 口型 (见 ChatDirector.speakAudio / director/hostAudio.ts)。
+   * 首次调用才会加载 EMAGE (heavy 资源仍然懒加载); opts.motion=false 时完全不加载。
+   * 整段音频与流式音频走同一入口: input.chunks 只 yield 一次 = 整段。
+   */
+  public async speakAudio(
+    input: HostAudioInput,
+    opts: { motion?: boolean; lipsync?: boolean; text?: string } = {},
+  ): Promise<void> {
+    if (!this.currentVRM) return;
+    const setStatus = (
+      key: string,
+      vars?: Record<string, unknown>,
+      isError = false,
+      speechText?: string,
+      segmentIndex?: number,
+      totalSegments?: number,
+    ) => {
+      if (this.currentVRM) this.bodyMorph.getHeadTopWorldPosition(this.tempHeadTopPos);
+      this.bubbleTracker.setStatus(
+        key, this.currentVRM, this.camera, vars, isError, speechText, segmentIndex, totalSegments,
+        this.currentVRM ? this.tempHeadTopPos : undefined,
+      );
+    };
+    await this.chatDirector.speakAudio(input, this.currentVRM, this.vrmaPlayer, this.emagePlayer, setStatus, opts);
+  }
+
+  /** 打断当前说话 (文字/音频均可)。 */
+  public stopSpeaking(): void {
+    try { this.chatDirector.stop(); } catch { /* ignore */ }
+  }
+
+
+  /**
+   * 预加载重资源 (EMAGE ONNX + WebLLM)。
+   * 主站: VRM 加载完成即自动预热 (行为不变)。
+   * /embed 默认 heavy=lazy: 跳过自动预热, 宿主 `xc.setConfig{heavy:'eager'}` 或首次互动时再显式调用。
+   * force=true 忽略 lazy 开关 (显式预热)。
+   */
+  public preloadHeavyResources(force = false): void {
+    if (!force && !isHeavyPreloadAllowed()) return;
+    if (!this.emagePlayer.ready) void this.emagePlayer.ensureLoaded();
+    preloadWebLLM();
+  }
 
   public releaseHeavyResources(): void {
     try { this.chatDirector.stop(); } catch { }

@@ -10,6 +10,14 @@ export function isTauri(): boolean {
 }
 
 /**
+ * 是否运行在 /embed 入口 (被宿主页以 iframe 内嵌)。
+ * 仅看 pathname, SSR 安全; 与 Tauri 互斥 (Tauri 永远走主入口)。
+ */
+export function isEmbed(): boolean {
+  return typeof window !== 'undefined' && /^\/embed(\/|$)/.test(window.location.pathname);
+}
+
+/**
  * 是否运行在移动端设备 (iOS / Android)
  */
 export function isMobile(): boolean {

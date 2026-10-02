@@ -44,6 +44,8 @@ export default defineConfig(({ command }) => ({
       '@': path.resolve(import.meta.dirname, 'src'),
       '@pixiv/three-vrm-materials-mtoon': path.resolve(import.meta.dirname, 'packages/three-vrm-materials-mtoon/src/index.ts'),
       '@firetable/three-vrm-materials-mtoon': path.resolve(import.meta.dirname, 'packages/three-vrm-materials-mtoon/src/index.ts'),
+      // /embed 与 npm 包 @firetable/project-xiaochun 共用同一份协议常量/类型 (源码直引, 不依赖包是否已 build)
+      '@firetable/project-xiaochun/protocol': path.resolve(import.meta.dirname, 'packages/project-xiaochun/src/protocol.ts'),
     },
   },
   ssr: {

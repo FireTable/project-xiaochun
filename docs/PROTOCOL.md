@@ -143,3 +143,23 @@ Raw URLs are deduped within 5s so Opened + get_current + `on_open_url` do not do
 
 Prefer **URL-encoded** `text` (e.g. Chinese) for portability; unencoded Chinese in `open "xiaochun://speak?text=..."` is usually OK on macOS but encoding is safer across shells and platforms.
 
+---
+
+## 6. Transport mapping: `xiaochun://` vs. `xc.*` (iframe / npm SDK)
+
+The embed bridge (`src/embed/bridge.ts`) and the deep-link entry (`initProtocolListener`) share **one handler** (`src/core/protocol/handler.ts`, types in `types.ts`, audio helpers in `audio.ts`). Only the transport differs.
+
+| `xc.*` (iframe postMessage) | Protocol action | `xiaochun://` (desktop deep link) |
+| :--- | :--- | :--- |
+| `xc.say { text }` | `speak { text }` | `xiaochun://speak?text=…` |
+| `xc.say { mode: 'chat' }` | — (LLM chat; no deep-link form) | — |
+| `xc.audio { source: <URL> }` | `speak { audioUrl[, text] }` → `audio` | `xiaochun://speak?audioUrl=…[&text=…]` |
+| `xc.audio { source: ArrayBuffer \| Blob }`, `xc.audio.chunk`, `xc.audio.end` | `audio { source \| stream }` | — (binary cannot fit in a URL) |
+| — | `speak { file }` | `xiaochun://speak?file=…` (desktop shell only) |
+
+Notes:
+- **`audioUrl` is now implemented.** It used to be a reserved parameter that the handler ignored; it now plays the audio through the same pipeline as `xc.audio` (decode → 16 kHz mono windows → EMAGE motion + A/V sync + lip-sync), without calling TTS. The URL must be `https:` (or same-origin).
+- **The `/embed` page does not respond to `xiaochun://`** and does not expose `__triggerXiaoChunProtocol`; use `xc.*` there.
+- Trust model differs: a deep link has no handshake (the OS is the trust boundary); `xc.*` is origin-checked and capped at `MAX_SAY_CHARS`.
+- Helpers in `@firetable/project-xiaochun`: `toProtocolUrl()`, `parseProtocolUrl()`, `XC_PROTOCOL_MAPPING`. See [`EMBED.md` §2.4–2.5](EMBED.md).
+

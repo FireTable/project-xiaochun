@@ -2,6 +2,7 @@ import * as THREE from 'three';
 import type { VRM } from '@pixiv/three-vrm';
 import type { VRMHumanBoneName } from '@pixiv/three-vrm';
 import { APP_CONFIG } from '../../config';
+import { isHeavyPreloadAllowed } from '../../lib/heavyPreload';
 import { FootIKSolver } from '../constraints/footIK';
 import { SpeakIdleSystem } from './speakIdle';
 import { type MotionTraits } from '../pipeline/types';
@@ -323,7 +324,10 @@ export class EmagePlayer {
       };
 
       // 启动时后台静默预热模型
-      this.ensureLoaded().catch((err) => console.warn('[EMAGE] Background preload notice:', err));
+      // /embed 默认 lazy: 不在构造期偷偷拉 ONNX 模型, 首次 generate()/显式 preload 时才加载
+      if (isHeavyPreloadAllowed()) {
+        this.ensureLoaded().catch((err) => console.warn('[EMAGE] Background preload notice:', err));
+      }
     } catch (err) {
       console.error('[EMAGE] Failed to initialize Web Worker:', err);
     }

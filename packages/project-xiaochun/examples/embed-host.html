@@ -1,0 +1,107 @@
+<!doctype html>
+<!--
+  最小宿主页 (手动验证用)。
+  1. 起主应用:      pnpm dev            # https://localhost:5185  (自签证书, 浏览器先打开一次并信任)
+  2. 构建 SDK:      pnpm --filter @firetable/project-xiaochun build
+  3. 起静态服务:    npx serve packages/project-xiaochun -l 8080     # 或 python3 -m http.server 8080 -d packages/project-xiaochun
+  4. 打开:          http://localhost:8080/examples/embed-host.html
+     可选 ?src=https://localhost:5185/embed  覆盖 iframe 地址 (默认就是它); 线上用默认官方地址即可。
+-->
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>XiaoChun embed host demo</title>
+  <style>
+    body { font: 14px/1.5 system-ui, sans-serif; margin: 0; padding: 24px; background: linear-gradient(#fff4f2, #fff); min-height: 160vh; }
+    h1 { font-size: 18px; margin: 0 0 12px; }
+    .row { display: flex; gap: 24px; flex-wrap: wrap; align-items: flex-start; }
+    .panel { max-width: 420px; }
+    button, input, select { font: inherit; padding: 6px 10px; margin: 2px 2px 2px 0; }
+    pre { background: #111; color: #9fe; padding: 10px; border-radius: 8px; height: 220px; overflow: auto; font-size: 12px; }
+    /* 预留固定宽高: 占位 → iframe 不会引起布局抖动 (CLS) */
+    #stage { width: 320px; height: 480px; border: 1px dashed #ea8377; border-radius: 12px; }
+  </style>
+</head>
+<body>
+  <h1>Project XiaoChun — iframe embed demo</h1>
+  <div class="row">
+    <div id="stage"></div>
+    <div class="panel">
+      <div>
+        <input id="text" value="你好呀，我是小蠢！" size="22">
+        <button id="say">say</button>
+        <button id="chat" title="走 WebLLM, 会触发大模型下载">say(chat)</button>
+      </div>
+      <div>
+        <button id="think">motion: thinking</button>
+        <button id="stopMotion">stop motion</button>
+        <select id="expr"><option>happy</option><option>sad</option><option>angry</option><option>surprised</option><option>relaxed</option><option>neutral</option></select>
+        <button id="exprBtn">expression</button>
+      </div>
+      <div>
+        <select id="outfit"><option value="base">base</option><option>xiaochun_maid</option><option>xiaochun_techwear</option><option>xiaochun_bikini</option></select>
+        <button id="model">setModel</button>
+        <button id="lookAt" title="协议已预留, /embed 暂返回 unsupported">lookAt (unsupported)</button>
+      </div>
+      <div>
+        <button id="mic">mic on/off</button>
+        <button id="pause">pause</button>
+        <button id="resume">resume</button>
+        <button id="eager" title="立即预热 WebLLM + EMAGE">heavy=eager</button>
+        <button id="destroy">destroy</button>
+      </div>
+      <pre id="log"></pre>
+    </div>
+  </div>
+  <p>向下滚动: 右下角有一个透明、可拖动的悬浮头像 (&lt;xiaochun-avatar&gt;)。滚出视口会自动 pause。</p>
+
+  <script src="../dist/loader.global.js"></script>
+  <script>
+    const params = new URLSearchParams(location.search);
+    const src = params.get('src') || 'https://localhost:5185/embed';
+    // 悬浮头像: <xiaochun-avatar> 的 src 要在插入 DOM 前设好, 免得创建后又重建
+    const f = document.createElement('xiaochun-avatar');
+    f.id = 'float';
+    f.setAttribute('src', src);
+    f.setAttribute('position', 'bottom-right');
+    f.setAttribute('size', '260');
+    f.setAttribute('transparent', '');
+    f.setAttribute('draggable', '');
+    document.body.appendChild(f);
+
+    const log = (...a) => { const el = document.getElementById('log'); el.textContent += a.map(x => typeof x === 'string' ? x : JSON.stringify(x)).join(' ') + '\n'; el.scrollTop = 1e9; };
+
+    const xc = Xiaochun.createXiaochun({
+      container: '#stage',
+      src,
+      lazy: 'idle',        // 进入视口 + 空闲后才创建 iframe; 改成 'click' 则点占位图才加载, false 则立即
+      width: 320, height: 480,
+      transparent: false,
+      lang: 'zh-CN',
+    });
+    for (const ev of ['handshake', 'ready', 'progress', 'state', 'stt', 'utterance', 'hit-region', 'error', 'destroy']) {
+      xc.on(ev, (p) => { if (ev !== 'progress' && ev !== 'hit-region') log(ev, p ?? ''); });
+    }
+    xc.ready.then(() => log('== ready: model loaded =='), () => {});
+
+    const $ = (id) => document.getElementById(id);
+    const wrap = (p) => p.catch((e) => log('! ' + e.message));
+    $('say').onclick = () => wrap(xc.say($('text').value));
+    $('chat').onclick = () => wrap(xc.say($('text').value, { mode: 'chat' }));
+    $('think').onclick = () => wrap(xc.motion('thinking'));
+    $('stopMotion').onclick = () => wrap(xc.motion({ stop: true }));
+    $('exprBtn').onclick = () => wrap(xc.expression($('expr').value));
+    $('model').onclick = () => wrap(xc.setModel($('outfit').value));
+    $('lookAt').onclick = () => wrap(xc.lookAt(0.5, 0));
+    let micOn = false;
+    $('mic').onclick = () => { micOn = !micOn; wrap(xc.mic(micOn)); };
+    $('pause').onclick = () => xc.pause();
+    $('resume').onclick = () => xc.resume();
+    $('eager').onclick = () => wrap(xc.setConfig({ heavy: 'eager' }));
+    $('destroy').onclick = () => xc.destroy();
+
+    for (const n of ['xc-ready', 'xc-error', 'xc-utterance']) f.addEventListener(n, (e) => log('<float> ' + n, e.detail));
+  </script>
+</body>
+</html>

@@ -10,17 +10,30 @@
 import { useSyncExternalStore } from 'react';
 import { APP_CONFIG, type SceneItemConfig } from '@/config';
 import { SCENE_THEME_KEY } from '@/lib/constants';
-import { isTauri } from '@/lib/platform';
+import { isEmbed, isTauri } from '@/lib/platform';
+
+/** 透明场景: Tauri 桌宠 或 /embed (宿主页叠加透明 iframe) 才允许; 普通网页保持原限制。 */
+function isTransparentSceneAllowed(): boolean {
+  return isTauri() || isEmbed();
+}
 
 function resolveInitialSceneId(): string {
   if (typeof window === 'undefined') {
     return APP_CONFIG.scenes.defaultSceneId;
   }
 
+  // /embed: URL 参数优先于 localStorage (iframe 的存储可能被分区, 且宿主需要确定性外观)。
+  if (isEmbed()) {
+    const q = new URLSearchParams(window.location.search);
+    if (q.get('transparent') === '1') return 'transparent';
+    const theme = q.get('theme');
+    if (theme && theme in APP_CONFIG.scenes.items && theme !== 'transparent') return theme;
+  }
+
   try {
     const stored = localStorage.getItem(SCENE_THEME_KEY);
     if (stored && stored in APP_CONFIG.scenes.items) {
-      if (stored === 'transparent' && !isTauri()) {
+      if (stored === 'transparent' && !isTransparentSceneAllowed()) {
         return APP_CONFIG.scenes.defaultSceneId;
       }
       return stored;
@@ -85,8 +98,8 @@ class SceneManager {
       console.warn(`[SceneManager] Scene "${sceneId}" not found in APP_CONFIG.scenes.items`);
       return;
     }
-    if (targetScene.isTransparent && !isTauri()) {
-      console.warn(`[SceneManager] Transparent scene is only available in desktop host`);
+    if (targetScene.isTransparent && !isTransparentSceneAllowed()) {
+      console.warn(`[SceneManager] Transparent scene is only available in desktop host or /embed`);
       return;
     }
 

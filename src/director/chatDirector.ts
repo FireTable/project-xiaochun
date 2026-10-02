@@ -18,6 +18,7 @@ import { rememberTurn } from '@/memory';
 import type { MotionPipeline } from '@/motion/pipeline/motionPipeline';
 import type { Lang } from '@/i18n';
 import { APP_CONFIG } from '@/config';
+import { StreamResampler16k, PcmSlicer, HOST_AUDIO, type HostAudioInput } from '@/director/hostAudio';
 
 interface Plan { speech: string; llm_provider?: string }
 
@@ -311,6 +312,12 @@ export class ChatDirector {
   private currentVRM: VRM | null = null;
   private pipeline: MotionPipeline | null = null;
   private stopPlaySegment: (() => void) | null = null;
+  /** speakAudio 会话号: 被新的说话请求抢占后, 旧会话的循环据此退出 (旧 TTS 路径不受影响)。 */
+  private speakSession = 0;
+  /** 唤醒 speakAudio 里正在等下一片的主循环 (stop() 抢占时调用, 否则它会一直挂在 notifyReady 上)。 */
+  private wakeSpeakAudio: (() => void) | null = null;
+  /** 宿主音频可关闭口型 (lipsync:false)。stop() 会复位, 所以 say/speakText 路径永远是开的。 */
+  private lipsyncDisabled = false;
 
   bindPipeline(pipeline: MotionPipeline): void {
     this.pipeline = pipeline;
@@ -463,6 +470,202 @@ export class ChatDirector {
 
     this.plan = { speech: text, llm_provider: 'DEV_BYPASS' };
     await this.runSpeechPipeline(text, player, emage, status);
+  }
+
+  /**
+   * 宿主直接给音频: 不走 LLM / TTS, 音频 → (16 kHz) EMAGE 窗口推理 → 动作, 同一段音频播放 + RMS 口型。
+   *
+   * 与 speakText 共用: EmagePlayer 流式会话 (startAudioStream / pushAudioChunk / checkpointAudioStream / endAudioStream)、
+   * P0a A/V 同步 (首块动作缓冲, 等 AudioBufferSourceNode.start 之后 releaseMotionForAudio)、tick() 里的 RMS 口型。
+   * 差异: 音频被切成 HOST_AUDIO 配置的切片 (首片短, 降低起播延迟), 每片一次 checkpoint → 一个 AudioBuffer 排队播放;
+   * 流式输入 (chunks 逐块到达) 与整段输入走同一条路径。
+   *
+   * opts.motion=false: 只播放音频 (+ 可选口型), 完全不加载/不调用 EMAGE。
+   * opts.lipsync=false: 不驱动嘴型 ('aa')。
+   * 返回时机: 全部音频播完 (或被新的说话/stop 抢占)。producer 出错会在清理后抛出。
+   */
+  async speakAudio(
+    input: HostAudioInput,
+    vrm: VRM,
+    player: VRMAMotionPlayer,
+    emage: EmagePlayer,
+    status: (
+      key: string,
+      vars?: Record<string, unknown>,
+      isError?: boolean,
+      speechText?: string,
+      segmentIndex?: number,
+      totalSegments?: number,
+    ) => void,
+    opts: { motion?: boolean; lipsync?: boolean; text?: string } = {},
+  ): Promise<void> {
+    const useMotion = opts.motion !== false;
+    this.stop();
+    const session = ++this.speakSession;
+    const gone = () => this.stopped || session !== this.speakSession;
+    this.stopped = false;
+    this.audioDone = false;
+    this.speaking = false;
+    this.player = player;
+    this.emage = emage;
+    this.lipsyncDisabled = opts.lipsync === false;
+
+    if (useMotion) {
+      await this.playThinking(vrm, player);
+      const isMobile = typeof navigator !== 'undefined' && /Mobi|Android|iPhone|iPad/i.test(navigator.userAgent);
+      await new Promise((r) => setTimeout(r, isMobile ? 380 : 50));
+    }
+    if (gone()) return;
+
+    this.ctx = this.ctx ?? new AudioContext();
+    if (this.ctx.state === 'suspended') {
+      // 没有用户激活 (且宿主 iframe 没有 allow="autoplay") 时 resume() 会一直 pending: 给个明确的错误而不是静默挂死。
+      const resumed = await Promise.race([
+        this.ctx.resume().then(() => true),
+        new Promise<boolean>((r) => setTimeout(() => r(false), 10_000)),
+      ]);
+      if (!resumed && (this.ctx.state as AudioContextState) !== 'running') {
+        this.stop();
+        throw new Error('AudioContext is blocked by the autoplay policy (needs a user gesture in the host page + iframe allow="autoplay")');
+      }
+    }
+    if (gone()) return;
+    const ctx = this.ctx;
+    const sr = input.sampleRate;
+
+    this.plan = { speech: opts.text ?? '', llm_provider: 'HOST_AUDIO' };
+
+    if (useMotion) {
+      emage.loop = false;
+      emage.playAudio = false;
+      emage.holdLastFrame = false;
+      emage.onMotionChunk = null;
+      await emage.startAudioStream({
+        continueFromPrevious: false,
+        profileStages: false,
+        emitPerWindow: true,
+        advanceFrames: APP_CONFIG.emage.motion.advanceFrames,
+      });
+      if (gone()) { emage.abortAudioStream(); return; }
+    }
+
+    interface HostSegment { audioBuffer: AudioBuffer; motion: EmageMotionData }
+    const emptyMotion: EmageMotionData = {
+      rot6d: new Float32Array(0), trans: new Float32Array(0), frameCount: 0, duration: 0, fps: 30,
+    };
+    const readyQueue: HostSegment[] = [];
+    const notifyReady: (() => void)[] = [];
+    const wake = () => { for (const cb of notifyReady.splice(0)) cb(); };
+    this.wakeSpeakAudio = wake;
+    let producerFinished = false;
+    let producerError: unknown = null;
+    let totalSamples = 0;
+    let segmentCount = 0;
+
+    const resampler = new StreamResampler16k(sr);
+    const slicer = new PcmSlicer(sr);
+
+    const makeSegment = async (slice: Float32Array): Promise<void> => {
+      let motion = emptyMotion;
+      if (useMotion) {
+        if (gone()) return; // 被抢占后绝不能再往 (可能已属于新会话的) EMAGE 流里灌 PCM
+        const p16 = resampler.push(slice); // 新数组, 可 transfer
+        if (p16.length > 0) emage.pushAudioChunk(p16);
+        motion = await emage.checkpointAudioStream();
+      }
+      if (gone()) return;
+      const buf = ctx.createBuffer(1, slice.length, sr);
+      buf.copyToChannel(slice as Float32Array<ArrayBuffer>, 0);
+      segmentCount++;
+      readyQueue.push({ audioBuffer: buf, motion });
+      wake();
+    };
+
+    const producer = (async () => {
+      try {
+        for await (const chunk of input.chunks) {
+          if (gone()) break;
+          totalSamples += chunk.length;
+          if (totalSamples > sr * HOST_AUDIO.maxSec) throw new Error(`audio exceeds ${HOST_AUDIO.maxSec}s`);
+          for (const slice of slicer.push(chunk)) {
+            await makeSegment(slice);
+            if (gone()) break;
+          }
+        }
+        if (!gone()) {
+          const tail = slicer.flush();
+          if (tail) await makeSegment(tail);
+        }
+        if (!gone() && totalSamples === 0) throw new Error('audio is empty');
+      } catch (e) {
+        producerError = e;
+      } finally {
+        producerFinished = true;
+        // 只在自己仍是当前会话时收尾; 被抢占时 currentStreamId 可能已属于新会话, 绝不能去关它
+        if (useMotion && !gone()) { try { await emage.endAudioStream(); } catch { /* ignore */ } }
+        wake();
+      }
+    })();
+
+    while (readyQueue.length === 0 && !producerFinished && !gone()) {
+      await new Promise<void>((resolve) => notifyReady.push(resolve));
+    }
+
+    let timeline = 0;
+    let played = 0;
+    while (!gone()) {
+      if (readyQueue.length === 0) {
+        if (producerFinished) break;
+        // 下一片还在推理: 保持 EMAGE 末姿 (streamingMotionActive) 等待, 不进 SpeakIdle (避免姿态回弹)
+        if (useMotion && !emage.streamingMotionActive) { emage.clearExternalClock(); emage.enterSpeakIdle(); }
+        while (readyQueue.length === 0 && !producerFinished && !gone()) {
+          await new Promise<void>((resolve) => notifyReady.push(resolve));
+        }
+        if (useMotion && !emage.streamingMotionActive) emage.exitSpeakIdle();
+        if (gone()) break;
+        if (readyQueue.length === 0) break;
+      }
+      const seg = readyQueue.shift()!;
+      this.audioBuffer = seg.audioBuffer;
+      if (played === 0 && opts.text) status('speaking', undefined, false, opts.text, 1, 1);
+      if (useMotion && seg.motion.frameCount > 0) {
+        // 一律走 appendMotionChunk: 首块只缓冲 (awaitingAudioStart), 等 playAudioSource 里音频 start 后再 release;
+        // 后续块 concat + 接缝缝合。不能用 applyMotionData/switchSegment (首片短于一个窗口时, 之后到达的 motion_chunk
+        // 会被当成"首块"重置 playhead)。
+        emage.appendMotionChunk(seg.motion);
+      }
+      const offset = timeline;
+      const isInitial = played === 0;
+      await new Promise<void>((resolve) => {
+        if (gone()) { resolve(); return; }
+        this.stopPlaySegment = () => resolve();
+        this.playAudioSource(seg.audioBuffer, () => {
+          this.stopPlaySegment = null;
+          timeline = offset + seg.audioBuffer.duration;
+          if (useMotion && emage.streamingMotionActive) {
+            const frozen = timeline;
+            emage.setExternalClock(() => frozen); // 片间冻结时钟, 防 playhead 回跳
+          }
+          resolve();
+        }, emage, player, isInitial, offset, useMotion);
+      });
+      played++;
+    }
+
+    const preempted = gone();
+    if (!preempted) {
+      this.audioDone = true;
+      this.audioDoneTime = performance.now();
+      if (useMotion) { emage.onMotionChunk = null; emage.clearExternalClock(); emage.stop(); }
+      this.stop();
+      this.onEnd?.();
+    }
+    if (this.wakeSpeakAudio === wake) this.wakeSpeakAudio = null;
+    // 被抢占时不等 producer: 它可能正挂在已被 emage.stop() 丢弃的推理 promise 上, 等它会让宿主的 speakAudio 永远不返回
+    if (preempted) { void producer.catch(() => { }); return; }
+    await producer.catch(() => { });
+    void segmentCount;
+    if (producerError) throw producerError instanceof Error ? producerError : new Error(String(producerError));
   }
 
   /**
@@ -691,13 +894,15 @@ export class ChatDirector {
     _player: VRMAMotionPlayer | null,
     isInitial = true,
     audioTimelineOffsetSec = 0,
+    /** false: 只播放音频 (宿主音频 motion:false), 不碰 EMAGE / 动作管线。 */
+    useMotion = true,
   ): void {
     if (!this.ctx || this.stopped) {
       onEnded();
       return;
     }
 
-    if (isInitial) this.pipeline?.beginEmageSpeech();
+    if (isInitial && useMotion) this.pipeline?.beginEmageSpeech();
     this.speaking = true;
     this.audioDone = false;
     this.audioDoneTime = 0;
@@ -718,7 +923,7 @@ export class ChatDirector {
     // P0a-AV: 连续流 playhead 用累计 TTS 时间，跨段不回跳；
     // clock 原点与 src.start(when) 对齐，避免 motion 早于可听 PCM。
     const when = this.ctx.currentTime;
-    emage.setExternalClock(() => {
+    if (useMotion) emage.setExternalClock(() => {
       if (!this.ctx || this.stopped || this.audioDone) return -1;
       return Math.max(0, audioTimelineOffsetSec + (this.ctx.currentTime - when));
     });
@@ -747,6 +952,7 @@ export class ChatDirector {
     });
 
     // P0a-AV: audio 已 start 后释放；已在播的后续段不重置 playhead
+    if (!useMotion) return;
     if (emage.streamingMotionActive) {
       if (emage.awaitingAudioStart || !emage.isPlaying()) {
         emage.releaseMotionForAudio(APP_CONFIG.emage.motion.fadeInDuration);
@@ -765,7 +971,7 @@ export class ChatDirector {
   tick(vrm: VRM, _player: VRMAMotionPlayer): void {
     if (!this.ctx || this.stopped) return;
 
-    if (this.audioBuffer && !this.audioDone && this.analyser && this.analyserBuf) {
+    if (this.audioBuffer && !this.audioDone && this.analyser && this.analyserBuf && !this.lipsyncDisabled) {
       this.analyser.getByteTimeDomainData(this.analyserBuf as any);
       let sum = 0;
       for (let i = 0; i < this.analyserBuf.length; i++) {
@@ -775,7 +981,7 @@ export class ChatDirector {
       const rms = Math.sqrt(sum / this.analyserBuf.length);
       const mouth = Math.min(1, rms * 4);
       if (vrm.expressionManager) vrm.expressionManager.setValue('aa', mouth);
-    } else if (this.audioDone && vrm.expressionManager) {
+    } else if ((this.audioDone || this.lipsyncDisabled) && vrm.expressionManager) {
       vrm.expressionManager.setValue('aa', 0);
     }
 
@@ -792,6 +998,8 @@ export class ChatDirector {
   }
 
   stop(): void {
+    this.speakSession++; // 让进行中的 speakAudio 会话失效 (即使之后 stopped 被新请求复位)
+    this.wakeSpeakAudio?.();
     if (this.stopped && !this.ctx) return;
     this.stopped = true;
     this.pipeline?.resetChatMotion();
@@ -817,5 +1025,6 @@ export class ChatDirector {
     this.emage?.clearExternalClock();
     this.emage?.stop();
     this.player?.stop();
+    this.lipsyncDisabled = false;
   }
 }

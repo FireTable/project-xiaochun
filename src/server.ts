@@ -16,6 +16,7 @@ import {
   parseHeaders,
   parseBinaryFrame,
 } from './lib/edge-tts-core';
+import { applySecurityHeaders, type SecurityEnv } from './lib/securityHeaders';
 
 async function fetchTTSAudioStream(
   text: string,
@@ -232,19 +233,13 @@ async function handleTTS(request: Request): Promise<Response> {
 }
 
 /** P0b B1: document must be crossOriginIsolated for ORT wasm multi-thread (SAB).
- * Workers+Assets ignores public/_headers — set COOP/COEP here on HTML/SSR responses.
+ * Workers+Assets ignores public/_headers for SSR responses — set COOP/COEP here on HTML/SSR responses.
  * credentialless: allow cross-origin R2/CDN onnx without CORP (require-corp breaks SAB path).
+ * 主站 X-Frame-Options: DENY; /embed 改发 CSP frame-ancestors (见 lib/securityHeaders.ts, docs/EMBED.md)。
  */
-const ISOLATION_HEADERS: Record<string, string> = {
-  'Cross-Origin-Opener-Policy': 'same-origin',
-  'Cross-Origin-Embedder-Policy': 'credentialless',
-  // SenseVoice STT needs getUserMedia; empty allowlist never shows a prompt.
-  'Permissions-Policy': 'camera=(), microphone=(self), geolocation=(), interest-cohort=()',
-};
-
-function withIsolationHeaders(res: Response): Response {
+function withSecurityHeaders(res: Response, pathname: string, env: SecurityEnv): Response {
   const headers = new Headers(res.headers);
-  for (const [k, v] of Object.entries(ISOLATION_HEADERS)) headers.set(k, v);
+  applySecurityHeaders(headers, pathname, env);
   return new Response(res.body, {
     status: res.status,
     statusText: res.statusText,
@@ -259,6 +254,6 @@ export default {
       return handleTTS(request);
     }
     const res = await handler.fetch(request, env as Parameters<typeof handler.fetch>[1]);
-    return withIsolationHeaders(res);
+    return withSecurityHeaders(res, url.pathname, (env ?? {}) as SecurityEnv);
   },
 };

@@ -237,6 +237,18 @@ You can download installer packages directly from the official Releases page:
 
 ---
 
+## 🧩 Embed in Your Website (npm)
+
+Put XiaoChun on your own site with a few lines: a lazy, origin-checked `<iframe>`, a framework-free SDK, a `<xiaochun-avatar>` Web Component, React bindings, and `speakAudio()` for feeding your own audio.
+
+```bash
+npm i @firetable/project-xiaochun
+```
+
+👉 Package docs: [`packages/project-xiaochun/README.md`](packages/project-xiaochun/README.md) · Design & protocol: [`docs/EMBED.md`](docs/EMBED.md)
+
+---
+
 ## 🛠️ Tech Stack
 
 | Layer | Technology | Description |

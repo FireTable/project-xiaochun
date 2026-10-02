@@ -1,0 +1,98 @@
+{
+  "name": "@firetable/project-xiaochun",
+  "version": "0.1.12",
+  "description": "Embed Project XiaoChun (3D anime companion) into any web page via a lazy, origin-checked iframe. Zero-dependency SDK + <xiaochun-avatar> web component.",
+  "license": "MIT",
+  "author": "FireTable",
+  "type": "module",
+  "sideEffects": [
+    "./dist/element.js",
+    "./dist/element.cjs",
+    "./dist/loader.global.js"
+  ],
+  "main": "./dist/index.cjs",
+  "module": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "unpkg": "./dist/loader.global.js",
+  "jsdelivr": "./dist/loader.global.js",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js",
+      "require": "./dist/index.cjs"
+    },
+    "./element": {
+      "types": "./dist/element.d.ts",
+      "import": "./dist/element.js",
+      "require": "./dist/element.cjs"
+    },
+    "./react": {
+      "types": "./dist/react.d.ts",
+      "import": "./dist/react.js",
+      "require": "./dist/react.cjs"
+    },
+    "./protocol": {
+      "types": "./dist/protocol.d.ts",
+      "import": "./dist/protocol.js",
+      "require": "./dist/protocol.cjs"
+    },
+    "./loader": "./dist/loader.global.js",
+    "./package.json": "./package.json"
+  },
+  "files": [
+    "dist",
+    "README.md",
+    "README-CN.md",
+    "LICENSE"
+  ],
+  "keywords": [
+    "xiaochun",
+    "project-xiaochun",
+    "vrm",
+    "anime",
+    "avatar",
+    "virtual-companion",
+    "desktop-pet",
+    "iframe",
+    "embed",
+    "web-component",
+    "postmessage",
+    "live2d-alternative",
+    "react"
+  ],
+  "homepage": "https://github.com/FireTable/project-xiaochun/tree/main/packages/project-xiaochun#readme",
+  "bugs": {
+    "url": "https://github.com/FireTable/project-xiaochun/issues"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/FireTable/project-xiaochun.git",
+    "directory": "packages/project-xiaochun"
+  },
+  "publishConfig": {
+    "access": "public"
+  },
+  "scripts": {
+    "clean": "rm -rf dist",
+    "build": "node ./build.mjs",
+    "typecheck": "tsc --noEmit",
+    "prepack": "node ./build.mjs",
+    "test": "node --test test/smoke.test.mjs test/react-ssr.test.mjs",
+    "test:browser": "node test/browser/react-harness.mjs && node test/browser/style-harness.mjs"
+  },
+  "devDependencies": {
+    "@types/react": "^19.0.0",
+    "esbuild": "^0.25.0",
+    "react": "^19.0.0",
+    "react-dom": "^19.0.0",
+    "typescript": "~6.0.2"
+  },
+  "peerDependencies": {
+    "react": ">=18"
+  },
+  "peerDependenciesMeta": {
+    "react": {
+      "optional": true
+    }
+  }
+}

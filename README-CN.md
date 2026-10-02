@@ -228,6 +228,18 @@ brew upgrade --cask project-xiaochun
 
 ---
 
+## 🧩 嵌入你的网站 (npm)
+
+几行代码就能把小蠢放到你自己的网站上:懒加载、严格校验 origin 的 `<iframe>`,无框架 SDK、`<xiaochun-avatar>` Web Component、React 封装,以及可传入自己音频的 `speakAudio()`。
+
+```bash
+npm i @firetable/project-xiaochun
+```
+
+👉 包文档:[`packages/project-xiaochun/README-CN.md`](packages/project-xiaochun/README-CN.md) · 设计与协议:[`docs/EMBED.md`](docs/EMBED.md)
+
+---
+
 ## 🛠️ 技术栈 (Tech Stack)
 
 | 架构层 | 技术方案 | 说明 |

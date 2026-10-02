@@ -1,0 +1,140 @@
+name: Publish npm (@firetable/project-xiaochun)
+
+# 触发方式:
+#   - 推 tag `vX.Y.Z` (与 release-tauri.yml 同一个 tag, 由 `pnpm bump:patch|minor|major` 生成) → 发布 npm 包 @firetable/project-xiaochun
+#   - workflow_dispatch → 手动; 默认 dry-run (只构建 + npm publish --dry-run), 取消勾选才真发布
+#
+# 版本策略: npm 包与桌面 app 同一条版本线 (scripts/bump-version.mjs 一次 bump 同时改
+#   package.json / src-tauri/Cargo.toml / src-tauri/tauri.conf.json / packages/project-xiaochun/package.json), 只打一个 v* tag。
+# 与 release-tauri.yml 的关系: 两个 workflow 被同一个 tag 并行触发, 互相没有 needs / workflow_run 依赖,
+#   所以 npm 发布失败不会影响桌面端 release, 反之亦然 (失败后可在 Actions 里单独 Re-run 本 workflow)。
+#
+# 认证: npm Trusted Publishing (OIDC), 仓库里没有任何 npm token / NPM_TOKEN secret。
+#   - 需要 id-token: write (已声明) + GitHub-hosted runner + Node >= 22.14 + npm CLI >= 11.5.1。
+#   - npm CLI 发现 OIDC 环境会自动换取短期发布凭证, 并自动生成 provenance (公开仓库 + 公开包), 所以这里不再写 --provenance。
+#   - ⚠️ npm 上绑定的是「本文件名」(publish-npm.yml): 绑定之后不要改文件名 / 迁移仓库, 否则发布会 404/403, 要先在 npm 上重新绑定。
+#
+# 一次性准备 (详见 docs/EMBED.md §发布流程):
+#   1. 包必须先在 npm 上存在 → 首次由维护者本地手动 `npm publish --access public` 一次 (或发 0.x 占位版)
+#   2. npmjs.com → 包 Settings → Trusted publishing 绑定 GitHub Actions:
+#        owner = FireTable, repository = project-xiaochun, workflow filename = publish-npm.yml (只填文件名), environment 留空
+#      (或 CLI: npm trust github @firetable/project-xiaochun --repo FireTable/project-xiaochun --file publish-npm.yml --allow-publish --yes, 需 npm >= 11.15)
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: 'Dry run (build + npm publish --dry-run, no real publish)'
+        required: false
+        type: boolean
+        default: true
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: false # 发布流水线不要被后来的 run 打断
+
+permissions:
+  contents: read
+  id-token: write # npm Trusted Publishing (OIDC 换取短期发布凭证 + 自动 provenance)
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    defaults:
+      run:
+        working-directory: packages/project-xiaochun
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0 # 需要 origin/main 做"tag 必须在 main 上"的校验
+
+      # pnpm 走 corepack (版本取自根 package.json 的 packageManager 字段), 要在 setup-node 的 cache: pnpm 之前启用
+      - name: Enable corepack (pnpm)
+        working-directory: .
+        run: corepack enable
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 24 # Trusted Publishing 要求 Node >= 22.14
+          cache: 'pnpm'
+          registry-url: 'https://registry.npmjs.org'
+
+      # Trusted Publishing 要求 npm CLI >= 11.5.1; Node 24 自带的通常已满足, 这里升到最新并显式校验, 避免 runner 镜像滞后
+      - name: Ensure npm >= 11.5.1
+        working-directory: .
+        run: |
+          npm i -g npm@latest
+          NPM_V=$(npm --version)
+          echo "npm $NPM_V / node $(node --version)"
+          node -e "const [a,b,c]=process.argv[1].split('.').map(Number);if(a<11||(a===11&&(b<5||(b===5&&c<1)))){console.error('npm >= 11.5.1 required for trusted publishing');process.exit(1)}" "$NPM_V"
+
+      # 只装该包及其依赖; 不触发根 package.json 的 tauri / vite 等重依赖
+      - name: Install dependencies (package only)
+        working-directory: .
+        run: pnpm install --frozen-lockfile --filter @firetable/project-xiaochun...
+
+      - name: Read package metadata
+        id: meta
+        run: |
+          NAME=$(node -p "require('./package.json').name")
+          VERSION=$(node -p "require('./package.json').version")
+          echo "name=$NAME" >> "$GITHUB_OUTPUT"
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+          echo "Package: $NAME@$VERSION"
+
+      - name: Verify tag matches package.json version
+        if: github.ref_type == 'tag'
+        run: |
+          TAG_VERSION="${GITHUB_REF_NAME#v}" # 去掉 v 前缀
+          PKG_VERSION="${{ steps.meta.outputs.version }}"
+          if [ "$TAG_VERSION" != "$PKG_VERSION" ]; then
+            echo "::error::Tag ${GITHUB_REF_NAME} (=$TAG_VERSION) does not match packages/project-xiaochun/package.json version ($PKG_VERSION). Use 'pnpm bump:patch|minor|major' (scripts/bump-version.mjs) so all version files are bumped together."
+            exit 1
+          fi
+
+      - name: Verify tag commit is on main
+        if: github.ref_type == 'tag'
+        run: |
+          if ! git merge-base --is-ancestor "$GITHUB_SHA" origin/main; then
+            echo "::error::Tag commit $GITHUB_SHA is not reachable from origin/main; refusing to publish."
+            exit 1
+          fi
+
+      - name: Typecheck
+        run: pnpm run typecheck
+
+      - name: Build
+        run: pnpm run build
+
+      - name: Test (dist smoke test)
+        run: pnpm run test
+
+      - name: Check whether this version is already published
+        id: published
+        run: |
+          if npm view "${{ steps.meta.outputs.name }}@${{ steps.meta.outputs.version }}" version >/dev/null 2>&1; then
+            echo "exists=true" >> "$GITHUB_OUTPUT"
+            echo "::notice::${{ steps.meta.outputs.name }}@${{ steps.meta.outputs.version }} is already on npm; skipping publish."
+          else
+            echo "exists=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Choose dist-tag
+        id: disttag
+        run: |
+          # 预发布版本 (1.2.3-beta.1) 走 next, 避免覆盖 latest
+          if [[ "${{ steps.meta.outputs.version }}" == *-* ]]; then echo "tag=next" >> "$GITHUB_OUTPUT"; else echo "tag=latest" >> "$GITHUB_OUTPUT"; fi
+
+      # 注意: 没有 NODE_AUTH_TOKEN / NPM_TOKEN —— 认证完全由 OIDC (id-token: write) 提供; provenance 由 npm 自动附带。
+      - name: Publish (dry run)
+        if: steps.published.outputs.exists != 'true' && github.event_name == 'workflow_dispatch' && inputs.dry_run
+        run: npm publish --access public --tag "${{ steps.disttag.outputs.tag }}" --dry-run
+
+      - name: Publish to npm (trusted publishing)
+        if: steps.published.outputs.exists != 'true' && !(github.event_name == 'workflow_dispatch' && inputs.dry_run)
+        run: npm publish --access public --tag "${{ steps.disttag.outputs.tag }}"

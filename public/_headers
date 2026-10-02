@@ -34,6 +34,24 @@
   Cross-Origin-Embedder-Policy: credentialless
   Cache-Control: public, max-age=0, must-revalidate
 
+# === /embed: 允许被第三方站点 iframe 内嵌 (docs/EMBED.md) ===
+# 主站 `/*` 的 X-Frame-Options: DENY 在这里用 `!` 摘掉, 改发 CSP frame-ancestors。
+# frame-ancestors 默认 `*`; 要收紧为白名单, 改成空格分隔的来源, 例如:
+#   Content-Security-Policy: frame-ancestors https://example.com https://*.example.org
+# (Worker/SSR 路径读 wrangler vars 里的 EMBED_FRAME_ANCESTORS, 与这里保持一致。)
+# Permissions-Policy 直接继承上面 `/*` 的值 (microphone=(self)): 只放行 iframe 自己的 origin,
+# 宿主还须在 <iframe allow="microphone"> 里委派。不要在这里重复写, 同名头多规则命中会被拼成逗号串。
+# CORP: cross-origin 让开了 COEP: require-corp 的宿主页也能嵌入。
+/embed
+  ! X-Frame-Options
+  Content-Security-Policy: frame-ancestors *
+  Cross-Origin-Resource-Policy: cross-origin
+
+/embed/*
+  ! X-Frame-Options
+  Content-Security-Policy: frame-ancestors *
+  Cross-Origin-Resource-Policy: cross-origin
+
 # === /api/* 由 src/server.ts 动态处理,本身不带静态缓存 ===
 /api/*
   Cache-Control: public, max-age=86400

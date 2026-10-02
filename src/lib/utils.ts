@@ -1,7 +1,7 @@
 import { clsx, type ClassValue } from 'clsx';
 import { twMerge } from 'tailwind-merge';
 import { APP_CONFIG } from '@/config';
-import { isMobile, isTauri } from '@/lib/platform';
+import { isEmbed, isMobile, isTauri } from '@/lib/platform';
 import { POSTFX_STORAGE_KEY, SCENE_THEME_KEY } from '@/lib/constants';
 import type { LineworkTheme } from '@/core/scene/lineworkWorld';
 
@@ -72,6 +72,16 @@ export function loadPostFxEnabledFromStorage(): boolean | null {
  */
 export function resolveInitialSceneTheme(): LineworkTheme {
   if (typeof window === 'undefined') return APP_CONFIG.scene?.theme ?? 'light';
+  // /embed: URL 参数 (?transparent=1 / ?theme=dark|light) 优先, 不读 localStorage (iframe 存储可能被分区)
+  if (isEmbed()) {
+    const q = new URLSearchParams(window.location.search);
+    if (q.get('transparent') === '1') {
+      document.documentElement.classList.add('scene-transparent');
+      return 'transparent';
+    }
+    const theme = q.get('theme');
+    if (theme === 'light' || theme === 'dark') return theme;
+  }
   try {
     const stored = localStorage.getItem(SCENE_THEME_KEY) as LineworkTheme | null;
     if (stored === 'light' || stored === 'dark' || stored === 'transparent') {

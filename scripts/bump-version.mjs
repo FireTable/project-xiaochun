@@ -6,6 +6,7 @@
  *   - package.json                    "version": "X.Y.Z"
  *   - src-tauri/Cargo.toml           version = "X.Y.Z"
  *   - src-tauri/tauri.conf.json       "version": "X.Y.Z"
+ *   - packages/project-xiaochun/package.json  "version": "X.Y.Z"   (npm SDK, 与桌面 app 锁步; 由 v* tag 触发 publish-npm.yml)
  *
  * 非版本源(不动):
  *   - Casks/project-xiaochun.rb      brew 自动 bump (github-actions bot)
@@ -37,6 +38,8 @@ const SOURCES = [
   { file: 'package.json',         match: /"version":\s*"(\d+\.\d+\.\d+)"/,         replace: (v) => `"version": "${v}"` },
   { file: 'src-tauri/Cargo.toml', match: /^version\s*=\s*"(\d+\.\d+\.\d+)"/m,      replace: (v) => `version = "${v}"` },
   { file: 'src-tauri/tauri.conf.json', match: /"version":\s*"(\d+\.\d+\.\d+)"/,     replace: (v) => `"version": "${v}"` },
+  // npm SDK 与桌面 app 同一条版本线: 一次 bump / 一个 v* tag 同时驱动 release-tauri 与 publish-npm
+  { file: 'packages/project-xiaochun/package.json', match: /"version":\s*"(\d+\.\d+\.\d+)"/, replace: (v) => `"version": "${v}"` },
 ];
 
 const argv = process.argv.slice(2);
@@ -45,7 +48,7 @@ if (argv.includes('-h') || argv.includes('--help')) {
   console.error('  version     explicit semver e.g. 0.1.9');
   console.error('  patch|minor|major   bump relative to current package.json');
   console.error('  --no-tag    skip git tag creation (default: create vX.Y.Z tag locally)');
-  console.error('  --commit    also git commit the three bumped files');
+  console.error('  --commit    also git commit the bumped files');
   console.error('  --push      push commits (and tag) to origin main');
   console.error('  --dry-run   print diff, do not write');
   process.exit(0);

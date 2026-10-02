@@ -13,6 +13,7 @@ docs/
 ├── INTERACTION_AND_CONTROLS.md    # User interaction, shortcuts, mouse gestures & platform difference guide
 ├── HYBRID_DESKTOP_APP.md          # Tauri 2.x hybrid desktop companion, 60Hz alpha bitmask click-through, in-app updater
 ├── PROTOCOL.md                    # Custom URL scheme (`xiaochun://`) IPC specification, actions, and limits
+├── EMBED.md                       # iframe embed (`/embed` + npm `@firetable/project-xiaochun`): postMessage protocol, host audio, headers, SDK, React, styling, Lighthouse, publishing (Trusted Publishing)
 ├── AGENT_SKILL.md                 # Agent skill specification for autonomous agents controlling XiaoChun
 ├── INTERACTION_AND_3D_GUIDES.md   # 3D holographic guides (Turn, Pitch, CameraY), wind aerodynamics & pure quaternion morph
 ├── BONE_MORPH.md                  # 28-Parameter orthogonal skeletal decoupling & procedural vertex morphing
@@ -41,7 +42,8 @@ When tasked with modifications or refactoring, consult the dedicated technical g
 | :--- | :--- | :--- |
 | **User interactions / Hotkeys / Platform differences / Gestures** | [`INTERACTION_AND_CONTROLS.md`](INTERACTION_AND_CONTROLS.md) | Long-press adjust mode (all platforms); Cmd/Ctrl instant 3D; Tauri short-drag window; 60Hz alpha click-through + guide passthrough capture. |
 | **Desktop companion / Tauri 2.x / Alpha click-through / Window state / In-app updater** | [`HYBRID_DESKTOP_APP.md`](HYBRID_DESKTOP_APP.md) | Canvas alpha bitmask + DOM capture; window-state; corner handles; opacity pet chrome; official updater + opener; signing secrets. |
-| **External app control / URL scheme / IPC / speakText** | [`PROTOCOL.md`](PROTOCOL.md) | Custom `xiaochun://` protocol; safe query string limits; file paths for long text; single-instance. |
+| **Embedding XiaoChun in third-party pages / iframe / postMessage / npm SDK / frame-ancestors** | [`EMBED.md`](EMBED.md) | `/embed` is a slim entry (no chrome, heavy models lazy); protocol constants live in `packages/project-xiaochun/src/protocol.ts` (single source); strict origin + MessageChannel after handshake; main site stays `X-Frame-Options: DENY`, `/embed` uses CSP `frame-ancestors`; SDK version is locked to the desktop app (`pnpm bump:patch|minor|major` bumps both; one `v*` tag triggers release-tauri + publish-npm in parallel; npm publishing uses Trusted Publishing/OIDC, no `NPM_TOKEN`); host-supplied audio (`speakAudio` / `xc.audio`, streaming), React bindings (`/react`), CSS variables / `::part` styling, and the `xc.*` ↔ `xiaochun://` mapping. |
+| **External app control / URL scheme / IPC / speakText** | [`PROTOCOL.md`](PROTOCOL.md) | Custom `xiaochun://` protocol; safe query string limits; file paths for long text; single-instance; `audioUrl` (now implemented) and the `xc.*` ↔ `xiaochun://` transport mapping (§6). |
 | **Autonomous AI Agent Skill / Tool Calling / Automation** | [`AGENT_SKILL.md`](AGENT_SKILL.md) | Tool schema definition; OS detection checks; short vs long text strategy; companion alerts. |
 | **3D Holographic Guides / Camera elevation / Wind dynamics** | [`INTERACTION_AND_3D_GUIDES.md`](INTERACTION_AND_3D_GUIDES.md) | Long-press / modifier arming; TurnGuide3D; PitchGuide3D; CameraYGuide3D; passthrough capture while guides up. |
 | **VRMEngine facade / vrmWorker IPC / 2-tier IDB / Threading model** | [`VRM_ENGINE_AND_WORKER.md`](VRM_ENGINE_AND_WORKER.md) | Transferable ArrayBuffer zero-copy; 4-byte packRawGLB alignment; L1 base + L2 composed IDB keys; 0-freeze 60 FPS. |
