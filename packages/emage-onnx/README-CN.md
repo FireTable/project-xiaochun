@@ -190,6 +190,14 @@ python size_report.py --brotli         # 体积表
 2. 上传到 CDN 的**新路径**(或提升 `APP_CONFIG.emage.cacheName`):文件名与当前 INT8 集合相同,而 `emage-models-v1` 按 URL 缓存,沿用旧路径会让老用户拿着旧缓存的 step 混用新的 `vq`/`postprocess`。主机侧 seed 依赖配套的 `vq_*`/`postprocess`(`emageSeed.ts`),不要新旧混搭。
 3. 保持 `vqFace` 关闭。先在浏览器里用新文件跑一遍 worker(本包未做,见下)。
 
+## 许可证与来源
+
+* 本包的脚本和文档是小蠢 (XiaoChun) 自己的,采用 MIT 许可证([LICENSE](LICENSE))。本包**不含**任何权重或第三方模型代码。
+* 它们处理的权重是 PantoMatrix 的 EMAGE:Hugging Face [`H-Liu1997/emage_audio`](https://huggingface.co/H-Liu1997/emage_audio)(model card 标注 **Apache-2.0**),训练数据 [BEAT2](https://huggingface.co/datasets/H-Liu1997/BEAT2)(dataset card 标注 Apache-2.0)。代码仓库 [PantoMatrix/PantoMatrix](https://github.com/PantoMatrix/PantoMatrix) 的**根目录没有 LICENSE 文件**,其代码许可证不明确(脚本只在本地缓存里取出 `0bbb03d` 的模型代码,不再分发)。论文与作者见 [NOTICE](NOTICE)(EMAGE,CVPR 2024;BEAT,ECCV 2022)。
+* 本包产出的 ONNX 文件是这些权重的**衍生作品**(导出 wrapper、去掉 cross-attention 第 0..3 层、INT8 / Conv 量化、离线图优化;`vq_*` / `postprocess` 的输入来自 [emage-onnx-export](https://github.com/VolgaGerm/emage-onnx-export),MIT)。再分发这些文件时,请同时附上 Apache-2.0 全文([LICENSE-APACHE-2.0](LICENSE-APACHE-2.0))和 [NOTICE](NOTICE)。
+* SMPL-X 与 FLAME 人体/人脸模型有各自的授权(通常限制商用),本包既不包含也不使用它们。
+* 商用方请自行核对上游许可证(模型、数据集、代码、SMPL-X、FLAME)。本节不构成法律意见。
+
 ## 注意事项与未验证项
 
 * **只有部分浏览器实测。** `js/browser_check.mjs` 在 headless Chrome 154(ort-web 1.29.0 与钉死的 1.22.0-dev,4 线程,跨源隔离)里加载并运行步骤 3 的文件,并与未优化文件对比。`emageSeed.ts` 在 Node 里跑过。`emageWorker.ts` 通过了 `tsc --noEmit`,但 worker 本身没有在浏览器、Web Worker、其他浏览器(Safari、Firefox)或手机上端到端运行过。

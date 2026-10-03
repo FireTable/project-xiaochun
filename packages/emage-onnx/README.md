@@ -190,6 +190,14 @@ The deployable set is `out/final/`: `emage_step_int8.onnx`, `vq_{upper,hands,low
 2. Upload to the CDN under a **new path** (or bump `APP_CONFIG.emage.cacheName`): the file names are the same as the current INT8 set, and `emage-models-v1` caches by URL, so reusing the old path would leave existing users with the old cached step and a new `vq`/`postprocess` mix. Never serve the Step 3 `vq_*`/`postprocess` with the old step or the reverse without checking: the step output is the same shape, but the host-side seed needs the `vq_*`/`postprocess` pair (`emageSeed.ts`).
 3. Keep `vqFace` disabled. Run the worker in a browser against the new files first (not done here, see below).
 
+## License and provenance
+
+* The scripts and docs in this package are XiaoChun's own and are MIT licensed ([LICENSE](LICENSE)). The package ships **no** weights or third-party model code.
+* The weights they process are EMAGE from PantoMatrix: Hugging Face [`H-Liu1997/emage_audio`](https://huggingface.co/H-Liu1997/emage_audio) (model card license: **Apache-2.0**), trained on [BEAT2](https://huggingface.co/datasets/H-Liu1997/BEAT2) (dataset card license: Apache-2.0). The code repository [PantoMatrix/PantoMatrix](https://github.com/PantoMatrix/PantoMatrix) has **no LICENSE file at its root**, so the license of its code is unclear (the scripts extract the model code at `0bbb03d` into a local cache only and do not redistribute it). Papers and authors: see [NOTICE](NOTICE) (EMAGE, CVPR 2024; BEAT, ECCV 2022).
+* The ONNX files produced here are **derivative works** of those weights (wrapper export, cross-attention layers 0..3 removed, INT8 / Conv quantization, offline graph optimization; the `vq_*` / `postprocess` inputs come from [emage-onnx-export](https://github.com/VolgaGerm/emage-onnx-export), MIT). When you redistribute them, ship the full Apache-2.0 text ([LICENSE-APACHE-2.0](LICENSE-APACHE-2.0)) and [NOTICE](NOTICE) with them.
+* SMPL-X and FLAME body/face models have their own licenses (they usually restrict commercial use); this package neither contains nor uses them.
+* If you use the models commercially, check the upstream licenses (model, dataset, code, SMPL-X, FLAME) yourself. This section is not legal advice.
+
 ## Caveats and what is NOT verified
 
 * **Only a partial browser run.** `js/browser_check.mjs` loads and runs the Step 3 files in headless Chrome 154 (ort-web 1.29.0 and the pinned 1.22.0-dev, 4 threads, cross-origin isolated) and compares them with the not-optimized files. `emageSeed.ts` is exercised from Node. `emageWorker.ts` type-checks (`tsc --noEmit`) but the worker itself was not run end to end in a browser, a Web Worker, other browsers (Safari, Firefox) or on mobile.

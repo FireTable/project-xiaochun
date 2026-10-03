@@ -1,0 +1,81 @@
+@firetable/emage-onnx (packages/emage-onnx of Project-XiaoChun)
+Copyright (c) FireTable and Project-XiaoChun contributors
+
+1. This package
+---------------
+The scripts and documentation in this package are original work of the XiaoChun
+project and are licensed under the MIT License (see LICENSE). The package
+contains NO model weights and NO third-party model code.
+
+2. What the scripts process (third-party material, not part of this package)
+----------------------------------------------------------------------------
+The scripts read, convert and compress model weights of EMAGE (audio-driven
+holistic co-speech gesture generation) from the PantoMatrix project:
+
+  * Weights   : Hugging Face model H-Liu1997/emage_audio
+                https://huggingface.co/H-Liu1997/emage_audio
+                License on the model card metadata: Apache-2.0
+                (checked 2026-10-03; revision b04466b83bdebd656844a2c416797d3131e34ede)
+  * Training data of the model: BEAT2
+                https://huggingface.co/datasets/H-Liu1997/BEAT2
+                License on the dataset card metadata: Apache-2.0 (checked 2026-10-03)
+  * Model code: https://github.com/PantoMatrix/PantoMatrix (commit 0bbb03d is
+                extracted at export time into packages/emage-onnx/.cache, never
+                redistributed by this package). The root of that repository has
+                NO LICENSE file (checked 2026-10-03 on a local clone), so the
+                license of the code is not clearly stated.
+  * Project pages: https://pantomatrix.github.io/EMAGE/ , https://pantomatrix.github.io/BEAT/
+  * EMAGE paper  : https://arxiv.org/abs/2401.00374
+
+The baseline ONNX files that the scripts read for the vq_*_idx and postprocess
+models (emage-onnx-export/onnx/*.onnx) come from
+https://github.com/VolgaGerm/emage-onnx-export , MIT License,
+Copyright (c) 2026 VolgaGerm. The vq_*_idx_int8.onnx and postprocess_int8.onnx
+files in out/final are derived from those exports.
+
+3. Authors and papers (titles and author lists copied from the "Reference"
+   section of the PantoMatrix README; that README gives no BibTeX)
+-------------------------------------------------------------------------
+EMAGE: Towards Unified Holistic Co-Speech Gesture Generation via Expressive
+Masked Audio Gesture Modeling (CVPR 2024)
+  Haiyang Liu*, Zihao Zhu*, Giorgio Becherini, Yichen Peng, Mingyang Su,
+  You Zhou, Naoya Iwamoto, Bo Zheng, Michael J. Black
+  (*Equal Contribution)
+  https://pantomatrix.github.io/EMAGE/   https://arxiv.org/abs/2401.00374
+
+BEAT: A Large-Scale Semantic and Emotional Multi-Modal Dataset for
+Conversational Gestures Synthesis (ECCV 2022)
+  Haiyang Liu, Zihao Zhu, Naoya Iwamoto, Yichen Peng, Zhengqing Li, You Zhou,
+  Elif Bozkurt, Bo Zheng
+  https://pantomatrix.github.io/BEAT/
+  https://www.ecva.net/papers/eccv_2022/papers_ECCV/papers/136670605.pdf
+
+4. Modifications made to the EMAGE weights by this package's scripts
+--------------------------------------------------------------------
+  * export wrapper: a body-only copy of EmageAudioModel.forward that outputs
+    only cls_upper / cls_hands / cls_lower (face branch and in-graph seed chain
+    removed; the seed is computed on the host);
+  * removal of cross-attention layers 0..3 of audio_motion_cross_attn (no
+    retraining; step 3);
+  * INT8 dynamic quantization of MatMul and INT8 weight-only quantization of
+    Conv (steps 1 and 2);
+  * offline ONNX Runtime graph optimization (ORT_ENABLE_EXTENDED) of the final
+    files (step 3), and optionally conversion to ORT format.
+The resulting files are NOT identical to the upstream weights and produce
+outputs that differ from them (see README.md for the measured differences).
+
+5. Redistribution of the model files
+------------------------------------
+The ONNX files produced by this package are derivative works of the upstream
+weights. If you redistribute them, include the full text of the Apache License
+2.0 (LICENSE-APACHE-2.0 in this package) and this NOTICE file, and keep the
+statement of modifications above. The MIT license of this package covers only
+the scripts and documentation, not the model files.
+
+6. Not covered, no legal advice
+-------------------------------
+SMPL-X and FLAME body/face models have their own licenses (typically
+restricting commercial use). This package does not contain or use them.
+Whoever uses the model files commercially must check the upstream licenses
+(model, dataset, code, SMPL-X, FLAME) themselves. This notice is not legal
+advice.

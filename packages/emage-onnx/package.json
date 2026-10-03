@@ -12,7 +12,9 @@
     "js",
     "README.md",
     "README-CN.md",
-    "LICENSE"
+    "LICENSE",
+    "LICENSE-APACHE-2.0",
+    "NOTICE"
   ],
   "keywords": [
     "emage",
