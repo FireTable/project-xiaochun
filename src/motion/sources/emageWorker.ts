@@ -17,6 +17,7 @@
 
 import * as ort from 'onnxruntime-web';
 import { APP_CONFIG } from '@/config';
+import { computeSeedFromLogits, type SeedDeps } from './emageSeed';
 
 const WINDOW = 64;
 const SEED_FRAMES = 4;
@@ -344,6 +345,36 @@ const STEP_MASK = new Float32Array(WINDOW * MDIM);
 const STEP_AUDIO = new Float32Array(WINDOW_AUDIO);
 const STEP_SPEAKER = BigInt64Array.from([0n]);
 
+// ponytail: slim-step support (scripts/emage-onnx-slim). vq_* / postprocess sessions are now also used inside
+// runStep (host-side seed), so every use of them is serialized: ORT wasm throws "Session already started"
+// when two run() calls overlap on the same session.
+let vqLock: Promise<unknown> = Promise.resolve();
+function withVqLock<T>(fn: () => Promise<T>): Promise<T> {
+  const p = vqLock.then(fn, fn);
+  vqLock = p.catch(() => undefined);
+  return p;
+}
+
+function makeSeedDeps(s: Sessions): SeedDeps {
+  const vq = { upper: s.vqUpper, hands: s.vqHands, lower: s.vqLower } as const;
+  return {
+    argmax2d,
+    async runVq(part, indices, T) {
+      const o = await vq[part].run({ indices: new ort.Tensor('int64', indices, [1, T]) });
+      return new Float32Array(o.decoded!.data as Float32Array);
+    },
+    async runPostprocess(faceDec, upperDec, handsDec, lowerDec, T) {
+      const pp = await s.postprocess.run({
+        face_dec: new ort.Tensor('float32', faceDec, [1, T, 106]),
+        upper_dec: new ort.Tensor('float32', upperDec, [1, T, 78]),
+        hands_dec: new ort.Tensor('float32', handsDec, [1, T, 180]),
+        lower_dec: new ort.Tensor('float32', lowerDec, [1, T, 61]),
+      });
+      return new Float32Array(pp.motion_inference!.data as Float32Array);
+    },
+  };
+}
+
 async function runStep(audio: Float32Array) {
   const s = sessions!;
   const maskedMotion = STEP_MASKED;
@@ -365,16 +396,40 @@ async function runStep(audio: Float32Array) {
     mask: new ort.Tensor('float32', mask, [1, WINDOW, MDIM]),
   });
 
-  return {
-    recFace: new Float32Array(out.rec_face!.data as Float32Array),
-    clsUpper: new Float32Array(out.cls_upper!.data as Float32Array),
-    clsHands: new Float32Array(out.cls_hands!.data as Float32Array),
-    clsLower: new Float32Array(out.cls_lower!.data as Float32Array),
-    seed: new Float32Array(out.seed!.data as Float32Array),
-  };
+  const clsUpper = new Float32Array(out.cls_upper!.data as Float32Array);
+  const clsHands = new Float32Array(out.cls_hands!.data as Float32Array);
+  const clsLower = new Float32Array(out.cls_lower!.data as Float32Array);
+
+  // Full emage_step: seed / rec_face come from the graph. Slim step (cls_* only): rebuild the seed host-side
+  // from the full-window argmax indices (jaw 6D fixed to identity), and rec_face is a zero placeholder
+  // (only consumed when vqFace is enabled, which the slim step cannot support).
+  let nextSeed: Float32Array;
+  let recFace: Float32Array;
+  if (out.seed && out.rec_face) {
+    nextSeed = new Float32Array(out.seed.data as Float32Array);
+    recFace = new Float32Array(out.rec_face.data as Float32Array);
+  } else {
+    if (s.vqFace) throw new Error('slim emage_step has no rec_face: disable vqFace in APP_CONFIG.emage.models');
+    nextSeed = await withVqLock(() =>
+      computeSeedFromLogits(makeSeedDeps(s), clsUpper, clsHands, clsLower, WINDOW, CODEBOOK_SIZE, MDIM, SEED_FRAMES),
+    );
+    recFace = new Float32Array(WINDOW * LATENT_DIM);
+  }
+
+  return { recFace, clsUpper, clsHands, clsLower, seed: nextSeed };
 }
 
-async function decode(
+function decode(
+  recFace: Float32Array,
+  clsUpper: Float32Array,
+  clsHands: Float32Array,
+  clsLower: Float32Array,
+  N: number,
+) {
+  return withVqLock(() => decodeUnlocked(recFace, clsUpper, clsHands, clsLower, N));
+}
+
+async function decodeUnlocked(
   recFace: Float32Array,
   clsUpper: Float32Array,
   clsHands: Float32Array,

@@ -1,0 +1,5 @@
+# Generated models, test clips, caches and reports (large). Only scripts + docs are tracked.
+out/
+.cache/
+__pycache__/
+*.pyc
