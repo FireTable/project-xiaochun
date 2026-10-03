@@ -476,6 +476,6 @@ Project-XiaoChun/
 * [Tailwind CSS](https://tailwindcss.com) — 原子化样式
 * [Qiuner / Qiuner.github.io](https://github.com/Qiuner/Qiuner.github.io)(`src/worlds/linework/`)— 线稿户外场景视觉灵感来源
 * [Animation Inc.](https://www.animation.inc) — 亲身体验过他们的 Ani-2 端侧实时全身动作产品后,萌生了"在浏览器里也能跑通"的想法;本项目自研的 EMAGE 管线,就是这次动手的尝试
-* [PantoMatrix / EMAGE](https://github.com/PantoMatrix/PantoMatrix)([Yi 等人,CVPR 2024](https://pantomatrix.github.io/EMAGE/))— 驱动本项目对话时手势生成的 ONNX 全身协同动作模型
+* [PantoMatrix / EMAGE](https://github.com/PantoMatrix/PantoMatrix):Haiyang Liu*、Zihao Zhu*、Giorgio Becherini、Yichen Peng、Mingyang Su、You Zhou、Naoya Iwamoto、Bo Zheng、Michael J. Black(*共同第一作者),《EMAGE: Towards Unified Holistic Co-Speech Gesture Generation via Expressive Masked Audio Gesture Modeling》,[CVPR 2024](https://pantomatrix.github.io/EMAGE/);权重:[H-Liu1997/emage_audio](https://huggingface.co/H-Liu1997/emage_audio)(model card 标注 Apache-2.0)。驱动小蠢对话时手势生成的全身协同动作模型。**本项目对其权重做了修改**(导出 ONNX、去掉 cross-attention 层、INT8 量化、图优化),详见 [`packages/emage-onnx/NOTICE`](packages/emage-onnx/NOTICE)。
 * [VolgaGerm / emage-onnx-export](https://github.com/VolgaGerm/emage-onnx-export)— PyTorch → ONNX 的导出脚本,以及我们浏览器里直接跑的那批预转换 `.onnx` 权重
 * [snomiao / otoji](https://github.com/snomiao/otoji)（[otoji.org](https://otoji.org)）— 开源端上 voice graph；本项目 ChatBar SenseVoice 听写（能量 VAD + Worker）大量参考了他们的 `?simple` 路径与 sherpa-onnx 接法

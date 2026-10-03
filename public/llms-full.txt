@@ -52,7 +52,7 @@ AI runs in the browser tab. **WebLLM may use WebGPU**; **EMAGE uses ONNX Runtime
 - **Output cleaning**: same `extractCleanSpeech` runs in chatWorkflow for both paths — strips `<think>` blocks, JSON wrappers, narrative parentheses, and quote marks.
 
 ### 2.3 Motion (EMAGE & Universal Motion Pipeline)
-- **Model**: EMAGE full-body co-speech motion (PantoMatrix, [Yi et al., CVPR 2024](https://pantomatrix.github.io/EMAGE/))
+- **Model**: EMAGE full-body co-speech motion (PantoMatrix, Haiyang Liu, Zihao Zhu et al., [CVPR 2024](https://pantomatrix.github.io/EMAGE/); weights modified by this project, see packages/emage-onnx/NOTICE)
 - **Runtime**: ONNX Runtime Web inside a Dedicated Web Worker (`src/motion/emageWorker.ts`) — **executionProviders: ['wasm']** + **INT8** (`useInt8`). **Not WebGPU** (int64).
 - **Streaming**: Fixed **T=64** windows; per-window transferable **`motion_chunk`** for TTFA; A/V hold until TTS audible (`releaseMotionForAudio`).
 - **Isolation (P0b)**: COOP/COEP `credentialless` on documents; SAB + wasm multi-thread when `crossOriginIsolated`.
@@ -233,7 +233,7 @@ Project XiaoChun features a cross-platform desktop build powered by **Tauri 2.x*
 
 - [pixiv / three-vrm](https://github.com/pixiv/three-vrm) — VRM runtime (MIT)
 - [Pixiv / VRoid Studio](https://vroid.com/en/studio) — default character authoring tool (VRoid Studio License)
-- [PantoMatrix / EMAGE](https://github.com/PantoMatrix/PantoMatrix) ([Yi et al., CVPR 2024](https://pantomatrix.github.io/EMAGE/)) — full-body motion model
+- [PantoMatrix / EMAGE](https://github.com/PantoMatrix/PantoMatrix) by Haiyang Liu*, Zihao Zhu* et al., "EMAGE: Towards Unified Holistic Co-Speech Gesture Generation via Expressive Masked Audio Gesture Modeling", [CVPR 2024](https://pantomatrix.github.io/EMAGE/); weights [H-Liu1997/emage_audio](https://huggingface.co/H-Liu1997/emage_audio) (Apache-2.0 per the model card), modified by this project (export, cross-attention layers removed, INT8 quantization, graph optimization), see packages/emage-onnx/NOTICE. Full-body motion model
 - [Animation Inc.](https://www.animation.inc) — Ani-2 architecture inspiration
 - [Qiuner / Qiuner.github.io](https://github.com/Qiuner/Qiuner.github.io) — linework outdoor scene visual inspiration
 - [MLC AI / WebLLM](https://github.com/mlc-ai/web-llm) — in-browser LLM

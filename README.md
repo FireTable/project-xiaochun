@@ -479,11 +479,10 @@ This project is licensed under the **MIT License**.
 * [pixiv / three-vrm](https://github.com/pixiv/three-vrm) — VRM runtime
 * [Pixiv / VRoid Studio](https://vroid.com/en/studio) — default character authoring
 * [MLC AI / WebLLM](https://github.com/mlc-ai/web-llm) — in-browser LLM
-* [PantoMatrix / EMAGE](https://github.com/PantoMatrix/PantoMatrix) ([Yi 等人, CVPR 2024](https://pantomatrix.github.io/EMAGE/)) — full-body motion model
 * [TanStack Start](https://tanstack.com/start) — full-stack React framework
 * [Tailwind CSS](https://tailwindcss.com) — utility-first styling
 * [Qiuner / Qiuner.github.io](https://github.com/Qiuner/Qiuner.github.io) (`src/worlds/linework/`) — linework outdoor scene visual inspiration
 * [Animation Inc.](https://www.animation.inc) — First tried their Ani-2 product and got hooked on the idea of real-time on-device full-body motion synthesis; this project's EMAGE pipeline is our homegrown attempt at the same dream, running entirely in the browser
-* [PantoMatrix / EMAGE](https://github.com/PantoMatrix/PantoMatrix) ([Yi et al., CVPR 2024](https://pantomatrix.github.io/EMAGE/)) — the ONNX full-body co-speech motion model that powers our chat-time gesture generation
+* [PantoMatrix / EMAGE](https://github.com/PantoMatrix/PantoMatrix) by Haiyang Liu*, Zihao Zhu*, Giorgio Becherini, Yichen Peng, Mingyang Su, You Zhou, Naoya Iwamoto, Bo Zheng and Michael J. Black (*equal contribution), "EMAGE: Towards Unified Holistic Co-Speech Gesture Generation via Expressive Masked Audio Gesture Modeling", [CVPR 2024](https://pantomatrix.github.io/EMAGE/); weights: [H-Liu1997/emage_audio](https://huggingface.co/H-Liu1997/emage_audio) (Apache-2.0 per the model card). It is the full-body co-speech motion model that powers our chat-time gesture generation. **This project modifies the weights** (ONNX export, cross-attention layers removed, INT8 quantization, graph optimization), see [`packages/emage-onnx/NOTICE`](packages/emage-onnx/NOTICE).
 * [VolgaGerm / emage-onnx-export](https://github.com/VolgaGerm/emage-onnx-export) — the PyTorch → ONNX export script and the pre-converted `.onnx` weights we run in-browser
 * [snomiao / otoji](https://github.com/snomiao/otoji) ([otoji.org](https://otoji.org)) — open on-device voice graph; our ChatBar SenseVoice dictation (energy VAD + Worker) learned a great deal from their `?simple` path and sherpa-onnx wiring
