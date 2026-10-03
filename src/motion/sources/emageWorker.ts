@@ -334,17 +334,34 @@ async function ensureLoaded(onStatus?: (msg: string) => void): Promise<void> {
 
     const sess = {} as Sessions;
     const t0 = performance.now();
+    const cleanBase = ONNX_BASE.replace(/\/+$/, '');
 
-    for (let i = 0; i < files.length; i++) {
-      const m = files[i]!;
-      onStatus?.(`[${i + 1}/${files.length}] 加载 ${m.label}…`);
-      const cleanBase = ONNX_BASE.replace(/\/+$/, '');
-      const url = `${cleanBase}/${m.file}`;
-      const buf = await fetchWithCache(url);
-      sess[m.key] = await ort.InferenceSession.create(new Uint8Array(buf) as any, {
-        executionProviders: ['wasm'],
-      });
-    }
+    // 所有加载路径 (主站 / Tauri / /embed / 预热) 都走这里:
+    //  - 下载 (fetchWithCache: CacheStorage 命中直接读缓存) 对全部模型并行发起, 不再一个个排队;
+    //  - 哪个先下完就先 create 哪个 (边下边建), 总耗时 ≈ max(下载) + Σ(create) 而不是 Σ(下载 + create);
+    //  - create 仍按"到达顺序"串行 (createChain): wasm 单线程下 create 本来就不能真并行, 串行还避开 ort-web 共享初始化的并发风险;
+    //  - 推理期的串行 (withVqLock / "Session already started") 不受影响, 这里只改加载。
+    let createChain: Promise<unknown> = Promise.resolve();
+    const createSession = (buf: ArrayBuffer): Promise<ort.InferenceSession> => {
+      const p = createChain.then(() =>
+        ort.InferenceSession.create(new Uint8Array(buf) as any, { executionProviders: ['wasm'] }),
+      );
+      createChain = p.then(() => undefined, () => undefined);
+      return p;
+    };
+    let downloaded = 0;
+    let created = 0;
+    onStatus?.(`[0/${files.length}] 并行下载 ${files.length} 个模型…`);
+    await Promise.all(
+      files.map(async (m) => {
+        const buf = await fetchWithCache(`${cleanBase}/${m.file}`);
+        downloaded++;
+        onStatus?.(`[${downloaded}/${files.length}] 已下载 ${m.label}`);
+        sess[m.key] = await createSession(buf);
+        created++;
+        onStatus?.(`[${created}/${files.length}] 已加载 ${m.label}`);
+      }),
+    );
 
     sessions = sess;
     isReady = true;
