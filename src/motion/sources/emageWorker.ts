@@ -252,6 +252,21 @@ function integrateTranslation(globalPred: Float32Array, N: number): Float32Array
 }
 
 /**
+ * 删除旧模型集合的 CacheStorage 桶(如 emage-models-v1,约 190 MB):桶名随模型集合升级,新代码不会再读旧桶。
+ * 只在新模型加载成功后清理,失败不影响主流程。
+ */
+async function purgeOldModelCaches(): Promise<void> {
+  try {
+    if (typeof caches === 'undefined') return;
+    for (const name of await caches.keys()) {
+      if (name.startsWith('emage-models-') && name !== CACHE_NAME) await caches.delete(name);
+    }
+  } catch (e) {
+    console.warn('[EMAGE Worker] purge old model caches failed', e);
+  }
+}
+
+/**
  * 带有 CacheStorage 磁盘缓存的 ONNX 加载器，实现瞬间离线热冷启动
  */
 async function fetchWithCache(url: string): Promise<ArrayBuffer> {
@@ -333,6 +348,7 @@ async function ensureLoaded(onStatus?: (msg: string) => void): Promise<void> {
 
     sessions = sess;
     isReady = true;
+    void purgeOldModelCaches();
     onStatus?.(`EMAGE 后台模型就绪 (${((performance.now() - t0) / 1000).toFixed(1)}s)`);
   })();
 

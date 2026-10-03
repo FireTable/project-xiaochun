@@ -182,13 +182,15 @@ This folder is the workspace package `@firetable/emage-onnx` (`version` is indep
 
 Not wired into any release flow: `publish-npm.yml` only publishes `packages/project-xiaochun`, and `scripts/bump-version.mjs` only edits a fixed file list that does not include this package. There is intentionally no `build` script, so `pnpm build:packages` skips it. To publish it later: bind this package on npmjs.com (Trusted Publishing: repository `FireTable/project-xiaochun`, a workflow file name), then add a dedicated workflow (or a second job with `working-directory: packages/emage-onnx`) and its own tag or version rule. Existing `publish-npm.yml` must stay as is because npm binds it by file name.
 
-## Adopting the files (not done by this pack)
+## Adopting the files
 
-The deployable set is `out/final/`: `emage_step_int8.onnx`, `vq_{upper,hands,lower}_idx_int8.onnx`, `postprocess_int8.onnx` (71.59 MB, 57.72 MB with brotli q9). They already use the names `config.ts` requests with `useInt8 = true`, so no code or `config.ts` change is needed.
+The deployable set is `out/final/`: `emage_step_int8.onnx`, `vq_{upper,hands,lower}_idx_int8.onnx`, `postprocess_int8.onnx` (71.59 MB, 57.72 MB with brotli q9). They use the names `config.ts` requests with `useInt8 = true`, so no code change is needed to switch to them.
 
-1. Local trial: a gitignored `public/onnx-slim3/` can hold symlinks to `out/final/*.onnx`; run the app with `VITE_EMAGE_BASE=/onnx-slim3`. The CDN `cdn.firetable.tech` already serves models with `content-encoding: zstd`, so the wire size is below the raw sizes above.
-2. Upload to the CDN under a **new path** (or bump `APP_CONFIG.emage.cacheName`): the file names are the same as the current INT8 set, and `emage-models-v1` caches by URL, so reusing the old path would leave existing users with the old cached step and a new `vq`/`postprocess` mix. Never serve the Step 3 `vq_*`/`postprocess` with the old step or the reverse without checking: the step output is the same shape, but the host-side seed needs the `vq_*`/`postprocess` pair (`emageSeed.ts`).
-3. Keep `vqFace` disabled. Run the worker in a browser against the new files first (not done here, see below).
+**Status in this repo (branch `feat-emage-slim`)**: the five files are on the CDN at `https://cdn.firetable.tech/xiaochun/emage/` (SHA-256 and byte sizes identical to `out/final/`, HTTP 200, `access-control-allow-origin: *`, `content-encoding: zstd` when requested), `APP_CONFIG.emage.base` defaults to that URL for production builds, and `emage.cacheName` is `emage-models-v2` (file names are unchanged from the old INT8 set and Cache Storage is keyed by URL, so reusing the bucket would be confusing; `emageWorker.ts` deletes older `emage-models-*` buckets after a successful load). The old files at `https://cdn.firetable.tech/xiaochun/` are untouched, so older app builds keep working.
+
+1. Local trial: a gitignored `public/onnx-slim3/` holds symlinks to `out/final/*.onnx`; run the app with `VITE_EMAGE_BASE=/onnx-slim3` in `.env.local`.
+2. Deployment side: nothing else to change unless the Cloudflare/CI build environment sets `VITE_EMAGE_BASE_PROD` (then it overrides the new default and must be removed or set to `https://cdn.firetable.tech/xiaochun/emage`). `EMAGE_MODELS_BASE` in `wrangler*.jsonc` is not read by `src/` and was updated only for consistency.
+3. Keep `vqFace` disabled. The worker has not been run end to end in a browser against these files (see below).
 
 ## License and provenance
 

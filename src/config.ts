@@ -151,9 +151,11 @@ export const APP_CONFIG = {
   },
   emage: {
     base: Boolean(import.meta.env?.PROD)
-      ? ((import.meta.env?.VITE_EMAGE_BASE_PROD as string | undefined) ?? 'https://cdn.firetable.tech/xiaochun')
+      ? ((import.meta.env?.VITE_EMAGE_BASE_PROD as string | undefined) ?? 'https://cdn.firetable.tech/xiaochun/emage')
       : ((import.meta.env?.VITE_EMAGE_BASE as string | undefined) ?? '/onnx'),
-    cacheName: 'emage-models-v1',
+    // v2: slim step set (packages/emage-onnx, 71.6 MB) at <base>/emage/. Same file names as v1, so the bucket name must change;
+    // emageWorker.ts deletes older `emage-models-*` buckets after a successful load.
+    cacheName: 'emage-models-v2',
     models: {
       step: { file: q('emage_step.onnx'), enabled: true, label: 'step (autoregressive temporal)' },
       vqUpper: { file: q('vq_upper_idx.onnx'), enabled: true, label: 'vq_upper (head/neck/shoulders 78D)' },

@@ -4,7 +4,7 @@
  *    EMAGE 已在 src/motion/emageWorker.ts 设 ort.env.wasm.wasmPaths 指向 jsDelivr
  *    CDN,运行时根本不用本地这份。generateBundle 钩子删 —— WASM 走 Rollup bundle。
  * 2. EMAGE ONNX 模型(emage_step.onnx 504 MB + 6 个 VQ 30 MB)
- *    生产走 R2(VITE_EMAGE_BASE=https://cdn.firetable.tech/xiaochun/),
+ *    生产走 R2(VITE_EMAGE_BASE_PROD 默认 https://cdn.firetable.tech/xiaochun/emage/),
  *    本地 dev 仍读 public/onnx 软链 —— dist/ 删掉不影响本地文件。
  *    ONNX 来自 publicDir 拷贝,generateBundle 看不到,用 closeBundle 钩子从磁盘删。
  *

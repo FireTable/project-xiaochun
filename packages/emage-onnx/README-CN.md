@@ -182,13 +182,15 @@ python size_report.py --brotli         # 体积表
 
 没有接入任何发布流程:`publish-npm.yml` 只发布 `packages/project-xiaochun`,`scripts/bump-version.mjs` 只改固定的文件清单,其中不含本包。有意不提供 `build` 脚本,所以 `pnpm build:packages` 会跳过它。以后要发布:先在 npmjs.com 为本包单独绑定 Trusted Publishing(仓库 `FireTable/project-xiaochun` 加一个 workflow 文件名),再新增专用 workflow(或在新 job 里用 `working-directory: packages/emage-onnx`)以及它自己的 tag 或版本规则。现有 `publish-npm.yml` 不要改,因为 npm 是按文件名绑定的。
 
-## 如何采用这些文件(本包未代做)
+## 如何采用这些文件
 
-可部署集合在 `out/final/`:`emage_step_int8.onnx`、`vq_{upper,hands,lower}_idx_int8.onnx`、`postprocess_int8.onnx`(71.59 MB,brotli q9 后 57.72 MB)。文件名正是 `config.ts` 在 `useInt8 = true` 时请求的名字,所以不需要改代码或 `config.ts`。
+可部署集合在 `out/final/`:`emage_step_int8.onnx`、`vq_{upper,hands,lower}_idx_int8.onnx`、`postprocess_int8.onnx`(71.59 MB,brotli q9 后 57.72 MB)。文件名正是 `config.ts` 在 `useInt8 = true` 时请求的名字,切换不需要改代码。
 
-1. 本地试用:gitignore 的 `public/onnx-slim3/` 里放指向 `out/final/*.onnx` 的软链,运行应用时设 `VITE_EMAGE_BASE=/onnx-slim3`。CDN `cdn.firetable.tech` 已对模型返回 `content-encoding: zstd`,所以线上传输量低于上面的原始大小。
-2. 上传到 CDN 的**新路径**(或提升 `APP_CONFIG.emage.cacheName`):文件名与当前 INT8 集合相同,而 `emage-models-v1` 按 URL 缓存,沿用旧路径会让老用户拿着旧缓存的 step 混用新的 `vq`/`postprocess`。主机侧 seed 依赖配套的 `vq_*`/`postprocess`(`emageSeed.ts`),不要新旧混搭。
-3. 保持 `vqFace` 关闭。先在浏览器里用新文件跑一遍 worker(本包未做,见下)。
+**本仓库(分支 `feat-emage-slim`)的现状**:这 5 个文件已在 CDN `https://cdn.firetable.tech/xiaochun/emage/`(SHA-256 与字节数同 `out/final/` 完全一致,HTTP 200,`access-control-allow-origin: *`,请求时返回 `content-encoding: zstd`);生产构建的 `APP_CONFIG.emage.base` 默认指向它;`emage.cacheName` 升到 `emage-models-v2`(文件名与旧 INT8 集合相同,而 Cache Storage 按 URL 缓存,沿用旧桶会混乱;`emageWorker.ts` 在新模型加载成功后删除其他 `emage-models-*` 桶)。`https://cdn.firetable.tech/xiaochun/` 下的旧文件原样保留,旧版本应用不受影响。
+
+1. 本地试用:gitignore 的 `public/onnx-slim3/` 里放指向 `out/final/*.onnx` 的软链,在 `.env.local` 设 `VITE_EMAGE_BASE=/onnx-slim3`。
+2. 部署侧:除非 Cloudflare/CI 的构建环境里设了 `VITE_EMAGE_BASE_PROD`(那样会覆盖新默认值,需删除或改成 `https://cdn.firetable.tech/xiaochun/emage`),否则无需其他改动。`wrangler*.jsonc` 里的 `EMAGE_MODELS_BASE` 没有被 `src/` 读取,仅为一致性而更新。
+3. 保持 `vqFace` 关闭。worker 尚未在浏览器里用这些文件端到端运行(见下)。
 
 ## 许可证与来源
 

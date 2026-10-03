@@ -13,7 +13,7 @@
     "enabled": true
   },
   "vars": {
-    "EMAGE_MODELS_BASE": "https://cdn.firetable.tech/xiaochun",
+    "EMAGE_MODELS_BASE": "https://cdn.firetable.tech/xiaochun/emage",
     // /embed 的 CSP frame-ancestors 白名单 (空格分隔); "*" = 任何站点都可内嵌。见 docs/EMBED.md
     "EMBED_FRAME_ANCESTORS": "*"
   }
