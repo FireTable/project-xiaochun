@@ -237,6 +237,8 @@ export interface XcReadyPayload {
     transparent: boolean;
     /** 宿主音频能力 (xc.audio / xc.audio.chunk)。旧版 /embed 没有这个字段。 */
     audio?: { formats: XcAudioFormat[]; streaming: boolean; maxSeconds: number };
+    /** iframe 内 `self.crossOriginIsolated` (true = 可用 SharedArrayBuffer / 多线程 wasm)。旧版 /embed 没有这个字段。仅诊断用。 */
+    crossOriginIsolated?: boolean;
   };
 }
 

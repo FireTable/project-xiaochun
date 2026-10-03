@@ -235,9 +235,45 @@ The SDK sets `allow="microphone; autoplay"` for you. If you write the iframe by 
 
 * **Your CSP**: allow `frame-src https://xiaochun.firetable.tech` (and `script-src https://cdn.jsdelivr.net` if you use the CDN loader).
 * **`/embed` response headers** (set by the XiaoChun deployment): no `X-Frame-Options`; `Content-Security-Policy: frame-ancestors *` by default (self-hosters can restrict it); `Permissions-Policy: microphone=(self)`; `Cross-Origin-Resource-Policy: cross-origin`.
-* **Your COOP/COEP**: an embedding page with `COEP: require-corp` works (the embed sends CORP). Cross-origin-isolating the iframe itself needs both the host page isolated *and* `allow="cross-origin-isolated"`; otherwise on-device ONNX runs single-threaded (slower but functional).
+* **Your COOP/COEP**: an embedding page with `COEP: require-corp` works (the embed sends CORP). Cross-origin-isolating the iframe itself needs both the host page isolated *and* `allow="cross-origin-isolated"` (the opt-in `crossOriginIsolated` option below); otherwise on-device ONNX runs single-threaded (slower but functional).
 * **Third-party storage partitioning**: models cached inside the iframe are keyed per top-level site, so each host site downloads its own copy. The embed therefore does **not** preload the on-device LLM / EMAGE models by default (`heavy: 'lazy'`).
 * **Security**: messages travel over a `MessageChannel` after an origin-checked handshake; `'*'` is never used as a target origin; wildcard `origin` / `allowedOrigins` are rejected.
+
+
+### Opt-in: cross-origin isolation (multi-threaded EMAGE)
+
+By default `crossOriginIsolated` is `false` inside the iframe and onnxruntime-web runs **single-threaded** wasm. For multi-threading (`SharedArrayBuffer`) all three must hold:
+
+1. **Your page is cross-origin isolated** — it is served with `Cross-Origin-Opener-Policy: same-origin` **and** `Cross-Origin-Embedder-Policy: credentialless` (or `require-corp`). `window.crossOriginIsolated` is `true` on your page.
+2. **The embed document sets COEP too** — `/embed` already sends `COEP: credentialless` + `CORP: cross-origin`. Nothing to do. (COOP is ignored inside an iframe.)
+3. **You delegate it to the iframe** — cross-origin iframes do not inherit it. Turn the option on (default off; default `allow` stays `'microphone; autoplay'`):
+
+```js
+createXiaochun({ container: '#stage', crossOriginIsolated: true });  // allow="microphone; autoplay; cross-origin-isolated"
+```
+```tsx
+<Xiaochun crossOriginIsolated />                                    // React
+```
+```html
+<xiaochun-avatar cross-origin-isolated></xiaochun-avatar>
+<!-- hand-written iframe: allow="microphone; autoplay; cross-origin-isolated" -->
+```
+
+```nginx
+add_header Cross-Origin-Opener-Policy  "same-origin" always;
+add_header Cross-Origin-Embedder-Policy "credentialless" always;  # or require-corp
+```
+
+**Benefit**: EMAGE inference uses up to `min(hardwareConcurrency, 8 desktop / 4 mobile)` threads. Measured in Node on the same inference: **1 thread 274 ms → 4 threads 79 ms (~3.5×)**.
+
+**Side effects (the isolation is on *your* page)**:
+
+* Every cross-origin subresource on your page must satisfy COEP. With `credentialless`, no-cors cross-origin requests are sent *without* cookies/credentials (credentialed third-party images/scripts may break); with `require-corp` they need `CORP: cross-origin` or CORS or they are blocked.
+* Other third-party **iframes** on your page (ads, maps, video, payments, comments…) must send COEP themselves or they are blocked. `COOP: same-origin` also severs `window.opener` (OAuth / payment popups that report back may stop working).
+* Safari has no `credentialless`; use `require-corp` there. On browsers without isolation support the option is a harmless no-op (single-threaded fallback).
+* Enabling the option on a non-isolated host does nothing. Verify on staging first.
+
+**Verify**: the `xc.ready` handshake carries `capabilities.crossOriginIsolated` (should be `true`); or run `crossOriginIsolated` in the iframe's console context; the EMAGE worker reports `numThreads > 1`. Locally: `node examples/serve-isolated.mjs`, then open `http://localhost:8081/examples/embed-host.html?isolated=1`.
 
 ---
 
@@ -282,6 +318,7 @@ createXiaochun({
 | `passthrough` | = `transparent` | Toggle the iframe's pointer-events depending on whether the cursor is over the character |
 | `sandbox` | scripts + same-origin + popups | iframe `sandbox`; `false` = none. Dropping `allow-same-origin` breaks IndexedDB and the mic |
 | `handshakeTimeout` | `20000` | ms; on timeout an `error { code: 'timeout' }` is emitted |
+| `crossOriginIsolated` | `false` | Append `cross-origin-isolated` to the iframe `allow` (default stays `microphone; autoplay`). Needs a host page that is itself isolated; see [Opt-in: cross-origin isolation](#opt-in-cross-origin-isolation-multi-threaded-emage) |
 | `zIndex` | `2147483000` | Floating mode layer (the `--xc-z-index` variable takes precedence) |
 
 **Instance**: `ready` · `say(text, { mode: 'speak' \| 'chat' })` · `speakAudio(source, opts)` · `speakAudioStream(opts)` · `motion(nameOrUrlOrOptions)` · `expression(name)` · `setModel(outfitOrUrl)` · `setConfig(cfg)` · `startListening()` / `stopListening()` / `mic(on)` · `pause()` / `resume()` · `activate()` · `destroy()` · `on(event, cb)` · `lookAt()` *(reserved in the protocol; currently returns `unsupported`)*.
@@ -303,6 +340,7 @@ createXiaochun({
 | `lazy` | idle + viewport | `"click"` for click only; `"false"` for immediate |
 | `paused` | `false` | `pause()` / `resume()` |
 | `placeholder` / `heavy` / `ui` / `controls` / `allowed-origins` | — | Same as `createXiaochun` |
+| `cross-origin-isolated` | `false` | Same as `createXiaochun({ crossOriginIsolated })`; changing it rebuilds the iframe |
 
 **Events** (`CustomEvent`, `composed`, `detail` = protocol payload): `xc-ready` · `xc-progress` · `xc-state` · `xc-stt` · `xc-utterance` · `xc-error`.
 **Methods**: `say` · `speakAudio` · `speakAudioStream` · `motion` · `expression` · `destroy`; `el.client` gives you the full SDK instance.

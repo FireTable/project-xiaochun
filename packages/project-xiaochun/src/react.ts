@@ -114,7 +114,7 @@ export function useXiaochun(options: XiaochunHookOptions = {}): UseXiaochunResul
     // 只有"创建期选项"变化才重建; lang/model/paused/mic/回调走下面的热更新
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [el, o.src, o.origin, originsKey, o.lazy, o.lazyMargin, o.placeholder, o.transparent, o.width, o.height, o.position,
-    o.draggable, o.ui, o.heavy, o.controls, o.autoPause, o.passthrough, o.sandbox, o.handshakeTimeout, o.zIndex]);
+    o.draggable, o.ui, o.heavy, o.controls, o.autoPause, o.passthrough, o.sandbox, o.handshakeTimeout, o.crossOriginIsolated, o.zIndex]);
 
   // 热更新: lang / model (跳过首次: 创建时已经作为初始选项传入)
   const first = useRef({ lang: o.lang, model: o.model });

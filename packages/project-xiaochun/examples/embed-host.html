@@ -6,6 +6,11 @@
   3. 起静态服务:    npx serve packages/project-xiaochun -l 8080     # 或 python3 -m http.server 8080 -d packages/project-xiaochun
   4. 打开:          http://localhost:8080/examples/embed-host.html
      可选 ?src=https://localhost:5185/embed  覆盖 iframe 地址 (默认就是它); 线上用默认官方地址即可。
+  5. 验证跨源隔离 / EMAGE 多线程 (可选开关 crossOriginIsolated):
+        node packages/project-xiaochun/examples/serve-isolated.mjs      # 带 COOP: same-origin + COEP: credentialless 的静态服务, 默认 :8081
+        打开 http://localhost:8081/examples/embed-host.html?isolated=1  # ?isolated=1 → SDK 选项 crossOriginIsolated:true / 标签 cross-origin-isolated
+     日志第一行打印宿主 crossOriginIsolated; handshake 日志里 capabilities.crossOriginIsolated 应为 true (iframe 内);
+     点 heavy=eager 或 say 后, DevDrawer / worker 'wasm_env' 里 numThreads > 1。不带 ?isolated=1 (或用 :8080 的普通服务) 则为 false / 单线程。
 -->
 <html lang="zh-CN">
 <head>
@@ -66,12 +71,15 @@
     f.setAttribute('src', src);
     f.setAttribute('position', 'bottom-right');
     f.setAttribute('size', '260');
+    const isolated = params.get('isolated') === '1';
+    if (isolated) f.setAttribute('cross-origin-isolated', '');
     f.setAttribute('transparent', '');
     f.setAttribute('draggable', '');
     document.body.appendChild(f);
 
     const log = (...a) => { const el = document.getElementById('log'); el.textContent += a.map(x => typeof x === 'string' ? x : JSON.stringify(x)).join(' ') + '\n'; el.scrollTop = 1e9; };
 
+    log('host crossOriginIsolated =', String(window.crossOriginIsolated), '| option crossOriginIsolated =', String(isolated));
     const xc = Xiaochun.createXiaochun({
       container: '#stage',
       src,
@@ -79,6 +87,7 @@
       width: 320, height: 480,
       transparent: false,
       lang: 'zh-CN',
+      crossOriginIsolated: isolated, // ?isolated=1 → iframe allow 追加 cross-origin-isolated (宿主需 COOP/COEP, 见 serve-isolated.mjs)
     });
     for (const ev of ['handshake', 'ready', 'progress', 'state', 'stt', 'utterance', 'hit-region', 'error', 'destroy']) {
       xc.on(ev, (p) => { if (ev !== 'progress' && ev !== 'hit-region') log(ev, p ?? ''); });

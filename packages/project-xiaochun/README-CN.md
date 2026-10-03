@@ -235,9 +235,45 @@ SDK 会自动设置 `allow="microphone; autoplay"`。如果你手写 iframe,**�
 
 * **你的 CSP**:允许 `frame-src https://xiaochun.firetable.tech`(如果用 CDN loader,还要允许 `script-src https://cdn.jsdelivr.net`)。
 * **`/embed` 的响应头**(由小蠢部署端设置):没有 `X-Frame-Options`;默认 `Content-Security-Policy: frame-ancestors *`(自建部署可以收紧);`Permissions-Policy: microphone=(self)`;`Cross-Origin-Resource-Policy: cross-origin`。
-* **你的 COOP/COEP**:宿主页设置 `COEP: require-corp` 也能正常嵌入(embed 会发送 CORP)。要让 iframe 自身跨源隔离,需要宿主页也隔离**并且** `allow="cross-origin-isolated"`;否则端上 ONNX 以单线程运行(更慢但可用)。
+* **你的 COOP/COEP**:宿主页设置 `COEP: require-corp` 也能正常嵌入(embed 会发送 CORP)。要让 iframe 自身跨源隔离,需要宿主页也隔离**并且** `allow="cross-origin-isolated"`(即下面可选的 `crossOriginIsolated` 开关);否则端上 ONNX 以单线程运行(更慢但可用)。
 * **第三方存储分区**:iframe 内缓存的模型按顶层站点分区,所以每个宿主站点都会各自下载一份。因此 embed 默认**不会**预加载端上 LLM / EMAGE 模型(`heavy: 'lazy'`)。
 * **安全性**:握手校验 origin 之后,消息走 `MessageChannel`;从不使用 `'*'` 作为 targetOrigin;通配的 `origin` / `allowedOrigins` 会被拒绝。
+
+
+### 可选:跨源隔离,让 EMAGE 用多线程
+
+默认 iframe 内 `crossOriginIsolated` 为 `false`,onnxruntime-web 使用**单线程** wasm。要启用多线程(`SharedArrayBuffer`),下面三点缺一不可:
+
+1. **宿主页自己跨源隔离**:页面响应头同时带 `Cross-Origin-Opener-Policy: same-origin` 和 `Cross-Origin-Embedder-Policy: credentialless`(或 `require-corp`),此时宿主页里 `window.crossOriginIsolated === true`。
+2. **embed 文档自己也带 COEP**:`/embed` 已发送 `COEP: credentialless` + `CORP: cross-origin`,无需处理(COOP 在 iframe 内被忽略)。
+3. **宿主向 iframe 委派**:跨源 iframe 不会自动继承。打开选项即可(默认关闭,默认 `allow` 仍是 `'microphone; autoplay'`):
+
+```js
+createXiaochun({ container: '#stage', crossOriginIsolated: true });  // allow="microphone; autoplay; cross-origin-isolated"
+```
+```tsx
+<Xiaochun crossOriginIsolated />                                    // React
+```
+```html
+<xiaochun-avatar cross-origin-isolated></xiaochun-avatar>
+<!-- 手写 iframe:allow="microphone; autoplay; cross-origin-isolated" -->
+```
+
+```nginx
+add_header Cross-Origin-Opener-Policy  "same-origin" always;
+add_header Cross-Origin-Embedder-Policy "credentialless" always;  # 或 require-corp
+```
+
+**收益**:EMAGE 推理线程数最高 `min(hardwareConcurrency, 桌面 8 / 手机 4)`。Node 实测同一段推理:**1 线程 274 ms → 4 线程 79 ms(约 3.5 倍)**。
+
+**副作用(隔离的是*你的*页面)**:
+
+* 页面上所有跨源子资源都必须满足 COEP。`credentialless` 下 no-cors 跨源请求会**不带** cookie/凭据(依赖凭据的第三方图片/脚本可能出问题);`require-corp` 下则必须有 `CORP: cross-origin` 或 CORS,否则被拦截。
+* 页面里其他第三方 **iframe**(广告、地图、视频、支付、评论等)自己也必须发 COEP,否则被拦截;`COOP: same-origin` 还会切断 `window.opener`(依赖回传的 OAuth / 支付弹窗可能失效)。
+* Safari 不支持 `credentialless`,请用 `require-corp`;不支持隔离的浏览器上该选项无效,自动退回单线程。
+* 宿主页未隔离时开这个选项没有任何效果。请先在预发环境验证。
+
+**验证**:`xc.ready` 握手里带 `capabilities.crossOriginIsolated`(应为 `true`);或在 iframe 的控制台上下文执行 `crossOriginIsolated`;EMAGE worker 上报的 `numThreads > 1`。本地:`node examples/serve-isolated.mjs`,然后打开 `http://localhost:8081/examples/embed-host.html?isolated=1`。
 
 ---
 
@@ -282,6 +318,7 @@ createXiaochun({
 | `passthrough` | = `transparent` | 按"鼠标是否在角色上"切换 iframe 的 pointer-events |
 | `sandbox` | scripts + same-origin + popups | iframe `sandbox`;`false` = 不加。去掉 `allow-same-origin` 会让 IndexedDB 和麦克风失效 |
 | `handshakeTimeout` | `20000` | 毫秒;超时会触发 `error { code: 'timeout' }` |
+| `crossOriginIsolated` | `false` | 给 iframe 的 `allow` 追加 `cross-origin-isolated`(默认仍是 `microphone; autoplay`)。要求宿主页自己已跨源隔离,见 [可选:跨源隔离](#可选跨源隔离让-emage-用多线程) |
 | `zIndex` | `2147483000` | 悬浮模式层级(`--xc-z-index` 变量优先) |
 
 **实例**:`ready` · `say(text, { mode: 'speak' \| 'chat' })` · `speakAudio(source, opts)` · `speakAudioStream(opts)` · `motion(nameOrUrlOrOptions)` · `expression(name)` · `setModel(outfitOrUrl)` · `setConfig(cfg)` · `startListening()` / `stopListening()` / `mic(on)` · `pause()` / `resume()` · `activate()` · `destroy()` · `on(event, cb)` · `lookAt()` *(协议已预留,目前返回 `unsupported`)*。
@@ -303,6 +340,7 @@ createXiaochun({
 | `lazy` | 空闲 + 视口 | `"click"` 仅点击;`"false"` 立即创建 |
 | `paused` | `false` | `pause()` / `resume()` |
 | `placeholder` / `heavy` / `ui` / `controls` / `allowed-origins` | — | 同 `createXiaochun` |
+| `cross-origin-isolated` | `false` | 同 `createXiaochun({ crossOriginIsolated })`;修改会重建 iframe |
 
 **事件**(`CustomEvent`,`composed`,`detail` = 协议 payload):`xc-ready` · `xc-progress` · `xc-state` · `xc-stt` · `xc-utterance` · `xc-error`。
 **方法**:`say` · `speakAudio` · `speakAudioStream` · `motion` · `expression` · `destroy`;`el.client` 可拿到完整的 SDK 实例。

@@ -71,6 +71,13 @@ export interface XiaochunOptions {
   sandbox?: string | false;
   /** 握手超时 (ms), 超时 emit error{code:'timeout'}。调大适合慢网络, 调小反馈更快。默认 20000。 */
   handshakeTimeout?: number;
+  /**
+   * 给 iframe 的 `allow` 追加 `cross-origin-isolated` (默认 false: allow 仍是 'microphone; autoplay')。
+   * 仅当宿主页自己已跨源隔离 (响应头 COOP: same-origin + COEP: credentialless / require-corp) 时才生效;
+   * 开启后 iframe 内 crossOriginIsolated=true → EMAGE 的 onnxruntime-web 可用多线程 wasm (SharedArrayBuffer)。
+   * 副作用: 宿主页上的第三方资源/iframe 也必须满足 COEP, 见 docs/EMBED.md。宿主未隔离时开了也无害 (浏览器忽略)。
+   */
+  crossOriginIsolated?: boolean;
   zIndex?: number;
 }
 
@@ -381,7 +388,9 @@ export function createXiaochun(options: XiaochunOptions): XiaochunInstance {
     const f = document.createElement('iframe');
     f.title = 'Project XiaoChun';
     f.loading = 'lazy';
-    f.allow = 'microphone; autoplay'; // 宿主必须委派: 麦克风 (STT) + 自动播放 (TTS 音频; 缺它则点击宿主页后 iframe 内 AudioContext 仍被拦)
+    f.allow = options.crossOriginIsolated === true
+      ? 'microphone; autoplay; cross-origin-isolated' // 宿主已 COOP/COEP 隔离时, 额外委派跨源隔离 → iframe 内 SharedArrayBuffer / 多线程 wasm
+      : 'microphone; autoplay'; // 宿主必须委派: 麦克风 (STT) + 自动播放 (TTS 音频; 缺它则点击宿主页后 iframe 内 AudioContext 仍被拦)
     f.referrerPolicy = 'strict-origin-when-cross-origin';
     if (options.sandbox !== false) {
       f.setAttribute('sandbox', options.sandbox ?? 'allow-scripts allow-same-origin allow-popups allow-popups-to-escape-sandbox');

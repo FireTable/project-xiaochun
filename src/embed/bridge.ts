@@ -170,6 +170,7 @@ export function startEmbedBridge(opts: EmbedBridgeOptions): EmbedBridge {
           stt: true,
           transparent: true,
           audio: { formats: ['encoded', 'pcm16', 'float32'], streaming: true, maxSeconds: HOST_AUDIO.maxSec },
+          crossOriginIsolated: typeof self !== 'undefined' && self.crossOriginIsolated === true,
         },
       }),
       hostOrigin, // 严格 targetOrigin, 永不 '*'

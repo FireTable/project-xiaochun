@@ -1,7 +1,7 @@
 /**
  * avatar-element.ts — `<xiaochun-avatar>` Web Component (Shadow DOM 内包 iframe)。
  *
- * 属性: src model lang mic transparent draggable position size lazy paused placeholder heavy ui controls allowed-origins
+ * 属性: src model lang mic transparent draggable position size lazy paused placeholder heavy ui controls allowed-origins cross-origin-isolated
  *   - 布尔属性: 缺省取默认值; "" / "true" = true; "false" = false。
  *   - size="320x480" 或 size="320" (高 = 宽 × 1.5); 也可写 CSS 长度 "100%x480px"。
  *   - model: 内置服装 key (xiaochun_maid) 或 https .vrm/.vrmaddon/.vrmbase URL。
@@ -24,10 +24,10 @@ import type { XcExpressionPayload, XcHeavyMode, XcLang, XcMotionPayload } from '
 
 const OBSERVED = [
   'src', 'model', 'lang', 'mic', 'transparent', 'draggable', 'position', 'size', 'lazy',
-  'paused', 'placeholder', 'heavy', 'ui', 'controls', 'allowed-origins',
+  'paused', 'placeholder', 'heavy', 'ui', 'controls', 'allowed-origins', 'cross-origin-isolated',
 ] as const;
 /** 改了这些要重建 iframe; 其余可以热更新。 */
-const REBUILD = new Set(['src', 'draggable', 'position', 'size', 'lazy', 'placeholder', 'heavy', 'ui', 'controls', 'allowed-origins', 'transparent']);
+const REBUILD = new Set(['src', 'draggable', 'position', 'size', 'lazy', 'placeholder', 'heavy', 'ui', 'controls', 'allowed-origins', 'transparent', 'cross-origin-isolated']);
 
 function boolAttr(el: Element, name: string, dflt: boolean): boolean {
   const v = el.getAttribute(name);
@@ -118,6 +118,7 @@ function createElementClass(): CustomElementConstructor {
         heavy: (this.getAttribute('heavy') as XcHeavyMode | null) ?? undefined,
         ui: boolAttr(this, 'ui', false),
         controls: boolAttr(this, 'controls', false),
+        crossOriginIsolated: boolAttr(this, 'cross-origin-isolated', false),
       });
       this.client = c;
       const fwd = (ev: string, name: string) => c.on(ev as 'ready', (detail) =>

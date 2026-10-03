@@ -78,7 +78,7 @@ sequenceDiagram
 
 | 消息 | payload | 说明 |
 | :-- | :-- | :-- |
-| `xc.ready` | `{ version, protocol, capabilities:{ commands[], unsupported[], stt, transparent, audio?:{ formats[], streaming, maxSeconds } } }` | 握手第一步（window.postMessage，严格 targetOrigin）。1s 间隔最多重发 10 次直到收到 `xc.init` |
+| `xc.ready` | `{ version, protocol, capabilities:{ commands[], unsupported[], stt, transparent, audio?:{ formats[], streaming, maxSeconds }, crossOriginIsolated?:boolean } }`（`crossOriginIsolated` 为 iframe 内 `self.crossOriginIsolated`，仅诊断：宿主开了隔离且 `allow` 委派后应为 `true`） | 握手第一步（window.postMessage，严格 targetOrigin）。1s 间隔最多重发 10 次直到收到 `xc.init` |
 | `xc.load.progress` | `{ phase:'model', progress:0-100 }` | 模型下载 / 合成进度 |
 | `xc.loaded` | `{ model }` | 初始模型或 `setModel` 完成（SDK 的 `ready` Promise 在此 resolve） |
 | `xc.state` | `{ phase, paused, heavy }` | `phase`: `loading｜idle｜thinking｜speaking｜listening｜paused` |
@@ -183,6 +183,46 @@ xc.audio(ArrayBuffer/Blob/URL)                         xc.audio.chunk (PCM16/Flo
 - 宿主自己的 CSP 要放行：`frame-src https://xiaochun.firetable.tech`；用 CDN loader 时 `script-src` 加 `cdn.jsdelivr.net`（或 unpkg）。
 - 宿主若自己开了 `COEP: require-corp`：`/embed` 已发 `CORP: cross-origin` 可被嵌入；`COEP: credentialless` 同理。
 
+### 3.1 可选：跨源隔离，让 EMAGE 用多线程 wasm
+
+默认 iframe 内 `crossOriginIsolated === false`，onnxruntime-web 退回**单线程** wasm。想要多线程（`SharedArrayBuffer`），三层都要满足：
+
+1. **宿主页自己跨源隔离**：宿主页（顶层文档）的响应头同时带
+   `Cross-Origin-Opener-Policy: same-origin` 和
+   `Cross-Origin-Embedder-Policy: credentialless`（或 `require-corp`）。
+   `window.crossOriginIsolated` 在宿主页里应为 `true`。
+2. **iframe 文档自己也带 COEP**：`/embed` 已发 `COEP: credentialless` + `CORP: cross-origin`（`securityHeaders.ts` 与 `public/_headers` 一致），无需改动。COOP 在 iframe 内被忽略，不影响。
+3. **宿主给 iframe 委派 `allow="cross-origin-isolated"`**（跨源 iframe 默认不继承）：SDK 里打开开关即可，默认关闭，默认 `allow` 仍是 `'microphone; autoplay'`：
+
+```js
+createXiaochun({ container: '#stage', crossOriginIsolated: true });   // allow = 'microphone; autoplay; cross-origin-isolated'
+```
+```tsx
+<Xiaochun crossOriginIsolated />                                     // React
+```
+```html
+<xiaochun-avatar cross-origin-isolated></xiaochun-avatar>             <!-- 自定义标签 -->
+<iframe src="https://xiaochun.firetable.tech/embed?host=…" allow="microphone; autoplay; cross-origin-isolated"></iframe> <!-- 手写 -->
+```
+
+宿主响应头示例（nginx）：
+
+```nginx
+add_header Cross-Origin-Opener-Policy  "same-origin" always;
+add_header Cross-Origin-Embedder-Policy "credentialless" always;   # 或 require-corp
+```
+
+**收益**：EMAGE 推理线程数 `min(hardwareConcurrency, 桌面 8 / 手机 4)`。Node 实测同一段推理：1 线程 274 ms → 4 线程 79 ms（约 3.5×）。
+
+**副作用（开隔离的是宿主页，不是小蠢）**：
+
+- 宿主页上所有跨源子资源都要满足 COEP：`credentialless` 下 no-cors 跨源资源会被剥掉 cookie/凭据再请求（需要凭据的第三方图片/脚本可能 401/拿到匿名版本）；`require-corp` 下则必须有 `CORP: cross-origin` 或 CORS，否则被拦。
+- 宿主页里的**其他第三方 iframe**（广告、地图、视频、支付、评论等）自己必须也带 COEP（`credentialless`/`require-corp`），否则被拦；`COOP: same-origin` 还会切断 `window.opener`（OAuth 弹窗、第三方登录/支付弹窗回传可能失效）。
+- Safari 不支持 `credentialless`，需用 `require-corp`；不支持隔离的浏览器上，开关无效，自动退回单线程。
+- 宿主未隔离时开这个开关无害（浏览器忽略），只是没有收益。**先在预发环境验证再上线**。
+
+**验证**：`xc.ready` 的 `capabilities.crossOriginIsolated` 为 `true`（`client.on('handshake', …)` 可读），或在 iframe 上下文执行 `crossOriginIsolated`；DevDrawer 的 EMAGE 性能面板 / worker `wasm_env` 里 `numThreads > 1`。本地可跑 `node packages/project-xiaochun/examples/serve-isolated.mjs`，打开 `http://localhost:8081/examples/embed-host.html?isolated=1`。
+
 ---
 
 ## 4. 宿主接入示例
@@ -241,6 +281,7 @@ createXiaochun({
   passthrough: undefined,        // 透明时按"是否点在角色上"切换 pointer-events; 默认=transparent
   sandbox: 'allow-scripts allow-same-origin allow-popups allow-popups-to-escape-sandbox', // false=不加; 去掉 allow-same-origin 会让 IndexedDB/麦克风失效
   handshakeTimeout: 20000,       // ms, 范围建议 5000~60000; 调大适合慢网络, 调小更早报 timeout
+  crossOriginIsolated: false,    // true=iframe allow 追加 cross-origin-isolated (需宿主页已 COOP/COEP 隔离, 见 §3.1); 默认 allow 仍是 'microphone; autoplay'
   zIndex: 2147483000,            // 悬浮模式层级
 });
 ```
@@ -262,6 +303,7 @@ createXiaochun({
 | `lazy` | 空闲+视口 | `"click"` 仅点击；`"false"` 立即 |
 | `paused` | `false` | `pause()` / `resume()` |
 | `placeholder` / `heavy` / `ui` / `controls` / `allowed-origins` | — | 同 `createXiaochun` |
+| `cross-origin-isolated` | `false` | 同 `createXiaochun({ crossOriginIsolated })`；改它会重建 iframe。见 §3.1 |
 
 事件（`CustomEvent`，`composed`，`detail` = 协议 payload）：`xc-ready`（模型加载完）· `xc-progress` · `xc-state` · `xc-stt` · `xc-utterance` · `xc-error`。方法：`say` · `speakAudio` · `speakAudioStream` · `motion` · `expression` · `destroy`；`el.client` 可拿到完整 SDK 实例。
 
@@ -316,7 +358,7 @@ function Custom() {
 }
 ```
 - props = `createXiaochun` 的全部选项（不含 `container`）+ `onHandshake / onReady / onProgress / onState / onStt / onUtterance / onHitRegion / onError / onDestroy` + `className / style` + `paused / mic`。
-- 重建 vs 热更新：`src / origin / allowedOrigins / lazy / lazyMargin / placeholder / transparent / width / height / position / draggable / ui / heavy / controls / autoPause / passthrough / sandbox / handshakeTimeout / zIndex` 变化会销毁并重建实例（这些是创建期选项，别在渲染里每次给新值）；`lang / model / paused / mic` 与回调变化**不**重建（`lang`→`setConfig`，`model`→`setModel`）。
+- 重建 vs 热更新：`src / origin / allowedOrigins / lazy / lazyMargin / placeholder / transparent / width / height / position / draggable / ui / heavy / controls / autoPause / passthrough / sandbox / handshakeTimeout / crossOriginIsolated / zIndex` 变化会销毁并重建实例（这些是创建期选项，别在渲染里每次给新值）；`lang / model / paused / mic` 与回调变化**不**重建（`lang`→`setConfig`，`model`→`setModel`）。
 - ref 句柄：`say / speakAudio / speakAudioStream / motion / expression / lookAt / setModel / setConfig / startListening / stopListening / mic / pause / resume / activate / destroy / ready / instance`；未挂载时返回 Promise 的方法会 reject。
 
 ### 4.7 样式（CSS 自定义属性 / `::part`）
@@ -395,7 +437,7 @@ git push origin main --follow-tags
 | 风险 | 说明 / 缓解 |
 | :-- | :-- |
 | **存储分区 → 重复下载** | 第三方 iframe 的 IndexedDB / Cache Storage 按"顶层站点 + iframe origin"分区（Chrome 第三方存储分区、Safari ITP）。同一用户在 A 站、B 站各下载一份 VRM（~10–15 MB）与（若启用）WebLLM 权重（GB 级）。缓解：默认 `heavy=lazy`；需要大模型对话的场景引导用户去主站。 |
-| **COOP/COEP 与多线程 wasm** | iframe 内 `crossOriginIsolated` 需要宿主页也隔离并给 `allow="cross-origin-isolated"`；通常不满足 → ORT 退回单线程，EMAGE 更慢。`/embed` 自身发 COEP `credentialless`（兼容 CDN 上的 onnx），COOP 在 iframe 内被忽略。 |
+| **COOP/COEP 与多线程 wasm** | iframe 内 `crossOriginIsolated` 需要宿主页也隔离（COOP `same-origin` + COEP `credentialless`/`require-corp`）并给 `allow="cross-origin-isolated"`；默认不满足 → ORT 退回单线程，EMAGE 更慢（Node 实测 1 线程 274 ms → 4 线程 79 ms）。SDK 提供可选开关 `crossOriginIsolated`（默认关），详见 §3.1 含副作用。`/embed` 自身发 COEP `credentialless`（兼容 CDN 上的 onnx）+ CORP `cross-origin`，COOP 在 iframe 内被忽略。 |
 | **麦克风** | 需 HTTPS、宿主 `allow="microphone"`、`/embed` 的 `Permissions-Policy` 放行（已 `microphone=(self)`）。权限按 iframe origin 记忆，宿主换域名要重新授权。iOS Safari 对 iframe 内 getUserMedia 限制更多，建议提供"在新标签打开主站"的兜底。 |
 | **自动播放** | TTS 用 `AudioContext`。宿主页需发生过用户激活，且 iframe 要有 `allow="autoplay"`（SDK 已加）；否则首个 `say()` 会一直 pending 到用户点击。建议把第一次 `say` 绑在按钮点击里。 |
 | **多实例 / WebGL 上下文上限** | 每个实例 1 个 WebGL 上下文 + 1 套模型内存。桌面 Chrome 约 16 个、移动端更少，超过会丢上下文。建议一页只放 1 个，用完 `destroy()`。 |
