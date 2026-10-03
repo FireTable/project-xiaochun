@@ -175,7 +175,7 @@ You can download installer packages directly from the official Releases page:
 * **LLM (Custom OpenAI-Compatible Providers, optional)** — Connect any OpenAI-compatible HTTP service via the in-app config dialog: Ollama / LM Studio / vLLM / LocalAI / cloud (OpenAI, DeepSeek, Qwen API …). Provider profiles are AES-GCM encrypted in IndexedDB; the active provider is one click away from switching. When a custom provider is active, WebLLM is **not** preloaded — saves 1-2 GB VRAM on local and avoids wasting bandwidth on a model you won't use.
 * **Unified Provider Factory (`chatWorkflow.runChat`)** — Same-shape `runChat(opts) → string` contract for both WebLLM and custom providers; the dispatcher picks one per request via a `ChatProvider` registry. Adding a new provider = drop in a descriptor.
 * **User-Customizable System Prompt, Memory Turns & Head Bubble** — Open the chat-bar menu → **对话设置 / Chat Settings** to override the character system prompt (free-form text, falls back to default when empty/equal), tune the conversation memory-turn count (1–50, default = device-recommended), and toggle the head chat bubble (`APP_CONFIG.chat.showHeadBubble`, default on). When off, `HeadBubble` does not render; ChatDirector / `bubbleTracker` events still fire. Overrides persist in IndexedDB (`xiaochun-user-settings`); turn bounds live in `APP_CONFIG.memory.userTurnsMin/Max`.
-* **Motion** — **EMAGE** full-body co-speech motion (ONNX Runtime Web) in a Dedicated Web Worker: **wasm execution provider + INT8** (`useInt8`); **does not use WebGPU** (model tensors include int64). Temporal Gaussian smoothing and natural idle blends. Streaming windows **T=64** with per-window `motion_chunk` for TTFA; A/V hold until audible TTS; hop/seam tunables under `APP_CONFIG.emage.motion` (`advanceFrames` 60..64). See [`docs/EMAGE_MODEL.md`](docs/EMAGE_MODEL.md). A smaller-download ONNX set (191 → 101 MB, no retraining) can be built with [`packages/emage-onnx`](packages/emage-onnx/README.md).
+* **Motion** — **EMAGE** full-body co-speech motion (ONNX Runtime Web) in a Dedicated Web Worker: **wasm execution provider + INT8** (`useInt8`); **does not use WebGPU** (model tensors include int64). Temporal Gaussian smoothing and natural idle blends. Streaming windows **T=64** with per-window `motion_chunk` for TTFA; A/V hold until audible TTS; hop/seam tunables under `APP_CONFIG.emage.motion` (`advanceFrames` 60..64). See [`docs/EMAGE_MODEL.md`](docs/EMAGE_MODEL.md). The shipped model set is a slimmed, INT8-quantized and graph-optimized build (download 191.35 → 71.59 MB, no retraining), produced by [`packages/emage-onnx`](packages/emage-onnx/README.md); see [`docs/PERFORMANCE.md`](docs/PERFORMANCE.md).
 * **TTS** — **Edge-TTS 晓伊 (XiaoyiNeural, zh-CN, +10 Hz)** via a hand-rolled native WebSocket client in `src/lib/edge-tts-core.ts` (no third-party TTS SDK); emoji stripped before speech.
 * **STT** — **SenseVoice Small int8** (zh/en/ja/ko/yue) in a Dedicated Worker: energy VAD auto-segments utterances, recognizes on-device, inserts at the ChatBar caret. CDN weights under `cdn.firetable.tech/xiaochun/stt/…-2024-07-17`. See [`docs/STT.md`](docs/STT.md).
 * **LLM + TTS + EMAGE orchestrated** by the chat director on the main thread at 60 FPS. **LLM may use WebGPU** (WebLLM); **EMAGE stays on wasm/INT8**.
@@ -237,6 +237,17 @@ You can download installer packages directly from the official Releases page:
 
 ---
 
+## ⚡ Performance & Size
+
+* **EMAGE download 191.35 → 71.59 MB** (brotli per file 161.3 → 57.7 MB), with no retraining: slim step (face branch removed, seed computed in JS), INT8 Conv weights, cross-attention layers 0–3 removed, offline graph optimization. Node wasm window 548 → 274 ms (1 thread) and 165 → 79 ms (4 threads); session create in Chrome about 196 → 66 ms (offline graph optimization). Quality is checked at logits/argmax level only (top-1 about 92.5% vs FP32); phones, Safari and Firefox are not measured.
+* **Parallel model download** with pipelined session create (session create stays serial); models load from `cdn.firetable.tech/xiaochun/emage/` into the `emage-models-v2` cache, old caches are purged.
+* **`@mlc-ai/web-llm` is lazy-loaded**: the shared `vrmEngine` chunk shrinks 6.95 → 1.01 MB and `/embed` no longer requests web-llm unless chat / eager preload is used.
+* **Opt-in multi-threaded EMAGE in iframes**: SDK option `crossOriginIsolated` (default off; the host needs COOP `same-origin` + COEP `credentialless`/`require-corp`).
+
+Numbers, methods, what was tried and rejected, and what is **not measured**: [`docs/PERFORMANCE.md`](docs/PERFORMANCE.md) (Chinese).
+
+---
+
 ## 🧩 Embed in Your Website (npm)
 
 Put XiaoChun on your own site with a few lines: a lazy, origin-checked `<iframe>`, a framework-free SDK, a `<xiaochun-avatar>` Web Component, React bindings, and `speakAudio()` for feeding your own audio.
@@ -264,7 +275,7 @@ npm i @firetable/project-xiaochun
 | **Motion** | EMAGE + [ONNX Runtime Web](https://onnxruntime.ai) | Dedicated Worker, **wasm EP + INT8** (no WebGPU; int64); streaming `motion_chunk` T=64 |
 | **TTS** | Native WebSocket client (`src/lib/edge-tts-core.ts`) | XiaoyiNeural zh-CN +10 Hz, emoji-stripped text; no third-party TTS SDK |
 | **Edge Runtime** | [Cloudflare Workers](https://developers.cloudflare.com/workers/) + [@cloudflare/vite-plugin](https://developers.cloudflare.com/workers/framework-guides/web-apps/tanstack-start/) | SSR streaming + WebSocket Edge-TTS + Static Assets |
-| **Object Storage** | [Cloudflare R2](https://developers.cloudflare.com/r2/) | Both FP32 (504 MB) and INT8 (~195 MB) ONNX bodies hosted with zero egress; browser downloads via `useInt8` toggle in `src/config.ts` (INT8 on tip) |
+| **Object Storage** | [Cloudflare R2](https://developers.cloudflare.com/r2/) | EMAGE ONNX models served from `https://cdn.firetable.tech/xiaochun/emage/` (the 71.59 MB Step 3 INT8 set; older FP32 504 MB / INT8 ~195 MB files stay at the parent path for older builds); browser downloads via the `useInt8` toggle and `APP_CONFIG.emage.base` in `src/config.ts` |
 | **Styling** | [Tailwind CSS 4](https://tailwindcss.com) + `tailwindcss-animate` | `liquid-glass` aesthetic, mobile-first |
 | **i18n** | [i18next](https://www.i18next.com) + [react-i18next](https://react.i18next.com) | 3 languages, SSR-hydrated |
 | **UI Primitives** | [Radix UI](https://www.radix-ui.com) (Dropdown Menu, Slot) | shadcn-style components |
@@ -377,7 +388,8 @@ Project-XiaoChun/
 │   ├── CHAT_DIRECTOR.md       # LLM + TTS + EMAGE streaming orchestration
 │   ├── STT.md                   # SenseVoice ChatBar dictation (VAD + ORT Worker)
 │   ├── ON_DEVICE_AI.md        # On-device AI inference full stack
-│   └── EMAGE_MODEL.md         # EMAGE status & known limits (wasm/INT8, streaming, isolation)
+│   ├── EMAGE_MODEL.md         # EMAGE status & known limits (wasm/INT8, streaming, isolation)
+│   └── PERFORMANCE.md         # Performance & size notes: measured numbers, rejected options, unmeasured items (Chinese)
 ├── packages/                  # pnpm workspace packages
 │   ├── project-xiaochun/      # Embed SDK (@firetable/project-xiaochun, published to npm)
 │   ├── three-vrm-materials-mtoon/ # MToon fork with NPR shading controls

@@ -186,11 +186,11 @@ python size_report.py --brotli         # 体积表
 
 可部署集合在 `out/final/`:`emage_step_int8.onnx`、`vq_{upper,hands,lower}_idx_int8.onnx`、`postprocess_int8.onnx`(71.59 MB,brotli q9 后 57.72 MB)。文件名正是 `config.ts` 在 `useInt8 = true` 时请求的名字,切换不需要改代码。
 
-**本仓库(分支 `feat-emage-slim`)的现状**:这 5 个文件已在 CDN `https://cdn.firetable.tech/xiaochun/emage/`(SHA-256 与字节数同 `out/final/` 完全一致,HTTP 200,`access-control-allow-origin: *`,请求时返回 `content-encoding: zstd`);生产构建的 `APP_CONFIG.emage.base` 默认指向它;`emage.cacheName` 升到 `emage-models-v2`(文件名与旧 INT8 集合相同,而 Cache Storage 按 URL 缓存,沿用旧桶会混乱;`emageWorker.ts` 在新模型加载成功后删除其他 `emage-models-*` 桶)。`https://cdn.firetable.tech/xiaochun/` 下的旧文件原样保留,旧版本应用不受影响。
+**本仓库的现状(已合入 `main`,随 v0.1.14 发布)**:这 5 个文件已在 CDN `https://cdn.firetable.tech/xiaochun/emage/`(SHA-256 与字节数同 `out/final/` 完全一致,HTTP 200,`access-control-allow-origin: *`,请求时返回 `content-encoding: zstd`);生产构建的 `APP_CONFIG.emage.base` 默认指向它;`emage.cacheName` 升到 `emage-models-v2`(文件名与旧 INT8 集合相同,而 Cache Storage 按 URL 缓存,沿用旧桶会混乱;`emageWorker.ts` 在新模型加载成功后删除其他 `emage-models-*` 桶)。`https://cdn.firetable.tech/xiaochun/` 下的旧文件原样保留,旧版本应用不受影响。
 
 1. 本地试用:gitignore 的 `public/onnx-slim3/` 里放指向 `out/final/*.onnx` 的软链,在 `.env.local` 设 `VITE_EMAGE_BASE=/onnx-slim3`。
 2. 部署侧:除非 Cloudflare/CI 的构建环境里设了 `VITE_EMAGE_BASE_PROD`(那样会覆盖新默认值,需删除或改成 `https://cdn.firetable.tech/xiaochun/emage`),否则无需其他改动。`wrangler*.jsonc` 里的 `EMAGE_MODELS_BASE` 没有被 `src/` 读取,仅为一致性而更新。
-3. 保持 `vqFace` 关闭。worker 尚未在浏览器里用这些文件端到端运行(见下)。
+3. 保持 `vqFace` 关闭。发布前用这 5 个文件在 Mac 的 headless Chrome 里端到端跑过一次应用(SDK iframe → `emageWorker.ts`):5 个模型都加载成功,一段语音生成了动作且无报错(仍未测的见下)。
 
 ## 许可证与来源
 
@@ -202,7 +202,7 @@ python size_report.py --brotli         # 体积表
 
 ## 注意事项与未验证项
 
-* **只有部分浏览器实测。** `js/browser_check.mjs` 在 headless Chrome 154(ort-web 1.29.0 与钉死的 1.22.0-dev,4 线程,跨源隔离)里加载并运行步骤 3 的文件,并与未优化文件对比。`emageSeed.ts` 在 Node 里跑过。`emageWorker.ts` 通过了 `tsc --noEmit`,但 worker 本身没有在浏览器、Web Worker、其他浏览器(Safari、Firefox)或手机上端到端运行过。
+* **只有部分浏览器实测。** `js/browser_check.mjs` 在 headless Chrome 154(ort-web 1.29.0 与钉死的 1.22.0-dev,4 线程,跨源隔离)里加载并运行步骤 3 的文件,并与未优化文件对比。`emageSeed.ts` 在 Node 里跑过。`emageWorker.ts` 通过了 `tsc --noEmit`;应用也在 Mac 的 headless Chrome 里用步骤 3 的文件端到端跑过一次(加载成功、生成动作);其他浏览器(Safari、Firefox)和手机没有测。维护者本地手动回归未见肉眼退化,但这不是自动化指标。
 * 延迟主要是 Node wasm(1、4、8 线程),外加一台 Apple M1 Ultra 上 4 线程的 headless Chrome 检查;其他 CPU、内存、手机均未测。步骤 2 没有延迟或内存收益;步骤 3 去掉 8 层 cross-attention 里的 4 层,提速来自这里(1T 370 -> 274 ms,4T 108 -> 79 ms)。
 * **步骤 3 的风险**:去掉 cross-attention 第 0..3 层是由数据决定的,只在 7 条音频(中英文 TTS、三段音乐/语音截取、demo、bench)上验证过;没有视觉/主观评审,没有 top-k 采样,没有数分钟的长会话,没有其他说话人、唱歌或静音。这几层在这份权重上近似恒等(机制未验证),换权重必须重做消融。优化后的图由 arm64 macOS 上的 python onnxruntime 1.23.2 写出,只用了 CPU `com.microsoft` 融合算子,在两个 ort-web 构建里都能加载,其他 ort-web 版本或平台没有测(未优化的 `out/emage_step_drop0123_int8_convq.onnx` 等可作回退)。
 * WebGPU **不在**本包范围内。旁路实验里 FP32/FP16 的 step 在同一台 Mac 的 headless Chrome WebGPU 上单窗约 21 到 28 ms,但要 130 到 263 MB 权重且只在一块 GPU 上测过,所以应用沿用 wasm + INT8 的决定。

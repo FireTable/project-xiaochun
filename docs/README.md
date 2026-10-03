@@ -24,6 +24,7 @@ docs/
 ├── CHAT_DIRECTOR.md               # Director scheduler, 30~60 chars slicer, parallel TTS & anti-spoil bubble rules
 ├── ON_DEVICE_AI.md                # WebLLM (WebGPU) + EMAGE ONNX Worker + Client-side multi-tier IndexedDB memory
 ├── STT.md                         # SenseVoice Small int8 ChatBar dictation (energy VAD + ORT Worker)
+├── PERFORMANCE.md                 # (Chinese) v0.1.14 performance & size notes: EMAGE slimming (191.35 → 71.59 MB), parallel download, lazy web-llm, opt-in crossOriginIsolated; measured numbers, rejected options, unmeasured items
 ├── EMAGE_MODEL.md                 # EMAGE tip status + Worker PCM→chunk flowchart; limits (wasm/INT8, no WebGPU-EMAGE)
 │   (pack) ../packages/emage-onnx/  # Offline EMAGE ONNX slim/quantize/optimize toolchain (slim step, INT8 Conv, layer removal, graph optimization, host-side seed): README.md / README-CN.md
 ├── OUTFIT_SWAP.md                 # Full-outfit swap (Delta .vrmaddon packages, 2-tier IDB caching, 0-frame pop-in)
@@ -62,6 +63,7 @@ When tasked with modifications or refactoring, consult the dedicated technical g
 | **EMAGE download size / ONNX slimming, quantization and optimization / emage_step outputs / host-side seed** | [`../packages/emage-onnx/README.md`](../packages/emage-onnx/README.md) | Slim step outputs only `cls_*`; `seed` is rebuilt in `emageSeed.ts` from the full-window argmax via `vq_*_idx` + `postprocess` with the jaw 6D fixed to identity (zero face gives a wrong jaw); `vq_*`/`postprocess` calls are serialized by `withVqLock`; keep `vqFace` disabled with the slim step; `emage-onnx-export` is read-only here. |
 | **Upgrading LLM / Memory optimization / Custom APIs**| [`ON_DEVICE_AI.md`](ON_DEVICE_AI.md) | WebLLM runs in Web Worker (may use WebGPU); cap short-term turns (default 2); 100% zero-backend privacy for local path. |
 | **ChatBar mic / SenseVoice STT / VAD / Worker** | [`STT.md`](STT.md) | Energy VAD auto-segment + SenseVoice int8 Worker; CDN `…/stt/…-2024-07-17`; no Zipformer; keep listening, insert at caret. |
+| **Performance / bundle size / EMAGE download size / what was measured vs not** | [`PERFORMANCE.md`](PERFORMANCE.md) | Only measured numbers; EMAGE set 71.59 MB at `cdn.firetable.tech/xiaochun/emage/` (cache `emage-models-v2`); web-llm lazy chunk; `crossOriginIsolated` is opt-in; unmeasured items are listed. |
 | **EMAGE EP / INT8 / WebGPU myths / hop & seams** | [`EMAGE_MODEL.md`](EMAGE_MODEL.md) | EMAGE = **wasm + INT8 only**; T=64; `emage.motion`; **Worker flowchart**; no fake ms. |
 
 ---

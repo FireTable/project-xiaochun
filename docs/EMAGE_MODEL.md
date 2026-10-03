@@ -1,6 +1,6 @@
 # EMAGE On-Device Model — Status & Known Limits
 
-> **State captured on tip**: `perf/edge-inference` (the branch is expected to merge; re-validate after main-line merges change worker / config / config.ts `useInt8`).
+> **State captured on `main` at v0.1.14** (Step 3 model set, `emage-models-v2`; re-validate after changes to the worker / `config.ts` / `useInt8`). Optimization overview with all measured numbers and the rejected options: [`PERFORMANCE.md`](PERFORMANCE.md) (Chinese).
 > **Core files**: [`src/motion/sources/emageWorker.ts`](../src/motion/sources/emageWorker.ts), [`src/motion/sources/emage.ts`](../src/motion/sources/emage.ts), [`src/config.ts`](../src/config.ts) (`APP_CONFIG.emage`), [`src/components/dev-drawer/sections/EmagePerfSection.tsx`](../src/components/dev-drawer/sections/EmagePerfSection.tsx)  
 > **Export upstream**: [VolgaGerm / emage-onnx-export](https://github.com/VolgaGerm/emage-onnx-export) — **README-documented scripts only** (`export_onnx.py`, `--quantize`, etc.). Non-README converters are not part of the supported path.
 > **Weights shipped**: production loads the Step 3 set of [`packages/emage-onnx`](../packages/emage-onnx/README.md) from `https://cdn.firetable.tech/xiaochun/emage/` (`APP_CONFIG.emage.base` default; override with `VITE_EMAGE_BASE_PROD`): `emage_step_int8.onnx` (66.55 MB), `vq_{upper,hands,lower}_idx_int8.onnx`, `postprocess_int8.onnx`, 71.59 MB in total, all INT8. The older full set (FP32 504 MB / INT8 ~167 MB `emage_step*.onnx`) stays at `https://cdn.firetable.tech/xiaochun/` but is **not** under `/emage/`: with `useInt8 = false` the app would request `emage_step.onnx` there and fail unless an FP32 set is uploaded to `/emage/` too. Filenames are `*_int8.onnx` via `q()` when `useInt8` is true.
@@ -8,6 +8,21 @@
 > **Smaller download (shipped, Step 3 set)**: [`packages/emage-onnx`](../packages/emage-onnx/README.md) slims, quantizes and optimizes the model set: a slim `emage_step` (only `cls_*`; `seed` computed host-side by [`emageSeed.ts`](../src/motion/sources/emageSeed.ts)), INT8 Conv weights (191.4 MB → 100.7 MB total download), and in Step 3 cross-attention layers 0..3 removed without retraining plus offline ORT graph optimization (→ 71.6 MB, same file names as the current INT8 set; see the package README for quality, latency and risks). `emageWorker.ts` auto-detects slim vs full step outputs; the default config now points at the slim set (file names unchanged); a full step on a custom base still works. **CacheStorage**: `APP_CONFIG.emage.cacheName` is `emage-models-v2` (the file names equal the old INT8 set, caches are keyed by URL and bucket name, so the bucket name was bumped together with the base URL); after a successful load `emageWorker.ts` deletes any other `emage-models-*` bucket (the old v1 bucket held ~190 MB).
 
 This page records what is **shipped and true** for browser EMAGE on the current tip. It does **not** invent latency numbers.
+
+### Measured numbers for the shipped Step 3 set
+
+All from [`packages/emage-onnx`](../packages/emage-onnx/README.md) (full tables there); MB = 1e6 bytes. Node figures are onnxruntime-web wasm in Node, 64-frame window, median of 10 windows after warm-up — **relative values only, not browser or mobile numbers**.
+
+| Item | Before (INT8 set) | Shipped (Step 3) |
+| :--- | ---: | ---: |
+| `emage_step_int8.onnx` | 175.00 MB | **66.55 MB** |
+| Total download (5 files) | 191.35 MB | **71.59 MB** (brotli -q9 per file, summed: 161.28 → 57.72 MB) |
+| step window, Node, 1 thread | 548 ms | **274 ms** |
+| step window, Node, 4 threads | 165 ms | **79 ms** |
+| step session create, headless Chrome (4 threads), offline-optimized vs not | 196 ms | **66 ms** |
+| host-side `seed` (`vq_* x3 + postprocess`, per window, 1 thread) | — | about 18 ms |
+
+Quality is judged at logits / argmax level only: top-1 against the FP32 slim model about 92.5%; free-running argmax agreement with the old INT8 model 90.1 / 86.5 / 90.6% (upper / hands / lower) vs a noise floor of 89.8 / 88.2 / 92.2%. A local manual regression showed no visible degradation. **Not measured**: phones, Safari, Firefox, multi-minute sessions, other speakers, singing, silence, top-k sampling.
 
 ---
 
@@ -17,11 +32,12 @@ This page records what is **shipped and true** for browser EMAGE on the current 
 | :--- | :--- |
 | Runtime | ONNX Runtime Web inside a **Dedicated Web Worker** |
 | Execution provider | **`wasm` only** (`executionProviders: ['wasm']`) |
-| Quantization | **INT8 dynamic PTQ already on** (`useInt8 = true` → `*_int8.onnx`); the FP32 set is not part of the `/emage/` CDN directory (see Weights shipped) |
+| Quantization | **INT8 dynamic PTQ already on** (`useInt8 = true` → `*_int8.onnx`; MatMul weights INT8 via `quantize_dynamic`, the remaining Conv weights INT8 per-channel in the Step 2 pack); the FP32 set is not part of the `/emage/` CDN directory (see Weights shipped) |
+| Model loading | `ensureLoaded` downloads all enabled models **in parallel** (cache logic unchanged) and queues `InferenceSession.create` in arrival order; **`create` stays serial** (single-thread wasm cannot overlap it, and it avoids ort-web shared-init races) |
 | Window length | Fixed **T=64** frames per step (model export contract) |
 | Streaming | Per-window **`motion_chunk`** posts after each successful `runStep` (TTFA path) |
 | A/V sync | First chunk buffered until TTS `AudioContext.start` → `releaseMotionForAudio` (motion does not lead audible audio) |
-| Isolation / threads | **P0b**: COOP `same-origin` + COEP `credentialless` on document responses; when `crossOriginIsolated`, SharedArrayBuffer + ORT wasm multi-thread (capped); step scratch reused across windows |
+| Isolation / threads | **P0b**: COOP `same-origin` + COEP `credentialless` on document responses; when `crossOriginIsolated`, SharedArrayBuffer + ORT wasm multi-thread (capped at 8 on desktop / 4 on mobile); step scratch reused across windows. **Inside a third-party iframe** this is 1 thread unless the host page is itself isolated **and** opts in with the SDK `crossOriginIsolated` option (see §7) |
 | Hop / seams | **E1+E2 / P0c** knobs under `APP_CONFIG.emage.motion` (see §4) |
 | Face / global VQ | **`vqFace` / `vqGlobal` disabled** in config (zeros / skip load) |
 | Parallel VQ decode | **Not viable** on ORT WASM (`Promise.all` → “Session already started”); VQ runs **sequentially** |
@@ -36,6 +52,8 @@ This page records what is **shipped and true** for browser EMAGE on the current 
 
 
 ## 1.1 Wall-clock reality (qualitative)
+
+> The single observation below was taken **before** the Step 3 set shipped (full INT8 `emage_step`, mid-range mobile). It has not been re-measured with the Step 3 set; do not compare it with the Node figures above (different device and runtime).
 
 The dominant cost remains the **serial autoregressive `runStep`** on wasm (one window after another). Decode is comparatively cheap on tip profiling. Hop `advanceFrames` in **60..64** only changes window count modestly (on the order of a few percent fewer windows at 64 vs 60) — it is **not** a large wall-clock cut. Measure on-device; do not copy ms from docs into marketing.
 
@@ -156,6 +174,8 @@ For multi-thread wasm:
 1. Document must be **`crossOriginIsolated`** (COOP + COEP `credentialless` from `src/server.ts` / Vite / `_headers`).
 2. `SharedArrayBuffer` available in the Worker.
 3. `ort.env.wasm.numThreads` &gt; 1 (capped in Worker to leave headroom for WebLLM + render).
+
+**In a host page's iframe** (`/embed`): `crossOriginIsolated` is false by default (single thread). It becomes true only when the host page sends `COOP: same-origin` + `COEP: credentialless` (or `require-corp`), `/embed` sends COEP too (it does: `credentialless` + `CORP: cross-origin`, see `securityHeaders.ts` / `public/_headers`), **and** the iframe `allow` includes `cross-origin-isolated` — the SDK adds it only when `crossOriginIsolated: true` is passed (`<xiaochun-avatar cross-origin-isolated>` / React `crossOriginIsolated`). Measured in headless Chrome: `numThreads` 1 → 8 (the desktop cap) with host isolated + option on; 1 in all other combinations. `xc.ready.capabilities.crossOriginIsolated` reports the iframe-side value. Host-side requirements and side effects: [`EMBED.md` §3.1](EMBED.md#31-可选跨源隔离让-emage-用多线程-wasm). Node reference for the gain: 1 thread 274 ms → 4 threads 79 ms (no in-browser 1-vs-8 timing).
 
 `EmagePerfSection` is the localhost UI for screenshotting these fields — not a public user feature.
 

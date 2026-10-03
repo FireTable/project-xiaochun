@@ -166,7 +166,7 @@ brew upgrade --cask project-xiaochun
 * **大语言模型 (OpenAI 兼容自定义服务,可选)** — 应用内配置对话框一键接入任意 OpenAI 兼容 HTTP 服务:Ollama / LM Studio / vLLM / LocalAI / 云厂商(OpenAI、DeepSeek、Qwen API 等)。Provider 配置 AES-GCM 加密存在 IndexedDB;激活后 WebLLM **不会**预热,省 1-2 GB 显存 + 模型下载带宽。
 * **统一 Provider 工厂 (`chatWorkflow.runChat`)** — WebLLM 与自定义 provider 共享同形 `runChat(opts) → string` 契约;dispatcher 通过 `ChatProvider` 注册表轮询,选第一个 `isActive` 命中的。加新 provider = 注册一个描述符。
 * **用户自定义系统提示词 + 记忆轮数 + 头顶气泡** — 聊天菜单 → 「对话设置」可微调小蠢人设(留空/与默认相同则走默认人设)、对话记忆轮数(1-50,默认设备推荐)与头顶对话气泡(`APP_CONFIG.chat.showHeadBubble`,默认开)。关掉后 `HeadBubble` 不渲染,ChatDirector / `bubbleTracker` 事件照发。配置持久化在 IndexedDB(`xiaochun-user-settings`);轮数边界集中在 `APP_CONFIG.memory.userTurnsMin/Max`。
-* **动作生成** — **EMAGE** 全身协同动作 (ONNX Runtime Web) 在 Dedicated Web Worker 中运行：**wasm 执行提供者 + INT8**（`useInt8`）；**不使用 WebGPU**（模型含 int64）。时序高斯滤波与自然待机混合。流式窗长 **T=64**，每窗 `motion_chunk` 降低 TTFA；可听 TTS 前 A/V hold；hop/接缝参数集中在 `APP_CONFIG.emage.motion`（`advanceFrames` 60..64）。详情见 [`docs/EMAGE_MODEL.md`](docs/EMAGE_MODEL.md)。 想要更小的下载体积(191 → 101 MB,无需重训)可用 [`packages/emage-onnx`](packages/emage-onnx/README-CN.md) 构建。
+* **动作生成** — **EMAGE** 全身协同动作 (ONNX Runtime Web) 在 Dedicated Web Worker 中运行：**wasm 执行提供者 + INT8**（`useInt8`）；**不使用 WebGPU**（模型含 int64）。时序高斯滤波与自然待机混合。流式窗长 **T=64**，每窗 `motion_chunk` 降低 TTFA；可听 TTS 前 A/V hold；hop/接缝参数集中在 `APP_CONFIG.emage.motion`（`advanceFrames` 60..64）。详情见 [`docs/EMAGE_MODEL.md`](docs/EMAGE_MODEL.md)。 线上使用的是瘦身、INT8 量化并离线优化后的模型集(下载 191.35 → 71.59 MB,无需重训),由 [`packages/emage-onnx`](packages/emage-onnx/README-CN.md) 产出,见 [`docs/PERFORMANCE.md`](docs/PERFORMANCE.md)。
 * **语音识别** — **SenseVoice Small int8**（中/英/日/韩/粤）Dedicated Worker：能量 VAD 自动切段、端上识别、回填 ChatBar 光标处。CDN：`cdn.firetable.tech/xiaochun/stt/…-2024-07-17`。详见 [`docs/STT.md`](docs/STT.md)。
 * **语音合成** — **Edge-TTS 晓伊 (XiaoyiNeural, zh-CN, +10 Hz)**，基于自研原生 WebSocket 客户端（`src/lib/edge-tts-core.ts`,无第三方 TTS SDK）；网络传输前智能剥离 emoji。
 * **LLM + TTS + EMAGE 一体编排**：chat director 全链路统一协调，主线程满帧 60 FPS。**LLM 可用 WebGPU**（WebLLM）；**EMAGE 固定 wasm/INT8**。
@@ -228,6 +228,17 @@ brew upgrade --cask project-xiaochun
 
 ---
 
+## ⚡ 性能与体积优化
+
+* **EMAGE 下载 191.35 → 71.59 MB**（逐文件 brotli 161.3 → 57.7 MB），无需重训：精简 step（去 face 分支、seed 挪到 JS 计算）、Conv 权重 INT8、去掉 cross-attention 第 0–3 层、离线图优化。Node wasm 单窗 548 → 274 ms（1 线程）、165 → 79 ms（4 线程）；Chrome 建会话约 196 → 66 ms（离线图优化）。质量只在 logits/argmax 层面验证（对 FP32 top-1 约 92.5%）；手机、Safari、Firefox 未测。
+* **模型并行下载** + 流水线建会话（建会话仍串行）；模型从 `cdn.firetable.tech/xiaochun/emage/` 加载，缓存桶 `emage-models-v2`，旧缓存自动清理。
+* **`@mlc-ai/web-llm` 按需加载**：共享的 `vrmEngine` chunk 从 6.95 MB 降到 1.01 MB，`/embed` 在不用对话 / 不预热 LLM 时不再请求 web-llm。
+* **iframe 内可选多线程 EMAGE**：SDK 选项 `crossOriginIsolated`（默认关闭；宿主需要 COOP `same-origin` + COEP `credentialless`/`require-corp`）。
+
+数据、方法、试过但没采用的方案、以及**未实测**项：[`docs/PERFORMANCE.md`](docs/PERFORMANCE.md)。
+
+---
+
 ## 🧩 嵌入你的网站 (npm)
 
 几行代码就能把小蠢放到你自己的网站上:懒加载、严格校验 origin 的 `<iframe>`,无框架 SDK、`<xiaochun-avatar>` Web Component、React 封装,以及可传入自己音频的 `speakAudio()`。
@@ -255,7 +266,7 @@ npm i @firetable/project-xiaochun
 | **动作生成** | EMAGE + [ONNX Runtime Web](https://onnxruntime.ai) | Dedicated Worker，**wasm EP + INT8**（无 WebGPU；int64）；流式 `motion_chunk` T=64 |
 | **语音合成** | 原生 WebSocket 客户端 (`src/lib/edge-tts-core.ts`) | 晓伊 zh-CN +10 Hz, emoji 剥离;无第三方 TTS SDK |
 | **边缘运行时** | [Cloudflare Workers](https://developers.cloudflare.com/workers/) + [@cloudflare/vite-plugin](https://developers.cloudflare.com/workers/framework-guides/web-apps/tanstack-start/) | SSR 渲染 + WebSocket TTS + 静态资产直连 |
-| **对象存储** | [Cloudflare R2](https://developers.cloudflare.com/r2/) | 同时托管 FP32（504 MB）与 INT8（约 195 MB）两套 ONNX 全身模型，免出站流量费；浏览器下载走 `src/config.ts` 的 `useInt8` 开关（tip 默认 INT8） |
+| **对象存储** | [Cloudflare R2](https://developers.cloudflare.com/r2/) | EMAGE ONNX 模型从 `https://cdn.firetable.tech/xiaochun/emage/` 提供（71.59 MB 的 Step 3 INT8 集合；旧的 FP32 504 MB / INT8 约 195 MB 文件仍留在上级路径供旧版本使用），免出站流量费；浏览器下载走 `src/config.ts` 的 `useInt8` 开关与 `APP_CONFIG.emage.base` |
 | **样式** | [Tailwind CSS 4](https://tailwindcss.com) + `tailwindcss-animate` | 液态玻璃视觉,移动端优先 |
 | **国际化** | [i18next](https://www.i18next.com) + [react-i18next](https://react.i18next.com) | 三语,SSR 水合 |
 | **UI 原语** | [Radix UI](https://www.radix-ui.com) (DropdownMenu, Slot) | shadcn 风格组件 |
@@ -347,7 +358,8 @@ Project-XiaoChun/
 │   ├── CHAT_DIRECTOR.md       # LLM + TTS + EMAGE 流式状态机编排
 │   ├── STT.md                   # SenseVoice ChatBar 听写（VAD + ORT Worker）
 │   ├── ON_DEVICE_AI.md        # 端侧 AI 推理全栈
-│   └── EMAGE_MODEL.md         # EMAGE 现状与已知限制（wasm/INT8、流式、隔离）
+│   ├── EMAGE_MODEL.md         # EMAGE 现状与已知限制（wasm/INT8、流式、隔离）
+│   └── PERFORMANCE.md         # 性能与体积优化笔记：实测数据、否决方案、未实测项
 ├── packages/                  # pnpm workspace 子包
 │   ├── project-xiaochun/      # 嵌入 SDK (@firetable/project-xiaochun,发布到 npm)
 │   ├── three-vrm-materials-mtoon/ # 带 NPR 着色控制的 MToon 分支
