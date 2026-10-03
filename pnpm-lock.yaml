@@ -169,7 +169,7 @@ importers:
         specifier: ^4.129.0
         version: 4.129.0(@cloudflare/workers-types@5.20260903.1)
 
-  packages/emage-onnx-slim:
+  packages/emage-onnx:
     dependencies:
       onnxruntime-web:
         specifier: ^1.22.0-dev.20250409-89f8206ba4

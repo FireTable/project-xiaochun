@@ -15,6 +15,9 @@ files = {
     "fp32 slim (truth)": "emage_step_slim.onnx",
     "step1 int8": "emage_step_slim_int8.onnx",
     "step1+2 int8 + conv int8": "emage_step_slim_int8_convq.onnx",
+    "step3 FP32 (cross-attn 0..3 dropped)": "emage_step_drop0123.onnx",
+    "step3 int8 + conv int8 (not optimized)": "emage_step_drop0123_int8_convq.onnx",
+    "step3 final (out/final, optimized)": "final/emage_step_int8.onnx",
     "step1 int8 + conv fp16 (re-roll floor)": "var/step_all_fp16.onnx",
     "step1 int8 + ConvInteger (experimental)": "var/step_convinteger.onnx",
 }

@@ -1,6 +1,7 @@
 #!/usr/bin/env node
-// Per-window latency + session-create time: baseline emage_step_int8 vs slim INT8 vs slim INT8 + conv int8.
+// Per-window latency + session-create time: baseline emage_step_int8 vs slim INT8 vs slim INT8 + conv int8 vs STEP 3 (out/final, if present).
 // usage: node bench_latency.mjs [--ort-web-dir DIR] [--threads 1] [--windows 10] [--clip out/clips/demo.wav]
+import fs from 'node:fs';
 import path from 'node:path';
 import { PACK, WINDOW_AUDIO, parseArgs, loadOrt, createSession, readWav, identityMotion, makeFeed, mean, median } from './common.mjs';
 const a = parseArgs(process.argv.slice(2), {
@@ -16,6 +17,8 @@ const models = {
   'step1 slim int8': path.join(a.outDir, 'emage_step_slim_int8.onnx'),
   'step1+2 slim int8 + conv int8': path.join(a.outDir, 'emage_step_slim_int8_convq.onnx'),
 };
+if (fs.existsSync(path.join(a.outDir, 'emage_step_drop0123_int8_convq.onnx'))) models['step3 drop 0..3, not optimized'] = path.join(a.outDir, 'emage_step_drop0123_int8_convq.onnx');
+if (fs.existsSync(path.join(a.outDir, 'final/emage_step_int8.onnx'))) models['step3 drop 0..3 + optimized (final)'] = path.join(a.outDir, 'final/emage_step_int8.onnx');
 const res = {};
 for (const [name, file] of Object.entries(models)) {
   const t0 = performance.now(); const s = await createSession(ort, file); const create = performance.now() - t0;

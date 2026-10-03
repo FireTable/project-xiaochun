@@ -39,6 +39,7 @@ sets = {
     "baseline INT8 (current)": [("emage_step_int8.onnx", E), ("vq_upper_idx_int8.onnx", E), ("vq_hands_idx_int8.onnx", E), ("vq_lower_idx_int8.onnx", E), ("postprocess_int8.onnx", E)],
     "step 1 (slim step INT8)": [("emage_step_slim_int8.onnx", O), ("vq_upper_idx_int8.onnx", E), ("vq_hands_idx_int8.onnx", E), ("vq_lower_idx_int8.onnx", E), ("postprocess_int8.onnx", E)],
     "step 1+2 (slim INT8 + conv INT8)": [("emage_step_slim_int8_convq.onnx", O), ("vq_upper_idx_int8_convq.onnx", O), ("vq_hands_idx_int8_convq.onnx", O), ("vq_lower_idx_int8_convq.onnx", O), ("postprocess_int8.onnx", E)],
+    "step 3 (final: drop cross-attn 0..3 + optimized)": [("emage_step_int8.onnx", os.path.join(O, "final")), ("vq_upper_idx_int8.onnx", os.path.join(O, "final")), ("vq_hands_idx_int8.onnx", os.path.join(O, "final")), ("vq_lower_idx_int8.onnx", os.path.join(O, "final")), ("postprocess_int8.onnx", os.path.join(O, "final"))],
 }
 cache = {}
 report = {}

@@ -4,7 +4,7 @@
  * The full emage_step.onnx computed `seed` in-graph:
  *   argmax(cls_*) -> vq decode (face/upper/hands/lower) -> 6D -> axis-angle -> 55-joint assembly
  *   -> motion_inference[:, -4:, :]
- * The slim step (packages/emage-onnx-slim) outputs only cls_upper / cls_hands / cls_lower, so the same seed
+ * The slim step (packages/emage-onnx) outputs only cls_upper / cls_hands / cls_lower, so the same seed
  * is rebuilt here from the FULL 64-frame window's argmax indices using the vq_*_idx + postprocess sessions
  * the worker already loads. The face branch is gone, so the jaw 6D is fixed to identity [1,0,0,0,1,0].
  *
@@ -12,7 +12,7 @@
  * written explicitly (see fillIdentityJaw).
  *
  * Pure TypeScript with no imports, so it can be exercised from plain Node (type stripping) by
- * packages/emage-onnx-slim/js/verify_slim.mjs. ORT calls are injected through `SeedDeps`.
+ * packages/emage-onnx/js/verify_slim.mjs. ORT calls are injected through `SeedDeps`.
  */
 
 export const FACE_DEC_DIM = 106;

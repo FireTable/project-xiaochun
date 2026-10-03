@@ -1,9 +1,9 @@
-"""Shared helpers for the emage-onnx-slim pack.
+"""Shared helpers for the emage-onnx pack.
 
 The pack never modifies the sibling emage-onnx-export checkout. It only READS:
   * <export-dir>/onnx/*.onnx           (baseline models, for comparison)
   * <export-dir>/PantoMatrix/.git      (to extract the model code at MODEL_COMMIT)
-and writes everything under  packages/emage-onnx-slim/out/  (gitignored).
+and writes everything under  packages/emage-onnx/out/  (gitignored).
 """
 import os
 import subprocess

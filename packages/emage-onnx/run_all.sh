@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
-# One-shot pipeline: export slim step -> INT8 -> conv INT8 -> clips -> verification -> latency -> sizes.
-# Everything is written to packages/emage-onnx-slim/out/ (gitignored). emage-onnx-export is only read.
+# One-shot pipeline: export slim step -> INT8 -> conv INT8 -> STEP 3 (drop cross-attn layers 0..3 + offline optimization) -> clips -> verification -> latency -> sizes.
+# Everything is written to packages/emage-onnx/out/ (gitignored); the final deployable set is out/final/. emage-onnx-export is only read.
 #
 #   PYTHON=/path/to/python EMAGE_EXPORT_DIR=../emage-onnx-export ./run_all.sh [--with-pinned-ort] [--brotli]
 #
@@ -20,11 +20,14 @@ echo "== STEP 1: slim step (cls_* only) + INT8 =="
 "$PYTHON" export_slim_step.py --export-dir "$EMAGE_EXPORT_DIR"
 echo "== STEP 2: INT8 Conv weights (step + vq_*_idx) =="
 "$PYTHON" quantize_conv_int8.py --all --export-dir "$EMAGE_EXPORT_DIR"
+echo "== STEP 3: drop cross-attn layers 0..3 + offline graph optimization -> out/final/ (+ .ort in out/final_ort/) =="
+"$PYTHON" step3_drop_optimize.py --export-dir "$EMAGE_EXPORT_DIR" --ort
 echo "== test clips =="
 ./make_clips.sh
 echo "== verification (installed onnxruntime-web) =="
 node js/verify_slim.mjs --fp32-step emage_step.onnx --json out/reports/verify_slim.json | tee out/reports/verify_slim.log
 node js/verify_convq.mjs --json out/reports/verify_convq.json | tee out/reports/verify_convq.log
+node js/verify_slim.mjs --slim-dir out/final --slim-step emage_step_int8.onnx --fp32-step emage_step.onnx --json out/reports/verify_step3.json | tee out/reports/verify_step3.log
 node js/bench_latency.mjs | tee out/reports/bench_latency.log
 "$PYTHON" tools_vs_fp32.py | tee out/reports/vs_fp32.log
 if [ "$PINNED" = 1 ]; then
@@ -33,6 +36,7 @@ if [ "$PINNED" = 1 ]; then
   (cd out/ort-pinned && { [ -f package.json ] || npm init -y >/dev/null; } && npm install onnxruntime-web@1.22.0-dev.20250409-89f8206ba4 --no-audit --no-fund --ignore-scripts)
   P=out/ort-pinned/node_modules/onnxruntime-web
   node js/verify_slim.mjs --ort-web-dir "$P" --json out/reports/verify_slim_ort1.22-dev.json | tee out/reports/verify_slim_ort1.22-dev.log
+  node js/verify_slim.mjs --ort-web-dir "$P" --slim-dir out/final --slim-step emage_step_int8.onnx --json out/reports/verify_step3_ort1.22-dev.json | tee out/reports/verify_step3_ort1.22-dev.log
   node js/verify_convq.mjs --ort-web-dir "$P" --json out/reports/verify_convq_ort1.22-dev.json | tee out/reports/verify_convq_ort1.22-dev.log
   node js/bench_latency.mjs --ort-web-dir "$P" | tee out/reports/bench_latency_ort1.22-dev.log
 fi

@@ -11,8 +11,13 @@ The body path is a line-by-line copy of EmageAudioModel.forward (body part only)
 mathematically identical to the full model. INT8 uses the exact README call:
     quantize_dynamic(fp32, int8, weight_type=QInt8, op_types_to_quantize=["MatMul"])
 
+STEP 3 option  --drop-cross-layers 0,1,2,3  (used by step3_drop_optimize.py): removes those layers of
+audio_motion_cross_attn before export (no retraining). On the released weights layers 0..3 contribute ~nothing
+(see README "Step 3"); the other outputs keep the same names/shapes. The default (no flag) is unchanged.
+
 Usage:
     python export_slim_step.py [--export-dir ../../../emage-onnx-export] [--out-dir out] [--no-quantize]
+                               [--drop-cross-layers 0,1,2,3 --name emage_step_drop0123]
 """
 import argparse
 import os
@@ -24,6 +29,8 @@ ap = argparse.ArgumentParser()
 ap.add_argument("--export-dir", default=C.default_export_dir())
 ap.add_argument("--out-dir", default=C.DEFAULT_OUT)
 ap.add_argument("--no-quantize", action="store_true")
+ap.add_argument("--drop-cross-layers", default="", help="comma list of audio_motion_cross_attn layer indices (0..7) to remove, e.g. 0,1,2,3")
+ap.add_argument("--name", default="emage_step_slim", help="output basename (<name>.onnx, <name>_int8.onnx)")
 args = ap.parse_args()
 
 os.makedirs(args.out_dir, exist_ok=True)
@@ -92,6 +99,16 @@ class SlimStepWrapper(nn.Module):
 def main():
     C.log("Loading PyTorch model (H-Liu1997/emage_audio, from HF cache if present)...")
     model = EmageAudioModel.from_pretrained(C.HF_REPO).to("cpu").eval()
+    drop = sorted({int(x) for x in args.drop_cross_layers.split(",") if x.strip() != ""})
+    full_model = None
+    if drop:
+        import copy
+        full_model = copy.deepcopy(model)   # kept only for the printed sanity comparison below
+        layers = list(model.audio_motion_cross_attn.layers)
+        assert all(0 <= i < len(layers) for i in drop), f"layer index out of range 0..{len(layers) - 1}"
+        model.audio_motion_cross_attn.layers = nn.ModuleList([l for i, l in enumerate(layers) if i not in drop])
+        model.audio_motion_cross_attn.num_layers = len(model.audio_motion_cross_attn.layers)
+        C.log(f"Dropped audio_motion_cross_attn layers {drop}; {model.audio_motion_cross_attn.num_layers} remain")
     wrapper = SlimStepWrapper(model).eval()
 
     torch.manual_seed(0)
@@ -105,13 +122,16 @@ def main():
     probe = [x.clone() for x in inputs]
     probe[3][:, :4] = 0
     with torch.no_grad():
-        ref = model(probe[0], probe[1], probe[2], probe[3], use_audio=True)
+        ref = (full_model or model)(probe[0], probe[1], probe[2], probe[3], use_audio=True)
         got = wrapper(*probe)
     d = [float((ref[k] - g).abs().max()) for k, g in zip(["cls_upper", "cls_hands", "cls_lower"], got)]
-    C.log(f"[check] PyTorch wrapper vs full forward max|diff| cls_upper/hands/lower = {d}")
-    assert max(d) < 1e-5, "wrapper deviates from model.forward"
+    if drop:
+        C.log(f"[check] layer-dropped wrapper vs UNMODIFIED full forward max|diff| (random input, informational) = {d}")
+    else:
+        C.log(f"[check] PyTorch wrapper vs full forward max|diff| cls_upper/hands/lower = {d}")
+        assert max(d) < 1e-5, "wrapper deviates from model.forward"
 
-    fp32 = os.path.join(args.out_dir, "emage_step_slim.onnx")
+    fp32 = os.path.join(args.out_dir, args.name + ".onnx")
     C.log(f"Exporting {fp32}")
     with torch.no_grad():
         torch.onnx.export(
@@ -132,7 +152,7 @@ def main():
 
     if not args.no_quantize:
         from onnxruntime.quantization import quantize_dynamic, QuantType
-        int8 = os.path.join(args.out_dir, "emage_step_slim_int8.onnx")
+        int8 = os.path.join(args.out_dir, args.name + "_int8.onnx")
         C.log(f"INT8 dynamic quantization (README call: QInt8, op_types_to_quantize=['MatMul']) -> {int8}")
         quantize_dynamic(fp32, int8, weight_type=QuantType.QInt8, op_types_to_quantize=["MatMul"])
         C.log(f"  int8 slim: {C.mb(int8):.2f} MB  (fp32 {C.mb(fp32):.2f} MB)")

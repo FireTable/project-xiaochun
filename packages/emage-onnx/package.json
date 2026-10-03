@@ -1,7 +1,7 @@
 {
-  "name": "@firetable/emage-onnx-slim",
+  "name": "@firetable/emage-onnx",
   "version": "0.1.0",
-  "description": "Offline toolchain that slims the EMAGE ONNX set for browser use: cls-only emage_step (host-side seed), INT8 Conv weights, verification and latency scripts. Ships scripts and docs only, no model files.",
+  "description": "Offline toolchain that slims, quantizes and optimizes the EMAGE ONNX set for browser use: cls-only emage_step (host-side seed), INT8 Conv weights, cross-attention layer removal, offline ORT graph optimization, verification and latency scripts. Ships scripts and docs only, no model files.",
   "license": "MIT",
   "author": "FireTable",
   "type": "module",
@@ -16,21 +16,23 @@
   ],
   "keywords": [
     "emage",
+    "model-compression",
     "onnx",
     "onnxruntime-web",
     "quantization",
+    "graph-optimization",
     "int8",
     "xiaochun",
     "project-xiaochun"
   ],
-  "homepage": "https://github.com/FireTable/project-xiaochun/tree/main/packages/emage-onnx-slim#readme",
+  "homepage": "https://github.com/FireTable/project-xiaochun/tree/main/packages/emage-onnx#readme",
   "bugs": {
     "url": "https://github.com/FireTable/project-xiaochun/issues"
   },
   "repository": {
     "type": "git",
     "url": "git+https://github.com/FireTable/project-xiaochun.git",
-    "directory": "packages/emage-onnx-slim"
+    "directory": "packages/emage-onnx"
   },
   "publishConfig": {
     "access": "public"
@@ -44,6 +46,7 @@
     "all:pinned": "./run_all.sh --with-pinned-ort --brotli",
     "step1": "python3 export_slim_step.py",
     "step2": "python3 quantize_conv_int8.py --all",
+    "step3": "python3 step3_drop_optimize.py --ort",
     "clips": "./make_clips.sh",
     "verify:slim": "node js/verify_slim.mjs",
     "verify:convq": "node js/verify_convq.mjs",
