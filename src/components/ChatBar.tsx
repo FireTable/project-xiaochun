@@ -1,3 +1,4 @@
+import { isEmbed } from '@/lib/platform';
 import React, { useState, useEffect, useRef, Fragment, useMemo } from 'react';
 import { useTranslation } from 'react-i18next';
 import { ChevronLeft, ChevronRight, Menu, Mic, Mountain, Server, Sun, Zap } from 'lucide-react';
@@ -20,6 +21,8 @@ import {
   getQuickDeviceTier,
   getCachedDeviceProfile,
   listModelGroups,
+  loadWebLLMLib,
+  onWebLLMLibReady,
   modelBaseId,
   subscribeThinkingEnabled,
 } from '@/llm/webLLMProvider';
@@ -175,6 +178,15 @@ export const ChatBar: React.FC<{
   // ponytail: 当前激活的自定义 provider(webllm 与 custom 二选一)。用来在模型下拉里
   // 显示真实生效的服务名 / 模型,而不是 webLLM 的兜底。
   const [activeCustom, setActiveCustom] = useState<ProviderProfile | null>(null);
+  // web-llm 库按需动态加载: 主站挂载后即后台加载(完整模型列表);/embed(ui=1) 打开模型选单时才加载。
+  const [, setLlmLibTick] = useState(0);
+  useEffect(() => onWebLLMLibReady(() => setLlmLibTick((n) => n + 1)), []);
+  useEffect(() => {
+    if (!isEmbed()) void loadWebLLMLib().catch(() => {});
+  }, []);
+  useEffect(() => {
+    if (pickingModel) void loadWebLLMLib().catch(() => {});
+  }, [pickingModel]);
   const llmGroups = listModelGroups();
   const activeBase = modelBaseId(activeModel);
   // ponytail: 找当前激活 webllm 模型的 label(去掉量化后缀),下拉里跟 custom 一样

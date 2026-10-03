@@ -6,12 +6,12 @@
  * 自定义 HTTP provider 见 ./customProvider.ts。
  */
 
-import {
-  CreateWebWorkerMLCEngine,
-  prebuiltAppConfig,
-  type WebWorkerMLCEngine,
-  type ModelRecord,
-  type AppConfig,
+// ponytail: @mlc-ai/web-llm 库体积 ~6MB,只在真正需要 LLM(主站 ChatBar / 预热 / 首次 chat)时动态加载,
+// 这里只引类型。/embed 默认路径(纯朗读)因此不再下载这个 chunk。
+import type {
+  WebWorkerMLCEngine,
+  ModelRecord,
+  AppConfig,
 } from '@mlc-ai/web-llm';
 import { APP_CONFIG } from '@/config';
 import { readActiveModel, writeActiveModel } from './activeModel';
@@ -40,10 +40,51 @@ export const CUSTOM_WEBLLM_MODELS: ModelRecord[] = [
   },
 ];
 
-export const APP_LLM_CONFIG: AppConfig = {
-  model_list: [...CUSTOM_WEBLLM_MODELS, ...prebuiltAppConfig.model_list],
-  cacheBackend: 'indexeddb',
-};
+type WebLLMLib = typeof import('@mlc-ai/web-llm');
+
+let webllmLib: WebLLMLib | null = null;
+let webllmLibPromise: Promise<WebLLMLib> | null = null;
+const libReadyListeners = new Set<() => void>();
+
+/** 动态加载 @mlc-ai/web-llm(只加载一次,失败后允许重试)。 */
+export function loadWebLLMLib(): Promise<WebLLMLib> {
+  if (webllmLib) return Promise.resolve(webllmLib);
+  if (!webllmLibPromise) {
+    webllmLibPromise = import('@mlc-ai/web-llm').then(
+      (lib) => {
+        webllmLib = lib;
+        libReadyListeners.forEach((fn) => {
+          try { fn(); } catch { /* noop */ }
+        });
+        return lib;
+      },
+      (err) => {
+        webllmLibPromise = null;
+        throw err;
+      },
+    );
+  }
+  return webllmLibPromise;
+}
+
+/** 库是否已就绪(prebuilt 模型列表可用)。 */
+export function isWebLLMLibLoaded(): boolean {
+  return webllmLib !== null;
+}
+
+/** 库加载完成时回调(列表从「仅自定义模型」扩展为完整 prebuilt 列表,UI 需刷新)。已就绪则不回调。 */
+export function onWebLLMLibReady(cb: () => void): () => void {
+  libReadyListeners.add(cb);
+  return () => { libReadyListeners.delete(cb); };
+}
+
+function currentModelList(): ModelRecord[] {
+  return [...CUSTOM_WEBLLM_MODELS, ...(webllmLib?.prebuiltAppConfig.model_list ?? [])];
+}
+
+function getAppLlmConfig(): AppConfig {
+  return { model_list: currentModelList(), cacheBackend: 'indexeddb' };
+}
 
 export const DEFAULT_LLM_MODEL = APP_CONFIG.llm.model;
 export const FALLBACK_LLM_MODEL = APP_CONFIG.llm.fallback;
@@ -88,7 +129,9 @@ const llmReadyListeners = new Set<() => void>();
 const readyChangeListeners = new Set<(ready: boolean) => void>();
 
 function isKnownModelId(id: string): boolean {
-  return APP_LLM_CONFIG.model_list.some((m) => m.model_id === id);
+  // 库未加载时 prebuilt 列表不可得: 信任已存储/UI 传入的 id,getWebLLMEngine 加载库后会再严格校验。
+  if (!webllmLib) return true;
+  return currentModelList().some((m) => m.model_id === id);
 }
 
 const QUANT_SUF = /-(q[0-9]f[0-9]+(?:_[0-9]+)?)-MLC(?:-1k)?$/i;
@@ -128,7 +171,7 @@ export type LlmModelGroup = { provider: string; models: LlmModelOption[] };
 /** ponytail: 跳过 embedding / -1k;同一模型优先 q4f16_1。 */
 export function listModelGroups(): LlmModelGroup[] {
   const byName = new Map<string, { id: string; quant: string; shortCtx: boolean }[]>();
-  for (const rec of APP_LLM_CONFIG.model_list) {
+  for (const rec of currentModelList()) {
     const id = rec.model_id;
     if (/embed/i.test(id)) continue;
     const m = id.match(/^(.*)-(q[0-9]f[0-9]+(?:_[0-9]+)?)-MLC(-1k)?$/i);
@@ -288,6 +331,12 @@ export async function getWebLLMEngine(opts?: {
   initPromise = (async () => {
     onMilestone?.('loadingWebGpu');
 
+    // 动态加载 web-llm 库(~6MB,首次 LLM 使用时才下载);之后 prebuilt 列表可用,校验已存储的模型 id。
+    const lib = await loadWebLLMLib();
+    if (gen !== loadGen) throw new Error('model switched');
+    if (activeModelId && !isKnownModelId(activeModelId)) activeModelId = null;
+    const appConfig = getAppLlmConfig();
+
     // 智能硬件与 WebGPU 能力算法裁决
     const profile = await detectGpuDeviceProfile();
     console.log(`[WebLLM 评测] tier=${profile.tier}, maxBuffer=${profile.maxBufferSizeMB}MB, mem=${profile.deviceMemoryGB ?? '?'}GB, reason=${profile.reason}`);
@@ -312,8 +361,8 @@ export async function getWebLLMEngine(opts?: {
     };
 
     try {
-      const engine = await CreateWebWorkerMLCEngine(worker, modelId, {
-        appConfig: APP_LLM_CONFIG,
+      const engine = await lib.CreateWebWorkerMLCEngine(worker, modelId, {
+        appConfig,
         initProgressCallback: (report) => {
           if (gen !== loadGen) return;
           notifyLoadProgress(report.progress, report.text);
@@ -335,8 +384,8 @@ export async function getWebLLMEngine(opts?: {
         const freshWorker = new Worker(new URL('./llmWorker.ts', import.meta.url), { type: 'module' });
         engineWorker = freshWorker;
         activeModelId = FALLBACK_LLM_MODEL;
-        const engine = await CreateWebWorkerMLCEngine(freshWorker, FALLBACK_LLM_MODEL, {
-          appConfig: APP_LLM_CONFIG,
+        const engine = await lib.CreateWebWorkerMLCEngine(freshWorker, FALLBACK_LLM_MODEL, {
+          appConfig,
           initProgressCallback: (report) => {
             if (gen !== loadGen) return;
             notifyLoadProgress(report.progress, report.text);
