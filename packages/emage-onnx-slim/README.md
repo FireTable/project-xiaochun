@@ -1,7 +1,7 @@
 # emage-onnx-slim
 
 Offline toolchain that shrinks the EMAGE ONNX download used by 小蠢 (XiaoChun) without retraining.
-It is a **companion of [VolgaGerm/emage-onnx-export](https://github.com/VolgaGerm/emage-onnx-export)** (sibling checkout `../emage-onnx-export`, the README-documented `export_onnx.py` + `--quantize` flow stays authoritative). This pack never modifies that repo: it only **reads** its `onnx/*.onnx` baselines, its `PantoMatrix` git history (to extract the model code at `MODEL_COMMIT=0bbb03d`) and `demo.wav`; everything it produces goes to `scripts/emage-onnx-slim/out/` (gitignored).
+It is a **companion of [VolgaGerm/emage-onnx-export](https://github.com/VolgaGerm/emage-onnx-export)** (sibling checkout `../emage-onnx-export`, the README-documented `export_onnx.py` + `--quantize` flow stays authoritative). This pack never modifies that repo: it only **reads** its `onnx/*.onnx` baselines, its `PantoMatrix` git history (to extract the model code at `MODEL_COMMIT=0bbb03d`) and `demo.wav`; everything it produces goes to `packages/emage-onnx-slim/out/` (gitignored).
 
 中文说明: [README-CN.md](README-CN.md)
 
@@ -95,10 +95,14 @@ How to read the argmax numbers: the INT8 dynamic quantization re-rolls its activ
 
 ## Run
 
-Requirements: Python with `requirements.txt` (the `emage-onnx-export/.venv` works), Node 24+ (runs the `.ts` seed helper through type stripping), ffmpeg (clips), `onnxruntime-web` from this repo's `node_modules`, HF weights `H-Liu1997/emage_audio` in the HF cache (otherwise downloaded), a sibling `../emage-onnx-export` checkout with `onnx/` already exported by its README flow (`EMAGE_EXPORT_DIR` overrides the path).
+Requirements: Python with `requirements.txt` (the `emage-onnx-export/.venv` works), Node 24+ (runs the `.ts` seed helper through type stripping), ffmpeg (clips), `onnxruntime-web` (this package's dependency, resolved from `node_modules`), HF weights `H-Liu1997/emage_audio` in the HF cache (otherwise downloaded), a sibling `../emage-onnx-export` checkout with `onnx/` already exported by its README flow (`EMAGE_EXPORT_DIR` overrides the path).
 
 ```bash
-cd scripts/emage-onnx-slim
+cd packages/emage-onnx-slim
+# via pnpm (same commands, see package.json scripts):
+PYTHON=../../../emage-onnx-export/.venv/bin/python pnpm run all:pinned     # = ./run_all.sh --with-pinned-ort --brotli
+pnpm run step1 | step2 | clips | verify:slim | verify:convq | bench | vs-fp32 | sizes
+# or directly:
 PYTHON=../../../emage-onnx-export/.venv/bin/python ./run_all.sh --with-pinned-ort --brotli
 # or step by step:
 python export_slim_step.py             # STEP 1  -> out/emage_step_slim.onnx, out/emage_step_slim_int8.onnx
@@ -121,6 +125,12 @@ Pinned wasm: `npm i onnxruntime-web@1.22.0-dev.20250409-89f8206ba4 --prefix out/
 | `js/common.mjs`, `js/verify_slim.mjs`, `js/verify_convq.mjs`, `js/bench_latency.mjs` | ort-web (wasm) verification and latency |
 | `tools_vs_fp32.py`, `size_report.py`, `make_clips.sh`, `run_all.sh` | error vs FP32, sizes, clips, one-shot run |
 
+## npm package (not published yet)
+
+This folder is the workspace package `@firetable/emage-onnx-slim` (`version` is independent of the app version, `publishConfig.access = public`, MIT). The tarball contains only scripts and docs (about 30 kB, `npm pack --dry-run` lists 18 files); `out/`, `.cache/` and every model file are excluded via `files`. `prepack` runs `js/sync-seed.mjs`, which vendors `src/motion/sources/emageSeed.ts` as plain JS (`js/vendor/emageSeed.mjs`, gitignored) so the verification scripts also work outside this repo. Its only dependency is `onnxruntime-web` (same range as the app, resolves to the same 1.29.0 in `pnpm-lock.yaml`).
+
+Not wired into any release flow: `publish-npm.yml` only publishes `packages/project-xiaochun`, and `scripts/bump-version.mjs` only edits a fixed file list that does not include this package. There is intentionally no `build` script, so `pnpm build:packages` skips it. To publish it later: bind this package on npmjs.com (Trusted Publishing: repository `FireTable/project-xiaochun`, a workflow file name), then add a dedicated workflow (or a second job with `working-directory: packages/emage-onnx-slim`) and its own tag or version rule. Existing `publish-npm.yml` must stay as is because npm binds it by file name.
+
 ## Adopting the files (not done by this pack)
 
 1. Upload `emage_step_slim_int8_convq.onnx`, `vq_{upper,hands,lower}_idx_int8_convq.onnx` (and the unchanged `postprocess_int8.onnx`) to the CDN base `APP_CONFIG.emage.base`. New file names mean new Cache Storage keys (`emage-models-v1` is keyed by URL), so users download the new set once; the old ~191 MB entries stay in their cache until evicted or the cache name is bumped.
@@ -139,4 +149,4 @@ Pinned wasm: `npm i onnxruntime-web@1.22.0-dev.20250409-89f8206ba4 --prefix out/
 
 ## Suggested back-link for emage-onnx-export README (not applied, that repo is untouched)
 
-> **Smaller download for browser use.** [Project-XiaoChun / scripts/emage-onnx-slim](https://github.com/FireTable/project-xiaochun/tree/main/scripts/emage-onnx-slim) builds a streaming-only `emage_step` that outputs just the three VQ logits (face branch and the in-graph seed chain removed, seed computed in JS), plus INT8 Conv weights: total browser download 191 MB -> 101 MB (83 MB with brotli) with `cls_*` bit-identical to the INT8 step on identical inputs.
+> **Smaller download for browser use.** [Project-XiaoChun / packages/emage-onnx-slim](https://github.com/FireTable/project-xiaochun/tree/main/packages/emage-onnx-slim) builds a streaming-only `emage_step` that outputs just the three VQ logits (face branch and the in-graph seed chain removed, seed computed in JS), plus INT8 Conv weights: total browser download 191 MB -> 101 MB (83 MB with brotli) with `cls_*` bit-identical to the INT8 step on identical inputs.

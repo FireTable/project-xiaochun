@@ -9,8 +9,8 @@
 // usage: node verify_convq.mjs [--ort-web-dir DIR] [--threads 1] [--max-windows 14] [--json out/verify_convq_<ver>.json]
 import fs from 'node:fs';
 import path from 'node:path';
-import { computeSeedFromLogits } from '../../../src/motion/sources/emageSeed.ts';
-import { PACK, WINDOW, SEED_FRAMES, MDIM, CB, WINDOW_AUDIO, parseArgs, loadOrt, createSession, readWav, identityMotion, makeFeed, makeSeedDeps, mean, median, maxAbsDiff } from './common.mjs';
+import { PACK, WINDOW, SEED_FRAMES, MDIM, CB, WINDOW_AUDIO, parseArgs, loadOrt, createSession, readWav, identityMotion, makeFeed, makeSeedDeps, loadSeedModule, mean, median, maxAbsDiff } from './common.mjs';
+const { computeSeedFromLogits } = await loadSeedModule();
 
 const a = parseArgs(process.argv.slice(2), {
   exportDir: process.env.EMAGE_EXPORT_DIR || path.resolve(PACK, '../../../emage-onnx-export'),

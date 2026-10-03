@@ -1,7 +1,7 @@
 # emage-onnx-slim
 
 为小蠢 (XiaoChun) 瘦身 EMAGE ONNX 下载体积的离线工具链,**不需要重训**。
-它是 **[VolgaGerm/emage-onnx-export](https://github.com/VolgaGerm/emage-onnx-export)** 的配套包(兄弟目录 `../emage-onnx-export`,README 中记载的 `export_onnx.py` + `--quantize` 流程仍是权威来源)。本包**不修改**该仓库,只**读取**它的 `onnx/*.onnx` 基线、`PantoMatrix` 的 git 历史(用来取出 `MODEL_COMMIT=0bbb03d` 的模型代码)以及 `demo.wav`;所有产物写入 `scripts/emage-onnx-slim/out/`(已 gitignore)。
+它是 **[VolgaGerm/emage-onnx-export](https://github.com/VolgaGerm/emage-onnx-export)** 的配套包(兄弟目录 `../emage-onnx-export`,README 中记载的 `export_onnx.py` + `--quantize` 流程仍是权威来源)。本包**不修改**该仓库,只**读取**它的 `onnx/*.onnx` 基线、`PantoMatrix` 的 git 历史(用来取出 `MODEL_COMMIT=0bbb03d` 的模型代码)以及 `demo.wav`;所有产物写入 `packages/emage-onnx-slim/out/`(已 gitignore)。
 
 English: [README.md](README.md)
 
@@ -95,10 +95,14 @@ HF 权重 (H-Liu1997/emage_audio, 本机 HF 缓存)  +  PantoMatrix@0bbb03d (git
 
 ## 运行
 
-依赖:装好 `requirements.txt` 的 Python(`emage-onnx-export/.venv` 可直接用)、Node 24+(通过 type stripping 运行 `.ts` 的 seed 辅助模块)、ffmpeg(生成音频)、本仓库 `node_modules` 里的 `onnxruntime-web`、HF 缓存里的 `H-Liu1997/emage_audio` 权重(没有会下载)、以及兄弟目录 `../emage-onnx-export`,且其 `onnx/` 已按它的 README 流程导出(可用 `EMAGE_EXPORT_DIR` 覆盖路径)。
+依赖:装好 `requirements.txt` 的 Python(`emage-onnx-export/.venv` 可直接用)、Node 24+(通过 type stripping 运行 `.ts` 的 seed 辅助模块)、ffmpeg(生成音频)、`onnxruntime-web`(本包依赖,从 `node_modules` 解析)、HF 缓存里的 `H-Liu1997/emage_audio` 权重(没有会下载)、以及兄弟目录 `../emage-onnx-export`,且其 `onnx/` 已按它的 README 流程导出(可用 `EMAGE_EXPORT_DIR` 覆盖路径)。
 
 ```bash
-cd scripts/emage-onnx-slim
+cd packages/emage-onnx-slim
+# 经 pnpm(命令相同,见 package.json 的 scripts):
+PYTHON=../../../emage-onnx-export/.venv/bin/python pnpm run all:pinned     # = ./run_all.sh --with-pinned-ort --brotli
+pnpm run step1 | step2 | clips | verify:slim | verify:convq | bench | vs-fp32 | sizes
+# 或直接执行:
 PYTHON=../../../emage-onnx-export/.venv/bin/python ./run_all.sh --with-pinned-ort --brotli
 # 或分步执行:
 python export_slim_step.py             # 步骤 1  -> out/emage_step_slim.onnx, out/emage_step_slim_int8.onnx
@@ -121,6 +125,12 @@ python size_report.py --brotli         # 体积表
 | `js/common.mjs`、`js/verify_slim.mjs`、`js/verify_convq.mjs`、`js/bench_latency.mjs` | ort-web (wasm) 验证与延迟 |
 | `tools_vs_fp32.py`、`size_report.py`、`make_clips.sh`、`run_all.sh` | 对 FP32 误差、体积、音频、一键运行 |
 
+## npm 包(尚未发布)
+
+本目录是 workspace 包 `@firetable/emage-onnx-slim`(`version` 独立于 app 版本,`publishConfig.access = public`,MIT)。发布包只含脚本和文档(约 30 kB,`npm pack --dry-run` 共 18 个文件),`out/`、`.cache/` 和所有模型文件都由 `files` 排除。`prepack` 会运行 `js/sync-seed.mjs`,把 `src/motion/sources/emageSeed.ts` 转成纯 JS(`js/vendor/emageSeed.mjs`,已 gitignore),这样验证脚本在本仓库之外也能运行。唯一依赖是 `onnxruntime-web`(与 app 同一版本范围,在 `pnpm-lock.yaml` 中解析为同一个 1.29.0)。
+
+没有接入任何发布流程:`publish-npm.yml` 只发布 `packages/project-xiaochun`,`scripts/bump-version.mjs` 只改固定的文件清单,其中不含本包。有意不提供 `build` 脚本,所以 `pnpm build:packages` 会跳过它。以后要发布:先在 npmjs.com 为本包单独绑定 Trusted Publishing(仓库 `FireTable/project-xiaochun` 加一个 workflow 文件名),再新增专用 workflow(或在新 job 里用 `working-directory: packages/emage-onnx-slim`)以及它自己的 tag 或版本规则。现有 `publish-npm.yml` 不要改,因为 npm 是按文件名绑定的。
+
 ## 如何采用这些文件(本包未代做)
 
 1. 把 `emage_step_slim_int8_convq.onnx`、`vq_{upper,hands,lower}_idx_int8_convq.onnx`(以及不变的 `postprocess_int8.onnx`)上传到 `APP_CONFIG.emage.base` 对应的 CDN。新文件名意味着新的 Cache Storage 键(`emage-models-v1` 按 URL 缓存),用户会重新下载一次新集合;旧的约 191 MB 缓存会留着,直到被回收或提升缓存名。
@@ -139,4 +149,4 @@ python size_report.py --brotli         # 体积表
 
 ## 建议加到 emage-onnx-export README 的回链(未应用,该仓库保持不动)
 
-> **浏览器端更小的下载体积。** [Project-XiaoChun / scripts/emage-onnx-slim](https://github.com/FireTable/project-xiaochun/tree/main/scripts/emage-onnx-slim) 构建仅流式的 `emage_step`:只输出三路 VQ logits(去掉 face 分支与图内 seed 链,seed 在 JS 里计算),并把 Conv 权重改为 INT8:浏览器总下载 191 MB -> 101 MB(brotli 后 83 MB),且在相同输入下 `cls_*` 与 INT8 step 逐位一致。
+> **浏览器端更小的下载体积。** [Project-XiaoChun / packages/emage-onnx-slim](https://github.com/FireTable/project-xiaochun/tree/main/packages/emage-onnx-slim) 构建仅流式的 `emage_step`:只输出三路 VQ logits(去掉 face 分支与图内 seed 链,seed 在 JS 里计算),并把 Conv 权重改为 INT8:浏览器总下载 191 MB -> 101 MB(brotli 后 83 MB),且在相同输入下 `cls_*` 与 INT8 step 逐位一致。

@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # One-shot pipeline: export slim step -> INT8 -> conv INT8 -> clips -> verification -> latency -> sizes.
-# Everything is written to scripts/emage-onnx-slim/out/ (gitignored). emage-onnx-export is only read.
+# Everything is written to packages/emage-onnx-slim/out/ (gitignored). emage-onnx-export is only read.
 #
 #   PYTHON=/path/to/python EMAGE_EXPORT_DIR=../emage-onnx-export ./run_all.sh [--with-pinned-ort] [--brotli]
 #

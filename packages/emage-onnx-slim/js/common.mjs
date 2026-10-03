@@ -21,9 +21,10 @@ export function parseArgs(argv, defaults) {
   return o;
 }
 
-/** Load onnxruntime-web (wasm-only bundle) from a package dir; default = this repo's node_modules. */
+/** Load onnxruntime-web (wasm-only bundle) from a package dir; default = this package's node_modules, then the repo root's. */
 export async function loadOrt(ortWebDir, threads = 1) {
-  const base = path.resolve(ortWebDir || path.join(REPO, 'node_modules', 'onnxruntime-web')) + '/';
+  const own = path.join(PACK, 'node_modules', 'onnxruntime-web');
+  const base = path.resolve(ortWebDir || (fs.existsSync(own) ? own : path.join(REPO, 'node_modules', 'onnxruntime-web'))) + '/';
   const ort = await import(base + 'dist/ort.wasm.min.mjs');
   ort.env.wasm.numThreads = Number(threads);
   ort.env.wasm.wasmPaths = base + 'dist/';
@@ -102,3 +103,10 @@ export function makeSeedDeps(ort, vq, pp) {
 export const mean = (a) => (a.length ? a.reduce((x, y) => x + y, 0) / a.length : NaN);
 export const median = (a) => { const s = [...a].sort((x, y) => x - y); return s.length ? s[Math.floor(s.length / 2)] : NaN; };
 export function maxAbsDiff(a, b) { let m = 0; for (let i = 0; i < a.length; i++) { const d = Math.abs(a[i] - b[i]); if (d > m) m = d; } return m; }
+
+/** Host-side seed helper: the in-repo TypeScript source when present, else the vendored JS copy (published package). */
+export async function loadSeedModule() {
+  const ts = path.join(REPO, 'src/motion/sources/emageSeed.ts');
+  if (fs.existsSync(ts)) return import(ts);
+  return import(path.join(HERE, 'vendor/emageSeed.mjs'));
+}

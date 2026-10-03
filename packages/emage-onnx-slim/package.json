@@ -1,0 +1,59 @@
+{
+  "name": "@firetable/emage-onnx-slim",
+  "version": "0.1.0",
+  "description": "Offline toolchain that slims the EMAGE ONNX set for browser use: cls-only emage_step (host-side seed), INT8 Conv weights, verification and latency scripts. Ships scripts and docs only, no model files.",
+  "license": "MIT",
+  "author": "FireTable",
+  "type": "module",
+  "files": [
+    "*.py",
+    "*.sh",
+    "requirements.txt",
+    "js",
+    "README.md",
+    "README-CN.md",
+    "LICENSE"
+  ],
+  "keywords": [
+    "emage",
+    "onnx",
+    "onnxruntime-web",
+    "quantization",
+    "int8",
+    "xiaochun",
+    "project-xiaochun"
+  ],
+  "homepage": "https://github.com/FireTable/project-xiaochun/tree/main/packages/emage-onnx-slim#readme",
+  "bugs": {
+    "url": "https://github.com/FireTable/project-xiaochun/issues"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/FireTable/project-xiaochun.git",
+    "directory": "packages/emage-onnx-slim"
+  },
+  "publishConfig": {
+    "access": "public"
+  },
+  "engines": {
+    "node": ">=24"
+  },
+  "scripts": {
+    "help": "python3 export_slim_step.py --help",
+    "all": "./run_all.sh",
+    "all:pinned": "./run_all.sh --with-pinned-ort --brotli",
+    "step1": "python3 export_slim_step.py",
+    "step2": "python3 quantize_conv_int8.py --all",
+    "clips": "./make_clips.sh",
+    "verify:slim": "node js/verify_slim.mjs",
+    "verify:convq": "node js/verify_convq.mjs",
+    "bench": "node js/bench_latency.mjs",
+    "vs-fp32": "python3 tools_vs_fp32.py",
+    "sizes": "python3 size_report.py --brotli",
+    "sync-seed": "node js/sync-seed.mjs",
+    "prepack": "node js/sync-seed.mjs"
+  },
+  "dependencies": {
+    "onnxruntime-web": "^1.22.0-dev.20250409-89f8206ba4"
+  }
+}

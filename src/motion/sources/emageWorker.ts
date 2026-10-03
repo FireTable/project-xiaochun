@@ -345,7 +345,7 @@ const STEP_MASK = new Float32Array(WINDOW * MDIM);
 const STEP_AUDIO = new Float32Array(WINDOW_AUDIO);
 const STEP_SPEAKER = BigInt64Array.from([0n]);
 
-// ponytail: slim-step support (scripts/emage-onnx-slim). vq_* / postprocess sessions are now also used inside
+// ponytail: slim-step support (packages/emage-onnx-slim). vq_* / postprocess sessions are now also used inside
 // runStep (host-side seed), so every use of them is serialized: ORT wasm throws "Session already started"
 // when two run() calls overlap on the same session.
 let vqLock: Promise<unknown> = Promise.resolve();

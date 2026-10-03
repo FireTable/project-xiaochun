@@ -10,8 +10,8 @@
 //          [--fp32-step emage_step.onnx]   optional noise floor: baseline FP32 free-running vs baseline INT8 free-running
 import fs from 'node:fs';
 import path from 'node:path';
-import { computeSeedFromLogits } from '../../../src/motion/sources/emageSeed.ts';
-import { PACK, WINDOW, SEED_FRAMES, MDIM, CB, WINDOW_AUDIO, parseArgs, loadOrt, createSession, readWav, identityMotion, makeFeed, makeSeedDeps, mean, maxAbsDiff } from './common.mjs';
+import { PACK, WINDOW, SEED_FRAMES, MDIM, CB, WINDOW_AUDIO, parseArgs, loadOrt, createSession, readWav, identityMotion, makeFeed, makeSeedDeps, loadSeedModule, mean, maxAbsDiff } from './common.mjs';
+const { computeSeedFromLogits } = await loadSeedModule();
 
 const a = parseArgs(process.argv.slice(2), {
   exportDir: process.env.EMAGE_EXPORT_DIR || path.resolve(PACK, '../../../emage-onnx-export'),

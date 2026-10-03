@@ -5,7 +5,7 @@
 > **Export upstream**: [VolgaGerm / emage-onnx-export](https://github.com/VolgaGerm/emage-onnx-export) — **README-documented scripts only** (`export_onnx.py`, `--quantize`, etc.). Non-README converters are not part of the supported path.
 > **Weights shipped**: R2 hosts both **FP32** (504 MB on `emage_step.onnx`) and **INT8** (~167 MB on `emage_step_int8.onnx`) variants of every model. The browser download path is chosen by `useInt8` in `src/config.ts` (`q()` rewrites filenames to `_int8.onnx` when true). Tip ships with `useInt8 = true`; the FP32 row is kept as a fallback for users who need the fidelity.
 
-> **Smaller download (optional, not shipped by default)**: [`scripts/emage-onnx-slim`](../scripts/emage-onnx-slim/README.md) builds a slim `emage_step` (only `cls_*`; `seed` computed host-side by [`emageSeed.ts`](../src/motion/sources/emageSeed.ts)) plus INT8 Conv weights: 191.4 MB → 100.7 MB total download. `emageWorker.ts` auto-detects slim vs full step outputs; default model files and config are unchanged.
+> **Smaller download (optional, not shipped by default)**: [`packages/emage-onnx-slim`](../packages/emage-onnx-slim/README.md) builds a slim `emage_step` (only `cls_*`; `seed` computed host-side by [`emageSeed.ts`](../src/motion/sources/emageSeed.ts)) plus INT8 Conv weights: 191.4 MB → 100.7 MB total download. `emageWorker.ts` auto-detects slim vs full step outputs; default model files and config are unchanged.
 
 This page records what is **shipped and true** for browser EMAGE on the current tip. It does **not** invent latency numbers.
 
