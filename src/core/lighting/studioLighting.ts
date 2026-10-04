@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import { APP_CONFIG, type LightConfig } from '@/config';
+import { APP_CONFIG, type LightConfig, type LineworkTheme } from '@/config';
 
 /**
  * StudioLighting — 3 盏灯 (key + fill + ambient,Unity / Three.js 标准配置)。
@@ -55,6 +55,19 @@ export class StudioLighting {
     this.dirLight.intensity = this.channels.dir.enabled ? this.channels.dir.base * m : 0;
     this.hemiLight.intensity = this.channels.hemi.enabled ? this.channels.hemi.base * m : 0;
     this.fillLight.intensity = this.channels.fill.enabled ? this.channels.fill.base * m : 0;
+  }
+
+  /**
+   * 场景级色调微调 (只改灯的颜色, 不改强度 / 不改任何角色材质):
+   * beach → 半球光天空偏冷奶白、地面反射偏奶油沙色 (高调柔光, 暗部不再反射薰衣草灰), 主光略暖;
+   * 其它场景恢复默认。强度仍由 channels / 调试抽屉控制。
+   */
+  applyTheme(theme: LineworkTheme): void {
+    const b = APP_CONFIG.beachScene.blend;
+    const beach = theme === 'beach';
+    this.hemiLight.color.setHex(beach ? b.hemiSky : 0xfffaf8);
+    this.hemiLight.groundColor.setHex(beach ? b.hemiGround : 0xe2d6e6);
+    this.dirLight.color.setHex(beach ? b.dirColor : 0xfffdfa);
   }
 
   setLight(key: string, enabled: boolean, value: number): void {

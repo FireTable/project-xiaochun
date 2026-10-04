@@ -26,6 +26,7 @@ export const en: Trans = {
       light: 'Day White',
       dark: 'Midnight Dark',
       transparent: 'No Background',
+      beach: 'Beach',
     },
     switchOutfit: {
       tooltip: 'Switch Outfit',

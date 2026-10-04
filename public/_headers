@@ -44,6 +44,14 @@
   ! Cache-Control
   Cache-Control: public, max-age=3600, must-revalidate
 
+# === /scene/* 场景背景素材 (海滩长条 beach-strip.webp / 遮罩 beach-mask.webp) ===
+# 与 /vrm/* 同一策略: URL 不带内容哈希 (换图后路径不变), 所以不能 immutable; 1 小时 + must-revalidate (过期后带 ETag 条件请求, 未变化则 304)。
+# 只在用户选了"海滩"场景时才会请求 (约 190 KB); 想要更长缓存, 前提同样是文件名带哈希。
+# 同样要先 `!` 摘掉上面 `/*` 给的 `max-age=0, must-revalidate`, 否则会被拼成逗号串。
+/scene/*
+  ! Cache-Control
+  Cache-Control: public, max-age=3600, must-revalidate
+
 # === /embed: 允许被第三方站点 iframe 内嵌 (docs/EMBED.md) ===
 # 主站 `/*` 的 X-Frame-Options: DENY 在这里用 `!` 摘掉, 改发 CSP frame-ancestors。
 # frame-ancestors 默认 `*`; 要收紧为白名单, 改成空格分隔的来源, 例如:

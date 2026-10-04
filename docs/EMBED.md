@@ -47,7 +47,7 @@ sequenceDiagram
 | `lang` | iframe 记住的 → 浏览器语言 → `zh-CN` | `zh-CN` · `en` · `ja`。优先级：URL `lang`（SDK `lang` 选项）> iframe 自己 localStorage 里用户上次在语言按钮选的（`xiaochun_embed_lang`）> `navigator.languages`（`zh*`→`zh-CN`、`ja*`→`ja`、`en*`→`en`）> `zh-CN`。**不读写主站的语言 cookie**（第三方 iframe 里 cookie 不可靠） |
 | `heavy` | `lazy` | `lazy` = 不预热 WebLLM / EMAGE；`eager` = 与主站一致，VRM 加载完立即预热 |
 | `outfit` | default addon | 初始服装 id。**严格校验**：必须匹配 `^[a-z][a-z0-9_]{0,63}$` 且是内置服装（`Object.hasOwn`，`constructor` / `__proto__` 不算）；不合法回退默认服装，并在握手后发 `xc.error{unknown_id, command:'outfit'}` |
-| `scene` | 跟随 `transparent` / `theme` | 初始场景 `light` / `dark` / `transparent`，同样严格校验；优先级 `scene` > `transparent=1` > `theme` > 系统亮暗。显式指定后，系统亮暗变化**不会**再把场景切走 |
+| `scene` | 跟随 `transparent` / `theme` | 初始场景 `light` / `dark` / `transparent` / `beach`，同样严格校验；优先级 `scene` > `transparent=1` > `theme` > 系统亮暗。显式指定后，系统亮暗变化**不会**再把场景切走 |
 | `theme` | 跟随系统 | 非透明时的线稿主题 `light` / `dark` |
 | `controls` | `1`（开） | 滚轮缩放，与主站一致。`0` = 强制关闭；`1` 与缺省等价。**透明场景**只在指针落在角色上才缩放，其余位置滚轮穿透给宿主页；**不透明场景** iframe 铺满，该区域内滚轮 = 缩放，**会吞掉该区域的页面滚动**（要让宿主页能滚过去就用 `controls=0`，或把 iframe 放在不需要滚动的区域）。缩放范围沿用主站的距离上下限 |
 
@@ -71,7 +71,7 @@ sequenceDiagram
 | `xc.expression` | `{ name }`（`neutral/happy/angry/sad/relaxed/surprised`） | ✅ | `vrmEngine.setExpression` |
 | `xc.pointer` | `{ x, y }`（iframe 内 client 坐标） | ✅ | `vrmEngine.isHitModel` → 回 `xc.hit-region`（**只做命中检测，不驱动视线**） |
 | `xc.setOutfit` | `{ id }` | ✅（capability `outfits`） | 换内置服装。`id` 必须匹配 `^[a-z][a-z0-9_]{0,63}$` 且在 `capabilities.outfits` 里（`Object.hasOwn`，原型键一律 `unknown_id`）；裸模 `base` 不对外开放。**串行 + last-wins**，见 §2.6。完成回 `xc.outfit-changed`（信封 `id` 同请求） |
-| `xc.setScene` | `{ id }` | ✅（capability `scenes`） | 换场景（`light` / `dark` / `transparent`，只有这 3 个内置主题）。立即生效，回 `xc.scene-changed` |
+| `xc.setScene` | `{ id }` | ✅（capability `scenes`） | 换场景（`light` / `dark` / `transparent` / `beach`，共 4 个内置场景）。立即生效，回 `xc.scene-changed` |
 | `xc.prefetch` | `{ ids?: string[] }` | ✅（capability `prefetch`） | 把服装资源**只下载进 IndexedDB**（不解压不合成），之后 `xc.setOutfit` 不再走网络。省略 `ids` = 全部内置服装但**不含婚纱**（13.9MB，显式点名才下）。全局串行、排在 EMAGE 加载之后、不与进行中的换装抢带宽；用户开了省流量（`saveData`）则整体跳过。回 `xc.prefetched` |
 | `xc.setModel` | `{ outfit }` 或 `{ url, name? }` | ✅（保留兼容） | 旧命令。`outfit` 与 `xc.setOutfit` 走**同一个白名单和同一个串行队列**（并且仍发旧的 `xc.loaded`），但**不再接受 `base`**（`unknown_id`）；`url`（https / 同源 `.vrm/.vrmaddon/.vrmbase`，需 CORS）**默认关闭**，回 `unsupported`，需在 `xc.init` / `xc.setConfig` 的 config 里带 `allowCustomModel:true`（SDK 选项同名）才放行 |
 | `xc.setConfig` | `{ lang?, transparent?, ui?: Array<'chat'｜'bubble'｜'outfit'｜'scene'｜'lang'｜'github'>, uiAutoHide?: boolean｜'transparent', camera?: { fov?, distance?, height?, intro? }, heavy?, allowCustomModel?, gestures?: { move?, resize? } }` | ✅ | i18n / `sceneManager.setScene(…, false)`（`setConfig` 的内部切换不写 iframe 的场景偏好）/ 内置界面部件显隐（`ui` 数组，未知部件名 → `bad_request`）/ 内置界面显示策略（`uiAutoHide`，非法值 → `bad_request`，立即生效不重建）/ 语言（`lang`，立即生效；**不写** iframe 的语言偏好，只记用户自己点的；变化会发 `xc.lang-changed`）/ 相机（`camera`，缺省键不变、`null` 恢复默认、非法值 / 未知键 → `bad_request`；立即重新取景并取消进行中的推镜头，见 §2.9）/ `heavyPreload` 开关（`eager` 立即预热） |
@@ -179,7 +179,7 @@ xc.audio(ArrayBuffer/Blob/URL)                         xc.audio.chunk (PCM16/Flo
 
 选 `busy` 而不是"排队全部执行"：用户连点 5 个服装时，中间 3 个已经没有意义，全加载只会浪费 3 次 10MB 级的解压合成。
 
-**场景（只有 `light` / `dark` / `transparent` 三个内置主题；不新增真实场景资产）**
+**场景（`light` / `dark` / `transparent` 三个内置主题 + `beach` 海滩背景场景；`beach` 是不透明场景，背景图见 `docs/BEACH_SCENE.md`）**
 
 - 用户点按钮或宿主 `xc.setScene` 切场景用 `sceneManager.setScene(id, true)`，写 iframe 自己的 localStorage（`xiaochun_scene_theme`）；`setConfig{transparent}` 的内部切换用 `setScene(id, false)`，不写。
 - 宿主侧 SDK 在 `scene-changed` 后同步：外壳背景（透明时去掉）、`pointermove` 穿透监听的开/关、**非透明场景强制 iframe `pointer-events:auto`**、重置命中缓存（`lastHit` / 节流位置 / rect 缓存，避免切回透明后沿用旧结果）。iframe 内同步重置桥的 `lastHit`。
@@ -479,7 +479,7 @@ createXiaochun({
   resizable: false,              // true=拖四个角缩放 iframe (运行时状态, 不重建); 也可传 { minWidth, minHeight, maxWidth, maxHeight } 自定义限幅 (默认最小 120x180, 最大 = 视口)
   lang: undefined,               // 'zh-CN' | 'en' | 'ja'; 省略 = iframe 记住的(用户在语言按钮里选的) > 浏览器语言 > 'zh-CN'; 显式传入优先于记住的 (运行时 setConfig({ lang }) 不持久化); 变化时发 lang-changed
   outfit: undefined,             // 初始服装 id (如 'xiaochun_maid', 见 getOutfits()); 非法/未知 → 回退默认并 emit error{unknown_id}
-  scene: undefined,              // 初始场景 'light' | 'dark' | 'transparent'; 省略 = 跟随 transparent / 系统亮暗
+  scene: undefined,              // 初始场景 'light' | 'dark' | 'transparent' | 'beach'; 省略 = 跟随 transparent / 系统亮暗
   camera: undefined,             // 可选: 相机 { fov: 15-60 (默认 30), distance: 1-15 米 (默认 ≈2.5, 随 fov), height: ±1 米 (默认 0), intro: 推镜头 (默认 true) }; 越界夹范围; 创建期写进 URL, 运行时用 setConfig({ camera }) (null = 恢复默认), 见 §2.9
   persistBox: false,             // 可选: 记住用户拖动/缩放后的位置+大小到**宿主页** localStorage: false | true ('xiaochun:box') | '<命名空间>' ('xiaochun:box:<名字>'); 需 draggable/resizable; 显式 width/height > 已保存 > 默认; 恢复时钳进当前视口; clearPersistedBox({ reset? }) 清除 (见 §2.8)
   persist: false,                // 可选: 偏好(服装+场景)另存在**宿主**localStorage: false | 'host' | '<自定义 key>'; 不开时 iframe 仍用自己的 localStorage 记住
@@ -516,7 +516,7 @@ await xc.prefetch(['xiaochun_cheongsam']);    // -> { downloaded, cached, failed
 | :-- | :-- | :-- |
 | `src` | 官方 `/embed` | 改它会重建 iframe |
 | `outfit` | — | 内置服装 id；运行时修改 = `setOutfit`（**热更新，不重建 iframe**） |
-| `scene` | — | `light｜dark｜transparent`；运行时修改 = `setScene`（热更新） |
+| `scene` | — | `light｜dark｜transparent｜beach`；运行时修改 = `setScene`（热更新） |
 | `model` | — | **deprecated**，`outfit` 的旧别名（`outfit` 优先）；旧用法 https URL 仍走 `setModel`，受 `allow-custom-model` 约束 |
 | `camera-fov` / `camera-distance` / `camera-height` / `camera-intro` | — | 相机选项（见 §2.9）；改它们是热更新（`setConfig({ camera })`，不重建），去掉属性 = 恢复默认 |
 | `persist-box` | — | 记住拖动 / 缩放后的位置和大小：`persist-box=""` / `"true"` = 默认 key，其它字符串 = 命名空间。见 §2.8；改它会重建 |

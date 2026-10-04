@@ -1010,7 +1010,7 @@ await check('按钮点选换场景: scene-changed 到宿主, 外壳/穿透同步
   await fr(page).waitForSelector('[role="menu"] [data-scene-id]');
   const rows = await fr(page).$$eval('[role="menu"] [data-scene-id]', (els) => els.map((e) => [e.getAttribute('data-scene-id'), !!e.querySelector('svg.lucide-check')]));
   assert.deepEqual(rows.filter((r) => r[1]).map((r) => r[0]), ['dark']);
-  assert.deepEqual(rows.map((r) => r[0]), ['light', 'dark', 'transparent']);
+  assert.deepEqual(rows.map((r) => r[0]), ['light', 'dark', 'transparent', 'beach']);
   await closeMenu(page);
 });
 

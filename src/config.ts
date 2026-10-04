@@ -7,6 +7,7 @@ export * from './types/config';
 import type {
   LightConfig,
   SceneRegistryConfig,
+  BeachSceneConfig,
   MaterialSaturationConfig,
   VrmOutlineConfig,
   VrmMToonConfig,
@@ -343,8 +344,43 @@ export const APP_CONFIG = {
         components: { topHeader: true, chatBar: true, headBubble: true, heightRuler: false, dropZone: true },
         tauri: { resizable: false, cornerHandles: true },
       },
+      // 海滩: AI 插画竖长条背景 (src/core/scene/beachBackdrop.ts)。不透明场景, 规则与 light / dark 相同 (TopHeader / ChatBar 常显, Tauri 20px 圆角)。
+      beach: {
+        id: 'beach',
+        nameKey: 'header.switchScene.beach',
+        icon: 'TreePalm',
+        lineworkTheme: 'beach',
+        isTransparent: false,
+        components: { topHeader: true, chatBar: true, headBubble: true, heightRuler: true, dropZone: true },
+        tauri: { resizable: true, cornerHandles: false },
+      },
     },
   } as SceneRegistryConfig,
+  beachScene: {
+    assets: {
+      strip: '/scene/beach/beach-strip.webp',
+      mask: '/scene/beach/beach-mask.webp',
+    },
+    scroll: { horizonAboveHipsM: 0.04, parallax: 1.0 },
+    dynamics: {
+      enabled: true,
+      respectReducedMotion: true,
+      autoDowngrade: { enabled: true, minFps: 24, windowFrames: 120 },
+      sea: { glint: 0.6, glintDensity: 0.24, glintSpeed: 1.0, wobble: 1.2 },
+      cloud: { driftPx: 18, periodSec: 90 },
+      particles: { count: 16, countMobile: 9, speed: 1.0, size: 1.0, opacity: 0.85, moteRatio: 0.3 },
+    },
+    blend: {
+      hemiSky: 0xf6fcff,
+      hemiGround: 0xf3e6d3,
+      dirColor: 0xfffbf0,
+      shadowColor: 0x8a6f78,
+      shadowOpacity: 0.26,
+      contactColor: 0xa88a80,
+      contactOpacity: 0.34,
+      contactSizeM: 0.85,
+    },
+  } as BeachSceneConfig,
   lights: {
     dir: { base: 1.10, enabled: true },
     hemi: { base: 0.80, enabled: true },

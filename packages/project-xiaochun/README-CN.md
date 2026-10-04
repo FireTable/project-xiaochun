@@ -172,7 +172,7 @@ const xc = createXiaochun({ container: '#avatar', outfit: 'xiaochun_maid', scene
 await xc.ready;
 
 const outfits = await xc.getOutfits();   // [{ id, name }](裸模永远不会出现在列表里)
-const scenes  = await xc.getScenes();    // [{ id: 'light' | 'dark' | 'transparent', transparent }]
+const scenes  = await xc.getScenes();    // [{ id: 'light' | 'dark' | 'transparent' | 'beach', transparent }]
 
 await xc.setOutfit('xiaochun_cheongsam');                    // 新服装生效后才 resolve
 await xc.setScene('transparent');                            // 外壳背景和穿透开关自动跟随
@@ -182,7 +182,7 @@ xc.on('scene-changed', (p) => console.log(p.id));
 
 * **id 严格校验**(`/^[a-z][a-z0-9_]{0,63}$/` + 自有属性白名单)。格式不对本地直接 reject `[bad_request]`(不发消息);格式合法但不存在(`constructor`、`base` 等)reject `[unknown_id]`,iframe 一侧会独立再校验。
 * **并发**:换装**串行 + last-wins**。正在加载的不会被中止;排队中的请求被更新的调用顶掉时 reject `[busy]`(可忽略)。同目标请求合并;请求当前服装直接 resolve。**说话不会被打断**:正在说话时新服装在后台加载,好了再换上。
-* **场景**:只有 3 个内置主题。运行时切换会同步外壳背景、开关指针穿透监听、非透明场景强制 `pointer-events: auto`、重置命中缓存。
+* **场景**:4 个内置场景 (`light` / `dark` / `transparent` / `beach`,其中只有 `transparent` 是透明的)。运行时切换会同步外壳背景、开关指针穿透监听、非透明场景强制 `pointer-events: auto`、重置命中缓存。
 * **能力协商**:协议仍是 v1。对旧版 `/embed`(`xc.ready` 里没有 `capabilities.outfits` / `scenes` / `prefetch`),新方法 reject `[unsupported]`,`getOutfits()` / `getScenes()` 返回 `[]`。
 * **偏好保存**:iframe 用**自己的** localStorage 记住用户最近的服装 / 场景(键 `xiaochun_wearing_outfit` / `xiaochun_scene_theme`,与主站一致)。优先级:显式的 `outfit` / `scene`(URL 或 SDK 选项)> 已保存 > 默认;存的 id 不在白名单会被忽略并清掉;存储被拦截 / 分区时静默回退默认。第三方存储按顶层站点分区,每个宿主站各一份。
 * **`persist`**(可选)另外把它们存在宿主页 localStorage,并作为显式值传回 iframe,因此会盖过 iframe 自己存的。默认 `false`。
@@ -360,7 +360,7 @@ createXiaochun({
 | `lazyMargin` | `200` | 可见性触发的 rootMargin(px)。调大更早加载、更耗流量 |
 | `placeholder` | 内置 SVG | 图片 URL、元素或 `false` |
 | `transparent` | `false` | 背景透明叠在页面上(同时开启指针穿透),等价于 `scene: 'transparent'` |
-| `scene` | — | 初始场景:`'light' \| 'dark' \| 'transparent'`(见 `getScenes()`)。未知 id 会被忽略并触发 `error { code: 'unknown_id' }` |
+| `scene` | — | 初始场景:`'light' \| 'dark' \| 'transparent' \| 'beach'`(见 `getScenes()`)。未知 id 会被忽略并触发 `error { code: 'unknown_id' }` |
 | `width`、`height` | `600`、`1080` | px 或任意 CSS 长度。**默认值受视口限制**:宽 = `min(600px, 100vw)`(外壳另有 `max-width: 100%`,窄容器不溢出),高 = `min(1080px, 100svh)`(悬浮 `position` 还会扣掉 `--xc-offset-x/y` 边距,整块不会顶出屏幕);显式传入的值原样使用。运行时 `setSize(w, h)`(传 `undefined` = 恢复默认) |
 | `position` | `'inline'` | `'inline' \| 'bottom-right' \| 'bottom-left'` |
 | `draggable` | `false` | 手势拖动:按住角色(不要压在内置按钮上)拖 = 移动 iframe,限制在视口内;内联 / 悬浮模式都生效。见下文「手势」 |
@@ -395,7 +395,7 @@ createXiaochun({
 | :--- | :--- | :--- |
 | `src` | 官方 `/embed` | 修改会重建 iframe |
 | `outfit` | — | 服装 id;运行时修改 = `setOutfit`(**热更新,不重建 iframe**) |
-| `scene` | — | `light` · `dark` · `transparent`;运行时修改 = `setScene`(热更新) |
+| `scene` | — | `light` · `dark` · `transparent` · `beach`;运行时修改 = `setScene`(热更新) |
 | `model` | — | `outfit` 的**已弃用**别名(`outfit` 优先) |
 | `camera-fov` / `camera-distance` / `camera-height` / `camera-intro` | — | 同 `camera`(热更新 `setConfig({ camera })`,不重建;去掉属性 = 恢复默认) |
 | `persist` / `persist-box` / `prefetch` / `allow-custom-model` | — | 同对应选项(`persist-box=""` = 默认 key,其它字符串 = 命名空间);修改会重建 |

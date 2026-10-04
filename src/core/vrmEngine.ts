@@ -22,6 +22,7 @@ import { langFromSystemPrompt } from '@/llm/prompts';
 
 // ── 抽离子系统导入 ──
 import { LineworkWorld, type LineworkTheme } from './scene/lineworkWorld';
+import { BeachBackdrop } from './scene/beachBackdrop';
 import { passthroughManager } from './scene/passthroughManager';
 import { StudioLighting } from './lighting/studioLighting';
 import {
@@ -222,6 +223,9 @@ export class VRMEngine {
   private _animFrameIntervalMs = 0;
   // ── 模块化独立子系统 ──
   private lineworkWorld = new LineworkWorld();
+  private readonly tempBeachHip = new THREE.Vector3();
+  /** 海滩场景 (beach) 的背景层: 竖长条 + 局部动态; 只在该场景可见, 其余场景 0 开销。 */
+  public readonly beachBackdrop = new BeachBackdrop();
   public readonly lighting = new StudioLighting();
   public readonly materialManager = new VRMMaterialManager();
   public readonly bubbleTracker = new BubbleTracker();
@@ -644,6 +648,17 @@ export class VRMEngine {
     const initialTheme = resolveInitialSceneTheme();
     this.shadow.init(this.scene, initialTheme);
 
+    // 海滩背景层: 挂进场景 (默认不可见), 提供"相机注视点 + 髋部高度"用于把海平线对到髋部
+    this.beachBackdrop.attach(this.scene);
+    this.beachBackdrop.setSubjectProvider(() => {
+      if (!this.controls) return null;
+      const hips = this.currentVRM?.humanoid?.getNormalizedBoneNode('hips');
+      let hipY: number | null = null;
+      if (hips) { hips.getWorldPosition(this.tempBeachHip); hipY = this.tempBeachHip.y; }
+      return { target: this.controls.target, hipY };
+    });
+    this.beachBackdrop.setOnAssetsReady(() => { if (this.canvas) this.renderFrameNow(); });
+
 
 
     // 初始化视线系统与灯光系统
@@ -982,6 +997,7 @@ export class VRMEngine {
       const storedTheme = resolveInitialSceneTheme();
       this.lineworkWorld.build(this.scene, storedTheme);
       this.updateShadowForTheme(storedTheme === 'dark');
+      this.syncSceneBackdrop(storedTheme);
       this.startAnimation();
       this.cinematicIntro(1100);
     } else if (this.currentVRM || this._sceneInitialized) {
@@ -1147,6 +1163,7 @@ export class VRMEngine {
   public setLineworkTheme(theme: LineworkTheme, persist: boolean = true): void {
     this.lineworkWorld.setTheme(theme, this.scene);
     this.updateShadowForTheme(theme === 'dark');
+    this.syncSceneBackdrop(theme);
     // ponytail: shadowPlane 现在带 radial alpha mask, 边缘自然 fade 到全透明,
     // 不再有"12x12 大网格污染穿透位图"的隐患, transparent 下保持显示让 directional
     // 影子投到带 mask 的 plane 上, 边界软渐隐 (ani 风格)。visibility 不再随 theme 切换。
@@ -1169,6 +1186,17 @@ export class VRMEngine {
 
   public updateShadowForTheme(isDark: boolean): void {
     this.shadow.updateOpacity(isDark);
+  }
+
+  /**
+   * 场景级背景 / 融合微调 (只有 beach 有内容, 其余场景恢复默认):
+   *   背景层显隐 + 半球光/主光色调 (StudioLighting.applyTheme) + 地面落影 / 脚下接触影配色 (CharacterShadowSystem.applyTheme)。
+   * 不改任何角色材质。
+   */
+  private syncSceneBackdrop(theme: LineworkTheme): void {
+    this.beachBackdrop.setActive(theme === 'beach');
+    this.lighting.applyTheme(theme);
+    this.shadow.applyTheme(theme);
   }
 
   public getLineworkTheme(): LineworkTheme {
@@ -1574,6 +1602,7 @@ export class VRMEngine {
             const storedTheme = resolveInitialSceneTheme();
             this.lineworkWorld.build(this.scene, storedTheme);
             this.updateShadowForTheme(storedTheme === 'dark');
+            this.syncSceneBackdrop(storedTheme);
             this.startAnimation();
             this.cinematicIntro(1100);
           } else if (this.controls) {
@@ -2019,6 +2048,7 @@ export class VRMEngine {
             const storedTheme = resolveInitialSceneTheme();
             this.lineworkWorld.build(this.scene, storedTheme);
             this.updateShadowForTheme(storedTheme === 'dark');
+            this.syncSceneBackdrop(storedTheme);
             this.startAnimation();
             this.cinematicIntro(1100);
           } else if (this.controls) {
@@ -2715,6 +2745,7 @@ export class VRMEngine {
 
     this.renderer?.dispose();
     this.lineworkWorld.dispose(this.scene);
+    this.beachBackdrop.dispose(this.scene);
     // ponytail: 角色阴影系统释放 (含 shadowPlane geometry/material + mask texture)
     this.shadow.dispose();
     this.postFx.dispose();

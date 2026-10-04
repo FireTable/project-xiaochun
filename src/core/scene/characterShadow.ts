@@ -21,6 +21,10 @@ export class CharacterShadowSystem {
   public feetWorld = new THREE.Vector3();
 
   private shadowPlane: THREE.Mesh | null = null;
+  /** 海滩场景专用: 脚下一块柔和的圆形接触影 (没有地面网格时, 光靠方向光落影脚下会"飘")。其它场景不可见。 */
+  private contactBlob: THREE.Mesh | null = null;
+  private contactTex: THREE.CanvasTexture | null = null;
+  private beach = false;
   private shadowMaskTex: THREE.CanvasTexture | null = null;
   private _shadowEdgeFadeUniform: { value: number } | null = null;
   private _shadowSoftUniform: { value: number } | null = null;
@@ -97,7 +101,63 @@ export class CharacterShadowSystem {
     this.shadowPlane.receiveShadow = true;
 
     this.group.add(this.shadowPlane);
+
+    // 接触影: 径向渐变 (中心实 → 边缘全透明), 平铺在地面上, 每帧跟脚底
+    const cc = document.createElement('canvas');
+    cc.width = cc.height = 128;
+    const cctx = cc.getContext('2d')!;
+    const cg = cctx.createRadialGradient(64, 64, 0, 64, 64, 64);
+    cg.addColorStop(0.0, 'rgba(255,255,255,1)');
+    cg.addColorStop(0.35, 'rgba(255,255,255,0.72)');
+    cg.addColorStop(0.7, 'rgba(255,255,255,0.22)');
+    cg.addColorStop(1.0, 'rgba(255,255,255,0)');
+    cctx.fillStyle = cg;
+    cctx.fillRect(0, 0, 128, 128);
+    this.contactTex = new THREE.CanvasTexture(cc);
+    const blobMat = new THREE.MeshBasicMaterial({
+      map: this.contactTex,
+      transparent: true,
+      depthWrite: false,
+      polygonOffset: true,
+      polygonOffsetFactor: -1,
+      polygonOffsetUnits: -1,
+      toneMapped: false,
+    });
+    this.contactBlob = new THREE.Mesh(new THREE.PlaneGeometry(1, 1), blobMat);
+    this.contactBlob.rotation.x = -Math.PI / 2;
+    this.contactBlob.renderOrder = 0;
+    this.contactBlob.visible = false;
+    this.group.add(this.contactBlob);
+
     scene.add(this.group);
+    this.applyTheme(theme);
+  }
+
+  /**
+   * 场景级配色: beach 下地面落影改奶茶褐偏粉 + 更淡, 并打开脚下接触影 (颜色匹配奶油沙地); 其它场景恢复原版 (黑色落影, 无接触影)。
+   * 参数见 APP_CONFIG.beachScene.blend。
+   */
+  public applyTheme(theme: LineworkTheme): void {
+    this.beach = theme === 'beach';
+    const b = APP_CONFIG.beachScene.blend;
+    if (this.shadowPlane && this.shadowPlane.material instanceof THREE.ShadowMaterial) {
+      const m = this.shadowPlane.material;
+      if (this.beach) {
+        m.color.setHex(b.shadowColor);
+        m.opacity = b.shadowOpacity;
+      } else {
+        m.color.setHex(0x000000);
+        m.opacity = theme === 'dark' ? APP_CONFIG.shadow.opacityDark : APP_CONFIG.shadow.opacityLight;
+      }
+      m.needsUpdate = true;
+    }
+    if (this.contactBlob) {
+      this.contactBlob.visible = this.beach;
+      const mat = this.contactBlob.material as THREE.MeshBasicMaterial;
+      mat.color.setHex(b.contactColor);
+      mat.opacity = b.contactOpacity;
+      this.contactBlob.scale.set(b.contactSizeM, b.contactSizeM, 1);
+    }
   }
 
   /** ponytail: 切主题时调 (vrmEngine.setLineworkTheme → updateShadowForTheme → 这), 改 opacity */
@@ -120,10 +180,14 @@ export class CharacterShadowSystem {
     this.shadowPlane.position.x = this.feetWorld.x;
     this.shadowPlane.position.z = this.feetWorld.z;
     this.shadowPlane.position.y = APP_CONFIG.shadow.planeY;
+    if (this.contactBlob?.visible) {
+      this.contactBlob.position.set(this.feetWorld.x, APP_CONFIG.shadow.planeY + 0.0004, this.feetWorld.z);
+    }
 
     // 2. 软影开关 (按主题)
+    // beach 与透明场景一样走软影 (径向淡出, 无硬边): 沙地背景是一张图, 没有"地面边界"可以让落影硬切
     const isTransparentShadow =
-      APP_CONFIG.shadow.softShadow.enabled && isTransparent;
+      APP_CONFIG.shadow.softShadow.enabled && (isTransparent || this.beach);
     if (this._shadowSoftUniform) {
       this._shadowSoftUniform.value = isTransparentShadow ? 1.0 : 0.0;
     }
@@ -166,6 +230,12 @@ export class CharacterShadowSystem {
       else if (mat instanceof THREE.Material) mat.dispose();
       this.group.remove(this.shadowPlane);
     }
+    if (this.contactBlob) {
+      this.contactBlob.geometry.dispose();
+      (this.contactBlob.material as THREE.Material).dispose();
+      this.group.remove(this.contactBlob);
+    }
+    this.contactTex?.dispose();
     if (this.shadowMaskTex) this.shadowMaskTex.dispose();
   }
 }

@@ -291,8 +291,8 @@ export const isXcId = (v: unknown): v is string => typeof v === 'string' && XC_I
 /** 只认对象自己的属性 (不走原型链); 等价于 Object.hasOwn, 但兼容 ES2020 目标。 */
 export const xcHasOwn = (o: object, k: string): boolean => Object.prototype.hasOwnProperty.call(o, k);
 
-/** 内置场景 id (以 xc.ready.capabilities.scenes 为准; 目前就这三个主题, 不含真实场景资产)。 */
-export type XcSceneId = 'light' | 'dark' | 'transparent';
+/** 内置场景 id (以 xc.ready.capabilities.scenes 为准): 昼白线稿 / 极夜黑线稿 / 透明 / 海滩 (AI 插画长条背景, 不透明)。 */
+export type XcSceneId = 'light' | 'dark' | 'transparent' | 'beach';
 export type XcLang = 'zh-CN' | 'en' | 'ja';
 /** iframe 支持的界面语言 (与主站 SUPPORTED_LANGS 同一份; capabilities.ui.langs)。 */
 export const XC_LANGS: readonly XcLang[] = ['zh-CN', 'en', 'ja'];
@@ -470,7 +470,7 @@ export interface XcPrefetchedPayload {
   skipped?: 'save-data';
 }
 
-/** xc.setScene — 运行时切场景 (id 来自 xc.ready.capabilities.scenes: light / dark / transparent)。 */
+/** xc.setScene — 运行时切场景 (id 来自 xc.ready.capabilities.scenes: light / dark / transparent / beach)。 */
 export interface XcSetScenePayload {
   id: string;
 }

@@ -172,7 +172,7 @@ const xc = createXiaochun({ container: '#avatar', outfit: 'xiaochun_maid', scene
 await xc.ready;
 
 const outfits = await xc.getOutfits();   // [{ id, name }]  (the bare base model is never listed)
-const scenes  = await xc.getScenes();    // [{ id: 'light' | 'dark' | 'transparent', transparent }]
+const scenes  = await xc.getScenes();    // [{ id: 'light' | 'dark' | 'transparent' | 'beach', transparent }]
 
 await xc.setOutfit('xiaochun_cheongsam');                    // resolves when the new outfit is live
 await xc.setScene('transparent');                            // wrapper background + pass-through follow automatically
@@ -360,7 +360,7 @@ createXiaochun({
 | `lazyMargin` | `200` | rootMargin in px for the visibility trigger. Larger loads earlier and uses more data |
 | `placeholder` | built-in SVG | Image URL, element, or `false` |
 | `transparent` | `false` | Transparent background over your page (with pointer pass-through). Same as `scene: 'transparent'` |
-| `scene` | — | Initial scene: `'light' \| 'dark' \| 'transparent'` (see `getScenes()`). Unknown id → ignored + `error { code: 'unknown_id' }` |
+| `scene` | — | Initial scene: `'light' \| 'dark' \| 'transparent' \| 'beach'` (see `getScenes()`). Unknown id → ignored + `error { code: 'unknown_id' }` |
 | `width`, `height` | `600`, `1080` | px or any CSS length. **Defaults are clamped to the viewport**: width = `min(600px, 100vw)` (and the shell has `max-width: 100%`, so it never overflows a narrow container), height = `min(1080px, 100svh)` (floating `position`s also subtract the `--xc-offset-x/y` margins so the box never sticks out of the screen). Explicit values are used as-is. Runtime: `setSize(w, h)` (`undefined` = back to the default) |
 | `position` | `'inline'` | `'inline' \| 'bottom-right' \| 'bottom-left'` |
 | `draggable` | `false` | Gesture drag: press and drag the character (not a built-in button) to move the iframe, clamped to the viewport. Works in inline and floating modes. See [Gestures](#gestures-drag-and-corner-resize) |
@@ -395,7 +395,7 @@ createXiaochun({
 | :--- | :--- | :--- |
 | `src` | official `/embed` | Changing it rebuilds the iframe |
 | `outfit` | — | Outfit id; changing it at runtime = `setOutfit` (**live update, no iframe rebuild**) |
-| `scene` | — | `light` · `dark` · `transparent`; runtime change = `setScene` (live) |
+| `scene` | — | `light` · `dark` · `transparent` · `beach`; runtime change = `setScene` (live) |
 | `model` | — | **Deprecated** alias of `outfit` (`outfit` wins) |
 | `camera-fov` / `camera-distance` / `camera-height` / `camera-intro` | — | Same as `camera` (hot-updated via `setConfig({ camera })`, no rebuild; removing an attribute = default) |
 | `persist` / `persist-box` / `prefetch` / `allow-custom-model` | — | Same as the options (`persist-box=""` = default key, any other string = namespace); changing them rebuilds |
