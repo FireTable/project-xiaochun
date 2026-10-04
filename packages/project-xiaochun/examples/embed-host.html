@@ -10,6 +10,27 @@
         node packages/project-xiaochun/examples/serve-isolated.mjs      # 带 COOP: same-origin + COEP: credentialless 的静态服务, 默认 :8081
         打开 http://localhost:8081/examples/embed-host.html?isolated=1  # ?isolated=1 → SDK 选项 crossOriginIsolated:true / 标签 cross-origin-isolated
      日志第一行打印宿主 crossOriginIsolated; handshake 日志里 capabilities.crossOriginIsolated 应为 true (iframe 内);
+  6. 换装 / 换场景 (阶段 3): 右侧 "outfit" 下拉由 getOutfits() 生成 (不含裸模), "scene" 三个按钮调 setScene。
+        - 快速连点 outfit 下拉 / 按钮: 日志里先到的会 ok, 被顶掉的出现 [busy] (正常), 最后一次一定生效; 说话时换装不会打断说话。
+        - "scene: transparent" 后鼠标移到空白处应穿透到本页 (点得到下面的文字), 移到角色身上才接收事件; 切回 light/dark 后整块 iframe 都接收事件。
+        - 悬浮头像是 <xiaochun-avatar>: 它的两个按钮改的是 outfit / scene **属性** (热更新, 不重建 iframe)。
+  7. 手势 (拖动 / 角落缩放): 面板里的 draggable / resizable 复选框 = xc.setDraggable(on) / xc.setResizable(on) (运行时开关, 不重建 iframe);
+     也可用 URL 参数 ?draggable=1&resizable=1 一开始就开 (默认都关)。
+        - draggable: 左键按住角色拖 = 移动整个 iframe (不压在内置按钮上); 夹在视口内。右下角 "box" 一行实时显示 left/top/width/height。
+        - resizable: 鼠标移到 iframe 四个角 (40px 热区) 出现圆弧 + 缩放光标, 拖动 = 缩放 (对角固定; 最小 120x180, 最大 = 视口; 缩放不会重建 iframe)。
+        - 透明场景 (scene: transparent) 下: 只有点在角色身上 / 角落热区上才接管手势, 其余位置仍穿透到本页。
+        - 日志里能看到 move / resize 事件 (phase: start|move|end 与最新 left/top/width/height); 都不勾时拖动 / 拉角没有任何效果。
+        - 圆角: 非透明场景 (light / dark) 默认 20px 圆角 (与 Tauri 桌宠窗口同值), 透明场景 0; 面板滑块 = xc.setBorderRadius(px), URL ?radius=0 = 方角。缩放时半径不变形。
+        - 悬浮头像 (<xiaochun-avatar>) 同步带 draggable (+ ?resizable=1 时带 resizable 属性)。
+     内置按钮 (ui 部件名数组): 面板里的 ui 复选框 = xc.setConfig({ ui: [...] }) 热切换 iframe 里的 chat / bubble / outfit / scene 部件;
+        也可用 URL 参数 ?ui=outfit,scene 一开始就显示 (逗号分隔, 未知项被忽略并 warn; 不写 = 都不显示)。
+        - 勾上 outfit / scene 后, iframe 右上角出现换装 / 换场景按钮 (和主站 TopHeader 同一套组件)。点选后日志里能看到 outfit-changed / scene-changed,
+          用面板上的 setOutfit / 场景按钮换装时, 按钮里的 ✓ 和加载状态同步。
+        - scene: transparent 时点按钮不会穿透到本页, 空白处仍穿透; iframe 自己的 localStorage 会记住偏好 (刷新后恢复, 显式 ?outfit= / ?scene= 优先); 宿主想另存可见脚本里 outfit-changed 的 localStorage 示例, 或 ?persist=host。
+     滚轮: iframe 默认放开滚轮缩放 (controls 默认开)。透明场景只在指针落在角色上才缩放, 其余位置滚动本页 (页面故意撑高 160vh 方便验证);
+        不透明场景 (light / dark) 在 iframe 区域内滚轮 = 缩放、不滚本页。URL 参数 ?controls=0 → SDK controls:false 锁定。
+     URL 参数: ?outfit=xiaochun_maid  ?scene=dark  ?ui=outfit,scene  ?controls=0  ?persist=host (偏好存本页 localStorage 'xiaochun:prefs', 刷新后恢复)
+               ?prefetch=1&heavy=eager (加载完后台预取服装到 IndexedDB, 不含婚纱; 日志里能看到 prefetch 进度)  ?custom=1 (allowCustomModel, 才允许下面的自定义 URL 框)
      点 heavy=eager 或 say 后, DevDrawer / worker 'wasm_env' 里 numThreads > 1。不带 ?isolated=1 (或用 :8080 的普通服务) 则为 false / 单线程。
 -->
 <html lang="zh-CN">
@@ -45,9 +66,45 @@
         <button id="exprBtn">expression</button>
       </div>
       <div>
-        <select id="outfit"><option value="base">base</option><option>xiaochun_maid</option><option>xiaochun_techwear</option><option>xiaochun_bikini</option></select>
-        <button id="model">setModel</button>
+        outfit: <select id="outfit"><option>(握手后加载)</option></select>
+        <button id="setOutfit">setOutfit</button>
+        <button id="spam" title="连发 5 个 setOutfit: 中间的应收到 [busy], 最后一个生效">连点 ×5</button>
+        <button id="prefetch" title="预取全部服装 (不含婚纱) 到 IndexedDB">prefetch()</button>
+      </div>
+      <div>
+        scene: <span id="scenes"></span>
+        <span id="cur" style="color:#888"></span>
+      </div>
+      <div id="uiParts" title="ui 部件名数组 -> xc.setConfig({ ui }); 不勾 = 都不显示">
+        ui:
+        <label><input type="checkbox" value="chat"> chat</label>
+        <label><input type="checkbox" value="bubble"> bubble</label>
+        <label><input type="checkbox" value="outfit"> outfit</label>
+        <label><input type="checkbox" value="scene"> scene</label>
+        <label style="margin-left:8px"><input type="checkbox" id="floatUi"> 悬浮头像也显示 outfit,scene</label>
+      </div>
+      <div>
+        <input id="customUrl" placeholder="https://…/x.vrm (需 ?custom=1)" size="26">
+        <button id="model" title="setModel({ url }): 默认被 SDK 拒绝, ?custom=1 才放行">setModel(url)</button>
         <button id="lookAt" title="协议已预留, /embed 暂返回 unsupported">lookAt (unsupported)</button>
+      </div>
+      <div id="gestures" title="draggable: 拖角色 = 移动 iframe; resizable: 拖四角缩放 (默认都关; URL ?draggable=1&resizable=1)">
+        手势:
+        <label><input type="checkbox" id="gDrag"> draggable</label>
+        <label><input type="checkbox" id="gResize"> resizable</label>
+        <button id="gSize" title="setSize(): 程序化改尺寸 (不重建 iframe)">setSize 240x360</button>
+        <span id="box" style="color:#888"></span>
+      </div>
+      <div title="borderRadius: 非透明场景默认 20px (与 Tauri 窗口圆角同值), 透明 0; URL ?radius=0|12|32">
+        圆角:
+        <input id="radius" type="range" min="0" max="60" value="20" style="vertical-align:middle">
+        <span id="radiusVal" style="color:#888">默认</span>
+        <button id="radiusReset" title="setBorderRadius(undefined): 恢复默认">默认</button>
+      </div>
+      <div>
+        float:
+        <select id="floatOutfit"></select>
+        <button id="floatScene" title="改 <xiaochun-avatar> 的 scene 属性 (热更新)">scene 属性: 下一个</button>
       </div>
       <div>
         <button id="mic">mic on/off</button>
@@ -74,12 +131,16 @@
     const isolated = params.get('isolated') === '1';
     if (isolated) f.setAttribute('cross-origin-isolated', '');
     f.setAttribute('transparent', '');
+    f.setAttribute('scene', 'transparent');
     f.setAttribute('draggable', '');
+    if (params.get('resizable') === '1') f.setAttribute('resizable', '');
     document.body.appendChild(f);
 
+    const $ = (id) => document.getElementById(id);
     const log = (...a) => { const el = document.getElementById('log'); el.textContent += a.map(x => typeof x === 'string' ? x : JSON.stringify(x)).join(' ') + '\n'; el.scrollTop = 1e9; };
 
     log('host crossOriginIsolated =', String(window.crossOriginIsolated), '| option crossOriginIsolated =', String(isolated));
+    const uiFromUrl = (params.get('ui') || '').split(',').map((x) => x.trim()).filter(Boolean);
     const xc = Xiaochun.createXiaochun({
       container: '#stage',
       src,
@@ -87,21 +148,83 @@
       width: 320, height: 480,
       transparent: false,
       lang: 'zh-CN',
+      outfit: params.get('outfit') || undefined,   // 初始服装 id; 非法/未知 → 回退默认 + error{unknown_id}
+      scene: params.get('scene') || undefined,     // 'light' | 'dark' | 'transparent'
+      persist: params.get('persist') || false,     // 'host' | 自定义 key | false (默认, 宿主不另存)
+      ui: uiFromUrl,                               // 内置界面部件名数组, 例 ['outfit','scene']; 不写 = 都不显示
+      draggable: params.get('draggable') === '1',  // 手势拖动 (拖角色 = 移动 iframe); 默认关, 面板复选框可运行时切换
+      resizable: params.get('resizable') === '1',  // 拖四角缩放; 默认关
+      borderRadius: params.has('radius') ? Number(params.get('radius')) : undefined, // 外壳圆角: 默认 非透明 20px / 透明 0; ?radius=0 方角
+      controls: params.get('controls') !== '0',    // 滚轮缩放, 默认开; ?controls=0 锁定
+      allowCustomModel: params.get('custom') === '1',
+      heavy: params.get('heavy') || 'lazy',
+      prefetch: params.get('prefetch') === '1',    // 只在 heavy=eager 时自动预取
       crossOriginIsolated: isolated, // ?isolated=1 → iframe allow 追加 cross-origin-isolated (宿主需 COOP/COEP, 见 serve-isolated.mjs)
     });
-    for (const ev of ['handshake', 'ready', 'progress', 'state', 'stt', 'utterance', 'hit-region', 'error', 'destroy']) {
-      xc.on(ev, (p) => { if (ev !== 'progress' && ev !== 'hit-region') log(ev, p ?? ''); });
+    let lastPhaseLog = '';
+    for (const ev of ['handshake', 'ready', 'progress', 'state', 'stt', 'utterance', 'hit-region', 'outfit-changed', 'scene-changed', 'move', 'resize', 'error', 'destroy']) {
+      xc.on(ev, (p) => {
+        if (ev === 'hit-region') return;
+        if (ev === 'move' || ev === 'resize') { // 手势事件很密: 只在 start / end 打日志, 过程只刷新 box 读数
+          $('box').textContent = ' box: ' + Math.round(p.left) + ',' + Math.round(p.top) + ' ' + Math.round(p.width) + 'x' + Math.round(p.height);
+          if (p.phase === 'move') return;
+        }
+        if (ev === 'progress') { // 只在阶段/目标变化或到 100% 时打一行, 免得刷屏
+          const k = p.phase + ':' + (p.id || '');
+          if (k !== lastPhaseLog || p.progress >= 100) { lastPhaseLog = k; log('progress', p); }
+          return;
+        }
+        log(ev, p ?? '');
+      });
     }
+    const refreshCur = () => { $('cur').textContent = ' now: outfit=' + xc.outfit + ' scene=' + xc.scene; };
+    xc.on('outfit-changed', refreshCur); xc.on('scene-changed', refreshCur);
+    // 握手后用 getOutfits()/getScenes() 生成控件 (旧版 /embed 返回 [] → 控件为空, 方法会 reject [unsupported])
+    xc.on('handshake', async () => {
+      const outfits = await xc.getOutfits(), scenes = await xc.getScenes();
+      for (const sel of [$('outfit'), $('floatOutfit')]) sel.innerHTML = outfits.map((o) => `<option value="${o.id}">${o.name}</option>`).join('');
+      $('scenes').innerHTML = scenes.map((s) => `<button data-scene="${s.id}">${s.id}${s.transparent ? ' (透明)' : ''}</button>`).join('');
+      for (const b of $('scenes').querySelectorAll('button')) b.onclick = () => wrap(xc.setScene(b.dataset.scene));
+      refreshCur();
+    });
     xc.ready.then(() => log('== ready: model loaded =='), () => {});
+    // iframe 已用自己的 localStorage 记住偏好; 这里演示宿主另存一份 (可选): 用户在内置按钮里选的服装 / 场景会以 outfit-changed / scene-changed 事件到这里
+    xc.on('outfit-changed', (p) => { if (!p.initial) localStorage.setItem('demo:outfit', p.id); });
+    xc.on('scene-changed', (p) => { if (!p.initial) localStorage.setItem('demo:scene', p.id); });
 
-    const $ = (id) => document.getElementById(id);
+    // 手势开关 (运行时, 不重建 iframe)
+    $('gDrag').checked = params.get('draggable') === '1';
+    $('gResize').checked = params.get('resizable') === '1';
+    $('gDrag').onchange = () => xc.setDraggable($('gDrag').checked);
+    $('gResize').onchange = () => xc.setResizable($('gResize').checked);
+    $('radius').oninput = () => { xc.setBorderRadius(Number($('radius').value)); $('radiusVal').textContent = $('radius').value + 'px'; };
+    $('radiusReset').onclick = () => { xc.setBorderRadius(undefined); $('radiusVal').textContent = '默认'; };
+    $('gSize').onclick = () => { xc.setSize(240, 360); $('box').textContent = ' box: ' + JSON.stringify(xc.getBox()); };
+
+    // ui 复选框 <-> 部件名数组
+    const uiBoxes = [...document.querySelectorAll('#uiParts input[value]')];
+    for (const b of uiBoxes) b.checked = uiFromUrl.includes(b.value);
+    for (const b of uiBoxes) b.onchange = () => wrap(xc.setConfig({ ui: uiBoxes.filter((x) => x.checked).map((x) => x.value) }));
+    $('floatUi').onchange = () => { // <xiaochun-avatar ui="outfit,scene"> (创建期属性: 改它会重建悬浮头像的 iframe)
+      if ($('floatUi').checked) f.setAttribute('ui', 'outfit,scene'); else f.removeAttribute('ui');
+    };
+
     const wrap = (p) => p.catch((e) => log('! ' + e.message));
     $('say').onclick = () => wrap(xc.say($('text').value));
     $('chat').onclick = () => wrap(xc.say($('text').value, { mode: 'chat' }));
     $('think').onclick = () => wrap(xc.motion('thinking'));
     $('stopMotion').onclick = () => wrap(xc.motion({ stop: true }));
     $('exprBtn').onclick = () => wrap(xc.expression($('expr').value));
-    $('model').onclick = () => wrap(xc.setModel($('outfit').value));
+    $('setOutfit').onclick = () => wrap(xc.setOutfit($('outfit').value));
+    $('spam').onclick = () => { // 先到的跑, 排队中被更新的顶掉 → [busy]; 最后一个赢
+      const ids = [...$('outfit').options].map((o) => o.value).filter((v) => v !== 'xiaochun_wedding');
+      for (let i = 0; i < 5; i++) wrap(xc.setOutfit(ids[Math.floor(Math.random() * ids.length)]));
+    };
+    $('prefetch').onclick = () => wrap(xc.prefetch().then((r) => log('prefetched', r)));
+    $('model').onclick = () => wrap(xc.setModel({ url: $('customUrl').value }));
+    $('floatOutfit').onchange = () => f.setAttribute('outfit', $('floatOutfit').value);
+    const sceneCycle = ['light', 'dark', 'transparent'];
+    $('floatScene').onclick = () => f.setAttribute('scene', sceneCycle[(sceneCycle.indexOf(f.getAttribute('scene')) + 1) % 3]);
     $('lookAt').onclick = () => wrap(xc.lookAt(0.5, 0));
     let micOn = false;
     $('mic').onclick = () => { micOn = !micOn; wrap(xc.mic(micOn)); };
@@ -110,7 +233,7 @@
     $('eager').onclick = () => wrap(xc.setConfig({ heavy: 'eager' }));
     $('destroy').onclick = () => xc.destroy();
 
-    for (const n of ['xc-ready', 'xc-error', 'xc-utterance']) f.addEventListener(n, (e) => log('<float> ' + n, e.detail));
+    for (const n of ['xc-ready', 'xc-error', 'xc-utterance', 'xc-outfit-changed', 'xc-scene-changed']) f.addEventListener(n, (e) => log('<float> ' + n, e.detail));
   </script>
 </body>
 </html>

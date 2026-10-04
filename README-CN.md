@@ -247,6 +247,12 @@ brew upgrade --cask project-xiaochun
 npm i @firetable/project-xiaochun
 ```
 
+另外内置(都是可选或有合理默认值,详见包文档):
+
+* **用鼠标移动 / 缩放 iframe**:`draggable`(左键拖动小蠢)与 `resizable`(拖四角缩放,默认最小 120×180、最大为视口),与桌面版共用同一套手势状态机(`src/core/gesture`);长按 / Cmd / Ctrl 仍然是 3D 转身。运行时可用 `setDraggable` / `setResizable` / `setSize` / `getBox`。
+* **和桌面窗口一致的圆角**:不透明场景默认 20px 圆角(`borderRadius` 选项、`setBorderRadius()`、`border-radius` 属性、`--xc-radius`)。
+* **iframe 自己记住服装和场景**(自己的 localStorage:`xiaochun_wearing_outfit` / `xiaochun_scene_theme`);优先级 URL / SDK 选项 > 已保存 > 默认;`persist` 可选地在宿主页再存一份。
+
 👉 包文档:[`packages/project-xiaochun/README-CN.md`](packages/project-xiaochun/README-CN.md) · 设计与协议:[`docs/EMBED.md`](docs/EMBED.md)
 
 ---

@@ -25,7 +25,9 @@
     "tauri:build": "tauri build",
     "protocol": "node scripts/protocol-call.mjs",
     "speak": "node scripts/protocol-call.mjs speak",
-    "check:i18n": "npx tsx scripts/check-i18n.ts"
+    "check:i18n": "npx tsx scripts/check-i18n.ts",
+    "test": "vitest run",
+    "test:embed": "node --test src/embed/__tests__/*.test.mjs"
   },
   "engines": {
     "pnpm": ">=10.0.0",
@@ -49,6 +51,7 @@
     "typescript": "~6.0.2",
     "vconsole": "^3.15.1",
     "vite": "^8.2.0",
+    "vitest": "^5.0.3",
     "wrangler": "^4.129.0"
   },
   "dependencies": {

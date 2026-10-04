@@ -13,6 +13,12 @@ export const en: Trans = {
   app: {
     dropZoneHint: 'Release to load this `.vrm` model',
   },
+  /** ponytail: /embed 内置换装 / 换场景按钮 (?picker=) 的轻提示; 按钮本身复用 header.switchOutfit / header.switchScene 文案。 */
+  embedPicker: {
+    busy: 'Swapping outfit; your latest pick is queued',
+    loading: 'Changing outfit…',
+    failed: "Couldn't change outfit, please retry",
+  },
   header: {
     uploadVrm: 'Upload VRM',
     switchScene: {

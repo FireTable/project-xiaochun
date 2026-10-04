@@ -5,6 +5,8 @@ Project XiaoChun features a multi-tiered interaction architecture designed to br
 
 This document serves as the definitive reference for how all user interactions and hotkeys are triggered, alongside a breakdown of platform-specific differences.
 
+**Embedded `/embed` iframe:** with the host options `draggable` / `resizable` the same gesture state machine (`src/core/gesture`) moves / resizes the iframe itself (short left-drag anywhere on the avatar in opaque scenes, or on the character in transparent scenes; corner drag to resize; long-press and Cmd/Ctrl still enter the 3D adjust modes instead of moving). Details and protocol: [`EMBED.md`](EMBED.md) §2.8.
+
 **Primary 3D adjust gesture (all platforms):** long-press → adjust mode (holographic guides visible) → drag for body turn / camera pitch, or drag the left **Camera Y** rail. Timing knobs live in `src/lib/constants.ts` (`INTERACTION_TOUCH_ARM_MS`, `INTERACTION_TOUCH_ARM_SLOP_PX`, `INTERACTION_GUIDE_AUTO_HIDE_MS`).
 
 ---

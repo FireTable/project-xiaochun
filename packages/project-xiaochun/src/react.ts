@@ -11,7 +11,8 @@
  *   - SSR / Next.js 安全: 文件头 'use client'; 服务端只渲染一个**固定尺寸**的空 <div> (不产生 CLS), iframe 只在客户端 effect 里创建。
  *   - StrictMode 双挂载不泄漏: effect cleanup 一定 destroy(); lazy 模式下假挂载根本不会创建 iframe。
  *   - 不改变主入口体积: 主入口 (index) 不引用本文件, 不用 React 的人不会多拉一个字节。
- *   - 创建期选项 (src/lazy/width/…) 变化会重建实例; lang / model / paused / mic 变化则热更新 (不重建 iframe)。
+ *   - 创建期选项 (src/lazy/position/…) 变化会重建实例; lang / outfit / scene / paused / mic / width / height / draggable / resizable / borderRadius 变化则热更新
+ *     (不重建 iframe, effect 里调 setter)。尤其 width / height: 用户缩放 (resizable) 后宿主把新尺寸写回 props 也不会重建, 模型 / 动画状态都保留。
  */
 import { createElement, forwardRef, useCallback, useEffect, useImperativeHandle, useRef, useState } from 'react';
 import type { CSSProperties, ForwardedRef, ReactElement } from 'react';
@@ -24,7 +25,8 @@ import type {
   XiaochunInstance,
   XiaochunOptions,
 } from './client';
-import type { XcConfig, XcExpressionPayload, XcMotionPayload, XcStatePayload } from './protocol';
+import { isXcId } from './protocol';
+import type { XcConfig, XcExpressionPayload, XcMotionPayload, XcOutfitInfo, XcPrefetchedPayload, XcSceneInfo, XcStatePayload } from './protocol';
 
 /** 事件回调 (全部可选)。引用变化不会重建实例 (内部用 ref 持有最新值)。 */
 export interface XiaochunCallbacks {
@@ -37,8 +39,16 @@ export interface XiaochunCallbacks {
   onStt?: (p: XiaochunEvents['stt']) => void;
   onUtterance?: (p: XiaochunEvents['utterance']) => void;
   onHitRegion?: (p: XiaochunEvents['hit-region']) => void;
+  /** 服装已生效 (含首次加载 initial:true)。 */
+  onOutfitChanged?: (p: XiaochunEvents['outfit-changed']) => void;
+  /** 场景已生效 (含握手后上报的当前场景 initial:true)。 */
+  onSceneChanged?: (p: XiaochunEvents['scene-changed']) => void;
   onError?: (p: XiaochunEvents['error']) => void;
   onDestroy?: () => void;
+  /** 用户拖动头像 (draggable): start / move / end, 位置已限幅 (视口坐标)。 */
+  onMove?: (p: XiaochunEvents['move']) => void;
+  /** 用户缩放头像 (resizable): start / move / end, 尺寸已限幅。想把尺寸同步进自己的状态, 在 phase === 'end' 时写回 width / height 即可 (不会重建 iframe)。 */
+  onResize?: (p: XiaochunEvents['resize']) => void;
 }
 
 export interface XiaochunHookOptions extends Omit<XiaochunOptions, 'container'>, XiaochunCallbacks {
@@ -67,7 +77,11 @@ const EVENT_MAP: Array<[keyof XiaochunEvents, keyof XiaochunCallbacks]> = [
   ['stt', 'onStt'],
   ['utterance', 'onUtterance'],
   ['hit-region', 'onHitRegion'],
+  ['outfit-changed', 'onOutfitChanged'],
+  ['scene-changed', 'onSceneChanged'],
   ['error', 'onError'],
+  ['move', 'onMove'],
+  ['resize', 'onResize'],
   ['destroy', 'onDestroy'],
 ];
 
@@ -91,8 +105,8 @@ export function useXiaochun(options: XiaochunHookOptions = {}): UseXiaochunResul
   useEffect(() => {
     if (!el) return;
     const cur = live.current;
-    const { onHandshake: _a, onReady: _b, onProgress: _c, onState: _d, onStt: _e, onUtterance: _f, onHitRegion: _g, onError: _h, onDestroy: _i, paused: _p, mic: _m, allowedOrigins, ...create } = cur;
-    void [_a, _b, _c, _d, _e, _f, _g, _h, _i, _p, _m];
+    const { onHandshake: _a, onReady: _b, onProgress: _c, onState: _d, onStt: _e, onUtterance: _f, onHitRegion: _g, onError: _h, onDestroy: _i, onOutfitChanged: _j, onSceneChanged: _k, onMove: _q, onResize: _r, paused: _p, mic: _m, allowedOrigins, ...create } = cur;
+    void [_a, _b, _c, _d, _e, _f, _g, _h, _i, _j, _k, _p, _m, _q, _r];
     const inst = createXiaochun({ ...create, allowedOrigins: allowedOrigins?.slice(), container: el });
     const offs: Array<() => void> = [];
     for (const [ev, cbName] of EVENT_MAP) {
@@ -111,23 +125,43 @@ export function useXiaochun(options: XiaochunHookOptions = {}): UseXiaochunResul
       setReady(false);
       setState(null);
     };
-    // 只有"创建期选项"变化才重建; lang/model/paused/mic/回调走下面的热更新
+    // 只有"创建期选项"变化才重建; lang/outfit/scene/paused/mic/回调走下面的热更新
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [el, o.src, o.origin, originsKey, o.lazy, o.lazyMargin, o.placeholder, o.transparent, o.width, o.height, o.position,
-    o.draggable, o.ui, o.heavy, o.controls, o.autoPause, o.passthrough, o.sandbox, o.handshakeTimeout, o.crossOriginIsolated, o.zIndex]);
+  }, [el, o.src, o.origin, originsKey, o.lazy, o.lazyMargin, o.placeholder, o.transparent, o.position,
+    JSON.stringify(o.ui ?? null), o.heavy, o.controls, o.autoPause, o.passthrough, o.sandbox, o.handshakeTimeout, o.crossOriginIsolated, o.zIndex,
+    o.allowCustomModel, o.persist, Array.isArray(o.prefetch) ? o.prefetch.join(',') : o.prefetch]);
 
-  // 热更新: lang / model (跳过首次: 创建时已经作为初始选项传入)
-  const first = useRef({ lang: o.lang, model: o.model });
+  // 热更新: lang / outfit (model 是旧别名) / scene (跳过首次: 创建时已经作为初始选项传入)。
+  // transparent 是创建期选项 (变化会重建); 想不重建地切透明请用 scene。
+  const wantOutfit = o.outfit ?? o.model;
+  const first = useRef({ lang: o.lang, outfit: wantOutfit, scene: o.scene, width: o.width, height: o.height });
+  const resizableKey = JSON.stringify(o.resizable ?? false);
   useEffect(() => {
     if (!client || first.current.lang === o.lang) return;
     first.current.lang = o.lang;
     if (o.lang) void client.setConfig({ lang: o.lang }).catch(() => {});
   }, [client, o.lang]);
   useEffect(() => {
-    if (!client || first.current.model === o.model) return;
-    first.current.model = o.model;
-    if (o.model) void client.setModel(o.model).catch(() => {});
-  }, [client, o.model]);
+    if (!client || first.current.outfit === wantOutfit) return;
+    first.current.outfit = wantOutfit;
+    // busy / unknown_id 会走 onError, 这里不重复处理; 旧用法 model="https://…" 仍走 setModel (受 allowCustomModel 约束)
+    if (wantOutfit) void (isXcId(wantOutfit) ? client.setOutfit(wantOutfit) : client.setModel(wantOutfit)).catch(() => {});
+  }, [client, wantOutfit]);
+  useEffect(() => {
+    if (!client || first.current.scene === o.scene) return;
+    first.current.scene = o.scene;
+    if (o.scene) void client.setScene(o.scene).catch(() => {});
+  }, [client, o.scene]);
+  // 尺寸 / 手势开关: 热更新, 不重建 iframe (缩放是运行时状态; 只有 props 里的值真的变了才调 setSize, 用户缩放后的尺寸不会被无关的重渲染覆盖)
+  useEffect(() => {
+    if (!client || (first.current.width === o.width && first.current.height === o.height)) return;
+    first.current.width = o.width; first.current.height = o.height;
+    client.setSize(o.width ?? 320, o.height ?? 480);
+  }, [client, o.width, o.height]);
+  useEffect(() => { client?.setDraggable(o.draggable === true); }, [client, o.draggable]);
+  useEffect(() => { client?.setBorderRadius(o.borderRadius); }, [client, o.borderRadius]);
+  useEffect(() => { client?.setResizable(o.resizable ?? false); // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [client, resizableKey]);
   useEffect(() => {
     if (!client || o.paused === undefined) return;
     if (o.paused) client.pause(); else client.resume();
@@ -153,6 +187,14 @@ export interface XiaochunHandle {
   expression(name: XcExpressionPayload['name']): Promise<void>;
   /** TODO: 协议已预留, /embed 暂未实现 → reject unsupported。 */
   lookAt(x: number, y: number): Promise<void>;
+  /** 换内置服装 (串行 + last-wins, 见 XiaochunInstance.setOutfit)。 */
+  setOutfit(id: string): Promise<void>;
+  setScene(id: string): Promise<void>;
+  getOutfits(): Promise<XcOutfitInfo[]>;
+  getScenes(): Promise<XcSceneInfo[]>;
+  /** 预取服装资源到 iframe 的 IndexedDB; ids 省略 = 全部 (婚纱除外)。 */
+  prefetch(ids?: string[]): Promise<XcPrefetchedPayload>;
+  /** 旧命令; 任意 URL 需 allowCustomModel。内置服装请用 setOutfit。 */
   setModel(m: string | { url?: string; outfit?: string; name?: string }): Promise<void>;
   setConfig(cfg: XcConfig): Promise<void>;
   startListening(): Promise<void>;
@@ -193,6 +235,11 @@ function XiaochunInner(props: XiaochunProps, ref: ForwardedRef<XiaochunHandle>):
       motion: (m) => c()?.motion(m) ?? reject(),
       expression: (n) => c()?.expression(n) ?? reject(),
       lookAt: (x, y) => c()?.lookAt(x, y) ?? reject(),
+      setOutfit: (id) => c()?.setOutfit(id) ?? reject(),
+      setScene: (id) => c()?.setScene(id) ?? reject(),
+      getOutfits: () => c()?.getOutfits() ?? reject(),
+      getScenes: () => c()?.getScenes() ?? reject(),
+      prefetch: (ids) => c()?.prefetch(ids) ?? reject(),
       setModel: (m) => c()?.setModel(m) ?? reject(),
       setConfig: (cfg) => c()?.setConfig(cfg) ?? reject(),
       startListening: () => c()?.startListening() ?? reject(),

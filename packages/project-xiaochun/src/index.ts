@@ -7,6 +7,8 @@ export type {
   XiaochunErrorCode,
   XiaochunPosition,
   XiaochunLazy,
+  XiaochunBoxEvent,
+  XiaochunResizeLimits,
   XiaochunAudioOptions,
   XiaochunAudioSource,
   XiaochunAudioStream,

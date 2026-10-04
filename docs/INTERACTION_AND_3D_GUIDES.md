@@ -16,6 +16,8 @@ The `InteractionController` manages all user-initiated 3D transformations, compl
 - **Photon knobs**: `INTERACTION_GUIDE_PHOTON` (`thickness` / `flowUFrac` / `cameraLength`) — shared paint ratios; each guide keeps its own track/flow mesh (no shared photon plane).
 - **Pinch / Scroll Zoom**: Smooth exponential zooming bounded by configured safe camera distances.
 
+- **Shared gesture core (`src/core/gesture/`)**: the left-button decision logic (short drag = move, long-press `INTERACTION_TOUCH_ARM_MS` = arm adjust mode, modifier = instant 3D) is a pure-TS state machine (`GestureMachine`, no DOM / Tauri dependency) extracted verbatim from `InteractionController`. `InteractionController` is now a thin DOM adapter on top of it. The same machine drives **three consumers**: the Tauri desktop window (`move` strategy `native`: hand the drag to Tauri `startDragging`), the `/embed` iframe (`delta` strategy: post `xc.gesture-move` increments that the host SDK applies, see [`EMBED.md`](EMBED.md) §2.8) and the corner resize (`ResizeGesture` + `CORNER_HIT_SIZE` / `cornerAt`, shared by `TauriWindowFrame` and `EmbedCorners`). `HitGate` decides click-through for transparent scenes (character / buttons / menus / corner zones capture; blank passes through). Equivalence against the old controller is locked by `src/core/gesture/__tests__/equivalence.test.ts`.
+
 ### 2.2 TurnGuide3D: Horizontal Yaw Guide Ring (`src/core/interaction/turnGuide3D.ts`)
 - Renders an elliptical glowing ring on the ground at the character's feet.
 - Features a reactive glowing light beacon that tracks and visualizes the character's `bodyTurn` yaw orientation in real time.
@@ -30,6 +32,13 @@ The `InteractionController` manages all user-initiated 3D transformations, compl
 - Displays an interactive photon + minimal camera icon indicating the camera height target.
 - Dragging the rail / icon writes `cameraYOffset` (−1…+1) via `onSetCameraYOffset`. Enter adjust mode (long-press or modifier) first so the guide is visible and Tauri passthrough stays captured.
 
+### 2.5 Shared white-UI style (`src/core/interaction/guideStyle.ts`)
+The window corner arcs (`src/components/CornerHandle.tsx`, used by Tauri and `/embed`) and the three 3D guides read **one** set of constants, with no per-component hard-coding and no scene / platform switch:
+- `GUIDE_COLOR = '#ffffff'` + `GUIDE_OPACITY = 0.75` (semi-transparent white; split in two because `THREE.Color` drops rgba alpha). `guideRgba()` / `GUIDE_COLOR_CSS` give the CSS form.
+- `GUIDE_SHADOW`: a soft dark shadow under the white body (3D `alpha 0.20`, `blur 10`, `spread 4`; corner arc `arcAlpha 0.20`, `arcBlur 1.8`). White-on-white (light scenes, or transparent scenes over a white host page) would otherwise be invisible; on dark backgrounds the shadow is nearly invisible, so nothing looks dirty. Every field has its legal range and the effect of raising / lowering it in the file's comments.
+- The 3D guides are additively blended (cannot draw dark), so `guideShadow.ts` bakes each guide texture into a dilated + blurred black texture attached as a non-pickable child mesh / sprite (`NormalBlending`, drawn before the guide). The area covered by the white body is knocked out of the shadow, so the semi-transparent body does not show a dirty edge. Corner arcs do the same with an SVG blur + mask and sit 4 px inside the window edge (concentric with the 20 px window radius), so the blur is not clipped by `overflow-hidden`.
+- Tauri desktop arcs / guides therefore also gained the soft shadow (intended).
+
 ---
 
 ## 3. Physical Aerodynamics: Localized Mouse Wind Force (`src/core/wind/windForce.ts`)
@@ -38,6 +47,7 @@ The `InteractionController` manages all user-initiated 3D transformations, compl
 - Converts 2D cursor delta into a directional 3D wind impulse in world space:
   $$\vec{F}_{\text{wind}} = \alpha \cdot \Delta \vec{p}_{\text{cursor}} \cdot e^{-\lambda t}$$
 - Dynamically drives the VRM SpringBone simulation, causing ribbons, skirt fabrics, and hair strands to flutter organically as the cursor brushes past.
+- **Skirt tuning (current values)**: `APP_CONFIG.wind.skirtMultiplier = 0.7` (wind gain on the skirt, legal `>= 0`, suggested 0.5 to 1.5; raise = a cursor sweep whips the skirt harder, lower = gentler; was 1.45) and `APP_CONFIG.springBone.skirt.dragForce = 0.40` (damping, legal 0 to 1; raise = steadier, sway settles faster, lower = floatier; was 0.18). `stiffness 0.35` / `gravityPower 0.10` are unchanged. Together they stop the skirt from over-swinging when the window is dragged or the cursor sweeps.
 
 ---
 

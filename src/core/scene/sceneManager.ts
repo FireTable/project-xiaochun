@@ -11,10 +11,22 @@ import { useSyncExternalStore } from 'react';
 import { APP_CONFIG, type SceneItemConfig } from '@/config';
 import { SCENE_THEME_KEY } from '@/lib/constants';
 import { isEmbed, isTauri } from '@/lib/platform';
+import { embedSceneFromSearch } from '@/embed/registry';
 
 /** 透明场景: Tauri 桌宠 或 /embed (宿主页叠加透明 iframe) 才允许; 普通网页保持原限制。 */
 function isTransparentSceneAllowed(): boolean {
   return isTauri() || isEmbed();
+}
+
+/** 只认 scenes.items 自己的键 (不走原型链: `constructor` / `__proto__` / `toString` 不是场景)。 */
+const hasScene = (id: unknown): id is string =>
+  typeof id === 'string' && Object.hasOwn(APP_CONFIG.scenes.items, id);
+
+/** /embed 的 URL 是否显式指定了外观 (scene / transparent / theme)。指定了就不再跟随系统亮暗。 */
+function embedUrlPinsScene(): boolean {
+  if (typeof window === 'undefined' || !isEmbed()) return false;
+  const id = embedSceneFromSearch(window.location.search);
+  return id !== null && hasScene(id);
 }
 
 function resolveInitialSceneId(): string {
@@ -22,17 +34,18 @@ function resolveInitialSceneId(): string {
     return APP_CONFIG.scenes.defaultSceneId;
   }
 
-  // /embed: URL 参数优先于 localStorage (iframe 的存储可能被分区, 且宿主需要确定性外观)。
+  // /embed: URL 参数优先于 localStorage (宿主显式指定的外观要确定性); 没指定时才读 iframe 自己存的场景偏好。
+  // 优先级: ?scene= (light|dark|transparent) > ?transparent=1 (旧参数) > ?theme= (旧参数, 仅非透明)。
   if (isEmbed()) {
-    const q = new URLSearchParams(window.location.search);
-    if (q.get('transparent') === '1') return 'transparent';
-    const theme = q.get('theme');
-    if (theme && theme in APP_CONFIG.scenes.items && theme !== 'transparent') return theme;
+    const id = embedSceneFromSearch(window.location.search); // 与 vrmEngine 初始线稿主题同一份解析
+    if (id !== null && hasScene(id)) return id;
   }
 
   try {
     const stored = localStorage.getItem(SCENE_THEME_KEY);
-    if (stored && stored in APP_CONFIG.scenes.items) {
+    // /embed 里存的场景 id 不在白名单 (坏数据 / 旧版本留下的) → 清掉, 回默认 / 跟随系统
+    if (stored !== null && !hasScene(stored) && isEmbed()) localStorage.removeItem(SCENE_THEME_KEY);
+    if (hasScene(stored)) {
       if (stored === 'transparent' && !isTransparentSceneAllowed()) {
         return APP_CONFIG.scenes.defaultSceneId;
       }
@@ -55,10 +68,17 @@ function resolveInitialSceneId(): string {
 
 class SceneManager {
   private currentSceneId: string;
+  /**
+   * true = 场景是被明确指定的 (URL 参数 / 宿主 xc.setScene / 用户点选), 不再跟随系统亮暗。
+   * 修复: 原先 persist=false 不写 localStorage, 系统切换深浅色时 `localStorage.getItem()===null` 成立,
+   * 会把宿主指定的 transparent 场景覆盖成 light/dark。
+   */
+  private pinned = false;
   private listeners = new Set<(scene: SceneItemConfig) => void>();
 
   constructor() {
     this.currentSceneId = resolveInitialSceneId();
+    this.pinned = embedUrlPinsScene();
     // 初始化时同步 DOM 类名
     if (typeof document !== 'undefined') {
       const scene = this.getCurrentScene();
@@ -70,10 +90,10 @@ class SceneManager {
       try {
         const mediaQuery = window.matchMedia('(prefers-color-scheme: dark)');
         mediaQuery.addEventListener('change', (e) => {
-          if (localStorage.getItem(SCENE_THEME_KEY) === null) {
+          if (!this.pinned && localStorage.getItem(SCENE_THEME_KEY) === null) {
             const autoSceneId = e.matches ? 'dark' : 'light';
-            if (autoSceneId in APP_CONFIG.scenes.items) {
-              void this.setScene(autoSceneId, false);
+            if (hasScene(autoSceneId)) {
+              void this.setScene(autoSceneId, false, { auto: true });
             }
           }
         });
@@ -92,8 +112,8 @@ class SceneManager {
     return this.currentSceneId;
   }
 
-  public async setScene(sceneId: string, persist: boolean = true): Promise<void> {
-    const targetScene = APP_CONFIG.scenes.items[sceneId];
+  public async setScene(sceneId: string, persist: boolean = true, opts: { auto?: boolean } = {}): Promise<void> {
+    const targetScene = hasScene(sceneId) ? APP_CONFIG.scenes.items[sceneId] : undefined;
     if (!targetScene) {
       console.warn(`[SceneManager] Scene "${sceneId}" not found in APP_CONFIG.scenes.items`);
       return;
@@ -104,6 +124,7 @@ class SceneManager {
     }
 
     this.currentSceneId = sceneId;
+    if (!opts.auto) this.pinned = true; // 外部显式设置过, 之后不再被系统亮暗覆盖
 
     if (persist && typeof window !== 'undefined') {
       try {

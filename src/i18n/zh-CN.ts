@@ -11,6 +11,12 @@ export const zhCN = {
   app: {
     dropZoneHint: '松开鼠标加载该 `.vrm` 模型',
   },
+  /** ponytail: /embed 内置换装 / 换场景按钮 (?picker=) 的轻提示; 按钮本身复用 header.switchOutfit / header.switchScene 文案。 */
+  embedPicker: {
+    busy: '正在换装,已记下你的最新选择',
+    loading: '换装中…',
+    failed: '换装失败,请再试一次',
+  },
   header: {
     uploadVrm: '上传 VRM',
     switchScene: {

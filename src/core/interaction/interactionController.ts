@@ -14,6 +14,11 @@
  *   空闲 INTERACTION_GUIDE_AUTO_HIDE_MS 后自动消失。
  * - Cmd/Ctrl 仍可即时进入 3D（桌面快捷路径）。
  * - Tauri：长按前若提前滑动，取消武装并走裸左键拖窗（桌宠拖窗保留）。
+ *
+ * 分层 (阶段 2 重构, 行为不变):
+ *   手势识别 (10px 阈值 / 480ms 长按 / 多点触控 / 修饰键 / 自动收起) → src/core/gesture/GestureMachine (纯 TS, 宿主无关);
+ *   Tauri 原生拖窗 → src/core/gesture/adapters/tauriWindow.ts;
+ *   本类只负责: DOM 事件 → PointerSample、消费语义事件、3D 导轨 / 角色转身 / 相机俯仰 / 光标 / 穿透同步。
  */
 
 import type { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js';
@@ -24,7 +29,7 @@ import {
   INTERACTION_TOUCH_ARM_MS,
   INTERACTION_TOUCH_ARM_SLOP_PX,
 } from '@/lib/constants';
-import { isTauri, startWindowDragging, hasInteractionModifier, isMacOS } from '@/lib/platform';
+import { isTauri, hasInteractionModifier, isMacOS } from '@/lib/platform';
 import type { Scene, Vector3, Camera, PerspectiveCamera } from 'three';
 import * as THREE from 'three';
 import { sceneManager } from '@/core/scene/sceneManager';
@@ -32,6 +37,9 @@ import { passthroughManager } from '@/core/scene/passthroughManager';
 import { TurnGuide3D } from './turnGuide3D';
 import { PitchGuide3D } from './pitchGuide3D';
 import { CameraYGuide3D } from './cameraYGuide3D';
+import { GestureMachine, type GestureEvent, type GestureResponse } from '@/core/gesture';
+import { fillPointerSample, newPointerSample } from '@/core/gesture/adapters/domSample';
+import { startNativeWindowDrag } from '@/core/gesture/adapters/tauriWindow';
 
 export interface InteractionState {
   isModifierActive: boolean;
@@ -60,32 +68,30 @@ export class InteractionController {
   private pitchGuide3D = new PitchGuide3D();
   private cameraYGuide3D = new CameraYGuide3D();
 
-  // 内部状态
-  private isModifierActive = false;
-  private isLeftDragging = false;
-  private dragStartX = 0;
-  private dragStartY = 0;
-  private activePointerId: number | null = null;
+  // 手势状态机 (纯逻辑, 状态全部在它里面; 这里只留 3D 表现相关的量)
+  private machine = new GestureMachine(
+    {
+      armMs: INTERACTION_TOUCH_ARM_MS,
+      slopPx: INTERACTION_TOUCH_ARM_SLOP_PX,
+      hideMs: INTERACTION_GUIDE_AUTO_HIDE_MS,
+      // Tauri: 超过 10px 交给原生拖窗 (startDragging); /embed 且宿主开了 draggable (setMoveSink): 'delta' (逻辑层出增量, 由宿主 SDK 移动 iframe);
+      // 其余 (普通浏览器 / embed 宿主没开): 仅取消长按, 把滑动还给页面
+      moveStrategy: () => (this.moveSink ? 'delta' : isTauri() ? 'native' : 'none'),
+    },
+    { isGuideHit: (x, y) => this.raycastYGuide(x, y) },
+  );
   private lastDragDx = 0;
   private lastDragDy = 0;
+  /** /embed 的移动手势出口 (null = 没开): 非 null 时 GestureMachine 用 'delta' 策略, move-start / move-delta / move-end 转交给它。 */
+  private moveSink: ((ev: GestureEvent) => void) | null = null;
+  /** 正在 delta 移动的指针 (已 setPointerCapture 到 canvas, 移出 iframe 也持续收到事件; 松手 / 取消时释放)。 */
+  private moveCapturedPointer: number | null = null;
+  /** 复用的指针样本, 避免高频 pointermove 里每次分配 (GestureMachine 不保留引用)。 */
+  private sample = newPointerSample();
 
-  /** 移动端长按调整模式：导轨可见，可拖转身/俯仰或点 Y 尺 */
-  private touchArmed = false;
-  private touchArmTimer: ReturnType<typeof setTimeout> | null = null;
-  private guideHideTimer: ReturnType<typeof setTimeout> | null = null;
-  private touchDownX = 0;
-  private touchDownY = 0;
-  /** 长按刚武装、手指仍按着，等位移再决定开拖 / 点 Y */
-  private touchPendingDrag = false;
-  /** 移动端当前按下的 touch pointer；≥2 时不做 turn/pitch（留给 pinch 缩放） */
-  private activeTouchPointers = new Set<number>();
-
-  // cameraYGuide 拖拽状态
-  private isYGuideDragging = false;
-  private yGuideLastClientY = 0;
+  // cameraYGuide 世界坐标换算
   private yGuideRaycaster = new THREE.Raycaster();
   private yGuideNdc = new THREE.Vector2();
-  private yGuideHovered = false;
   // ponytail: 当前 cameraYOffset, 由 update() 每帧从 vrmEngine 同步过来, 用于
   // 拖拽时计算 next = current + deltaY 走 vrmEngine.onSetCameraYOffset 写入。
   private _currentCameraYOffset = 0;
@@ -93,7 +99,16 @@ export class InteractionController {
   private stateListeners = new Set<(state: InteractionState) => void>();
 
   constructor() {
+    this.machine.on(this.onGestureEvent);
     this.setupGlobalKeyListeners();
+  }
+
+  /**
+   * /embed: 开 / 关"拖动 iframe"手势。sink 收到 move-start / move-delta / move-end (delta 为屏幕坐标差, iframe 自己被移动时仍稳定)。
+   * 传 null = 关: 回到 'none' (超过阈值只取消长按, 不拦截任何事件)。进行中的拖动不会被打断, 下一次按下才生效。
+   */
+  public setMoveSink(sink: ((ev: GestureEvent) => void) | null): void {
+    this.moveSink = sink;
   }
 
   public onStateChange(cb: (state: InteractionState) => void): () => void {
@@ -106,8 +121,8 @@ export class InteractionController {
 
   public getState(): InteractionState {
     return {
-      isModifierActive: this.isModifierActive,
-      isDragging: this.isLeftDragging,
+      isModifierActive: this.machine.modifierActive,
+      isDragging: this.machine.dragging,
       dragDelta: { x: 0, y: 0 },
       anchorScreenPos: null,
     };
@@ -116,8 +131,8 @@ export class InteractionController {
   private notifyStateChange(deltaX = 0, deltaY = 0): void {
     this.syncGuidePassthrough();
     const state: InteractionState = {
-      isModifierActive: this.isModifierActive,
-      isDragging: this.isLeftDragging,
+      isModifierActive: this.machine.modifierActive,
+      isDragging: this.machine.dragging,
       dragDelta: { x: deltaX, y: deltaY },
       anchorScreenPos: null,
     };
@@ -140,7 +155,7 @@ export class InteractionController {
   }
 
   public unbindCanvas(): void {
-    this.clearTouchArm({ hideGuides: true });
+    this.machine.clearArm({ hideGuides: true });
     if (this.cleanupCanvasListeners) {
       this.cleanupCanvasListeners();
       this.cleanupCanvasListeners = null;
@@ -150,8 +165,8 @@ export class InteractionController {
       this.context.scene.remove(this.pitchGuide3D.group);
       this.context.scene.remove(this.cameraYGuide3D.group);
     }
-    this.endDrag();
-    this.endYGuideDrag();
+    this.machine.endTurn();
+    this.machine.endGuideDrag();
     this.canvas = null;
     this.context = null;
   }
@@ -171,8 +186,8 @@ export class InteractionController {
     this.turnGuide3D.update(
       delta,
       vrmBasePos,
-      this.isModifierActive,
-      this.isLeftDragging,
+      this.machine.modifierActive,
+      this.machine.dragging,
       turnAngle,
       this.lastDragDx,
     );
@@ -187,8 +202,8 @@ export class InteractionController {
     this.pitchGuide3D.update(
       delta,
       vrmBasePos,
-      this.isModifierActive,
-      this.isLeftDragging,
+      this.machine.modifierActive,
+      this.machine.dragging,
       pitchProgress,
       this.lastDragDy,
     );
@@ -200,13 +215,13 @@ export class InteractionController {
     this.cameraYGuide3D.update(
       delta,
       vrmBasePos,
-      this.isModifierActive,
-      this.isYGuideDragging,
+      this.machine.modifierActive,
+      this.machine.guideDragging,
       yProgress,
       0,
       _camera,
     );
-    this.cameraYGuide3D.setHovered(this.yGuideHovered || this.isYGuideDragging);
+    this.cameraYGuide3D.setHovered(this.machine.guideHovered || this.machine.guideDragging);
 
     // 阻尼衰减
     this.lastDragDx = THREE.MathUtils.damp(this.lastDragDx, 0, 10, delta);
@@ -216,164 +231,122 @@ export class InteractionController {
   private cleanupCanvasListeners: (() => void) | null = null;
   private cleanupGlobalListeners: (() => void) | null = null;
 
-  private can3DInteract(e: PointerEvent): boolean {
-    if (hasInteractionModifier(e)) return true;
-    return this.touchArmed;
-  }
-
-  private clearGuideHideTimer(): void {
-    if (this.guideHideTimer !== null) {
-      clearTimeout(this.guideHideTimer);
-      this.guideHideTimer = null;
-    }
-  }
-
-  /** 重置导轨自动消失计时（仅移动端调整模式） */
-  private bumpGuideAutoHide(): void {
-    this.clearGuideHideTimer();
-    if (!this.touchArmed) return;
-    this.guideHideTimer = setTimeout(() => {
-      this.guideHideTimer = null;
-      // 拖拽中不收；结束后再等一轮
-      if (this.isLeftDragging || this.isYGuideDragging || this.touchPendingDrag) {
-        this.bumpGuideAutoHide();
-        return;
-      }
-      this.clearTouchArm({ hideGuides: true });
-      this.updateCursor();
-      this.notifyStateChange();
-    }, INTERACTION_GUIDE_AUTO_HIDE_MS);
-  }
-
-
   /**
    * 导轨可见 / 拖拽中：强制关闭原生穿透。
    * 否则 CameraY 等细线导轨 alpha 低于 bitmask 阈值，hover(raycast) 成功但按下被当成穿透。
    */
   private syncGuidePassthrough(): void {
-    const capture =
-      this.isModifierActive
-      || this.touchArmed
-      || this.touchPendingDrag
-      || this.isLeftDragging
-      || this.isYGuideDragging;
-    void passthroughManager.setInteracting(capture);
+    void passthroughManager.setInteracting(this.machine.capturing);
   }
 
-  private clearTouchArm(opts?: { hideGuides?: boolean }): void {
-    if (this.touchArmTimer !== null) {
-      clearTimeout(this.touchArmTimer);
-      this.touchArmTimer = null;
-    }
-    this.clearGuideHideTimer();
-    this.touchArmed = false;
-    this.touchPendingDrag = false;
-    if (opts?.hideGuides) {
-      // 仅清触控武装带来的显轨；桌面修饰键由 keyup 管
-      this.isModifierActive = false;
-    }
-    this.syncGuidePassthrough();
-  }
-
-  private isMultiTouchActive(): boolean {
-    return this.activeTouchPointers.size >= 2;
-  }
-
-  private trackTouchPointerDown(e: PointerEvent): void {
-    if (e.pointerType !== 'touch') return;
-    this.activeTouchPointers.add(e.pointerId);
-  }
-
-  private trackTouchPointerUp(e: PointerEvent): void {
-    if (e.pointerType !== 'touch') return;
-    this.activeTouchPointers.delete(e.pointerId);
-  }
-
-  /** 双指出现：取消长按武装与 turn/pitch/Y 拖，释放 capture，把手势还给 OrbitControls pinch */
-  private abortTurnPitchForMultiTouch(): void {
-    if (this.touchArmTimer !== null) {
-      clearTimeout(this.touchArmTimer);
-      this.touchArmTimer = null;
-    }
-    this.touchPendingDrag = false;
-    if (this.isLeftDragging) this.endDrag();
-    if (this.isYGuideDragging) this.endYGuideDrag();
-    if (this.activePointerId !== null && this.canvas) {
-      try {
-        if (this.canvas.hasPointerCapture(this.activePointerId)) {
-          this.canvas.releasePointerCapture(this.activePointerId);
+  /** 消费 GestureMachine 的语义事件: 3D 表现 / 光标 / 穿透 / 指针捕获 / Tauri 原生拖窗。 */
+  private onGestureEvent = (ev: GestureEvent): void => {
+    switch (ev.type) {
+      case 'move-start':
+        // 必须同步调用: 本回调处于 GestureMachine.pointerMove 的同步栈里, 即 pointermove 事件处理中
+        if (ev.strategy === 'native') startNativeWindowDrag();
+        else if (ev.strategy === 'delta') {
+          // 抓住指针: iframe 被宿主移动、指针跑出 iframe 之外时仍持续收到 pointermove / pointerup
+          const canvas = this.canvas;
+          if (canvas) {
+            try { canvas.setPointerCapture?.(ev.pointerId); this.moveCapturedPointer = ev.pointerId; } catch { /* ignore */ }
+            canvas.style.cursor = 'grabbing';
+          }
+          this.moveSink?.(ev);
         }
-      } catch { /* ignore */ }
-      this.activePointerId = null;
+        break;
+      case 'move-delta':
+        this.moveSink?.(ev);
+        break;
+      case 'move-end': {
+        const canvas = this.canvas;
+        if (canvas && this.moveCapturedPointer !== null) {
+          try { if (canvas.hasPointerCapture(this.moveCapturedPointer)) canvas.releasePointerCapture(this.moveCapturedPointer); } catch { /* ignore */ }
+          canvas.style.cursor = '';
+        }
+        this.moveCapturedPointer = null;
+        this.moveSink?.(ev);
+        break;
+      }
+      case 'capture': {
+        const canvas = this.canvas;
+        if (!canvas) break;
+        if (ev.capture) {
+          try { canvas.setPointerCapture?.(ev.pointerId); } catch { /* ignore */ }
+        } else {
+          try {
+            if (canvas.hasPointerCapture(ev.pointerId)) canvas.releasePointerCapture(ev.pointerId);
+          } catch { /* ignore */ }
+        }
+        break;
+      }
+      case 'turn-start':
+        this.lastDragDx = 0;
+        this.lastDragDy = 0;
+        break;
+      case 'turn':
+        this.lastDragDx = ev.dx;
+        this.lastDragDy = ev.dy;
+        if (this.context) {
+          const sensitivityX = APP_CONFIG.interaction.characterTurnSensitivityX;
+          this.context.motionPipeline.targetYawOffset += ev.dx * sensitivityX;
+
+          if (this.context.controls) {
+            const sensitivityY = APP_CONFIG.camera.pitchSensitivityY;
+            (this.context.controls as any)._rotateUp(ev.dy * sensitivityY);
+          }
+        }
+        break;
+      case 'turn-end': {
+        this.lastDragDx = 0;
+        this.lastDragDy = 0;
+        const currentScene = sceneManager.getCurrentScene();
+        if (currentScene?.isTransparent) {
+          void passthroughManager.setInteracting(false);
+        }
+        if (this.context) {
+          this.context.onSaveBodyYaw();
+          this.context.onSaveCameraPitch();
+        }
+        break;
+      }
+      case 'guide-drag': {
+        // cameraYGuide 拖拽中 — 持续改 cameraYOffset
+        const deltaY = this.screenDeltaToWorld(ev.dy);
+        if (this.context && Math.abs(deltaY) > 0) {
+          const newOffset = THREE.MathUtils.clamp(this._currentCameraYOffset + deltaY, -1, 1);
+          this.context.onSetCameraYOffset(newOffset);
+        }
+        break;
+      }
+      case 'state-changed':
+        if (ev.cursor) this.updateCursor();
+        if (ev.notify) this.notifyStateChange(ev.dx, ev.dy);
+        else if (ev.passthrough) this.syncGuidePassthrough();
+        break;
+      default:
+        break;
     }
-    this.updateCursor();
-    this.notifyStateChange();
-  }
+  };
 
-  private enterTouchAdjustMode(pointerId: number, canvas: HTMLCanvasElement): void {
-    this.touchArmed = true;
-    this.touchPendingDrag = true;
-    this.isModifierActive = true;
-    this.activePointerId = pointerId;
-    try {
-      canvas.setPointerCapture(pointerId);
-    } catch { /* ignore */ }
-    this.bumpGuideAutoHide();
-    this.updateCursor();
-    this.notifyStateChange();
-  }
-
-  private beginBodyDrag(clientX: number, clientY: number, pointerId: number, canvas: HTMLCanvasElement): void {
-    this.touchPendingDrag = false;
-    this.isLeftDragging = true;
-    this.dragStartX = clientX;
-    this.dragStartY = clientY;
-    this.lastDragDx = 0;
-    this.lastDragDy = 0;
-    this.activePointerId = pointerId;
-    try {
-      canvas.setPointerCapture(pointerId);
-    } catch { /* ignore */ }
-    this.bumpGuideAutoHide();
-    this.updateCursor();
-    this.notifyStateChange();
+  private applyResponse(e: PointerEvent, r: GestureResponse): void {
+    if (r.preventDefault) e.preventDefault();
+    if (r.stopPropagation) e.stopPropagation();
   }
 
   private setupGlobalKeyListeners(): void {
     const onKeyDown = (e: KeyboardEvent) => {
-      const active = hasInteractionModifier(e);
-      if (active && !this.isModifierActive) {
-        this.isModifierActive = true;
-        this.updateCursor();
-        this.notifyStateChange();
-      }
+      this.machine.keyDown(hasInteractionModifier(e));
     };
 
     const onKeyUp = (e: KeyboardEvent) => {
       const isMac = isMacOS();
       const stillActive = isMac ? e.metaKey : e.ctrlKey;
-      if (!stillActive && this.isModifierActive && !this.touchArmed) {
-        this.isModifierActive = false;
-        if (this.isLeftDragging) {
-          this.endDrag();
-        }
-        if (this.isYGuideDragging) {
-          this.endYGuideDrag();
-        }
-        this.updateCursor();
-        this.notifyStateChange();
-      }
+      this.machine.keyUp(stillActive);
     };
 
     const onWindowBlur = () => {
-      if (this.isModifierActive || this.isLeftDragging || this.isYGuideDragging || this.touchArmed) {
-        this.clearTouchArm({ hideGuides: true });
-        this.isModifierActive = false;
-        this.endDrag();
-        this.endYGuideDrag();
-        this.updateCursor();
-        this.notifyStateChange();
-      }
+      this.machine.blur();
     };
 
     window.addEventListener('keydown', onKeyDown, { capture: true });
@@ -389,11 +362,11 @@ export class InteractionController {
 
   private updateCursor(): void {
     if (!this.canvas) return;
-    if (this.isLeftDragging || this.isYGuideDragging) {
+    if (this.machine.dragging || this.machine.guideDragging) {
       this.canvas.style.cursor = 'grabbing';
       return;
     }
-    if (this.isModifierActive) {
+    if (this.machine.modifierActive) {
       this.canvas.style.cursor = 'grab';
       return;
     }
@@ -428,258 +401,23 @@ export class InteractionController {
     return -dy * worldPerPixel;
   }
 
-  private startYGuideDrag(e: PointerEvent): void {
-    this.touchPendingDrag = false;
-    this.isYGuideDragging = true;
-    this.yGuideLastClientY = e.clientY;
-    try {
-      this.canvas?.setPointerCapture?.(e.pointerId);
-    } catch { /* ignore */ }
-    this.bumpGuideAutoHide();
-    this.updateCursor();
-  }
-
-  private endYGuideDrag(): void {
-    if (!this.isYGuideDragging) return;
-    this.isYGuideDragging = false;
-    this.yGuideHovered = false;
-    this.updateCursor();
-    if (this.touchArmed) this.bumpGuideAutoHide();
-  }
-
   private setupCanvasPointerListeners(canvas: HTMLCanvasElement): void {
+    const toSample = (e: PointerEvent) => fillPointerSample(this.sample, e, hasInteractionModifier(e));
+
     const onPointerDown = (e: PointerEvent) => {
-      if (e.button !== 0) return;
-
-      this.trackTouchPointerDown(e);
-      // 双指：不进 turn/pitch / 长按武装，交给 pinch
-      if (this.isMultiTouchActive()) {
-        this.abortTurnPitchForMultiTouch();
-        return;
-      }
-
-      const hasMod = hasInteractionModifier(e);
-
-      // ── 已在调整模式（全端长按武装后）→ 可直接点 Y 尺或开转身/俯仰拖 ──
-      if (!hasMod && this.touchArmed) {
-        e.preventDefault();
-        this.isModifierActive = true;
-        if (this.raycastYGuide(e.clientX, e.clientY)) {
-          this.startYGuideDrag(e);
-          this.notifyStateChange();
-          return;
-        }
-        this.beginBodyDrag(e.clientX, e.clientY, e.pointerId, canvas);
-        return;
-      }
-
-      // ── 无修饰键：启动长按武装（全端）；提前滑动见 onPointerMove（Tauri 转拖窗）──
-      if (!hasMod) {
-        if (this.touchArmTimer !== null) {
-          clearTimeout(this.touchArmTimer);
-          this.touchArmTimer = null;
-        }
-        this.touchDownX = e.clientX;
-        this.touchDownY = e.clientY;
-        this.activePointerId = e.pointerId;
-        this.touchArmTimer = setTimeout(() => {
-          this.touchArmTimer = null;
-          this.enterTouchAdjustMode(e.pointerId, canvas);
-        }, INTERACTION_TOUCH_ARM_MS);
-        return;
-      }
-
-      // ── Cmd/Ctrl：即时 3D；Y 尺优先 ──
-      if (this.raycastYGuide(e.clientX, e.clientY)) {
-        e.preventDefault();
-        e.stopPropagation();
-        this.isModifierActive = true;
-        this.startYGuideDrag(e);
-        return;
-      }
-
-      e.preventDefault();
-      this.isModifierActive = true;
-      this.beginBodyDrag(e.clientX, e.clientY, e.pointerId, canvas);
+      this.applyResponse(e, this.machine.pointerDown(toSample(e)));
     };
 
     const onPointerMove = (e: PointerEvent) => {
-      // 长按武装前位移过大 → 取消武装；Tauri 转裸拖窗，浏览器把滑动交还
-      if (this.touchArmTimer !== null && this.activePointerId === e.pointerId) {
-        const adx = e.clientX - this.touchDownX;
-        const ady = e.clientY - this.touchDownY;
-        if (Math.hypot(adx, ady) > INTERACTION_TOUCH_ARM_SLOP_PX) {
-          clearTimeout(this.touchArmTimer);
-          this.touchArmTimer = null;
-          this.activePointerId = null;
-          if (isTauri()) {
-            const currentScene = sceneManager.getCurrentScene();
-            if (currentScene?.isTransparent) {
-              void passthroughManager.setInteracting(true);
-              const onEndDrag = () => {
-                window.removeEventListener('pointerup', onEndDrag);
-                window.removeEventListener('mouseup', onEndDrag);
-                void passthroughManager.setInteracting(false);
-              };
-              window.addEventListener('pointerup', onEndDrag);
-              window.addEventListener('mouseup', onEndDrag);
-            }
-            void startWindowDragging(e);
-          }
-        }
-        return;
-      }
-
-      // 第二指落下：打断 turn/pitch，留给 pinch
-      if (e.pointerType === 'touch' && this.isMultiTouchActive()) {
-        this.abortTurnPitchForMultiTouch();
-        return;
-      }
-
-      // 刚武装、手指仍按着：位移后决定 Y 尺 or 转身/俯仰
-      if (this.touchPendingDrag && this.touchArmed && this.activePointerId === e.pointerId) {
-        const adx = e.clientX - this.touchDownX;
-        const ady = e.clientY - this.touchDownY;
-        if (Math.hypot(adx, ady) > INTERACTION_TOUCH_ARM_SLOP_PX) {
-          e.preventDefault();
-          if (this.raycastYGuide(this.touchDownX, this.touchDownY)) {
-            this.startYGuideDrag(e);
-            this.notifyStateChange();
-          } else {
-            this.beginBodyDrag(e.clientX, e.clientY, e.pointerId, canvas);
-          }
-        }
-        return;
-      }
-
-      // cameraYGuide 拖拽中 — 持续改 cameraYOffset
-      if (this.isYGuideDragging) {
-        e.preventDefault();
-        const dy = e.clientY - this.yGuideLastClientY;
-        this.yGuideLastClientY = e.clientY;
-        const deltaY = this.screenDeltaToWorld(dy);
-        if (this.context && Math.abs(deltaY) > 0) {
-          const newOffset = THREE.MathUtils.clamp(this._currentCameraYOffset + deltaY, -1, 1);
-          this.context.onSetCameraYOffset(newOffset);
-        }
-        this.bumpGuideAutoHide();
-        return;
-      }
-
-      // hover 检测 — 导轨可见且未在 body 拖时
-      if (this.isModifierActive && !this.isLeftDragging) {
-        this.yGuideHovered = this.raycastYGuide(e.clientX, e.clientY);
-        this.updateCursor();
-      }
-
-      if (!this.isLeftDragging) {
-        // 长按调整模式：保持 isModifierActive；否则桌面跟修饰键
-        if (this.touchArmed) {
-          if (!this.isModifierActive) {
-            this.isModifierActive = true;
-            this.updateCursor();
-            this.notifyStateChange();
-          }
-          return;
-        }
-        const hasMod = hasInteractionModifier(e);
-        if (hasMod !== this.isModifierActive) {
-          this.isModifierActive = hasMod;
-          this.updateCursor();
-          this.notifyStateChange();
-        }
-        return;
-      }
-
-      if (e.pointerType === 'touch' && this.isMultiTouchActive()) {
-        this.abortTurnPitchForMultiTouch();
-        return;
-      }
-
-      if (!this.can3DInteract(e)) {
-        this.isModifierActive = false;
-        this.endDrag();
-        this.updateCursor();
-        this.notifyStateChange();
-        return;
-      }
-
-      e.preventDefault();
-      const dx = e.clientX - this.dragStartX;
-      const dy = e.clientY - this.dragStartY;
-      this.lastDragDx = dx;
-      this.lastDragDy = dy;
-
-      if (this.context) {
-        const sensitivityX = APP_CONFIG.interaction.characterTurnSensitivityX;
-        this.context.motionPipeline.targetYawOffset += dx * sensitivityX;
-
-        if (this.context.controls) {
-          const sensitivityY = APP_CONFIG.camera.pitchSensitivityY;
-          (this.context.controls as any)._rotateUp(dy * sensitivityY);
-        }
-      }
-
-      this.dragStartX = e.clientX;
-      this.dragStartY = e.clientY;
-      this.bumpGuideAutoHide();
-      this.notifyStateChange(dx, dy);
+      this.applyResponse(e, this.machine.pointerMove(toSample(e)));
     };
 
     const onPointerUp = (e: PointerEvent) => {
-      this.trackTouchPointerUp(e);
-      if (e.button !== 0) return;
-
-      // 长按中松手 → 取消武装计时（未进入调整）
-      if (this.touchArmTimer !== null && this.activePointerId === e.pointerId) {
-        clearTimeout(this.touchArmTimer);
-        this.touchArmTimer = null;
-        this.activePointerId = null;
-        return;
-      }
-
-      if (this.isYGuideDragging) {
-        this.endYGuideDrag();
-        this.notifyStateChange();
-        return;
-      }
-
-      // 武装后几乎没动就松手：保留调整模式 + 导轨，等自动消失或二次点 Y
-      if (this.touchPendingDrag && this.touchArmed) {
-        this.touchPendingDrag = false;
-        if (this.activePointerId !== null && this.canvas) {
-          try {
-            if (this.canvas.hasPointerCapture(this.activePointerId)) {
-              this.canvas.releasePointerCapture(this.activePointerId);
-            }
-          } catch { /* ignore */ }
-          this.activePointerId = null;
-        }
-        this.bumpGuideAutoHide();
-        this.updateCursor();
-        this.notifyStateChange();
-        return;
-      }
-
-      this.endDrag();
-      if (this.touchArmed) this.bumpGuideAutoHide();
-      this.updateCursor();
-      this.notifyStateChange();
+      this.machine.pointerUp(toSample(e));
     };
 
     const onPointerCancel = (e?: PointerEvent) => {
-      if (e) this.trackTouchPointerUp(e);
-      else this.activeTouchPointers.clear();
-      if (this.touchArmTimer !== null) {
-        clearTimeout(this.touchArmTimer);
-        this.touchArmTimer = null;
-      }
-      this.touchPendingDrag = false;
-      this.endDrag();
-      this.endYGuideDrag();
-      if (this.touchArmed) this.bumpGuideAutoHide();
-      this.updateCursor();
-      this.notifyStateChange();
+      this.machine.pointerCancel(e ? toSample(e) : undefined);
     };
 
     const onContextMenu = (e: MouseEvent) => {
@@ -695,8 +433,8 @@ export class InteractionController {
     window.addEventListener('contextmenu', onContextMenu);
 
     this.cleanupCanvasListeners = () => {
-      this.endDrag();
-      this.endYGuideDrag();
+      this.machine.endTurn();
+      this.machine.endGuideDrag();
       canvas.removeEventListener('pointerdown', onPointerDown);
       window.removeEventListener('pointermove', onPointerMove);
       window.removeEventListener('pointerup', onPointerUp);
@@ -705,36 +443,10 @@ export class InteractionController {
     };
   }
 
-  private endDrag(): void {
-    if (!this.isLeftDragging) return;
-    this.isLeftDragging = false;
-    this.touchPendingDrag = false;
-    this.lastDragDx = 0;
-    this.lastDragDy = 0;
-
-    if (this.activePointerId !== null && this.canvas) {
-      try {
-        if (this.canvas.hasPointerCapture(this.activePointerId)) {
-          this.canvas.releasePointerCapture(this.activePointerId);
-        }
-      } catch { }
-      this.activePointerId = null;
-    }
-
-    const currentScene = sceneManager.getCurrentScene();
-    if (currentScene?.isTransparent) {
-      void passthroughManager.setInteracting(false);
-    }
-
-    if (this.context) {
-      this.context.onSaveBodyYaw();
-      this.context.onSaveCameraPitch();
-    }
-  }
-
   public dispose(): void {
-    this.clearTouchArm({ hideGuides: true });
+    this.machine.clearArm({ hideGuides: true });
     this.unbindCanvas();
+    this.machine.dispose();
     this.turnGuide3D.dispose();
     this.pitchGuide3D.dispose();
     this.cameraYGuide3D.dispose();

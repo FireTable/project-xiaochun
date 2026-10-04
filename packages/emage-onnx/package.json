@@ -1,6 +1,7 @@
 {
   "name": "@firetable/emage-onnx",
   "version": "0.1.0",
+  "private": true,
   "description": "Offline toolchain that slims, quantizes and optimizes the EMAGE ONNX set for browser use: cls-only emage_step (host-side seed), INT8 Conv weights, cross-attention layer removal, offline ORT graph optimization, verification and latency scripts. Ships scripts and docs only, no model files.",
   "license": "MIT",
   "author": "FireTable",
@@ -35,9 +36,6 @@
     "type": "git",
     "url": "git+https://github.com/FireTable/project-xiaochun.git",
     "directory": "packages/emage-onnx"
-  },
-  "publishConfig": {
-    "access": "public"
   },
   "engines": {
     "node": ">=24"

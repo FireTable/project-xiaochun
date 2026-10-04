@@ -2,6 +2,7 @@
  * Project XiaoChun 全局配置中心 (Single Source of Truth)
  */
 import * as THREE from 'three';
+import { GUIDE_COLOR } from './core/interaction/guideStyle';
 export * from './types/config';
 import type {
   LightConfig,
@@ -243,7 +244,7 @@ export const APP_CONFIG = {
   interaction: {
     characterTurnSensitivityX: 0.0102,
     cameraYGuide: { xOffset: -0.38 },
-    guideColor: '#ffffff',
+    guideColor: GUIDE_COLOR,
   },
   bodyTurn: {
     turnStartThreshold: 0.42,
@@ -267,7 +268,8 @@ export const APP_CONFIG = {
   },
   springBone: {
     bust: { stiffness: 0.22, dragForce: 0.26, gravityPower: 0.005, hitRadius: 0.0232 },
-    skirt: { stiffness: 0.35, dragForce: 0.18, gravityPower: 0.10, hitRadius: 0.018 },
+    // 裙子: stiffness 合法 0~1, 越大越硬回弹越快; dragForce 合法 0~1, 越大阻尼越大、晃动停得越快 (调大=更稳, 调小=更飘); gravityPower 越大越下垂
+    skirt: { stiffness: 0.35, dragForce: 0.40, gravityPower: 0.10, hitRadius: 0.018 },
     ribbon: { stiffness: 0.42, dragForce: 0.16, gravityPower: 0.005, hitRadius: 0.025 },
   },
   wind: {
@@ -277,7 +279,7 @@ export const APP_CONFIG = {
     wakeStrengthRatio: 0.12,
     mouseSpeedReference: 2000,
     mouseSpeedSmoothing: 0.35,
-    skirtMultiplier: 1.45,
+    skirtMultiplier: 0.7, // 裙子风力放大倍数, 合法 >=0, 建议 0.5~1.5; 调大=鼠标一扫裙子更猛, 调小=更温和
     ribbonMultiplier: 1.35,
     idleTimeoutMs: 120,
     bust: { sensitivity: 0.23, speedExponent: 0.85, impulseBonus: 1.35 },

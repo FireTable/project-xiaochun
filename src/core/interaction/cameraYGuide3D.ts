@@ -1,4 +1,6 @@
 import * as THREE from 'three';
+import { GUIDE_COLOR, GUIDE_OPACITY } from './guideStyle';
+import { attachMeshShadow, attachSpriteShadow, disposeGuideShadow, setGuideShadowOpacity, type GuideShadowLayer } from './guideShadow';
 import { APP_CONFIG } from '@/config';
 import { INTERACTION_GUIDE_PHOTON } from '@/lib/constants';
 
@@ -27,6 +29,11 @@ export class CameraYGuide3D {
     // 辅助层：微缩相机 Sprite
     private cameraSprite: THREE.Sprite | null = null;
 
+    // 柔和深色阴影层 (引导本体是加亮混合, 浅色背景上需要这层才看得清)
+    private trackShadow: GuideShadowLayer | null = null;
+    private photonShadow: GuideShadowLayer | null = null;
+    private cameraShadow: GuideShadowLayer | null = null;
+
     private currentOpacity = 0;
     private targetOpacity = 0;
     private currentPhotonOffset = 0;
@@ -50,7 +57,7 @@ export class CameraYGuide3D {
         const trackWidth = 0.032;
         const trackHeight = this.heightRange;
 
-        const baseColor = new THREE.Color(APP_CONFIG.interaction?.guideColor ?? '#ffffff');
+        const baseColor = new THREE.Color(APP_CONFIG.interaction?.guideColor ?? GUIDE_COLOR);
         const hexStr = `#${baseColor.getHexString()}`;
         const r = Math.round(baseColor.r * 255);
         const g = Math.round(baseColor.g * 255);
@@ -106,6 +113,8 @@ export class CameraYGuide3D {
         this.trackMesh.renderOrder = 20;
         this.trackMesh.frustumCulled = false; // 严防贴脸时被近裁剪面剔除
         this.group.add(this.trackMesh);
+        // 轨道贴图只有 64px 宽 (0.032m), 阴影左右各留 32px 容纳模糊溢出
+        this.trackShadow = attachMeshShadow(this.trackMesh, trackCanvas, { padX: 32, depthTest: false });
 
         // ─────────────────────────────────────────────────────────────
         // 2. 顶层：纤细聚焦流光光子
@@ -183,12 +192,15 @@ export class CameraYGuide3D {
         this.photonMesh.renderOrder = 21;
         this.photonMesh.frustumCulled = false;
         this.group.add(this.photonMesh);
+        this.photonShadow = attachMeshShadow(this.photonMesh, photonCanvas, { depthTest: false });
 
         // ─────────────────────────────────────────────────────────────
         // 3. 辅助层：微缩相机 Sprite
         // ─────────────────────────────────────────────────────────────
         this.cameraSprite = this.makeMinimalCameraSprite();
         this.group.add(this.cameraSprite);
+        const camCanvas = this.cameraSprite.material.map?.image as HTMLCanvasElement | undefined;
+        if (camCanvas) this.cameraShadow = attachSpriteShadow(this.cameraSprite, camCanvas, { padX: 40, padY: 40 });
 
         this.group.visible = false;
     }
@@ -226,6 +238,9 @@ export class CameraYGuide3D {
             if (this.trackMat) this.trackMat.opacity = 0;
             if (this.photonMat) this.photonMat.opacity = 0;
             if (this.cameraSprite) this.cameraSprite.material.opacity = 0;
+            setGuideShadowOpacity(this.trackShadow, 0);
+            setGuideShadowOpacity(this.photonShadow, 0);
+            setGuideShadowOpacity(this.cameraShadow, 0);
             return;
         }
 
@@ -236,15 +251,21 @@ export class CameraYGuide3D {
         this.hoverScale = THREE.MathUtils.damp(this.hoverScale, targetScale, 16, delta);
 
         if (this.trackMat) {
-            this.trackMat.opacity = this.currentOpacity * 0.85;
+            const guideOp1 = this.currentOpacity * 0.85;
+            this.trackMat.opacity = guideOp1 * GUIDE_OPACITY;
+            setGuideShadowOpacity(this.trackShadow, guideOp1); // 阴影不乘 GUIDE_OPACITY
         }
         if (this.photonMat) {
             const activeAlpha = isDragging || this.isHovered ? 1.0 : 0.55;
-            this.photonMat.opacity = this.currentOpacity * activeAlpha;
+            const guideOp2 = this.currentOpacity * activeAlpha;
+            this.photonMat.opacity = guideOp2 * GUIDE_OPACITY;
+            setGuideShadowOpacity(this.photonShadow, guideOp2); // 阴影不乘 GUIDE_OPACITY
         }
         if (this.cameraSprite) {
             const iconAlpha = this.isHovered || isDragging ? 1.0 : 0.85;
-            this.cameraSprite.material.opacity = this.currentOpacity * iconAlpha;
+            const guideOp3 = this.currentOpacity * iconAlpha;
+            this.cameraSprite.material.opacity = guideOp3 * GUIDE_OPACITY;
+            setGuideShadowOpacity(this.cameraShadow, guideOp3); // 阴影不乘 GUIDE_OPACITY
         }
 
         // Y 轴高度位置映射
@@ -290,7 +311,7 @@ export class CameraYGuide3D {
     }
 
     private makeMinimalCameraSprite(): THREE.Sprite {
-        const baseColor = new THREE.Color(APP_CONFIG.interaction?.guideColor ?? '#ffffff');
+        const baseColor = new THREE.Color(APP_CONFIG.interaction?.guideColor ?? GUIDE_COLOR);
         const hexStr = `#${baseColor.getHexString()}`;
 
         // ponytail: 256×256 高分辨率画布 + 强光晕让笔触外溢, 配合 AdditiveBlending 出"自发光"质感
@@ -378,6 +399,10 @@ export class CameraYGuide3D {
         if (this.photonMesh) this.photonMesh.geometry.dispose();
         if (this.photonMat) this.photonMat.dispose();
         if (this.photonTexture) this.photonTexture.dispose();
+
+        disposeGuideShadow(this.trackShadow);
+        disposeGuideShadow(this.photonShadow);
+        disposeGuideShadow(this.cameraShadow);
 
         if (this.cameraSprite) {
             this.cameraSprite.material.map?.dispose();

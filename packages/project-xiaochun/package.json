@@ -77,8 +77,10 @@
     "build": "node ./build.mjs",
     "typecheck": "tsc --noEmit",
     "prepack": "node ./build.mjs",
-    "test": "node --test test/smoke.test.mjs test/react-ssr.test.mjs",
-    "test:browser": "node test/browser/react-harness.mjs && node test/browser/style-harness.mjs"
+    "test": "node --test test/smoke.test.mjs test/react-ssr.test.mjs test/outfit.test.mjs test/gesture.test.mjs",
+    "test:browser": "node test/browser/react-harness.mjs && node test/browser/style-harness.mjs",
+    "test:outfit": "node test/browser/outfit-harness.mjs",
+    "test:e2e": "node test/browser/embed-e2e.mjs"
   },
   "devDependencies": {
     "@types/react": "^19.0.0",

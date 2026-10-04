@@ -13,6 +13,12 @@ export const ja: Trans = {
   app: {
     dropZoneHint: 'マウスを離すとこの `.vrm` モデルを読み込みます',
   },
+  /** ponytail: /embed 内置换装 / 换场景按钮 (?picker=) 的轻提示; 按钮本身复用 header.switchOutfit / header.switchScene 文案。 */
+  embedPicker: {
+    busy: '着せ替え中です。最後の選択を待機しています',
+    loading: '着せ替え中…',
+    failed: '着せ替えに失敗しました。もう一度お試しください',
+  },
   header: {
     uploadVrm: 'VRMをアップロード',
     switchScene: {

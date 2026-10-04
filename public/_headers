@@ -5,23 +5,6 @@
 # VRM / VRMA / PNG 等用户上传的运行时内容不缓存。
 # 根路径与所有 HTML 走安全头 + 短缓存(SPA-style)。
 
-# === 静态资源(指纹化,长缓存)===
-/assets/*
-  Cache-Control: public, max-age=31536000, immutable
-
-# === 字体(跨域 + 长缓存)===
-/*.woff2
-  Cache-Control: public, max-age=31536000, immutable
-  Access-Control-Allow-Origin: *
-
-# === 默认 VRM / VRMA 模型(被默认场景引用,可缓存)===
-/vrm/xiaochun_base.vrmbase
-  Cache-Control: public, max-age=86400
-/vrm/addons/xiaochun_v1.vrmaddon
-  Cache-Control: public, max-age=86400
-/vrm/motion/thinking.vrma
-  Cache-Control: public, max-age=86400
-
 # === 根路径与所有页面:安全头 + 短缓存(SSR 内容必须短缓存)===
 /
 /index.html
@@ -33,6 +16,33 @@
   Cross-Origin-Opener-Policy: same-origin
   Cross-Origin-Embedder-Policy: credentialless
   Cache-Control: public, max-age=0, must-revalidate
+
+# === 静态资源(指纹化,长缓存)===
+# 注意 (顺序很重要): `/*` 也会命中 /assets/* 并给出 `Cache-Control: max-age=0, must-revalidate`; Cloudflare 对同名头多规则命中是"拼成逗号串"
+# (`public, max-age=31536000, immutable, public, max-age=0, must-revalidate`), 浏览器 / CDN 解析成互相矛盾的指令, 可能让带 hash 的资源每次都重新校验。
+# `! Cache-Control` 只能摘掉"排在它前面的规则"给的值, 所以这两块 (/assets/*、/*.woff2) 必须写在下面 `/*` 块的**后面**, 先摘再设 (/vrm/* 同理)。
+# 已用 `wrangler dev` 实测: /assets/x.js 只剩 `public, max-age=31536000, immutable`。
+/assets/*
+  ! Cache-Control
+  Cache-Control: public, max-age=31536000, immutable
+
+# === 字体(跨域 + 长缓存)===
+/*.woff2
+  ! Cache-Control
+  Cache-Control: public, max-age=31536000, immutable
+  Access-Control-Allow-Origin: *
+
+# === /vrm/* 模型资源 (.vrmbase / .vrmaddon / .vrma) ===
+# 这些文件的 URL **不带内容哈希** (xiaochun_maid.vrmaddon 重建后路径不变), 所以不能用 immutable 长缓存:
+#   - 应用侧另有 IndexedDB 缓存 (键 = url + sha, 见 src/lib/idb-vrm-cache.ts), 命中时根本不走网络, 这才是"长缓存"的主力;
+#   - 如果 HTTP 缓存把旧字节留得太久, 部署新版 (config.ts 里 sha 变了) 后, 旧字节会被写进新 sha 的 IDB 键, 之后一直命中到下次改 sha ——
+#     所以 HTTP 层只用来吸收同一会话/同一 Tab 的重复下载 (预取 + 换装、多个 iframe、IDB 不可用的隐私模式),
+#     取 max-age=3600 (1 小时的部署错位窗口) + must-revalidate (过期后带 ETag 条件请求, 未变化则 304, 不重下)。
+#   - 要更长的缓存, 前提是 URL 带哈希 (如 ?v=<sha> 或把 sha 放进文件名), 与"迁 CDN"一起做。
+# 上面的 `/*` 已经给了 `Cache-Control: max-age=0, must-revalidate`; 同名头多规则命中会被拼成逗号串, 所以先 `!` 摘掉再设。
+/vrm/*
+  ! Cache-Control
+  Cache-Control: public, max-age=3600, must-revalidate
 
 # === /embed: 允许被第三方站点 iframe 内嵌 (docs/EMBED.md) ===
 # 主站 `/*` 的 X-Frame-Options: DENY 在这里用 `!` 摘掉, 改发 CSP frame-ancestors。

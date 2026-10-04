@@ -40,6 +40,19 @@
     /* ponytail: iOS 点击高亮关掉,避免 button 闪蓝光。 */
     -webkit-tap-highlight-color: transparent;
   }
+  /* /embed 宿主开了拖动 / 缩放手势 (gestures.ts 给 html 加 xc-gestures): 拖拽期间不出现选中蓝框 / 原生图片拖拽 / 长按菜单。Safari 需要 -webkit- 前缀。 */
+  html.xc-gestures,
+  html.xc-gestures body,
+  html.xc-gestures canvas {
+    -webkit-user-select: none;
+    user-select: none;
+    -webkit-touch-callout: none;
+  }
+  html.xc-gestures canvas {
+    -webkit-user-drag: none;
+    outline: none;
+  }
+
   /* ponytail: 全局字体平滑 + 阻止 iOS Safari 文本大小自动调整。 */
   html {
     -webkit-text-size-adjust: 100%;
@@ -279,6 +292,11 @@ html.scene-transparent canvas {
  *    整个窗口均统一由 20px 硬件级圆角与防溢出裁切接管；
  * 3. 极客微光边框：提供极细腻的 1px 晶透内高光，契合 macOS/VSCode 高级原生质感。
  * ───────────────────────────────────────────────────────────── */
+/* 窗口圆角半径: 单一来源。/embed SDK 的默认外壳圆角 (packages/project-xiaochun 的 XC_WINDOW_CORNER_RADIUS) 与它同值, 有单测 (windowRadius.test.ts) 防漂移。 */
+html.is-tauri {
+  --xc-window-radius: 20px;
+}
+
 html.is-tauri,
 html.is-tauri body {
   background-color: transparent !important;
@@ -291,24 +309,24 @@ html.is-tauri #root {
   inset: 0 !important;
   width: 100vw !important;
   height: 100vh !important;
-  border-radius: 20px !important;
+  border-radius: var(--xc-window-radius, 20px) !important;
   overflow: hidden !important;
   transform: translateZ(0) !important;
 }
 
 html.is-tauri #app {
-  border-radius: 20px !important;
+  border-radius: var(--xc-window-radius, 20px) !important;
   overflow: hidden !important;
 }
 
 html.is-tauri #loading-overlay {
-  border-radius: 20px !important;
+  border-radius: var(--xc-window-radius, 20px) !important;
   overflow: hidden !important;
 }
 
 /* Radix Dialog 挂到 body，不在 #root 裁切内；遮罩必须自己圆角，否则盖住窗口 20px 圆角。 */
 html.is-tauri .dialog-overlay {
-  border-radius: 20px !important;
+  border-radius: var(--xc-window-radius, 20px) !important;
 }
 
 /* ChatBar STT: repeating ripple while listening */

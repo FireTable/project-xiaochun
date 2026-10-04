@@ -62,7 +62,7 @@ export interface ProtocolMessage<T = unknown> {
 }
 
 /** handler 抛出的错误; code 与 xc.error 的 code 取值一致 (iframe 传输层原样映射)。 */
-export type ProtocolErrorCode = 'bad_request' | 'not_ready' | 'unsupported' | 'failed';
+export type ProtocolErrorCode = 'bad_request' | 'not_ready' | 'unsupported' | 'failed' | 'busy' | 'unknown_id';
 export class ProtocolError extends Error {
   code: ProtocolErrorCode;
   constructor(code: ProtocolErrorCode, message: string) {

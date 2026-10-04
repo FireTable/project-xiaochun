@@ -176,11 +176,11 @@ python size_report.py --brotli         # 体积表
 | `js/common.mjs`、`js/verify_slim.mjs`、`js/verify_convq.mjs`、`js/bench_latency.mjs` | ort-web (wasm) 验证与延迟 |
 | `tools_vs_fp32.py`、`size_report.py`、`make_clips.sh`、`run_all.sh` | 对 FP32 误差、体积、音频、一键运行 |
 
-## npm 包(尚未发布)
+## 私有包(不发布到 npm)
 
-本目录是 workspace 包 `@firetable/emage-onnx`(`version` 独立于 app 版本,`publishConfig.access = public`,MIT)。发布包只含脚本和文档(约 30 kB,`npm pack --dry-run` 共 18 个文件),`out/`、`.cache/` 和所有模型文件都由 `files` 排除。`prepack` 会运行 `js/sync-seed.mjs`,把 `src/motion/sources/emageSeed.ts` 转成纯 JS(`js/vendor/emageSeed.mjs`,已 gitignore),这样验证脚本在本仓库之外也能运行。唯一依赖是 `onnxruntime-web`(与 app 同一版本范围,在 `pnpm-lock.yaml` 中解析为同一个 1.29.0)。
+本目录是 workspace 私有包 `@firetable/emage-onnx`(`package.json` 里 `"private": true`,`version` 独立于 app 版本,MIT),**不会也不打算发布到 npm**,只在仓库内使用:离线工具脚本和文档,`out/`、`.cache/` 和所有模型文件不入库。`js/sync-seed.mjs` 会把 `src/motion/sources/emageSeed.ts` 转成纯 JS(`js/vendor/emageSeed.mjs`,已 gitignore)供验证脚本使用。唯一依赖是 `onnxruntime-web`(与 app 同一版本范围,在 `pnpm-lock.yaml` 中解析为同一个 1.29.0)。
 
-没有接入任何发布流程:`publish-npm.yml` 只发布 `packages/project-xiaochun`,`scripts/bump-version.mjs` 只改固定的文件清单,其中不含本包。有意不提供 `build` 脚本,所以 `pnpm build:packages` 会跳过它。以后要发布:先在 npmjs.com 为本包单独绑定 Trusted Publishing(仓库 `FireTable/project-xiaochun` 加一个 workflow 文件名),再新增专用 workflow(或在新 job 里用 `working-directory: packages/emage-onnx`)以及它自己的 tag 或版本规则。现有 `publish-npm.yml` 不要改,因为 npm 是按文件名绑定的。
+没有接入任何发布流程:`publish-npm.yml` 只发布 `packages/project-xiaochun`,`scripts/bump-version.mjs` 也不改本包。有意不提供 `build` 脚本,所以 `pnpm build:packages` 会跳过它。
 
 ## 如何采用这些文件
 

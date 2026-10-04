@@ -29,6 +29,9 @@ export const XC_HOST_TO_FRAME = [
   'xc.lookAt',
   'xc.pointer',
   'xc.setModel',
+  'xc.setOutfit',
+  'xc.setScene',
+  'xc.prefetch',
   'xc.setConfig',
   'xc.mic',
   'xc.pause',
@@ -41,10 +44,15 @@ export const XC_FRAME_TO_HOST = [
   'xc.ready',
   'xc.load.progress',
   'xc.loaded',
+  'xc.outfit-changed',
+  'xc.scene-changed',
+  'xc.prefetched',
   'xc.state',
   'xc.stt',
   'xc.utterance',
   'xc.hit-region',
+  'xc.gesture-move',
+  'xc.gesture-resize',
   'xc.error',
 ] as const;
 
@@ -61,6 +69,9 @@ export const XC_IMPLEMENTED_COMMANDS = [
   'xc.expression',
   'xc.pointer',
   'xc.setModel',
+  'xc.setOutfit',
+  'xc.setScene',
+  'xc.prefetch',
   'xc.setConfig',
   'xc.mic',
   'xc.pause',
@@ -92,9 +103,78 @@ export type XcErrorCode =
   | 'unsupported' // 命令/参数存在但底层暂无能力
   | 'bad_request' // 参数缺失/非法
   | 'not_ready' // 模型尚未加载完成
+  | 'busy' // 被同类更新的请求取代 (换装 last-wins: 排队中的旧请求被新请求顶掉); 可忽略, 以最新一次为准
+  | 'unknown_id' // outfit / scene id 不在 capabilities 列表里 (含原型键如 constructor)
   | 'origin_denied' // 握手来源不在白名单
   | 'failed'; // 执行期异常
 
+/**
+ * outfit / scene id 的统一格式: 小写字母开头, 小写字母/数字/下划线, 最长 64。
+ * 所有 id 入口 (xc.setOutfit / xc.setScene / ?outfit= / ?scene=) 都先过这条正则, 再用 hasOwnProperty 查表,
+ * 这样 `__proto__` / `constructor` / `toString` 这类原型键永远不会被当成合法 id。
+ */
+/**
+ * iframe 内置界面部件名 (`?ui=chat,outfit,scene` / SDK `ui: [...]`)。
+ *   chat    底部聊天栏 (ChatBar, 对话走 WebLLM)
+ *   bubble  头顶气泡 (说话文本 / 状态)
+ *   outfit  换装按钮 (与主站 TopHeader 同款)
+ *   scene   换场景(背景)按钮 (与主站 TopHeader 同款)
+ */
+/**
+ * 窗口圆角半径 (CSS px)。Tauri 桌宠的无框窗口圆角 (src/styles/main.css 的 --xc-window-radius) 与 /embed 非透明场景的默认外壳圆角共用这一个值,
+ * 有单测保证两处不漂移。角落弧线 (components/CornerHandle) 的几何就是按这个半径画的。
+ */
+export const XC_WINDOW_CORNER_RADIUS = 20;
+
+export const XC_UI_PARTS = ['chat', 'bubble', 'outfit', 'scene'] as const;
+export type XcUiPart = (typeof XC_UI_PARTS)[number];
+const XC_UI_PART_SET: ReadonlySet<string> = new Set(XC_UI_PARTS);
+/** 0.1.14 里 `ui=1` / `ui: true` 的含义 = 当时存在的全部部件。 */
+export const XC_UI_LEGACY_PARTS: readonly XcUiPart[] = ['chat', 'bubble'];
+
+export interface XcUiParse {
+  /** 白名单内的部件 (去重, 保持 XC_UI_PARTS 顺序)。 */
+  parts: XcUiPart[];
+  /** 被忽略的未知项 (调用方负责 warn)。 */
+  unknown: string[];
+  /** 用了已弃用的 1 / true 写法 (调用方负责 warn)。 */
+  legacy: boolean;
+}
+
+/** 规整部件名列表: 非字符串 / 未知名字忽略并记入 unknown, 重复去重。 */
+export function parseXcUiList(items: readonly unknown[]): XcUiParse {
+  const seen = new Set<string>();
+  const unknown: string[] = [];
+  for (const it of items) {
+    const name = typeof it === 'string' ? it.trim().toLowerCase() : '';
+    if (XC_UI_PART_SET.has(name)) seen.add(name);
+    else unknown.push(typeof it === 'string' ? it.slice(0, 40) : String(typeof it));
+  }
+  return { parts: XC_UI_PARTS.filter((p) => seen.has(p)), unknown, legacy: false };
+}
+
+/** `?ui=` 参数 / 元素属性: 逗号分隔的部件名; 缺省 / 空 / 0 / false = 全不显示; 1 / true = 旧写法 (弃用, 映射为 chat + bubble)。 */
+export function parseXcUiParam(raw: string | null | undefined): XcUiParse {
+  const v = (raw ?? '').trim().toLowerCase();
+  if (v === '' || v === '0' || v === 'false') return { parts: [], unknown: [], legacy: false };
+  if (v === '1' || v === 'true') return { parts: [...XC_UI_LEGACY_PARTS], unknown: [], legacy: true };
+  return parseXcUiList(v.split(',').filter((x) => x.trim() !== ''));
+}
+
+/** SDK 选项 `ui` (数组, 或弃用的布尔) → 规整结果。 */
+export function normalizeXcUiOption(v: unknown): XcUiParse {
+  if (v === true) return { parts: [...XC_UI_LEGACY_PARTS], unknown: [], legacy: true };
+  if (Array.isArray(v)) return parseXcUiList(v);
+  return { parts: [], unknown: [], legacy: false };
+}
+
+export const XC_ID_RE = /^[a-z][a-z0-9_]{0,63}$/;
+export const isXcId = (v: unknown): v is string => typeof v === 'string' && XC_ID_RE.test(v);
+/** 只认对象自己的属性 (不走原型链); 等价于 Object.hasOwn, 但兼容 ES2020 目标。 */
+export const xcHasOwn = (o: object, k: string): boolean => Object.prototype.hasOwnProperty.call(o, k);
+
+/** 内置场景 id (以 xc.ready.capabilities.scenes 为准; 目前就这三个主题, 不含真实场景资产)。 */
+export type XcSceneId = 'light' | 'dark' | 'transparent';
 export type XcLang = 'zh-CN' | 'en' | 'ja';
 export type XcPhase = 'idle' | 'loading' | 'thinking' | 'speaking' | 'listening' | 'paused';
 /** lazy = 不预热 WebLLM / EMAGE, 首次互动再加载 (默认); eager = 立即预热。 */
@@ -114,10 +194,25 @@ export interface XcConfig {
   lang?: XcLang;
   /** 背景透明 (叠在宿主页面上)。 */
   transparent?: boolean;
-  /** 是否显示 iframe 内置 UI (ChatBar)。默认 false。 */
-  ui?: boolean;
+  /**
+   * 要显示的 iframe 内置界面部件 (见 XC_UI_PARTS), 例如 ['outfit','scene']; 省略 / 空数组 = 不显示。
+   * 传 true/false 是 0.1.14 的旧写法 (true = chat + bubble), 已弃用, 仅为兼容保留。
+   */
+  ui?: XcUiPart[] | boolean;
   /** 重资源加载策略, 见 XcHeavyMode。 */
   heavy?: XcHeavyMode;
+  /**
+   * 允许 xc.setModel 加载任意 https URL 的 .vrm/.vrmaddon/.vrmbase。默认 false (关闭): 只能用 capabilities.outfits 里的内置服装。
+   * 由宿主 SDK 的 `allowCustomModel` 选项发出 (放在 xc.init 的 config 里)。
+   */
+  allowCustomModel?: boolean;
+  /**
+   * 手势开关 (宿主 SDK 的 `draggable` / `resizable` 选项发出; 放在 xc.init 的 config 里, 也可用 xc.setConfig 运行时改)。
+   * 默认全 false: iframe 里**不识别**对应手势、也不拦截任何指针事件。仅当 capabilities.gestures 存在时才有意义 (旧版 /embed 忽略)。
+   *   move   = 左键在角色上拖动 → 发 xc.gesture-move, 由宿主移动 iframe
+   *   resize = 在 iframe 四角热区按下拖动 → 发 xc.gesture-resize, 由宿主缩放 iframe
+   */
+  gestures?: { move?: boolean; resize?: boolean };
 }
 
 export interface XcInitPayload {
@@ -214,11 +309,40 @@ export interface XcPointerPayload {
 }
 
 export interface XcSetModelPayload {
-  /** 完整 .vrm / .vrmaddon / .vrmbase URL (需 CORS)。 */
+  /** 完整 .vrm / .vrmaddon / .vrmbase URL (需 CORS)。**默认关闭**, 需要 xc.init config.allowCustomModel=true, 否则回 unsupported。 */
   url?: string;
-  /** 内置服装 key, 见主仓库 APP_CONFIG.model.addons, 如 'xiaochun_maid'。 */
+  /** 内置服装 id (capabilities.outfits 里的 id, 如 'xiaochun_maid')。裸模 'base' 不对外开放 (回 unknown_id)。新代码请用 xc.setOutfit。 */
   outfit?: string;
   name?: string;
+}
+
+/** xc.setOutfit — 换内置服装 (id 来自 xc.ready.capabilities.outfits)。串行 + last-wins, 见 docs/EMBED.md。 */
+export interface XcSetOutfitPayload {
+  id: string;
+}
+
+/**
+ * xc.prefetch — 预取服装资源到 iframe 的 IndexedDB (之后 xc.setOutfit 直接命中缓存, 不走网络)。默认不会自动发生。
+ * 全局串行 (并发 1); 开了 heavy:'eager' 时排在 EMAGE 加载之后, 也不会和进行中的换装抢带宽。
+ * ids 省略 = 全部内置服装, **除了**体积大的婚纱 (xiaochun_wedding, 13.9MB); 显式点名则照做。
+ * 应答 xc.prefetched (带同一个信封 id)。
+ */
+export interface XcPrefetchPayload {
+  ids?: string[];
+}
+
+/** xc.prefetched — 预取完成 (逐项成败不影响整体; failed 里的 id 可稍后重试)。 */
+export interface XcPrefetchedPayload {
+  downloaded: string[];
+  cached: string[];
+  failed: string[];
+  /** 'save-data' = 用户开了省流量模式, 整个请求被跳过。 */
+  skipped?: 'save-data';
+}
+
+/** xc.setScene — 运行时切场景 (id 来自 xc.ready.capabilities.scenes: light / dark / transparent)。 */
+export interface XcSetScenePayload {
+  id: string;
 }
 
 export interface XcMicPayload {
@@ -239,17 +363,69 @@ export interface XcReadyPayload {
     audio?: { formats: XcAudioFormat[]; streaming: boolean; maxSeconds: number };
     /** iframe 内 `self.crossOriginIsolated` (true = 可用 SharedArrayBuffer / 多线程 wasm)。旧版 /embed 没有这个字段。仅诊断用。 */
     crossOriginIsolated?: boolean;
+    /** 可换的内置服装 (不含裸模)。旧版 /embed 没有这个字段 → 宿主应视为"不支持 xc.setOutfit"。 */
+    outfits?: XcOutfitInfo[];
+    /** 可切的场景。旧版 /embed 没有这个字段 → 视为"不支持 xc.setScene"。 */
+    scenes?: XcSceneInfo[];
+    /** 支持 xc.prefetch。旧版 /embed 没有这个字段。 */
+    prefetch?: boolean;
+    /**
+     * iframe 内手势 (拖动 / 角落缩放) 支持情况; 旧版 /embed 没有这个字段 → 宿主视为"不支持", draggable / resizable 无效。
+     * cornerSize = 四角热区边长 (CSS px, iframe 视口左上/右上/左下/右下各一个正方形), 宿主 UI 可据此提示。
+     */
+    gestures?: { move: boolean; resize: boolean; cornerSize: number };
   };
 }
 
+export interface XcOutfitInfo {
+  id: string;
+  /** 展示名 (英文, 来自主仓库配置)。 */
+  name: string;
+  /** 服装文件大小提示 (MB, 十进制, 约值; 公共的裸模 ~5.7MB 不计)。仅供宿主自己的 UI 参考 (内置换装菜单不显示体积); 旧版 /embed 没有这个字段。 */
+  sizeMB?: number;
+}
+
+export interface XcSceneInfo {
+  id: string;
+  /** true = 背景透明 (叠在宿主页上, 可开穿透)。 */
+  transparent: boolean;
+}
+
 export interface XcLoadProgressPayload {
-  phase: 'model';
+  /**
+   * 'model' = 首次加载; 'outfit' = 运行中换装 (id = 目标服装 id, 自定义 URL 时省略);
+   * 'prefetch' = 宿主发了 xc.prefetch 后的后台下载 (id = 正在预取的服装)。已有的"model 进度条"逻辑请先判断 phase。
+   */
+  phase: 'model' | 'outfit' | 'prefetch';
   /** 0~100 */
   progress: number;
+  id?: string;
 }
 
 export interface XcLoadedPayload {
   model: string;
+}
+
+/**
+ * xc.outfit-changed — 服装已生效。三种来源: 首次加载 (initial:true)、xc.setOutfit / xc.setModel 的应答 (带同一个信封 id)。
+ * noop:true = 目标已经是当前服装 (或与另一个同目标请求合并), 没有重新加载; SDK 只用它 resolve 对应的 Promise, 不再触发事件。
+ */
+export interface XcOutfitChangedPayload {
+  /** 内置服装 id; 自定义 URL 模型为 null。 */
+  id: string | null;
+  name: string;
+  previous?: string | null;
+  initial?: boolean;
+  noop?: boolean;
+}
+
+/** xc.scene-changed — 场景已生效 (首次握手后的当前场景 / xc.setScene 应答 / xc.setConfig{transparent} 引起的切换)。 */
+export interface XcSceneChangedPayload {
+  id: string;
+  transparent: boolean;
+  previous?: string | null;
+  initial?: boolean;
+  noop?: boolean;
 }
 
 export interface XcStatePayload {
@@ -276,6 +452,33 @@ export interface XcHitRegionPayload {
   y: number;
 }
 
+/** 手势阶段: start = 按下后确认成手势; move = 增量; end = 结束 (松手 / 取消 / 失焦)。 */
+export type XcGesturePhase = 'start' | 'move' | 'end';
+
+/**
+ * xc.gesture-move / xc.gesture-resize 的公共字段。单位 CSS px (屏幕坐标差, iframe 被移动时仍稳定)。
+ *  - gesture: 手势序号, 每次新手势 +1 (从 1 起); 宿主据此区分手势, 丢弃过期手势的迟到消息。
+ *  - seq: 该手势内的消息序号, start = 0, 之后严格递增; 宿主丢弃 seq 不递增的消息。
+ *  - dx / dy: 相对上一条消息的增量; totalDx / totalDy: 相对 start 的累计 (宿主以它为准计算, 增量只是参考, 丢包也不漂移)。
+ *  - reason: 仅 phase='end' 带: up = 松手, cancel = 指针被系统取消, blur = 窗口失焦。
+ */
+export interface XcGestureBase {
+  gesture: number;
+  seq: number;
+  phase: XcGesturePhase;
+  dx: number;
+  dy: number;
+  totalDx: number;
+  totalDy: number;
+  reason?: 'up' | 'cancel' | 'blur';
+}
+export type XcGestureMovePayload = XcGestureBase;
+export type XcGestureCorner = 'NW' | 'NE' | 'SW' | 'SE';
+export interface XcGestureResizePayload extends XcGestureBase {
+  /** 被拖的角; 对角固定不动。 */
+  corner: XcGestureCorner;
+}
+
 export interface XcErrorPayload {
   code: XcErrorCode;
   message: string;
@@ -296,6 +499,9 @@ export interface XcHostPayloadMap {
   'xc.lookAt': XcLookAtPayload;
   'xc.pointer': XcPointerPayload;
   'xc.setModel': XcSetModelPayload;
+  'xc.setOutfit': XcSetOutfitPayload;
+  'xc.setScene': XcSetScenePayload;
+  'xc.prefetch': XcPrefetchPayload;
   'xc.setConfig': XcConfig;
   'xc.mic': XcMicPayload;
   'xc.pause': undefined;
@@ -307,10 +513,15 @@ export interface XcFramePayloadMap {
   'xc.ready': XcReadyPayload;
   'xc.load.progress': XcLoadProgressPayload;
   'xc.loaded': XcLoadedPayload;
+  'xc.outfit-changed': XcOutfitChangedPayload;
+  'xc.scene-changed': XcSceneChangedPayload;
+  'xc.prefetched': XcPrefetchedPayload;
   'xc.state': XcStatePayload;
   'xc.stt': XcSttPayload;
   'xc.utterance': XcUtterancePayload;
   'xc.hit-region': XcHitRegionPayload;
+  'xc.gesture-move': XcGestureMovePayload;
+  'xc.gesture-resize': XcGestureResizePayload;
   'xc.error': XcErrorPayload;
 }
 

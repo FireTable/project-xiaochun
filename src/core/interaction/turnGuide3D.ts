@@ -1,4 +1,6 @@
 import * as THREE from 'three';
+import { GUIDE_COLOR, GUIDE_OPACITY } from './guideStyle';
+import { attachMeshShadow, disposeGuideShadow, setGuideShadowOpacity, type GuideShadowLayer } from './guideShadow';
 import { APP_CONFIG } from '@/config';
 import { INTERACTION_GUIDE_PHOTON } from '@/lib/constants';
 
@@ -23,6 +25,10 @@ export class TurnGuide3D {
   private flowMat: THREE.MeshBasicMaterial | null = null;
   private flowTexture: THREE.CanvasTexture | null = null;
 
+  // 柔和深色阴影层 (引导本体是加亮混合, 浅色背景上需要这层才看得清)
+  private trackShadow: GuideShadowLayer | null = null;
+  private flowShadow: GuideShadowLayer | null = null;
+
   private currentOpacity = 0;
   private targetOpacity = 0;
 
@@ -38,7 +44,7 @@ export class TurnGuide3D {
     const radius = 0.36;
     const bandHeight = INTERACTION_GUIDE_PHOTON.thickness;
 
-    const baseColor = new THREE.Color(APP_CONFIG.interaction?.guideColor ?? '#ffffff');
+    const baseColor = new THREE.Color(APP_CONFIG.interaction?.guideColor ?? GUIDE_COLOR);
     const hexStr = `#${baseColor.getHexString()}`;
     const r = Math.round(baseColor.r * 255);
     const g = Math.round(baseColor.g * 255);
@@ -94,6 +100,7 @@ export class TurnGuide3D {
     this.trackMesh = new THREE.Mesh(trackGeo, this.trackMat);
     this.trackMesh.renderOrder = 20;
     this.group.add(this.trackMesh);
+    this.trackShadow = attachMeshShadow(this.trackMesh, trackCanvas, { wrapS: THREE.RepeatWrapping });
 
     // ─────────────────────────────────────────────────────────────
     // 2. 顶层：360° 穿梭流光
@@ -180,6 +187,7 @@ export class TurnGuide3D {
     this.flowMesh = new THREE.Mesh(flowGeo, this.flowMat);
     this.flowMesh.renderOrder = 21;
     this.group.add(this.flowMesh);
+    this.flowShadow = attachMeshShadow(this.flowMesh, flowCanvas, { wrapS: THREE.RepeatWrapping });
 
     this.group.rotation.set(0.18, 0, -0.12);
     this.group.visible = false;
@@ -207,17 +215,23 @@ export class TurnGuide3D {
       this.group.visible = false;
       if (this.trackMat) this.trackMat.opacity = 0;
       if (this.flowMat) this.flowMat.opacity = 0;
+      setGuideShadowOpacity(this.trackShadow, 0);
+      setGuideShadowOpacity(this.flowShadow, 0);
       return;
     }
 
     this.group.visible = true;
 
     if (this.trackMat) {
-      this.trackMat.opacity = this.currentOpacity * 0.85;
+      const guideOp1 = this.currentOpacity * 0.85;
+      this.trackMat.opacity = guideOp1 * GUIDE_OPACITY;
+      setGuideShadowOpacity(this.trackShadow, guideOp1); // 阴影不乘 GUIDE_OPACITY
     }
     if (this.flowMat) {
       const flowActiveAlpha = isDragging ? 1.0 : 0.45;
-      this.flowMat.opacity = this.currentOpacity * flowActiveAlpha;
+      const guideOp2 = this.currentOpacity * flowActiveAlpha;
+      this.flowMat.opacity = guideOp2 * GUIDE_OPACITY;
+      setGuideShadowOpacity(this.flowShadow, guideOp2); // 阴影不乘 GUIDE_OPACITY
     }
 
     // ─────────────────────────────────────────────────────────────
@@ -249,6 +263,7 @@ export class TurnGuide3D {
 
     if (this.flowTexture) {
       this.flowTexture.offset.x = this.currentFlowOffset;
+      if (this.flowShadow) this.flowShadow.tex.offset.x = this.currentFlowOffset;
     }
 
     this.group.position.set(
@@ -273,5 +288,7 @@ export class TurnGuide3D {
     if (this.flowMesh) this.flowMesh.geometry.dispose();
     if (this.flowMat) this.flowMat.dispose();
     if (this.flowTexture) this.flowTexture.dispose();
+    disposeGuideShadow(this.trackShadow);
+    disposeGuideShadow(this.flowShadow);
   }
 }

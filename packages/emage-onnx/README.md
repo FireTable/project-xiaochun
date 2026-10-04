@@ -176,11 +176,11 @@ Pinned wasm: `npm i onnxruntime-web@1.22.0-dev.20250409-89f8206ba4 --prefix out/
 | `js/common.mjs`, `js/verify_slim.mjs`, `js/verify_convq.mjs`, `js/bench_latency.mjs` | ort-web (wasm) verification and latency (Node) |
 | `tools_vs_fp32.py`, `size_report.py`, `make_clips.sh`, `run_all.sh` | error vs FP32, sizes, clips, one-shot run |
 
-## npm package (not published yet)
+## Private package (not published to npm)
 
-This folder is the workspace package `@firetable/emage-onnx` (`version` is independent of the app version, `publishConfig.access = public`, MIT). The tarball contains only scripts and docs (about 30 kB, `npm pack --dry-run` lists 18 files); `out/`, `.cache/` and every model file are excluded via `files`. `prepack` runs `js/sync-seed.mjs`, which vendors `src/motion/sources/emageSeed.ts` as plain JS (`js/vendor/emageSeed.mjs`, gitignored) so the verification scripts also work outside this repo. Its only dependency is `onnxruntime-web` (same range as the app, resolves to the same 1.29.0 in `pnpm-lock.yaml`).
+This folder is the private workspace package `@firetable/emage-onnx` (`"private": true` in `package.json`, `version` independent of the app version, MIT). It is **not published to npm and not meant to be**; it is used inside this repo only: offline tool scripts and docs, while `out/`, `.cache/` and every model file stay out of git. `js/sync-seed.mjs` vendors `src/motion/sources/emageSeed.ts` as plain JS (`js/vendor/emageSeed.mjs`, gitignored) for the verification scripts. Its only dependency is `onnxruntime-web` (same range as the app, resolves to the same 1.29.0 in `pnpm-lock.yaml`).
 
-Not wired into any release flow: `publish-npm.yml` only publishes `packages/project-xiaochun`, and `scripts/bump-version.mjs` only edits a fixed file list that does not include this package. There is intentionally no `build` script, so `pnpm build:packages` skips it. To publish it later: bind this package on npmjs.com (Trusted Publishing: repository `FireTable/project-xiaochun`, a workflow file name), then add a dedicated workflow (or a second job with `working-directory: packages/emage-onnx`) and its own tag or version rule. Existing `publish-npm.yml` must stay as is because npm binds it by file name.
+Not wired into any release flow: `publish-npm.yml` only publishes `packages/project-xiaochun`, and `scripts/bump-version.mjs` does not touch this package. There is intentionally no `build` script, so `pnpm build:packages` skips it.
 
 ## Adopting the files
 

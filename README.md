@@ -256,6 +256,12 @@ Put XiaoChun on your own site with a few lines: a lazy, origin-checked `<iframe>
 npm i @firetable/project-xiaochun
 ```
 
+Also built in (all opt-in or sensible defaults, details in the package docs):
+
+* **Move / resize the iframe with the mouse**: `draggable` (left-drag the avatar) and `resizable` (drag a corner; default min 120×180, max = viewport), driven by the same gesture state machine as the desktop app (`src/core/gesture`); long-press / Cmd / Ctrl still do the 3D turn. Runtime `setDraggable` / `setResizable` / `setSize` / `getBox`.
+* **Rounded corners like the desktop window**: opaque scenes get a 20 px radius by default (`borderRadius` option, `setBorderRadius()`, `border-radius` attribute, `--xc-radius`).
+* **The iframe remembers the outfit and scene itself** (`xiaochun_wearing_outfit` / `xiaochun_scene_theme` in its own localStorage); priority is URL / SDK options > saved > default; `persist` optionally mirrors them in the host page.
+
 👉 Package docs: [`packages/project-xiaochun/README.md`](packages/project-xiaochun/README.md) · Design & protocol: [`docs/EMBED.md`](docs/EMBED.md)
 
 ---

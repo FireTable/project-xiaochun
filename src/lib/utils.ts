@@ -2,6 +2,7 @@ import { clsx, type ClassValue } from 'clsx';
 import { twMerge } from 'tailwind-merge';
 import { APP_CONFIG } from '@/config';
 import { isEmbed, isMobile, isTauri } from '@/lib/platform';
+import { embedSceneFromSearch } from '@/embed/registry';
 import { POSTFX_STORAGE_KEY, SCENE_THEME_KEY } from '@/lib/constants';
 import type { LineworkTheme } from '@/core/scene/lineworkWorld';
 
@@ -72,15 +73,11 @@ export function loadPostFxEnabledFromStorage(): boolean | null {
  */
 export function resolveInitialSceneTheme(): LineworkTheme {
   if (typeof window === 'undefined') return APP_CONFIG.scene?.theme ?? 'light';
-  // /embed: URL 参数 (?transparent=1 / ?theme=dark|light) 优先, 不读 localStorage (iframe 存储可能被分区)
+  // /embed: URL 参数 (?scene= / ?transparent=1 / ?theme=dark|light) 优先于 iframe 自己存的场景偏好 (下面读 localStorage; 存储被分区 / 拦截时 try/catch 回退默认)
   if (isEmbed()) {
-    const q = new URLSearchParams(window.location.search);
-    if (q.get('transparent') === '1') {
-      document.documentElement.classList.add('scene-transparent');
-      return 'transparent';
-    }
-    const theme = q.get('theme');
-    if (theme === 'light' || theme === 'dark') return theme;
+    const fromUrl = embedSceneFromSearch(window.location.search); // 与 sceneManager 同一份解析 (scene > transparent > theme)
+    if (fromUrl === 'transparent') document.documentElement.classList.add('scene-transparent');
+    if (fromUrl) return fromUrl;
   }
   try {
     const stored = localStorage.getItem(SCENE_THEME_KEY) as LineworkTheme | null;

@@ -838,7 +838,7 @@ export class VRMEngine {
     };
     this.controls.enableRotate = false;
     this.controls.enablePan = false;
-    // /embed: 默认锁滚轮缩放, 避免 iframe 吞掉宿主页面的滚动 (宿主 ?controls=1 可放开)
+    // /embed: 宿主 ?controls=0 可锁滚轮缩放 (默认放开, 与主站一致; 缩放范围仍受 min/maxDistance 限制)
     if (this.lockWheelZoom) this.controls.enableZoom = false;
 
     // 监听 OrbitControls change，防抖 500ms 写入 localStorage，

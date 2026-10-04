@@ -2,26 +2,38 @@
  * embed/params.ts — /embed URL 参数解析 (SSR 安全, 无副作用)。
  *
  *   ?transparent=1   透明背景 (叠在宿主页面上)          默认 0
- *   ?ui=1            显示 ChatBar 等内置 UI              默认 0 (无 chrome)
- *   ?bubble=1        显示头顶气泡 (说话文本)             默认跟随 ui
+ *   ?ui=chat,bubble,outfit,scene  要显示的内置界面部件 (逗号分隔, 白名单; 未知项忽略并 warn)   默认空 = 无 chrome
+ *        chat=聊天栏 bubble=头顶气泡 outfit=换装按钮 scene=换场景按钮
+ *        已弃用的旧写法: ?ui=1|true (= chat,bubble, 会 warn)、?bubble=0|1 (单独开关气泡)
  *   ?lang=zh-CN|en|ja                                    默认跟随 cookie/默认语言
  *   ?heavy=lazy|eager  WebLLM / EMAGE 预热策略          默认 lazy
- *   ?outfit=<addonKey> 初始服装 (APP_CONFIG.model.addons) 默认 default addon
+ *   ?outfit=<id>     初始服装 (capabilities.outfits 里的 id, 严格校验: 小写字母/数字/下划线, 且必须是内置服装; 裸模 base 不开放)
+ *                    非法或未知 → 回退默认服装并通过 xc.error{unknown_id} 告知宿主     默认 default addon
+ *   ?scene=light|dark|transparent  初始场景 (优先于 ?transparent / ?theme; 非法 → 忽略)   默认跟随 ?transparent / 系统
  *   ?theme=light|dark  非透明时的线稿主题                默认跟随系统
- *   ?controls=1      放开滚轮缩放 (默认锁, 防止吞宿主滚动)
+ *   ?controls=0      锁定滚轮缩放 (默认开, 与主站一致: 透明场景只在指针落在角色上时缩放, 其余穿透给宿主;
+ *                    不透明场景整个 iframe 区域的滚轮 = 缩放, 会吞掉该区域的页面滚动)。controls=1 与缺省等价
  *   ?host=<origin>   宿主页 origin (SDK 自动带上; 手写 iframe 必须自己加)
  *   ?allow=<o1,o2>   额外允许握手的宿主 origin (逗号分隔, 不支持 '*')
  */
+import { parseControls } from './registry';
 import { isLang, type Lang } from '@/i18n';
-import { normalizeOrigin, type XcHeavyMode } from '@firetable/project-xiaochun/protocol';
+import { normalizeOrigin, parseXcUiParam, type XcHeavyMode, type XcUiPart } from '@firetable/project-xiaochun/protocol';
 
 export interface EmbedParams {
   transparent: boolean;
-  ui: boolean;
-  bubble: boolean;
+  /** 要显示的内置界面部件 (已白名单校验)。 */
+  uiParts: XcUiPart[];
+  /** 用了弃用写法 ?ui=1 / true / ?bubble=。 */
+  uiLegacy: boolean;
+  /** ?ui= 里被忽略的未知部件名。 */
+  uiUnknown: string[];
   lang: Lang | null;
   heavy: XcHeavyMode;
+  /** 原样的 ?outfit= (未校验; 校验在 registry.resolveInitialOutfit / bridge 里统一做)。 */
   outfit: string | null;
+  /** 原样的 ?scene= (未校验; 校验在 sceneManager 里统一做)。 */
+  scene: string | null;
   controls: boolean;
   /** 已规整的宿主 origin 白名单 (host + allow); 空 = 无法握手 (fail closed)。 */
   allowedHostOrigins: string[];
@@ -31,7 +43,13 @@ export function readEmbedParams(search?: string): EmbedParams {
   const q = new URLSearchParams(
     search ?? (typeof window !== 'undefined' ? window.location.search : ''),
   );
-  const ui = q.get('ui') === '1';
+  const uiParse = parseXcUiParam(q.get('ui'));
+  const uiSet = new Set<XcUiPart>(uiParse.parts);
+  let uiLegacy = uiParse.legacy;
+  if (q.has('bubble')) { // 弃用: 单独开关气泡 (旧行为: 缺省跟随 ui)
+    uiLegacy = true;
+    if (q.get('bubble') === '1') uiSet.add('bubble'); else uiSet.delete('bubble');
+  }
   const lang = q.get('lang');
   const origins = new Set<string>();
 
@@ -57,12 +75,14 @@ export function readEmbedParams(search?: string): EmbedParams {
 
   return {
     transparent: q.get('transparent') === '1',
-    ui,
-    bubble: q.has('bubble') ? q.get('bubble') === '1' : ui,
+    uiParts: [...uiSet],
+    uiLegacy,
+    uiUnknown: uiParse.unknown,
     lang: isLang(lang) ? lang : null,
     heavy: q.get('heavy') === 'eager' ? 'eager' : 'lazy',
     outfit: q.get('outfit'),
-    controls: q.get('controls') === '1',
+    scene: q.get('scene'),
+    controls: parseControls(q.get('controls')),
     allowedHostOrigins: [...origins],
   };
 }

@@ -12,7 +12,7 @@ Project XiaoChun extends beyond traditional in-browser execution into a high-per
 | **Window Frame & Decor** | Constrained inside browser chrome, address bar, tabs | Frameless, borderless, custom rounded aesthetic |
 | **Background & Compositing** | Opaque canvas or constrained inside viewport | **100% True Transparent Desktop Compositing** directly over OS desktop |
 | **Mouse Event Pass-through** | All clicks trapped inside browser window | Canvas alpha bitmask on empty 3D pixels; HTML UI never click-through |
-| **Window Dragging & Resize** | Browser controls window position | Custom freeform edge/corner handles + Alt/Option drag anywhere |
+| **Window Dragging & Resize** | Browser controls window position | Corner arcs (resize) + short left-drag on the character (move) |
 | **Window State Persistence** | Lost or reset on browser reload | **Auto-persisted position and size** across app restarts |
 | **External Inter-Process Protocol** | Only web URLs (cannot be cold-started by OS) | **Custom URL Scheme (`xiaochun://`)** with cold-start & hot-wake |
 | **Resource Overhead** | Heavy browser engine overhead + extensions | Extremely lightweight OS-native webview (~30MB binary footprint) |
@@ -45,9 +45,9 @@ In transparent desk-pet mode, user clicks should interact with XiaoChun when hov
 
 ### 3.3 Interactive Window Frame & Corner Handles
 - [TauriWindowFrame.tsx](../src/components/TauriWindowFrame.tsx):
-  - 4 invisible interactive corner resize grips (`n`, `s`, `e`, `w`, `ne`, `nw`, `se`, `sw`) invoking native `startResizeDragging()`.
-  - Top drag bar with `data-tauri-drag-region` for smooth repositioning.
-  - Global `Option / Alt + Mouse Drag` hotkey allowing effortless dragging from any point on the character.
+  - 4 corner arcs + hit zones (shared [`CornerHandle.tsx`](../src/components/CornerHandle.tsx), the same component `/embed` uses; white semi-transparent body + soft shadow from [`guideStyle.ts`](../src/core/interaction/guideStyle.ts)). Hit detection and the resize decision come from the shared [`src/core/gesture`](../src/core/gesture/) (`ResizeGesture('native')`, `CORNER_HIT_SIZE` 40 px, `cornerAt`); the Tauri adapter `adapters/tauriWindow.ts` turns the semantic `resize-start` event into native `startResizeDragging()`.
+  - Window moving: the shared `GestureMachine` (short left-drag on the character, before the long-press arms) emits `move-start`, which the Tauri adapter hands to native `startDragging()`. There is no Alt/Option-drag hotkey (older text mentioned one; the code never had it); long-press / Cmd / Ctrl still enter the 3D adjust modes. Details: [`INTERACTION_AND_3D_GUIDES.md`](INTERACTION_AND_3D_GUIDES.md) §2.1.
+  - Window chrome: `html.is-tauri` gives `#root` / `#app` / loading overlay / dialog overlay a 20 px radius (`--xc-window-radius`, same value as the SDK's `XC_WINDOW_CORNER_RADIUS`; a node test keeps them in sync); window `shadow:false`, no border.
 
 ### 3.3.1 Tauri header overflow menu
 - [TauriTopHeader.tsx](../src/components/TauriTopHeader.tsx) is Tauri-only (web renders nothing).
