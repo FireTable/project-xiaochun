@@ -3,21 +3,22 @@
 `beach3d` ("海滩 3D" / "Beach 3D" / "ビーチ 3D") is the 5th built-in scene and is opaque. Unlike `beach`, which scrolls a pre-rendered background strip, this scene is a small 3D stage built entirely in Three.js. The character stands on real sand with a real shadow, and every prop is a low-poly mesh with toon shading.
 
 The look aims for an **anime MMD stage** (like an MMD or miHoYo PV set):
-- 3D toon-shaded props: palm trees, shore rocks and grass clumps.
-- High-key daylight and a clear turquoise sea, light near the shore and deeper further out, with a white foam edge.
-- A bright blue sky with fluffy clouds that have cartoon volume.
+- 3D toon-shaded props: curved palm trees with segmented trunks and full, layered fronds, soft rounded grass tufts, and smooth rounded shore rocks.
+- High-key daylight and a clear turquoise sea, light near the shore and deeper further out.
+- Cartoon waves that run up the beach and draw back, plus wave crests rolling in near the shore.
+- Fine cartoon sand with a darker, glossy wet band at the water's edge.
+- A bright blue sky with fluffy volumetric clouds, thin high wisps and a bright band near the horizon.
 - Island silhouettes on the horizon with light aerial-perspective haze.
-- Palm fronds framing the top corners.
 
-There are no textures, no HDRI and no realistic materials. Every pattern (sand ripples, foam, sea strokes, glints, leaf cut-outs) is computed procedurally in shaders. Light direction and colour follow the engine's main light, so the scene blends with the MToon character.
+There are no textures, no HDRI, no realistic materials and no third-party assets. All geometry is generated in code, and every pattern (sand grain and ripples, foam, waves, caustics, sea strokes, glints, trunk segments) is computed procedurally in shaders. Light direction and colour follow the engine's main light, so the scene blends with the MToon character.
 
 ## Where things live
 
 | File | Role |
 | :--- | :--- |
 | `src/core/scene/beach3d/beach3dWorld.ts` | `Beach3DWorld`: builds and owns all meshes, does the per-frame updates, `getStats()`, `dispose()` |
-| `src/core/scene/beach3d/beach3dShaders.ts` | GLSL for sky, clouds, mountains, ground (sand + sea), palms (and the frame fronds), grass, rocks, petals |
-| `src/core/scene/beach3d/beach3dGeometry.ts` | Procedural low-poly geometry: palm trunk and crown, frame fronds, grass clump, mountain ridges, rock |
+| `src/core/scene/beach3d/beach3dShaders.ts` | GLSL for sky, clouds, mountains, ground (sand + sea), palms, grass, rocks, petals |
+| `src/core/scene/beach3d/beach3dGeometry.ts` | Procedural low-poly geometry: palm trunk and crown, grass clump, mountain ridges, rock |
 | `src/core/scene/beach3d/beach3dLayout.ts` | Pure data and functions (no three / DOM): shoreline, palm / grass / rock layout, island peaks |
 | `src/core/scene/sceneMotion.ts` | `SceneMotionGovernor`, shared with `beach`: reduced-motion and low-FPS downgrade |
 | `src/core/scene/__tests__/beach3dLayout.test.ts` | Layout invariants (props on sand, keep-out zone, shoreline, horizon dip, triangle budget) |
@@ -44,21 +45,41 @@ The camera only pitches around the character in the YZ plane and stays on the +Z
 
 Props are kept out of a central zone (grass `|x| < 1`, rocks `|x| < 2.2`) so they never cover the character or the sea directly behind her.
 
-## Composition (10 draw calls, ~11.7k triangles)
+## Composition (9 draw calls, ~24k triangles)
 
 | Part | Draws | Notes |
 | :--- | :---: | :--- |
-| Sky | 1 | Fullscreen shader that colours by view direction (zenith → mid → horizon gradient plus a soft glow on the sun side). Pitching to ±89° never shows an edge or black. |
+| Sky | 1 | Fullscreen shader that colours by view direction: a zenith → mid → horizon gradient, thin high wisps (stretched noise projected on the sky dome, slowly drifting), a soft bright band near the horizon, and a glow on the sun side. Pitching to ±89° never shows an edge or black. |
 | Clouds | 1 | Instanced billboards on a far sphere. Each cloud is 7 puffs with pseudo-normals and a 2–3 tone toon ramp lit from the sun's screen direction. They drift slowly. |
 | Islands | 1 | Two ridge layers (far lavender, near teal) as silhouette strips, faded into the horizon colour. Directly behind the character the ridge is kept low so the sea stays open. |
-| Sand + sea | 1 | One subdivided y=0 plane. Sand: colour patches, thin broken ripple lines, a few shells, a wet band. Sea: gradient from shallow to deep, short anime ripple strokes, star glints, a swash line that moves up and down the beach, a foam edge, lace, an incoming wave line, and foam rings around in-water rocks. |
-| Palms | 2 | Instanced trunk (ringed) and crown (11 V-ribbed fronds plus coconuts). Leaflets are cut out in the fragment shader. Two-tone shading by the sun direction. |
-| Frame fronds | 1 | Camera-space foreground fronds that sit in the top-left / top-right corners at any aspect ratio or distance (size = `vegetation.frameFronds` × short side of the view). They slide out diagonally when the camera looks down more than about 20°. |
-| Grass | 1 | Instanced crossed quads with procedurally cut blades and occasional pink flowers. |
-| Rocks | 1 | Instanced flat-shaded, flat-bottomed deformed icosahedra with a 3-tone toon ramp, clustered on both sides along the shore. Some sit half in the water. |
+| Sand + sea | 1 | One subdivided y=0 plane; see [Sand](#sand) and [Sea and waves](#sea-and-waves). Also draws foam rings around in-water rocks. |
+| Palm trunks | 1 | Instanced. Curved, tapering, with a flared base. The shader draws soft cartoon segments: each segment bulges toward the top, so its upper half catches more light, with a soft groove at the seam. Seams are slightly tilted and unevenly spaced. The base is tinted with sand. |
+| Palm crowns | 1 | Instanced. 10 pinnate fronds per crown (3 short, upright young fronds and 7 long drooping ones). Each frond is an arching rachis with two rows of separate pointed leaflets that splay downward in a V and droop slightly, so the crown has real volume and layering. The colour runs dark at the root to bright at the tip, both along the frond and along each leaflet, with cool-tinted shade and normals biased upward for soft two-step shading. Whole fronds sway and leaflets flutter. Three low-poly coconuts. |
+| Grass | 1 | About 17 instanced tufts. Each tuft is 26 wide, round-tipped blades (an arching outer ring and a short upright inner ring) with spherical normals, so it shades like one soft mound. There is a dark-root-to-bright-tip gradient and slight per-blade hue variation. About 40% of tufts carry two small pink flowers. |
+| Rocks | 1 | Instanced smooth rocks: a subdivided icosahedron with merged vertices (smooth normals), low-frequency sine bumps and a flattened base. 3-tone toon ramp, a soft highlight on top, a faint sky-blue rim on the shadow side, faint mottling, and a darker wet band where they meet sand or water. They sit in clusters on both sides along the shore, and some are half in the water. |
 | Petals | 1 | GPU point particles in a box behind the character, with a size clamp so they never become huge near the camera. |
 
 The character shadow is the engine's existing `CharacterShadowSystem` plane. The ground uses a polygon offset so the shadow sits stably on top of it.
+
+## Sand
+
+- **Near/far tone**: slightly deeper and warmer near the camera, lighter toward the distance, then hazed into the horizon.
+- **Patches**: two layers of low-frequency noise give large soft light and shade patches.
+- **Grain**: two layers of smooth value noise plus sparse soft pale dots. The grain fades out by screen-space derivative, so the distance doesn't shimmer.
+- **Ripples**: only inside a few noise-masked patches. They are soft light/shade undulations along strongly warped wave lines (lit slope brighter, shaded slope darker), not drawn lines. They fade with distance.
+- **Shells**: a few small shells close to the camera.
+- **Wet band**: everything below the highest swash reach is darker. Above it the sand dries over about 0.65 m. The wet band reflects the sky (stronger at grazing angles) and shows a soft sun highlight.
+
+## Sea and waves
+
+- **Depth colour** is computed from a static coordinate (distance seaward of the shoreline), so the shallow band does not move with the swash. It goes from shallow to mid to deep, then into the horizon colour.
+- **Clarity**: near the shore the sand shows through the water, and cartoon caustics (thin bright noise iso-lines) move across the shallows.
+- **Ripples and glints**: short ripple strokes (denser near the shore) and twinkling star glints (more on the sun side).
+- **Crests**: three wave crests roll in from about 7.5 m out. Each is a broken white line that thickens near the shore, with a lighter strip of water in front and a slightly deeper band behind. They fade out where they merge into the swash.
+- **Swash**: the water edge runs up the beach quickly (ease-out over the first 38% of the cycle) and draws back slowly. The edge is scalloped and slightly out of phase along the shore.
+  - The foam head is thicker while advancing and thinner while retreating, with a few holes where the water shows through, and trailing lace behind it.
+  - A thin foam line is left at the highest reach and fades as the water retreats.
+- Foam, crests, rock rings and glints are marked for a slight bloom (see below).
 
 ## Horizon curvature (horizon at the hips)
 
@@ -83,13 +104,13 @@ With `horizonCurveR = 700` the horizon lands around the hips in full-body portra
 ## Render and post-processing conventions
 
 - Colour uniforms are linear. Output is multiplied by `uComp` (= 1 / exposure), so a config hex is roughly the colour that appears on screen.
-- Background pixels write alpha `uMark` (0.99 when rendering into the composer target). The UnrealBloom high-pass skips them, the same convention as `beach` (see `POSTFX.md`). Foam lines (shore foam, lace, wave lines, rock rings) and sea glints write alpha 1, so they get a slight bloom while sand and sky do not.
+- Background pixels write alpha `uMark` (0.99 when rendering into the composer target). The UnrealBloom high-pass skips them, the same convention as `beach` (see `POSTFX.md`). Foam (swash head, lace, wave crests, rock rings) and sea glints write alpha 1, so they get a slight bloom while sand and sky do not.
 - Clouds and islands follow the camera's translation (not its rotation) and live inside the 100 m far plane, which makes them effectively infinitely far away.
 - The sky draws first (`renderOrder −1000`), then clouds, then islands.
 
 ## Dynamics and fallbacks
 
-These are animated: swash, foam, ripples, glints, wave lines, cloud drift, palm and grass sway, and petals. They run through `SceneMotionGovernor` with `dynamics.respectReducedMotion` and `dynamics.autoDowngrade`. If `prefers-reduced-motion` is set, or the average FPS drops below `minFps`, the scene freezes on a well-composed static frame (`STATIC_TIME`) for the rest of the session.
+These are animated: swash, crests, foam, caustics, ripples, glints, high wisps, cloud drift, palm and grass sway, and petals. They run through `SceneMotionGovernor` with `dynamics.respectReducedMotion` and `dynamics.autoDowngrade`. If `prefers-reduced-motion` is set, or the average FPS drops below `minFps`, the scene freezes on a well-composed static frame (`STATIC_TIME`) for the rest of the session.
 
 On mobile, `petals.countMobile` applies.
 
@@ -98,14 +119,14 @@ On mobile, `petals.countMobile` applies.
 | Group | Fields |
 | :--- | :--- |
 | `layout` | `shoreZ`, `shoreCurve`, `shoreWiggle`, `horizonCurveR` |
-| `sky` | `zenith`, `mid`, `horizon`, `sunGlow` |
-| `sea` | `shallow`, `mid`, `deep`, `horizon`, `foam`, `ripple`, `rippleDensity`, `glint`, `glintDensity`, `glintSpeed`, `foamWidth`, `swashAmp`, `swashSpeed` |
-| `sand` | `base`, `shade`, `light`, `wet`, `rippleSpacing`, `ripple` |
+| `sky` | `zenith`, `mid`, `horizon`, `sunGlow`, `cirrus`, `horizonBand` |
+| `sea` | `shallow`, `mid`, `deep`, `horizon`, `foam`, `ripple`, `rippleDensity`, `glint`, `glintDensity`, `glintSpeed`, `foamWidth`, `swashAmp`, `swashSpeed`, `waves` |
+| `sand` | `base`, `shade`, `light`, `wet`, `rippleSpacing`, `ripple`, `grain` |
 | `haze` | `start`, `end` (aerial perspective toward the horizon colour; `end` must stay < 100 m) |
 | `mountains` | `enabled`, `far`, `near`, `heightScale` |
 | `clouds` | `count`, `driftDegPerSec`, `scale`, `light`, `shade` |
-| `vegetation` | `leafLight`, `leafShade`, `trunkLight`, `trunkShade`, `grassLight`, `grassShade`, `flower`, `sway`, `grassDensity`, `frameFronds` (0 = off) |
-| `rocks` | `enabled`, `light`, `shade`, `detail` (0 / 1 / 2) |
+| `vegetation` | `leafLight`, `leafShade`, `trunkLight`, `trunkShade`, `grassLight`, `grassShade`, `flower`, `sway`, `grassDensity` |
+| `rocks` | `enabled`, `light`, `shade`, `detail` (0 / 1 / 2 → 80 / 320 / 1280 triangles per rock) |
 | `petals` | `count`, `countMobile`, `size`, `speed`, `opacity` |
 | `dynamics` | `enabled`, `respectReducedMotion`, `autoDowngrade { enabled, minFps, windowFrames }` |
 | `light` | `hemiSky`, `hemiGround`, `dirColor`, `shadowColor`, `shadowOpacity` |
@@ -116,7 +137,7 @@ Measured on an Apple M1 Ultra (Chrome, ANGLE Metal) with headless Puppeteer at 1
 
 | Scene | Scene draws / triangles (`getStats`) | Whole frame calls / triangles (incl. shadow map + post passes) | FPS (p50 / p95 frame time) |
 | :--- | :--- | :--- | :--- |
-| `beach3d` | 10 / 11,660 (+28 points) | 72 / 133,387 | 59.7 (16.67 / 16.67 ms) |
+| `beach3d` | 9 / 24,312 (+28 points) | 71 / 146,039 | 60.0 (16.67 / 16.67 ms) |
 | `light` (baseline) | — | 73 / 122,469 | 59.8 (16.66 / 16.67 ms) |
 | `beach` (baseline) | — | 65 / 121,731 | 60.0 (16.66 / 16.67 ms) |
 
@@ -127,5 +148,4 @@ To inspect at runtime, use `window.vrmEngine.beach3d.getStats()`.
 ## Known limitations
 
 - The horizon curvature is a deliberate cheat. With very low or very high camera heights the dip changes. It stays seamless, but the horizon moves.
-- Frame fronds are attached to the camera. They don't parallax against the world. That is intentional for framing, but it's still a stylisation.
-- When the camera is below the ground (extreme upward pitch), the ground is back-face culled and only the sky, palms and fronds show. This is the same behaviour as the other opaque scenes.
+- When the camera is below the ground (extreme upward pitch), the ground is back-face culled and only the sky and the palms show. This is the same behaviour as the other opaque scenes.
