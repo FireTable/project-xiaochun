@@ -6,7 +6,7 @@
 // 宿主页由请求拦截伪造成回环地址上的 HOST_ORIGIN (与 iframe 跨源), 用真实 SDK dist + 真实 iframe。
 // 覆盖: 换装 / 换场景 / 透明<->不透明穿透切换 / 非法 id (SDK 与 iframe 两侧) / 快速连点 / 说话中换装 / ?outfit= ?scene= / allowCustomModel 门禁 / 预取。
 import { createRequire } from 'node:module';
-import { readFileSync, existsSync } from 'node:fs';
+import { readFileSync, existsSync, writeFileSync } from 'node:fs';
 import { inflateSync } from 'node:zlib';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -106,7 +106,7 @@ const frameOf = (page) => page.frames().find((f) => f.url().startsWith(EMBED_ORI
 const mk = (page, opts = {}, wait = true) => page.evaluate(async (opts, EMBED_URL, W, H, wait) => {
   window.__ev = [];
   const xc = window.xc = window.XC.createXiaochun({ container: '#a', src: EMBED_URL, lazy: false, width: W, height: H, handshakeTimeout: 60000, ...opts });
-  for (const n of ['handshake', 'ready', 'progress', 'outfit-changed', 'scene-changed', 'error', 'utterance', 'hit-region'])
+  for (const n of ['handshake', 'ready', 'progress', 'outfit-changed', 'scene-changed', 'lang-changed', 'error', 'utterance', 'hit-region'])
     xc.on(n, (p) => window.__ev.push({ n, p, t: performance.now() }));
   if (wait) await Promise.race([xc.ready, new Promise((_, rej) => setTimeout(() => rej(new Error('ready 超时 150s')), 150000))]);
   return true;
@@ -921,7 +921,7 @@ await check('引导: 3D 调整提示 (平台修饰键按住拖 / 长按后拖) �
 // 单独跑或放在前面都稳定通过, 原因未查明, 怀疑是无头 Chrome / SwiftShader 的页面切换状态, 没有在产品代码里发现问题。)
 await check('透明场景: 按钮参与穿透命中 (按钮上接收事件, 空白处仍穿透), 菜单打开期间不穿透, 关闭后恢复', async () => {
   await page.close(); page = await newPage();
-  await mk(page, { scene: 'transparent', ui: ['outfit', 'scene'] });
+  await mk(page, { scene: 'transparent', ui: ['outfit', 'scene'], uiAutoHide: false }); // 这里测的是按钮的穿透命中, 要求按钮一直在 (默认的点击出现见后面的 uiAutoHide 用例)
   await sleep(3000); // 等入场动画等视觉效果结束 (命中检测读的是渲染像素)
   await fr(page).waitForSelector(OUTFIT_BTN);
   const b = await (await fr(page).$(OUTFIT_BTN)).boundingBox();
@@ -1102,7 +1102,7 @@ await check('窄屏 (360x640 触屏, 深色场景): 按钮 ≥40px、不遮挡�
 await check('触屏 + 透明场景: 第一次点击唤醒命中检测 (落在宿主上), 第二次点击落到内置按钮上', async () => {
   await page.close(); page = await newPage();
   await page.setViewport({ width: 360, height: 640, isMobile: true, hasTouch: true, deviceScaleFactor: 2 });
-  await mk(page, { scene: 'transparent', ui: ['outfit'], width: 320, height: 520 });
+  await mk(page, { scene: 'transparent', ui: ['outfit'], uiAutoHide: false, width: 320, height: 520 });
   await page.evaluate(() => { document.querySelector('#a').style.left = '20px'; document.querySelector('#a').style.top = '40px'; });
   await sleep(1500);
   const ob = await (await fr(page).$(OUTFIT_BTN)).boundingBox();
@@ -1267,6 +1267,477 @@ await check('滚轮 (controls:false): 锁定缩放 - 滚轮不被缩放接管, �
     await page.mouse.wheel({ deltaY: 300 }); await sleep(800);
     assert.ok(await scrollYOf(page) > 100, `${scene}: 锁定时滚轮应落回宿主页 (scrollY=${await scrollYOf(page)})`);
   }
+});
+
+
+// ───────────────────────── 内置界面显示策略 (uiAutoHide) + 语言 / GitHub 按钮 ─────────────────────────
+// 与 Tauri 桌宠共用 usePetUiVisibility + ClickDetector: 默认 'transparent' = 只有透明场景隐藏、单击角色出现; 亮 / 暗常显。
+const ALL_UI = ['chat', 'outfit', 'scene', 'lang', 'github'];
+const uiShown = (pg) => fr(pg).evaluate(() => {
+  const h = document.querySelector('[data-xc-header]');
+  const bar = document.querySelector('#xiaochun-chatbar')?.parentElement;
+  return {
+    header: h ? h.getAttribute('data-xc-visible') === '1' && getComputedStyle(h).visibility === 'visible' && parseFloat(getComputedStyle(h).opacity) > 0.9 : null,
+    headerHidden: h ? getComputedStyle(h).visibility === 'hidden' || parseFloat(getComputedStyle(h).opacity) < 0.05 : null,
+    bar: bar ? parseFloat(getComputedStyle(bar).opacity) > 0.9 : null,
+    barHidden: bar ? parseFloat(getComputedStyle(bar).opacity) < 0.05 : null,
+  };
+});
+const waitUi = async (pg, want, ms = 3000) => {
+  const t0 = Date.now(); let st;
+  while (Date.now() - t0 < ms) { st = await uiShown(pg); if (want ? st.header : st.headerHidden) return st; await sleep(120); }
+  throw new Error(`内置界面应${want ? '出现' : '隐藏'}: ${JSON.stringify(st)}`);
+};
+/** 把鼠标移到点上 (两步, 让穿透命中检测把 iframe 切成 auto) 再真点一下。 */
+const clickAt = async (pg, pt, settle = 700) => {
+  await pg.mouse.move(pt.x - 3, pt.y); await pg.mouse.move(pt.x, pt.y); await sleep(settle);
+  await pg.mouse.down(); await pg.mouse.up(); await sleep(350);
+};
+const BLANK = { x: LEFT + 30, y: TOP + Math.round(H * 0.5) };
+
+await check('uiAutoHide 默认 (transparent, 与 Tauri 一致): 亮 / 暗场景常显, 透明场景初始隐藏 (按钮与聊天栏)', async () => {
+  for (const scene of ['light', 'dark']) {
+    await page.close(); page = await newPage();
+    await mk(page, { scene, ui: ALL_UI }); await sleep(1500);
+    await fr(page).waitForSelector('#xc-btn-switch-lang');
+    const st = await uiShown(page);
+    assert.equal(st.header, true, `${scene}: 顶栏常显 ${JSON.stringify(st)}`);
+    assert.equal(st.bar, true, `${scene}: 聊天栏常显`);
+  }
+  await page.close(); page = await newPage();
+  await mk(page, { scene: 'transparent', ui: ALL_UI }); await sleep(2500);
+  const st = await uiShown(page);
+  assert.equal(st.headerHidden, true, '透明场景: 顶栏初始隐藏 ' + JSON.stringify(st));
+  assert.equal(st.barHidden, true, '透明场景: 聊天栏初始隐藏');
+  // 隐藏 = visibility:hidden, 按钮不挡点击也不算穿透命中
+  assert.equal(await fr(page).evaluate(() => { const b = document.querySelector('#xc-btn-switch-lang'); const r = b.getBoundingClientRect(); const el = document.elementFromPoint(r.x + r.width / 2, r.y + r.height / 2); return !!(el && el.closest('[data-xc-ui]')); }), false, '隐藏时 elementFromPoint 不命中按钮');
+  const caps = (await ev(page, 'handshake'))[0].p.capabilities;
+  assert.deepEqual(caps.ui, { parts: ['chat', 'bubble', 'outfit', 'scene', 'lang', 'github'], autoHide: true, langs: ['zh-CN', 'en', 'ja'] }, 'capabilities.ui');
+});
+
+await check('透明场景: 单击角色出现, 再单击角色收起; 出现时按钮 / 聊天栏可点 (截图)', async () => {
+  await page.close(); page = await newPage();
+  await mk(page, { scene: 'transparent', ui: ALL_UI }); await sleep(3000);
+  await waitUi(page, false);
+  await shotTo(page, 'ui-autohide-transparent-hidden.png');
+  await clickAt(page, MODEL);
+  const st = await waitUi(page, true);
+  assert.equal(st.bar, true, '聊天栏一起出现');
+  if (SHOT_DIR) {
+    await page.evaluate(() => { document.body.style.background = 'linear-gradient(160deg,#fff1f0,#efe7ff 55%,#e3fbf1)'; });
+    await sleep(300);
+    await shotTo(page, 'ui-autohide-transparent-shown.png');
+  }
+  await clickAt(page, MODEL, 300); // 再点角色 = 收起
+  await waitUi(page, false);
+  assert.equal((await uiShown(page)).barHidden, true);
+});
+
+await check('单击与拖动不冲突 (draggable): 拖角色只移动 iframe, 不出现; 不动的单击才出现', async () => {
+  await page.close(); page = await newPage();
+  await mk(page, { scene: 'transparent', ui: ALL_UI, draggable: true }); await watchBox(page); await sleep(3000);
+  await waitUi(page, false);
+  await dragMouse(page, MODEL, { x: MODEL.x + 80, y: MODEL.y + 60 });
+  assertBox(await wbox(page), { l: LEFT + 80, t: TOP + 60, w: W, h: H }, '拖动生效');
+  const ev1 = await boxEvents(page);
+  assert.equal(ev1[0], 'move:start');
+  await sleep(500);
+  assert.equal((await uiShown(page)).headerHidden, true, '拖动结束后界面仍然隐藏 (拖动不触发显示)');
+  // 现在在新位置上单击 (不动) → 出现
+  await clickAt(page, { x: MODEL.x + 80, y: MODEL.y + 60 });
+  await waitUi(page, true);
+  // 出现后再拖: 不会因拖动而收起或闪烁到别的状态 (拖动不是点击)
+  await dragMouse(page, { x: MODEL.x + 80, y: MODEL.y + 60 }, { x: MODEL.x + 20, y: MODEL.y + 20 });
+  assert.equal((await uiShown(page)).header, true, '拖动不触发收起');
+});
+
+await check('亮色场景 uiAutoHide:true: 初始隐藏 → 单击角色出现 → 点空白收起 → 再出现 → 再点角色收起', async () => {
+  await page.close(); page = await newPage();
+  await mk(page, { scene: 'light', ui: ALL_UI, uiAutoHide: true }); await sleep(2500);
+  assert.equal(new URL(await page.evaluate(() => document.querySelector('iframe').src)).searchParams.get('uiAutoHide'), 'true');
+  await waitUi(page, false);
+  await clickAt(page, MODEL, 300); await waitUi(page, true);
+  await clickAt(page, BLANK, 300); await waitUi(page, false); // 点空白收起 (不透明场景空白也在 iframe 里)
+  await clickAt(page, MODEL, 300); await waitUi(page, true);
+  await clickAt(page, MODEL, 300); await waitUi(page, false);
+  // 点在按钮上不算点空白: 出现后点语言按钮 (开菜单), 界面不收
+  await clickAt(page, MODEL, 300); await waitUi(page, true);
+  await clickIn(page, '#xc-btn-switch-lang');
+  await fr(page).waitForSelector('[role="menu"] [data-lang]');
+  assert.equal((await uiShown(page)).header, true);
+  await closeMenu(page);
+});
+
+await check('uiAutoHide: 10 秒无操作自动收起; 悬停在按钮上不收 (共用 usePetUiVisibility 的 hold)', async () => {
+  await page.close(); page = await newPage();
+  await mk(page, { scene: 'light', ui: ['lang', 'github'], uiAutoHide: true }); await sleep(2000);
+  await clickAt(page, MODEL, 300); await waitUi(page, true);
+  const b = await (await fr(page).$('#xc-btn-switch-lang')).boundingBox();
+  await page.mouse.move(b.x + b.width / 2, b.y + b.height / 2); // 悬停在按钮上: 计时暂停
+  await sleep(11500);
+  assert.equal((await uiShown(page)).header, true, '悬停时 10 秒后仍显示');
+  await page.mouse.move(BLANK.x, BLANK.y); // 移开: 重新计时 10 秒
+  await sleep(9000);
+  assert.equal((await uiShown(page)).header, true, '移开 9 秒还在');
+  await waitUi(page, false, 4000);
+});
+
+await check('uiAutoHide:false: 透明场景也一直显示 (旧行为); \'transparent\' 显式写与默认一致', async () => {
+  await page.close(); page = await newPage();
+  await mk(page, { scene: 'transparent', ui: ['lang', 'github'], uiAutoHide: false }); await sleep(2000);
+  assert.equal((await uiShown(page)).header, true);
+  assert.equal(new URL(await page.evaluate(() => document.querySelector('iframe').src)).searchParams.get('uiAutoHide'), 'false');
+  // 运行时改: xc.setConfig{uiAutoHide} 立即生效 (不重建)
+  await settle(page, (xc) => xc.setConfig({ uiAutoHide: 'transparent' })); await sleep(600);
+  await waitUi(page, false);
+  // setConfig 是 fire-and-forget: 非法值经 error 事件 (code bad_request) 回报, 且不改变现状
+  await page.evaluate(() => { window.__ev.length = 0; });
+  await settle(page, (xc) => xc.setConfig({ uiAutoHide: 'hover' })); await sleep(500);
+  const errs = (await ev(page, 'error')).map((e) => e.p);
+  assert.ok(errs.some((e) => e.code === 'bad_request' && /uiAutoHide/.test(e.message || '')), '非法值被拒绝: ' + JSON.stringify(errs));
+  await waitUi(page, false); // 仍是上一次的 'transparent'
+});
+
+await check('触屏: 轻点角色出现 (透明场景), 再轻点收起', async () => {
+  await page.close(); page = await newPage();
+  await page.setViewport({ width: 360, height: 640, isMobile: true, hasTouch: true, deviceScaleFactor: 2 });
+  await mk(page, { scene: 'transparent', ui: ['lang', 'github'], width: 320, height: 520 });
+  await page.evaluate(() => { document.querySelector('#a').style.left = '20px'; document.querySelector('#a').style.top = '40px'; });
+  await sleep(2500);
+  await waitUi(page, false);
+  const pt = { x: 20 + 160, y: 40 + 260 };
+  // 触屏没有悬停: 第一次轻点可能只是唤醒命中检测 (落在宿主上, 不出现), 也可能 iframe 已在接收 (直接出现)。最多两次轻点必须出现。
+  let taps = 0;
+  while (!(await uiShown(page)).header && taps < 2) { await page.touchscreen.tap(pt.x, pt.y); taps++; await sleep(800); }
+  await waitUi(page, true, 3000);
+  await shotTo(page, 'ui-autohide-touch-shown.png');
+  // 收起: 同样可能先要一次唤醒 (落在宿主上, 不变), 再一次轻点角色 = 收起
+  taps = 0;
+  while ((await uiShown(page)).header && taps < 3) { await page.touchscreen.tap(pt.x, pt.y); taps++; await sleep(800); }
+  await waitUi(page, false, 3000);
+});
+
+await check('语言按钮: 菜单三语 + 当前项 ✓; 选择后界面立即切换、发 lang-changed、存进 iframe 自己的 localStorage (不写 cookie); 重载恢复; 显式 lang 优先且不覆盖存储', async () => {
+  const KEY_LANG = 'xiaochun_embed_lang';
+  await page.close(); page = await newPage();
+  await mk(page, { scene: 'light', ui: ['lang', 'github'] }); await sleep(1500);
+  const nav = await fr(page).evaluate(() => navigator.languages.slice());
+  const expectInit = /^zh/i.test(nav[0] || '') ? 'zh-CN' : /^ja/i.test(nav[0] || '') ? 'ja' : /^en/i.test(nav[0] || '') ? 'en' : 'zh-CN';
+  const init = (await evNames(page, 'lang-changed'))[0];
+  assert.deepEqual(init, { lang: expectInit, initial: true }, '初始语言 = 没存储时跟随浏览器语言 ' + JSON.stringify(nav));
+  assert.equal(await lsGet(page, KEY_LANG), null, '没选过不写存储');
+  await clickIn(page, '#xc-btn-switch-lang');
+  await fr(page).waitForSelector('[role="menu"] [data-lang]');
+  const items = await fr(page).$$eval('[role="menu"] [data-lang]', (els) => els.map((e) => ({ lang: e.getAttribute('data-lang'), text: e.textContent.replace('✓', '').trim(), on: e.textContent.includes('✓') })));
+  assert.deepEqual(items.map((i) => [i.lang, i.text]), [['zh-CN', '中文'], ['en', 'English'], ['ja', '日本語']]);
+  assert.equal(items.filter((i) => i.on).map((i) => i.lang).join(), expectInit);
+  const target = expectInit === 'ja' ? 'en' : 'ja';
+  await shotTo(page, 'lang-menu-light.png');
+  await fr(page).click(`[role="menu"] [data-lang="${target}"]`);
+  await sleep(500);
+  const ch = (await evNames(page, 'lang-changed')).at(-1);
+  assert.deepEqual(ch, { lang: target, previous: expectInit });
+  assert.equal(await lsGet(page, KEY_LANG), target, '用户选择存进 iframe 自己的 localStorage');
+  assert.equal(await fr(page).evaluate(() => document.documentElement.lang), target);
+  const label = await fr(page).evaluate(() => document.querySelector('#xc-btn-switch-lang').getAttribute('aria-label'));
+  const labelBefore = label;
+  // 重载 (不传 lang): 恢复存储里的
+  await reMk(page, { scene: 'light', ui: ['lang', 'github'] }); await sleep(1200);
+  assert.deepEqual((await evNames(page, 'lang-changed'))[0], { lang: target, initial: true }, '重载后恢复上次选的语言');
+  assert.equal(await fr(page).evaluate(() => document.querySelector('#xc-btn-switch-lang').getAttribute('aria-label')), labelBefore);
+  // 显式 lang 优先, 且不覆盖存储
+  const explicit = target === 'en' ? 'zh-CN' : 'en';
+  await reMk(page, { scene: 'light', ui: ['lang', 'github'], lang: explicit }); await sleep(1200);
+  assert.deepEqual((await evNames(page, 'lang-changed'))[0], { lang: explicit, initial: true });
+  assert.equal(await lsGet(page, KEY_LANG), target, '显式 lang 不写存储');
+  // 宿主 setConfig{lang}: 生效 + 发事件, 不写存储
+  const other = explicit === 'ja' ? 'en' : 'ja';
+  await settle(page, (xc, l) => xc.setConfig({ lang: l }), other); await sleep(400);
+  assert.deepEqual((await evNames(page, 'lang-changed')).at(-1), { lang: other, previous: explicit });
+  assert.equal(await lsGet(page, KEY_LANG), target);
+  // 坏数据忽略并清掉
+  await frameOf(page).evaluate((k) => localStorage.setItem(k, 'klingon'), KEY_LANG);
+  await reMk(page, { scene: 'light', ui: ['lang'] }); await sleep(1200);
+  assert.equal((await evNames(page, 'lang-changed'))[0].lang, expectInit);
+  assert.equal(await lsGet(page, KEY_LANG), null, '坏数据被清掉');
+});
+
+await check('GitHub 按钮: 链接到项目仓库, 新标签页打开 (target=_blank rel=noopener noreferrer), 点击真的开新页', async () => {
+  await page.close(); page = await newPage();
+  await mk(page, { scene: 'light', ui: ['github'] }); await sleep(1200);
+  const a = await fr(page).evaluate(() => { const e = document.querySelector('#xc-btn-github'); return { tag: e.tagName, href: e.href, target: e.target, rel: e.rel, ui: e.hasAttribute('data-xc-ui') }; });
+  assert.deepEqual(a, { tag: 'A', href: 'https://github.com/FireTable/project-xiaochun', target: '_blank', rel: 'noopener noreferrer', ui: true });
+  assert.equal(await fr(page).evaluate(() => !!document.querySelector('#xc-btn-switch-lang')), false, '只开 github 时没有语言按钮');
+  const created = new Promise((res) => browser.once('targetcreated', res));
+  await clickIn(page, '#xc-btn-github');
+  const t = await Promise.race([created, sleep(8000).then(() => null)]);
+  assert.ok(t, '点击后应创建新标签页');
+  assert.ok(/github\.com|about:blank|^$/.test(t.url()), '新页地址: ' + t.url());
+  const np = await t.page().catch(() => null); if (np) await np.close().catch(() => {});
+  assert.equal(page.frames().filter((f) => f.url().startsWith(EMBED_ORIGIN)).length, 1, '当前页没有被导航走');
+  await shotTo(page, 'header-lang-github-light.png');
+});
+
+// ───────────────────────── 宿主页文字选区不染蓝 iframe ─────────────────────────
+// Chrome 在宿主页的选区跨过 iframe (拖选划过 / Cmd·Ctrl+A / 全选) 时, 会给整块 iframe 盖一层蓝色高亮; SDK 给 iframe / 外壳 / 占位图设 user-select:none 来避免。
+// 这里在宿主页里铺满文字、把头像放在文字流中间, 用真实鼠标拖选 / 全选 / 双击 / 三击 / 从 iframe 内部开始拖选, 在截图里数 iframe 区域内的"蓝色选区像素"。
+const selHostSetup = async (pg) => {
+  await pg.setViewport({ width: 1000, height: 760 });
+  await pg.evaluate(() => {
+    document.body.style.cssText = 'margin:0;background:#fff;font:18px/1.6 system-ui;padding:20px 40px';
+    const para = (i) => `<p style="margin:0 0 6px">第 ${i} 段 The quick brown fox jumps over the lazy dog. 宿主页文字: 选区会从这些文字划过 iframe 所在的位置。Lorem ipsum dolor sit amet consectetur.</p>`;
+    const wrap = document.createElement('div'); wrap.id = 'selwrap'; wrap.style.width = '880px';
+    wrap.innerHTML = Array.from({ length: 12 }, (_, i) => para(i + 1)).join('');
+    const a = document.querySelector('#a'); a.style.cssText = 'position:relative;margin:10px 0;width:300px;height:420px';
+    wrap.appendChild(a);
+    const tail = document.createElement('div'); tail.innerHTML = Array.from({ length: 30 }, (_, i) => para(i + 13)).join(''); wrap.appendChild(tail);
+    document.body.appendChild(wrap);
+    a.scrollIntoView({ block: 'center' }); // iframe 是 loading=lazy: 要先滚进视口才会加载
+  });
+};
+const selRect = (pg) => pg.evaluate(() => { const i = document.querySelector('#a'); i.scrollIntoView({ block: 'center' }); const r = i.getBoundingClientRect(); return { x: r.x, y: r.y, w: r.width, h: r.height }; });
+/** iframe 区域内"选区蓝"像素数 (b 明显大于 r, 且不是角色 / 背景的正常色)。 */
+const blueCount = async (pg, r, name) => {
+  const buf = await pg.screenshot({ type: 'png' });
+  if (SHOT_DIR && name) writeFileSync(path.join(SHOT_DIR, `selection-${name}.png`), buf);
+  const d = decodePng(buf);
+  let n = 0, tot = 0;
+  for (let y = Math.round(r.y) + 6; y < r.y + r.h - 6; y += 3) for (let x = Math.round(r.x) + 6; x < r.x + r.w - 6; x += 3) { const [R, G, B] = d.px(x, y); tot++; if (B - R > 60 && G < 220 && R < 200) n++; }
+  return { n, tot };
+};
+const selectAllKey = async (pg) => { // 真实的 Cmd/Ctrl+A (带 selectAll 编辑命令; headless mac 下纯按键不触发)
+  const c = await pg.createCDPSession();
+  for (const type of ['rawKeyDown', 'keyUp']) await c.send('Input.dispatchKeyEvent', { type, modifiers: process.platform === 'darwin' ? 4 : 2, key: 'a', code: 'KeyA', windowsVirtualKeyCode: 65, commands: type === 'rawKeyDown' ? ['selectAll'] : [] });
+  await c.detach();
+};
+const selLen = (pg) => pg.evaluate(() => getSelection().toString().length);
+const selClear = async (pg) => { await pg.evaluate(() => getSelection().removeAllRanges()); await pg.mouse.click(985, 8); await sleep(200); };
+
+for (const scene of ['light', 'transparent']) {
+  await check(`宿主页文字选区不染蓝 iframe (${scene}): 拖选划过 / Cmd·Ctrl+A / 双击 / 三击 / 从 iframe 内部开始拖选, 截图里 iframe 区域无蓝色高亮; 宿主文字仍可选`, async () => {
+    await page.close(); page = await newPage();
+    await selHostSetup(page);
+    await mk(page, { scene, width: 300, height: 420 }); await sleep(2000); // 不开 draggable: 从 iframe 内部按下拖动会移动 iframe, 这里要的是"选区"场景
+    const st = await page.evaluate(() => { const i = document.querySelector('iframe'); const cs = getComputedStyle(i); const w = i.parentElement; return { us: cs.userSelect, wus: cs.webkitUserSelect, wrap: getComputedStyle(w).userSelect, pe: cs.pointerEvents }; });
+    assert.equal(st.us, 'none', 'iframe user-select:none'); assert.equal(st.wus, 'none'); assert.equal(st.wrap, 'none', '外壳 user-select:none');
+    const r = await selRect(page); await sleep(300);
+    const sc = `${scene}`;
+    const base = await blueCount(page, r, `${sc}-0-baseline`); assert.equal(base.n, 0, '基线无蓝');
+    const dragAcross = async (name) => {
+      await selClear(page);
+      await page.mouse.move(60, r.y - 70); await page.mouse.down();
+      await page.mouse.move(r.x + 150, r.y + 200, { steps: 12 }); await page.mouse.move(700, r.y + r.h + 70, { steps: 12 }); await sleep(300);
+      const len = await selLen(page); const b = await blueCount(page, r, name); await page.mouse.up(); return { len, b };
+    };
+    // 0) 对照: 把 SDK 的保护撤掉, 同样的拖选必须能复现整块蓝色 (证明这个用例真能检出问题)
+    await page.evaluate(() => { const i = document.querySelector('iframe'); i.style.setProperty('user-select', 'auto'); i.style.setProperty('-webkit-user-select', 'auto'); i.parentElement.style.setProperty('user-select', 'auto'); i.parentElement.style.setProperty('-webkit-user-select', 'auto'); });
+    const ctrl = await dragAcross(`${sc}-1a-control-unprotected`);
+    console.log(`   [${sc}] 对照 (撤掉保护): 选区文字 ${ctrl.len} 字, 蓝色像素 ${ctrl.b.n}/${ctrl.b.tot}`);
+    if (scene === 'light') assert.ok(ctrl.b.n > ctrl.b.tot * 0.5, '对照: 撤掉 user-select 后 Chrome 会把 iframe 染蓝 (用例有效性)');
+    await page.evaluate(() => { const i = document.querySelector('iframe'); for (const el of [i, i.parentElement]) { el.style.setProperty('user-select', 'none'); el.style.setProperty('-webkit-user-select', 'none'); } });
+    // 1) 拖选划过
+    const d1 = await dragAcross(`${sc}-1-drag-across`);
+    assert.ok(d1.len > 100, '宿主文字照常被选中: ' + d1.len); assert.equal(d1.b.n, 0, `${sc}: 拖选划过 iframe 不应染蓝 (${d1.b.n})`);
+    // 2) Cmd/Ctrl+A
+    await selClear(page); await selectAllKey(page); await sleep(300);
+    assert.ok((await selLen(page)) > 1000, '全选选中了宿主文字');
+    const all = await blueCount(page, r, `${sc}-2-select-all`); assert.equal(all.n, 0, `${sc}: 全选不应染蓝 (${all.n})`);
+    // 3) 双击 / 三击宿主文字 (选区恰好是整段, 不跨 iframe), 以及在 iframe 上双击 / 三击
+    await selClear(page); await page.mouse.click(120, r.y - 40, { clickCount: 3 }); await sleep(250);
+    assert.equal((await blueCount(page, r, `${sc}-3-triple-text`)).n, 0);
+    await selClear(page); await page.mouse.click(r.x + r.w / 2, r.y + r.h / 2, { clickCount: 2 }); await sleep(250);
+    assert.equal((await blueCount(page, r, `${sc}-4-double-iframe`)).n, 0, '在 iframe 上双击不染蓝');
+    await selClear(page); await page.mouse.click(r.x + r.w / 2, r.y + r.h / 2, { clickCount: 3 }); await sleep(250);
+    assert.equal((await blueCount(page, r, `${sc}-5-triple-iframe`)).n, 0, '在 iframe 上三击不染蓝');
+    // 4) 从 iframe 内部开始拖选 (拖到宿主文字上), 之后再全选
+    await selClear(page);
+    await page.mouse.move(r.x + 150, r.y + 200); await page.mouse.down();
+    await page.mouse.move(r.x + 250, r.y - 60, { steps: 12 }); await page.mouse.move(600, r.y - 120, { steps: 10 }); await sleep(300);
+    assert.equal((await blueCount(page, r, `${sc}-6-drag-from-inside`)).n, 0, '从 iframe 内部开始拖选不染蓝');
+    await page.mouse.up();
+    await selectAllKey(page); await sleep(300);
+    assert.equal((await blueCount(page, r, `${sc}-7-select-all-after-inside`)).n, 0, '内部拖选后再全选不染蓝');
+    // 保护不改变 iframe 的交互 / 穿透设置
+    // 保护只改 user-select: 不透明场景 iframe 仍接收事件; 透明场景 pointer-events 照旧随命中检测切换 (穿透逻辑不受影响)
+    const pe = await page.evaluate(() => getComputedStyle(document.querySelector('iframe')).pointerEvents);
+    assert.equal(pe, scene === 'light' ? 'auto' : pe, 'pointer-events 不被改动');
+    if (scene === 'transparent') { await page.mouse.move(5, 5); await sleep(400); await page.mouse.move(r.x + r.w / 2, r.y + r.h * 0.5); await page.mouse.move(r.x + r.w / 2 + 2, r.y + r.h * 0.5); await sleep(500); console.log('   [transparent] 选区操作后穿透仍按命中切换, pointer-events =', await page.evaluate(() => getComputedStyle(document.querySelector('iframe')).pointerEvents)); }
+  });
+}
+
+await check('占位图 (lazy:click, iframe 还没建): 宿主页全选也不染蓝', async () => {
+  await page.close(); page = await newPage();
+  await selHostSetup(page);
+  await mk(page, { scene: 'light', width: 300, height: 420, lazy: 'click' }, false); await sleep(800);
+  const r = await selRect(page); await sleep(300);
+  assert.equal(await page.evaluate(() => !!document.querySelector('iframe')), false, '还没创建 iframe');
+  const us = await page.evaluate(() => { const img = document.querySelector('[data-xiaochun] img'); return img ? getComputedStyle(img).userSelect : 'no-img'; });
+  assert.equal(us, 'none', '占位图 user-select:none');
+  await selectAllKey(page); await sleep(300);
+  const b = await blueCount(page, r, 'placeholder-select-all'); assert.equal(b.n, 0, `占位图不应染蓝 (${b.n})`);
+});
+
+await check('persistBox (真实 /embed + 真实鼠标): 拖动结束写宿主 localStorage; 重新创建 (同页 / 刷新页面) 恢复位置; 窗口变小后再创建被夹进视口; clearPersistedBox({ reset }) 回初始', async () => {
+  await page.close(); page = await newPage();
+  const opts = { scene: 'light', draggable: true, persistBox: 'e2e' };
+  await page.evaluate(() => localStorage.removeItem('xiaochun:box:e2e'));
+  await mk(page, opts); await watchBox(page);
+  await dragMouse(page, MODEL, { x: MODEL.x + 90, y: MODEL.y + 50 });
+  assertBox(await wbox(page), { l: LEFT + 90, t: TOP + 50, w: W, h: H }, '拖动 +90,+50');
+  const rec = await page.evaluate(() => JSON.parse(localStorage.getItem('xiaochun:box:e2e')));
+  assert.deepEqual([rec.v, rec.mode, rec.x, rec.y, rec.width, rec.height], [1, 'inline', 90, 50, W, H], '宿主 localStorage 里是内联位移 + 大小: ' + JSON.stringify(rec));
+  // 同页重建
+  await page.evaluate(() => window.xc.destroy()); await mk(page, opts); await watchBox(page);
+  assertBox(await wbox(page), { l: LEFT + 90, t: TOP + 50, w: W, h: H }, '重建后恢复');
+  // 刷新页面 (宿主 localStorage 保留)
+  await page.reload(); await page.waitForFunction(() => window.__ready);
+  await mk(page, opts); await watchBox(page);
+  assertBox(await wbox(page), { l: LEFT + 90, t: TOP + 50, w: W, h: H }, '刷新后恢复');
+  if (SHOT_DIR) await shotTo(page, 'persist-box-restored.png');
+  // 窗口变小: 重建后仍在视口内
+  await page.setViewport({ width: 420, height: 560 });
+  await page.evaluate(() => window.xc.destroy()); await mk(page, opts); await watchBox(page);
+  const small = await wbox(page);
+  assert.ok(small.l >= 0 && small.l + small.w <= 420, '小窗口下横向在视口内: ' + JSON.stringify(small));
+  await page.setViewport({ width: 900, height: 700 });
+  // 清除
+  await page.evaluate(() => window.xc.clearPersistedBox({ reset: true }));
+  assert.equal(await page.evaluate(() => localStorage.getItem('xiaochun:box:e2e')), null);
+  assertBox(await wbox(page), { l: LEFT, t: TOP, w: W, h: H }, 'reset 回初始');
+});
+
+// ───────── 相机选项 (camera): 真实 /embed, 读 iframe 里的 vrmEngine 状态 ─────────
+const camOf = async (pg) => { // destroy → 重新创建的瞬间 frames() 里可能还留着刚销毁的旧 frame (引擎已 dispose: 场景未初始化 / 相机在原点): 只认"已加载完模型"的活引擎, 重试
+  for (let i = 0; i < 80; i++) {
+    for (const f of pg.frames().filter((fr) => fr.url().startsWith(EMBED_ORIGIN) && !fr.isDetached())) {
+      try {
+        const r = await f.evaluate(() => {
+          const e = window.vrmEngine;
+          if (!e || !e.controls || !e._sceneInitialized || !e.currentVRM) return null;
+          return {
+            fov: e.camera.fov, dist: e.controls.getDistance(), polar: e.controls.getPolarAngle(), ty: e.controls.target.y, py: e.camera.position.y,
+            pos: e.camera.position.toArray(), tgt: e.controls.target.toArray(), ov: e.cameraOverride,
+            introRunning: e.cinematicIntroRafId !== null, enabled: e.controls.enabled,
+            yKey: localStorage.getItem('xiaochun_camera_y_offset'), pitchKey: localStorage.getItem('xiaochun_camera_pitch'),
+          };
+        });
+        if (r) { globalThis.__lastCam = r; return r; }
+      } catch { /* frame 正在切换 */ }
+    }
+    await sleep(100);
+  }
+  const dbg = [];
+  for (const f of pg.frames()) {
+    try { dbg.push({ url: f.url().slice(0, 80), det: f.isDetached(), st: await f.evaluate(() => { const e = window.vrmEngine; return e ? { c: !!e.controls, i: e._sceneInitialized, v: !!e.currentVRM } : null; }) }); } catch (er) { dbg.push({ url: f.url().slice(0, 80), err: String(er).slice(0, 80) }); }
+  }
+  throw new Error('取不到 iframe 内已加载完成的 vrmEngine 相机状态 ' + JSON.stringify(dbg) + ' errs=' + JSON.stringify(consoleErrors.slice(-6)));
+};
+const shotDist = (fov) => 1.34 / (2 * Math.tan((fov * Math.PI) / 360)); // APP_CONFIG.camera.defaultShotExtent / (2·tan(fov/2))
+const camNear = (a, b, tol, msg) => assert.ok(Math.abs(a - b) <= tol, `${msg}: ${a} vs ${b} (±${tol}) ${JSON.stringify(globalThis.__lastCam)}`);
+
+await check('camera: capabilities.camera 上报范围; 默认相机 = fov 30 / 视距≈2.50 (取景函数统一); 推镜头结束后到位', async () => {
+  await page.close(); page = await newPage();
+  await mk(page, { scene: 'light' });
+  const hs = (await ev(page, 'handshake'))[0].p;
+  assert.deepEqual(hs.capabilities.camera, { fov: [15, 60], distance: [1, 15], height: [-1, 1], intro: true });
+  await sleep(2000); // 等推镜头 (1.1s) 结束
+  const c = await camOf(page);
+  camNear(c.fov, 30, 1e-6, '默认 fov'); camNear(c.dist, shotDist(30), 0.01, '默认视距'); assert.equal(c.introRunning, false);
+  if (SHOT_DIR) await shotTo(page, 'camera-default.png');
+});
+
+await check('camera (URL/SDK 选项): fov / distance / height 生效; intro:false 无推镜头; 显式 height 不写 iframe 保存值; 只给 fov 时视距按 fov 自动补偿', async () => {
+  await page.close(); page = await newPage();
+  await mk(page, { scene: 'light' }); await sleep(2000);
+  const base = await camOf(page);
+  await page.evaluate(() => window.xc.destroy());
+  await mk(page, { scene: 'light', camera: { fov: 45, distance: 4, height: 0.3, intro: false } });
+  const c = await camOf(page); // ready 后立刻读: intro:false → 已经在终点, 没有推镜头
+  assert.equal(c.introRunning, false, 'intro:false 不起推镜头'); assert.equal(c.enabled, true);
+  camNear(c.fov, 45, 1e-6, 'fov'); camNear(c.dist, 4, 0.01, 'distance'); camNear(c.ty - base.ty, 0.3, 0.01, 'height 偏移 (目标点上移)');
+  assert.equal(c.yKey, null, '显式 height 不写 iframe 的保存值');
+  if (SHOT_DIR) await shotTo(page, 'camera-fov45-dist4-height0.3.png');
+  // iframe 里之前会话(上面的默认镜头)已把"用户视距"存进 localStorage; 保存值优先于 fov 补偿, 这里先清掉才是"全新用户"
+  await frameOf(page).evaluate(() => localStorage.removeItem('xiaochun_camera_pitch'));
+  await page.evaluate(() => window.xc.destroy());
+  await mk(page, { scene: 'light', camera: { fov: 20, intro: false } });
+  const f = await camOf(page);
+  camNear(f.fov, 20, 1e-6, '只给 fov'); camNear(f.dist, shotDist(20), 0.01, '视距跟 fov 补偿 (主体大小不变)');
+  if (SHOT_DIR) await shotTo(page, 'camera-fov20.png');
+  await page.evaluate(() => window.xc.destroy());
+  await mk(page, { scene: 'light', camera: { height: -0.3, distance: 1.5, intro: false } });
+  const h = await camOf(page);
+  camNear(h.ty - base.ty, -0.3, 0.01, '负 height'); camNear(h.dist, 1.5, 0.01, 'distance 1.5');
+  if (SHOT_DIR) await shotTo(page, 'camera-dist1.5-height-0.3.png');
+});
+
+await check('camera: 越界夹范围; 手写 iframe ?cameraFov= 等同样生效 (非法忽略)', async () => {
+  await page.evaluate(() => window.xc.destroy());
+  await mk(page, { scene: 'light', camera: { fov: 5, distance: 99, intro: false } });
+  const c = await camOf(page);
+  camNear(c.fov, 15, 1e-6, 'fov 夹到 15'); camNear(c.dist, 15, 0.01, 'distance 夹到 15');
+  // 手写 iframe (顶层直开, 无宿主): URL 参数
+  const p2 = await browser.newPage(); await p2.setViewport({ width: 600, height: 800 });
+  await p2.goto(`${EMBED_URL}${EMBED_URL.includes('?') ? '&' : '?'}scene=light&cameraFov=50&cameraDistance=3&cameraIntro=0&cameraHeight=zzz`);
+  await p2.waitForFunction(() => window.vrmEngine?.isReady?.() && window.vrmEngine.controls, { timeout: 120000 });
+  const u = await p2.evaluate(() => ({ fov: window.vrmEngine.camera.fov, dist: window.vrmEngine.controls.getDistance(), intro: window.vrmEngine.cinematicIntroRafId !== null }));
+  camNear(u.fov, 50, 1e-6, 'URL fov'); camNear(u.dist, 3, 0.01, 'URL distance'); assert.equal(u.intro, false);
+  await p2.close();
+});
+
+await check('camera (运行时 setConfig): fov / distance / height 立刻生效; null 恢复默认; 非法值 bad_request 且不改相机; 不开放 pitch; 取消进行中的推镜头', async () => {
+  await page.evaluate(() => window.xc.destroy());
+  await mk(page, { scene: 'light' }); await sleep(2000);
+  const base = await camOf(page);
+  await page.evaluate(() => window.xc.setConfig({ camera: { fov: 20 } })); await sleep(300);
+  let c = await camOf(page);
+  camNear(c.fov, 20, 1e-6, 'fov→20'); camNear(c.dist, shotDist(20), 0.01, '视距按 fov 重新取景');
+  await page.evaluate(() => window.xc.setConfig({ camera: { distance: 5, height: 0.2 } })); await sleep(300);
+  c = await camOf(page);
+  camNear(c.dist, 5, 0.01, 'distance→5'); camNear(c.ty - base.ty, 0.2, 0.01, 'height→0.2'); camNear(c.fov, 20, 1e-6, 'fov 不变 (缺省键不变)');
+  await page.evaluate(() => window.xc.setConfig({ camera: { height: 0.2 } })); await sleep(200);
+  camNear((await camOf(page)).ty - base.ty, 0.2, 0.01, '重复设置幂等 (偏移不累加)');
+  // 非法值: 抛 bad_request, 相机不变
+  // setConfig 是发后不管的命令: 非法值由 iframe 以 xc.error{bad_request} 回报 (SDK 'error' 事件)
+  const errsBefore = (await ev(page, 'error')).length;
+  await page.evaluate(() => { window.xc.setConfig({ camera: { pitch: 1 } }); window.xc.setConfig({ camera: { fov: 'wide' } }); window.xc.setConfig({ camera: { distance: Infinity } }); window.xc.setConfig({ camera: 5 }); });
+  await sleep(500);
+  const errs = (await ev(page, 'error')).slice(errsBefore).map((e) => e.p);
+  assert.equal(errs.length, 4, '4 个非法 camera 都报错: ' + JSON.stringify(errs));
+  assert.ok(errs.every((e) => e.code === 'bad_request'), JSON.stringify(errs));
+  assert.ok(errs.some((e) => /pitch/.test(e.message)), 'pitch 不开放: ' + JSON.stringify(errs.map((e) => e.message)));
+  c = await camOf(page); camNear(c.fov, 20, 1e-6, '非法值不改相机'); camNear(c.dist, 5, 0.01, '非法值不改视距');
+  if (SHOT_DIR) await shotTo(page, 'camera-runtime-fov20-dist5-height0.2.png');
+  // null 恢复默认
+  await page.evaluate(() => window.xc.setConfig({ camera: { fov: null, distance: null, height: null } })); await sleep(300);
+  c = await camOf(page);
+  camNear(c.fov, 30, 1e-6, 'fov 恢复 30'); camNear(c.dist, shotDist(30), 0.01, '视距恢复默认'); camNear(c.ty - base.ty, 0, 0.01, 'height 恢复');
+  // 运行时改相机 → 取消进行中的推镜头并还回控制
+  await frameOf(page).evaluate(() => window.vrmEngine.cinematicIntro(8000)); await sleep(200);
+  c = await camOf(page); assert.equal(c.introRunning, true, '推镜头进行中'); assert.equal(c.enabled, false, '推镜头期间控制被禁用');
+  await page.evaluate(() => window.xc.setConfig({ camera: { distance: 3 } })); await sleep(300);
+  c = await camOf(page);
+  assert.equal(c.introRunning, false, 'setConfig 取消推镜头'); assert.equal(c.enabled, true, '控制权还给用户'); camNear(c.dist, 3, 0.01, '直接到目标视距, 不再被推镜头拽走');
+  await sleep(1200); camNear((await camOf(page)).dist, 3, 0.01, '之后不漂移');
+});
+
+await check('camera: 优先级 显式 > iframe 保存值 > 默认 (显式 distance 忽略保存的俯仰 / 视距; 不给则沿用保存值)', async () => {
+  await page.evaluate(() => window.xc.destroy());
+  await mk(page, { scene: 'light', camera: { intro: false } });
+  await frameOf(page).evaluate(() => localStorage.setItem('xiaochun_camera_pitch', JSON.stringify({ pitch: 1.2, distance: 6 })));
+  await page.evaluate(() => window.xc.destroy());
+  await mk(page, { scene: 'light', camera: { intro: false } });
+  let c = await camOf(page);
+  camNear(c.dist, 6, 0.01, '无显式值: 沿用保存的视距'); camNear(c.polar, 1.2, 0.01, '沿用保存的俯仰');
+  await page.evaluate(() => window.xc.destroy());
+  await mk(page, { scene: 'light', camera: { distance: 3, intro: false } });
+  c = await camOf(page);
+  camNear(c.dist, 3, 0.01, '显式 distance 优先'); assert.ok(Math.abs(c.polar - 1.2) > 0.1, '显式 distance 时忽略保存的俯仰: polar=' + c.polar);
+  await page.evaluate(() => window.xc.destroy());
+  await mk(page, { scene: 'light', camera: { fov: 25, intro: false } });
+  c = await camOf(page);
+  camNear(c.dist, 6, 0.01, '只给 fov: 保存的视距仍生效'); camNear(c.fov, 25, 1e-6, 'fov 生效');
+  await frameOf(page).evaluate(() => localStorage.removeItem('xiaochun_camera_pitch'));
 });
 
 await check('控制台: 无未捕获异常 / alert', async () => {

@@ -58,7 +58,7 @@ test('listScenes: transparent 标志', () => {
 
 test('?ui= 解析: 部件名白名单; 默认空; 旧 1/true 映射为 chat+bubble 并标 legacy; 未知项/原型键忽略', async () => {
   const { parseXcUiParam, parseXcUiList, normalizeXcUiOption, XC_UI_PARTS } = await import('../../../packages/project-xiaochun/src/protocol.ts');
-  assert.deepEqual([...XC_UI_PARTS], ['chat', 'bubble', 'outfit', 'scene']);
+  assert.deepEqual([...XC_UI_PARTS], ['chat', 'bubble', 'outfit', 'scene', 'lang', 'github']);
   for (const v of [null, undefined, '', '0', 'false', ' ']) assert.deepEqual(parseXcUiParam(v), { parts: [], unknown: [], legacy: false }, String(v));
   for (const v of ['1', 'true', 'TRUE']) assert.deepEqual(parseXcUiParam(v), { parts: ['chat', 'bubble'], unknown: [], legacy: true }, v);
   assert.deepEqual(parseXcUiParam('outfit,scene').parts, ['outfit', 'scene']);

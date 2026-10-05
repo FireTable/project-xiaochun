@@ -33,11 +33,18 @@
       "Microsoft YaHei",
       sans-serif;
     color: #f8fafc;
+    -webkit-user-select: none;
     user-select: none;
     background-color: transparent;
     /* ponytail: 禁止横向滚动 — 移动端任何定位元素溢出都会被截,避免界面"跳动"。 */
     overflow-x: hidden;
     /* ponytail: iOS 点击高亮关掉,避免 button 闪蓝光。 */
+    -webkit-tap-highlight-color: transparent;
+  }
+  /* 角色画布: 任何场景 (主站 / Tauri / /embed) 都不参与选区, 不出现蓝色高亮或点按高亮 (/embed 里宿主页的 Cmd+A 也不会染它)。 */
+  canvas {
+    -webkit-user-select: none;
+    user-select: none;
     -webkit-tap-highlight-color: transparent;
   }
   /* /embed 宿主开了拖动 / 缩放手势 (gestures.ts 给 html 加 xc-gestures): 拖拽期间不出现选中蓝框 / 原生图片拖拽 / 长按菜单。Safari 需要 -webkit- 前缀。 */

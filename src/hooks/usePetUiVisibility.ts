@@ -3,15 +3,19 @@
  *
  * 1. isPetUIVisible 单一可信源 — TopHeader / ChatBar 都从这里取;
  * 2. show() / toggle() 唤起时 dispatch `corner-flash`;
- * 3. 点击人物主体 → toggle, 点击空白 → hide;
+ * 3. 点击人物主体 → toggle, 点击空白 → hide (单击判定见 core/ui/clickDetector.ts: 位移 ≤ 6px, 拖动 / 多指 / 取消不算);
  * 4. 10s 无操作自动收起 — 悬停顶栏/输入条、或任意 Dialog 打开时暂停计时。
+ *
+ * Tauri (App.tsx) 与 /embed (EmbedApp.tsx) 共用这一份: 调用方只决定 enabled (Tauri = 当前是透明场景; embed = uiAutoHide 在当前场景生效)。
  */
 import { useCallback, useEffect, useRef, useState } from 'react';
+import { ClickDetector, type ClickSample } from '@/core/ui/clickDetector';
 
 const PET_UI_DURATION_MS = 10_000;
 export { PET_UI_DURATION_MS };
 
-const CLICK_DEBOUNCE_PX = 6;
+/** 点在这些元素上 (UI 自己处理点击) 既不算点角色也不算点空白; data-xc-ui = /embed 内置按钮。 */
+const PET_UI_IGNORE_SELECTOR = 'header, form, [role="menu"], [role="dialog"], button, input, textarea, #chat-menu, .drop-card, [data-xc-ui]';
 const PET_UI_HOLD_EVENT = 'pet-ui-hold';
 const PET_UI_RELEASE_EVENT = 'pet-ui-release';
 
@@ -120,23 +124,21 @@ export function usePetUiVisibility(enabled: boolean) {
   useEffect(() => {
     if (!enabled) return;
 
-    let downPos: { x: number; y: number } | null = null;
+    // 单击判定 (位移阈值 / 拖动 / 多指 / 取消) 在 core/ui/clickDetector.ts, Tauri 与 /embed 共用
+    const detector = new ClickDetector();
+    const sample = (e: PointerEvent): ClickSample => ({
+      x: e.clientX, y: e.clientY, screenX: e.screenX, screenY: e.screenY, button: e.button, isPrimary: e.isPrimary,
+    });
 
-    const handlePointerDown = (e: PointerEvent) => {
-      if (e.button === 0) downPos = { x: e.clientX, y: e.clientY };
-    };
+    const handlePointerDown = (e: PointerEvent) => detector.down(sample(e));
+    const handlePointerMove = (e: PointerEvent) => detector.move(sample(e));
+    const handlePointerCancel = () => detector.cancel();
 
     const handlePointerUp = async (e: PointerEvent) => {
-      if (!downPos || e.button !== 0) return;
-      const dist = Math.hypot(e.clientX - downPos.x, e.clientY - downPos.y);
-      downPos = null;
-
-      if (dist > CLICK_DEBOUNCE_PX) return;
+      if (!detector.up(sample(e))) return;
 
       const target = e.target as HTMLElement | null;
-      if (target?.closest('header, form, [role="menu"], [role="dialog"], button, input, textarea, #chat-menu, .drop-card')) {
-        return;
-      }
+      if (target?.closest(PET_UI_IGNORE_SELECTOR)) return;
 
       const { vrmEngine } = await import('@/core/vrmEngine');
       const hit = vrmEngine.isHitModel(e.clientX, e.clientY);
@@ -145,10 +147,14 @@ export function usePetUiVisibility(enabled: boolean) {
     };
 
     window.addEventListener('pointerdown', handlePointerDown);
+    window.addEventListener('pointermove', handlePointerMove, { passive: true });
     window.addEventListener('pointerup', handlePointerUp);
+    window.addEventListener('pointercancel', handlePointerCancel);
     return () => {
       window.removeEventListener('pointerdown', handlePointerDown);
+      window.removeEventListener('pointermove', handlePointerMove);
       window.removeEventListener('pointerup', handlePointerUp);
+      window.removeEventListener('pointercancel', handlePointerCancel);
     };
   }, [enabled, toggle, hide]);
 

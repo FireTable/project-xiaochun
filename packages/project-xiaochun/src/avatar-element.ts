@@ -1,23 +1,25 @@
 /**
  * avatar-element.ts — `<xiaochun-avatar>` Web Component (Shadow DOM 内包 iframe)。
  *
- * 属性: src outfit scene model(deprecated) lang mic transparent draggable resizable min-size max-size border-radius position size lazy paused placeholder heavy ui controls allowed-origins cross-origin-isolated persist allow-custom-model
+ * 属性: src outfit scene model(deprecated) lang mic transparent draggable resizable min-size max-size border-radius position size lazy paused placeholder heavy ui ui-autohide controls allowed-origins cross-origin-isolated persist allow-custom-model
  *   - 布尔属性: 缺省取默认值; "" / "true" = true; "false" = false。
- *   - size="320x480" 或 size="320" (高 = 宽 × 1.5); 也可写 CSS 长度 "100%x480px"。改 size **热更新** (setSize, 不重建 iframe)。
+ *   - size="320x480" 或 size="320" (高 = 宽 × 1.5); 也可写 CSS 长度 "100%x480px"。缺省 = 600x1080 (宽不超过容器、高不超过视口)。改 size **热更新** (setSize, 不重建 iframe)。
  *   - draggable: 手势拖动 (角色上按住拖, 内联 / 悬浮都行); resizable: 四角缩放热区 (对角固定, 不重建 iframe); 两者默认关, 改属性热更新。
  *     min-size / max-size="120x180": resizable 的最小 / 最大尺寸 (px, 缺省最小 120x180、最大只受视口限制)。
  *   - border-radius: 外壳圆角 (数字 = px 或 CSS 长度); 缺省: 非透明场景 20px (与 Tauri 桌宠窗口同值) / 透明 0; 改属性热更新 (setBorderRadius)。
  *   - outfit: 内置服装 id (xiaochun_maid); 改属性**热更新** (setOutfit, 不重建 iframe)。model 是 outfit 的旧别名 (deprecated)。
  *   - scene: light | dark | transparent; 改属性**热更新** (setScene, 不重建 iframe)。
- *   - ui: 要显示的 iframe 内置界面部件, 逗号分隔: chat,bubble,outfit,scene (例 ui="outfit,scene"); 缺省 = 都不显示; 改它会重建。
+ *   - ui: 要显示的 iframe 内置界面部件, 逗号分隔: chat,bubble,outfit,scene,lang,github (例 ui="outfit,scene,lang,github"); 缺省 = 都不显示; 改它会重建。
  *     旧写法 ui / ui="true" 已弃用 (= chat,bubble, 会 console.warn)。
+ *   - ui-autohide: 内置界面的显示策略: 缺省 / "transparent" = 与 Tauri 一致 (只在透明场景点击出现, 亮暗场景常显); "true" = 所有场景点击出现; "false" = 一直显示。改它会重建。
+ *   - persist-box: 记住用户拖动 / 缩放后的位置和大小 (宿主 localStorage): "" / "true" = 默认 key, 其它字符串 = 命名空间 (xiaochun:box:<名字>); 需配合 draggable / resizable; 显式 size 优先于已保存的大小。改它会重建。
  *   - persist: "host" 或自定义 localStorage key; 另把服装/场景偏好存在宿主页 (可选; 默认不存, iframe 自己的 localStorage 仍会记住)。
  *   - prefetch: "" / "true" = 预取全部内置服装 (婚纱除外), 或逗号分隔的 id 列表; 只在 heavy="eager" 时自动触发 (默认关)。
  *   - allow-custom-model: 允许 setModel({url}) 加载任意 https 模型 (默认关闭)。
  * 样式 (CSS 自定义属性, 可写在 <xiaochun-avatar> 上或任意祖先上; 取值范围/效果见 client.ts 里的注释与 docs/EMBED.md §样式):
  *   --xc-radius  --xc-shadow  --xc-z-index  --xc-offset-x  --xc-offset-y  --xc-bg
  * 可用 ::part() 定制外壳: ::part(mount) ::part(wrapper) ::part(iframe) ::part(placeholder)  (iframe 内部不可被宿主 CSS 影响)
- * 事件 (CustomEvent, composed, detail = 协议 payload): xc-ready(模型加载完) xc-progress xc-state xc-stt xc-utterance xc-error xc-outfit-changed xc-scene-changed
+ * 事件 (CustomEvent, composed, detail = 协议 payload): xc-ready(模型加载完) xc-progress xc-state xc-stt xc-utterance xc-error xc-outfit-changed xc-scene-changed xc-lang-changed
  *   xc-move / xc-resize (用户拖动 / 缩放, detail = {phase, left, top, width, height})
  * 方法: say(text) speakAudio(source, opts) speakAudioStream(opts) motion(m) expression(name) setOutfit(id) setScene(id) getOutfits() getScenes() destroy()  (+ client 属性拿到完整 SDK 实例)
  */
@@ -31,15 +33,15 @@ import {
   type XiaochunPosition,
   type XiaochunResizeLimits,
 } from './client';
-import { isXcId } from './protocol';
-import type { XcUiPart, XcExpressionPayload, XcHeavyMode, XcLang, XcMotionPayload, XcOutfitInfo, XcPrefetchedPayload, XcSceneInfo } from './protocol';
+import { isXcId, parseXcUiAutoHide } from './protocol';
+import type { XcCamera, XcUiPart, XcExpressionPayload, XcHeavyMode, XcLang, XcMotionPayload, XcOutfitInfo, XcPrefetchedPayload, XcSceneInfo } from './protocol';
 
 const OBSERVED = [
   'src', 'outfit', 'scene', 'model', 'lang', 'mic', 'transparent', 'draggable', 'resizable', 'min-size', 'max-size', 'border-radius', 'position', 'size', 'lazy',
-  'paused', 'placeholder', 'heavy', 'ui', 'controls', 'allowed-origins', 'cross-origin-isolated', 'persist', 'allow-custom-model', 'prefetch',
+  'paused', 'placeholder', 'heavy', 'ui', 'ui-autohide', 'camera-fov', 'camera-distance', 'camera-height', 'camera-intro', 'controls', 'allowed-origins', 'cross-origin-isolated', 'persist', 'persist-box', 'allow-custom-model', 'prefetch',
 ] as const;
-/** 改了这些要重建 iframe; 其余 (outfit / scene / model / lang / mic / paused / size / draggable / resizable / min-size / max-size / border-radius) 可以热更新。 */
-const REBUILD = new Set(['src', 'position', 'lazy', 'placeholder', 'heavy', 'ui', 'controls', 'allowed-origins', 'transparent', 'cross-origin-isolated', 'persist', 'allow-custom-model', 'prefetch']);
+/** 改了这些要重建 iframe; 其余 (outfit / scene / model / lang / mic / paused / size / draggable / resizable / min-size / max-size / border-radius / camera-*) 可以热更新。 */
+const REBUILD = new Set(['src', 'position', 'lazy', 'placeholder', 'heavy', 'ui', 'ui-autohide', 'controls', 'allowed-origins', 'transparent', 'cross-origin-isolated', 'persist', 'persist-box', 'allow-custom-model', 'prefetch']);
 
 /** border-radius 属性: 纯数字 = px, 其余当 CSS 长度; 缺省 = undefined (走 SDK 默认: 非透明 20px / 透明 0)。 */
 function radiusAttr(v: string | null): number | string | undefined {
@@ -61,11 +63,30 @@ function prefetchAttr(v: string | null): boolean | string[] {
   return v.split(',').map((s) => s.trim()).filter(Boolean);
 }
 
-/** ui 属性: 缺省 / "false" / "0" = 不显示; 逗号分隔的部件名 (chat,bubble,outfit,scene); "" / "true" / "1" = 弃用的旧写法 (client 里 warn)。 */
+/** persist-box 属性: "" / "true" → true; "false" / 缺省 → 不记; 其它字符串 = 命名空间。 */
+function persistBoxAttr(v: string | null): boolean | string | undefined {
+  if (v === null || v === 'false' || v === '0') return undefined;
+  if (v === '' || v === 'true' || v === '1') return true;
+  return v;
+}
+
+/** ui 属性: 缺省 / "false" / "0" = 不显示; 逗号分隔的部件名 (chat,bubble,outfit,scene,lang,github); "" / "true" / "1" = 弃用的旧写法 (client 里 warn)。 */
 function uiAttr(v: string | null): XcUiPart[] | boolean | undefined {
   if (v === null || v === 'false' || v === '0') return undefined;
   if (v === '' || v === 'true' || v === '1') return true;
   return v.split(',').map((s) => s.trim()).filter(Boolean) as XcUiPart[];
+}
+
+/** camera-fov / camera-distance / camera-height / camera-intro 属性 → XcCamera; 没写 / 非法的项 = null (创建时忽略, 热更新时 = 恢复默认)。 */
+function cameraAttrs(el: Element): XcCamera {
+  const num = (name: string): number | null => {
+    const v = el.getAttribute(name);
+    if (v === null || v.trim() === '') return null;
+    const n = Number(v);
+    return Number.isFinite(n) ? n : null;
+  };
+  const i = el.getAttribute('camera-intro');
+  return { fov: num('camera-fov'), distance: num('camera-distance'), height: num('camera-height'), intro: i === null ? null : i !== 'false' && i !== '0' };
 }
 
 /** "120x180" → {w,h} (px 数字); 非法 → undefined。 */
@@ -74,13 +95,14 @@ function parsePx(v: string | null): { w: number; h: number } | undefined {
   return m ? { w: Number(m[1]), h: Number(m[2]) } : undefined;
 }
 
-function parseSize(v: string | null): { width: string; height: string } {
-  if (!v) return { width: '320px', height: '480px' };
+/** size 属性 → 宽高; 没写的维度返回 undefined = 用 SDK 默认 (600x1080, 受视口限制)。 */
+function parseSize(v: string | null): { width: string | undefined; height: string | undefined } {
+  if (!v) return { width: undefined, height: undefined };
   const m = v.trim().split(/x/i);
   const px = (s: string) => (/^\d+(\.\d+)?$/.test(s) ? `${s}px` : s);
   if (m.length >= 2) return { width: px(m[0]), height: px(m[1]) };
   const w = parseFloat(m[0]);
-  return Number.isFinite(w) && /^\d+(\.\d+)?$/.test(m[0]) ? { width: `${w}px`, height: `${Math.round(w * 1.5)}px` } : { width: m[0], height: '480px' };
+  return Number.isFinite(w) && /^\d+(\.\d+)?$/.test(m[0]) ? { width: `${w}px`, height: `${Math.round(w * 1.5)}px` } : { width: m[0], height: undefined };
 }
 
 /** 公开类型 (类本身在浏览器里才创建, 这样 SSR / Node 下 import 本包不会因 HTMLElement 缺失而抛错)。 */
@@ -97,6 +119,8 @@ export interface XiaochunAvatarElement extends HTMLElement {
   setScene(id: string): Promise<void>;
   getOutfits(): Promise<XcOutfitInfo[]>;
   getScenes(): Promise<XcSceneInfo[]>;
+  /** 清除 persist-box 保存的位置 / 大小; { reset: true } 同时还原到初始位置和大小。 */
+  clearPersistedBox(opts?: { reset?: boolean }): void;
   /** 预取服装资源到 iframe 的 IndexedDB; ids 省略 = 全部 (婚纱除外)。 */
   prefetch(ids?: string[]): Promise<XcPrefetchedPayload>;
   destroy(): void;
@@ -148,6 +172,7 @@ function createElementClass(): CustomElementConstructor {
       else if (name === 'border-radius') c.setBorderRadius(radiusAttr(newV));
       else if (name === 'draggable') c.setDraggable(boolAttr(this, 'draggable', false));
       else if (name === 'resizable' || name === 'min-size' || name === 'max-size') c.setResizable(this.resizableOption());
+      else if (name.startsWith('camera-')) void c.setConfig({ camera: cameraAttrs(this) }).catch(() => {});
       else if (name === 'mic') void c.mic(boolAttr(this, 'mic', false)).catch(() => {});
       else if (name === 'paused') { if (boolAttr(this, 'paused', false)) c.pause(); else c.resume(); }
     }
@@ -175,10 +200,13 @@ function createElementClass(): CustomElementConstructor {
         outfit: this.getAttribute('outfit') ?? this.getAttribute('model') ?? undefined,
         scene: this.getAttribute('scene') ?? undefined,
         persist: this.getAttribute('persist') || undefined,
+        persistBox: persistBoxAttr(this.getAttribute('persist-box')),
         allowCustomModel: boolAttr(this, 'allow-custom-model', false),
         prefetch: prefetchAttr(this.getAttribute('prefetch')),
         heavy: (this.getAttribute('heavy') as XcHeavyMode | null) ?? undefined,
         ui: uiAttr(this.getAttribute('ui')),
+        uiAutoHide: parseXcUiAutoHide(this.getAttribute('ui-autohide')),
+        camera: cameraAttrs(this),
         controls: boolAttr(this, 'controls', true),
         crossOriginIsolated: boolAttr(this, 'cross-origin-isolated', false),
       });
@@ -193,6 +221,7 @@ function createElementClass(): CustomElementConstructor {
       fwd('error', 'xc-error');
       fwd('outfit-changed', 'xc-outfit-changed');
       fwd('scene-changed', 'xc-scene-changed');
+      fwd('lang-changed', 'xc-lang-changed');
       fwd('move', 'xc-move');
       fwd('resize', 'xc-resize');
       if (boolAttr(this, 'paused', false)) c.pause();
@@ -221,6 +250,7 @@ function createElementClass(): CustomElementConstructor {
     setScene(id: string): Promise<void> { return this.requireClient().setScene(id); }
     getOutfits(): Promise<XcOutfitInfo[]> { return this.requireClient().getOutfits(); }
     getScenes(): Promise<XcSceneInfo[]> { return this.requireClient().getScenes(); }
+    clearPersistedBox(opts?: { reset?: boolean }): void { this.client?.clearPersistedBox(opts); }
     prefetch(ids?: string[]): Promise<XcPrefetchedPayload> { return this.requireClient().prefetch(ids); }
 
     destroy(): void {

@@ -169,6 +169,7 @@ You can download installer packages directly from the official Releases page:
   * **Compose**: `composeLayeredSmooth` after FootIK + Gaze so ground plant and look-at are follow targets, then `commitToVRM`.
 * **Architecture Rules & Lifecycle Order**: Full 10-step render loop lifecycle and developer anti-patterns detailed in [`docs/ARCHITECTURE_AND_RULES.md`](docs/ARCHITECTURE_AND_RULES.md).
 * **Technical Docs Center**: Complete architecture sitemap and agent navigation available in [`docs/README.md`](docs/README.md).
+* **Tauri vs Web vs `/embed` differences**: side-by-side table (window / background / click-through, gestures, UI, camera, persistence, loading, security, build & test) with code locations and maintenance rules in [`docs/PLATFORM_DIFFERENCES.md`](docs/PLATFORM_DIFFERENCES.md).
 
 ### 🧠 100% Browser-Side AI Stack
 * **LLM (WebLLM, default)** — [`@mlc-ai/web-llm`](https://github.com/mlc-ai/web-llm) **MiniCPM5 2B (q4f16_1)** on WebGPU (fallback Qwen2.5 0.5B). Lightweight and responsive on mobile and low-VRAM devices; chat-bar menu supports live model switching and thinking mode toggles; response language adaptively mirrors the user's prompt.

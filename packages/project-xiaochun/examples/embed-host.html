@@ -22,14 +22,18 @@
         - 日志里能看到 move / resize 事件 (phase: start|move|end 与最新 left/top/width/height); 都不勾时拖动 / 拉角没有任何效果。
         - 圆角: 非透明场景 (light / dark) 默认 20px 圆角 (与 Tauri 桌宠窗口同值), 透明场景 0; 面板滑块 = xc.setBorderRadius(px), URL ?radius=0 = 方角。缩放时半径不变形。
         - 悬浮头像 (<xiaochun-avatar>) 同步带 draggable (+ ?resizable=1 时带 resizable 属性)。
-     内置按钮 (ui 部件名数组): 面板里的 ui 复选框 = xc.setConfig({ ui: [...] }) 热切换 iframe 里的 chat / bubble / outfit / scene 部件;
-        也可用 URL 参数 ?ui=outfit,scene 一开始就显示 (逗号分隔, 未知项被忽略并 warn; 不写 = 都不显示)。
+     内置按钮 (ui 部件名数组): 面板里的 ui 复选框 = xc.setConfig({ ui: [...] }) 热切换 iframe 里的 chat / bubble / outfit / scene / lang / github 部件;
+        也可用 URL 参数 ?ui=outfit,scene,lang,github 一开始就显示 (逗号分隔, 未知项被忽略并 warn; 不写 = 都不显示)。
         - 勾上 outfit / scene 后, iframe 右上角出现换装 / 换场景按钮 (和主站 TopHeader 同一套组件)。点选后日志里能看到 outfit-changed / scene-changed,
           用面板上的 setOutfit / 场景按钮换装时, 按钮里的 ✓ 和加载状态同步。
         - scene: transparent 时点按钮不会穿透到本页, 空白处仍穿透; iframe 自己的 localStorage 会记住偏好 (刷新后恢复, 显式 ?outfit= / ?scene= 优先); 宿主想另存可见脚本里 outfit-changed 的 localStorage 示例, 或 ?persist=host。
+     显示策略 uiAutoHide (面板里的下拉 = xc.setConfig({ uiAutoHide }), URL ?uiAutoHide=transparent|true|false): 默认 'transparent' 与 Tauri 桌宠一致 ——
+        只有透明场景下按钮 / 聊天栏初始隐藏、单击角色才出现 (再点角色或空白收起, 10 秒无操作自动收起), 亮 / 暗场景一直显示; true = 所有场景点击才出现; false = 一直显示。
+        拖动 iframe (draggable) 不算单击。
+        - lang 按钮: 菜单选语言, 立即生效并存进 iframe 自己的 localStorage (优先级: URL ?lang= > 记住的 > 浏览器语言), 日志里能看到 lang-changed; github 按钮在新标签页打开项目仓库。
      滚轮: iframe 默认放开滚轮缩放 (controls 默认开)。透明场景只在指针落在角色上才缩放, 其余位置滚动本页 (页面故意撑高 160vh 方便验证);
         不透明场景 (light / dark) 在 iframe 区域内滚轮 = 缩放、不滚本页。URL 参数 ?controls=0 → SDK controls:false 锁定。
-     URL 参数: ?outfit=xiaochun_maid  ?scene=dark  ?ui=outfit,scene  ?controls=0  ?persist=host (偏好存本页 localStorage 'xiaochun:prefs', 刷新后恢复)
+     URL 参数: ?outfit=xiaochun_maid  ?scene=dark  ?ui=outfit,scene,lang,github  ?uiAutoHide=false  ?lang=en  ?controls=0  ?cameraFov=40&cameraDistance=3&cameraHeight=0.2&cameraIntro=0 (相机, 面板里的滑条 = xc.setConfig({ camera }))  ?persistBox=1 (记住拖动 / 缩放后的位置和大小到本页 localStorage 'xiaochun:box:demo', 刷新后恢复; 面板里的 clearPersistedBox 按钮清除并复位)  ?persist=host (偏好存本页 localStorage 'xiaochun:prefs', 刷新后恢复)
                ?prefetch=1&heavy=eager (加载完后台预取服装到 IndexedDB, 不含婚纱; 日志里能看到 prefetch 进度)  ?custom=1 (allowCustomModel, 才允许下面的自定义 URL 框)
      点 heavy=eager 或 say 后, DevDrawer / worker 'wasm_env' 里 numThreads > 1。不带 ?isolated=1 (或用 :8080 的普通服务) 则为 false / 单线程。
 -->
@@ -81,7 +85,20 @@
         <label><input type="checkbox" value="bubble"> bubble</label>
         <label><input type="checkbox" value="outfit"> outfit</label>
         <label><input type="checkbox" value="scene"> scene</label>
+        <label><input type="checkbox" value="lang"> lang</label>
+        <label><input type="checkbox" value="github"> github</label>
+        <select id="uiAutoHide" title="uiAutoHide -> xc.setConfig({ uiAutoHide }): transparent(默认, 与 Tauri 一致) / true(所有场景点击才出现) / false(常显)">
+          <option value="transparent">uiAutoHide: transparent</option>
+          <option value="true">uiAutoHide: true</option>
+          <option value="false">uiAutoHide: false</option>
+        </select>
         <label style="margin-left:8px"><input type="checkbox" id="floatUi"> 悬浮头像也显示 outfit,scene</label>
+      </div>
+      <div class="row" id="cameraRow" title="camera -> xc.setConfig({ camera }): 立刻重新取景并取消进行中的推镜头; 重置 = null 恢复默认">
+        <label>fov <input type="range" id="camFov" min="15" max="60" step="1" value="30"></label>
+        <label>distance <input type="range" id="camDist" min="1" max="15" step="0.1" value="2.5"></label>
+        <label>height <input type="range" id="camHeight" min="-1" max="1" step="0.05" value="0"></label>
+        <button id="camReset">camera 重置</button>
       </div>
       <div>
         <input id="customUrl" placeholder="https://…/x.vrm (需 ?custom=1)" size="26">
@@ -93,6 +110,7 @@
         <label><input type="checkbox" id="gDrag"> draggable</label>
         <label><input type="checkbox" id="gResize"> resizable</label>
         <button id="gSize" title="setSize(): 程序化改尺寸 (不重建 iframe)">setSize 240x360</button>
+        <button id="gClear" title="clearPersistedBox({ reset: true }): 清掉 ?persistBox=1 存的位置 / 大小并复位">clearPersistedBox</button>
         <span id="box" style="color:#888"></span>
       </div>
       <div title="borderRadius: 非透明场景默认 20px (与 Tauri 窗口圆角同值), 透明 0; URL ?radius=0|12|32">
@@ -145,13 +163,16 @@
       container: '#stage',
       src,
       lazy: 'idle',        // 进入视口 + 空闲后才创建 iframe; 改成 'click' 则点占位图才加载, false 则立即
-      width: 320, height: 480,
+      ...(params.get('persistBox') === '1' ? {} : { width: 320, height: 480 }), // persistBox 时不传尺寸: 用户缩放后的大小才会被恢复 (显式 width/height 优先于已保存的)
       transparent: false,
-      lang: 'zh-CN',
+      lang: params.get('lang') || undefined,       // 'zh-CN' | 'en' | 'ja'; 不写 = iframe 记住的(用户在语言按钮里选的) > 浏览器语言
       outfit: params.get('outfit') || undefined,   // 初始服装 id; 非法/未知 → 回退默认 + error{unknown_id}
       scene: params.get('scene') || undefined,     // 'light' | 'dark' | 'transparent'
       persist: params.get('persist') || false,     // 'host' | 自定义 key | false (默认, 宿主不另存)
-      ui: uiFromUrl,                               // 内置界面部件名数组, 例 ['outfit','scene']; 不写 = 都不显示
+      ui: uiFromUrl,                               // 内置界面部件名数组, 例 ['outfit','scene','lang','github']; 不写 = 都不显示
+      uiAutoHide: params.has('uiAutoHide') ? ({ true: true, false: false }[params.get('uiAutoHide')] ?? 'transparent') : undefined, // 默认 'transparent' = 与 Tauri 一致
+      camera: Object.fromEntries([['fov', 'cameraFov'], ['distance', 'cameraDistance'], ['height', 'cameraHeight']].filter(([, q]) => params.has(q)).map(([k, q]) => [k, Number(params.get(q))]).concat(params.has('cameraIntro') ? [['intro', params.get('cameraIntro') !== '0']] : [])), // 相机 { fov 15-60, distance 1-15, height ±1, intro }; 不写 = 不覆盖
+      persistBox: params.get('persistBox') === '1' ? 'demo' : undefined, // 记住位置 + 大小 (宿主 localStorage 'xiaochun:box:demo'); 显式 width/height 优先于已保存的大小, 所以示例里要看到大小恢复请去掉 width/height
       draggable: params.get('draggable') === '1',  // 手势拖动 (拖角色 = 移动 iframe); 默认关, 面板复选框可运行时切换
       resizable: params.get('resizable') === '1',  // 拖四角缩放; 默认关
       borderRadius: params.has('radius') ? Number(params.get('radius')) : undefined, // 外壳圆角: 默认 非透明 20px / 透明 0; ?radius=0 方角
@@ -162,7 +183,7 @@
       crossOriginIsolated: isolated, // ?isolated=1 → iframe allow 追加 cross-origin-isolated (宿主需 COOP/COEP, 见 serve-isolated.mjs)
     });
     let lastPhaseLog = '';
-    for (const ev of ['handshake', 'ready', 'progress', 'state', 'stt', 'utterance', 'hit-region', 'outfit-changed', 'scene-changed', 'move', 'resize', 'error', 'destroy']) {
+    for (const ev of ['handshake', 'ready', 'progress', 'state', 'stt', 'utterance', 'hit-region', 'outfit-changed', 'scene-changed', 'lang-changed', 'move', 'resize', 'error', 'destroy']) {
       xc.on(ev, (p) => {
         if (ev === 'hit-region') return;
         if (ev === 'move' || ev === 'resize') { // 手势事件很密: 只在 start / end 打日志, 过程只刷新 box 读数
@@ -199,12 +220,17 @@
     $('gResize').onchange = () => xc.setResizable($('gResize').checked);
     $('radius').oninput = () => { xc.setBorderRadius(Number($('radius').value)); $('radiusVal').textContent = $('radius').value + 'px'; };
     $('radiusReset').onclick = () => { xc.setBorderRadius(undefined); $('radiusVal').textContent = '默认'; };
+    $('gClear').onclick = () => { xc.clearPersistedBox({ reset: true }); $('box').textContent = ' box: ' + JSON.stringify(xc.getBox()); };
     $('gSize').onclick = () => { xc.setSize(240, 360); $('box').textContent = ' box: ' + JSON.stringify(xc.getBox()); };
 
     // ui 复选框 <-> 部件名数组
     const uiBoxes = [...document.querySelectorAll('#uiParts input[value]')];
     for (const b of uiBoxes) b.checked = uiFromUrl.includes(b.value);
     for (const b of uiBoxes) b.onchange = () => wrap(xc.setConfig({ ui: uiBoxes.filter((x) => x.checked).map((x) => x.value) }));
+    $('uiAutoHide').value = params.get('uiAutoHide') === 'true' || params.get('uiAutoHide') === 'false' ? params.get('uiAutoHide') : 'transparent';
+    $('uiAutoHide').onchange = () => { const v = $('uiAutoHide').value; wrap(xc.setConfig({ uiAutoHide: v === 'transparent' ? v : v === 'true' })); };
+    for (const [id, key] of [['camFov', 'fov'], ['camDist', 'distance'], ['camHeight', 'height']]) $(id).oninput = () => wrap(xc.setConfig({ camera: { [key]: Number($(id).value) } }));
+    $('camReset').onclick = () => { wrap(xc.setConfig({ camera: { fov: null, distance: null, height: null } })); $('camFov').value = 30; $('camDist').value = 2.5; $('camHeight').value = 0; };
     $('floatUi').onchange = () => { // <xiaochun-avatar ui="outfit,scene"> (创建期属性: 改它会重建悬浮头像的 iframe)
       if ($('floatUi').checked) f.setAttribute('ui', 'outfit,scene'); else f.removeAttribute('ui');
     };

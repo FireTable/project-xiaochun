@@ -13,11 +13,15 @@ import {
   isXcId,
   normalizeOrigin,
   normalizeXcUiOption,
+  parseXcUiAutoHide,
   XC_UI_PARTS,
+  XC_CAMERA_RANGES,
+  normalizeXcCamera,
   XC_WINDOW_CORNER_RADIUS,
   xcMessage,
   type XcAudioFormat,
   type XcAudioOptions,
+  type XcCamera,
   type XcConfig,
   type XcErrorCode,
   type XcExpressionPayload,
@@ -26,6 +30,7 @@ import {
   type XcHitRegionPayload,
   type XcHostMessageType,
   type XcLang,
+  type XcLangChangedPayload,
   type XcLoadProgressPayload,
   type XcMotionPayload,
   type XcOutfitChangedPayload,
@@ -37,11 +42,12 @@ import {
   type XcSceneInfo,
   type XcSttPayload,
   type XcStatePayload,
+  type XcUiAutoHide,
   type XcUiPart,
   type XcUtterancePayload,
 } from './protocol';
 import {
-  GestureGate, fitBox, moveBox, normalizeResizable, parseGesturePayload, resizeBox,
+  DEFAULT_RESIZE_LIMITS, GestureGate, fitBox, moveBox, normalizeResizable, parseGesturePayload, resizeBox,
   type Box, type ResizeLimits, type Viewport, type XiaochunResizeLimits,
 } from './gesture-box';
 
@@ -71,7 +77,11 @@ export interface XiaochunOptions {
   transparent?: boolean;
   /** 初始场景: 'light' | 'dark' | 'transparent' (以 getScenes() 为准)。省略 = 跟随 transparent 选项 / 系统亮暗。 */
   scene?: XcSceneId | (string & {});
-  /** 固定尺寸, 数字=px, 字符串=CSS 长度。务必给定, 否则无法预留空间 (CLS)。默认 320x480。 */
+  /**
+   * 固定尺寸, 数字=px, 字符串=CSS 长度。默认 600x1080 (宽高比 ≈ 0.556, 与桌面端窗口的竖版比例同一量级)。
+   * **默认值受视口限制**: 宽 = min(600px, 视口宽) 且外壳 max-width:100% (不超过容器宽), 高 = min(1080px, 视口高), 窄屏 / 小窗口不会溢出; 显式给的值原样使用 (宽仍有 max-width:100%)。
+   * 务必给定或接受默认值, 否则无法预留空间 (CLS)。运行时用 setSize() 改。
+   */
   width?: number | string;
   height?: number | string;
   position?: XiaochunPosition;
@@ -95,6 +105,10 @@ export interface XiaochunOptions {
    * 需要 capabilities.gestures (旧版 /embed 无效, 触发一次 error{code:'unsupported'})。
    */
   resizable?: boolean | XiaochunResizeLimits;
+  /**
+   * iframe 界面语言 ('zh-CN' | 'en' | 'ja')。显式指定时优先于 iframe 自己记住的用户选择; 不写 = 用 iframe localStorage 里用户上次在语言按钮里选的, 再没有就跟随浏览器语言 (默认 zh-CN)。
+   * 运行中可用 `setConfig({ lang })` 改 (不持久化); 用户点内置语言按钮 (`ui` 里的 'lang') 会存进 iframe 自己的 localStorage, 并发 `lang-changed` 事件。
+   */
   lang?: XcLang;
   /** 初始服装: 内置服装 id (如 'xiaochun_maid', 见 getOutfits())。未知 id 回退默认服装, 并触发 error{code:'unknown_id'}。 */
   outfit?: string;
@@ -117,16 +131,48 @@ export interface XiaochunOptions {
    */
   persist?: false | 'host' | (string & {});
   /**
+   * 记住用户拖动 / 缩放后的**位置和大小**（可选，默认 false = 不记）。保存到**宿主页**的 localStorage（读写都包了 try/catch，被禁用 / 配额满只是不记忆），
+   * 在 draggable / resizable 手势**结束**时写入，下次创建时恢复。
+   *   false / 不写   不记
+   *   true           存到 localStorage['xiaochun:box']
+   *   '<名字>'       存到 localStorage['xiaochun:box:<名字>']（同一站点多个实例 / 多个页面互不覆盖时用；也可当版本号，改名即丢弃旧值）
+   * 优先级：显式的 width / height 选项 > 已保存的 > 默认（600x1080）。位置没有对应的显式选项（`position` 只是预设锚点），已保存的位置始终生效。
+   * 所以想让"用户缩放过的大小"被恢复，就**不要**传 width / height（用默认值）。
+   * 只在对应手势打开时恢复（需要 draggable 或 resizable；没开手势的实例不会被旧值改位置）；保存的 `position` 模式（inline / bottom-right / bottom-left）与当前不同则忽略。
+   * 恢复时钳制到**当前视口**：大小夹在 [最小, 视口]（最小 = resizable 的 minWidth/minHeight，默认 120x180），悬浮模式的位置夹进视口；
+   * 内联模式横向夹进视口、纵向只保证不越过文档顶部（内联盒子可以在滚动的页面里）。窗口之后变小时，既有的 resize 监听也会继续把它夹回视口。
+   * 清除：`clearPersistedBox()`（只删存储）或 `clearPersistedBox({ reset: true })`（同时回到初始位置 / 大小）。
+   */
+  persistBox?: boolean | (string & {});
+  /**
    * 要显示的 iframe 内置界面部件 (数组, 默认不写 = 全不显示):
    *   'chat'    底部聊天栏 (对话走 WebLLM, 会多下载一部分代码)
    *   'bubble'  头顶气泡 (说话文本 / 状态)
    *   'outfit'  换装按钮  } 外观/文案/交互与主站 TopHeader 一致; 点按钮走和 setOutfit() / setScene() 同一条白名单 + 串行 (last-wins) 路径,
+   *   'lang'    语言切换按钮 (中文 / English / 日本語; 与主站 TopHeader 同一个组件, 用户的选择记在 iframe 自己的 localStorage, 发 lang-changed 事件)
+   *   'github'  GitHub 按钮 (新标签页打开项目仓库)
    *   'scene'   换场景按钮 } 照常触发 outfit-changed / scene-changed, 宿主用 SDK 换装时按钮状态同步。偏好由 iframe 自己的 localStorage 记住 (显式 outfit/scene 优先); 想自己存也可用 persist 或监听事件。
    * 例: `ui: ['outfit', 'scene']`。未知名字忽略并 console.warn。创建期选项: 变化会重建 iframe。
-   * 'outfit' / 'scene' 只对新版 /embed 有效 (旧版忽略未知部件名)。
+   * 'outfit' / 'scene' / 'lang' / 'github' 只对新版 /embed 有效 (旧版忽略未知部件名)。
    * @deprecated 布尔写法: `ui: true` (0.1.14 的旧写法) 等价于 `['chat', 'bubble']` 并 console.warn; 不要再用。
    */
   ui?: XcUiPart[] | boolean;
+  /**
+   * 内置界面 (ui 里的按钮 + 聊天栏 chat) 的显示策略, 默认 **'transparent'**, 与 Tauri 桌面端逐字一致: 只有透明场景默认隐藏, 单击角色出现
+   * (按住拖动 / 长按拖不算点击, 所以不与 `draggable` 冲突), 再单击角色或单击空白收起, 10 秒无操作自动收起 (悬停在按钮 / 聊天栏上、菜单打开、输入中不收); 触屏同样是轻点角色。亮 / 暗场景常显。
+   *   'transparent' 默认: 只有透明场景点击出现
+   *   true          所有场景都点击出现 (亮 / 暗场景也默认隐藏)
+   *   false         一直显示 (0.1.15 及以前的行为)
+   * 创建期选项 (变化会重建 iframe); 运行中可用 `setConfig({ uiAutoHide })`。旧版 /embed (握手里没有 capabilities.ui) 忽略它, 界面常显。
+   * 注意: 透明场景下点击宿主页的空白处到不了 iframe (穿透), 所以那里只能靠 10 秒超时 / 再点角色收起。
+   */
+  uiAutoHide?: XcUiAutoHide;
+  /**
+   * 相机: `{ fov, distance, height, intro }` (见 XcCamera; 范围见 XC_CAMERA_RANGES: fov 15–60°、distance 1–15m、height ±1m, 越界夹到边界), 缺省 = 不覆盖。
+   * 创建期通过 URL 传给 iframe (模型加载前生效, 首次取景 / 推镜头直接按它来); 运行中用 `setConfig({ camera })` 改
+   * (缺省键不变, null = 恢复默认; 会立刻重新取景并取消进行中的推镜头)。旧版 /embed (握手里没有 capabilities.camera) 忽略它。
+   */
+  camera?: XcCamera;
   heavy?: XcHeavyMode;
   /**
    * 自动预取服装资源到 iframe 的 IndexedDB (之后 setOutfit 不走网络), 默认 false。
@@ -210,6 +256,8 @@ export interface XiaochunEvents {
   'outfit-changed': XcOutfitChangedPayload;
   /** 场景已生效 (含握手后上报的当前场景, initial:true)。 */
   'scene-changed': XcSceneChangedPayload;
+  /** iframe 界面语言已生效 (含握手后上报的当前语言, initial:true; 用户点语言按钮 / setConfig({ lang }) 引起的变化)。 */
+  'lang-changed': XcLangChangedPayload;
   /** 用户拖动头像 (draggable): start / move / end 各发一次, 位置已限幅。 */
   move: XiaochunBoxEvent;
   /** 用户缩放头像 (resizable): start / move / end 各发一次, 尺寸已限幅。 */
@@ -266,10 +314,12 @@ export interface XiaochunInstance {
    */
   setModel(m: string | { url?: string; outfit?: string; name?: string }): Promise<void>;
   setConfig(cfg: XcConfig): Promise<void>;
-  /** 运行时设置外壳尺寸 (数字 = px, 字符串 = CSS 长度); 不重建 iframe。用户缩放后宿主要同步自己的状态时用 `resize` 事件。 */
-  setSize(width: number | string, height: number | string): void;
+  /** 运行时设置外壳尺寸 (数字 = px, 字符串 = CSS 长度, undefined = 恢复默认 600x1080 (受视口限制)); 不重建 iframe。用户缩放后宿主要同步自己的状态时用 `resize` 事件。 */
+  setSize(width: number | string | undefined, height: number | string | undefined): void;
   /** 外壳当前在视口中的位置与尺寸 (CSS px)。 */
   getBox(): { left: number; top: number; width: number; height: number };
+  /** 清除 `persistBox` 保存的位置 / 大小（没开 persistBox 时是空操作）。`reset: true` 另外把当前盒子还原到初始位置和大小（按 width / height 选项或默认值，不重建 iframe）。 */
+  clearPersistedBox(opts?: { reset?: boolean }): void;
   /** 运行时开关手势拖动 (等价于 `draggable` 选项), 不重建 iframe。 */
   /** 改外壳圆角 (数字 px / CSS 长度); 传 undefined 恢复默认 (非透明 20px / 透明 0)。 */
   setBorderRadius(radius: number | string | undefined): void;
@@ -291,8 +341,39 @@ const FALLBACK_PLACEHOLDER =
     '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 120 180"><defs><linearGradient id="g" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#f6b8ae"/><stop offset="1" stop-color="#ea8377"/></linearGradient></defs><ellipse cx="60" cy="170" rx="34" ry="6" fill="#000" opacity=".12"/><circle cx="60" cy="48" r="26" fill="url(#g)" opacity=".75"/><path d="M26 160c2-40 18-62 34-62s32 22 34 62z" fill="url(#g)" opacity=".6"/></svg>',
   );
 
+/**
+ * 不让头像被宿主页的文字选区选中: Chrome 在选区跨过 iframe (拖选划过 / Cmd·Ctrl+A / 全选) 时会给整块 iframe 盖一层蓝色高亮
+ * (实测 Chrome 的 iframe 会被染色; 给 iframe 自身设 user-select:none 即可消除, 宿主页自己的文字仍照常被选中)。
+ * 只用 CSSOM 内联样式 (不注入 <style>), 不受宿主 CSP style-src 影响, 也不影响 pointer-events / 透明穿透。
+ */
+const noSelect = (st: CSSStyleDeclaration) => {
+  st.setProperty('user-select', 'none');
+  st.setProperty('-webkit-user-select', 'none');
+  st.setProperty('-webkit-touch-callout', 'none');
+  st.setProperty('-webkit-tap-highlight-color', 'transparent');
+};
+
 const css = (v: number | string | undefined, d: string) =>
   v === undefined ? d : typeof v === 'number' ? `${v}px` : v;
+
+/** 默认尺寸 (px): 600x1080。只在没显式传 width / height 时使用, 并受视口限制 (见 defaultWidthCss / defaultHeightCss)。 */
+export const XC_DEFAULT_WIDTH = 600;
+export const XC_DEFAULT_HEIGHT = 1080;
+/**
+ * 默认宽: 600px 但不超过视口宽 (min(600px, 100vw))。不用 min(600px, 100%): 百分比在 "按内容收缩" 的容器 (inline-block / 绝对定位 / <xiaochun-avatar> 的 :host)
+ * 里会循环依赖而塌成 0。比视口更窄的容器 (如 300px 的侧栏) 由外壳的 max-width:100% 再钳一次, 所以窄屏 / 窄容器都不会溢出。
+ */
+export const defaultWidthCss = (floating = false): string =>
+  floating ? `min(${XC_DEFAULT_WIDTH}px, calc(100vw - 2 * var(--xc-offset-x, 16px)))` : `min(${XC_DEFAULT_WIDTH}px, 100vw)`;
+/**
+ * 默认高: 1080px 但不超过视口高 (小窗口 / 手机横屏钳制)。浏览器支持时用 svh (移动端地址栏伸缩时也不溢出), 否则 vh。
+ * SSR 下 (没有 CSS.supports) 一律 vh, 与 React 服务端渲染的首帧保持一致。
+ */
+export const defaultHeightCss = (floating = false): string => {
+  const unit = typeof CSS !== 'undefined' && typeof CSS.supports === 'function' && CSS.supports('height', '1svh') ? 'svh' : 'vh';
+  // 悬浮 (position≠inline) 贴着屏幕边 + 边距 (--xc-offset-*), 默认值要把两侧边距扣掉, 否则整块会顶出屏幕
+  return floating ? `min(${XC_DEFAULT_HEIGHT}px, calc(100${unit} - 2 * var(--xc-offset-y, 16px)))` : `min(${XC_DEFAULT_HEIGHT}px, 100${unit})`;
+};
 
 export function createXiaochun(options: XiaochunOptions): XiaochunInstance {
   if (typeof window === 'undefined' || typeof document === 'undefined') {
@@ -346,6 +427,18 @@ export function createXiaochun(options: XiaochunOptions): XiaochunInstance {
   // ui: 部件名数组 (白名单); 布尔 true 是弃用的旧写法 (= chat + bubble)
   const uiParse = normalizeXcUiOption(options.ui);
   const uiParts = uiParse.parts;
+  // uiAutoHide: 缺省 = 不写进 URL (iframe 用自己的默认 true); 非法值 console.warn 并忽略
+  const uiAutoHide = parseXcUiAutoHide(options.uiAutoHide);
+  if (options.uiAutoHide !== undefined && uiAutoHide === undefined) console.warn(`[project-xiaochun] ignoring invalid uiAutoHide: ${String(options.uiAutoHide)} (use true | false | 'transparent')`);
+  // camera: 非法 → console.warn 并整体忽略; 越界 → 夹到范围并 warn; null / undefined 项不写进 URL
+  let camera: XcCamera = {};
+  if (options.camera !== undefined) {
+    const r = normalizeXcCamera(options.camera);
+    if (r.ok) {
+      camera = r.camera;
+      if (r.clamped.length) console.warn(`[project-xiaochun] camera.${r.clamped.join(', camera.')} out of range, clamped (fov ${XC_CAMERA_RANGES.fov.join('–')}, distance ${XC_CAMERA_RANGES.distance.join('–')}, height ${XC_CAMERA_RANGES.height.join('–')})`);
+    } else console.warn(`[project-xiaochun] ignoring invalid camera option: ${r.error}`);
+  }
   if (uiParse.legacy) console.warn('[project-xiaochun] option "ui: true" is deprecated, use an array of parts, e.g. ui: [\'chat\', \'bubble\', \'outfit\', \'scene\'].');
   if (uiParse.unknown.length) console.warn(`[project-xiaochun] ignoring unknown ui part(s): ${uiParse.unknown.join(', ')} (known: ${XC_UI_PARTS.join(', ')})`);
   const outfitOpt = options.outfit ?? (isXcId(options.model) ? options.model : undefined);
@@ -363,11 +456,12 @@ export function createXiaochun(options: XiaochunOptions): XiaochunInstance {
   wrapper.setAttribute('data-xiaochun', '');
   const ws = wrapper.style;
   ws.position = position === 'inline' ? 'relative' : 'fixed';
-  ws.width = css(options.width, '320px');
-  ws.height = css(options.height, '480px');
+  ws.width = css(options.width, defaultWidthCss(position !== 'inline'));
+  ws.height = css(options.height, defaultHeightCss(position !== 'inline'));
   ws.maxWidth = '100%';
   ws.overflow = 'visible';
   ws.contain = 'layout style';
+  noSelect(ws); // 宿主页的文字选区 (拖选划过 / Cmd+A) 不会把头像染成蓝色, 见 noSelect
   // ── 样式 hook: 宿主用 CSS 自定义属性控制外观 (自定义属性会穿透 Shadow DOM, 在容器或任意祖先上设置即可) ──
   // 注意: 只能影响 iframe 的「外壳」(圆角/阴影/位置/层级/背景); iframe 内部 (角色渲染、气泡) 是跨域文档, 宿主 CSS 碰不到。
   //   --xc-radius    圆角, CSS 长度, 默认 0。范围 0 ~ 宽度的一半 (50% = 圆形头像框)。调大 = 更圆; 过大会裁掉角色的头/脚。
@@ -404,7 +498,7 @@ export function createXiaochun(options: XiaochunOptions): XiaochunInstance {
       img.src = options.placeholder || FALLBACK_PLACEHOLDER;
       img.alt = 'Project XiaoChun';
       img.decoding = 'async';
-      img.width = 320; img.height = 480; // 有 width/height 属性 + 下面的 100% 样式, 解码前也不抖动
+      img.width = XC_DEFAULT_WIDTH; img.height = XC_DEFAULT_HEIGHT; // 有 width/height 属性 + 下面的 100% 样式, 解码前也不抖动
       placeholderEl = img;
     }
     const ps = placeholderEl.style;
@@ -413,6 +507,7 @@ export function createXiaochun(options: XiaochunOptions): XiaochunInstance {
     ps.position = 'absolute'; ps.inset = '0'; ps.width = '100%'; ps.height = '100%';
     ps.objectFit = 'contain'; ps.transition = 'opacity .25s ease'; ps.pointerEvents = 'auto';
     ps.cursor = lazy === false ? 'default' : 'pointer';
+    noSelect(ps); // 占位图 (<img>) 同样会被选区染蓝
     placeholderEl.addEventListener('click', () => activate());
     wrapper.appendChild(placeholderEl);
   }
@@ -565,6 +660,11 @@ export function createXiaochun(options: XiaochunOptions): XiaochunInstance {
     if (transparent) u.searchParams.set('transparent', '1');
     if (uiParts.length) u.searchParams.set('ui', uiParts.join(','));
     if (options.lang) u.searchParams.set('lang', options.lang);
+    if (uiAutoHide !== undefined) u.searchParams.set('uiAutoHide', String(uiAutoHide));
+    if (typeof camera.fov === 'number') u.searchParams.set('cameraFov', String(camera.fov));
+    if (typeof camera.distance === 'number') u.searchParams.set('cameraDistance', String(camera.distance));
+    if (typeof camera.height === 'number') u.searchParams.set('cameraHeight', String(camera.height));
+    if (typeof camera.intro === 'boolean') u.searchParams.set('cameraIntro', camera.intro ? '1' : '0');
     if (options.heavy) u.searchParams.set('heavy', options.heavy);
     if (options.controls === false) u.searchParams.set('controls', '0');
     if (initialScene && isXcId(initialScene)) u.searchParams.set('scene', initialScene);
@@ -593,6 +693,7 @@ export function createXiaochun(options: XiaochunOptions): XiaochunInstance {
     s.border = '0'; s.background = 'transparent'; s.colorScheme = 'normal';
     s.borderRadius = `var(--xc-radius, ${radiusValue()})`; // 圆角裁剪 iframe 内容 (宿主 CSS 只能改这层外壳, 改不到 iframe 内部)
     f.setAttribute('part', 'iframe');
+    noSelect(s);
     s.opacity = '0'; s.transition = 'opacity .25s ease';
     s.pointerEvents = passthrough ? 'none' : 'auto';
     f.src = buildUrl();
@@ -696,6 +797,7 @@ export function createXiaochun(options: XiaochunOptions): XiaochunInstance {
         ack(data.id);
         break;
       }
+      case 'xc.lang-changed': emit('lang-changed', data.payload); break;
       case 'xc.prefetched': ack(data.id, data.payload); break;
       case 'xc.state': emit('state', data.payload); break;
       case 'xc.stt': emit('stt', data.payload); break;
@@ -908,6 +1010,7 @@ export function createXiaochun(options: XiaochunOptions): XiaochunInstance {
     emit(activeGesture.kind, { phase: 'end', ...b });
     activeGesture = null;
     lockSelection(false);
+    saveBox();
   }
 
   function onGesture(kind: 'move' | 'resize', raw: unknown): void {
@@ -934,7 +1037,7 @@ export function createXiaochun(options: XiaochunOptions): XiaochunInstance {
       : resizeBox(a.start, a.corner!, p.totalDx, p.totalDy, resizeLimits!, vp);
     applyBox(next, a.inlineBase, kind === 'resize');
     emit(kind, { phase: p.phase, ...next });
-    if (p.phase === 'end') { activeGesture = null; lockSelection(false); }
+    if (p.phase === 'end') { activeGesture = null; lockSelection(false); saveBox(); }
   }
 
   /** 把 draggable / resizable 的当前值同步给 iframe (只在变化时发 xc.setConfig{gestures}); 握手时已随 xc.init 发过一次。 */
@@ -963,11 +1066,65 @@ export function createXiaochun(options: XiaochunOptions): XiaochunInstance {
   const onWindowResize = () => {
     if (!userMoved || activeGesture || destroyed) return;
     const cur = readBox();
-    const fit = fitBox(cur, viewport());
+    const vp = viewport();
+    // 内联盒子可以在滚动的页面下方: 纵向不按视口夹 (否则会把视口外的盒子拽进视口), 只保证不越过文档顶部; 横向 / 尺寸照常夹进视口
+    const fit = position === 'inline'
+      ? { ...fitBox({ ...cur, top: 0 }, { width: vp.width, height: Number.MAX_SAFE_INTEGER }), top: Math.max(cur.top, -window.scrollY) }
+      : fitBox(cur, vp);
     if (fit.left === cur.left && fit.top === cur.top && fit.width === cur.width && fit.height === cur.height) return;
     applyBox(fit, position === 'inline' ? { left: cur.left - inlineShift.x, top: cur.top - inlineShift.y } : null, fit.width !== cur.width || fit.height !== cur.height);
   };
   window.addEventListener('resize', onWindowResize, { passive: true });
+
+  // ── 位置 / 大小记忆 (persistBox) ──
+  // 存的是 { v, mode, x, y, width, height }: 悬浮模式 x/y = 视口 left/top; 内联模式 x/y = 相对"流内原点"的位移 (translate), 与滚动无关。
+  const boxKey = options.persistBox === true ? 'xiaochun:box' : typeof options.persistBox === 'string' && options.persistBox ? `xiaochun:box:${options.persistBox}` : null;
+  const saveBox = (): void => {
+    if (!boxKey) return;
+    try {
+      const b = readBox();
+      const at = position === 'inline' ? inlineShift : { x: b.left, y: b.top };
+      window.localStorage.setItem(boxKey, JSON.stringify({ v: 1, mode: position, x: Math.round(at.x), y: Math.round(at.y), width: Math.round(b.width), height: Math.round(b.height) }));
+    } catch { /* 隐私模式 / 配额 / 被禁用: 只是不记忆 */ }
+  };
+  const loadBox = (): { x: number; y: number; width: number; height: number } | null => {
+    if (!boxKey) return null;
+    try {
+      const raw = window.localStorage.getItem(boxKey);
+      if (raw === null) return null;
+      let o: Record<string, unknown> | null = null;
+      try { o = JSON.parse(raw) as Record<string, unknown> | null; } catch { /* 坏 JSON: 下面一并清掉 */ }
+      const ok = (v: unknown, lo: number, hi: number): v is number => typeof v === 'number' && Number.isFinite(v) && v >= lo && v <= hi;
+      if (o && o.v === 1 && o.mode === position && ok(o.x, -1e5, 1e5) && ok(o.y, -1e5, 1e5) && ok(o.width, 1, 1e5) && ok(o.height, 1, 1e5)) {
+        return { x: o.x, y: o.y, width: o.width, height: o.height };
+      }
+      window.localStorage.removeItem(boxKey); // 坏数据 / 别的版本 / 别的定位模式: 清掉
+    } catch { /* ignore */ }
+    return null;
+  };
+  /** 创建时恢复: 需要手势开着; 显式 width / height 选项优先于已保存的大小; 全部钳到当前视口。 */
+  function restoreBox(): void {
+    if (!boxKey || (!draggableOn && resizeLimits === null)) return;
+    const st = loadBox();
+    if (!st) return;
+    const vp = viewport();
+    const lim = resizeLimits ?? DEFAULT_RESIZE_LIMITS;
+    const cur = readBox();
+    const useW = resizeLimits !== null && options.width === undefined;
+    const useH = resizeLimits !== null && options.height === undefined;
+    const clampN = (v: number, lo: number, hi: number) => Math.min(Math.max(v, lo), Math.max(lo, hi));
+    const width = useW ? clampN(st.width, lim.minWidth, Math.min(lim.maxWidth, vp.width)) : cur.width;
+    const height = useH ? clampN(st.height, lim.minHeight, Math.min(lim.maxHeight, vp.height)) : cur.height;
+    if (position === 'inline') {
+      const base = { left: cur.left - inlineShift.x, top: cur.top - inlineShift.y };
+      const left = clampN(base.left + st.x, 0, vp.width - width);
+      const top = Math.max(base.top + st.y, -window.scrollY); // 纵向: 不越过文档顶部 (内联盒子可以在滚动的页面下方, 不按视口夹)
+      applyBox({ left, top, width, height }, base, useW || useH);
+    } else {
+      applyBox(fitBox({ left: st.x, top: st.y, width, height }, vp), null, useW || useH);
+    }
+  }
+  restoreBox();
 
   scheduleLazy();
 
@@ -1012,10 +1169,25 @@ export function createXiaochun(options: XiaochunOptions): XiaochunInstance {
     setConfig: (cfg) => send('xc.setConfig', cfg),
     setSize(width, height) {
       if (destroyed) return;
-      ws.width = css(width, '320px'); ws.height = css(height, '480px');
+      ws.width = css(width, defaultWidthCss(position !== 'inline')); ws.height = css(height, defaultHeightCss(position !== 'inline'));
+      if (ws.maxWidth === 'none') ws.maxWidth = '100%'; // 用户拉大过 (applyBox 会清掉 max-width): 宿主重新给尺寸后恢复不溢出容器的约束
       invalidateRect();
     },
     getBox: () => readBox(),
+    clearPersistedBox(opts) {
+      if (boxKey) { try { window.localStorage.removeItem(boxKey); } catch { /* ignore */ } }
+      if (destroyed || opts?.reset !== true) return;
+      endActiveGesture();
+      ws.width = css(options.width, defaultWidthCss(position !== 'inline')); ws.height = css(options.height, defaultHeightCss(position !== 'inline')); ws.maxWidth = '100%';
+      if (position === 'inline') { inlineShift = { x: 0, y: 0 }; ws.removeProperty('translate'); }
+      else {
+        ws.left = ''; ws.top = ''; ws.right = ''; ws.bottom = '';
+        if (position === 'bottom-right') { ws.right = 'var(--xc-offset-x, 16px)'; ws.bottom = 'var(--xc-offset-y, 16px)'; }
+        if (position === 'bottom-left') { ws.left = 'var(--xc-offset-x, 16px)'; ws.bottom = 'var(--xc-offset-y, 16px)'; }
+      }
+      userMoved = false;
+      invalidateRect();
+    },
     setBorderRadius(radius) {
       radiusOpt = radius;
       applyRadius();

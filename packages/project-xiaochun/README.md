@@ -187,22 +187,24 @@ xc.on('scene-changed', (p) => console.log(p.id));
 * **Preferences**: the iframe remembers the user's last outfit/scene in **its own** localStorage (`xiaochun_wearing_outfit` / `xiaochun_scene_theme`, the same keys as the main site). Priority: explicit `outfit` / `scene` (URL or SDK options) > saved > default; unknown saved ids are ignored and cleared; if storage is blocked or partitioned it silently falls back to the defaults. Third-party storage is partitioned per top-level site, so each host site has its own copy.
 * **`persist`** (optional) additionally keeps them in the host page's localStorage and passes them back as explicit values, so it overrides the iframe's own copy. Default `false`.
 * **`prefetch`** (off by default) downloads outfit files into the iframe's IndexedDB only (no decode/compose), serially, after EMAGE is loaded, never the wedding outfit unless you name it. `await xc.prefetch(['xiaochun_cheongsam'])` works in any mode; the automatic variant needs `heavy: 'eager'`. Skipped when the user enabled Data Saver. A later `setOutfit` then skips the network (the ~0.9 s decode/compose remains).
-* **Built-in buttons**: see the next section (`ui: ['outfit', 'scene']`).
+* **Built-in buttons**: see the next section (`ui: ['outfit', 'scene', 'lang', 'github']`, `uiAutoHide`).
 * **Custom models**: `setModel({ url })` is **off by default**; pass `allowCustomModel: true` to opt in.
 * **Migrating**: option `model` → `outfit`; the legacy `setModel('base')` no longer works (use `getOutfits()` for the list).
 
-### 🔘 Built-in outfit / scene buttons (`ui`)
+### 🔘 Built-in buttons (`ui`, `uiAutoHide`)
 
 `ui` is an **array of part names**; nothing is shown unless you list it.
 
 ```ts
-createXiaochun({ container: '#avatar', ui: ['outfit', 'scene'] });   // or ['chat', 'bubble', 'outfit', 'scene']
+createXiaochun({ container: '#avatar', ui: ['outfit', 'scene', 'lang', 'github'] });   // parts: chat · bubble · outfit · scene · lang · github
 ```
 ```html
-<xiaochun-avatar ui="outfit,scene"></xiaochun-avatar>     <!-- URL form: /embed?ui=chat,outfit,scene -->
+<xiaochun-avatar ui="outfit,scene,lang,github" ui-autohide="false"></xiaochun-avatar>     <!-- URL form: /embed?ui=outfit,scene,lang,github&uiAutoHide=false -->
 ```
 React: `<Xiaochun ui={['outfit', 'scene']} />`. At runtime: `xc.setConfig({ ui: ['outfit'] })`.
 
+* **When it shows (`uiAutoHide`, same as the desktop app)**: default `'transparent'` — in the **transparent** scene the buttons and chat bar start hidden and a **single click on the character** shows them (click the character again, or empty space, to hide; they also hide after 10 s idle, and stay while you hover them or a menu is open); in light / dark scenes they are always visible. `true` extends click-to-show to every scene, `false` keeps them always visible. Dragging the iframe (`draggable`) never counts as a click (≤ 6 px movement). Limits: in the transparent scene a click on blank host-page space never reaches the iframe (pass-through), so hiding relies on the 10 s timeout or clicking the character; on touch the first tap only wakes hit detection. Needs an iframe with `capabilities.ui.autoHide`; older iframes ignore it and always show.
+* **Language / GitHub buttons**: `lang` opens a menu (简体中文 / English / 日本語); the choice applies immediately, is saved in the **iframe's own** localStorage (`xiaochun_embed_lang`) and fires `lang-changed` (`{ lang, previous?, initial? }`; one `initial: true` after the handshake). Only the user's own pick is saved — an explicit `lang` option and `setConfig({ lang })` are not. `github` is an `<a target="_blank" rel="noopener noreferrer">` to the project repo.
 * **Same components as the main site's TopHeader**: glass buttons (44×44 on touch, 36×36 on desktop), the dropdown menu, the `Shirt` / `MountainSnow` / `Check` / `Loader2` icons and the same i18n strings (follows `lang`). Placed top-right so the character stays uncovered. The list comes from `capabilities.outfits` (no bare model, no custom URLs) and shows just the outfit names (no file sizes in the menu; `capabilities.outfits[].sizeMB` is still provided for your own UI), a spinner on the loading row and a ✓ on the worn one.
 * **Same path as `setOutfit` / `setScene`**: same whitelist, same serial last-wins queue, a light "busy" hint when you click fast, and the usual `outfit-changed` / `scene-changed` events. Calls you make through the SDK keep the buttons in sync. Clicking a button never triggers the body-turn / drag gestures.
 * **Transparent scene**: the buttons take part in the pass-through hit test (clicks on them do not fall through to your page; blank space still does). On touch + transparent, the first tap only wakes hit detection (it lands on your page), the second tap reaches the button.
@@ -236,6 +238,8 @@ xiaochun-avatar::part(iframe) { outline: 1px solid #0002; }
 ```
 
 Parts: `mount` · `wrapper` · `iframe` · `placeholder`.
+
+**No blue selection tint**: when a host-page text selection crosses the iframe (drag-select, Cmd/Ctrl+A), Chrome paints the whole iframe blue. The SDK sets `user-select: none` (inline CSSOM styles, no `<style>` injected, so host CSP is unaffected) on the shell, placeholder and iframe; your own text stays selectable and pointer-events / transparent pass-through are untouched. Don't override `user-select` on `::part(iframe)` back to `auto`.
 
 ---
 
@@ -357,18 +361,21 @@ createXiaochun({
 | `placeholder` | built-in SVG | Image URL, element, or `false` |
 | `transparent` | `false` | Transparent background over your page (with pointer pass-through). Same as `scene: 'transparent'` |
 | `scene` | — | Initial scene: `'light' \| 'dark' \| 'transparent'` (see `getScenes()`). Unknown id → ignored + `error { code: 'unknown_id' }` |
-| `width`, `height` | `320`, `480` | px or any CSS length. Always set them |
+| `width`, `height` | `600`, `1080` | px or any CSS length. **Defaults are clamped to the viewport**: width = `min(600px, 100vw)` (and the shell has `max-width: 100%`, so it never overflows a narrow container), height = `min(1080px, 100svh)` (floating `position`s also subtract the `--xc-offset-x/y` margins so the box never sticks out of the screen). Explicit values are used as-is. Runtime: `setSize(w, h)` (`undefined` = back to the default) |
 | `position` | `'inline'` | `'inline' \| 'bottom-right' \| 'bottom-left'` |
 | `draggable` | `false` | Gesture drag: press and drag the character (not a built-in button) to move the iframe, clamped to the viewport. Works in inline and floating modes. See [Gestures](#gestures-drag-and-corner-resize) |
 | `borderRadius` | opaque `20px` / transparent `0` | Shell corner radius (number = px, or any CSS length). The default for light / dark scenes equals the desktop app's window radius (20 px); transparent scenes are not clipped. Live via `setBorderRadius()`; the `--xc-radius` CSS variable wins; `0` = square corners |
 | `resizable` | `false` | Drag a corner (same 40 px hot zone / cursors / arcs as the desktop app) to resize the iframe at runtime, **without rebuilding it**. `true` or `{ minWidth, minHeight, maxWidth, maxHeight }` (default min 120×180, max = viewport) |
-| `lang` | — | `'zh-CN' \| 'en' \| 'ja'` |
+| `lang` | auto | `'zh-CN' \| 'en' \| 'ja'`. Priority: this option > the language the user last picked in the built-in language button (saved in the iframe's own localStorage `xiaochun_embed_lang`) > browser language > `zh-CN`. `setConfig({ lang })` at runtime is not persisted. Changes fire `lang-changed` |
 | `outfit` | default outfit | Initial outfit id (e.g. `xiaochun_maid`, see `getOutfits()`). Unknown id → default outfit + `error { code: 'unknown_id' }` |
 | `model` | — | **Deprecated**, use `outfit` (a `console.warn` is printed). An https URL is no longer accepted here; see `allowCustomModel` |
 | `allowCustomModel` | `false` | Opt in to `setModel({ url })` for arbitrary https `.vrm` / `.vrmaddon` / `.vrmbase`. Third-party files are parsed inside the iframe, so enable it only for URLs you trust |
+| `camera` | — | Camera framing `{ fov, distance, height, intro }`: `fov` 15–60° (default 30; distance auto-compensates so the character keeps its size), `distance` 1–15 m (default ≈2.5; overrides the iframe's saved zoom/pitch on first fit), `height` ±1 m framing offset (not saved by the iframe), `intro: false` skips the dolly-in. Out-of-range values are clamped; there is no `pitch` (the camera only tilts up/down around the character, left/right is the character's body turn). Sent as `?cameraFov=` etc. at create time; at runtime use `setConfig({ camera })` (omitted key = unchanged, `null` = back to default; re-frames immediately and cancels a running dolly-in). Old `/embed` (no `capabilities.camera`) ignores it. Priority: explicit > the iframe's saved view > default. |
+| `persistBox` | `false` | Remember the iframe's position & size after drag / resize in **your page's** localStorage and restore it on the next create: `true` (key `xiaochun:box`) or a namespace string (`xiaochun:box:<name>`). Needs `draggable` / `resizable`. Priority: explicit `width` / `height` > saved > default; restore is clamped to the current viewport. `clearPersistedBox({ reset? })` clears it. See [Gestures](#gestures-drag-and-corner-resize) |
 | `persist` | `false` | Optionally also remember outfit + scene in **the host page's** localStorage (the iframe already keeps its own copy): `false` \| `'host'` (`xiaochun:prefs`) \| a custom key. Explicit `outfit` / `scene` options win over saved values; the saved copy wins over the iframe's own |
 | `prefetch` | `false` | `true` (all outfits except the 13.9 MB wedding) or `string[]`. Auto-sent once after the first load, **only with `heavy: 'eager'`**; otherwise call `prefetch()` yourself |
-| `ui` | `[]` | Built-in UI parts to show inside the iframe: an array of `'chat'` (chat bar) · `'bubble'` (speech bubble) · `'outfit'` (outfit button) · `'scene'` (scene button). Unset / empty = none. Unknown names are ignored with a `console.warn`. See "Built-in outfit / scene buttons" below |
+| `ui` | `[]` | Built-in UI parts to show inside the iframe: an array of `'chat'` (chat bar) · `'bubble'` (speech bubble) · `'outfit'` (outfit button) · `'scene'` (scene button) · `'lang'` (language switcher) · `'github'` (GitHub link, opens in a new tab). Unset / empty = none. Unknown names are ignored with a `console.warn`. See "Built-in buttons" below |
+| `uiAutoHide` | `'transparent'` | When the built-in UI is visible, **same as the desktop app**: `'transparent'` = only the transparent (desk-pet) scene hides it until you click the character; light / dark scenes always show it. `true` = click-to-show in every scene; `false` = always visible (the previous behaviour). Live via `setConfig({ uiAutoHide })` |
 | `heavy` | `'lazy'` | `'lazy'`: load WebLLM / EMAGE on first use · `'eager'`: preload |
 | `controls` | `true` | Wheel zoom inside the iframe, on by default like the main site. Transparent scene: zooms only while the pointer is on the character, everywhere else the wheel scrolls your page. Opaque scenes: the iframe fills its area, so the wheel zooms there and **swallows page scrolling over that area**. `false` locks it (`?controls=0`) |
 | `autoPause` | `true` | Pause when out of the viewport |
@@ -380,7 +387,7 @@ createXiaochun({
 
 **Instance**: `ready` · `say(text, { mode: 'speak' \| 'chat' })` · `speakAudio(source, opts)` · `speakAudioStream(opts)` · `motion(nameOrUrlOrOptions)` · `expression(name)` · `setOutfit(id)` · `setScene(id)` · `getOutfits()` · `getScenes()` · `prefetch(ids?)` · `outfit` / `scene` (getters) · `setModel(outfitOrUrl)` *(legacy)* · `setConfig(cfg)` · `setSize(w, h)` · `getBox()` · `setDraggable(on)` · `setResizable(on | limits)` · `startListening()` / `stopListening()` / `mic(on)` · `pause()` / `resume()` · `activate()` · `destroy()` · `on(event, cb)` · `lookAt()` *(reserved in the protocol; currently returns `unsupported`)*.
 
-**Events**: `handshake` · `ready` · `progress` · `state` · `stt` · `utterance` (`phase: 'start' | 'end'`, `kind: 'text' | 'audio'`) · `hit-region` · `outfit-changed` · `scene-changed` · `move` / `resize` (`{ phase: 'start' | 'move' | 'end', left, top, width, height }`) · `error` (now also `busy`, `unknown_id`; one `unsupported` if gestures are enabled on an old iframe) · `destroy`. `progress.phase` is `'model' | 'outfit' | 'prefetch'`.
+**Events**: `handshake` · `ready` · `progress` · `state` · `stt` · `utterance` (`phase: 'start' | 'end'`, `kind: 'text' | 'audio'`) · `hit-region` · `outfit-changed` · `scene-changed` · `lang-changed` (`{ lang, previous?, initial? }`) · `move` / `resize` (`{ phase: 'start' | 'move' | 'end', left, top, width, height }`) · `error` (now also `busy`, `unknown_id`; one `unsupported` if gestures are enabled on an old iframe) · `destroy`. `progress.phase` is `'model' | 'outfit' | 'prefetch'`.
 
 ### `<xiaochun-avatar>`
 
@@ -390,8 +397,9 @@ createXiaochun({
 | `outfit` | — | Outfit id; changing it at runtime = `setOutfit` (**live update, no iframe rebuild**) |
 | `scene` | — | `light` · `dark` · `transparent`; runtime change = `setScene` (live) |
 | `model` | — | **Deprecated** alias of `outfit` (`outfit` wins) |
-| `persist` / `prefetch` / `allow-custom-model` | — | Same as the options; changing them rebuilds |
-| `lang` | — | `zh-CN` · `en` · `ja`; runtime change = `setConfig` |
+| `camera-fov` / `camera-distance` / `camera-height` / `camera-intro` | — | Same as `camera` (hot-updated via `setConfig({ camera })`, no rebuild; removing an attribute = default) |
+| `persist` / `persist-box` / `prefetch` / `allow-custom-model` | — | Same as the options (`persist-box=""` = default key, any other string = namespace); changing them rebuilds |
+| `lang` | auto | `zh-CN` · `en` · `ja`; unset = the user's saved pick > browser language > `zh-CN`; runtime change = `setConfig` (not persisted) |
 | `mic` | `false` | Toggle dictation (takes effect once the model is loaded) |
 | `transparent` | `true` | `"false"` turns it off |
 | `draggable` | `false` | Gesture drag (inline and floating). Runtime change = `setDraggable` (live) |
@@ -399,15 +407,16 @@ createXiaochun({
 | `border-radius` | opaque `20px` / transparent `0` | Shell corner radius (number = px or CSS length); runtime change = `setBorderRadius` (live) |
 | `min-size` / `max-size` | — | Resize limits, same format as `size` (e.g. `min-size="160x240"`) |
 | `position` | `inline` | `inline` · `bottom-right` · `bottom-left` |
-| `size` | `320x480` | `"280"` (height = width × 1.5), `"320x480"`, `"100%x480px"`; runtime change = `setSize` (**live, no iframe rebuild**) |
+| `size` | `600x1080` (viewport-clamped) | `"280"` (height = width × 1.5), `"320x480"`, `"100%x480px"`; runtime change = `setSize` (**live, no iframe rebuild**) |
 | `lazy` | idle + viewport | `"click"` for click only; `"false"` for immediate |
 | `paused` | `false` | `pause()` / `resume()` |
-| `ui` | — | Comma-separated parts, e.g. `ui="outfit,scene"` (unset = none; unknown names ignored with a warn). Changing it rebuilds; use `setConfig({ ui })` at runtime |
+| `ui` | — | Comma-separated parts, e.g. `ui="outfit,scene,lang,github"` (unset = none; unknown names ignored with a warn). Changing it rebuilds; use `setConfig({ ui })` at runtime |
+| `ui-autohide` | `transparent` | `"transparent"` (default; click-to-show only in the transparent scene) · `"true"` (every scene) · `"false"` (always visible). Changing it rebuilds; use `setConfig({ uiAutoHide })` at runtime |
 | `controls` | on | `controls="false"` locks wheel zoom inside the iframe |
 | `placeholder` / `heavy` / `allowed-origins` | — | Same as `createXiaochun` |
 | `cross-origin-isolated` | `false` | Same as `createXiaochun({ crossOriginIsolated })`; changing it rebuilds the iframe |
 
-**Events** (`CustomEvent`, `composed`, `detail` = protocol payload): `xc-ready` · `xc-progress` · `xc-state` · `xc-stt` · `xc-utterance` · `xc-outfit-changed` · `xc-scene-changed` · `xc-move` · `xc-resize` · `xc-error`.
+**Events** (`CustomEvent`, `composed`, `detail` = protocol payload): `xc-ready` · `xc-progress` · `xc-state` · `xc-stt` · `xc-utterance` · `xc-outfit-changed` · `xc-scene-changed` · `xc-lang-changed` · `xc-move` · `xc-resize` · `xc-error`.
 **Methods**: `say` · `speakAudio` · `speakAudioStream` · `motion` · `expression` · `setOutfit` · `setScene` · `getOutfits` · `getScenes` · `prefetch` · `destroy`; `el.client` gives you the full SDK instance.
 
 ---
@@ -433,7 +442,8 @@ xc.setSize(240, 360);                    // programmatic resize (also live)
 * Transparent scene + pass-through: only the character and (when `resizable`) the four 40 px corner zones take over the pointer; everywhere else still falls through to your page. Built-in buttons are never a drag / resize start.
 * The blue text-selection box during a drag is suppressed on both sides (`user-select: none`, `selectstart` / `dragstart` blocked, pointer capture while resizing).
 * Against an older `/embed` without `capabilities.gestures`, enabling inline `draggable` or `resizable` emits one `error { code: 'unsupported', command: 'gestures' }`.
-* Try it: `examples/embed-host.html?draggable=1&resizable=1`.
+* **Remember position & size (`persistBox`, off by default)**: with `draggable` / `resizable` on, `persistBox: true` (or a namespace string → key `xiaochun:box:<name>`) saves the box to **your page's** localStorage when a drag / resize **ends** (all reads / writes are try/catch'd — private mode or a full quota just means "not remembered") and restores it the next time the instance is created. Priority: explicit `width` / `height` > saved > default (600×1080); position has no explicit option (`position` is only an anchor preset), so a saved position always wins. **To get a user-resized size back, don't pass `width` / `height`.** Restoring is clamped to the *current* viewport (size within `[min, viewport]`, min 120×180 or your `resizable` limits; floating boxes pulled fully on-screen; inline boxes clamped horizontally and kept below the document top). A saved box whose `position` mode differs from the current one, or corrupt data, is ignored and removed. Only restored when a gesture is enabled. `xc.clearPersistedBox()` removes the saved value; `xc.clearPersistedBox({ reset: true })` also puts the box back to its initial place / size. Element: `persist-box` (`""` / `"true"` / a namespace), React: `persistBox` prop + `ref.clearPersistedBox()`.
+* Try it: `examples/embed-host.html?draggable=1&resizable=1&persistBox=1`.
 
 ## 🧪 Try It Locally
 

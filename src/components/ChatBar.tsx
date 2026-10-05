@@ -76,11 +76,17 @@ function AccentFill({ on }: { on: boolean }) {
 
 export const ChatBar: React.FC<{
   isPetUIVisible?: boolean;
+  /**
+   * 是否启用"点击角色才出现"。缺省 = 当前是透明场景 (Tauri 桌宠的原规则);
+   * /embed 按 uiAutoHide 选项算好后传进来 (见 src/embed/EmbedApp.tsx)。
+   */
+  autoHide?: boolean;
   onShowDevPanel?: () => void;
-}> = ({ isPetUIVisible = false, onShowDevPanel }) => {
+}> = ({ isPetUIVisible = false, autoHide, onShowDevPanel }) => {
   const { t } = useTranslation();
   const currentScene = useCurrentScene();
   const isTransparent = Boolean(currentScene.isTransparent);
+  const autoHideActive = autoHide ?? isTransparent;
   // ponytail: 不再有 hover-show — 透明桌宠模式只靠点击角色身体 (App.tsx 的 isPetUIVisible) 唤出/收起
   const [isMenuOpen, setIsMenuOpen] = useState(false);
 
@@ -587,13 +593,14 @@ export const ChatBar: React.FC<{
     shudaoSegs: splitIntoSpeechChunks(t('chat.testSpeakShudaoText')).length,
   }), [t]);
 
-  const showChatBar = !isTransparent || isPetUIVisible || isMenuOpen || isInputFocused || hasText || isSending || sttState === 'listening' || sttState === 'recognizing' || sttState === 'loading';
+  const showChatBar = !autoHideActive || isPetUIVisible || isMenuOpen || isInputFocused || hasText || isSending || sttState === 'listening' || sttState === 'recognizing' || sttState === 'loading';
   const visibilityClass = showChatBar
     ? 'opacity-100 pointer-events-auto'
     : 'opacity-0 pointer-events-none';
 
   return (
     <div
+      data-xc-ui="" // /embed 透明场景: 聊天栏可见时算"命中", 否则宿主会把指针穿透过去点不到
       onPointerEnter={() => holdPetUi('chatbar')}
       onPointerLeave={() => releasePetUi('chatbar')}
       className={`fixed bottom-[calc(0.75rem+var(--kb-safe,env(safe-area-inset-bottom,0px))+var(--kb,0px))] sm:bottom-8 left-1/2 -translate-x-1/2 z-30 w-full max-w-xl px-3 sm:px-4 select-none transition-opacity duration-300 ease-out ${visibilityClass}`}

@@ -179,6 +179,12 @@ export class EmbedGestures {
   /** 指针进入 iframe (桌面鼠标): 四角短暂亮一下 (Tauri 唤出 UI 时 corner-flash 同款; 触屏在 pointerdown 里闪)。 */
   private onEnter = (e: MouseEvent): void => { if ((e as MouseEvent & { pointerType?: string }).pointerType !== 'touch' && !this.resize.resizing) this.flashCorners(); };
   private onSelect = (e: Event): void => { e.preventDefault(); };
+  /** usePetUiVisibility 唤出内置界面时发的 corner-flash (Tauri 桌宠同款): 四角弧线也亮一下; 收起 (pet-ui-hide) 时立即灭。 */
+  private onPetUiFlash = (): void => this.flashCorners();
+  private onPetUiHide = (): void => {
+    if (this.flashTimer) { clearTimeout(this.flashTimer); this.flashTimer = null; }
+    setCornerUi({ flash: false });
+  };
 
   private attach(): void {
     this.listening = true;
@@ -190,6 +196,8 @@ export class EmbedGestures {
     document.documentElement.addEventListener('mouseleave', this.onLeave);
     document.documentElement.addEventListener('mouseenter', this.onEnter);
     document.addEventListener('selectstart', this.onSelect);
+    window.addEventListener('corner-flash', this.onPetUiFlash);
+    window.addEventListener('pet-ui-hide', this.onPetUiHide);
     document.addEventListener('dragstart', this.onSelect);
     document.documentElement.classList.add('xc-gestures');
   }
@@ -203,6 +211,8 @@ export class EmbedGestures {
     document.documentElement.removeEventListener('mouseleave', this.onLeave);
     document.documentElement.removeEventListener('mouseenter', this.onEnter);
     document.removeEventListener('selectstart', this.onSelect);
+    window.removeEventListener('corner-flash', this.onPetUiFlash);
+    window.removeEventListener('pet-ui-hide', this.onPetUiHide);
     document.removeEventListener('dragstart', this.onSelect);
     document.documentElement.classList.remove('xc-gestures');
     if (this.flashTimer) { clearTimeout(this.flashTimer); this.flashTimer = null; }

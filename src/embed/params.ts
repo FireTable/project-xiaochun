@@ -5,7 +5,10 @@
  *   ?ui=chat,bubble,outfit,scene  要显示的内置界面部件 (逗号分隔, 白名单; 未知项忽略并 warn)   默认空 = 无 chrome
  *        chat=聊天栏 bubble=头顶气泡 outfit=换装按钮 scene=换场景按钮
  *        已弃用的旧写法: ?ui=1|true (= chat,bubble, 会 warn)、?bubble=0|1 (单独开关气泡)
- *   ?lang=zh-CN|en|ja                                    默认跟随 cookie/默认语言
+ *   ?uiAutoHide=transparent|1|0  内置界面 (ui 里的按钮 + 聊天栏) 的显示策略: transparent(默认) = 与 Tauri 一致, 只在透明场景点击出现、亮/暗常显; 1 = 所有场景点击出现; 0 = 一直显示
+ *   ?lang=zh-CN|en|ja                                    默认: iframe 自己 localStorage 里记住的用户选择 > 浏览器语言 > zh-CN (显式 ?lang= 最优先)
+ *   ?cameraFov=<15..60> ?cameraDistance=<1..15> ?cameraHeight=<-1..1> ?cameraIntro=0|1  相机: 视野角(度) / 视距(米) / 取景高度偏移(米) / 是否播推镜头
+ *        缺省 = 不覆盖 (走 iframe 保存值 / 默认); 越界夹到范围并 warn, 非法值忽略并 warn
  *   ?heavy=lazy|eager  WebLLM / EMAGE 预热策略          默认 lazy
  *   ?outfit=<id>     初始服装 (capabilities.outfits 里的 id, 严格校验: 小写字母/数字/下划线, 且必须是内置服装; 裸模 base 不开放)
  *                    非法或未知 → 回退默认服装并通过 xc.error{unknown_id} 告知宿主     默认 default addon
@@ -18,7 +21,7 @@
  */
 import { parseControls } from './registry';
 import { isLang, type Lang } from '@/i18n';
-import { normalizeOrigin, parseXcUiParam, type XcHeavyMode, type XcUiPart } from '@firetable/project-xiaochun/protocol';
+import { XC_UI_AUTOHIDE_DEFAULT, normalizeOrigin, parseXcCameraParams, parseXcUiAutoHide, parseXcUiParam, type XcCamera, type XcHeavyMode, type XcUiAutoHide, type XcUiPart } from '@firetable/project-xiaochun/protocol';
 
 export interface EmbedParams {
   transparent: boolean;
@@ -28,7 +31,13 @@ export interface EmbedParams {
   uiLegacy: boolean;
   /** ?ui= 里被忽略的未知部件名。 */
   uiUnknown: string[];
+  /** 内置界面显示策略 (缺省 'transparent' = 与 Tauri 一致)。 */
+  uiAutoHide: XcUiAutoHide;
   lang: Lang | null;
+  /** ?cameraFov / cameraDistance / cameraHeight / cameraIntro (已校验 / 夹范围; 只含显式给出的项)。 */
+  camera: XcCamera;
+  /** 相机参数的告警 (非法 / 越界), 由 EmbedApp 打到 console。 */
+  cameraWarnings: string[];
   heavy: XcHeavyMode;
   /** 原样的 ?outfit= (未校验; 校验在 registry.resolveInitialOutfit / bridge 里统一做)。 */
   outfit: string | null;
@@ -51,6 +60,7 @@ export function readEmbedParams(search?: string): EmbedParams {
     if (q.get('bubble') === '1') uiSet.add('bubble'); else uiSet.delete('bubble');
   }
   const lang = q.get('lang');
+  const cam = parseXcCameraParams((n) => q.get(n));
   const origins = new Set<string>();
 
   const host = normalizeOrigin(q.get('host'));
@@ -78,7 +88,10 @@ export function readEmbedParams(search?: string): EmbedParams {
     uiParts: [...uiSet],
     uiLegacy,
     uiUnknown: uiParse.unknown,
+    uiAutoHide: parseXcUiAutoHide(q.get('uiAutoHide')) ?? XC_UI_AUTOHIDE_DEFAULT,
     lang: isLang(lang) ? lang : null,
+    camera: cam.camera,
+    cameraWarnings: cam.warnings,
     heavy: q.get('heavy') === 'eager' ? 'eager' : 'lazy',
     outfit: q.get('outfit'),
     scene: q.get('scene'),

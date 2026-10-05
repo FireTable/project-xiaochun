@@ -7,7 +7,8 @@
  *   现在所有入口统一: 先过 isXcId 正则 (挡掉 `__proto__` 等), 再 hasOwnProperty (挡掉 `constructor` 等), 命中才返回条目。
  */
 import { isXcId, xcHasOwn } from '../../packages/project-xiaochun/src/protocol.ts';
-import type { XcOutfitInfo, XcSceneInfo } from '../../packages/project-xiaochun/src/protocol.ts';
+import { XC_LANGS } from '../../packages/project-xiaochun/src/protocol.ts';
+import type { XcLang, XcOutfitInfo, XcSceneInfo } from '../../packages/project-xiaochun/src/protocol.ts';
 
 export interface AddonLike {
   source: string;
@@ -149,4 +150,45 @@ export function resolveInitialOutfitWithPref(
 ): { id: string; entry: AddonLike } | null {
   if (requested != null) return resolveInitialOutfit(addons, requested);
   return resolveInitialOutfit(addons, stored);
+}
+
+// ── 界面语言 (iframe 自己的偏好) ──
+// 优先级: URL / SDK 显式的 ?lang= > iframe 自己 localStorage 里记住的用户选择 > 浏览器语言 > zh-CN。
+
+export const EMBED_DEFAULT_LANG: XcLang = 'zh-CN';
+
+const isXcLang = (v: unknown): v is XcLang => typeof v === 'string' && (XC_LANGS as readonly string[]).includes(v);
+
+/** 浏览器语言列表 (navigator.languages) → 第一个能映射的界面语言: zh* → zh-CN, ja* → ja, en* → en; 都不认识 → null。 */
+export function langFromNavigator(languages: readonly string[] | null | undefined): XcLang | null {
+  for (const raw of languages ?? []) {
+    const tag = String(raw).toLowerCase();
+    if (tag === 'zh' || tag.startsWith('zh-')) return 'zh-CN';
+    if (tag === 'ja' || tag.startsWith('ja-')) return 'ja';
+    if (tag === 'en' || tag.startsWith('en-')) return 'en';
+  }
+  return null;
+}
+
+/** 读已保存的语言: 必须在白名单里, 否则当作坏数据忽略并清掉。 */
+export function readLangPref(storage: StorageLike | null, key: string): XcLang | null {
+  if (!storage) return null;
+  try {
+    const raw = storage.getItem(key);
+    if (raw === null) return null;
+    if (isXcLang(raw)) return raw;
+    storage.removeItem(key);
+  } catch { /* 存储被拦截: 当没有 */ }
+  return null;
+}
+
+export function writeLangPref(storage: StorageLike | null, key: string, lang: XcLang): void {
+  if (!storage) return;
+  try { storage.setItem(key, lang); } catch { /* 配额满 / 被拦截: 忽略 */ }
+}
+
+/** 初始界面语言: 显式 (URL / SDK) > 存储 > 浏览器语言 > 默认。显式值非法 (不在白名单) 视为没给。 */
+export function resolveEmbedLang(explicit: unknown, stored: XcLang | null, navigatorLanguages: readonly string[] | null | undefined): XcLang {
+  if (isXcLang(explicit)) return explicit;
+  return stored ?? langFromNavigator(navigatorLanguages) ?? EMBED_DEFAULT_LANG;
 }

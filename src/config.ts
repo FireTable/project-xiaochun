@@ -235,6 +235,8 @@ export const APP_CONFIG = {
     defaultShotExtent: 1.34,
     defaultMinDistance: 1.0,
     defaultMaxDistance: 15.0,
+    /** /embed 宿主 camera.height 可调的上下范围 (m, ±); 与 SDK protocol.XC_CAMERA_RANGES.height 保持一致 (单测校验) */
+    hostMaxYOffset: 1.0,
     defaultEnableBodyTurn: true as boolean,
     defaultEnableGaze: true as boolean,
     minPolarAngle: 0.01,

@@ -1,9 +1,9 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
-import { Globe, Shirt, Check, Upload, Loader2, MountainSnow } from 'lucide-react';
+import { Shirt, Check, Upload, Loader2, MountainSnow } from 'lucide-react';
 import { vrmEngine } from '@/core/vrmEngine';
 import { sceneManager, useCurrentScene } from '@/core/scene/sceneManager';
-import { Settings, Github } from '@/components/icons';
+import { Settings } from '@/components/icons';
 import { Button } from '@/components/ui/button';
 import {
   DropdownMenu,
@@ -19,11 +19,11 @@ import {
 } from '@/components/ui/tooltip';
 import { APP_CONFIG } from '@/config';
 import { WEARING_OUTFIT_KEY } from '@/lib/constants';
-import { changeLang, LANG_LABELS, SUPPORTED_LANGS, type Lang } from '@/i18n';
+import { changeLang, type Lang } from '@/i18n';
 import { isTauri } from '@/lib/platform';
-import { openExternal } from '@/lib/openExternal';
 import { holdPetUi, releasePetUi } from '@/hooks/usePetUiVisibility';
 import { TauriTopHeader } from '@/components/TauriTopHeader';
+import { GithubButton, LangButton } from '@/components/HeaderButtons';
 
 interface TopHeaderProps {
   isDev: boolean;
@@ -304,69 +304,13 @@ export const TopHeader: React.FC<TopHeaderProps> = ({
           </DropdownMenu>
         )}
 
-        <Tooltip>
-          <TooltipTrigger asChild>
-            <DropdownMenu onOpenChange={(open) => setOpenMenuCount((c) => open ? c + 1 : Math.max(0, c - 1))}>
-              <DropdownMenuTrigger asChild>
-                <Button
-                  id="btn-switch-lang"
-                  variant="glass"
-                  size="icon"
-                  title={t('header.switchLang.tooltip')}
-                  aria-label={t('header.switchLang.tooltip')}
-                  className="h-11 w-11 sm:h-9 sm:w-9"
-                >
-                  <Globe className="w-4 h-4 sm:w-3.5 sm:h-3.5" />
-                </Button>
-              </DropdownMenuTrigger>
-              <DropdownMenuContent align="end">
-                {SUPPORTED_LANGS.map((lng) => (
-                  <DropdownMenuItem
-                    key={lng}
-                    onSelect={() => changeLang(i18n, lng)}
-                    className="justify-between"
-                  >
-                    <span>{LANG_LABELS[lng]}</span>
-                    {currentLang === lng && <span className="text-brand-300 text-xs">✓</span>}
-                  </DropdownMenuItem>
-                ))}
-              </DropdownMenuContent>
-            </DropdownMenu>
-          </TooltipTrigger>
-          {/* ponytail: tooltip 只挂在 icon-only 按钮上;"上传 VRM" 已有可见文字标签,不重复。 */}
-          <TooltipContent side="bottom">
-            {t('header.switchLang.tooltip')}
-          </TooltipContent>
-        </Tooltip>
+        <LangButton
+          currentLang={currentLang}
+          onSelect={(lng) => changeLang(i18n, lng)}
+          onOpenChange={(open) => setOpenMenuCount((c) => open ? c + 1 : Math.max(0, c - 1))}
+        />
 
-        <Tooltip>
-          <TooltipTrigger asChild>
-            <Button
-              asChild
-              variant="glass"
-              size="icon"
-              className="h-11 w-11 sm:h-9 sm:w-9"
-            >
-              <a
-                id="btn-github"
-                href={APP_CONFIG.brand.github}
-                target="_blank"
-                rel="noopener noreferrer"
-                aria-label={t('header.github')}
-                onClick={(e) => {
-                  if (!isTauri()) return;
-                  e.preventDefault();
-                  void openExternal(APP_CONFIG.brand.github);
-                }}
-              >
-                <Github className="w-4 h-4 sm:w-3.5 sm:h-3.5" />
-              </a>
-            </Button>
-          </TooltipTrigger>
-          <TooltipContent side="bottom">
-            {t('header.github')}
-          </TooltipContent>
-        </Tooltip>
+        <GithubButton />
 
         {isDev ? (
           <Tooltip>

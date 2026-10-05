@@ -160,6 +160,7 @@ brew upgrade --cask project-xiaochun
   * **Compose**：FootIK + Gaze 写入目标后，每帧 `composeLayeredSmooth` 再 `commitToVRM`。
 * **系统生命周期与主循环规约**：一帧生命周期 10 步精确时序图与开发者避坑红线详见 [`docs/ARCHITECTURE_AND_RULES.md`](docs/ARCHITECTURE_AND_RULES.md)。
 * **完整技术文档中心**：架构全景与 Agent 快速路由导航详见 [`docs/README.md`](docs/README.md)。
+* **Tauri / Web 主站 / `/embed` 三端差异**：窗口 / 背景 / 点击穿透、手势、界面、相机、持久化、加载、安全、构建与测试的逐项对照表（含代码位置、共享 / 独有标注、维护规则）详见 [`docs/PLATFORM_DIFFERENCES.md`](docs/PLATFORM_DIFFERENCES.md)。
 
 ### 🧠 100% 浏览器端 AI 推理栈 (Browser-Side AI)
 * **大语言模型 (WebLLM,默认)** — [`@mlc-ai/web-llm`](https://github.com/mlc-ai/web-llm) 默认 **MiniCPM5 2B (q4f16_1)**，低配设备自动降级至 Qwen2.5 0.5B。轻量高效，在移动端与低显存设备上兼顾推理速度与回复质量；对话条菜单可随时热切换模型或开关思考模式；回复语言随用户提问语系自适应匹配。

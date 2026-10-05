@@ -34,7 +34,8 @@ test('SSR: 无 window 时渲染固定尺寸的空 div (无 CLS, 无 hydration �
   assert.match(html, /data-xiaochun-host/);
   assert.ok(!html.includes('<iframe'), '服务端不应渲染 iframe');
   // 默认尺寸
-  assert.match(renderToString(createElement(esm.Xiaochun)), /width:320px;height:480px/);
+  // (宽 min(600px, 100vw) / 高 min(1080px, 100vh): 受视口限制, 服务端一律 vh 保证与客户端首帧一致)
+  assert.match(renderToString(createElement(esm.Xiaochun)), /width:min\(600px, 100vw\);height:min\(1080px, 100vh\)/);
 });
 
 test('SSR: useXiaochun 在服务端返回空状态', () => {

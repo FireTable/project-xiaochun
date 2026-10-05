@@ -325,6 +325,82 @@ await check('ui 选项 = 部件名数组: 进 iframe URL ?ui=; 默认无参数; 
   await page.close();
 });
 
+await check('camera 选项: 进 iframe URL (?cameraFov= 等); 默认不带; 越界夹范围 / 非法整体忽略并 warn; setConfig{camera} 原样发出; 元素 camera-* 属性创建进 URL', async () => {
+  const page = await newPage();
+  const urlOf = async (opts) => { await mk(page, opts); await handshake(page); const u = new URL((await iframeState(page)).src); await page.evaluate(() => xc.destroy()); return u; };
+  const d = await urlOf({});
+  for (const k of ['cameraFov', 'cameraDistance', 'cameraHeight', 'cameraIntro']) assert.equal(d.searchParams.get(k), null, '默认不带 ' + k);
+  const u = await urlOf({ camera: { fov: 45, distance: 3.5, height: -0.25, intro: false } });
+  assert.deepEqual([u.searchParams.get('cameraFov'), u.searchParams.get('cameraDistance'), u.searchParams.get('cameraHeight'), u.searchParams.get('cameraIntro')], ['45', '3.5', '-0.25', '0']);
+  assert.equal((await urlOf({ camera: { intro: true } })).searchParams.get('cameraIntro'), '1');
+  assert.equal((await urlOf({ camera: { fov: null } })).searchParams.get('cameraFov'), null, 'null 不写进 URL');
+  await page.evaluate(() => { window.__warns.length = 0; });
+  assert.equal((await urlOf({ camera: { fov: 5, distance: 99 } })).searchParams.get('cameraFov'), '15', '越界夹到下限');
+  assert.ok((await page.evaluate(() => window.__warns)).some((w) => /camera\.fov, camera\.distance out of range/.test(w)));
+  await page.evaluate(() => { window.__warns.length = 0; });
+  assert.equal((await urlOf({ camera: { fov: '30', pitch: 1 } })).searchParams.get('cameraFov'), null, '非法整体忽略');
+  assert.ok((await page.evaluate(() => window.__warns)).some((w) => /invalid camera option/.test(w)));
+  // 运行时 setConfig{camera} 原样发出
+  await mk(page, {}); await handshake(page); await settle(page);
+  await page.evaluate(() => xc.setConfig({ camera: { fov: 50, height: null } }));
+  await settle(page);
+  assert.deepEqual((await received(page)).filter((m) => m.type === 'xc.setConfig').at(-1).payload, { camera: { fov: 50, height: null } });
+  await page.evaluate(() => xc.destroy());
+  // 元素属性
+  const srcOf = (attrs) => page.evaluate((attrs) => {
+    const el = document.createElement('xiaochun-avatar');
+    el.setAttribute('src', 'http://frame.test/embed'); el.setAttribute('lazy', 'false');
+    for (const [k, v] of Object.entries(attrs)) el.setAttribute(k, v);
+    document.body.appendChild(el);
+    return new Promise((res) => setTimeout(() => { const i = el.shadowRoot.querySelector('iframe'); const r = i && i.src; el.remove(); res(r); }, 300));
+  }, attrs);
+  const eu = new URL(await srcOf({ 'camera-fov': '40', 'camera-distance': '2', 'camera-height': '0.1', 'camera-intro': 'false' }));
+  assert.deepEqual([eu.searchParams.get('cameraFov'), eu.searchParams.get('cameraDistance'), eu.searchParams.get('cameraHeight'), eu.searchParams.get('cameraIntro')], ['40', '2', '0.1', '0']);
+  assert.equal(new URL(await srcOf({})).searchParams.get('cameraFov'), null);
+  await page.close();
+});
+
+await check('lang / github 部件 + uiAutoHide 选项: 进 iframe URL (?ui= / ?uiAutoHide=); 默认不带; 非法值忽略并 warn; 元素 ui-autohide 属性同理', async () => {
+  const page = await newPage();
+  const urlOf = async (opts) => { await mk(page, opts); await handshake(page); const u = new URL((await iframeState(page)).src); await page.evaluate(() => xc.destroy()); return u; };
+  assert.equal((await urlOf({ ui: ['github', 'lang', 'outfit'] })).searchParams.get('ui'), 'outfit,lang,github');
+  assert.equal((await urlOf({})).searchParams.get('uiAutoHide'), null, '默认不带 (iframe 用自己的默认 transparent)');
+  assert.equal((await urlOf({ uiAutoHide: true })).searchParams.get('uiAutoHide'), 'true');
+  assert.equal((await urlOf({ uiAutoHide: false })).searchParams.get('uiAutoHide'), 'false');
+  assert.equal((await urlOf({ uiAutoHide: 'transparent' })).searchParams.get('uiAutoHide'), 'transparent');
+  await page.evaluate(() => { window.__warns.length = 0; });
+  assert.equal((await urlOf({ uiAutoHide: 'hover' })).searchParams.get('uiAutoHide'), null);
+  assert.ok((await page.evaluate(() => window.__warns)).some((w) => /invalid uiAutoHide/.test(w)));
+  const srcOf = (attrs) => page.evaluate((attrs) => {
+    const el = document.createElement('xiaochun-avatar');
+    el.setAttribute('src', 'http://frame.test/embed'); el.setAttribute('lazy', 'false');
+    for (const [k, v] of Object.entries(attrs)) el.setAttribute(k, v);
+    document.body.appendChild(el);
+    return new Promise((res) => setTimeout(() => { const i = el.shadowRoot.querySelector('iframe'); const r = i && i.src; el.remove(); res(r); }, 300));
+  }, attrs);
+  assert.equal(new URL(await srcOf({ 'ui-autohide': 'false' })).searchParams.get('uiAutoHide'), 'false');
+  assert.equal(new URL(await srcOf({})).searchParams.get('uiAutoHide'), null);
+  assert.equal(new URL(await srcOf({ ui: 'lang,github' })).searchParams.get('ui'), 'lang,github');
+  await page.close();
+});
+
+await check('不被宿主页文字选区染蓝: 外壳 / 占位图 / iframe 都是 user-select:none (CSSOM 内联样式, 不注入 <style>); 元素 (Shadow DOM) 同理', async () => {
+  const page = await newPage();
+  await mk(page, {}); await handshake(page);
+  const st = await page.evaluate(() => {
+    const w = document.querySelector('[data-xiaochun]'); const i = w.querySelector('iframe');
+    return { w: getComputedStyle(w).userSelect, i: getComputedStyle(i).userSelect, iw: getComputedStyle(i).webkitUserSelect, styleTags: document.querySelectorAll('style').length };
+  });
+  assert.deepEqual([st.w, st.i, st.iw], ['none', 'none', 'none']);
+  await page.evaluate(() => xc.destroy());
+  const el = await page.evaluate(() => {
+    const e = document.createElement('xiaochun-avatar'); e.setAttribute('src', 'http://frame.test/embed'); e.setAttribute('lazy', 'false'); document.body.appendChild(e);
+    return new Promise((res) => setTimeout(() => { const i = e.shadowRoot.querySelector('iframe'); res({ i: getComputedStyle(i).userSelect, w: getComputedStyle(i.parentElement).userSelect }); e.remove(); }, 300));
+  });
+  assert.deepEqual([el.i, el.w], ['none', 'none']);
+  await page.close();
+});
+
 await check('controls: 默认 (滚轮缩放放开) 不带参数; controls:false → ?controls=0; true 不带; 元素属性 controls="false" 同理', async () => {
   const page = await newPage();
   const urlOf = async (opts) => { await mk(page, opts); await handshake(page); const u = new URL((await iframeState(page)).src); await page.evaluate(() => xc.destroy()); return u; };
@@ -697,6 +773,233 @@ await check('React: width / height / draggable / resizable prop 变化走 effect
   assert.equal(await page.evaluate(() => document.querySelector('iframe') === window.__if), true);
   assert.deepEqual(await page.evaluate(() => { const b = document.querySelector('[data-xiaochun]').getBoundingClientRect(); return [Math.round(b.width), Math.round(b.height)]; }), grown);
   assert.equal(page.frames().filter((f) => f.url().startsWith('http://frame.test')).length, 1);
+  await page.close();
+});
+
+// ───────────── persistBox: 记住拖动 / 缩放后的位置和大小 ─────────────
+/** 创建实例; sized=true 时带 width:200,height:300 (显式尺寸), 否则不传 (默认尺寸 / 可被已保存的覆盖)。 */
+const mkP = (page, opts, sized = false) => page.evaluate(async (opts, sized) => {
+  const o = { container: '#a', src: 'http://frame.test/embed', lazy: false, ...(sized ? { width: 200, height: 300 } : {}), ...opts };
+  const xc = window.XC.createXiaochun(o);
+  window.xc = xc; window.events = [];
+  for (const ev of ['outfit-changed', 'scene-changed', 'error', 'ready', 'move', 'resize']) xc.on(ev, (p) => window.events.push([ev, p]));
+  return true;
+}, opts, sized);
+const recreate = async (page, opts, sized = false) => { await page.evaluate(() => { window.xc.destroy(); }); await mkP(page, opts, sized); await handshake(page); await settle(page); };
+const stored = (page, key = 'xiaochun:box') => page.evaluate((k) => JSON.parse(localStorage.getItem(k) ?? 'null'), key);
+
+await check('persistBox (悬浮): 拖动 / 缩放结束时写宿主 localStorage; 重建后恢复位置 + 大小 (不传 width/height 时); 显式 width/height 优先, 位置仍恢复', async () => {
+  const page = await newPage();
+  await page.evaluate(() => localStorage.clear());
+  await mkP(page, { draggable: true, resizable: true, position: 'bottom-right', persistBox: true }); await handshake(page); await settle(page);
+  assert.equal(await stored(page), null, '没动过不写');
+  await gesture(page, 'resize', 1, [[-200, -200]], { corner: 'SE' }); // 缩小
+  await gesture(page, 'move', 2, [[-100, -50]]);
+  const b1 = await boxOf(page);
+  const rec = await stored(page);
+  assert.equal(rec.v, 1); assert.equal(rec.mode, 'bottom-right');
+  assert.deepEqual([rec.x, rec.y, rec.width, rec.height], [b1.l, b1.t, b1.w, b1.h], '存的是手势结束后的盒子');
+  await recreate(page, { draggable: true, resizable: true, position: 'bottom-right', persistBox: true });
+  assert.deepEqual(await boxOf(page), b1, '重建后位置 + 大小恢复');
+  assert.ok(await page.evaluate(() => { const st = document.querySelector('[data-xiaochun]').style; return st.right === 'auto' && st.bottom === 'auto'; }), '悬浮恢复后用 left/top 定位');
+  // 显式 width/height 优先于已保存的大小; 位置仍恢复
+  await recreate(page, { draggable: true, resizable: true, position: 'bottom-right', persistBox: true }, true);
+  const b2 = await boxOf(page);
+  assert.deepEqual([b2.w, b2.h], [200, 300], '显式 width/height 优先');
+  assert.deepEqual([b2.l, b2.t], [b1.l, b1.t], '位置仍恢复');
+  // 真刷新页面也能恢复
+  await page.reload(); await page.waitForFunction(() => window.__ready);
+  await mkP(page, { draggable: true, resizable: true, position: 'bottom-right', persistBox: true }); await handshake(page); await settle(page);
+  assert.deepEqual(await boxOf(page), b1, '刷新页面后恢复');
+  await page.close();
+});
+
+await check('persistBox: 命名空间 key; 默认关不写; 没开手势不恢复; 位置模式不同 / 坏数据忽略并清掉; localStorage 抛错不崩', async () => {
+  const page = await newPage();
+  await page.evaluate(() => localStorage.clear()); // 同一浏览器里各用例共享 host.test 的 localStorage
+  // 关: 不写
+  await mkP(page, { draggable: true }); await handshake(page); await settle(page);
+  await gesture(page, 'move', 1, [[20, 20]]);
+  assert.equal(await page.evaluate(() => Object.keys(localStorage).filter((k) => k.startsWith('xiaochun:box')).length), 0, '默认不写');
+  // 命名空间
+  await recreate(page, { draggable: true, persistBox: 'blog-stage' }, true);
+  await gesture(page, 'move', 2, [[40, 30]]);
+  assert.equal(await stored(page), null); assert.deepEqual((await stored(page, 'xiaochun:box:blog-stage')).mode, 'inline');
+  // 没开手势: 不恢复
+  await recreate(page, { persistBox: 'blog-stage' }, true);
+  assert.deepEqual(await boxOf(page), { l: 100, t: 100, w: 200, h: 300 }, '没开 draggable / resizable 不恢复');
+  // 开: 恢复 (内联: 存的是位移)
+  await recreate(page, { draggable: true, persistBox: 'blog-stage' }, true);
+  assert.deepEqual(await boxOf(page), { l: 140, t: 130, w: 200, h: 300 }, '内联恢复');
+  assert.deepEqual([(await stored(page, 'xiaochun:box:blog-stage')).x, (await stored(page, 'xiaochun:box:blog-stage')).y], [40, 30], '内联存相对流内原点的位移');
+  // 不同定位模式: 忽略并清掉
+  await recreate(page, { draggable: true, persistBox: 'blog-stage', position: 'bottom-right' }, true);
+  assert.deepEqual(await boxOf(page), { l: 684, t: 384, w: 200, h: 300 }, '模式不同: 不恢复, 用锚点');
+  assert.equal(await stored(page, 'xiaochun:box:blog-stage'), null, '模式不符的旧数据被清掉');
+  // 坏数据
+  for (const bad of ['not json', '{"v":2}', '{"v":1,"mode":"inline","x":"a","y":0,"width":1,"height":1}', '{"v":1,"mode":"inline","x":1e9,"y":0,"width":100,"height":100}']) {
+    await page.evaluate((b) => localStorage.setItem('xiaochun:box:bad', b), bad);
+    await recreate(page, { draggable: true, persistBox: 'bad' }, true);
+    assert.deepEqual(await boxOf(page), { l: 100, t: 100, w: 200, h: 300 }, '坏数据忽略: ' + bad);
+    assert.equal(await page.evaluate(() => localStorage.getItem('xiaochun:box:bad')), null, '坏数据被清掉');
+  }
+  // localStorage 读写抛错 (隐私模式 / 被禁用): 不崩, 手势照常
+  await page.evaluate(() => { Storage.prototype.setItem = () => { throw new Error('quota'); }; Storage.prototype.getItem = () => { throw new Error('denied'); }; });
+  await recreate(page, { draggable: true, persistBox: true }, true);
+  await gesture(page, 'move', 3, [[10, 10]]);
+  assert.deepEqual(await boxOf(page), { l: 110, t: 110, w: 200, h: 300 }, '存储报错也不影响手势');
+  await page.close();
+});
+
+await check('persistBox: 恢复时钳制到当前视口 (窗口变小 / 存的值越界): 大小 ≤ 视口且 ≥ 最小 120x180, 悬浮位置在视口内; 内联横向在视口内', async () => {
+  const page = await newPage();
+  await page.evaluate(() => localStorage.clear());
+  await page.evaluate(() => localStorage.setItem('xiaochun:box', JSON.stringify({ v: 1, mode: 'bottom-right', x: 5000, y: -300, width: 5000, height: 10 })));
+  await mkP(page, { draggable: true, resizable: true, position: 'bottom-right', persistBox: true }); await handshake(page); await settle(page);
+  const b = await boxOf(page);
+  assert.ok(b.w <= 900 && b.h >= 180 && b.h <= 700 && b.w >= 120, '大小钳在 [最小, 视口]: ' + JSON.stringify(b));
+  assert.ok(b.l >= 0 && b.t >= 0 && b.l + b.w <= 900 && b.t + b.h <= 700, '位置在视口内: ' + JSON.stringify(b));
+  // 窗口变小后再创建
+  await page.setViewport({ width: 360, height: 640 });
+  await page.evaluate(() => localStorage.setItem('xiaochun:box', JSON.stringify({ v: 1, mode: 'bottom-right', x: 600, y: 400, width: 500, height: 600 })));
+  await recreate(page, { draggable: true, resizable: true, position: 'bottom-right', persistBox: true });
+  const c = await boxOf(page);
+  assert.ok(c.l >= 0 && c.t >= 0 && c.l + c.w <= 360 && c.t + c.h <= 640, '小窗口下仍在视口内: ' + JSON.stringify(c));
+  // 自定义最小尺寸: 夹到 minWidth/minHeight
+  await page.setViewport({ width: 900, height: 700 });
+  await page.evaluate(() => localStorage.setItem('xiaochun:box', JSON.stringify({ v: 1, mode: 'bottom-right', x: 10, y: 10, width: 50, height: 60 })));
+  await recreate(page, { draggable: true, resizable: { minWidth: 160, minHeight: 240 }, position: 'bottom-right', persistBox: true });
+  const d = await boxOf(page);
+  assert.deepEqual([d.w, d.h], [160, 240], '夹到自定义最小尺寸');
+  // 内联: 横向夹进视口
+  await page.evaluate(() => localStorage.setItem('xiaochun:box:inl', JSON.stringify({ v: 1, mode: 'inline', x: 5000, y: 20, width: 200, height: 300 })));
+  await recreate(page, { draggable: true, persistBox: 'inl' }, true);
+  const e = await boxOf(page);
+  assert.ok(e.l >= 0 && e.l + e.w <= 900, '内联横向在视口内: ' + JSON.stringify(e));
+  await page.close();
+});
+
+await check('clearPersistedBox: 删存储; { reset: true } 还原到初始位置 / 大小 (悬浮回锚点, 内联清位移); 没开 persistBox 时空操作; 元素属性 persist-box', async () => {
+  const page = await newPage();
+  await page.evaluate(() => localStorage.clear());
+  await mkP(page, { draggable: true, resizable: true, position: 'bottom-right', persistBox: 'z' }); await handshake(page); await settle(page);
+  const init = await boxOf(page);
+  await gesture(page, 'move', 1, [[-120, -80]]);
+  assert.notDeepEqual(await boxOf(page), init);
+  assert.ok(await stored(page, 'xiaochun:box:z'));
+  await page.evaluate(() => xc.clearPersistedBox());
+  assert.equal(await stored(page, 'xiaochun:box:z'), null, '只删存储');
+  assert.notDeepEqual(await boxOf(page), init, '不带 reset 不动当前盒子');
+  await gesture(page, 'move', 2, [[10, 10]]);
+  await page.evaluate(() => xc.clearPersistedBox({ reset: true }));
+  assert.equal(await stored(page, 'xiaochun:box:z'), null);
+  assert.deepEqual(await boxOf(page), init, 'reset 回到初始锚点 + 大小');
+  await recreate(page, { draggable: true, resizable: true, position: 'bottom-right', persistBox: 'z' });
+  assert.deepEqual(await boxOf(page), init, 'reset 后重建不再恢复旧值');
+  assert.ok(init.t >= 0 && init.l >= 0 && init.l + init.w <= 900 && init.t + init.h <= 700, '悬浮默认尺寸扣掉边距, 不顶出屏幕: ' + JSON.stringify(init));
+  // 内联 reset
+  await recreate(page, { draggable: true, persistBox: 'i' }, true);
+  await gesture(page, 'move', 3, [[50, 60]]);
+  await page.evaluate(() => xc.clearPersistedBox({ reset: true }));
+  assert.deepEqual(await boxOf(page), { l: 100, t: 100, w: 200, h: 300 });
+  assert.equal(await page.evaluate(() => document.querySelector('[data-xiaochun]').style.translate), '');
+  // 没开 persistBox: 空操作不抛
+  await recreate(page, { draggable: true }, true);
+  await page.evaluate(() => xc.clearPersistedBox());
+  await page.evaluate(() => xc.destroy());
+  // 元素属性 persist-box
+  const el = await page.evaluate(async () => {
+    localStorage.setItem('xiaochun:box', JSON.stringify({ v: 1, mode: 'inline', x: 30, y: 20, width: 260, height: 340 }));
+    const e = document.createElement('xiaochun-avatar'); e.setAttribute('src', 'http://frame.test/embed'); e.setAttribute('lazy', 'false');
+    e.setAttribute('draggable', ''); e.setAttribute('resizable', ''); e.setAttribute('persist-box', '');
+    e.style.cssText = 'position:absolute;left:100px;top:100px'; document.body.appendChild(e);
+    await new Promise((r) => setTimeout(r, 400));
+    const b = e.shadowRoot.querySelector('[data-xiaochun]').getBoundingClientRect();
+    const out = [Math.round(b.left), Math.round(b.top), Math.round(b.width), Math.round(b.height)];
+    e.clearPersistedBox(); const gone = localStorage.getItem('xiaochun:box') === null; e.remove();
+    return { out, gone };
+  });
+  assert.deepEqual(el.out, [130, 120, 260, 340], '元素 persist-box="" 恢复位置 + 大小');
+  assert.equal(el.gone, true, '元素 clearPersistedBox()');
+  await page.close();
+});
+
+// ───────────── 默认尺寸 600x1080 (受视口限制) ─────────────
+const wrapBox = (page) => page.evaluate(() => { const b = document.querySelector('[data-xiaochun]').getBoundingClientRect(); return [Math.round(b.width), Math.round(b.height)]; });
+/** 不传 width / height 的创建 (page.evaluate 的参数会丢掉 undefined 键, 所以不能复用 mk)。 */
+const mkD = (page, opts = {}) => page.evaluate(async (opts) => {
+  window.xc = window.XC.createXiaochun({ container: '#a', src: 'http://frame.test/embed', lazy: false, ...opts }); return true;
+}, opts);
+const dim = (page) => page.evaluate(() => ({ vw: document.documentElement.clientWidth, vh: window.innerHeight, sw: document.documentElement.scrollWidth }));
+
+await check('默认尺寸 600x1080: 宽屏下原样; 窄视口 (360x640) 钳制到容器宽 / 视口高, 不横向溢出; 显式 width/height 原样; setSize(undefined) 恢复默认', async () => {
+  const page = await newPage();
+  await page.setViewport({ width: 1400, height: 1200 });
+  await mkD(page);
+  assert.deepEqual(await wrapBox(page), [600, 1080], '宽屏默认 600x1080');
+  await page.evaluate(() => xc.destroy());
+  await page.setViewport({ width: 360, height: 640 });
+  await mkD(page);
+  const [w, h] = await wrapBox(page); const d = await dim(page);
+  assert.ok(w <= d.vw && w > 100, `窄屏宽不超过视口: ${w} <= ${d.vw}`);
+  assert.ok(h <= d.vh && h > 100, `窄屏高不超过视口: ${h} <= ${d.vh}`);
+  // (本用例的容器 #a 是 left:100px 的绝对定位, 自身偏移会产生滚动, 不在此断言; 流内容器的无溢出见下面元素 / React 用例)
+  await page.evaluate(() => xc.destroy());
+  // 显式值原样 (宽仍受 max-width:100% 约束)
+  await page.setViewport({ width: 1400, height: 1200 });
+  await mk(page, { width: 320, height: 480 });
+  assert.deepEqual(await wrapBox(page), [320, 480]);
+  await page.evaluate(() => xc.setSize(undefined, undefined));
+  assert.deepEqual(await wrapBox(page), [600, 1080], 'setSize(undefined, undefined) 恢复默认');
+  await page.evaluate(() => xc.setSize(260, undefined));
+  assert.deepEqual(await wrapBox(page), [260, 1080], '只给宽, 高用默认');
+  // 窗口变窄后 (默认值是 CSS min()) 自动跟随
+  await page.setViewport({ width: 400, height: 700 });
+  const [w2, h2] = await wrapBox(page);
+  assert.ok(w2 <= 400 && h2 <= 700, `默认尺寸随视口变窄: ${w2}x${h2}`);
+  await page.close();
+});
+
+await check('<xiaochun-avatar> 默认 600x1080 (窄屏钳制); size="280" → 280x420 (高 = 宽 x 1.5 的旧规则); 运行时删掉 size 恢复默认', async () => {
+  const page = await newPage();
+  const make = (vw, vh, attrs) => page.evaluate(async (vw, vh, attrs) => {
+    document.querySelectorAll('xiaochun-avatar').forEach((e) => e.remove());
+    const e = document.createElement('xiaochun-avatar'); e.id = 'el';
+    e.setAttribute('src', 'http://frame.test/embed'); e.setAttribute('lazy', 'false');
+    for (const [k, v] of Object.entries(attrs)) e.setAttribute(k, v);
+    document.body.appendChild(e);
+    await new Promise((r) => setTimeout(r, 300));
+    const b = e.shadowRoot.querySelector('[data-xiaochun]').getBoundingClientRect();
+    return [Math.round(b.width), Math.round(b.height), document.documentElement.scrollWidth, document.documentElement.clientWidth];
+  }, vw, vh, attrs);
+  await page.setViewport({ width: 1400, height: 1200 });
+  const wide = await make(1400, 1200, {});
+  assert.deepEqual(wide.slice(0, 2), [600, 1080], '元素默认 600x1080: ' + wide);
+  assert.deepEqual((await make(1400, 1200, { size: '280' })).slice(0, 2), [280, 420]);
+  assert.deepEqual((await make(1400, 1200, { size: '320x480' })).slice(0, 2), [320, 480]);
+  await page.evaluate(() => { document.querySelector('#el').setAttribute('size', '300x500'); });
+  assert.deepEqual(await page.evaluate(() => { const b = document.querySelector('#el').shadowRoot.querySelector('[data-xiaochun]').getBoundingClientRect(); return [Math.round(b.width), Math.round(b.height)]; }), [300, 500]);
+  await page.evaluate(() => document.querySelector('#el').removeAttribute('size'));
+  assert.deepEqual(await page.evaluate(() => { const b = document.querySelector('#el').shadowRoot.querySelector('[data-xiaochun]').getBoundingClientRect(); return [Math.round(b.width), Math.round(b.height)]; }), [600, 1080], '删掉 size 恢复默认');
+  await page.setViewport({ width: 360, height: 640 });
+  const narrow = await make(360, 640, {});
+  assert.ok(narrow[0] <= 360 && narrow[1] <= 640 && narrow[2] <= narrow[3], '元素窄屏不溢出: ' + narrow);
+  await page.close();
+});
+
+await check('React 默认尺寸 600x1080 (width / height 不传); 窄屏钳制; prop 变回 undefined 也恢复默认', async () => {
+  const page = await newPage();
+  await page.setViewport({ width: 1400, height: 1200 });
+  await page.addScriptTag({ url: 'http://host.test/react.js' });
+  await page.evaluate(() => window.__mountReact());
+  await page.waitForFunction(() => window.__rlog.includes('scene:light'));
+  assert.deepEqual(await wrapBox(page), [200, 300]);
+  await page.evaluate(() => window.__setSize([undefined, undefined])); await settle(page);
+  assert.deepEqual(await wrapBox(page), [600, 1080], 'prop 变回 undefined → 默认');
+  assert.deepEqual(await page.evaluate(() => { const b = document.querySelector('[data-xiaochun-host]').getBoundingClientRect(); return [Math.round(b.width), Math.round(b.height)]; }), [600, 1080], 'React 容器 div 也是默认尺寸');
+  await page.setViewport({ width: 360, height: 640 }); await settle(page);
+  const [w, h] = await wrapBox(page); const d = await dim(page);
+  assert.ok(w <= d.vw && h <= d.vh && d.sw <= d.vw, `React 窄屏不溢出: ${w}x${h} / ${d.vw}x${d.vh} sw=${d.sw}`);
   await page.close();
 });
 

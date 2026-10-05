@@ -5,7 +5,11 @@ import { defineConfig } from 'vitest/config';
 // 刻意不复用 vite.config.ts (它带 Cloudflare / Tailwind / Tauri 相关插件, 单测用不到)。
 export default defineConfig({
   resolve: {
-    alias: { '@': path.resolve(import.meta.dirname, 'src') },
+    alias: {
+      '@': path.resolve(import.meta.dirname, 'src'),
+      // 与 vite.config.ts 一致: 协议常量源码直引 (src/embed/params.ts 等会 import)
+      '@firetable/project-xiaochun/protocol': path.resolve(import.meta.dirname, 'packages/project-xiaochun/src/protocol.ts'),
+    },
   },
   test: {
     include: ['src/**/*.test.ts'],

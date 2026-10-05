@@ -46,6 +46,7 @@ export const XC_FRAME_TO_HOST = [
   'xc.loaded',
   'xc.outfit-changed',
   'xc.scene-changed',
+  'xc.lang-changed',
   'xc.prefetched',
   'xc.state',
   'xc.stt',
@@ -114,11 +115,13 @@ export type XcErrorCode =
  * 这样 `__proto__` / `constructor` / `toString` 这类原型键永远不会被当成合法 id。
  */
 /**
- * iframe 内置界面部件名 (`?ui=chat,outfit,scene` / SDK `ui: [...]`)。
+ * iframe 内置界面部件名 (`?ui=chat,outfit,scene,lang,github` / SDK `ui: [...]`)。
  *   chat    底部聊天栏 (ChatBar, 对话走 WebLLM)
  *   bubble  头顶气泡 (说话文本 / 状态)
  *   outfit  换装按钮 (与主站 TopHeader 同款)
  *   scene   换场景(背景)按钮 (与主站 TopHeader 同款)
+ *   lang    语言切换按钮 (中文 / English / 日本語; 与主站 TopHeader 同一个组件)
+ *   github  GitHub 链接按钮 (新标签页打开项目仓库; 与主站 TopHeader 同一个组件)
  */
 /**
  * 窗口圆角半径 (CSS px)。Tauri 桌宠的无框窗口圆角 (src/styles/main.css 的 --xc-window-radius) 与 /embed 非透明场景的默认外壳圆角共用这一个值,
@@ -126,7 +129,7 @@ export type XcErrorCode =
  */
 export const XC_WINDOW_CORNER_RADIUS = 20;
 
-export const XC_UI_PARTS = ['chat', 'bubble', 'outfit', 'scene'] as const;
+export const XC_UI_PARTS = ['chat', 'bubble', 'outfit', 'scene', 'lang', 'github'] as const;
 export type XcUiPart = (typeof XC_UI_PARTS)[number];
 const XC_UI_PART_SET: ReadonlySet<string> = new Set(XC_UI_PARTS);
 /** 0.1.14 里 `ui=1` / `ui: true` 的含义 = 当时存在的全部部件。 */
@@ -168,6 +171,121 @@ export function normalizeXcUiOption(v: unknown): XcUiParse {
   return { parts: [], unknown: [], legacy: false };
 }
 
+/**
+ * 内置界面 (顶栏按钮 outfit/scene/lang/github + 聊天栏 chat) 的显示策略, 与 Tauri 桌宠的 "点击角色才出现" 同一套状态机 (src/hooks/usePetUiVisibility.ts):
+ *   'transparent' (默认) 与 Tauri 完全一致: 只有透明场景默认隐藏, 单击角色出现 (按住拖动 / 长按拖不算), 再单击角色收起, 单击空白收起, 10 秒无操作自动收起
+ *                 (悬停在按钮 / 聊天栏上、菜单或对话框打开、输入框聚焦 / 有输入 / 发送中 时不收); 亮 / 暗场景常显。
+ *   true          所有场景都按上面的点击出现规则 (亮 / 暗场景也默认隐藏)。
+ *   false         一直显示 (忽略点击规则)。
+ */
+export type XcUiAutoHide = boolean | 'transparent';
+/** 默认值: 'transparent' (与 Tauri 一致: 只有透明场景点击出现)。 */
+export const XC_UI_AUTOHIDE_DEFAULT: XcUiAutoHide = 'transparent';
+/** `?uiAutoHide=` 参数 / 元素属性: 1|true → true; 0|false → false; transparent → 'transparent'; 缺省 / 非法 → undefined (调用方用默认值)。 */
+export function parseXcUiAutoHide(raw: unknown): XcUiAutoHide | undefined {
+  if (raw === true || raw === false || raw === 'transparent') return raw;
+  if (typeof raw !== 'string') return undefined;
+  const v = raw.trim().toLowerCase();
+  if (v === '1' || v === 'true') return true;
+  if (v === '0' || v === 'false') return false;
+  if (v === 'transparent') return 'transparent';
+  return undefined;
+}
+/** 某个 uiAutoHide 取值在当前场景下是否生效 (隐藏 + 点击出现)。 */
+export function xcUiAutoHideActive(mode: XcUiAutoHide, sceneTransparent: boolean): boolean {
+  return mode === 'transparent' ? sceneTransparent : mode;
+}
+
+/* ───────────── 相机 (camera) ───────────── */
+
+/**
+ * 宿主可调的相机选项 (SDK `camera` 选项 / `?cameraFov=` 等 URL 参数 / `xc.setConfig{camera}`)。
+ *   fov       视野角 (度, 默认 30): 越小越像长焦 (透视压缩、背景虚), 越大越广角。主体取景大小会随 fov 自动补偿 (距离 = 取景范围 / (2·tan(fov/2))), 所以只改 fov 时角色在画面里的大小基本不变
+ *   distance  相机到角色的视距 (米, 默认约 2.5): 越小角色越大。显式设置后, 首次取景时忽略 iframe 里保存的视距 / 俯仰 (用户之后滚轮缩放仍可调, 且换装 / 换场景不会被拽回)
+ *   height    取景高度偏移 (米, 默认 0): 正值 = 相机连同目标一起上抬 (角色在画面里下移), 负值相反。显式值不写入 iframe 的保存值
+ *   intro     是否播放加载完成后的推镜头动画 (默认 true); false = 直接放到终点
+ * 缺省 / undefined = 不覆盖 (走 iframe 保存值 / 默认值); `xc.setConfig` 里 null = 清除该项覆盖。
+ */
+export interface XcCamera {
+  fov?: number | null;
+  distance?: number | null;
+  height?: number | null;
+  intro?: boolean | null;
+}
+/**
+ * 各数值项允许的范围 (越界值会被夹到边界)。与主仓库 APP_CONFIG.camera (minFov/maxFov、defaultMin/MaxDistance、hostMaxYOffset)
+ * 一致, 主仓库有单测核对。capabilities.camera 也会上报这份范围。
+ */
+export const XC_CAMERA_RANGES = {
+  fov: [15, 60],
+  distance: [1, 15],
+  height: [-1, 1],
+} as const;
+const XC_CAMERA_NUM_KEYS = ['fov', 'distance', 'height'] as const;
+const XC_CAMERA_KEYS = ['fov', 'distance', 'height', 'intro'] as const;
+
+export type XcCameraNormalized =
+  | { ok: true; camera: XcCamera; /** 被夹到范围边界的项 (供告警) */ clamped: string[] }
+  | { ok: false; error: string };
+
+/**
+ * 校验 + 规整一个 camera 对象 (xc.setConfig / SDK 选项共用)。
+ * 数字项必须是有限 number (越界夹到范围内); intro 必须是 boolean; null = 清除; 未知键 / 非对象 → 错误。
+ */
+export function normalizeXcCamera(raw: unknown): XcCameraNormalized {
+  if (raw === null || typeof raw !== 'object' || Array.isArray(raw)) return { ok: false, error: 'camera must be an object' };
+  const src = raw as Record<string, unknown>;
+  for (const k of Object.keys(src)) {
+    if (!(XC_CAMERA_KEYS as readonly string[]).includes(k)) return { ok: false, error: `unknown camera key: ${k} (expected ${XC_CAMERA_KEYS.join(' | ')})` };
+  }
+  const out: XcCamera = {};
+  const clamped: string[] = [];
+  for (const k of XC_CAMERA_NUM_KEYS) {
+    const v = src[k];
+    if (v === undefined) continue;
+    if (v === null) { out[k] = null; continue; }
+    if (typeof v !== 'number' || !Number.isFinite(v)) return { ok: false, error: `camera.${k} must be a finite number or null` };
+    const [lo, hi] = XC_CAMERA_RANGES[k];
+    const c = Math.min(hi, Math.max(lo, v));
+    if (c !== v) clamped.push(k);
+    out[k] = c;
+  }
+  if (src.intro !== undefined) {
+    if (src.intro !== null && typeof src.intro !== 'boolean') return { ok: false, error: 'camera.intro must be a boolean or null' };
+    out.intro = src.intro;
+  }
+  return { ok: true, camera: out, clamped };
+}
+
+/**
+ * 解析 URL 参数 cameraFov / cameraDistance / cameraHeight / cameraIntro (SDK 生成 / 手写 iframe 均可)。
+ * 数值非法 → 忽略并记 warning; 越界 → 夹到范围并记 warning; cameraIntro 认 0|1|true|false。
+ */
+export function parseXcCameraParams(get: (name: string) => string | null): { camera: XcCamera; warnings: string[] } {
+  const camera: XcCamera = {};
+  const warnings: string[] = [];
+  const names = { fov: 'cameraFov', distance: 'cameraDistance', height: 'cameraHeight' } as const;
+  for (const k of XC_CAMERA_NUM_KEYS) {
+    const raw = get(names[k]);
+    if (raw === null) continue;
+    const t = raw.trim();
+    const n = t === '' ? NaN : Number(t);
+    if (!Number.isFinite(n)) { warnings.push(`ignoring invalid ?${names[k]}=${raw}`); continue; }
+    const [lo, hi] = XC_CAMERA_RANGES[k];
+    const c = Math.min(hi, Math.max(lo, n));
+    if (c !== n) warnings.push(`?${names[k]}=${raw} is out of range [${lo}, ${hi}], clamped to ${c}`);
+    camera[k] = c;
+  }
+  const intro = get('cameraIntro');
+  if (intro !== null) {
+    const v = intro.trim().toLowerCase();
+    if (v === '1' || v === 'true') camera.intro = true;
+    else if (v === '0' || v === 'false') camera.intro = false;
+    else warnings.push(`ignoring invalid ?cameraIntro=${intro}`);
+  }
+  return { camera, warnings };
+}
+
 export const XC_ID_RE = /^[a-z][a-z0-9_]{0,63}$/;
 export const isXcId = (v: unknown): v is string => typeof v === 'string' && XC_ID_RE.test(v);
 /** 只认对象自己的属性 (不走原型链); 等价于 Object.hasOwn, 但兼容 ES2020 目标。 */
@@ -176,6 +294,8 @@ export const xcHasOwn = (o: object, k: string): boolean => Object.prototype.hasO
 /** 内置场景 id (以 xc.ready.capabilities.scenes 为准; 目前就这三个主题, 不含真实场景资产)。 */
 export type XcSceneId = 'light' | 'dark' | 'transparent';
 export type XcLang = 'zh-CN' | 'en' | 'ja';
+/** iframe 支持的界面语言 (与主站 SUPPORTED_LANGS 同一份; capabilities.ui.langs)。 */
+export const XC_LANGS: readonly XcLang[] = ['zh-CN', 'en', 'ja'];
 export type XcPhase = 'idle' | 'loading' | 'thinking' | 'speaking' | 'listening' | 'paused';
 /** lazy = 不预热 WebLLM / EMAGE, 首次互动再加载 (默认); eager = 立即预热。 */
 export type XcHeavyMode = 'lazy' | 'eager';
@@ -199,6 +319,11 @@ export interface XcConfig {
    * 传 true/false 是 0.1.14 的旧写法 (true = chat + bubble), 已弃用, 仅为兼容保留。
    */
   ui?: XcUiPart[] | boolean;
+  /**
+   * 内置界面的显示策略 (见 XcUiAutoHide): 默认 'transparent' = 与 Tauri 一致 (只在透明场景隐藏、单击角色出现, 亮 / 暗场景常显); true = 所有场景都点击出现; false = 一直显示。
+   * 仅当 capabilities.ui 存在时才有意义 (旧版 /embed 忽略, 常显)。
+   */
+  uiAutoHide?: XcUiAutoHide;
   /** 重资源加载策略, 见 XcHeavyMode。 */
   heavy?: XcHeavyMode;
   /**
@@ -213,6 +338,11 @@ export interface XcConfig {
    *   resize = 在 iframe 四角热区按下拖动 → 发 xc.gesture-resize, 由宿主缩放 iframe
    */
   gestures?: { move?: boolean; resize?: boolean };
+  /**
+   * 相机选项 (见 XcCamera); 放在 xc.init 的 config 里或用 xc.setConfig 运行时改 (缺省键 = 不变, null = 恢复默认, 非法值 → xc.error{bad_request})。
+   * 运行时改会立刻重新取景并取消进行中的推镜头。仅当 capabilities.camera 存在时才有意义 (旧版 /embed 忽略)。
+   */
+  camera?: XcCamera;
 }
 
 export interface XcInitPayload {
@@ -374,6 +504,16 @@ export interface XcReadyPayload {
      * cornerSize = 四角热区边长 (CSS px, iframe 视口左上/右上/左下/右下各一个正方形), 宿主 UI 可据此提示。
      */
     gestures?: { move: boolean; resize: boolean; cornerSize: number };
+    /**
+     * 内置界面能力; 旧版 /embed 没有这个字段 → 宿主视为"没有 lang / github 部件、不支持 uiAutoHide (界面常显)"。
+     * parts = 可用的部件名; autoHide = 支持 uiAutoHide (点击出现); langs = 语言按钮 / `lang` 选项可用的取值。
+     */
+    ui?: { parts: XcUiPart[]; autoHide: boolean; langs: XcLang[] };
+    /**
+     * 相机选项能力 (见 XcCamera); 旧版 /embed 没有这个字段 → 宿主视为"不支持 camera 选项"。
+     * fov / distance / height = 各项允许范围 [min, max] (越界会被夹到边界); intro = 支持关闭推镜头。
+     */
+    camera?: { fov: [number, number]; distance: [number, number]; height: [number, number]; intro: boolean };
   };
 }
 
@@ -426,6 +566,16 @@ export interface XcSceneChangedPayload {
   previous?: string | null;
   initial?: boolean;
   noop?: boolean;
+}
+
+/**
+ * xc.lang-changed — iframe 当前界面语言 (握手后上报一次 initial:true; 之后用户点语言按钮 / xc.setConfig{lang} 引起的变化)。
+ * 初始语言优先级: `?lang=` (SDK `lang` 选项) > iframe 自己 localStorage 里记住的用户选择 > 浏览器语言 > zh-CN。
+ */
+export interface XcLangChangedPayload {
+  lang: XcLang;
+  previous?: XcLang | null;
+  initial?: boolean;
 }
 
 export interface XcStatePayload {
@@ -515,6 +665,7 @@ export interface XcFramePayloadMap {
   'xc.loaded': XcLoadedPayload;
   'xc.outfit-changed': XcOutfitChangedPayload;
   'xc.scene-changed': XcSceneChangedPayload;
+  'xc.lang-changed': XcLangChangedPayload;
   'xc.prefetched': XcPrefetchedPayload;
   'xc.state': XcStatePayload;
   'xc.stt': XcSttPayload;

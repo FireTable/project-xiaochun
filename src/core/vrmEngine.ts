@@ -132,11 +132,28 @@ function persistCameraPitch(state: SavedCameraPitch): void {
   }
 }
 
-/** 获取相机默认视距 (m) */
-function getDefaultCameraDistance(): number {
-  const fovRad = (APP_CONFIG.camera.defaultFov * Math.PI) / 180;
+/**
+ * 按 FOV 反推"主体取景"视距 (m): distance = shotExtent / (2·tan(fov/2))。
+ * 保证不同焦距下主体在画面里的大小一致 (fov 越小镜头越远)。
+ * 引擎里所有"默认取景"(初始机位 / fitCamera / 推镜头终点) 都走这一个函数, 传入当前相机 fov。
+ */
+export function getDefaultCameraDistance(fovDeg: number = APP_CONFIG.camera.defaultFov): number {
+  const fovRad = (fovDeg * Math.PI) / 180;
   return APP_CONFIG.camera.defaultShotExtent / (2 * Math.tan(fovRad / 2));
 }
+
+/**
+ * 宿主 (SDK / ?camera*=) 可覆盖的相机选项。缺省键 = 不覆盖, 走 iframe 保存值 / 默认值。
+ * 范围见 APP_CONFIG.camera (fov: minFov..maxFov, distance: hostMin/MaxDistance, height: ±hostMaxYOffset)。
+ */
+export interface CameraOverride {
+  fov?: number;
+  distance?: number;
+  height?: number;
+  intro?: boolean;
+}
+/** setCameraConfig 的入参: 缺省键 = 不变, null = 清除该项覆盖 (恢复默认)。 */
+export type CameraOverridePatch = { [K in keyof CameraOverride]?: CameraOverride[K] | null };
 
 /** 获取相机默认俯仰角 (rad) */
 function getDefaultCameraPitch(): number {
@@ -165,11 +182,11 @@ function computeCameraPositionFromPitch(
  * 大小"一致。distance = extent / (2 * tan(fov/2)),方向沿用 config 里 defaultPosition
  * 减 defaultTarget 的方向(保留原本"略高于 target 看下来"的角度)。
  */
-function computeDefaultCameraPosition(): [number, number, number] {
+function computeDefaultCameraPosition(fovDeg: number): [number, number, number] {
   const target = new THREE.Vector3(...APP_CONFIG.camera.defaultTarget);
   const originalOffset = new THREE.Vector3(...APP_CONFIG.camera.defaultPosition).sub(target);
   const direction = originalOffset.clone().normalize();
-  const distance = getDefaultCameraDistance();
+  const distance = getDefaultCameraDistance(fovDeg);
   return target.clone().add(direction.multiplyScalar(distance)).toArray() as [number, number, number];
 }
 
@@ -499,6 +516,73 @@ export class VRMEngine {
   // 视觉上 VRM 是个小点,镜头平滑推进,跟 overlay 的 scale-125 + blur-md 同步。
   // Tween 期间禁用 OrbitControls,避免用户输入跟动画抢 camera。
   private cinematicIntroRafId: number | null = null;
+
+  /** 取消进行中的推镜头并还给用户控制; 返回是否真的取消了一个。 */
+  private cancelCinematicIntro(): boolean {
+    if (this.cinematicIntroRafId === null) return false;
+    cancelAnimationFrame(this.cinematicIntroRafId);
+    this.cinematicIntroRafId = null;
+    if (this.controls) this.controls.enabled = true;
+    return true;
+  }
+
+  // ── 宿主相机覆盖 (/embed 的 camera 选项) ──
+  private cameraOverride: CameraOverride = {};
+
+  /**
+   * 统一取景解算 (俯仰角 + 视距), 初始机位 / fitCamera / 推镜头终点共用。
+   * 优先级: 宿主显式 distance (applyExplicit=true 时) > iframe 保存的 pitch/distance > 按当前 fov 的默认取景。
+   * 显式 distance 生效时一并忽略保存的 pitch (宿主在定镜头, 俯仰也回默认)。
+   * applyExplicit=false (换装 / 换场景的重新取景) 且已有显式 distance: 沿用相机当前的俯仰/视距,
+   * 不把用户滚轮缩放过的镜头拽回宿主给的值。
+   * 结果按 controls 的 min/max 视距钳制。
+   */
+  private resolveShot(applyExplicit: boolean): { pitch: number; distance: number } {
+    const explicit = this.cameraOverride.distance;
+    let pitch: number;
+    let distance: number;
+    if (explicit !== undefined && !applyExplicit && this.controls && this._sceneInitialized) {
+      pitch = this.controls.getPolarAngle();
+      distance = this.controls.getDistance();
+    } else if (explicit !== undefined) {
+      pitch = getDefaultCameraPitch();
+      distance = explicit;
+    } else {
+      const saved = loadSavedCameraPitch();
+      pitch = saved ? saved.pitch : getDefaultCameraPitch();
+      distance = saved?.distance ?? getDefaultCameraDistance(this.camera.fov);
+    }
+    const min = this.controls?.minDistance ?? APP_CONFIG.camera.defaultMinDistance;
+    const max = this.controls?.maxDistance ?? APP_CONFIG.camera.defaultMaxDistance;
+    return { pitch, distance: Math.min(Math.max(distance, min), max) };
+  }
+
+  /**
+   * 宿主 (SDK camera 选项 / ?cameraFov= 等 / xc.setConfig{camera}) 设置相机。
+   * patch 缺省键 = 不变, null = 清除该项 (恢复 iframe 保存值 / 默认); 值需已由调用方校验到合法范围。
+   * 已有模型时立刻重新取景并取消进行中的推镜头 (起点之前就设置则只记录, 首次取景时生效)。
+   */
+  public setCameraConfig(patch: CameraOverridePatch): void {
+    const c: CameraOverride = { ...this.cameraOverride };
+    (['fov', 'distance', 'height', 'intro'] as const).forEach((k) => {
+      const v = patch[k];
+      if (v === undefined) return;
+      if (v === null) delete c[k];
+      else (c as Record<string, number | boolean>)[k] = v;
+    });
+    this.cameraOverride = c;
+    if (patch.fov !== undefined) {
+      this.camera.fov = c.fov ?? APP_CONFIG.camera.defaultFov;
+      this.camera.updateProjectionMatrix();
+    }
+    this.cancelCinematicIntro();
+    if (this.currentVRM && this.controls) {
+      // 只改 height / fov / intro 时沿用相机当前视距 (不把用户缩放过的镜头拽回); 动了 distance 才重新定距
+      this.fitCamera(patch.distance !== undefined);
+      this.renderSingleFrame();
+    }
+  }
+
   public cinematicIntro(durationMs: number = 1100): void {
     const camera = this.camera;
     const controls = this.controls;
@@ -507,11 +591,18 @@ export class VRMEngine {
       cancelAnimationFrame(this.cinematicIntroRafId);
       this.cinematicIntroRafId = null;
     }
-    const savedPitch = loadSavedCameraPitch();
     const finalTarget = controls.target.clone();
-    const dist = savedPitch?.distance ?? getDefaultCameraDistance();
-    const pitch = savedPitch ? savedPitch.pitch : getDefaultCameraPitch();
+    const { pitch, distance: dist } = this.resolveShot(true);
     const finalPos = new THREE.Vector3(...computeCameraPositionFromPitch(pitch, dist, finalTarget));
+    // 宿主 camera.intro=false: 不推镜头, 直接放到终点
+    if (this.cameraOverride.intro === false) {
+      camera.position.copy(finalPos);
+      camera.lookAt(finalTarget);
+      controls.target.copy(finalTarget);
+      controls.enabled = true;
+      controls.update();
+      return;
+    }
     // 把相机立即设到终点,让 tween 期间 render-loop 读者(gaze 等)看到正确值;
     // 再跳到 startPos 准备推进。
     camera.position.copy(finalPos);
@@ -804,20 +895,20 @@ export class VRMEngine {
     this.camera.aspect = window.innerWidth / window.innerHeight;
     this.controls = new OrbitControls(this.camera, canvas);
 
-    const savedPitch = loadSavedCameraPitch();
     const defaultTarget = new THREE.Vector3(...APP_CONFIG.camera.defaultTarget);
-    const target = (prevCamTarget && (this.currentVRM || this._sceneInitialized))
+    // 只有场景真正初始化过 (HMR / 上下文重建) 才沿用旧相机; 模型比 canvas 先加载完 (缓存命中) 时旧相机还是初始机位, 要按冷启动重新取景
+    const target = (prevCamTarget && this._sceneInitialized)
       ? prevCamTarget
       : defaultTarget;
     this.controls.target.copy(target);
 
-    if (prevCamPos && (this.currentVRM || this._sceneInitialized)) {
+    if (prevCamPos && this._sceneInitialized) {
       this.camera.position.copy(prevCamPos);
-    } else if (savedPitch) {
-      const dist = savedPitch.distance ?? getDefaultCameraDistance();
-      this.camera.position.set(...computeCameraPositionFromPitch(savedPitch.pitch, dist, target));
+    } else if (this.cameraOverride.distance !== undefined || loadSavedCameraPitch()) {
+      const shot = this.resolveShot(true);
+      this.camera.position.set(...computeCameraPositionFromPitch(shot.pitch, shot.distance, target));
     } else {
-      this.camera.position.set(...computeDefaultCameraPosition());
+      this.camera.position.set(...computeDefaultCameraPosition(this.camera.fov));
     }
     this.camera.updateProjectionMatrix();
 
@@ -884,7 +975,16 @@ export class VRMEngine {
 
     // ponytail: 这里初次冷启时不构建场景、不起渲染、不推镜,等 loadVRM 回调里一起初始化；
     // 但在 Vite HMR 重新挂载 canvas 时：模型早已就绪，必须立即唤醒 startAnimation() 接续渲染，杜绝卡死黑屏！
-    if (this.currentVRM || this._sceneInitialized) {
+    if (this.currentVRM && !this._sceneInitialized) {
+      // 模型比 canvas 先加载完 (缓存命中/快网络): loadVRM 回调时 controls 还不存在, 没做过冷启动初始化, 这里补上
+      this._sceneInitialized = true;
+      this.fitCamera(true);
+      const storedTheme = resolveInitialSceneTheme();
+      this.lineworkWorld.build(this.scene, storedTheme);
+      this.updateShadowForTheme(storedTheme === 'dark');
+      this.startAnimation();
+      this.cinematicIntro(1100);
+    } else if (this.currentVRM || this._sceneInitialized) {
       this.startAnimation();
     }
   }
@@ -899,6 +999,8 @@ export class VRMEngine {
   /** 保存当前相机垂直俯仰角与视距 */
   public saveCurrentCameraPitch(): void {
     if (!this.controls) return;
+    // 宿主显式指定了 camera.distance (在定镜头): 不把这次镜头写成 iframe 的用户偏好, 免得去掉该选项后仍残留宿主的取景
+    if (this.cameraOverride.distance !== undefined) return;
     persistCameraPitch({
       pitch: this.controls.getPolarAngle(),
       distance: this.controls.getDistance(),
@@ -1207,7 +1309,7 @@ export class VRMEngine {
    * OrbitControls 内部 spherical 不变 (两向量同步移动), 用户输入保持不变。
    * offset 米, 正向上抬 (相机+目标一起上移, 视觉上场景下移), 负向下压。
    */
-  public setCameraYOffset(offset: number): void {
+  public setCameraYOffset(offset: number, persist: boolean = true): void {
     if (!this.controls) return;
     const delta = offset - this._cameraYOffsetAccum;
     this.controls.target.y += delta;
@@ -1215,9 +1317,12 @@ export class VRMEngine {
     this._cameraYOffsetAccum = offset;
     // ponytail: 单向数据流 — vrmEngine 是 source of truth, 写 localStorage 并通知 App 同步 state
     if (typeof window !== 'undefined') {
-      try {
-        window.localStorage.setItem(CAMERA_Y_OFFSET_KEY, String(offset));
-      } catch { }
+      // 宿主显式 camera.height 不写入保存值 (persist=false), 避免宿主配置污染 iframe 自己的用户偏好
+      if (persist) {
+        try {
+          window.localStorage.setItem(CAMERA_Y_OFFSET_KEY, String(offset));
+        } catch { }
+      }
       window.dispatchEvent(new CustomEvent('camera-y-offset-change', { detail: { offset } }));
     }
   }
@@ -1239,7 +1344,12 @@ export class VRMEngine {
     }
   }
 
-  public fitCamera(): void {
+  /**
+   * 重新取景。applyExplicit=true (首次取景 / 宿主 setCameraConfig) 时宿主显式 camera.distance 生效;
+   * 换装 / 换场景的重新取景用默认 false, 沿用相机当前视距 (见 resolveShot)。camera.height 每次都重新应用
+   * (target 每次都从头骨重算, 偏移必须跟着重来)。
+   */
+  public fitCamera(applyExplicit: boolean = false): void {
     if (this.controls) {
       this.controls.enabled = true;
     }
@@ -1248,15 +1358,19 @@ export class VRMEngine {
       const p = new THREE.Vector3();
       head.getWorldPosition(p);
       const target = new THREE.Vector3(p.x, p.y - 0.25, p.z);
+      // 距离按当前 FOV + shotExtent 算，结合宿主显式值 / 保存的俯仰角与视距还原 (resolveShot)。
+      // 必须在改 controls.target 之前解算: 它可能读"相机当前相对旧目标点"的俯仰 / 视距。
+      const { pitch, distance: dist } = this.resolveShot(applyExplicit);
       this.controls.target.copy(target);
-      // 距离按当前 FOV + shotExtent 算，结合保存的俯仰角 pitch 与视距还原
-      const savedPitch = loadSavedCameraPitch();
-      const fovRad = (this.camera.fov * Math.PI) / 180;
-      const defaultDist = APP_CONFIG.camera.defaultShotExtent / (2 * Math.tan(fovRad / 2));
-      const dist = savedPitch?.distance ?? defaultDist;
-      const pitch = savedPitch ? savedPitch.pitch : getDefaultCameraPitch();
+      this._cameraYOffsetAccum = 0; // target 刚按头骨重算, 累计偏移归零再应用
       this.camera.position.set(...computeCameraPositionFromPitch(pitch, dist, target));
       this.controls.update();
+
+      // 宿主显式 camera.height: 优先于保存的偏移, 且不写入保存值
+      if (this.cameraOverride.height !== undefined) {
+        this.setCameraYOffset(this.cameraOverride.height, false);
+        return;
+      }
 
       // ponytail: 应用持久化的 camera Y 偏移 (调试视角用), 避免 outfit swap / 重置
       // 覆盖默认 fitCamera 的 camera.position. accum 也要同步, 否则下次 setCameraYOffset
@@ -1267,7 +1381,6 @@ export class VRMEngine {
           if (raw !== null) {
             const v = Number(raw);
             if (Number.isFinite(v) && v !== 0) {
-              this._cameraYOffsetAccum = 0;       // 重置 accum 让 delta = v - 0 = v
               this.setCameraYOffset(v);
             }
           }
@@ -1457,7 +1570,7 @@ export class VRMEngine {
 
           if (this.controls && !this._sceneInitialized) {
             this._sceneInitialized = true;
-            this.fitCamera();
+            this.fitCamera(true);
             const storedTheme = resolveInitialSceneTheme();
             this.lineworkWorld.build(this.scene, storedTheme);
             this.updateShadowForTheme(storedTheme === 'dark');
@@ -1902,7 +2015,7 @@ export class VRMEngine {
 
           if (this.controls && !this._sceneInitialized) {
             this._sceneInitialized = true;
-            this.fitCamera();
+            this.fitCamera(true);
             const storedTheme = resolveInitialSceneTheme();
             this.lineworkWorld.build(this.scene, storedTheme);
             this.updateShadowForTheme(storedTheme === 'dark');

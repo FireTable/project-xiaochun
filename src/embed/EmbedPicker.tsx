@@ -1,7 +1,12 @@
 /**
- * EmbedPicker — /embed 内置的"换装 / 换场景"按钮 (?ui=outfit,scene, 默认关)。
+ * EmbedPicker — /embed 内置的顶栏按钮 (?ui=outfit,scene,lang,github, 默认关): 换装 / 换场景 / 语言 / GitHub。
  *
- * 复用主站 TopHeader 的同一套零件, 外观/文案/交互保持一致, 只是去掉了和 embed 无关的东西 (语言/GitHub/设置/上传 VRM/裸模):
+ * 复用主站 TopHeader 的同一套零件, 外观/文案/交互保持一致, 只是去掉了和 embed 无关的东西 (设置/上传 VRM/裸模)。
+ * 语言与 GitHub 按钮直接用 components/HeaderButtons (TopHeader 也用同一份):
+ *   - 语言: 选中后 i18n 立即切换, 存进 iframe 自己的 localStorage (EMBED_LANG_KEY), 向宿主发 xc.lang-changed; 不写主站的 cookie;
+ *   - GitHub: 新标签页打开 APP_CONFIG.brand.github (target=_blank rel=noopener noreferrer)。
+ * 显示时机 (uiAutoHide, 默认 'transparent' = 与 Tauri 一致): 生效时顶栏默认隐藏, 单击角色出现、再点角色 / 点空白 / 10 秒无操作收起
+ *   (共用 hooks/usePetUiVisibility.ts 与 core/ui/clickDetector.ts; 悬停在按钮上 / 菜单打开 / 换装中不收); 隐藏时 visibility:hidden, 不挡点击也不算穿透命中。
  *   - 组件:   Button variant="glass" 圆形 icon 按钮 (移动端 h-11 w-11, sm 起 h-9 w-9, 与 TopHeader 同尺寸类)、DropdownMenu*、
  *             图标 MountainSnow (场景) / Shirt (换装) / Check / Loader2 (换装中旋转)
  *   - 文案:   header.switchScene.tooltip / header.switchOutfit.tooltip / scene.nameKey (昼白线稿·极夜黑线稿·透明背景), i18n 三语
@@ -19,6 +24,9 @@
 import React, { useEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Shirt, Check, Loader2, MountainSnow } from 'lucide-react';
+import { GithubButton, LangButton } from '@/components/HeaderButtons';
+import { holdPetUi, releasePetUi } from '@/hooks/usePetUiVisibility';
+import type { Lang } from '@/i18n';
 import { useCurrentScene } from '@/core/scene/sceneManager';
 import { Button } from '@/components/ui/button';
 import {
@@ -31,17 +39,23 @@ import { APP_CONFIG } from '@/config';
 import { getEmbedPickerState, notifyEmbedMenuOpen, subscribeEmbedPicker, type EmbedBridge } from './bridge';
 import { listOutfits } from './registry';
 
-export interface PickerFlags { outfit: boolean; scene: boolean }
+export interface PickerFlags { outfit: boolean; scene: boolean; lang: boolean; github: boolean }
 
 const NOTICE_MS = 2200;
 
 interface Props {
   flags: PickerFlags;
-  bridge: Pick<EmbedBridge, 'pickOutfit' | 'pickScene'>;
+  bridge: Pick<EmbedBridge, 'pickOutfit' | 'pickScene' | 'pickLang'>;
+  /** uiAutoHide 在当前场景是否生效 (生效 = 默认隐藏, 点击出现)。 */
+  autoHide?: boolean;
+  /** usePetUiVisibility 的 isPetUIVisible (单击角色后为 true, 10 秒无操作自动收起)。 */
+  petUiVisible?: boolean;
 }
 
-export const EmbedPicker: React.FC<Props> = ({ flags, bridge }) => {
-  const { t } = useTranslation();
+export const EmbedPicker: React.FC<Props> = ({ flags, bridge, autoHide = false, petUiVisible = false }) => {
+  const { t, i18n } = useTranslation();
+  const currentLang = (i18n.resolvedLanguage ?? i18n.language ?? 'zh-CN') as Lang;
+  const [openMenus, setOpenMenus] = useState(0);
   const state = useSyncExternalStore(subscribeEmbedPicker, getEmbedPickerState, getEmbedPickerState);
   const currentScene = useCurrentScene();
   const outfits = useMemo(
@@ -64,17 +78,24 @@ export const EmbedPicker: React.FC<Props> = ({ flags, bridge }) => {
   }, [state.notice, t]);
 
   // 菜单开合 → 通知 bridge (打开期间整个 iframe 视为命中, 关闭后重新判定)
-  const menuOpen = (open: boolean) => notifyEmbedMenuOpen(open);
+  const menuOpen = (open: boolean) => { setOpenMenus((c) => Math.max(0, c + (open ? 1 : -1))); notifyEmbedMenuOpen(open); };
 
   const btn = 'h-11 w-11 sm:h-9 sm:w-9';
   const ico = 'w-4 h-4 sm:w-3.5 sm:h-3.5';
+  // 与 TopHeader 的 showHeader 同一规则: 不自动隐藏 / 被点出来了 / 菜单开着 / 换装中 → 显示
+  const shown = !autoHide || petUiVisible || openMenus > 0 || loading;
+  const visibility = shown ? 'opacity-100 visible' : 'opacity-0 invisible';
 
   return (
     // 容器不吃指针 (pointer-events-none), 只有按钮自己 / 菜单是实心的 → 透明场景下按钮之间的空隙仍然穿透。
     // pointerdown 不冒泡: 点按钮不会触发 interactionController 的转身 / 拖动 (它只监听 canvas, 这里是双保险)。
     <div
-      className="pointer-events-none absolute top-3 right-3 sm:top-4 sm:right-4 z-50 flex flex-col items-end gap-2"
+      className={`pointer-events-none absolute top-3 right-3 sm:top-4 sm:right-4 z-50 flex flex-col items-end gap-2 transition-[opacity,visibility] duration-300 ease-out ${visibility}`}
+      data-xc-header=""
+      data-xc-visible={shown ? '1' : '0'}
       onPointerDown={(e) => e.stopPropagation()}
+      onPointerEnter={() => holdPetUi('header')}
+      onPointerLeave={() => releasePetUi('header')}
     >
       <div className="flex items-center gap-2 sm:gap-2.5">
         {flags.scene && (
@@ -154,6 +175,19 @@ export const EmbedPicker: React.FC<Props> = ({ flags, bridge }) => {
             </DropdownMenuContent>
           </DropdownMenu>
         )}
+
+        {flags.lang && (
+          <LangButton
+            id="xc-btn-switch-lang"
+            xcUi
+            className="pointer-events-auto"
+            currentLang={currentLang}
+            onSelect={(lng) => bridge.pickLang(lng)}
+            onOpenChange={menuOpen}
+          />
+        )}
+
+        {flags.github && <GithubButton id="xc-btn-github" xcUi className="pointer-events-auto" />}
       </div>
 
       {toast && (

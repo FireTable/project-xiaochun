@@ -61,6 +61,7 @@ In transparent desk-pet mode, user clicks should interact with XiaoChun when hov
 
 ### 3.4 Pet UI Ergonomics
 - **No Hover Flashing**: Hover-show popups are disabled in desk-pet mode. The control header and chat bar are toggled by clicking the avatar's body.
+- **Click-to-show applies to the transparent (desk-pet) scene only.** In the light / dark scenes the header and chat bar are always visible (`showHeader = !isTransparent || isPetUIVisible || …`). The click logic is shared with the `/embed` iframe: `usePetUiVisibility` (state machine) + `src/core/ui/clickDetector.ts` (left button, ≤ 6 px movement = a click; a drag does not count). Clicks on header / chat bar / menus / dialogs (`header, form, [role=menu], [role=dialog], button, input, textarea, [data-xc-ui]`) are ignored; otherwise `vrmEngine.isHitModel` decides: on the character = toggle, on blank space = hide. `/embed` exposes the same behaviour as `uiAutoHide` (default `'transparent'`, see `docs/EMBED.md` §2.7).
 - **Opacity only, keep DOM**: TopHeader / ChatBar fade with `opacity` (no `translate-y`). They stay mounted so Radix menus and passthrough rects remain valid.
 - **Hold the 10s auto-hide** while the pointer is over header/chat bar, or any `[role=dialog][data-state=open]` is open (`holdPetUi` / `releasePetUi` in `usePetUiVisibility.ts`).
 - Dialog overlays on Tauri use `border-radius: 20px` (`.dialog-overlay`) so the dim layer does not square off the window.

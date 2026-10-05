@@ -187,22 +187,24 @@ xc.on('scene-changed', (p) => console.log(p.id));
 * **偏好保存**:iframe 用**自己的** localStorage 记住用户最近的服装 / 场景(键 `xiaochun_wearing_outfit` / `xiaochun_scene_theme`,与主站一致)。优先级:显式的 `outfit` / `scene`(URL 或 SDK 选项)> 已保存 > 默认;存的 id 不在白名单会被忽略并清掉;存储被拦截 / 分区时静默回退默认。第三方存储按顶层站点分区,每个宿主站各一份。
 * **`persist`**(可选)另外把它们存在宿主页 localStorage,并作为显式值传回 iframe,因此会盖过 iframe 自己存的。默认 `false`。
 * **`prefetch`**(默认关)只把服装文件下载进 iframe 的 IndexedDB(不解压不合成),串行、排在 EMAGE 加载之后,除非你点名否则不含婚纱。`await xc.prefetch(['xiaochun_cheongsam'])` 任何模式都能用;自动预取需要 `heavy: 'eager'`。用户开了省流量模式则跳过。之后 `setOutfit` 不再走网络(解压合成约 0.9 秒仍在)。
-* **内置按钮**:见下一节(`ui: ['outfit', 'scene']`)。
+* **内置按钮**:见下一节(`ui: ['outfit', 'scene', 'lang', 'github']`、`uiAutoHide`)。
 * **自定义模型**:`setModel({ url })` **默认关闭**,需要 `allowCustomModel: true` 显式开启。
 * **迁移**:选项 `model` → `outfit`;旧的 `setModel('base')` 不再可用(列表请用 `getOutfits()`)。
 
-### 🔘 内置换装 / 换场景按钮(`ui`)
+### 🔘 内置按钮(`ui`、`uiAutoHide`)
 
 `ui` 是**部件名数组**,不写就什么都不显示。
 
 ```ts
-createXiaochun({ container: '#avatar', ui: ['outfit', 'scene'] });   // 也可以 ['chat', 'bubble', 'outfit', 'scene']
+createXiaochun({ container: '#avatar', ui: ['outfit', 'scene', 'lang', 'github'] });   // 部件:chat · bubble · outfit · scene · lang · github
 ```
 ```html
-<xiaochun-avatar ui="outfit,scene"></xiaochun-avatar>     <!-- URL 写法: /embed?ui=chat,outfit,scene -->
+<xiaochun-avatar ui="outfit,scene,lang,github" ui-autohide="false"></xiaochun-avatar>     <!-- URL 写法: /embed?ui=outfit,scene,lang,github&uiAutoHide=false -->
 ```
 React:`<Xiaochun ui={['outfit', 'scene']} />`。运行时:`xc.setConfig({ ui: ['outfit'] })`。
 
+* **何时显示(`uiAutoHide`,与桌面端一致)**:默认 `'transparent'`——**透明**场景下按钮和聊天栏初始隐藏,**单击角色**才出现(再点角色或点空白收起;10 秒无操作也自动收起,悬停在它们上面或菜单打开时不收);亮 / 暗场景一直显示。`true` 把"点击才出现"扩展到所有场景,`false` 保持一直显示。拖动 iframe(`draggable`)不算单击(位移 ≤ 6px 才算)。限制:透明场景下点宿主页空白处到不了 iframe(穿透),所以收起靠 10 秒超时或再点角色;触屏第一次轻触只用来唤醒命中检测。需要 iframe 声明 `capabilities.ui.autoHide`,旧 iframe 忽略该选项、常显。
+* **语言 / GitHub 按钮**:`lang` 弹出菜单(简体中文 / English / 日本語),选择后立即生效,存在 **iframe 自己的** localStorage(`xiaochun_embed_lang`),并发 `lang-changed`(`{ lang, previous?, initial? }`,握手后会发一次 `initial: true`)。只记用户自己点的——显式 `lang` 选项和 `setConfig({ lang })` 不写存储。`github` 是 `<a target="_blank" rel="noopener noreferrer">`,指向项目仓库。
 * **和主站 TopHeader 同一套组件**:玻璃质感按钮(触屏 44×44,桌面 36×36)、下拉菜单、`Shirt` / `MountainSnow` / `Check` / `Loader2` 图标、同一批 i18n 文案(随 `lang`)。放在右上角,不遮角色。服装列表来自 `capabilities.outfits`(不含裸模、没有自定义 URL),每行只显示名字(菜单里不显示文件体积)、加载中转圈、当前穿着打 ✓。
 * **与 `setOutfit` / `setScene` 同一条路径**:同样的白名单、同一个串行 last-wins 队列,连点会出现轻提示"busy",并照常发 `outfit-changed` / `scene-changed`。宿主用 SDK 调用时按钮状态同步。点按钮不会触发转身/拖动手势。
 * **透明场景**:按钮参与穿透命中(点按钮不会漏到宿主页,空白处仍穿透)。触屏 + 透明场景下,第一次轻触只用来唤醒命中检测(落在宿主页上),第二次才落到按钮。
@@ -236,6 +238,8 @@ xiaochun-avatar::part(iframe) { outline: 1px solid #0002; }
 ```
 
 可用的 part:`mount` · `wrapper` · `iframe` · `placeholder`。
+
+**不会被选区染蓝**:宿主页的文字选区(拖选划过、Cmd/Ctrl+A)跨过 iframe 时,Chrome 会给整块 iframe 盖一层蓝色高亮。SDK 给外壳、占位图、iframe 都设了 `user-select: none`(CSSOM 内联样式,不注入 `<style>`,不受宿主 CSP 影响);宿主自己的文字照常可选,`pointer-events` 和透明穿透不变。别在 `::part(iframe)` 上把 `user-select` 改回 `auto`。
 
 ---
 
@@ -357,18 +361,21 @@ createXiaochun({
 | `placeholder` | 内置 SVG | 图片 URL、元素或 `false` |
 | `transparent` | `false` | 背景透明叠在页面上(同时开启指针穿透),等价于 `scene: 'transparent'` |
 | `scene` | — | 初始场景:`'light' \| 'dark' \| 'transparent'`(见 `getScenes()`)。未知 id 会被忽略并触发 `error { code: 'unknown_id' }` |
-| `width`、`height` | `320`、`480` | px 或任意 CSS 长度,务必设置 |
+| `width`、`height` | `600`、`1080` | px 或任意 CSS 长度。**默认值受视口限制**:宽 = `min(600px, 100vw)`(外壳另有 `max-width: 100%`,窄容器不溢出),高 = `min(1080px, 100svh)`(悬浮 `position` 还会扣掉 `--xc-offset-x/y` 边距,整块不会顶出屏幕);显式传入的值原样使用。运行时 `setSize(w, h)`(传 `undefined` = 恢复默认) |
 | `position` | `'inline'` | `'inline' \| 'bottom-right' \| 'bottom-left'` |
 | `draggable` | `false` | 手势拖动:按住角色(不要压在内置按钮上)拖 = 移动 iframe,限制在视口内;内联 / 悬浮模式都生效。见下文「手势」 |
 | `borderRadius` | 非透明 `20px` / 透明 `0` | 外壳圆角(数字 = px 或任意 CSS 长度)。light / dark 场景默认与桌面版窗口圆角同值(20px),透明场景不裁角。运行时用 `setBorderRadius()`;`--xc-radius` CSS 变量优先;`0` = 方角 |
 | `resizable` | `false` | 拖四个角缩放 iframe(与桌面版同一套 40px 热区 / 光标 / 圆弧),运行时状态,**不重建 iframe**。可传 `true` 或 `{ minWidth, minHeight, maxWidth, maxHeight }`(默认最小 120×180,最大 = 视口) |
-| `lang` | — | `'zh-CN' \| 'en' \| 'ja'` |
+| `lang` | 自动 | `'zh-CN' \| 'en' \| 'ja'`。优先级:此选项 > 用户上次在内置语言按钮里选的(存在 iframe 自己的 localStorage `xiaochun_embed_lang`)> 浏览器语言 > `zh-CN`。运行时 `setConfig({ lang })` 不持久化。变化时发 `lang-changed` |
 | `outfit` | 默认服装 | 初始服装 id(如 `xiaochun_maid`,见 `getOutfits()`)。未知 id 回退默认服装并触发 `error { code: 'unknown_id' }` |
 | `model` | — | **已弃用**,请改用 `outfit`(会打印 `console.warn`)。不再接受 https URL,见 `allowCustomModel` |
 | `allowCustomModel` | `false` | 显式开启后才允许 `setModel({ url })` 加载任意 https `.vrm` / `.vrmaddon` / `.vrmbase`。第三方文件会在 iframe 里解析,仅对可信 URL 打开 |
+| `camera` | — | 相机取景 `{ fov, distance, height, intro }`:`fov` 15–60°(默认 30,视距按 fov 自动补偿,角色大小基本不变),`distance` 1–15 米(默认约 2.5;首次取景时盖过 iframe 保存的缩放 / 俯仰),`height` ±1 米取景高度偏移(iframe 不保存),`intro: false` 不播推镜头。越界值夹到范围;没有 `pitch`(相机只绕角色上下俯仰,左右是角色自身的 bodyTurn)。创建期写进 `?cameraFov=` 等 URL 参数;运行时用 `setConfig({ camera })`(缺省键不变、`null` 恢复默认,立即重新取景并取消进行中的推镜头)。旧版 `/embed`(无 `capabilities.camera`)忽略。优先级:显式 > iframe 保存的视角 > 默认。 |
+| `persistBox` | `false` | 在**宿主页** localStorage 记住拖动 / 缩放后的位置和大小,下次创建时恢复:`true`(key `xiaochun:box`)或命名空间字符串(`xiaochun:box:<名字>`)。需要 `draggable` / `resizable`。优先级:显式 `width` / `height` > 已保存 > 默认;恢复时钳制到当前视口。`clearPersistedBox({ reset? })` 清除。见「手势」一节 |
 | `persist` | `false` | 可选:另把服装 + 场景偏好保存在**宿主页**的 localStorage(iframe 本来就会存一份自己的):`false` \| `'host'`(`xiaochun:prefs`)\| 自定义 key。显式的 `outfit` / `scene` 选项优先于已保存的偏好;宿主保存的优先于 iframe 自己存的 |
 | `prefetch` | `false` | `true`(全部服装,婚纱 13.9 MB 除外)或 `string[]`。首次加载完成后自动发一次,**仅在 `heavy: 'eager'` 时**;否则请自己调用 `prefetch()` |
-| `ui` | `[]` | iframe 内要显示的内置界面部件,数组,可选 `'chat'`(聊天栏)· `'bubble'`(头顶气泡)· `'outfit'`(换装按钮)· `'scene'`(换场景按钮)。不写/空 = 都不显示;未知名字被忽略并 `console.warn`。见下文「内置换装 / 换场景按钮」 |
+| `ui` | `[]` | iframe 内要显示的内置界面部件,数组,可选 `'chat'`(聊天栏)· `'bubble'`(头顶气泡)· `'outfit'`(换装按钮)· `'scene'`(换场景按钮)· `'lang'`(语言切换)· `'github'`(GitHub 链接,新标签页打开)。不写/空 = 都不显示;未知名字被忽略并 `console.warn`。见下文「内置按钮」 |
+| `uiAutoHide` | `'transparent'` | 内置界面何时显示,**与桌面端一致**:`'transparent'` = 只有透明(桌宠)场景初始隐藏、单击角色才出现,亮 / 暗场景常显;`true` = 所有场景都点击才出现;`false` = 一直显示(旧行为)。运行时 `setConfig({ uiAutoHide })` 热切换 |
 | `heavy` | `'lazy'` | `'lazy'`:首次使用才加载 WebLLM / EMAGE · `'eager'`:预加载 |
 | `controls` | `true` | iframe 内滚轮缩放,默认开(与主站一致)。透明场景:只有指针在角色上才缩放,其余位置滚轮仍滚动宿主页;不透明场景:iframe 铺满,该区域内滚轮 = 缩放,**会吞掉该区域的页面滚动**。`false` 锁定(`?controls=0`) |
 | `autoPause` | `true` | 滚出视口自动暂停 |
@@ -380,7 +387,7 @@ createXiaochun({
 
 **实例**:`ready` · `say(text, { mode: 'speak' \| 'chat' })` · `speakAudio(source, opts)` · `speakAudioStream(opts)` · `motion(nameOrUrlOrOptions)` · `expression(name)` · `setOutfit(id)` · `setScene(id)` · `getOutfits()` · `getScenes()` · `prefetch(ids?)` · `outfit` / `scene`(只读)· `setModel(outfitOrUrl)` *(旧)* · `setConfig(cfg)` · `setSize(w, h)` · `getBox()` · `setDraggable(on)` · `setResizable(on | limits)` · `startListening()` / `stopListening()` / `mic(on)` · `pause()` / `resume()` · `activate()` · `destroy()` · `on(event, cb)` · `lookAt()` *(协议已预留,目前返回 `unsupported`)*。
 
-**事件**:`handshake` · `ready` · `progress` · `state` · `stt` · `utterance`(`phase: 'start' | 'end'`,`kind: 'text' | 'audio'`)· `hit-region` · `outfit-changed` · `scene-changed` · `move` / `resize`(`{ phase: 'start' | 'move' | 'end', left, top, width, height }`)· `error`(新增 `busy`、`unknown_id`;旧 iframe 上开手势会收到一次 `unsupported`)· `destroy`。`progress.phase` 为 `'model' | 'outfit' | 'prefetch'`。
+**事件**:`handshake` · `ready` · `progress` · `state` · `stt` · `utterance`(`phase: 'start' | 'end'`,`kind: 'text' | 'audio'`)· `hit-region` · `outfit-changed` · `scene-changed` · `lang-changed`(`{ lang, previous?, initial? }`)· `move` / `resize`(`{ phase: 'start' | 'move' | 'end', left, top, width, height }`)· `error`(新增 `busy`、`unknown_id`;旧 iframe 上开手势会收到一次 `unsupported`)· `destroy`。`progress.phase` 为 `'model' | 'outfit' | 'prefetch'`。
 
 ### `<xiaochun-avatar>`
 
@@ -390,8 +397,9 @@ createXiaochun({
 | `outfit` | — | 服装 id;运行时修改 = `setOutfit`(**热更新,不重建 iframe**) |
 | `scene` | — | `light` · `dark` · `transparent`;运行时修改 = `setScene`(热更新) |
 | `model` | — | `outfit` 的**已弃用**别名(`outfit` 优先) |
-| `persist` / `prefetch` / `allow-custom-model` | — | 同对应选项;修改会重建 |
-| `lang` | — | `zh-CN` · `en` · `ja`;运行时修改 = `setConfig` |
+| `camera-fov` / `camera-distance` / `camera-height` / `camera-intro` | — | 同 `camera`(热更新 `setConfig({ camera })`,不重建;去掉属性 = 恢复默认) |
+| `persist` / `persist-box` / `prefetch` / `allow-custom-model` | — | 同对应选项(`persist-box=""` = 默认 key,其它字符串 = 命名空间);修改会重建 |
+| `lang` | 自动 | `zh-CN` · `en` · `ja`;不写 = 用户上次的选择 > 浏览器语言 > `zh-CN`;运行时修改 = `setConfig`(不持久化) |
 | `mic` | `false` | 开关听写(模型加载完成后生效) |
 | `transparent` | `true` | `"false"` 关闭 |
 | `draggable` | `false` | 手势拖动(内联 / 悬浮都行);运行时修改 = `setDraggable`(热更新) |
@@ -399,15 +407,16 @@ createXiaochun({
 | `border-radius` | 非透明 `20px` / 透明 `0` | 外壳圆角(数字 = px 或 CSS 长度);运行时修改 = `setBorderRadius`(热更新) |
 | `min-size` / `max-size` | — | 缩放限幅,格式同 `size`(如 `min-size="160x240"`) |
 | `position` | `inline` | `inline` · `bottom-right` · `bottom-left` |
-| `size` | `320x480` | `"280"`(高 = 宽 × 1.5)、`"320x480"`、`"100%x480px"`;运行时修改 = `setSize`(**热更新,不重建 iframe**) |
+| `size` | `600x1080`(受视口限制) | `"280"`(高 = 宽 × 1.5)、`"320x480"`、`"100%x480px"`;运行时修改 = `setSize`(**热更新,不重建 iframe**) |
 | `lazy` | 空闲 + 视口 | `"click"` 仅点击;`"false"` 立即创建 |
 | `paused` | `false` | `pause()` / `resume()` |
-| `ui` | — | 逗号分隔的部件名,如 `ui="outfit,scene"`(不写 = 都不显示;未知项忽略并 warn)。改它会重建;运行时用 `setConfig({ ui })` |
+| `ui` | — | 逗号分隔的部件名,如 `ui="outfit,scene,lang,github"`(不写 = 都不显示;未知项忽略并 warn)。改它会重建;运行时用 `setConfig({ ui })` |
+| `ui-autohide` | `transparent` | `"transparent"`(默认,仅透明场景点击才出现)· `"true"`(所有场景)· `"false"`(一直显示)。改它会重建;运行时用 `setConfig({ uiAutoHide })` |
 | `controls` | 开 | `controls="false"` 锁定 iframe 内滚轮缩放 |
 | `placeholder` / `heavy` / `allowed-origins` | — | 同 `createXiaochun` |
 | `cross-origin-isolated` | `false` | 同 `createXiaochun({ crossOriginIsolated })`;修改会重建 iframe |
 
-**事件**(`CustomEvent`,`composed`,`detail` = 协议 payload):`xc-ready` · `xc-progress` · `xc-state` · `xc-stt` · `xc-utterance` · `xc-outfit-changed` · `xc-scene-changed` · `xc-move` · `xc-resize` · `xc-error`。
+**事件**(`CustomEvent`,`composed`,`detail` = 协议 payload):`xc-ready` · `xc-progress` · `xc-state` · `xc-stt` · `xc-utterance` · `xc-outfit-changed` · `xc-scene-changed` · `xc-lang-changed` · `xc-move` · `xc-resize` · `xc-error`。
 **方法**:`say` · `speakAudio` · `speakAudioStream` · `motion` · `expression` · `setOutfit` · `setScene` · `getOutfits` · `getScenes` · `prefetch` · `destroy`;`el.client` 可拿到完整的 SDK 实例。
 
 ---
@@ -433,7 +442,8 @@ xc.setSize(240, 360);                    // 程序化改尺寸(同样热更新)
 * 透明场景 + 穿透:只有角色、(开了 `resizable` 时)四角 40px 热区会接管指针,其余位置仍穿透到你的页面;内置按钮不会成为拖动 / 缩放起点。
 * 拖动时的选中蓝框两侧都已抑制(`user-select: none`、阻止 `selectstart` / `dragstart`、缩放时用 pointer capture)。
 * 旧版 `/embed`(没有 `capabilities.gestures`)上开内联 `draggable` 或 `resizable`,会触发一次 `error { code: 'unsupported', command: 'gestures' }`。
-* 试玩:`examples/embed-host.html?draggable=1&resizable=1`。
+* **记住位置和大小(`persistBox`,默认关)**:开了 `draggable` / `resizable` 后,`persistBox: true`(或命名空间字符串 → key `xiaochun:box:<名字>`)会在每次拖动 / 缩放**结束**时把盒子存进**宿主页**的 localStorage(读写都包了 try/catch,隐私模式 / 配额满只是不记忆),下次创建时恢复。优先级:显式 `width` / `height` > 已保存 > 默认(600×1080);位置没有显式选项(`position` 只是预设锚点),所以已保存的位置始终生效。**想恢复用户缩放后的大小,就不要传 `width` / `height`。** 恢复时钳制到*当前*视口(大小夹在 `[最小, 视口]`,最小 120×180 或你的 `resizable` 限幅;悬浮盒子整块拉回屏幕内;内联盒子横向夹进视口、纵向不越过文档顶部)。保存时的 `position` 模式与当前不同、或数据损坏,都会被忽略并清掉。只在开了手势时恢复。`xc.clearPersistedBox()` 删除已保存的值;`xc.clearPersistedBox({ reset: true })` 还会把盒子还原到初始位置 / 大小。元素属性 `persist-box`(`""` / `"true"` / 命名空间),React `persistBox` prop + `ref.clearPersistedBox()`。
+* 试玩:`examples/embed-host.html?draggable=1&resizable=1&persistBox=1`。
 
 ## 🧪 本地试玩 (Try It Locally)
 

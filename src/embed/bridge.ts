@@ -17,8 +17,8 @@ import { APP_CONFIG } from '@/config';
 import { sceneManager } from '@/core/scene/sceneManager';
 import { setHeavyPreloadOverride } from '@/lib/heavyPreload';
 import { isLang } from '@/i18n';
-import { defaultPrefetchIds, listOutfits, listScenes, ownEntry, safeLocalStorage, writeOutfitPref } from './registry';
-import { SCENE_THEME_KEY, WEARING_OUTFIT_KEY } from '@/lib/constants';
+import { defaultPrefetchIds, listOutfits, listScenes, ownEntry, safeLocalStorage, writeLangPref, writeOutfitPref } from './registry';
+import { EMBED_LANG_KEY, SCENE_THEME_KEY, WEARING_OUTFIT_KEY } from '@/lib/constants';
 import { BusyError, SwapQueue } from './swapQueue';
 import { PrefetchScheduler, ensureAssets, type AssetIo } from './prefetch';
 import type { SttClient } from '@/stt/sttClient';
@@ -32,6 +32,12 @@ import {
   XC_IMPLEMENTED_COMMANDS,
   XC_UNSUPPORTED_COMMANDS,
   XC_PROTOCOL_VERSION,
+  XC_UI_PARTS,
+  XC_UI_AUTOHIDE_DEFAULT,
+  XC_LANGS,
+  XC_CAMERA_RANGES,
+  normalizeXcCamera,
+  parseXcUiAutoHide,
   isXcEnvelope,
   isXcId,
   parseXcUiList,
@@ -43,6 +49,8 @@ import {
   type XcEnvelope,
   type XcFrameMessageType,
   type XcHeavyMode,
+  type XcLang,
+  type XcUiAutoHide,
   type XcPhase,
   type XcPrefetchedPayload,
 } from '@firetable/project-xiaochun/protocol';
@@ -68,12 +76,15 @@ const EXPRESSIONS = new Set(['neutral', 'happy', 'angry', 'sad', 'relaxed', 'sur
 const BUILTIN_MOTIONS: Record<string, string> = { thinking: '/vrm/motion/thinking.vrma' };
 
 // ── 极简 UI 状态仓 (给 React useSyncExternalStore) ──
-/** 内置界面部件开关 (对应 ?ui= 的部件名): ui = chat 聊天栏。 */
-export type UiState = { ui: boolean; bubble: boolean; outfit: boolean; scene: boolean };
-let uiState: UiState = { ui: false, bubble: false, outfit: false, scene: false };
-/** 部件名数组 → UiState。 */
-export function uiStateFromParts(parts: readonly string[]): UiState {
-  return { ui: parts.includes('chat'), bubble: parts.includes('bubble'), outfit: parts.includes('outfit'), scene: parts.includes('scene') };
+/** 内置界面部件开关 (对应 ?ui= 的部件名): ui = chat 聊天栏; autoHide = uiAutoHide 显示策略 (见 protocol XcUiAutoHide)。 */
+export type UiState = { ui: boolean; bubble: boolean; outfit: boolean; scene: boolean; lang: boolean; github: boolean; autoHide: XcUiAutoHide };
+let uiState: UiState = { ui: false, bubble: false, outfit: false, scene: false, lang: false, github: false, autoHide: XC_UI_AUTOHIDE_DEFAULT };
+/** 部件名数组 → UiState 里的部件开关 (不含 autoHide, 它单独设置)。 */
+export function uiStateFromParts(parts: readonly string[]): Omit<UiState, 'autoHide'> {
+  return {
+    ui: parts.includes('chat'), bubble: parts.includes('bubble'), outfit: parts.includes('outfit'),
+    scene: parts.includes('scene'), lang: parts.includes('lang'), github: parts.includes('github'),
+  };
 }
 const uiListeners = new Set<() => void>();
 export function getEmbedUiState(): UiState { return uiState; }
@@ -160,8 +171,10 @@ export interface EmbedBridgeOptions {
   params: EmbedParams;
   /** /embed 页面版本号 (随主仓库 package.json)。 */
   version: string;
-  /** xc.setConfig{lang} 回调 (由 React 层持有 i18n)。 */
-  onLang: (lang: 'zh-CN' | 'en' | 'ja') => void;
+  /** 切换界面语言 (由 React 层持有 i18n)。 */
+  onLang: (lang: XcLang) => void;
+  /** 当前界面语言 (握手后上报 xc.lang-changed{initial} 用)。 */
+  getLang: () => XcLang;
   /** 正在加载的初始服装 id (EmbedApp 解析 ?outfit= 的结果); 用于"初始加载未完成时收到同目标 xc.setOutfit"不重复加载。 */
   initialOutfit?: string | null;
 }
@@ -171,6 +184,8 @@ export interface EmbedBridge {
   pickOutfit: (id: string) => Promise<void>;
   /** 内置按钮点选场景: 和 xc.setScene 同一路径, 并向宿主发 xc.scene-changed。 */
   pickScene: (id: string) => Promise<void>;
+  /** 内置语言按钮选语言: 切换 + 存进 iframe 自己的 localStorage + 向宿主发 xc.lang-changed。 */
+  pickLang: (lang: XcLang) => void;
   dispose: () => void;
   /** 供 React 层上报模型加载进度 / 完成。 */
   reportProgress: (state: LoadingState) => void;
@@ -189,6 +204,7 @@ export function startEmbedBridge(opts: EmbedBridgeOptions): EmbedBridge {
       try { await vrmEngine.swapOutfit(e.source, e.name); writeOutfitPref(safeLocalStorage(), WEARING_OUTFIT_KEY, id); setPickerState({ outfit: id }); } catch { pickerNotice('failed'); } finally { setPickerState({ loading: null }); }
     },
     async pickScene(id) { if (ownEntry(APP_CONFIG.scenes.items, id)) await sceneManager.setScene(id, true); },
+    pickLang(lang) { opts.onLang(lang); writeLangPref(safeLocalStorage(), EMBED_LANG_KEY, lang); },
     dispose() {}, reportProgress() {}, reportLoaded(_m, id = null) { setPickerState({ outfit: id, loading: null }); },
   };
   if (typeof window === 'undefined' || window.parent === window) return noop; // 直接打开 /embed: 无宿主
@@ -281,6 +297,8 @@ export function startEmbedBridge(opts: EmbedBridgeOptions): EmbedBridge {
           scenes: listScenes(APP_CONFIG.scenes.items),
           prefetch: true,
           gestures: { move: true, resize: true, cornerSize: CORNER_HIT_SIZE }, // 宿主在 xc.init / xc.setConfig 里开了才识别 (默认关)
+          ui: { parts: [...XC_UI_PARTS], autoHide: true, langs: [...XC_LANGS] }, // 内置界面: 部件 / uiAutoHide (点击出现) / 可选语言
+          camera: { fov: [...XC_CAMERA_RANGES.fov], distance: [...XC_CAMERA_RANGES.distance], height: [...XC_CAMERA_RANGES.height], intro: true }, // 相机选项 (camera): 各项范围, 越界夹到边界
         },
       }),
       hostOrigin, // 严格 targetOrigin, 永不 '*'
@@ -307,6 +325,7 @@ export function startEmbedBridge(opts: EmbedBridgeOptions): EmbedBridge {
       send('xc.outfit-changed', { id: currentOutfit, name: loadedModel, initial: true });
     }
     send('xc.scene-changed', sceneSnapshot(true));
+    send('xc.lang-changed', { lang: opts.getLang(), initial: true });
     for (const w of startupWarnings.splice(0)) sendError(w.code, w.message, w.command);
     publishState(true);
   };
@@ -326,8 +345,13 @@ export function startEmbedBridge(opts: EmbedBridgeOptions): EmbedBridge {
   // ── 命令 ──
   async function applyConfig(cfg: XcConfig, command: string): Promise<void> {
     if (cfg.lang !== undefined) {
-      if (isLang(cfg.lang)) opts.onLang(cfg.lang);
+      if (isLang(cfg.lang)) setLang(cfg.lang, false); // 宿主显式设置: 生效但不写 iframe 的偏好存储 (偏好只记用户自己点的)
       else throw new CmdError('bad_request', `invalid lang: ${String(cfg.lang)}`);
+    }
+    if (cfg.uiAutoHide !== undefined) {
+      const mode = parseXcUiAutoHide(cfg.uiAutoHide);
+      if (mode === undefined) throw new CmdError('bad_request', `invalid uiAutoHide: ${String(cfg.uiAutoHide)} (expected true | false | 'transparent')`);
+      setUiState({ autoHide: mode });
     }
     if (Array.isArray(cfg.ui)) {
       const r = parseXcUiList(cfg.ui);
@@ -337,6 +361,12 @@ export function startEmbedBridge(opts: EmbedBridgeOptions): EmbedBridge {
       setUiState({ ui: cfg.ui, bubble: cfg.ui }); // 弃用的旧写法: 只管 chat + bubble
     }
     if (typeof cfg.allowCustomModel === 'boolean') allowCustomModel = cfg.allowCustomModel;
+    if (cfg.camera !== undefined) {
+      const r = normalizeXcCamera(cfg.camera);
+      if (!r.ok) throw new CmdError('bad_request', `invalid camera: ${r.error}`);
+      if (r.clamped.length) console.warn(`[xiaochun] camera.${r.clamped.join(', camera.')} out of range, clamped`);
+      vrmEngine.setCameraConfig(r.camera); // 立刻重新取景并取消进行中的推镜头 (引擎里统一处理)
+    }
     if (cfg.gestures !== undefined) {
       const g = cfg.gestures as unknown;
       const isBoolOrUndef = (v: unknown) => v === undefined || typeof v === 'boolean';
@@ -362,6 +392,15 @@ export function startEmbedBridge(opts: EmbedBridgeOptions): EmbedBridge {
     }
     void command;
     publishState(true);
+  }
+
+  /** 切界面语言: 变了才切并向宿主发 xc.lang-changed; persist=true (用户在按钮里选) 才写 iframe 自己的 localStorage。 */
+  function setLang(lang: XcLang, persist: boolean): void {
+    const previous = opts.getLang();
+    if (persist) writeLangPref(safeLocalStorage(), EMBED_LANG_KEY, lang);
+    if (lang === previous) return;
+    opts.onLang(lang);
+    send('xc.lang-changed', { lang, previous });
   }
 
   // ── 场景 / 服装 ──
@@ -811,6 +850,7 @@ export function startEmbedBridge(opts: EmbedBridgeOptions): EmbedBridge {
 
   return {
     pickOutfit, pickScene,
+    pickLang: (lang) => { if (isLang(lang)) setLang(lang, true); },
     // React 卸载 (含 StrictMode 的假卸载) 只摘监听, 不销毁引擎; 引擎只在宿主 xc.destroy 时释放。
     dispose: () => {
       disposed = true;

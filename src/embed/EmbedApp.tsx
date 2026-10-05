@@ -1,7 +1,8 @@
 /**
  * EmbedApp — /embed 精简入口: 只有 3D 画布 (+ 可选气泡 / ChatBar), 无 TopHeader / DevDrawer /
  * 更新弹窗 / 拖拽上传 / LoadingOverlay。模型加载进度走 postMessage (xc.load.progress), 由宿主画占位图。
- * 与 App.tsx 共用: SceneCanvas / HeadBubble / ChatBar / vrmEngine。
+ * 与 App.tsx 共用: SceneCanvas / HeadBubble / ChatBar / vrmEngine, 以及 "点击出现" 状态机 (usePetUiVisibility)。
+ * 内置顶栏按钮 (EmbedPicker: 换装 / 换场景 / 语言 / GitHub) 与 ChatBar 的显示由 uiAutoHide 决定 (默认 'transparent' = 与 Tauri 桌宠一致)。
  */
 import React, { lazy, startTransition, Suspense, useEffect, useMemo, useState, useSyncExternalStore } from 'react';
 import { useTranslation } from 'react-i18next';
@@ -13,11 +14,14 @@ import { APP_CONFIG } from '@/config';
 import { XIAOCHUN_SYSTEM_PROMPT } from '@/llm/prompts';
 import { resolveSystemPrompt, getCachedUserSettings, subscribeUserSettings } from '@/llm/userSettings';
 import type { Lang } from '@/i18n';
-import { XC_UI_PARTS } from '@firetable/project-xiaochun/protocol';
+import type { XcLang } from '@firetable/project-xiaochun/protocol';
+import { XC_UI_PARTS, xcUiAutoHideActive } from '@firetable/project-xiaochun/protocol';
+import { useCurrentScene } from '@/core/scene/sceneManager';
+import { usePetUiVisibility } from '@/hooks/usePetUiVisibility';
 import pkg from '../../package.json';
 import { readEmbedParams } from './params';
-import { readOutfitPref, resolveInitialOutfitWithPref, safeLocalStorage } from './registry';
-import { WEARING_OUTFIT_KEY } from '@/lib/constants';
+import { readLangPref, readOutfitPref, resolveEmbedLang, resolveInitialOutfitWithPref, safeLocalStorage } from './registry';
+import { EMBED_LANG_KEY, WEARING_OUTFIT_KEY } from '@/lib/constants';
 import {
   getEmbedUiState,
   setEmbedUiState,
@@ -36,16 +40,25 @@ export const EmbedApp: React.FC = () => {
   const params = useMemo(() => readEmbedParams(), []);
   const ui = useSyncExternalStore(subscribeEmbedUi, getEmbedUiState, getEmbedUiState);
   const [bridgeRef, setBridgeRef] = useState<EmbedBridge | null>(null);
+  // ── 内置界面"点击出现" (与 Tauri 桌宠共用 usePetUiVisibility / ClickDetector): 只在 uiAutoHide 对当前场景生效时才监听 ──
+  const scene = useCurrentScene();
+  const autoHide = xcUiAutoHideActive(ui.autoHide, Boolean(scene.isTransparent));
+  const hasChrome = ui.ui || ui.outfit || ui.scene || ui.lang || ui.github;
+  const { isPetUIVisible } = usePetUiVisibility(autoHide && hasChrome);
   const [bubble, setBubble] = useState<BubbleState>({
     visible: false, statusKey: '', speechText: '', isError: false, x: 0, y: 0,
   });
 
   useEffect(() => {
-    setEmbedUiState(uiStateFromParts(params.uiParts));
+    setEmbedUiState({ ...uiStateFromParts(params.uiParts), autoHide: params.uiAutoHide });
     if (params.uiLegacy) console.warn('[xiaochun] ?ui=1/true and ?bubble= are deprecated; use ?ui=chat,bubble,outfit,scene');
     if (params.uiUnknown.length) console.warn(`[xiaochun] ignoring unknown ?ui= part(s): ${params.uiUnknown.join(', ')} (known: ${XC_UI_PARTS.join(', ')})`);
-    if (params.lang) void i18n.changeLanguage(params.lang);
+    // 界面语言优先级: ?lang= / SDK lang > iframe 自己 localStorage 里用户选的 > 浏览器语言 > zh-CN
+    const applyLang = (lang: XcLang) => { void i18n.changeLanguage(lang); document.documentElement.lang = lang; };
+    applyLang(resolveEmbedLang(params.lang, readLangPref(safeLocalStorage(), EMBED_LANG_KEY), typeof navigator !== 'undefined' ? navigator.languages : []));
     vrmEngine.lockWheelZoom = !params.controls; // 默认放开 (controls=0 才锁)
+    for (const w of params.cameraWarnings) console.warn(`[xiaochun] ${w}`);
+    vrmEngine.setCameraConfig(params.camera); // 相机选项 (?cameraFov= 等): 模型加载前设置, 首次取景 / 推镜头直接按它来
     document.documentElement.classList.add('xc-embed');
 
     // ── 引擎绑定 (与 App.tsx 同款: i18n / system prompt) ──
@@ -74,7 +87,8 @@ export const EmbedApp: React.FC = () => {
     const bridge: EmbedBridge = startEmbedBridge({
       params,
       version: pkg.version,
-      onLang: (lang) => void i18n.changeLanguage(lang),
+      onLang: applyLang,
+      getLang: () => (i18n.resolvedLanguage ?? i18n.language ?? 'zh-CN') as XcLang,
       initialOutfit: initial?.id ?? null,
     });
     setBridgeRef(bridge);
@@ -106,14 +120,14 @@ export const EmbedApp: React.FC = () => {
     <div id="app" className="relative w-full h-screen h-[100dvh] overflow-hidden">
       <SceneCanvas />
       {ui.bubble && <HeadBubble state={bubble} />}
-      {ui.ui && <ChatBar isPetUIVisible onShowDevPanel={() => {}} />}
+      {ui.ui && <ChatBar isPetUIVisible={isPetUIVisible} autoHide={autoHide} onShowDevPanel={() => {}} />}
       {bridgeRef && (
         // 四角弧线: 只有宿主开了 resizable 才渲染 (组件内部按手势状态仓决定; 默认关闭时什么都不画)
         <Suspense fallback={null}><EmbedCorners /></Suspense>
       )}
-      {bridgeRef && (ui.outfit || ui.scene) && (
+      {bridgeRef && (ui.outfit || ui.scene || ui.lang || ui.github) && (
         <Suspense fallback={null}>
-          <EmbedPicker flags={{ outfit: ui.outfit, scene: ui.scene }} bridge={bridgeRef} />
+          <EmbedPicker flags={{ outfit: ui.outfit, scene: ui.scene, lang: ui.lang, github: ui.github }} bridge={bridgeRef} autoHide={autoHide} petUiVisible={isPetUIVisible} />
         </Suspense>
       )}
     </div>
