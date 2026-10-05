@@ -163,28 +163,29 @@ $$S(t) = 6t^5 - 15t^4 + 10t^3 \quad (t \in [0, 1])$$
 > 4. Per-bone compose ω every frame. Clamp pitch on Layer-1 targets before Quintic.
 
 > [!CAUTION]
-> ### Pitfall 5: AI Motion Torso Forward Pitch & Kyphosis Distortion (AI动作躯干前躬与探颈失真陷阱)
-> **Symptom**: While the avatar stands tall and upright in Idle, entering Think (`thinking.vrma`) or EMAGE speech causes the avatar to slouch, bow, or hunch forward (弯腰、探颈、躯干前倾)，破坏立姿挺拔美感。  
+> ### Pitfall 5: AI Motion Torso Forward Pitch & Kyphosis Distortion
+> **Symptom**: While the avatar stands tall and upright in Idle, entering Think (`thinking.vrma`) or EMAGE speech causes the avatar to slouch, bow, or hunch forward, destroying the upright aesthetic posture.  
 > **Root Cause**:
-> 1. **AI 动捕动作前倾偏置 (Thoracic Kyphosis in AI Motion)**: SimpleText2Motion (SMPL-H) 训练的思考动作在 `upperChest` 产生高达 $+10.34^\circ$、`spine` $+5.69^\circ$、`neck` $+5.77^\circ$ 的前屈俯仰角 (Pitch, $+X$)，四关节累计前倾超过 $21.8^\circ$。
-> 2. **站立微屈膝导致重心下沉**: FootIK 在静止待机时若引入微屈角，会导致骨盆高度下降，躯干为了重心平衡产生代偿性前倾。
-> 3. **垂直视线下拉侵蚀头颈**: 当镜头位于胸口水平时，下视俯仰角若未充分衰减，会将颈部与头部强行向下前方拉扯。
+> 1. **Thoracic Kyphosis in AI Motion**: SimpleText2Motion (SMPL-H) trained thinking motions produce forward pitch angles (+X) up to $+10.34^\circ$ on `upperChest`, $+5.69^\circ$ on `spine`, and $+5.77^\circ$ on `neck`, accumulating over $21.8^\circ$ of cumulative forward slouch across four joints.
+> 2. **Knee Flexion Sinking Center of Mass**: If FootIK introduces knee flexion during stationary idle, pelvis height drops, causing compensatory torso forward leaning to balance center of mass.
+> 3. **Vertical Gaze Dragging Head and Neck**: When the camera is at chest level, downward gaze pitch can forcibly pull the neck and head downward and forward if not properly attenuated.
 > 
 > **Solution & Rules**:
-> 1. **站立待机膝盖自然挺拔**: 平地站立待机与双腿对称承重时，`FootIK` 的 `flexion` 严格归零 ($0.0\text{ rad}$)，彻底保障 160.1cm 标准身高与挺拔腿线。
-> 2. **管线终点合成器生理俯仰角限幅 (`TORSO_PITCH_LIMITS`)**: 相对 bind-pose rest 限幅，在 Quintic 之前对 `basePose`/`actionPose` 执行 `clampTorsoPitch`：`hips` ($-0.015 \sim 0.03$)、`spine`/`chest` ($-0.015 \sim 0.02$)、`upperChest` ($-0.02 \sim 0.025$)。BodyTurn 只覆盖腿，不替换 `hips` 旋转。
-> 3. **Gaze 叠在解剖姿态上**: draft 上 `neck/head.quaternion.multiply(lookAtQ)`，再采样进 compose。切源快照必须反 LookAt。气泡锚点用 `getHeadTopWorldPosition`（raw 头顶），不要用标准化 `head` + 0.24m。
+> 1. **Upright Knees in Stationary Idle**: During ground standing idle with symmetric weight bearing, `FootIK`'s `flexion` strictly zeroes ($0.0\text{ rad}$), preserving the standard 160.1cm height and upright leg silhouette.
+> 2. **Pipeline Synthesizer Physiological Pitch Limits (`TORSO_PITCH_LIMITS`)**: Clamped relative to bind-pose rest; executes `clampTorsoPitch` on `basePose`/`actionPose` before Quintic: `hips` ($-0.015 \sim 0.03$), `spine`/`chest` ($-0.015 \sim 0.02$), `upperChest` ($-0.02 \sim 0.025$). BodyTurn only covers legs and does not overwrite `hips` rotation.
+> 3. **Gaze Layered on Anatomical Pose**: In draft, compute `neck/head.quaternion.multiply(lookAtQ)`, then sample into compose. Source snapshots must invert LookAt. Head bubble anchor uses `getHeadTopWorldPosition` (raw skull vertex), not normalized `head` + 0.24m.
 
 > [!CAUTION]
-> ### Pitfall 6: FootIK vs. Idle Conflict & Locomotion Step Integrity (FootIK 待机冲突与踱步完整性保障)
+> ### Pitfall 6: FootIK vs. Idle Conflict & Locomotion Step Integrity
 > **Symptom 1**: Avatar's knees visibly bent forward in idle, and rotating the camera or breathing caused vertical pelvis/head jittering.  
 > **Symptom 2**: When orbiting the camera, the stepping foot would occasionally snap down mid-stride, hitching the pelvis and jerking the upper body, followed by redundant micro-steps.  
 > 
 > **Root Causes**:
 > 1. **FootIK Over-Constraint in Idle**: The 2-bone analytical IK solver calculates knee flexion from femoral root (`hips`) to ground target anchor. In idle, `NaturalIdleSystem` drives subtle vertical breathing; FootIK interpreted this height variance as leg extension/compression, forcibly bending the knees forward and creating an algebraic feedback loop on `hips.position.y`.
 > 2. **Stepping Truncation Mid-Stride**: The turning state machine previously forced `phase = PLANT` whenever remaining yaw dropped below threshold during `LIFT` or `SWING`. Truncating a mid-air foot instantaneously slammed it down, creating severe pelvic jolts.
+
 > [!CAUTION]
-> ### Pitfall 7: VRM 0.x / 1.0 Unified Pipeline Mapping (VRM 0.x / 1.0 全局动作管线统一适配规范)
+> ### Pitfall 7: VRM 0.x / 1.0 Unified Pipeline Mapping
 > **Symptom**: When loading a VRM 0.x model, arms fold backward, fingers invert, body turning walks backward, or knees bend into the body during EMAGE speech.  
 > **Root Cause**:
 > 1. **Bone Axis Discrepancy**: The VRM 0.0 standard defines characters facing $-Z$ in rest pose, with inverted bone local $X/Z$ axes compared to the modern VRM 1.0 standard ($+Z$ facing).

@@ -25,7 +25,7 @@ docs/
 ├── CHAT_DIRECTOR.md               # Director scheduler, 30~60 chars slicer, parallel TTS & anti-spoil bubble rules
 ├── ON_DEVICE_AI.md                # WebLLM (WebGPU) + EMAGE ONNX Worker + Client-side multi-tier IndexedDB memory
 ├── STT.md                         # SenseVoice Small int8 ChatBar dictation (energy VAD + ORT Worker)
-├── PERFORMANCE.md                 # (Chinese) v0.1.14 performance & size notes: EMAGE slimming (191.35 → 71.59 MB), parallel download, lazy web-llm, opt-in crossOriginIsolated; measured numbers, rejected options, unmeasured items
+├── PERFORMANCE.md                 # v0.1.14 performance & size notes: EMAGE slimming (191.35 → 71.59 MB), parallel download, lazy web-llm, opt-in crossOriginIsolated; measured numbers, rejected options, unmeasured items
 ├── EMAGE_MODEL.md                 # EMAGE tip status + Worker PCM→chunk flowchart; limits (wasm/INT8, no WebGPU-EMAGE)
 │   (pack) ../packages/emage-onnx/  # Offline EMAGE ONNX slim/quantize/optimize toolchain (slim step, INT8 Conv, layer removal, graph optimization, host-side seed): README.md / README-CN.md
 ├── OUTFIT_SWAP.md                 # Full-outfit swap (Delta .vrmaddon packages, 2-tier IDB caching, 0-frame pop-in)
