@@ -63,4 +63,21 @@ describe('beach strip mapping', () => {
     const r2 = computeStripCenter({ p: 9, aspect: 1, horizonNdcY: -0.3 });
     expect(r2.center - r2.vh / 2).toBeGreaterThanOrEqual(-1e-6);
   });
+
+  it('缩放: 任意 zoom (0.3 ~ 4) 也不会采样出长条之外; 推近窗口更小、拉远窗口更大 (有上限); 海平线对位点不随缩放移动', () => {
+    for (const aspect of ASPECTS) for (const horizonNdcY of HORIZONS) for (const zoom of [0.3, 0.6, 1, 1.8, 4]) for (const p of PS) {
+      const { center, vh, vw } = computeStripCenter({ p, aspect, horizonNdcY, zoom });
+      expect(center - vh / 2).toBeGreaterThanOrEqual(-1e-6);
+      expect(center + vh / 2).toBeLessThanOrEqual(BEACH_STRIP.height + 1e-6);
+      expect(vw).toBeLessThanOrEqual(BEACH_STRIP.width + 1e-6);
+    }
+    const base = computeStripCenter({ p: 0, aspect: 600 / 1080, horizonNdcY: -0.45 });
+    const near = computeStripCenter({ p: 0, aspect: 600 / 1080, horizonNdcY: -0.45, zoom: 1.6 });
+    const far = computeStripCenter({ p: 0, aspect: 600 / 1080, horizonNdcY: -0.45, zoom: 0.6 });
+    expect(near.vh).toBeLessThan(base.vh);
+    expect(far.vh).toBeGreaterThan(base.vh);
+    // 推近 / 不缩放: 平视时海平线仍落在屏幕 horizonNdcY (缩放中心就是海平线): horizonY = center − ndcY·vh/2
+    // (拉远到极限时可用行程变小, 单调性约束会让海平线略偏离髋部, 但仍不露边, 上面已验证)
+    for (const r of [base, near]) expect(r.center + 0.45 * r.vh / 2).toBeCloseTo(BEACH_STRIP.horizonY, 6);
+  });
 });

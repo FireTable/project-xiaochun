@@ -655,7 +655,7 @@ export class VRMEngine {
       const hips = this.currentVRM?.humanoid?.getNormalizedBoneNode('hips');
       let hipY: number | null = null;
       if (hips) { hips.getWorldPosition(this.tempBeachHip); hipY = this.tempBeachHip.y; }
-      return { target: this.controls.target, hipY };
+      return { target: this.controls.target, hipY, refDistance: getDefaultCameraDistance(this.camera.fov) };
     });
     this.beachBackdrop.setOnAssetsReady(() => { if (this.canvas) this.renderFrameNow(); });
 

@@ -362,6 +362,10 @@ export const APP_CONFIG = {
       mask: '/scene/beach/beach-mask.webp',
     },
     scroll: { horizonAboveHipsM: 0.04, parallax: 1.0 },
+    // 滚轮缩放时背景跟随: 倍率 = (默认视距/当前视距)^strength, 夹到 [minScale, maxScale]; 缩放中心 = 海平线 (髋部附近)
+    zoom: { enabled: true, strength: 0.65, minScale: 0.6, maxScale: 1.8 },
+    // 脚下沙地: 半径/颜色/淡出; 脚没入画面(fadeIn/OutNdcY)时才显示, 半身取景不受影响
+    ground: { enabled: true, radiusM: 1.8, color: 0xf2e1c5, opacity: 0.96, rippleStrength: 0.05, featherStart: 0.45, fadeOutNdcY: -1.35, fadeInNdcY: -0.9 },
     dynamics: {
       enabled: true,
       respectReducedMotion: true,
@@ -375,10 +379,10 @@ export const APP_CONFIG = {
       hemiGround: 0xf3e6d3,
       dirColor: 0xfffbf0,
       shadowColor: 0x8a6f78,
-      shadowOpacity: 0.26,
-      contactColor: 0xa88a80,
-      contactOpacity: 0.34,
-      contactSizeM: 0.85,
+      shadowOpacity: 0.34,
+      contactColor: 0x8f6f66,
+      contactOpacity: 0.55,
+      contactSizeM: 0.9,
     },
   } as BeachSceneConfig,
   lights: {

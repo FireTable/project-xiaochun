@@ -139,7 +139,7 @@ const PROBE = { x: LEFT + 28, y: TOP + 28 };
 
 let page = await newPage();
 
-await check('首次加载: 握手 capabilities (outfits 不含 base, scenes=3, prefetch) + 初始事件', async () => {
+await check('首次加载: 握手 capabilities (outfits 不含 base, scenes=4, prefetch) + 初始事件', async () => {
   const t0 = Date.now();
   await mk(page, { scene: 'light' });
   timings.firstLoadMs = Date.now() - t0;
@@ -147,7 +147,7 @@ await check('首次加载: 握手 capabilities (outfits 不含 base, scenes=3, p
   const ids = hs.capabilities.outfits.map((o) => o.id);
   console.log('   outfits:', ids.join(','));
   assert.ok(ids.length >= 8 && !ids.includes('base') && ids.includes('xiaochun_dinner_dress'));
-  assert.deepEqual(hs.capabilities.scenes.map((s) => s.id).sort(), ['dark', 'light', 'transparent']);
+  assert.deepEqual(hs.capabilities.scenes.map((s) => s.id).sort(), ['beach', 'dark', 'light', 'transparent']);
   assert.equal(hs.capabilities.prefetch, true);
   assert.ok(hs.capabilities.commands.includes('xc.setOutfit') && hs.capabilities.commands.includes('xc.setScene'));
   const oc = (await ev(page, 'outfit-changed')).map((e) => e.p);

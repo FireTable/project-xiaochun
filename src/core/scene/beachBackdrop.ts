@@ -25,6 +25,10 @@ export { BEACH_STRIP, computeStripCenter, coverViewport } from './beachStrip';
  *   (vw, vh) 是"cover"视口: 长条宽 1280、单张图高 720 内放得下的、与屏幕同宽高比的最大矩形 → 永不拉伸, 超出的部分居中裁掉。
  *   这是风格化的"远景视差": 背景滚动速度 (约 7 条带像素/度) 小于真实无穷远背景 (约 23), 换来 180° 俯仰都有内容可看。
  *
+ * ── 滚轮缩放 ──
+ *   相机前后距离变化时背景同步缩放 (推近放大 / 拉远缩小): 视口窗口按 1/zoom 缩放, zoom = (默认视距/当前视距)^strength (夹到 [minScale, maxScale]),
+ *   缩放中心是平视时的海平线 (c0 公式里 horizonY 与屏幕 horizonNdcY 的对应点不随 zoom 移动), 所以海平线不会因缩放上下跳。参数见 APP_CONFIG.beachScene.zoom。
+ *
  * ── 局部动态 (全在着色器 / GPU 粒子里, 零 CPU 每帧开销) ──
  *   海面波光 + 水面微扰 (仅 mask.R 海面区域) / 云横向漂移 (仅 mask.G 纯天空区域, 镜像边界) / 飘落花瓣与上升光点 (Points, 画在角色身后)。
  *   参数全在 APP_CONFIG.beachScene.dynamics; prefers-reduced-motion 或低帧率自动关闭。
@@ -206,6 +210,8 @@ export interface BeachSubject {
   target: THREE.Vector3;
   /** 角色髋部骨骼的世界 y; 没有模型时为 null (用默认对位)。 */
   hipY: number | null;
+  /** 当前 fov 下的默认取景视距 (m): 滚轮缩放时背景缩放倍率以它为 1 (见 APP_CONFIG.beachScene.zoom)。 */
+  refDistance: number;
 }
 
 /** 没有模型 / 没有髋部时的海平线屏幕位置 (NDC y): 默认取景下髋部约在屏幕中心下方 45% 半高。 */
@@ -466,7 +472,13 @@ export class BeachBackdrop {
 
     // 海平线对到髋部: 平视时髋部在屏幕上的 NDC y = −(target.y − hipY') / (dist·tan(fov/2))
     let horizonNdcY = DEFAULT_HORIZON_NDC_Y;
+    let zoom = 1;
     const subj = this.subject?.() ?? null;
+    if (subj && cfg.zoom.enabled && subj.refDistance > 0) {
+      // 滚轮缩放 = 相机前后距离变化: 推近 → 背景一起放大, 拉远 → 一起缩小 (缩放中心是海平线, 见 computeStripCenter)
+      const d = Math.max(0.3, camera.position.distanceTo(subj.target));
+      zoom = THREE.MathUtils.clamp(Math.pow(subj.refDistance / d, THREE.MathUtils.clamp(cfg.zoom.strength, 0, 1)), cfg.zoom.minScale, cfg.zoom.maxScale);
+    }
     if (subj && subj.hipY !== null && Number.isFinite(subj.hipY)) {
       // 髋部高度做低通 (呼吸 / 重心起伏不要带动整张背景抖)
       this.smoothHipY = this.smoothHipY === null ? subj.hipY : this.smoothHipY + (subj.hipY - this.smoothHipY) * Math.min(1, dt * 3 + 0.0);
@@ -475,7 +487,7 @@ export class BeachBackdrop {
       const anchorY = this.smoothHipY + cfg.scroll.horizonAboveHipsM;
       horizonNdcY = -(subj.target.y - anchorY) / (dist * half);
     }
-    const { center, vw, vh } = computeStripCenter({ p, aspect: camera.aspect, horizonNdcY, parallax: cfg.scroll.parallax });
+    const { center, vw, vh } = computeStripCenter({ p, aspect: camera.aspect, horizonNdcY, parallax: cfg.scroll.parallax, zoom });
     (this.quadUniforms.uView.value as THREE.Vector2).set(vw, vh);
     this.quadUniforms.uCenter.value = center;
 

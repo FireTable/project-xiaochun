@@ -24,6 +24,11 @@ export interface StripCenterInput {
   horizonNdcY: number;
   /** 背景滚动幅度倍率 (APP_CONFIG.beachScene.scroll.parallax)。 */
   parallax?: number;
+  /**
+   * 背景缩放倍率 (滚轮推近 > 1 = 背景放大, 拉远 < 1 = 缩小), 缩放中心 = 平视时的海平线。默认 1。
+   * 会被夹到"视口不超出长条"的下限 (横屏最多缩到刚好铺满 1280 宽)。
+   */
+  zoom?: number;
 }
 
 /** cover 视口: 长条里与屏幕同宽高比、放得进一张 1280×720 的最大矩形。 */
@@ -37,8 +42,12 @@ export function coverViewport(aspect: number): { vw: number; vh: number } {
  * 屏幕中心对应的长条行号 c(p) (纯函数, 有单测)。保证 p ∈ [−1,1] 时 [c−vh/2, c+vh/2] ⊂ [0, H], 且 c 对 p 单调不增。
  */
 export function computeStripCenter(inp: StripCenterInput): { center: number; vw: number; vh: number } {
-  const { vw, vh } = coverViewport(inp.aspect);
+  const cover = coverViewport(inp.aspect);
   const H = BEACH_STRIP.height;
+  // 缩放: 视口按 1/zoom 缩放 (推近 = 取更小的窗口 = 画面放大)。下限保证窗口放得进长条 (宽不超 1280, 高不超 96% 长条高)。
+  const zMin = Math.max(cover.vw / BEACH_STRIP.width, cover.vh / (H * 0.96));
+  const zoom = Math.max(zMin, Number.isFinite(inp.zoom) && (inp.zoom as number) > 0 ? (inp.zoom as number) : 1);
+  const vw = cover.vw / zoom, vh = cover.vh / zoom;
   const par = Math.min(1, Math.max(0.2, inp.parallax ?? 1));
   const p = Math.min(1, Math.max(-1, Number.isFinite(inp.p) ? inp.p : 0));
   const full0 = vh / 2, full1 = H - vh / 2; // 视口顶 / 底恰好贴边时的中心行
