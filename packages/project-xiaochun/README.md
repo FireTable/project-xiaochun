@@ -172,7 +172,7 @@ const xc = createXiaochun({ container: '#avatar', outfit: 'xiaochun_maid', scene
 await xc.ready;
 
 const outfits = await xc.getOutfits();   // [{ id, name }]  (the bare base model is never listed)
-const scenes  = await xc.getScenes();    // [{ id: 'light' | 'dark' | 'transparent' | 'beach', transparent }]
+const scenes  = await xc.getScenes();    // [{ id: 'light' | 'dark' | 'transparent' | 'beach' | 'beach3d', transparent }]
 
 await xc.setOutfit('xiaochun_cheongsam');                    // resolves when the new outfit is live
 await xc.setScene('transparent');                            // wrapper background + pass-through follow automatically
@@ -182,7 +182,7 @@ xc.on('scene-changed', (p) => console.log(p.id));
 
 * **Ids are validated** (`/^[a-z][a-z0-9_]{0,63}$/` + an own-property whitelist). A malformed id rejects locally with `[bad_request]`; a well-formed unknown id (`constructor`, `base`, ...) rejects with `[unknown_id]`. Nothing is sent for the former, and the iframe re-validates the latter on its own.
 * **Concurrency**: swaps are serial and **last-wins**. A swap that is loading is never aborted; a queued swap superseded by a newer call rejects with `[busy]` (safe to ignore). Same-target requests are merged; asking for the current outfit resolves immediately. **Speech is never interrupted**: if the avatar is talking, the new outfit loads in the background and appears when ready.
-* **Scenes**: only the three built-in themes. Switching at runtime syncs the wrapper background, enables/disables the pointer pass-through listeners, forces `pointer-events: auto` for opaque scenes and resets the hit cache.
+* **Scenes**: 5 built-in scenes (`light` / `dark` / `transparent` / `beach` / `beach3d`; only `transparent` is transparent). Switching at runtime syncs the wrapper background, enables/disables the pointer pass-through listeners, forces `pointer-events: auto` for opaque scenes and resets the hit cache.
 * **Capability negotiation**: protocol stays v1. Against an older `/embed` (no `capabilities.outfits` / `scenes` / `prefetch` in `xc.ready`), the new methods reject with `[unsupported]` and `getOutfits()` / `getScenes()` return `[]`.
 * **Preferences**: the iframe remembers the user's last outfit/scene in **its own** localStorage (`xiaochun_wearing_outfit` / `xiaochun_scene_theme`, the same keys as the main site). Priority: explicit `outfit` / `scene` (URL or SDK options) > saved > default; unknown saved ids are ignored and cleared; if storage is blocked or partitioned it silently falls back to the defaults. Third-party storage is partitioned per top-level site, so each host site has its own copy.
 * **`persist`** (optional) additionally keeps them in the host page's localStorage and passes them back as explicit values, so it overrides the iframe's own copy. Default `false`.
@@ -360,7 +360,7 @@ createXiaochun({
 | `lazyMargin` | `200` | rootMargin in px for the visibility trigger. Larger loads earlier and uses more data |
 | `placeholder` | built-in SVG | Image URL, element, or `false` |
 | `transparent` | `false` | Transparent background over your page (with pointer pass-through). Same as `scene: 'transparent'` |
-| `scene` | — | Initial scene: `'light' \| 'dark' \| 'transparent' \| 'beach'` (see `getScenes()`). Unknown id → ignored + `error { code: 'unknown_id' }` |
+| `scene` | — | Initial scene: `'light' \| 'dark' \| 'transparent' \| 'beach' \| 'beach3d'` (see `getScenes()`). Unknown id → ignored + `error { code: 'unknown_id' }` |
 | `width`, `height` | `600`, `1080` | px or any CSS length. **Defaults are clamped to the viewport**: width = `min(600px, 100vw)` (and the shell has `max-width: 100%`, so it never overflows a narrow container), height = `min(1080px, 100svh)` (floating `position`s also subtract the `--xc-offset-x/y` margins so the box never sticks out of the screen). Explicit values are used as-is. Runtime: `setSize(w, h)` (`undefined` = back to the default) |
 | `position` | `'inline'` | `'inline' \| 'bottom-right' \| 'bottom-left'` |
 | `draggable` | `false` | Gesture drag: press and drag the character (not a built-in button) to move the iframe, clamped to the viewport. Works in inline and floating modes. See [Gestures](#gestures-drag-and-corner-resize) |
@@ -395,7 +395,7 @@ createXiaochun({
 | :--- | :--- | :--- |
 | `src` | official `/embed` | Changing it rebuilds the iframe |
 | `outfit` | — | Outfit id; changing it at runtime = `setOutfit` (**live update, no iframe rebuild**) |
-| `scene` | — | `light` · `dark` · `transparent` · `beach`; runtime change = `setScene` (live) |
+| `scene` | — | `light` · `dark` · `transparent` · `beach` · `beach3d`; runtime change = `setScene` (live) |
 | `model` | — | **Deprecated** alias of `outfit` (`outfit` wins) |
 | `camera-fov` / `camera-distance` / `camera-height` / `camera-intro` | — | Same as `camera` (hot-updated via `setConfig({ camera })`, no rebuild; removing an attribute = default) |
 | `persist` / `persist-box` / `prefetch` / `allow-custom-model` | — | Same as the options (`persist-box=""` = default key, any other string = namespace); changing them rebuilds |
