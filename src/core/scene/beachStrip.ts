@@ -6,13 +6,13 @@
 /** 与 scripts/build-beach-strip.mjs 输出的 BEACH_STRIP 一致; 换素材要同步。 */
 export const BEACH_STRIP = {
   width: 1280,
-  height: 1930,
+  height: 1810,
   /** 单张源图高 (cover 视口的最大高度)。 */
   tileHeight: 720,
   /** 海平线所在行。 */
-  horizonY: 1018,
+  horizonY: 898,
   /** 海岸线 (泡沫结束 / 沙滩开始) 所在行。 */
-  shoreY: 1165,
+  shoreY: 1045,
 } as const;
 
 export interface StripCenterInput {

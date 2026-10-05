@@ -8,7 +8,7 @@ export { BEACH_STRIP, computeStripCenter, coverViewport } from './beachStrip';
 /**
  * BeachBackdrop — "海滩"场景 (id: beach) 的背景层。
  *
- * 一张烘焙好的竖长条 (public/scene/beach/beach-strip.webp, 1280×1930: 天空 / 主景 / 沙地, 接缝已做渐变; 见 scripts/build-beach-strip.mjs),
+ * 一张烘焙好的竖长条 (public/scene/beach/beach-strip.webp, 1280×1810: 天空 / 主景 / 沙地, 接缝已做渐变; 见 scripts/build-beach-strip.mjs),
  * 用一个全屏着色器层画在场景最底层 (renderOrder 极小, 不读写深度, 画在角色身后)。
  *
  * ── 相机模型 (项目特色, 不能为背景妥协) ──

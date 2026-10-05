@@ -24,10 +24,6 @@ export class CharacterShadowSystem {
   /** 海滩场景专用: 脚下一块柔和的圆形接触影 (没有地面网格时, 光靠方向光落影脚下会"飘")。其它场景不可见。 */
   private contactBlob: THREE.Mesh | null = null;
   private contactTex: THREE.CanvasTexture | null = null;
-  /** 海滩场景专用: 脚下一块边缘柔和淡出的沙色圆盘 (真实 3D 地面), 脚没入画面时才显示。参数见 APP_CONFIG.beachScene.ground。 */
-  private sandGround: THREE.Mesh | null = null;
-  private sandUniforms: Record<string, THREE.IUniform> | null = null;
-  private readonly tempFeetNdc = new THREE.Vector3();
   private beach = false;
   private shadowMaskTex: THREE.CanvasTexture | null = null;
   private _shadowEdgeFadeUniform: { value: number } | null = null;
@@ -133,69 +129,6 @@ export class CharacterShadowSystem {
     this.contactBlob.visible = false;
     this.group.add(this.contactBlob);
 
-    // 沙地: 径向羽化的沙色圆盘, 贴地 (略低于落影平面), 画在落影 / 接触影之下、角色之后; 不写深度, 只在 beach 显示
-    this.sandUniforms = {
-      uColor: { value: new THREE.Color(0xf2e1c5) },
-      uOpacity: { value: 1 },
-      uVis: { value: 0 },
-      uFeather: { value: 0.45 },
-      uRipple: { value: 0.05 },
-      uRadius: { value: 1.8 },
-      uComp: { value: 1 },
-    };
-    const sandMat = new THREE.ShaderMaterial({
-      uniforms: this.sandUniforms,
-      vertexShader: /* glsl */ `
-        varying vec2 vUv;
-        void main() { vUv = uv; gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0); }
-      `,
-      fragmentShader: /* glsl */ `
-        precision highp float;
-        uniform vec3 uColor; uniform float uOpacity; uniform float uVis; uniform float uFeather; uniform float uRipple;
-        uniform float uRadius; uniform float uComp;
-        varying vec2 vUv;
-        void main() {
-          vec2 q = (vUv - 0.5) * 2.0;           // −1..1, 圆盘边缘 r=1
-          float r = length(q);
-          float edge = 1.0 - smoothstep(uFeather, 1.0, r);
-          edge *= edge;                          // 平方: 边缘更柔, 与背景沙地无硬边
-          vec2 w = q * uRadius;                  // 世界米坐标 (相对脚底)
-          // 赛璐璐风的浅沙纹: 两组缓慢斜向条带叠加, 只做很轻的明暗
-          float rip = 0.5 + 0.25 * sin(w.x * 5.5 + w.y * 2.2 + sin(w.y * 3.1) * 1.3) + 0.25 * sin(w.y * 7.5 - w.x * 1.7 + sin(w.x * 2.3) * 1.1);
-          vec3 col = uColor * (1.0 - uRipple + uRipple * 2.0 * rip);
-          float a = edge * uOpacity * uVis;
-          if (a < 0.004) discard;
-          gl_FragColor = vec4(col * uComp, a);
-          #include <tonemapping_fragment>
-          #include <colorspace_fragment>
-        }
-      `,
-      transparent: true,
-      depthTest: true,
-      depthWrite: false,
-      // 与背景粒子相同: 颜色正常混合, 但不改目标 alpha (走后期时背景像素的 0.99 标记要保留, 否则 Bloom 会把亮沙地泛光洗白)
-      blending: THREE.CustomBlending,
-      blendEquation: THREE.AddEquation,
-      blendSrc: THREE.SrcAlphaFactor,
-      blendDst: THREE.OneMinusSrcAlphaFactor,
-      blendSrcAlpha: THREE.ZeroFactor,
-      blendDstAlpha: THREE.OneFactor,
-      polygonOffset: true,
-      polygonOffsetFactor: 1,
-      polygonOffsetUnits: 1,
-    });
-    this.sandGround = new THREE.Mesh(new THREE.PlaneGeometry(1, 1), sandMat);
-    this.sandGround.rotation.x = -Math.PI / 2;
-    this.sandGround.renderOrder = -20;
-    this.sandGround.frustumCulled = false;
-    // 曝光补偿: 线性色调映射会乘 exposure, 除回去让沙色与背景沙地一致 (同 beachBackdrop 的 uComp)
-    this.sandGround.onBeforeRender = (renderer) => {
-      const exp = renderer.toneMapping === THREE.LinearToneMapping ? renderer.toneMappingExposure : 1;
-      if (this.sandUniforms) this.sandUniforms.uComp.value = 1 / Math.max(0.2, exp || 1);
-    };
-    this.sandGround.visible = false;
-    this.group.add(this.sandGround);
-
     scene.add(this.group);
     this.applyTheme(theme);
   }
@@ -217,16 +150,6 @@ export class CharacterShadowSystem {
         m.opacity = theme === 'dark' ? APP_CONFIG.shadow.opacityDark : APP_CONFIG.shadow.opacityLight;
       }
       m.needsUpdate = true;
-    }
-    if (this.sandGround && this.sandUniforms) {
-      const g = APP_CONFIG.beachScene.ground;
-      this.sandGround.visible = this.beach && g.enabled;
-      (this.sandUniforms.uColor.value as THREE.Color).setHex(g.color);
-      this.sandUniforms.uOpacity.value = g.opacity;
-      this.sandUniforms.uFeather.value = g.featherStart;
-      this.sandUniforms.uRipple.value = g.rippleStrength;
-      this.sandUniforms.uRadius.value = g.radiusM;
-      this.sandGround.scale.set(g.radiusM * 2, g.radiusM * 2, 1);
     }
     if (this.contactBlob) {
       this.contactBlob.visible = this.beach;
@@ -257,14 +180,6 @@ export class CharacterShadowSystem {
     this.shadowPlane.position.x = this.feetWorld.x;
     this.shadowPlane.position.z = this.feetWorld.z;
     this.shadowPlane.position.y = APP_CONFIG.shadow.planeY;
-    if (this.sandGround?.visible && this.sandUniforms) {
-      this.sandGround.position.set(this.feetWorld.x, APP_CONFIG.shadow.planeY - 0.0004, this.feetWorld.z);
-      // 脚底进入画面才显示: 半身取景 (脚在画面外) 保持原样; 全身 / 俯视 (脚在画面里) 淡入
-      const g = APP_CONFIG.beachScene.ground;
-      this.tempFeetNdc.copy(this.feetWorld).project(camera);
-      const t = (this.tempFeetNdc.y - g.fadeOutNdcY) / Math.max(1e-3, g.fadeInNdcY - g.fadeOutNdcY);
-      this.sandUniforms.uVis.value = Math.min(1, Math.max(0, t));
-    }
     if (this.contactBlob?.visible) {
       this.contactBlob.position.set(this.feetWorld.x, APP_CONFIG.shadow.planeY + 0.0004, this.feetWorld.z);
     }
@@ -319,11 +234,6 @@ export class CharacterShadowSystem {
       this.contactBlob.geometry.dispose();
       (this.contactBlob.material as THREE.Material).dispose();
       this.group.remove(this.contactBlob);
-    }
-    if (this.sandGround) {
-      this.sandGround.geometry.dispose();
-      (this.sandGround.material as THREE.Material).dispose();
-      this.group.remove(this.sandGround);
     }
     this.contactTex?.dispose();
     if (this.shadowMaskTex) this.shadowMaskTex.dispose();

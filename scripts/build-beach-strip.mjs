@@ -6,13 +6,12 @@
  *   素材目录需含 sky-top.jpg / mid-beach.jpg / ground-bottom.jpg;  依赖本机的 ImageMagick (`magick`) 与 `cwebp`。
  *
  * 产物 (运行时 src/core/scene/beachBackdrop.ts 读取):
- *   beach-strip.webp  1280×1930 竖长条:  [天空(上下翻转) | 主景(海平线在第 BEACH_STRIP.horizonY 行) | 沙地], 接缝处做渐变过渡
- *   beach-mask.webp   同一坐标系的 640×965 遮罩:  R = 海面 (波光 / 水波微扰只作用在这里),  G = 可漂移的纯天空 (云飘动只作用在这里)
+ *   beach-strip.webp  1280×1810 竖长条:  [天空 (不翻转, 逐行调色) | 主景 (海平线在第 BEACH_STRIP.horizonY 行) | 沙地], 接缝处做长渐变
+ *   beach-mask.webp   同一坐标系的 640×905 遮罩:  R = 海面 (波光 / 水波微扰只作用在这里),  G = 可漂移的纯天空 (云飘动只作用在这里)
  *
- * 为什么 sky-top 要上下翻转:
- *   sky-top 自带"上深下浅"渐变 (顶部 #2E9FF5 → 底部近白 #F4FBFE), 是一张独立的完整天空; 主景 mid-beach 的天空顶部是深蓝 #48A9F1。
- *   直接把 sky-top 接在主景上方, 接缝处是"近白 → 深蓝", 平视时屏幕顶部会出现一条发白的亮带。翻转后接缝处是深蓝 → 深蓝 (色差 < 30), 接缝几乎看不出。
- *   代价: 云朵的明暗面上下颠倒 (赛璐璐云的阴影在上面), 只在大幅仰视时才出现在画面里。
+ * 天空与主景的接缝 (见下方第 1 步):
+ *   sky-top 与主景天空都是"上深下浅"。sky-top 不翻转 (云的阴影面朝下, 正确), 但按行把它的底色换成目标渐变:
+ *   天顶 → 主景第 0 行底色单调变浅, 重叠的 220 行里底色直接等于主景同一行的底色, 所以渐变带里只有云 / 叶子在淡入淡出, 没有色带、亮带或暗带。
  *
  * 这里的所有常量要与 beachBackdrop.ts 里的 BEACH_STRIP 保持一致 (脚本末尾会打印一份, 直接对照)。
  */
@@ -25,11 +24,11 @@ const [srcDir, outDir = 'public/scene/beach'] = process.argv.slice(2);
 if (!srcDir) { console.error('usage: node scripts/build-beach-strip.mjs <srcDir> [outDir]'); process.exit(1); }
 
 const W = 1280, IMG_H = 720;
-const MID_Y = 620;            // 主景上缘在长条里的行号 (= 天空 720 − 与主景的重叠 100)
-const SKY_MID_BLEND = 100;    // 天空 → 主景 渐变带高度
-const GND_Y = 1210;           // 沙地上缘 (主景左右下角的棕榈叶从主景第 ~574 行 = 长条 1194 行开始)
+const MID_Y = 500;            // 主景上缘在长条里的行号 (= 天空 720 − 与主景的重叠 220)
+const SKY_MID_BLEND = 220;    // 天空 → 主景 渐变带高度 (长带 + 两边底色已对齐, 看不出接缝)
+const GND_Y = MID_Y + 590;     // 沙地上缘 (= 长条 1090 行; 主景左右下角的棕榈叶从主景第 ~574 行开始)
 const MID_GND_BLEND = 120;    // 主景 → 沙地 渐变带高度
-const H = GND_Y + IMG_H;      // 1930
+const H = GND_Y + IMG_H;      // 1810
 const MID_HORIZON = 398;      // 主景里海平线所在行 (实测: 中间列 397 行从近白天空变成海蓝)
 const MID_SHORE = 545;        // 海岸线 (泡沫结束 / 沙滩开始) 所在行
 
@@ -45,28 +44,49 @@ const gnd = readRGB(path.join(srcDir, 'ground-bottom.jpg'));
 
 const smooth = (a, b, x) => { const t = Math.min(1, Math.max(0, (x - a) / (b - a))); return t * t * (3 - 2 * t); };
 
-// ── 1. 天空: 上下翻转, 并把底部 (= 原图顶部) 的底色平滑地"拉"到主景天空顶部的底色, 抹掉残余色差 ──
-const avgRow = (img, y, x0 = 400, x1 = 880) => {
+// ── 1. 天空: 不翻转 (云的明暗面朝向正确), 逐行重新调色, 让"天顶 → 主景天空顶部"单调变浅且底色与主景完全对齐 ──
+// sky-top 自带"上深下浅"(顶 #2E9FF5 → 底近白), 主景天空也是"上深下浅"且顶部 (#48A9F1) 与 sky-top 第 ~50 行同色。
+// 直接拼: 翻转会在接缝处形成"深 → 浅 → 深"的暗带; 不翻转则接缝处是"近白 → 深蓝"。所以这里按行把 sky-top 的底色 S(y) 换成目标底色 T(y):
+//   y < MID_Y:            T 从天顶色 ZENITH 平滑过渡到主景第 0 行的底色 (ease-in, 接缝处斜率与主景向下变浅的方向一致);
+//   MID_Y ≤ y < 720 (重叠带): T = 主景同一行的底色 → 渐变带里两层底色相同, 只剩云 / 叶子在淡入淡出, 看不出接缝。
+// 像素映射: w = (p − S) 三通道之和 / (255 − S) 三通道之和 ∈ [0,1] (比底色白多少), out = T + w·(255 − T): 底色 → T, 纯白 → 纯白。
+const avgRow = (img, y, x0 = 500, x1 = 780) => {
   let r = 0, g = 0, b = 0;
   for (let x = x0; x < x1; x++) { const i = (y * W + x) * 3; r += img[i]; g += img[i + 1]; b += img[i + 2]; }
   const n = x1 - x0; return [r / n, g / n, b / n];
 };
-const skyBottom = avgRow(sky, 0);       // 翻转后长条里天空最下面一行 = 原图第 0 行
-const midTop = avgRow(mid, 0);
-const dSky = midTop.map((v, i) => v - skyBottom[i]);
+const smoothRows = (fn, n, rad) => {
+  const raw = Array.from({ length: n }, (_, y) => fn(y));
+  return raw.map((_, y) => { const acc = [0, 0, 0]; let c = 0; for (let k = Math.max(0, y - rad); k <= Math.min(n - 1, y + rad); k++) { for (let ch = 0; ch < 3; ch++) acc[ch] += raw[k][ch]; c++; } return acc.map((v) => v / c); });
+};
+const S = smoothRows((y) => avgRow(sky, y), IMG_H, 12);       // sky-top 每行底色 (中间无云列)
+const M = smoothRows((y) => avgRow(mid, y), IMG_H, 6);        // 主景每行底色
+const ZENITH = [38, 148, 238];                                 // 天顶 (仰视极限) 底色, 比主景顶部略深
+const T = Array.from({ length: IMG_H }, (_, y) => {
+  if (y >= MID_Y) return M[y - MID_Y];
+  const t = y / MID_Y, e = t * t;
+  return ZENITH.map((z, ch) => z + (M[0][ch] - z) * e);
+});
+// 每个像素按"比底色白多少"(标量 w, 三通道合计) 在目标底色 T 与纯白之间插值: 云保持白色、阴影面偏天空色, 不会因逐通道缩放而偏色
+const skyRow = new Float32Array(W * 3);
+const skyRowAt = (y) => {
+  const s = S[y], t = T[y], den = Math.max(3, (255 - s[0]) + (255 - s[1]) + (255 - s[2]));
+  for (let x = 0; x < W; x++) {
+    const i = (y * W + x) * 3;
+    const w = Math.min(1, Math.max(0, ((sky[i] - s[0]) + (sky[i + 1] - s[1]) + (sky[i + 2] - s[2])) / den));
+    for (let ch = 0; ch < 3; ch++) skyRow[x * 3 + ch] = t[ch] + w * (255 - t[ch]);
+  }
+};
 
 const strip = new Uint8Array(W * H * 3);
 const put = (y, x, r, g, b) => { const i = (y * W + x) * 3; strip[i] = r; strip[i + 1] = g; strip[i + 2] = b; };
 for (let y = 0; y < H; y++) {
+  if (y < IMG_H) skyRowAt(y);
   for (let x = 0; x < W; x++) {
     let r = 0, g = 0, b = 0;
-    // 天空层 (翻转): 长条第 y 行 = 原图第 719−y 行; 越靠近底部越向主景底色靠拢 (只在 y>420 起作用)
+    // 天空层 (不翻转, 已逐行调色): 长条第 y 行 = 原图第 y 行
     let sr = 0, sg = 0, sb = 0;
-    if (y < IMG_H) {
-      const i = ((IMG_H - 1 - y) * W + x) * 3;
-      const k = smooth(420, IMG_H - 1, y);
-      sr = Math.min(255, Math.max(0, sky[i] + dSky[0] * k)); sg = Math.min(255, Math.max(0, sky[i + 1] + dSky[1] * k)); sb = Math.min(255, Math.max(0, sky[i + 2] + dSky[2] * k));
-    }
+    if (y < IMG_H) { sr = skyRow[x * 3]; sg = skyRow[x * 3 + 1]; sb = skyRow[x * 3 + 2]; }
     // 主景层
     const my = y - MID_Y;
     let mr = 0, mg = 0, mb = 0;
@@ -122,7 +142,7 @@ for (let y = 0; y < H; y++) {
 }
 const maskSoftR = boxBlur(maskR, 2);
 
-// 遮罩半分辨率输出 (640×965), RGB 三通道: R 海 / G 天空 / B 0
+// 遮罩半分辨率输出 (640×905), RGB 三通道: R 海 / G 天空 / B 0
 const MW = W / 2, MH = Math.ceil(H / 2);
 const maskRGB = new Uint8Array(MW * MH * 3);
 for (let y = 0; y < MH; y++) for (let x = 0; x < MW; x++) {

@@ -263,7 +263,7 @@ export interface AddonDefinition {
 
 /**
  * 海滩场景 (id: beach) 的全部可调参数。每项注释写明 合法范围 / 调大调小的效果。
- * 背景 = 一张 1280×1930 的竖长条 (天空/主景/沙地), 随相机俯仰角滚动; 左右不随角色 bodyTurn 变。
+ * 背景 = 一张 1280×1810 的竖长条 (天空/主景/沙地), 随相机俯仰角滚动; 左右不随角色 bodyTurn 变。
  */
 export interface BeachSceneConfig {
   assets: {
@@ -296,27 +296,6 @@ export interface BeachSceneConfig {
     minScale: number;
     /** 背景最大缩放倍率 (推近极限)。范围 1 ~ 3。素材只有 1280 宽, >2 开始明显发糊; 调大 = 近景背景更大更糊。 */
     maxScale: number;
-  };
-  /** 脚下沙地 (真实的 3D 地面): 一块边缘柔和淡出的沙色圆盘, 铺在角色脚下, 让脚"踩"在沙上而不是悬在背景前。 */
-  ground: {
-    /** 总开关。false = 不画沙地 (只剩落影 / 接触影)。 */
-    enabled: boolean;
-    /** 沙地圆盘半径 (m)。范围 0.6 ~ 4。调大 = 脚下沙地铺得更开 (拉远 / 俯视时更明显); 调小 = 只在脚边一小圈。 */
-    radiusM: number;
-    /** 沙色 (要和 beach-strip 里的沙地同色, 俯视时才能与背景无缝衔接)。 */
-    color: number;
-    /** 沙地整体不透明度。范围 0 ~ 1。调小 = 与背景融合得更淡; 1 = 中心完全盖住背景。 */
-    opacity: number;
-    /** 沙纹明暗幅度。范围 0 ~ 0.2。0 = 纯色; 调大 = 沙纹更明显 (>0.12 开始像条纹)。 */
-    rippleStrength: number;
-    /** 圆盘从多大半径(占 radiusM 的比例)开始向外淡出。范围 0.2 ~ 0.9。调小 = 过渡带更宽更柔; 调大 = 边缘更清晰。 */
-    featherStart: number;
-    /**
-     * 脚没入画面时才显示沙地: 脚底在屏幕上的 NDC y 低于 fadeOutNdcY 时完全隐藏 (半身取景脚在画面外, 保持原样、不穿帮),
-     * 高于 fadeInNdcY 时完全显示, 之间线性过渡。范围 −2 ~ 0.5, 且 fadeOutNdcY < fadeInNdcY。
-     */
-    fadeOutNdcY: number;
-    fadeInNdcY: number;
   };
   /** 局部动态。总开关 enabled=false 时背景完全静止、不画粒子 (波光停在一个固定好看的帧)。 */
   dynamics: {
