@@ -2,12 +2,14 @@ import * as THREE from 'three';
 import { APP_CONFIG } from '@/config';
 import { isMobile } from '@/lib/platform';
 import { SceneMotionGovernor } from '../sceneMotion';
-import { PALMS, buildGrassLayout } from './beach3dLayout';
+import { PALMS, buildGrassLayout, buildRockLayout } from './beach3dLayout';
 import {
   buildGrassClump,
   buildMountains,
+  buildFrameFronds,
   buildPalmCrown,
   buildPalmTrunk,
+  buildRock,
   trunkTop,
   triangleCount,
 } from './beach3dGeometry';
@@ -18,24 +20,31 @@ import {
   MOUNTAIN_FRAG, MOUNTAIN_VERT,
   PALM_FRAG, PALM_VERT,
   PETAL_FRAG, PETAL_VERT,
+  ROCK_FRAG, ROCK_VERT,
   SKY_FRAG, SKY_VERT,
 } from './beach3dShaders';
 
 /**
  * Beach3DWorld — "海滩 3D" 场景 (id: beach3d), 纯 Three.js 搭建的真实 3D 海滩。
  *
- * 组成 (共 9 次绘制, 约 1 万三角面以内, 见 getStats()):
+ * 风格: 二次元 MMD 舞台 —— 3D 卡通着色道具 + 高调日光 + 轻微 Bloom (浪花 / 闪光参与), 与 MToon 角色同一套光向。
+ *
+ * 组成 (共 10 次绘制, 约 1.5 万三角面, 见 getStats()):
  *   天空      全屏着色器层 (按视线方向取色, 俯仰到极限也不会穿帮 / 露黑边)
  *   云        实例化面片 ×N (远景层, 1 次绘制)
  *   远山      两层剪影条带 (远景层, 1 次绘制)
  *   沙地 + 海 一张 y=0 的大平面 (1 次绘制): 沙纹 / 湿沙 / 岸边浪花 / 卡通波纹 / 阳光闪光全在片元里
  *   棕榈      树干 + 叶冠两个 InstancedMesh (2 次绘制)
+ *   框景叶    相机空间的前景棕榈叶, 每帧贴在画面左上 / 右上角 (1 次绘制; 竖横屏 / 任意机位都只占角落, 俯视时滑出)
  *   草丛      交叉面片 InstancedMesh (1 次绘制)
+ *   礁石      低模块面 InstancedMesh (1 次绘制), 水中礁石周围一圈白浪 (地面着色器里画)
  *   花瓣      世界空间 GPU 粒子 (1 次绘制, 只在角色身后)
  *   落影      复用引擎原有的实时阴影 (CharacterShadowSystem 的 ShadowMaterial 平面), 本类不另画影子
  *
- * "远景层" (云 / 远山) 每帧跟随相机平移 (不跟随旋转): 等价于无限远, 永远贴着真实海平线 (相机眼高处),
- * 也不受相机远裁剪面 (100m) 限制。沙地 / 海 / 植被是普通世界物体, 角色真实地站在沙地上。
+ * "远景层" (云 / 远山) 每帧跟随相机平移 (不跟随旋转): 等价于无限远, 不受相机远裁剪面 (100m) 限制。
+ * 沙地 / 海 / 植被 / 礁石是普通世界物体, 角色真实地站在沙地上。
+ * 地平线弧度 (layout.horizonCurveR): 离相机 (视距 + 3m) 以外的地面往下弯, 可见海平线落在眼高以下 uDip 角,
+ * 天空 / 远山 / 云按同一个 uDip 对齐 (computeHorizonDip, 每帧按相机高度算), 远处无缝。
  *
  * 太阳方向 = 引擎主方向光方向 (每帧读取), 天空柔光、闪光分布、树木明暗都按它算, 与角色受光一致。
  * 动态 (浪花 / 波纹 / 闪光 / 云 / 树叶 / 花瓣) 走 SceneMotionGovernor: reduced-motion 或低帧率自动静止 (与 beach 场景同一套逻辑)。
@@ -43,6 +52,20 @@ import {
 
 /** 远景层半径 (m): 云在此球面上。须小于相机远裁剪面 100m。 */
 const SKY_LAYER_RADIUS = 72;
+
+/** 地面着色器里"水中礁石白浪"最多几块。 */
+const ROCK_MAX = 12;
+
+/**
+ * 可见海平线相对眼高的下沉角 (rad)。地面在水平距离 d > d0 处下沉 (d−d0)²/(2R);
+ * 视线擦过地面的切点 d* = √(d0² + 2Rh), 下沉角 = atan((h + (d*−d0)²/(2R)) / d*)。h = 相机离地高度 (相机在地下时按 0.05 算)。
+ */
+export function computeHorizonDip(camY: number, d0: number, R: number): number {
+  const h = Math.max(0.05, camY);
+  const ds = Math.sqrt(d0 * d0 + 2 * R * h);
+  const e = ds - d0;
+  return Math.atan((h + (e * e) / (2 * R)) / ds);
+}
 
 /** 静止时停在的时刻 (浪花 / 闪光分布好看的一帧)。 */
 const STATIC_TIME = 11.7;
@@ -87,7 +110,10 @@ export class Beach3DWorld {
   private ground: THREE.Mesh | null = null;
   private trunks: THREE.InstancedMesh | null = null;
   private crowns: THREE.InstancedMesh | null = null;
+  private frame: THREE.Mesh | null = null;
+  private readonly frameHalf = { value: 1 };
   private grass: THREE.InstancedMesh | null = null;
+  private rocks: THREE.InstancedMesh | null = null;
   private petals: THREE.Points | null = null;
   private petalMax = 0;
   private readonly materials: THREE.Material[] = [];
@@ -99,16 +125,24 @@ export class Beach3DWorld {
     uMark: { value: 1 },
     uSunDir: { value: new THREE.Vector3(0.36, 0.72, 0.6).normalize() },
     uSway: { value: 0 },
+    uCurveR: { value: 700 },
+    uCurveD0: { value: 6 },
+    uDipSin: { value: 0 },
+    uDipTan: { value: 0 },
   };
   private readonly skyUniforms: Record<string, THREE.IUniform> = {};
   private readonly cloudUniforms: Record<string, THREE.IUniform> = {};
   private readonly petalUniforms: Record<string, THREE.IUniform> = {};
   private readonly tmpV = new THREE.Vector3();
   private readonly tmpV2 = new THREE.Vector3();
+  private readonly frameM = new THREE.Matrix4();
   private readonly drawSize = new THREE.Vector2();
 
   constructor() {
     this.group.name = 'Beach3DWorld';
+    // 场景以角色出生点为原点布置 (布局 / 岸线都是"相对角色"的坐标); 天空 / 云 / 远山 / 框景叶自己设 matrixWorld, 不受影响
+    const spawn = APP_CONFIG.model.spawn;
+    this.group.position.set(spawn.x, 0, spawn.z);
     this.group.visible = false;
   }
 
@@ -179,7 +213,10 @@ export class Beach3DWorld {
     const haze = {
       uHazeStart: { value: cfg.haze.start },
       uHazeEnd: { value: Math.min(cfg.haze.end, 95) },
+      uCurveR: this.shared.uCurveR,
+      uCurveD0: this.shared.uCurveD0,
     };
+    this.shared.uCurveR.value = THREE.MathUtils.clamp(cfg.layout.horizonCurveR, 50, 1e6);
     const sandHaze = lin(cfg.sand.light).lerp(lin(cfg.sky.horizon), 0.55);
 
     // ── 天空 (全屏层, 最先画, 不读写深度) ──
@@ -193,6 +230,7 @@ export class Beach3DWorld {
       uSeaDeep: { value: lin(cfg.sea.deep) },
       uSunDir: this.shared.uSunDir,
       uSunGlow: { value: cfg.sky.sunGlow },
+      uDipSin: this.shared.uDipSin,
       uComp: this.shared.uComp,
       uMark: this.shared.uMark,
     });
@@ -229,6 +267,8 @@ export class Beach3DWorld {
         uTime: this.shared.uTime,
         uDrift: { value: THREE.MathUtils.degToRad(cfg.clouds.driftDegPerSec) },
         uRadius: { value: SKY_LAYER_RADIUS },
+        uDipTan: this.shared.uDipTan,
+        uSunScreen: { value: new THREE.Vector2(0.6, 0.8) },
         uLight: { value: lin(cfg.clouds.light) },
         uShade: { value: lin(cfg.clouds.shade) },
         uHorizon: { value: lin(cfg.sky.horizon) },
@@ -270,6 +310,7 @@ export class Beach3DWorld {
             uFar: { value: lin(cfg.mountains.far) },
             uNear: { value: lin(cfg.mountains.near) },
             uHorizon: { value: lin(cfg.sky.horizon) },
+            uDipTan: this.shared.uDipTan,
             uComp: this.shared.uComp,
             uMark: this.shared.uMark,
           },
@@ -285,8 +326,14 @@ export class Beach3DWorld {
       this.group.add(this.mountains);
     }
 
+    // ── 礁石布局 (地面着色器要知道水中礁石的位置来画白浪, 所以先算) ──
+    const rockLayout = cfg.rocks.enabled ? buildRockLayout(cfg.layout) : [];
+    const rockUniform = Array.from({ length: ROCK_MAX }, () => new THREE.Vector4(0, 0, 0, 0));
+    rockLayout.filter((r) => r.inWater).slice(0, ROCK_MAX).forEach((r, i) => rockUniform[i].set(r.x, r.z, r.r * 0.95, 1));
+
     // ── 沙地 + 海 (y=0 大平面, 写深度; 角色踩在上面, 落影平面画在它上面) ──
-    const groundGeo = new THREE.PlaneGeometry(150, 135, 1, 1);
+    // 细分 40×48: 只为远处的"地平线弧度"顶点下弯 (角色附近是平的); 约 3.8k 三角
+    const groundGeo = new THREE.PlaneGeometry(150, 135, 40, 48);
     groundGeo.rotateX(-Math.PI / 2);
     groundGeo.translate(0, 0, -30); // z ∈ [−97.5, 37.5]: 前方到远海, 身后也有足够沙地 (俯视 / 拉远)
     this.ground = new THREE.Mesh(
@@ -320,10 +367,12 @@ export class Beach3DWorld {
           uSandSpacing: { value: Math.max(0.1, cfg.sand.rippleSpacing) },
           uSandRipple: { value: cfg.sand.ripple },
           uSunDir: this.shared.uSunDir,
+          uRocks: { value: rockUniform },
           uComp: this.shared.uComp,
           uMark: this.shared.uMark,
           ...haze,
         },
+        defines: { ROCK_MAX: ROCK_MAX },
         // 往后推一点深度, 让原有的落影平面 (y=0.0005, polygonOffset 1) 稳定地画在沙地上面 (与线稿场景地面同一做法)
         polygonOffset: true,
         polygonOffsetFactor: 2,
@@ -378,6 +427,23 @@ export class Beach3DWorld {
     this.crowns.computeBoundingSphere();
     this.group.add(this.trunks, this.crowns);
 
+    // ── 前景框景叶: 相机空间, 每帧贴到画面左上 / 右上角 (onBeforeRender 里摆位) ──
+    if (cfg.vegetation.frameFronds > 0) {
+      this.frame = new THREE.Mesh(buildFrameFronds(), this.register(new THREE.ShaderMaterial({
+        vertexShader: PALM_VERT,
+        fragmentShader: PALM_FRAG,
+        uniforms: { ...palmUniforms, uFrameHalf: this.frameHalf },
+        defines: { FRAME: 1 },
+        side: THREE.DoubleSide,
+      })));
+      this.frame.name = 'Beach3DFrameFronds';
+      this.frame.frustumCulled = false;
+      this.frame.matrixAutoUpdate = false;
+      this.frame.matrixWorldAutoUpdate = false;
+      this.frame.onBeforeRender = (_r, _s, camera) => this.placeFrame(camera as THREE.PerspectiveCamera);
+      this.group.add(this.frame);
+    }
+
     // ── 草丛 ──
     const layout = buildGrassLayout(cfg.layout);
     const nGrass = Math.round(layout.length * THREE.MathUtils.clamp(cfg.vegetation.grassDensity, 0, 1));
@@ -416,6 +482,32 @@ export class Beach3DWorld {
       this.group.add(this.grass);
     }
 
+    // ── 礁石 ──
+    if (rockLayout.length > 0) {
+      this.rocks = new THREE.InstancedMesh(buildRock(cfg.rocks.detail), this.register(new THREE.ShaderMaterial({
+        vertexShader: ROCK_VERT,
+        fragmentShader: ROCK_FRAG,
+        uniforms: {
+          uRockLight: { value: lin(cfg.rocks.light) },
+          uRockShade: { value: lin(cfg.rocks.shade) },
+          uSunDir: this.shared.uSunDir,
+          uHaze: { value: sandHaze },
+          uComp: this.shared.uComp,
+          uMark: this.shared.uMark,
+          ...haze,
+        },
+      })), rockLayout.length);
+      rockLayout.forEach((r, i) => {
+        q.setFromAxisAngle(new THREE.Vector3(0, 1, 0), r.rot);
+        sc.set(r.r, r.r * r.squash, r.r * (0.8 + 0.2 * Math.sin(i)));
+        m.compose(new THREE.Vector3(r.x, r.inWater ? -0.08 * r.r : -0.03, r.z), q, sc);
+        this.rocks!.setMatrixAt(i, m);
+      });
+      this.rocks.name = 'Beach3DRocks';
+      this.rocks.computeBoundingSphere();
+      this.group.add(this.rocks);
+    }
+
     // ── 花瓣 (透明队列: 画在角色之后、按深度被角色遮挡, 只分布在角色身后) ──
     this.petalMax = Math.max(0, Math.min(80, Math.max(cfg.petals.count, cfg.petals.countMobile)));
     if (this.petalMax > 0) {
@@ -436,7 +528,7 @@ export class Beach3DWorld {
         uSpeed: { value: cfg.petals.speed },
         uSize: { value: cfg.petals.size },
         uPxPerUnit: { value: 500 },
-        uBoxMin: { value: new THREE.Vector3(-3.6, 0.05, -5.0) },
+        uBoxMin: { value: new THREE.Vector3(-3.6, 0.05, -5.0).add(this.group.position) }, // 角色身后 1~5m
         uBoxSize: { value: new THREE.Vector3(7.2, 3.4, 4.0) },
         uPal: { value: pal },
         uOpacity: { value: cfg.petals.opacity },
@@ -462,6 +554,24 @@ export class Beach3DWorld {
     }
   }
 
+  /**
+   * 前景框景叶摆位: 放在相机前 FRAME_DEPTH 处, 根部对准画面上沿两角; 大小按画面短边缩放 (竖屏 / 横屏都只占角落)。
+   * 俯视 (视线向下超过约 20°) 时两簇沿对角线滑出画面, 免得"头顶的树叶"出现在看地面的画面里。
+   */
+  private placeFrame(camera: THREE.PerspectiveCamera): void {
+    const frame = this.frame!;
+    const D = Math.max(camera.near * 2.5, 0.25);
+    const halfH = Math.tan(THREE.MathUtils.degToRad(camera.fov) / 2) * D / (camera.zoom || 1);
+    const halfW = halfH * camera.aspect;
+    const S = APP_CONFIG.beach3dScene.vegetation.frameFronds * Math.min(2 * halfW, 1.5 * halfH);
+    camera.getWorldDirection(this.tmpV);
+    const slide = THREE.MathUtils.smoothstep(-this.tmpV.y, 0.3, 0.7) * 2.3 * S; // 2.3S > 叶簇伸进画面的最大长度 → 完全滑出
+    this.frameHalf.value = (halfW + slide) / S;
+    // 相机空间: 原点在画面上沿中点 (再按 slide 往上推), 缩放 S
+    this.frameM.makeTranslation(0, halfH + slide, -D).scale(this.tmpV2.setScalar(S));
+    frame.matrixWorld.multiplyMatrices(camera.matrixWorld, this.frameM);
+  }
+
   /** 远景层: 跟随相机平移 (不旋转) → 等价无限远, 底边永远在相机眼高 (= 真实海平线)。 */
   private followCamera(obj: THREE.Object3D, camera: THREE.Camera): void {
     camera.getWorldPosition(this.tmpV);
@@ -482,6 +592,19 @@ export class Beach3DWorld {
       this.sun.target.getWorldPosition(this.tmpV2);
       const d = this.tmpV.sub(this.tmpV2);
       if (d.lengthSq() > 1e-8) (this.shared.uSunDir.value as THREE.Vector3).copy(d.normalize());
+    }
+
+    // 地平线弧度: 弯曲从 (视距 + 3m) 开始, 角色附近保持平; 由相机高度算出可见海平线的下沉角, 天空 / 远山 / 云对齐到它
+    camera.getWorldPosition(this.tmpV);
+    const camDist = Math.hypot(this.tmpV.x - this.group.position.x, this.tmpV.z - this.group.position.z); // 相机到角色的水平距离
+    const d0 = camDist + 3;
+    this.shared.uCurveD0.value = d0;
+    const dip = computeHorizonDip(this.tmpV.y, d0, this.shared.uCurveR.value);
+    this.shared.uDipSin.value = Math.sin(dip);
+    this.shared.uDipTan.value = Math.tan(dip);
+    if (this.cloudUniforms.uSunScreen) {
+      const sd = this.shared.uSunDir.value as THREE.Vector3;
+      (this.cloudUniforms.uSunScreen.value as THREE.Vector2).set(sd.x, Math.max(0.2, sd.y)).normalize();
     }
 
     // 天空层: 视线方向重建
@@ -512,6 +635,6 @@ export class Beach3DWorld {
     this.materials.length = 0;
     if (scene) scene.remove(this.group);
     this.group.clear();
-    this.sky = this.clouds = this.mountains = this.ground = this.trunks = this.crowns = this.grass = this.petals = null;
+    this.sky = this.clouds = this.mountains = this.ground = this.trunks = this.crowns = this.frame = this.grass = this.rocks = this.petals = null;
   }
 }

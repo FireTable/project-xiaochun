@@ -160,6 +160,84 @@ export function buildPalmCrown(fronds = 11, segs = 8): THREE.BufferGeometry {
   return g;
 }
 
+/**
+ * 前景框景叶 (相机空间, 每帧贴在画面左上 / 右上角, 见 Beach3DWorld): 每侧一簇 6 片从画外伸进来的下垂羽状叶。
+ * 局部坐标: 叶簇根部 = 原点 (略在画框外), +X 向画面内, −Y 向下, +Z 朝相机; 叶长约 1 (按画面高度缩放)。
+ * aSide = −1 左簇 / +1 右簇 (右簇是左簇的镜像, 已翻转绕序和法线, 正面仍朝相机); 顶点着色器按 aSide 把两簇推到左右两角。
+ * 属性与叶冠一致 (aLeaf / aPart = 1), 直接复用棕榈着色器的叶片裁切 / 明暗。
+ */
+export function buildFrameFronds(fronds = 6, segs = 8): THREE.BufferGeometry {
+  const rnd = mulberry32(0xf20d);
+  const pos: number[] = [];
+  const nrm: number[] = [];
+  const leaf: number[] = [];
+  const part: number[] = [];
+  const side: number[] = [];
+  const idx: number[] = [];
+  const p = new THREE.Vector3();
+  const dir = new THREE.Vector3();
+  const sv = new THREE.Vector3();
+  const nv = new THREE.Vector3();
+  const zAxis = new THREE.Vector3(0, 0, 1);
+  const left: Array<{ pos: number[]; nrm: number[]; leaf: number[]; tris: number[] }> = [];
+  for (let f = 0; f < fronds; f++) {
+    const a0 = THREE.MathUtils.degToRad(18 - (f / (fronds - 1)) * 92 + (rnd() - 0.5) * 8); // 起始方向: 从偏右上到几乎朝下
+    const len = 0.8 + rnd() * 0.3 - (f === 0 || f === fronds - 1 ? 0.12 : 0);
+    const droop = 0.9 + rnd() * 0.5;
+    const width = 0.15 + rnd() * 0.04;
+    const z0 = (f % 2) * -0.06; // 前后错开, 叶片之间有层次
+    p.set(-0.12, 0.08, z0);
+    const fp: number[] = [], fn: number[] = [], fl: number[] = [], ft: number[] = [];
+    for (let k = 0; k <= segs; k++) {
+      const s = k / segs;
+      const el = Math.max(a0 - droop * s * s, THREE.MathUtils.degToRad(-105));
+      dir.set(Math.cos(el), Math.sin(el), 0.28 * s).normalize();
+      if (k > 0) p.addScaledVector(dir, len / segs);
+      const w = width * Math.pow(Math.sin(Math.PI * Math.min(1, s * 0.92 + 0.08)), 0.75) * (s < 0.08 ? s / 0.08 : 1);
+      sv.crossVectors(dir, zAxis).normalize();
+      nv.crossVectors(sv, dir).normalize(); // 朝相机 (+Z)
+      if (nv.z < 0) nv.negate();
+      const fold = 0.3 * w; // 中脊朝相机凸起, 两缘向后
+      fp.push(p.x - sv.x * w, p.y - sv.y * w, p.z - fold, p.x, p.y, p.z, p.x + sv.x * w, p.y + sv.y * w, p.z - fold);
+      for (let q = 0; q < 3; q++) fn.push(nv.x, nv.y, nv.z);
+      fl.push(s, -1, s, 0, s, 1);
+    }
+    for (let k = 0; k < segs; k++) {
+      const a = k * 3;
+      const b = a + 3;
+      ft.push(a, b, a + 1, a + 1, b, b + 1, a + 1, b + 1, a + 2, a + 2, b + 1, b + 2);
+    }
+    left.push({ pos: fp, nrm: fn, leaf: fl, tris: ft });
+  }
+  for (const sgn of [-1, 1]) {
+    for (const fr of left) {
+      const base = pos.length / 3;
+      for (let i = 0; i < fr.pos.length; i += 3) {
+        // 右簇 = 左簇沿 X 镜像 (sgn = +1 时 x 取反)
+        pos.push(sgn > 0 ? -fr.pos[i] : fr.pos[i], fr.pos[i + 1], fr.pos[i + 2]);
+        nrm.push(sgn > 0 ? -fr.nrm[i] : fr.nrm[i], fr.nrm[i + 1], fr.nrm[i + 2]);
+        part.push(1);
+        side.push(sgn);
+      }
+      leaf.push(...fr.leaf);
+      for (let t = 0; t < fr.tris.length; t += 3) {
+        // 左簇按 (左缘, 下一节左缘, 中脊) 的顺序从相机看是顺时针, 需反转; 右簇镜像后本身就是逆时针 → 正面朝相机
+        if (sgn < 0) idx.push(base + fr.tris[t], base + fr.tris[t + 2], base + fr.tris[t + 1]);
+        else idx.push(base + fr.tris[t], base + fr.tris[t + 1], base + fr.tris[t + 2]);
+      }
+    }
+  }
+  const g = new THREE.BufferGeometry();
+  g.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
+  g.setAttribute('normal', new THREE.Float32BufferAttribute(nrm, 3));
+  g.setAttribute('aLeaf', new THREE.Float32BufferAttribute(leaf, 2));
+  g.setAttribute('aPart', new THREE.Float32BufferAttribute(part, 1));
+  g.setAttribute('aSide', new THREE.Float32BufferAttribute(side, 1));
+  g.setIndex(idx);
+  g.computeBoundingSphere();
+  return g;
+}
+
 /** 草丛: 3 片互成 60° 的竖直面片 (单位高 1m、宽 1.1m, 底边在 y=0); 草叶形状在片元里画。 */
 export function buildGrassClump(): THREE.BufferGeometry {
   const pos: number[] = [];
@@ -226,6 +304,30 @@ export function buildMountains(heightScale = 1, segments = 72, farR = 80, nearR 
   g.setAttribute('aLayer', new THREE.Float32BufferAttribute(aLayer, 1));
   g.setAttribute('aLit', new THREE.Float32BufferAttribute(aLit, 1));
   g.setIndex(idx);
+  g.computeBoundingSphere();
+  return g;
+}
+
+/**
+ * 礁石: icosahedron (detail 0~2) 顶点按确定性噪声推拉, 底部压平 (坐在地面上), 非索引 + 面法线 → 卡通块面感。
+ * 单位半径 1, 底面 y≈0; 实例矩阵里缩放 / 压扁 / 旋转。
+ */
+export function buildRock(detail = 1): THREE.BufferGeometry {
+  const ico = new THREE.IcosahedronGeometry(1, Math.max(0, Math.min(2, Math.round(detail))));
+  const pos = ico.getAttribute('position');
+  const v = new THREE.Vector3();
+  // 同一位置的顶点 (非索引几何里重复) 推拉量必须相同, 否则会裂缝: 按坐标哈希
+  for (let i = 0; i < pos.count; i++) {
+    v.fromBufferAttribute(pos, i);
+    const h = Math.sin(v.x * 12.9898 + v.y * 78.233 + v.z * 37.719) * 43758.5453;
+    const n = h - Math.floor(h);
+    v.multiplyScalar(0.82 + 0.3 * n);
+    v.y = v.y < -0.15 ? -0.15 : v.y; // 底部压平
+    v.y += 0.15;
+    pos.setXYZ(i, v.x, v.y, v.z);
+  }
+  const g = ico.index ? ico.toNonIndexed() : ico;
+  g.computeVertexNormals();
   g.computeBoundingSphere();
   return g;
 }

@@ -1,7 +1,8 @@
 import { describe, expect, it } from 'vitest';
 import { APP_CONFIG } from '@/config';
-import { FAR_PEAKS, GRASS_KEEP_OUT_X, NEAR_PEAKS, PALMS, buildGrassLayout, ridgeHeight, shoreLineZ } from '../beach3d/beach3dLayout';
-import { buildGrassClump, buildMountains, buildPalmCrown, buildPalmTrunk, trunkTop, triangleCount } from '../beach3d/beach3dGeometry';
+import { FAR_PEAKS, GRASS_KEEP_OUT_X, NEAR_PEAKS, PALMS, buildGrassLayout, buildRockLayout, ridgeHeight, shoreLineZ } from '../beach3d/beach3dLayout';
+import { buildFrameFronds, buildGrassClump, buildMountains, buildPalmCrown, buildPalmTrunk, buildRock, trunkTop, triangleCount } from '../beach3d/beach3dGeometry';
+import { computeHorizonDip } from '../beach3d/beach3dWorld';
 
 const shore = APP_CONFIG.beach3dScene.layout;
 
@@ -43,6 +44,43 @@ describe('beach3d layout', () => {
     }
   });
 
+  it('框景叶: 左右两簇镜像对称, 叶片都向画面内 (左簇 x ≥ 根部, 右簇相反) 且向下垂', () => {
+    const g = buildFrameFronds();
+    const pos = g.getAttribute('position');
+    const side = g.getAttribute('aSide');
+    let nl = 0, nr = 0, minY = 0;
+    for (let i = 0; i < pos.count; i++) {
+      const sx = side.getX(i);
+      if (sx < 0) nl++; else nr++;
+      expect(pos.getX(i) * sx).toBeLessThan(0.3); // 左簇 (−1) 向 +X 伸, 右簇 (+1) 向 −X 伸
+      minY = Math.min(minY, pos.getY(i));
+    }
+    expect(nl).toBe(nr);
+    expect(minY).toBeLessThan(-0.4);
+    expect(minY).toBeGreaterThan(-1.3);
+  });
+
+  it('礁石: 只在两侧, 不挡角色正后方的海面; 有一部分在水里', () => {
+    const rocks = buildRockLayout(shore);
+    expect(rocks.length).toBeGreaterThan(10);
+    for (const r of rocks) {
+      expect(Math.abs(r.x)).toBeGreaterThanOrEqual(2.2);
+      expect(r.inWater).toBe(r.z < shoreLineZ(r.x, shore) - 0.1);
+    }
+    expect(rocks.some((r) => r.inWater)).toBe(true);
+    expect(rocks.some((r) => !r.inWater)).toBe(true);
+  });
+
+  it('地平线弧度: 下沉角为正、随相机升高变大、R 越大越接近 0', () => {
+    const R = shore.horizonCurveR;
+    const a = computeHorizonDip(0.96, 5.5, R);
+    expect(a).toBeGreaterThan(0.02);
+    expect(a).toBeLessThan(0.08);
+    expect(computeHorizonDip(3, 5.5, R)).toBeGreaterThan(a);
+    expect(computeHorizonDip(0.96, 5.5, 1e6)).toBeLessThan(0.01);
+    expect(Number.isFinite(computeHorizonDip(-5, 5.5, R))).toBe(true); // 相机在地面以下
+  });
+
   it('远山: 角色正后方只有低矮山脊 (留出海面), 高度非负', () => {
     for (let az = -70; az <= 70; az += 0.5) {
       expect(ridgeHeight(az, FAR_PEAKS)).toBeGreaterThanOrEqual(0);
@@ -53,14 +91,16 @@ describe('beach3d layout', () => {
 });
 
 describe('beach3d geometry budget', () => {
-  it('低模: 单棵棕榈 < 800 三角, 全部植被 + 远山 < 12000 三角', () => {
+  it('低模: 单棵棕榈 < 800 三角, 场景总计 < 20000 三角', () => {
     const trunk = triangleCount(buildPalmTrunk());
     const crown = triangleCount(buildPalmCrown());
     const grass = triangleCount(buildGrassClump());
     const mountains = triangleCount(buildMountains(1));
     expect(trunk + crown).toBeLessThan(800);
-    const total = (trunk + crown) * PALMS.length + grass * buildGrassLayout(shore).length + mountains + 2 /* 地面 */ + 2 /* 天空 */;
-    expect(total).toBeLessThan(12000);
+    const rocks = triangleCount(buildRock(APP_CONFIG.beach3dScene.rocks.detail)) * buildRockLayout(shore).length;
+    const frame = triangleCount(buildFrameFronds());
+    const total = (trunk + crown) * PALMS.length + grass * buildGrassLayout(shore).length + mountains + rocks + frame + 40 * 48 * 2 /* 地面 */ + 2 /* 天空 */;
+    expect(total).toBeLessThan(20000);
   });
 
   it('叶冠几何带 aPart / aLeaf 属性, 法线已归一化', () => {

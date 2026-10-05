@@ -52,13 +52,13 @@ function yawToward(x: number, z: number, tx: number, tz: number): number {
  * 全部种在沙地上 (单测校验 z > 岸线 + 0.8m), 且离角色 ≥ 2.4m。
  */
 export const PALMS: readonly PalmSpec[] = [
-  { x: -2.7, z: -3.0, scale: 1.0, yaw: yawToward(-2.7, -3.0, 0, 0.5) },
-  { x: -4.6, z: -5.6, scale: 0.92, yaw: yawToward(-4.6, -5.6, 0, -3) },
+  { x: -2.1, z: -3.0, scale: 0.86, yaw: yawToward(-2.1, -3.0, 0, 0.5) },
+  { x: -3.7, z: -4.8, scale: 0.92, yaw: yawToward(-3.7, -4.8, 0, -3) },
   { x: -8.4, z: -6.0, scale: 1.12, yaw: yawToward(-8.4, -6.0, -3, -8) },
   { x: -12.8, z: -9.2, scale: 1.0, yaw: yawToward(-12.8, -9.2, -6, -14) },
   { x: -18.5, z: -13.5, scale: 1.18, yaw: yawToward(-18.5, -13.5, -10, -20) },
-  { x: 2.9, z: -3.6, scale: 1.06, yaw: yawToward(2.9, -3.6, 0, 0.2) },
-  { x: 5.3, z: -5.0, scale: 0.9, yaw: yawToward(5.3, -5.0, 1, -6) },
+  { x: 2.3, z: -3.4, scale: 0.9, yaw: yawToward(2.3, -3.4, 0, 0.3) },
+  { x: 4.0, z: -4.5, scale: 0.9, yaw: yawToward(4.0, -4.5, 1, -6) },
   { x: 9.2, z: -7.4, scale: 1.1, yaw: yawToward(9.2, -7.4, 4, -10) },
   { x: 14.0, z: -10.6, scale: 0.96, yaw: yawToward(14.0, -10.6, 8, -15) },
   { x: 20.5, z: -15.5, scale: 1.14, yaw: yawToward(20.5, -15.5, 12, -22) },
@@ -88,20 +88,20 @@ export function buildGrassLayout(shore: ShoreParams): GrassSpec[] {
   const push = (x: number, z: number, scale: number) => {
     if (Math.abs(x) < GRASS_KEEP_OUT_X && z > -2.2) return;
     if (z < shoreLineZ(x, shore) + 0.8) return;
-    out.push({ x, z, scale, rot: rnd() * Math.PI, flower: rnd() < 0.45 });
+    out.push({ x, z, scale, rot: rnd() * Math.PI, flower: rnd() < 0.35 });
   };
   for (const p of PALMS) {
     const n = 2 + Math.floor(rnd() * 2);
     for (let i = 0; i < n; i++) {
       const a = rnd() * Math.PI * 2;
       const r = 0.35 + rnd() * 0.7;
-      push(p.x + Math.cos(a) * r, p.z + Math.sin(a) * r, 0.75 + rnd() * 0.5);
+      push(p.x + Math.cos(a) * r, p.z + Math.sin(a) * r, 0.55 + rnd() * 0.35);
     }
   }
   // 前景两侧 (横屏下角 / 拉远时的框景)
   const front: Array<[number, number, number]> = [
-    [-1.35, -1.6, 0.8], [-1.9, -0.6, 1.0], [-2.4, 0.6, 1.15], [-1.55, -2.6, 0.7],
-    [1.4, -1.9, 0.85], [2.0, -0.4, 1.05], [2.6, 0.9, 1.2], [1.7, -2.9, 0.7],
+    [-1.4, -1.7, 0.6], [-2.0, -0.9, 0.65], [-2.7, 0.1, 0.7], [-1.6, -2.7, 0.55],
+    [1.45, -2.0, 0.6], [2.1, -0.7, 0.65], [2.8, 0.3, 0.7], [1.75, -3.0, 0.55],
   ];
   for (const [x, z, s] of front) push(x + (rnd() - 0.5) * 0.2, z + (rnd() - 0.5) * 0.2, s);
   // 两侧沙地边缘零散
@@ -109,7 +109,7 @@ export function buildGrassLayout(shore: ShoreParams): GrassSpec[] {
     const side = i % 2 === 0 ? -1 : 1;
     const x = side * (3.2 + rnd() * 12);
     const z = -1.5 - rnd() * 8;
-    push(x, z, 0.6 + rnd() * 0.5);
+    push(x, z, 0.5 + rnd() * 0.35);
   }
   return out;
 }
@@ -149,4 +149,39 @@ export function ridgeHeight(azDeg: number, peaks: readonly PeakSpec[], heightSca
   }
   if (h > 0) h += 0.25 * Math.sin(azDeg * 0.9) * Math.min(1, h) + 0.12 * Math.sin(azDeg * 2.3);
   return Math.max(0, h * heightScale);
+}
+
+/** 礁石: 世界位置、尺寸 (m, 半径)、压扁比例、朝向、是否在水里 (在水里的周围画一圈白浪)。 */
+export interface RockSpec {
+  x: number;
+  z: number;
+  r: number;
+  squash: number;
+  rot: number;
+  inWater: boolean;
+}
+
+/**
+ * 礁石布局: 两侧岸边成簇散落 (每簇 2~3 块, 大小错落), 一部分半浸在浅水里; 角色正后方 |x| < 2.2 不放, 留出干净的海面。
+ * z 相对岸线给出 (负 = 在水里), 所以改岸线参数礁石会跟着岸走。
+ */
+export function buildRockLayout(shore: ShoreParams): RockSpec[] {
+  const rnd = mulberry32(0x70c4);
+  const clusters: Array<[number, number, number]> = [
+    // [x, 相对岸线的 z 偏移 (m), 簇大小]
+    [-3.4, -0.9, 0.55], [-6.2, 0.6, 0.8], [-9.8, -1.2, 0.7], [-13.5, 0.9, 0.9],
+    [3.6, -1.1, 0.5], [6.8, 0.4, 0.85], [10.6, -1.4, 0.75], [15.5, 0.7, 0.95],
+  ];
+  const out: RockSpec[] = [];
+  for (const [cx, dz, size] of clusters) {
+    const n = 2 + Math.floor(rnd() * 2);
+    for (let i = 0; i < n; i++) {
+      const x = cx + (rnd() - 0.5) * 1.4 * size;
+      if (Math.abs(x) < 2.2) continue;
+      const z = shoreLineZ(x, shore) + dz + (rnd() - 0.5) * 0.9 * size;
+      const r = size * (i === 0 ? 0.75 + rnd() * 0.25 : 0.3 + rnd() * 0.3);
+      out.push({ x, z, r, squash: 0.55 + rnd() * 0.3, rot: rnd() * Math.PI * 2, inWater: z < shoreLineZ(x, shore) - 0.1 });
+    }
+  }
+  return out;
 }

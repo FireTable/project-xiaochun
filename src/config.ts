@@ -401,6 +401,7 @@ export const APP_CONFIG = {
       shoreZ: -6.0,        // 角色身后岸线 Z (m), 范围 −12 ~ −3; 调大 = 海更近, 调小 = 沙滩更深
       shoreCurve: 0.03,    // 岸线两侧后弯 (海湾), 范围 0 ~ 0.06; 调大 = 两侧沙地包得更远
       shoreWiggle: 0.45,   // 岸线蜿蜒幅度 (m), 范围 0 ~ 1.2; 调大 = 更曲折
+      horizonCurveR: 700,  // 地平线弧度半径 (m), 范围 200 ~ 5000; 调小 = 可见海平线更低 (700 ≈ 眼高下 2.5°, 全身镜头落在胯部), 调大 = 接近平面 (= 眼高)
     },
     sky: {
       zenith: 0x3fa9ee,
@@ -410,8 +411,8 @@ export const APP_CONFIG = {
     },
     sea: {
       shallow: 0x8ef0dc,
-      mid: 0x33c9cc,
-      deep: 0x24aac8,
+      mid: 0x2cc2cc,
+      deep: 0x1690c4,
       horizon: 0x7dd6dc,
       foam: 0xffffff,
       ripple: 0.55,        // 卡通波纹强度, 范围 0 ~ 1; 调大更明显 (>0.8 显花), 0 = 纯色
@@ -424,16 +425,16 @@ export const APP_CONFIG = {
       swashSpeed: 0.55,    // 浪来回速度 (rad/s), 范围 0.1 ~ 1.5; 调大更急
     },
     sand: {
-      base: 0xf9ead0,
-      shade: 0xecd2ae,
-      light: 0xfff6e6,
-      wet: 0xe8cfa6,
+      base: 0xf4e1c2,
+      shade: 0xe2c49e,
+      light: 0xf9ecd6,
+      wet: 0xdcc097,
       rippleSpacing: 0.42, // 沙纹间距 (m), 范围 0.15 ~ 1.5; 调小更密 (远处按距离淡出防闪烁)
       ripple: 0.6,         // 沙纹强度, 范围 0 ~ 1; 0 = 无沙纹
     },
     haze: {
-      start: 14,           // 空气透视起点 (m), 范围 5 ~ 60; 调小 = 中景就发白
-      end: 80,             // 完全淡到海平线色的距离 (m), 范围 30 ~ 95 (须 < 相机远裁剪面 100)
+      start: 16,           // 空气透视起点 (m), 范围 5 ~ 60; 调小 = 中景就发白
+      end: 75,             // 完全淡到海平线色的距离 (m), 范围 30 ~ 95 (须 < 相机远裁剪面 100)
     },
     mountains: {
       enabled: true,
@@ -458,6 +459,13 @@ export const APP_CONFIG = {
       flower: 0xffb3c9,
       sway: 0.08,          // 叶尖摆动幅度 (m), 范围 0 ~ 0.3; 0 = 不动
       grassDensity: 1.0,   // 草丛数量倍率, 范围 0 ~ 1; 调小 = 实例更少
+      frameFronds: 0.42,   // 前景框景叶 (画面左上 / 右上角伸进来的棕榈叶) 大小, 范围 0 ~ 0.7 (占画面短边比例); 0 = 关闭
+    },
+    rocks: {
+      enabled: true,
+      light: 0xd9cfc6,
+      shade: 0x9a8ca6,
+      detail: 1,           // 礁石细分, 范围 0 ~ 2; 0 = 20 面硬朗, 1 = 80 面 (默认), 2 = 320 面更圆 (三角面 ×4)
     },
     petals: {
       count: 28,           // 桌面花瓣数, 范围 0 ~ 80; >40 抢戏
