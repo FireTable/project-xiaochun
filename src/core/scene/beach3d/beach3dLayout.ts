@@ -3,7 +3,7 @@
  *
  * 坐标约定 (与引擎一致): 角色站在原点, 脚底 y = 0; 相机只在 YZ 平面内绕角色俯仰 (水平方位锁定 0, 永远在 +Z 一侧),
  * 左右是角色自己转身 (bodyTurn), 所以场景只需要朝 −Z 方向布景: 近处沙滩 → 岸线 → 海 → 海平线上的远山。
- * 棕榈 / 草丛分布在画面两侧做框景, 中间留出角色的"禁区", 不会挡住角色。
+ * 棕榈 / 礁石分布在画面两侧, 中间留出角色的"禁区", 不会挡住角色。
  */
 
 export interface ShoreParams {
@@ -29,15 +29,6 @@ export interface PalmSpec {
   z: number;
   scale: number;
   yaw: number;
-}
-
-/** 草丛: 世界位置、缩放、朝向、是否开花。 */
-export interface GrassSpec {
-  x: number;
-  z: number;
-  scale: number;
-  rot: number;
-  flower: boolean;
 }
 
 /** 树干朝 (tx, tz) 方向倾斜的 yaw (树干局部 +X = 倾斜方向; Three 绕 Y 正转: x' = x·cos + z·sin, z' = −x·sin + z·cos)。 */
@@ -75,41 +66,6 @@ function mulberry32(seed: number): () => number {
   };
 }
 
-/** 角色禁区: 草丛不进 |x| < GRASS_KEEP_OUT_X 且 z > −2.2 的区域 (避免挡腿 / 挡脚下落影)。 */
-export const GRASS_KEEP_OUT_X = 1.0;
-
-/**
- * 草丛布局 (确定性随机): 近处 6 棵棕榈脚下各 1~2 簇 + 两侧前景 4 簇 + 两侧沙地边缘零散 6 簇, 共约 20 簇 (点缀, 不铺满)。
- * 全部在沙地上、不进角色禁区。
- */
-export function buildGrassLayout(shore: ShoreParams): GrassSpec[] {
-  const rnd = mulberry32(0xbeac3d);
-  const out: GrassSpec[] = [];
-  const push = (x: number, z: number, scale: number) => {
-    if (Math.abs(x) < GRASS_KEEP_OUT_X && z > -2.2) return;
-    if (z < shoreLineZ(x, shore) + 0.8) return;
-    out.push({ x, z, scale, rot: rnd() * Math.PI * 2, flower: rnd() < 0.4 });
-  };
-  const near = [...PALMS].sort((a, b) => Math.hypot(a.x, a.z) - Math.hypot(b.x, b.z)).slice(0, 6);
-  for (const p of near) {
-    const n = 1 + Math.floor(rnd() * 2);
-    for (let i = 0; i < n; i++) {
-      const a = rnd() * Math.PI * 2;
-      const r = 0.4 + rnd() * 0.5;
-      push(p.x + Math.cos(a) * r, p.z + Math.sin(a) * r, 0.5 + rnd() * 0.25);
-    }
-  }
-  // 前景两侧 (横屏下角 / 拉远时的点缀)
-  const front: Array<[number, number, number]> = [[-1.6, -2.0, 0.5], [-2.5, -0.5, 0.58], [1.7, -2.3, 0.5], [2.7, -0.2, 0.58]];
-  for (const [x, z, s] of front) push(x + (rnd() - 0.5) * 0.2, z + (rnd() - 0.5) * 0.2, s);
-  // 两侧沙地边缘零散
-  for (let i = 0; i < 6; i++) {
-    const side = i % 2 === 0 ? -1 : 1;
-    push(side * (3.5 + rnd() * 10), -1.5 - rnd() * 7, 0.45 + rnd() * 0.3);
-  }
-  return out;
-}
-
 /** 远山峰: 方位角 (°, 0 = 正后方 −Z, 正 = 向 +X)、高度 (m, 在半径处)、半宽 (°)。 */
 export interface PeakSpec {
   az: number;
@@ -117,33 +73,51 @@ export interface PeakSpec {
   w: number;
 }
 
-/** 远层 (淡薰衣草蓝的远山): 两侧较高, 角色正后方 (|az| < 8°) 只有很低的山脊, 留出开阔海面。 */
+/** 远层岛屿 (最淡, 几乎融进天边的青白雾里): 两侧较高, 角色正后方 (|az| < 8°) 只有很低的岛影, 留出开阔海面。 */
 export const FAR_PEAKS: readonly PeakSpec[] = [
-  { az: -52, h: 6.5, w: 16 },
-  { az: -34, h: 8.6, w: 14 },
-  { az: -18, h: 4.6, w: 12 },
-  { az: -4, h: 1.6, w: 10 },
-  { az: 16, h: 3.2, w: 10 },
-  { az: 30, h: 7.4, w: 13 },
-  { az: 47, h: 5.6, w: 15 },
+  { az: -50, h: 6.0, w: 17 },
+  { az: -30, h: 7.6, w: 13 },
+  { az: -14, h: 3.4, w: 10 },
+  { az: -2, h: 1.4, w: 7 },
+  { az: 18, h: 3.6, w: 11 },
+  { az: 34, h: 6.8, w: 14 },
+  { az: 52, h: 5.0, w: 15 },
 ];
 
-/** 近层 (淡松石绿的小岛)。 */
+/** 中层岛屿 (柔和的绿, 带一层浅雾)。 */
+export const MID_PEAKS: readonly PeakSpec[] = [
+  { az: -42, h: 4.2, w: 11 },
+  { az: -24, h: 2.6, w: 8 },
+  { az: 24, h: 4.6, w: 10 },
+  { az: 44, h: 2.8, w: 9 },
+];
+
+/** 近层小岛 (最饱和的绿, 树冠鼓包最明显)。 */
 export const NEAR_PEAKS: readonly PeakSpec[] = [
-  { az: -44, h: 2.6, w: 9 },
-  { az: -26, h: 1.5, w: 6 },
-  { az: 20, h: 3.0, w: 8 },
-  { az: 33, h: 1.8, w: 7 },
+  { az: -34, h: 2.2, w: 6.5 },
+  { az: -55, h: 1.4, w: 5 },
+  { az: 31, h: 2.5, w: 7 },
+  { az: 13, h: 1.0, w: 4 },
 ];
 
-/** 山脊高度 (m): 各峰 "抛物线帽" 取最大, 再叠一点确定性的小起伏; 低于 0 截为 0 (没有山的方位 = 海平线)。 */
-export function ridgeHeight(azDeg: number, peaks: readonly PeakSpec[], heightScale = 1): number {
+/**
+ * 岛屿剪影高度 (m): 每座岛是一个圆润的穹顶 (h · (1 − t²)^0.7), 多座取最大; bump > 0 时顶上再叠一排大小不一的圆鼓包
+ * (卡通岛上的树冠轮廓, bumpW = 鼓包平均宽度 °); 低于 0 截为 0 (没有岛的方位 = 海平线)。
+ */
+export function ridgeHeight(azDeg: number, peaks: readonly PeakSpec[], heightScale = 1, bump = 0, bumpW = 1.6): number {
   let h = 0;
   for (const p of peaks) {
     const t = Math.abs(azDeg - p.az) / p.w;
-    if (t < 1) h = Math.max(h, p.h * (1 - Math.pow(t, 1.6)));
+    if (t < 1) h = Math.max(h, p.h * Math.pow(1 - t * t, 0.7));
   }
-  if (h > 0) h += 0.25 * Math.sin(azDeg * 0.9) * Math.min(1, h) + 0.12 * Math.sin(azDeg * 2.3);
+  if (h <= 0) return 0;
+  h += 0.15 * Math.sin(azDeg * 0.9) * Math.min(1, h);
+  if (bump > 0) {
+    const u = azDeg / bumpW + 0.6 * Math.sin(azDeg * 0.23) + 0.3 * Math.sin(azDeg * 0.71);
+    const f = u - Math.floor(u);
+    const amp = bump * (0.6 + 0.4 * Math.sin(Math.floor(u) * 12.9898) ** 2);
+    h += amp * (Math.sqrt(Math.sin(Math.PI * f)) - 0.75) * Math.min(1, h / 0.8);
+  }
   return Math.max(0, h * heightScale);
 }
 
@@ -178,6 +152,46 @@ export function buildRockLayout(shore: ShoreParams): RockSpec[] {
       const r = size * (i === 0 ? 0.75 + rnd() * 0.25 : 0.3 + rnd() * 0.3);
       out.push({ x, z, r, squash: 0.55 + rnd() * 0.3, rot: rnd() * Math.PI * 2, inWater: z < shoreLineZ(x, shore) - 0.1 });
     }
+  }
+  return out;
+}
+
+/** 贝壳类小物件: 0 扇贝, 1 海螺, 2 海星。 */
+export type ShellKind = 0 | 1 | 2;
+
+/** 沙滩小物件: 世界位置、种类、大小 (m, 约等于半径)、朝向、颜色序号 (0 奶白 / 1 浅粉 / 2 浅珊瑚)。 */
+export interface ShellSpec {
+  x: number;
+  z: number;
+  kind: ShellKind;
+  size: number;
+  rot: number;
+  color: number;
+}
+
+/** 贝壳离角色 (原点) 至少多远 (m), 避开脚下。 */
+export const SHELL_KEEP_OUT = 1.2;
+
+/**
+ * 贝壳布局: 稀疏、自然随机; 约 3/4 落在湿沙带上沿 (冲刷浪推不到的地方, 不会被浪膜盖住), 其余零星散在干沙上。
+ * 避开角色脚下 (SHELL_KEEP_OUT) 和棕榈根部。确定性随机 (每次一样)。
+ */
+export function buildShellLayout(count: number, shore: ShoreParams, swashAmp: number): ShellSpec[] {
+  const rnd = mulberry32(0x5e11);
+  const out: ShellSpec[] = [];
+  const n = Math.max(0, Math.min(60, Math.round(count)));
+  const wetTop = swashAmp * 1.35 + 0.15; // 冲刷浪最远推到岸线以上约 1.35 × 幅度
+  for (let tries = 0; out.length < n && tries < n * 20; tries++) {
+    const x = (rnd() - 0.5) * 30;
+    const onWet = rnd() < 0.75;
+    const z = shoreLineZ(x, shore) + wetTop + (onWet ? rnd() * 1.1 : 1.1 + rnd() * 4.5);
+    if (Math.hypot(x, z) < SHELL_KEEP_OUT) continue;
+    if (PALMS.some((p) => Math.hypot(p.x - x, p.z - z) < 0.6)) continue;
+    if (out.some((o) => Math.hypot(o.x - x, o.z - z) < 0.5)) continue;
+    const r = rnd();
+    const kind: ShellKind = r < 0.45 ? 0 : r < 0.75 ? 1 : 2;
+    const size = (kind === 2 ? 0.1 : 0.08) * (0.7 + rnd() * 0.6); // 比真实略大一点 (卡通夸张), 远处才认得出
+    out.push({ x, z, kind, size, rot: rnd() * Math.PI * 2, color: Math.floor(rnd() * 3) });
   }
   return out;
 }

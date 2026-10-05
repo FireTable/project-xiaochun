@@ -1,7 +1,7 @@
 /**
  * beach3dShaders.ts — 海滩 3D 场景的全部着色器 (GLSL, 用于 THREE.ShaderMaterial)。
  *
- * 风格: 二次元 MMD 舞台 —— 3D 卡通着色 (柔和的两~三阶明暗) + 高调日光 + 轻微 Bloom, 没有写实质感 / 环境贴图 (沙地只有很淡的卡通颗粒)。
+ * 风格: 二次元 MMD 舞台 —— 3D 卡通着色 (柔和的两~三阶明暗) + 高调日光 + 轻微 Bloom, 没有写实质感 / 环境贴图 (沙地是细腻的细沙颗粒 + 柔和色斑)。
  * 共同约定:
  *   - 颜色 uniform 都是线性空间 (THREE.Color 已按 ColorManagement 转好), 输出前乘 uComp (= 1 / 曝光), 抵消线性色调映射的曝光,
  *     画面上的颜色 = 配置里的 sRGB 色值。
@@ -83,11 +83,15 @@ void main() {
   if (h >= 0.0) {
     col = mix(uHorizon, uMid, smoothstep(0.0, 0.28, h));
     col = mix(col, uZenith, smoothstep(0.22, 0.95, h));
-    // 高空浅云 (卷云): 视线投到天穹平面上取拉长的噪声 → 斜向的柔和白丝带, 缓慢漂移; 只在中高仰角
+    // 高空浅云 (卷云): 视线投到天穹平面上, 域扭曲 + 拉长的分形噪声 → 细碎、断续的白丝, 再乘一层低频斑块遮罩 (一簇一簇, 不铺满);
+    // 缓慢漂移, 只在中高仰角
     vec2 sp = d.xz / (h + 0.12);
-    sp = mat2(0.87, -0.5, 0.5, 0.87) * sp;
-    float cn = vnoise(sp * vec2(0.5, 2.4) + vec2(uTime * 0.004, 0.0)) * 0.6 + vnoise(sp * vec2(1.3, 5.0) + vec2(7.0, uTime * 0.003)) * 0.4;
-    float ci = smoothstep(0.58, 0.82, cn) * smoothstep(0.08, 0.3, h) * (1.0 - smoothstep(0.7, 1.0, h));
+    sp = mat2(0.87, -0.5, 0.5, 0.87) * sp + vec2(uTime * 0.004, 0.0);
+    vec2 wq = sp + 1.1 * vec2(vnoise(sp * 0.7), vnoise(sp * 0.7 + 5.2)) - 0.55;
+    float st = vnoise(wq * vec2(0.8, 4.5)) * 0.5 + vnoise(wq * vec2(1.7, 9.0) + 3.1) * 0.3 + vnoise(wq * vec2(3.4, 17.0) + 8.7) * 0.2;
+    float brk = smoothstep(0.35, 0.7, vnoise(wq * vec2(2.2, 3.0) + 11.0));      // 把丝带打断成一段一段
+    float pmask = smoothstep(0.42, 0.72, vnoise(sp * 0.3 + 2.0));              // 低频斑块: 只在部分天区出现
+    float ci = smoothstep(0.55, 0.78, st) * brk * pmask * smoothstep(0.06, 0.3, h) * (1.0 - smoothstep(0.75, 1.0, h));
     col = mix(col, mix(uMid, vec3(1.0), 0.85), ci * uCirrus);
     // 地平线附近的亮带 (天边泛白, 比海平线那条细线宽得多, 柔和过渡)
     col = mix(col, mix(uHorizon, vec3(1.0, 0.99, 0.96), 0.65), (1.0 - smoothstep(0.0, 0.1, h)) * uHorizonBand);
@@ -104,7 +108,12 @@ void main() {
 
 // ───────────────────────── 云 (实例化面片, 远景层) ─────────────────────────
 // 每朵云一个朝向相机的面片, 分布在以相机为圆心、半径 uRadius 的球面上 (远景层跟随相机平移 = 无限远, 不受远裁剪面影响)。
-// 形状 = 5 个圆的并集 + 平底 (积云), 两阶明暗: 亮部纯白, 底部薰衣草蓝阴影。
+// 画法 = 手绘赛璐璐积云: 16 个大小不等、上下错落的圆鼓包 (后排云体 / 顶部花椰菜鼓包 / 两肩由高到低 / 前排底部), 边缘带轻微不规则起伏。
+//   轮廓 = 所有鼓包的并集 (底边按一条水平线微微截平), 解析的圆 → 约 1.5 像素抗锯齿, 清晰而不糊;
+//   亮面 = 每个鼓包向光一侧偏移、缩小后的圆的并集 —— 高处的鼓包几乎全亮并连成一片, 低处的鼓包只有顶上一弯亮边,
+//   所以亮暗分界是一段段跟着鼓包体积走的圆弧, 不是统一的阴影带; 内部没有一圈圈的描边。
+//   亮面奶白, 暗面淡蓝紫 (越靠底越深一点), 暗面轮廓带一点透光。
+// 越低 (越远) 的云越小、越扁、越淡, 底部融进地平线亮带。
 export const CLOUD_VERT = /* glsl */ `
 attribute vec4 aCloud; // x 方位角 (rad), y 仰角 (rad), z 宽度 (m), w 随机种子
 uniform float uTime;
@@ -114,19 +123,21 @@ uniform float uDipTan;
 varying vec2 vUv;
 varying float vSeed;
 varying float vEl;
+varying float vH;
 void main() {
-  float az = aCloud.x + uTime * uDrift;
+  float az = aCloud.x + uTime * uDrift * (0.7 + 0.6 * aCloud.w);  // 每朵云漂移速度略有不同
   float el = aCloud.y;
   vec3 c = uRadius * vec3(cos(el) * sin(az), sin(el), -cos(el) * cos(az));
   c.y -= uDipTan * length(c.xz);
   vec3 fwd = normalize(-c);                                   // 云 → 相机
   vec3 right = normalize(cross(vec3(0.0, 1.0, 0.0), fwd));    // 正面朝相机 (右手系)
   vec3 up = cross(fwd, right);
-  vec2 sz = vec2(aCloud.z, aCloud.z * 0.46);
+  vec2 sz = vec2(aCloud.z, aCloud.z * 0.6);
   vec3 wp = c + right * position.x * sz.x + up * position.y * sz.y;
   vUv = position.xy + 0.5;
   vSeed = aCloud.w;
   vEl = el;
+  vH = (wp.y + uDipTan * length(wp.xz)) / length(wp);         // 该像素高出可见海平线的角度 (sin)
   gl_Position = projectionMatrix * viewMatrix * (modelMatrix * vec4(wp, 1.0));
 }
 `;
@@ -142,65 +153,104 @@ uniform vec2 uSunScreen;  // 太阳在云面片平面内的大致方向 (x: 右�
 varying vec2 vUv;
 varying float vSeed;
 varying float vEl;
+varying float vH;
 void main() {
-  vec2 p = (vUv - 0.5) * vec2(2.17, 1.0);
-  // 积云 = 7 个球 (中间高两边低, 上排 2 个小球叠出蓬松顶) 的并集 + 平底; 每个像素取所在球的伪法线做卡通体积明暗
-  float d = 1e3;
-  vec3 nrm = vec3(0.0, 0.0, 1.0);
-  for (int i = 0; i < 7; i++) {
+  vec2 p = (vUv - 0.5) * vec2(1.6667, 1.0);      // 面片宽高比 1 : 0.6 → p.x ∈ ±0.83, p.y ∈ ±0.5
+  float far = 1.0 - smoothstep(0.06, 0.3, vEl);   // 越低越远
+  float sd = vSeed * 97.0;
+  float tall = mix(0.62 + 0.15 * hash12(vec2(sd, 3.0)), 0.95 + 0.4 * hash12(vec2(sd, 3.0)), 1.0 - far); // 近处可长成塔状积云
+  float wid = 0.85 + 0.3 * hash12(vec2(sd, 4.0));
+  float lean = (hash12(vec2(sd, 5.0)) - 0.5) * 0.24;
+  const float YB = -0.4;
+  float px = fwidth(p.y);                          // 一个像素在 p 空间的大小
+  vec2 Ld = normalize(uSunScreen + vec2(0.0, 0.7));   // 光在面片里的方向 (偏上)
+  float S = -1.0;   // 轮廓距离场 (>0 在云内): 所有鼓包的并集
+  float Lm = -1.0;  // 亮面距离场: 每个鼓包向光一侧偏移、缩小后的圆的并集 → 亮暗分界是一段段跟着鼓包走的圆弧
+  float Bk = -1.0;  // 后排鼓包 (云体) 的范围, 暗面里略深一点, 让前排鼓包的暗部能读出层次
+  for (int i = 0; i < 16; i++) {
     float fi = float(i);
-    float h1 = hash12(vec2(fi, vSeed * 91.7));
-    float h2 = hash12(vec2(fi + 7.0, vSeed * 53.1));
+    float h1 = hash12(vec2(fi, sd + 1.7));
+    float h2 = hash12(vec2(fi + 17.0, sd + 4.1));
     vec2 c;
     float r;
-    if (i < 5) {
-      float bump = 1.0 - abs(fi - 2.0) / 2.0;
-      r = 0.16 + 0.16 * bump + 0.06 * h2;
-      c = vec2(-0.72 + fi * 0.36 + (h1 - 0.5) * 0.12, -0.21 + r * 0.6 + 0.03 * h1);
-    } else {
-      r = 0.15 + 0.06 * h2;
-      c = vec2((fi - 5.5) * 0.42 + (h1 - 0.5) * 0.15, 0.1 + 0.06 * h1);
+    if (i < 3) {                                   // 后排云体
+      r = 0.21 + 0.07 * h2;
+      c = vec2((fi - 1.0) * 0.21 * wid + (h1 - 0.5) * 0.08 + lean * 0.5, YB + 0.19 * tall);
+    } else if (i < 6) {                            // 顶部花椰菜鼓包
+      r = 0.1 + 0.08 * h2;
+      c = vec2(lean + (fi - 4.0) * 0.13 * wid + (h1 - 0.5) * 0.1, YB + (0.33 + 0.12 * h1) * tall);
+    } else if (i < 11) {                           // 两肩鼓包: 由内到外越来越低越小
+      float k = fi - 6.0;
+      float side = mod(k, 2.0) < 0.5 ? -1.0 : 1.0;
+      float out1 = (0.2 + 0.13 * floor(k * 0.5) + 0.06 * h1) * wid;
+      if (i == 10) { side = 0.0; out1 = (h1 - 0.5) * 0.3; }
+      float x = side * out1 + lean * 0.3;
+      float prof = clamp(1.0 - pow(abs(x) / (0.68 * wid), 2.0), 0.0, 1.0);
+      r = 0.09 + 0.06 * h2 + 0.05 * prof;
+      c = vec2(x, YB + (0.06 + 0.26 * prof) * tall + 0.02 * h2);
+    } else {                                       // 前排底部鼓包
+      float k = fi - 11.0;
+      float bump = 1.0 - abs(k - 2.0) / 2.0;
+      r = 0.085 + 0.05 * h2 + 0.03 * bump;
+      c = vec2((-0.4 + k * 0.2 + (h1 - 0.5) * 0.08) * wid, YB + r * 0.62);  // 收在云体下面, 不在两侧单独鼓出来
     }
     vec2 q = p - c;
-    float di = length(q) - r;
-    if (di < d) {
-      d = di;
-      vec2 qn = q / r;
-      nrm = vec3(qn, sqrt(max(0.0, 1.0 - dot(qn, qn))));
+    float lq = length(q);
+    if (lq > r * 1.3) continue;
+    // 鼓包边缘轻微不规则 (连续的方向噪声, 没有接缝)
+    float rr = r * (1.0 + 0.08 * (vnoise(q / max(lq, 1e-4) * 1.7 + vec2(fi * 3.7, sd)) - 0.5));
+    S = max(S, rr - lq);
+    if (i < 3) Bk = max(Bk, rr * 0.92 - lq);
+    // 亮面圆: 越高的鼓包亮面越大 (顶上几乎全亮); 贴底的鼓包 (顶边埋在云体里) 不给亮面, 免得暗部里浮出一个个亮圆点
+    float gh = clamp((c.y - YB) / (0.45 * tall), 0.0, 1.0);
+    if (i < 11 && gh > 0.3) {
+      float kr = mix(0.62, 0.93, gh);
+      Lm = max(Lm, rr * kr - length(q - Ld * r * (1.0 - kr + 0.12)));
     }
   }
-  d = max(d, -(p.y + 0.21));                          // 平底
-  float aa = fwidth(d) * 1.2 + 1e-4;
-  float a = 1.0 - smoothstep(-aa, aa, d);
-  if (a < 0.01) discard;
-  // 卡通体积: 伪法线 · 光 → 三阶 (亮 / 中 / 底部阴影), 交界柔和
-  vec3 L = normalize(vec3(uSunScreen, 0.75));
-  float ndl = dot(normalize(nrm + vec3(0.0, 0.25, 0.0)), L);
-  float tone = smoothstep(-0.05, 0.2, ndl) * 0.55 + smoothstep(0.45, 0.6, ndl) * 0.45;
-  tone *= smoothstep(-0.2, -0.06, p.y);               // 平底一圈总是阴影色
-  vec3 col = mix(uShade, uLight, tone);
-  col = mix(col, uLight, 0.25 * (1.0 - smoothstep(0.0, 0.04, -d)) * step(0.0, p.y));  // 顶部轮廓一圈亮边
-  // 低仰角的云向天边色淡出
-  col = mix(col, uHorizon, 0.45 * (1.0 - smoothstep(0.03, 0.3, vEl)));
+  S = min(S, (p.y - YB) + 0.004 * sin(p.x * 23.0 + sd));      // 底边微微截平
+  float a = smoothstep(-px * 0.7, px * 0.9, S);               // 轮廓: 约 1.5 像素抗锯齿, 清晰不糊
+  if (a < 0.004) discard;
+  float lit = smoothstep(-px * 1.2, px * 1.6, Lm);             // 亮暗分界: 比轮廓稍柔一点
+  float bot = p.y - YB;
+  vec3 sh = mix(uShade * vec3(0.95, 0.95, 1.0), uShade, smoothstep(0.0, 0.25, bot));   // 暗面: 越靠底越深一点
+  sh = mix(sh, uShade * vec3(0.94, 0.94, 0.98), smoothstep(-px, px, Bk) * 0.5 * (1.0 - smoothstep(0.0, 0.3, Lm + 0.05)));
+  sh = mix(sh, mix(uShade, uLight, 0.4), (1.0 - smoothstep(0.0, 0.025, S)) * 0.35);       // 暗面轮廓透光
+  vec3 lc = mix(uLight * vec3(0.99, 0.985, 0.985), uLight, smoothstep(0.0, 0.05, Lm));   // 亮面: 靠近分界处略暗一点点 (柔和)
+  vec3 col = mix(sh, lc, lit);
+  // 远处: 更淡、更偏天边色; 底部融进地平线亮带
+  vec3 band = mix(uHorizon, vec3(1.0, 0.99, 0.97), 0.5);
+  col = mix(col, band, far * 0.32 + (1.0 - smoothstep(0.0, 0.08, vH)) * 0.4);
+  a *= mix(1.0, 0.78, far) * smoothstep(-0.004, 0.03, vH);
   gl_FragColor = vec4(col * uComp, a * uOpacity);
   #include <tonemapping_fragment>
   #include <colorspace_fragment>
 }
 `;
 
-// ───────────────────────── 远山剪影 (远景层) ─────────────────────────
+// ───────────────────────── 远景岛屿剪影 (远景层) ─────────────────────────
+// 三层卡通岛屿: 近层饱和的绿、中层柔和的绿、远层几乎融进天边的青白雾 (近深远浅的空气透视);
+// 每层: 向阳坡亮一阶 / 背阳坡偏冷; 树冠鼓包的向阳侧顶边一道浅黄绿高光; 底部一层贴海面的浅色薄雾。
 export const MOUNTAIN_VERT = /* glsl */ `
 attribute float aH;
+attribute float aRel;
 attribute float aLayer;
 attribute float aLit;
+attribute float aAz;
 uniform float uDipTan;
 varying float vH;
+varying float vRel;
 varying float vLayer;
 varying float vLit;
+varying float vAz;
+varying float vY;
 void main() {
   vH = aH;
+  vRel = aRel;
   vLayer = aLayer;
   vLit = aLit;
+  vAz = aAz;
+  vY = position.y;
   vec3 p = position;
   p.y -= uDipTan * length(p.xz);  // 坐在下沉后的可见海平线上
   gl_Position = projectionMatrix * viewMatrix * (modelMatrix * vec4(p, 1.0));
@@ -211,18 +261,36 @@ export const MOUNTAIN_FRAG = /* glsl */ `
 precision highp float;
 ${COMMON}
 uniform vec3 uFar;
+uniform vec3 uMid;
 uniform vec3 uNear;
 uniform vec3 uHorizon;
 varying float vH;
+varying float vRel;
 varying float vLayer;
 varying float vLit;
+varying float vAz;
+varying float vY;
 void main() {
-  vec3 base = vLayer < 0.5 ? uFar : uNear;
-  // 朝太阳一侧的山坡亮一阶 (柔和过渡), 背光坡暗一点
-  vec3 col = mix(base * 0.93, mix(base, vec3(1.0), 0.12), smoothstep(0.35, 0.65, vLit));
-  // 底部向天边色淡出 (远层更淡)
-  float haze = (1.0 - smoothstep(0.0, 0.85, vH)) * (vLayer < 0.5 ? 0.7 : 0.5) + (vLayer < 0.5 ? 0.18 : 0.06);
-  col = mix(col, uHorizon, clamp(haze, 0.0, 1.0));
+  vec3 base = vLayer < 0.5 ? uFar : (vLayer < 1.5 ? uMid : uNear);
+  vec3 lightC = mix(base, vec3(0.95, 1.0, 0.72), 0.22);          // 向阳: 偏暖的浅黄绿
+  vec3 shadeC = base * vec3(0.8, 0.88, 0.98);                     // 背阳: 偏冷
+  vec3 col = mix(shadeC, lightC, smoothstep(0.3, 0.7, vLit));
+  if (vLayer > 0.5) {
+    // 树冠鼓包: 每个鼓包向阳 (+方位) 一侧的顶边亮一点, 背阳一侧的鼓包下方略暗
+    float bw = vLayer < 1.5 ? 2.2 : 1.3;
+    float u = vAz / bw + 0.6 * sin(vAz * 0.23) + 0.3 * sin(vAz * 0.71);
+    float f = fract(u);
+    float topEdge = smoothstep(0.8, 0.97, vRel);
+    col = mix(col, mix(lightC, vec3(1.0, 1.0, 0.85), 0.25), topEdge * smoothstep(0.45, 0.85, f) * 0.6);
+    col *= 1.0 - 0.08 * topEdge * (1.0 - smoothstep(0.1, 0.4, f));
+    col *= 0.94 + 0.06 * vnoise(vec2(vAz * 1.3, vY * 1.5 + vLayer * 7.0));
+  }
+  // 空气透视: 越远越淡 (整体), 再加贴海面的浅色薄雾 (底部最浓)
+  vec3 mist = mix(uHorizon, vec3(1.0, 0.99, 0.97), 0.35);
+  float layerHaze = vLayer < 0.5 ? 0.58 : (vLayer < 1.5 ? 0.3 : 0.1);
+  float mistH = vLayer < 0.5 ? 3.5 : (vLayer < 1.5 ? 1.6 : 0.8);
+  float fog = layerHaze + (1.0 - layerHaze) * (1.0 - smoothstep(0.0, mistH, vY)) * (vLayer < 0.5 ? 0.75 : 0.6);
+  col = mix(col, mist, clamp(fog, 0.0, 1.0));
   ${OUT}
 }
 `;
@@ -295,24 +363,33 @@ float swashCurve(float p) {
   return 1.0 - u * u * (3.0 - 2.0 * u);
 }
 
-// 沙地: 远近明暗 + 柔和大色斑 + 细颗粒 + 少量不规则沙纹 (明暗起伏, 不是线) + 湿沙带 (更深、反光)
+// 细沙的一层颗粒: 平滑值噪声, 按这一层自己的屏幕导数淡出 → 近处看得出细沙, 远处逐层平滑消失, 不闪
+float grainOct(vec2 q, float f) {
+  float fw = length(fwidth(q * f));
+  return (vnoise(q * f) - 0.5) * (1.0 - smoothstep(0.3, 0.75, fw));
+}
+
+// 沙地: 远近明暗 + 柔和的低频色斑 (暖 / 冷两种, 大小两个尺度) + 三层高频细颗粒 + 零星深浅细砂粒 + 少量不规则沙纹 + 湿沙带 (更深、反光)
 vec3 sandColor(vec2 q, float dist, float top) {
   vec3 col = mix(uSandBase * vec3(0.965, 0.95, 0.93), uSandBase, smoothstep(1.0, 7.0, dist));
   col = mix(col, uSandLight, smoothstep(8.0, 30.0, dist) * 0.45);
   float n = vnoise(q * 0.32 + 3.7) * 0.65 + vnoise(q * 1.1 - 1.3) * 0.35;
-  col = mix(col, uSandShade, smoothstep(0.55, 0.82, n) * 0.32);
-  col = mix(col, uSandLight, (1.0 - smoothstep(0.2, 0.42, n)) * 0.45);
-  // 细颗粒: 两层平滑噪声 (不是像素方块), 按屏幕导数淡出, 远处不闪
-  float gfade = (1.0 - smoothstep(0.3, 0.9, length(fwidth(q * 38.0)))) * uSandGrain;
-  float g1 = vnoise(q * 38.0);
-  float g2 = vnoise(q * 13.0 + 4.1);
-  col *= 1.0 + ((g1 - 0.5) * 0.07 + (g2 - 0.5) * 0.06) * gfade;
-  // 零星的浅色小圆粒 (柔和圆点, 很淡)
-  vec2 gc = floor(q * 16.0);
+  col = mix(col, uSandShade, smoothstep(0.55, 0.85, n) * 0.26);
+  col = mix(col, uSandLight, (1.0 - smoothstep(0.18, 0.42, n)) * 0.4);
+  float n2 = vnoise(q * 0.09 + 17.0);
+  col *= mix(vec3(1.0), vec3(1.015, 0.985, 0.955), smoothstep(0.5, 0.85, n2) * 0.8);   // 偏暖的大色斑
+  col = mix(col, col * vec3(0.99, 1.0, 1.02), (1.0 - smoothstep(0.15, 0.45, n2)) * 0.6); // 偏冷偏浅的大色斑
+  // 细颗粒: 三层高频噪声
+  float g = grainOct(q, 140.0) * 0.55 + grainOct(q, 62.0) * 0.75 + grainOct(q, 24.0) * 0.5;
+  col *= 1.0 + g * 0.085 * uSandGrain;
+  // 零星深浅细砂粒 (很小的柔和圆点; 太小看不清时整体淡出)
+  vec2 gc = floor(q * 45.0);
   float gh = hash12(gc + 0.71);
-  vec2 gp = fract(q * 16.0) - 0.5 - (vec2(hash12(gc + 2.3), hash12(gc + 5.9)) - 0.5) * 0.6;
-  float gd = 1.0 - smoothstep(0.08, 0.16, length(gp));
-  col = mix(col, mix(col, vec3(1.0, 0.98, 0.93), 0.45), step(0.9, gh) * gd * gfade);
+  vec2 gp = fract(q * 45.0) - 0.5 - (vec2(hash12(gc + 2.3), hash12(gc + 5.9)) - 0.5) * 0.6;
+  float gfw = length(fwidth(q * 45.0));
+  float gd = (1.0 - smoothstep(0.12, 0.12 + gfw * 1.5, length(gp))) * (1.0 - smoothstep(0.25, 0.6, gfw)) * uSandGrain;
+  col = mix(col, col * vec3(0.84, 0.8, 0.8), step(0.93, gh) * gd * 0.5);
+  col = mix(col, vec3(1.0, 0.99, 0.96), step(gh, 0.04) * gd * 0.3);
   // 不规则沙纹: 只在噪声圈出的几块区域, 迎光坡亮 / 背光坡暗的柔和起伏
   float patchM = smoothstep(0.6, 0.78, vnoise(q * 0.15 + 11.0));
   float r = (q.y + 0.55 * sin(q.x * 0.55 + q.y * 0.3) + 1.3 * vnoise(q * 0.45) + 0.35 * vnoise(q * 1.3)) / uSandSpacing;
@@ -321,15 +398,6 @@ vec3 sandColor(vec2 q, float dist, float top) {
   float rip = patchM * rfade * uSandRipple;
   col = mix(col, uSandLight, smoothstep(0.5, 0.95, wv) * rip * 0.5);
   col = mix(col, uSandShade, smoothstep(-0.2, -0.9, wv) * rip * 0.45);
-  // 零星小贝壳 (只在近处)
-  vec2 cell = floor(q * 3.0);
-  float hc = hash12(cell + 0.37);
-  if (hc > 0.982 && dist < 8.0) {
-    vec2 f = fract(q * 3.0) - 0.5 - (vec2(hash12(cell + 3.1), hash12(cell + 8.3)) - 0.5) * 0.5;
-    float dot1 = 1.0 - smoothstep(0.045, 0.07, length(f * vec2(1.0, 1.4)));
-    vec3 tint = hc > 0.993 ? vec3(1.0, 0.8, 0.84) : vec3(1.0, 0.97, 0.92);
-    col = mix(col, tint, dot1 * 0.85 * (1.0 - smoothstep(4.0, 8.0, dist)));
-  }
   // 湿沙: 浪推到过的区域 (top 以下) 更深, 往上逐渐变干; 湿面反射天空 (掠射更亮) + 太阳的柔和高光
   float wet = 1.0 - smoothstep(top - 0.05, top + 0.65, q.y);
   col = mix(col, uSandWet, wet * 0.85);
@@ -476,6 +544,7 @@ varying vec3 vN;
 varying vec3 vW;
 varying vec2 vLeaf;
 varying float vPart;
+varying float vIns;
 void main() {
   vec3 p = position;
   #ifdef USE_INSTANCING
@@ -484,6 +553,7 @@ void main() {
   mat4 im = mat4(1.0);
   #endif
   float ph = im[3][0] * 0.37 + im[3][2] * 0.53;
+  vIns = fract(ph * 0.618) * 37.0;
   if ((aPart > 0.5 && aPart < 1.5) || aPart > 2.5) {
     // 整片叶随风上下 / 左右摆 (越靠叶尖越大) + 小叶自己轻微抖动
     float s = aLeaf.x;
@@ -518,26 +588,35 @@ varying vec3 vN;
 varying vec3 vW;
 varying vec2 vLeaf;
 varying float vPart;
+varying float vIns;
 void main() {
   vec3 n = normalize(vN);
   if (!gl_FrontFacing) n = -n;
+  vec3 V = normalize(cameraPosition - vW);
   float ndl = dot(n, uSunDir);
   vec3 col;
   if (vPart < 0.5) {
-    // 树干: 卡通分节 —— 每节是下窄上宽的鼓包 (节的上半部法线朝上 → 更亮), 节缝处一道柔和的暗槽; 节缝略倾斜、不等距
+    // 树干: 柔和的卡通明暗 (亮部暖浅棕灰, 暗部偏冷) + 圆柱体积 (轮廓处略暗) + 淡、窄、间距随机、时断时续的细环纹 + 很淡的纵向肌理
     float t = vLeaf.x;
-    float sg = t * 15.0;
-    sg += 0.1 * sin(vLeaf.y * 6.2831 + floor(sg) * 2.3) + 0.12 * sin(t * 23.0);
-    float u = fract(sg);
-    float fw = fwidth(sg);
-    vec3 n2 = normalize(n + vec3(0.0, (u - 0.35) * 0.9, 0.0));
-    float lit = smoothstep(-0.35, 0.5, dot(n2, uSunDir));
+    float lit = smoothstep(-0.3, 0.5, ndl);
     col = mix(uTrunkShade, uTrunkLight, lit);
-    float seam = 1.0 - smoothstep(0.0, 0.12 + fw * 1.5, u);
-    col = mix(col, uTrunkShade * 0.86, seam * 0.45 * (1.0 - smoothstep(0.6, 1.2, fw)));
-    col = mix(col, uTrunkLight * 1.06, smoothstep(0.55, 0.92, u) * 0.3 * lit);
-    col = mix(col, uTrunkShade * 0.88, smoothstep(0.88, 1.0, t) * 0.55);                          // 叶冠下的阴影
-    col = mix(col, mix(col, vec3(0.94, 0.86, 0.72), 0.45), 1.0 - smoothstep(0.0, 0.05, t));     // 根部沾沙
+    col = mix(col, mix(uTrunkLight, vec3(1.0, 0.97, 0.9), 0.35), smoothstep(0.6, 0.95, ndl) * 0.3);   // 受光面柔和高光
+    col *= mix(0.9, 1.0, smoothstep(0.05, 0.55, abs(dot(n, V))));                                       // 圆柱轮廓
+    // 环纹: 每棵树 (vIns) 不同; 位置被噪声扭曲 → 间距随机; 约一半的环缺席; 每道环沿圆周时有时无 (不是整圈的条纹)
+    float rc = t * 24.0 + 3.0 * vnoise(vec2(t * 5.0, vIns)) + vIns;
+    rc += 0.05 * sin(vLeaf.y * 6.2831 + floor(rc) * 1.7);
+    float rid = floor(rc);
+    float on = step(0.45, hash12(vec2(rid, 7.7)));
+    float wv = 0.035 + 0.04 * hash12(vec2(rid, 1.3));
+    float rfw = fwidth(rc);
+    float ring = (1.0 - smoothstep(wv, wv + rfw * 1.2, abs(fract(rc) - 0.5))) * on * (1.0 - smoothstep(0.3, 0.7, rfw));
+    ring *= smoothstep(0.2, 0.6, vnoise(vec2(vLeaf.y * 5.0, rid * 1.7)));
+    col = mix(col, col * vec3(0.8, 0.77, 0.8), ring * (0.35 + 0.3 * hash12(vec2(rid, 4.4))));
+    col *= 0.975 + 0.04 * vnoise(vec2(vLeaf.y * 16.0, t * 5.0 + vIns));                                // 纵向肌理 (很淡)
+    col = mix(col, uTrunkShade * vec3(0.9, 0.86, 0.82), smoothstep(0.8, 1.0, t) * 0.5);                 // 叶冠下略深
+    // 根部自然入沙: 接地一圈暖沙色 + 很窄的接触暗部
+    col = mix(col, mix(col, vec3(0.95, 0.87, 0.74), 0.55), 1.0 - smoothstep(0.0, 0.06, t));
+    col *= mix(0.86, 1.0, smoothstep(0.0, 0.012, t));
   } else if (vPart < 1.5 || vPart > 2.5) {
     // 叶片: 卡通渐变 —— 叶根深、叶尖亮 (沿整片叶 s 与沿小叶 t 两个方向), 冷色暗部, 两阶柔和明暗
     float s = vLeaf.x;
@@ -548,148 +627,19 @@ void main() {
     float lit = smoothstep(-0.12, 0.3, ndl);
     col = mix(base * vec3(0.66, 0.77, 0.85), base, lit) * (gl_FrontFacing ? 1.0 : 0.9);
   } else {
-    float lit = smoothstep(-0.1, 0.35, ndl);
-    col = mix(vec3(0.33, 0.42, 0.12), vec3(0.64, 0.7, 0.28), lit);
+    // 椰子: 圆润的卡通两阶明暗 (黄绿 → 暖棕, 每个略有差别) + 一个小的卡通高光 + 背光侧淡淡的反光
+    float k = vLeaf.x;
+    vec3 cl = mix(vec3(0.62, 0.68, 0.24), vec3(0.72, 0.55, 0.3), smoothstep(0.3, 0.9, k));
+    vec3 cs = cl * vec3(0.55, 0.6, 0.62);
+    float lit = smoothstep(-0.05, 0.25, ndl);
+    col = mix(cs, cl, lit);
+    float spec = pow(max(dot(reflect(-uSunDir, n), V), 0.0), 24.0);
+    col = mix(col, vec3(1.0, 0.98, 0.9), smoothstep(0.55, 0.75, spec) * 0.7);
+    col = mix(col, cl * 0.9, pow(1.0 - max(dot(n, V), 0.0), 3.0) * (1.0 - lit) * 0.4);
   }
   float dist = length(vW - cameraPosition);
   col = mix(col, uHaze, smoothstep(uHazeStart, uHazeEnd, dist) * 0.85);
   ${OUT}
-}
-`;
-
-// ───────────────────────── 草丛 (实例化交叉面片) ─────────────────────────
-export const GRASS_VERT = /* glsl */ `
-${COMMON}
-attribute vec2 aSeed;   // 实例: x 随机种子, y 是否开花
-attribute float aGPart; // 0 草叶, 1 花瓣, 2 花心
-attribute float aBlade; // 每根草叶的随机数
-uniform float uTime;
-uniform float uSway;
-varying vec2 vUv;
-varying float vGPart;
-varying float vBlade;
-varying vec3 vN;
-varying vec3 vW;
-void main() {
-  vec3 p = position;
-  #ifdef USE_INSTANCING
-  mat4 im = instanceMatrix;
-  #else
-  mat4 im = mat4(1.0);
-  #endif
-  if (aGPart > 0.5 && aSeed.y < 0.5) p = vec3(0.0); // 不开花的实例: 花退化成一个点
-  float ph = im[3][0] * 0.71 + im[3][2] * 0.43 + aBlade * 2.0;
-  float hh = p.y * p.y;
-  p.x += sin(uTime * 1.7 + ph) * uSway * 0.6 * hh;
-  p.z += cos(uTime * 1.3 + ph) * uSway * 0.4 * hh;
-  vec4 wp = modelMatrix * im * vec4(p, 1.0);
-  wp.y -= curveDrop(wp.xyz);
-  vW = wp.xyz;
-  vN = normalize(mat3(modelMatrix) * mat3(im) * normal);
-  vUv = uv;
-  vGPart = aGPart;
-  vBlade = aBlade + aSeed.x * 0.3;
-  gl_Position = projectionMatrix * viewMatrix * wp;
-}
-`;
-
-export const GRASS_FRAG = /* glsl */ `
-precision highp float;
-${COMMON}
-uniform vec3 uGrassLight;
-uniform vec3 uGrassShade;
-uniform vec3 uFlower;
-uniform vec3 uSunDir;
-uniform vec3 uHaze;
-uniform float uHazeStart;
-uniform float uHazeEnd;
-varying vec2 vUv;
-varying float vGPart;
-varying float vBlade;
-varying vec3 vN;
-varying vec3 vW;
-void main() {
-  vec3 n = normalize(vN);
-  float lit = smoothstep(-0.4, 0.55, dot(n, uSunDir));
-  vec3 col;
-  if (vGPart < 0.5) {
-    // 圆头草叶: 叶尖 15% 裁成半椭圆 (不是尖刺)
-    float tv = (vUv.y - 0.82) / 0.18;
-    if (tv > 0.0 && abs(vUv.x) > sqrt(max(0.0, 1.0 - tv * tv))) discard;
-    // 草叶: 根深尖亮的渐变 + 每根色相微差 + 球形法线的柔和明暗 + 根部接触阴影
-    float h = vUv.y;
-    vec3 base = mix(uGrassShade, uGrassLight, smoothstep(0.0, 0.85, h));
-    base *= 0.93 + 0.14 * fract(vBlade);
-    base = mix(base, mix(uGrassLight, vec3(0.95, 1.0, 0.62), 0.3), smoothstep(0.75, 1.0, h) * 0.5);
-    col = mix(base * vec3(0.76, 0.85, 0.88), base, lit);
-    col *= mix(0.8, 1.0, smoothstep(0.0, 0.3, h));
-    col = mix(col, col * 0.9, smoothstep(0.7, 1.0, abs(vUv.x)) * 0.5); // 叶缘略暗, 叶片有中脊感
-  } else if (vGPart < 1.5) {
-    col = mix(uFlower, vec3(1.0), smoothstep(0.55, 1.0, vUv.x) * 0.4);
-    col = mix(col * 0.86, col, lit);
-  } else {
-    col = vec3(1.0, 0.86, 0.45);
-  }
-  float dist = length(vW - cameraPosition);
-  col = mix(col, uHaze, smoothstep(uHazeStart, uHazeEnd, dist) * 0.85);
-  ${OUT}
-}
-`;
-
-// ───────────────────────── 花瓣 (世界空间 GPU 粒子) ─────────────────────────
-export const PETAL_VERT = /* glsl */ `
-attribute vec4 aSeed;
-uniform float uTime;
-uniform float uSpeed;
-uniform float uSize;
-uniform float uPxPerUnit; // 绘制缓冲高度 / 2 (像素)
-uniform vec3 uBoxMin;
-uniform vec3 uBoxSize;
-uniform vec3 uPal[4];
-uniform float uOpacity;
-varying vec3 vColor;
-varying float vAlpha;
-varying float vRot;
-void main() {
-  float spd = (0.12 + 0.1 * aSeed.z) * uSpeed;
-  float y = uBoxSize.y - mod(aSeed.x * uBoxSize.y + uTime * spd, uBoxSize.y);
-  vec3 p = uBoxMin + vec3(aSeed.y * uBoxSize.x, y, aSeed.w * uBoxSize.z);
-  p.x += sin(uTime * (0.5 + 0.6 * aSeed.z) + aSeed.w * 6.2831) * 0.35 + uTime * 0.03;
-  p.x = uBoxMin.x + mod(p.x - uBoxMin.x, uBoxSize.x);
-  p.z += cos(uTime * 0.4 + aSeed.x * 6.2831) * 0.2;
-  vec4 mv = viewMatrix * vec4(p, 1.0);
-  gl_Position = projectionMatrix * mv;
-  float px = (0.05 + 0.03 * aSeed.z) * uSize * projectionMatrix[1][1] * uPxPerUnit / max(0.1, -mv.z);
-  gl_PointSize = clamp(px, 1.0, 22.0 * uSize * uPxPerUnit / 540.0);
-  int ci = int(floor(fract(aSeed.w * 4.7) * 4.0));
-  vec3 c = uPal[0];
-  if (ci == 1) c = uPal[1]; else if (ci == 2) c = uPal[2]; else if (ci == 3) c = uPal[3];
-  vColor = c;
-  float yn = y / uBoxSize.y;
-  vAlpha = uOpacity * smoothstep(0.0, 0.08, yn) * (1.0 - smoothstep(0.9, 1.0, yn));
-  vRot = aSeed.w * 6.2831 + uTime * (0.4 + 0.5 * aSeed.z) * (aSeed.y > 0.5 ? 1.0 : -1.0);
-}
-`;
-
-export const PETAL_FRAG = /* glsl */ `
-precision highp float;
-uniform float uComp;
-varying vec3 vColor;
-varying float vAlpha;
-varying float vRot;
-void main() {
-  vec2 p = gl_PointCoord - 0.5;
-  float cs = cos(vRot), sn = sin(vRot);
-  vec2 q = vec2(cs * p.x - sn * p.y, sn * p.x + cs * p.y);
-  float u = q.x / 0.46;
-  float w = q.y / (0.27 * (1.0 + 0.55 * q.x));
-  float a = 1.0 - smoothstep(0.62, 1.0, u * u + w * w);
-  vec3 col = mix(vColor, vec3(1.0), 0.4 * smoothstep(0.2, -0.45, q.x));
-  a *= vAlpha;
-  if (a < 0.01) discard;
-  gl_FragColor = vec4(col * uComp, a);
-  #include <tonemapping_fragment>
-  #include <colorspace_fragment>
 }
 `;
 
@@ -742,6 +692,82 @@ void main() {
   col *= 0.95 + 0.09 * vnoise(vW.xz * 2.5 + vW.y * 3.0);
   // 贴地 / 入水处更深 (湿)
   col = mix(col * vec3(0.74, 0.82, 0.88), col, smoothstep(0.03, 0.2, vY));
+  float dist = length(vW - cameraPosition);
+  col = mix(col, uHaze, smoothstep(uHazeStart, uHazeEnd, dist) * 0.85);
+  ${OUT}
+}
+`;
+
+// ───────────────────────── 贝壳 / 海螺 / 海星 (实例化, 1 次绘制) ─────────────────────────
+// 三种形状合在一个几何里 (aKind), 每个实例 (iKind) 只显示自己那一种; 卡通两阶明暗 + 小高光, 粉彩色 (奶白 / 浅粉 / 浅珊瑚)。
+export const SHELL_VERT = /* glsl */ `
+${COMMON}
+attribute float aKind;
+attribute vec2 aUV;
+attribute float iKind;
+attribute vec3 iColor;
+varying vec3 vN;
+varying vec3 vW;
+varying vec2 vUV;
+varying float vKind;
+varying vec3 vColor;
+void main() {
+  if (abs(aKind - iKind) > 0.5) { gl_Position = vec4(2.0, 2.0, 2.0, 1.0); return; }  // 不是这个实例的形状: 塌掉
+  #ifdef USE_INSTANCING
+  mat4 im = instanceMatrix;
+  #else
+  mat4 im = mat4(1.0);
+  #endif
+  vec4 wp = modelMatrix * im * vec4(position, 1.0);
+  wp.y -= curveDrop(wp.xyz);
+  vW = wp.xyz;
+  vN = normalize(mat3(modelMatrix) * mat3(im) * normal);
+  vUV = aUV;
+  vKind = aKind;
+  vColor = iColor;
+  gl_Position = projectionMatrix * viewMatrix * wp;
+}
+`;
+
+export const SHELL_FRAG = /* glsl */ `
+precision highp float;
+${COMMON}
+uniform vec3 uSunDir;
+uniform vec3 uHaze;
+uniform float uHazeStart;
+uniform float uHazeEnd;
+varying vec3 vN;
+varying vec3 vW;
+varying vec2 vUV;
+varying float vKind;
+varying vec3 vColor;
+void main() {
+  vec3 n = normalize(vN);
+  if (!gl_FrontFacing) n = -n;
+  vec3 V = normalize(cameraPosition - vW);
+  float ndl = dot(n, uSunDir);
+  vec3 base = vColor;
+  if (vKind < 0.5) {
+    // 扇贝: 放射状的肋 (深浅相间) + 铰合部略深
+    float rib = 0.5 + 0.5 * cos(vUV.x * 6.2831 * 9.0);
+    base *= mix(1.0, 0.9, rib * smoothstep(0.1, 0.4, vUV.y));
+    base = mix(base * 0.88, base, smoothstep(0.0, 0.3, vUV.y));
+  } else if (vKind < 1.5) {
+    // 海螺: 沿螺旋的细条纹 + 螺口内侧偏粉
+    float band = 0.5 + 0.5 * sin(vUV.y * 6.2831 * 3.5 + vUV.x * 6.2831);
+    base *= mix(1.0, 0.88, smoothstep(0.6, 0.9, band));
+    base = mix(base, vec3(1.0, 0.82, 0.8), (1.0 - smoothstep(0.0, 0.12, vUV.y)) * 0.6);
+  } else {
+    // 海星: 中心略深, 表面一粒粒浅色小点
+    base = mix(base * 0.9, base, smoothstep(0.0, 0.5, vUV.y));
+    vec2 c = vec2(vUV.x * 40.0, vUV.y * 6.0);
+    float dots = 1.0 - smoothstep(0.18, 0.3, length(fract(c) - 0.5));
+    base = mix(base, vec3(1.0, 0.97, 0.92), dots * 0.35 * step(0.15, vUV.y));
+  }
+  float lit = smoothstep(-0.1, 0.25, ndl);
+  vec3 col = mix(base * vec3(0.78, 0.76, 0.86), base, lit);
+  float spec = pow(max(dot(reflect(-uSunDir, n), V), 0.0), 20.0);
+  col = mix(col, vec3(1.0), smoothstep(0.5, 0.75, spec) * 0.45);
   float dist = length(vW - cameraPosition);
   col = mix(col, uHaze, smoothstep(uHazeStart, uHazeEnd, dist) * 0.85);
   ${OUT}

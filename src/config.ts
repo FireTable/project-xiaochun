@@ -404,12 +404,12 @@ export const APP_CONFIG = {
       horizonCurveR: 700,  // 地平线弧度半径 (m), 范围 200 ~ 5000; 调小 = 可见海平线更低 (700 ≈ 眼高下 2.5°, 全身镜头落在胯部), 调大 = 接近平面 (= 眼高)
     },
     sky: {
-      zenith: 0x3fa9ee,
-      mid: 0x86cff6,
-      horizon: 0xe4f7fb,
+      zenith: 0x2c8be6,    // 天顶: 饱和的蓝
+      mid: 0x79c6f3,
+      horizon: 0xe2f8f6,   // 地平线: 浅青白
       sunGlow: 0.22,       // 太阳一侧柔光, 范围 0 ~ 0.6; 调大 = 更亮更暖, 0 = 纯渐变
       cirrus: 0.5,         // 高空浅云 (斜向白丝带) 强度, 范围 0 ~ 1; 0 = 无, 调大更白更明显
-      horizonBand: 0.5,    // 地平线附近亮带强度, 范围 0 ~ 1; 调大 = 天边更白更宽
+      horizonBand: 0.7,    // 地平线附近亮带强度, 范围 0 ~ 1; 调大 = 天边更白更宽
     },
     sea: {
       shallow: 0x8ef0dc,
@@ -442,27 +442,24 @@ export const APP_CONFIG = {
     },
     mountains: {
       enabled: true,
-      far: 0xb5c3ee,
-      near: 0x8fd0c4,
-      heightScale: 1.0,    // 远山高度倍率, 范围 0.3 ~ 2; 调大 = 山更高更抢眼
+      far: 0x9ccfc4,       // 远层岛色 (之后还会叠一层浓雾, 实际看到的是很淡的青绿)
+      mid: 0x5fb58a,       // 中层岛色 (柔和的绿, 叠一层浅雾)
+      near: 0x2f9f6a,      // 近层小岛色 (最饱和的绿)
+      heightScale: 1.0,    // 岛屿高度倍率, 范围 0.3 ~ 2; 调大 = 岛更高更抢眼
     },
     clouds: {
-      count: 18,           // 云朵数 (360° 均布), 范围 0 ~ 40; 每朵一个面片, 共 1 次绘制
-      driftDegPerSec: 0.15,// 漂移角速度 (°/s), 范围 0 ~ 1; 0 = 静止
+      count: 22,           // 云朵数 (360° 均布, 远 / 中 / 近三层), 范围 0 ~ 40; 每朵一个面片, 共 1 次绘制
+      driftDegPerSec: 0.12,// 漂移角速度 (°/s), 范围 0 ~ 1; 0 = 静止 (每朵云在此基础上 ±30% 随机)
       scale: 1.0,          // 云大小倍率, 范围 0.5 ~ 2
-      light: 0xffffff,
-      shade: 0xd9def6,
+      light: 0xfffbf2,     // 云亮面: 奶白
+      shade: 0xbfc4ec,     // 云暗面: 淡蓝紫
     },
     vegetation: {
       leafLight: 0x3fd08a,
       leafShade: 0x179a72,
-      trunkLight: 0xd9b48e,
-      trunkShade: 0xa98468,
-      grassLight: 0x6ddc84,
-      grassShade: 0x2ea36c,
-      flower: 0xffb3c9,
+      trunkLight: 0xddbf98, // 树干亮部: 温暖的浅棕灰
+      trunkShade: 0x9d8a8e, // 树干暗部: 偏冷的灰棕
       sway: 0.08,          // 叶尖摆动幅度 (m), 范围 0 ~ 0.3; 0 = 不动
-      grassDensity: 1.0,   // 草丛数量倍率, 范围 0 ~ 1; 调小 = 实例更少
     },
     rocks: {
       enabled: true,
@@ -470,12 +467,11 @@ export const APP_CONFIG = {
       shade: 0x9a93b4,
       detail: 1,           // 礁石细分, 范围 0 ~ 2; 0 = 80 面, 1 = 320 面 (默认, 已足够圆润), 2 = 1280 面 (三角面 ×4)
     },
-    petals: {
-      count: 28,           // 桌面花瓣数, 范围 0 ~ 80; >40 抢戏
-      countMobile: 14,     // 移动端花瓣数, 范围 0 ~ 40
-      size: 1.0,           // 大小倍率, 范围 0.5 ~ 2
-      speed: 1.0,          // 下落速度倍率, 范围 0.2 ~ 3
-      opacity: 0.9,        // 不透明度, 范围 0 ~ 1
+    shells: {
+      enabled: true,
+      count: 18,           // 贝壳 / 海螺 / 海星总数, 范围 0 ~ 60; 稀疏点缀即可 (>30 显得乱), 全部 1 次绘制
+      size: 1.0,           // 大小倍率, 范围 0.5 ~ 2 (默认约 6~13cm, 比真实略大, 远处才认得出)
+      colors: [0xfff0e0, 0xffc6ce, 0xffab92], // 奶白 / 浅粉 / 浅珊瑚 (随机取)
     },
     dynamics: {
       enabled: true,

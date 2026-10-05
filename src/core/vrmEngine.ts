@@ -227,7 +227,7 @@ export class VRMEngine {
   private readonly tempBeachHip = new THREE.Vector3();
   /** 海滩场景 (beach) 的背景层: 竖长条 + 局部动态; 只在该场景可见, 其余场景 0 开销。 */
   public readonly beachBackdrop = new BeachBackdrop();
-  /** 海滩 3D 场景 (beach3d): 纯 Three.js 天空 / 云 / 远山 / 沙地 + 海 / 棕榈 / 草丛 / 花瓣; 只在该场景可见并构建, 其余场景 0 开销。 */
+  /** 海滩 3D 场景 (beach3d): 纯 Three.js 天空 / 云 / 远山 / 沙地 + 海 / 棕榈 / 礁石; 只在该场景可见并构建, 其余场景 0 开销。 */
   public readonly beach3d = new Beach3DWorld();
   public readonly lighting = new StudioLighting();
   public readonly materialManager = new VRMMaterialManager();

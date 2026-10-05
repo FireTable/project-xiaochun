@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { APP_CONFIG } from '@/config';
-import { FAR_PEAKS, GRASS_KEEP_OUT_X, NEAR_PEAKS, PALMS, buildGrassLayout, buildRockLayout, ridgeHeight, shoreLineZ } from '../beach3d/beach3dLayout';
-import { buildGrassClump, buildMountains, buildPalmCrown, buildPalmTrunk, buildRock, trunkTop, triangleCount } from '../beach3d/beach3dGeometry';
+import { FAR_PEAKS, MID_PEAKS, NEAR_PEAKS, PALMS, SHELL_KEEP_OUT, buildRockLayout, buildShellLayout, ridgeHeight, shoreLineZ } from '../beach3d/beach3dLayout';
+import { buildMountains, buildPalmCrown, buildPalmTrunk, buildRock, buildShellSet, trunkTop, triangleCount } from '../beach3d/beach3dGeometry';
 import { computeHorizonDip } from '../beach3d/beach3dWorld';
 
 const shore = APP_CONFIG.beach3dScene.layout;
@@ -33,18 +33,6 @@ describe('beach3d layout', () => {
     expect(PALMS.some((p) => p.x > 0)).toBe(true);
   });
 
-  it('草丛在沙地上、不进角色禁区, 布局确定 (两次结果一致)', () => {
-    const a = buildGrassLayout(shore);
-    const b = buildGrassLayout(shore);
-    expect(a).toEqual(b);
-    expect(a.length).toBeGreaterThan(10);
-    expect(a.length).toBeLessThanOrEqual(24); // 点缀, 不铺满
-    for (const g of a) {
-      expect(g.z).toBeGreaterThan(shoreLineZ(g.x, shore) + 0.8 - 1e-9);
-      expect(Math.abs(g.x) >= GRASS_KEEP_OUT_X || g.z <= -2.2).toBe(true);
-    }
-  });
-
   it('礁石: 只在两侧, 不挡角色正后方的海面; 有一部分在水里', () => {
     const rocks = buildRockLayout(shore);
     expect(rocks.length).toBeGreaterThan(10);
@@ -70,21 +58,23 @@ describe('beach3d layout', () => {
     for (let az = -70; az <= 70; az += 0.5) {
       expect(ridgeHeight(az, FAR_PEAKS)).toBeGreaterThanOrEqual(0);
       expect(ridgeHeight(az, NEAR_PEAKS)).toBeGreaterThanOrEqual(0);
+      expect(ridgeHeight(az, MID_PEAKS, 1, 0.3, 2)).toBeGreaterThanOrEqual(0);
     }
     for (let az = -6; az <= 6; az += 0.5) expect(ridgeHeight(az, FAR_PEAKS)).toBeLessThan(2.2);
   });
 });
 
 describe('beach3d geometry budget', () => {
-  it('低模: 单棵棕榈 < 1200 三角, 场景总计 < 30000 三角', () => {
+  it('低模: 单棵棕榈 (含 4 个圆椰子) < 2000 三角, 场景总计 < 40000 三角', () => {
     const trunk = triangleCount(buildPalmTrunk());
     const crown = triangleCount(buildPalmCrown());
-    const grass = triangleCount(buildGrassClump());
     const mountains = triangleCount(buildMountains(1));
-    expect(trunk + crown).toBeLessThan(1200);
+    expect(trunk + crown).toBeLessThan(2000);
     const rocks = triangleCount(buildRock(APP_CONFIG.beach3dScene.rocks.detail)) * buildRockLayout(shore).length;
-    const total = (trunk + crown) * PALMS.length + grass * buildGrassLayout(shore).length + mountains + rocks + 40 * 48 * 2 /* 地面 */ + 2 /* 天空 */;
-    expect(total).toBeLessThan(30000);
+    const cfg = APP_CONFIG.beach3dScene;
+    const shells = triangleCount(buildShellSet()) * buildShellLayout(cfg.shells.count, shore, cfg.sea.swashAmp).length;
+    const total = (trunk + crown) * PALMS.length + mountains + rocks + shells + 40 * 48 * 2 /* 地面 */ + 2 /* 天空 */;
+    expect(total).toBeLessThan(40000);
   });
 
   it('叶冠几何带 aPart / aLeaf 属性, 法线已归一化', () => {
@@ -107,16 +97,28 @@ describe('beach3d geometry budget', () => {
     expect(minY).toBeLessThan(0.1);
     expect(triangleCount(g)).toBe(320);
   });
+});
 
-  it('草丛: 花只在开花实例出现 (aGPart 标记), 草叶有球形法线', () => {
-    const g = buildGrassClump();
-    const gp = g.getAttribute('aGPart');
-    const n = g.getAttribute('normal');
-    let flowers = 0;
-    for (let i = 0; i < gp.count; i++) {
-      if (gp.getX(i) > 0.5) flowers++;
-      else expect(n.getY(i)).toBeGreaterThan(0.3); // 法线朝外上方, 不会出现黑面
+describe('beach3d shells', () => {
+  const cfg = APP_CONFIG.beach3dScene;
+  const shells = buildShellLayout(cfg.shells.count, shore, cfg.sea.swashAmp);
+
+  it('数量符合配置, 避开角色脚下, 都在冲刷浪推不到的沙上', () => {
+    expect(shells.length).toBe(cfg.shells.count);
+    for (const s of shells) {
+      expect(Math.hypot(s.x, s.z)).toBeGreaterThanOrEqual(SHELL_KEEP_OUT);
+      expect(s.z).toBeGreaterThan(shoreLineZ(s.x, shore) + cfg.sea.swashAmp * 1.35);
+      expect(s.size).toBeGreaterThan(0.02);
+      expect(s.size).toBeLessThan(0.16);
     }
-    expect(flowers).toBeGreaterThan(0);
+  });
+
+  it('三种形状合在一个几何里, 每个顶点带 aKind', () => {
+    const g = buildShellSet();
+    const k = g.getAttribute('aKind');
+    const seen = new Set<number>();
+    for (let i = 0; i < k.count; i++) seen.add(k.getX(i));
+    expect([...seen].sort()).toEqual([0, 1, 2]);
+    expect(triangleCount(g)).toBeLessThan(500);
   });
 });

@@ -1,10 +1,10 @@
 import * as THREE from 'three';
-import { mergeVertices } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
-import { FAR_PEAKS, NEAR_PEAKS, ridgeHeight } from './beach3dLayout';
+import { mergeGeometries, mergeVertices } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
+import { FAR_PEAKS, MID_PEAKS, NEAR_PEAKS, ridgeHeight } from './beach3dLayout';
 
 /**
  * beach3dGeometry.ts — 海滩 3D 场景的低模几何 (程序化生成, 无贴图)。
- * 每种物体一份几何 + InstancedMesh, 整个场景的植被只有 3 次绘制 (树干 / 叶冠 / 草丛)。
+ * 每种物体一份几何 + InstancedMesh, 棕榈只有 2 次绘制 (树干 / 叶冠)。
  *
  * 棕榈的自定义顶点属性:
  *   aPart  — 0 树干, 1 小叶, 2 椰子, 3 叶轴 (叶冠几何里混合了叶和椰子, 共用一次绘制)
@@ -12,11 +12,15 @@ import { FAR_PEAKS, NEAR_PEAKS, ridgeHeight } from './beach3dLayout';
  */
 
 /** 树干参数: 高 H (m), 顶部相对底部的水平偏移 LEAN (m, 沿局部 +X)。 */
-export const PALM_TRUNK = { height: 4.3, lean: 1.5, r0: 0.17, r1: 0.1 } as const;
+export const PALM_TRUNK = { height: 4.3, lean: 1.5, r0: 0.18, r1: 0.095 } as const;
 
-/** 树干中心线 (t ∈ [0,1]): 向 +X 弯, 越往上越弯 (典型海滩棕榈的弧度)。 */
+/**
+ * 树干中心线 (t ∈ [0,1]): 优雅的弧线, 略带 S 形 —— 根部近乎竖直地从沙里长出, 中段向 +X 倾出, 顶部再微微回正托起叶冠。
+ * x = lean · (0.65 · smoothstep(t) + 0.35 · t²): smoothstep 两端斜率为 0 (S 形), t² 让上半段整体更倾。
+ */
 export function trunkCenter(t: number, out = new THREE.Vector3()): THREE.Vector3 {
-  return out.set(PALM_TRUNK.lean * Math.pow(t, 1.7), PALM_TRUNK.height * t, 0);
+  const s = t * t * (3 - 2 * t);
+  return out.set(PALM_TRUNK.lean * (0.65 * s + 0.35 * t * t), PALM_TRUNK.height * t, 0);
 }
 
 /** 叶冠挂点 = 树干顶端 (局部坐标)。 */
@@ -25,10 +29,10 @@ export function trunkTop(): THREE.Vector3 {
 }
 
 /**
- * 弯曲渐细的树干: 10 边形 × 18 节, 根部外扩 (喇叭口), 顶部收细。
- * 一节一节的卡通分节纹理 / 柔和明暗在片元着色器里按 aLeaf (高度, 环向) 画, 几何保持平滑。
+ * 树干: 10 边形 × 24 节的平滑管 (节点向根部加密), 粗细从根部向顶部平滑收窄, 根部微微外扩入沙。
+ * 表面的柔和明暗 / 细环纹在片元着色器里按 aLeaf (高度 0..1, 环向 0..1) 画, 几何本身没有分节。
  */
-export function buildPalmTrunk(radial = 10, rings = 18): THREE.BufferGeometry {
+export function buildPalmTrunk(radial = 10, rings = 24): THREE.BufferGeometry {
   const pos: number[] = [];
   const nrm: number[] = [];
   const leaf: number[] = [];
@@ -40,22 +44,21 @@ export function buildPalmTrunk(radial = 10, rings = 18): THREE.BufferGeometry {
   const side = new THREE.Vector3();
   const fwd = new THREE.Vector3();
   const n = new THREE.Vector3();
+  const radius = (t: number) => THREE.MathUtils.lerp(PALM_TRUNK.r0, PALM_TRUNK.r1, Math.pow(t, 0.75)) * (1 + 0.45 * Math.pow(1 - t, 9));
   for (let j = 0; j <= rings; j++) {
-    // 节点向底部加密 (根部喇叭口弧度更顺)
-    const t = Math.pow(j / rings, 1.25);
+    const t = Math.pow(j / rings, 1.2);
     trunkCenter(t, c);
     if (j === rings) { trunkCenter(t - 0.01, c2); tan.subVectors(c, c2).normalize(); } else { trunkCenter(Math.min(1, t + 0.01), c2); tan.subVectors(c2, c).normalize(); }
     side.crossVectors(tan, new THREE.Vector3(0, 0, 1)).normalize();
     fwd.crossVectors(side, tan).normalize();
-    const flare = 1 + 0.55 * Math.pow(1 - t, 7); // 根部略粗
-    const r = THREE.MathUtils.lerp(PALM_TRUNK.r0, PALM_TRUNK.r1, Math.pow(t, 0.8)) * flare;
-    // 根部喇叭口: 法线略朝上 (dr/dy < 0), 明暗更立体
-    const slope = 0.55 * 7 * Math.pow(1 - t, 6) * PALM_TRUNK.r0 / PALM_TRUNK.height;
+    const r = radius(t);
+    // 收窄 / 根部外扩使表面微微朝上: 法线沿切线方向偏 −dr/ds
+    const dr = (radius(Math.min(1, t + 0.01)) - radius(Math.max(0, t - 0.01))) / (0.02 * PALM_TRUNK.height);
     for (let i = 0; i <= radial; i++) {
       const a = (i / radial) * Math.PI * 2;
       n.copy(side).multiplyScalar(Math.cos(a)).addScaledVector(fwd, Math.sin(a));
       pos.push(c.x + n.x * r, c.y + n.y * r, c.z + n.z * r);
-      const nn = n.clone().addScaledVector(tan, slope * 4).normalize();
+      const nn = n.clone().addScaledVector(tan, -dr).normalize();
       nrm.push(nn.x, nn.y, nn.z);
       leaf.push(t, i / radial);
       part.push(0);
@@ -97,7 +100,7 @@ function mulberry32(seed: number): () => number {
 }
 
 /**
- * 棕榈叶冠 (原点 = 树干顶端): 10 片羽状复叶 + 3 个低模椰子。
+ * 棕榈叶冠 (原点 = 树干顶端): 10 片羽状复叶 + 一簇 4 个圆润的椰子。
  * 每片叶 = 一根拱起再下垂的叶轴 (细带) + 两侧各一排独立的小叶 (菱形尖叶, 斜向叶尖、向下张开成 V 形, 自身再微微下垂),
  * 所以叶片有体积和层次 (不是平面锯齿片)。上层 3 片短而上扬的嫩叶 + 下层 7 片长而下垂的老叶。
  * aLeaf = (s: 叶柄 → 叶尖 0..1, t: 小叶根 → 小叶尖 0..1; 叶轴 t = 0), aPart: 1 小叶, 3 叶轴, 2 椰子。
@@ -186,21 +189,28 @@ export function buildPalmCrown(fronds = 10, leaflets = 11): THREE.BufferGeometry
       }
     }
   }
-  // 椰子: 三个低模球 (20 面, 平滑法线)
-  const ico = mergeVertices(stripToPosition(new THREE.IcosahedronGeometry(0.11, 0)));
+  // 椰子: 4 个圆润的球 (2 级细分二十面体 180 面, 平滑法线, 略呈蛋形), 一簇挂在叶冠下面; aLeaf.x = 椰子序号 (着色时颜色略有差别)
+  const ico = mergeVertices(stripToPosition(new THREE.IcosahedronGeometry(1, 2)));
   const ip = ico.getAttribute('position');
   const ii = ico.getIndex()!;
-  for (let c = 0; c < 3; c++) {
-    const a = (c / 3) * Math.PI * 2 + 0.4;
-    const ox = Math.cos(a) * 0.13, oz = Math.sin(a) * 0.13, oy = -0.12 - (c === 1 ? 0.05 : 0);
+  const nuts: Array<[number, number, number, number]> = [
+    // [x, y, z, 半径]
+    [0.12, -0.13, 0.05, 0.105],
+    [-0.08, -0.14, 0.11, 0.1],
+    [-0.04, -0.12, -0.13, 0.108],
+    [0.03, -0.25, 0.0, 0.098],
+  ];
+  nuts.forEach(([ox, oy, oz, r], c) => {
     const base = pos.length / 3;
     for (let i = 0; i < ip.count; i++) {
       const x = ip.getX(i), y = ip.getY(i), z = ip.getZ(i);
       const l = Math.hypot(x, y, z) || 1;
-      vtx(new THREE.Vector3(x + ox, y + oy, z + oz), new THREE.Vector3(x / l, y / l, z / l), 0, 0, 2);
+      const sy = 1.1; // 略呈蛋形
+      vtx(new THREE.Vector3(ox + (x / l) * r, oy + (y / l) * r * sy, oz + (z / l) * r),
+        new THREE.Vector3(x / l, y / l / sy, z / l).normalize(), (c + 0.5) / nuts.length, 0, 2);
     }
     for (let i = 0; i < ii.count; i++) idx.push(base + ii.getX(i));
-  }
+  });
   ico.dispose();
   const g = new THREE.BufferGeometry();
   g.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
@@ -213,119 +223,56 @@ export function buildPalmCrown(fronds = 10, leaflets = 11): THREE.BufferGeometry
 }
 
 /**
- * 卡通草丛: 26 根宽而圆头的草叶 (外圈 16 根微微向外拱, 内圈 10 根短而直立, 每根 4 节), 整丛读起来是一团柔软的草球, 外加 2 朵小花 (5 瓣扇形, 只在开花的实例显示)。
- * 圆头在片元里按 uv 裁出; 法线用"球形法线" (从丛中心指向外上方), 整丛像一团柔和的绒球受光, 不会出现一片片硬面。
- * 属性: uv = (横向 −1..1, 高度 0..1); aGPart: 0 草叶, 1 花瓣, 2 花心; aBlade: 每根草叶的随机数 (色相微差)。
+ * 远景岛屿: 远 / 中 / 近三层卡通岛屿剪影 (竖直条带, 底边贴海平线), 按层从远到近排在同一个索引缓冲里 (不写深度, 按顺序叠画)。
+ * 每个顶点带: aH (该层归一化高度) / aRel (0 底边, 1 轮廓) / aLayer / aLit (向阳程度, 按平滑穹顶的坡向) / aAz (方位角 °)。
+ * 只在有岛的方位出三角形; 近 / 中层顶上有树冠鼓包, 所以按 0.4° 一段细分。
  */
-export function buildGrassClump(outer = 16, inner = 10): THREE.BufferGeometry {
-  const rnd = mulberry32(0x6a55);
-  const pos: number[] = [];
-  const nrm: number[] = [];
-  const uv: number[] = [];
-  const gpart: number[] = [];
-  const blade: number[] = [];
-  const idx: number[] = [];
-  const sph = (x: number, y: number, z: number) => {
-    const n = new THREE.Vector3(x, Math.max(0, y) * 0.8 + 0.45, z).normalize();
-    nrm.push(n.x, n.y, n.z);
-  };
-  const SEG = 4;
-  for (let b = 0; b < outer + inner; b++) {
-    const isIn = b >= outer;
-    const az = isIn ? ((b - outer) / inner) * Math.PI * 2 + 0.4 + (rnd() - 0.5) * 0.6 : (b / outer) * Math.PI * 2 + (rnd() - 0.5) * 0.4;
-    const h = isIn ? 0.5 + rnd() * 0.25 : 0.45 + rnd() * 0.3;
-    const lean = isIn ? 0.1 + rnd() * 0.15 : 0.3 + rnd() * 0.3; // 向外拱的程度
-    const r0 = isIn ? rnd() * 0.04 : 0.04 + rnd() * 0.05;
-    const w0 = 0.1 + rnd() * 0.035;
-    const ox = Math.cos(az), oz = Math.sin(az);
-    const sx = -oz, sz = ox; // 横向
-    const rb = rnd();
-    const base = pos.length / 3;
-    for (let k = 0; k <= SEG; k++) {
-      const v = k / SEG;
-      const out = r0 + lean * h * v * v; // 二次弧线外拱
-      const y = h * (v - 0.2 * lean * v * v * v);
-      const w = w0 * (1 - v * 0.35); // 宽叶, 圆头
-      const cx = ox * out, cz = oz * out;
-      pos.push(cx - sx * w, y, cz - sz * w, cx + sx * w, y, cz + sz * w);
-      sph(cx, y, cz); sph(cx, y, cz);
-      uv.push(-1, v, 1, v);
-      gpart.push(0, 0);
-      blade.push(rb, rb);
-    }
-    for (let k = 0; k < SEG; k++) {
-      const a = base + k * 2;
-      idx.push(a, a + 2, a + 1, a + 1, a + 2, a + 3);
-    }
-  }
-  // 小花: 两朵, 5 瓣扇形 (略朝上倾斜)
-  for (let f = 0; f < 2; f++) {
-    const az = f * 2.6 + 0.7;
-    const cx = Math.cos(az) * 0.2, cz = Math.sin(az) * 0.2, cy = 0.7 + 0.08 * f; // 高出草叶, 从侧面也看得见
-    const R = 0.09;
-    const c = pos.length / 3;
-    pos.push(cx, cy + 0.01, cz); nrm.push(0, 1, 0); uv.push(0, 0); gpart.push(2); blade.push(0);
-    const tilt = new THREE.Vector3(Math.cos(az), 0.0, Math.sin(az));
-    for (let i = 0; i <= 10; i++) {
-      const a = (i / 10) * Math.PI * 2;
-      const rr = R * (0.55 + 0.45 * Math.abs(Math.cos(a * 2.5))); // 5 个花瓣
-      const x = Math.cos(a) * rr, z = Math.sin(a) * rr;
-      const lift = (x * tilt.x + z * tilt.z) * 0.6; // 朝外上倾
-      pos.push(cx + x, cy + lift, cz + z); nrm.push(0, 1, 0); uv.push(rr / R, 1); gpart.push(1); blade.push(0);
-    }
-    for (let i = 0; i < 10; i++) idx.push(c, c + 1 + i, c + 2 + i);
-  }
-  const g = new THREE.BufferGeometry();
-  g.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
-  g.setAttribute('normal', new THREE.Float32BufferAttribute(nrm, 3));
-  g.setAttribute('uv', new THREE.Float32BufferAttribute(uv, 2));
-  g.setAttribute('aGPart', new THREE.Float32BufferAttribute(gpart, 1));
-  g.setAttribute('aBlade', new THREE.Float32BufferAttribute(blade, 1));
-  g.setIndex(idx);
-  g.computeBoundingSphere();
-  return g;
-}
-
-export function buildMountains(heightScale = 1, segments = 72, farR = 80, nearR = 70): THREE.BufferGeometry {
+export function buildMountains(heightScale = 1): THREE.BufferGeometry {
   const pos: number[] = [];
   const aH: number[] = [];
+  const aRel: number[] = [];
   const aLayer: number[] = [];
   const aLit: number[] = [];
+  const aAz: number[] = [];
   const idx: number[] = [];
-  const layers: Array<{ peaks: typeof FAR_PEAKS; r: number; layer: number }> = [
-    { peaks: FAR_PEAKS, r: farR, layer: 0 },
-    { peaks: NEAR_PEAKS, r: nearR, layer: 1 },
+  const layers = [
+    { peaks: FAR_PEAKS, r: 84, layer: 0, bump: 0, bw: 1, step: 0.8 },
+    { peaks: MID_PEAKS, r: 77, layer: 1, bump: 0.32, bw: 2.2, step: 0.5 },
+    { peaks: NEAR_PEAKS, r: 70, layer: 2, bump: 0.26, bw: 1.3, step: 0.4 },
   ];
   for (const L of layers) {
-    // 每层按"有山的方位"切段, 没有山的地方不出三角形 (省三角面, 也避免贴着海平线的零高度细条)
-    let maxH = 0;
-    for (let i = 0; i <= segments; i++) maxH = Math.max(maxH, ridgeHeight(-70 + (140 * i) / segments, L.peaks, heightScale));
-    maxH = Math.max(maxH, 1e-3);
+    const n = Math.round(140 / L.step);
+    const azAt = (i: number) => -70 + (140 * i) / n;
+    const hAt = (i: number) => ridgeHeight(azAt(i), L.peaks, heightScale, L.bump * heightScale, L.bw);
+    let maxH = 1e-3;
+    for (let i = 0; i <= n; i++) maxH = Math.max(maxH, hAt(i));
     let prev = -1;
-    for (let i = 0; i <= segments; i++) {
-      const az = -70 + (140 * i) / segments;
-      const h = ridgeHeight(az, L.peaks, heightScale);
+    for (let i = 0; i <= n; i++) {
+      const az = azAt(i);
+      const h = hAt(i);
       const a = THREE.MathUtils.degToRad(az);
       const x = Math.sin(a) * L.r, z = -Math.cos(a) * L.r;
       const base = pos.length / 3;
       pos.push(x, -0.05, z, x, h, z); // 底边贴着海平线 (略低 5cm, 防止抗锯齿露缝)
-      aH.push(0, h / maxH, 0, h / maxH);
-      aLayer.push(L.layer, L.layer, L.layer, L.layer);
-      // 山坡朝向: 山脊往 +X (太阳一侧) 下降 = 向阳坡 (1), 往 +X 上升 = 背阳坡 (0)
-      const slope = ridgeHeight(az + 1.5, L.peaks, heightScale) - ridgeHeight(az - 1.5, L.peaks, heightScale);
-      const lit = slope < -0.02 ? 1 : slope > 0.02 ? 0 : 0.5;
-      aLit.push(lit, lit, lit, lit);
-      if (prev >= 0 && (h > 0 || ridgeHeight(-70 + (140 * (i - 1)) / segments, L.peaks, heightScale) > 0)) {
-        idx.push(prev, base, prev + 1, prev + 1, base, base + 1);
-      }
+      aH.push(0, h / maxH);
+      aRel.push(0, 1);
+      aLayer.push(L.layer, L.layer);
+      // 向阳程度: 平滑穹顶 (不含鼓包) 往 +X (太阳一侧) 下降 = 向阳坡
+      const slope = (ridgeHeight(az + 1, L.peaks, heightScale) - ridgeHeight(az - 1, L.peaks, heightScale)) / Math.max(0.5, h);
+      const lit = THREE.MathUtils.clamp(0.5 - slope * 2.2, 0, 1);
+      aLit.push(lit, lit);
+      aAz.push(az, az);
+      if (prev >= 0 && (h > 0 || hAt(i - 1) > 0)) idx.push(prev, base, prev + 1, prev + 1, base, base + 1);
       prev = base;
     }
   }
   const g = new THREE.BufferGeometry();
   g.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
   g.setAttribute('aH', new THREE.Float32BufferAttribute(aH, 1));
+  g.setAttribute('aRel', new THREE.Float32BufferAttribute(aRel, 1));
   g.setAttribute('aLayer', new THREE.Float32BufferAttribute(aLayer, 1));
   g.setAttribute('aLit', new THREE.Float32BufferAttribute(aLit, 1));
+  g.setAttribute('aAz', new THREE.Float32BufferAttribute(aAz, 1));
   g.setIndex(idx);
   g.computeBoundingSphere();
   return g;
@@ -357,4 +304,59 @@ export function buildRock(detail = 1): THREE.BufferGeometry {
 export function triangleCount(g: THREE.BufferGeometry): number {
   const index = g.getIndex();
   return Math.floor((index ? index.count : g.getAttribute('position').count) / 3);
+}
+
+/**
+ * 沙滩小物件 (单位尺寸, 底面贴 y = 0): 扇贝 / 海螺 / 海星三种形状合在一个几何里, 每个顶点带 aKind (0 / 1 / 2) 与 aUV (着色用的局部坐标)。
+ * 实例化时每个实例只显示自己那一种 (顶点着色器把其余两种塌成退化三角形), 所以三种小物件只要 1 次绘制。共 432 三角面 (每个实例实际只画其中 112 ~ 180 个)。
+ */
+export function buildShellSet(): THREE.BufferGeometry {
+  const parts: THREE.BufferGeometry[] = [];
+  const make = (kind: number, pos: number[], uv: number[], idx: number[]) => {
+    const g = new THREE.BufferGeometry();
+    g.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
+    g.setAttribute('aUV', new THREE.Float32BufferAttribute(uv, 2));
+    g.setAttribute('aKind', new THREE.Float32BufferAttribute(new Array(pos.length / 3).fill(kind), 1));
+    g.setIndex(idx);
+    g.computeVertexNormals();
+    parts.push(g);
+  };
+  const grid = (nu: number, nv: number, f: (u: number, v: number) => [number, number, number], kind: number, closeU = false) => {
+    const pos: number[] = [], uv: number[] = [], idx: number[] = [];
+    for (let j = 0; j <= nv; j++) for (let i = 0; i <= nu; i++) {
+      const u = i / nu, v = j / nv;
+      pos.push(...f(closeU && i === nu ? 0 : u, v));
+      uv.push(u, v);
+    }
+    const row = nu + 1;
+    for (let j = 0; j < nv; j++) for (let i = 0; i < nu; i++) {
+      const a = j * row + i;
+      idx.push(a, a + row, a + 1, a + 1, a + row, a + row + 1);
+    }
+    make(kind, pos, uv, idx);
+  };
+  // 扇贝: 扇形穹壳, 边缘呈波浪 (肋数 9), u = 扇形角 0..1, v = 从铰合部到边缘 0..1
+  grid(14, 4, (u, v) => {
+    const th = (u - 0.5) * 2.6;
+    const rr = v * (1 - 0.05 * Math.abs(Math.sin(u * Math.PI * 9)));
+    return [Math.sin(th) * rr, 0.42 * (1 - v * v) * Math.pow(Math.cos((u - 0.5) * 2.2), 0.5) + 0.02, -0.45 + Math.cos(th) * rr];
+  }, 0);
+  // 海螺: 躺在沙上的螺旋锥, u = 绕圈 0..1, v = 从螺口到螺尖 0..1 (每圈鼓一下 = 螺纹)
+  grid(10, 7, (u, v) => {
+    const a = u * Math.PI * 2;
+    const r = (0.36 * Math.pow(1 - v, 0.9) + 0.03) * (1 + 0.12 * Math.sin(v * Math.PI * 2 * 3.5));
+    return [-0.5 + v * 1.25, r * 0.95 + Math.sin(a) * r, Math.cos(a) * r];
+  }, 1, true);
+  // 海星: 五角星的圆润鼓包, u = 方位 0..1, v = 从中心到边缘 0..1
+  grid(30, 3, (u, v) => {
+    const a = u * Math.PI * 2;
+    const arm = Math.pow(Math.abs(Math.cos(a * 2.5)), 2.2);
+    const R = 0.34 + 0.66 * arm;
+    const rr = v * R;
+    return [Math.cos(a) * rr, 0.16 * (1 - v * v) * (0.55 + 0.45 * arm) + 0.01, -Math.sin(a) * rr]; // −sin: 让三角形朝上
+  }, 2, true);
+  const out = mergeGeometries(parts);
+  parts.forEach((g) => g.dispose());
+  out.computeBoundingSphere();
+  return out;
 }

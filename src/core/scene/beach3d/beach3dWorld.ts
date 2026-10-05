@@ -1,25 +1,23 @@
 import * as THREE from 'three';
 import { APP_CONFIG } from '@/config';
-import { isMobile } from '@/lib/platform';
 import { SceneMotionGovernor } from '../sceneMotion';
-import { PALMS, buildGrassLayout, buildRockLayout } from './beach3dLayout';
+import { PALMS, buildRockLayout, buildShellLayout } from './beach3dLayout';
 import {
-  buildGrassClump,
   buildMountains,
   buildPalmCrown,
   buildPalmTrunk,
   buildRock,
+  buildShellSet,
   trunkTop,
   triangleCount,
 } from './beach3dGeometry';
 import {
   CLOUD_FRAG, CLOUD_VERT,
-  GRASS_FRAG, GRASS_VERT,
   GROUND_FRAG, GROUND_VERT,
   MOUNTAIN_FRAG, MOUNTAIN_VERT,
   PALM_FRAG, PALM_VERT,
-  PETAL_FRAG, PETAL_VERT,
   ROCK_FRAG, ROCK_VERT,
+  SHELL_FRAG, SHELL_VERT,
   SKY_FRAG, SKY_VERT,
 } from './beach3dShaders';
 
@@ -28,15 +26,14 @@ import {
  *
  * 风格: 二次元 MMD 舞台 —— 3D 卡通着色道具 + 高调日光 + 轻微 Bloom (浪花 / 闪光参与), 与 MToon 角色同一套光向。
  *
- * 组成 (共 9 次绘制, 约 2.4 万三角面, 见 getStats()):
+ * 组成 (共 8 次绘制, 约 2 万三角面, 见 getStats()):
  *   天空      全屏着色器层 (按视线方向取色: 渐变 + 高空浅云 + 地平线亮带 + 太阳柔光; 俯仰到极限也不会穿帮 / 露黑边)
- *   云        实例化面片 ×N (远景层, 1 次绘制)
- *   远山      两层剪影条带 (远景层, 1 次绘制)
+ *   云        实例化面片 ×N (远景层, 1 次绘制): 赛璐璐积云 (16 个错落鼓包的并集轮廓, 亮暗分界跟着每个鼓包走)
+ *   远景岛屿  远 / 中 / 近三层卡通岛屿剪影 (远景层, 1 次绘制): 近深远浅的空气透视 + 贴海面薄雾 + 树冠鼓包
  *   沙地 + 海 一张 y=0 的大平面 (1 次绘制): 沙纹 / 湿沙 / 岸边浪花 / 卡通波纹 / 阳光闪光全在片元里
- *   棕榈      树干 (根部外扩的弧形, 卡通分节) + 叶冠 (立体羽状复叶: 叶轴 + 两排 V 形小叶) 两个 InstancedMesh (2 次绘制)
- *   草丛      弯弧草叶团 + 小花 InstancedMesh (1 次绘制, 球形法线 → 柔和的绒球明暗)
+ *   棕榈      树干 (略带 S 形的平滑渐细弧线, 柔和明暗 + 淡细环纹) + 叶冠 (立体羽状复叶: 叶轴 + 两排 V 形小叶) 两个 InstancedMesh (2 次绘制)
  *   礁石      圆润的平滑礁石 InstancedMesh (1 次绘制), 水中礁石周围一圈白浪 (地面着色器里画)
- *   花瓣      世界空间 GPU 粒子 (1 次绘制, 只在角色身后)
+ *   贝壳      扇贝 / 海螺 / 海星 InstancedMesh (1 次绘制), 稀疏地散在湿沙带上沿
  *   落影      复用引擎原有的实时阴影 (CharacterShadowSystem 的 ShadowMaterial 平面), 本类不另画影子
  *
  * "远景层" (云 / 远山) 每帧跟随相机平移 (不跟随旋转): 等价于无限远, 不受相机远裁剪面 (100m) 限制。
@@ -45,7 +42,7 @@ import {
  * 天空 / 远山 / 云按同一个 uDip 对齐 (computeHorizonDip, 每帧按相机高度算), 远处无缝。
  *
  * 太阳方向 = 引擎主方向光方向 (每帧读取), 天空柔光、闪光分布、树木明暗都按它算, 与角色受光一致。
- * 动态 (浪花 / 波纹 / 闪光 / 云 / 树叶 / 花瓣) 走 SceneMotionGovernor: reduced-motion 或低帧率自动静止 (与 beach 场景同一套逻辑)。
+ * 动态 (浪花 / 波纹 / 闪光 / 云 / 树叶) 走 SceneMotionGovernor: reduced-motion 或低帧率自动静止 (与 beach 场景同一套逻辑)。
  */
 
 /** 远景层半径 (m): 云在此球面上。须小于相机远裁剪面 100m。 */
@@ -73,9 +70,7 @@ export interface Beach3DStats {
   drawCalls: number;
   /** 场景自身的三角面数 (实例化按实例数累计)。 */
   triangles: number;
-  /** 粒子点数 (花瓣)。 */
-  points: number;
-  instances: { palms: number; grass: number; clouds: number };
+  instances: { palms: number; rocks: number; clouds: number; shells: number };
 }
 
 function lin(hex: number): THREE.Color {
@@ -108,10 +103,8 @@ export class Beach3DWorld {
   private ground: THREE.Mesh | null = null;
   private trunks: THREE.InstancedMesh | null = null;
   private crowns: THREE.InstancedMesh | null = null;
-  private grass: THREE.InstancedMesh | null = null;
   private rocks: THREE.InstancedMesh | null = null;
-  private petals: THREE.Points | null = null;
-  private petalMax = 0;
+  private shells: THREE.InstancedMesh | null = null;
   private readonly materials: THREE.Material[] = [];
 
   /** 所有材质共享的 uniform (同一对象引用, 改一次全部生效)。 */
@@ -128,10 +121,8 @@ export class Beach3DWorld {
   };
   private readonly skyUniforms: Record<string, THREE.IUniform> = {};
   private readonly cloudUniforms: Record<string, THREE.IUniform> = {};
-  private readonly petalUniforms: Record<string, THREE.IUniform> = {};
   private readonly tmpV = new THREE.Vector3();
   private readonly tmpV2 = new THREE.Vector3();
-  private readonly drawSize = new THREE.Vector2();
 
   constructor() {
     this.group.name = 'Beach3DWorld';
@@ -174,13 +165,9 @@ export class Beach3DWorld {
   public getStats(): Beach3DStats {
     let drawCalls = 0;
     let triangles = 0;
-    let points = 0;
     this.group.traverse((o) => {
       if (!o.visible) return;
-      if (o instanceof THREE.Points) {
-        const n = o.geometry.drawRange.count === Infinity ? o.geometry.getAttribute('position').count : o.geometry.drawRange.count;
-        if (n > 0) { drawCalls++; points += n; }
-      } else if (o instanceof THREE.InstancedMesh) {
+      if (o instanceof THREE.InstancedMesh) {
         if (o.count > 0) { drawCalls++; triangles += triangleCount(o.geometry) * o.count; }
       } else if (o instanceof THREE.Mesh) {
         drawCalls++;
@@ -190,8 +177,7 @@ export class Beach3DWorld {
     return {
       drawCalls,
       triangles,
-      points,
-      instances: { palms: this.trunks?.count ?? 0, grass: this.grass?.count ?? 0, clouds: this.clouds?.count ?? 0 },
+      instances: { palms: this.trunks?.count ?? 0, rocks: this.rocks?.count ?? 0, clouds: this.clouds?.count ?? 0, shells: this.shells?.count ?? 0 },
     };
   }
 
@@ -253,13 +239,23 @@ export class Beach3DWorld {
     if (nClouds > 0) {
       const rnd = mulberry32(0xc10d);
       const data = new Float32Array(nClouds * 4);
+      const list: Array<[number, number, number, number]> = [];
       for (let i = 0; i < nClouds; i++) {
-        // 方位 360° 均布 (带抖动); 仰角偏低 (5° ~ 50°), 一半云集中在 25° 以下, 地平线上方更有层次
-        const az = ((i + rnd() * 0.7) / nClouds) * Math.PI * 2;
-        const el = THREE.MathUtils.degToRad(i % 2 === 0 ? 5 + rnd() * 20 : 14 + rnd() * 36);
-        const w = (14 + rnd() * 14) * cfg.clouds.scale * (1 - 0.35 * (el / 1.0));
-        data.set([az, el, w, rnd()], i * 4);
+        // 方位 360° 均布 (带抖动), 三种距离层次:
+        //   远云 (约一半): 仰角 2.5° ~ 8.5°, 小而扁, 底部融进地平线亮带;
+        //   中景云: 8° ~ 18°, 中等大小;
+        //   近处的大积云 (约 1/5): 16° ~ 32°, 最大最亮 (仰角 ≤ 32°, 面片不会在仰视极限时退化)。
+        const az = ((i + rnd() * 0.8) / nClouds) * Math.PI * 2;
+        const kind = i % 5;
+        let elDeg: number;
+        let w: number;
+        if (kind === 0 || kind === 2 || kind === 4) { elDeg = 2.5 + rnd() * 6; w = 7 + rnd() * 8; }
+        else if (kind === 1) { elDeg = 8 + rnd() * 10; w = 13 + rnd() * 8; }
+        else { elDeg = 16 + rnd() * 16; w = 20 + rnd() * 10; }
+        list.push([az, THREE.MathUtils.degToRad(elDeg), w * cfg.clouds.scale, rnd()]);
       }
+      // 从远到近 (仰角从低到高) 依次画, 近处的大云叠在远处的小云前面
+      list.sort((p, q) => p[1] - q[1]).forEach((c, i) => data.set(c, i * 4));
       const geo = new THREE.PlaneGeometry(1, 1);
       Object.assign(this.cloudUniforms, {
         uTime: this.shared.uTime,
@@ -306,6 +302,7 @@ export class Beach3DWorld {
           fragmentShader: MOUNTAIN_FRAG,
           uniforms: {
             uFar: { value: lin(cfg.mountains.far) },
+            uMid: { value: lin(cfg.mountains.mid) },
             uNear: { value: lin(cfg.mountains.near) },
             uHorizon: { value: lin(cfg.sky.horizon) },
             uDipTan: this.shared.uDipTan,
@@ -428,45 +425,6 @@ export class Beach3DWorld {
     this.crowns.computeBoundingSphere();
     this.group.add(this.trunks, this.crowns);
 
-    // ── 草丛 ──
-    const layout = buildGrassLayout(cfg.layout);
-    const nGrass = Math.round(layout.length * THREE.MathUtils.clamp(cfg.vegetation.grassDensity, 0, 1));
-    if (nGrass > 0) {
-      const geo = buildGrassClump();
-      const seeds = new Float32Array(nGrass * 2);
-      const gm = this.register(new THREE.ShaderMaterial({
-        vertexShader: GRASS_VERT,
-        fragmentShader: GRASS_FRAG,
-        uniforms: {
-          uTime: this.shared.uTime,
-          uSway: this.shared.uSway,
-          uGrassLight: { value: lin(cfg.vegetation.grassLight) },
-          uSunDir: this.shared.uSunDir,
-          uGrassShade: { value: lin(cfg.vegetation.grassShade) },
-          uFlower: { value: lin(cfg.vegetation.flower) },
-          uHaze: { value: sandHaze },
-          uComp: this.shared.uComp,
-          uMark: this.shared.uMark,
-          ...haze,
-        },
-        side: THREE.DoubleSide,
-      }));
-      this.grass = new THREE.InstancedMesh(geo, gm, nGrass);
-      for (let i = 0; i < nGrass; i++) {
-        const g = layout[i];
-        q.setFromAxisAngle(new THREE.Vector3(0, 1, 0), g.rot);
-        sc.set(g.scale, g.scale * 0.9, g.scale);
-        m.compose(new THREE.Vector3(g.x, 0, g.z), q, sc);
-        this.grass.setMatrixAt(i, m);
-        seeds[i * 2] = (i * 0.618034) % 1;
-        seeds[i * 2 + 1] = g.flower ? 1 : 0;
-      }
-      geo.setAttribute('aSeed', new THREE.InstancedBufferAttribute(seeds, 2));
-      this.grass.name = 'Beach3DGrass';
-      this.grass.computeBoundingSphere();
-      this.group.add(this.grass);
-    }
-
     // ── 礁石 ──
     if (rockLayout.length > 0) {
       this.rocks = new THREE.InstancedMesh(buildRock(cfg.rocks.detail), this.register(new THREE.ShaderMaterial({
@@ -493,49 +451,41 @@ export class Beach3DWorld {
       this.group.add(this.rocks);
     }
 
-    // ── 花瓣 (透明队列: 画在角色之后、按深度被角色遮挡, 只分布在角色身后) ──
-    this.petalMax = Math.max(0, Math.min(80, Math.max(cfg.petals.count, cfg.petals.countMobile)));
-    if (this.petalMax > 0) {
-      const rnd = mulberry32(0x9e7a1);
-      const seeds = new Float32Array(this.petalMax * 4);
-      for (let i = 0; i < this.petalMax; i++) {
-        seeds.set([rnd(), (i + rnd()) / this.petalMax, rnd(), rnd()], i * 4);
-      }
-      const geo = new THREE.BufferGeometry();
-      geo.setAttribute('position', new THREE.BufferAttribute(new Float32Array(this.petalMax * 3), 3));
-      geo.setAttribute('aSeed', new THREE.BufferAttribute(seeds, 4));
-      const pal = [0xffc2d1, 0xd9c8fb, 0xc4f3df, 0xfff1c9].map((h) => {
-        const c = lin(h);
-        return new THREE.Vector3(c.r, c.g, c.b);
+    // ── 贝壳 / 海螺 / 海星 (三种形状一个几何, 1 次绘制) ──
+    const shellLayout = cfg.shells.enabled ? buildShellLayout(cfg.shells.count, cfg.layout, cfg.sea.swashAmp) : [];
+    if (shellLayout.length > 0) {
+      const geo = buildShellSet();
+      const kinds = new Float32Array(shellLayout.length);
+      const cols = new Float32Array(shellLayout.length * 3);
+      const pal = cfg.shells.colors.map((h) => lin(h));
+      shellLayout.forEach((sh, i) => {
+        kinds[i] = sh.kind;
+        const c = pal[sh.color % pal.length];
+        cols.set([c.r, c.g, c.b], i * 3);
       });
-      Object.assign(this.petalUniforms, {
-        uTime: this.shared.uTime,
-        uSpeed: { value: cfg.petals.speed },
-        uSize: { value: cfg.petals.size },
-        uPxPerUnit: { value: 500 },
-        uBoxMin: { value: new THREE.Vector3(-3.6, 0.05, -5.0).add(this.group.position) }, // 角色身后 1~5m
-        uBoxSize: { value: new THREE.Vector3(7.2, 3.4, 4.0) },
-        uPal: { value: pal },
-        uOpacity: { value: cfg.petals.opacity },
-        uComp: this.shared.uComp,
+      geo.setAttribute('iKind', new THREE.InstancedBufferAttribute(kinds, 1));
+      geo.setAttribute('iColor', new THREE.InstancedBufferAttribute(cols, 3));
+      this.shells = new THREE.InstancedMesh(geo, this.register(new THREE.ShaderMaterial({
+        vertexShader: SHELL_VERT,
+        fragmentShader: SHELL_FRAG,
+        uniforms: {
+          uSunDir: this.shared.uSunDir,
+          uHaze: { value: sandHaze },
+          uComp: this.shared.uComp,
+          uMark: this.shared.uMark,
+          ...haze,
+        },
+        side: THREE.DoubleSide,
+      })), shellLayout.length);
+      shellLayout.forEach((sh, i) => {
+        q.setFromAxisAngle(new THREE.Vector3(0, 1, 0), sh.rot);
+        sc.setScalar(sh.size * cfg.shells.size);
+        m.compose(new THREE.Vector3(sh.x, 0.002, sh.z), q, sc);
+        this.shells!.setMatrixAt(i, m);
       });
-      this.petals = new THREE.Points(geo, this.register(new THREE.ShaderMaterial({
-        vertexShader: PETAL_VERT,
-        fragmentShader: PETAL_FRAG,
-        uniforms: this.petalUniforms,
-        transparent: true,
-        depthTest: true,
-        depthWrite: false,
-        blending: THREE.CustomBlending,
-        blendSrc: THREE.SrcAlphaFactor,
-        blendDst: THREE.OneMinusSrcAlphaFactor,
-        blendEquation: THREE.AddEquation,
-        blendSrcAlpha: THREE.ZeroFactor,
-        blendDstAlpha: THREE.OneFactor,
-      })));
-      this.petals.name = 'Beach3DPetals';
-      this.petals.frustumCulled = false;
-      this.group.add(this.petals);
+      this.shells.name = 'Beach3DShells';
+      this.shells.computeBoundingSphere();
+      this.group.add(this.shells);
     }
   }
 
@@ -582,26 +532,18 @@ export class Beach3DWorld {
     const exp = renderer.toneMapping === THREE.LinearToneMapping ? renderer.toneMappingExposure : 1;
     this.shared.uComp.value = 1 / Math.max(0.2, exp || 1);
     this.shared.uMark.value = renderer.getRenderTarget() ? 0.99 : 1;
-
-    if (this.petals) {
-      const n = dyn ? Math.min(this.petalMax, Math.max(0, Math.round(isMobile() ? cfg.petals.countMobile : cfg.petals.count))) : 0;
-      this.petals.visible = n > 0;
-      this.petals.geometry.setDrawRange(0, n);
-      renderer.getDrawingBufferSize(this.drawSize);
-      this.petalUniforms.uPxPerUnit.value = this.drawSize.y * 0.5;
-    }
   }
 
   public dispose(scene?: THREE.Scene): void {
     this.disposed = true;
     this.motion.dispose();
     this.group.traverse((o) => {
-      if (o instanceof THREE.Mesh || o instanceof THREE.Points) o.geometry.dispose();
+      if (o instanceof THREE.Mesh) o.geometry.dispose();
     });
     for (const m of this.materials) m.dispose();
     this.materials.length = 0;
     if (scene) scene.remove(this.group);
     this.group.clear();
-    this.sky = this.clouds = this.mountains = this.ground = this.trunks = this.crowns = this.grass = this.rocks = this.petals = null;
+    this.sky = this.clouds = this.mountains = this.ground = this.trunks = this.crowns = this.rocks = this.shells = null;
   }
 }
