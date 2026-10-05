@@ -55,9 +55,9 @@ const caps = q.get('caps') === 'old'
   : { commands: ['xc.setOutfit', 'xc.setScene'], unsupported: [], stt: true, transparent: true,
       prefetch: true, gestures: { move: true, resize: true, cornerSize: 40 },
       outfits: Object.keys(OUT).map((id) => ({ id, name: id })),
-      scenes: [{ id: 'light', transparent: false }, { id: 'dark', transparent: false }, { id: 'transparent', transparent: true }, { id: 'beach', transparent: false }] };
+      scenes: [{ id: 'light', transparent: false }, { id: 'dark', transparent: false }, { id: 'transparent', transparent: true }, { id: 'beach', transparent: false }, { id: 'beach3d', transparent: false }] };
 let outfit = own(OUT, q.get('outfit') || '') ? q.get('outfit') : 'xiaochun_dinner_dress';
-let scene = ['light', 'dark', 'transparent', 'beach'].includes(q.get('scene')) ? q.get('scene') : (q.get('transparent') === '1' ? 'transparent' : 'light');
+let scene = ['light', 'dark', 'transparent', 'beach', 'beach3d'].includes(q.get('scene')) ? q.get('scene') : (q.get('transparent') === '1' ? 'transparent' : 'light');
 let port = null;
 const send = (type, payload, id) => port.postMessage({ type, v: 1, id, payload });
 window.__post = (type, payload) => send(type, payload); // 测试用: 让 stub iframe 按需发手势消息 (含伪造的)
@@ -84,7 +84,7 @@ function onCmd(env) {
     const ids = p.ids || ['xiaochun_maid', 'xiaochun_dinner_dress'];
     send('xc.prefetched', { downloaded: ids.filter((x) => x !== 'busy_one'), cached: [], failed: ids.filter((x) => x === 'busy_one') }, env.id);
   } else if (env.type === 'xc.setScene') {
-    if (!['light', 'dark', 'transparent', 'beach'].includes(p.id)) return send('xc.error', { code: 'unknown_id', message: 'unknown scene', command: env.type }, env.id);
+    if (!['light', 'dark', 'transparent', 'beach', 'beach3d'].includes(p.id)) return send('xc.error', { code: 'unknown_id', message: 'unknown scene', command: env.type }, env.id);
     const prev = scene; scene = p.id;
     send('xc.scene-changed', { id: p.id, transparent: p.id === 'transparent', previous: prev, ...(prev === p.id ? { noop: true } : {}) }, env.id);
   }
@@ -149,7 +149,7 @@ await check('新 iframe: getOutfits / getScenes 取自 capabilities; setOutfit �
   const page = await newPage(); await mk(page, {}); await handshake(page);
   const lists = await page.evaluate(async () => ({ o: (await xc.getOutfits()).map((x) => x.id), s: (await xc.getScenes()).map((x) => x.id) }));
   assert.deepEqual(lists.o, ['xiaochun_maid', 'xiaochun_dinner_dress', 'slow_one', 'busy_one']);
-  assert.deepEqual(lists.s, ['light', 'dark', 'transparent', 'beach']);
+  assert.deepEqual(lists.s, ['light', 'dark', 'transparent', 'beach', 'beach3d']);
   assert.equal(await page.evaluate(() => xc.outfit), 'xiaochun_dinner_dress');
   const t = await page.evaluate(async () => { const t0 = performance.now(); await xc.setOutfit('slow_one'); return { dt: performance.now() - t0, outfit: xc.outfit }; });
   assert.ok(t.dt >= 200, `应等到 iframe 应答 (${t.dt}ms)`); assert.equal(t.outfit, 'slow_one');

@@ -2,6 +2,7 @@ import * as THREE from 'three';
 import { APP_CONFIG } from '@/config';
 import { isMobile } from '@/lib/platform';
 import { BEACH_STRIP, computeStripCenter } from './beachStrip';
+import { SceneMotionGovernor } from './sceneMotion';
 
 export { BEACH_STRIP, computeStripCenter, coverViewport } from './beachStrip';
 
@@ -31,7 +32,7 @@ export { BEACH_STRIP, computeStripCenter, coverViewport } from './beachStrip';
  *
  * ── 局部动态 (全在着色器 / GPU 粒子里, 零 CPU 每帧开销) ──
  *   海面波光 + 水面微扰 (仅 mask.R 海面区域) / 云横向漂移 (仅 mask.G 纯天空区域, 镜像边界) / 飘落花瓣与上升光点 (Points, 画在角色身后)。
- *   参数全在 APP_CONFIG.beachScene.dynamics; prefers-reduced-motion 或低帧率自动关闭。
+ *   参数全在 APP_CONFIG.beachScene.dynamics; prefers-reduced-motion 或低帧率自动关闭 (降级逻辑见 sceneMotion.ts, 与 beach3d 共用)。
  *
  * 渲染顺序: 本层与粒子都走"不透明队列" (transparent=false, 粒子用 CustomBlending 自带 alpha 混合), renderOrder 为负, 先于一切;
  * 若粒子用 transparent=true 会被排进透明队列, 画到角色前面。
@@ -241,16 +242,13 @@ export class BeachBackdrop {
   private subject: (() => BeachSubject | null) | null = null;
   private onAssetsReady: (() => void) | null = null;
 
-  // 动态状态
-  private reducedMotion = false;
-  private mql: MediaQueryList | null = null;
-  private mqlHandler: (() => void) | null = null;
-  private downgraded = false;
-  private fpsAcc = 0;
-  private fpsFrames = 0;
-  private lastNow = 0;
-  private clockT = 0;
+  // 动态状态 (reduced-motion / 低帧率降级, 与 beach3d 共用同一套逻辑)
+  private readonly motion = new SceneMotionGovernor(() => APP_CONFIG.beachScene.dynamics);
   private smoothHipY: number | null = null;
+
+  /** 本次会话是否已因低帧率关闭动态 (截图脚本会直接写 false)。 */
+  public get downgraded(): boolean { return this.motion.downgraded; }
+  public set downgraded(v: boolean) { this.motion.downgraded = v; }
 
   private readonly dir = new THREE.Vector3();
   private readonly shared = {
@@ -295,16 +293,12 @@ export class BeachBackdrop {
     this.group.visible = active;
     if (active) {
       this.ensureBuilt();
-      this.downgraded = false; // 重新进入海滩时重新评估性能
-      this.fpsAcc = 0;
-      this.fpsFrames = 0;
-      this.lastNow = 0;
+      this.motion.reset(); // 重新进入海滩时重新评估性能
     }
   }
 
   private dynamicsOn(): boolean {
-    const d = APP_CONFIG.beachScene.dynamics;
-    return d.enabled && !(d.respectReducedMotion && this.reducedMotion) && !this.downgraded;
+    return this.motion.isOn();
   }
 
   private ensureBuilt(): void {
@@ -312,14 +306,7 @@ export class BeachBackdrop {
     const cfg = APP_CONFIG.beachScene;
 
     // prefers-reduced-motion
-    if (typeof window !== 'undefined' && typeof window.matchMedia === 'function') {
-      try {
-        this.mql = window.matchMedia('(prefers-reduced-motion: reduce)');
-        this.reducedMotion = this.mql.matches;
-        this.mqlHandler = () => { this.reducedMotion = Boolean(this.mql?.matches); };
-        this.mql.addEventListener('change', this.mqlHandler);
-      } catch { /* 老浏览器: 当作未开启 */ }
-    }
+    this.motion.watchReducedMotion();
 
     // ── 背景全屏层 ──
     Object.assign(this.quadUniforms, {
@@ -443,26 +430,12 @@ export class BeachBackdrop {
   private beforeRender(renderer: THREE.WebGLRenderer, camera: THREE.PerspectiveCamera): void {
     const cfg = APP_CONFIG.beachScene;
     const now = typeof performance !== 'undefined' ? performance.now() : Date.now();
-    const dt = this.lastNow > 0 ? Math.min(0.25, (now - this.lastNow) / 1000) : 0;
-    this.lastNow = now;
-
-    // 低性能自动降级 (按帧间隔平均, 只在动态开启时统计)
-    const ad = cfg.dynamics.autoDowngrade;
-    if (ad.enabled && cfg.dynamics.enabled && !this.downgraded && dt > 0) {
-      this.fpsAcc += dt;
-      this.fpsFrames++;
-      if (this.fpsFrames >= Math.max(30, ad.windowFrames)) {
-        const avgFps = this.fpsFrames / this.fpsAcc;
-        if (avgFps < ad.minFps) this.downgraded = true;
-        this.fpsAcc = 0;
-        this.fpsFrames = 0;
-      }
-    }
-
-    const dyn = this.dynamicsOn();
-    if (dyn) this.clockT += dt;
+    // 低性能自动降级 (按帧间隔平均, 只在动态开启时统计) — 见 sceneMotion.ts
+    const dyn = this.motion.tick(now);
+    const dt = this.motion.dt();
+    const clockT = this.motion.time(7.3);
     this.shared.uDyn.value = dyn ? 1 : 0;
-    this.shared.uTime.value = dyn ? this.clockT : 7.3; // 静态时停在一个波光分布好看的固定时刻
+    this.shared.uTime.value = clockT; // 静态时停在一个波光分布好看的固定时刻
 
     // ── 视线俯仰 → 长条中心行 ──
     camera.getWorldDirection(this.dir);
@@ -499,7 +472,7 @@ export class BeachBackdrop {
 
     // 云漂移 (正弦来回, 镜像边界兜底)
     const cl = cfg.dynamics.cloud;
-    this.quadUniforms.uCloudOff.value = dyn ? cl.driftPx * Math.sin((this.clockT / Math.max(5, cl.periodSec)) * Math.PI * 2) : 0;
+    this.quadUniforms.uCloudOff.value = dyn ? cl.driftPx * Math.sin((clockT / Math.max(5, cl.periodSec)) * Math.PI * 2) : 0;
 
     // 粒子
     if (this.points) {
@@ -513,9 +486,7 @@ export class BeachBackdrop {
 
   public dispose(scene?: THREE.Scene): void {
     this.disposed = true;
-    if (this.mql && this.mqlHandler) {
-      try { this.mql.removeEventListener('change', this.mqlHandler); } catch { /* ignore */ }
-    }
+    this.motion.dispose();
     this.quad?.geometry.dispose();
     (this.quad?.material as THREE.Material | undefined)?.dispose();
     this.points?.geometry.dispose();

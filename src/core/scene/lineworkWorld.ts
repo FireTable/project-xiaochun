@@ -13,7 +13,7 @@ type BuildingShape = 'box' | 'tower' | 'pyramid' | 'stepped' | 'antenna';
  * - 远景飞鸟：在雄伟山峦顶端开阔高空盘旋 (Z = -30 ~ -40, 高度 15.0 ~ 24.0m)
  * - 远景群山：高耸入云的两重起伏叠嶂山脊 (Z = -34 与 Z = -46, 宽度 84 ~ 115m, 峰顶高 16.0 ~ 26.0m)
  */
-export type LineworkTheme = 'light' | 'dark' | 'transparent' | 'beach';
+export type LineworkTheme = 'light' | 'dark' | 'transparent' | 'beach' | 'beach3d';
 
 export class LineworkWorld {
   private rootGroup = new THREE.Group();
@@ -113,8 +113,8 @@ export class LineworkWorld {
     this.bgTextureLight = this.createGradientTexture('#E2D9DB', '#D5CACD');
     this.bgColorDark = new THREE.Color(0x202020);
 
-    if (initialTheme === 'transparent' || initialTheme === 'beach') {
-      // transparent: 透明桌宠; beach: 背景由 BeachBackdrop (全屏着色器层) 自己画, 线稿世界整组隐藏
+    if (initialTheme === 'transparent' || initialTheme === 'beach' || initialTheme === 'beach3d') {
+      // transparent: 透明桌宠; beach: 背景由 BeachBackdrop (全屏着色器层) 自己画; beach3d: Beach3DWorld 自己画; 线稿世界整组隐藏
       scene.background = null;
       this.rootGroup.visible = false;
     } else {
@@ -670,7 +670,7 @@ export class LineworkWorld {
     this.currentTheme = theme;
     const targetScene = scene || this.sceneRef;
 
-    if (theme === 'transparent' || theme === 'beach') {
+    if (theme === 'transparent' || theme === 'beach' || theme === 'beach3d') {
       if (targetScene) {
         targetScene.background = null;
       }

@@ -25,6 +25,7 @@ export const zhCN = {
       dark: '极夜黑线稿',
       transparent: '透明背景',
       beach: '海滩',
+      beach3d: '海滩 3D',
     },
     switchOutfit: {
       tooltip: '切换服装装配',

@@ -75,7 +75,7 @@ export interface XiaochunOptions {
    * 运行中想切换请用 `setScene()`: SDK 会同步外壳背景和穿透。
    */
   transparent?: boolean;
-  /** 初始场景: 'light' | 'dark' | 'transparent' | 'beach' (以 getScenes() 为准)。省略 = 跟随 transparent 选项 / 系统亮暗。 */
+  /** 初始场景: 'light' | 'dark' | 'transparent' | 'beach' | 'beach3d' (以 getScenes() 为准)。省略 = 跟随 transparent 选项 / 系统亮暗。 */
   scene?: XcSceneId | (string & {});
   /**
    * 固定尺寸, 数字=px, 字符串=CSS 长度。默认 600x1080 (宽高比 ≈ 0.556, 与桌面端窗口的竖版比例同一量级)。
@@ -292,7 +292,7 @@ export interface XiaochunInstance {
    * 旧版 /embed (握手里没有 capabilities.outfits) 会 reject `[unsupported]`。
    */
   setOutfit(id: string): Promise<void>;
-  /** 切场景 ('light' | 'dark' | 'transparent' | 'beach', 见 getScenes())。SDK 同步外壳背景、穿透开关与 pointer-events。 */
+  /** 切场景 ('light' | 'dark' | 'transparent' | 'beach' | 'beach3d', 见 getScenes())。SDK 同步外壳背景、穿透开关与 pointer-events。 */
   setScene(id: XcSceneId | (string & {})): Promise<void>;
   /**
    * 预取内置服装资源到 iframe 的 IndexedDB (只下载, 不解压不合成)。ids 省略 = 全部内置服装, 婚纱 (13.9MB) 除外; 显式点名则照做。
@@ -445,7 +445,7 @@ export function createXiaochun(options: XiaochunOptions): XiaochunInstance {
   const initialOutfit = outfitOpt ?? prefs.outfit;
   const initialScene = options.scene ?? prefs.scene ?? (options.transparent ? 'transparent' : undefined);
   // 场景名未知 (旧版/自定义部署) 时退回 transparent 选项; 握手后的 xc.scene-changed 会校正
-  let transparent = initialScene === 'transparent' || (initialScene !== 'light' && initialScene !== 'dark' && initialScene !== 'beach' && (options.transparent ?? false));
+  let transparent = initialScene === 'transparent' || (initialScene !== 'light' && initialScene !== 'dark' && initialScene !== 'beach' && initialScene !== 'beach3d' && (options.transparent ?? false));
   let passthrough = options.passthrough ?? transparent;
   const lazy: XiaochunLazy = options.lazy ?? true;
   const position = options.position ?? 'inline';

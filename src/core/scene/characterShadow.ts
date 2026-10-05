@@ -134,8 +134,9 @@ export class CharacterShadowSystem {
   }
 
   /**
-   * 场景级配色: beach 下地面落影改奶茶褐偏粉 + 更淡, 并打开脚下接触影 (颜色匹配奶油沙地); 其它场景恢复原版 (黑色落影, 无接触影)。
-   * 参数见 APP_CONFIG.beachScene.blend。
+   * 场景级配色: beach 下地面落影改奶茶褐偏粉 + 更淡, 并打开脚下接触影 (颜色匹配奶油沙地);
+   * beach3d 下落影改淡紫褐 (赛璐璐影色), 不画接触影 —— 沙地是真实地面, 落影就是原有的实时阴影投射, 平面全显 (与线稿场景同一模式);
+   * 其它场景恢复原版 (黑色落影, 无接触影)。参数见 APP_CONFIG.beachScene.blend / APP_CONFIG.beach3dScene.light。
    */
   public applyTheme(theme: LineworkTheme): void {
     this.beach = theme === 'beach';
@@ -145,6 +146,9 @@ export class CharacterShadowSystem {
       if (this.beach) {
         m.color.setHex(b.shadowColor);
         m.opacity = b.shadowOpacity;
+      } else if (theme === 'beach3d') {
+        m.color.setHex(APP_CONFIG.beach3dScene.light.shadowColor);
+        m.opacity = APP_CONFIG.beach3dScene.light.shadowOpacity;
       } else {
         m.color.setHex(0x000000);
         m.opacity = theme === 'dark' ? APP_CONFIG.shadow.opacityDark : APP_CONFIG.shadow.opacityLight;

@@ -23,6 +23,7 @@ import { langFromSystemPrompt } from '@/llm/prompts';
 // ── 抽离子系统导入 ──
 import { LineworkWorld, type LineworkTheme } from './scene/lineworkWorld';
 import { BeachBackdrop } from './scene/beachBackdrop';
+import { Beach3DWorld } from './scene/beach3d/beach3dWorld';
 import { passthroughManager } from './scene/passthroughManager';
 import { StudioLighting } from './lighting/studioLighting';
 import {
@@ -226,6 +227,8 @@ export class VRMEngine {
   private readonly tempBeachHip = new THREE.Vector3();
   /** 海滩场景 (beach) 的背景层: 竖长条 + 局部动态; 只在该场景可见, 其余场景 0 开销。 */
   public readonly beachBackdrop = new BeachBackdrop();
+  /** 海滩 3D 场景 (beach3d): 纯 Three.js 天空 / 云 / 远山 / 沙地 + 海 / 棕榈 / 草丛 / 花瓣; 只在该场景可见并构建, 其余场景 0 开销。 */
+  public readonly beach3d = new Beach3DWorld();
   public readonly lighting = new StudioLighting();
   public readonly materialManager = new VRMMaterialManager();
   public readonly bubbleTracker = new BubbleTracker();
@@ -665,6 +668,8 @@ export class VRMEngine {
     this.gazeController.init(this.scene);
     this.gazeController.enabled = APP_CONFIG.camera.defaultEnableGaze ?? true;
     this.lighting.init(this.scene);
+    // 海滩 3D: 挂进场景 (默认不可见, 首次进入时才构建); 太阳方向取主方向光
+    this.beach3d.attach(this.scene, this.lighting.dirLight);
 
     // 动作与聊天控制器事件绑定
     this.vrmaPlayer.bindTransitionManager(this.motionTransition);
@@ -1189,12 +1194,13 @@ export class VRMEngine {
   }
 
   /**
-   * 场景级背景 / 融合微调 (只有 beach 有内容, 其余场景恢复默认):
+   * 场景级背景 / 融合微调 (只有 beach / beach3d 有内容, 其余场景恢复默认):
    *   背景层显隐 + 半球光/主光色调 (StudioLighting.applyTheme) + 地面落影 / 脚下接触影配色 (CharacterShadowSystem.applyTheme)。
    * 不改任何角色材质。
    */
   private syncSceneBackdrop(theme: LineworkTheme): void {
     this.beachBackdrop.setActive(theme === 'beach');
+    this.beach3d.setActive(theme === 'beach3d');
     this.lighting.applyTheme(theme);
     this.shadow.applyTheme(theme);
   }
@@ -2746,6 +2752,7 @@ export class VRMEngine {
     this.renderer?.dispose();
     this.lineworkWorld.dispose(this.scene);
     this.beachBackdrop.dispose(this.scene);
+    this.beach3d.dispose(this.scene);
     // ponytail: 角色阴影系统释放 (含 shadowPlane geometry/material + mask texture)
     this.shadow.dispose();
     this.postFx.dispose();

@@ -8,6 +8,7 @@ import type {
   LightConfig,
   SceneRegistryConfig,
   BeachSceneConfig,
+  Beach3DSceneConfig,
   MaterialSaturationConfig,
   VrmOutlineConfig,
   VrmMToonConfig,
@@ -354,6 +355,16 @@ export const APP_CONFIG = {
         components: { topHeader: true, chatBar: true, headBubble: true, heightRuler: true, dropZone: true },
         tauri: { resizable: true, cornerHandles: false },
       },
+      // 海滩 3D: 纯 Three.js 场景 (src/core/scene/beach3d/), 真实地面 + 实时落影。不透明场景, 规则同 light / dark / beach。
+      beach3d: {
+        id: 'beach3d',
+        nameKey: 'header.switchScene.beach3d',
+        icon: 'TreePalm',
+        lineworkTheme: 'beach3d',
+        isTransparent: false,
+        components: { topHeader: true, chatBar: true, headBubble: true, heightRuler: true, dropZone: true },
+        tauri: { resizable: true, cornerHandles: false },
+      },
     },
   } as SceneRegistryConfig,
   beachScene: {
@@ -383,6 +394,91 @@ export const APP_CONFIG = {
       contactSizeM: 0.85,
     },
   } as BeachSceneConfig,
+  // 海滩 3D (id: beach3d)。完整说明见 docs/BEACH3D_SCENE.md, 每个字段的含义 / 范围也写在 types/config.ts 的 Beach3DSceneConfig。
+  // 颜色是 sRGB 十六进制, 画面上就是这个颜色 (已抵消曝光)。
+  beach3dScene: {
+    layout: {
+      shoreZ: -6.0,        // 角色身后岸线 Z (m), 范围 −12 ~ −3; 调大 = 海更近, 调小 = 沙滩更深
+      shoreCurve: 0.03,    // 岸线两侧后弯 (海湾), 范围 0 ~ 0.06; 调大 = 两侧沙地包得更远
+      shoreWiggle: 0.45,   // 岸线蜿蜒幅度 (m), 范围 0 ~ 1.2; 调大 = 更曲折
+    },
+    sky: {
+      zenith: 0x3fa9ee,
+      mid: 0x86cff6,
+      horizon: 0xe4f7fb,
+      sunGlow: 0.22,       // 太阳一侧柔光, 范围 0 ~ 0.6; 调大 = 更亮更暖, 0 = 纯渐变
+    },
+    sea: {
+      shallow: 0x8ef0dc,
+      mid: 0x33c9cc,
+      deep: 0x24aac8,
+      horizon: 0x7dd6dc,
+      foam: 0xffffff,
+      ripple: 0.55,        // 卡通波纹强度, 范围 0 ~ 1; 调大更明显 (>0.8 显花), 0 = 纯色
+      rippleDensity: 0.55, // 波纹密度, 范围 0.1 ~ 1; 调大 = 满海波纹
+      glint: 0.9,          // 阳光闪光亮度, 范围 0 ~ 1.5; 调大更白更大 (>1 抢眼)
+      glintDensity: 0.16,  // 闪光密度, 范围 0 ~ 0.6; 调大 = 满海闪
+      glintSpeed: 1.0,     // 闪烁速度倍率, 范围 0 ~ 3
+      foamWidth: 0.42,     // 岸边浪花带宽 (m), 范围 0.1 ~ 1.2; 调大更宽更显眼
+      swashAmp: 0.9,       // 浪冲上沙滩的距离 (m), 范围 0 ~ 2; 0 = 岸线静止
+      swashSpeed: 0.55,    // 浪来回速度 (rad/s), 范围 0.1 ~ 1.5; 调大更急
+    },
+    sand: {
+      base: 0xf9ead0,
+      shade: 0xecd2ae,
+      light: 0xfff6e6,
+      wet: 0xe8cfa6,
+      rippleSpacing: 0.42, // 沙纹间距 (m), 范围 0.15 ~ 1.5; 调小更密 (远处按距离淡出防闪烁)
+      ripple: 0.6,         // 沙纹强度, 范围 0 ~ 1; 0 = 无沙纹
+    },
+    haze: {
+      start: 14,           // 空气透视起点 (m), 范围 5 ~ 60; 调小 = 中景就发白
+      end: 80,             // 完全淡到海平线色的距离 (m), 范围 30 ~ 95 (须 < 相机远裁剪面 100)
+    },
+    mountains: {
+      enabled: true,
+      far: 0xb5c3ee,
+      near: 0x8fd0c4,
+      heightScale: 1.0,    // 远山高度倍率, 范围 0.3 ~ 2; 调大 = 山更高更抢眼
+    },
+    clouds: {
+      count: 18,           // 云朵数 (360° 均布), 范围 0 ~ 40; 每朵一个面片, 共 1 次绘制
+      driftDegPerSec: 0.15,// 漂移角速度 (°/s), 范围 0 ~ 1; 0 = 静止
+      scale: 1.0,          // 云大小倍率, 范围 0.5 ~ 2
+      light: 0xffffff,
+      shade: 0xd9def6,
+    },
+    vegetation: {
+      leafLight: 0x3fd08a,
+      leafShade: 0x179a72,
+      trunkLight: 0xd9b48e,
+      trunkShade: 0xa98468,
+      grassLight: 0x6ddc84,
+      grassShade: 0x2ea36c,
+      flower: 0xffb3c9,
+      sway: 0.08,          // 叶尖摆动幅度 (m), 范围 0 ~ 0.3; 0 = 不动
+      grassDensity: 1.0,   // 草丛数量倍率, 范围 0 ~ 1; 调小 = 实例更少
+    },
+    petals: {
+      count: 28,           // 桌面花瓣数, 范围 0 ~ 80; >40 抢戏
+      countMobile: 14,     // 移动端花瓣数, 范围 0 ~ 40
+      size: 1.0,           // 大小倍率, 范围 0.5 ~ 2
+      speed: 1.0,          // 下落速度倍率, 范围 0.2 ~ 3
+      opacity: 0.9,        // 不透明度, 范围 0 ~ 1
+    },
+    dynamics: {
+      enabled: true,
+      respectReducedMotion: true,
+      autoDowngrade: { enabled: true, minFps: 24, windowFrames: 120 }, // 平均帧率 < minFps (15 ~ 40) 时本次会话静止
+    },
+    light: {
+      hemiSky: 0xf4fbff,
+      hemiGround: 0xf6e8d2,
+      dirColor: 0xfffaee,
+      shadowColor: 0x8a6c8c,
+      shadowOpacity: 0.34, // 沙上落影浓度, 范围 0 ~ 0.7; 调大 = 影子更实
+    },
+  } as Beach3DSceneConfig,
   lights: {
     dir: { base: 1.10, enabled: true },
     hemi: { base: 0.80, enabled: true },
