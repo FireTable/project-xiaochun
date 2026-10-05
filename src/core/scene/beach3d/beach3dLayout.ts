@@ -79,7 +79,7 @@ function mulberry32(seed: number): () => number {
 export const GRASS_KEEP_OUT_X = 1.0;
 
 /**
- * 草丛布局 (确定性随机): 每棵棕榈脚下一簇 + 两侧前景几簇 + 两侧沙地边缘零散几簇。
+ * 草丛布局 (确定性随机): 近处 6 棵棕榈脚下各 1~2 簇 + 两侧前景 4 簇 + 两侧沙地边缘零散 6 簇, 共约 20 簇 (点缀, 不铺满)。
  * 全部在沙地上、不进角色禁区。
  */
 export function buildGrassLayout(shore: ShoreParams): GrassSpec[] {
@@ -88,28 +88,24 @@ export function buildGrassLayout(shore: ShoreParams): GrassSpec[] {
   const push = (x: number, z: number, scale: number) => {
     if (Math.abs(x) < GRASS_KEEP_OUT_X && z > -2.2) return;
     if (z < shoreLineZ(x, shore) + 0.8) return;
-    out.push({ x, z, scale, rot: rnd() * Math.PI, flower: rnd() < 0.35 });
+    out.push({ x, z, scale, rot: rnd() * Math.PI * 2, flower: rnd() < 0.4 });
   };
-  for (const p of PALMS) {
-    const n = 2 + Math.floor(rnd() * 2);
+  const near = [...PALMS].sort((a, b) => Math.hypot(a.x, a.z) - Math.hypot(b.x, b.z)).slice(0, 6);
+  for (const p of near) {
+    const n = 1 + Math.floor(rnd() * 2);
     for (let i = 0; i < n; i++) {
       const a = rnd() * Math.PI * 2;
-      const r = 0.35 + rnd() * 0.7;
-      push(p.x + Math.cos(a) * r, p.z + Math.sin(a) * r, 0.55 + rnd() * 0.35);
+      const r = 0.4 + rnd() * 0.5;
+      push(p.x + Math.cos(a) * r, p.z + Math.sin(a) * r, 0.5 + rnd() * 0.25);
     }
   }
-  // 前景两侧 (横屏下角 / 拉远时的框景)
-  const front: Array<[number, number, number]> = [
-    [-1.4, -1.7, 0.6], [-2.0, -0.9, 0.65], [-2.7, 0.1, 0.7], [-1.6, -2.7, 0.55],
-    [1.45, -2.0, 0.6], [2.1, -0.7, 0.65], [2.8, 0.3, 0.7], [1.75, -3.0, 0.55],
-  ];
+  // 前景两侧 (横屏下角 / 拉远时的点缀)
+  const front: Array<[number, number, number]> = [[-1.6, -2.0, 0.5], [-2.5, -0.5, 0.58], [1.7, -2.3, 0.5], [2.7, -0.2, 0.58]];
   for (const [x, z, s] of front) push(x + (rnd() - 0.5) * 0.2, z + (rnd() - 0.5) * 0.2, s);
   // 两侧沙地边缘零散
-  for (let i = 0; i < 10; i++) {
+  for (let i = 0; i < 6; i++) {
     const side = i % 2 === 0 ? -1 : 1;
-    const x = side * (3.2 + rnd() * 12);
-    const z = -1.5 - rnd() * 8;
-    push(x, z, 0.5 + rnd() * 0.35);
+    push(side * (3.5 + rnd() * 10), -1.5 - rnd() * 7, 0.45 + rnd() * 0.3);
   }
   return out;
 }

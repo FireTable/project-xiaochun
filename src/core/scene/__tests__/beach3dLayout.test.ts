@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { APP_CONFIG } from '@/config';
 import { FAR_PEAKS, GRASS_KEEP_OUT_X, NEAR_PEAKS, PALMS, buildGrassLayout, buildRockLayout, ridgeHeight, shoreLineZ } from '../beach3d/beach3dLayout';
-import { buildFrameFronds, buildGrassClump, buildMountains, buildPalmCrown, buildPalmTrunk, buildRock, trunkTop, triangleCount } from '../beach3d/beach3dGeometry';
+import { buildGrassClump, buildMountains, buildPalmCrown, buildPalmTrunk, buildRock, trunkTop, triangleCount } from '../beach3d/beach3dGeometry';
 import { computeHorizonDip } from '../beach3d/beach3dWorld';
 
 const shore = APP_CONFIG.beach3dScene.layout;
@@ -37,27 +37,12 @@ describe('beach3d layout', () => {
     const a = buildGrassLayout(shore);
     const b = buildGrassLayout(shore);
     expect(a).toEqual(b);
-    expect(a.length).toBeGreaterThan(20);
+    expect(a.length).toBeGreaterThan(10);
+    expect(a.length).toBeLessThanOrEqual(24); // 点缀, 不铺满
     for (const g of a) {
       expect(g.z).toBeGreaterThan(shoreLineZ(g.x, shore) + 0.8 - 1e-9);
       expect(Math.abs(g.x) >= GRASS_KEEP_OUT_X || g.z <= -2.2).toBe(true);
     }
-  });
-
-  it('框景叶: 左右两簇镜像对称, 叶片都向画面内 (左簇 x ≥ 根部, 右簇相反) 且向下垂', () => {
-    const g = buildFrameFronds();
-    const pos = g.getAttribute('position');
-    const side = g.getAttribute('aSide');
-    let nl = 0, nr = 0, minY = 0;
-    for (let i = 0; i < pos.count; i++) {
-      const sx = side.getX(i);
-      if (sx < 0) nl++; else nr++;
-      expect(pos.getX(i) * sx).toBeLessThan(0.3); // 左簇 (−1) 向 +X 伸, 右簇 (+1) 向 −X 伸
-      minY = Math.min(minY, pos.getY(i));
-    }
-    expect(nl).toBe(nr);
-    expect(minY).toBeLessThan(-0.4);
-    expect(minY).toBeGreaterThan(-1.3);
   });
 
   it('礁石: 只在两侧, 不挡角色正后方的海面; 有一部分在水里', () => {
@@ -91,16 +76,15 @@ describe('beach3d layout', () => {
 });
 
 describe('beach3d geometry budget', () => {
-  it('低模: 单棵棕榈 < 800 三角, 场景总计 < 20000 三角', () => {
+  it('低模: 单棵棕榈 < 1200 三角, 场景总计 < 30000 三角', () => {
     const trunk = triangleCount(buildPalmTrunk());
     const crown = triangleCount(buildPalmCrown());
     const grass = triangleCount(buildGrassClump());
     const mountains = triangleCount(buildMountains(1));
-    expect(trunk + crown).toBeLessThan(800);
+    expect(trunk + crown).toBeLessThan(1200);
     const rocks = triangleCount(buildRock(APP_CONFIG.beach3dScene.rocks.detail)) * buildRockLayout(shore).length;
-    const frame = triangleCount(buildFrameFronds());
-    const total = (trunk + crown) * PALMS.length + grass * buildGrassLayout(shore).length + mountains + rocks + frame + 40 * 48 * 2 /* 地面 */ + 2 /* 天空 */;
-    expect(total).toBeLessThan(20000);
+    const total = (trunk + crown) * PALMS.length + grass * buildGrassLayout(shore).length + mountains + rocks + 40 * 48 * 2 /* 地面 */ + 2 /* 天空 */;
+    expect(total).toBeLessThan(30000);
   });
 
   it('叶冠几何带 aPart / aLeaf 属性, 法线已归一化', () => {
@@ -111,5 +95,28 @@ describe('beach3d geometry budget', () => {
     for (let i = 0; i < n.count; i += 7) {
       expect(Math.hypot(n.getX(i), n.getY(i), n.getZ(i))).toBeCloseTo(1, 3);
     }
+  });
+
+  it('礁石: 平滑法线 (合并顶点后无裂缝), 底部压平贴地', () => {
+    const g = buildRock(1);
+    expect(g.getIndex()).toBeTruthy();
+    const pos = g.getAttribute('position');
+    let minY = Infinity;
+    for (let i = 0; i < pos.count; i++) minY = Math.min(minY, pos.getY(i));
+    expect(minY).toBeGreaterThan(-0.05);
+    expect(minY).toBeLessThan(0.1);
+    expect(triangleCount(g)).toBe(320);
+  });
+
+  it('草丛: 花只在开花实例出现 (aGPart 标记), 草叶有球形法线', () => {
+    const g = buildGrassClump();
+    const gp = g.getAttribute('aGPart');
+    const n = g.getAttribute('normal');
+    let flowers = 0;
+    for (let i = 0; i < gp.count; i++) {
+      if (gp.getX(i) > 0.5) flowers++;
+      else expect(n.getY(i)).toBeGreaterThan(0.3); // 法线朝外上方, 不会出现黑面
+    }
+    expect(flowers).toBeGreaterThan(0);
   });
 });

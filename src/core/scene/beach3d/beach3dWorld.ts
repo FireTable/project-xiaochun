@@ -6,7 +6,6 @@ import { PALMS, buildGrassLayout, buildRockLayout } from './beach3dLayout';
 import {
   buildGrassClump,
   buildMountains,
-  buildFrameFronds,
   buildPalmCrown,
   buildPalmTrunk,
   buildRock,
@@ -29,15 +28,14 @@ import {
  *
  * 风格: 二次元 MMD 舞台 —— 3D 卡通着色道具 + 高调日光 + 轻微 Bloom (浪花 / 闪光参与), 与 MToon 角色同一套光向。
  *
- * 组成 (共 10 次绘制, 约 1.5 万三角面, 见 getStats()):
- *   天空      全屏着色器层 (按视线方向取色, 俯仰到极限也不会穿帮 / 露黑边)
+ * 组成 (共 9 次绘制, 约 2.4 万三角面, 见 getStats()):
+ *   天空      全屏着色器层 (按视线方向取色: 渐变 + 高空浅云 + 地平线亮带 + 太阳柔光; 俯仰到极限也不会穿帮 / 露黑边)
  *   云        实例化面片 ×N (远景层, 1 次绘制)
  *   远山      两层剪影条带 (远景层, 1 次绘制)
  *   沙地 + 海 一张 y=0 的大平面 (1 次绘制): 沙纹 / 湿沙 / 岸边浪花 / 卡通波纹 / 阳光闪光全在片元里
- *   棕榈      树干 + 叶冠两个 InstancedMesh (2 次绘制)
- *   框景叶    相机空间的前景棕榈叶, 每帧贴在画面左上 / 右上角 (1 次绘制; 竖横屏 / 任意机位都只占角落, 俯视时滑出)
- *   草丛      交叉面片 InstancedMesh (1 次绘制)
- *   礁石      低模块面 InstancedMesh (1 次绘制), 水中礁石周围一圈白浪 (地面着色器里画)
+ *   棕榈      树干 (根部外扩的弧形, 卡通分节) + 叶冠 (立体羽状复叶: 叶轴 + 两排 V 形小叶) 两个 InstancedMesh (2 次绘制)
+ *   草丛      弯弧草叶团 + 小花 InstancedMesh (1 次绘制, 球形法线 → 柔和的绒球明暗)
+ *   礁石      圆润的平滑礁石 InstancedMesh (1 次绘制), 水中礁石周围一圈白浪 (地面着色器里画)
  *   花瓣      世界空间 GPU 粒子 (1 次绘制, 只在角色身后)
  *   落影      复用引擎原有的实时阴影 (CharacterShadowSystem 的 ShadowMaterial 平面), 本类不另画影子
  *
@@ -68,7 +66,7 @@ export function computeHorizonDip(camY: number, d0: number, R: number): number {
 }
 
 /** 静止时停在的时刻 (浪花 / 闪光分布好看的一帧)。 */
-const STATIC_TIME = 11.7;
+const STATIC_TIME = 14.9; // 冲刷浪正往上推、近岸三道浪峰错开的一帧
 
 export interface Beach3DStats {
   /** 场景自身的绘制调用数 (不含角色 / 落影平面 / 后期)。 */
@@ -110,8 +108,6 @@ export class Beach3DWorld {
   private ground: THREE.Mesh | null = null;
   private trunks: THREE.InstancedMesh | null = null;
   private crowns: THREE.InstancedMesh | null = null;
-  private frame: THREE.Mesh | null = null;
-  private readonly frameHalf = { value: 1 };
   private grass: THREE.InstancedMesh | null = null;
   private rocks: THREE.InstancedMesh | null = null;
   private petals: THREE.Points | null = null;
@@ -135,7 +131,6 @@ export class Beach3DWorld {
   private readonly petalUniforms: Record<string, THREE.IUniform> = {};
   private readonly tmpV = new THREE.Vector3();
   private readonly tmpV2 = new THREE.Vector3();
-  private readonly frameM = new THREE.Matrix4();
   private readonly drawSize = new THREE.Vector2();
 
   constructor() {
@@ -230,6 +225,9 @@ export class Beach3DWorld {
       uSeaDeep: { value: lin(cfg.sea.deep) },
       uSunDir: this.shared.uSunDir,
       uSunGlow: { value: cfg.sky.sunGlow },
+      uCirrus: { value: cfg.sky.cirrus },
+      uHorizonBand: { value: cfg.sky.horizonBand },
+      uTime: this.shared.uTime,
       uDipSin: this.shared.uDipSin,
       uComp: this.shared.uComp,
       uMark: this.shared.uMark,
@@ -358,6 +356,8 @@ export class Beach3DWorld {
           uShoreWiggle: { value: cfg.layout.shoreWiggle },
           uSwashAmp: { value: cfg.sea.swashAmp },
           uSwashSpeed: { value: cfg.sea.swashSpeed },
+          uWaves: { value: cfg.sea.waves },
+          uSkyRefl: { value: lin(cfg.sky.mid) },
           uFoamWidth: { value: cfg.sea.foamWidth },
           uRipple: { value: cfg.sea.ripple },
           uRippleDensity: { value: cfg.sea.rippleDensity },
@@ -366,6 +366,7 @@ export class Beach3DWorld {
           uGlintSpeed: { value: cfg.sea.glintSpeed },
           uSandSpacing: { value: Math.max(0.1, cfg.sand.rippleSpacing) },
           uSandRipple: { value: cfg.sand.ripple },
+          uSandGrain: { value: cfg.sand.grain },
           uSunDir: this.shared.uSunDir,
           uRocks: { value: rockUniform },
           uComp: this.shared.uComp,
@@ -427,23 +428,6 @@ export class Beach3DWorld {
     this.crowns.computeBoundingSphere();
     this.group.add(this.trunks, this.crowns);
 
-    // ── 前景框景叶: 相机空间, 每帧贴到画面左上 / 右上角 (onBeforeRender 里摆位) ──
-    if (cfg.vegetation.frameFronds > 0) {
-      this.frame = new THREE.Mesh(buildFrameFronds(), this.register(new THREE.ShaderMaterial({
-        vertexShader: PALM_VERT,
-        fragmentShader: PALM_FRAG,
-        uniforms: { ...palmUniforms, uFrameHalf: this.frameHalf },
-        defines: { FRAME: 1 },
-        side: THREE.DoubleSide,
-      })));
-      this.frame.name = 'Beach3DFrameFronds';
-      this.frame.frustumCulled = false;
-      this.frame.matrixAutoUpdate = false;
-      this.frame.matrixWorldAutoUpdate = false;
-      this.frame.onBeforeRender = (_r, _s, camera) => this.placeFrame(camera as THREE.PerspectiveCamera);
-      this.group.add(this.frame);
-    }
-
     // ── 草丛 ──
     const layout = buildGrassLayout(cfg.layout);
     const nGrass = Math.round(layout.length * THREE.MathUtils.clamp(cfg.vegetation.grassDensity, 0, 1));
@@ -457,6 +441,7 @@ export class Beach3DWorld {
           uTime: this.shared.uTime,
           uSway: this.shared.uSway,
           uGrassLight: { value: lin(cfg.vegetation.grassLight) },
+          uSunDir: this.shared.uSunDir,
           uGrassShade: { value: lin(cfg.vegetation.grassShade) },
           uFlower: { value: lin(cfg.vegetation.flower) },
           uHaze: { value: sandHaze },
@@ -554,24 +539,6 @@ export class Beach3DWorld {
     }
   }
 
-  /**
-   * 前景框景叶摆位: 放在相机前 FRAME_DEPTH 处, 根部对准画面上沿两角; 大小按画面短边缩放 (竖屏 / 横屏都只占角落)。
-   * 俯视 (视线向下超过约 20°) 时两簇沿对角线滑出画面, 免得"头顶的树叶"出现在看地面的画面里。
-   */
-  private placeFrame(camera: THREE.PerspectiveCamera): void {
-    const frame = this.frame!;
-    const D = Math.max(camera.near * 2.5, 0.25);
-    const halfH = Math.tan(THREE.MathUtils.degToRad(camera.fov) / 2) * D / (camera.zoom || 1);
-    const halfW = halfH * camera.aspect;
-    const S = APP_CONFIG.beach3dScene.vegetation.frameFronds * Math.min(2 * halfW, 1.5 * halfH);
-    camera.getWorldDirection(this.tmpV);
-    const slide = THREE.MathUtils.smoothstep(-this.tmpV.y, 0.3, 0.7) * 2.3 * S; // 2.3S > 叶簇伸进画面的最大长度 → 完全滑出
-    this.frameHalf.value = (halfW + slide) / S;
-    // 相机空间: 原点在画面上沿中点 (再按 slide 往上推), 缩放 S
-    this.frameM.makeTranslation(0, halfH + slide, -D).scale(this.tmpV2.setScalar(S));
-    frame.matrixWorld.multiplyMatrices(camera.matrixWorld, this.frameM);
-  }
-
   /** 远景层: 跟随相机平移 (不旋转) → 等价无限远, 底边永远在相机眼高 (= 真实海平线)。 */
   private followCamera(obj: THREE.Object3D, camera: THREE.Camera): void {
     camera.getWorldPosition(this.tmpV);
@@ -635,6 +602,6 @@ export class Beach3DWorld {
     this.materials.length = 0;
     if (scene) scene.remove(this.group);
     this.group.clear();
-    this.sky = this.clouds = this.mountains = this.ground = this.trunks = this.crowns = this.frame = this.grass = this.rocks = this.petals = null;
+    this.sky = this.clouds = this.mountains = this.ground = this.trunks = this.crowns = this.grass = this.rocks = this.petals = null;
   }
 }
