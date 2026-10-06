@@ -422,17 +422,4 @@ export interface Beach3DSceneConfig {
     /** 低帧率自动降级: 连续 windowFrames 帧平均帧率 < minFps 时本次会话静止 (切走再切回重新评估)。minFps 范围 15 ~ 40, windowFrames ≥ 30。 */
     autoDowngrade: { enabled: boolean; minFps: number; windowFrames: number };
   };
-  /** 场景级灯光 / 落影配色 (只改灯色与落影色, 不改强度、不改角色材质)。 */
-  light: {
-    /** 半球光天空色。 */
-    hemiSky: number;
-    /** 半球光地面反射色 (奶油沙色, 角色暗部带一点暖)。 */
-    hemiGround: number;
-    /** 主方向光颜色 (暖日光)。主光方向不变 = 场景太阳方向 (天空柔光 / 树木明暗都读主光方向)。 */
-    dirColor: number;
-    /** 沙地上的落影颜色 (淡紫褐, 赛璐璐的影色而不是黑)。 */
-    shadowColor: number;
-    /** 落影不透明度。范围 0 ~ 0.7。调大 = 影子更实。 */
-    shadowOpacity: number;
-  };
 }

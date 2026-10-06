@@ -5,18 +5,15 @@
  * 共同约定:
  *   - 颜色 uniform 都是线性空间 (THREE.Color 已按 ColorManagement 转好), 输出前乘 uComp (= 1 / 曝光), 抵消线性色调映射的曝光,
  *     画面上的颜色 = 配置里的 sRGB 色值。
- *   - 输出 alpha = uMark: 走后期 (渲染到 composer 目标) 时为 0.99, Bloom 高通据此跳过背景像素 (约定见 postFxPipeline.ts);
- *     直出屏幕时为 1。
+ *   - 不透明输出 (alpha = 1); 后期 Bloom 对场景与角色一视同仁, 没有场景专属的标记或剔除。
  *   - 空气透视: 远处向海平线色淡出 (uHazeStart → uHazeEnd), 让远景与天空 / 海平线无缝。
  *   - 地平线弧度: 离相机 uCurveD0 米以外的地面按 e²/(2R) 往下弯 (夸张的"地球曲率"), 真实的可见海平线因此落在眼高以下
  *     (默认机位约低 2.5°, 全身镜头里海平线在胯部附近, 与参考图一致); 天空 / 远山 / 云按同一个下沉角 uDip 对齐, 远处无缝。
  *     角色附近 (uCurveD0 以内) 完全平, 脚下沙地 / 落影不受影响。
- *   - 高光 (浪花 / 闪光) 输出 alpha=1 参与轻微 Bloom, 其余背景像素打 0.99 标记不进 Bloom (避免整片沙滩发白)。
  */
 
 const COMMON = /* glsl */ `
 uniform float uComp;
-uniform float uMark;
 uniform float uCurveR;
 uniform float uCurveD0;
 float curveDrop(vec3 wp) {
@@ -41,7 +38,7 @@ float vnoise(vec2 p) {
 `;
 
 const OUT = /* glsl */ `
-  gl_FragColor = vec4(col * uComp, uMark);
+  gl_FragColor = vec4(col * uComp, 1.0);
   #include <tonemapping_fragment>
   #include <colorspace_fragment>
 `;
@@ -350,7 +347,6 @@ uniform vec3 uSunDir;
 uniform vec4 uRocks[ROCK_MAX]; // 水中礁石: xz 中心, z 半径, w 有效 (1/0) —— 画一圈白浪
 varying vec3 vW;
 varying vec2 vL;
-float gHi = 0.0; // 本像素的高光量 (浪花 / 闪光), 用于 Bloom 标记
 
 float shoreBase(float x) {
   return uShoreZ - uShoreCurve * x * x + uShoreWiggle * sin(x * 0.21 + 1.3) + 0.35 * uShoreWiggle * sin(x * 0.57);
@@ -456,7 +452,6 @@ vec3 seaColor(vec2 q, float dist, float ds, float d, float aa, float rising, vec
   float gfade = smoothstep(1.5, 3.0, ds) * (1.0 - smoothstep(30.0, 55.0, dist));
   float gl = clamp(star * tw * gate * gfade * uGlint, 0.0, 1.0);
   col = mix(col, vec3(1.0, 0.995, 0.95), gl);
-  gHi = max(gHi, gl);
   // 近岸浪峰: 3 道浪从外海推向岸边; 浪峰白线 (断续、越近岸越粗) + 浪前一条浅亮水 + 浪后深一档, 到岸并入冲刷浪
   float fm = 0.0;
   for (int i = 0; i < 3; i++) {
@@ -493,7 +488,6 @@ vec3 seaColor(vec2 q, float dist, float ds, float d, float aa, float rising, vec
   }
   fm = clamp(max(max(fm, head), max(ring * 0.9, lace)), 0.0, 1.0);
   col = mix(col, uFoam, fm);
-  gHi = max(gHi, fm * 0.6);
   return col;
 }
 
@@ -527,7 +521,7 @@ void main() {
   }
   vec3 haze = ds > 0.0 ? uSeaHorizon : uSandHaze;
   col = mix(col, haze, smoothstep(uHazeStart, uHazeEnd, dist) * (ds > 0.0 ? 0.85 : 0.9));
-  gl_FragColor = vec4(col * uComp, uMark < 0.999 ? mix(uMark, 1.0, step(0.35, gHi)) : 1.0);
+  gl_FragColor = vec4(col * uComp, 1.0);
   #include <tonemapping_fragment>
   #include <colorspace_fragment>
 }

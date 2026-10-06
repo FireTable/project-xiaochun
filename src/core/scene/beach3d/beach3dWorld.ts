@@ -24,7 +24,7 @@ import {
 /**
  * Beach3DWorld — "海滩 3D" 场景 (id: beach3d), 纯 Three.js 搭建的真实 3D 海滩。
  *
- * 风格: 二次元 MMD 舞台 —— 3D 卡通着色道具 + 高调日光 + 轻微 Bloom (浪花 / 闪光参与), 与 MToon 角色同一套光向。
+ * 风格: 二次元 MMD 舞台 —— 3D 卡通着色道具 + 高调日光 + 引擎统一的后期 Bloom, 与 MToon 角色同一套光向。
  *
  * 组成 (共 8 次绘制, 约 2 万三角面, 见 getStats()):
  *   天空      全屏着色器层 (按视线方向取色: 渐变 + 高空浅云 + 地平线亮带 + 太阳柔光; 俯仰到极限也不会穿帮 / 露黑边)
@@ -111,7 +111,6 @@ export class Beach3DWorld {
   private readonly shared = {
     uTime: { value: 0 },
     uComp: { value: 1 },
-    uMark: { value: 1 },
     uSunDir: { value: new THREE.Vector3(0.36, 0.72, 0.6).normalize() },
     uSway: { value: 0 },
     uCurveR: { value: 700 },
@@ -216,7 +215,6 @@ export class Beach3DWorld {
       uTime: this.shared.uTime,
       uDipSin: this.shared.uDipSin,
       uComp: this.shared.uComp,
-      uMark: this.shared.uMark,
     });
     this.sky = new THREE.Mesh(
       new THREE.PlaneGeometry(2, 2),
@@ -268,7 +266,6 @@ export class Beach3DWorld {
         uHorizon: { value: lin(cfg.sky.horizon) },
         uOpacity: { value: 1 },
         uComp: this.shared.uComp,
-        uMark: this.shared.uMark,
       });
       const mat = this.register(new THREE.ShaderMaterial({
         vertexShader: CLOUD_VERT,
@@ -276,7 +273,7 @@ export class Beach3DWorld {
         uniforms: this.cloudUniforms,
         depthTest: false,
         depthWrite: false,
-        transparent: false, // 留在不透明队列 (按 renderOrder 紧跟天空), 混合由 CustomBlending 负责; alpha 通道保持天空写的标记
+        transparent: false, // 留在不透明队列 (按 renderOrder 紧跟天空), 混合由 CustomBlending 负责; alpha 通道保持天空写的不透明值
         blending: THREE.CustomBlending,
         blendSrc: THREE.SrcAlphaFactor,
         blendDst: THREE.OneMinusSrcAlphaFactor,
@@ -307,7 +304,6 @@ export class Beach3DWorld {
             uHorizon: { value: lin(cfg.sky.horizon) },
             uDipTan: this.shared.uDipTan,
             uComp: this.shared.uComp,
-            uMark: this.shared.uMark,
           },
           depthTest: false,
           depthWrite: false,
@@ -367,7 +363,6 @@ export class Beach3DWorld {
           uSunDir: this.shared.uSunDir,
           uRocks: { value: rockUniform },
           uComp: this.shared.uComp,
-          uMark: this.shared.uMark,
           ...haze,
         },
         defines: { ROCK_MAX: ROCK_MAX },
@@ -392,7 +387,6 @@ export class Beach3DWorld {
       uSunDir: this.shared.uSunDir,
       uHaze: { value: sandHaze },
       uComp: this.shared.uComp,
-      uMark: this.shared.uMark,
       ...haze,
     };
     const palmMat = this.register(new THREE.ShaderMaterial({
@@ -436,7 +430,6 @@ export class Beach3DWorld {
           uSunDir: this.shared.uSunDir,
           uHaze: { value: sandHaze },
           uComp: this.shared.uComp,
-          uMark: this.shared.uMark,
           ...haze,
         },
       })), rockLayout.length);
@@ -472,7 +465,6 @@ export class Beach3DWorld {
           uSunDir: this.shared.uSunDir,
           uHaze: { value: sandHaze },
           uComp: this.shared.uComp,
-          uMark: this.shared.uMark,
           ...haze,
         },
         side: THREE.DoubleSide,
@@ -528,10 +520,9 @@ export class Beach3DWorld {
     (this.skyUniforms.uInvProj.value as THREE.Matrix4).copy(camera.projectionMatrixInverse);
     (this.skyUniforms.uCamWorld.value as THREE.Matrix4).copy(camera.matrixWorld);
 
-    // 曝光补偿 + 后期 Bloom 标记 (约定见 postFxPipeline.ts)
+    // 曝光补偿
     const exp = renderer.toneMapping === THREE.LinearToneMapping ? renderer.toneMappingExposure : 1;
     this.shared.uComp.value = 1 / Math.max(0.2, exp || 1);
-    this.shared.uMark.value = renderer.getRenderTarget() ? 0.99 : 1;
   }
 
   public dispose(scene?: THREE.Scene): void {

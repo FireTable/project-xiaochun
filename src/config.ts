@@ -440,13 +440,6 @@ export const APP_CONFIG = {
       respectReducedMotion: true,
       autoDowngrade: { enabled: true, minFps: 24, windowFrames: 120 }, // 平均帧率 < minFps (15 ~ 40) 时本次会话静止
     },
-    light: {
-      hemiSky: 0xf4fbff,
-      hemiGround: 0xf6e8d2,
-      dirColor: 0xfffaee,
-      shadowColor: 0x8a6c8c,
-      shadowOpacity: 0.34, // 沙上落影浓度, 范围 0 ~ 0.7; 调大 = 影子更实
-    },
   } as Beach3DSceneConfig,
   lights: {
     dir: { base: 1.10, enabled: true },

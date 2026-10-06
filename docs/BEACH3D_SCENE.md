@@ -28,8 +28,8 @@ Engine hooks:
 - `vrmEngine.beach3d` is attached after lighting init.
 - `syncSceneBackdrop` calls `setActive(theme === 'beach3d')`.
 - `lineworkWorld` hides itself in this scene.
-- `characterShadow.applyTheme` uses `beach3dScene.light.shadowColor/shadowOpacity` with a full, non-soft shadow plane and no contact blob.
-- `studioLighting.applyTheme` uses `beach3dScene.light` colours.
+- The character shadow uses a full, non-soft shadow plane with no contact blob. Its colour and opacity are the engine defaults (black, `shadow.opacityLight`).
+- Lighting colours are the engine defaults shared by every scene; there is no scene-specific tint.
 
 When another scene is active, the group is invisible and costs 0 draw calls.
 
@@ -111,7 +111,6 @@ Every lobe edge has a slight continuous wobble, so no lobe is a perfect circle.
 - **Swash**: the water edge runs up the beach quickly (ease-out over the first 38% of the cycle) and draws back slowly. The edge is scalloped and slightly out of phase along the shore.
   - The foam head is thicker while advancing and thinner while retreating, with a few holes where the water shows through, and trailing lace behind it.
   - A thin foam line is left at the highest reach and fades as the water retreats.
-- Foam, crests, rock rings and glints are marked for a slight bloom (see below).
 
 ## Horizon curvature (horizon at the hips)
 
@@ -136,7 +135,7 @@ With `horizonCurveR = 700` the horizon lands around the hips in full-body portra
 ## Render and post-processing conventions
 
 - Colour uniforms are linear. Output is multiplied by `uComp` (= 1 / exposure), so a config hex is roughly the colour that appears on screen.
-- Background pixels write alpha `uMark` (0.99 when rendering into the composer target). The UnrealBloom high-pass skips them (see `POSTFX.md`). Foam (swash head, lace, wave crests, rock rings) and sea glints write alpha 1, so they get a slight bloom while sand and sky do not.
+- All scene pixels are opaque (alpha 1). Post-processing treats the scene like any other: the UnrealBloom pass has no beach-specific handling (see `POSTFX.md`).
 - Clouds and islands follow the camera's translation (not its rotation) and live inside the 100 m far plane, which makes them effectively infinitely far away.
 - The sky draws first (`renderOrder −1000`), then clouds, then islands.
 
@@ -159,7 +158,6 @@ These are animated: swash, crests, foam, caustics, ripples, glints, high wisps, 
 | `rocks` | `enabled`, `light`, `shade`, `detail` (0 / 1 / 2 → 80 / 320 / 1280 triangles per rock) |
 | `shells` | `enabled`, `count`, `size`, `colors` |
 | `dynamics` | `enabled`, `respectReducedMotion`, `autoDowngrade { enabled, minFps, windowFrames }` |
-| `light` | `hemiSky`, `hemiGround`, `dirColor`, `shadowColor`, `shadowOpacity` |
 
 ## Measured cost
 
