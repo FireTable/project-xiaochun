@@ -15,6 +15,7 @@ import {
   buildShellLayout,
   palmTop,
   parasolCanopy,
+  sandcastlePlacement,
   type IslandPeak,
 } from './beach3dLayout';
 import {
@@ -26,7 +27,9 @@ import {
   buildPalmCrown,
   buildPalmTrunk,
   buildRock,
-  buildShellSet,
+  buildSandcastle,
+  SCALLOP_RIBS,
+  buildScallop,
   triangleCount,
 } from './beach3dGeometry';
 import {
@@ -36,6 +39,7 @@ import {
   PALM_FRAG, PALM_VERT,
   PROP_FRAG, PROP_VERT,
   ROCK_FRAG, ROCK_VERT,
+  SHADOW_BAKE_FRAG, SHADOW_BAKE_VERT,
   SHELL_FRAG, SHELL_VERT,
   SKY_FRAG, SKY_VERT,
 } from './beach3dShaders';
@@ -53,9 +57,11 @@ import {
  *   棕榈      树干 + 叶冠两个 InstancedMesh (2 次绘制), 每棵树高度 / 倾斜 / 叶冠朝向都不同 (左 6 右 4, 不对称构图);
  *             叶冠 = 贴手绘羽叶贴图的弯曲下垂叶带
  *   礁石      InstancedMesh (1 次绘制), 水中礁石周围一圈白浪 (地面着色器里画)
- *   贝壳      扇贝 / 海螺 / 海星 InstancedMesh (1 次绘制), 沿整条海岸分布, 越近湿沙线越密, 近景几个大的
- *   沙滩椅    躺椅 + 遮阳伞合并几何 (1 次绘制), 角色右后方, 面朝大海
- *   落影      角色: 复用引擎原有的实时阴影 (CharacterShadowSystem); 道具: 地面着色器按太阳方向解析投影
+ *   扇贝      InstancedMesh (1 次绘制): 放射肋条 + 波浪壳缘 + 铰合部一对小耳朵, 稀疏地散在湿沙线附近, 近景一左一右两个大的
+ *   沙滩椅    躺椅 + 遮阳伞 + 海上灯塔 + 沙堡合并几何 (1 次绘制): 椅子在角色右后方面朝大海, 湿沙小沙堡在角色左前方
+ *   落影      角色: 复用引擎原有的实时阴影 (CharacterShadowSystem);
+ *             棕榈 / 沙堡: 真实几何沿太阳方向压到地面, 烘焙成一张俯视落影遮罩 (只在建好 / 太阳方向变化 / 羽叶贴图加载完成时画一次);
+ *             椅子 / 伞: 地面着色器按太阳方向解析投影
  *
  * 贴图: 只有云图集与棕榈羽叶两张 (APP_CONFIG.beach3dScene.assets, public/scene/beach3d/), 场景激活时才加载; 加载完成前云 / 叶冠不画。
  * "远景层" (云 / 远岛) 每帧跟随相机平移 (不跟随旋转): 等价于无限远, 不受相机远裁剪面 (100m) 限制。
@@ -68,8 +74,11 @@ const SKY_LAYER_RADIUS = 72;
 
 /** 地面着色器里"水中礁石白浪"最多几块。 */
 const ROCK_MAX = 12;
-/** 地面着色器里最多几棵棕榈投影。 */
-const PALM_MAX = 12;
+/**
+ * 棕榈 / 沙堡落影遮罩覆盖的地面范围 (局部坐标, m) 与分辨率: x −26 ~ 24, z −21 ~ 3 (所有棕榈连同落影、沙堡都在里面),
+ * 2048 × 1024 单通道 (约 2.4cm / 像素, 2MB)。范围外没有棕榈落影 (都是海或远处)。
+ */
+const SHADOW_MASK = { minX: -26, minZ: -21, sizeX: 50, sizeZ: 24, w: 2048, h: 1024 } as const;
 /** 远岛着色器里最多几座岛。 */
 const ISL_MAX = 12;
 
@@ -121,6 +130,16 @@ export class Beach3DWorld {
   private rocks: THREE.InstancedMesh | null = null;
   private shells: THREE.InstancedMesh | null = null;
   private props: THREE.Mesh | null = null;
+  /** 落影遮罩烘焙: 目标贴图 / 烘焙用的场景 (棕榈树干、叶冠、沙堡的替身网格, 与真实网格共用几何) / 叶冠替身 (羽叶贴图加载完才画)。 */
+  private shadowRT: THREE.WebGLRenderTarget | null = null;
+  private readonly bakeScene = new THREE.Scene();
+  private readonly bakeCam = new THREE.OrthographicCamera(-1, 1, 1, -1, 0, 1);
+  private bakeCrowns: THREE.InstancedMesh | null = null;
+  private readonly bakeGeos: THREE.BufferGeometry[] = [];
+  /** 需要重新烘焙 (首次 / 羽叶贴图刚加载完)。 */
+  private maskDirty = true;
+  /** 上次烘焙时的太阳方向 (变化超过约 0.6° 才重烘)。 */
+  private readonly bakedSun = new THREE.Vector3(0, 0, 0);
   private readonly materials: THREE.Material[] = [];
   private readonly textures: THREE.Texture[] = [];
 
@@ -386,15 +405,24 @@ export class Beach3DWorld {
     const lhX = clampN(lh.x, 4, 30), lhZ = clampN(lh.z, -60, -14);
     if (lhOn) rockUniform[ROCK_MAX - 1].set(lhX, lhZ, 1.35 * lhScale, 1);
 
-    // ── 道具落影数据 (棕榈 / 伞 / 椅子, 局部坐标) ──
+    // ── 道具落影数据 (伞 / 椅子解析投影; 棕榈 / 沙堡走烘焙遮罩, 局部坐标) ──
     const propsOn = cfg.props.enabled;
-    const palmA = Array.from({ length: PALM_MAX }, () => new THREE.Vector4());
-    const palmB = Array.from({ length: PALM_MAX }, () => new THREE.Vector4(0, 0, 0, -1));
-    PALMS.slice(0, PALM_MAX).forEach((p, i) => {
-      const t = palmTop(p);
-      palmA[i].set(p.x, p.z, t.x, t.z);
-      palmB[i].set(t.y, 2.0 * p.scale, PALM_TRUNK.r0 * p.scale, (i * 0.618) % 1);
+    const castleOn = propsOn && cfg.sandcastle.enabled;
+    const castle = castleOn ? sandcastlePlacement(cfg.sandcastle) : null;
+    this.shadowRT = new THREE.WebGLRenderTarget(SHADOW_MASK.w, SHADOW_MASK.h, {
+      format: THREE.RedFormat,
+      type: THREE.UnsignedByteType,
+      depthBuffer: false,
+      stencilBuffer: false,
+      generateMipmaps: false,
+      minFilter: THREE.LinearFilter,
+      magFilter: THREE.LinearFilter,
+      wrapS: THREE.ClampToEdgeWrapping,
+      wrapT: THREE.ClampToEdgeWrapping,
     });
+    this.shadowRT.texture.name = 'Beach3DShadowMask';
+    const maskRect = new THREE.Vector4(SHADOW_MASK.minX, SHADOW_MASK.minZ, SHADOW_MASK.sizeX, SHADOW_MASK.sizeZ);
+    const maskSoft = clampN(cfg.vegetation.shadowSoftness, 0.3, 2);
     const cnp = parasolCanopy();
     const canopyU = propsOn ? new THREE.Vector4(cnp.x, cnp.z, cnp.y, cnp.r) : new THREE.Vector4(0, 0, 0, 0);
     const chairU = propsOn ? new THREE.Vector4(CHAIR.x, CHAIR.z, CHAIR.yaw, 1) : new THREE.Vector4(0, 0, 0, 0);
@@ -437,13 +465,17 @@ export class Beach3DWorld {
           uGlintSpeed: { value: cfg.sea.glintSpeed },
           uGlintSize: { value: clampN(cfg.sea.glintSize, 0.5, 2) },
           uPxScale: this.shared.uPxScale,
-          uSandSpacing: { value: Math.max(0.1, cfg.sand.rippleSpacing) },
-          uSandRipple: { value: cfg.sand.ripple },
+          uSandSpacing: { value: clampN(cfg.sand.rippleSpacing, 0.15, 1.5) },
+          uSandRipple: { value: clampN(cfg.sand.ripple, 0, 1) },
+          uRippleCov: { value: clampN(cfg.sand.rippleCoverage, 0, 1) },
+          uRippleNear: { value: clampN(cfg.sand.rippleNearFade, 0, 20) },
           uSandGrain: { value: cfg.sand.grain },
           uSunDir: this.shared.uSunDir,
           uRocks: { value: rockUniform },
-          uPalmA: { value: palmA },
-          uPalmB: { value: palmB },
+          uShadowMask: { value: this.shadowRT.texture },
+          uMaskRect: { value: maskRect },
+          uMaskTexel: { value: new THREE.Vector2(1 / SHADOW_MASK.w, 1 / SHADOW_MASK.h) },
+          uMaskSoft: { value: maskSoft },
           uCanopy: { value: canopyU },
           uChair: { value: chairU },
           uChairBack: { value: new THREE.Vector4(CHAIR_BACK.pivotY, CHAIR_BACK.pivotZ, CHAIR_BACK.angle, CHAIR_BACK.length) },
@@ -452,7 +484,7 @@ export class Beach3DWorld {
           uComp: this.shared.uComp,
           ...haze,
         },
-        defines: { ROCK_MAX, PALM_MAX },
+        defines: { ROCK_MAX },
         polygonOffset: true,
         polygonOffsetFactor: 2,
         polygonOffsetUnits: 2,
@@ -472,7 +504,12 @@ export class Beach3DWorld {
         uLean: { value: PALM_TRUNK.lean },
         uLeafLight: { value: lin(cfg.vegetation.leafLight) },
         uLeafShade: { value: lin(cfg.vegetation.leafShade) },
-        uFrond: { value: this.loadTexture(cfg.assets.frond, () => { this.frondReady = true; if (this.crowns) this.crowns.visible = this.groundAbove; }) },
+        uFrond: { value: this.loadTexture(cfg.assets.frond, () => {
+          this.frondReady = true;
+          this.maskDirty = true; // 叶冠落影要等羽叶贴图 (透明处不投影)
+          if (this.crowns) this.crowns.visible = this.groundAbove;
+          if (this.bakeCrowns) this.bakeCrowns.visible = true;
+        }) },
         uFrondSize: { value: new THREE.Vector2(1024, 320) },
         uTrunkLight: { value: lin(cfg.vegetation.trunkLight) },
         uTrunkShade: { value: lin(cfg.vegetation.trunkShade) },
@@ -523,6 +560,38 @@ export class Beach3DWorld {
     this.crowns.visible = false; // 羽叶贴图加载完成后显示
     this.group.add(this.trunks, this.crowns);
 
+    // ── 落影遮罩烘焙用的替身网格 (共用几何与实例矩阵; 只进 bakeScene, 不进主场景) ──
+    const bakeUniforms = {
+      uSunDir: this.shared.uSunDir,
+      uMaskRect: { value: maskRect },
+      uLean: { value: PALM_TRUNK.lean },
+      uFrond: palmMat.uniforms.uFrond,
+      uFrondShadow: { value: clampN(veg.frondShadow, 0.4, 1) },
+    };
+    const bakeBlend = {
+      depthTest: false,
+      depthWrite: false,
+      side: THREE.DoubleSide,
+      blending: THREE.CustomBlending,
+      blendEquation: THREE.MaxEquation,
+      blendSrc: THREE.OneFactor,
+      blendDst: THREE.OneFactor,
+    } as const;
+    const bakeMat = this.register(new THREE.ShaderMaterial({ vertexShader: SHADOW_BAKE_VERT, fragmentShader: SHADOW_BAKE_FRAG, uniforms: bakeUniforms, ...bakeBlend }));
+    const bakeTrunks = new THREE.InstancedMesh(trunkGeo, bakeMat, PALMS.length);
+    bakeTrunks.instanceMatrix = this.trunks.instanceMatrix;
+    this.bakeCrowns = new THREE.InstancedMesh(crownGeo, bakeMat, PALMS.length);
+    this.bakeCrowns.instanceMatrix = this.crowns.instanceMatrix;
+    this.bakeCrowns.visible = this.frondReady; // 羽叶贴图加载完成后才烘进去
+    for (const o of [bakeTrunks, this.bakeCrowns]) { o.frustumCulled = false; this.bakeScene.add(o); }
+    if (castle) {
+      const cg = buildSandcastle(new THREE.Matrix4().compose(new THREE.Vector3(castle.x, 0, castle.z), new THREE.Quaternion().setFromAxisAngle(Y, castle.yaw), new THREE.Vector3().setScalar(castle.scale)));
+      this.bakeGeos.push(cg);
+      const cm = new THREE.Mesh(cg, this.register(new THREE.ShaderMaterial({ vertexShader: SHADOW_BAKE_VERT, fragmentShader: SHADOW_BAKE_FRAG, uniforms: bakeUniforms, defines: { SOLID: 1 }, ...bakeBlend })));
+      cm.frustumCulled = false;
+      this.bakeScene.add(cm);
+    }
+
     // ── 礁石 ──
     if (rockLayout.length > 0) {
       this.rocks = new THREE.InstancedMesh(buildRock(cfg.rocks.detail), this.register(new THREE.ShaderMaterial({
@@ -548,19 +617,16 @@ export class Beach3DWorld {
       this.group.add(this.rocks);
     }
 
-    // ── 贝壳 / 海螺 / 海星 (三种形状一个几何, 1 次绘制) ──
-    const shellLayout = cfg.shells.enabled ? buildShellLayout(cfg.shells.count, cfg.layout, cfg.sea.swashAmp) : [];
+    // ── 扇贝 (1 次绘制) ──
+    const shellLayout = cfg.shells.enabled ? buildShellLayout(cfg.shells.count, cfg.layout, cfg.sea.swashAmp, castle) : [];
     if (shellLayout.length > 0) {
-      const geo = buildShellSet();
-      const kinds = new Float32Array(shellLayout.length);
+      const geo = buildScallop();
       const cols = new Float32Array(shellLayout.length * 3);
       const pal = cfg.shells.colors.map((h) => lin(h));
       shellLayout.forEach((sh, i) => {
-        kinds[i] = sh.kind;
         const c = pal[sh.color % pal.length];
         cols.set([c.r, c.g, c.b], i * 3);
       });
-      geo.setAttribute('iKind', new THREE.InstancedBufferAttribute(kinds, 1));
       geo.setAttribute('iColor', new THREE.InstancedBufferAttribute(cols, 3));
       this.shells = new THREE.InstancedMesh(geo, this.register(new THREE.ShaderMaterial({
         vertexShader: SHELL_VERT,
@@ -568,14 +634,16 @@ export class Beach3DWorld {
         uniforms: {
           uSunDir: this.shared.uSunDir,
           uHaze: { value: sandHaze },
+          uRibs: { value: SCALLOP_RIBS },
           uComp: this.shared.uComp,
           ...haze,
         },
         side: THREE.DoubleSide,
       })), shellLayout.length);
+      const shellSize = clampN(cfg.shells.size, 0.5, 2);
       shellLayout.forEach((sh, i) => {
         q.setFromAxisAngle(Y, sh.rot);
-        sc.setScalar(sh.size * cfg.shells.size);
+        sc.setScalar(sh.size * shellSize);
         m.compose(new THREE.Vector3(sh.x, 0.002, sh.z), q, sc);
         this.shells!.setMatrixAt(i, m);
       });
@@ -588,15 +656,21 @@ export class Beach3DWorld {
     if (propsOn) {
       const spawn = this.group.position;
       let propsGeo = buildBeachProps();
+      // 灯塔 (世界 (lhX, lhZ), 门朝角色) / 沙堡 (城门朝镜头 + yaw): 换算到道具网格 (按椅子摆放 / 旋转) 的局部坐标后合并成同一个几何
+      const toLocal = new THREE.Matrix4().compose(new THREE.Vector3(CHAIR.x, 0, CHAIR.z), new THREE.Quaternion().setFromAxisAngle(Y, CHAIR.yaw), new THREE.Vector3(1, 1, 1)).invert();
+      const extra: THREE.BufferGeometry[] = [];
       if (lhOn) {
-        // 灯塔摆在世界 (lhX, lhZ), 门朝角色; 换算到道具网格 (按椅子摆放 / 旋转) 的局部坐标后合并成同一个几何
-        const Y = new THREE.Vector3(0, 1, 0);
         const world = new THREE.Matrix4().compose(new THREE.Vector3(lhX, 0, lhZ), new THREE.Quaternion().setFromAxisAngle(Y, Math.atan2(-lhX, -lhZ)), new THREE.Vector3().setScalar(lhScale));
-        const toLocal = new THREE.Matrix4().compose(new THREE.Vector3(CHAIR.x, 0, CHAIR.z), new THREE.Quaternion().setFromAxisAngle(Y, CHAIR.yaw), new THREE.Vector3(1, 1, 1)).invert();
-        const lg = buildLighthouse(toLocal.multiply(world));
-        const merged = mergeGeometries([propsGeo, lg]);
+        extra.push(buildLighthouse(toLocal.clone().multiply(world)));
+      }
+      if (castle) {
+        const world = new THREE.Matrix4().compose(new THREE.Vector3(castle.x, 0, castle.z), new THREE.Quaternion().setFromAxisAngle(Y, castle.yaw), new THREE.Vector3().setScalar(castle.scale));
+        extra.push(buildSandcastle(toLocal.clone().multiply(world)));
+      }
+      if (extra.length > 0) {
+        const merged = mergeGeometries([propsGeo, ...extra]);
         propsGeo.dispose();
-        lg.dispose();
+        extra.forEach((g) => g.dispose());
         merged.computeBoundingSphere();
         propsGeo = merged;
       }
@@ -616,6 +690,8 @@ export class Beach3DWorld {
           uLhGlass: { value: lin(lh.glass) },
           uLhRock: { value: lin(lh.rock) },
           uLhGlow: { value: clampN(lh.glow, 0, 1) },
+          uCastleSand: { value: lin(cfg.sandcastle.color) },
+          uCastleFlag: { value: lin(cfg.sandcastle.flag) },
           uSunDir: this.shared.uSunDir,
           uHaze: { value: sandHaze },
           uCanopyW: { value: new THREE.Vector4(cnp.x + spawn.x, cnp.y, cnp.z + spawn.z, cnp.r) },
@@ -652,6 +728,8 @@ export class Beach3DWorld {
       const d = this.tmpV.sub(this.tmpV2);
       if (d.lengthSq() > 1e-8) (this.shared.uSunDir.value as THREE.Vector3).copy(d.normalize());
     }
+    const sunDir = this.shared.uSunDir.value as THREE.Vector3;
+    if (this.shadowRT && (this.maskDirty || sunDir.dot(this.bakedSun) < 0.99995)) this.bakeShadowMask(renderer);
 
     camera.getWorldPosition(this.tmpV);
     const camDist = Math.hypot(this.tmpV.x - this.group.position.x, this.tmpV.z - this.group.position.z);
@@ -679,6 +757,34 @@ export class Beach3DWorld {
     this.shared.uComp.value = 1 / Math.max(0.2, exp || 1);
   }
 
+  /**
+   * 把棕榈 (树干 + 叶冠) / 沙堡沿太阳方向压到地面, 画进落影遮罩 (一次性, 不是每帧)。
+   * 在天空层的 onBeforeRender 里嵌套渲染 (与 three 的 Reflector 同一做法), 画完恢复渲染目标 / 清屏色 / 阴影自动更新。
+   */
+  private bakeShadowMask(renderer: THREE.WebGLRenderer): void {
+    if (!this.shadowRT) return;
+    this.maskDirty = false;
+    this.bakedSun.copy(this.shared.uSunDir.value as THREE.Vector3);
+    const prevTarget = renderer.getRenderTarget();
+    const prevXr = renderer.xr.enabled;
+    const prevShadowAuto = renderer.shadowMap.autoUpdate;
+    const prevClear = renderer.getClearColor(new THREE.Color());
+    const prevAlpha = renderer.getClearAlpha();
+    const prevAutoClear = renderer.autoClear;
+    renderer.xr.enabled = false;
+    renderer.shadowMap.autoUpdate = false;
+    renderer.setRenderTarget(this.shadowRT);
+    renderer.setClearColor(0x000000, 0);
+    renderer.clear(true, false, false);
+    renderer.autoClear = false;
+    renderer.render(this.bakeScene, this.bakeCam);
+    renderer.autoClear = prevAutoClear;
+    renderer.setClearColor(prevClear, prevAlpha);
+    renderer.setRenderTarget(prevTarget);
+    renderer.shadowMap.autoUpdate = prevShadowAuto;
+    renderer.xr.enabled = prevXr;
+  }
+
   public dispose(scene?: THREE.Scene): void {
     this.disposed = true;
     this.motion.dispose();
@@ -689,6 +795,12 @@ export class Beach3DWorld {
     this.materials.length = 0;
     for (const t of this.textures) t.dispose();
     this.textures.length = 0;
+    for (const g of this.bakeGeos) g.dispose();
+    this.bakeGeos.length = 0;
+    this.bakeScene.clear();
+    this.bakeCrowns = null;
+    this.shadowRT?.dispose();
+    this.shadowRT = null;
     if (scene) scene.remove(this.group);
     this.group.clear();
     this.sky = this.clouds = this.islands = this.ground = this.trunks = this.crowns = this.rocks = this.shells = this.props = null;

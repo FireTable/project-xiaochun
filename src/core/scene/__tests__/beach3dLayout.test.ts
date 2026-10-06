@@ -10,6 +10,8 @@ import {
   MID_ISLANDS,
   NEAR_ISLANDS,
   PALMS,
+  PALM_TRUNK,
+  SANDCASTLE_RADIUS,
   SHELL_HERO_COUNT,
   SHELL_KEEP_OUT,
   buildCloudLayout,
@@ -17,9 +19,11 @@ import {
   buildShellLayout,
   chairToWorld,
   insideChairFootprint,
+  insideSandcastleFootprint,
   islandRidge,
   palmTop,
   parasolCanopy,
+  sandcastlePlacement,
   shoreLineZ,
 } from '../beach3d/beach3dLayout';
 import {
@@ -31,7 +35,11 @@ import {
   buildPalmCrown,
   buildPalmTrunk,
   buildRock,
-  buildShellSet,
+  buildSandcastle,
+  buildSandcastleParts,
+  buildScallop,
+  SANDCASTLE_DIM,
+  SCALLOP_RIBS,
   triangleCount,
 } from '../beach3d/beach3dGeometry';
 import { computeHorizonDip } from '../beach3d/beach3dWorld';
@@ -174,11 +182,13 @@ describe('beach3d geometry budget', () => {
     const palm = triangleCount(buildPalmTrunk()) + crown;
     expect(palm).toBeLessThan(2200);
     const rocks = triangleCount(buildRock(cfg.rocks.detail)) * buildRockLayout(shore).length;
-    const shells = triangleCount(buildShellSet()) * buildShellLayout(cfg.shells.count, shore, cfg.sea.swashAmp).length;
+    const castle = sandcastlePlacement(cfg.sandcastle);
+    const shells = triangleCount(buildScallop()) * buildShellLayout(cfg.shells.count, shore, cfg.sea.swashAmp, castle).length;
     const islands = triangleCount(buildIslandStrip(6));
-    const props = triangleCount(buildBeachProps()) + triangleCount(buildLighthouse());
+    const props = triangleCount(buildBeachProps()) + triangleCount(buildLighthouse()) + triangleCount(buildSandcastle());
     expect(triangleCount(buildLighthouse())).toBeLessThan(1500);
-    expect(props).toBeLessThan(4000);
+    expect(triangleCount(buildSandcastle())).toBeLessThan(2000);
+    expect(props).toBeLessThan(6000);
     const total = palm * PALMS.length + rocks + shells + islands + props + buildCloudLayout(cfg.clouds.density).length * 2 + 40 * 48 * 2 /* 地面 */ + 2 /* 天空 */;
     expect(total).toBeLessThan(60000);
   });
@@ -372,38 +382,139 @@ describe('beach3d geometry budget', () => {
 });
 
 describe('beach3d shells', () => {
-  const shells = buildShellLayout(cfg.shells.count, shore, cfg.sea.swashAmp);
+  const castle = sandcastlePlacement(cfg.sandcastle);
+  const shells = buildShellLayout(cfg.shells.count, shore, cfg.sea.swashAmp, castle);
   const wetTop = (x: number) => shoreLineZ(x, shore) + cfg.sea.swashAmp * 1.35;
 
-  it('数量符合配置, 避开角色脚下 / 椅子, 都在冲刷浪推不到的沙上', () => {
+  it('数量符合配置 (稀疏: 默认 8 ~ 14 个), 避开角色脚下 / 椅子 / 沙堡, 都在冲刷浪推不到的沙上, 彼此至少隔 0.8m', () => {
+    expect(cfg.shells.count).toBeGreaterThanOrEqual(8);
+    expect(cfg.shells.count).toBeLessThanOrEqual(14);
     expect(shells.length).toBe(cfg.shells.count);
     for (const s of shells) {
       expect(Math.hypot(s.x, s.z)).toBeGreaterThanOrEqual(SHELL_KEEP_OUT);
       expect(s.z).toBeGreaterThan(wetTop(s.x));
       expect(insideChairFootprint(s.x, s.z, 0.1)).toBe(false);
+      expect(insideSandcastleFootprint(s.x, s.z, castle, 0.1)).toBe(false);
       expect(s.size).toBeGreaterThan(0.02);
       expect(s.size).toBeLessThan(0.24);
+      expect(s.color).toBeGreaterThanOrEqual(0);
+      expect(s.color).toBeLessThan(cfg.shells.colors.length);
+    }
+    for (let i = 0; i < shells.length; i++) for (let j = 0; j < i; j++) {
+      expect(Math.hypot(shells[i].x - shells[j].x, shells[i].z - shells[j].z)).toBeGreaterThan(0.44);
     }
   });
 
-  it('分布: 靠近湿沙线更密, 镜头前有几个更大的', () => {
+  it('沙堡打开时, 扇贝布局避开沙堡占地 (含外扩), 关掉沙堡时不受影响', () => {
+    // 把沙堡放到默认近景大扇贝的落点上, 那个大扇贝必须让开
+    const onHero = { x: 0.95, z: 2.3, scale: 1, yaw: 0 };
+    const moved = buildShellLayout(cfg.shells.count, shore, cfg.sea.swashAmp, onHero);
+    for (const s of moved) expect(insideSandcastleFootprint(s.x, s.z, onHero, 0.1)).toBe(false);
+    const none = buildShellLayout(cfg.shells.count, shore, cfg.sea.swashAmp, null);
+    expect(none.some((s) => insideSandcastleFootprint(s.x, s.z, onHero))).toBe(true);
+  });
+
+  it('分布: 靠近湿沙线更密, 近景只有两个更大的; 颜色以米白 / 奶油色为主', () => {
     const rest = shells.slice(SHELL_HERO_COUNT);
     const nearWet = rest.filter((s) => s.z - wetTop(s.x) < 1.4).length;
     expect(nearWet).toBeGreaterThan(rest.length * 0.4);
     const heroes = shells.slice(0, SHELL_HERO_COUNT);
+    expect(SHELL_HERO_COUNT).toBe(2);
     const maxRest = Math.max(...rest.map((s) => s.size));
     for (const h of heroes) {
       expect(h.size).toBeGreaterThanOrEqual(maxRest * 0.95);
       expect(h.z).toBeGreaterThan(0); // 在角色和镜头之间
     }
+    expect(shells.filter((s) => s.z > 0).length).toBeLessThanOrEqual(4); // 近场只有零星几个
+    expect(shells.filter((s) => s.color <= 1).length).toBeGreaterThan(shells.length / 2);
+    // 默认色都不是纯白, 且不比沙子主色更亮 (哑光, 不像在反光)
+    const lum = (h: number) => 0.2126 * ((h >> 16) & 255) + 0.7152 * ((h >> 8) & 255) + 0.0722 * (h & 255);
+    for (const c of cfg.shells.colors) expect(lum(c)).toBeLessThanOrEqual(lum(cfg.sand.base) + 1);
   });
 
-  it('三种形状合在一个几何里, 每个顶点带 aKind', () => {
-    const g = buildShellSet();
-    const k = g.getAttribute('aKind');
-    const seen = new Set<number>();
-    for (let i = 0; i < k.count; i++) seen.add(k.getX(i));
-    expect([...seen].sort()).toEqual([0, 1, 2]);
-    expect(triangleCount(g)).toBeLessThan(500);
+  it('扇贝几何: 放射肋条 (壳面高度沿横向起伏) + 波浪壳缘 + 铰合部一对小耳朵, 底面贴地, < 700 三角', () => {
+    const g = buildScallop();
+    expect(triangleCount(g)).toBeLessThan(700);
+    const pos = g.getAttribute('position');
+    const uv = g.getAttribute('aUV');
+    let minY = Infinity, ears = 0;
+    const edgeR: number[] = [];
+    for (let i = 0; i < pos.count; i++) {
+      minY = Math.min(minY, pos.getY(i));
+      if (uv.getX(i) < 0 || uv.getX(i) > 1) ears++;
+      if (uv.getY(i) === 1) edgeR.push(Math.hypot(pos.getX(i), pos.getZ(i) + 0.42));
+    }
+    expect(minY).toBeGreaterThanOrEqual(0);
+    expect(minY).toBeLessThan(0.03);
+    expect(ears).toBeGreaterThanOrEqual(4);
+    // 壳缘半径随肋条起伏: 相邻顶点之间有升有降, 波峰数 ≈ 肋条数
+    let peaks = 0;
+    for (let i = 1; i + 1 < edgeR.length; i++) if (edgeR[i] > edgeR[i - 1] && edgeR[i] > edgeR[i + 1]) peaks++;
+    expect(peaks).toBeGreaterThanOrEqual(SCALLOP_RIBS - 3);
+    const n = g.getAttribute('normal');
+    for (let i = 0; i < n.count; i += 5) expect(Math.hypot(n.getX(i), n.getY(i), n.getZ(i))).toBeCloseTo(1, 3);
+  });
+});
+
+describe('beach3d sandcastle', () => {
+  const castle = sandcastlePlacement(cfg.sandcastle);
+
+  it('在角色左前方的沙地上 (镜头与角色之间), 离角色 / 角色落影足够远, 不压在棕榈树干 / 椅子上', () => {
+    expect(castle.x).toBeLessThan(-1.2);
+    expect(castle.z).toBeGreaterThan(0.6);
+    expect(Math.hypot(castle.x, castle.z) - SANDCASTLE_RADIUS * castle.scale).toBeGreaterThan(1.5);
+    expect(castle.z).toBeGreaterThan(shoreLineZ(castle.x, shore) + cfg.sea.swashAmp * 1.35 + 2);
+    // 太阳从镜头一侧 (+Z) 照来, 角色 / 棕榈的落影都往 −Z (海的方向) 延伸; 沙堡在角色和棕榈的 +Z 一侧, 不会落在它们的影子里
+    for (const p of PALMS) {
+      expect(Math.hypot(p.x - castle.x, p.z - castle.z)).toBeGreaterThan(SANDCASTLE_RADIUS + PALM_TRUNK.r0 * 2 + 0.5);
+      if (Math.abs(p.x - castle.x) < 3) expect(castle.z).toBeGreaterThan(p.z + 1.5);
+    }
+    expect(insideChairFootprint(castle.x, castle.z, SANDCASTLE_RADIUS)).toBe(false);
+    expect(insideSandcastleFootprint(0, 0, castle, 1.2)).toBe(false);
+  });
+
+  it('沙堡几何: 35 ~ 55cm 高, 方形底台 (不是圆盘), 所有部件彼此相连并坐在底台上, < 2000 三角', () => {
+    const parts = buildSandcastleParts();
+    const boxes = parts.map((p) => { p.geo.computeBoundingBox(); return { name: p.name, box: p.geo.boundingBox!.clone().expandByScalar(0.004) }; });
+    const all = boxes.reduce((b, x) => b.union(x.box), boxes[0].box.clone());
+    const towers = boxes.filter((b) => /^castle:(backLeft|backRight|frontLeft|frontRight)$/.test(b.name));
+    expect(towers.length).toBe(4);
+    const tallest = Math.max(...boxes.filter((b) => !b.name.startsWith('castle:flag')).map((b) => b.box.max.y));
+    expect(tallest).toBeGreaterThan(0.35);
+    expect(tallest).toBeLessThan(0.55);
+    expect(all.max.y).toBeLessThan(0.6);
+    // 底台: 方形 (四角都在底台里, 不是旋转体), 底边略埋进沙里
+    const base = boxes.find((b) => b.name === 'castle:base')!.box;
+    expect(base.min.y).toBeLessThan(0);
+    expect(base.max.x - base.min.x).toBeGreaterThan(SANDCASTLE_DIM.baseW * 0.95);
+    expect(base.max.z - base.min.z).toBeGreaterThan(SANDCASTLE_DIM.baseD * 0.95);
+    const baseGeo = parts.find((p) => p.name === 'castle:base')!.geo.getAttribute('position');
+    let cornerR = 0;
+    for (let i = 0; i < baseGeo.count; i++) cornerR = Math.max(cornerR, Math.hypot(baseGeo.getX(i), baseGeo.getZ(i)));
+    expect(cornerR).toBeGreaterThan(Math.hypot(SANDCASTLE_DIM.baseW, SANDCASTLE_DIM.baseD) / 2 * 0.88); // 有角, 不是椭圆
+    // 占地圆盖住整个沙堡 (贝壳避让用)
+    for (const b of boxes) for (const [x, z] of [[b.box.min.x, b.box.min.z], [b.box.max.x, b.box.max.z], [b.box.min.x, b.box.max.z], [b.box.max.x, b.box.min.z]]) {
+      expect(Math.hypot(x, z)).toBeLessThan(SANDCASTLE_RADIUS + 0.03);
+    }
+    // 连通: 从底台出发, 所有部件都能连上
+    const seen = new Set(['castle:base']);
+    let grew = true;
+    while (grew) {
+      grew = false;
+      for (const a of boxes) {
+        if (seen.has(a.name)) continue;
+        if (boxes.some((b) => seen.has(b.name) && a.box.intersectsBox(b.box))) { seen.add(a.name); grew = true; }
+      }
+    }
+    expect(boxes.filter((b) => !seen.has(b.name)).map((b) => b.name)).toEqual([]);
+    expect(triangleCount(buildSandcastle())).toBeLessThan(2000);
+    parts.forEach((p) => p.geo.dispose());
+  });
+
+  it('沙堡合并进沙滩道具的同一次绘制: 属性一致 (position / normal / aUV / aMat = 6)', () => {
+    const g = buildSandcastle();
+    expect(Object.keys(g.attributes).sort()).toEqual(Object.keys(buildBeachProps().attributes).sort());
+    const m = g.getAttribute('aMat');
+    for (let i = 0; i < m.count; i += 13) expect(m.getX(i)).toBe(6);
   });
 });

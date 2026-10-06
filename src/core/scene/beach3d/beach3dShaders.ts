@@ -9,7 +9,9 @@
  *   - 空气透视: 远处向海平线色淡出 (uHazeStart → uHazeEnd), 让远景与天空 / 海平线无缝。
  *   - 地平线弧度: 离相机 uCurveD0 米以外的地面按 e²/(2R) 往下弯 (夸张的"地球曲率"), 真实的可见海平线因此落在眼高以下;
  *     天空 / 远岛 / 云按同一个下沉角 uDip 对齐, 远处无缝。角色附近 (uCurveD0 以内) 完全平。
- *   - 太阳方向 uSunDir = 引擎主方向光方向; 所有道具 (棕榈 / 礁石 / 椅子 / 伞) 与地面上的道具落影都按它算, 与角色受光一致。
+ *   - 太阳方向 uSunDir = 引擎主方向光方向; 所有道具 (棕榈 / 礁石 / 椅子 / 伞 / 沙堡) 与地面上的道具落影都按它算, 与角色受光一致。
+ *   - 棕榈 / 沙堡的落影: 用真实几何沿太阳方向压扁到地面, 烘焙进一张俯视的落影遮罩 (SHADOW_BAKE_*, 只在建好 / 太阳方向变化 /
+ *     羽叶贴图加载完成时画一次, 不是每帧的阴影贴图), 地面着色器按世界 xz 采样 + 小半径模糊; 椅子 / 伞是解析投影。
  */
 
 const COMMON = /* glsl */ `
@@ -371,8 +373,12 @@ uniform float uHazeStart;
 uniform float uHazeEnd;
 uniform vec3 uSunDir;
 uniform vec4 uRocks[ROCK_MAX];    // 水中礁石: xz 中心, z 半径, w 有效 —— 画一圈白浪
-uniform vec4 uPalmA[PALM_MAX];    // 棕榈落影: (根 x, 根 z, 顶 x, 顶 z)
-uniform vec4 uPalmB[PALM_MAX];    // (顶高, 叶冠半径, 树干半径, 种子; 种子 < 0 = 无效)
+uniform sampler2D uShadowMask;    // 棕榈 / 沙堡的烘焙落影遮罩 (R = 遮挡度, 俯视, 覆盖 uMaskRect)
+uniform vec4 uMaskRect;           // 遮罩覆盖的地面范围: (最小 x, 最小 z, 宽, 深)
+uniform vec2 uMaskTexel;          // 一个遮罩像素在 uv 里的大小
+uniform float uMaskSoft;          // 落影边缘柔化倍率
+uniform float uRippleCov;         // 沙纹覆盖面积 0..1
+uniform float uRippleNear;        // 沙纹近处淡出距离 (m, 0 = 不淡出)
 uniform vec4 uCanopy;             // 伞面: (中心 x, 中心 z, 高度, 半径; 半径 0 = 无)
 uniform vec4 uChair;              // 躺椅: (中心 x, 中心 z, yaw, 有效)
 uniform vec4 uChairBack;          // 靠背: (铰点高, 铰点 z, 角度, 长度)
@@ -397,34 +403,25 @@ float grainOct(vec2 q, float f) {
   return (vnoise(q * f) - 0.5) * (1.0 - smoothstep(0.3, 0.75, fw));
 }
 
-// 道具落影 (0..1): 把地面点沿太阳方向抬到物体高度, 看是否落在物体的水平截面里
+// 棕榈 / 沙堡的烘焙落影 (0..1): 中心 + 两圈各 4 个点的小半径模糊 (柔和的落影边缘, 叶片小叶的锯齿仍保留一点)
+float bakedShadow(vec2 q) {
+  vec2 uv = (q - uMaskRect.xy) / uMaskRect.zw;
+  if (uv.x <= 0.0 || uv.y <= 0.0 || uv.x >= 1.0 || uv.y >= 1.0) return 0.0;
+  vec2 r = uMaskTexel * 1.25 * uMaskSoft;
+  float s = texture2D(uShadowMask, uv).r * 0.2;
+  s += (texture2D(uShadowMask, uv + vec2(r.x, 0.0)).r + texture2D(uShadowMask, uv - vec2(r.x, 0.0)).r
+      + texture2D(uShadowMask, uv + vec2(0.0, r.y)).r + texture2D(uShadowMask, uv - vec2(0.0, r.y)).r) * 0.12;
+  vec2 r2 = r * 1.45;
+  s += (texture2D(uShadowMask, uv + r2).r + texture2D(uShadowMask, uv - r2).r
+      + texture2D(uShadowMask, uv + vec2(r2.x, -r2.y)).r + texture2D(uShadowMask, uv + vec2(-r2.x, r2.y)).r) * 0.08;
+  return s;
+}
+
+// 道具落影 (0..1): 棕榈 / 沙堡取烘焙遮罩; 伞 / 椅子把地面点沿太阳方向抬到物体高度, 看是否落在物体的水平截面里
 float propShadow(vec2 q) {
   if (uShadowK <= 0.0) return 0.0;
   vec2 so = uSunDir.xz / max(uSunDir.y, 0.15);  // 每升高 1m, 往太阳方向水平移动多少
-  float sh = 0.0;
-  for (int i = 0; i < PALM_MAX; i++) {
-    vec4 A = uPalmA[i];
-    vec4 B = uPalmB[i];
-    if (B.w < 0.0) continue;
-    vec2 base = A.xy;
-    vec2 topS = A.zw - so * B.x;   // 树顶的影子位置
-    if (length(q - base) > length(topS - base) + B.y + 1.0) continue;
-    // 树干: 根 → 顶影 的线段, 越往上越细
-    vec2 ba = topS - base;
-    float t = clamp(dot(q - base, ba) / max(dot(ba, ba), 1e-4), 0.0, 1.0);
-    float dl = length(q - base - ba * t);
-    float tr = B.z * mix(1.1, 0.55, t);
-    sh = max(sh, 1.0 - smoothstep(tr * 0.6, tr + 0.05, dl));
-    // 叶冠: 叶片下垂, 平均高度比树顶低约 0.7m; 星形的叶片轮廓 + 叶间漏光
-    vec2 cc = A.zw - so * max(0.0, B.x - 0.7);
-    vec2 rq = q - cc;
-    float ang = atan(rq.y, rq.x);
-    float lr = length(rq);
-    float fr = B.y * (0.55 + 0.45 * pow(abs(sin(ang * 6.5 + B.w * 6.0)), 0.6));
-    float crown = 1.0 - smoothstep(fr - 0.12, fr + 0.06, lr);
-    crown *= 1.0 - 0.45 * smoothstep(0.55, 0.7, vnoise(q * 2.4 + B.w * 9.0)) * smoothstep(0.3, 0.8, lr / B.y);
-    sh = max(sh, crown * 0.9);
-  }
+  float sh = bakedShadow(q);
   // 遮阳伞面: 8 根伞骨撑开的八边形 (伞骨之间是直边), 投影高度取伞面平均高度 (伞顶往下 0.12m)
   if (uCanopy.w > 0.0) {
     vec2 cq = q + so * (uCanopy.z - 0.12) - uCanopy.xy;
@@ -484,12 +481,14 @@ vec3 sandColor(vec2 q, float dist, float top, float hiMark) {
   float gd = (1.0 - smoothstep(0.12, 0.12 + gfw * 1.5, length(gp))) * (1.0 - smoothstep(0.25, 0.6, gfw)) * uSandGrain;
   col = mix(col, col * vec3(0.84, 0.8, 0.8), step(0.93, gh) * gd * 0.5);
   col = mix(col, vec3(1.0, 0.99, 0.96), step(gh, 0.04) * gd * 0.3);
-  // 不规则沙纹: 只在噪声圈出的几块区域; 纹线方向 / 间距都被噪声扭曲
-  float patchM = smoothstep(0.58, 0.78, vnoise(q * 0.15 + 11.0));
+  // 不规则沙纹: 只在噪声圈出的几块区域 (面积由 uRippleCov 控制); 纹线方向 / 间距都被噪声扭曲; 离相机近处淡成隐约的纹路
+  float plo = mix(0.86, 0.36, uRippleCov);
+  float patchM = smoothstep(plo, plo + 0.2, vnoise(q * 0.15 + 11.0));
   float r = (q.y + 0.55 * sin(q.x * 0.55 + q.y * 0.3) + 1.6 * vnoise(q * 0.45) + 0.45 * vnoise(q * 1.3 + 4.0)) / (uSandSpacing * (0.8 + 0.4 * vnoise(q * 0.2 + 2.0)));
   float rfade = (1.0 - smoothstep(0.25, 0.6, fwidth(r))) * (1.0 - smoothstep(10.0, 22.0, dist));
   float wv = sin(r * 6.2831);
-  float rip = patchM * rfade * uSandRipple;
+  float nearK = uRippleNear > 0.0 ? 0.15 + 0.85 * smoothstep(uRippleNear * 0.35, uRippleNear, dist) : 1.0;
+  float rip = patchM * rfade * nearK * uSandRipple;
   col = mix(col, uSandLight, smoothstep(0.5, 0.95, wv) * rip * 0.5);
   col = mix(col, uSandShade, smoothstep(-0.2, -0.9, wv) * rip * 0.45);
   // 湿沙: 浪推到过的区域 (top 以下) 更深, 往上逐渐变干; 这一轮浪刚冲到的地方 (hiMark 以下) 再深一点、更亮 (水膜反光)
@@ -835,20 +834,18 @@ void main() {
 }
 `;
 
-// ───────────────────────── 贝壳 / 海螺 / 海星 (实例化, 1 次绘制) ─────────────────────────
+// ───────────────────────── 扇贝 (实例化, 1 次绘制) ─────────────────────────
+// 几何上已有放射肋条与波浪壳缘; 这里再按 aUV 画肋沟的细暗线、几圈淡淡的同心生长纹、铰合部 / 耳朵略深。两阶柔和明暗, 哑光:
+// 没有高光 / 自发光, 受光面不比配置色更亮 (配置色本身比沙子略暗), 不会触发 Bloom, 安静地躺在沙上。
 export const SHELL_VERT = /* glsl */ `
 ${COMMON}
-attribute float aKind;
 attribute vec2 aUV;
-attribute float iKind;
 attribute vec3 iColor;
 varying vec3 vN;
 varying vec3 vW;
 varying vec2 vUV;
-varying float vKind;
 varying vec3 vColor;
 void main() {
-  if (abs(aKind - iKind) > 0.5) { gl_Position = vec4(2.0, 2.0, 2.0, 1.0); return; }
   #ifdef USE_INSTANCING
   mat4 im = instanceMatrix;
   #else
@@ -859,7 +856,6 @@ void main() {
   vW = wp.xyz;
   vN = normalize(mat3(modelMatrix) * mat3(im) * normal);
   vUV = aUV;
-  vKind = aKind;
   vColor = iColor;
   gl_Position = projectionMatrix * viewMatrix * wp;
 }
@@ -872,42 +868,34 @@ uniform vec3 uSunDir;
 uniform vec3 uHaze;
 uniform float uHazeStart;
 uniform float uHazeEnd;
+uniform float uRibs;
 varying vec3 vN;
 varying vec3 vW;
 varying vec2 vUV;
-varying float vKind;
 varying vec3 vColor;
 void main() {
   vec3 n = normalize(vN);
   if (!gl_FrontFacing) n = -n;
-  vec3 V = normalize(cameraPosition - vW);
   float ndl = dot(n, uSunDir);
   vec3 base = vColor;
-  if (vKind < 0.5) {
-    float rib = 0.5 + 0.5 * cos(vUV.x * 6.2831 * 9.0);
-    base *= mix(1.0, 0.9, rib * smoothstep(0.1, 0.4, vUV.y));
-    base = mix(base * 0.88, base, smoothstep(0.0, 0.3, vUV.y));
-  } else if (vKind < 1.5) {
-    float band = 0.5 + 0.5 * sin(vUV.y * 6.2831 * 3.5 + vUV.x * 6.2831);
-    base *= mix(1.0, 0.88, smoothstep(0.6, 0.9, band));
-    base = mix(base, vec3(1.0, 0.82, 0.8), (1.0 - smoothstep(0.0, 0.12, vUV.y)) * 0.6);
-  } else {
-    base = mix(base * 0.9, base, smoothstep(0.0, 0.5, vUV.y));
-    vec2 c = vec2(vUV.x * 40.0, vUV.y * 6.0);
-    float dots = 1.0 - smoothstep(0.18, 0.3, length(fract(c) - 0.5));
-    base = mix(base, vec3(1.0, 0.97, 0.92), dots * 0.35 * step(0.15, vUV.y));
+  bool ear = vUV.x < 0.0 || vUV.x > 1.0;
+  if (!ear) {
+    float rc = cos(vUV.x * uRibs * 6.2831);
+    float rfw = fwidth(vUV.x * uRibs);
+    base *= mix(1.0, 0.86, smoothstep(-0.6, -0.95, rc) * smoothstep(0.08, 0.3, vUV.y) * (1.0 - smoothstep(0.3, 0.6, rfw)));
+    float gl = abs(fract(vUV.y * 5.0 + 0.3) - 0.5);
+    base *= 1.0 - 0.06 * (1.0 - smoothstep(0.02, 0.07, gl)) * smoothstep(0.2, 0.4, vUV.y);
   }
+  base = mix(base * vec3(0.9, 0.86, 0.86), base, smoothstep(0.0, 0.22, vUV.y));
   float lit = smoothstep(-0.1, 0.25, ndl);
-  vec3 col = mix(base * vec3(0.78, 0.76, 0.86), base, lit);
-  float spec = pow(max(dot(reflect(-uSunDir, n), V), 0.0), 20.0);
-  col = mix(col, vec3(1.0), smoothstep(0.5, 0.75, spec) * 0.45);
+  vec3 col = mix(base * vec3(0.8, 0.78, 0.88), base * 0.97, lit);
   float dist = length(vW - cameraPosition);
   col = mix(col, uHaze, smoothstep(uHazeStart, uHazeEnd, dist) * 0.85);
   ${OUT}
 }
 `;
 
-// ───────────────────────── 沙滩椅 + 遮阳伞 (1 次绘制) ─────────────────────────
+// ───────────────────────── 沙滩椅 + 遮阳伞 + 灯塔 + 沙堡 (1 次绘制) ─────────────────────────
 // 柔和的二次元道具着色: 两~三阶卡通明暗 (暗部偏薰衣草, 与礁石 / 贝壳 / 角色暗部同一色调), 一点天光 rim;
 // 坐垫沿椅长方向的粉彩条纹, 伞面相间的两色布片 (边缘干净, 不加饰边); 海上灯塔 (奶白 / 珊瑚粉塔身, 灯室暖光自发光); 伞面背面 (从下往上看) 是透光的暖色;
 // 伞面在椅子 / 伞杆上的落影按太阳方向解析计算 (与地面落影同一套投影)。
@@ -947,6 +935,8 @@ uniform vec3 uLhRoof;
 uniform vec3 uLhGlass;
 uniform vec3 uLhRock;
 uniform float uLhGlow;   // 灯室玻璃自发光 (0 = 正常受光, 1 = 完全不受明暗影响)
+uniform vec3 uCastleSand; // 沙堡: 湿沙色 / 小旗色
+uniform vec3 uCastleFlag;
 uniform vec3 uSunDir;
 uniform vec3 uHaze;
 uniform vec4 uCanopyW;   // 伞面中心 (世界坐标 xyz) + 半径
@@ -973,9 +963,19 @@ void main() {
     float panel = mod(floor(vUV.x), 2.0);
     base = mix(uCanopyA, uCanopyB, panel);
   } else if (vMat < 4.5) base = uPillow;
-  else {
+  else if (vMat < 5.5) {
     float k = vUV.x;
     base = k < 0.5 ? uLhBody : (k < 1.5 ? uLhBand : (k < 2.5 ? uLhRoof : (k < 3.5 ? uLhGlass : uLhRock)));
+  } else {
+    // 沙堡: 压实的湿沙 (细颗粒 + 朝上的面略干略亮) / 门窗洞 (深一档的阴影色) / 小旗 / 旗杆
+    float k = vUV.x;
+    if (k < 0.5) {
+      base = uCastleSand * (0.965 + 0.06 * vnoise(vW.xz * 70.0 + vW.y * 55.0) + 0.03 * vnoise(vW.xz * 18.0 - vW.y * 20.0));
+      base = mix(base, base * vec3(1.06, 1.05, 1.03), smoothstep(0.7, 0.95, n.y) * 0.7);
+      base *= mix(0.86, 1.0, smoothstep(0.0, 0.11, vW.y));   // 贴地处 (底台边缘 / 塔脚) 略暗, 沙堡稳稳坐在沙上
+    } else if (k < 1.5) base = uCastleSand * vec3(0.66, 0.6, 0.68);
+    else if (k < 2.5) base = uCastleFlag;
+    else base = vec3(0.97, 0.93, 0.87);
   }
   float t = smoothstep(-0.2, 0.15, ndl) * 0.62 + smoothstep(0.35, 0.7, ndl) * 0.38;
   vec3 col = mix(base * vec3(0.76, 0.74, 0.87), base, t);
@@ -995,10 +995,72 @@ void main() {
   // 天光 rim (背光侧轮廓)
   float rim = pow(1.0 - max(dot(n, V), 0.0), 3.0);
   col = mix(col, vec3(0.9, 0.94, 1.0), rim * 0.22 * (1.0 - t));
+  // 沙堡门窗洞: 洞里是阴影, 几乎不随朝向变化
+  if (vMat > 5.5 && vUV.x > 0.5 && vUV.x < 1.5) col = base * mix(0.92, 1.0, t);
   // 灯塔灯室: 暖光自发光 (不随明暗变暗)
   if (vMat > 4.5 && vUV.x > 2.5 && vUV.x < 3.5) col = mix(col, uLhGlass * 1.08, uLhGlow);
   float dist = length(vW - cameraPosition);
   col = mix(col, uHaze, smoothstep(uHazeStart, uHazeEnd, dist) * 0.85);
   ${OUT}
+}
+`;
+
+// ───────────────────────── 落影遮罩烘焙 (棕榈 / 沙堡 → 地面) ─────────────────────────
+// 把真实几何沿太阳方向压扁到 y = 0 (g = xz − so·y), 再把 g 映射到遮罩覆盖的地面范围 uMaskRect, 画进一张俯视的单通道遮罩:
+// 树干 = 1, 叶片 = 羽叶贴图的 alpha (按遮罩分辨率自动取 mip → 小叶的锯齿 / 缝隙按分辨率保留) × uFrondShadow, 椰子 / 叶柄 = uFrondShadow。
+// 取最大值混合 (MaxEquation), 不需要深度。树干的高度 / 倾斜变形与 PALM_VERT 完全一致, 叶冠不摆动 (落影是静态的)。
+// SOLID 宏: 普通网格 (沙堡), 整体按 1 写入。
+export const SHADOW_BAKE_VERT = /* glsl */ `
+uniform vec3 uSunDir;
+uniform vec4 uMaskRect;
+#ifndef SOLID
+attribute float aPart;
+attribute vec2 aLeaf;
+attribute vec2 iPalm;
+uniform float uLean;
+varying vec2 vLeaf;
+varying float vPart;
+#endif
+void main() {
+  vec3 p = position;
+  #ifdef USE_INSTANCING
+  mat4 im = instanceMatrix;
+  #else
+  mat4 im = mat4(1.0);
+  #endif
+  #ifndef SOLID
+  if (aPart < 0.5) {
+    float t = aLeaf.x;
+    float sm = t * t * (3.0 - 2.0 * t);
+    p.x += (iPalm.y - 1.0) * uLean * (0.65 * sm + 0.35 * t * t);
+    p.y *= iPalm.x;
+  }
+  vLeaf = aLeaf;
+  vPart = aPart;
+  #endif
+  vec4 lp = modelMatrix * im * vec4(p, 1.0);
+  vec2 so = uSunDir.xz / max(uSunDir.y, 0.15);
+  vec2 g = lp.xz - so * max(lp.y, 0.0);
+  gl_Position = vec4((g - uMaskRect.xy) / uMaskRect.zw * 2.0 - 1.0, 0.0, 1.0);
+}
+`;
+
+export const SHADOW_BAKE_FRAG = /* glsl */ `
+precision highp float;
+#ifndef SOLID
+uniform sampler2D uFrond;
+uniform float uFrondShadow;
+varying vec2 vLeaf;
+varying float vPart;
+#endif
+void main() {
+  float c = 1.0;
+  #ifndef SOLID
+  if (vPart > 0.5 && vPart < 1.5) {
+    c = smoothstep(0.28, 0.62, texture2D(uFrond, vLeaf).a) * uFrondShadow;
+    if (c <= 0.002) discard;
+  } else if (vPart > 1.5) c = uFrondShadow;
+  #endif
+  gl_FragColor = vec4(c, c, c, 1.0);
 }
 `;

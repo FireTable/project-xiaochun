@@ -5,8 +5,9 @@
 The look is **二次元 MMD 舞台风格** (anime MMD stage): soft modern 3D anime, high-key diffused light, soft shadow transitions, a peach-pink / lavender / mint / cream pastel palette and clean stylized shapes. It is not photoreal and uses no HDRI.
 - An asymmetric palm composition: two palms on the left, one tall framing palm leaning out of frame on the right, and smaller palms further along the shore. Crowns are upright starbursts of arching fronds with a hand-painted frond texture.
 - A striped beach lounge chair with a small parasol on the right, facing the sea.
+- A small, cute sandcastle on a hand-patted square platform in the left foreground, in front of the left palms.
 - A clear turquoise sea, light near the shore and deeper further out, with irregular swash foam, several wave bands and twinkling glints.
-- Fine, soft sand with a darker, glossy wet band at the water's edge, and shells scattered mostly along the wet line.
+- Fine, soft sand with a darker, glossy wet band at the water's edge, and calm, sparse sand ripples. Scallop shells are available but off by default.
 - A blue-to-pale-cyan sky with hand-painted anime cumulus sprites, a low cloud bank on the horizon and high wisps.
 - Layered distant island silhouettes on the left, fading into atmospheric haze, and a small pastel lighthouse standing in the sea on the right.
 
@@ -17,11 +18,11 @@ There is no HDRI, no realistic material and no third-party asset. Exactly two sm
 | File | Role |
 | :--- | :--- |
 | `src/core/scene/beach3d/beach3dWorld.ts` | `Beach3DWorld`: builds and owns all meshes, does the per-frame updates, `getStats()`, `dispose()` |
-| `src/core/scene/beach3d/beach3dShaders.ts` | GLSL for sky, clouds, islands, ground (sand + sea), palms, rocks, shells, chair + parasol |
-| `src/core/scene/beach3d/beach3dGeometry.ts` | Procedural low-poly geometry: palm trunk and crown (with crown boot and coconuts), island strip, rock, shell set, chair + parasol, lighthouse |
-| `src/core/scene/beach3d/beach3dLayout.ts` | Pure data and functions (no three / DOM): shoreline, palm / rock / shell / cloud layout, chair and parasol placement, island peaks and silhouette profile |
+| `src/core/scene/beach3d/beach3dShaders.ts` | GLSL for sky, clouds, islands, ground (sand + sea + baked prop shadows), palms, rocks, scallop shells, chair + parasol + lighthouse + sandcastle, and the shadow-mask bake |
+| `src/core/scene/beach3d/beach3dGeometry.ts` | Procedural low-poly geometry: palm trunk and crown (with crown boot and coconuts), island strip, rock, scallop shell, chair + parasol, lighthouse, sandcastle |
+| `src/core/scene/beach3d/beach3dLayout.ts` | Pure data and functions (no three / DOM): shoreline, palm / rock / shell / cloud layout, chair, parasol and sandcastle placement, island peaks and silhouette profile |
 | `src/core/scene/sceneMotion.ts` | `SceneMotionGovernor`: reduced-motion and low-FPS downgrade |
-| `src/core/scene/__tests__/beach3dLayout.test.ts` | Layout invariants (props on sand, keep-out zones, asymmetric palms, crown shape and frond attachment, chair placement and joints, lighthouse placement, island heights, cloud layout, shell distribution, triangle budget) |
+| `src/core/scene/__tests__/beach3dLayout.test.ts` | Layout invariants (props on sand, keep-out zones, asymmetric palms, crown shape and frond attachment, chair placement and joints, lighthouse placement, sandcastle placement / shape / connectivity, island heights, cloud layout, shell distribution and scallop shape, triangle budget) |
 | `src/config.ts` → `APP_CONFIG.beach3dScene` | All tunables. Ranges and meanings are documented inline and in `src/types/config.ts` (`Beach3DSceneConfig`) |
 | `public/scene/beach3d/clouds.webp` | Cloud sprite atlas (see [Assets](#assets)) |
 | `public/scene/beach3d/palm-frond.webp` | Palm frond texture (see [Assets](#assets)) |
@@ -40,7 +41,7 @@ All layout coordinates are **relative to the character's spawn point** (`APP_CON
 
 The camera only pitches around the character in the YZ plane and stays on the +Z side (+X is screen right). Left/right movement is the character's own `bodyTurn`. So the stage is dressed toward −Z: near sand, the shoreline at `layout.shoreZ` (curving back on both sides and wiggling slightly), the sea, then the islands on the horizon.
 
-Props are kept out of a central zone (rocks `|x| < 2.2`, shells within 1.2 m of the character, palm crowns away from the area above her, the parasol canopy right of `x ≈ 0.6`), so they never cover the character, her feet or the sea directly behind her.
+Props are kept out of a central zone (rocks `|x| < 2.2`, shells within 1.2 m of the character or on the sandcastle footprint, palm crowns away from the area above her, the parasol canopy right of `x ≈ 0.6`), so they never cover the character, her feet or the sea directly behind her.
 
 ## Assets
 
@@ -55,19 +56,19 @@ Props are kept out of a central zone (rocks `|x| < 2.2`, shells within 1.2 m of 
 - The textures load only when the scene is first activated. Clouds and palm crowns stay hidden until their texture has loaded.
 - Textures are sRGB, not flipped, mipmapped, with 4× anisotropy.
 
-## Composition (9 draw calls, ~48k triangles)
+## Composition (9 draw calls, ~41k triangles)
 
 | Part | Draws | Notes |
 | :--- | :---: | :--- |
 | Sky | 1 | Fullscreen shader that colours by view direction: zenith → mid → pale horizon gradient, high wisps, a bright band and a low cloud bank on the horizon, and a glow on the sun side. Azimuth is computed from the normalised horizontal view direction, so straight up and straight down have no seam or pole pinch. |
 | Clouds | 1 | 27 instanced textured billboards on a far sphere. See [Clouds](#clouds). |
 | Islands | 1 | One strip mesh around the horizon; three silhouette layers evaluated per pixel. See [Islands and haze](#islands-and-haze). |
-| Sand + sea | 1 | One subdivided y=0 plane; see [Sand](#sand) and [Sea and waves](#sea-and-waves). Also draws foam rings around in-water rocks and the soft ground shadows of palms, chair and parasol. |
+| Sand + sea | 1 | One subdivided y=0 plane; see [Sand](#sand) and [Sea and waves](#sea-and-waves). Also draws foam rings around in-water rocks and the soft ground shadows of palms, sandcastle, chair and parasol (see [Ground shadows](#ground-shadows)). |
 | Palm trunks | 1 | Instanced, 10 trees. See [Palms](#palms). |
 | Palm crowns | 1 | Instanced, 14 textured frond ribbons per crown with petioles, a crown boot and 4 coconuts. |
 | Rocks | 1 | Instanced smooth rocks with a 3-tone toon ramp, a soft top highlight, a cool rim and a darker wet band. Asymmetric clusters on both sides along the shore, some half in the water. |
-| Shells | 1 | 32 instanced scallops, conches and starfish in one shared geometry (each instance collapses the other two shapes). |
-| Chair + parasol + lighthouse | 1 | One merged mesh, ~2.3k + ~0.9k triangles. See [Lounge chair and parasol](#lounge-chair-and-parasol) and [Lighthouse](#lighthouse). |
+| Shells | 0 (1 when enabled) | Off by default (`shells.enabled = false`). When enabled, 11 instanced scallop shells (544 triangles each). See [Shells](#shells). |
+| Chair + parasol + lighthouse + sandcastle | 1 | One merged mesh, ~2.3k + ~0.8k + ~1.4k triangles. See [Lounge chair and parasol](#lounge-chair-and-parasol), [Lighthouse](#lighthouse) and [Sandcastle](#sandcastle). |
 
 The character shadow is the engine's existing `CharacterShadowSystem` plane. The ground uses a polygon offset so the shadow sits stably on top of it.
 
@@ -101,12 +102,31 @@ The character shadow is the engine's existing `CharacterShadowSystem` plane. The
 - It uses the same toon shading as the chair. The lantern glass and windows are partly self-lit in a warm tone (`lighthouse.glow`); there is no bloom.
 - It is merged into the chair + parasol mesh (same draw call, ~0.9k triangles), bends with the horizon curvature like the other props, and is hidden together with them when the camera goes below the ground. With `props.enabled = false` it is hidden too.
 
+## Sandcastle
+
+- A small hand-built sandcastle in the left foreground (`sandcastle.x = -2.05`, `sandcastle.z = 2.4`, `yawDeg = 22`), in front of the near left palm and well clear of the character, her shadow (which falls toward the sea) and the palm trunks and their shadows. In the default portrait view it sits at about 20% from the left and 68% from the top.
+- At scale 1 the tallest tower is 0.45 m (0.52 m to the flag tip). From bottom to top:
+  - A low, squared-off packed-sand platform (0.52 × 0.44 m, 7 cm high) with soft rounded edges and small hand-patted irregularities, slightly sunk into the beach, plus a small ramp up to the door. No round mound, no moat.
+  - A central keep with an arched door and small windows, two back towers (one taller, with the flag) and a front-left tower, all cylinders with crenellated tops, and a small rounded cone turret at the front right.
+  - A thin pole with a tiny coral-pink pennant (`sandcastle.flag`).
+- Colour is `sandcastle.color` (a slightly darker, warmer packed-wet-sand tone than the beach) with the same two-step pastel toon shading as the other props. Windows and the door are darker recesses.
+- It is merged into the chair + parasol + lighthouse mesh (same draw call, ~1.4k triangles), casts a baked soft ground shadow (see [Ground shadows](#ground-shadows)), and is hidden with the other props when the camera goes below the ground or with `props.enabled = false` / `sandcastle.enabled = false`. Shells keep out of its footprint (`SANDCASTLE_RADIUS = 0.36 m × scale`).
+
+## Ground shadows
+
+- **Character**: the engine's `CharacterShadowSystem`, unchanged.
+- **Chair and parasol**: analytic soft shapes in the ground shader (see above).
+- **Palms and sandcastle**: a baked shadow mask. Palm trunks (with their real bend, lean and height), the textured frond ribbons (alpha-tested, so each frond gives a long, narrow, tapering shadow with serrated leaflet edges) and the sandcastle are rendered once, projected along the sun direction onto y = 0, into a 2048 × 1024 single-channel (R8, ~2 MB) render target that covers the near beach (x −26 … 24 m, z −21 … 3 m around the character). The ground shader samples it with a small blur, using the same tone as the chair shadow and `props.groundShadow` for strength.
+- The bake runs only when the scene is activated, when the frond texture finishes loading and when the sun direction changes; there is no per-frame shadow-map pass and no extra draw call in the normal frame. Palm sway is not reflected in the shadow.
+- `vegetation.frondShadow` (0.85) sets frond shadows relative to the trunk shadow (lower = lighter, more dappled), and `vegetation.shadowSoftness` (1.0) scales the blur of palm and sandcastle shadows.
+
 ## Shells
 
-- 4 larger "hero" shells (about 15–17 cm) sit between the character and the camera so they read at portrait distance.
-- The rest are spread with a triangular distribution along the shore: about 55% within 1.2 m above the swash's highest reach, 30% in the next 3 m and 15% further up the beach.
-- They avoid the character's feet, palm bases, the chair footprint and each other.
-- Cream, pale pink and pale coral with two-step toon shading and a small highlight.
+- Off by default (`shells.enabled = false`); set it to `true` to show them. Only scallop shells: a slightly domed fan with 15 radial ribs, a scalloped (wavy) outer edge that follows the ribs and two small "ears" at the hinge. The shader adds fine dark rib grooves, a few faint concentric growth lines and a slightly deeper hinge.
+- Sparse: `shells.count = 11` by default (8–14 recommended), at least 0.8 m apart. Two larger "hero" shells sit between the character and the camera; the rest are spread along the shore, mostly just above the swash's highest reach, with a few further up the beach.
+- They avoid the character's feet, palm bases, the chair footprint, the sandcastle footprint and each other.
+- Colours (`shells.colors`, earlier entries more likely): warm off-white `0xede0d1` and cream `0xeddcc6` for about two-thirds of them, a few pale pink `0xf1d2cb` and light coral `0xefc3ae`. None is pure white, and none is brighter than the sand base colour.
+- Matte two-step shading: no specular highlight, no emissive term, and the lit side is at most the configured colour (×0.97), so shells never read brighter than the sand around them and never pick up bloom.
 
 ## Clouds
 
@@ -134,7 +154,7 @@ The character shadow is the engine's existing `CharacterShadowSystem` plane. The
 - **Near/far tone**: slightly deeper and warmer near the camera, lighter toward the distance, then hazed into the horizon.
 - **Colour patches**: soft low-frequency light/shade and warm/cool patches.
 - **Grain**: three octaves of fine value noise, each faded out by its screen-space derivative so nothing shimmers.
-- **Ripples**: soft light/shade undulations along warped wave lines inside a few noise-masked patches.
+- **Ripples**: soft, low-contrast light/shade undulations along warped wave lines, only inside a few noise-masked patches (`sand.rippleCoverage = 0.35` of the ground). Spacing is `sand.rippleSpacing = 0.7` m and strength `sand.ripple = 0.28`. They fade out toward the camera (full strength beyond `sand.rippleNearFade = 9` m, about 15% right under the camera), so the near field stays smooth and calm.
 - **Wet band**: everything below the highest swash reach is darker, then dries over about 0.65 m. It reflects the sky at grazing angles and shows a soft sun highlight.
 
 ## Sea and waves
@@ -183,16 +203,17 @@ These are animated: swash, wave bands, foam, caustics, glints, high wisps, cloud
 | `layout` | `shoreZ`, `shoreCurve`, `shoreWiggle`, `horizonCurveR` |
 | `sky` | `zenith`, `mid`, `horizon`, `sunGlow`, `cirrus`, `horizonBand` |
 | `sea` | `shallow`, `mid`, `deep`, `horizon`, `foam`, `glint`, `glintDensity`, `glintSpeed`, `glintSize`, `foamWidth`, `swashAmp`, `swashSpeed`, `waves`, `waveBands`, `foamVariation`, `foamBreakup`, `depthVariation` |
-| `sand` | `base`, `shade`, `light`, `wet`, `rippleSpacing`, `ripple`, `grain` |
+| `sand` | `base`, `shade`, `light`, `wet`, `rippleSpacing`, `ripple`, `rippleCoverage`, `rippleNearFade`, `grain` |
 | `haze` | `start`, `end` (aerial perspective toward the horizon colour; `end` must stay < 100 m) |
 | `mountains` | `enabled`, `far`, `mid`, `near`, `heightScale`, `detail`, `haze` (island layers) |
 | `assets` | `clouds`, `frond` (texture URLs, see [Assets](#assets)) |
 | `clouds` | `density`, `size`, `opacity`, `tint`, `tintJitter`, `driftDegPerSec`, `light`, `shade`, `bank`, `bankHeightDeg` |
-| `vegetation` | `leafLight`, `leafShade`, `trunkLight`, `trunkShade`, `sway`, `fronds`, `frondWidth`, `frondRiseDeg`, `frondTierSpreadDeg`, `frondDroop`, `frondStiffness`, `frondFoldDeg` |
+| `vegetation` | `leafLight`, `leafShade`, `trunkLight`, `trunkShade`, `sway`, `fronds`, `frondWidth`, `frondRiseDeg`, `frondTierSpreadDeg`, `frondDroop`, `frondStiffness`, `frondFoldDeg`, `frondShadow`, `shadowSoftness` |
 | `rocks` | `enabled`, `light`, `shade`, `detail` (0 / 1 / 2 → 80 / 320 / 1280 triangles per rock) |
 | `shells` | `enabled`, `count`, `size`, `colors` |
-| `props` | `enabled`, `frame`, `cushion`, `stripe`, `canopyA`, `canopyB`, `pillow`, `groundShadow` (lounge chair + parasol) |
+| `props` | `enabled`, `frame`, `cushion`, `stripe`, `canopyA`, `canopyB`, `pillow`, `groundShadow` (lounge chair + parasol; `groundShadow` also sets palm and sandcastle shadow strength) |
 | `lighthouse` | `enabled`, `x`, `z`, `scale`, `body`, `band`, `roof`, `glass`, `rock`, `glow` |
+| `sandcastle` | `enabled`, `x`, `z`, `scale`, `yawDeg`, `color`, `flag` |
 | `dynamics` | `enabled`, `respectReducedMotion`, `autoDowngrade { enabled, minFps, windowFrames }` |
 
 ## Measured cost
@@ -201,7 +222,7 @@ Measured on an Apple M1 Ultra (Chrome, ANGLE Metal) with headless Puppeteer at 1
 
 | Scene | Scene draws / triangles (`getStats`) | Whole frame calls / triangles (incl. shadow map + post passes) | FPS (p50 / p95 frame time) |
 | :--- | :--- | :--- | :--- |
-| `beach3d` | 9 / 47,796 | 71 / 169,523 | 60.0 (16.67 / 16.67 ms) |
+| `beach3d` | 9 / 41,398 | 71 / 169,523 (measured before the sandcastle / baked shadows / scallop changes; not re-measured) | 60.0 (16.67 / 16.67 ms) |
 | `light` (baseline) | — | 73 / 122,469 | 60.0 (16.66 / 16.67 ms) |
 
 Both are capped by vsync on this machine. Low-end and mobile GPUs have not been measured.
@@ -211,7 +232,7 @@ To inspect at runtime, use `window.vrmEngine.beach3d.getStats()`.
 ## Known limitations
 
 - The horizon curvature is a deliberate cheat. With very low or very high camera heights the dip changes. It stays seamless, but the horizon moves.
-- The scene assumes the camera stays above the ground, which the engine's ground clamp guarantees. With `camera.groundClamp.enabled = false` the camera can go below the ground at steep upward pitch: the ground is then back-face culled, palms, shells, rocks and the chair are hidden as a safety net, and the sky shows the far-sea colour below the horizon.
+- The scene assumes the camera stays above the ground, which the engine's ground clamp guarantees. With `camera.groundClamp.enabled = false` the camera can go below the ground at steep upward pitch: the ground is then back-face culled, palms, shells, rocks, the chair and the sandcastle are hidden as a safety net, and the sky shows the far-sea colour below the horizon.
 - At steep upward pitch the camera sits 0.15 m above the sand. From that height the sea is only a thin strip behind the beach, and nearby palms and the parasol loom large overhead.
 - Clouds are flat painted billboards: they always face the camera, have no parallax and do not react to the sun direction.
 - The painted textures are fixed in style and resolution: very large clouds on high-DPI screens are slightly soft, and a frond seen exactly edge-on reads as a thin line.

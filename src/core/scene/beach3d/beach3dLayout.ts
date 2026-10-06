@@ -27,7 +27,7 @@ export function shoreLineZ(x: number, p: ShoreParams): number {
 // ───────────────────────── 棕榈 ─────────────────────────
 
 /** 树干基准参数: 高 H (m), 顶部相对底部的水平偏移 LEAN (m, 沿局部 +X), 根部 / 顶部半径 (m)。每棵树再乘自己的 height / lean。 */
-export const PALM_TRUNK = { height: 4.3, lean: 1.5, r0: 0.18, r1: 0.095 } as const;
+export const PALM_TRUNK = { height: 3.6, lean: 1.5, r0: 0.18, r1: 0.095 } as const;
 
 /** 树干中心线的倾斜剖面 (t ∈ [0,1] → 0..1): 根部近乎竖直 (smoothstep 两端斜率 0 → S 形), 上半段 t² 让整体更倾。 */
 export function trunkLeanProfile(t: number): number {
@@ -119,6 +119,34 @@ export function insideChairFootprint(x: number, z: number, margin = 0): boolean 
   if (Math.abs(lx) < CHAIR.width / 2 + margin && Math.abs(lz) < CHAIR.length / 2 + margin) return true;
   const pole = chairToWorld(PARASOL.lx, PARASOL.lz);
   return Math.hypot(x - pole.x, z - pole.z) < 0.15 + margin;
+}
+
+// ───────────────────────── 沙堡 ─────────────────────────
+
+/**
+ * 沙堡的占地半径 (m, scale = 1): 方形底台 0.52 × 0.44m 的半对角线 (≈ 0.34m), 连同门前的小坡道一共约 0.36m。
+ * 贝壳 / 海星避开这个圆 (再外扩一点 margin)。
+ */
+export const SANDCASTLE_RADIUS = 0.36;
+
+/** 沙堡摆放 (局部坐标, 角色在原点): 世界位置 (x, z)、大小倍率、朝向 (rad, 0 = 城门朝 +Z 即镜头方向)。 */
+export interface SandcastlePlacement {
+  x: number;
+  z: number;
+  scale: number;
+  yaw: number;
+}
+
+/** 把配置 (APP_CONFIG.beach3dScene.sandcastle) 夹到合法范围: x −3 ~ 3, z 0.6 ~ 3.5, scale 0.6 ~ 1.6, yawDeg −180 ~ 180。 */
+export function sandcastlePlacement(c: { x: number; z: number; scale: number; yawDeg: number }): SandcastlePlacement {
+  const cl = (v: number, lo: number, hi: number) => Math.min(hi, Math.max(lo, Number.isFinite(v) ? v : lo));
+  return { x: cl(c.x, -3, 3), z: cl(c.z, 0.6, 3.5), scale: cl(c.scale, 0.6, 1.6), yaw: (cl(c.yawDeg, -180, 180) * Math.PI) / 180 };
+}
+
+/** 点是否在沙堡的占地圆内, margin 外扩 (m)。castle = null 时永远 false。 */
+export function insideSandcastleFootprint(x: number, z: number, castle: SandcastlePlacement | null, margin = 0): boolean {
+  if (!castle) return false;
+  return Math.hypot(x - castle.x, z - castle.z) < SANDCASTLE_RADIUS * castle.scale + margin;
 }
 
 function mulberry32(seed: number): () => number {
@@ -290,14 +318,10 @@ export function buildRockLayout(shore: ShoreParams): RockSpec[] {
 
 // ───────────────────────── 贝壳 ─────────────────────────
 
-/** 贝壳类小物件: 0 扇贝, 1 海螺, 2 海星。 */
-export type ShellKind = 0 | 1 | 2;
-
-/** 沙滩小物件: 世界位置、种类、大小 (m, 约等于半径)、朝向、颜色序号 (0 奶白 / 1 浅粉 / 2 浅珊瑚)。 */
+/** 扇贝: 世界位置、大小 (m, 约等于壳宽)、朝向、颜色序号 (APP_CONFIG.beach3dScene.shells.colors 的下标: 前两个白 / 奶白更常见, 后面的粉彩少一些)。 */
 export interface ShellSpec {
   x: number;
   z: number;
-  kind: ShellKind;
   size: number;
   rot: number;
   color: number;
@@ -306,36 +330,37 @@ export interface ShellSpec {
 /** 贝壳离角色 (原点) 至少多远 (m), 避开脚下。 */
 export const SHELL_KEEP_OUT = 1.2;
 
-/** 近景大贝壳的数量 (相机附近几个更大、一眼认得出的; 其余是散在湿沙带的小贝壳)。 */
-export const SHELL_HERO_COUNT = 4;
+/** 近景大扇贝的数量 (相机附近只放两个更大、一眼认得出的; 其余稀疏地散在湿沙线附近)。 */
+export const SHELL_HERO_COUNT = 2;
 
 /**
- * 贝壳布局 (确定性随机):
- *   - 先放 SHELL_HERO_COUNT 个近景大贝壳: 角色两侧偏前 (相机这一侧), 竖屏全身镜头里在脚边两侧, 大小约 1.6 倍;
+ * 扇贝布局 (确定性随机, 稀疏自然):
+ *   - 先放 SHELL_HERO_COUNT 个近景大扇贝: 角色两侧偏前 (相机这一侧), 竖屏全身镜头里在脚边一左一右, 大小约 1.6 倍;
  *   - 其余沿整条海岸自然分布: 横向集中在画面中部 (|x| 越大越稀), 纵向越靠近湿沙线越密 (约 55% 在湿线上方 1.2m 内,
  *     30% 在其后 3m 内, 其余零星散在干沙上), 一律在冲刷浪推不到的地方 (不被浪膜盖住)。
- *   避开角色脚下 (SHELL_KEEP_OUT)、棕榈根部、沙滩椅 / 伞杆, 彼此至少相隔 0.45m。
+ *   避开角色脚下 (SHELL_KEEP_OUT)、棕榈根部、沙滩椅 / 伞杆、沙堡 (castle, 占地圆再外扩 0.15m), 彼此至少相隔 0.8m (稀疏, 不扎堆)。
  */
-export function buildShellLayout(count: number, shore: ShoreParams, swashAmp: number): ShellSpec[] {
+export function buildShellLayout(count: number, shore: ShoreParams, swashAmp: number, castle: SandcastlePlacement | null = null): ShellSpec[] {
   const rnd = mulberry32(0x5e11);
   const out: ShellSpec[] = [];
-  const n = Math.max(0, Math.min(60, Math.round(count)));
+  const n = Math.max(0, Math.min(30, Math.round(count)));
   const wetTop = swashAmp * 1.35 + 0.15; // 冲刷浪最远推到岸线以上约 1.35 × 幅度
   const ok = (x: number, z: number, gap: number) =>
     Math.hypot(x, z) >= SHELL_KEEP_OUT &&
     z > shoreLineZ(x, shore) + wetTop &&
     !PALMS.some((p) => Math.hypot(p.x - x, p.z - z) < 0.6) &&
     !insideChairFootprint(x, z, 0.2) &&
+    !insideSandcastleFootprint(x, z, castle, 0.15) &&
     !out.some((o) => Math.hypot(o.x - x, o.z - z) < gap);
-  const kindOf = (r: number): ShellKind => (r < 0.45 ? 0 : r < 0.75 ? 1 : 2);
-  // 近景大贝壳: 固定的几个落点附近抖动 (左右各两个, 前后错开)
-  const heroSpots: Array<[number, number]> = [[-1.35, 1.1], [0.95, 2.3], [-0.7, 3.4], [1.9, 0.6]];
+  // 颜色: 白 / 奶白占大多数 (约 2/3), 浅粉 / 浅珊瑚零星几个
+  const colorOf = (r: number) => (r < 0.36 ? 0 : r < 0.68 ? 1 : r < 0.85 ? 2 : 3);
+  // 近景大扇贝: 固定的落点附近抖动 (左右各一个, 前后错开)
+  const heroSpots: Array<[number, number]> = [[0.95, 2.3], [-1.35, 1.1]];
   for (const [hx, hz] of heroSpots.slice(0, Math.min(SHELL_HERO_COUNT, n))) {
     const x = hx + (rnd() - 0.5) * 0.3;
     const z = hz + (rnd() - 0.5) * 0.3;
     if (!ok(x, z, 0.5)) continue;
-    const kind = kindOf(rnd());
-    out.push({ x, z, kind, size: (kind === 2 ? 0.17 : 0.15) * (0.9 + rnd() * 0.2), rot: rnd() * Math.PI * 2, color: Math.floor(rnd() * 3) });
+    out.push({ x, z, size: 0.15 * (0.9 + rnd() * 0.2), rot: rnd() * Math.PI * 2, color: colorOf(rnd()) });
   }
   for (let tries = 0; out.length < n && tries < n * 40; tries++) {
     // 横向: 两个均匀数之和 → 三角分布, 中部密两侧稀; 范围 ±16m
@@ -344,10 +369,9 @@ export function buildShellLayout(count: number, shore: ShoreParams, swashAmp: nu
     const dz = band < 0.55 ? rnd() * 1.2 : band < 0.85 ? 1.2 + rnd() * 3 : 4.2 + rnd() * 4;
     const z = shoreLineZ(x, shore) + wetTop + 0.05 + dz;
     if (z > 6) continue;
-    if (!ok(x, z, 0.45)) continue;
-    const kind = kindOf(rnd());
-    const size = (kind === 2 ? 0.1 : 0.08) * (0.7 + rnd() * 0.6); // 比真实略大一点 (卡通夸张), 远处才认得出
-    out.push({ x, z, kind, size, rot: rnd() * Math.PI * 2, color: Math.floor(rnd() * 3) });
+    if (!ok(x, z, 0.8)) continue;
+    const size = 0.085 * (0.75 + rnd() * 0.5); // 比真实略大一点 (卡通夸张), 远处才认得出
+    out.push({ x, z, size, rot: rnd() * Math.PI * 2, color: colorOf(rnd()) });
   }
   return out;
 }

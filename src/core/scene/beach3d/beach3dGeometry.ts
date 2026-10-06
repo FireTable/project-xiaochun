@@ -330,60 +330,61 @@ export function triangleCount(g: THREE.BufferGeometry): number {
   return Math.floor((index ? index.count : g.getAttribute('position').count) / 3);
 }
 
+/** 扇贝的放射肋条数。 */
+export const SCALLOP_RIBS = 15;
+
 /**
- * 沙滩小物件 (单位尺寸, 底面贴 y = 0): 扇贝 / 海螺 / 海星三种形状合在一个几何里, 每个顶点带 aKind (0 / 1 / 2) 与 aUV (着色用的局部坐标)。
- * 实例化时每个实例只显示自己那一种 (顶点着色器把其余两种塌成退化三角形), 所以三种小物件只要 1 次绘制。
+ * 扇贝 (单位尺寸: 壳宽约 1, 底面贴 y = 0, 铰合部在 −Z, 壳缘朝 +Z): 凸面朝上平放在沙上的一片扇贝壳。
+ *   - 扇形壳面: 张角约 ±64°, 两肩收圆; 壳顶微微隆起 (中间高、壳缘和铰合部低);
+ *   - 放射肋条: SCALLOP_RIBS 道凸起的肋 (几何上真的起伏), 壳缘随肋条起伏成波浪形的"扇贝边";
+ *   - 铰合部两侧一对小"耳朵" (一大一小的扁平三角翼, 微微翘起)。
+ * 顶点带 aUV (u: 横向 0..1 跨过整个扇面 / 耳朵 u < 0 或 > 1, v: 铰合部 → 壳缘 0..1), 着色器据此画肋沟 / 生长纹。约 560 三角。
  */
-export function buildShellSet(): THREE.BufferGeometry {
-  const parts: THREE.BufferGeometry[] = [];
-  const make = (kind: number, pos: number[], uv: number[], idx: number[]) => {
-    const g = new THREE.BufferGeometry();
-    g.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
-    g.setAttribute('aUV', new THREE.Float32BufferAttribute(uv, 2));
-    g.setAttribute('aKind', new THREE.Float32BufferAttribute(new Array(pos.length / 3).fill(kind), 1));
-    g.setIndex(idx);
-    g.computeVertexNormals();
-    parts.push(g);
-  };
-  const grid = (nu: number, nv: number, f: (u: number, v: number) => [number, number, number], kind: number, closeU = false) => {
-    const pos: number[] = [], uv: number[] = [], idx: number[] = [];
-    for (let j = 0; j <= nv; j++) for (let i = 0; i <= nu; i++) {
-      const u = i / nu, v = j / nv;
-      pos.push(...f(closeU && i === nu ? 0 : u, v));
-      uv.push(u, v);
-    }
-    const row = nu + 1;
-    for (let j = 0; j < nv; j++) for (let i = 0; i < nu; i++) {
-      const a = j * row + i;
-      idx.push(a, a + row, a + 1, a + 1, a + row, a + row + 1);
-    }
-    make(kind, pos, uv, idx);
-  };
-  grid(14, 4, (u, v) => {
-    const th = (u - 0.5) * 2.6;
-    const rr = v * (1 - 0.05 * Math.abs(Math.sin(u * Math.PI * 9)));
-    return [Math.sin(th) * rr, 0.42 * (1 - v * v) * Math.pow(Math.cos((u - 0.5) * 2.2), 0.5) + 0.02, -0.45 + Math.cos(th) * rr];
-  }, 0);
-  grid(10, 7, (u, v) => {
-    const a = u * Math.PI * 2;
-    const r = (0.36 * Math.pow(1 - v, 0.9) + 0.03) * (1 + 0.12 * Math.sin(v * Math.PI * 2 * 3.5));
-    return [-0.5 + v * 1.25, r * 0.95 + Math.sin(a) * r, Math.cos(a) * r];
-  }, 1, true);
-  grid(30, 3, (u, v) => {
-    const a = u * Math.PI * 2;
-    const arm = Math.pow(Math.abs(Math.cos(a * 2.5)), 2.2);
-    const R = 0.34 + 0.66 * arm;
-    const rr = v * R;
-    return [Math.cos(a) * rr, 0.16 * (1 - v * v) * (0.55 + 0.45 * arm) + 0.01, -Math.sin(a) * rr];
-  }, 2, true);
-  const out = mergeGeometries(parts);
-  parts.forEach((g) => g.dispose());
-  out.computeBoundingSphere();
-  return out;
+export function buildScallop(): THREE.BufferGeometry {
+  const NU = SCALLOP_RIBS * 3, NV = 6;
+  const pos: number[] = [], uv: number[] = [], idx: number[] = [];
+  const HZ = -0.42;      // 铰合部 z
+  const R = 0.88;        // 壳缘半径 (从铰合部量)
+  const OPEN = 1.12;     // 半张角 (rad)
+  for (let j = 0; j <= NV; j++) for (let i = 0; i <= NU; i++) {
+    const u = i / NU, v = Math.pow(j / NV, 0.85);
+    const th = (u - 0.5) * 2 * OPEN;
+    const rib = 0.5 + 0.5 * Math.cos(u * SCALLOP_RIBS * Math.PI * 2);           // 1 = 肋条脊, 0 = 肋沟
+    const edge = R * (1 - 0.1 * th * th) * (1 + 0.035 * rib * v * v);           // 壳缘: 收圆的两肩 + 肋条端头的波浪边
+    const rr = 0.05 + v * (edge - 0.05);
+    const dome = 0.3 * Math.pow(Math.sin(Math.PI * Math.min(1, 0.12 + v * 0.95)), 0.75) * (1 - 0.35 * Math.pow(Math.abs(th) / OPEN, 2));
+    const y = 0.012 + dome + 0.03 * rib * Math.sin(Math.PI * Math.min(1, v * 1.1));
+    pos.push(Math.sin(th) * rr, y, HZ + Math.cos(th) * rr);
+    uv.push(u, j / NV);
+  }
+  const row = NU + 1;
+  for (let j = 0; j < NV; j++) for (let i = 0; i < NU; i++) {
+    const a = j * row + i;
+    idx.push(a, a + row, a + 1, a + 1, a + row, a + row + 1);
+  }
+  // 两只耳朵: 铰合部两侧的扁平三角翼 (左大右小), 外缘略翘
+  for (const [sx, w] of [[-1, 0.27], [1, 0.22]] as const) {
+    const b = pos.length / 3;
+    const pts: Array<[number, number, number, number, number]> = [
+      [0, 0.05, HZ + 0.02, 0.5, 0],
+      [sx * 0.05, 0.05, HZ + 0.17, 0.5, 0.15],
+      [sx * w, 0.035, HZ - 0.005, sx < 0 ? -0.15 : 1.15, 0.05],
+      [sx * (w - 0.03), 0.04, HZ + 0.1, sx < 0 ? -0.12 : 1.12, 0.12],
+    ];
+    for (const [x, y, z, u, v] of pts) { pos.push(x, y, z); uv.push(u, v); }
+    idx.push(b, b + 2, b + 3, b, b + 3, b + 1);
+  }
+  const g = new THREE.BufferGeometry();
+  g.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
+  g.setAttribute('aUV', new THREE.Float32BufferAttribute(uv, 2));
+  g.setIndex(idx);
+  g.computeVertexNormals();
+  g.computeBoundingSphere();
+  return g;
 }
 
-/** 沙滩椅 / 遮阳伞 / 灯塔的材质分区 (顶点属性 aMat)。 */
-export const PROP_MAT = { frame: 0, cushion: 1, pole: 2, canopy: 3, pillow: 4, lighthouse: 5 } as const;
+/** 沙滩椅 / 遮阳伞 / 灯塔 / 沙堡的材质分区 (顶点属性 aMat)。 */
+export const PROP_MAT = { frame: 0, cushion: 1, pole: 2, canopy: 3, pillow: 4, lighthouse: 5, sandcastle: 6 } as const;
 
 /**
  * 躺椅框架尺寸 (椅子局部坐标, m): 两根侧梁 (截面 宽 railW × 高 railH, 中心高 railY) 从脚端 z0 到头端 z1;
@@ -632,6 +633,155 @@ export function buildLighthouseParts(): LighthousePart[] {
 /** 灯塔合并成一个几何 (再按摆放矩阵 m 变换), 属性与沙滩道具一致。 */
 export function buildLighthouse(m?: THREE.Matrix4): THREE.BufferGeometry {
   const parts = buildLighthouseParts();
+  const out = mergeGeometries(parts.map((p) => p.geo));
+  parts.forEach((p) => p.geo.dispose());
+  if (m) out.applyMatrix4(m);
+  out.computeBoundingSphere();
+  return out;
+}
+
+/**
+ * 沙堡 (局部坐标: 原点 = 底台中心的地面, 单位 m, scale = 1 时最高的塔顶约 0.45m、旗尖约 0.52m; 城门朝 +Z)。
+ * 二次元卡通造型, 像用小桶 / 小铲子压出来的湿沙堡:
+ *   手拍压实的方形底台 (圆角、底宽顶窄、边缘有轻微的手拍起伏, 城门前一道小坡道) → 正中一座方形主堡 (顶上一圈城垛, 正面一扇拱门) → 四角四座高矮不同的塔:
+ *   左后 / 左前 / 右后三座是上粗下细一点点的"小桶"圆塔, 顶部外沿一圈唇边 + 城垛 (缺口), 右后那座最高, 顶上插一面小三角旗;
+ *   右前一座是尖顶的圆锥小塔 (锥形模具压出来的)。塔身上有小拱窗。
+ * 非索引几何, 属性与 buildBeachProps() 一致 (position / normal / aUV / aMat), 合并进沙滩道具的同一次绘制;
+ * aMat = PROP_MAT.sandcastle, aUV.x = 配色槽 (SANDCASTLE_SLOT)。约 1.3k 三角。
+ * 地面上的落影与棕榈一起烘焙进落影遮罩 (见 beach3dWorld.ts)。
+ */
+export const SANDCASTLE_SLOT = { sand: 0, door: 1, flag: 2, pole: 3 } as const;
+/** 沙堡底台的关键尺寸: 宽 (x) / 深 (z) / 顶面高 (m, scale = 1)。 */
+export const SANDCASTLE_DIM = { baseW: 0.52, baseD: 0.44, baseTop: 0.07 } as const;
+export interface SandcastlePart { name: string; geo: THREE.BufferGeometry }
+export function buildSandcastleParts(): SandcastlePart[] {
+  const parts: SandcastlePart[] = [];
+  const add = (name: string, g: THREE.BufferGeometry, slot: number, m: THREE.Matrix4) => {
+    const gg = g.index ? g.toNonIndexed() : g;
+    if (gg !== g) g.dispose();
+    gg.applyMatrix4(m);
+    for (const k of Object.keys(gg.attributes)) if (k !== 'position' && k !== 'normal') gg.deleteAttribute(k);
+    if (!gg.getAttribute('normal')) gg.computeVertexNormals();
+    const n = gg.getAttribute('position').count;
+    const auv = new Float32Array(n * 2);
+    for (let i = 0; i < n; i++) auv[i * 2] = slot;
+    gg.setAttribute('aUV', new THREE.BufferAttribute(auv, 2));
+    gg.setAttribute('aMat', new THREE.BufferAttribute(new Float32Array(n).fill(PROP_MAT.sandcastle), 1));
+    parts.push({ name, geo: gg });
+  };
+  const S = SANDCASTLE_SLOT;
+  const T = (x: number, y: number, z: number) => new THREE.Matrix4().makeTranslation(x, y, z);
+  const TR = (x: number, y: number, z: number, ry: number) => T(x, y, z).multiply(new THREE.Matrix4().makeRotationY(ry));
+  const top = SANDCASTLE_DIM.baseTop;
+  // ── 底台: 手拍压实的方形沙台 (圆角方块, 上面略收、四边微微外斜, 边缘有轻微的不规则起伏; 底边略埋进沙里) + 城门前的小坡道 ──
+  {
+    const BW = SANDCASTLE_DIM.baseW, BD = SANDCASTLE_DIM.baseD, BH = top + 0.012;
+    const g = new RoundedBoxGeometry(BW, BH, BD, 2, 0.026);
+    g.deleteAttribute('normal');
+    g.deleteAttribute('uv');
+    const mg = mergeVertices(g, 1e-5);
+    g.dispose();
+    const pos = mg.getAttribute('position');
+    for (let i = 0; i < pos.count; i++) {
+      const x = pos.getX(i), y = pos.getY(i), z = pos.getZ(i);
+      const lo = 0.5 - y / BH;                                            // 0 顶面 → 1 底面
+      const taper = 1 + 0.07 * lo;                                        // 拍出来的斜边: 底宽顶窄
+      const wob = 0.008 * Math.sin(z * 31 + 0.7) + 0.006 * Math.sin(x * 23 + z * 9 + 2.1); // 手拍的小起伏
+      const sx = Math.sign(x) * Math.min(1, Math.abs(x) / (BW / 2 - 0.02));
+      const sz = Math.sign(z) * Math.min(1, Math.abs(z) / (BD / 2 - 0.02));
+      const dy = y > BH / 2 - 0.004 ? 0.004 * Math.sin(x * 19 + 1.3) * Math.sin(z * 17) : 0; // 顶面不是完全平的
+      pos.setXYZ(i, x * taper + sx * wob, y + BH / 2 - 0.012 + dy, z * taper + sz * wob);
+    }
+    mg.computeVertexNormals();
+    add('castle:base', mg, S.sand, new THREE.Matrix4());
+    // 城门前的小坡道 (从底台前沿斜下到沙地)
+    const rampL = 0.12, ang = Math.atan2(top, 0.09);
+    add('castle:ramp', new RoundedBoxGeometry(0.09, 0.03, rampL, 1, 0.01), S.sand,
+      new THREE.Matrix4().compose(new THREE.Vector3(0, top / 2 - 0.006, BD / 2 + 0.035), new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(1, 0, 0), ang), new THREE.Vector3(1, 1, 1)));
+  }
+  // ── 主堡: 圆角方块 + 顶上一圈城垛; 正面拱门 ──
+  const KW = 0.22, KH = 0.17, KD = 0.17, KZ = -0.01;
+  add('castle:keep', new RoundedBoxGeometry(KW, KH + 0.02, KD, 1, 0.012), S.sand, T(0, top + KH / 2 - 0.01, KZ));
+  const merlon = (name: string, x: number, y: number, z: number, w = 0.034, h = 0.03, d = 0.034, ry = 0) =>
+    add(name, new THREE.BoxGeometry(w, h, d), S.sand, TR(x, y, z, ry));
+  const ky = top + KH + 0.013; // 城垛 (高 0.03) 底面略嵌进主堡顶面
+  for (let i = 0; i < 4; i++) {
+    const x = -KW / 2 + 0.017 + (i * (KW - 0.034)) / 3;
+    merlon(`castle:keepMerlonF${i}`, x, ky, KZ + KD / 2 - 0.017);
+    merlon(`castle:keepMerlonB${i}`, x, ky, KZ - KD / 2 + 0.017);
+  }
+  for (const sx of [-1, 1]) merlon(`castle:keepMerlonS${sx}`, sx * (KW / 2 - 0.017), ky, KZ);
+  // 拱门 (平面拱形, 贴在主堡正面外 2mm) + 门上一扇小拱窗
+  const arch = (w: number, h: number) => {
+    const sh = new THREE.Shape();
+    const r = w / 2;
+    sh.moveTo(-r, 0);
+    sh.lineTo(r, 0);
+    sh.lineTo(r, h - r);
+    sh.absarc(0, h - r, r, 0, Math.PI, false);
+    sh.lineTo(-r, 0);
+    return new THREE.ShapeGeometry(sh, 6);
+  };
+  add('castle:door', arch(0.064, 0.092), S.door, T(0, top - 0.004, KZ + KD / 2 + 0.002));
+  add('castle:keepWindow', arch(0.026, 0.036), S.door, T(0, top + 0.112, KZ + KD / 2 + 0.002));
+  // ── 塔: [名字, x, z, 塔身高 (从底座顶面算), 底半径, 顶半径, 是否尖顶] ──
+  const towers: Array<[string, number, number, number, number, number, boolean]> = [
+    ['backLeft', -0.125, -0.105, 0.27, 0.078, 0.07, false],
+    ['backRight', 0.125, -0.11, 0.335, 0.084, 0.074, false],
+    ['frontLeft', -0.135, 0.095, 0.2, 0.068, 0.062, false],
+    ['frontRight', 0.14, 0.105, 0.15, 0.07, 0.03, true],
+  ];
+  for (const [name, x, z, h, rb, rt, cone] of towers) {
+    if (cone) {
+      // 圆锥小塔: 截头圆锥 + 圆顶珠 (锥形模具压出来的, 顶端不尖锐)
+      add(`castle:${name}`, new THREE.CylinderGeometry(rt, rb, h, 14, 2, true), S.sand, T(x, top + h / 2 - 0.01, z));
+      add(`castle:${name}Tip`, new THREE.SphereGeometry(rt * 1.05, 10, 5, 0, Math.PI * 2, 0, Math.PI / 2), S.sand, T(x, top + h - 0.012, z));
+      const cr = rb + (rt - rb) * (0.055 / h) + 0.004;
+      add(`castle:${name}Window`, arch(0.02, 0.03), S.door, TR(x + Math.sin(0.5) * cr, top + 0.03, z + Math.cos(0.5) * cr, 0.5));
+      continue;
+    }
+    // 小桶圆塔: 上细一点点的塔身 (顶盖封口) + 外沿唇边 + 6 个城垛
+    add(`castle:${name}`, new THREE.CylinderGeometry(rt, rb, h, 14, 1, false), S.sand, T(x, top + h / 2 - 0.01, z));
+    const lipR = rt + 0.01, lipH = 0.026;
+    const ly = top + h - 0.01 + lipH / 2 - 0.004;
+    add(`castle:${name}Lip`, new THREE.CylinderGeometry(lipR, rt, lipH, 14, 1, false), S.sand, T(x, ly, z));
+    const n = 6;
+    for (let k = 0; k < n; k++) {
+      const a = (k / n) * Math.PI * 2 + 0.3;
+      const mr = lipR - 0.013;
+      merlon(`castle:${name}Merlon${k}`, x + Math.cos(a) * mr, ly + lipH / 2 + 0.013, z + Math.sin(a) * mr, 0.028, 0.03, 0.026, Math.PI / 2 - a);
+    }
+    // 朝镜头一侧的小拱窗 (贴在塔身外 2mm, 跟着塔身朝向转)
+    const wa = x < 0 ? -0.35 : 0.35;
+    const wy = top + h * 0.55;
+    const rw = rb + (rt - rb) * 0.55 + 0.002;
+    add(`castle:${name}Window`, arch(0.022, 0.034), S.door, TR(x + Math.sin(wa) * rw, wy, z + Math.cos(wa) * rw, wa));
+  }
+  // ── 最高塔顶的小旗: 细旗杆 + 微微飘动的三角旗 (3 段) ──
+  {
+    const [, x, z, h] = towers[1];
+    const y0 = top + h - 0.012;
+    const poleH = 0.13;
+    add('castle:flagPole', new THREE.CylinderGeometry(0.0045, 0.005, poleH, 6, 1, false), S.pole, T(x, y0 + poleH / 2, z));
+    const pos: number[] = [];
+    const L = 0.1, H = 0.06, SEG = 3;
+    const pt = (u: number, v: number) => [x + 0.004 + u * L, y0 + poleH - 0.006 - H / 2 + (v - 0.5) * H * (1 - u), z + 0.008 * Math.sin(u * Math.PI * 1.5)];
+    for (let k = 0; k < SEG; k++) {
+      const u0 = k / SEG, u1 = (k + 1) / SEG;
+      const a = pt(u0, 0), b = pt(u1, 0), c = pt(u1, 1), d = pt(u0, 1);
+      pos.push(...a, ...b, ...c, ...a, ...c, ...d);
+    }
+    const fg = new THREE.BufferGeometry();
+    fg.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
+    fg.computeVertexNormals();
+    add('castle:flag', fg, S.flag, new THREE.Matrix4());
+  }
+  return parts;
+}
+
+/** 沙堡合并成一个几何 (再按摆放矩阵 m 变换), 属性与沙滩道具一致。 */
+export function buildSandcastle(m?: THREE.Matrix4): THREE.BufferGeometry {
+  const parts = buildSandcastleParts();
   const out = mergeGeometries(parts.map((p) => p.geo));
   parts.forEach((p) => p.geo.dispose());
   if (m) out.applyMatrix4(m);
