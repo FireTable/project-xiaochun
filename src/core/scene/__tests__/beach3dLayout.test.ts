@@ -176,11 +176,11 @@ describe('beach3d layout', () => {
 });
 
 describe('beach3d geometry budget', () => {
-  it('低模: 单棵棕榈 < 2200 三角 (叶冠是贴图叶带, 每片叶 48 + 叶柄 6 三角, 冠顶叶鞘包, 4 个椰子), 场景总计 < 60000 三角', () => {
+  it('低模: 单棵棕榈 < 2400 三角 (叶冠是贴图叶带, 每片叶 48 + 叶柄三棱管 12 三角, 两圈冠顶叶鞘, 4 个椰子; 树干含放粗的冠部圆顶), 场景总计 < 60000 三角', () => {
     const crown = triangleCount(buildPalmCrown(cfg.vegetation.fronds, cfg.vegetation.frondWidth));
-    expect(crown).toBeLessThan(1700);
+    expect(crown).toBeLessThan(1850);
     const palm = triangleCount(buildPalmTrunk()) + crown;
-    expect(palm).toBeLessThan(2200);
+    expect(palm).toBeLessThan(2400);
     const rocks = triangleCount(buildRock(cfg.rocks.detail)) * buildRockLayout(shore).length;
     const castle = sandcastlePlacement(cfg.sandcastle);
     const shells = triangleCount(buildScallop()) * buildShellLayout(cfg.shells.count, shore, cfg.sea.swashAmp, castle).length;

@@ -8,7 +8,8 @@ import { CHAIR, PALM_TRUNK, PARASOL, trunkLeanProfile } from './beach3dLayout';
  * 每种物体一份几何 + InstancedMesh, 棕榈只有 2 次绘制 (树干 / 叶冠); 沙滩椅 + 遮阳伞合并成 1 个几何 (1 次绘制)。
  *
  * 棕榈的自定义顶点属性:
- *   aPart  — 0 树干, 1 叶片 (贴手绘羽叶贴图), 2 椰子 (叶冠几何里混合了叶和椰子, 共用一次绘制)
+ *   aPart  — 0 树干, 1 叶片 (贴手绘羽叶贴图), 2 椰子 (叶冠几何里混合了叶和椰子, 共用一次绘制), 3 冠顶叶鞘包 / 叶柄
+ *   aNut   — 椰子: (中心 xyz, 槽位序号 0..3); 顶点着色器按每棵树的种子决定画几颗 (多余的塌成一点) 和每颗的大小
  *   aLeaf  — 叶片 = 贴图坐标 (u: 叶柄 → 叶尖 0..1, v: 横向 0..1, 叶轴 v = 0.5); 树干 = (高度 0..1, 环向 0..1)
  */
 
@@ -24,9 +25,15 @@ export function trunkTop(): THREE.Vector3 {
   return trunkCenter(1);
 }
 
+/** 树干顶端平滑放粗的比例 (冠部: 顶端半径 = r1 × (1 + 此值), 从 t = 0.88 开始过渡), 冠部不另接一个大鼓包。 */
+export const TRUNK_CROWN_FLARE = 0.2;
+/** 冠顶圆顶的剖面 (沿树干顶端轴向的高度 m, 半径 / 顶端半径), 接在树干最后一环上, 收成圆润的顶。 */
+const TRUNK_CAP: ReadonlyArray<readonly [number, number]> = [[0.035, 1.03], [0.075, 0.92], [0.11, 0.66], [0.13, 0.34], [0.14, 0]];
+
 /**
- * 树干: 10 边形 × 24 节的平滑管 (节点向根部加密), 粗细从根部向顶部平滑收窄, 根部微微外扩入沙。
- * 表面的柔和明暗 / 细环纹在片元着色器里按 aLeaf (高度 0..1, 环向 0..1) 画, 几何本身没有分节。
+ * 树干: 10 边形 × 24 节的平滑管 (节点向根部加密), 粗细从根部向顶部平滑收窄, 根部微微外扩入沙;
+ * 顶端最后一段平滑放粗约 1.3 倍成冠部, 再接 5 环收成圆润的冠顶 (aLeaf.x > 1), 与树干是同一张连续的面 (没有接缝)。
+ * 表面的柔和明暗 / 细环纹 / 冠部的橄榄色过渡在片元着色器里按 aLeaf (高度 0..1(+冠顶), 环向 0..1) 画, 几何本身没有分节。
  */
 export function buildPalmTrunk(radial = 10, rings = 24): THREE.BufferGeometry {
   const pos: number[] = [];
@@ -40,7 +47,8 @@ export function buildPalmTrunk(radial = 10, rings = 24): THREE.BufferGeometry {
   const side = new THREE.Vector3();
   const fwd = new THREE.Vector3();
   const n = new THREE.Vector3();
-  const radius = (t: number) => THREE.MathUtils.lerp(PALM_TRUNK.r0, PALM_TRUNK.r1, Math.pow(t, 0.75)) * (1 + 0.45 * Math.pow(1 - t, 9));
+  const ss = (a: number, b: number, x: number) => { const u = Math.min(1, Math.max(0, (x - a) / (b - a))); return u * u * (3 - 2 * u); };
+  const radius = (t: number) => THREE.MathUtils.lerp(PALM_TRUNK.r0, PALM_TRUNK.r1, Math.pow(t, 0.75)) * (1 + 0.45 * Math.pow(1 - t, 9)) * (1 + TRUNK_CROWN_FLARE * ss(0.88, 1, t));
   for (let j = 0; j <= rings; j++) {
     const t = Math.pow(j / rings, 1.2);
     trunkCenter(t, c);
@@ -59,8 +67,24 @@ export function buildPalmTrunk(radial = 10, rings = 24): THREE.BufferGeometry {
       part.push(0);
     }
   }
+  // 冠顶圆顶: 沿顶端切线方向再接几环, 半径收到 0 (法线由剖面坡度算, 越往上越朝上)
+  const rTop = radius(1);
+  TRUNK_CAP.forEach(([h, k], ci) => {
+    const [hp, kp] = ci === 0 ? [0, 1] : TRUNK_CAP[ci - 1];
+    const [hn, kn] = TRUNK_CAP[Math.min(TRUNK_CAP.length - 1, ci + 1)];
+    const dH = hn - hp, dR = (kn - kp) * rTop;
+    for (let i = 0; i <= radial; i++) {
+      const a = (i / radial) * Math.PI * 2;
+      n.copy(side).multiplyScalar(Math.cos(a)).addScaledVector(fwd, Math.sin(a));
+      pos.push(c.x + tan.x * h + n.x * k * rTop, c.y + tan.y * h + n.y * k * rTop, c.z + tan.z * h + n.z * k * rTop);
+      const nn = n.clone().multiplyScalar(dH).addScaledVector(tan, -dR).normalize();
+      nrm.push(nn.x, nn.y, nn.z);
+      leaf.push(1 + h, i / radial);
+      part.push(0);
+    }
+  });
   const row = radial + 1;
-  for (let j = 0; j < rings; j++) {
+  for (let j = 0; j < rings + TRUNK_CAP.length; j++) {
     for (let i = 0; i < radial; i++) {
       const a = j * row + i, b = a + 1, d = a + row, e = d + 1;
       idx.push(a, d, b, b, d, e);
@@ -110,14 +134,14 @@ export interface FrondShape {
 export const DEFAULT_FROND_SHAPE: FrondShape = { riseDeg: 36, tierSpreadDeg: 34, droop: 1, stiffness: 0.35, foldDeg: 24 };
 
 /**
- * 棕榈叶冠 (原点 = 树干顶端): fronds 片羽状大叶 + 一簇 4 个圆润的椰子, 按椰子树的真实形态排布:
+ * 棕榈叶冠 (原点 = 树干顶端, +Y = 树干顶端的轴向): 两圈冠顶叶鞘 + fronds 片羽状大叶 + 4 个椰子槽位, 按椰子树的真实形态排布:
  *   - 分层: 每片叶有个"叶龄" tier (0 = 冠顶嫩叶, 1 = 最下层老叶), 叶柄起始仰角从冠顶的 rise + spread 递减到最下层的 rise − spread,
  *     下弯量随叶龄增大 → 冠顶叶斜向上伸出、中层叶拱起后斜向下、只有老叶下垂; 整体是向四周放射的"喷泉 / 星芒"轮廓;
  *   - 每片叶的叶轴: 前 stiffness 段笔直上扬 (硬挺的叶柄), 之后才逐渐弯下 (下弯集中在后半段 → 拱形, 不是从冠顶直接垂下的拖把);
  *   - 横截面是倒 V 形 (叶轴在中间最高, 两侧小叶向下折 foldDeg, 叶尖处略深), 小叶仍向两侧张开成羽毛状, 不竖直下垂;
  *   - 长度 / 宽度 / 下弯 / 方位 / 侧弯 / 扭转每片都有随机差异; 方位按黄金角排布, 层与方位交错, 没有规则的环。
  * 每片叶 = 一条沿叶轴的带子 (贴手绘羽叶贴图, 透明处丢弃), aLeaf = (u: 叶柄 → 叶尖 0..1, v: 横向 0..1, 叶轴 v = 0.5) = 贴图坐标;
- * aPart: 1 叶片, 2 椰子, 3 冠顶叶鞘包 (aLeaf.y = 0) / 叶柄 (aLeaf.y = 1)。法线朝上偏 (卡通柔和明暗)。每片叶 12 节 × 2 条 = 48 三角 + 叶柄 6 三角。
+ * aPart: 1 叶片, 2 椰子, 3 冠顶叶鞘 (aLeaf.y = 0) / 叶柄 (aLeaf.y = 1)。法线朝上偏 (卡通柔和明暗)。每片叶 12 节 × 2 条 = 48 三角 + 叶柄 (2 节三棱管) 12 三角; 冠顶叶鞘 13 片 × 16 三角。
  */
 export function buildPalmCrown(fronds = 14, widthScale = 1, shape: Partial<FrondShape> = {}): THREE.BufferGeometry {
   const F = Math.max(6, Math.min(18, Math.round(fronds)));
@@ -178,7 +202,7 @@ export function buildPalmCrown(fronds = 14, widthScale = 1, shape: Partial<Frond
       const cs = Math.cos(tw), sn = Math.sin(tw);
       const S2 = S.clone().multiplyScalar(cs).addScaledVector(N, sn);
       const N2 = N.clone().multiplyScalar(cs).addScaledVector(S, -sn);
-      if (s <= 0.34) stalk.push({ p: p.clone(), s: S2.clone() });
+      if (s <= 0.34 && k % 2 === 0) stalk.push({ p: p.clone(), s: S2.clone() });
       // 倒 V 形折叠: 两侧小叶向下折 fold (叶尖处略深), 但仍向两侧张开
       const fold = fold0 * (0.8 + 0.5 * s);
       const half = (W / 2) * (0.92 + 0.08 * Math.sin(Math.PI * s));
@@ -199,70 +223,106 @@ export function buildPalmCrown(fronds = 14, widthScale = 1, shape: Partial<Frond
       idx.push(r0, r1, r0 + 1, r0 + 1, r1, r1 + 1);
       idx.push(r0 + 1, r1 + 1, r0 + 2, r0 + 2, r1 + 1, r1 + 2);
     }
-    // 叶柄: 沿叶轴前 1/3 的一条竖直窄片 (与叶面十字交叉), 从侧面 / 下面看也是一根连到冠顶的实心叶柄, 越往外越细
+    // 叶柄: 沿叶轴前 1/3 的一根细的三棱管 (从冠顶里面长出, 越往外越细), 从侧面 / 下面看也是一根连到冠顶的实心叶柄
     const sb = pos.length / 3;
     stalk.forEach(({ p: sp, s: ss }, k) => {
       const t = k / Math.max(1, stalk.length - 1);
-      const hw = 0.032 * (1 - t) + 0.01;
+      const hw = 0.019 * (1 - t) + 0.006;
       const nv = new THREE.Vector3().crossVectors(ss, up).normalize();
       const fin = new THREE.Vector3().crossVectors(nv, ss).normalize(); // 竖直方向 (叶面法线一侧)
       if (fin.y < 0) fin.negate();
-      vtx(sp.clone().addScaledVector(fin, hw * 0.6), ss, t, 1, 3);
-      vtx(sp.clone().addScaledVector(fin, -hw * 1.4), ss, t, 1, 3);
+      for (let j = 0; j < 3; j++) {
+        const th = (j / 3) * Math.PI * 2;
+        const d = fin.clone().multiplyScalar(Math.cos(th)).addScaledVector(ss, Math.sin(th));
+        vtx(sp.clone().addScaledVector(d, hw).addScaledVector(fin, -hw * 0.5), d, t, 1, 3);
+      }
     });
     for (let k = 0; k + 1 < stalk.length; k++) {
-      const a = sb + k * 2;
-      idx.push(a, a + 2, a + 1, a + 1, a + 2, a + 3);
-    }
-  }
-  // 冠顶叶鞘包: 树干顶端略微鼓起的一圈叶基 (旋转体, 10 × 5 段), 所有叶柄都从它里面长出来
-  {
-    const prof: Array<[number, number]> = [[0.085, -0.3], [0.112, -0.2], [0.132, -0.08], [0.124, 0.02], [0.085, 0.08], [0.03, 0.11]];
-    const RAD = 10;
-    const bb = pos.length / 3;
-    for (let j = 0; j < prof.length; j++) {
-      const [r, y] = prof[j];
-      const [rp, yp] = prof[Math.max(0, j - 1)];
-      const [rn, yn] = prof[Math.min(prof.length - 1, j + 1)];
-      const dr = rn - rp, dy = yn - yp; // 剖面切线 → 法线 (dy, -dr)
-      for (let i = 0; i <= RAD; i++) {
-        const a = (i / RAD) * Math.PI * 2;
-        const c = Math.cos(a), sn = Math.sin(a);
-        vtx(new THREE.Vector3(c * r, y, sn * r), new THREE.Vector3(c * dy, -dr, sn * dy).normalize(), j / (prof.length - 1), 0, 3);
+      for (let j = 0; j < 3; j++) {
+        const a = sb + k * 3 + j, b = sb + k * 3 + ((j + 1) % 3);
+        idx.push(a, a + 3, b, b, a + 3, b + 3);
       }
     }
-    for (let j = 0; j + 1 < prof.length; j++) for (let i = 0; i < RAD; i++) {
-      const a = bb + j * (RAD + 1) + i, b = a + RAD + 1;
-      idx.push(a, b, a + 1, a + 1, b, b + 1);
+  }
+  // 冠顶叶鞘: 两圈小的、彼此交叠的尖瓣形叶鞘包住树干顶端的冠部 (像收拢的花苞), 叶柄从冠顶中间长出。
+  // 每片 = 贴着冠部圆柱面弯曲的叶形瓣 (根部窄、中段最宽、叶尖收尖、中段微鼓、中脊略高), 外圈 7 片根部收窄、贴着树干放粗段的表面 (没有台阶 / 横向接缝), 往上外翻, 内圈 6 片错开半格贴着冠顶往里收。
+  {
+    const shRnd = mulberry32(0x5eed);
+    const layers = [
+      { n: 7, y0: -0.17, y1: 0.05, r0: 0.112, r1: 0.136, w: 0.13, off: 0 },
+      { n: 6, y0: -0.07, y1: 0.13, r0: 0.117, r1: 0.08, w: 0.115, off: 0.5 },
+    ];
+    const SEG = 4;
+    for (const ly of layers) for (let i = 0; i < ly.n; i++) {
+      const az = ((i + ly.off) / ly.n) * Math.PI * 2 + (shRnd() - 0.5) * 0.3;
+      const lk = 0.9 + shRnd() * 0.2;
+      const bb = pos.length / 3;
+      for (let k = 0; k <= SEG; k++) {
+        const sv = k / SEG;
+        const y = ly.y0 + (ly.y1 - ly.y0) * sv * lk;
+        const r = ly.r0 + (ly.r1 - ly.r0) * sv + 0.008 * Math.sin(Math.PI * sv);
+        const hw = (ly.w / 2) * Math.pow(Math.sin(Math.PI * (0.05 + 0.95 * sv)), 0.75) + 0.003; // 叶形: 根部窄 → 中段最宽 → 叶尖收尖
+        const dR = (ly.r1 - ly.r0) + 0.008 * Math.PI * Math.cos(Math.PI * sv), dY = (ly.y1 - ly.y0) * lk;
+        for (const sg of [-1, 0, 1]) {
+          const aa = az + (sg * hw) / r;
+          const radial = new THREE.Vector3(Math.cos(aa), 0, Math.sin(aa));
+          const pp = radial.clone().multiplyScalar(r + (sg === 0 ? 0.006 : 0)).setY(y);
+          const nn = radial.clone().multiplyScalar(dY).add(new THREE.Vector3(0, -dR, 0)).normalize();
+          vtx(pp, nn, sv, sg === 0 ? 0 : 0.3, 3); // aLeaf.y: 中脊 0 → 叶缘 0.3 (着色时叶缘略深, 交叠处有层次)
+        }
+      }
+      for (let k = 0; k < SEG; k++) {
+        const r0 = bb + k * 3, r1 = r0 + 3;
+        idx.push(r0, r1, r0 + 1, r0 + 1, r1, r1 + 1, r0 + 1, r1 + 1, r0 + 2, r0 + 2, r1 + 1, r1 + 2);
+      }
     }
   }
-  // 椰子: 4 个圆润的球 (2 级细分二十面体 180 面, 平滑法线, 略呈蛋形), 一簇挂在叶冠下面; aLeaf.x = 椰子序号 (着色时颜色略有差别)
+  // 椰子: 4 个槽位, 紧凑地挤在冠部叶鞘下沿的同一侧 (顶部被叶鞘挡住一点) (叶冠每棵树自转不同 → 每棵树朝向不同), 刚好挂在叶柄根部下方;
+  // 略呈蛋形 (沿"向外下垂"的轴拉长), 每颗的倾斜带一点确定性随机, 相邻的稍有重叠。2 级细分二十面体 (每颗 180 三角), 平滑法线。
+  // 每棵树画几颗 / 每颗大小在顶点着色器里按树的种子决定 (aNut = 中心 + 槽位序号); aLeaf.x = 槽位 (着色时冷暖略有差别)
   const ico = mergeVertices(stripToPosition(new THREE.IcosahedronGeometry(1, 2)));
   const ip = ico.getAttribute('position');
   const ii = ico.getIndex()!;
+  const nutRnd = mulberry32(0xc0c0);
+  // [方位 (°, 叶冠局部, 0 = +X), 中心高度 y, 离轴距离, 半径]: 槽位 0 ~ 2 一排, 3 在下面塞进 0 / 1 之间
   const nuts: Array<[number, number, number, number]> = [
-    [0.21, -0.13, 0.08, 0.105],
-    [-0.13, -0.14, 0.19, 0.1],
-    [-0.08, -0.12, -0.22, 0.108],
-    [0.07, -0.27, -0.19, 0.098],
+    [0, -0.07, 0.128, 0.076],
+    [50, -0.085, 0.124, 0.073],
+    [-47, -0.095, 0.124, 0.074],
+    [22, -0.17, 0.118, 0.07],
   ];
-  nuts.forEach(([ox, oy, oz, r], c) => {
+  const nutStart = pos.length / 3;
+  const nutCenters: number[] = [];
+  nuts.forEach(([azDeg, oy, d, r], c) => {
+    const az = azDeg * D;
+    const ctr = new THREE.Vector3(Math.cos(az) * d, oy, Math.sin(az) * d);
+    const out = new THREE.Vector3(Math.cos(az), 0, Math.sin(az));
+    // 长轴: 向外下垂 + 一点随机倾斜
+    const ax = new THREE.Vector3(0, -1, 0).addScaledVector(out, 0.35 + (nutRnd() - 0.5) * 0.3)
+      .add(new THREE.Vector3(-out.z, 0, out.x).multiplyScalar((nutRnd() - 0.5) * 0.4)).normalize();
+    const u1 = new THREE.Vector3().crossVectors(ax, out).normalize();
+    const v1 = new THREE.Vector3().crossVectors(u1, ax).normalize();
+    const LA = 1.18, LB = 0.95; // 长轴 / 短轴比例
     const base = pos.length / 3;
     for (let i = 0; i < ip.count; i++) {
-      const x = ip.getX(i), y = ip.getY(i), z = ip.getZ(i);
-      const l = Math.hypot(x, y, z) || 1;
-      const sy = 1.1;
-      vtx(new THREE.Vector3(ox + (x / l) * r, oy + (y / l) * r * sy, oz + (z / l) * r),
-        new THREE.Vector3(x / l, y / l / sy, z / l).normalize(), (c + 0.5) / nuts.length, 0, 2);
+      const sp = new THREE.Vector3(ip.getX(i), ip.getY(i), ip.getZ(i)).normalize();
+      const su = sp.dot(u1), sa = sp.dot(ax), sv = sp.dot(v1);
+      const q = ctr.clone().addScaledVector(u1, su * r * LB).addScaledVector(ax, sa * r * LA).addScaledVector(v1, sv * r * LB);
+      const nn = new THREE.Vector3().addScaledVector(u1, su / LB).addScaledVector(ax, sa / LA).addScaledVector(v1, sv / LB).normalize();
+      vtx(q, nn, (c + 0.5) / nuts.length, 0, 2);
+      nutCenters.push(ctr.x, ctr.y, ctr.z, c);
     }
     for (let i = 0; i < ii.count; i++) idx.push(base + ii.getX(i));
   });
   ico.dispose();
+  const nutAttr = new Float32Array((pos.length / 3) * 4);
+  nutAttr.set(nutCenters, nutStart * 4);
   const g = new THREE.BufferGeometry();
   g.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
   g.setAttribute('normal', new THREE.Float32BufferAttribute(nrm, 3));
   g.setAttribute('aLeaf', new THREE.Float32BufferAttribute(leaf, 2));
   g.setAttribute('aPart', new THREE.Float32BufferAttribute(part, 1));
+  g.setAttribute('aNut', new THREE.Float32BufferAttribute(nutAttr, 4));
   g.setIndex(idx);
   g.computeBoundingSphere();
   return g;

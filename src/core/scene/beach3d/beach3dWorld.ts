@@ -9,10 +9,13 @@ import {
   MID_ISLANDS,
   NEAR_ISLANDS,
   PALMS,
+  PARASOL,
   PALM_TRUNK,
   buildCloudLayout,
   buildRockLayout,
   buildShellLayout,
+  chairToWorld,
+  palmCrownTilt,
   palmTop,
   parasolCanopy,
   sandcastlePlacement,
@@ -66,7 +69,8 @@ import {
  * 贴图: 只有云图集与棕榈羽叶两张 (APP_CONFIG.beach3dScene.assets, public/scene/beach3d/), 场景激活时才加载; 加载完成前云 / 叶冠不画。
  * "远景层" (云 / 远岛) 每帧跟随相机平移 (不跟随旋转): 等价于无限远, 不受相机远裁剪面 (100m) 限制。
  * 地平线弧度 (layout.horizonCurveR) 见 beach3dShaders.ts 文件头; 天空 / 远岛 / 云按同一个 uDip 对齐 (computeHorizonDip)。
- * 太阳方向 = 引擎主方向光方向 (每帧读取)。动态走 SceneMotionGovernor: reduced-motion 或低帧率自动静止。
+ * 太阳方向 = 引擎主方向光方向 (每帧读取)。动态走 SceneMotionGovernor: reduced-motion 或低帧率自动静止 (停在当时的画面, 不跳回);
+ * 云 / 高空卷云的漂移走单独的漂移时钟, 低帧率降级时也继续 (只有总开关 / reduced-motion 才停), 漂移角不取模、不复位。
  */
 
 /** 远景层半径 (m): 云在此球面上。须小于相机远裁剪面 100m。 */
@@ -93,7 +97,7 @@ export function computeHorizonDip(camY: number, d0: number, R: number): number {
   return Math.atan((h + (e * e) / (2 * R)) / ds);
 }
 
-/** 静止时停在的时刻 (浪花 / 闪光分布好看的一帧)。 */
+/** 动画时钟的起点 = 一开始就静止时停在的时刻 (浪花 / 闪光分布好看的一帧)。 */
 const STATIC_TIME = 14.9;
 
 export interface Beach3DStats {
@@ -146,6 +150,8 @@ export class Beach3DWorld {
   /** 所有材质共享的 uniform (同一对象引用, 改一次全部生效)。 */
   private readonly shared = {
     uTime: { value: 0 },
+    /** 云 / 卷云漂移时钟 (秒): 低帧率降级不停, 见 SceneMotionGovernor.driftTime。 */
+    uDriftTime: { value: 0 },
     uComp: { value: 1 },
     uSunDir: { value: new THREE.Vector3(0.36, 0.72, 0.6).normalize() },
     uSway: { value: 0 },
@@ -269,10 +275,18 @@ export class Beach3DWorld {
       uSunDir: this.shared.uSunDir,
       uSunGlow: { value: cfg.sky.sunGlow },
       uCirrus: { value: cfg.sky.cirrus },
-      uHorizonBand: { value: cfg.sky.horizonBand },
+      uHorizonGlow: { value: lin(cfg.sky.horizonGlow) },
+      uHorizonBand: { value: clampN(cfg.sky.horizonBand, 0, 1) },
+      uBandH: { value: Math.sin(THREE.MathUtils.degToRad(clampN(cfg.sky.horizonBandDeg, 1, 10))) },
+      uHorizonFade: { value: Math.sin(THREE.MathUtils.degToRad(clampN(cfg.sky.horizonFadeDeg, 6, 40))) },
+      uHorizonLine: { value: clampN(cfg.sky.horizonLine, 0, 0.6) },
+      uWaterMistColor: { value: lin(cfg.sky.waterMistColor) },
+      uWaterMist: { value: clampN(cfg.sky.waterMist, 0, 1) },
+      uWaterMistH: { value: Math.sin(THREE.MathUtils.degToRad(clampN(cfg.sky.waterMistDeg, 0.2, 8))) },
+      uBankDrift: { value: THREE.MathUtils.degToRad(clampN(cfg.clouds.driftDegPerSec, 0, 1)) },
       uBank: { value: clampN(cfg.clouds.bank, 0, 1) },
       uBankHeight: { value: Math.sin(THREE.MathUtils.degToRad(clampN(cfg.clouds.bankHeightDeg, 0.3, 5))) },
-      uTime: this.shared.uTime,
+      uTime: this.shared.uDriftTime, // 天空里只有卷云 / 积云带的漂移用到时间
       uDipSin: this.shared.uDipSin,
       uComp: this.shared.uComp,
     });
@@ -325,8 +339,8 @@ export class Beach3DWorld {
         vertexShader: CLOUD_VERT,
         fragmentShader: CLOUD_FRAG,
         uniforms: {
-          uTime: this.shared.uTime,
-          uDrift: { value: THREE.MathUtils.degToRad(cfg.clouds.driftDegPerSec) },
+          uTime: this.shared.uDriftTime,
+          uDrift: { value: THREE.MathUtils.degToRad(clampN(cfg.clouds.driftDegPerSec, 0, 1)) },
           uRadius: { value: SKY_LAYER_RADIUS },
           uDipTan: this.shared.uDipTan,
           uMap: { value: map },
@@ -335,6 +349,7 @@ export class Beach3DWorld {
           uTint: { value: lin(cfg.clouds.tint) },
           uTintJitter: { value: clampN(cfg.clouds.tintJitter, 0, 0.15) },
           uHorizon: { value: lin(cfg.sky.horizon) },
+          uHorizonGlow: { value: lin(cfg.sky.horizonGlow) },
           uOpacity: { value: clampN(cfg.clouds.opacity, 0, 1) },
           uComp: this.shared.uComp,
         },
@@ -373,7 +388,7 @@ export class Beach3DWorld {
             uFar: { value: lin(cfg.mountains.far) },
             uMid: { value: lin(cfg.mountains.mid) },
             uNear: { value: lin(cfg.mountains.near) },
-            uHorizon: { value: lin(cfg.sky.horizon) },
+            uHorizon: { value: lin(cfg.sky.waterMistColor) }, // 空气透视 / 山脚薄雾的目标色 = 贴海面白雾色, 与天边白雾无缝
             uSunDir: this.shared.uSunDir,
             uHeight: { value: hs },
             uDetail: { value: clampN(cfg.mountains.detail, 0, 2) },
@@ -425,6 +440,7 @@ export class Beach3DWorld {
     const maskSoft = clampN(cfg.vegetation.shadowSoftness, 0.3, 2);
     const cnp = parasolCanopy();
     const canopyU = propsOn ? new THREE.Vector4(cnp.x, cnp.z, cnp.y, cnp.r) : new THREE.Vector4(0, 0, 0, 0);
+    const poleFoot = chairToWorld(PARASOL.lx, PARASOL.lz); // 伞杆插进沙里的点 (伞杆斜向椅子, 伞面中心不在它正上方)
     const chairU = propsOn ? new THREE.Vector4(CHAIR.x, CHAIR.z, CHAIR.yaw, 1) : new THREE.Vector4(0, 0, 0, 0);
 
     // ── 沙地 + 海 (y=0 大平面, 写深度; 角色踩在上面, 落影平面画在它上面) ──
@@ -477,6 +493,7 @@ export class Beach3DWorld {
           uMaskTexel: { value: new THREE.Vector2(1 / SHADOW_MASK.w, 1 / SHADOW_MASK.h) },
           uMaskSoft: { value: maskSoft },
           uCanopy: { value: canopyU },
+          uPoleFoot: { value: new THREE.Vector2(poleFoot.x, poleFoot.z) },
           uChair: { value: chairU },
           uChairBack: { value: new THREE.Vector4(CHAIR_BACK.pivotY, CHAIR_BACK.pivotZ, CHAIR_BACK.angle, CHAIR_BACK.length) },
           uChairSeat: { value: new THREE.Vector4(CHAIR_BACK.seatTop, CHAIR_BACK.legX, CHAIR_BACK.legZ[0], CHAIR_BACK.legZ[1]) },
@@ -513,6 +530,14 @@ export class Beach3DWorld {
         uFrondSize: { value: new THREE.Vector2(1024, 320) },
         uTrunkLight: { value: lin(cfg.vegetation.trunkLight) },
         uTrunkShade: { value: lin(cfg.vegetation.trunkShade) },
+        uBoot: { value: lin(cfg.vegetation.bootColor) },
+        uNut: { value: lin(cfg.vegetation.coconutColor) },
+        uNutShine: { value: clampN(cfg.vegetation.coconutShine, 0, 1) },
+        uNutCount: { value: new THREE.Vector2(
+          clampN(Math.round(cfg.vegetation.coconutMin), 0, 4),
+          clampN(Math.round(cfg.vegetation.coconutMax), clampN(Math.round(cfg.vegetation.coconutMin), 0, 4), 4),
+        ) },
+        uNutVar: { value: clampN(cfg.vegetation.coconutSizeJitter, 0, 0.3) },
         uSunDir: this.shared.uSunDir,
         uHaze: { value: sandHaze },
         uComp: this.shared.uComp,
@@ -546,9 +571,9 @@ export class Beach3DWorld {
       sc.setScalar(p.scale);
       m.compose(new THREE.Vector3(p.x, 0, p.z), q, sc);
       this.trunks!.setMatrixAt(i, m);
-      // 叶冠: 挂在树干顶端, 顺着倾斜方向歪一点 (局部绕 Z 轴), 再自转; 每棵树大小略有差别
+      // 叶冠: 挂在树干顶端, 叶冠轴对齐树干顶端的切线 (局部绕 Z 轴倾斜 palmCrownTilt), 再绕自身轴自转; 每棵树大小略有差别
       const t = palmTop(p);
-      q.setFromAxisAngle(Y, p.yaw).multiply(q2.setFromAxisAngle(Z, -0.16 * p.lean)).multiply(new THREE.Quaternion().setFromAxisAngle(Y, p.spin));
+      q.setFromAxisAngle(Y, p.yaw).multiply(q2.setFromAxisAngle(Z, -palmCrownTilt(p))).multiply(new THREE.Quaternion().setFromAxisAngle(Y, p.spin));
       sc.setScalar(p.scale * (0.94 + 0.12 * ((i * 0.618) % 1)));
       m.compose(new THREE.Vector3(t.x, t.y, t.z), q, sc);
       this.crowns!.setMatrixAt(i, m);
@@ -719,6 +744,7 @@ export class Beach3DWorld {
     const now = typeof performance !== 'undefined' ? performance.now() : Date.now();
     const dyn = this.motion.tick(now);
     this.shared.uTime.value = this.motion.time(STATIC_TIME);
+    this.shared.uDriftTime.value = this.motion.driftTime(STATIC_TIME);
     this.shared.uSway.value = dyn ? cfg.vegetation.sway : 0;
     this.shared.uPxScale.value = renderer.getPixelRatio();
 

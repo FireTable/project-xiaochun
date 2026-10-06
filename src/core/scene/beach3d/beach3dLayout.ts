@@ -67,7 +67,7 @@ function palm(x: number, z: number, scale: number, height: number, lean: number,
  */
 export const PALMS: readonly PalmSpec[] = [
   // 左侧簇 (竖屏可见)
-  palm(-2.3, -1.4, 1.05, 1.0, 1.15, 0.5, -4.5, 0.3),
+  palm(-2.3, -1.4, 1.05, 0.85, 1.15, 0.5, -4.5, 0.3),
   palm(-2.7, -4.1, 0.95, 1.25, 0.45, -6.0, -7.0, 2.1),
   // 右侧框景 (竖屏可见)
   palm(3.6, -4.0, 1.12, 1.15, 0.8, 6.0, -6.0, 1.2),
@@ -80,6 +80,13 @@ export const PALMS: readonly PalmSpec[] = [
   palm(14.5, -9.5, 0.85, 0.9, 1.3, 10.0, -13.0, 0.4),
   palm(21.0, -15.5, 1.1, 1.05, 0.9, 16.0, -20.0, 1.8),
 ];
+
+/** 树干顶端切线相对竖直方向的倾角 (rad, 朝树干倾斜方向): 叶冠沿这个方向挂在树干顶端, 叶冠轴 = 树干轴 (叶柄都从冠顶中心沿树干轴长出)。 */
+export function palmCrownTilt(p: PalmSpec): number {
+  const dt = 1e-3;
+  const dx = PALM_TRUNK.lean * p.lean * (trunkLeanProfile(1) - trunkLeanProfile(1 - dt)) / dt;
+  return Math.atan2(dx, PALM_TRUNK.height * p.height);
+}
 
 /** 树干顶端 (叶冠挂点) 的世界坐标 (局部坐标系, 角色在原点)。 */
 export function palmTop(p: PalmSpec): { x: number; y: number; z: number } {
