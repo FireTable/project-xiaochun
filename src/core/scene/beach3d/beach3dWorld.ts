@@ -82,16 +82,6 @@ export function computeHorizonDip(camY: number, d0: number, R: number): number {
   return Math.atan((h + (e * e) / (2 * R)) / ds);
 }
 
-/**
- * 天空 / 云 / 远岛用的海平线下沉角 (rad)。相机在地面以上 = computeHorizonDip。
- * 相机在地面以下 (近距离极限仰视) 时地面被背面剔除, 若海平线仍在眼高, 低处的云 / 远岛会画到角色脚下 →
- * 把海平线抬到角色脚下那条线 (负的下沉角 = −atan(深度 / 水平距离), 最多抬 25°): 云和远岛永远在角色脚下那条线以上, 下面是远海色。
- */
-export function computeSkyDip(camH: number, camDist: number, d0: number, R: number): number {
-  if (camH > 0) return computeHorizonDip(camH, d0, R);
-  return -Math.min(Math.atan2(-camH, Math.max(camDist, 0.3)), THREE.MathUtils.degToRad(25));
-}
-
 /** 静止时停在的时刻 (浪花 / 闪光分布好看的一帧)。 */
 const STATIC_TIME = 14.9;
 
@@ -636,11 +626,12 @@ export class Beach3DWorld {
     const d0 = camDist + 3;
     this.shared.uCurveD0.value = d0;
     const camH = this.tmpV.y - this.group.position.y;
-    const dip = computeSkyDip(camH, camDist, d0, this.shared.uCurveR.value);
+    // 海平线只由相机离地高度决定 (世界空间固定, 不随俯仰滑动); 相机由引擎的 groundClamp 保持在地面以上
+    const dip = computeHorizonDip(camH, d0, this.shared.uCurveR.value);
     this.shared.uDipSin.value = Math.sin(dip);
     this.shared.uDipTan.value = Math.tan(dip);
 
-    // 相机在地面以下 (极限仰视) 时地面背面被剔除, 地上的东西会浮在天上 → 只留天空 / 云 / 远岛 (海平线抬到角色脚下, 见 computeSkyDip) 和角色
+    // 兜底: 相机正常不会到地面以下 (APP_CONFIG.camera.groundClamp); 若关掉夹取后相机穿地, 地面背面被剔除, 地上的道具会浮在天上 → 只留天空 / 云 / 远岛和角色
     const above = camH > 0.02;
     this.groundAbove = above;
     if (this.shells) this.shells.visible = above;

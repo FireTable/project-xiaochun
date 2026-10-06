@@ -31,7 +31,7 @@ import {
   buildShellSet,
   triangleCount,
 } from '../beach3d/beach3dGeometry';
-import { computeHorizonDip, computeSkyDip } from '../beach3d/beach3dWorld';
+import { computeHorizonDip } from '../beach3d/beach3dWorld';
 
 const cfg = APP_CONFIG.beach3dScene;
 const shore = cfg.layout;
@@ -115,15 +115,6 @@ describe('beach3d layout', () => {
     expect(computeHorizonDip(3, 5.5, R)).toBeGreaterThan(a);
     expect(computeHorizonDip(0.96, 5.5, 1e6)).toBeLessThan(0.01);
     expect(Number.isFinite(computeHorizonDip(-5, 5.5, R))).toBe(true); // 相机在地面以下
-  });
-
-  it('相机在地面以下: 海平线抬到角色脚下 (负下沉角, 最多 25°), 地面以上与 computeHorizonDip 一致', () => {
-    const R = shore.horizonCurveR;
-    expect(computeSkyDip(1.5, 14, 17, R)).toBeCloseTo(computeHorizonDip(1.5, 17, R), 10);
-    const d = computeSkyDip(-0.8, 3, 6, R);
-    expect(d).toBeLessThan(0);
-    expect(d).toBeCloseTo(-Math.atan2(0.8, 3), 6);
-    expect(computeSkyDip(-5, 0, 3, R)).toBeGreaterThanOrEqual(-(25 * Math.PI) / 180 - 1e-9);
   });
 
   it('远岛: 三层剪影高度非负, 角色正后方只有低矮岛影 (留出海面)', () => {

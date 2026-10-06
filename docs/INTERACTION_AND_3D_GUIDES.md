@@ -14,7 +14,7 @@ The `InteractionController` manages all user-initiated 3D transformations, compl
 - **Tauri short drag**: Move before arming cancels long-press and starts window drag (desk-pet).
 - **Passthrough capture**: While guides are active / dragging, `passthroughManager.setInteracting(true)` so thin guide pixels are not treated as click-through.
 - **Photon knobs**: `INTERACTION_GUIDE_PHOTON` (`thickness` / `flowUFrac` / `cameraLength`) — shared paint ratios; each guide keeps its own track/flow mesh (no shared photon plane).
-- **Pinch / Scroll Zoom**: Smooth exponential zooming bounded by configured safe camera distances.
+- **Pinch / Scroll Zoom**: Smooth exponential zooming bounded by configured safe camera distances. While the ground clamp holds the camera near the floor, zooming out widens the field of view and the full distance returns when the camera pitches back up; zooming in takes effect immediately (see [`PLATFORM_DIFFERENCES.md`](PLATFORM_DIFFERENCES.md) §5).
 
 - **Shared gesture core (`src/core/gesture/`)**: the left-button decision logic (short drag = move, long-press `INTERACTION_TOUCH_ARM_MS` = arm adjust mode, modifier = instant 3D) is a pure-TS state machine (`GestureMachine`, no DOM / Tauri dependency) extracted verbatim from `InteractionController`. `InteractionController` is now a thin DOM adapter on top of it. The same machine drives **three consumers**: the Tauri desktop window (`move` strategy `native`: hand the drag to Tauri `startDragging`), the `/embed` iframe (`delta` strategy: post `xc.gesture-move` increments that the host SDK applies, see [`EMBED.md`](EMBED.md) §2.8) and the corner resize (`ResizeGesture` + `CORNER_HIT_SIZE` / `cornerAt`, shared by `TauriWindowFrame` and `EmbedCorners`). `HitGate` decides click-through for transparent scenes (character / buttons / menus / corner zones capture; blank passes through). Equivalence against the old controller is locked by `src/core/gesture/__tests__/equivalence.test.ts`.
 
@@ -25,7 +25,7 @@ The `InteractionController` manages all user-initiated 3D transformations, compl
 
 ### 2.3 PitchGuide3D: Vertical Elevation Arc (`src/core/interaction/pitchGuide3D.ts`)
 - Displays an elevation arc alongside the camera orientation.
-- Provides visual feedback for camera pitch clamping, ensuring the camera never flips upside down or clips into the ground plane.
+- Provides visual feedback for camera pitch. Pitch is limited only so the camera never flips upside down. The ground clamp (`APP_CONFIG.camera.groundClamp`) stops the camera from going below the floor by moving it closer to the character along its view ray, so pitch keeps its full range.
 
 ### 2.4 CameraYGuide3D: Floating Height Rail (`src/core/interaction/cameraYGuide3D.ts`)
 - **Replaces the 2D Height Slider**: A 3D holographic vertical guide rail floats alongside the character. Horizontal offset is `APP_CONFIG.interaction.cameraYGuide.xOffset` (meters, negative = left of character).

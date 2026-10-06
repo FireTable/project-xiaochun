@@ -544,7 +544,8 @@ export class LineworkWorld {
     }
     for (const g of buildingGeos) g.dispose();
 
-    // Call 5: 实体地面基底（填充当前背景底色，写入深度，彻底封死地下空间，消除任何下透伪影）
+    // Call 5: 实体地面基底（填充地面底色，写入深度，遮住远处网格与山脚）。
+    // 只有正面 (朝上): 相机在地面以下时会被背面剔除、看起来像透明的; 相机由引擎的 APP_CONFIG.camera.groundClamp 保持在地面以上。
     if (this.groundSolidMat) {
       const groundPlaneGeo = new THREE.PlaneGeometry(140, 140);
       groundPlaneGeo.rotateX(-Math.PI / 2);

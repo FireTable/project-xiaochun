@@ -41,6 +41,22 @@ export interface SceneItemConfig {
   tauri: SceneTauriConfig;
 }
 
+/**
+ * 相机不穿地 (APP_CONFIG.camera.groundClamp, 实现见 src/core/camera/groundClamp.ts)。
+ * 俯仰范围不变 (近 180°); 请求的机位低于 地面 + minHeight 时沿视线推近, 让线稿地板 / 海滩沙地永远在相机下方、地平线固定在世界空间。
+ * 透明场景 (transparent) 不生效。
+ */
+export interface CameraGroundClampConfig {
+  /** 总开关。false = 相机可以穿到地面以下 (旧行为)。 */
+  enabled: boolean;
+  /** 相机离地最小高度 (m)。范围 0.05 ~ 0.5, 建议 0.1 ~ 0.3; 调小 = 地平线更贴近脚底, 但沙纹 / 网格掠射更容易闪; 调大 = 地平线高于脚踝。 */
+  minHeight: number;
+  /** FOV 补偿强度。范围 0 ~ 1; 0 = 推近时不放宽视角 (人物变大最多), 1 = 人物大小基本不变 (透视畸变最强); 上限 camera.maxFov。 */
+  fovCompensation: number;
+  /** 沿视线推近的最小视距 (m)。范围 0.3 ~ 1.0; 再近就改为抬高环绕中心 (只在相机 Y 偏移把目标点压到贴地时出现)。 */
+  minDollyDistance: number;
+}
+
 export interface SceneRegistryConfig {
   defaultSceneId: string;
   items: Record<string, SceneItemConfig>;

@@ -152,7 +152,7 @@ The visible horizon then dips below eye level by:
 dip = atan((h + e²/2R) / d*),   d* = √(d0² + 2Rh),   e = d* − d0
 ```
 
-Here `h` is the camera height. `computeHorizonDip()` evaluates this every frame. The sky gradient (`uDipSin`) and the island and cloud layers (`uDipTan`) are aligned to the same dip, so the seam stays clean. When the camera is below the ground, `computeSkyDip()` replaces this with a negative dip (see [Known limitations](#known-limitations)).
+Here `h` is the camera height. `computeHorizonDip()` evaluates this every frame. The sky gradient (`uDipSin`) and the island and cloud layers (`uDipTan`) are aligned to the same dip, so the seam stays clean. The dip depends only on the camera height, so the horizon is fixed in world space and moves on screen only as the camera pitches. The engine's ground clamp keeps the camera at least `camera.groundClamp.minHeight` (0.15 m) above the sand (see [`PLATFORM_DIFFERENCES.md`](PLATFORM_DIFFERENCES.md) §5), so at steep upward pitch the horizon sits at about the line of the character's feet.
 
 With `horizonCurveR = 700` the horizon lands around the hips in full-body portrait shots. A larger R makes the ground flatter and moves the horizon back toward eye height.
 
@@ -201,6 +201,7 @@ To inspect at runtime, use `window.vrmEngine.beach3d.getStats()`.
 ## Known limitations
 
 - The horizon curvature is a deliberate cheat. With very low or very high camera heights the dip changes. It stays seamless, but the horizon moves.
-- When the camera is below the ground (extreme upward pitch at close distance), the ground is back-face culled. In that case palms, shells, rocks and the chair are hidden, and the horizon used by the sky, clouds and islands is raised to the line of the character's feet (by up to 25°, `computeSkyDip()`), so nothing in the sky appears below her feet. Below that line the sky shows the far-sea colour.
+- The scene assumes the camera stays above the ground, which the engine's ground clamp guarantees. With `camera.groundClamp.enabled = false` the camera can go below the ground at steep upward pitch: the ground is then back-face culled, palms, shells, rocks and the chair are hidden as a safety net, and the sky shows the far-sea colour below the horizon.
+- At steep upward pitch the camera sits 0.15 m above the sand. From that height the sea is only a thin strip behind the beach, and nearby palms and the parasol loom large overhead.
 - Clouds are flat painted billboards: they always face the camera, have no parallax and do not react to the sun direction.
 - The painted textures are fixed in style and resolution: very large clouds on high-DPI screens are slightly soft, and a frond seen exactly edge-on reads as a thin line.
