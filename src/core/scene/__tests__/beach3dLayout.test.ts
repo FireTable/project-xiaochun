@@ -2,6 +2,8 @@ import { describe, expect, it } from 'vitest';
 import { APP_CONFIG } from '@/config';
 import {
   CHAIR,
+  CLOUD_FILLERS,
+  CLOUD_SPRITES,
   FAR_ISLANDS,
   HERO_CLOUDS,
   MID_ISLANDS,
@@ -28,7 +30,7 @@ import {
   buildShellSet,
   triangleCount,
 } from '../beach3d/beach3dGeometry';
-import { computeHorizonDip } from '../beach3d/beach3dWorld';
+import { computeHorizonDip, computeSkyDip } from '../beach3d/beach3dWorld';
 
 const cfg = APP_CONFIG.beach3dScene;
 const shore = cfg.layout;
@@ -103,6 +105,15 @@ describe('beach3d layout', () => {
     expect(Number.isFinite(computeHorizonDip(-5, 5.5, R))).toBe(true); // 相机在地面以下
   });
 
+  it('相机在地面以下: 海平线抬到角色脚下 (负下沉角, 最多 25°), 地面以上与 computeHorizonDip 一致', () => {
+    const R = shore.horizonCurveR;
+    expect(computeSkyDip(1.5, 14, 17, R)).toBeCloseTo(computeHorizonDip(1.5, 17, R), 10);
+    const d = computeSkyDip(-0.8, 3, 6, R);
+    expect(d).toBeLessThan(0);
+    expect(d).toBeCloseTo(-Math.atan2(0.8, 3), 6);
+    expect(computeSkyDip(-5, 0, 3, R)).toBeGreaterThanOrEqual(-(25 * Math.PI) / 180 - 1e-9);
+  });
+
   it('远岛: 三层剪影高度非负, 角色正后方只有低矮岛影 (留出海面)', () => {
     for (let az = -90; az <= 90; az += 0.5) {
       for (const layer of [FAR_ISLANDS, MID_ISLANDS, NEAR_ISLANDS]) expect(islandRidge(az, layer)).toBeGreaterThanOrEqual(0);
@@ -115,28 +126,53 @@ describe('beach3d layout', () => {
     expect(FAR_ISLANDS.length + MID_ISLANDS.length + NEAR_ISLANDS.length).toBeLessThanOrEqual(12); // ISL_MAX
   });
 
-  it('云: 数量符合配置, 主角云在正面视野里, 全部在海平线以上', () => {
-    const clouds = buildCloudLayout(cfg.clouds.count);
-    expect(clouds.length).toBe(cfg.clouds.count);
+  it('云: 数量符合云量配置, 主角云在正面视野里, 全部在海平线以上', () => {
+    const clouds = buildCloudLayout(cfg.clouds.density);
+    expect(clouds.length).toBe(HERO_CLOUDS.length + Math.round(CLOUD_FILLERS * cfg.clouds.density));
+    expect(buildCloudLayout(0).length).toBe(HERO_CLOUDS.length);
     expect(HERO_CLOUDS.filter((c) => Math.abs(c.az) < 12 && c.el < 15).length).toBeGreaterThanOrEqual(2);
     for (const c of clouds) {
       expect(c.el).toBeGreaterThan(0.5);
-      expect(c.el).toBeLessThan(60);
-      expect([0, 1, 2]).toContain(c.kind);
+      expect(c.el).toBeLessThanOrEqual(45);
+      expect([0, 1, 2, 3]).toContain(c.kind);
+    }
+    // 按仰角从低 (远) 到高 (近) 排序
+    for (let i = 1; i < clouds.length; i++) expect(clouds[i].el).toBeGreaterThanOrEqual(clouds[i - 1].el);
+  });
+
+  it('云图集格子: 都在贴图内、互不重叠, aspect 与格子像素比例一致', () => {
+    expect(CLOUD_SPRITES.length).toBe(4);
+    for (const sp of CLOUD_SPRITES) {
+      const [u, v, du, dv] = sp.rect;
+      expect(u).toBeGreaterThanOrEqual(0);
+      expect(v).toBeGreaterThanOrEqual(0);
+      expect(u + du).toBeLessThanOrEqual(1 + 1e-6);
+      expect(v + dv).toBeLessThanOrEqual(1 + 1e-6);
+      expect(sp.aspect).toBeCloseTo(dv / du, 2); // 图集是正方形
+    }
+    for (let i = 0; i < 4; i++) {
+      for (let j = i + 1; j < 4; j++) {
+        const [a0, b0, c0, d0] = CLOUD_SPRITES[i].rect;
+        const [a1, b1, c1, d1] = CLOUD_SPRITES[j].rect;
+        const overlap = a0 < a1 + c1 && a1 < a0 + c0 && b0 < b1 + d1 && b1 < b0 + d0;
+        expect(overlap).toBe(false);
+      }
     }
   });
 });
 
 describe('beach3d geometry budget', () => {
-  it('低模: 单棵棕榈 < 2600 三角, 场景总计 < 60000 三角', () => {
-    const palm = triangleCount(buildPalmTrunk()) + triangleCount(buildPalmCrown(cfg.vegetation.fronds, cfg.vegetation.leaflets));
-    expect(palm).toBeLessThan(2600);
+  it('低模: 单棵棕榈 < 2000 三角 (叶冠是贴图叶带, 每片叶 48 三角), 场景总计 < 60000 三角', () => {
+    const crown = triangleCount(buildPalmCrown(cfg.vegetation.fronds, cfg.vegetation.frondWidth));
+    expect(crown).toBeLessThan(1500);
+    const palm = triangleCount(buildPalmTrunk()) + crown;
+    expect(palm).toBeLessThan(2000);
     const rocks = triangleCount(buildRock(cfg.rocks.detail)) * buildRockLayout(shore).length;
     const shells = triangleCount(buildShellSet()) * buildShellLayout(cfg.shells.count, shore, cfg.sea.swashAmp).length;
     const islands = triangleCount(buildIslandStrip(6));
     const props = triangleCount(buildBeachProps());
     expect(props).toBeLessThan(3000);
-    const total = palm * PALMS.length + rocks + shells + islands + props + cfg.clouds.count * 2 + 40 * 48 * 2 /* 地面 */ + 2 /* 天空 */;
+    const total = palm * PALMS.length + rocks + shells + islands + props + buildCloudLayout(cfg.clouds.density).length * 2 + 40 * 48 * 2 /* 地面 */ + 2 /* 天空 */;
     expect(total).toBeLessThan(60000);
   });
 
@@ -150,7 +186,7 @@ describe('beach3d geometry budget', () => {
     }
   });
 
-  it('叶冠是下垂的拱形叶 (叶尖低于叶柄), 不是一层层松树枝', () => {
+  it('叶冠是下垂的拱形叶带 (叶尖低于叶柄), 贴图坐标 0..1, 冠顶没有竖直的叶轴尖', () => {
     const g = buildPalmCrown();
     const pos = g.getAttribute('position');
     let minY = Infinity;
@@ -160,7 +196,16 @@ describe('beach3d geometry budget', () => {
       maxY = Math.max(maxY, pos.getY(i));
     }
     expect(minY).toBeLessThan(-0.8); // 叶尖垂到叶冠中心以下
-    expect(maxY).toBeGreaterThan(0.3); // 上层叶先向上拱起
+    expect(maxY).toBeGreaterThan(0.08); // 冠顶嫩叶先向上拱起
+    expect(maxY).toBeLessThan(0.5); // 但没有竖直戳出来的叶轴尖
+    const uv = g.getAttribute('aLeaf');
+    const part = g.getAttribute('aPart');
+    for (let i = 0; i < uv.count; i++) {
+      if (part.getX(i) !== 1) continue;
+      expect(uv.getX(i)).toBeGreaterThanOrEqual(0);
+      expect(uv.getX(i)).toBeLessThanOrEqual(1);
+      expect([0, 0.5, 1]).toContain(uv.getY(i));
+    }
   });
 
   it('沙滩道具: 一个合并几何, 带材质分区 aMat, 法线已归一化', () => {

@@ -59,8 +59,8 @@ function palm(x: number, z: number, scale: number, height: number, lean: number,
 }
 
 /**
- * 棕榈布局 (共 11 棵, 左 7 右 4, 刻意不对称):
- *   竖屏全身镜头里: 左侧一簇 3 棵 (近处一棵向海面 / 画面中心斜出, 后面一棵更高更直, 岸边一棵矮小的幼树探向海面),
+ * 棕榈布局 (共 10 棵, 左 6 右 4, 刻意不对称):
+ *   竖屏全身镜头里: 左侧 2 棵 (近处一棵向海面 / 画面中心斜出, 岸边一棵矮小的幼树探向海面),
  *   右侧只有一棵向外侧斜出的框景棕榈 (树干入画, 叶冠一半在画外); 右侧近处留给沙滩椅 + 遮阳伞。
  *   横屏 / 广角时两侧再各露出几棵间距、高矮、倾斜都不同的远树。
  * 全部种在沙地上 (单测校验 z > 岸线 + 0.8m), 且离角色 ≥ 2.4m, 叶冠不悬在角色正上方。
@@ -68,7 +68,6 @@ function palm(x: number, z: number, scale: number, height: number, lean: number,
 export const PALMS: readonly PalmSpec[] = [
   // 左侧簇 (竖屏可见)
   palm(-2.9, -1.6, 1.05, 1.0, 1.15, 0.5, -4.5, 0.3),
-  palm(-3.3, -4.3, 0.95, 1.25, 0.45, -6.0, -7.0, 2.1),
   palm(-1.95, -4.75, 0.7, 0.86, 1.35, -1.0, -9.0, 4.4),
   // 右侧框景 (竖屏可见)
   palm(3.6, -4.0, 1.12, 1.15, 0.8, 6.0, -6.0, 1.2),
@@ -191,10 +190,21 @@ export function islandRidge(azDeg: number, peaks: readonly IslandPeak[]): number
 
 // ───────────────────────── 云 ─────────────────────────
 
-/** 云的种类: 0 大积云 (可长成塔状), 1 中积云, 2 扁平的层积云碎块 / 小云团。 */
-export type CloudKind = 0 | 1 | 2;
+/** 云的种类 = 云图集里的哪一张手绘云: 0 高耸积云, 1 宽积云, 2 扁长低云, 3 小云簇。 */
+export type CloudKind = 0 | 1 | 2 | 3;
 
-/** 云: 方位 az (°)、底边仰角 el (°, 可见海平线之上)、宽度 w (°)、种类、随机种子 (0..1)。 */
+/**
+ * 云图集 (APP_CONFIG.beach3dScene.assets.clouds, 1024×1024) 里每张云的格子: [u0, v0, du, dv] (v 从图片顶边往下, 贴图不翻转),
+ * aspect = 格子高 / 宽 (像素)。格子四周各留 14px 透明边。由手绘 2×2 云图抠图 (按蓝底颜色距离 + 软过渡 + 去蓝边) 后打包生成。
+ */
+export const CLOUD_SPRITES: readonly { rect: readonly [number, number, number, number]; aspect: number }[] = [
+  { rect: [0.0, 0.0, 0.57031, 0.40918], aspect: 0.71747 },
+  { rect: [0.0, 0.41113, 0.5918, 0.26172], aspect: 0.44224 },
+  { rect: [0.0, 0.6748, 0.6543, 0.17578], aspect: 0.26866 },
+  { rect: [0.57227, 0.0, 0.2666, 0.18262], aspect: 0.68498 },
+];
+
+/** 云: 方位 az (°)、底边仰角 el (°, 可见海平线之上)、宽度 w (°, 贴图格子的宽)、种类 (哪张手绘云)、随机种子 (0..1: 左右翻转 / 冷暖 / 漂移速度)。 */
 export interface CloudSpec {
   az: number;
   el: number;
@@ -204,36 +214,41 @@ export interface CloudSpec {
 }
 
 /**
- * 手工构图的"主角云" (正前方 ±30° 内, 竖屏全身镜头 ±12° 都能看到几朵): 远近 / 大小 / 高低都错开,
- * 一大一中一小 + 近海平线的扁云 + 仰头才看到的高云, 不再是天上孤零零的一朵。
+ * 手工构图的"主角云" (正前方 ±30°): 竖屏全身镜头里角色右侧一朵高耸积云、左侧一朵宽积云、头顶上方一小簇,
+ * 两侧贴着海平线的扁长低云; 仰头时再看到三朵高云。同一张贴图出现两次时用翻转 / 大小 / 冷暖错开。
  */
 export const HERO_CLOUDS: readonly CloudSpec[] = [
-  { az: -7.5, el: 4.6, w: 11, kind: 0, seed: 0.137 },
-  { az: 9.5, el: 4.0, w: 8, kind: 1, seed: 0.618 },
-  { az: 1.5, el: 12.5, w: 3.4, kind: 2, seed: 0.271 },
-  { az: 16, el: 1.8, w: 9, kind: 2, seed: 0.833 },
-  { az: 25, el: 6.5, w: 14, kind: 0, seed: 0.459 },
-  { az: -24, el: 2.8, w: 10, kind: 1, seed: 0.905 },
-  { az: 4.5, el: 21, w: 10, kind: 1, seed: 0.362 },
-  { az: -16, el: 29, w: 8, kind: 2, seed: 0.744 },
-  { az: 15, el: 36, w: 7, kind: 2, seed: 0.051 },
+  { az: 8.5, el: 2.4, w: 11, kind: 0, seed: 0.137 },
+  { az: -9, el: 4.6, w: 11, kind: 1, seed: 0.618 },
+  { az: 0.5, el: 12.5, w: 4.5, kind: 3, seed: 0.271 },
+  { az: -17, el: 1.0, w: 13, kind: 2, seed: 0.833 },
+  { az: 19, el: 0.8, w: 11, kind: 2, seed: 0.459 },
+  { az: 30, el: 4.5, w: 15, kind: 1, seed: 0.905 },
+  { az: -28, el: 2.0, w: 14, kind: 0, seed: 0.362 },
+  { az: 3, el: 20, w: 13, kind: 1, seed: 0.744 },
+  { az: -16, el: 27, w: 5.5, kind: 3, seed: 0.551 },
+  { az: 15, el: 33, w: 14, kind: 2, seed: 0.566 },
+  { az: -4, el: 40, w: 9, kind: 3, seed: 0.212 },
 ];
 
+/** density = 1 时主角区之外的散云数量。 */
+export const CLOUD_FILLERS = 16;
+
 /**
- * 全部云: 主角云 + 其余方位的随机云 (总数 count, 最少 = 主角云数量), 按底边仰角从低到高 (= 从远到近) 排序, 近处的云叠在远处的云前面。
- * 仰角 ≤ 40°, 面片在仰视极限时不退化。确定性随机。
+ * 全部云: 主角云 + 其余方位的散云 (round(16 × density) 朵), 按底边仰角从低到高 (= 从远到近) 排序, 高处 (近) 的云叠在低处 (远) 的云前面。
+ * 仰角 0.8° ~ 40°: 底边永远在可见海平线之上, 面片在仰视极限时也不退化。确定性随机。
  */
-export function buildCloudLayout(count: number): CloudSpec[] {
+export function buildCloudLayout(density: number): CloudSpec[] {
   const out: CloudSpec[] = HERO_CLOUDS.map((c) => ({ ...c }));
-  const n = Math.max(0, Math.round(count)) - out.length;
+  const n = Math.max(0, Math.round(CLOUD_FILLERS * Math.min(2, Math.max(0, density))));
   const rnd = mulberry32(0xc10d);
   for (let i = 0; i < n; i++) {
     // 主角区 (|az| < 32°) 之外的 296° 均布 + 抖动
     const az = 32 + ((i + 0.2 + rnd() * 0.6) / Math.max(1, n)) * 296;
     const r = rnd();
-    const kind: CloudKind = r < 0.3 ? 0 : r < 0.65 ? 1 : 2;
-    const el = kind === 2 ? 1.5 + rnd() * 26 : 2 + rnd() * (kind === 0 ? 10 : 18);
-    const w = (kind === 0 ? 12 : kind === 1 ? 7 : 5) * (0.7 + rnd() * 0.6);
+    const kind: CloudKind = r < 0.25 ? 0 : r < 0.55 ? 1 : r < 0.8 ? 2 : 3;
+    const el = kind === 0 ? 1.5 + rnd() * 7 : kind === 1 ? 2 + rnd() * 18 : kind === 2 ? 0.8 + rnd() * 30 : 6 + rnd() * 30;
+    const w = (kind === 0 ? 12 : kind === 1 ? 11 : kind === 2 ? 12 : 5.5) * (0.8 + rnd() * 0.4);
     out.push({ az: az > 180 ? az - 360 : az, el, w, kind, seed: rnd() });
   }
   return out.sort((a, b) => a.el - b.el);

@@ -129,30 +129,33 @@ void main() {
 
 // ───────────────────────── 积云 (实例化面片, 远景层) ─────────────────────────
 // 每朵云一个朝向相机的面片, 底边坐在 (方位, 仰角) 处, 分布在以相机为圆心、半径 uRadius 的球面上 (远景层跟随相机平移 = 无限远)。
-// 画法 = 二次元积云的"球堆"体积: 每朵云由 18 个大小不一的球 (底排 / 云体 / 顶部花椰菜 / 两肩) 组成, 每个像素取最靠前的球,
-//   用球面法线做柔和的三阶明暗 (顶光 + 太阳方向) → 每个鼓包都有自己的圆润体积; 两个球交叠的凹处略暗 (鼓包之间的阴影);
-//   底部平而偏淡紫 (云底背光), 底边柔和地化开 (不是贴纸般的硬边), 向阳的轮廓一圈透光亮边。
-//   暗面 = 淡紫蓝 + 天空色反光; 亮面奶白; 越低 (越远) 的云越淡、越偏天边色。
-// kind: 0 大积云 (高, 可成塔状), 1 中积云, 2 扁平的层积云碎块 / 小云团。
+// 画法 = 手绘二次元积云贴图 (一张 2×2 图集: 高耸积云 / 宽积云 / 扁长低云 / 小云簇, 透明底, 边缘柔和);
+//   每朵云按种子左右翻转 + 冷暖微调 + 大小不同, 同一张图重复出现也不易认出; 贴近海平线的云略淡、偏天边色。
+// 云永远在可见海平线之上: 底边仰角 > 0, 片元再按视线相对海平线的高度 vH 裁掉 (任何机位 / 俯仰都不会出现在海面或地面以下)。
 export const CLOUD_VERT = /* glsl */ `
 attribute vec4 aCloud;  // x 方位角 (rad), y 底边仰角 (rad), z 宽度 (m), w 随机种子
-attribute float aKind;  // 0 / 1 / 2
+attribute float aKind;  // 图集格子 0..3
 uniform float uTime;
 uniform float uDrift;   // rad/s
 uniform float uRadius;
 uniform float uDipTan;
-uniform vec3 uSunDir;
-varying vec2 vP;
-varying float vSeed;
+uniform vec4 uRect[4];  // 图集格子 (u0, v0, du, dv), v 从图片顶边往下
+uniform float uAspect[4];
+uniform vec3 uTint;
+uniform float uTintJitter;
+varying vec2 vUv;
 varying float vEl;
 varying float vH;
-varying float vKind;
-varying float vAspect;
-varying vec3 vL;
+varying vec3 vTint;
 void main() {
+  int k = int(aKind + 0.5);
+  vec4 rect = uRect[0];
+  float aspect = uAspect[0];
+  if (k == 1) { rect = uRect[1]; aspect = uAspect[1]; }
+  else if (k == 2) { rect = uRect[2]; aspect = uAspect[2]; }
+  else if (k == 3) { rect = uRect[3]; aspect = uAspect[3]; }
   float az = aCloud.x + uTime * uDrift * (0.7 + 0.6 * aCloud.w);
   float el = aCloud.y;
-  float aspect = aKind < 0.5 ? 0.8 + 0.15 * aCloud.w : (aKind < 1.5 ? 0.55 : 0.3);
   vec3 c = uRadius * vec3(cos(el) * sin(az), sin(el), -cos(el) * cos(az));
   c.y -= uDipTan * length(c.xz);
   vec3 fwd = normalize(-c);
@@ -160,12 +163,12 @@ void main() {
   vec3 up = cross(fwd, right);
   float w = aCloud.z;
   vec3 wp = c + right * position.x * w + up * (position.y + 0.5) * w * aspect;
-  vP = vec2(position.x, (position.y + 0.5) * aspect);   // x ∈ ±0.5, y ∈ 0..aspect (底边 y = 0)
-  vSeed = aCloud.w;
+  float fx = position.x + 0.5;
+  if (fract(aCloud.w * 7.31) > 0.5) fx = 1.0 - fx;          // 左右翻转
+  vUv = rect.xy + vec2(fx, 0.5 - position.y) * rect.zw;     // 贴图不翻转: 面片顶边 = 格子顶边
   vEl = el;
-  vKind = aKind;
-  vAspect = aspect;
-  vL = vec3(dot(uSunDir, right), dot(uSunDir, up), dot(uSunDir, fwd));
+  float j = (fract(aCloud.w * 13.7) - 0.5) * 2.0 * uTintJitter; // 冷暖: 正 = 偏暖奶油, 负 = 偏冷薰衣草
+  vTint = uTint * (vec3(1.0) + j * vec3(0.6, 0.15, -0.7));
   vH = (wp.y + uDipTan * length(wp.xz)) / length(wp);
   gl_Position = projectionMatrix * viewMatrix * (modelMatrix * vec4(wp, 1.0));
 }
@@ -174,110 +177,24 @@ void main() {
 export const CLOUD_FRAG = /* glsl */ `
 precision highp float;
 ${COMMON}
-uniform vec3 uLight;
-uniform vec3 uShade;
+uniform sampler2D uMap;
 uniform vec3 uHorizon;
-uniform vec3 uSkyMid;
 uniform float uOpacity;
-uniform float uEdge;     // 轮廓柔和度 (像素)
-varying vec2 vP;
-varying float vSeed;
+varying vec2 vUv;
 varying float vEl;
 varying float vH;
-varying float vKind;
-varying float vAspect;
-varying vec3 vL;
+varying vec3 vTint;
 void main() {
-  vec2 p = vP;
-  float sd = vSeed * 97.0;
-  float far = 1.0 - smoothstep(0.02, 0.09, vEl);            // 越低越远 (只有贴着海平线的云明显变淡)
-  float wid = 0.88 + 0.22 * hash12(vec2(sd, 4.0));
-  float lean = (hash12(vec2(sd, 5.0)) - 0.5) * 0.22;
-  float tall = vAspect;
-  float px = fwidth(p.y);
-  float best = -1e3;   // 最靠前的球面高度
-  float z2 = -1e3;     // 第二靠前
-  vec3 bn = vec3(0.0, 0.0, 1.0);
-  float S = -1.0;      // 轮廓距离场 (>0 在云内)
-  for (int i = 0; i < 18; i++) {
-    float fi = float(i);
-    float h1 = hash12(vec2(fi, sd + 1.7));
-    float h2 = hash12(vec2(fi + 17.0, sd + 4.1));
-    float h3 = hash12(vec2(fi + 31.0, sd + 8.3));
-    vec2 c;
-    float r;
-    float zc;
-    if (vKind > 1.5) {
-      // 扁云: 一排高低不一的小鼓包, 中间高两头低, 偶尔断开
-      float k = fi;
-      if (i > 11) break;
-      float x = (-0.43 + k * 0.078 + (h1 - 0.5) * 0.03) * wid;
-      float bell = 1.0 - pow(abs(x) / 0.5, 2.0);
-      r = (0.035 + 0.05 * h2) * (0.5 + 0.6 * bell) + 0.01;
-      c = vec2(x, r * 0.7 + 0.03 * h3 * bell);
-      zc = h3 * 0.02;
-      if (h1 > 0.86) r *= 0.4;
-    } else if (i < 6) {                     // 底排: 收在云体下面, 偏前
-      r = 0.075 + 0.05 * h2;
-      c = vec2((-0.36 + 0.145 * fi + (h1 - 0.5) * 0.05) * wid, r * 0.8);
-      zc = 0.12;
-    } else if (i < 11) {                    // 云体: 大球
-      float k = fi - 6.0;
-      r = 0.13 + 0.07 * h2;
-      c = vec2((-0.25 + 0.125 * k + (h1 - 0.5) * 0.07) * wid + lean * 0.3, 0.1 + (0.12 + 0.12 * h3) * tall);
-      zc = 0.0;
-    } else if (i < 15) {                    // 顶部花椰菜鼓包 (不对称, 跟着 lean 偏)
-      float k = fi - 11.0;
-      r = (k < 0.5 ? 0.13 : 0.075) + 0.06 * h2;
-      c = vec2(lean + (-0.13 + 0.09 * k + (h1 - 0.5) * 0.08) * wid, max(0.16, tall - 0.2 - (0.12 + 0.16 * h3) * tall * 0.5));
-      zc = -0.06;
-    } else {                                // 两肩 / 侧面的小鼓包
-      float k = fi - 15.0;
-      float side = k < 0.5 ? -1.0 : (k < 1.5 ? 1.0 : (h1 > 0.5 ? 1.0 : -1.0));
-      r = 0.06 + 0.04 * h2;
-      c = vec2(side * (0.33 + 0.07 * h1) * wid, 0.07 + (0.06 + 0.12 * h3) * tall);
-      zc = 0.06;
-    }
-    vec2 q = p - c;
-    float lq = length(q);
-    if (lq > r * 1.15) continue;
-    float rr = r * (1.0 + 0.07 * (vnoise(q / max(lq, 1e-4) * 1.8 + vec2(fi * 3.7, sd)) - 0.5));
-    S = max(S, rr - lq);
-    if (lq < rr) {
-      float k = lq / rr;
-      float hz = sqrt(1.0 - k * k);
-      float zf = zc + rr * hz;
-      if (zf > best) { z2 = best; best = zf; bn = vec3(q / rr, hz); }
-      else z2 = max(z2, zf);
-    }
-  }
-  // 底边: 略带起伏的水平线, 柔和化开
-  float base = p.y - 0.012 - 0.012 * (vnoise(vec2(p.x * 9.0, sd)) - 0.5);
-  float a = smoothstep(-px * uEdge, px * uEdge, S);
-  a *= smoothstep(-0.004, 0.035 * tall + px * 2.0, base);
-  if (a < 0.004) discard;
-  // 光照: 顶光为主 + 太阳方向 (二次元云永远是上亮下暗), 柔和三阶
-  vec3 Lc = normalize(vec3(vL.x * 0.7, max(vL.y, 0.2) + 0.55, max(vL.z, 0.0) * 0.5 + 0.25));
-  vec3 n = normalize(bn);
-  float ndl = dot(n, Lc);
-  float t = smoothstep(-0.2, 0.22, ndl) * 0.62 + smoothstep(0.42, 0.8, ndl) * 0.38;
-  vec3 shade = mix(uShade, uSkyMid, 0.18);
-  vec3 col = mix(shade, uLight, t);
-  // 鼓包之间的凹处: 另一个球就在后面紧贴着 → 略暗
-  float crev = 1.0 - smoothstep(0.0, 0.05, best - z2);
-  col = mix(col, shade, crev * 0.3 * (1.0 - smoothstep(0.5, 0.9, ndl)));
-  // 云底: 平而背光, 偏淡紫
-  float bot = 1.0 - smoothstep(0.0, 0.2 * tall, p.y);
-  col = mix(col, shade * vec3(0.97, 0.97, 1.0), bot * 0.55);
-  // 向阳轮廓透光
-  vec2 Ld = normalize(vL.xy + vec2(0.0, 0.6));
-  float rim = pow(1.0 - n.z, 3.0) * max(0.0, dot(normalize(n.xy + 1e-5), Ld));
-  col = mix(col, vec3(1.0, 0.995, 0.98), rim * 0.4);
-  // 远处: 更淡、更偏天边色; 贴近海平线的部分融进地平线亮带
+  vec4 t = texture2D(uMap, vUv);
+  float a = t.a * uOpacity * smoothstep(0.0, 0.012, vH);   // 海平线以下一律不画
+  if (a < 0.003) discard;
+  vec3 col = t.rgb * vTint;
+  // 贴近海平线的云 (远) 略淡、偏地平线亮带色; 底部融进亮带
+  float far = 1.0 - smoothstep(0.015, 0.08, vEl);
   vec3 band = mix(uHorizon, vec3(1.0, 0.99, 0.97), 0.5);
-  col = mix(col, band, far * 0.22 + (1.0 - smoothstep(0.0, 0.035, vH)) * 0.3);
-  a *= mix(1.0, 0.9, far) * smoothstep(-0.002, 0.01, vH);
-  gl_FragColor = vec4(col * uComp, a * uOpacity);
+  col = mix(col, band, far * 0.2 + (1.0 - smoothstep(0.0, 0.03, vH)) * 0.25);
+  a *= mix(1.0, 0.9, far);
+  gl_FragColor = vec4(col * uComp, a);
   #include <tonemapping_fragment>
   #include <colorspace_fragment>
 }
@@ -777,14 +694,14 @@ void main() {
     float sm = t * t * (3.0 - 2.0 * t);
     p.x += (iPalm.y - 1.0) * uLean * (0.65 * sm + 0.35 * t * t);
     p.y *= iPalm.x;
-  } else if ((aPart > 0.5 && aPart < 1.5) || aPart > 2.5) {
-    // 整片叶随风上下 / 左右摆 (越靠叶尖越大) + 小叶自己轻微抖动
+  } else if (aPart < 1.5) {
+    // 整片叶随风上下 / 左右摆 (越靠叶尖越大) + 叶缘 (小叶) 轻微抖动
     float s = aLeaf.x;
     float w = s * s * uSway;
     p.y += sin(uTime * 1.4 + ph + s * 1.5) * w;
     p.x += sin(uTime * 0.9 + ph * 1.3) * w * 0.6;
     p.z += cos(uTime * 1.1 + ph) * w * 0.4;
-    p.y += sin(uTime * 2.6 + ph * 2.0 + s * 9.0) * uSway * 0.18 * aLeaf.y;
+    p.y += sin(uTime * 2.6 + ph * 2.0 + s * 9.0) * uSway * 0.18 * abs(aLeaf.y - 0.5) * 2.0;
   }
   vec4 wp = modelMatrix * im * vec4(p, 1.0);
   wp.y -= curveDrop(wp.xyz);
@@ -801,6 +718,8 @@ precision highp float;
 ${COMMON}
 uniform vec3 uLeafLight;
 uniform vec3 uLeafShade;
+uniform sampler2D uFrond;   // 手绘羽叶贴图 (透明底)
+uniform vec2 uFrondSize;    // 贴图像素尺寸 (mip 层级补偿用)
 uniform vec3 uTrunkLight;
 uniform vec3 uTrunkShade;
 uniform vec3 uSunDir;
@@ -837,14 +756,20 @@ void main() {
     col = mix(col, uTrunkShade * vec3(0.9, 0.86, 0.82), smoothstep(0.8, 1.0, t) * 0.5);
     col = mix(col, mix(col, vec3(0.95, 0.87, 0.74), 0.55), 1.0 - smoothstep(0.0, 0.06, t));
     col *= mix(0.86, 1.0, smoothstep(0.0, 0.012, t));
-  } else if (vPart < 1.5 || vPart > 2.5) {
-    // 叶片: 卡通渐变 —— 叶根深、叶尖亮 (沿整片叶 s 与沿小叶 t 两个方向), 每棵树色相略有差别, 冷色暗部, 两阶柔和明暗
+  } else if (vPart < 1.5) {
+    // 叶片: 手绘羽叶贴图 (透明处丢弃; 远处 mip 平均后 alpha 变小, 按 mip 层级放大 alpha 保住叶片覆盖率)。
+    // 贴图的明暗笔触映射到配置的叶色 (亮 / 暗), 保留一点贴图自身的色相; 叶根略深、叶尖略亮; 每棵树色相略有差别; 冷色暗部, 两阶柔和明暗
+    vec4 tx = texture2D(uFrond, vLeaf);
+    vec2 dx = dFdx(vLeaf * uFrondSize), dy = dFdy(vLeaf * uFrondSize);
+    float lod = 0.5 * log2(max(max(dot(dx, dx), dot(dy, dy)), 1e-6));
+    float al = tx.a * (1.0 + max(lod, 0.0) * 0.3);
+    if (al < 0.5) discard;
     float s = vLeaf.x;
-    float lt = vLeaf.y;
-    vec3 base = mix(uLeafShade, uLeafLight, smoothstep(0.05, 0.95, s * 0.5 + lt * 0.6));
-    base = mix(base, mix(uLeafLight, vec3(0.93, 1.0, 0.56), 0.35), smoothstep(0.75, 1.0, lt) * 0.4);
+    float l = dot(tx.rgb, vec3(0.2126, 0.7152, 0.0722));
+    vec3 base = mix(uLeafShade, uLeafLight, smoothstep(0.12, 0.62, l));
+    base = mix(base, tx.rgb, 0.3);
+    base *= mix(0.86, 1.06, smoothstep(0.0, 0.75, s));
     base *= mix(vec3(1.0), vec3(1.04, 1.0, 0.92), fract(vIns * 0.37) * 0.6);
-    if (vPart > 2.5) base = mix(uLeafShade, vec3(0.66, 0.7, 0.32), 0.45 + 0.3 * s);
     float lit = smoothstep(-0.12, 0.3, ndl);
     col = mix(base * vec3(0.66, 0.77, 0.85), base, lit) * (gl_FrontFacing ? 1.0 : 0.88);
     // 逆光叶片透光一点

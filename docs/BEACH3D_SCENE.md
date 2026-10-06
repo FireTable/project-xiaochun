@@ -3,14 +3,14 @@
 `beach3d` (display name "海滩" / "Beach" / "ビーチ") is the 4th built-in scene and is opaque. It is a small 3D stage built entirely in Three.js. The character stands on real sand with a real shadow, and every prop is a low-poly mesh with soft toon shading.
 
 The look is **二次元 MMD 舞台风格** (anime MMD stage): soft modern 3D anime, high-key diffused light, soft shadow transitions, a peach-pink / lavender / mint / cream pastel palette and clean stylized shapes. It is not photoreal and uses no HDRI.
-- An asymmetric palm composition: a cluster of three palms on the left, one tall framing palm leaning out of frame on the right, and smaller palms further along the shore. Crowns are arched, drooping fronds.
+- An asymmetric palm composition: two palms on the left, one tall framing palm leaning out of frame on the right, and smaller palms further along the shore. Crowns are arched, drooping fronds with a hand-painted frond texture.
 - A striped beach lounge chair with a small parasol on the right, facing the sea.
 - A clear turquoise sea, light near the shore and deeper further out, with irregular swash foam, several wave bands and twinkling glints.
 - Fine, soft sand with a darker, glossy wet band at the water's edge, and shells scattered mostly along the wet line.
-- A blue-to-pale-cyan sky with volumetric-looking anime cumulus, a low cloud bank on the horizon and high wisps.
+- A blue-to-pale-cyan sky with hand-painted anime cumulus sprites, a low cloud bank on the horizon and high wisps.
 - Layered distant island silhouettes fading into atmospheric haze.
 
-There are no textures, no HDRI, no realistic materials and no third-party assets. All geometry is generated in code, and every pattern is computed procedurally in shaders. Light direction and colour follow the engine's main light, so the scene blends with the MToon character.
+There is no HDRI, no realistic material and no third-party asset. Exactly two small hand-painted textures are used (the cloud atlas and the palm frond, see [Assets](#assets)); all geometry is generated in code, and every other pattern is computed procedurally in shaders. Light direction and colour follow the engine's main light, so the scene blends with the MToon character.
 
 ## Where things live
 
@@ -23,6 +23,8 @@ There are no textures, no HDRI, no realistic materials and no third-party assets
 | `src/core/scene/sceneMotion.ts` | `SceneMotionGovernor`: reduced-motion and low-FPS downgrade |
 | `src/core/scene/__tests__/beach3dLayout.test.ts` | Layout invariants (props on sand, keep-out zones, asymmetric palms, chair placement, island heights, cloud layout, shell distribution, triangle budget) |
 | `src/config.ts` → `APP_CONFIG.beach3dScene` | All tunables. Ranges and meanings are documented inline and in `src/types/config.ts` (`Beach3DSceneConfig`) |
+| `public/scene/beach3d/clouds.webp` | Cloud sprite atlas (see [Assets](#assets)) |
+| `public/scene/beach3d/palm-frond.webp` | Palm frond texture (see [Assets](#assets)) |
 
 Engine hooks:
 - `vrmEngine.beach3d` is attached after lighting init.
@@ -40,16 +42,29 @@ The camera only pitches around the character in the YZ plane and stays on the +Z
 
 Props are kept out of a central zone (rocks `|x| < 2.2`, shells within 1.2 m of the character, palm crowns away from the area above her, the parasol canopy right of `x ≈ 0.6`), so they never cover the character, her feet or the sea directly behind her.
 
-## Composition (9 draw calls, ~50k triangles)
+## Assets
+
+| File | Size | Content |
+| :--- | :--- | :--- |
+| `public/scene/beach3d/clouds.webp` | 1024×1024, ~60 KB | Four hand-painted anime clouds on a transparent background: a towering cumulus, a wide puffy cumulus, a long flat low cloud and a small cluster of puffs. Their cells (UV rect + aspect) are listed in `CLOUD_SPRITES` in `beach3dLayout.ts`. Each cell has a 14 px transparent margin. |
+| `public/scene/beach3d/palm-frond.webp` | 1024×320, ~86 KB | One pinnate palm frond on a transparent background, stalk at the left (u = 0), tip at the right (u = 1), with the rachis straightened onto the centre line (v = 0.5). |
+
+- Both were keyed from painted sheets on a flat background colour, with a soft alpha ramp and despill, so the edges stay feathered without a coloured fringe. Colour is bled into transparent pixels so mipmaps do not pick up a dark or coloured halo.
+- URLs come from `APP_CONFIG.beach3dScene.assets`. They are same-origin static files and load the same way in the main app and in the `/embed` iframe.
+- `public/_headers` gives `/scene/*` `Cache-Control: public, max-age=3600, must-revalidate` (the URLs carry no content hash, so they are not cached as immutable).
+- The textures load only when the scene is first activated. Clouds and palm crowns stay hidden until their texture has loaded.
+- Textures are sRGB, not flipped, mipmapped, with 4× anisotropy.
+
+## Composition (9 draw calls, ~44k triangles)
 
 | Part | Draws | Notes |
 | :--- | :---: | :--- |
 | Sky | 1 | Fullscreen shader that colours by view direction: zenith → mid → pale horizon gradient, high wisps, a bright band and a low cloud bank on the horizon, and a glow on the sun side. Azimuth is computed from the normalised horizontal view direction, so straight up and straight down have no seam or pole pinch. |
-| Clouds | 1 | 24 instanced billboards on a far sphere. See [Clouds](#clouds). |
+| Clouds | 1 | 27 instanced textured billboards on a far sphere. See [Clouds](#clouds). |
 | Islands | 1 | One strip mesh around the horizon; three silhouette layers evaluated per pixel. See [Islands and haze](#islands-and-haze). |
 | Sand + sea | 1 | One subdivided y=0 plane; see [Sand](#sand) and [Sea and waves](#sea-and-waves). Also draws foam rings around in-water rocks and the soft ground shadows of palms, chair and parasol. |
-| Palm trunks | 1 | Instanced, 11 trees. See [Palms](#palms). |
-| Palm crowns | 1 | Instanced, 13 fronds per crown plus 4 coconuts. |
+| Palm trunks | 1 | Instanced, 10 trees. See [Palms](#palms). |
+| Palm crowns | 1 | Instanced, 14 textured frond ribbons per crown plus 4 coconuts. |
 | Rocks | 1 | Instanced smooth rocks with a 3-tone toon ramp, a soft top highlight, a cool rim and a darker wet band. Asymmetric clusters on both sides along the shore, some half in the water. |
 | Shells | 1 | 32 instanced scallops, conches and starfish in one shared geometry (each instance collapses the other two shapes). |
 | Chair + parasol | 1 | One merged mesh. See [Lounge chair and parasol](#lounge-chair-and-parasol). |
@@ -58,9 +73,12 @@ The character shadow is the engine's existing `CharacterShadowSystem` plane. The
 
 ## Palms
 
-- **Layout**: each palm has its own position, scale, height multiplier, lean multiplier, lean direction and crown spin. Near the character there are three palms on the left (a near one leaning toward the sea and the frame centre, a taller straighter one behind it, and a small young palm near the water) and one on the right whose trunk enters the frame while its crown is half outside it. Seven smaller palms continue along the shore on both sides.
+- **Layout**: each palm has its own position, scale, height multiplier, lean multiplier, lean direction and crown spin. Near the character there are two palms on the left (a near one leaning toward the sea and the frame centre, and a small young palm near the water) and one on the right whose trunk enters the frame while its crown is half outside it. Seven smaller palms continue along the shore on both sides.
 - **Trunk**: a smooth 10-sided tapered tube. The vertex shader bends a shared base curve per instance (height and lean), so every tree has a different arc. Soft two-step shading, faint irregular rings, a warm sand tint at the base.
-- **Crown**: 13 fronds on golden-angle azimuths. About a third are young upper fronds that rise before arching over; the rest leave nearly horizontal and droop strongly, with a slight curl. Each frond is a rachis ribbon with 16 pairs of long leaflets swept toward the tip; leaflets hang lower and further out toward the frond tip, which gives the drooping anime silhouette. Colour runs from dark at the root to bright at the tip, the hue varies per tree, and leaves facing away from the sun get a soft back-light glow. Whole fronds sway and leaflets flutter.
+- **Crown**: 14 fronds on golden-angle azimuths. Three short young fronds form a small tuft that rises briefly and arches over (no upright spike); the rest leave nearly horizontal and droop strongly, with a slight curl.
+- **Fronds**: each frond is a curved ribbon along its rachis (12 segments, 48 triangles) carrying the painted frond texture. The cross-section is a shallow V: the rachis sits slightly higher and the leaflets fold downward, more so toward the tip, and the ribbon twists a little along its length, so fronds have volume instead of reading as flat cutouts. Width follows the texture's proportions (`vegetation.frondWidth` stretches it).
+- **Alpha**: transparent texels are discarded (alpha test, double-sided). Alpha is boosted with the mip level so distant fronds keep their coverage instead of thinning out.
+- **Colour**: the texture's light/dark strokes are remapped to the configured leaf colours (`leafLight` / `leafShade`) with a little of the texture's own hue kept. Fronds are slightly darker at the root and brighter toward the tip, the hue varies per tree, shading is a soft two-step ramp with cool shade, and leaves facing away from the sun get a soft back-light glow. Whole fronds sway and the leaflet edges flutter.
 - **Coconuts**: 4 egg-shaped spheres under each crown with two-step shading and a small highlight.
 
 ## Lounge chair and parasol
@@ -79,11 +97,12 @@ The character shadow is the engine's existing `CharacterShadowSystem` plane. The
 
 ## Clouds
 
-- **Shape**: each billboard is shaded like a soft sphere cluster. 18 lobes (body, crown, shoulders, base) are evaluated as sphere impostors; the front-most lobe's normal drives a 3-tone light ramp (cream lit side → soft mid → lavender shade), with slight darkening in the crevices between lobes, a flat lavender base, and a thin bright rim. Edge softness is adjustable (`clouds.edgeSoftness`).
-- **Kinds**: tall cumulus (aspect ≈ 0.8–0.95), medium puffs (≈ 0.55) and flat low strips (≈ 0.3).
-- **Layout**: 9 hand-placed hero clouds (two clouds in the default portrait view, low strips near the horizon, and three high clouds that appear when pitching up), plus filler clouds around the remaining azimuths. Elevations stay below 60°, so billboards never degenerate at the pitch limits.
-- **Distance**: clouds right on the horizon fade slightly toward the horizon band; their bottoms dissolve into the bright band. Each cloud drifts at a slightly different speed.
-- **Horizon bank**: the sky shader adds a low, scalloped cloud bank on the horizon at some azimuths (`clouds.bank`, `clouds.bankHeightDeg`).
+- **Sprites**: each cloud is a camera-facing quad on a far sphere, textured with one of the four painted clouds in the atlas. The painted shading (cream tops, lavender undersides, soft feathered edges) is used as is.
+- **Variation**: per cloud, the seed picks a horizontal flip, a slight warm/cool tint (`clouds.tintJitter`) and a drift speed (±30%); widths differ per cloud, so a sprite that appears twice does not read as a copy. `clouds.tint` tints all clouds, `clouds.opacity` makes them thinner.
+- **Layout**: 11 hand-placed hero clouds in front (a towering cumulus right of the character, a wide cumulus on the left, a small cluster above, flat low clouds on the horizon on both sides, and three high clouds that appear when tilting up), plus `round(16 × clouds.density)` filler clouds around the remaining azimuths. Clouds are drawn from low (far) to high (near), so higher clouds overlap lower ones.
+- **Always above the horizon**: the base of every cloud sits 0.8°–40° above the visible horizon, and the fragment shader discards anything below it, so no cloud ever shows below the waterline or the ground from any camera position. Billboards never degenerate at the pitch limits.
+- **Distance**: clouds right on the horizon fade slightly toward the horizon band, and their bottoms dissolve into it.
+- **Horizon bank**: the sky shader adds a low, scalloped cloud bank on the horizon at some azimuths (`clouds.bank`, `clouds.bankHeightDeg`, coloured by `clouds.light` / `clouds.shade`).
 
 ## Islands and haze
 
@@ -129,7 +148,7 @@ The visible horizon then dips below eye level by:
 dip = atan((h + e²/2R) / d*),   d* = √(d0² + 2Rh),   e = d* − d0
 ```
 
-Here `h` is the camera height. `computeHorizonDip()` evaluates this every frame. The sky gradient (`uDipSin`) and the island and cloud layers (`uDipTan`) are aligned to the same dip, so the seam stays clean.
+Here `h` is the camera height. `computeHorizonDip()` evaluates this every frame. The sky gradient (`uDipSin`) and the island and cloud layers (`uDipTan`) are aligned to the same dip, so the seam stays clean. When the camera is below the ground, `computeSkyDip()` replaces this with a negative dip (see [Known limitations](#known-limitations)).
 
 With `horizonCurveR = 700` the horizon lands around the hips in full-body portrait shots. A larger R makes the ground flatter and moves the horizon back toward eye height.
 
@@ -154,8 +173,9 @@ These are animated: swash, wave bands, foam, caustics, ripples, glints, high wis
 | `sand` | `base`, `shade`, `light`, `wet`, `rippleSpacing`, `ripple`, `grain` |
 | `haze` | `start`, `end` (aerial perspective toward the horizon colour; `end` must stay < 100 m) |
 | `mountains` | `enabled`, `far`, `mid`, `near`, `heightScale`, `detail`, `haze` (island layers) |
-| `clouds` | `count`, `driftDegPerSec`, `scale`, `light`, `shade`, `edgeSoftness`, `bank`, `bankHeightDeg` |
-| `vegetation` | `leafLight`, `leafShade`, `trunkLight`, `trunkShade`, `sway`, `fronds`, `leaflets` |
+| `assets` | `clouds`, `frond` (texture URLs, see [Assets](#assets)) |
+| `clouds` | `density`, `size`, `opacity`, `tint`, `tintJitter`, `driftDegPerSec`, `light`, `shade`, `bank`, `bankHeightDeg` |
+| `vegetation` | `leafLight`, `leafShade`, `trunkLight`, `trunkShade`, `sway`, `fronds`, `frondWidth` |
 | `rocks` | `enabled`, `light`, `shade`, `detail` (0 / 1 / 2 → 80 / 320 / 1280 triangles per rock) |
 | `shells` | `enabled`, `count`, `size`, `colors` |
 | `props` | `enabled`, `frame`, `cushion`, `stripe`, `canopyA`, `canopyB`, `pillow`, `groundShadow` (lounge chair + parasol) |
@@ -167,7 +187,7 @@ Measured on an Apple M1 Ultra (Chrome, ANGLE Metal) with headless Puppeteer at 1
 
 | Scene | Scene draws / triangles (`getStats`) | Whole frame calls / triangles (incl. shadow map + post passes) | FPS (p50 / p95 frame time) |
 | :--- | :--- | :--- | :--- |
-| `beach3d` | 9 / 50,462 | 71 / 172,189 | 59.8 (16.67 / 16.67 ms) |
+| `beach3d` | 9 / 43,976 | 71 / 165,703 | 59.8 (16.67 / 16.67 ms) |
 | `light` (baseline) | — | 73 / 122,469 | 60.0 (16.66 / 16.67 ms) |
 
 Both are capped by vsync on this machine. Low-end and mobile GPUs have not been measured.
@@ -177,5 +197,6 @@ To inspect at runtime, use `window.vrmEngine.beach3d.getStats()`.
 ## Known limitations
 
 - The horizon curvature is a deliberate cheat. With very low or very high camera heights the dip changes. It stays seamless, but the horizon moves.
-- When the camera is below the ground (extreme upward pitch at close distance), the ground is back-face culled. Shells, rocks and the chair are hidden in that case; only the sky, clouds, islands and palms show.
-- Clouds are billboards: they always face the camera and have no parallax between lobes.
+- When the camera is below the ground (extreme upward pitch at close distance), the ground is back-face culled. In that case palms, shells, rocks and the chair are hidden, and the horizon used by the sky, clouds and islands is raised to the line of the character's feet (by up to 25°, `computeSkyDip()`), so nothing in the sky appears below her feet. Below that line the sky shows the far-sea colour.
+- Clouds are flat painted billboards: they always face the camera, have no parallax and do not react to the sun direction.
+- The painted textures are fixed in style and resolution: very large clouds on high-DPI screens are slightly soft, and a frond seen exactly edge-on reads as a thin line.

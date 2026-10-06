@@ -4,12 +4,12 @@ import { RoundedBoxGeometry } from 'three/examples/jsm/geometries/RoundedBoxGeom
 import { CHAIR, PALM_TRUNK, PARASOL, trunkLeanProfile } from './beach3dLayout';
 
 /**
- * beach3dGeometry.ts — 海滩 3D 场景的低模几何 (程序化生成, 无贴图)。
+ * beach3dGeometry.ts — 海滩 3D 场景的低模几何 (程序化生成; 只有棕榈叶贴手绘羽叶贴图)。
  * 每种物体一份几何 + InstancedMesh, 棕榈只有 2 次绘制 (树干 / 叶冠); 沙滩椅 + 遮阳伞合并成 1 个几何 (1 次绘制)。
  *
  * 棕榈的自定义顶点属性:
- *   aPart  — 0 树干, 1 小叶, 2 椰子, 3 叶轴 (叶冠几何里混合了叶和椰子, 共用一次绘制)
- *   aLeaf  — 叶片 = (s: 叶柄 → 叶尖 0..1, t: 小叶根 → 小叶尖 0..1); 树干 = (高度 0..1, 环向 0..1)
+ *   aPart  — 0 树干, 1 叶片 (贴手绘羽叶贴图), 2 椰子 (叶冠几何里混合了叶和椰子, 共用一次绘制)
+ *   aLeaf  — 叶片 = 贴图坐标 (u: 叶柄 → 叶尖 0..1, v: 横向 0..1, 叶轴 v = 0.5); 树干 = (高度 0..1, 环向 0..1)
  */
 
 export { PALM_TRUNK };
@@ -96,98 +96,81 @@ function mulberry32(seed: number): () => number {
 
 /**
  * 棕榈叶冠 (原点 = 树干顶端): fronds 片拱起再下垂的羽状大叶 + 一簇 4 个圆润的椰子。
- * 二次元棕榈的读法 = "喷泉 / 伞" 轮廓: 每片叶从冠心斜向上伸出, 叶轴拱起后大幅下垂, 叶尖低于冠心;
- * 两侧小叶细长、密、扫向叶尖, 并且越靠叶尖越往下耷拉 (重力), 相邻小叶互相叠压 → 读成一整条带锯齿边的下垂叶片,
- * 而不是一层层张开的三角 (旧版的"圣诞树"感来自直立的嫩叶尖塔 + 短而平张的小叶)。
- * 叶片方位按黄金角排布 + 抖动 (没有规则的层), 上面几片短而微扬, 下面的长而垂。
- * aLeaf = (s: 叶柄 → 叶尖 0..1, t: 小叶根 → 小叶尖 0..1; 叶轴 t = 0), aPart: 1 小叶, 3 叶轴, 2 椰子。法线朝上偏 (卡通柔和明暗)。
+ * 每片叶 = 一条沿弯曲叶轴的带子 (贴手绘羽叶贴图, 透明处丢弃), 横截面是 V 形: 叶轴在中间略高, 两侧小叶向下折,
+ *   越靠叶尖折得越深 (小叶下垂), 整条带子再沿叶长轻微扭转 → 有体积、不像平贴的纸片。
+ * 叶片方位按黄金角排布 + 抖动 (没有规则的层); 冠顶 3 片短嫩叶斜向上拱出后就弯下 (不再有竖直的叶轴尖), 其余长叶近乎平伸后大幅下垂。
+ * aLeaf = (u: 叶柄 → 叶尖 0..1, v: 横向 0..1, 叶轴 v = 0.5) = 贴图坐标; aPart: 1 叶片, 2 椰子。法线朝上偏 (卡通柔和明暗)。
+ * 每片叶 12 节 × 2 条 = 48 三角。
  */
-export function buildPalmCrown(fronds = 13, leaflets = 16): THREE.BufferGeometry {
+export function buildPalmCrown(fronds = 12, widthScale = 1): THREE.BufferGeometry {
   const F = Math.max(6, Math.min(18, Math.round(fronds)));
-  const LF = Math.max(6, Math.min(24, Math.round(leaflets)));
+  const WS = Math.max(0.6, Math.min(1.5, widthScale));
   const rnd = mulberry32(0x9a1e);
   const pos: number[] = [];
   const nrm: number[] = [];
   const leaf: number[] = [];
   const part: number[] = [];
   const idx: number[] = [];
-  const RS = 10; // 叶轴节数
-  const P: THREE.Vector3[] = [];
-  const T: THREE.Vector3[] = [];
+  const RS = 12; // 叶轴节数
   const up = new THREE.Vector3(0, 1, 0);
-  const S = new THREE.Vector3();
-  const N = new THREE.Vector3();
-  const D = new THREE.Vector3();
-  const fn = new THREE.Vector3();
-  const vtx = (p: THREE.Vector3, n: THREE.Vector3, s: number, t: number, pa: number) => {
+  const vtx = (p: THREE.Vector3, n: THREE.Vector3, u: number, v: number, pa: number) => {
     pos.push(p.x, p.y, p.z);
     nrm.push(n.x, n.y, n.z);
-    leaf.push(s, t);
+    leaf.push(u, v);
     part.push(pa);
     return pos.length / 3 - 1;
   };
-  const nUpper = Math.round(F * 0.3);
+  const nUpper = Math.min(3, Math.round(F * 0.25));
+  const T = new THREE.Vector3();
+  const S = new THREE.Vector3();
+  const N = new THREE.Vector3();
+  const e = new THREE.Vector3();
+  const n = new THREE.Vector3();
   for (let f = 0; f < F; f++) {
     const upper = f < nUpper;
     const az = f * 2.39996 + (rnd() - 0.5) * 0.35; // 黄金角
-    const len = upper ? 1.45 + rnd() * 0.35 : 1.95 + rnd() * 0.5;
-    const el0 = upper ? 0.62 + rnd() * 0.18 : 0.22 + rnd() * 0.28; // 叶柄起始仰角
-    const droop = upper ? 1.35 + rnd() * 0.3 : 1.9 + rnd() * 0.6;   // 沿叶长的下弯 (rad)
-    const curl = (rnd() - 0.5) * 0.35;                                // 叶轴在水平面内轻微侧弯
-    P.length = 0; T.length = 0;
+    const len = upper ? 1.05 + rnd() * 0.25 : 1.85 + rnd() * 0.5;
+    const el0 = upper ? 0.6 + rnd() * 0.15 : 0.18 + rnd() * 0.3;  // 叶柄起始仰角
+    const droop = upper ? 1.55 + rnd() * 0.3 : 1.75 + rnd() * 0.6; // 沿叶长的下弯 (rad)
+    const curl = (rnd() - 0.5) * 0.35;                               // 叶轴在水平面内轻微侧弯
+    const twist = (rnd() - 0.5) * 0.7;                               // 沿叶长的扭转 (rad, 叶尖处)
+    const W = len * 0.33 * WS * (upper ? 0.85 : 1);                  // 带子全宽 (贴图 1024×320 的比例)
     const p = new THREE.Vector3(Math.cos(az) * 0.05, 0.02, Math.sin(az) * 0.05);
+    const base = pos.length / 3;
     for (let k = 0; k <= RS; k++) {
       const s = k / RS;
       const el = el0 - droop * Math.pow(s, 1.5);
       const a = az + curl * s;
       const h = new THREE.Vector3(Math.cos(a), 0, Math.sin(a));
-      const dir = h.multiplyScalar(Math.cos(el)).addScaledVector(up, Math.sin(el));
-      if (k > 0) p.addScaledVector(dir, len / RS);
-      P.push(p.clone());
-      T.push(dir.clone());
-    }
-    S.set(-Math.sin(az), 0, Math.cos(az)); // 叶片横向 (水平)
-    // 叶轴: 细带 (宽 3.5cm → 0.5cm)
-    const rBase = pos.length / 3;
-    for (let k = 0; k <= RS; k++) {
-      const s = k / RS;
-      const w = 0.035 * (1 - s * 0.85);
-      N.crossVectors(S, T[k]).normalize();
-      fn.copy(N).add(up).normalize();
-      vtx(P[k].clone().addScaledVector(S, -w), fn, s, 0, 3);
-      vtx(P[k].clone().addScaledVector(S, w), fn, s, 0, 3);
+      T.copy(h).multiplyScalar(Math.cos(el)).addScaledVector(up, Math.sin(el)).normalize();
+      if (k > 0) p.addScaledVector(T, len / RS);
+      // 横向 S (水平, 垂直于叶轴) 与叶面"上"方向 N, 再绕叶轴扭转
+      S.set(-Math.sin(a), 0, Math.cos(a));
+      N.crossVectors(S, T).normalize();
+      if (N.y < 0) N.negate();
+      const tw = twist * s;
+      const cs = Math.cos(tw), sn = Math.sin(tw);
+      const S2 = S.clone().multiplyScalar(cs).addScaledVector(N, sn);
+      const N2 = N.clone().multiplyScalar(cs).addScaledVector(S, -sn);
+      // V 形折叠: 叶根附近较平 (0.3 rad), 叶尖附近小叶垂得更深 (0.85 rad); 叶柄一段很窄 (贴图本身在那里也只有叶柄)
+      const fold = 0.3 + 0.55 * s;
+      const half = (W / 2) * (0.92 + 0.08 * Math.sin(Math.PI * s));
+      for (const sg of [-1, 0, 1]) {
+        if (sg === 0) {
+          n.copy(N2).addScaledVector(up, 0.5).normalize();
+          vtx(p, n, s, 0.5, 1);
+        } else {
+          e.copy(S2).multiplyScalar(sg * Math.cos(fold)).addScaledVector(N2, -Math.sin(fold));
+          const q = p.clone().addScaledVector(e, half).addScaledVector(up, -half * 0.12 * s);
+          n.copy(N2).multiplyScalar(Math.cos(fold)).addScaledVector(S2, sg * Math.sin(fold)).addScaledVector(up, 0.5).normalize();
+          vtx(q, n, s, sg < 0 ? 0 : 1, 1);
+        }
+      }
     }
     for (let k = 0; k < RS; k++) {
-      const a = rBase + k * 2;
-      idx.push(a, a + 2, a + 1, a + 1, a + 2, a + 3);
-    }
-    // 小叶: 细长、扫向叶尖、越靠叶尖越下垂; 中段最长, 两端短
-    for (let j = 0; j < LF; j++) {
-      const s = 0.07 + 0.9 * (j + 0.5) / LF;
-      const fk = s * RS;
-      const k0 = Math.min(RS - 1, Math.floor(fk));
-      const fr = fk - k0;
-      const base = P[k0].clone().lerp(P[k0 + 1], fr);
-      const tng = T[k0].clone().lerp(T[k0 + 1], fr).normalize();
-      N.crossVectors(S, tng).normalize(); // 叶片"上"方向
-      if (N.y < 0) N.negate();
-      const L = len * (upper ? 0.33 : 0.38) * Math.pow(Math.sin(Math.PI * (0.1 + 0.9 * s)), 0.65) * (0.88 + rnd() * 0.24);
-      const wdt = L * 0.1;
-      for (const sg of [-1, 1]) {
-        const beta = 0.3 + 0.75 * s + (rnd() - 0.5) * 0.2; // 向下耷拉的角度: 叶根附近平张, 叶尖附近几乎垂下
-        D.copy(S).multiplyScalar(sg * Math.cos(beta)).addScaledVector(N, -Math.sin(beta)).addScaledVector(tng, 0.62).normalize();
-        const mid = base.clone().addScaledVector(D, L * 0.5).addScaledVector(up, -L * 0.05);
-        const tip = base.clone().addScaledVector(D, L).addScaledVector(up, -L * (0.2 + 0.3 * s)); // 小叶自身随重力下弯
-        const side = new THREE.Vector3().crossVectors(D, tng).normalize();
-        if (side.dot(N) < 0) side.negate();
-        fn.copy(side).addScaledVector(up, 0.9).normalize();
-        const wv = new THREE.Vector3().crossVectors(D, side).normalize().multiplyScalar(wdt);
-        const i0 = vtx(base, fn, s, 0, 1);
-        const i1 = vtx(mid.clone().add(wv), fn, s, 0.5, 1);
-        const i2 = vtx(mid.clone().sub(wv).addScaledVector(side, wdt * 0.4), fn, s, 0.5, 1); // 中脊微折
-        const i3 = vtx(tip, fn, s, 1, 1);
-        idx.push(i0, i1, i2, i2, i1, i3);
-      }
+      const r0 = base + k * 3, r1 = r0 + 3;
+      idx.push(r0, r1, r0 + 1, r0 + 1, r1, r1 + 1);
+      idx.push(r0 + 1, r1 + 1, r0 + 2, r0 + 2, r1 + 1, r1 + 2);
     }
   }
   // 椰子: 4 个圆润的球 (2 级细分二十面体 180 面, 平滑法线, 略呈蛋形), 一簇挂在叶冠下面; aLeaf.x = 椰子序号 (着色时颜色略有差别)

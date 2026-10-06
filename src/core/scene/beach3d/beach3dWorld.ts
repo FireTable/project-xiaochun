@@ -3,6 +3,7 @@ import { APP_CONFIG } from '@/config';
 import { SceneMotionGovernor } from '../sceneMotion';
 import {
   CHAIR,
+  CLOUD_SPRITES,
   FAR_ISLANDS,
   MID_ISLANDS,
   NEAR_ISLANDS,
@@ -44,15 +45,17 @@ import {
  *
  * 组成 (共 9 次绘制, 约 5 万三角面, 见 getStats()):
  *   天空穹顶  全屏着色器层 (按视线方向取色 = 无限远的天空穹顶: 渐变 + 高空卷云 + 地平线积云带 + 亮带 + 太阳柔光; 俯仰到极限也不穿帮)
- *   积云      实例化面片 ×N (远景层, 1 次绘制): 球堆体积的二次元积云, 手工构图的主角云 + 其余方位随机云
+ *   积云      实例化面片 ×N (远景层, 1 次绘制): 手绘二次元积云贴图 (图集 4 张), 手工构图的主角云 + 其余方位散云
  *   远岛      条带 (远景层, 1 次绘制): 逐像素解析的三层岛屿剪影 + 空气透视 + 贴海面薄雾
  *   沙地 + 海 一张 y=0 的大平面 (1 次绘制): 沙纹 / 湿沙 / 道具落影 / 冲刷浪 / 多道浪峰 / 深浅渐变 / 闪光全在片元里
- *   棕榈      树干 + 叶冠两个 InstancedMesh (2 次绘制), 每棵树高度 / 倾斜 / 叶冠朝向都不同 (左 7 右 4, 不对称构图)
+ *   棕榈      树干 + 叶冠两个 InstancedMesh (2 次绘制), 每棵树高度 / 倾斜 / 叶冠朝向都不同 (左 6 右 4, 不对称构图);
+ *             叶冠 = 贴手绘羽叶贴图的弯曲下垂叶带
  *   礁石      InstancedMesh (1 次绘制), 水中礁石周围一圈白浪 (地面着色器里画)
  *   贝壳      扇贝 / 海螺 / 海星 InstancedMesh (1 次绘制), 沿整条海岸分布, 越近湿沙线越密, 近景几个大的
  *   沙滩椅    躺椅 + 遮阳伞合并几何 (1 次绘制), 角色右后方, 面朝大海
  *   落影      角色: 复用引擎原有的实时阴影 (CharacterShadowSystem); 道具: 地面着色器按太阳方向解析投影
  *
+ * 贴图: 只有云图集与棕榈羽叶两张 (APP_CONFIG.beach3dScene.assets, public/scene/beach3d/), 场景激活时才加载; 加载完成前云 / 叶冠不画。
  * "远景层" (云 / 远岛) 每帧跟随相机平移 (不跟随旋转): 等价于无限远, 不受相机远裁剪面 (100m) 限制。
  * 地平线弧度 (layout.horizonCurveR) 见 beach3dShaders.ts 文件头; 天空 / 远岛 / 云按同一个 uDip 对齐 (computeHorizonDip)。
  * 太阳方向 = 引擎主方向光方向 (每帧读取)。动态走 SceneMotionGovernor: reduced-motion 或低帧率自动静止。
@@ -77,6 +80,16 @@ export function computeHorizonDip(camY: number, d0: number, R: number): number {
   const ds = Math.sqrt(d0 * d0 + 2 * R * h);
   const e = ds - d0;
   return Math.atan((h + (e * e) / (2 * R)) / ds);
+}
+
+/**
+ * 天空 / 云 / 远岛用的海平线下沉角 (rad)。相机在地面以上 = computeHorizonDip。
+ * 相机在地面以下 (近距离极限仰视) 时地面被背面剔除, 若海平线仍在眼高, 低处的云 / 远岛会画到角色脚下 →
+ * 把海平线抬到角色脚下那条线 (负的下沉角 = −atan(深度 / 水平距离), 最多抬 25°): 云和远岛永远在角色脚下那条线以上, 下面是远海色。
+ */
+export function computeSkyDip(camH: number, camDist: number, d0: number, R: number): number {
+  if (camH > 0) return computeHorizonDip(camH, d0, R);
+  return -Math.min(Math.atan2(-camH, Math.max(camDist, 0.3)), THREE.MathUtils.degToRad(25));
 }
 
 /** 静止时停在的时刻 (浪花 / 闪光分布好看的一帧)。 */
@@ -117,6 +130,7 @@ export class Beach3DWorld {
   private shells: THREE.InstancedMesh | null = null;
   private props: THREE.Mesh | null = null;
   private readonly materials: THREE.Material[] = [];
+  private readonly textures: THREE.Texture[] = [];
 
   /** 所有材质共享的 uniform (同一对象引用, 改一次全部生效)。 */
   private readonly shared = {
@@ -132,6 +146,10 @@ export class Beach3DWorld {
   };
   private readonly skyUniforms: Record<string, THREE.IUniform> = {};
   private readonly tmpV = new THREE.Vector3();
+  /** 相机是否在地面以上 (上一帧)。 */
+  private groundAbove = true;
+  /** 棕榈羽叶贴图是否已加载。 */
+  private frondReady = false;
   private readonly tmpV2 = new THREE.Vector3();
 
   constructor() {
@@ -189,6 +207,22 @@ export class Beach3DWorld {
       triangles,
       instances: { palms: this.trunks?.count ?? 0, rocks: this.rocks?.count ?? 0, clouds: this.clouds?.count ?? 0, shells: this.shells?.count ?? 0 },
     };
+  }
+
+  /** 加载一张手绘贴图 (sRGB, 不翻转, 带 mipmap); 加载完成后回调 (例如让对应网格显示出来)。 */
+  private loadTexture(url: string, onLoad: () => void): THREE.Texture {
+    const tex = new THREE.TextureLoader().load(url, () => {
+      if (!this.disposed) onLoad();
+    });
+    tex.flipY = false;
+    tex.colorSpace = THREE.SRGBColorSpace;
+    tex.wrapS = tex.wrapT = THREE.ClampToEdgeWrapping;
+    tex.minFilter = THREE.LinearMipmapLinearFilter;
+    tex.magFilter = THREE.LinearFilter;
+    tex.generateMipmaps = true;
+    tex.anisotropy = 4;
+    this.textures.push(tex);
+    return tex;
   }
 
   private register<T extends THREE.Material>(m: T): T {
@@ -260,21 +294,22 @@ export class Beach3DWorld {
       blendDstAlpha: THREE.OneFactor,
     } as const;
 
-    // ── 积云 (远景层) ──
-    const cloudLayout = buildCloudLayout(clampN(cfg.clouds.count, 0, 40));
-    if (cloudLayout.length > 0 && cfg.clouds.count > 0) {
+    // ── 积云 (远景层, 手绘云贴图) ──
+    const cloudLayout = buildCloudLayout(clampN(cfg.clouds.density, 0, 2));
+    if (cloudLayout.length > 0 && cfg.clouds.opacity > 0) {
       const n = cloudLayout.length;
       const data = new Float32Array(n * 4);
       const kinds = new Float32Array(n);
-      const scale = clampN(cfg.clouds.scale, 0.5, 2);
+      const size = clampN(cfg.clouds.size, 0.5, 1.8);
       cloudLayout.forEach((c, i) => {
         // 角宽 → 球面上的米数
-        data.set([THREE.MathUtils.degToRad(c.az), THREE.MathUtils.degToRad(c.el), THREE.MathUtils.degToRad(c.w) * SKY_LAYER_RADIUS * scale, c.seed], i * 4);
+        data.set([THREE.MathUtils.degToRad(c.az), THREE.MathUtils.degToRad(c.el), THREE.MathUtils.degToRad(c.w) * SKY_LAYER_RADIUS * size, c.seed], i * 4);
         kinds[i] = c.kind;
       });
       const geo = new THREE.PlaneGeometry(1, 1);
       geo.setAttribute('aCloud', new THREE.InstancedBufferAttribute(data, 4));
       geo.setAttribute('aKind', new THREE.InstancedBufferAttribute(kinds, 1));
+      const map = this.loadTexture(cfg.assets.clouds, () => { if (this.clouds) this.clouds.visible = true; });
       const mat = this.register(new THREE.ShaderMaterial({
         vertexShader: CLOUD_VERT,
         fragmentShader: CLOUD_FRAG,
@@ -283,13 +318,13 @@ export class Beach3DWorld {
           uDrift: { value: THREE.MathUtils.degToRad(cfg.clouds.driftDegPerSec) },
           uRadius: { value: SKY_LAYER_RADIUS },
           uDipTan: this.shared.uDipTan,
-          uSunDir: this.shared.uSunDir,
-          uLight: { value: lin(cfg.clouds.light) },
-          uShade: { value: lin(cfg.clouds.shade) },
+          uMap: { value: map },
+          uRect: { value: CLOUD_SPRITES.map((sp) => new THREE.Vector4(...sp.rect)) },
+          uAspect: { value: CLOUD_SPRITES.map((sp) => sp.aspect) },
+          uTint: { value: lin(cfg.clouds.tint) },
+          uTintJitter: { value: clampN(cfg.clouds.tintJitter, 0, 0.15) },
           uHorizon: { value: lin(cfg.sky.horizon) },
-          uSkyMid: { value: lin(cfg.sky.mid) },
-          uOpacity: { value: 1 },
-          uEdge: { value: clampN(cfg.clouds.edgeSoftness, 0.5, 4) },
+          uOpacity: { value: clampN(cfg.clouds.opacity, 0, 1) },
           uComp: this.shared.uComp,
         },
         ...farBlend,
@@ -298,6 +333,7 @@ export class Beach3DWorld {
       this.clouds.name = 'Beach3DClouds';
       this.clouds.frustumCulled = false;
       this.clouds.renderOrder = -990;
+      this.clouds.visible = false; // 贴图加载完成后显示
       this.clouds.onBeforeRender = (_r, _s, camera) => this.followCamera(this.clouds!, camera);
       this.group.add(this.clouds);
     }
@@ -439,6 +475,8 @@ export class Beach3DWorld {
         uLean: { value: PALM_TRUNK.lean },
         uLeafLight: { value: lin(cfg.vegetation.leafLight) },
         uLeafShade: { value: lin(cfg.vegetation.leafShade) },
+        uFrond: { value: this.loadTexture(cfg.assets.frond, () => { this.frondReady = true; if (this.crowns) this.crowns.visible = this.groundAbove; }) },
+        uFrondSize: { value: new THREE.Vector2(1024, 320) },
         uTrunkLight: { value: lin(cfg.vegetation.trunkLight) },
         uTrunkShade: { value: lin(cfg.vegetation.trunkShade) },
         uSunDir: this.shared.uSunDir,
@@ -449,7 +487,7 @@ export class Beach3DWorld {
       side: THREE.DoubleSide,
     }));
     const trunkGeo = buildPalmTrunk();
-    const crownGeo = buildPalmCrown(clampN(cfg.vegetation.fronds, 8, 16), clampN(cfg.vegetation.leaflets, 8, 22));
+    const crownGeo = buildPalmCrown(clampN(cfg.vegetation.fronds, 8, 16), clampN(cfg.vegetation.frondWidth, 0.7, 1.4));
     const iPalm = new Float32Array(PALMS.length * 2);
     PALMS.forEach((p, i) => iPalm.set([p.height, p.lean], i * 2));
     trunkGeo.setAttribute('iPalm', new THREE.InstancedBufferAttribute(iPalm, 2));
@@ -478,6 +516,7 @@ export class Beach3DWorld {
     this.crowns.name = 'Beach3DPalmCrowns';
     this.trunks.computeBoundingSphere();
     this.crowns.computeBoundingSphere();
+    this.crowns.visible = false; // 羽叶贴图加载完成后显示
     this.group.add(this.trunks, this.crowns);
 
     // ── 礁石 ──
@@ -595,15 +634,19 @@ export class Beach3DWorld {
     const camDist = Math.hypot(this.tmpV.x - this.group.position.x, this.tmpV.z - this.group.position.z);
     const d0 = camDist + 3;
     this.shared.uCurveD0.value = d0;
-    const dip = computeHorizonDip(this.tmpV.y, d0, this.shared.uCurveR.value);
+    const camH = this.tmpV.y - this.group.position.y;
+    const dip = computeSkyDip(camH, camDist, d0, this.shared.uCurveR.value);
     this.shared.uDipSin.value = Math.sin(dip);
     this.shared.uDipTan.value = Math.tan(dip);
 
-    // 相机在地面以下 (极限仰视) 时地面背面被剔除, 贴地的小道具会浮在天上 → 只留天空 / 云 / 远岛 / 棕榈
-    const above = this.tmpV.y - this.group.position.y > 0.02;
+    // 相机在地面以下 (极限仰视) 时地面背面被剔除, 地上的东西会浮在天上 → 只留天空 / 云 / 远岛 (海平线抬到角色脚下, 见 computeSkyDip) 和角色
+    const above = camH > 0.02;
+    this.groundAbove = above;
     if (this.shells) this.shells.visible = above;
     if (this.rocks) this.rocks.visible = above;
     if (this.props) this.props.visible = above;
+    if (this.trunks) this.trunks.visible = above;
+    if (this.crowns && this.frondReady) this.crowns.visible = above;
 
     (this.skyUniforms.uInvProj.value as THREE.Matrix4).copy(camera.projectionMatrixInverse);
     (this.skyUniforms.uCamWorld.value as THREE.Matrix4).copy(camera.matrixWorld);
@@ -620,6 +663,8 @@ export class Beach3DWorld {
     });
     for (const m of this.materials) m.dispose();
     this.materials.length = 0;
+    for (const t of this.textures) t.dispose();
+    this.textures.length = 0;
     if (scene) scene.remove(this.group);
     this.group.clear();
     this.sky = this.clouds = this.islands = this.ground = this.trunks = this.crowns = this.rocks = this.shells = this.props = null;
