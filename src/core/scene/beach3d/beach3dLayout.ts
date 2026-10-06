@@ -2,8 +2,9 @@
  * beach3dLayout.ts — 海滩 3D 场景的布局数据与岸线函数 (纯函数 / 纯数据, 无 three / DOM 依赖, 可直接单测)。
  *
  * 坐标约定 (与引擎一致): 角色站在原点, 脚底 y = 0; 相机只在 YZ 平面内绕角色俯仰 (水平方位锁定 0, 永远在 +Z 一侧),
- * 左右是角色自己转身 (bodyTurn), 所以场景只需要朝 −Z 方向布景: 近处沙滩 → 岸线 → 海 → 海平线上的远山。
- * 棕榈 / 礁石分布在画面两侧, 中间留出角色的"禁区", 不会挡住角色。
+ * 左右是角色自己转身 (bodyTurn), 所以场景只需要朝 −Z 方向布景: 近处沙滩 → 岸线 → 海 → 海平线上的远岛。
+ * 构图刻意不对称 (二次元背景的"不规则三角"构图): 左侧一簇高矮错落的棕榈, 右侧一棵框景棕榈 + 沙滩椅 / 遮阳伞;
+ * 中间留出角色的"禁区", 不会挡住角色。
  */
 
 export interface ShoreParams {
@@ -23,37 +24,103 @@ export function shoreLineZ(x: number, p: ShoreParams): number {
   return p.shoreZ - p.shoreCurve * x * x + p.shoreWiggle * Math.sin(x * 0.21 + 1.3) + 0.35 * p.shoreWiggle * Math.sin(x * 0.57);
 }
 
-/** 棕榈: 世界位置 (x, z)、整体缩放、树干倾斜方向 (yaw, rad; 0 = 向 +X 倾斜)。 */
+// ───────────────────────── 棕榈 ─────────────────────────
+
+/** 树干基准参数: 高 H (m), 顶部相对底部的水平偏移 LEAN (m, 沿局部 +X), 根部 / 顶部半径 (m)。每棵树再乘自己的 height / lean。 */
+export const PALM_TRUNK = { height: 4.3, lean: 1.5, r0: 0.18, r1: 0.095 } as const;
+
+/** 树干中心线的倾斜剖面 (t ∈ [0,1] → 0..1): 根部近乎竖直 (smoothstep 两端斜率 0 → S 形), 上半段 t² 让整体更倾。 */
+export function trunkLeanProfile(t: number): number {
+  const s = t * t * (3 - 2 * t);
+  return 0.65 * s + 0.35 * t * t;
+}
+
+/**
+ * 棕榈: 世界位置 (x, z)、整体缩放、树干倾斜方向 (yaw, rad; 0 = 向 +X 倾斜)、
+ * 树干高度倍率 height (只拉长树干, 不变粗)、倾斜倍率 lean (0 = 笔直, 1 = 基准 1.5m 偏移)、叶冠自转 spin (rad)。
+ */
 export interface PalmSpec {
   x: number;
   z: number;
   scale: number;
   yaw: number;
+  height: number;
+  lean: number;
+  spin: number;
 }
 
 /** 树干朝 (tx, tz) 方向倾斜的 yaw (树干局部 +X = 倾斜方向; Three 绕 Y 正转: x' = x·cos + z·sin, z' = −x·sin + z·cos)。 */
 function yawToward(x: number, z: number, tx: number, tz: number): number {
-  const dx = tx - x;
-  const dz = tz - z;
-  return Math.atan2(-dz, dx);
+  return Math.atan2(-(tz - z), tx - x);
+}
+
+function palm(x: number, z: number, scale: number, height: number, lean: number, tx: number, tz: number, spin: number): PalmSpec {
+  return { x, z, scale, yaw: yawToward(x, z, tx, tz), height, lean, spin };
 }
 
 /**
- * 棕榈布局: 左右各 5 棵, 由近到远; 最前的一对向画面中心倾斜, 叶冠在竖屏上角入画、横屏两侧形成框景。
- * 全部种在沙地上 (单测校验 z > 岸线 + 0.8m), 且离角色 ≥ 2.4m。
+ * 棕榈布局 (共 11 棵, 左 7 右 4, 刻意不对称):
+ *   竖屏全身镜头里: 左侧一簇 3 棵 (近处一棵向海面 / 画面中心斜出, 后面一棵更高更直, 岸边一棵矮小的幼树探向海面),
+ *   右侧只有一棵向外侧斜出的框景棕榈 (树干入画, 叶冠一半在画外); 右侧近处留给沙滩椅 + 遮阳伞。
+ *   横屏 / 广角时两侧再各露出几棵间距、高矮、倾斜都不同的远树。
+ * 全部种在沙地上 (单测校验 z > 岸线 + 0.8m), 且离角色 ≥ 2.4m, 叶冠不悬在角色正上方。
  */
 export const PALMS: readonly PalmSpec[] = [
-  { x: -2.1, z: -3.0, scale: 0.86, yaw: yawToward(-2.1, -3.0, 0, 0.5) },
-  { x: -3.7, z: -4.8, scale: 0.92, yaw: yawToward(-3.7, -4.8, 0, -3) },
-  { x: -8.4, z: -6.0, scale: 1.12, yaw: yawToward(-8.4, -6.0, -3, -8) },
-  { x: -12.8, z: -9.2, scale: 1.0, yaw: yawToward(-12.8, -9.2, -6, -14) },
-  { x: -18.5, z: -13.5, scale: 1.18, yaw: yawToward(-18.5, -13.5, -10, -20) },
-  { x: 2.3, z: -3.4, scale: 0.9, yaw: yawToward(2.3, -3.4, 0, 0.3) },
-  { x: 4.0, z: -4.5, scale: 0.9, yaw: yawToward(4.0, -4.5, 1, -6) },
-  { x: 9.2, z: -7.4, scale: 1.1, yaw: yawToward(9.2, -7.4, 4, -10) },
-  { x: 14.0, z: -10.6, scale: 0.96, yaw: yawToward(14.0, -10.6, 8, -15) },
-  { x: 20.5, z: -15.5, scale: 1.14, yaw: yawToward(20.5, -15.5, 12, -22) },
+  // 左侧簇 (竖屏可见)
+  palm(-2.9, -1.6, 1.05, 1.0, 1.15, 0.5, -4.5, 0.3),
+  palm(-3.3, -4.3, 0.95, 1.25, 0.45, -6.0, -7.0, 2.1),
+  palm(-1.95, -4.75, 0.7, 0.86, 1.35, -1.0, -9.0, 4.4),
+  // 右侧框景 (竖屏可见)
+  palm(3.6, -4.0, 1.12, 1.15, 0.8, 6.0, -6.0, 1.2),
+  // 横屏 / 广角才看得到的远树
+  palm(-7.2, -2.4, 1.0, 0.95, 0.9, -3.0, -6.0, 5.3),
+  palm(-10.8, -6.2, 0.9, 1.15, 0.7, -14.0, -10.0, 0.9),
+  palm(-12.2, -4.6, 1.1, 1.0, 1.2, -8.0, -9.0, 3.3),
+  palm(-18.0, -11.0, 1.15, 1.1, 0.8, -12.0, -16.0, 2.6),
+  palm(8.8, -5.0, 1.0, 1.1, 1.0, 5.0, -9.0, 4.0),
+  palm(14.5, -9.5, 0.85, 0.9, 1.3, 10.0, -13.0, 0.4),
+  palm(21.0, -15.5, 1.1, 1.05, 0.9, 16.0, -20.0, 1.8),
 ];
+
+/** 树干顶端 (叶冠挂点) 的世界坐标 (局部坐标系, 角色在原点)。 */
+export function palmTop(p: PalmSpec): { x: number; y: number; z: number } {
+  const off = PALM_TRUNK.lean * p.lean * p.scale;
+  return { x: p.x + off * Math.cos(p.yaw), y: PALM_TRUNK.height * p.height * p.scale, z: p.z - off * Math.sin(p.yaw) };
+}
+
+// ───────────────────────── 沙滩椅 + 遮阳伞 ─────────────────────────
+
+/**
+ * 沙滩躺椅: 中心 (x, z), 朝向 yaw (rad; 0 = 脚朝 −Z 正对大海, 正值 = 脚略朝画面中心偏)。椅子局部: 头端 (靠背) 在 +Z, 脚端在 −Z。
+ * 放在角色右后方: 竖屏全身镜头里在角色右侧完整入画, 不挡角色 (离角色 ≥ 1.8m, 且整体在角色身后)。
+ */
+export const CHAIR = { x: 1.95, z: -2.9, yaw: 0.3, length: 1.9, width: 0.66 } as const;
+
+/** 遮阳伞: 插在椅子头端外侧 (椅子局部坐标 lx, lz), 伞面高 height, 半径 radius, 向椅子一侧倾斜 tilt (rad)。 */
+export const PARASOL = { lx: 0.5, lz: 0.72, height: 1.78, radius: 0.72, tilt: 0.14 } as const;
+
+/** 椅子局部坐标 → 世界 (局部坐标系)。 */
+export function chairToWorld(lx: number, lz: number): { x: number; z: number } {
+  const c = Math.cos(CHAIR.yaw), s = Math.sin(CHAIR.yaw);
+  return { x: CHAIR.x + lx * c + lz * s, z: CHAIR.z - lx * s + lz * c };
+}
+
+/** 遮阳伞伞面中心的世界坐标与高度 (伞杆向椅子一侧倾斜后)。 */
+export function parasolCanopy(): { x: number; y: number; z: number; r: number } {
+  const top = chairToWorld(PARASOL.lx - Math.sin(PARASOL.tilt) * PARASOL.height, PARASOL.lz);
+  return { x: top.x, y: Math.cos(PARASOL.tilt) * PARASOL.height, z: top.z, r: PARASOL.radius };
+}
+
+/** 点是否在沙滩椅 + 遮阳伞的占地范围内 (贝壳 / 礁石避开用), margin 外扩 (m)。 */
+export function insideChairFootprint(x: number, z: number, margin = 0): boolean {
+  const c = Math.cos(CHAIR.yaw), s = Math.sin(CHAIR.yaw);
+  const dx = x - CHAIR.x, dz = z - CHAIR.z;
+  const lx = dx * c - dz * s;
+  const lz = dx * s + dz * c;
+  if (Math.abs(lx) < CHAIR.width / 2 + margin && Math.abs(lz) < CHAIR.length / 2 + margin) return true;
+  const pole = chairToWorld(PARASOL.lx, PARASOL.lz);
+  return Math.hypot(x - pole.x, z - pole.z) < 0.15 + margin;
+}
 
 function mulberry32(seed: number): () => number {
   let a = seed >>> 0;
@@ -66,60 +133,113 @@ function mulberry32(seed: number): () => number {
   };
 }
 
-/** 远山峰: 方位角 (°, 0 = 正后方 −Z, 正 = 向 +X)、高度 (m, 在半径处)、半宽 (°)。 */
-export interface PeakSpec {
+// ───────────────────────── 远岛 (天空层里逐像素画的剪影) ─────────────────────────
+
+/**
+ * 远岛山峰 (角度单位, 逐像素在着色器里求值): 方位角 az (°, 0 = 正后方 −Z, 正 = 向 +X)、
+ * 峰高 h (° 仰角, 在可见海平线之上)、半宽 w (°)、形状 shape (0 = 圆润穹顶, 1 = 尖峰火山形)、偏斜 skew (−0.6 ~ 0.6, 正 = 右坡更缓更长)。
+ */
+export interface IslandPeak {
   az: number;
   h: number;
   w: number;
+  shape: number;
+  skew: number;
 }
 
-/** 远层岛屿 (最淡, 几乎融进天边的青白雾里): 两侧较高, 角色正后方 (|az| < 8°) 只有很低的岛影, 留出开阔海面。 */
-export const FAR_PEAKS: readonly PeakSpec[] = [
-  { az: -50, h: 6.0, w: 17 },
-  { az: -30, h: 7.6, w: 13 },
-  { az: -14, h: 3.4, w: 10 },
-  { az: -2, h: 1.4, w: 7 },
-  { az: 18, h: 3.6, w: 11 },
-  { az: 34, h: 6.8, w: 14 },
-  { az: 52, h: 5.0, w: 15 },
+/** 远层 (最淡, 几乎融进天边的薰衣草青雾): 两侧连绵的低山脊, 角色正后方 (|az| < 5°) 只有极低的影子, 留出开阔海面。 */
+export const FAR_ISLANDS: readonly IslandPeak[] = [
+  { az: -40, h: 2.4, w: 15, shape: 0.2, skew: 0.3 },
+  { az: -19, h: 3.0, w: 9, shape: 0.45, skew: -0.35 },
+  { az: -8.5, h: 1.2, w: 6, shape: 0.2, skew: 0.4 },
+  { az: 19, h: 1.9, w: 10, shape: 0.3, skew: -0.2 },
+  { az: 33, h: 2.8, w: 12, shape: 0.4, skew: 0.25 },
+  { az: 55, h: 1.6, w: 14, shape: 0.1, skew: 0 },
 ];
 
-/** 中层岛屿 (柔和的绿, 带一层浅雾)。 */
-export const MID_PEAKS: readonly PeakSpec[] = [
-  { az: -42, h: 4.2, w: 11 },
-  { az: -24, h: 2.6, w: 8 },
-  { az: 24, h: 4.6, w: 10 },
-  { az: 44, h: 2.8, w: 9 },
+/** 中层 (灰蓝绿, 叠一层雾): 左侧一座不对称的火山形岛, 右侧一道低缓、雾很重的长岛。 */
+export const MID_ISLANDS: readonly IslandPeak[] = [
+  { az: -14.5, h: 2.0, w: 6.5, shape: 0.55, skew: 0.45 },
+  { az: -24, h: 0.9, w: 5, shape: 0.2, skew: -0.3 },
+  { az: 15.5, h: 0.8, w: 6, shape: 0.15, skew: -0.3 },
+  { az: 30, h: 1.25, w: 8, shape: 0.3, skew: -0.4 },
 ];
 
-/** 近层小岛 (最饱和的绿, 树冠鼓包最明显)。 */
-export const NEAR_PEAKS: readonly PeakSpec[] = [
-  { az: -34, h: 2.2, w: 6.5 },
-  { az: -55, h: 1.4, w: 5 },
-  { az: 31, h: 2.5, w: 7 },
-  { az: 13, h: 1.0, w: 4 },
+/** 近层 (薄荷青绿, 顶上一排树冠鼓包): 只在两侧较远的方位 (竖屏正面看不到, 横屏 / 广角才入画), 不再在角色右侧堆一个小土包。 */
+export const NEAR_ISLANDS: readonly IslandPeak[] = [
+  { az: -31, h: 0.75, w: 4.5, shape: 0.2, skew: -0.2 },
+  { az: 41, h: 0.6, w: 3.5, shape: 0.15, skew: 0.3 },
+];
+
+/** 一座岛在方位 azDeg 处的平滑剖面高度 (°) —— 与 ISLAND_FRAG 里 islandProfile() 同一公式 (单测 / 预算用)。 */
+export function islandProfile(azDeg: number, p: IslandPeak): number {
+  const d = azDeg - p.az;
+  const w = p.w * (d > 0 ? 1 + p.skew : 1 - p.skew);
+  const t = Math.abs(d) / w;
+  if (t >= 1) return 0;
+  const dome = Math.pow(1 - t * t, 0.7);
+  const peak = Math.pow(1 - t, 1.7);
+  return p.h * (dome + (peak - dome) * p.shape);
+}
+
+/** 一层岛屿的平滑剖面 (多座取最大)。 */
+export function islandRidge(azDeg: number, peaks: readonly IslandPeak[]): number {
+  let h = 0;
+  for (const p of peaks) h = Math.max(h, islandProfile(azDeg, p));
+  return h;
+}
+
+// ───────────────────────── 云 ─────────────────────────
+
+/** 云的种类: 0 大积云 (可长成塔状), 1 中积云, 2 扁平的层积云碎块 / 小云团。 */
+export type CloudKind = 0 | 1 | 2;
+
+/** 云: 方位 az (°)、底边仰角 el (°, 可见海平线之上)、宽度 w (°)、种类、随机种子 (0..1)。 */
+export interface CloudSpec {
+  az: number;
+  el: number;
+  w: number;
+  kind: CloudKind;
+  seed: number;
+}
+
+/**
+ * 手工构图的"主角云" (正前方 ±30° 内, 竖屏全身镜头 ±12° 都能看到几朵): 远近 / 大小 / 高低都错开,
+ * 一大一中一小 + 近海平线的扁云 + 仰头才看到的高云, 不再是天上孤零零的一朵。
+ */
+export const HERO_CLOUDS: readonly CloudSpec[] = [
+  { az: -7.5, el: 4.6, w: 11, kind: 0, seed: 0.137 },
+  { az: 9.5, el: 4.0, w: 8, kind: 1, seed: 0.618 },
+  { az: 1.5, el: 12.5, w: 3.4, kind: 2, seed: 0.271 },
+  { az: 16, el: 1.8, w: 9, kind: 2, seed: 0.833 },
+  { az: 25, el: 6.5, w: 14, kind: 0, seed: 0.459 },
+  { az: -24, el: 2.8, w: 10, kind: 1, seed: 0.905 },
+  { az: 4.5, el: 21, w: 10, kind: 1, seed: 0.362 },
+  { az: -16, el: 29, w: 8, kind: 2, seed: 0.744 },
+  { az: 15, el: 36, w: 7, kind: 2, seed: 0.051 },
 ];
 
 /**
- * 岛屿剪影高度 (m): 每座岛是一个圆润的穹顶 (h · (1 − t²)^0.7), 多座取最大; bump > 0 时顶上再叠一排大小不一的圆鼓包
- * (卡通岛上的树冠轮廓, bumpW = 鼓包平均宽度 °); 低于 0 截为 0 (没有岛的方位 = 海平线)。
+ * 全部云: 主角云 + 其余方位的随机云 (总数 count, 最少 = 主角云数量), 按底边仰角从低到高 (= 从远到近) 排序, 近处的云叠在远处的云前面。
+ * 仰角 ≤ 40°, 面片在仰视极限时不退化。确定性随机。
  */
-export function ridgeHeight(azDeg: number, peaks: readonly PeakSpec[], heightScale = 1, bump = 0, bumpW = 1.6): number {
-  let h = 0;
-  for (const p of peaks) {
-    const t = Math.abs(azDeg - p.az) / p.w;
-    if (t < 1) h = Math.max(h, p.h * Math.pow(1 - t * t, 0.7));
+export function buildCloudLayout(count: number): CloudSpec[] {
+  const out: CloudSpec[] = HERO_CLOUDS.map((c) => ({ ...c }));
+  const n = Math.max(0, Math.round(count)) - out.length;
+  const rnd = mulberry32(0xc10d);
+  for (let i = 0; i < n; i++) {
+    // 主角区 (|az| < 32°) 之外的 296° 均布 + 抖动
+    const az = 32 + ((i + 0.2 + rnd() * 0.6) / Math.max(1, n)) * 296;
+    const r = rnd();
+    const kind: CloudKind = r < 0.3 ? 0 : r < 0.65 ? 1 : 2;
+    const el = kind === 2 ? 1.5 + rnd() * 26 : 2 + rnd() * (kind === 0 ? 10 : 18);
+    const w = (kind === 0 ? 12 : kind === 1 ? 7 : 5) * (0.7 + rnd() * 0.6);
+    out.push({ az: az > 180 ? az - 360 : az, el, w, kind, seed: rnd() });
   }
-  if (h <= 0) return 0;
-  h += 0.15 * Math.sin(azDeg * 0.9) * Math.min(1, h);
-  if (bump > 0) {
-    const u = azDeg / bumpW + 0.6 * Math.sin(azDeg * 0.23) + 0.3 * Math.sin(azDeg * 0.71);
-    const f = u - Math.floor(u);
-    const amp = bump * (0.6 + 0.4 * Math.sin(Math.floor(u) * 12.9898) ** 2);
-    h += amp * (Math.sqrt(Math.sin(Math.PI * f)) - 0.75) * Math.min(1, h / 0.8);
-  }
-  return Math.max(0, h * heightScale);
+  return out.sort((a, b) => a.el - b.el);
 }
+
+// ───────────────────────── 礁石 ─────────────────────────
 
 /** 礁石: 世界位置、尺寸 (m, 半径)、压扁比例、朝向、是否在水里 (在水里的周围画一圈白浪)。 */
 export interface RockSpec {
@@ -138,9 +258,9 @@ export interface RockSpec {
 export function buildRockLayout(shore: ShoreParams): RockSpec[] {
   const rnd = mulberry32(0x70c4);
   const clusters: Array<[number, number, number]> = [
-    // [x, 相对岸线的 z 偏移 (m), 簇大小]
-    [-3.4, -0.9, 0.55], [-6.2, 0.6, 0.8], [-9.8, -1.2, 0.7], [-13.5, 0.9, 0.9],
-    [3.6, -1.1, 0.5], [6.8, 0.4, 0.85], [10.6, -1.4, 0.75], [15.5, 0.7, 0.95],
+    // [x, 相对岸线的 z 偏移 (m), 簇大小] —— 左右不对称: 左侧近处一簇大的, 右侧礁石更少更远
+    [-3.6, -0.9, 0.62], [-6.4, 0.6, 0.8], [-9.8, -1.2, 0.7], [-13.5, 0.9, 0.9],
+    [4.6, -1.3, 0.45], [7.4, 0.3, 0.8], [11.8, -1.4, 0.75], [16.5, 0.7, 0.95],
   ];
   const out: RockSpec[] = [];
   for (const [cx, dz, size] of clusters) {
@@ -155,6 +275,8 @@ export function buildRockLayout(shore: ShoreParams): RockSpec[] {
   }
   return out;
 }
+
+// ───────────────────────── 贝壳 ─────────────────────────
 
 /** 贝壳类小物件: 0 扇贝, 1 海螺, 2 海星。 */
 export type ShellKind = 0 | 1 | 2;
@@ -172,24 +294,46 @@ export interface ShellSpec {
 /** 贝壳离角色 (原点) 至少多远 (m), 避开脚下。 */
 export const SHELL_KEEP_OUT = 1.2;
 
+/** 近景大贝壳的数量 (相机附近几个更大、一眼认得出的; 其余是散在湿沙带的小贝壳)。 */
+export const SHELL_HERO_COUNT = 4;
+
 /**
- * 贝壳布局: 稀疏、自然随机; 约 3/4 落在湿沙带上沿 (冲刷浪推不到的地方, 不会被浪膜盖住), 其余零星散在干沙上。
- * 避开角色脚下 (SHELL_KEEP_OUT) 和棕榈根部。确定性随机 (每次一样)。
+ * 贝壳布局 (确定性随机):
+ *   - 先放 SHELL_HERO_COUNT 个近景大贝壳: 角色两侧偏前 (相机这一侧), 竖屏全身镜头里在脚边两侧, 大小约 1.6 倍;
+ *   - 其余沿整条海岸自然分布: 横向集中在画面中部 (|x| 越大越稀), 纵向越靠近湿沙线越密 (约 55% 在湿线上方 1.2m 内,
+ *     30% 在其后 3m 内, 其余零星散在干沙上), 一律在冲刷浪推不到的地方 (不被浪膜盖住)。
+ *   避开角色脚下 (SHELL_KEEP_OUT)、棕榈根部、沙滩椅 / 伞杆, 彼此至少相隔 0.45m。
  */
 export function buildShellLayout(count: number, shore: ShoreParams, swashAmp: number): ShellSpec[] {
   const rnd = mulberry32(0x5e11);
   const out: ShellSpec[] = [];
   const n = Math.max(0, Math.min(60, Math.round(count)));
   const wetTop = swashAmp * 1.35 + 0.15; // 冲刷浪最远推到岸线以上约 1.35 × 幅度
-  for (let tries = 0; out.length < n && tries < n * 20; tries++) {
-    const x = (rnd() - 0.5) * 30;
-    const onWet = rnd() < 0.75;
-    const z = shoreLineZ(x, shore) + wetTop + (onWet ? rnd() * 1.1 : 1.1 + rnd() * 4.5);
-    if (Math.hypot(x, z) < SHELL_KEEP_OUT) continue;
-    if (PALMS.some((p) => Math.hypot(p.x - x, p.z - z) < 0.6)) continue;
-    if (out.some((o) => Math.hypot(o.x - x, o.z - z) < 0.5)) continue;
-    const r = rnd();
-    const kind: ShellKind = r < 0.45 ? 0 : r < 0.75 ? 1 : 2;
+  const ok = (x: number, z: number, gap: number) =>
+    Math.hypot(x, z) >= SHELL_KEEP_OUT &&
+    z > shoreLineZ(x, shore) + wetTop &&
+    !PALMS.some((p) => Math.hypot(p.x - x, p.z - z) < 0.6) &&
+    !insideChairFootprint(x, z, 0.2) &&
+    !out.some((o) => Math.hypot(o.x - x, o.z - z) < gap);
+  const kindOf = (r: number): ShellKind => (r < 0.45 ? 0 : r < 0.75 ? 1 : 2);
+  // 近景大贝壳: 固定的几个落点附近抖动 (左右各两个, 前后错开)
+  const heroSpots: Array<[number, number]> = [[-1.35, 1.1], [0.95, 2.3], [-0.7, 3.4], [1.9, 0.6]];
+  for (const [hx, hz] of heroSpots.slice(0, Math.min(SHELL_HERO_COUNT, n))) {
+    const x = hx + (rnd() - 0.5) * 0.3;
+    const z = hz + (rnd() - 0.5) * 0.3;
+    if (!ok(x, z, 0.5)) continue;
+    const kind = kindOf(rnd());
+    out.push({ x, z, kind, size: (kind === 2 ? 0.17 : 0.15) * (0.9 + rnd() * 0.2), rot: rnd() * Math.PI * 2, color: Math.floor(rnd() * 3) });
+  }
+  for (let tries = 0; out.length < n && tries < n * 40; tries++) {
+    // 横向: 两个均匀数之和 → 三角分布, 中部密两侧稀; 范围 ±16m
+    const x = (rnd() + rnd() - 1) * 16;
+    const band = rnd();
+    const dz = band < 0.55 ? rnd() * 1.2 : band < 0.85 ? 1.2 + rnd() * 3 : 4.2 + rnd() * 4;
+    const z = shoreLineZ(x, shore) + wetTop + 0.05 + dz;
+    if (z > 6) continue;
+    if (!ok(x, z, 0.45)) continue;
+    const kind = kindOf(rnd());
     const size = (kind === 2 ? 0.1 : 0.08) * (0.7 + rnd() * 0.6); // 比真实略大一点 (卡通夸张), 远处才认得出
     out.push({ x, z, kind, size, rot: rnd() * Math.PI * 2, color: Math.floor(rnd() * 3) });
   }
