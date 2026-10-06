@@ -1,4 +1,5 @@
 import * as THREE from 'three';
+import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
 import { APP_CONFIG } from '@/config';
 import { SceneMotionGovernor } from '../sceneMotion';
 import {
@@ -21,6 +22,7 @@ import {
   ISLAND_RADIUS,
   buildBeachProps,
   buildIslandStrip,
+  buildLighthouse,
   buildPalmCrown,
   buildPalmTrunk,
   buildRock,
@@ -376,7 +378,13 @@ export class Beach3DWorld {
     // ── 礁石布局 (地面着色器要知道水中礁石的位置来画白浪, 所以先算) ──
     const rockLayout = cfg.rocks.enabled ? buildRockLayout(cfg.layout) : [];
     const rockUniform = Array.from({ length: ROCK_MAX }, () => new THREE.Vector4(0, 0, 0, 0));
-    rockLayout.filter((r) => r.inWater).slice(0, ROCK_MAX).forEach((r, i) => rockUniform[i].set(r.x, r.z, r.r * 0.95, 1));
+    rockLayout.filter((r) => r.inWater).slice(0, ROCK_MAX - 1).forEach((r, i) => rockUniform[i].set(r.x, r.z, r.r * 0.95, 1));
+    // 海上灯塔 (与沙滩椅同一次绘制, props.enabled = false 时一并隐藏): 最后一个礁石槽位留给它的礁石底座 → 一圈白浪
+    const lh = cfg.lighthouse;
+    const lhOn = cfg.props.enabled && lh.enabled;
+    const lhScale = clampN(lh.scale, 0.5, 2);
+    const lhX = clampN(lh.x, 4, 30), lhZ = clampN(lh.z, -60, -14);
+    if (lhOn) rockUniform[ROCK_MAX - 1].set(lhX, lhZ, 1.35 * lhScale, 1);
 
     // ── 道具落影数据 (棕榈 / 伞 / 椅子, 局部坐标) ──
     const propsOn = cfg.props.enabled;
@@ -424,8 +432,6 @@ export class Beach3DWorld {
           uFoamWidth: { value: cfg.sea.foamWidth },
           uFoamVar: { value: clampN(cfg.sea.foamVariation, 0, 1) },
           uFoamBreak: { value: clampN(cfg.sea.foamBreakup, 0, 1) },
-          uRipple: { value: cfg.sea.ripple },
-          uRippleDensity: { value: cfg.sea.rippleDensity },
           uGlint: { value: cfg.sea.glint },
           uGlintDensity: { value: cfg.sea.glintDensity },
           uGlintSpeed: { value: cfg.sea.glintSpeed },
@@ -478,7 +484,14 @@ export class Beach3DWorld {
       side: THREE.DoubleSide,
     }));
     const trunkGeo = buildPalmTrunk();
-    const crownGeo = buildPalmCrown(clampN(cfg.vegetation.fronds, 8, 16), clampN(cfg.vegetation.frondWidth, 0.7, 1.4));
+    const veg = cfg.vegetation;
+    const crownGeo = buildPalmCrown(clampN(veg.fronds, 8, 16), clampN(veg.frondWidth, 0.7, 1.4), {
+      riseDeg: clampN(veg.frondRiseDeg, 10, 60),
+      tierSpreadDeg: clampN(veg.frondTierSpreadDeg, 0, 45),
+      droop: clampN(veg.frondDroop, 0.4, 1.6),
+      stiffness: clampN(veg.frondStiffness, 0, 0.6),
+      foldDeg: clampN(veg.frondFoldDeg, 0, 45),
+    });
     const iPalm = new Float32Array(PALMS.length * 2);
     PALMS.forEach((p, i) => iPalm.set([p.height, p.lean], i * 2));
     trunkGeo.setAttribute('iPalm', new THREE.InstancedBufferAttribute(iPalm, 2));
@@ -574,7 +587,20 @@ export class Beach3DWorld {
     // ── 沙滩椅 + 遮阳伞 (1 次绘制) ──
     if (propsOn) {
       const spawn = this.group.position;
-      this.props = new THREE.Mesh(buildBeachProps(), this.register(new THREE.ShaderMaterial({
+      let propsGeo = buildBeachProps();
+      if (lhOn) {
+        // 灯塔摆在世界 (lhX, lhZ), 门朝角色; 换算到道具网格 (按椅子摆放 / 旋转) 的局部坐标后合并成同一个几何
+        const Y = new THREE.Vector3(0, 1, 0);
+        const world = new THREE.Matrix4().compose(new THREE.Vector3(lhX, 0, lhZ), new THREE.Quaternion().setFromAxisAngle(Y, Math.atan2(-lhX, -lhZ)), new THREE.Vector3().setScalar(lhScale));
+        const toLocal = new THREE.Matrix4().compose(new THREE.Vector3(CHAIR.x, 0, CHAIR.z), new THREE.Quaternion().setFromAxisAngle(Y, CHAIR.yaw), new THREE.Vector3(1, 1, 1)).invert();
+        const lg = buildLighthouse(toLocal.multiply(world));
+        const merged = mergeGeometries([propsGeo, lg]);
+        propsGeo.dispose();
+        lg.dispose();
+        merged.computeBoundingSphere();
+        propsGeo = merged;
+      }
+      this.props = new THREE.Mesh(propsGeo, this.register(new THREE.ShaderMaterial({
         vertexShader: PROP_VERT,
         fragmentShader: PROP_FRAG,
         uniforms: {
@@ -584,6 +610,12 @@ export class Beach3DWorld {
           uCanopyA: { value: lin(cfg.props.canopyA) },
           uCanopyB: { value: lin(cfg.props.canopyB) },
           uPillow: { value: lin(cfg.props.pillow) },
+          uLhBody: { value: lin(lh.body) },
+          uLhBand: { value: lin(lh.band) },
+          uLhRoof: { value: lin(lh.roof) },
+          uLhGlass: { value: lin(lh.glass) },
+          uLhRock: { value: lin(lh.rock) },
+          uLhGlow: { value: clampN(lh.glow, 0, 1) },
           uSunDir: this.shared.uSunDir,
           uHaze: { value: sandHaze },
           uCanopyW: { value: new THREE.Vector4(cnp.x + spawn.x, cnp.y, cnp.z + spawn.z, cnp.r) },

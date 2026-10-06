@@ -94,17 +94,41 @@ function mulberry32(seed: number): () => number {
   };
 }
 
+/** 叶冠造型参数 (对应 APP_CONFIG.beach3dScene.vegetation 里的 frondRiseDeg / frondTierSpreadDeg / frondDroop / frondStiffness / frondFoldDeg)。 */
+export interface FrondShape {
+  /** 中层叶叶柄的起始仰角 (°)。 */
+  riseDeg: number;
+  /** 冠顶嫩叶 / 最下层老叶相对中层的仰角差 (°): 冠顶 = rise + spread, 最下层 = rise − spread。 */
+  tierSpreadDeg: number;
+  /** 叶轴过了硬挺段之后的下弯量倍率 (1 = 冠顶叶尖仍上扬、中层叶尖斜向下、老叶下垂)。 */
+  droop: number;
+  /** 叶轴从叶柄起保持笔直上扬的比例 (0 ~ 0.7)。 */
+  stiffness: number;
+  /** V 形折叠: 两侧小叶相对水平面向下折的角度 (°, 叶尖处再深一点)。 */
+  foldDeg: number;
+}
+export const DEFAULT_FROND_SHAPE: FrondShape = { riseDeg: 36, tierSpreadDeg: 34, droop: 1, stiffness: 0.35, foldDeg: 24 };
+
 /**
- * 棕榈叶冠 (原点 = 树干顶端): fronds 片拱起再下垂的羽状大叶 + 一簇 4 个圆润的椰子。
- * 每片叶 = 一条沿弯曲叶轴的带子 (贴手绘羽叶贴图, 透明处丢弃), 横截面是 V 形: 叶轴在中间略高, 两侧小叶向下折,
- *   越靠叶尖折得越深 (小叶下垂), 整条带子再沿叶长轻微扭转 → 有体积、不像平贴的纸片。
- * 叶片方位按黄金角排布 + 抖动 (没有规则的层); 冠顶 3 片短嫩叶斜向上拱出后就弯下 (不再有竖直的叶轴尖), 其余长叶近乎平伸后大幅下垂。
- * aLeaf = (u: 叶柄 → 叶尖 0..1, v: 横向 0..1, 叶轴 v = 0.5) = 贴图坐标; aPart: 1 叶片, 2 椰子。法线朝上偏 (卡通柔和明暗)。
- * 每片叶 12 节 × 2 条 = 48 三角。
+ * 棕榈叶冠 (原点 = 树干顶端): fronds 片羽状大叶 + 一簇 4 个圆润的椰子, 按椰子树的真实形态排布:
+ *   - 分层: 每片叶有个"叶龄" tier (0 = 冠顶嫩叶, 1 = 最下层老叶), 叶柄起始仰角从冠顶的 rise + spread 递减到最下层的 rise − spread,
+ *     下弯量随叶龄增大 → 冠顶叶斜向上伸出、中层叶拱起后斜向下、只有老叶下垂; 整体是向四周放射的"喷泉 / 星芒"轮廓;
+ *   - 每片叶的叶轴: 前 stiffness 段笔直上扬 (硬挺的叶柄), 之后才逐渐弯下 (下弯集中在后半段 → 拱形, 不是从冠顶直接垂下的拖把);
+ *   - 横截面是倒 V 形 (叶轴在中间最高, 两侧小叶向下折 foldDeg, 叶尖处略深), 小叶仍向两侧张开成羽毛状, 不竖直下垂;
+ *   - 长度 / 宽度 / 下弯 / 方位 / 侧弯 / 扭转每片都有随机差异; 方位按黄金角排布, 层与方位交错, 没有规则的环。
+ * 每片叶 = 一条沿叶轴的带子 (贴手绘羽叶贴图, 透明处丢弃), aLeaf = (u: 叶柄 → 叶尖 0..1, v: 横向 0..1, 叶轴 v = 0.5) = 贴图坐标;
+ * aPart: 1 叶片, 2 椰子, 3 冠顶叶鞘包 (aLeaf.y = 0) / 叶柄 (aLeaf.y = 1)。法线朝上偏 (卡通柔和明暗)。每片叶 12 节 × 2 条 = 48 三角 + 叶柄 6 三角。
  */
-export function buildPalmCrown(fronds = 12, widthScale = 1): THREE.BufferGeometry {
+export function buildPalmCrown(fronds = 14, widthScale = 1, shape: Partial<FrondShape> = {}): THREE.BufferGeometry {
   const F = Math.max(6, Math.min(18, Math.round(fronds)));
   const WS = Math.max(0.6, Math.min(1.5, widthScale));
+  const sh = { ...DEFAULT_FROND_SHAPE, ...shape };
+  const D = Math.PI / 180;
+  const rise = Math.max(0, Math.min(75, sh.riseDeg)) * D;
+  const spread = Math.max(0, Math.min(45, sh.tierSpreadDeg)) * D;
+  const droopK = Math.max(0, Math.min(2, sh.droop));
+  const stiff = Math.max(0, Math.min(0.7, sh.stiffness));
+  const fold0 = Math.max(0, Math.min(60, sh.foldDeg)) * D;
   const rnd = mulberry32(0x9a1e);
   const pos: number[] = [];
   const nrm: number[] = [];
@@ -120,26 +144,28 @@ export function buildPalmCrown(fronds = 12, widthScale = 1): THREE.BufferGeometr
     part.push(pa);
     return pos.length / 3 - 1;
   };
-  const nUpper = Math.min(3, Math.round(F * 0.25));
   const T = new THREE.Vector3();
   const S = new THREE.Vector3();
   const N = new THREE.Vector3();
   const e = new THREE.Vector3();
   const n = new THREE.Vector3();
   for (let f = 0; f < F; f++) {
-    const upper = f < nUpper;
-    const az = f * 2.39996 + (rnd() - 0.5) * 0.35; // 黄金角
-    const len = upper ? 1.05 + rnd() * 0.25 : 1.85 + rnd() * 0.5;
-    const el0 = upper ? 0.6 + rnd() * 0.15 : 0.18 + rnd() * 0.3;  // 叶柄起始仰角
-    const droop = upper ? 1.55 + rnd() * 0.3 : 1.75 + rnd() * 0.6; // 沿叶长的下弯 (rad)
-    const curl = (rnd() - 0.5) * 0.35;                               // 叶轴在水平面内轻微侧弯
-    const twist = (rnd() - 0.5) * 0.7;                               // 沿叶长的扭转 (rad, 叶尖处)
-    const W = len * 0.33 * WS * (upper ? 0.85 : 1);                  // 带子全宽 (贴图 1024×320 的比例)
-    const p = new THREE.Vector3(Math.cos(az) * 0.05, 0.02, Math.sin(az) * 0.05);
+    const tier = Math.max(0, Math.min(1, (f + 0.5) / F + (rnd() - 0.5) * 0.5 / F)); // 叶龄: 0 冠顶嫩叶 → 1 最下层老叶
+    const az = f * 2.39996 + (rnd() - 0.5) * 0.4;                                     // 黄金角 + 抖动
+    const el0 = rise + spread * (1 - 2 * tier) + (rnd() - 0.5) * 0.12;                // 叶柄起始仰角
+    const droop = droopK * (0.85 + 0.85 * tier) * (0.85 + rnd() * 0.3);               // 硬挺段之后的总下弯 (rad)
+    const len = (1.25 + 0.85 * Math.min(1, tier * 1.5)) * (0.88 + rnd() * 0.24);      // 嫩叶短, 中 / 下层叶长
+    const W = len * 0.33 * WS * (0.8 + 0.2 * Math.min(1, tier * 2));                  // 带子全宽 (贴图 1024×320 的比例)
+    const curl = (rnd() - 0.5) * 0.3;                                                 // 叶轴在水平面内轻微侧弯
+    const twist = (rnd() - 0.5) * 0.5;                                                // 沿叶长的扭转 (rad, 叶尖处)
+    // 叶柄从冠顶叶鞘包里长出: 起点离冠顶中心 < 0.07m (单测检查), 被叶鞘包包住, 任何角度都看不到缝
+    const p = new THREE.Vector3(Math.cos(az) * 0.05, 0.02 + 0.04 * (1 - tier), Math.sin(az) * 0.05);
+    const stalk: { p: THREE.Vector3; s: THREE.Vector3 }[] = [];
     const base = pos.length / 3;
     for (let k = 0; k <= RS; k++) {
       const s = k / RS;
-      const el = el0 - droop * Math.pow(s, 1.5);
+      const b = Math.max(0, (s - stiff) / (1 - stiff));
+      const el = el0 - droop * Math.pow(b, 1.6);
       const a = az + curl * s;
       const h = new THREE.Vector3(Math.cos(a), 0, Math.sin(a));
       T.copy(h).multiplyScalar(Math.cos(el)).addScaledVector(up, Math.sin(el)).normalize();
@@ -152,8 +178,9 @@ export function buildPalmCrown(fronds = 12, widthScale = 1): THREE.BufferGeometr
       const cs = Math.cos(tw), sn = Math.sin(tw);
       const S2 = S.clone().multiplyScalar(cs).addScaledVector(N, sn);
       const N2 = N.clone().multiplyScalar(cs).addScaledVector(S, -sn);
-      // V 形折叠: 叶根附近较平 (0.3 rad), 叶尖附近小叶垂得更深 (0.85 rad); 叶柄一段很窄 (贴图本身在那里也只有叶柄)
-      const fold = 0.3 + 0.55 * s;
+      if (s <= 0.34) stalk.push({ p: p.clone(), s: S2.clone() });
+      // 倒 V 形折叠: 两侧小叶向下折 fold (叶尖处略深), 但仍向两侧张开
+      const fold = fold0 * (0.8 + 0.5 * s);
       const half = (W / 2) * (0.92 + 0.08 * Math.sin(Math.PI * s));
       for (const sg of [-1, 0, 1]) {
         if (sg === 0) {
@@ -161,7 +188,7 @@ export function buildPalmCrown(fronds = 12, widthScale = 1): THREE.BufferGeometr
           vtx(p, n, s, 0.5, 1);
         } else {
           e.copy(S2).multiplyScalar(sg * Math.cos(fold)).addScaledVector(N2, -Math.sin(fold));
-          const q = p.clone().addScaledVector(e, half).addScaledVector(up, -half * 0.12 * s);
+          const q = p.clone().addScaledVector(e, half);
           n.copy(N2).multiplyScalar(Math.cos(fold)).addScaledVector(S2, sg * Math.sin(fold)).addScaledVector(up, 0.5).normalize();
           vtx(q, n, s, sg < 0 ? 0 : 1, 1);
         }
@@ -172,16 +199,52 @@ export function buildPalmCrown(fronds = 12, widthScale = 1): THREE.BufferGeometr
       idx.push(r0, r1, r0 + 1, r0 + 1, r1, r1 + 1);
       idx.push(r0 + 1, r1 + 1, r0 + 2, r0 + 2, r1 + 1, r1 + 2);
     }
+    // 叶柄: 沿叶轴前 1/3 的一条竖直窄片 (与叶面十字交叉), 从侧面 / 下面看也是一根连到冠顶的实心叶柄, 越往外越细
+    const sb = pos.length / 3;
+    stalk.forEach(({ p: sp, s: ss }, k) => {
+      const t = k / Math.max(1, stalk.length - 1);
+      const hw = 0.032 * (1 - t) + 0.01;
+      const nv = new THREE.Vector3().crossVectors(ss, up).normalize();
+      const fin = new THREE.Vector3().crossVectors(nv, ss).normalize(); // 竖直方向 (叶面法线一侧)
+      if (fin.y < 0) fin.negate();
+      vtx(sp.clone().addScaledVector(fin, hw * 0.6), ss, t, 1, 3);
+      vtx(sp.clone().addScaledVector(fin, -hw * 1.4), ss, t, 1, 3);
+    });
+    for (let k = 0; k + 1 < stalk.length; k++) {
+      const a = sb + k * 2;
+      idx.push(a, a + 2, a + 1, a + 1, a + 2, a + 3);
+    }
+  }
+  // 冠顶叶鞘包: 树干顶端略微鼓起的一圈叶基 (旋转体, 10 × 5 段), 所有叶柄都从它里面长出来
+  {
+    const prof: Array<[number, number]> = [[0.085, -0.3], [0.112, -0.2], [0.132, -0.08], [0.124, 0.02], [0.085, 0.08], [0.03, 0.11]];
+    const RAD = 10;
+    const bb = pos.length / 3;
+    for (let j = 0; j < prof.length; j++) {
+      const [r, y] = prof[j];
+      const [rp, yp] = prof[Math.max(0, j - 1)];
+      const [rn, yn] = prof[Math.min(prof.length - 1, j + 1)];
+      const dr = rn - rp, dy = yn - yp; // 剖面切线 → 法线 (dy, -dr)
+      for (let i = 0; i <= RAD; i++) {
+        const a = (i / RAD) * Math.PI * 2;
+        const c = Math.cos(a), sn = Math.sin(a);
+        vtx(new THREE.Vector3(c * r, y, sn * r), new THREE.Vector3(c * dy, -dr, sn * dy).normalize(), j / (prof.length - 1), 0, 3);
+      }
+    }
+    for (let j = 0; j + 1 < prof.length; j++) for (let i = 0; i < RAD; i++) {
+      const a = bb + j * (RAD + 1) + i, b = a + RAD + 1;
+      idx.push(a, b, a + 1, a + 1, b, b + 1);
+    }
   }
   // 椰子: 4 个圆润的球 (2 级细分二十面体 180 面, 平滑法线, 略呈蛋形), 一簇挂在叶冠下面; aLeaf.x = 椰子序号 (着色时颜色略有差别)
   const ico = mergeVertices(stripToPosition(new THREE.IcosahedronGeometry(1, 2)));
   const ip = ico.getAttribute('position');
   const ii = ico.getIndex()!;
   const nuts: Array<[number, number, number, number]> = [
-    [0.12, -0.13, 0.05, 0.105],
-    [-0.08, -0.14, 0.11, 0.1],
-    [-0.04, -0.12, -0.13, 0.108],
-    [0.03, -0.25, 0.0, 0.098],
+    [0.21, -0.13, 0.08, 0.105],
+    [-0.13, -0.14, 0.19, 0.1],
+    [-0.08, -0.12, -0.22, 0.108],
+    [0.07, -0.27, -0.19, 0.098],
   ];
   nuts.forEach(([ox, oy, oz, r], c) => {
     const base = pos.length / 3;
@@ -319,8 +382,8 @@ export function buildShellSet(): THREE.BufferGeometry {
   return out;
 }
 
-/** 沙滩椅 / 遮阳伞的材质分区 (顶点属性 aMat)。 */
-export const PROP_MAT = { frame: 0, cushion: 1, pole: 2, canopy: 3, pillow: 4 } as const;
+/** 沙滩椅 / 遮阳伞 / 灯塔的材质分区 (顶点属性 aMat)。 */
+export const PROP_MAT = { frame: 0, cushion: 1, pole: 2, canopy: 3, pillow: 4, lighthouse: 5 } as const;
 
 /**
  * 躺椅框架尺寸 (椅子局部坐标, m): 两根侧梁 (截面 宽 railW × 高 railH, 中心高 railY) 从脚端 z0 到头端 z1;
@@ -341,19 +404,20 @@ const HINGE_Y = RAIL_TOP + 0.02;
 /** 遮阳伞伞面: 伞骨长 (= 半径 PARASOL.radius)、伞顶到伞骨末端的落差 rise、伞骨之间布面的下垂 sag、边缘内凹的扇贝 scallop、下摆高 hem。 */
 const CANOPY = { rise: 0.24, sag: 0.05, scallop: 0.025, hem: 0.022, panels: 8, sub: 6, rings: 6 } as const;
 
-export interface PropPart { name: string; geo: THREE.BufferGeometry }
+/** 一个部件; seg = 方截面细杆的两端中心点与截面边长 (单测用来检查杆端是否藏在相接的梁里)。 */
+export interface PropPart { name: string; geo: THREE.BufferGeometry; seg?: { a: THREE.Vector3; b: THREE.Vector3; t: number } }
 
 /**
  * 沙滩躺椅 + 遮阳伞的各个部件 (椅子局部坐标: 原点 = 椅子中心地面, 头端 / 靠背在 +Z, 脚端在 −Z)。
  * 躺椅: 两根侧梁 + 脚端 / 头端横档 + 4 条插进沙里的腿; 靠背侧梁与座梁同一 x、铰在座梁顶面 (外侧有铰钉),
- *   由两根撑杆从头端腿正上方的座梁内侧撑住; 坐垫平放在座梁上, 靠垫贴在靠背侧梁上, 小枕头贴在靠垫上。没有扶手。
+ *   由两根与梁同平面的撑杆撑住 (下端插在头端腿正上方的座梁里, 上端插在靠背侧梁里); 坐垫平放在座梁上, 靠垫贴在靠背侧梁上, 小枕头贴在靠垫上。没有扶手。
  * 遮阳伞: 插进沙里的细杆一直通到伞顶; 8 片布面在伞骨之间微微下垂, 边缘是伞骨之间的直边 + 很浅的内凹, 外加一圈很窄的下摆;
  *   伞面下有 8 根细伞骨 + 伞杆上的伞巢和 8 根撑骨; 伞顶一个小帽 + 顶珠。
  * 单测检查: 每个物体 (椅子 / 伞) 的所有部件彼此相连, 且都连到插进沙里的腿 / 伞杆上 (没有悬空零件)。
  */
 export function buildBeachPropParts(): PropPart[] {
   const parts: PropPart[] = [];
-  const add = (name: string, g: THREE.BufferGeometry, mat: number, m: THREE.Matrix4) => {
+  const add = (name: string, g: THREE.BufferGeometry, mat: number, m: THREE.Matrix4, seg?: PropPart['seg']) => {
     const gg = g.index ? g.toNonIndexed() : g;
     if (gg !== g) g.dispose();
     gg.applyMatrix4(m);
@@ -365,7 +429,7 @@ export function buildBeachPropParts(): PropPart[] {
     if (!gg.getAttribute('normal')) gg.computeVertexNormals();
     gg.setAttribute('aUV', new THREE.BufferAttribute(auv, 2));
     gg.setAttribute('aMat', new THREE.BufferAttribute(new Float32Array(n).fill(mat), 1));
-    parts.push({ name, geo: gg });
+    parts.push({ name, geo: gg, seg });
   };
   const ONE = new THREE.Vector3(1, 1, 1);
   const M = (x: number, y: number, z: number, rx = 0) => new THREE.Matrix4().compose(new THREE.Vector3(x, y, z), new THREE.Quaternion().setFromEuler(new THREE.Euler(rx, 0, 0)), ONE);
@@ -374,7 +438,7 @@ export function buildBeachPropParts(): PropPart[] {
     const d = new THREE.Vector3().subVectors(b, a);
     const q = new THREE.Quaternion().setFromUnitVectors(new THREE.Vector3(0, 0, 1), d.clone().normalize());
     const m = new THREE.Matrix4().compose(a.clone().add(b).multiplyScalar(0.5), q, ONE);
-    add(name, new THREE.BoxGeometry(t, t, d.length()), mat, parent ? parent.clone().multiply(m) : m);
+    add(name, new THREE.BoxGeometry(t, t, d.length()), mat, parent ? parent.clone().multiply(m) : m, parent ? undefined : { a: a.clone(), b: b.clone(), t });
   };
   const F = FRAME;
   const hw = CHAIR.width / 2 - 0.03; // 侧梁中心的 |x|
@@ -405,9 +469,9 @@ export function buildBeachPropParts(): PropPart[] {
     // 铰钉: 横穿座梁与靠背侧梁的外侧面
     add(`chair:hinge${sx}`, new THREE.CylinderGeometry(0.016, 0.016, 0.022, 8), PROP_MAT.frame,
       new THREE.Matrix4().compose(new THREE.Vector3(sx * (hw + 0.03), RAIL_TOP - 0.004, F.hingeZ), new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0, 0, 1), Math.PI / 2), ONE));
-    // 撑杆: 贴着座梁 / 靠背侧梁的内侧面, 从头端腿正上方撑到靠背中段
-    const px = sx * (hw - F.backT / 2 - F.propT / 2);
-    bar(`chair:prop${sx}`, new THREE.Vector3(px, F.railY, F.propZ), along(F.propS, 0, px), F.propT, PROP_MAT.frame);
+    // 撑杆: 与座梁 / 靠背侧梁在同一竖直面内 (同一 x, 比梁细), 下端插进头端腿正上方的座梁中心, 上端插进靠背侧梁中心;
+    //   杆截面的半对角线 (≈ 0.021m) 小于两根梁的半厚, 两端端面完全藏在梁里, 不会从框架侧面或底下露出杆头
+    bar(`chair:prop${sx}`, new THREE.Vector3(sx * hw, F.railY, F.propZ), along(F.propS, 0, sx * hw), F.propT, PROP_MAT.frame);
   }
   const topS = F.backLen - F.backT / 2;
   bar('chair:backTopBar', along(topS, 0, -hw + F.backT / 2), along(topS, 0, hw - F.backT / 2), 0.04, PROP_MAT.frame);
@@ -495,3 +559,82 @@ export const CHAIR_BACK = {
   angle: FRAME.backAngle, pivotY: HINGE_Y, pivotZ: FRAME.hingeZ, length: FRAME.backLen,
   seatTop: RAIL_TOP + FRAME.cushionT, legX: CHAIR.width / 2 - 0.03, legZ: FRAME.legZ,
 } as const;
+
+/**
+ * 海上小灯塔 (局部坐标: 原点 = 海面上的塔基中心, 单位 m, scale = 1 时总高约 5.2m; 门朝 +Z = 朝岸)。
+ * 自下而上: 半没在水里的圆润礁石底座 → 奶白塔基 → 奶白 / 珊瑚粉相间的锥形塔身 (5 段, 正面一扇门两扇小窗)
+ *   → 珊瑚粉观景平台 + 一圈细栏杆 → 透出暖光的灯室 → 薰衣草色圆锥顶 + 顶珠。
+ * 非索引几何, 属性与 buildBeachProps() 一致 (position / normal / aUV / aMat), 可直接合并进同一次绘制;
+ * aMat = PROP_MAT.lighthouse, aUV.x = 配色槽 (LIGHTHOUSE_SLOT)。约 900 三角。
+ */
+export const LIGHTHOUSE_SLOT = { body: 0, band: 1, roof: 2, glass: 3, rock: 4 } as const;
+export interface LighthousePart { name: string; geo: THREE.BufferGeometry }
+export function buildLighthouseParts(): LighthousePart[] {
+  const parts: LighthousePart[] = [];
+  const add = (name: string, g: THREE.BufferGeometry, slot: number, m: THREE.Matrix4) => {
+    const gg = g.index ? g.toNonIndexed() : g;
+    if (gg !== g) g.dispose();
+    gg.applyMatrix4(m);
+    for (const k of Object.keys(gg.attributes)) if (k !== 'position' && k !== 'normal') gg.deleteAttribute(k);
+    if (!gg.getAttribute('normal')) gg.computeVertexNormals();
+    const n = gg.getAttribute('position').count;
+    const auv = new Float32Array(n * 2);
+    for (let i = 0; i < n; i++) auv[i * 2] = slot;
+    gg.setAttribute('aUV', new THREE.BufferAttribute(auv, 2));
+    gg.setAttribute('aMat', new THREE.BufferAttribute(new Float32Array(n).fill(PROP_MAT.lighthouse), 1));
+    parts.push({ name, geo: gg });
+  };
+  const T = (x: number, y: number, z: number) => new THREE.Matrix4().makeTranslation(x, y, z);
+  const S = LIGHTHOUSE_SLOT;
+  // 礁石底座: 2 级细分前的二十面体 (80 面) 随机推拉成不规则的圆石, 一半没在水里
+  const rock = mergeVertices(stripToPosition(new THREE.IcosahedronGeometry(1, 1)));
+  const rp = rock.getAttribute('position');
+  const rnd = mulberry32(0x11ce);
+  for (let i = 0; i < rp.count; i++) {
+    const k = 0.85 + rnd() * 0.3;
+    rp.setXYZ(i, rp.getX(i) * 1.5 * k, Math.min(rp.getY(i) * 0.75 * k, 0.68), rp.getZ(i) * 1.3 * k); // 顶部压平, 塔基稳稳坐在上面
+  }
+  rock.computeVertexNormals();
+  add('lighthouse:rock', rock, S.rock, T(0, -0.25, 0));
+  // 塔基
+  add('lighthouse:plinth', new THREE.CylinderGeometry(0.78, 0.86, 0.3, 12), S.body, T(0, 0.45, 0));
+  // 塔身: 下粗上细, 5 段奶白 / 珊瑚粉相间
+  const y0 = 0.6, y1 = 3.85, r0 = 0.62, r1 = 0.44;
+  const rAt = (y: number) => r0 + (r1 - r0) * ((y - y0) / (y1 - y0));
+  const bands = [0.26, 0.16, 0.2, 0.16, 0.22];
+  let y = y0;
+  bands.forEach((f, i) => {
+    const h = f * (y1 - y0);
+    add(`lighthouse:tower${i}`, new THREE.CylinderGeometry(rAt(y + h), rAt(y), h, 12, 1, true), i % 2 ? S.band : S.body, T(0, y + h / 2, 0));
+    y += h;
+  });
+  // 门 + 两扇小窗 (朝岸, 略嵌进塔身)
+  add('lighthouse:door', new THREE.BoxGeometry(0.28, 0.48, 0.08), S.band, T(0, y0 + 0.26, rAt(y0 + 0.26) - 0.02));
+  for (const wy of [2.15, 3.25]) add(`lighthouse:window${wy}`, new THREE.BoxGeometry(0.13, 0.2, 0.06), S.glass, T(0, wy, rAt(wy) - 0.015));
+  // 观景平台 + 栏杆
+  add('lighthouse:deck', new THREE.CylinderGeometry(0.68, 0.6, 0.1, 12), S.band, T(0, y1 + 0.05, 0));
+  for (let k = 0; k < 8; k++) {
+    const a = (k / 8) * Math.PI * 2 + Math.PI / 8;
+    add(`lighthouse:post${k}`, new THREE.BoxGeometry(0.03, 0.27, 0.03), S.body, T(Math.cos(a) * 0.62, y1 + 0.235, Math.sin(a) * 0.62));
+  }
+  add('lighthouse:rail', new THREE.TorusGeometry(0.62, 0.02, 4, 24), S.body, T(0, y1 + 0.37, 0).multiply(new THREE.Matrix4().makeRotationX(Math.PI / 2)));
+  // 灯室: 底圈 + 透光玻璃 + 顶圈
+  add('lighthouse:lanternBase', new THREE.CylinderGeometry(0.38, 0.38, 0.08, 12), S.roof, T(0, y1 + 0.14, 0));
+  add('lighthouse:glass', new THREE.CylinderGeometry(0.33, 0.33, 0.48, 12, 1, true), S.glass, T(0, y1 + 0.42, 0));
+  add('lighthouse:lanternTop', new THREE.CylinderGeometry(0.4, 0.38, 0.07, 12), S.roof, T(0, y1 + 0.69, 0));
+  // 圆锥顶 + 顶珠
+  add('lighthouse:roof', new THREE.CylinderGeometry(0.0, 0.47, 0.44, 12, 1, true), S.roof, T(0, y1 + 0.94, 0));
+  add('lighthouse:spire', new THREE.CylinderGeometry(0.015, 0.02, 0.16, 6, 1, true), S.roof, T(0, y1 + 1.22, 0));
+  add('lighthouse:finial', new THREE.IcosahedronGeometry(0.06, 1), S.roof, T(0, y1 + 1.32, 0));
+  return parts;
+}
+
+/** 灯塔合并成一个几何 (再按摆放矩阵 m 变换), 属性与沙滩道具一致。 */
+export function buildLighthouse(m?: THREE.Matrix4): THREE.BufferGeometry {
+  const parts = buildLighthouseParts();
+  const out = mergeGeometries(parts.map((p) => p.geo));
+  parts.forEach((p) => p.geo.dispose());
+  if (m) out.applyMatrix4(m);
+  out.computeBoundingSphere();
+  return out;
+}

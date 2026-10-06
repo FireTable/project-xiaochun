@@ -359,8 +359,6 @@ uniform float uFoamBreak;
 uniform float uWaves;
 uniform float uBands;
 uniform float uDepthNoise;
-uniform float uRipple;
-uniform float uRippleDensity;
 uniform float uGlint;
 uniform float uGlintDensity;
 uniform float uGlintSpeed;
@@ -543,26 +541,6 @@ vec3 seaColor(vec2 q, float dist, float ds, float d, float aa, float rising, flo
   float cw = fwidth(cn);
   float caus = (1.0 - smoothstep(0.0, cw * 1.2 + 0.022, abs(cn - 0.62))) * (1.0 - smoothstep(0.25, 0.6, cw * 10.0));
   col = mix(col, vec3(1.0), caus * 0.32 * (1.0 - smoothstep(0.8, 3.2, ds)));
-  // 卡通波纹: 短横亮纹; 行距被噪声扭曲 (不再等距平行), 疏密分区 (有的海面平静, 有的碎浪多), 远处更早淡出
-  vec2 g = vec2(q.x / 2.3, q.y / 0.9 + 0.8 * vnoise(q * 0.17 + 4.0));
-  float row = floor(g.y);
-  float hr = hash12(vec2(row, 4.7));
-  g.x += uTime * 0.05 * (hr - 0.5) + hr * 7.0 + 0.8 * vnoise(vec2(q.y * 0.4, row));
-  vec2 id = floor(g);
-  vec2 f = fract(g);
-  float h1 = hash12(id);
-  float h2 = hash12(id + 19.7);
-  float patchR = smoothstep(0.25, 0.75, vnoise(q * 0.07 + 9.0));
-  float dens = uRippleDensity * (0.35 + 0.95 * patchR) * (1.0 + 0.5 * (1.0 - smoothstep(1.5, 6.0, ds)));
-  float on = step(h1, dens) * (0.55 + 0.45 * sin(uTime * 0.7 + h2 * 40.0));
-  float cx = 0.25 + 0.5 * h2;
-  float len = 0.12 + 0.26 * h1;
-  float ux = (f.x - cx) / len;
-  float th = (0.05 + 0.05 * h2) * max(0.0, 1.0 - ux * ux);
-  float fy = fwidth(g.y);
-  float stroke = (1.0 - smoothstep(th, th + fy * 1.2 + 0.01, abs(f.y - 0.5 - 0.08 * sin(ux * 3.0 + h1 * 6.0)))) * step(abs(ux), 1.0);
-  float rfade = smoothstep(0.6, 1.4, ds) * (1.0 - smoothstep(24.0, 42.0, dist)) * (1.0 - smoothstep(0.12, 0.32, fy));
-  col = mix(col, mix(col, uFoam, 0.7), stroke * on * rfade * uRipple);
   // 阳光闪光 (两层: 近处大格子大星, 中景小格子小星), 朝太阳一侧与掠射角更多
   vec2 dqx = dFdx(q), dqy = dFdy(q);
   float det = dqx.x * dqy.y - dqx.y * dqy.x;
@@ -620,7 +598,7 @@ vec3 seaColor(vec2 q, float dist, float ds, float d, float aa, float rising, flo
     vec4 r = uRocks[i];
     if (r.w < 0.5) continue;
     float rd = length((q - r.xy) * vec2(1.0, 1.15)) - r.z;
-    float rw = 0.12 + 0.06 * sin(uTime * 1.6 + float(i) * 2.3 + atan(q.y - r.y, q.x - r.x) * 3.0);
+    float rw = (0.12 + 0.06 * sin(uTime * 1.6 + float(i) * 2.3 + atan(q.y - r.y, q.x - r.x) * 3.0)) * max(1.0, r.z / 0.8);  // 大礁石 (灯塔底座) 白浪圈更宽
     ring = max(ring, 1.0 - smoothstep(rw - aa, rw + aa, abs(rd - 0.02)));
   }
   fm = clamp(max(max(fm, head), max(ring * 0.9, lace)), 0.0, 1.0);
@@ -786,7 +764,7 @@ void main() {
     col = mix(base * vec3(0.66, 0.77, 0.85), base, lit) * (gl_FrontFacing ? 1.0 : 0.88);
     // 逆光叶片透光一点
     col = mix(col, base * vec3(1.05, 1.1, 0.8), (1.0 - lit) * smoothstep(0.5, 1.0, dot(-V, uSunDir)) * 0.3);
-  } else {
+  } else if (vPart < 2.5) {
     float k = vLeaf.x;
     vec3 cl = mix(vec3(0.62, 0.68, 0.24), vec3(0.72, 0.55, 0.3), smoothstep(0.3, 0.9, k));
     vec3 cs = cl * vec3(0.55, 0.6, 0.62);
@@ -795,6 +773,11 @@ void main() {
     float spec = pow(max(dot(reflect(-uSunDir, n), V), 0.0), 24.0);
     col = mix(col, vec3(1.0, 0.98, 0.9), smoothstep(0.55, 0.75, spec) * 0.7);
     col = mix(col, cl * 0.9, pow(1.0 - max(dot(n, V), 0.0), 3.0) * (1.0 - lit) * 0.4);
+  } else {
+    // 冠顶叶鞘包 (与树干同色系, 略暖, 下深上浅) / 叶柄 (黄绿): 不贴图, 两阶柔和明暗
+    vec3 bc = vLeaf.y > 0.5 ? mix(uLeafShade, vec3(0.74, 0.78, 0.4), 0.55) : mix(uTrunkShade, uTrunkLight, 0.4 + 0.3 * vLeaf.x) * vec3(0.98, 0.94, 0.85);
+    float lit = smoothstep(-0.2, 0.4, ndl);
+    col = mix(bc * vec3(0.7, 0.74, 0.86), bc, lit);
   }
   float dist = length(vW - cameraPosition);
   col = mix(col, uHaze, smoothstep(uHazeStart, uHazeEnd, dist) * 0.85);
@@ -926,7 +909,7 @@ void main() {
 
 // ───────────────────────── 沙滩椅 + 遮阳伞 (1 次绘制) ─────────────────────────
 // 柔和的二次元道具着色: 两~三阶卡通明暗 (暗部偏薰衣草, 与礁石 / 贝壳 / 角色暗部同一色调), 一点天光 rim;
-// 坐垫沿椅长方向的粉彩条纹, 伞面相间的两色布片 (边缘干净, 不加饰边); 伞面背面 (从下往上看) 是透光的暖色;
+// 坐垫沿椅长方向的粉彩条纹, 伞面相间的两色布片 (边缘干净, 不加饰边); 海上灯塔 (奶白 / 珊瑚粉塔身, 灯室暖光自发光); 伞面背面 (从下往上看) 是透光的暖色;
 // 伞面在椅子 / 伞杆上的落影按太阳方向解析计算 (与地面落影同一套投影)。
 export const PROP_VERT = /* glsl */ `
 ${COMMON}
@@ -958,6 +941,12 @@ uniform vec3 uStripe;
 uniform vec3 uCanopyA;
 uniform vec3 uCanopyB;
 uniform vec3 uPillow;
+uniform vec3 uLhBody;    // 灯塔: 塔身 / 色带 / 灯室框与顶 / 玻璃 / 礁石
+uniform vec3 uLhBand;
+uniform vec3 uLhRoof;
+uniform vec3 uLhGlass;
+uniform vec3 uLhRock;
+uniform float uLhGlow;   // 灯室玻璃自发光 (0 = 正常受光, 1 = 完全不受明暗影响)
 uniform vec3 uSunDir;
 uniform vec3 uHaze;
 uniform vec4 uCanopyW;   // 伞面中心 (世界坐标 xyz) + 半径
@@ -983,7 +972,11 @@ void main() {
   else if (vMat < 3.5) {
     float panel = mod(floor(vUV.x), 2.0);
     base = mix(uCanopyA, uCanopyB, panel);
-  } else base = uPillow;
+  } else if (vMat < 4.5) base = uPillow;
+  else {
+    float k = vUV.x;
+    base = k < 0.5 ? uLhBody : (k < 1.5 ? uLhBand : (k < 2.5 ? uLhRoof : (k < 3.5 ? uLhGlass : uLhRock)));
+  }
   float t = smoothstep(-0.2, 0.15, ndl) * 0.62 + smoothstep(0.35, 0.7, ndl) * 0.38;
   vec3 col = mix(base * vec3(0.76, 0.74, 0.87), base, t);
   if (vMat > 2.5 && vMat < 3.5 && back) {
@@ -1002,6 +995,8 @@ void main() {
   // 天光 rim (背光侧轮廓)
   float rim = pow(1.0 - max(dot(n, V), 0.0), 3.0);
   col = mix(col, vec3(0.9, 0.94, 1.0), rim * 0.22 * (1.0 - t));
+  // 灯塔灯室: 暖光自发光 (不随明暗变暗)
+  if (vMat > 4.5 && vUV.x > 2.5 && vUV.x < 3.5) col = mix(col, uLhGlass * 1.08, uLhGlow);
   float dist = length(vW - cameraPosition);
   col = mix(col, uHaze, smoothstep(uHazeStart, uHazeEnd, dist) * 0.85);
   ${OUT}

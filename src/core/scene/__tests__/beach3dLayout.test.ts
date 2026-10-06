@@ -1,3 +1,4 @@
+import * as THREE from 'three';
 import { describe, expect, it } from 'vitest';
 import { APP_CONFIG } from '@/config';
 import {
@@ -24,6 +25,8 @@ import {
 import {
   buildBeachProps,
   buildBeachPropParts,
+  buildLighthouse,
+  buildLighthouseParts,
   buildIslandStrip,
   buildPalmCrown,
   buildPalmTrunk,
@@ -165,16 +168,17 @@ describe('beach3d layout', () => {
 });
 
 describe('beach3d geometry budget', () => {
-  it('低模: 单棵棕榈 < 2000 三角 (叶冠是贴图叶带, 每片叶 48 三角), 场景总计 < 60000 三角', () => {
+  it('低模: 单棵棕榈 < 2200 三角 (叶冠是贴图叶带, 每片叶 48 + 叶柄 6 三角, 冠顶叶鞘包, 4 个椰子), 场景总计 < 60000 三角', () => {
     const crown = triangleCount(buildPalmCrown(cfg.vegetation.fronds, cfg.vegetation.frondWidth));
-    expect(crown).toBeLessThan(1500);
+    expect(crown).toBeLessThan(1700);
     const palm = triangleCount(buildPalmTrunk()) + crown;
-    expect(palm).toBeLessThan(2000);
+    expect(palm).toBeLessThan(2200);
     const rocks = triangleCount(buildRock(cfg.rocks.detail)) * buildRockLayout(shore).length;
     const shells = triangleCount(buildShellSet()) * buildShellLayout(cfg.shells.count, shore, cfg.sea.swashAmp).length;
     const islands = triangleCount(buildIslandStrip(6));
-    const props = triangleCount(buildBeachProps());
-    expect(props).toBeLessThan(3000);
+    const props = triangleCount(buildBeachProps()) + triangleCount(buildLighthouse());
+    expect(triangleCount(buildLighthouse())).toBeLessThan(1500);
+    expect(props).toBeLessThan(4000);
     const total = palm * PALMS.length + rocks + shells + islands + props + buildCloudLayout(cfg.clouds.density).length * 2 + 40 * 48 * 2 /* 地面 */ + 2 /* 天空 */;
     expect(total).toBeLessThan(60000);
   });
@@ -189,26 +193,43 @@ describe('beach3d geometry budget', () => {
     }
   });
 
-  it('叶冠是下垂的拱形叶带 (叶尖低于叶柄), 贴图坐标 0..1, 冠顶没有竖直的叶轴尖', () => {
-    const g = buildPalmCrown();
+  it('叶冠是挺拔的星芒形: 叶轴先笔直上扬再拱形下弯, 冠顶叶朝上、老叶下垂; 贴图坐标 0..1', () => {
+    const g = buildPalmCrown(cfg.vegetation.fronds);
     const pos = g.getAttribute('position');
-    let minY = Infinity;
-    let maxY = -Infinity;
-    for (let i = 0; i < pos.count; i++) {
-      minY = Math.min(minY, pos.getY(i));
-      maxY = Math.max(maxY, pos.getY(i));
-    }
-    expect(minY).toBeLessThan(-0.8); // 叶尖垂到叶冠中心以下
-    expect(maxY).toBeGreaterThan(0.08); // 冠顶嫩叶先向上拱起
-    expect(maxY).toBeLessThan(0.5); // 但没有竖直戳出来的叶轴尖
     const uv = g.getAttribute('aLeaf');
     const part = g.getAttribute('aPart');
-    for (let i = 0; i < uv.count; i++) {
+    // 按叶轴顶点 (v = 0.5) 把每片叶的叶轴折线取出来 (u 回到 0 = 下一片叶)
+    const fronds: THREE.Vector3[][] = [];
+    for (let i = 0; i < pos.count; i++) {
       if (part.getX(i) !== 1) continue;
       expect(uv.getX(i)).toBeGreaterThanOrEqual(0);
       expect(uv.getX(i)).toBeLessThanOrEqual(1);
       expect([0, 0.5, 1]).toContain(uv.getY(i));
+      if (uv.getY(i) !== 0.5) continue;
+      if (uv.getX(i) === 0) fronds.push([]);
+      fronds[fronds.length - 1].push(new THREE.Vector3(pos.getX(i), pos.getY(i), pos.getZ(i)));
     }
+    expect(fronds.length).toBe(Math.round(cfg.vegetation.fronds));
+    const elev = (a: THREE.Vector3, b: THREE.Vector3) => Math.atan2(b.y - a.y, Math.hypot(b.x - a.x, b.z - a.z));
+    let rising = 0;
+    let tipsUp = 0;
+    let tipsDown = 0;
+    for (const r of fronds) {
+      const n = r.length - 1;
+      const e0 = elev(r[0], r[1]);
+      const eMid = elev(r[n / 2 - 1], r[n / 2]);
+      const eTip = elev(r[n - 1], r[n]);
+      expect(e0).toBeLessThan((80 * Math.PI) / 180);                 // 没有竖直戳出来的叶轴
+      expect(Math.abs(elev(r[2], r[3]) - e0)).toBeLessThan(0.05);    // 叶柄一段笔直硬挺
+      expect(e0 - eMid).toBeLessThan(eMid - eTip);                   // 下弯集中在后半段 (拱形, 不是拖把)
+      if (r[n / 3].y > r[0].y + 0.1) rising++;
+      if (r[n].y > r[0].y + 0.3) tipsUp++;
+      if (r[n].y < r[0].y - 0.5) tipsDown++;
+    }
+    expect(rising / fronds.length).toBeGreaterThan(0.6);  // 大多数叶先向上拱起
+    expect(tipsUp).toBeGreaterThanOrEqual(2);             // 冠顶嫩叶叶尖仍朝上
+    expect(tipsDown).toBeGreaterThanOrEqual(2);           // 下层老叶下垂
+    expect(tipsDown).toBeLessThan(fronds.length / 2);     // 但不是全部下垂
   });
 
   it('沙滩道具: 一个合并几何, 带材质分区 aMat, 法线已归一化', () => {
@@ -255,6 +276,87 @@ describe('beach3d geometry budget', () => {
     expect(pole.min.y).toBeLessThan(0);
     expect(pole.max.y).toBeGreaterThan(canopy.max.y - 0.03);
     parts.forEach((p) => p.geo.dispose());
+  });
+
+  it('躺椅撑杆: 两端端面 (4 个角) 都在相接的梁里 —— 下端在头端腿正上方的座梁里, 上端在靠背侧梁里', () => {
+    const parts = buildBeachPropParts();
+    const get = (name: string) => parts.find((p) => p.name === name)!;
+    /** 方截面杆一端端面的 4 个角 (与 buildBeachPropParts 里 bar() 的朝向一致)。 */
+    const corners = (seg: { a: THREE.Vector3; b: THREE.Vector3; t: number }, end: 'a' | 'b') => {
+      const d = seg.b.clone().sub(seg.a).normalize();
+      const q = new THREE.Quaternion().setFromUnitVectors(new THREE.Vector3(0, 0, 1), d);
+      const c = end === 'a' ? seg.a : seg.b;
+      return [[1, 1], [1, -1], [-1, 1], [-1, -1]].map(([x, y]) => c.clone().add(new THREE.Vector3((x * seg.t) / 2, (y * seg.t) / 2, 0).applyQuaternion(q)));
+    };
+    /** 点是否在方截面杆 (边长 t) 的体积里 (用内切圆柱, 偏严)。 */
+    const insideBar = (p: THREE.Vector3, seg: { a: THREE.Vector3; b: THREE.Vector3; t: number }) => {
+      const ab = seg.b.clone().sub(seg.a);
+      const L = ab.length();
+      const along = p.clone().sub(seg.a).dot(ab) / L;
+      const perp = p.clone().sub(seg.a).sub(ab.clone().multiplyScalar(along / L)).length();
+      return along >= 0 && along <= L && perp <= seg.t / 2 + 1e-6;
+    };
+    for (const sx of [-1, 1]) {
+      const prop = get(`chair:prop${sx}`).seg!;
+      const rail = get(`chair:rail${sx}`).geo;
+      rail.computeBoundingBox();
+      const railBox = rail.boundingBox!.clone().expandByScalar(1e-6);
+      for (const c of corners(prop, 'a')) expect(railBox.containsPoint(c)).toBe(true);
+      const backRail = get(`chair:backRail${sx}`).seg!;
+      for (const c of corners(prop, 'b')) expect(insideBar(c, backRail)).toBe(true);
+      // 下端正好在一条腿的正上方
+      const legs = parts.filter((p) => p.name.startsWith(`chair:leg${sx}:`)).map((p) => { p.geo.computeBoundingBox(); return p.geo.boundingBox!; });
+      expect(legs.some((b) => prop.a.z >= b.min.z && prop.a.z <= b.max.z)).toBe(true);
+    }
+    parts.forEach((p) => p.geo.dispose());
+  });
+
+  it('叶冠: 每片叶的叶柄都从冠顶中心 (树干顶端) 长出, 起点离中心 < 0.08m, 且被冠顶叶鞘包包住', () => {
+    const g = buildPalmCrown(cfg.vegetation.fronds);
+    const pos = g.getAttribute('position');
+    const uv = g.getAttribute('aLeaf');
+    const part = g.getAttribute('aPart');
+    let bases = 0;
+    let bootR = 0;
+    for (let i = 0; i < pos.count; i++) {
+      const p = new THREE.Vector3(pos.getX(i), pos.getY(i), pos.getZ(i));
+      if (part.getX(i) === 1 && uv.getX(i) === 0 && uv.getY(i) === 0.5) {
+        bases++;
+        expect(p.length()).toBeLessThan(0.08);
+      }
+      if (part.getX(i) === 3 && uv.getY(i) === 0 && Math.abs(p.y) < 0.05) bootR = Math.max(bootR, Math.hypot(p.x, p.z));
+    }
+    expect(bases).toBe(Math.round(cfg.vegetation.fronds));
+    expect(bootR).toBeGreaterThan(0.1); // 叶鞘包在叶柄起点高度处比起点半径更粗
+  });
+
+  it('海上灯塔: 在角色右前方的海里 (岸线外 10m 以上), 部件彼此相连, 礁石底座没入水中, < 1500 三角', () => {
+    const lh = cfg.lighthouse;
+    expect(lh.x).toBeGreaterThan(0);
+    expect(lh.z).toBeLessThan(shoreLineZ(lh.x, shore) - 10);
+    const az = (Math.atan2(lh.x, -lh.z) * 180) / Math.PI;
+    expect(az).toBeGreaterThan(8);
+    expect(az).toBeLessThan(40);
+    const parts = buildLighthouseParts();
+    const boxes = parts.map((p) => { p.geo.computeBoundingBox(); return { name: p.name, box: p.geo.boundingBox!.clone().expandByScalar(0.002) }; });
+    const seen = new Set(boxes.filter((b) => b.box.min.y < 0).map((b) => b.name));
+    expect(seen.has('lighthouse:rock')).toBe(true);
+    let grew = true;
+    while (grew) {
+      grew = false;
+      for (const a of boxes) {
+        if (seen.has(a.name)) continue;
+        if (boxes.some((b) => seen.has(b.name) && a.box.intersectsBox(b.box))) { seen.add(a.name); grew = true; }
+      }
+    }
+    expect(boxes.filter((b) => !seen.has(b.name)).map((b) => b.name)).toEqual([]);
+    parts.forEach((p) => p.geo.dispose());
+  });
+
+  it('远岛只在左侧: 右侧海平线 (方位 > 3°) 没有任何一层岛 (那里是灯塔)', () => {
+    for (let az = 3; az <= 95; az += 0.5) {
+      for (const layer of [FAR_ISLANDS, MID_ISLANDS, NEAR_ISLANDS]) expect(islandRidge(az, layer)).toBe(0);
+    }
   });
 
   it('礁石: 平滑法线 (合并顶点后无裂缝), 底部压平贴地', () => {

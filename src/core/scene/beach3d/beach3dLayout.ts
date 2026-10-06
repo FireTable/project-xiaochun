@@ -146,28 +146,25 @@ export interface IslandPeak {
   skew: number;
 }
 
-/** 远层 (最淡, 几乎融进天边的薰衣草青雾): 两侧连绵的低山脊, 角色正后方 (|az| < 5°) 只有极低的影子, 留出开阔海面。 */
+/**
+ * 远岛只在左侧 (方位 < 0): 右侧海平线留给海上的小灯塔 (APP_CONFIG.beach3dScene.lighthouse), 不再有山。
+ * 远层 (最淡, 几乎融进天边的薰衣草青雾): 左侧连绵的低山脊, 角色正后方 (|az| < 5°) 只有极低的影子, 留出开阔海面。
+ */
 export const FAR_ISLANDS: readonly IslandPeak[] = [
   { az: -40, h: 2.4, w: 15, shape: 0.2, skew: 0.3 },
   { az: -19, h: 3.0, w: 9, shape: 0.45, skew: -0.35 },
   { az: -8.5, h: 1.2, w: 6, shape: 0.2, skew: 0.4 },
-  { az: 19, h: 1.9, w: 10, shape: 0.3, skew: -0.2 },
-  { az: 33, h: 2.8, w: 12, shape: 0.4, skew: 0.25 },
-  { az: 55, h: 1.6, w: 14, shape: 0.1, skew: 0 },
 ];
 
-/** 中层 (灰蓝绿, 叠一层雾): 左侧一座不对称的火山形岛, 右侧一道低缓、雾很重的长岛。 */
+/** 中层 (灰蓝绿, 叠一层雾): 左侧一座不对称的火山形岛 + 一座低岛。 */
 export const MID_ISLANDS: readonly IslandPeak[] = [
   { az: -14.5, h: 2.0, w: 6.5, shape: 0.55, skew: 0.45 },
   { az: -24, h: 0.9, w: 5, shape: 0.2, skew: -0.3 },
-  { az: 15.5, h: 0.8, w: 6, shape: 0.15, skew: -0.3 },
-  { az: 30, h: 1.25, w: 8, shape: 0.3, skew: -0.4 },
 ];
 
-/** 近层 (薄荷青绿, 顶上一排树冠鼓包): 只在两侧较远的方位 (竖屏正面看不到, 横屏 / 广角才入画), 不再在角色右侧堆一个小土包。 */
+/** 近层 (薄荷青绿, 顶上一排树冠鼓包): 只在左侧较远的方位 (竖屏正面看不到, 横屏 / 广角才入画)。 */
 export const NEAR_ISLANDS: readonly IslandPeak[] = [
   { az: -31, h: 0.75, w: 4.5, shape: 0.2, skew: -0.2 },
-  { az: 41, h: 0.6, w: 3.5, shape: 0.15, skew: 0.3 },
 ];
 
 /** 一座岛在方位 azDeg 处的平滑剖面高度 (°) —— 与 ISLAND_FRAG 里 islandProfile() 同一公式 (单测 / 预算用)。 */
