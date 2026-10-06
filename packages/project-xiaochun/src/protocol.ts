@@ -370,10 +370,16 @@ export interface XcAudioOptions {
   motion?: boolean;
   /** 是否驱动口型 (音量 RMS → 'aa'), 默认 true。 */
   lipsync?: boolean;
+  /**
+   * 是否把这段音频送到扬声器。默认 true。
+   * false: 仍解码并生成动作和口型, 增益为 0。宿主页面自己播放同一段音频时用来避免叠声。
+   */
+  audible?: boolean;
 }
 
 /**
- * xc.audio — 整段音频: iframe 内解码 → 16 kHz → EMAGE 窗口推理 + 同一段音频播放 + 口型, 播完回 xc.utterance{phase:'end'}。
+ * xc.audio — 整段音频: iframe 内解码 → 16 kHz → EMAGE 窗口推理 + 同一段音频的时钟 + 口型, 播完回 xc.utterance{phase:'end'}。
+ * audible 缺省或 true 时这段音频也送到扬声器; false 时增益为 0, 只留动作和口型。
  * 信封 `id` 用于关联 xc.utterance / xc.error。大 ArrayBuffer 请放进 postMessage 的 transfer 列表 (SDK 默认这么做)。
  */
 export interface XcAudioPayload extends XcAudioOptions {

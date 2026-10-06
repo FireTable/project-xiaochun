@@ -251,7 +251,7 @@ Numbers, methods, what was tried and rejected, and what is **not measured**: [`d
 
 ## 🧩 Embed in Your Website (npm)
 
-Put XiaoChun on your own site with a few lines: a lazy, origin-checked `<iframe>`, a framework-free SDK, a `<xiaochun-avatar>` Web Component, React bindings, and `speakAudio()` for feeding your own audio.
+Put XiaoChun on your own site with a few lines: a lazy, origin-checked `<iframe>`, a framework-free SDK, a `<xiaochun-avatar>` Web Component, React bindings, and `speakAudio()` for feeding your own audio. Pass `audible: false` when the host page plays the sound and XiaoChun should only move and lip-sync.
 
 ```bash
 npm i @firetable/project-xiaochun

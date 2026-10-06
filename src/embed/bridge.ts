@@ -663,7 +663,7 @@ export function startEmbedBridge(opts: EmbedBridgeOptions): EmbedBridge {
           // 只挑白名单字段: 不信任宿主发来的任何内部字段 (如 stream)
           await dispatchSpeech(id, {
             action: 'audio',
-            payload: { source: ap.source, format: ap.format, mimeType: ap.mimeType, sampleRate: ap.sampleRate, channels: ap.channels, text, motion: ap.motion, lipsync: ap.lipsync },
+            payload: { source: ap.source, format: ap.format, mimeType: ap.mimeType, sampleRate: ap.sampleRate, channels: ap.channels, text, motion: ap.motion, lipsync: ap.lipsync, audible: ap.audible },
           }, text, 'xc.audio');
           break;
         }
@@ -691,7 +691,7 @@ export function startEmbedBridge(opts: EmbedBridgeOptions): EmbedBridge {
             const text = typeof cp.text === 'string' ? cp.text : '';
             void dispatchSpeech(streamId, {
               action: 'audio',
-              payload: { text, motion: cp.motion, lipsync: cp.lipsync, stream: { sampleRate, chunks: q } },
+              payload: { text, motion: cp.motion, lipsync: cp.lipsync, audible: cp.audible, stream: { sampleRate, chunks: q } },
             }, text, 'xc.audio.chunk').finally(() => {
               const cur = audioStreams.get(streamId);
               if (cur) { cur.q.abort(); audioStreams.delete(streamId); }

@@ -152,12 +152,14 @@ await xc.speakAudio(arrayBuffer, { text: '你好', motion: true, lipsync: true }
 await xc.speakAudio(blob);                                   // Blob(mp3 / wav / ogg 等)
 await xc.speakAudio('https://cdn.example.com/voice.mp3');    // URL:默认由宿主页 fetch({ fetch: 'frame' } = 交给 iframe 去 fetch)
 await xc.speakAudio(pcm, { format: 'pcm16', sampleRate: 24000 });   // 无头原始 PCM 必须给 sampleRate(8000–96000)
+await xc.speakAudio(pcm, { format: 'pcm16', sampleRate: 16000, audible: false }); // 只做动作和口型, iframe 增益为 0
 
 const s = xc.speakAudioStream({ sampleRate: 24000 });        // 流式:比如 TTS 服务边合成边返回的 PCM 块
 s.write(int16Chunk); s.write(next); s.end(); await s.done;   // s.abort() 立即停止
 // 随时可取消:传 { signal: abortController.signal }
 ```
 
+* `audible` 默认 `true`。`false` 仍会解码、生成动作并驱动口型,但 iframe 增益为 0,声音可以由宿主页面自己播放。
 * 失败时 reject:`bad_request`(无法解码 / 空音频 / URL 或 sampleRate 不合法)、`unsupported`、`failed`。
 * 浏览器仍要求宿主页先有用户手势才能出声,iframe 也要有 `allow="autoplay"`(SDK 已自动设置)。
 * 新的 `say()` / `speakAudio()` 会打断正在进行的那一次,被打断的 Promise 会 resolve。
