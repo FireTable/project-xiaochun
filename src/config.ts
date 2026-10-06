@@ -3,12 +3,12 @@
  */
 import * as THREE from 'three';
 import { GUIDE_COLOR } from './core/interaction/guideStyle';
+import { BEACH3D_SCENE_CONFIG } from './core/scene/beach3d/beach3dConfig';
 export * from './types/config';
 import type {
   LightConfig,
   SceneRegistryConfig,
   CameraGroundClampConfig,
-  Beach3DSceneConfig,
   MaterialSaturationConfig,
   VrmOutlineConfig,
   VrmMToonConfig,
@@ -364,148 +364,8 @@ export const APP_CONFIG = {
       },
     },
   } as SceneRegistryConfig,
-  // 海滩 3D (id: beach3d)。完整说明见 docs/BEACH3D_SCENE.md, 每个字段的含义 / 范围也写在 types/config.ts 的 Beach3DSceneConfig。
-  // 颜色是 sRGB 十六进制, 画面上就是这个颜色 (已抵消曝光)。
-  beach3dScene: {
-    layout: {
-      shoreZ: -6.0,        // 角色身后岸线 Z (m), 范围 −12 ~ −3; 调大 = 海更近, 调小 = 沙滩更深
-      shoreCurve: 0.03,    // 岸线两侧后弯 (海湾), 范围 0 ~ 0.06; 调大 = 两侧沙地包得更远
-      shoreWiggle: 0.45,   // 岸线蜿蜒幅度 (m), 范围 0 ~ 1.2; 调大 = 更曲折
-      horizonCurveR: 700,  // 地平线弧度半径 (m), 范围 200 ~ 5000; 调小 = 可见海平线更低 (700 ≈ 眼高下 2.5°, 全身镜头落在胯部), 调大 = 接近平面 (= 眼高)
-    },
-    sky: {
-      zenith: 0x2c8be6,    // 天顶: 饱和的蓝
-      mid: 0x79c6f3,
-      horizon: 0xe2f8f6,   // 地平线: 浅青白
-      sunGlow: 0.22,       // 太阳一侧柔光, 范围 0 ~ 0.6; 调大 = 更亮更暖, 0 = 纯渐变
-      cirrus: 0.5,         // 高空浅云 (斜向白丝带) 强度, 范围 0 ~ 1; 0 = 无, 调大更白更明显
-      horizonBand: 0.7,    // 地平线附近亮带强度, 范围 0 ~ 1; 调大 = 天边更白更宽
-    },
-    sea: {
-      shallow: 0x8ef0dc,
-      mid: 0x2cc2cc,
-      deep: 0x1690c4,
-      horizon: 0x7dd6dc,
-      foam: 0xffffff,
-      glint: 0.9,          // 阳光闪光亮度, 范围 0 ~ 1.5; 调大更白更大 (>1 抢眼)
-      glintDensity: 0.3,   // 闪光密度 (每格出现的概率), 范围 0 ~ 0.6; 调大 = 满海闪
-      glintSpeed: 1.0,     // 闪烁速度倍率, 范围 0 ~ 3
-      foamWidth: 0.7,      // 冲刷浪头白浪宽 (m), 范围 0.1 ~ 1.2; 调大更宽更显眼 (推上沙滩时自动再厚一些)
-      swashAmp: 0.9,       // 浪推上沙滩的幅度 (m, 实际推进约 1.35 倍), 范围 0 ~ 1.5; 0 = 岸线静止
-      swashSpeed: 0.55,    // 冲刷浪节奏 (rad/s, 周期 = 2π/值 秒), 范围 0.1 ~ 1.5; 调大更急
-      waves: 1.0,          // 近岸浪峰 (白线 + 浪前浅亮 + 浪后深一档) 强度, 范围 0 ~ 1.5; 0 = 无
-      waveBands: 4,        // 近岸浪峰道数 (各自速度 / 起点 / 相位不同), 范围 0 ~ 4 (整数); 调大 = 海面层次更多, 调小 = 更平静
-      foamVariation: 0.7,  // 冲刷浪头宽度 / 推进距离沿岸与每轮的起伏, 范围 0 ~ 1; 0 = 整齐划一, 调大 = 更自然更不规则
-      foamBreakup: 0.65,   // 白浪头的孔洞 / 蕾丝碎纹, 范围 0 ~ 1; 0 = 实心白带, 调大 = 更碎更透 (>0.9 显得稀)
-      depthVariation: 0.7, // 深浅渐变分界的不规则度 (浅滩亮带 + 深色斑块), 范围 0 ~ 1; 0 = 平行色带, 调大 = 更有水下地形感
-      glintSize: 1.0,      // 闪光十字星的像素大小倍率, 范围 0.5 ~ 2; 调大 = 更大更抢眼, 调小 = 更细碎
-    },
-    sand: {
-      base: 0xf4e1c2,
-      shade: 0xe2c49e,
-      light: 0xf9ecd6,
-      wet: 0xdcc097,
-      rippleSpacing: 0.7,  // 沙纹间距 (m), 范围 0.15 ~ 1.5; 调小 = 纹路更密更碎, 调大 = 更稀更舒缓 (远处按屏幕导数淡出防闪烁)
-      ripple: 0.28,        // 沙纹明暗强度, 范围 0 ~ 1; 0 = 无沙纹, 调大 = 起伏更明显 (>0.5 显得条纹很重)
-      rippleCoverage: 0.35, // 沙纹覆盖面积 (噪声圈出的沙纹区块占地面的比例), 范围 0 ~ 1; 0 = 没有沙纹区块, 调大 = 区块更多更大 (1 ≈ 满地沙纹)
-      rippleNearFade: 9,   // 近处淡出距离 (m, 离相机): 这个距离以外沙纹满强度, 越近越淡 (相机脚下只剩约 15% 的隐约纹路), 范围 0 ~ 20; 调大 = 近景更平滑干净, 0 = 不淡出
-      grain: 1.0,          // 细颗粒强度, 范围 0 ~ 2; 0 = 纯色 (远处自动淡出, 不闪)
-    },
-    haze: {
-      start: 16,           // 空气透视起点 (m), 范围 5 ~ 60; 调小 = 中景就发白
-      end: 75,             // 完全淡到海平线色的距离 (m), 范围 30 ~ 95 (须 < 相机远裁剪面 100)
-    },
-    mountains: {
-      enabled: true,
-      far: 0xa9b9e6,       // 远层岛色: 薰衣草蓝 (之后还会叠一层浓雾, 实际几乎融进天边)
-      mid: 0x6fa6c4,       // 中层岛色: 灰蓝绿 (叠一层中等的雾)
-      near: 0x4fae96,      // 近层小岛色: 薄荷青绿 (雾最薄, 顶上有树冠鼓包)
-      heightScale: 1.0,    // 岛屿高度倍率, 范围 0.3 ~ 2; 1 = 最高的岛约海平线上 3°; 调大 = 岛更高更抢眼
-      detail: 1.0,         // 轮廓细节 (远层起伏 / 中层山脊 / 近层树冠鼓包) 倍率, 范围 0 ~ 2; 0 = 光滑穹顶, 调大 = 更崎岖
-      haze: 1.0,           // 空气透视强度 (每层融进天色的程度), 范围 0 ~ 1.5; 调大 = 远岛更淡更远, 调小 = 更清楚更近
-    },
-    // 手绘贴图素材 (public/ 下, 不带内容哈希; 缓存策略见 public/_headers 的 /scene/*)
-    assets: {
-      clouds: '/scene/beach3d/clouds.webp',     // 云图集 (2×2 → 1024², 透明底): 高耸积云 / 宽积云 / 扁长低云 / 小云簇
-      frond: '/scene/beach3d/palm-frond.webp',  // 棕榈羽叶 (1024×320, 透明底, 叶柄在左、叶尖在右, 叶轴拉直在正中)
-    },
-    clouds: {
-      density: 1.0,        // 云量: 正前方 11 朵手工构图的主角云之外, 其余方位的散云数量倍率 (1 = 16 朵), 范围 0 ~ 2; 0 = 只留主角云, 调大 = 天更满; 全部 1 次绘制
-      size: 1.0,           // 云大小倍率, 范围 0.5 ~ 1.8; 调大 = 云更大更近 (>1.4 竖屏里会挤满), 调小 = 更远更碎
-      opacity: 1.0,        // 云不透明度, 范围 0.3 ~ 1; 调小 = 更薄更透、更融进天色
-      tint: 0xffffff,      // 云整体染色 (乘在手绘云贴图上), 白 = 原色; 偏暖 (如 0xfff4ec) = 更奶油, 偏冷 (如 0xeef0ff) = 更薰衣草
-      tintJitter: 0.06,    // 每朵云的随机冷暖偏移, 范围 0 ~ 0.15; 调大 = 重复的贴图更不容易认出来, 太大会花
-      driftDegPerSec: 0.12,// 漂移角速度 (°/s), 范围 0 ~ 1; 0 = 静止 (每朵云在此基础上 ±30% 随机)
-      light: 0xfffbf2,     // 地平线积云带亮面: 奶白
-      shade: 0xc3c2ea,     // 地平线积云带暗面: 淡薰衣草紫
-      bank: 0.85,          // 地平线积云带 (最远的一圈低云, 画在远岛后面) 强度, 范围 0 ~ 1; 0 = 无
-      bankHeightDeg: 1.8,  // 积云带最高处的仰角 (°), 范围 0.3 ~ 5; 调大 = 云带更高更厚
-    },
-    vegetation: {
-      leafLight: 0x3fd08a,
-      leafShade: 0x179a72,
-      trunkLight: 0xddbf98, // 树干亮部: 温暖的浅棕灰
-      trunkShade: 0x9d8a8e, // 树干暗部: 偏冷的灰棕
-      sway: 0.08,          // 叶尖摆动幅度 (m), 范围 0 ~ 0.3; 0 = 不动
-      fronds: 14,          // 每棵树的叶片数 (从冠顶嫩叶到下层老叶分层排布), 范围 8 ~ 16; 调大 = 叶冠更茂密 (每片 48 三角), 调小 = 更稀疏
-      frondWidth: 1.15,    // 叶片宽度倍率 (手绘羽叶贴图的横向拉伸), 范围 0.7 ~ 1.4; 调大 = 叶更宽更蓬, 调小 = 更细长
-      frondRiseDeg: 36,    // 中层叶叶柄的起始仰角 (°), 范围 10 ~ 60; 调大 = 叶冠整体更上扬挺拔, 调小 = 更平伸
-      frondTierSpreadDeg: 34, // 分层: 冠顶嫩叶 / 最下层老叶相对中层的仰角差 (°), 范围 0 ~ 45; 调大 = 上层更朝天、下层更下垂 (星芒更开), 0 = 所有叶同一仰角
-      frondDroop: 1.0,     // 叶轴后半段的下弯量倍率, 范围 0.4 ~ 1.6; 调大 = 叶尖垂得更低 (更柔软), 调小 = 叶更直更硬挺
-      frondStiffness: 0.35, // 叶轴从叶柄起保持笔直的比例, 范围 0 ~ 0.6; 调大 = 硬挺段更长、拱形更高, 0 = 从叶柄起就开始弯
-      frondFoldDeg: 24,    // 倒 V 形折叠: 两侧小叶向下折的角度 (°), 范围 0 ~ 45; 调大 = 叶片更立体 (侧看呈尖顶), 0 = 平板叶
-      frondShadow: 0.85,   // 叶冠落影的深浅 (相对树干落影), 范围 0.4 ~ 1; 调小 = 叶影更透更浅 (小叶间漏光), 1 = 与树干一样深
-      shadowSoftness: 1.0, // 棕榈 / 沙堡落影边缘的柔化倍率, 范围 0.3 ~ 2; 1 ≈ 与角色 / 椅子落影一样柔, 调大 = 更虚更糊 (小叶锯齿变淡), 调小 = 更锐利
-    },
-    rocks: {
-      enabled: true,
-      light: 0xe2d6c6,
-      shade: 0x9a93b4,
-      detail: 1,           // 礁石细分, 范围 0 ~ 2; 0 = 80 面, 1 = 320 面 (默认, 已足够圆润), 2 = 1280 面 (三角面 ×4)
-    },
-    shells: {
-      enabled: false,      // 是否显示扇贝 (默认关闭; 打开后 1 次绘制, 每只约 544 三角)
-      count: 11,           // 扇贝总数 (含近景 2 个大的), 范围 0 ~ 30; 稀疏地散在湿沙线附近 (彼此至少隔 0.8m), 调大 = 更热闹 (>18 开始显得多), 全部 1 次绘制
-      size: 1.0,           // 大小倍率, 范围 0.5 ~ 2 (默认壳宽约 6~11cm, 近景大扇贝约 15cm, 比真实略大, 远处才认得出)
-      colors: [0xede0d1, 0xeddcc6, 0xf1d2cb, 0xefc3ae], // 暖调米白 / 奶油色 (约 2/3 的扇贝, 不要用纯白: 会比沙子亮、像反光) + 浅粉 / 浅珊瑚 (零星几个); 按顺序取色概率递减
-    },
-    props: {
-      enabled: true,       // 沙滩椅 + 遮阳伞 (角色右后方, 面朝大海; 1 次绘制, 约 2.3k 三角)
-      frame: 0xf4e6d6,     // 椅架 / 伞杆: 奶白
-      cushion: 0xffb4b0,   // 坐垫主色: 蜜桃粉
-      stripe: 0xfbebdd,    // 坐垫条纹: 奶油色
-      canopyA: 0xff9fb2,   // 伞面色 A: 蜜桃粉
-      canopyB: 0xfaece0,   // 伞面色 B: 奶油白
-      pillow: 0xb3e8d4,    // 小枕头: 薄荷绿
-      groundShadow: 0.85,  // 道具 (棕榈 / 椅子 / 伞 / 沙堡) 在沙地上的落影强度, 范围 0 ~ 1; 1 ≈ 与角色落影一样深, 0 = 无落影
-    },
-    lighthouse: {
-      enabled: true,       // 海上小灯塔 (角色右前方的海面上, 替代原来右侧的远山; 与沙滩椅同一次绘制, 约 0.9k 三角; props.enabled = false 时一并隐藏)
-      x: 12,               // 位置 x (m, 角色为原点, 正值 = 画面右侧), 范围 4 ~ 30
-      z: -30,              // 位置 z (m, 负值 = 往海里), 范围 -60 ~ -14; 调小 = 更远更小
-      scale: 1.0,          // 大小倍率, 范围 0.5 ~ 2; 1 ≈ 总高 5.2m (含礁石底座)
-      body: 0xfff4ea,      // 塔身 / 栏杆: 奶白
-      band: 0xe60012,      // 塔身色带 / 门 / 观景平台: 正红
-      roof: 0xe60012,      // 灯室框 / 圆锥顶 / 顶珠: 正红
-      glass: 0xfff1c2,     // 灯室玻璃 / 小窗: 暖黄
-      rock: 0xd6cbc6,      // 礁石底座: 浅灰米
-      glow: 0.7,           // 灯室暖光自发光强度, 范围 0 ~ 1; 0 = 和其它部件一样受光, 1 = 完全不受明暗影响
-    },
-    sandcastle: {
-      enabled: true,       // 湿沙堆成的小沙堡 (角色左前方的沙地上, 左侧棕榈树干的前面; 与沙滩椅同一次绘制, 约 1.3k 三角; props.enabled = false 时一并隐藏)
-      x: -2.05,            // 位置 x (m, 角色为原点, 负值 = 画面左侧), 范围 -3 ~ 3; |x| 太小会挨着角色 (离角色至少约 1.5m)
-      z: 2.4,              // 位置 z (m, 正值 = 往镜头方向), 范围 0.6 ~ 3.5; 调大 = 离镜头更近、画面里更靠下更大
-      scale: 1.0,          // 大小倍率, 范围 0.6 ~ 1.6; 1 ≈ 最高塔 0.45m (旗尖约 0.52m), 底台约 0.52 × 0.44m
-      yawDeg: 22,          // 朝向 (°), 范围 -180 ~ 180; 0 = 城门正对镜头方向 (+Z), 正值 = 城门转向画面右侧 (朝角色, 露出左侧的塔), 负值反之
-      color: 0xe8c8a0,     // 沙堡沙色: 比沙滩更深更暖一点的湿沙色 (压实的湿沙); 调浅 = 更像干沙, 调深 = 更湿
-      flag: 0xff8a8a,      // 塔顶小旗: 珊瑚粉
-    },
-    dynamics: {
-      enabled: true,
-      respectReducedMotion: true,
-      autoDowngrade: { enabled: true, minFps: 24, windowFrames: 120 }, // 平均帧率 < minFps (15 ~ 40) 时本次会话静止
-    },
-  } as Beach3DSceneConfig,
+  // 海滩 3D (id: beach3d) 的参数在 src/core/scene/beach3d/beach3dConfig.ts 维护, 这里只引用。说明见 docs/BEACH3D_SCENE.md
+  beach3dScene: BEACH3D_SCENE_CONFIG,
   lights: {
     dir: { base: 1.10, enabled: true },
     hemi: { base: 0.80, enabled: true },

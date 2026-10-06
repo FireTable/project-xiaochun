@@ -23,7 +23,7 @@ There is no HDRI, no realistic material and no third-party asset. Exactly two sm
 | `src/core/scene/beach3d/beach3dLayout.ts` | Pure data and functions (no three / DOM): shoreline, palm / rock / shell / cloud layout, chair, parasol and sandcastle placement, island peaks and silhouette profile |
 | `src/core/scene/sceneMotion.ts` | `SceneMotionGovernor`: reduced-motion and low-FPS downgrade |
 | `src/core/scene/__tests__/beach3dLayout.test.ts` | Layout invariants (props on sand, keep-out zones, asymmetric palms, crown shape and frond attachment, chair placement and joints, lighthouse placement, sandcastle placement / shape / connectivity, island heights, cloud layout, shell distribution and scallop shape, triangle budget) |
-| `src/config.ts` → `APP_CONFIG.beach3dScene` | All tunables. Ranges and meanings are documented inline and in `src/types/config.ts` (`Beach3DSceneConfig`) |
+| `src/core/scene/beach3d/beach3dConfig.ts` | All tunables (`BEACH3D_SCENE_CONFIG`, exposed as `APP_CONFIG.beach3dScene` in `src/config.ts`). Ranges and meanings are documented inline and in `src/types/config.ts` (`Beach3DSceneConfig`) |
 | `public/scene/beach3d/clouds.webp` | Cloud sprite atlas (see [Assets](#assets)) |
 | `public/scene/beach3d/palm-frond.webp` | Palm frond texture (see [Assets](#assets)) |
 
