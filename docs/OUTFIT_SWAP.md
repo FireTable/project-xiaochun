@@ -103,14 +103,14 @@ Traditional model reloads stop current animations when download begins (causing 
 
 ## 5. Official Outfits Roster
 
-1. **`xiaochun_dinner_dress`** (Dinner Dress / 晚礼服，默认加载装扮)
-2. **`xiaochun_default`** (Techwear / 常服科技风)
-3. **`xiaochun_cheongsam`** (Cheongsam / 国风旗袍)
-4. **`xiaochun_bikini`** (Bikini / 海滩比基尼)
-5. **`xiaochun_maid`** (Maid / 经典女仆装)
-6. **`xiaochun_swimsuit`** (One-piece swimsuit / 清凉死库水连体泳装)
-7. **`xiaochun_office_lady`** (Office Lady / 职场 OL 正装)
-8. **`xiaochun_wedding`** (Wedding Dress / 梦幻婚纱礼服)
+1. **`xiaochun_dinner_dress`** (Dinner Dress, default active outfit)
+2. **`xiaochun_default`** (Techwear)
+3. **`xiaochun_cheongsam`** (Cheongsam)
+4. **`xiaochun_bikini`** (Bikini)
+5. **`xiaochun_maid`** (Maid)
+6. **`xiaochun_swimsuit`** (One-piece Swimsuit)
+7. **`xiaochun_office_lady`** (Office Lady)
+8. **`xiaochun_wedding`** (Wedding Dress)
 
 ---
 

@@ -49,15 +49,15 @@ During locomotion, alternating legs progress through four physiological phases. 
 | **`PLANT`** | 0.08s | Leg slerps smoothly to ground | Prepares transition | Foot touches down naturally |
 | **`SETTLE`** | 0.18s | Both legs settle to neutral; swaps stepping leg if turn continues | Symmetric settle | Centers over base of support; transitions to `IDLE` if $\le 11.5^\circ$ |
 
-### 2.3 转向步态平滑与先导腿生理匹配 (Smooth Locomotion & Leading Leg Alignment)
+### 2.3 Smooth Locomotion & Leading Leg Physiological Alignment
 
-为了在保持 `LEGS_MASK` 严格解耦的同时杜绝起步突兀一顿、反向侧倾与机械拉拽感，管线实现了三项生物力学优化：
-1. **先导腿方向对齐 (Leading Leg Matching)**：
-   触发转向的第一步，严格根据转向目标方向选择先导腿——**左转必定迈左腿（外侧腿先行展开），右转必定迈右腿**，杜绝内侧腿别扭内收交叉迈步的生硬感；
-2. **弹簧力矩启动平滑包络 (Torque Ease-in Envelope)**：
-   针对相机急转产生的大角度跳变，底盘旋转力矩采用启动时间软包络（$\sim 0.2\text{s}$ 平滑渐入），彻底消灭起步第一帧角加速度过大造成的“突然一顿”；
-3. **姿态衔接无压制回归 (Unconstrained Posture Continuity)**：
-   彻底移除在 Layer-1 待机层注入的假惯性脊柱反向扭转与代偿弯曲，保持自然人体的侧倾（Weight-Shift）与呼吸生命力，消除转向结束回归待机时的左右来回抽动与机械式拉拽。
+To eliminate initial stutter, counter-intuitive roll, and mechanical tugging while maintaining strict `LEGS_MASK` decoupling, the pipeline implements three biomechanical optimizations:
+1. **Leading Leg Matching**:
+   The first step triggering a turn selects the leading leg strictly based on the target turning direction—**turning left always steps with the left leg (outer leg opens first), turning right always steps with the right leg**, preventing awkward inward cross-stepping;
+2. **Torque Ease-in Envelope**:
+   To address large angle jumps from rapid camera turns, chassis rotation torque applies a soft onset envelope ($\sim 0.2\text{s}$ smooth ramp-in), completely eliminating the initial stutter caused by excessive angular acceleration in the very first frame;
+3. **Unconstrained Posture Continuity**:
+   Eliminates artificial inertial spine reverse-twisting and compensatory bending injected in the Layer-1 Idle layer, preserving natural anatomical weight-shift and breathing vitality while eliminating oscillatory twitching when settling back into Idle.
 
 ---
 

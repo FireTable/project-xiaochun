@@ -1,7 +1,7 @@
 # Hybrid Desktop Companion Architecture (Tauri 2.x)
 
 ## 1. Overview
-Project XiaoChun extends beyond traditional in-browser execution into a high-performance **cross-platform desktop hybrid application** built on **Tauri 2.x**. In desktop mode, XiaoChun operates as an interactive, transparent, frameless desktop pet (桌宠) that floats directly on top of the user's operating system workspace, seamlessly blending into the desktop environment.
+Project XiaoChun extends beyond traditional in-browser execution into a high-performance **cross-platform desktop hybrid application** built on **Tauri 2.x**. In desktop mode, XiaoChun operates as an interactive, transparent, frameless desktop pet that floats directly on top of the user's operating system workspace, seamlessly blending into the desktop environment.
 
 ---
 

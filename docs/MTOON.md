@@ -1,10 +1,12 @@
-# MToon NPR 材质扩展指南
+# MToon NPR Material Extension Specification
 
-本项目在 `@pixiv/three-vrm-materials-mtoon` 基础上进行了非真实感渲染（NPR）着色扩展，保持与标准 `VRMC_materials_mtoon` 规范完全兼容，同时提供更高质感的人物皮肤与服饰着色能力。
+This project extends `@pixiv/three-vrm-materials-mtoon` with Non-Photorealistic Rendering (NPR) enhancements, maintaining strict 100% backward compatibility with the official `VRMC_materials_mtoon` specification while providing richer anime skin and garment shading characteristics.
 
-## 1. 材质加载配置
+---
 
-在创建 VRM 加载器时，通过指定 `materialType: MToonMaterial` 确保使用扩展 MToon：
+## 1. Material Loader Configuration
+
+When initializing the VRM loader, pass `materialType: MToonMaterial` to ensure the extended MToon implementation is registered:
 
 ```ts
 import { MToonMaterial, MToonMaterialLoaderPlugin } from '@pixiv/three-vrm-materials-mtoon';
@@ -14,53 +16,61 @@ const mtoonPlugin = new MToonMaterialLoaderPlugin(parser, {
 });
 ```
 
-本地 monorepo 包位于 `packages/three-vrm-materials-mtoon`，在 Vite 开发环境下通过 `resolve.alias` 与 `glsl-raw-loader` 实现源码直读与热更新。
+The monorepo package is located at `packages/three-vrm-materials-mtoon`. In the Vite development environment, it is directly referenced and hot-reloaded via `resolve.alias` and `glsl-raw-loader`.
 
-## 2. 扩展特性与着色参数
+---
 
-| 特性类别 | 参数字段 | 作用说明 |
-|---|---|---|
-| **柔和半兰伯特** | `softMix`, `blurBoost`, `shadowBorder`, `shadowBlur` | 在经典阶梯阴影与平滑半兰伯特之间插值，支持微调明暗交界线位置与过渡宽度 |
-| **多阶阴影带** | `shadow2ndStrength`, `shadow2ndBorder`, `shadow2ndBlur`, `shadow2ndColor`<br>`shadow3rdStrength`, `shadow3rdBorder`, `shadow3rdBlur`, `shadow3rdColor` | 二阶/三阶阴影带，用于展现多层次景深与动漫风格阴影过渡色（如冷粉紫环境反光） |
-| **环境与暗部提亮** | `ambientLift`, `shadeMainStrength`, `envStrength`, `giEqualizationFactor` | 暗部环境光混合与提亮，防止深阴影死黑并维持通透感 |
-| **皮肤水润高光** | `skinSpecStrength`, `skinSpecPower`, `skinSpecFresnel`, `skinSpecColor` | 专为面部与身体设计的漫反射水润高光与边缘微光，避免刺眼白斑 |
-| **发丝各向异性** | `hairSpecStrength`, `hairSpecPower`, `hairSpecShift` | 头发天使光环（Angel-ring）切线各向异性高光 |
-| **布料丝绸高光** | `clothSpecStrength`, `clothSpecPower` | 服饰材质微表面各向同性高光 |
-| **通用卡通高光** | `specularStrength`, `specularPower`, `specularBorder`, `specularBlur` | 阶梯式方向高光 |
-| **环境反射拟合** | `reflectStrength`, `reflectFresnel`, `reflectMetallic`, `reflectSmoothness` | 无需环境贴图的轻量级视线反射拟合 |
-| **背光包覆** | `backlightStrength`, `backlightColor` | 背光与边缘包覆散射效果 |
-| **边缘轮廓光** | `rimBoost`, `rimBorder`, `rimBlur`, `rimDirStrength`, `rimIndirStrength`, `rimShadowMask`, `rimMainStrength`, `rimFresnelPower` | 方向性与反向边缘光，支持深度阴影遮罩 |
-| **双重 MatCap** | `matcap2ndStrength`, `matcap2ndContrast`, `matcap2ndScale` | 二次采样的高光质感层 |
-| **阴影接收隔离** | `receiveShadowRate` | 控制材质对主光投射阴影（ShadowMap）的接收率（0.0 ~ 1.0）。面部设为 0.0 杜绝碎发黑斑；身体与衣料设为 1.0 接收自然投影 |
-| **织物掠射角微光** | `fabricSheenStrength`, `fabricSheenPower`, `fabricSheenColor` | 掠射角微表面漫反射微光，为旗袍、丝绸、缎面服饰提供柔和边缘质感 |
+## 2. Extended Features & Shading Parameters
 
-## 3. 几何与投影核心优化
+| Category | Parameter Fields | Description |
+| :-- | :-- | :-- |
+| **Soft Half-Lambert** | `softMix`, `blurBoost`, `shadowBorder`, `shadowBlur` | Interpolates between classic stepped toon shading and smooth Half-Lambert; supports fine-tuning of shadow boundary position and transition width. |
+| **Multi-Tier Shadow Bands** | `shadow2ndStrength`, `shadow2ndBorder`, `shadow2ndBlur`, `shadow2ndColor`<br>`shadow3rdStrength`, `shadow3rdBorder`, `shadow3rdBlur`, `shadow3rdColor` | Secondary and tertiary shadow bands used to present layered depth and stylized anime ambient bounce hues (e.g. cool pink/lavender ambient reflection). |
+| **Ambient & Shade Lift** | `ambientLift`, `shadeMainStrength`, `envStrength`, `giEqualizationFactor` | Ambient light blending in shaded areas to prevent muddy pitch blacks and maintain skin translucency. |
+| **Skin Moisture Specular** | `skinSpecStrength`, `skinSpecPower`, `skinSpecFresnel`, `skinSpecColor` | Diffuse-softened highlights and grazing micro-sheen tailored for facial and body skin, eliminating harsh white specular spots. |
+| **Anisotropic Hair Sheen** | `hairSpecStrength`, `hairSpecPower`, `hairSpecShift` | Tangent-aligned anisotropic highlight ring ("angel ring") on hair. |
+| **Cloth Silk Specular** | `clothSpecStrength`, `clothSpecPower` | Micro-surface isotropic sheen for clothing fabrics. |
+| **Universal Toon Specular** | `specularStrength`, `specularPower`, `specularBorder`, `specularBlur` | Directional stepped cartoon highlights. |
+| **Ambient Reflection Fitting** | `reflectStrength`, `reflectFresnel`, `reflectMetallic`, `reflectSmoothness` | Lightweight view-dependent reflection model eliminating the need for an environment cubemap. |
+| **Backlight Wrap** | `backlightStrength`, `backlightColor` | Backlight wrap and rim scattering effect. |
+| **Rim Outline Lighting** | `rimBoost`, `rimBorder`, `rimBlur`, `rimDirStrength`, `rimIndirStrength`, `rimShadowMask`, `rimMainStrength`, `rimFresnelPower` | Directional and indirect rim lighting with depth shadow masking support. |
+| **Dual MatCap** | `matcap2ndStrength`, `matcap2ndContrast`, `matcap2ndScale` | Secondary sampled highlight texture layer. |
+| **Shadow Receive Isolation** | `receiveShadowRate` | Modulates the material's reception of primary directional shadows (`0.0` to `1.0`). Face is set to `0.0` to eliminate messy hair cast shadows; body and clothes are set to `1.0` to receive natural shadows. |
+| **Grazing Fabric Sheen** | `fabricSheenStrength`, `fabricSheenPower`, `fabricSheenColor` | Grazing-angle micro-surface diffuse sheen providing soft velvet/silk rim highlights for cheongsams, silks, and satin outfits. |
 
-1. **屏幕描边距离自适应（Screen Outline Clamp）**：
-   在顶点着色器中对屏幕空间描边距离强制约束在 `0.45 ~ 5.0`，消除远距离拉远时描边过粗糊成黑团，以及镜头极度贴近时描边穿插面部的异常。
-2. **曲面自阴影消除（Shadow Acne Mitigation）**：
-   人体肢体与胸部属于光滑曲面网格，在 `receiveShadow = true` 接收外界发丝投影时，容易因深度采样阶梯产生规律条纹（Shadow Acne）。通过在主方向光上配置微正偏置与法线偏置：
+---
+
+## 3. Geometry & Shadow Mitigation Core Optimizations
+
+1. **Screen Outline Distance Clamping**:  
+   In the vertex shader, screen-space outline distance is clamped to `[0.45, 5.0]`. This eliminates over-thick outline blobs when zoomed far out, and prevents outlines from clipping through facial geometry at extreme close-up angles.
+2. **Smooth Surface Shadow Acne Mitigation**:  
+   Smooth curved meshes (e.g. limbs and chest) are prone to shadow acne banding when `receiveShadow = true` under hair shadow casting. We apply positive bias and normal bias on the primary directional light:
    ```ts
    this.dirLight.shadow.bias = 0.00002;
-   this.dirLight.shadow.normalBias = 0.035; // 沿曲面法线内缩偏移，彻底消灭自阴影斑马纹
+   this.dirLight.shadow.normalBias = 0.035; // Inward normal offset, completely eliminating shadow acne
    ```
-   完美兼顾了**胸前发丝真实落影**与**皮肤平滑无杂纹**。
+   This maintains clean hair shadow projection onto the torso while keeping skin surfaces completely artifact-free.
 
-## 4. 部件分级调优配置
+---
 
-配置入口位于 `src/config.ts` 中的 `APP_CONFIG.mtoon.parts`：
+## 4. Part-Specific Presets & Tuning
 
-- `face`（面部）：高平滑度、珍珠冷粉紫阴影、低强度柔和水润微光、`receiveShadowRate: 0.0`（纯净二次元脸部，不接外界投射脏影）。
-- `body`（身体/四肢）：高平滑度、自然过渡阴影、冷白透亮底色、`receiveShadowRate: 1.0`（接收发丝与锁骨投影）。
-- `hair`（头发）：开启切线各向异性天使环高光，高对比度明暗分界。
-- `cloth`（服饰）：适度半兰伯特柔和混合，开启掠射角织物微光 (`fabricSheenStrength: 0.35`)。
+Configuration schema resides in `src/config.ts` under `APP_CONFIG.mtoon.parts`:
 
-## 5. 构建与验证
+- `face`: High smoothness, cool pink-lavender secondary shadow, subtle moisture sheen, `receiveShadowRate: 0.0` (clean anime facial canvas, immune to external shadow noise).
+- `body`: High smoothness, natural gradient shadows, cool translucent base color, `receiveShadowRate: 1.0` (receives realistic clavicle and hair shadows).
+- `hair`: Tangent-aligned anisotropic angel-ring specular enabled, sharp contrast threshold.
+- `cloth`: Moderate Half-Lambert soft mixing, grazing fabric sheen enabled (`fabricSheenStrength: 0.35`).
+
+---
+
+## 5. Build & Verification
 
 ```bash
-# 构建本地 MToon 包
+# Build local MToon package
 pnpm -F @firetable/three-vrm-materials-mtoon build
 
-# 运行本地开发环境
+# Run local development server
 pnpm dev
 ```
