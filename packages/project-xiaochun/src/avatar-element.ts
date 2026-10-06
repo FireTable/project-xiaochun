@@ -8,7 +8,7 @@
  *     min-size / max-size="120x180": resizable 的最小 / 最大尺寸 (px, 缺省最小 120x180、最大只受视口限制)。
  *   - border-radius: 外壳圆角 (数字 = px 或 CSS 长度); 缺省: 非透明场景 20px (与 Tauri 桌宠窗口同值) / 透明 0; 改属性热更新 (setBorderRadius)。
  *   - outfit: 内置服装 id (xiaochun_maid); 改属性**热更新** (setOutfit, 不重建 iframe)。model 是 outfit 的旧别名 (deprecated)。
- *   - scene: light | dark | transparent | beach | beach3d; 改属性**热更新** (setScene, 不重建 iframe)。
+ *   - scene: light | dark | transparent | beach3d; 改属性**热更新** (setScene, 不重建 iframe)。
  *   - ui: 要显示的 iframe 内置界面部件, 逗号分隔: chat,bubble,outfit,scene,lang,github (例 ui="outfit,scene,lang,github"); 缺省 = 都不显示; 改它会重建。
  *     旧写法 ui / ui="true" 已弃用 (= chat,bubble, 会 console.warn)。
  *   - ui-autohide: 内置界面的显示策略: 缺省 / "transparent" = 与 Tauri 一致 (只在透明场景点击出现, 亮暗场景常显); "true" = 所有场景点击出现; "false" = 一直显示。改它会重建。

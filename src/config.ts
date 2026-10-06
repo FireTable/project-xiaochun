@@ -7,7 +7,6 @@ export * from './types/config';
 import type {
   LightConfig,
   SceneRegistryConfig,
-  BeachSceneConfig,
   Beach3DSceneConfig,
   MaterialSaturationConfig,
   VrmOutlineConfig,
@@ -345,17 +344,7 @@ export const APP_CONFIG = {
         components: { topHeader: true, chatBar: true, headBubble: true, heightRuler: false, dropZone: true },
         tauri: { resizable: false, cornerHandles: true },
       },
-      // 海滩: AI 插画竖长条背景 (src/core/scene/beachBackdrop.ts)。不透明场景, 规则与 light / dark 相同 (TopHeader / ChatBar 常显, Tauri 20px 圆角)。
-      beach: {
-        id: 'beach',
-        nameKey: 'header.switchScene.beach',
-        icon: 'TreePalm',
-        lineworkTheme: 'beach',
-        isTransparent: false,
-        components: { topHeader: true, chatBar: true, headBubble: true, heightRuler: true, dropZone: true },
-        tauri: { resizable: true, cornerHandles: false },
-      },
-      // 海滩 3D: 纯 Three.js 场景 (src/core/scene/beach3d/), 真实地面 + 实时落影。不透明场景, 规则同 light / dark / beach。
+      // 海滩: 纯 Three.js 3D 场景 (src/core/scene/beach3d/), 真实地面 + 实时落影。不透明场景, 规则同 light / dark (TopHeader / ChatBar 常显, Tauri 20px 圆角)。
       beach3d: {
         id: 'beach3d',
         nameKey: 'header.switchScene.beach3d',
@@ -367,33 +356,6 @@ export const APP_CONFIG = {
       },
     },
   } as SceneRegistryConfig,
-  beachScene: {
-    assets: {
-      strip: '/scene/beach/beach-strip.webp',
-      mask: '/scene/beach/beach-mask.webp',
-    },
-    scroll: { horizonAboveHipsM: 0.04, parallax: 1.0 },
-    // 滚轮缩放时背景跟随: 倍率 = (默认视距/当前视距)^strength, 夹到 [minScale, maxScale]; 缩放中心 = 海平线 (髋部附近)
-    zoom: { enabled: true, strength: 0.65, minScale: 0.6, maxScale: 1.8 },
-    dynamics: {
-      enabled: true,
-      respectReducedMotion: true,
-      autoDowngrade: { enabled: true, minFps: 24, windowFrames: 120 },
-      sea: { glint: 0.6, glintDensity: 0.24, glintSpeed: 1.0, wobble: 1.2 },
-      cloud: { driftPx: 18, periodSec: 90 },
-      particles: { count: 16, countMobile: 9, speed: 1.0, size: 1.0, opacity: 0.85, moteRatio: 0.3 },
-    },
-    blend: {
-      hemiSky: 0xf6fcff,
-      hemiGround: 0xf3e6d3,
-      dirColor: 0xfffbf0,
-      shadowColor: 0x8a6f78,
-      shadowOpacity: 0.26,
-      contactColor: 0xa88a80,
-      contactOpacity: 0.34,
-      contactSizeM: 0.85,
-    },
-  } as BeachSceneConfig,
   // 海滩 3D (id: beach3d)。完整说明见 docs/BEACH3D_SCENE.md, 每个字段的含义 / 范围也写在 types/config.ts 的 Beach3DSceneConfig。
   // 颜色是 sRGB 十六进制, 画面上就是这个颜色 (已抵消曝光)。
   beach3dScene: {

@@ -5,7 +5,7 @@
  * 共同约定:
  *   - 颜色 uniform 都是线性空间 (THREE.Color 已按 ColorManagement 转好), 输出前乘 uComp (= 1 / 曝光), 抵消线性色调映射的曝光,
  *     画面上的颜色 = 配置里的 sRGB 色值。
- *   - 输出 alpha = uMark: 走后期 (渲染到 composer 目标) 时为 0.99, Bloom 高通据此跳过背景像素 (与 beach 场景同一约定, 见 postFxPipeline.ts);
+ *   - 输出 alpha = uMark: 走后期 (渲染到 composer 目标) 时为 0.99, Bloom 高通据此跳过背景像素 (约定见 postFxPipeline.ts);
  *     直出屏幕时为 1。
  *   - 空气透视: 远处向海平线色淡出 (uHazeStart → uHazeEnd), 让远景与天空 / 海平线无缝。
  *   - 地平线弧度: 离相机 uCurveD0 米以外的地面按 e²/(2R) 往下弯 (夸张的"地球曲率"), 真实的可见海平线因此落在眼高以下

@@ -59,13 +59,13 @@ export class StudioLighting {
 
   /**
    * 场景级色调微调 (只改灯的颜色, 不改强度 / 不改任何角色材质):
-   * beach / beach3d → 半球光天空偏冷奶白、地面反射偏奶油沙色 (高调柔光, 暗部不再反射薰衣草灰), 主光略暖;
+   * beach3d → 半球光天空偏冷奶白、地面反射偏奶油沙色 (高调柔光, 暗部不再反射薰衣草灰), 主光略暖;
    * 其它场景恢复默认。强度仍由 channels / 调试抽屉控制。
    */
   applyTheme(theme: LineworkTheme): void {
-    // beach3d: 同样的思路, 颜色取 APP_CONFIG.beach3dScene.light; 主光方向不变 (= 3D 场景里的太阳方向)
-    const b = theme === 'beach3d' ? APP_CONFIG.beach3dScene.light : APP_CONFIG.beachScene.blend;
-    const beach = theme === 'beach' || theme === 'beach3d';
+    // beach3d: 颜色取 APP_CONFIG.beach3dScene.light; 主光方向不变 (= 3D 场景里的太阳方向)
+    const b = APP_CONFIG.beach3dScene.light;
+    const beach = theme === 'beach3d';
     this.hemiLight.color.setHex(beach ? b.hemiSky : 0xfffaf8);
     this.hemiLight.groundColor.setHex(beach ? b.hemiGround : 0xe2d6e6);
     this.dirLight.color.setHex(beach ? b.dirColor : 0xfffdfa);

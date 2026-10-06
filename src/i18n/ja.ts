@@ -26,8 +26,7 @@ export const ja: Trans = {
       light: '白昼線画',
       dark: '深夜暗黒線画',
       transparent: '透明背景',
-      beach: 'ビーチ',
-      beach3d: 'ビーチ 3D',
+      beach3d: 'ビーチ',
     },
     switchOutfit: {
       tooltip: '衣装を着せ替え',

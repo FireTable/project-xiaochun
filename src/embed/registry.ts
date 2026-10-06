@@ -86,10 +86,10 @@ export function parseControls(raw: string | null | undefined): boolean {
   return !(raw === '0' || raw === 'false');
 }
 
-export type EmbedSceneId = 'light' | 'dark' | 'transparent' | 'beach' | 'beach3d';
+export type EmbedSceneId = 'light' | 'dark' | 'transparent' | 'beach3d';
 
 /**
- * /embed URL 里指定的初始场景 (纯函数)。优先级: ?scene=light|dark|transparent|beach|beach3d > ?transparent=1 (旧参数) > ?theme=light|dark (旧参数)。
+ * /embed URL 里指定的初始场景 (纯函数)。优先级: ?scene=light|dark|transparent|beach3d > ?transparent=1 (旧参数) > ?theme=light|dark (旧参数)。
  * 没指定 / 非法 → null (调用方再回退 localStorage / 系统亮暗)。
  * sceneManager (场景标记 / 菜单勾选 / scene-transparent 类) 与 vrmEngine (线稿世界 / 背景 / alpha) 必须读同一份结果,
  * 否则会出现"菜单显示透明, 画面还是线稿柱子"的分裂 (?scene=transparent 曾只被前者识别)。
@@ -97,7 +97,7 @@ export type EmbedSceneId = 'light' | 'dark' | 'transparent' | 'beach' | 'beach3d
 export function embedSceneFromSearch(search: string): EmbedSceneId | null {
   const q = new URLSearchParams(search);
   const scene = q.get('scene');
-  if (scene === 'light' || scene === 'dark' || scene === 'transparent' || scene === 'beach' || scene === 'beach3d') return scene;
+  if (scene === 'light' || scene === 'dark' || scene === 'transparent' || scene === 'beach3d') return scene;
   if (q.get('transparent') === '1') return 'transparent';
   const theme = q.get('theme');
   if (theme === 'light' || theme === 'dark') return theme;

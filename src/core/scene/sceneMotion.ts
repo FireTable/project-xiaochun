@@ -1,5 +1,5 @@
 /**
- * sceneMotion.ts — 场景"局部动态"的统一降级逻辑 (海滩 beach 与 海滩 3D beach3d 共用)。
+ * sceneMotion.ts — 场景"局部动态"的统一降级逻辑 (海滩 beach3d 使用)。
  *
  * 动态 (海面波光 / 云漂移 / 花瓣 / 树叶摆动 ...) 生效的条件:
  *   cfg.enabled && !(cfg.respectReducedMotion && 系统开启了"减少动态效果") && !本次会话已因低帧率降级。

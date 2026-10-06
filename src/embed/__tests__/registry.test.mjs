@@ -10,7 +10,7 @@ const addons = {
   xiaochun_maid: { source: '/a', name: 'Maid' },
   xiaochun_dinner_dress: { source: '/b', name: 'Dinner', default: true },
 };
-const scenes = { light: { isTransparent: false }, dark: { isTransparent: false }, transparent: { isTransparent: true }, beach: { isTransparent: false }, beach3d: { isTransparent: false } };
+const scenes = { light: { isTransparent: false }, dark: { isTransparent: false }, transparent: { isTransparent: true }, beach3d: { isTransparent: false } };
 
 test('ownEntry: 合法 id 命中', () => {
   assert.equal(ownEntry(addons, 'xiaochun_maid')?.name, 'Maid');
@@ -53,7 +53,6 @@ test('listScenes: transparent 标志', () => {
     { id: 'light', transparent: false },
     { id: 'dark', transparent: false },
     { id: 'transparent', transparent: true },
-    { id: 'beach', transparent: false },
     { id: 'beach3d', transparent: false },
   ]);
 });
@@ -108,8 +107,7 @@ test('embedSceneFromSearch: scene > transparent=1 > theme; 非法 / 缺省 → n
   assert.equal(embedSceneFromSearch('?scene=transparent'), 'transparent');
   assert.equal(embedSceneFromSearch('?ui=chat,outfit,scene&scene=transparent&controls=1'), 'transparent');
   assert.equal(embedSceneFromSearch('?scene=light'), 'light');
-  assert.equal(embedSceneFromSearch('?scene=beach'), 'beach');
-  assert.equal(embedSceneFromSearch('?scene=beach&transparent=1'), 'beach'); // scene 优先; beach 不透明
+  assert.equal(embedSceneFromSearch('?scene=beach'), null); // 2D beach 已移除
   assert.equal(embedSceneFromSearch('?scene=beach3d'), 'beach3d');
   assert.equal(embedSceneFromSearch('?scene=beach3d&transparent=1'), 'beach3d'); // scene 优先; beach3d 不透明
   assert.equal(embedSceneFromSearch('?scene=Beach3D'), null); // 严格小写

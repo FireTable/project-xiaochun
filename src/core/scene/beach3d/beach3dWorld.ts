@@ -42,7 +42,7 @@ import {
  * 天空 / 远山 / 云按同一个 uDip 对齐 (computeHorizonDip, 每帧按相机高度算), 远处无缝。
  *
  * 太阳方向 = 引擎主方向光方向 (每帧读取), 天空柔光、闪光分布、树木明暗都按它算, 与角色受光一致。
- * 动态 (浪花 / 波纹 / 闪光 / 云 / 树叶) 走 SceneMotionGovernor: reduced-motion 或低帧率自动静止 (与 beach 场景同一套逻辑)。
+ * 动态 (浪花 / 波纹 / 闪光 / 云 / 树叶) 走 SceneMotionGovernor: reduced-motion 或低帧率自动静止。
  */
 
 /** 远景层半径 (m): 云在此球面上。须小于相机远裁剪面 100m。 */
@@ -528,7 +528,7 @@ export class Beach3DWorld {
     (this.skyUniforms.uInvProj.value as THREE.Matrix4).copy(camera.projectionMatrixInverse);
     (this.skyUniforms.uCamWorld.value as THREE.Matrix4).copy(camera.matrixWorld);
 
-    // 曝光补偿 + 后期 Bloom 标记 (与 beach 场景同一约定)
+    // 曝光补偿 + 后期 Bloom 标记 (约定见 postFxPipeline.ts)
     const exp = renderer.toneMapping === THREE.LinearToneMapping ? renderer.toneMappingExposure : 1;
     this.shared.uComp.value = 1 / Math.max(0.2, exp || 1);
     this.shared.uMark.value = renderer.getRenderTarget() ? 0.99 : 1;

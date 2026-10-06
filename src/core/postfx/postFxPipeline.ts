@@ -203,7 +203,7 @@ export class PostFxPipeline {
         gl_FragColor = vec4( defaultColor.rgb, defaultOpacity );
         return;
       }
-      // 海滩场景背景层 (BeachBackdrop) 把 alpha 写成 0.99 作标记: 整屏高亮的奶油沙 / 近白天空不进高通,
+      // 海滩场景 (beach3d) 的背景像素把 alpha 写成 0.99 作标记: 整屏高亮的奶油沙 / 近白天空不进高通,
       // 否则 Bloom 会把沙滩洗成白色、海天交界过曝 (OutputPass 末尾会把 alpha 吸附回 1.0)。角色像素 alpha 恒为 1.0, 不受影响。
       if (texel.a > 0.98 && texel.a < 0.998) {
         gl_FragColor = vec4( defaultColor.rgb, defaultOpacity );
@@ -254,7 +254,7 @@ export class PostFxPipeline {
       float ign = fract(52.9829189 * fract(dot(gl_FragCoord.xy, vec2(0.06711056, 0.00583715))));
       gl_FragColor.rgb += (ign - 0.5) / 255.0;
       if (gl_FragColor.a < 1.0e-4) gl_FragColor = vec4(0.0);
-      if (gl_FragColor.a > 0.98) gl_FragColor.a = 1.0; // 吸附回不透明 (海滩背景层的 0.99 高通标记)
+      if (gl_FragColor.a > 0.98) gl_FragColor.a = 1.0; // 吸附回不透明 (beach3d 背景像素的 0.99 高通标记)
     }`;
         outputPass.material.needsUpdate = true;
       }

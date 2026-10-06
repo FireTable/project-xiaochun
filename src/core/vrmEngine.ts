@@ -22,7 +22,6 @@ import { langFromSystemPrompt } from '@/llm/prompts';
 
 // ── 抽离子系统导入 ──
 import { LineworkWorld, type LineworkTheme } from './scene/lineworkWorld';
-import { BeachBackdrop } from './scene/beachBackdrop';
 import { Beach3DWorld } from './scene/beach3d/beach3dWorld';
 import { passthroughManager } from './scene/passthroughManager';
 import { StudioLighting } from './lighting/studioLighting';
@@ -224,9 +223,6 @@ export class VRMEngine {
   private _animFrameIntervalMs = 0;
   // ── 模块化独立子系统 ──
   private lineworkWorld = new LineworkWorld();
-  private readonly tempBeachHip = new THREE.Vector3();
-  /** 海滩场景 (beach) 的背景层: 竖长条 + 局部动态; 只在该场景可见, 其余场景 0 开销。 */
-  public readonly beachBackdrop = new BeachBackdrop();
   /** 海滩 3D 场景 (beach3d): 纯 Three.js 天空 / 云 / 远山 / 沙地 + 海 / 棕榈 / 礁石; 只在该场景可见并构建, 其余场景 0 开销。 */
   public readonly beach3d = new Beach3DWorld();
   public readonly lighting = new StudioLighting();
@@ -650,18 +646,6 @@ export class VRMEngine {
     // ponytail: 全部塞 CharacterShadowSystem, 这边只 init。
     const initialTheme = resolveInitialSceneTheme();
     this.shadow.init(this.scene, initialTheme);
-
-    // 海滩背景层: 挂进场景 (默认不可见), 提供"相机注视点 + 髋部高度"用于把海平线对到髋部
-    this.beachBackdrop.attach(this.scene);
-    this.beachBackdrop.setSubjectProvider(() => {
-      if (!this.controls) return null;
-      const hips = this.currentVRM?.humanoid?.getNormalizedBoneNode('hips');
-      let hipY: number | null = null;
-      if (hips) { hips.getWorldPosition(this.tempBeachHip); hipY = this.tempBeachHip.y; }
-      return { target: this.controls.target, hipY, refDistance: getDefaultCameraDistance(this.camera.fov) };
-    });
-    this.beachBackdrop.setOnAssetsReady(() => { if (this.canvas) this.renderFrameNow(); });
-
 
 
     // 初始化视线系统与灯光系统
@@ -1194,12 +1178,11 @@ export class VRMEngine {
   }
 
   /**
-   * 场景级背景 / 融合微调 (只有 beach / beach3d 有内容, 其余场景恢复默认):
+   * 场景级背景 / 融合微调 (只有 beach3d 有内容, 其余场景恢复默认):
    *   背景层显隐 + 半球光/主光色调 (StudioLighting.applyTheme) + 地面落影 / 脚下接触影配色 (CharacterShadowSystem.applyTheme)。
    * 不改任何角色材质。
    */
   private syncSceneBackdrop(theme: LineworkTheme): void {
-    this.beachBackdrop.setActive(theme === 'beach');
     this.beach3d.setActive(theme === 'beach3d');
     this.lighting.applyTheme(theme);
     this.shadow.applyTheme(theme);
@@ -2751,7 +2734,6 @@ export class VRMEngine {
 
     this.renderer?.dispose();
     this.lineworkWorld.dispose(this.scene);
-    this.beachBackdrop.dispose(this.scene);
     this.beach3d.dispose(this.scene);
     // ponytail: 角色阴影系统释放 (含 shadowPlane geometry/material + mask texture)
     this.shadow.dispose();

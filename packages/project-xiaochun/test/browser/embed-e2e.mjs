@@ -147,7 +147,7 @@ await check('首次加载: 握手 capabilities (outfits 不含 base, scenes=5, p
   const ids = hs.capabilities.outfits.map((o) => o.id);
   console.log('   outfits:', ids.join(','));
   assert.ok(ids.length >= 8 && !ids.includes('base') && ids.includes('xiaochun_dinner_dress'));
-  assert.deepEqual(hs.capabilities.scenes.map((s) => s.id).sort(), ['beach', 'beach3d', 'dark', 'light', 'transparent']);
+  assert.deepEqual(hs.capabilities.scenes.map((s) => s.id).sort(), ['beach3d', 'dark', 'light', 'transparent']);
   assert.equal(hs.capabilities.prefetch, true);
   assert.ok(hs.capabilities.commands.includes('xc.setOutfit') && hs.capabilities.commands.includes('xc.setScene'));
   const oc = (await ev(page, 'outfit-changed')).map((e) => e.p);
@@ -1010,7 +1010,7 @@ await check('按钮点选换场景: scene-changed 到宿主, 外壳/穿透同步
   await fr(page).waitForSelector('[role="menu"] [data-scene-id]');
   const rows = await fr(page).$$eval('[role="menu"] [data-scene-id]', (els) => els.map((e) => [e.getAttribute('data-scene-id'), !!e.querySelector('svg.lucide-check')]));
   assert.deepEqual(rows.filter((r) => r[1]).map((r) => r[0]), ['dark']);
-  assert.deepEqual(rows.map((r) => r[0]), ['light', 'dark', 'transparent', 'beach', 'beach3d']);
+  assert.deepEqual(rows.map((r) => r[0]), ['light', 'dark', 'transparent', 'beach3d']);
   await closeMenu(page);
 });
 
