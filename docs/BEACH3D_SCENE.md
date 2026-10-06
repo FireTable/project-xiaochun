@@ -97,7 +97,7 @@ The character shadow is the engine's existing `CharacterShadowSystem` plane. The
 ## Lighthouse
 
 - A small lighthouse stands in the sea to the right of the character, where the right-hand islands used to be (`lighthouse.x`, `lighthouse.z`, `lighthouse.scale`; at scale 1 it is about 5.2 m tall including its rock).
-- From bottom to top: a rounded rock half under water with a foam ring around it, a cream plinth, a tapered tower in alternating cream / coral bands with a door and two small windows facing the shore, a coral gallery deck with a thin railing, a lantern room, and a lavender conical roof with a finial.
+- From bottom to top: a rounded rock half under water with a foam ring around it, a cream plinth, a tapered tower in alternating cream / red bands with a door and two small windows facing the shore, a red gallery deck with a thin railing, a lantern room, and a red conical roof with a finial.
 - It uses the same toon shading as the chair. The lantern glass and windows are partly self-lit in a warm tone (`lighthouse.glow`); there is no bloom.
 - It is merged into the chair + parasol mesh (same draw call, ~0.9k triangles), bends with the horizon curvature like the other props, and is hidden together with them when the camera goes below the ground. With `props.enabled = false` it is hidden too.
 
