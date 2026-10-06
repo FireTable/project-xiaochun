@@ -243,12 +243,12 @@ export const APP_CONFIG = {
     defaultEnableGaze: true as boolean,
     minPolarAngle: 0.01,
     maxPolarAngle: Math.PI - 0.01,
-    pitchSensitivityY: 0.0065,
+    pitchSensitivityY: 0.005,
     // 相机不穿地: 仰视时相机贴地沿视线推近, 地平线固定在世界空间 (透明场景不生效)。字段说明见 types/config.ts 的 CameraGroundClampConfig
     groundClamp: {
       enabled: true,
       minHeight: 0.15,       // 相机离地最小高度 (m), 建议 0.1 ~ 0.3; 太低沙纹 / 网格掠射易闪, 太高地平线高于脚踝
-      fovCompensation: 0.5,  // 推近时放宽视角补偿取景 (0 = 不补偿, 1 = 人物大小基本不变, 上限 maxFov)
+      fovCompensation: 0.1,  // 推近时放宽视角补偿取景 (0 = 不补偿, 1 = 人物大小基本不变, 上限 maxFov)
       minDollyDistance: 0.6, // 推近下限 (m), 再近则改为抬高环绕中心
     } as CameraGroundClampConfig,
   },
