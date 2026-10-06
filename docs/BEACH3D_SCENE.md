@@ -104,7 +104,7 @@ The character shadow is the engine's existing `CharacterShadowSystem` plane. The
 
 ## Sandcastle
 
-- A small hand-built sandcastle in the left foreground (`sandcastle.x = -2.05`, `sandcastle.z = 2.4`, `yawDeg = 22`), in front of the near left palm and well clear of the character, her shadow (which falls toward the sea) and the palm trunks and their shadows. In the default portrait view it sits at about 20% from the left and 68% from the top.
+- A small hand-built sandcastle in the left foreground (`sandcastle.x = -1.0`, `sandcastle.z = 1.2`, `yawDeg = 22`), in front of the near left palm and well clear of the character, her shadow (which falls toward the sea) and the palm trunks and their shadows.
 - At scale 1 the tallest tower is 0.45 m (0.52 m to the flag tip). From bottom to top:
   - A low, squared-off packed-sand platform (0.52 × 0.44 m, 7 cm high) with soft rounded edges and small hand-patted irregularities, slightly sunk into the beach, plus a small ramp up to the door. No round mound, no moat.
   - A central keep with an arched door and small windows, two back towers (one taller, with the flag) and a front-left tower, all cylinders with crenellated tops, and a small rounded cone turret at the front right.

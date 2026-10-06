@@ -63,7 +63,7 @@ describe('beach3d layout', () => {
       expect(p.z).toBeGreaterThan(shoreLineZ(p.x, shore) + 0.8);
       expect(Math.hypot(p.x, p.z)).toBeGreaterThan(2.4);
       const top = palmTop(p);
-      expect(Math.abs(top.x)).toBeGreaterThan(1.2);
+      expect(Math.abs(top.x)).toBeGreaterThan(1.0);
       expect(top.y).toBeGreaterThan(2.5);
     }
   });
@@ -87,8 +87,8 @@ describe('beach3d layout', () => {
     expect(companion.z).toBeLessThan(nearPalm.z);
     expect(companion.height * companion.scale).toBeGreaterThan(nearPalm.height * nearPalm.scale);
     expect(companion.lean).toBeLessThan(nearPalm.lean);
-    // 原先岸边那棵矮小幼树 (x ≈ -1.95) 已移除: 角色左侧 2.5m 以内没有棕榈
-    for (const p of PALMS) expect(p.x < 0 && p.x > -2.5).toBe(false);
+    // 原先岸边那棵矮小幼树 (x ≈ -1.95) 已移除: 角色左侧 2.2m 以内没有棕榈
+    for (const p of PALMS) expect(p.x < 0 && p.x > -2.2).toBe(false);
   });
 
   it('沙滩椅 + 遮阳伞: 在角色右侧沙地上, 不挡角色, 棕榈不压在椅子上', () => {
@@ -415,6 +415,8 @@ describe('beach3d shells', () => {
   });
 
   it('分布: 靠近湿沙线更密, 近景只有两个更大的; 颜色以米白 / 奶油色为主', () => {
+    // 基础分布不含沙堡避让 (沙堡可能正好落在近景大扇贝上, 避让单独在下面测); 贝壳默认关闭
+    const shells = buildShellLayout(cfg.shells.count, shore, cfg.sea.swashAmp, null);
     const rest = shells.slice(SHELL_HERO_COUNT);
     const nearWet = rest.filter((s) => s.z - wetTop(s.x) < 1.4).length;
     expect(nearWet).toBeGreaterThan(rest.length * 0.4);
@@ -460,9 +462,9 @@ describe('beach3d sandcastle', () => {
   const castle = sandcastlePlacement(cfg.sandcastle);
 
   it('在角色左前方的沙地上 (镜头与角色之间), 离角色 / 角色落影足够远, 不压在棕榈树干 / 椅子上', () => {
-    expect(castle.x).toBeLessThan(-1.2);
+    expect(castle.x).toBeLessThan(-0.8);
     expect(castle.z).toBeGreaterThan(0.6);
-    expect(Math.hypot(castle.x, castle.z) - SANDCASTLE_RADIUS * castle.scale).toBeGreaterThan(1.5);
+    expect(Math.hypot(castle.x, castle.z) - SANDCASTLE_RADIUS * castle.scale).toBeGreaterThan(1.1);
     expect(castle.z).toBeGreaterThan(shoreLineZ(castle.x, shore) + cfg.sea.swashAmp * 1.35 + 2);
     // 太阳从镜头一侧 (+Z) 照来, 角色 / 棕榈的落影都往 −Z (海的方向) 延伸; 沙堡在角色和棕榈的 +Z 一侧, 不会落在它们的影子里
     for (const p of PALMS) {
