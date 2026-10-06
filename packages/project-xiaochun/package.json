@@ -1,6 +1,6 @@
 {
   "name": "@firetable/project-xiaochun",
-  "version": "0.1.16",
+  "version": "0.1.17",
   "description": "Embed Project XiaoChun (3D anime companion) into any web page via a lazy, origin-checked iframe. Zero-dependency SDK + <xiaochun-avatar> web component.",
   "license": "MIT",
   "author": "FireTable",
