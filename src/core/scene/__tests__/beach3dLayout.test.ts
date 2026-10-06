@@ -68,6 +68,17 @@ describe('beach3d layout', () => {
     expect(uniq(PALMS.map((p) => p.lean))).toBeGreaterThan(PALMS.length / 2);
   });
 
+  it('竖屏左侧: 近处斜出的棕榈 + 身后一棵更高更直的伴生棕榈; 角色和左侧棕榈之间没有岸边幼树', () => {
+    const left = PALMS.filter((p) => p.x < 0 && p.x > -6).sort((a, b) => b.z - a.z);
+    expect(left.length).toBe(2);
+    const [nearPalm, companion] = left;
+    expect(companion.z).toBeLessThan(nearPalm.z);
+    expect(companion.height * companion.scale).toBeGreaterThan(nearPalm.height * nearPalm.scale);
+    expect(companion.lean).toBeLessThan(nearPalm.lean);
+    // 原先岸边那棵矮小幼树 (x ≈ -1.95) 已移除: 角色左侧 2.5m 以内没有棕榈
+    for (const p of PALMS) expect(p.x < 0 && p.x > -2.5).toBe(false);
+  });
+
   it('沙滩椅 + 遮阳伞: 在角色右侧沙地上, 不挡角色, 棕榈不压在椅子上', () => {
     expect(CHAIR.x).toBeGreaterThan(1.2);
     expect(insideChairFootprint(CHAIR.x, CHAIR.z)).toBe(true);
