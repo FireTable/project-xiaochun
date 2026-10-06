@@ -13,7 +13,7 @@ type BuildingShape = 'box' | 'tower' | 'pyramid' | 'stepped' | 'antenna';
  * - 远景飞鸟：在雄伟山峦顶端开阔高空盘旋 (Z = -30 ~ -40, 高度 15.0 ~ 24.0m)
  * - 远景群山：高耸入云的两重起伏叠嶂山脊 (Z = -34 与 Z = -46, 宽度 84 ~ 115m, 峰顶高 16.0 ~ 26.0m)
  */
-export type LineworkTheme = 'light' | 'dark' | 'transparent';
+export type LineworkTheme = 'light' | 'dark' | 'transparent' | 'beach3d';
 
 export class LineworkWorld {
   private rootGroup = new THREE.Group();
@@ -113,7 +113,8 @@ export class LineworkWorld {
     this.bgTextureLight = this.createGradientTexture('#E2D9DB', '#D5CACD');
     this.bgColorDark = new THREE.Color(0x202020);
 
-    if (initialTheme === 'transparent') {
+    if (initialTheme === 'transparent' || initialTheme === 'beach3d') {
+      // transparent: 透明桌宠; beach3d: Beach3DWorld 自己画; 线稿世界整组隐藏
       scene.background = null;
       this.rootGroup.visible = false;
     } else {
@@ -543,7 +544,8 @@ export class LineworkWorld {
     }
     for (const g of buildingGeos) g.dispose();
 
-    // Call 5: 实体地面基底（填充当前背景底色，写入深度，彻底封死地下空间，消除任何下透伪影）
+    // Call 5: 实体地面基底（填充地面底色，写入深度，遮住远处网格与山脚）。
+    // 只有正面 (朝上): 相机在地面以下时会被背面剔除、看起来像透明的; 相机由引擎的 APP_CONFIG.camera.groundClamp 保持在地面以上。
     if (this.groundSolidMat) {
       const groundPlaneGeo = new THREE.PlaneGeometry(140, 140);
       groundPlaneGeo.rotateX(-Math.PI / 2);
@@ -669,7 +671,7 @@ export class LineworkWorld {
     this.currentTheme = theme;
     const targetScene = scene || this.sceneRef;
 
-    if (theme === 'transparent') {
+    if (theme === 'transparent' || theme === 'beach3d') {
       if (targetScene) {
         targetScene.background = null;
       }

@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import { APP_CONFIG, type LightConfig } from '@/config';
+import { APP_CONFIG, type LightConfig, type LineworkTheme } from '@/config';
 
 /**
  * StudioLighting — 3 盏灯 (key + fill + ambient,Unity / Three.js 标准配置)。
@@ -55,6 +55,15 @@ export class StudioLighting {
     this.dirLight.intensity = this.channels.dir.enabled ? this.channels.dir.base * m : 0;
     this.hemiLight.intensity = this.channels.hemi.enabled ? this.channels.hemi.base * m : 0;
     this.fillLight.intensity = this.channels.fill.enabled ? this.channels.fill.base * m : 0;
+  }
+
+  /**
+   * 切场景时重置灯色 (所有场景共用同一套默认灯色, 不改强度 / 不改任何角色材质)。强度仍由 channels / 调试抽屉控制。
+   */
+  applyTheme(_theme: LineworkTheme): void {
+    this.hemiLight.color.setHex(0xfffaf8);
+    this.hemiLight.groundColor.setHex(0xe2d6e6);
+    this.dirLight.color.setHex(0xfffdfa);
   }
 
   setLight(key: string, enabled: boolean, value: number): void {

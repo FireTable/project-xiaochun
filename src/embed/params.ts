@@ -12,7 +12,7 @@
  *   ?heavy=lazy|eager  WebLLM / EMAGE 预热策略          默认 lazy
  *   ?outfit=<id>     初始服装 (capabilities.outfits 里的 id, 严格校验: 小写字母/数字/下划线, 且必须是内置服装; 裸模 base 不开放)
  *                    非法或未知 → 回退默认服装并通过 xc.error{unknown_id} 告知宿主     默认 default addon
- *   ?scene=light|dark|transparent  初始场景 (优先于 ?transparent / ?theme; 非法 → 忽略)   默认跟随 ?transparent / 系统
+ *   ?scene=light|dark|transparent|beach3d  初始场景 (优先于 ?transparent / ?theme; 非法 → 忽略)   默认跟随 ?transparent / 系统
  *   ?theme=light|dark  非透明时的线稿主题                默认跟随系统
  *   ?controls=0      锁定滚轮缩放 (默认开, 与主站一致: 透明场景只在指针落在角色上时缩放, 其余穿透给宿主;
  *                    不透明场景整个 iframe 区域的滚轮 = 缩放, 会吞掉该区域的页面滚动)。controls=1 与缺省等价

@@ -182,7 +182,8 @@ You can download installer packages directly from the official Releases page:
 * **LLM + TTS + EMAGE orchestrated** by the chat director on the main thread at 60 FPS. **LLM may use WebGPU** (WebLLM); **EMAGE stays on wasm/INT8**.
 
 ### ⚡ Streaming Speech & Adaptive Gesture Pipeline
-* **Smart Speech Chunking**: Eliminates long-text generation wait bottlenecks by segmenting speech into natural 30~60 character clauses split at semantic punctuation (`.!?\n` or natural comma pauses).
+* **Smart Speech Chunking**: Eliminates long-text generation wait bottlenecks by segmenting speech into natural 30~60 character clauses split at semantic punctuation (`.!?\n` or natural comma pauses). `xc.say` has no character cap; this slicer is the limit.
+* **Speech handoff**: A newer `say` / `speakText` / `speakAudio` fades the line still playing (about 0.4s, skipped when the gain is already 0) and then starts the new one. The previous pipeline exits on its utterance id, so the two do not play together. `stop()` still cuts immediately.
 * **Zero-Latency Concurrent TTS Prefetching**: Downloads audio for all chunks concurrently via non-blocking network I/O, flattening TTS latency to 0ms.
 * **Dual-Condition Pre-buffering**: Balances chunk ratio ($\lceil N / 3 \rceil$) with an upper-bound cap (max 2 chunks, ~8~12s of audio). 1~2 segments start almost instantly; long paragraphs begin playback as soon as 2 chunks are ready while subsequent motions stream in the background.
 * **Continuous Latent Autoregressive Seed Carryover**: The Dedicated Web Worker retains the 4-frame latent seed (`continueFromPrevious`) across chunks, making multi-chunk generation mathematically identical to a single long-run autoregressive inference.

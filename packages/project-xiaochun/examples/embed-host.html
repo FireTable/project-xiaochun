@@ -167,7 +167,7 @@
       transparent: false,
       lang: params.get('lang') || undefined,       // 'zh-CN' | 'en' | 'ja'; 不写 = iframe 记住的(用户在语言按钮里选的) > 浏览器语言
       outfit: params.get('outfit') || undefined,   // 初始服装 id; 非法/未知 → 回退默认 + error{unknown_id}
-      scene: params.get('scene') || undefined,     // 'light' | 'dark' | 'transparent'
+      scene: params.get('scene') || undefined,     // 'light' | 'dark' | 'transparent' | 'beach3d'
       persist: params.get('persist') || false,     // 'host' | 自定义 key | false (默认, 宿主不另存)
       ui: uiFromUrl,                               // 内置界面部件名数组, 例 ['outfit','scene','lang','github']; 不写 = 都不显示
       uiAutoHide: params.has('uiAutoHide') ? ({ true: true, false: false }[params.get('uiAutoHide')] ?? 'transparent') : undefined, // 默认 'transparent' = 与 Tauri 一致
@@ -249,8 +249,8 @@
     $('prefetch').onclick = () => wrap(xc.prefetch().then((r) => log('prefetched', r)));
     $('model').onclick = () => wrap(xc.setModel({ url: $('customUrl').value }));
     $('floatOutfit').onchange = () => f.setAttribute('outfit', $('floatOutfit').value);
-    const sceneCycle = ['light', 'dark', 'transparent'];
-    $('floatScene').onclick = () => f.setAttribute('scene', sceneCycle[(sceneCycle.indexOf(f.getAttribute('scene')) + 1) % 3]);
+    const sceneCycle = ['light', 'dark', 'beach3d', 'transparent'];
+    $('floatScene').onclick = () => f.setAttribute('scene', sceneCycle[(sceneCycle.indexOf(f.getAttribute('scene')) + 1) % sceneCycle.length]);
     $('lookAt').onclick = () => wrap(xc.lookAt(0.5, 0));
     let micOn = false;
     $('mic').onclick = () => { micOn = !micOn; wrap(xc.mic(micOn)); };

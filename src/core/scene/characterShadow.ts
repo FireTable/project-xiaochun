@@ -97,7 +97,21 @@ export class CharacterShadowSystem {
     this.shadowPlane.receiveShadow = true;
 
     this.group.add(this.shadowPlane);
+
     scene.add(this.group);
+    this.applyTheme(theme);
+  }
+
+  /**
+   * 场景级落影配色: 黑色落影, 深色场景用 shadow.opacityDark, 其它场景用 shadow.opacityLight。
+   */
+  public applyTheme(theme: LineworkTheme): void {
+    if (this.shadowPlane && this.shadowPlane.material instanceof THREE.ShadowMaterial) {
+      const m = this.shadowPlane.material;
+      m.color.setHex(0x000000);
+      m.opacity = theme === 'dark' ? APP_CONFIG.shadow.opacityDark : APP_CONFIG.shadow.opacityLight;
+      m.needsUpdate = true;
+    }
   }
 
   /** ponytail: 切主题时调 (vrmEngine.setLineworkTheme → updateShadowForTheme → 这), 改 opacity */

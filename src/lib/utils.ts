@@ -81,7 +81,7 @@ export function resolveInitialSceneTheme(): LineworkTheme {
   }
   try {
     const stored = localStorage.getItem(SCENE_THEME_KEY) as LineworkTheme | null;
-    if (stored === 'light' || stored === 'dark' || stored === 'transparent') {
+    if (stored === 'light' || stored === 'dark' || stored === 'transparent' || stored === 'beach3d') {
       if (typeof document !== 'undefined' && stored === 'transparent') {
         document.documentElement.classList.add('scene-transparent');
       }

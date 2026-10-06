@@ -3,10 +3,12 @@
  */
 import * as THREE from 'three';
 import { GUIDE_COLOR } from './core/interaction/guideStyle';
+import { BEACH3D_SCENE_CONFIG } from './core/scene/beach3d/beach3dConfig';
 export * from './types/config';
 import type {
   LightConfig,
   SceneRegistryConfig,
+  CameraGroundClampConfig,
   MaterialSaturationConfig,
   VrmOutlineConfig,
   VrmMToonConfig,
@@ -241,7 +243,14 @@ export const APP_CONFIG = {
     defaultEnableGaze: true as boolean,
     minPolarAngle: 0.01,
     maxPolarAngle: Math.PI - 0.01,
-    pitchSensitivityY: 0.0065,
+    pitchSensitivityY: 0.005,
+    // 相机不穿地: 仰视时相机贴地沿视线推近, 地平线固定在世界空间 (透明场景不生效)。字段说明见 types/config.ts 的 CameraGroundClampConfig
+    groundClamp: {
+      enabled: true,
+      minHeight: 0.15,       // 相机离地最小高度 (m), 建议 0.1 ~ 0.3; 太低沙纹 / 网格掠射易闪, 太高地平线高于脚踝
+      fovCompensation: 0.1,  // 推近时放宽视角补偿取景 (0 = 不补偿, 1 = 人物大小基本不变, 上限 maxFov)
+      minDollyDistance: 0.6, // 推近下限 (m), 再近则改为抬高环绕中心
+    } as CameraGroundClampConfig,
   },
   interaction: {
     characterTurnSensitivityX: 0.0102,
@@ -343,8 +352,20 @@ export const APP_CONFIG = {
         components: { topHeader: true, chatBar: true, headBubble: true, heightRuler: false, dropZone: true },
         tauri: { resizable: false, cornerHandles: true },
       },
+      // 海滩: 纯 Three.js 3D 场景 (src/core/scene/beach3d/), 真实地面 + 实时落影。不透明场景, 规则同 light / dark (TopHeader / ChatBar 常显, Tauri 20px 圆角)。
+      beach3d: {
+        id: 'beach3d',
+        nameKey: 'header.switchScene.beach3d',
+        icon: 'TreePalm',
+        lineworkTheme: 'beach3d',
+        isTransparent: false,
+        components: { topHeader: true, chatBar: true, headBubble: true, heightRuler: true, dropZone: true },
+        tauri: { resizable: true, cornerHandles: false },
+      },
     },
   } as SceneRegistryConfig,
+  // 海滩 3D (id: beach3d) 的参数在 src/core/scene/beach3d/beach3dConfig.ts 维护, 这里只引用。说明见 docs/BEACH3D_SCENE.md
+  beach3dScene: BEACH3D_SCENE_CONFIG,
   lights: {
     dir: { base: 1.10, enabled: true },
     hemi: { base: 0.80, enabled: true },

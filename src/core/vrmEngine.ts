@@ -22,6 +22,7 @@ import { langFromSystemPrompt } from '@/llm/prompts';
 
 // ── 抽离子系统导入 ──
 import { LineworkWorld, type LineworkTheme } from './scene/lineworkWorld';
+import { Beach3DWorld } from './scene/beach3d/beach3dWorld';
 import { passthroughManager } from './scene/passthroughManager';
 import { StudioLighting } from './lighting/studioLighting';
 import {
@@ -37,6 +38,7 @@ import { BubbleTracker, type BubbleState } from './ui/bubbleTracker';
 import { InteractionController } from './interaction/interactionController';
 import { WindForceController } from './wind/windForce';
 import { CharacterShadowSystem } from './scene/characterShadow';
+import { adjustZoomInWhileClamped, solveGroundClamp, visibleRatioCap } from './camera/groundClamp';
 import {
   captureExpressions,
   restoreExpressions,
@@ -222,6 +224,8 @@ export class VRMEngine {
   private _animFrameIntervalMs = 0;
   // ── 模块化独立子系统 ──
   private lineworkWorld = new LineworkWorld();
+  /** 海滩 3D 场景 (beach3d): 纯 Three.js 天空 / 云 / 远山 / 沙地 + 海 / 棕榈 / 礁石; 首次进入该场景时构建; 其余场景隐藏 (0 次绘制), 资源保留到引擎 dispose。 */
+  public readonly beach3d = new Beach3DWorld();
   public readonly lighting = new StudioLighting();
   public readonly materialManager = new VRMMaterialManager();
   public readonly bubbleTracker = new BubbleTracker();
@@ -543,14 +547,14 @@ export class VRMEngine {
     let distance: number;
     if (explicit !== undefined && !applyExplicit && this.controls && this._sceneInitialized) {
       pitch = this.controls.getPolarAngle();
-      distance = this.controls.getDistance();
+      distance = this.getDesiredCameraDistance();
     } else if (explicit !== undefined) {
       pitch = getDefaultCameraPitch();
       distance = explicit;
     } else {
       const saved = loadSavedCameraPitch();
       pitch = saved ? saved.pitch : getDefaultCameraPitch();
-      distance = saved?.distance ?? getDefaultCameraDistance(this.camera.fov);
+      distance = saved?.distance ?? getDefaultCameraDistance(this.getBaseFov());
     }
     const min = this.controls?.minDistance ?? APP_CONFIG.camera.defaultMinDistance;
     const max = this.controls?.maxDistance ?? APP_CONFIG.camera.defaultMaxDistance;
@@ -573,6 +577,7 @@ export class VRMEngine {
     this.cameraOverride = c;
     if (patch.fov !== undefined) {
       this.camera.fov = c.fov ?? APP_CONFIG.camera.defaultFov;
+      this._groundClamp.fovBase = this.camera.fov;
       this.camera.updateProjectionMatrix();
     }
     this.cancelCinematicIntro();
@@ -645,11 +650,12 @@ export class VRMEngine {
     this.shadow.init(this.scene, initialTheme);
 
 
-
     // 初始化视线系统与灯光系统
     this.gazeController.init(this.scene);
     this.gazeController.enabled = APP_CONFIG.camera.defaultEnableGaze ?? true;
     this.lighting.init(this.scene);
+    // 海滩 3D: 挂进场景 (默认不可见, 首次进入时才构建); 太阳方向取主方向光
+    this.beach3d.attach(this.scene, this.lighting.dirLight);
 
     // 动作与聊天控制器事件绑定
     this.vrmaPlayer.bindTransitionManager(this.motionTransition);
@@ -894,6 +900,8 @@ export class VRMEngine {
 
     this.camera.aspect = window.innerWidth / window.innerHeight;
     this.controls = new OrbitControls(this.camera, canvas);
+    this._groundClamp.active = false;
+    this.installGroundClamp(this.controls);
 
     const defaultTarget = new THREE.Vector3(...APP_CONFIG.camera.defaultTarget);
     // 只有场景真正初始化过 (HMR / 上下文重建) 才沿用旧相机; 模型比 canvas 先加载完 (缓存命中) 时旧相机还是初始机位, 要按冷启动重新取景
@@ -908,7 +916,7 @@ export class VRMEngine {
       const shot = this.resolveShot(true);
       this.camera.position.set(...computeCameraPositionFromPitch(shot.pitch, shot.distance, target));
     } else {
-      this.camera.position.set(...computeDefaultCameraPosition(this.camera.fov));
+      this.camera.position.set(...computeDefaultCameraPosition(this.getBaseFov()));
     }
     this.camera.updateProjectionMatrix();
 
@@ -982,6 +990,7 @@ export class VRMEngine {
       const storedTheme = resolveInitialSceneTheme();
       this.lineworkWorld.build(this.scene, storedTheme);
       this.updateShadowForTheme(storedTheme === 'dark');
+      this.syncSceneBackdrop(storedTheme);
       this.startAnimation();
       this.cinematicIntro(1100);
     } else if (this.currentVRM || this._sceneInitialized) {
@@ -1003,7 +1012,8 @@ export class VRMEngine {
     if (this.cameraOverride.distance !== undefined) return;
     persistCameraPitch({
       pitch: this.controls.getPolarAngle(),
-      distance: this.controls.getDistance(),
+      // 相机不穿地推近时存用户想要的视距, 不存推近后的实际视距
+      distance: this.getDesiredCameraDistance(),
     });
   }
 
@@ -1147,6 +1157,7 @@ export class VRMEngine {
   public setLineworkTheme(theme: LineworkTheme, persist: boolean = true): void {
     this.lineworkWorld.setTheme(theme, this.scene);
     this.updateShadowForTheme(theme === 'dark');
+    this.syncSceneBackdrop(theme);
     // ponytail: shadowPlane 现在带 radial alpha mask, 边缘自然 fade 到全透明,
     // 不再有"12x12 大网格污染穿透位图"的隐患, transparent 下保持显示让 directional
     // 影子投到带 mask 的 plane 上, 边界软渐隐 (ani 风格)。visibility 不再随 theme 切换。
@@ -1169,6 +1180,17 @@ export class VRMEngine {
 
   public updateShadowForTheme(isDark: boolean): void {
     this.shadow.updateOpacity(isDark);
+  }
+
+  /**
+   * 切场景时同步背景: beach3d 背景层显隐; 灯色 (StudioLighting.applyTheme) 与角色落影配色 (CharacterShadowSystem.applyTheme)
+   *   重置为所有场景共用的默认值, 没有场景专属的灯光 / 落影微调。
+   * 不改任何角色材质。
+   */
+  private syncSceneBackdrop(theme: LineworkTheme): void {
+    this.beach3d.setActive(theme === 'beach3d');
+    this.lighting.applyTheme(theme);
+    this.shadow.applyTheme(theme);
   }
 
   public getLineworkTheme(): LineworkTheme {
@@ -1300,7 +1322,123 @@ export class VRMEngine {
 
   public setFov(fov: number): void {
     this.camera.fov = fov;
+    this._groundClamp.fovBase = fov;
     this.camera.updateProjectionMatrix();
+  }
+
+  // ── 相机不穿地 (APP_CONFIG.camera.groundClamp, 纯解算见 camera/groundClamp.ts) ──
+  private readonly _groundClamp = {
+    /** 相机当前是否处于夹取后的机位。 */
+    active: false,
+    /** 夹取后写入的 (相机 − 目标点), 用来识别"之后有没有别人改过相机"。 */
+    applied: new THREE.Vector3(),
+    /** 夹取前的 (相机 − 目标点) = 用户想要的机位。 */
+    free: new THREE.Vector3(),
+    /** 夹取后的实际视距 (m)。 */
+    effective: 0,
+    /** 用户 / 宿主设定的 FOV (deg); NaN = 尚未记录, 取 camera.fov。 */
+    fovBase: NaN,
+    /** 上一次由夹取写入的 FOV (deg)。 */
+    fovApplied: NaN,
+  };
+  private readonly _gcV = new THREE.Vector3();
+
+  /**
+   * 把相机不穿地的夹取包进 controls.update(): 每次 update (主循环 / 滚轮与双指缩放的事件回调 / fitCamera / 推镜头收尾)
+   * 之前先把相机放回用户想要的视距, 缩放与俯仰都作用在它上面; 之后再按地面夹取。夹取后的机位一直保留到下一次 update,
+   * 所以渲染、命中检测、视线追踪看到的都是同一个相机。
+   */
+  private installGroundClamp(controls: OrbitControls): void {
+    const update = controls.update.bind(controls);
+    controls.update = (deltaTime?: number | null): boolean => {
+      const zoomBase = this.restoreGroundClamp();
+      const changed = update(deltaTime);
+      this.applyGroundClamp(zoomBase);
+      return changed;
+    };
+  }
+
+  /** 用户 / 宿主设定的 FOV (夹取时 camera.fov 是补偿后的值)。 */
+  private getBaseFov(): number {
+    const gc = this._groundClamp;
+    if (Number.isNaN(gc.fovBase) || this.camera.fov !== gc.fovApplied) return this.camera.fov;
+    return gc.fovBase;
+  }
+
+  /** 用户想要的视距 (m): 夹取时是推近前的视距, 否则就是当前视距。 */
+  public getDesiredCameraDistance(): number {
+    if (!this.controls) return 0;
+    const gc = this._groundClamp;
+    if (gc.active && this._gcV.copy(this.camera.position).sub(this.controls.target).distanceToSquared(gc.applied) < 1e-10) {
+      return gc.free.length();
+    }
+    return this.controls.getDistance();
+  }
+
+  /**
+   * 把相机放回夹取前 (用户想要) 的机位。只有相机仍停在上一次夹取写入的机位时才放回 (相对目标点比较,
+   * 所以相机 Y 偏移整体平移不影响); 推镜头 / fitCamera 等外部写入过相机时以外部机位为准。
+   * 返回本帧缩放的起点视距 (放回成功时), 供 applyGroundClamp 判断"夹取时拉近"。
+   */
+  private restoreGroundClamp(): { prevDesired: number; effective: number } | null {
+    const gc = this._groundClamp;
+    if (!gc.active || !this.controls) return null;
+    gc.active = false;
+    const target = this.controls.target;
+    if (this._gcV.copy(this.camera.position).sub(target).distanceToSquared(gc.applied) >= 1e-10) return null;
+    this.camera.position.copy(target).add(gc.free);
+    this.camera.lookAt(target);
+    return { prevDesired: gc.free.length(), effective: gc.effective };
+  }
+
+  /** controls.update() 之后: 请求的机位低于 地面 + minHeight 时沿视线推近 (必要时抬高中心), 并做 FOV 补偿。 */
+  private applyGroundClamp(zoomBase: { prevDesired: number; effective: number } | null): void {
+    const controls = this.controls;
+    if (!controls) return;
+    const gc = this._groundClamp;
+    const cfg = APP_CONFIG.camera.groundClamp;
+    const camera = this.camera;
+    const baseFov = this.getBaseFov();
+    gc.fovBase = baseFov;
+    const settings = {
+      minHeight: cfg.minHeight,
+      minDollyDistance: cfg.minDollyDistance,
+      fovCompensation: cfg.fovCompensation,
+      baseFov,
+      maxFov: APP_CONFIG.camera.maxFov,
+    };
+    const target = controls.target;
+    const on = cfg.enabled && this.getLineworkTheme() !== 'transparent';
+    let fov = baseFov;
+    if (on) {
+      const free = gc.free.copy(camera.position).sub(target);
+      let desired = free.length();
+      // 夹取时拉近立刻生效: 从画面开始有变化的视距起算 (拉远只改想要的视距, 由 FOV 补偿体现, 俯仰回到地面以上时生效)
+      if (zoomBase && desired > 1e-6) {
+        const cap = visibleRatioCap(baseFov, cfg.fovCompensation, settings.maxFov);
+        const next = Math.max(controls.minDistance, adjustZoomInWhileClamped(zoomBase.prevDesired, desired, zoomBase.effective, cap));
+        if (next < desired) {
+          free.setLength(next);
+          camera.position.copy(target).add(free);
+          desired = next;
+        }
+      }
+      const r = solveGroundClamp({ targetY: target.y, polar: controls.getPolarAngle(), distance: desired, floorY: 0 }, settings);
+      if (r.clamped && desired > 1e-6) {
+        camera.position.copy(target).addScaledVector(free, r.distance / desired);
+        camera.position.y += r.pivotRaise;
+        camera.lookAt(target.x, target.y + r.pivotRaise, target.z);
+        gc.applied.copy(camera.position).sub(target);
+        gc.effective = r.distance;
+        gc.active = true;
+        fov = r.fov;
+      }
+    }
+    if (camera.fov !== fov) {
+      camera.fov = fov;
+      camera.updateProjectionMatrix();
+    }
+    gc.fovApplied = fov;
   }
 
   /**
@@ -1332,6 +1470,7 @@ export class VRMEngine {
   // 的钳位属性,clamp 当前 camera-to-target 距离落在新范围内,避免改完后视角"跳"。
   public setCameraDistanceRange(minDist: number, maxDist: number): void {
     if (!this.controls) return;
+    this.restoreGroundClamp(); // 按用户想要的视距钳制, 不按推近后的实际视距
     this.controls.minDistance = Math.max(0.1, minDist);
     this.controls.maxDistance = Math.max(this.controls.minDistance + 0.1, maxDist);
     const offset = this.camera.position.clone().sub(this.controls.target);
@@ -1574,6 +1713,7 @@ export class VRMEngine {
             const storedTheme = resolveInitialSceneTheme();
             this.lineworkWorld.build(this.scene, storedTheme);
             this.updateShadowForTheme(storedTheme === 'dark');
+            this.syncSceneBackdrop(storedTheme);
             this.startAnimation();
             this.cinematicIntro(1100);
           } else if (this.controls) {
@@ -2019,6 +2159,7 @@ export class VRMEngine {
             const storedTheme = resolveInitialSceneTheme();
             this.lineworkWorld.build(this.scene, storedTheme);
             this.updateShadowForTheme(storedTheme === 'dark');
+            this.syncSceneBackdrop(storedTheme);
             this.startAnimation();
             this.cinematicIntro(1100);
           } else if (this.controls) {
@@ -2563,6 +2704,7 @@ export class VRMEngine {
         this.interaction.update(delta, vrm.scene.position, this._cameraYOffsetAccum, this.camera);
       }
 
+      // 相机不穿地的夹取包在 controls.update 里 (见 installGroundClamp)
       this.controls?.update();
       try {
         if (this.postFx.isReady() && this.postFx.config.enabled) {
@@ -2730,6 +2872,7 @@ export class VRMEngine {
 
     this.renderer?.dispose();
     this.lineworkWorld.dispose(this.scene);
+    this.beach3d.dispose(this.scene);
     // ponytail: 角色阴影系统释放 (含 shadowPlane geometry/material + mask texture)
     this.shadow.dispose();
     this.postFx.dispose();

@@ -50,7 +50,7 @@ sequenceDiagram
 | `lang` | iframe stored → browser lang → `zh-CN` | `zh-CN` · `en` · `ja`. Priority: URL `lang` (SDK `lang` option) > iframe localStorage last chosen by user via button (`xiaochun_embed_lang`) > `navigator.languages` (`zh*`→`zh-CN`, `ja*`→`ja`, `en*`→`en`) > `zh-CN`. **Does not touch main site language cookies**. |
 | `heavy` | `lazy` | `lazy` = Do not pre-warm WebLLM / EMAGE; `eager` = Same as main site, pre-warm immediately after VRM load. |
 | `outfit` | default addon | Initial outfit ID. **Strictly validated**: must match `^[a-z][a-z0-9_]{0,63}$` and exist in built-in list (`Object.hasOwn`); falls back to default on error, emitting `xc.error{unknown_id, command:'outfit'}` post-handshake. |
-| `scene` | follows `transparent` / `theme` | Initial scene: `light` / `dark` / `transparent`. Strictly validated; priority: `scene` > `transparent=1` > `theme` > system light/dark. Explicit assignment prevents system theme changes from switching scenes. |
+| `scene` | follows `transparent` / `theme` | Initial scene: `light` / `dark` / `transparent` / `beach3d`. Strictly validated; priority: `scene` > `transparent=1` > `theme` > system light/dark. Explicit assignment prevents system theme changes from switching scenes. |
 | `theme` | follows system | Linework theme (`light` / `dark`) when non-transparent. |
 | `controls` | `1` (enabled) | Scroll wheel zoom, matching main site. `0` = Force disabled; `1` = Enabled. In **transparent scenes**, only zooms when pointer is over character pixels, passing wheel events to host otherwise. In **opaque scenes**, entire iframe area captures wheel events as zoom, **suppressing host page scrolling in that box** (use `controls=0` if host scrolling is needed). |
 
@@ -66,7 +66,7 @@ Host commands may attach an `id`; matching `xc.error` / `xc.utterance` events ec
 | Message | Payload | Status | Maps to |
 | :-- | :-- | :-- | :-- |
 | `xc.init` | `{ hostOrigin }` + transfers `MessagePort` | ✅ | Handshake completion (once only). |
-| `xc.say` | `{ text, mode?: 'speak' | 'chat' }` | ✅ | `speak` → protocol action `speak` (same handler as `xiaochun://speak?text=`) → `vrmEngine.speakText` (TTS + EMAGE, **bypasses LLM**); `chat` → `vrmEngine.sendMessage` (via WebLLM / custom provider, loads LLM weights). Max length `MAX_SAY_CHARS=2000`. |
+| `xc.say` | `{ text, mode?: 'speak' | 'chat' }` | ✅ | `speak` → protocol action `speak` (same handler as `xiaochun://speak?text=`) → `vrmEngine.speakText` (TTS + EMAGE, **bypasses LLM**); `chat` → `vrmEngine.sendMessage` (via WebLLM / custom provider, loads LLM weights). No character cap: `splitIntoSpeechChunks` cuts the line into ~25–65 character clauses. A newer `xc.say` / `xc.audio` fades the line that is still playing (~0.4s) and then speaks the new one. The preempted `say()` / `speakAudio()` promise resolves. |
 | `xc.audio` | `{ source: ArrayBuffer | Blob | url, mimeType?, format?, sampleRate?, channels?, text?, motion?, lipsync?, audible?, playbackRate?, volume? }` | ✅ | Host supplies **complete audio segment without TTS**: in-iframe decoding → mono → 16 kHz → EMAGE window inference (motion) + synchronized playback + RMS lipsync. `audible: false` keeps motion and lip-sync but sets playback gain to 0. `playbackRate` (`0.25–3`, default `1`) and `volume` (`0–1`, default `1`) scale this utterance and its motion clock. See §2.4. Envelope `id` correlated with `xc.utterance` / `xc.error`. |
 | `xc.audio.chunk` | `{ data: ArrayBuffer, format: 'pcm16' | 'float32', sampleRate, channels?, text?, motion?, lipsync?, audible?, playbackRate?, volume? }` (Envelope `id` = stream ID) | ✅ | Streamed PCM chunking; first chunk with a given `id` initializes the utterance, subsequent chunks append. Options, including `audible`, `playbackRate`, and `volume`, take effect on the first chunk. |
 | `xc.audio.end` | `{ abort?: boolean }` (Envelope `id` = stream ID / `xc.audio` ID) | ✅ | Finalizes playback (finishing received buffer); `abort: true` halts immediately. Full `xc.audio` invocations can be aborted via this `id` (SDK `AbortSignal`). |
@@ -74,7 +74,7 @@ Host commands may attach an `id`; matching `xc.error` / `xc.utterance` events ec
 | `xc.expression` | `{ name }` (`neutral/happy/angry/sad/relaxed/surprised`) | ✅ | `vrmEngine.setExpression`. |
 | `xc.pointer` | `{ x, y }` (iframe client coordinates) | ✅ | `vrmEngine.isHitModel` → replies with `xc.hit-region` (**hit-testing only; does not drive gaze**). |
 | `xc.setOutfit` | `{ id }` | ✅ (`outfits` capability) | Switch wardrobe outfit. `id` must match `^[a-z][a-z0-9_]{0,63}$` and exist in `capabilities.outfits` (`base` is private). **Serialized + last-wins**, see §2.6. Resolves with `xc.outfit-changed`. |
-| `xc.setScene` | `{ id }` | ✅ (`scenes` capability) | Switch scene (`light` / `dark` / `transparent`). Immediate effect, emits `xc.scene-changed`. |
+| `xc.setScene` | `{ id }` | ✅ (`scenes` capability) | Switch scene (`light` / `dark` / `transparent` / `beach3d`). Immediate effect, emits `xc.scene-changed`. |
 | `xc.prefetch` | `{ ids?: string[] }` | ✅ (`prefetch` capability) | Downloads outfit assets directly into IndexedDB without unpacking. Omitting `ids` downloads all built-in outfits **except wedding dress** (13.9MB, requires explicit ID). Serialized, scheduled after EMAGE, respects Data Saver (`saveData`). Resolves with `xc.prefetched`. |
 | `xc.setModel` | `{ outfit }` or `{ url, name? }` | ✅ (Legacy compatibility) | Legacy command. `outfit` routes to same pipeline as `xc.setOutfit` (rejects `base`); `url` (HTTPS / same-origin `.vrm`, requires CORS) is **disabled by default**, requiring `allowCustomModel: true` in config. |
 | `xc.setConfig` | `{ lang?, transparent?, ui?, uiAutoHide?, camera?, heavy?, allowCustomModel?, gestures? }` | ✅ | Dynamic updates for i18n, internal scene switches, UI widget visibility, UI display mode, camera overrides, and heavy pre-warming. |
@@ -143,7 +143,7 @@ xc.audio(ArrayBuffer/Blob/URL)                         xc.audio.chunk (PCM16/Flo
 - **Streaming**: Supported via `xc.audio.chunk`. Incoming streams are resliced into 2s / 4s segments; segments transition via `onended`.
 - **Input Constraints**: Single utterance duration ≤ 120s; encoded payload ≤ 32 MB; sample rates 8000–96000 Hz; PCM little-endian.
 - **Zero-Copy**: SDK transfers `ArrayBuffer` objects by default (detaching source buffer unless `{ transfer: false }` is passed).
-- **Interruption**: Subsequent `say` or `audio` calls preempt active utterances, dispatching an `end` event to the previous one. `AbortSignal` halts immediately.
+- **Interruption**: A newer `say` or `audio` fades the audible line (~0.4s; skipped when the gain is already 0, including `audible: false`) and then starts. The preempted command resolves, and its `xc.utterance` `end` is sent when that call returns. `AbortSignal`, `xc.audio.end` with `{ abort: true }`, and `stop()` halt immediately, with no fade. `xc.say` has no character cap; `splitIntoSpeechChunks` is the slicer.
 
 ### 2.5 Relationship with `xiaochun://` Protocol
 
@@ -162,7 +162,7 @@ xc.audio(ArrayBuffer/Blob/URL)                         xc.audio.chunk (PCM16/Flo
 - **Version Negotiation**: Capabilities are advertised in `xc.ready.capabilities`. Unsupported calls on legacy iframes reject locally with `[unsupported]`.
 - **ID Validation**: Validated against `^[a-z][a-z0-9_]{0,63}$` and checked via `Object.hasOwn()`. Prototypes and `base` reject with `unknown_id`.
 - **Concurrency**: Switching outfits is serialized with last-wins semantics. Ongoing downloads complete safely; redundant intermediate requests reject with `[busy]`. Wardrobe switches do not interrupt active speech.
-- **Scenes**: 3 built-in scenes (`light`, `dark`, `transparent`).
+- **Scenes**: 4 built-in scenes (`light`, `dark`, `transparent`, `beach3d`). `beach3d` (display name "Beach") is an opaque, real-time Three.js 3D beach stage (see [`BEACH3D_SCENE.md`](BEACH3D_SCENE.md)); only `transparent` is transparent.
 - **Persistence**: User selections via built-in buttons persist in the iframe's partitioned localStorage (`xiaochun_wearing_outfit`, `xiaochun_scene_theme`). Host explicit parameters take precedence over stored preferences without overwriting them.
 - **Prefetching**: `xc.prefetch()` caches outfit assets into IndexedDB. The wedding dress (`xiaochun_wedding`, 13.9 MB) is excluded from default bulk downloads and requires explicit selection.
 
@@ -293,7 +293,7 @@ createXiaochun({
   borderRadius: undefined,       // Wrapper border-radius (default 20px non-transparent, 0 transparent)
   lang: undefined,               // 'zh-CN' | 'en' | 'ja'
   outfit: undefined,             // Initial outfit ID
-  scene: undefined,              // 'light' | 'dark' | 'transparent'
+  scene: undefined,              // 'light' | 'dark' | 'transparent' | 'beach3d'
   camera: undefined,             // { fov, distance, height, intro }
   persistBox: false,             // Save box position/size in host localStorage
   persist: false,                // Save outfit/scene preferences in host localStorage
