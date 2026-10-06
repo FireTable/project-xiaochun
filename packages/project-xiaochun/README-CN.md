@@ -139,7 +139,7 @@ const { containerRef, client, ready, state } = useXiaochun({ width: 280, height:
 
 * **Props**:`createXiaochun` 除 `container` 外的全部选项,加上 `onHandshake / onReady / onProgress / onState / onStt / onUtterance / onHitRegion / onMove / onResize / onError / onDestroy`、`className`、`style`、`paused`、`mic`。
 * **重建与热更新**:创建期选项(`src`、`lazy`、`transparent`、`position` 等)变化会重建实例,所以不要在每次渲染里传新值。`width`、`height`、`draggable`、`resizable`(effect 调 `setSize` / `setDraggable` / `setResizable`)、`lang`、`outfit`、`scene`(以及已弃用的 `model`)、`paused`、`mic` 与回调会原地更新,不重建 iframe(由 effect 调 `setOutfit` / `setScene` / `setConfig`)。另有回调 `onOutfitChanged`、`onSceneChanged`。
-* **ref 方法**:`say`、`speakAudio`、`speakAudioStream`、`motion`、`expression`、`lookAt`、`setOutfit`、`setScene`、`getOutfits`、`getScenes`、`prefetch`、`setModel`、`setConfig`、`startListening`、`stopListening`、`mic`、`pause`、`resume`、`activate`、`destroy`,以及 `ready` 与 `instance`。组件挂载前,返回 Promise 的方法会 reject。
+* **ref 方法**:`say`、`speakAudio`、`speakAudioStream`、`setPlaybackRate`、`setVolume`、`motion`、`expression`、`lookAt`、`setOutfit`、`setScene`、`getOutfits`、`getScenes`、`prefetch`、`setModel`、`setConfig`、`startListening`、`stopListening`、`mic`、`pause`、`resume`、`activate`、`destroy`,以及 `ready` 与 `instance`。组件挂载前,返回 Promise 的方法会 reject。
 
 ---
 
@@ -152,14 +152,17 @@ await xc.speakAudio(arrayBuffer, { text: '你好', motion: true, lipsync: true }
 await xc.speakAudio(blob);                                   // Blob(mp3 / wav / ogg 等)
 await xc.speakAudio('https://cdn.example.com/voice.mp3');    // URL:默认由宿主页 fetch({ fetch: 'frame' } = 交给 iframe 去 fetch)
 await xc.speakAudio(pcm, { format: 'pcm16', sampleRate: 24000 });   // 无头原始 PCM 必须给 sampleRate(8000–96000)
-await xc.speakAudio(pcm, { format: 'pcm16', sampleRate: 16000, audible: false }); // 只做动作和口型, iframe 增益为 0
+await xc.speakAudio(pcm, { format: 'pcm16', sampleRate: 16000, audible: false, playbackRate: 1.5, volume: 0.8 }); // 只做动作和口型, iframe 增益为 0
+xc.setPlaybackRate(1.25);                                    // 播放中改宿主音频倍速, 播放头不跳
+xc.setVolume(0.6);                                           // 0~1; audible 为 false 时扬声器仍然没声音
 
-const s = xc.speakAudioStream({ sampleRate: 24000 });        // 流式:比如 TTS 服务边合成边返回的 PCM 块
+const s = xc.speakAudioStream({ sampleRate: 24000, playbackRate: 1.25 }); // 流式:比如 TTS 服务边合成边返回的 PCM 块
 s.write(int16Chunk); s.write(next); s.end(); await s.done;   // s.abort() 立即停止
 // 随时可取消:传 { signal: abortController.signal }
 ```
 
 * `audible` 默认 `true`。`false` 仍会解码、生成动作并驱动口型,但 iframe 增益为 0,声音可以由宿主页面自己播放。
+* `playbackRate` 默认 `1`,夹到 `0.25~3`。`volume` 默认 `1`,夹到 `0~1`。两者同时作用于这次宿主音频和它的动作时钟。`setPlaybackRate()` / `setVolume()` 在播放中修改,不重开;改倍速时播放头不跳。省略则沿用上一次的值。TTS(`say`)仍是 1 倍、满音量。`audible: false` 时扬声器增益保持 0。`pause()` 只暂停渲染,语音和动作时钟继续走。
 * 宿主音频的 `utterance start` 在思考动作和 EMAGE 首窗之后、声音时钟起步时才发。页面自己的播放器要等这个事件再出声,口型才对齐。
 * 失败时 reject:`bad_request`(无法解码 / 空音频 / URL 或 sampleRate 不合法)、`unsupported`、`failed`。
 * 浏览器仍要求宿主页先有用户手势才能出声,iframe 也要有 `allow="autoplay"`(SDK 已自动设置)。
@@ -388,7 +391,7 @@ createXiaochun({
 | `crossOriginIsolated` | `false` | 给 iframe 的 `allow` 追加 `cross-origin-isolated`(默认仍是 `microphone; autoplay`)。要求宿主页自己已跨源隔离,见 [可选:跨源隔离](#可选跨源隔离让-emage-用多线程) |
 | `zIndex` | `2147483000` | 悬浮模式层级(`--xc-z-index` 变量优先) |
 
-**实例**:`ready` · `say(text, { mode: 'speak' \| 'chat' })` · `speakAudio(source, opts)` · `speakAudioStream(opts)` · `motion(nameOrUrlOrOptions)` · `expression(name)` · `setOutfit(id)` · `setScene(id)` · `getOutfits()` · `getScenes()` · `prefetch(ids?)` · `outfit` / `scene`(只读)· `setModel(outfitOrUrl)` *(旧)* · `setConfig(cfg)` · `setSize(w, h)` · `getBox()` · `setDraggable(on)` · `setResizable(on | limits)` · `startListening()` / `stopListening()` / `mic(on)` · `pause()` / `resume()` · `activate()` · `destroy()` · `on(event, cb)` · `lookAt()` *(协议已预留,目前返回 `unsupported`)*。
+**实例**:`ready` · `say(text, { mode: 'speak' \| 'chat' })` · `speakAudio(source, opts)` · `speakAudioStream(opts)` · `setPlaybackRate(rate)` · `setVolume(volume)` · `motion(nameOrUrlOrOptions)` · `expression(name)` · `setOutfit(id)` · `setScene(id)` · `getOutfits()` · `getScenes()` · `prefetch(ids?)` · `outfit` / `scene`(只读)· `setModel(outfitOrUrl)` *(旧)* · `setConfig(cfg)` · `setSize(w, h)` · `getBox()` · `setDraggable(on)` · `setResizable(on | limits)` · `startListening()` / `stopListening()` / `mic(on)` · `pause()` / `resume()` · `activate()` · `destroy()` · `on(event, cb)` · `lookAt()` *(协议已预留,目前返回 `unsupported`)*。
 
 **事件**:`handshake` · `ready` · `progress` · `state` · `stt` · `utterance`(`phase: 'start' | 'end'`,`kind: 'text' | 'audio'`)· `hit-region` · `outfit-changed` · `scene-changed` · `lang-changed`(`{ lang, previous?, initial? }`)· `move` / `resize`(`{ phase: 'start' | 'move' | 'end', left, top, width, height }`)· `error`(新增 `busy`、`unknown_id`;旧 iframe 上开手势会收到一次 `unsupported`)· `destroy`。`progress.phase` 为 `'model' | 'outfit' | 'prefetch'`。
 
@@ -420,7 +423,7 @@ createXiaochun({
 | `cross-origin-isolated` | `false` | 同 `createXiaochun({ crossOriginIsolated })`;修改会重建 iframe |
 
 **事件**(`CustomEvent`,`composed`,`detail` = 协议 payload):`xc-ready` · `xc-progress` · `xc-state` · `xc-stt` · `xc-utterance` · `xc-outfit-changed` · `xc-scene-changed` · `xc-lang-changed` · `xc-move` · `xc-resize` · `xc-error`。
-**方法**:`say` · `speakAudio` · `speakAudioStream` · `motion` · `expression` · `setOutfit` · `setScene` · `getOutfits` · `getScenes` · `prefetch` · `destroy`;`el.client` 可拿到完整的 SDK 实例。
+**方法**:`say` · `speakAudio` · `speakAudioStream` · `setPlaybackRate` · `setVolume` · `motion` · `expression` · `setOutfit` · `setScene` · `getOutfits` · `getScenes` · `prefetch` · `destroy`;`el.client` 可拿到完整的 SDK 实例。
 
 ---
 

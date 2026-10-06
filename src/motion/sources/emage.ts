@@ -202,6 +202,8 @@ export class EmagePlayer {
   private playing = false;
   private idleWeight = 0.0;
   private externalClock: (() => number) | null = null;
+  /** 上一帧外部时钟的秒数。用来跟倍速, 而不是把追赶上限锁死在 1 倍。换时钟时清掉。 */
+  private prevExternalClockT = -1;
   private audio: HTMLAudioElement | null = null;
   private audioUrl: string | null = null;
   private cachedF0 = -1;
@@ -335,10 +337,12 @@ export class EmagePlayer {
 
   setExternalClock(getter: (() => number) | null): void {
     this.externalClock = getter;
+    this.prevExternalClockT = -1;
   }
 
   clearExternalClock(): void {
     this.externalClock = null;
+    this.prevExternalClockT = -1;
   }
 
   getIdleWeight(): number {
@@ -1066,8 +1070,11 @@ export class EmagePlayer {
         const fps = this.fps > 0 ? this.fps : FPS;
         const target = Math.min(this.frameCount - 1, Math.max(0, t * fps));
         if (this.streamingMotionActive) {
-          // P0c: 禁止 underrun 解除后一帧跳过多秒（step≈0.7s+ 晚到 chunk 的典型 yank）
-          const maxAdvance = Math.max(fps * Math.min(delta, 0.1) * this.streamingCatchUpRate, 0.5);
+          // 跟时钟自己的步长走, 倍速高于 1 时动作才追得上。单帧仍最多 0.1s, 晚到的 chunk 不会把姿态抽过去。
+          const clockStep = this.prevExternalClockT >= 0 ? Math.max(0, t - this.prevExternalClockT) : delta;
+          this.prevExternalClockT = t;
+          const step = Math.min(Math.max(clockStep, delta), 0.1);
+          const maxAdvance = Math.max(fps * step * this.streamingCatchUpRate, 0.5);
           if (target > this.playhead + maxAdvance) {
             this.playhead += maxAdvance;
           } else if (target < this.playhead - maxAdvance) {

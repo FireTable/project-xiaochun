@@ -127,7 +127,7 @@ Recognition logic is centralized in `src/core/gesture/` (`gestureMachine.ts`, `r
 | :-- | :-- | :-- | :-- | :-- |
 | Chat (WebLLM / Provider) | `vrmEngine.sendMessage` | Same | `xc.say{mode: 'chat'}` → Same `sendMessage` | `vrmEngine.ts`, `bridge.ts`. **Shared** |
 | Speak-Only (Bypasses LLM) | Protocol `speak` | Same | `xc.say{mode: 'speak'}` (TTS + EMAGE) | `bridge.ts`, `docs/PROTOCOL.md` |
-| Host-Supplied Audio | Protocol `audioUrl` | — | `xc.audio` / `xc.audio.chunk` (bypasses TTS, audio → EMAGE → motion + lipsync), supports encoded / pcm16 / float32 | `src/director/hostAudio.ts`, `docs/EMBED.md` §2.4. **Exclusive(E) + Protocol** |
+| Host-Supplied Audio | Protocol `audioUrl` | — | `xc.audio` / `xc.audio.chunk` (bypasses TTS, audio → EMAGE → motion + lipsync), encoded / pcm16 / float32, `playbackRate` 0.25–3 and `volume` 0–1 via `xc.transport` | `src/director/hostAudio.ts`, `docs/EMBED.md` §2.4. **Exclusive(E) + Protocol** |
 | STT (SenseVoice) | Enabled | Enabled | `xc.mic` toggle; host iframe requires `allow="microphone"` delegation | `src/stt/`, `bridge.ts`, `securityHeaders.ts` (`Permissions-Policy`) |
 | Multi-Threaded WASM (Cross-Origin Isolation) | Inside native shell | COOP/COEP maintains isolation | **Not** isolated by default; host can opt into `crossOriginIsolated` and delegate to iframe | `securityHeaders.ts`, `docs/EMBED.md` §3.1 |
 

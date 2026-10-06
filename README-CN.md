@@ -242,7 +242,7 @@ brew upgrade --cask project-xiaochun
 
 ## 🧩 嵌入你的网站 (npm)
 
-几行代码就能把小蠢放到你自己的网站上:懒加载、严格校验 origin 的 `<iframe>`,无框架 SDK、`<xiaochun-avatar>` Web Component、React 封装,以及可传入自己音频的 `speakAudio()`。宿主页面自己出声时,传 `audible: false`,小蠢只做动作和口型。这类音频的 `utterance start` 在思考动作和第一段动作窗口之后、声音时钟起步时才发。
+几行代码就能把小蠢放到你自己的网站上:懒加载、严格校验 origin 的 `<iframe>`,无框架 SDK、`<xiaochun-avatar>` Web Component、React 封装,以及可传入自己音频的 `speakAudio()`。宿主页面自己出声时,传 `audible: false`,小蠢只做动作和口型。这类音频的 `utterance start` 在思考动作和第一段动作窗口之后、声音时钟起步时才发。`playbackRate`(0.25~3)和 `volume`(0~1)会同时改变这段宿主音频和它的动作时钟;播放中用 `setPlaybackRate()` / `setVolume()` 改。TTS 不受影响。
 
 ```bash
 npm i @firetable/project-xiaochun

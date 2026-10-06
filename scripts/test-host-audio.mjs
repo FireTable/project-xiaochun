@@ -7,6 +7,7 @@ import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import {
   StreamResampler16k, PcmSlicer, downmixToMono, pcm16ToFloat32, AsyncChunkQueue, HOST_AUDIO,
+  clampPlaybackRate, clampVolume,
 } from '../src/director/hostAudio.ts';
 
 const sine = (n, sr, f) => Float32Array.from({ length: n }, (_, i) => Math.sin((2 * Math.PI * f * i) / sr));
@@ -75,4 +76,24 @@ test('queue: push/close/abort', async () => {
 test('constants sane', () => {
   assert.equal(HOST_AUDIO.emageSampleRate, 16000);
   assert.ok(HOST_AUDIO.firstSliceSec <= HOST_AUDIO.sliceSec);
+  assert.equal(HOST_AUDIO.minPlaybackRate, 0.25);
+  assert.equal(HOST_AUDIO.maxPlaybackRate, 3);
+  assert.equal(HOST_AUDIO.minVolume, 0);
+  assert.equal(HOST_AUDIO.maxVolume, 1);
+});
+
+test('clamp playback rate and volume', () => {
+  assert.equal(clampPlaybackRate(1), 1);
+  assert.equal(clampPlaybackRate(0.5), 0.5);
+  assert.equal(clampPlaybackRate(2), 2);
+  assert.equal(clampPlaybackRate(0.1), HOST_AUDIO.minPlaybackRate);
+  assert.equal(clampPlaybackRate(9), HOST_AUDIO.maxPlaybackRate);
+  assert.equal(clampPlaybackRate(Number.NaN), undefined);
+  assert.equal(clampPlaybackRate('2'), undefined);
+  assert.equal(clampVolume(0), 0);
+  assert.equal(clampVolume(1), 1);
+  assert.equal(clampVolume(0.4), 0.4);
+  assert.equal(clampVolume(-1), 0);
+  assert.equal(clampVolume(2), 1);
+  assert.equal(clampVolume(Number.POSITIVE_INFINITY), undefined);
 });

@@ -18,7 +18,7 @@ import { rememberTurn } from '@/memory';
 import type { MotionPipeline } from '@/motion/pipeline/motionPipeline';
 import type { Lang } from '@/i18n';
 import { APP_CONFIG } from '@/config';
-import { StreamResampler16k, PcmSlicer, HOST_AUDIO, type HostAudioInput } from '@/director/hostAudio';
+import { StreamResampler16k, PcmSlicer, HOST_AUDIO, clampPlaybackRate, clampVolume, type HostAudioInput } from '@/director/hostAudio';
 
 interface Plan { speech: string; llm_provider?: string }
 
@@ -321,6 +321,16 @@ export class ChatDirector {
    * 思考动作和 EMAGE 首窗都发生在这之前, 宿主靠它把自己的播放对齐。
    */
   private hostClockStart: (() => void) | null = null;
+  /** 宿主音频倍速。只作用于 speakAudio, TTS 仍是 1。 */
+  private playbackRate = 1;
+  /** 宿主音频音量 0~1。audible:false 时不送到扬声器。 */
+  private volume = 1;
+  /** 当前这次 speakAudio 正在用上面的倍速和音量。 */
+  private followTransport = false;
+  /** 当前 BufferSource 的内容时间原点, 以及对应的 AudioContext 时间。改倍速时改写, 播放头不跳。 */
+  private clockOriginContent = 0;
+  private clockOriginCtx = 0;
+  private clockAudible = true;
   /** 宿主音频可关闭口型 (lipsync:false)。stop() 会复位, 所以 say/speakText 路径永远是开的。 */
   private lipsyncDisabled = false;
 
@@ -503,12 +513,17 @@ export class ChatDirector {
       segmentIndex?: number,
       totalSegments?: number,
     ) => void,
-    opts: { motion?: boolean; lipsync?: boolean; audible?: boolean; text?: string; onAudibleStart?: () => void } = {},
+    opts: { motion?: boolean; lipsync?: boolean; audible?: boolean; text?: string; playbackRate?: number; volume?: number; onAudibleStart?: () => void } = {},
   ): Promise<void> {
     const useMotion = opts.motion !== false;
     this.stop();
     const session = ++this.speakSession;
     this.hostClockStart = opts.onAudibleStart ?? null;
+    this.followTransport = true;
+    const rate = clampPlaybackRate(opts.playbackRate);
+    const volume = clampVolume(opts.volume);
+    if (rate !== undefined) this.playbackRate = rate;
+    if (volume !== undefined) this.volume = volume;
     const gone = () => this.stopped || session !== this.speakSession;
     this.stopped = false;
     this.audioDone = false;
@@ -654,7 +669,7 @@ export class ChatDirector {
             emage.setExternalClock(() => frozen); // 片间冻结时钟, 防 playhead 回跳
           }
           resolve();
-        }, emage, player, isInitial, offset, useMotion, opts.audible !== false);
+        }, emage, player, isInitial, offset, useMotion, opts.audible !== false, true);
       });
       played++;
     }
@@ -905,6 +920,8 @@ export class ChatDirector {
     useMotion = true,
     /** false: 增益为 0。分析器仍接在增益前面, 口型看得到波形, 动作时钟照走。 */
     audible = true,
+    /** true: 用宿主倍速和音量, 动作时钟按倍速走。TTS 不传, 保持 1 倍。 */
+    followTransport = false,
   ): void {
     if (!this.ctx || this.stopped) {
       onEnded();
@@ -921,10 +938,12 @@ export class ChatDirector {
     this.analyser.fftSize = 512;
     this.analyserBuf = new Uint8Array(this.analyser.fftSize);
     this.currentGain = this.ctx.createGain();
-    this.currentGain.gain.value = audible ? 1 : 0;
+    const gain = followTransport ? (audible ? this.volume : 0) : (audible ? 1 : 0);
+    this.currentGain.gain.value = gain;
     // 分析器在增益前面: audible=false 时扬声器静音, 口型仍跟着原始波形
     const src = this.ctx.createBufferSource();
     src.buffer = buf;
+    src.playbackRate.value = followTransport ? this.playbackRate : 1;
     src.connect(this.analyser);
     this.analyser.connect(this.currentGain);
     this.currentGain.connect(this.ctx.destination);
@@ -933,10 +952,20 @@ export class ChatDirector {
     // P0a-AV: 连续流 playhead 用累计 TTS 时间，跨段不回跳；
     // clock 原点与 src.start(when) 对齐，避免 motion 早于可听 PCM。
     const when = this.ctx.currentTime;
-    if (useMotion) emage.setExternalClock(() => {
-      if (!this.ctx || this.stopped || this.audioDone) return -1;
-      return Math.max(0, audioTimelineOffsetSec + (this.ctx.currentTime - when));
-    });
+    if (followTransport) this.clockAudible = audible;
+    if (useMotion && followTransport) {
+      this.clockOriginCtx = when;
+      this.clockOriginContent = audioTimelineOffsetSec;
+      emage.setExternalClock(() => {
+        if (!this.ctx || this.stopped || this.audioDone) return -1;
+        return Math.max(0, this.clockOriginContent + (this.ctx.currentTime - this.clockOriginCtx) * this.playbackRate);
+      });
+    } else if (useMotion) {
+      emage.setExternalClock(() => {
+        if (!this.ctx || this.stopped || this.audioDone) return -1;
+        return Math.max(0, audioTimelineOffsetSec + (this.ctx.currentTime - when));
+      });
+    }
 
     console.log('[P0a-AV] audio_start', {
       isInitial,
@@ -1014,7 +1043,27 @@ export class ChatDirector {
     fn?.();
   }
 
+  /**
+   * 改当前宿主音频的倍速或音量。没在 speakAudio 里时先记下, 下一次开口用。
+   * 正在播时改倍速会重算时钟原点, 播放头不跳。
+   */
+  setTransport(opts: { playbackRate?: number; volume?: number }): void {
+    const rate = clampPlaybackRate(opts.playbackRate);
+    const volume = clampVolume(opts.volume);
+    if (rate !== undefined) this.playbackRate = rate;
+    if (volume !== undefined) this.volume = volume;
+    if (!this.followTransport) return;
+    if (this.currentGain) this.currentGain.gain.value = this.clockAudible ? this.volume : 0;
+    if (!this.ctx || !this.currentSource) return;
+    const now = this.ctx.currentTime;
+    const oldRate = this.currentSource.playbackRate.value || 1;
+    this.clockOriginContent += (now - this.clockOriginCtx) * oldRate;
+    this.clockOriginCtx = now;
+    this.currentSource.playbackRate.value = this.playbackRate;
+  }
+
   stop(): void {
+    this.followTransport = false;
     this.hostClockStart = null;
     this.speakSession++; // 让进行中的 speakAudio 会话失效 (即使之后 stopped 被新请求复位)
     this.wakeSpeakAudio?.();
