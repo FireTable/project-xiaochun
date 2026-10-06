@@ -647,7 +647,7 @@ export function buildLighthouse(m?: THREE.Matrix4): THREE.BufferGeometry {
  *   左后 / 左前 / 右后三座是上粗下细一点点的"小桶"圆塔, 顶部外沿一圈唇边 + 城垛 (缺口), 右后那座最高, 顶上插一面小三角旗;
  *   右前一座是尖顶的圆锥小塔 (锥形模具压出来的)。塔身上有小拱窗。
  * 非索引几何, 属性与 buildBeachProps() 一致 (position / normal / aUV / aMat), 合并进沙滩道具的同一次绘制;
- * aMat = PROP_MAT.sandcastle, aUV.x = 配色槽 (SANDCASTLE_SLOT)。约 1.3k 三角。
+ * aMat = PROP_MAT.sandcastle, aUV.x = 配色槽 (SANDCASTLE_SLOT)。约 1.4k 三角。
  * 地面上的落影与棕榈一起烘焙进落影遮罩 (见 beach3dWorld.ts)。
  */
 export const SANDCASTLE_SLOT = { sand: 0, door: 1, flag: 2, pole: 3 } as const;

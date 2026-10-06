@@ -26,6 +26,12 @@ import { splitIntoSpeechChunks, stripForTTS } from '@/lib/utils';
 export { splitIntoSpeechChunks, stripForTTS };
 
 /**
+ * 新的一句话抢占时，上一句声音淡出的时长（秒）。
+ * 短了像切断，长了下一句接得慢。已经没声音（增益为 0 或没有音源）时不等这一拍。
+ */
+const SPEECH_HANDOFF_FADE_SEC = 0.4;
+
+/**
  * 流式线性重采样辅助器：将任意采样率输入以 16000Hz 流式产出
  */
 class Resampler16k {
@@ -312,8 +318,11 @@ export class ChatDirector {
   private currentVRM: VRM | null = null;
   private pipeline: MotionPipeline | null = null;
   private stopPlaySegment: (() => void) | null = null;
-  /** speakAudio 会话号: 被新的说话请求抢占后, 旧会话的循环据此退出 (旧 TTS 路径不受影响)。 */
-  private speakSession = 0;
+  /**
+   * 当前这句话的代号。say / speakText / speakAudio 开头都会加一。
+   * 旧流水线只认自己的代号，不看 stopped：新的一句会把 stopped 拨回去。
+   */
+  private utterance = 0;
   /** 唤醒 speakAudio 里正在等下一片的主循环 (stop() 抢占时调用, 否则它会一直挂在 notifyReady 上)。 */
   private wakeSpeakAudio: (() => void) | null = null;
   /**
@@ -376,19 +385,23 @@ export class ChatDirector {
   }
 
   private async playThinking(vrm: VRM, player: VRMAMotionPlayer): Promise<void> {
+    const id = this.utterance;
     document.body.classList.add('chat-playing');
     this.currentVRM = vrm;
 
     if (!this.thinkingVRMABuf) {
       await this.preloadThinking();
     }
+    if (!this.owns(id)) return;
     if (this.thinkingVRMABuf) {
       try {
         if (!this.cachedThinkingClip) {
           const clip = await player.parseBufferToClip(this.thinkingVRMABuf, vrm);
+          if (!this.owns(id)) return;
           makeClipSeamless(clip);
           this.cachedThinkingClip = clip;
         }
+        if (!this.owns(id)) return;
         this.pipeline?.playThinkingClip(this.cachedThinkingClip, vrm, 0.65);
       } catch (e) {
         console.warn('播放 thinking.vrma 动作失败', e);
@@ -413,18 +426,19 @@ export class ChatDirector {
       totalSegments?: number,
     ) => void,
   ): Promise<void> {
-    this.stop();
-    this.stopped = false;
+    const id = await this.handoff();
+    if (id === null) return;
     this.audioDone = false;
     this.speaking = false;
     this.player = player;
     this.emage = emage;
     await this.playThinking(vrm, player);
+    if (!this.owns(id)) return;
 
     const isMobile = typeof navigator !== 'undefined' && /Mobi|Android|iPhone|iPad/i.test(navigator.userAgent);
     const staggerDelay = isMobile ? 380 : 50;
     await new Promise((r) => setTimeout(r, staggerDelay));
-    if (this.stopped) return;
+    if (!this.owns(id)) return;
 
     let speechText = '';
     try {
@@ -439,18 +453,20 @@ export class ChatDirector {
         ctx.lang,
       );
     } catch (e: any) {
+      if (!this.owns(id)) return;
       console.error('[ChatDirector] LLM failed:', e);
       const rawMsg = (e?.message ?? String(e) ?? '').trim();
       status('error.llm', { message: rawMsg || 'Unknown error' }, true);
       this.stop();
       return;
     }
-    if (this.stopped || !speechText.trim()) {
+    if (!this.owns(id)) return;
+    if (!speechText.trim()) {
       speechText = this.translateSync?.('bubble.greeting') ?? '';
       if (!speechText.trim()) return;
     }
     this.plan = { speech: speechText.trim(), llm_provider: 'WebLLM (q4f16_1)' };
-    await this.runSpeechPipeline(text, player, emage, status);
+    await this.runSpeechPipeline(text, player, emage, status, id);
   }
 
   async speakText(
@@ -467,24 +483,25 @@ export class ChatDirector {
       totalSegments?: number,
     ) => void,
   ): Promise<void> {
-    this.stop();
-    this.stopped = false;
+    const id = await this.handoff();
+    if (id === null) return;
     this.audioDone = false;
     this.speaking = false;
     this.player = player;
     this.emage = emage;
     await this.playThinking(vrm, player);
+    if (!this.owns(id)) return;
 
     const isMobile = typeof navigator !== 'undefined' && /Mobi|Android|iPhone|iPad/i.test(navigator.userAgent);
     const staggerDelay = isMobile ? 380 : 50;
     await new Promise((r) => setTimeout(r, staggerDelay));
-    if (this.stopped) return;
+    if (!this.owns(id)) return;
 
     await new Promise((r) => requestAnimationFrame(r));
-    if (this.stopped) return;
+    if (!this.owns(id)) return;
 
     this.plan = { speech: text, llm_provider: 'DEV_BYPASS' };
-    await this.runSpeechPipeline(text, player, emage, status);
+    await this.runSpeechPipeline(text, player, emage, status, id);
   }
 
   /**
@@ -516,16 +533,15 @@ export class ChatDirector {
     opts: { motion?: boolean; lipsync?: boolean; audible?: boolean; text?: string; playbackRate?: number; volume?: number; onAudibleStart?: () => void } = {},
   ): Promise<void> {
     const useMotion = opts.motion !== false;
-    this.stop();
-    const session = ++this.speakSession;
+    const session = await this.handoff();
+    if (session === null) return;
     this.hostClockStart = opts.onAudibleStart ?? null;
     this.followTransport = true;
     const rate = clampPlaybackRate(opts.playbackRate);
     const volume = clampVolume(opts.volume);
     if (rate !== undefined) this.playbackRate = rate;
     if (volume !== undefined) this.volume = volume;
-    const gone = () => this.stopped || session !== this.speakSession;
-    this.stopped = false;
+    const gone = () => !this.owns(session);
     this.audioDone = false;
     this.speaking = false;
     this.player = player;
@@ -663,6 +679,10 @@ export class ChatDirector {
         this.stopPlaySegment = () => resolve();
         this.playAudioSource(seg.audioBuffer, () => {
           this.stopPlaySegment = null;
+          if (gone()) {
+            resolve();
+            return;
+          }
           timeline = offset + seg.audioBuffer.duration;
           if (useMotion && emage.streamingMotionActive) {
             const frozen = timeline;
@@ -709,7 +729,9 @@ export class ChatDirector {
       segmentIndex?: number,
       totalSegments?: number,
     ) => void,
+    utteranceId: number,
   ): Promise<void> {
+    const live = () => this.owns(utteranceId);
     console.log('[ChatDirector] speech:', this.plan!.speech, 'llm:', this.plan!.llm_provider);
     void rememberTurn(userText, this.plan!.speech);
 
@@ -771,7 +793,7 @@ export class ChatDirector {
     // ── 后台生产者：持续灌入同一个长流，按 Checkpoint 增量提帧[cite: 13] ──
     const producerPromise = (async () => {
       for (let i = 0; i < chunks.length; i++) {
-        if (this.stopped) break;
+        if (!live()) break;
         try {
           const cText = chunks[i]!;
           if (readyQueue.length === 0 && i === 0) {
@@ -785,11 +807,11 @@ export class ChatDirector {
             cText,
             this.ctx!,
             emage,
-            () => this.stopped,
+            () => !live(),
             // ponytail: 仅 #0 触发 emage 阶段气泡 — 后续段切到 speaking 状态,避免重复刷屏。[cite: 13]
             i === 0 ? (sec) => status('emage', { seconds: sec.toFixed(1) }, false) : undefined,
           );
-          if (this.stopped) break;
+          if (!live()) break;
 
           tracker.update(i, {
             'TTS & EMAGE Stream': `✅ 就绪 (${result.audioBuffer.duration.toFixed(1)}s / ${result.motion.frameCount}帧)`,
@@ -803,32 +825,39 @@ export class ChatDirector {
           });
           wakeConsumer();
         } catch (e) {
-          console.warn(`[ChatDirector] 生产第 ${i} 段动作异常:`, e);
-          tracker.update(i, { 'TTS & EMAGE Stream': '❌ 异常中断' }, `切片 #${i} 异常中断`);
+          if (live()) {
+            console.warn(`[ChatDirector] 生产第 ${i} 段动作异常:`, e);
+            tracker.update(i, { 'TTS & EMAGE Stream': '❌ 异常中断' }, `切片 #${i} 异常中断`);
+          }
           producerFinished = true;
           wakeConsumer();
           break;
         }
       }
       producerFinished = true;
-      // 所有切片 push 完毕，调用全局唯一一次 endAudioStream 结清收尾[cite: 13]
-      try {
-        await emage.endAudioStream();
-      } catch { }
+      // 被新的一句抢走时不能关流：这时的 EMAGE 会话可能已经属于下一句。
+      if (live()) {
+        try {
+          await emage.endAudioStream();
+        } catch { /* 收尾失败不挡住播放循环 */ }
+      }
       wakeConsumer();
     })();
 
     // 首段就绪立即起播 (流式下首段生成极快)[cite: 13]
     const targetPreload = 1;
 
-    while (readyQueue.length < targetPreload && !producerFinished && !this.stopped) {
+    while (readyQueue.length < targetPreload && !producerFinished && live()) {
       await new Promise<void>((resolve) => notifyReady.push(resolve));
     }
-    if (this.stopped) return;
+    if (!live()) {
+      void producerPromise.catch(() => { });
+      return;
+    }
 
     const playSegmentAudio = (buf: AudioBuffer, isInitial: boolean): Promise<void> => {
       return new Promise<void>((resolve) => {
-        if (this.stopped) {
+        if (!live()) {
           resolve();
           return;
         }
@@ -836,6 +865,10 @@ export class ChatDirector {
         const offset = audioTimelineOffsetSec;
         this.playAudioSource(buf, () => {
           this.stopPlaySegment = null;
+          if (!live()) {
+            resolve();
+            return;
+          }
           audioTimelineOffsetSec = offset + buf.duration;
           // E1: freeze streaming clock between TTS segments (avoid playhead rewind yank)
           if (emage.streamingMotionActive) {
@@ -849,9 +882,9 @@ export class ChatDirector {
 
     // ── 消费者播放循环 ──
     for (let i = 0; i < chunks.length; i++) {
-      if (this.stopped) break;
+      if (!live()) break;
 
-      if (readyQueue.length === 0 && !producerFinished && !this.stopped) {
+      if (readyQueue.length === 0 && !producerFinished && live()) {
         // P0c: streaming 路径勿 SpeakIdle、勿清 clock；段间空隙由 playhead 停帧 + catch-up 吸收
         if (!emage.streamingMotionActive) {
           emage.clearExternalClock();
@@ -862,14 +895,14 @@ export class ChatDirector {
           { 'Playback': emage.streamingMotionActive ? '⏳ 等待下段 TTS（保持 EMAGE 末姿）' : '☕ 等待推理 (言谈微动待机)' },
           `等待切片 #${i} 就绪`,
         );
-        while (readyQueue.length === 0 && !producerFinished && !this.stopped) {
+        while (readyQueue.length === 0 && !producerFinished && live()) {
           await new Promise<void>((resolve) => notifyReady.push(resolve));
         }
         if (!emage.streamingMotionActive) {
           emage.exitSpeakIdle();
         }
       }
-      if (this.stopped) break;
+      if (!live()) break;
 
       const seg = readyQueue.shift();
       if (!seg) break;
@@ -896,7 +929,11 @@ export class ChatDirector {
       tracker.update(i, { 'Playback': '🏁 播放完成' });
     }
 
-    if (this.stopped) return;
+    if (!live()) {
+      // 被抢占时不等生产者：它可能还挂在已被拆掉的推理上，等它会让这句永远不返回。
+      void producerPromise.catch(() => { });
+      return;
+    }
 
     this.audioDone = true;
     this.audioDoneTime = performance.now();
@@ -1062,12 +1099,60 @@ export class ChatDirector {
     this.currentSource.playbackRate.value = this.playbackRate;
   }
 
+  /** 这句话还是不是当前这一句。新的 say / speakText / speakAudio 会换代号。 */
+  private owns(id: number): boolean {
+    return id === this.utterance;
+  }
+
+  /**
+   * 开始一句新的。上一句还在出声就先把增益淡到 0，再拆掉旧流水线。
+   * 淡出期间如果又来了更新的一句，这次直接退出，不碰对方已经开始的声音。
+   * 显式 stop() 不走这里，仍然立刻切断。
+   */
+  private async handoff(): Promise<number | null> {
+    const id = ++this.utterance;
+    this.stopped = true;
+    this.wakeSpeakAudio?.();
+    await this.fadeOutPlaying(id);
+    if (!this.owns(id)) return null;
+    this.hardStop();
+    if (!this.owns(id)) return null;
+    this.stopped = false;
+    return id;
+  }
+
+  /** 只淡当前这一个音源。增益已经是 0（宿主音频静音）或没有在播时立刻返回。 */
+  private async fadeOutPlaying(owner: number): Promise<void> {
+    const src = this.currentSource;
+    const gain = this.currentGain;
+    const ctx = this.ctx;
+    if (!src || !gain || !ctx) return;
+    const now = ctx.currentTime;
+    const current = gain.gain.value;
+    if (current <= 0.001) return;
+    const dur = SPEECH_HANDOFF_FADE_SEC;
+    gain.gain.cancelScheduledValues(now);
+    gain.gain.setValueAtTime(current, now);
+    gain.gain.linearRampToValueAtTime(0, now + dur);
+    this.emage?.fadeOutToIdle(dur);
+    await new Promise<void>((r) => setTimeout(r, dur * 1000));
+    if (!this.owns(owner) || this.currentSource !== src) return;
+    try { src.stop(); } catch { /* 这一句已经自己播完 */ }
+    if (this.currentSource === src) this.currentSource = null;
+  }
+
+  /** 立刻停掉当前这句话，并让还在跑的流水线失效。不淡出。 */
   stop(): void {
+    this.utterance++;
+    this.wakeSpeakAudio?.();
+    this.hardStop();
+  }
+
+  private hardStop(): void {
     this.followTransport = false;
     this.hostClockStart = null;
-    this.speakSession++; // 让进行中的 speakAudio 会话失效 (即使之后 stopped 被新请求复位)
     this.wakeSpeakAudio?.();
-    if (this.stopped && !this.ctx) return;
+    if (this.stopped && !this.ctx && !this.currentSource) return;
     this.stopped = true;
     this.pipeline?.resetChatMotion();
     this.speaking = false;

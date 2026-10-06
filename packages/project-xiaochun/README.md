@@ -166,7 +166,7 @@ s.write(int16Chunk); s.write(next); s.end(); await s.done;   // s.abort() stops 
 * For host audio, `utterance` `start` fires when the audio clock starts, after the thinking pose and the first EMAGE window. Hold the page's own player until that event if it must stay in sync.
 * Rejects with `bad_request` (undecodable / empty audio, bad URL or sampleRate), `unsupported`, or `failed`.
 * Browsers still require a user gesture on the host page before audio can play, and the iframe needs `allow="autoplay"` (the SDK sets it).
-* A newer `say()` / `speakAudio()` call preempts the one in progress, and the preempted promise resolves.
+* A newer `say()` / `speakAudio()` fades out the line still playing (about 0.4s, skipped when the gain is already 0), then speaks the new one. The preempted promise resolves. `stop()`, an `AbortSignal`, or `xc.audio.end` with `{ abort: true }` cuts immediately. `say()` has no character cap; long text is split into short clauses inside the iframe before TTS.
 * `<xiaochun-avatar>` and the React ref expose the same `speakAudio` / `speakAudioStream` methods.
 
 ---

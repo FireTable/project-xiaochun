@@ -66,7 +66,7 @@ Host commands may attach an `id`; matching `xc.error` / `xc.utterance` events ec
 | Message | Payload | Status | Maps to |
 | :-- | :-- | :-- | :-- |
 | `xc.init` | `{ hostOrigin }` + transfers `MessagePort` | ✅ | Handshake completion (once only). |
-| `xc.say` | `{ text, mode?: 'speak' | 'chat' }` | ✅ | `speak` → protocol action `speak` (same handler as `xiaochun://speak?text=`) → `vrmEngine.speakText` (TTS + EMAGE, **bypasses LLM**); `chat` → `vrmEngine.sendMessage` (via WebLLM / custom provider, loads LLM weights). Max length `MAX_SAY_CHARS=2000`. |
+| `xc.say` | `{ text, mode?: 'speak' | 'chat' }` | ✅ | `speak` → protocol action `speak` (same handler as `xiaochun://speak?text=`) → `vrmEngine.speakText` (TTS + EMAGE, **bypasses LLM**); `chat` → `vrmEngine.sendMessage` (via WebLLM / custom provider, loads LLM weights). No character cap: `splitIntoSpeechChunks` cuts the line into ~25–65 character clauses. A newer `xc.say` / `xc.audio` fades the line that is still playing (~0.4s) and then speaks the new one. The preempted `say()` / `speakAudio()` promise resolves. |
 | `xc.audio` | `{ source: ArrayBuffer | Blob | url, mimeType?, format?, sampleRate?, channels?, text?, motion?, lipsync?, audible?, playbackRate?, volume? }` | ✅ | Host supplies **complete audio segment without TTS**: in-iframe decoding → mono → 16 kHz → EMAGE window inference (motion) + synchronized playback + RMS lipsync. `audible: false` keeps motion and lip-sync but sets playback gain to 0. `playbackRate` (`0.25–3`, default `1`) and `volume` (`0–1`, default `1`) scale this utterance and its motion clock. See §2.4. Envelope `id` correlated with `xc.utterance` / `xc.error`. |
 | `xc.audio.chunk` | `{ data: ArrayBuffer, format: 'pcm16' | 'float32', sampleRate, channels?, text?, motion?, lipsync?, audible?, playbackRate?, volume? }` (Envelope `id` = stream ID) | ✅ | Streamed PCM chunking; first chunk with a given `id` initializes the utterance, subsequent chunks append. Options, including `audible`, `playbackRate`, and `volume`, take effect on the first chunk. |
 | `xc.audio.end` | `{ abort?: boolean }` (Envelope `id` = stream ID / `xc.audio` ID) | ✅ | Finalizes playback (finishing received buffer); `abort: true` halts immediately. Full `xc.audio` invocations can be aborted via this `id` (SDK `AbortSignal`). |
@@ -143,7 +143,7 @@ xc.audio(ArrayBuffer/Blob/URL)                         xc.audio.chunk (PCM16/Flo
 - **Streaming**: Supported via `xc.audio.chunk`. Incoming streams are resliced into 2s / 4s segments; segments transition via `onended`.
 - **Input Constraints**: Single utterance duration ≤ 120s; encoded payload ≤ 32 MB; sample rates 8000–96000 Hz; PCM little-endian.
 - **Zero-Copy**: SDK transfers `ArrayBuffer` objects by default (detaching source buffer unless `{ transfer: false }` is passed).
-- **Interruption**: Subsequent `say` or `audio` calls preempt active utterances, dispatching an `end` event to the previous one. `AbortSignal` halts immediately.
+- **Interruption**: A newer `say` or `audio` fades the audible line (~0.4s; skipped when the gain is already 0, including `audible: false`) and then starts. The preempted command resolves, and its `xc.utterance` `end` is sent when that call returns. `AbortSignal`, `xc.audio.end` with `{ abort: true }`, and `stop()` halt immediately, with no fade. `xc.say` has no character cap; `splitIntoSpeechChunks` is the slicer.
 
 ### 2.5 Relationship with `xiaochun://` Protocol
 

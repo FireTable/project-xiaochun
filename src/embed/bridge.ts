@@ -57,8 +57,6 @@ import {
 } from '@firetable/project-xiaochun/protocol';
 import type { EmbedParams } from './params';
 
-/** say 文本上限 (字符)。调大: 允许更长一口气念完, 但 TTS/EMAGE 耗时和显存占用线性上涨; 调小: 更安全但长文被拒。 */
-const MAX_SAY_CHARS = 2000;
 /** 等模型就绪的最长时间 (ms)。调大: 慢网络下命令更不容易 not_ready; 调小: 失败反馈更快。 */
 const READY_TIMEOUT_MS = 60_000;
 /** xc.ready 握手重发次数 / 间隔 (ms)。宿主监听器晚于 iframe 就绪时靠它兜底; 调大只增加无用广播。 */
@@ -599,7 +597,6 @@ export function startEmbedBridge(opts: EmbedBridgeOptions): EmbedBridge {
    */
   async function dispatchSpeech(id: string | undefined, message: ProtocolMessage, text: string, command: string): Promise<void> {
     const kind = message.action === 'audio' ? 'audio' : 'text';
-    const shown = text.slice(0, MAX_SAY_CHARS);
     let started = false;
     const finish = () => {
       if (!started) return;
@@ -616,11 +613,11 @@ export function startEmbedBridge(opts: EmbedBridgeOptions): EmbedBridge {
           thinking = false;
           currentAudioId = kind === 'audio' ? (id ?? null) : null;
           publishState();
-          send('xc.utterance', { phase: 'start', text: shown, kind }, id);
+          send('xc.utterance', { phase: 'start', text, kind }, id);
         },
       });
       finish();
-      if (!disposed) send('xc.utterance', { phase: 'end', text: shown, kind }, id);
+      if (!disposed) send('xc.utterance', { phase: 'end', text, kind }, id);
     } catch (e) {
       finish();
       if (disposed) return;
@@ -640,7 +637,6 @@ export function startEmbedBridge(opts: EmbedBridgeOptions): EmbedBridge {
         case 'xc.say': {
           const text = typeof p.text === 'string' ? p.text.trim() : '';
           if (!text) throw new CmdError('bad_request', 'text is required');
-          if (text.length > MAX_SAY_CHARS) throw new CmdError('bad_request', `text exceeds ${MAX_SAY_CHARS} chars`);
           const mode = p.mode === 'chat' ? 'chat' : 'speak';
           if (mode === 'speak') {
             // 与 xiaochun://speak?text=… 同一个 action / handler (core/protocol/handler.ts)

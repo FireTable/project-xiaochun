@@ -166,7 +166,7 @@ s.write(int16Chunk); s.write(next); s.end(); await s.done;   // s.abort() 立即
 * 宿主音频的 `utterance start` 在思考动作和 EMAGE 首窗之后、声音时钟起步时才发。页面自己的播放器要等这个事件再出声,口型才对齐。
 * 失败时 reject:`bad_request`(无法解码 / 空音频 / URL 或 sampleRate 不合法)、`unsupported`、`failed`。
 * 浏览器仍要求宿主页先有用户手势才能出声,iframe 也要有 `allow="autoplay"`(SDK 已自动设置)。
-* 新的 `say()` / `speakAudio()` 会打断正在进行的那一次,被打断的 Promise 会 resolve。
+* 新的 `say()` / `speakAudio()` 会把正在念的一句淡出（大约 0.4 秒；增益已经是 0 则不等），再念新的一句。被打断的 Promise 会 resolve。`stop()`、`AbortSignal`，或 `xc.audio.end` 带 `{ abort: true }`，会立刻切断。`say()` 没有字数上限，长文在 iframe 里按句切开再合成。
 * `<xiaochun-avatar>` 与 React 的 ref 提供同名的 `speakAudio` / `speakAudioStream` 方法。
 
 ---

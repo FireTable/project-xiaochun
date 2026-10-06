@@ -19,7 +19,7 @@ Project XiaoChun is a **100% browser-native 3D AI companion** with strong on-dev
 | **FootIK & Ground Anchors** | `FootIKSolver`<br/>(`src/motion/constraints/footIK.ts`) | Two-bone analytical IK, weight shift (contrapposto), pole-vector orientation, auto-sink, detailed in [`docs/FOOT_IK.md`](docs/FOOT_IK.md) |
 | **Locomotion & Gaze** | `BodyTurnSystem` + `GazeController`<br/>(`src/motion/constraints/bodyTurn.ts`, `gaze.ts`) | 4-phase stepping FSM, spring yaw tracking; traits `allowLocomotion` / `thinkSway`, detailed in [`docs/BODY_TURN_AND_GAZE.md`](docs/BODY_TURN_AND_GAZE.md) |
 | **Biomechanical Morphing** | `VRMBodyMorph`<br/>(`src/core/morph/vrmBodyMorph.ts`) | 28-parameter orthogonal decoupled bone & vertex morphing engine (VRoid 1.0 guarded), detailed in [`docs/BONE_MORPH.md`](docs/BONE_MORPH.md) |
-| **Chat Director & TTS** | `ChatDirector` + `speechSlicer` (`src/lib/utils.ts`) + native WebSocket client (`src/lib/edge-tts-core.ts`)<br/>(`src/director/chatDirector.ts`, `src/lib/utils.ts`, `src/server.ts`) | Smart 25~65 chars slicer, parallel TTS prefetch, stream sync, detailed in [`docs/CHAT_DIRECTOR.md`](docs/CHAT_DIRECTOR.md) |
+| **Chat Director & TTS** | `ChatDirector` + `speechSlicer` (`src/lib/utils.ts`) + native WebSocket client (`src/lib/edge-tts-core.ts`)<br/>(`src/director/chatDirector.ts`, `src/lib/utils.ts`, `src/server.ts`) | Smart 25~65 chars slicer, speech handoff (~0.4s fade), parallel TTS prefetch, stream sync, detailed in [`docs/CHAT_DIRECTOR.md`](docs/CHAT_DIRECTOR.md) |
 | **On-device AI & Memory** | `webLLM` + `EMAGE Worker` + `IndexedDB`<br/>(`src/llm/`, `src/motion/`, `src/memory/`) | 100% local WebGPU inference, EMAGE Worker, 3-tier memory, detailed in [`docs/ON_DEVICE_AI.md`](docs/ON_DEVICE_AI.md) |
 | **Hybrid desktop & in-app updater** | Tauri 2.x + `tauri-plugin-updater` + `tauri-plugin-process` + `tauri-plugin-opener`<br/>(`src-tauri/`, `src/lib/appUpdater.ts`, `src/lib/openExternal.ts`, `src/components/AppUpdateDialog.tsx`, `TauriTopHeader.tsx`) | Frameless pet, canvas-alpha click-through (DOM never masked), GitHub Releases `latest.json` whole-app updates, detailed in [`docs/HYBRID_DESKTOP_APP.md`](docs/HYBRID_DESKTOP_APP.md) |
 | **Documentation Index** | Complete Architecture Index & Sitemap | Complete agent fast-path guide, detailed in [`docs/README.md`](docs/README.md) |
@@ -204,7 +204,8 @@ The 3D motion pipeline involves complex layered logic. Follow these geometric an
 
 ## 3. Chat Director & Streaming Pipeline (`chatDirector.ts`)
 
-- **Smart Sentence Chunking (`splitIntoSpeechChunks`)**: Splits uniformly at 30~60 characters and natural punctuation (`。！？!?\n` or comma clauses), preserving natural breath rhythm.
+- **Smart Sentence Chunking (`splitIntoSpeechChunks`)**: Splits uniformly at 30~60 characters and natural punctuation (`。！？!?\n` or comma clauses), preserving natural breath rhythm. `xc.say` has no character cap. Empty text is rejected; length is not. This slicer is the only cut. Hosts send the full reply in one `say()`.
+- **Speech handoff**: A newer `say` / `speakText` / `speakAudio` fades the audible line (~0.4s, `SPEECH_HANDOFF_FADE_SEC`; skipped when gain ≤ 0.001) and then starts. Pipelines exit by utterance id and must not `stop()` a line they no longer own. `stop()`, an `AbortSignal`, and `xc.audio.end` with `{ abort: true }` cut immediately, with no fade. `resetClipCache()` only clears the thinking-clip cache.
 - **Concurrent TTS Pre-fetch**: All chunks are sent to Edge-TTS via `Promise.all` in parallel as soon as text arrives, collapsing subsequent network wait to 0ms.
 - **Dual-condition Preload Playback**:
   $$\text{targetPreload} = \min\big(2, \min(N, \max(1, \lceil N/3 \rceil))\big)$$

@@ -173,7 +173,8 @@ brew upgrade --cask project-xiaochun
 * **LLM + TTS + EMAGE 一体编排**：chat director 全链路统一协调，主线程满帧 60 FPS。**LLM 可用 WebGPU**（WebLLM）；**EMAGE 固定 wasm/INT8**。
 
 ### ⚡ 智能分段流式语音管线 (Streaming Speech Pipeline)
-* **智能分句切片 (Smart Chunking)**：打破千字长文生成等待瓶颈，统一按 30~60 字与自然语法标点（`。！？!?\n` 或逗号长句）断句，语气自然抑扬顿挫。
+* **智能分句切片 (Smart Chunking)**：打破千字长文生成等待瓶颈，统一按 30~60 字与自然语法标点（`。！？!?\n` 或逗号长句）断句，语气自然抑扬顿挫。`xc.say` 不再设字数上限，长文靠这里切开。
+* **说话交接**：新的 `say` / `speakText` / `speakAudio` 会把还在念的一句淡出（大约 0.4 秒；增益已经是 0 则不等），再开始新的一句。旧流水线只认自己的代号，两句不会叠着念。显式 `stop()` 仍然立刻切断。
 * **全切片 TTS 零延迟并发预取**：纯网络 I/O 全部切片并行下载，彻底消除语音合成等待延迟。
 * **双条件预缓冲起播 (Dual-Condition Pre-buffering)**：兼顾比例（$\lceil N / 3 \rceil$）与上限封顶（最多预缓冲 2 段，约 8~12s 语音），1~2 段极速开播，多段长文缓冲 2 段即起播，后续段落后台源源不断产生，告别长文久等。
 * **跨段潜空间自回归种子连续继承 (Latent Seed Carryover)**：Worker 内部继承上一段尾部 4 帧潜空间种子 (`continueFromPrevious`)，分段动作在数学与物理上完全等同于单次长程自回归推理，消除断接割裂。

@@ -113,17 +113,32 @@ Beyond sentence-level TTS pre-fetch, EMAGE itself streams **inside** each speech
 
 Details and non-goals (no WebGPU-EMAGE, no P0d): [`EMAGE_MODEL.md`](EMAGE_MODEL.md).
 
+---
+
+### 2.6 Speech Handoff (preempt, do not overlap)
+
+`say`, `speakText`, and `speakAudio` share one utterance id. A newer call runs `handoff()` before it speaks:
+
+1. Increment the id and mark the previous pipeline stopped.
+2. If a source is still audible (`GainNode` gain > 0.001), ramp that gain to 0 over `SPEECH_HANDOFF_FADE_SEC` (0.4s) and call `emage.fadeOutToIdle` for the same duration. Gain already at 0 (`audible: false`) or no source skips the wait.
+3. `hardStop()` tears down the old source, EMAGE stream, and player. If a still newer utterance arrived during the fade, this call returns and does not touch that newer source.
+4. Clear the stopped flag and return the new id. Each pipeline checks `owns(id)` after every await. A preempted pipeline returns without `stop()` or `endAudioStream`, so it does not stop the line that replaced it. Its promise resolves.
+
+`stop()` — and therefore `vrmEngine.stopSpeaking()`, `xc.audio.end` with `{ abort: true }`, and an `AbortSignal` on `speakAudio` — increments the id and `hardStop()`s at once. No fade.
+
+`xc.say` has no character cap. Empty text is still `bad_request`. Long text is cut only by `splitIntoSpeechChunks` (§2.1) inside `runSpeechPipeline`. Hosts send the full reply in one `say()`.
+
+`resetClipCache()` only drops the cached thinking VRMA so the next think clip rebinds after an outfit swap. It does not stop speech. A wardrobe change does not preempt an utterance.
+
+A text `xc.utterance` `start` is emitted by the protocol handler before `speakText` enters `handoff`, so the host can see that start before the fade ends. An audio `start` waits for the playback clock. When a preempted command returns, the bridge still sends that command's `xc.utterance` `end`.
+
 ## 3. Developer Configuration Quick Reference
 
 - **Voices & Pitch**: Configured centrally in [`src/config.ts`](../src/config.ts):
   - Chinese: `zh-CN-XiaoyiNeural` (+10% pitch for a bright anime companion voice);
   - English: `en-US-AnaNeural`;
   - Japanese: `ja-JP-NanamiNeural`.
-- **Interrupting Speech**:
-  ```typescript
-  // Interrupt ongoing speech and flush queues upon new user prompts
-  vrmEngine.chatDirector.resetClipCache();
-  ```
+- **Interrupting speech**: a new `say` / `speakText` / `speakAudio` fades the audible line, then starts (§2.6). `vrmEngine.stopSpeaking()` or `chatDirector.stop()` cuts immediately. Do not call `resetClipCache()` to interrupt speech.
 
 
 ---
@@ -161,3 +176,5 @@ flowchart TD
 ```
 
 Bubble status roughly tracks: `thinking` → early `emage` (first window ready) → `speaking` → inter-segment wait → idle.
+
+A newer `say` / `speakText` / `speakAudio` calls `handoff()` first (§2.6). The previous pipeline exits on its utterance id and does not run the idle cleanup for the line that replaced it.

@@ -273,6 +273,11 @@ export interface XiaochunInstance {
   readonly ready: Promise<void>;
   /** 手动创建 iframe (lazy 模式下等价于"用户点击")。 */
   activate(): void;
+  /**
+   * 念一段文字。`speak`（默认）走 TTS，长文在 iframe 里按句切开，没有字数上限。
+   * 新的一次会先把正在念的淡出（大约 0.4 秒；增益已经是 0 则不等），再接上这一句。被淡出的那次 Promise 会 resolve。
+   * 显式 stop 立刻切断，不淡出。
+   */
   say(text: string, opts?: { mode?: 'speak' | 'chat' }): Promise<void>;
   /**
    * 直接播放宿主给的音频 (不经过 TTS): iframe 内解码 → EMAGE 生成动作 + 口型, 念完 (xc.utterance end) 才 resolve。
@@ -280,6 +285,7 @@ export interface XiaochunInstance {
    * xc.utterance start 在思考动作和首窗之后、声音时钟起步时才发, 不是命令一到就发。
    * opts.playbackRate (0.25~3, 默认 1) 与 opts.volume (0~1, 默认 1) 只作用于这次宿主音频, 动作时钟一起变。
    * 不写则沿用上一次 setPlaybackRate / setVolume。audible:false 时音量不会送到扬声器。TTS (say) 不受影响。
+   * 新的 say / speakAudio 会先淡出这一句（增益已经是 0 则不等）。AbortSignal 立刻切断。
    */
   speakAudio(source: XiaochunAudioSource, opts?: XiaochunAudioOptions): Promise<void>;
   /** 流式音频 (原始 PCM 分块)。sampleRate 必填; 首个 write 开始这次说话, utterance start 仍等到声音时钟起步。 */

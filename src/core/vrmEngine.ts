@@ -224,7 +224,7 @@ export class VRMEngine {
   private _animFrameIntervalMs = 0;
   // ── 模块化独立子系统 ──
   private lineworkWorld = new LineworkWorld();
-  /** 海滩 3D 场景 (beach3d): 纯 Three.js 天空 / 云 / 远山 / 沙地 + 海 / 棕榈 / 礁石; 只在该场景可见并构建, 其余场景 0 开销。 */
+  /** 海滩 3D 场景 (beach3d): 纯 Three.js 天空 / 云 / 远山 / 沙地 + 海 / 棕榈 / 礁石; 首次进入该场景时构建; 其余场景隐藏 (0 次绘制), 资源保留到引擎 dispose。 */
   public readonly beach3d = new Beach3DWorld();
   public readonly lighting = new StudioLighting();
   public readonly materialManager = new VRMMaterialManager();
@@ -1183,8 +1183,8 @@ export class VRMEngine {
   }
 
   /**
-   * 场景级背景 / 融合微调 (只有 beach3d 有内容, 其余场景恢复默认):
-   *   背景层显隐 + 半球光/主光色调 (StudioLighting.applyTheme) + 地面落影 / 脚下接触影配色 (CharacterShadowSystem.applyTheme)。
+   * 切场景时同步背景: beach3d 背景层显隐; 灯色 (StudioLighting.applyTheme) 与角色落影配色 (CharacterShadowSystem.applyTheme)
+   *   重置为所有场景共用的默认值, 没有场景专属的灯光 / 落影微调。
    * 不改任何角色材质。
    */
   private syncSceneBackdrop(theme: LineworkTheme): void {
