@@ -2429,11 +2429,12 @@ export class VRMEngine {
   /**
    * 宿主直接给音频: 跳过 LLM 与 TTS, 音频 → EMAGE → 动作 + 播放 + 口型 (见 ChatDirector.speakAudio / director/hostAudio.ts)。
    * 首次调用才会加载 EMAGE (heavy 资源仍然懒加载); opts.motion=false 时完全不加载。
+   * opts.audible=false 时不把声音送到扬声器, 动作时钟和口型照常。
    * 整段音频与流式音频走同一入口: input.chunks 只 yield 一次 = 整段。
    */
   public async speakAudio(
     input: HostAudioInput,
-    opts: { motion?: boolean; lipsync?: boolean; text?: string } = {},
+    opts: { motion?: boolean; lipsync?: boolean; audible?: boolean; text?: string } = {},
   ): Promise<void> {
     if (!this.currentVRM) return;
     const setStatus = (

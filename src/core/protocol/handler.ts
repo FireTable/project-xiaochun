@@ -40,6 +40,7 @@ async function runAudio(payload: AudioPayload, hooks?: ProtocolRunHooks): Promis
   await vrmEngine.speakAudio(input, {
     motion: payload.motion !== false,
     lipsync: payload.lipsync !== false,
+    audible: payload.audible !== false,
     text: text || undefined,
   });
 }

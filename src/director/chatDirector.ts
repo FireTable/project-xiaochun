@@ -482,6 +482,7 @@ export class ChatDirector {
    *
    * opts.motion=false: 只播放音频 (+ 可选口型), 完全不加载/不调用 EMAGE。
    * opts.lipsync=false: 不驱动嘴型 ('aa')。
+   * opts.audible=false: 增益为 0, 不送到扬声器; 音频时钟和口型照常, 给宿主自己播放同一段声音时用。
    * 返回时机: 全部音频播完 (或被新的说话/stop 抢占)。producer 出错会在清理后抛出。
    */
   async speakAudio(
@@ -497,7 +498,7 @@ export class ChatDirector {
       segmentIndex?: number,
       totalSegments?: number,
     ) => void,
-    opts: { motion?: boolean; lipsync?: boolean; text?: string } = {},
+    opts: { motion?: boolean; lipsync?: boolean; audible?: boolean; text?: string } = {},
   ): Promise<void> {
     const useMotion = opts.motion !== false;
     this.stop();
@@ -647,7 +648,7 @@ export class ChatDirector {
             emage.setExternalClock(() => frozen); // 片间冻结时钟, 防 playhead 回跳
           }
           resolve();
-        }, emage, player, isInitial, offset, useMotion);
+        }, emage, player, isInitial, offset, useMotion, opts.audible !== false);
       });
       played++;
     }
@@ -896,6 +897,8 @@ export class ChatDirector {
     audioTimelineOffsetSec = 0,
     /** false: 只播放音频 (宿主音频 motion:false), 不碰 EMAGE / 动作管线。 */
     useMotion = true,
+    /** false: 增益为 0。分析器仍接在增益前面, 口型看得到波形, 动作时钟照走。 */
+    audible = true,
   ): void {
     if (!this.ctx || this.stopped) {
       onEnded();
@@ -912,12 +915,13 @@ export class ChatDirector {
     this.analyser.fftSize = 512;
     this.analyserBuf = new Uint8Array(this.analyser.fftSize);
     this.currentGain = this.ctx.createGain();
-    this.currentGain.connect(this.analyser);
-    this.analyser.connect(this.ctx.destination);
-
+    this.currentGain.gain.value = audible ? 1 : 0;
+    // 分析器在增益前面: audible=false 时扬声器静音, 口型仍跟着原始波形
     const src = this.ctx.createBufferSource();
     src.buffer = buf;
-    src.connect(this.currentGain);
+    src.connect(this.analyser);
+    this.analyser.connect(this.currentGain);
+    this.currentGain.connect(this.ctx.destination);
     this.currentSource = src;
 
     // P0a-AV: 连续流 playhead 用累计 TTS 时间，跨段不回跳；

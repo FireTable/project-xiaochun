@@ -152,12 +152,14 @@ await xc.speakAudio(arrayBuffer, { text: 'Hi', motion: true, lipsync: true }); /
 await xc.speakAudio(blob);                                   // Blob (mp3 / wav / ogg …)
 await xc.speakAudio('https://cdn.example.com/voice.mp3');    // URL: fetched by the host page by default ({ fetch: 'frame' } = fetched inside the iframe)
 await xc.speakAudio(pcm, { format: 'pcm16', sampleRate: 24000 });   // headerless PCM needs sampleRate (8000–96000)
+await xc.speakAudio(pcm, { format: 'pcm16', sampleRate: 16000, audible: false }); // motion + lip-sync only; iframe gain is 0
 
 const s = xc.speakAudioStream({ sampleRate: 24000 });        // streaming: e.g. PCM chunks from a TTS server
 s.write(int16Chunk); s.write(next); s.end(); await s.done;   // s.abort() stops immediately
 // Cancel any time: pass { signal: abortController.signal }
 ```
 
+* `audible` defaults to `true`. `false` still decodes the audio, generates motion, and drives lip-sync, but the iframe gain is 0 so the host page can be the only speaker.
 * Rejects with `bad_request` (undecodable / empty audio, bad URL or sampleRate), `unsupported`, or `failed`.
 * Browsers still require a user gesture on the host page before audio can play, and the iframe needs `allow="autoplay"` (the SDK sets it).
 * A newer `say()` / `speakAudio()` call preempts the one in progress, and the preempted promise resolves.
