@@ -96,7 +96,7 @@ Host commands may attach an `id`; matching `xc.error` / `xc.utterance` events ec
 | `xc.prefetched` | `{ downloaded[], cached[], failed[], skipped?: 'save-data' }` | Response to `xc.prefetch`. |
 | `xc.state` | `{ phase, paused, heavy }` | Current state phase: `loading | idle | thinking | speaking | listening | paused`. |
 | `xc.stt` | `{ kind: 'state' | 'progress' | 'text', … }` | Speech-to-text status, download percentage, and transcription text. |
-| `xc.utterance` | `{ phase: 'start' | 'end', text, kind?: 'text' | 'audio' }` | Speech lifecycle markers. `kind: 'audio'` indicates host-provided audio bypass. |
+| `xc.utterance` | `{ phase: 'start' | 'end', text, kind?: 'text' | 'audio' }` | Speech lifecycle markers. `kind: 'audio'` indicates host-provided audio. For audio, `start` is sent when the first buffer's clock starts (after the thinking pose and the first EMAGE window), not when the command is accepted. Text `start` is still sent as speech begins. |
 | `xc.hit-region` | `{ hit, x, y }` | Pointer intersection state against character; SDK uses this to toggle iframe `pointer-events`. |
 | `xc.gesture-move` | `{ gesture, seq, phase: 'start' | 'move' | 'end', dx, dy, totalDx, totalDy, reason? }` | **Only when `gestures.move` enabled**: Dragging character translates iframe. See §2.8. |
 | `xc.gesture-resize` | Same as above + `corner: 'NW' | 'NE' | 'SW' | 'SE'` | **Only when `gestures.resize` enabled**: Dragging corner handles resizes iframe. See §2.8. |
@@ -129,13 +129,14 @@ xc.audio(ArrayBuffer/Blob/URL)                         xc.audio.chunk (PCM16/Flo
               ▼
         ChatDirector.speakAudio  ── Reuses speakText A/V synchronization (buffers motion until AudioBuffer starts)
                                  ── Lipsync = AnalyserNode RMS × 4 → 'aa' expression
+                                 ── Clock start → xc.utterance{phase: 'start', kind: 'audio'}
                                  ── Completion → xc.utterance{phase: 'end', kind: 'audio'}
 ```
 
 - **EMAGE Requirements**: 16 kHz, Mono, Float32; window size `T=64` frames (~2.13s at 30 fps). Non-vocal audio is accepted, though motions are generated in speech style.
 - **Lipsync**: RMS amplitude mapping to mouth opening (`aa`), without viseme alignment; can be disabled via `lipsync: false`. The analyser sits before the gain, so lip-sync still sees the waveform when the speakers are muted.
 - **Silent motion**: `audible` defaults to `true`. `false` sets the playback gain to 0. The `AudioContext` clock and lip-sync still follow the buffer, so a host page can play the same audio itself without a second copy from the iframe.
-- **A/V Sync**: Motion playback is buffered until the audio buffer starts; playhead syncs with `AudioContext` clock. That clock runs even when `audible` is `false`.
+- **A/V Sync**: Motion playback is buffered until the audio buffer starts; playhead syncs with `AudioContext` clock. That clock runs even when `audible` is `false`. `xc.utterance{phase:'start', kind:'audio'}` is emitted at that same `AudioBufferSourceNode.start`, so a host player can stay paused until then and avoid leading the lips.
 - **Latency (TTFA)**: Decoding + first 2s slice inference + decode. Benchmarked on desktop Mac CPU (INT8 WASM): warm state TTFA ≈ 0.7s; cold start with models cached ≈ 4.0s. First run requiring model download (71.59 MB total) takes longer; call `xc.setConfig{heavy: 'eager'}` to pre-warm.
 - **Streaming**: Supported via `xc.audio.chunk`. Incoming streams are resliced into 2s / 4s segments; segments transition via `onended`.
 - **Input Constraints**: Single utterance duration ≤ 120s; encoded payload ≤ 32 MB; sample rates 8000–96000 Hz; PCM little-endian.

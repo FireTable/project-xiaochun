@@ -316,6 +316,11 @@ export class ChatDirector {
   private speakSession = 0;
   /** 唤醒 speakAudio 里正在等下一片的主循环 (stop() 抢占时调用, 否则它会一直挂在 notifyReady 上)。 */
   private wakeSpeakAudio: (() => void) | null = null;
+  /**
+   * 宿主音频的时钟通知: 首段 AudioBuffer 真正 start 时调用一次。
+   * 思考动作和 EMAGE 首窗都发生在这之前, 宿主靠它把自己的播放对齐。
+   */
+  private hostClockStart: (() => void) | null = null;
   /** 宿主音频可关闭口型 (lipsync:false)。stop() 会复位, 所以 say/speakText 路径永远是开的。 */
   private lipsyncDisabled = false;
 
@@ -498,11 +503,12 @@ export class ChatDirector {
       segmentIndex?: number,
       totalSegments?: number,
     ) => void,
-    opts: { motion?: boolean; lipsync?: boolean; audible?: boolean; text?: string } = {},
+    opts: { motion?: boolean; lipsync?: boolean; audible?: boolean; text?: string; onAudibleStart?: () => void } = {},
   ): Promise<void> {
     const useMotion = opts.motion !== false;
     this.stop();
     const session = ++this.speakSession;
+    this.hostClockStart = opts.onAudibleStart ?? null;
     const gone = () => this.stopped || session !== this.speakSession;
     this.stopped = false;
     this.audioDone = false;
@@ -949,6 +955,7 @@ export class ChatDirector {
     };
     // 先 start 可听 TTS，再释放可见动作（满足 motion 不早于 speech）
     src.start(when);
+    if (isInitial) this.emitHostClockStart();
     console.log('[P0a-AV] AudioBufferSourceNode.start', {
       when,
       ctxTime: this.ctx.currentTime,
@@ -1001,7 +1008,14 @@ export class ChatDirector {
     }
   }
 
+  private emitHostClockStart(): void {
+    const fn = this.hostClockStart;
+    this.hostClockStart = null;
+    fn?.();
+  }
+
   stop(): void {
+    this.hostClockStart = null;
     this.speakSession++; // 让进行中的 speakAudio 会话失效 (即使之后 stopped 被新请求复位)
     this.wakeSpeakAudio?.();
     if (this.stopped && !this.ctx) return;

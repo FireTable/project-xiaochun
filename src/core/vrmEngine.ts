@@ -2293,7 +2293,7 @@ export class VRMEngine {
    */
   public async speakAudio(
     input: HostAudioInput,
-    opts: { motion?: boolean; lipsync?: boolean; audible?: boolean; text?: string } = {},
+    opts: { motion?: boolean; lipsync?: boolean; audible?: boolean; text?: string; onAudibleStart?: () => void } = {},
   ): Promise<void> {
     if (!this.currentVRM) return;
     const setStatus = (
