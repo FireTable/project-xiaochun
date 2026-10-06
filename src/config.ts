@@ -455,12 +455,12 @@ export const APP_CONFIG = {
       colors: [0xfff0e0, 0xffc6ce, 0xffab92], // 奶白 / 浅粉 / 浅珊瑚 (随机取)
     },
     props: {
-      enabled: true,       // 沙滩椅 + 遮阳伞 (角色右后方, 面朝大海; 1 次绘制, 约 1.5k 三角)
+      enabled: true,       // 沙滩椅 + 遮阳伞 (角色右后方, 面朝大海; 1 次绘制, 约 2.3k 三角)
       frame: 0xf4e6d6,     // 椅架 / 伞杆: 奶白
       cushion: 0xffb4b0,   // 坐垫主色: 蜜桃粉
       stripe: 0xfbebdd,    // 坐垫条纹: 奶油色
       canopyA: 0xff9fb2,   // 伞面色 A: 蜜桃粉
-      canopyB: 0xfaece0,   // 伞面色 B / 饰边: 奶油白
+      canopyB: 0xfaece0,   // 伞面色 B: 奶油白
       pillow: 0xb3e8d4,    // 小枕头: 薄荷绿
       groundShadow: 0.85,  // 道具 (棕榈 / 椅子 / 伞) 在沙地上的落影强度, 范围 0 ~ 1; 1 ≈ 与角色落影一样深, 0 = 无落影
     },

@@ -67,7 +67,7 @@ Props are kept out of a central zone (rocks `|x| < 2.2`, shells within 1.2 m of 
 | Palm crowns | 1 | Instanced, 14 textured frond ribbons per crown plus 4 coconuts. |
 | Rocks | 1 | Instanced smooth rocks with a 3-tone toon ramp, a soft top highlight, a cool rim and a darker wet band. Asymmetric clusters on both sides along the shore, some half in the water. |
 | Shells | 1 | 32 instanced scallops, conches and starfish in one shared geometry (each instance collapses the other two shapes). |
-| Chair + parasol | 1 | One merged mesh. See [Lounge chair and parasol](#lounge-chair-and-parasol). |
+| Chair + parasol | 1 | One merged mesh, ~2.3k triangles. See [Lounge chair and parasol](#lounge-chair-and-parasol). |
 
 The character shadow is the engine's existing `CharacterShadowSystem` plane. The ground uses a polygon offset so the shadow sits stably on top of it.
 
@@ -83,10 +83,14 @@ The character shadow is the engine's existing `CharacterShadowSystem` plane. The
 
 ## Lounge chair and parasol
 
-- A low-poly lounge chair at the character's right, facing the sea: a cream frame (legs, rails, foot bar), a rounded seat cushion and a reclined backrest with pink / cream stripes, and a mint pillow.
-- A small parasol at the head end: a slightly tilted pole, an 8-panel canopy with alternating pink / cream panels, a gentle sag between ribs, a scalloped edge and a finial.
+- A low-poly lounge chair at the character's right, facing the sea, built as one connected frame:
+  - Two side rails with a foot bar and a head bar between them, on four legs that sink slightly into the sand.
+  - A reclined backrest hinged on top of the seat rails (same x as the seat rails, with a small hinge pin on the outside). It is held up by two props that run from the seat rails, directly above the head-end legs, to the middle of the backrest rails. There are no armrests.
+  - A rounded seat cushion lying on the rails from the foot end to the hinge, a back cushion lying on the backrest rails, both with pink / cream stripes, and a mint pillow on the back cushion.
+- A small parasol at the head end: a slightly tilted pole that goes into the sand and up to the canopy apex, and an 8-panel canopy with alternating pink / cream panels. The fabric sags softly between the ribs, and the edge runs straight between rib tips with a very shallow inward curve, finished by a narrow hem. Underneath are 8 thin ribs, a runner on the pole and 8 stretchers; on top are a small cap and a finial.
 - Shading matches the rest of the stage: two-step toon light from the engine's sun, cool shade, a soft rim. The canopy underside is a warm translucent tint, and the canopy casts a soft shadow onto the chair.
-- Ground shadows of chair, backrest, pole and canopy are analytic soft shapes in the ground shader, projected along the sun direction (`props.groundShadow` controls their strength). They are part of the scene's own shading, not an engine shadow setting.
+- Ground shadows of the seat, the backrest (in three height bands), the four legs, the pole and the octagonal canopy are analytic soft shapes in the ground shader, projected along the sun direction. They use the same dimensions as the geometry (`CHAIR_BACK`), and `props.groundShadow` controls their strength. They are part of the scene's own shading, not an engine shadow setting.
+- A unit test checks that every chair part and every parasol part is connected to the legs or the pole, and that the legs and pole go into the sand, so no part floats.
 
 ## Shells
 
@@ -187,7 +191,7 @@ Measured on an Apple M1 Ultra (Chrome, ANGLE Metal) with headless Puppeteer at 1
 
 | Scene | Scene draws / triangles (`getStats`) | Whole frame calls / triangles (incl. shadow map + post passes) | FPS (p50 / p95 frame time) |
 | :--- | :--- | :--- | :--- |
-| `beach3d` | 9 / 43,976 | 71 / 165,703 | 59.8 (16.67 / 16.67 ms) |
+| `beach3d` | 9 / 44,832 | 71 / 166,559 | 60.0 (16.67 / 16.67 ms) |
 | `light` (baseline) | — | 73 / 122,469 | 60.0 (16.66 / 16.67 ms) |
 
 Both are capped by vsync on this machine. Low-end and mobile GPUs have not been measured.

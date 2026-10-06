@@ -95,8 +95,8 @@ export function palmTop(p: PalmSpec): { x: number; y: number; z: number } {
  */
 export const CHAIR = { x: 1.95, z: -2.9, yaw: 0.3, length: 1.9, width: 0.66 } as const;
 
-/** 遮阳伞: 插在椅子头端外侧 (椅子局部坐标 lx, lz), 伞面高 height, 半径 radius, 向椅子一侧倾斜 tilt (rad)。 */
-export const PARASOL = { lx: 0.5, lz: 0.72, height: 1.78, radius: 0.72, tilt: 0.14 } as const;
+/** 遮阳伞: 插在椅子头端外侧 (椅子局部坐标 lx, lz), 伞顶高 height (沿伞杆), 伞骨长 radius, 向椅子一侧倾斜 tilt (rad)。 */
+export const PARASOL = { lx: 0.5, lz: 0.72, height: 1.78, radius: 0.76, tilt: 0.14 } as const;
 
 /** 椅子局部坐标 → 世界 (局部坐标系)。 */
 export function chairToWorld(lx: number, lz: number): { x: number; z: number } {

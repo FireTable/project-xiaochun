@@ -23,6 +23,7 @@ import {
 } from '../beach3d/beach3dLayout';
 import {
   buildBeachProps,
+  buildBeachPropParts,
   buildIslandStrip,
   buildPalmCrown,
   buildPalmTrunk,
@@ -230,6 +231,39 @@ describe('beach3d geometry budget', () => {
     for (let i = 0; i < n.count; i += 11) {
       expect(Math.hypot(n.getX(i), n.getY(i), n.getZ(i))).toBeCloseTo(1, 2);
     }
+  });
+
+  it('沙滩道具: 椅子 / 伞各自的所有部件彼此相连并连到插进沙里的腿 / 伞杆 (没有悬空零件)', () => {
+    const parts = buildBeachPropParts();
+    const boxes = parts.map((p) => {
+      p.geo.computeBoundingBox();
+      return { name: p.name, box: p.geo.boundingBox!.clone().expandByScalar(0.002) };
+    });
+    for (const obj of ['chair', 'parasol']) {
+      const list = boxes.filter((b) => b.name.startsWith(obj + ':'));
+      expect(list.length).toBeGreaterThan(3);
+      // 从埋进沙里的部件出发做连通搜索
+      const seen = new Set(list.filter((b) => b.box.min.y < 0).map((b) => b.name));
+      expect(seen.size).toBeGreaterThan(0);
+      let grew = true;
+      while (grew) {
+        grew = false;
+        for (const a of list) {
+          if (seen.has(a.name)) continue;
+          if (list.some((b) => seen.has(b.name) && a.box.intersectsBox(b.box))) { seen.add(a.name); grew = true; }
+        }
+      }
+      expect(list.filter((b) => !seen.has(b.name)).map((b) => b.name)).toEqual([]);
+    }
+    // 椅子 4 条腿都插进沙里; 伞杆插进沙里并一直通到伞顶
+    const legs = boxes.filter((b) => b.name.startsWith('chair:leg'));
+    expect(legs.length).toBe(4);
+    for (const l of legs) expect(l.box.min.y).toBeLessThan(0);
+    const pole = boxes.find((b) => b.name === 'parasol:pole')!.box;
+    const canopy = boxes.find((b) => b.name === 'parasol:canopy')!.box;
+    expect(pole.min.y).toBeLessThan(0);
+    expect(pole.max.y).toBeGreaterThan(canopy.max.y - 0.03);
+    parts.forEach((p) => p.geo.dispose());
   });
 
   it('礁石: 平滑法线 (合并顶点后无裂缝), 底部压平贴地', () => {

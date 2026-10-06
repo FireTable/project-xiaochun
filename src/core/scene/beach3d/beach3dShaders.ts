@@ -378,6 +378,7 @@ uniform vec4 uPalmB[PALM_MAX];    // (顶高, 叶冠半径, 树干半径, 种子
 uniform vec4 uCanopy;             // 伞面: (中心 x, 中心 z, 高度, 半径; 半径 0 = 无)
 uniform vec4 uChair;              // 躺椅: (中心 x, 中心 z, yaw, 有效)
 uniform vec4 uChairBack;          // 靠背: (铰点高, 铰点 z, 角度, 长度)
+uniform vec4 uChairSeat;          // 坐垫顶高, 腿的 |x|, 脚端腿 z, 头端腿 z
 uniform float uShadowK;           // 道具落影强度
 varying vec3 vW;
 varying vec2 vL;
@@ -426,11 +427,12 @@ float propShadow(vec2 q) {
     crown *= 1.0 - 0.45 * smoothstep(0.55, 0.7, vnoise(q * 2.4 + B.w * 9.0)) * smoothstep(0.3, 0.8, lr / B.y);
     sh = max(sh, crown * 0.9);
   }
-  // 遮阳伞面 (扇贝边圆盘)
+  // 遮阳伞面: 8 根伞骨撑开的八边形 (伞骨之间是直边), 投影高度取伞面平均高度 (伞顶往下 0.12m)
   if (uCanopy.w > 0.0) {
-    vec2 cq = q + so * uCanopy.z - uCanopy.xy;
-    float ang = atan(cq.y, cq.x);
-    float rr = uCanopy.w * (1.0 - 0.05 * pow(abs(sin(ang * 4.0)), 2.0));
+    vec2 cq = q + so * (uCanopy.z - 0.12) - uCanopy.xy;
+    float ang = atan(cq.y, cq.x) + uChair.z;   // 伞骨方向随椅子朝向转
+    float fa = mod(ang, 0.785398) - 0.392699;
+    float rr = uCanopy.w * 0.92388 / cos(fa);
     sh = max(sh, 1.0 - smoothstep(rr - 0.08, rr + 0.03, length(cq)));
     // 伞杆
     vec2 pb = uCanopy.xy;
@@ -439,18 +441,28 @@ float propShadow(vec2 q) {
     float t = clamp(dot(q - pb, ba) / max(dot(ba, ba), 1e-4), 0.0, 1.0);
     sh = max(sh, (1.0 - smoothstep(0.015, 0.045, length(q - pb - ba * t))) * 0.8);
   }
-  // 躺椅: 坐垫 (高 0.36m 的矩形) + 靠背 (分两段高度近似)
+  // 躺椅: 坐垫 (脚端 → 铰点的矩形, 高 = 坐垫顶) + 靠背 (沿靠背分三段, 每段取中点高度); 4 条腿是细条小影
   if (uChair.w > 0.0) {
     float c = cos(uChair.z), s = sin(uChair.z);
-    for (int k = 0; k < 3; k++) {
-      float hgt = k == 0 ? 0.36 : (k == 1 ? uChairBack.x + 0.18 : uChairBack.x + 0.45);
+    float bc = cos(uChairBack.z), bs = sin(uChairBack.z);
+    for (int k = 0; k < 4; k++) {
+      float s0 = float(k - 1) / 3.0 * uChairBack.w, s1 = float(k) / 3.0 * uChairBack.w;
+      float hgt = k == 0 ? uChairSeat.x : uChairBack.x + 0.5 * (s0 + s1) * bs;
+      float z0 = k == 0 ? -0.93 : uChairBack.y + s0 * bc;
+      float z1 = k == 0 ? uChairBack.y : uChairBack.y + s1 * bc;
       vec2 p = q + so * hgt - uChair.xy;
       vec2 l = vec2(p.x * c - p.y * s, p.x * s + p.y * c);
-      float z0 = k == 0 ? -0.92 : (k == 1 ? uChairBack.y : uChairBack.y + 0.22);
-      float z1 = k == 0 ? 0.35 : (k == 1 ? uChairBack.y + 0.24 : uChairBack.y + 0.45);
-      float dx = abs(l.x) - 0.3;
+      float dx = abs(l.x) - 0.31;
       float dz = max(z0 - l.y, l.y - z1);
       sh = max(sh, (1.0 - smoothstep(-0.03, 0.04, max(dx, dz))) * 0.85);
+    }
+    for (int k = 0; k < 4; k++) {
+      float lx = (k < 2 ? -1.0 : 1.0) * uChairSeat.y;
+      float lz = mod(float(k), 2.0) < 0.5 ? uChairSeat.z : uChairSeat.w;
+      vec2 a = uChair.xy + vec2(lx * c + lz * s, -lx * s + lz * c);
+      vec2 ba = -so * 0.27;
+      float t = clamp(dot(q - a, ba) / dot(ba, ba), 0.0, 1.0);
+      sh = max(sh, (1.0 - smoothstep(0.015, 0.04, length(q - a - ba * t))) * 0.7);
     }
   }
   return sh;
@@ -914,7 +926,7 @@ void main() {
 
 // ───────────────────────── 沙滩椅 + 遮阳伞 (1 次绘制) ─────────────────────────
 // 柔和的二次元道具着色: 两~三阶卡通明暗 (暗部偏薰衣草, 与礁石 / 贝壳 / 角色暗部同一色调), 一点天光 rim;
-// 坐垫沿椅长方向的粉彩条纹, 伞面相间的两色布片 + 扇贝边; 伞面背面 (从下往上看) 是透光的暖色;
+// 坐垫沿椅长方向的粉彩条纹, 伞面相间的两色布片 (边缘干净, 不加饰边); 伞面背面 (从下往上看) 是透光的暖色;
 // 伞面在椅子 / 伞杆上的落影按太阳方向解析计算 (与地面落影同一套投影)。
 export const PROP_VERT = /* glsl */ `
 ${COMMON}
@@ -971,7 +983,6 @@ void main() {
   else if (vMat < 3.5) {
     float panel = mod(floor(vUV.x), 2.0);
     base = mix(uCanopyA, uCanopyB, panel);
-    base = mix(base, uCanopyB, smoothstep(0.9, 0.93, vUV.y) * (1.0 - panel) * 0.85);  // 边缘一圈浅色饰边
   } else base = uPillow;
   float t = smoothstep(-0.2, 0.15, ndl) * 0.62 + smoothstep(0.35, 0.7, ndl) * 0.38;
   vec3 col = mix(base * vec3(0.76, 0.74, 0.87), base, t);

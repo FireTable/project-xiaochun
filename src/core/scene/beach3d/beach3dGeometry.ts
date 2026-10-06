@@ -322,21 +322,39 @@ export function buildShellSet(): THREE.BufferGeometry {
 /** 沙滩椅 / 遮阳伞的材质分区 (顶点属性 aMat)。 */
 export const PROP_MAT = { frame: 0, cushion: 1, pole: 2, canopy: 3, pillow: 4 } as const;
 
-/** 靠背与水平面的夹角 (rad)。 */
-const BACK_ANGLE = 0.95;
-/** 靠背铰点 (椅子局部)。 */
-const BACK_PIVOT = new THREE.Vector3(0, 0.33, 0.33);
+/**
+ * 躺椅框架尺寸 (椅子局部坐标, m): 两根侧梁 (截面 宽 railW × 高 railH, 中心高 railY) 从脚端 z0 到头端 z1;
+ * 4 条腿在 legZ 处直落沙地; 靠背铰接在侧梁顶面 hingeZ 处, 与水平面成 backAngle, 长 backLen;
+ * 撑杆从侧梁内侧 propZ 处 (正好在头端腿的上方) 撑到靠背侧梁的 propS 处。
+ */
+const FRAME = {
+  railY: 0.3, railH: 0.055, railW: 0.05, z0: -0.95, z1: 0.65,
+  legZ: [-0.87, 0.57] as const, legW: 0.045, legSink: 0.03,
+  hingeZ: 0.15, backAngle: 0.95, backLen: 0.8, backT: 0.045,
+  propZ: 0.57, propS: 0.45, propT: 0.03,
+  cushionT: 0.07, cushionW: 0.62,
+} as const;
+const RAIL_TOP = FRAME.railY + FRAME.railH / 2;
+/** 靠背侧梁中心线在铰点处的高度 (侧梁底角略嵌进座梁, 看起来是铰在一起的)。 */
+const HINGE_Y = RAIL_TOP + 0.02;
+
+/** 遮阳伞伞面: 伞骨长 (= 半径 PARASOL.radius)、伞顶到伞骨末端的落差 rise、伞骨之间布面的下垂 sag、边缘内凹的扇贝 scallop、下摆高 hem。 */
+const CANOPY = { rise: 0.24, sag: 0.05, scallop: 0.025, hem: 0.022, panels: 8, sub: 6, rings: 6 } as const;
+
+export interface PropPart { name: string; geo: THREE.BufferGeometry }
 
 /**
- * 沙滩躺椅 + 遮阳伞 (椅子局部坐标: 原点 = 椅子中心地面, 头端 / 靠背在 +Z, 脚端在 −Z; mesh 再按 CHAIR 摆放 / 旋转)。
- * 躺椅: 4 条腿 + 两侧扶栏 + 脚端横档 + 倾斜靠背 (带支撑杆) + 圆角坐垫 / 靠垫 + 头端小枕头。
- * 遮阳伞: 插在头端外侧、向椅子一侧微倾的细杆 + 8 片布面的伞 (布面在伞骨之间微微下垂, 边缘呈扇贝形) + 顶珠。
- * 所有部件合并成一个非索引几何 (1 次绘制), 顶点带 aMat (材质分区) 与 aUV (条纹 / 伞面分片用)。约 1.5k 三角。
+ * 沙滩躺椅 + 遮阳伞的各个部件 (椅子局部坐标: 原点 = 椅子中心地面, 头端 / 靠背在 +Z, 脚端在 −Z)。
+ * 躺椅: 两根侧梁 + 脚端 / 头端横档 + 4 条插进沙里的腿; 靠背侧梁与座梁同一 x、铰在座梁顶面 (外侧有铰钉),
+ *   由两根撑杆从头端腿正上方的座梁内侧撑住; 坐垫平放在座梁上, 靠垫贴在靠背侧梁上, 小枕头贴在靠垫上。没有扶手。
+ * 遮阳伞: 插进沙里的细杆一直通到伞顶; 8 片布面在伞骨之间微微下垂, 边缘是伞骨之间的直边 + 很浅的内凹, 外加一圈很窄的下摆;
+ *   伞面下有 8 根细伞骨 + 伞杆上的伞巢和 8 根撑骨; 伞顶一个小帽 + 顶珠。
+ * 单测检查: 每个物体 (椅子 / 伞) 的所有部件彼此相连, 且都连到插进沙里的腿 / 伞杆上 (没有悬空零件)。
  */
-export function buildBeachProps(): THREE.BufferGeometry {
-  const parts: THREE.BufferGeometry[] = [];
-  const add = (g: THREE.BufferGeometry, mat: number, m: THREE.Matrix4) => {
-    let gg = g.index ? g.toNonIndexed() : g;
+export function buildBeachPropParts(): PropPart[] {
+  const parts: PropPart[] = [];
+  const add = (name: string, g: THREE.BufferGeometry, mat: number, m: THREE.Matrix4) => {
+    const gg = g.index ? g.toNonIndexed() : g;
     if (gg !== g) g.dispose();
     gg.applyMatrix4(m);
     const n = gg.getAttribute('position').count;
@@ -347,82 +365,133 @@ export function buildBeachProps(): THREE.BufferGeometry {
     if (!gg.getAttribute('normal')) gg.computeVertexNormals();
     gg.setAttribute('aUV', new THREE.BufferAttribute(auv, 2));
     gg.setAttribute('aMat', new THREE.BufferAttribute(new Float32Array(n).fill(mat), 1));
-    parts.push(gg);
-    gg = null as unknown as THREE.BufferGeometry;
+    parts.push({ name, geo: gg });
   };
-  const M = (x: number, y: number, z: number, rx = 0) => new THREE.Matrix4().compose(new THREE.Vector3(x, y, z), new THREE.Quaternion().setFromEuler(new THREE.Euler(rx, 0, 0)), new THREE.Vector3(1, 1, 1));
-  /** 从 a 到 b 的方截面细杆 (厚 t)。 */
-  const bar = (a: THREE.Vector3, b: THREE.Vector3, t: number, mat: number) => {
+  const ONE = new THREE.Vector3(1, 1, 1);
+  const M = (x: number, y: number, z: number, rx = 0) => new THREE.Matrix4().compose(new THREE.Vector3(x, y, z), new THREE.Quaternion().setFromEuler(new THREE.Euler(rx, 0, 0)), ONE);
+  /** 从 a 到 b 的方截面细杆 (厚 t), 可再套一层父矩阵 parent。 */
+  const bar = (name: string, a: THREE.Vector3, b: THREE.Vector3, t: number, mat: number, parent?: THREE.Matrix4) => {
     const d = new THREE.Vector3().subVectors(b, a);
     const q = new THREE.Quaternion().setFromUnitVectors(new THREE.Vector3(0, 0, 1), d.clone().normalize());
-    add(new THREE.BoxGeometry(t, t, d.length()), mat, new THREE.Matrix4().compose(a.clone().add(b).multiplyScalar(0.5), q, new THREE.Vector3(1, 1, 1)));
+    const m = new THREE.Matrix4().compose(a.clone().add(b).multiplyScalar(0.5), q, ONE);
+    add(name, new THREE.BoxGeometry(t, t, d.length()), mat, parent ? parent.clone().multiply(m) : m);
   };
-  const hw = CHAIR.width / 2 - 0.03;
-  // 腿
-  for (const sx of [-1, 1]) for (const z of [-0.86, 0.38]) add(new THREE.BoxGeometry(0.045, 0.27, 0.045), PROP_MAT.frame, M(sx * hw, 0.135, z));
-  // 扶栏 + 脚端横档
-  for (const sx of [-1, 1]) add(new THREE.BoxGeometry(0.05, 0.055, 1.4), PROP_MAT.frame, M(sx * hw, 0.29, -0.25));
-  add(new THREE.BoxGeometry(CHAIR.width - 0.01, 0.05, 0.05), PROP_MAT.frame, M(0, 0.29, -0.93));
-  // 坐垫
-  add(new RoundedBoxGeometry(0.58, 0.075, 1.24, 2, 0.032), PROP_MAT.cushion, M(0, 0.352, -0.29));
-  // 靠背: 沿 (0, sin, cos) 方向从铰点升起
-  const bdir = new THREE.Vector3(0, Math.sin(BACK_ANGLE), Math.cos(BACK_ANGLE));
-  const bnrm = new THREE.Vector3(0, Math.cos(BACK_ANGLE), -Math.sin(BACK_ANGLE)); // 靠背正面 (朝上偏脚端)
-  const along = (s: number, off: number) => BACK_PIVOT.clone().addScaledVector(bdir, s).addScaledVector(bnrm, off);
-  const bc = along(0.37, 0.035);
-  add(new RoundedBoxGeometry(0.58, 0.075, 0.74, 2, 0.032), PROP_MAT.cushion, M(bc.x, bc.y, bc.z, -BACK_ANGLE));
+  const F = FRAME;
+  const hw = CHAIR.width / 2 - 0.03; // 侧梁中心的 |x|
+  const railBot = F.railY - F.railH / 2;
+
+  // ── 躺椅框架 ──
   for (const sx of [-1, 1]) {
-    const a = along(0.0, -0.01).setX(sx * hw), b = along(0.76, -0.01).setX(sx * hw);
-    bar(a, b, 0.045, PROP_MAT.frame);
-    // 支撑杆: 扶栏末端 → 靠背背面中段
-    bar(new THREE.Vector3(sx * (hw - 0.02), 0.29, 0.62), along(0.42, -0.04).setX(sx * (hw - 0.02)), 0.032, PROP_MAT.frame);
+    add(`chair:rail${sx}`, new THREE.BoxGeometry(F.railW, F.railH, F.z1 - F.z0), PROP_MAT.frame, M(sx * hw, F.railY, (F.z0 + F.z1) / 2));
+    for (const z of F.legZ) {
+      const h = railBot + 0.01 + F.legSink; // 上端插进侧梁 1cm, 下端埋进沙里
+      add(`chair:leg${sx}:${z}`, new THREE.BoxGeometry(F.legW, h, F.legW), PROP_MAT.frame, M(sx * hw, railBot + 0.01 - h / 2, z));
+    }
   }
-  bar(along(0.76, -0.01).setX(-hw), along(0.76, -0.01).setX(hw), 0.04, PROP_MAT.frame);
-  // 小枕头
-  const pc = along(0.6, 0.1);
-  add(new RoundedBoxGeometry(0.42, 0.085, 0.2, 2, 0.04), PROP_MAT.pillow, M(pc.x, pc.y, pc.z, -BACK_ANGLE));
+  // 横档: 夹在两根侧梁内侧面之间 (端面不与侧梁共面)
+  const inner = 2 * hw - F.railW;
+  add('chair:footBar', new THREE.BoxGeometry(inner, 0.045, 0.045), PROP_MAT.frame, M(0, F.railY, F.z0 + 0.025));
+  add('chair:headBar', new THREE.BoxGeometry(inner, 0.045, 0.045), PROP_MAT.frame, M(0, F.railY, F.z1 - 0.025));
+  // 坐垫: 平放在座梁顶面, 从脚端一直铺到靠背铰点前
+  const seatZ0 = F.z0 + 0.02, seatZ1 = F.hingeZ - 0.045;
+  add('chair:seat', new RoundedBoxGeometry(F.cushionW, F.cushionT, seatZ1 - seatZ0, 2, 0.03), PROP_MAT.cushion, M(0, RAIL_TOP + F.cushionT / 2, (seatZ0 + seatZ1) / 2));
+
+  // ── 靠背: 沿 bdir 从铰点升起, bnrm = 靠背正面 (朝上偏脚端) ──
+  const bdir = new THREE.Vector3(0, Math.sin(F.backAngle), Math.cos(F.backAngle));
+  const bnrm = new THREE.Vector3(0, Math.cos(F.backAngle), -Math.sin(F.backAngle));
+  const along = (s: number, off = 0, x = 0) => new THREE.Vector3(x, HINGE_Y, F.hingeZ).addScaledVector(bdir, s).addScaledVector(bnrm, off);
+  for (const sx of [-1, 1]) {
+    bar(`chair:backRail${sx}`, along(-0.03, 0, sx * hw), along(F.backLen, 0, sx * hw), F.backT, PROP_MAT.frame);
+    // 铰钉: 横穿座梁与靠背侧梁的外侧面
+    add(`chair:hinge${sx}`, new THREE.CylinderGeometry(0.016, 0.016, 0.022, 8), PROP_MAT.frame,
+      new THREE.Matrix4().compose(new THREE.Vector3(sx * (hw + 0.03), RAIL_TOP - 0.004, F.hingeZ), new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0, 0, 1), Math.PI / 2), ONE));
+    // 撑杆: 贴着座梁 / 靠背侧梁的内侧面, 从头端腿正上方撑到靠背中段
+    const px = sx * (hw - F.backT / 2 - F.propT / 2);
+    bar(`chair:prop${sx}`, new THREE.Vector3(px, F.railY, F.propZ), along(F.propS, 0, px), F.propT, PROP_MAT.frame);
+  }
+  const topS = F.backLen - F.backT / 2;
+  bar('chair:backTopBar', along(topS, 0, -hw + F.backT / 2), along(topS, 0, hw - F.backT / 2), 0.04, PROP_MAT.frame);
+  // 靠垫: 底面贴在靠背侧梁的正面上
+  const bLen = F.backLen - 0.04;
+  const bc = along(0.02 + bLen / 2, F.backT / 2 + F.cushionT / 2);
+  add('chair:backCushion', new RoundedBoxGeometry(F.cushionW, F.cushionT, bLen, 2, 0.03), PROP_MAT.cushion, M(bc.x, bc.y, bc.z, -F.backAngle));
+  // 小枕头: 贴在靠垫上部
+  const pc = along(F.backLen * 0.7, F.backT / 2 + F.cushionT + 0.045 - 0.004);
+  add('chair:pillow', new RoundedBoxGeometry(0.4, 0.09, 0.2, 2, 0.04), PROP_MAT.pillow, M(pc.x, pc.y, pc.z, -F.backAngle));
 
   // ── 遮阳伞 ──
   const base = new THREE.Vector3(PARASOL.lx, 0, PARASOL.lz);
   const axis = new THREE.Vector3(-Math.sin(PARASOL.tilt), Math.cos(PARASOL.tilt), 0);
-  const top = base.clone().addScaledVector(axis, PARASOL.height);
+  const apex = base.clone().addScaledVector(axis, PARASOL.height);
   const qa = new THREE.Quaternion().setFromUnitVectors(new THREE.Vector3(0, 1, 0), axis);
-  const pole = new THREE.CylinderGeometry(0.02, 0.026, PARASOL.height + 0.25, 8, 1, true);
-  add(pole, PROP_MAT.pole, new THREE.Matrix4().compose(base.clone().addScaledVector(axis, (PARASOL.height + 0.25) / 2 - 0.12), qa, new THREE.Vector3(1, 1, 1)));
-  // 伞面: 8 片 × 每片 4 细分, 4 圈; 高度剖面 = 中心隆起 + 伞骨之间布面下垂 + 扇贝边
-  const PANELS = 8, SUB = 4, RINGS = 4;
-  const R = PARASOL.radius, rise = 0.27;
+  const Mc = new THREE.Matrix4().compose(apex, qa, ONE); // 伞面局部: 原点 = 伞顶, +Y = 伞杆方向
+  const local = (x: number, y: number, z: number) => new THREE.Matrix4().makeTranslation(x, y, z).premultiply(Mc);
+  // 伞杆: 下端埋进沙里 0.2m, 上端止于伞顶帽下
+  const poleLen = PARASOL.height + 0.2 - 0.01;
+  add('parasol:pole', new THREE.CylinderGeometry(0.018, 0.022, poleLen, 8, 1, true), PROP_MAT.pole, local(0, -0.01 - poleLen / 2, 0));
+  // 伞面
+  const R = PARASOL.radius;
+  const { rise, sag, scallop, hem, panels: P, sub: SUB, rings: RINGS } = CANOPY;
+  const NU = P * SUB;
+  const ribY = (t: number) => -rise * Math.pow(t, 1.6);
+  const edgeR = (fp: number) => R * (Math.cos(Math.PI / P) / Math.cos((fp - 0.5) * (2 * Math.PI / P))) * (1 - scallop * Math.sin(Math.PI * fp));
   const cp: number[] = [];
   const cuv: number[] = [];
   const cidx: number[] = [];
-  const NU = PANELS * SUB;
-  for (let k = 0; k <= RINGS; k++) for (let i = 0; i <= NU; i++) {
-    const u = i / NU;               // 0..1 绕一圈
-    const fp = (u * PANELS) % 1;    // 片内 0..1
-    const sag = Math.sin(Math.PI * fp) ** 2;
-    const rr = (k / RINGS) * R * (k === RINGS ? 1 - 0.06 * sag : 1);
+  for (let k = 0; k <= RINGS + 1; k++) for (let i = 0; i <= NU; i++) {
+    const u = i / NU;
+    const fp = (i % SUB) / SUB;
     const a = u * Math.PI * 2;
-    const y = rise * (1 - Math.pow(rr / R, 1.5)) - 0.05 * sag * (rr / R);
+    const re = edgeR(fp);
+    const isHem = k === RINGS + 1;
+    const rr = isHem ? re * 1.004 : (k / RINGS) * re;
+    const t = Math.min(rr / R, 1);
+    let y = ribY(t) - sag * Math.sin(Math.PI * fp) * t;
+    if (isHem) y -= hem;
     cp.push(Math.cos(a) * rr, y, Math.sin(a) * rr);
-    cuv.push(u * PANELS, k / RINGS); // aUV.x = 第几片 (整数部分), aUV.y = 中心 → 边缘
+    cuv.push(u * P, Math.min(k / RINGS, 1)); // aUV.x = 第几片 (整数部分), aUV.y = 中心 → 边缘
   }
-  for (let k = 0; k < RINGS; k++) for (let i = 0; i < NU; i++) {
+  for (let k = 0; k <= RINGS; k++) for (let i = 0; i < NU; i++) {
     const a = k * (NU + 1) + i, b = a + 1, c = a + NU + 1, d = c + 1;
-    cidx.push(a, b, d, a, d, c); // 法线朝上
+    cidx.push(a, b, d, a, d, c);
   }
   const canopy = new THREE.BufferGeometry();
   canopy.setAttribute('position', new THREE.Float32BufferAttribute(cp, 3));
   canopy.setAttribute('uv', new THREE.Float32BufferAttribute(cuv, 2));
   canopy.setIndex(cidx);
   canopy.computeVertexNormals();
-  add(canopy, PROP_MAT.canopy, new THREE.Matrix4().compose(top.clone().addScaledVector(axis, -rise + 0.02), qa, new THREE.Vector3(1, 1, 1)));
-  // 顶珠
-  add(new THREE.IcosahedronGeometry(0.035, 1), PROP_MAT.pole, new THREE.Matrix4().makeTranslation(top.x + axis.x * 0.04, top.y + axis.y * 0.04, top.z));
-  const out = mergeGeometries(parts);
-  parts.forEach((g) => g.dispose());
+  add('parasol:canopy', canopy, PROP_MAT.canopy, Mc);
+  // 伞骨 (贴在布面下 1.4cm) + 伞巢 + 撑骨
+  const runnerY = -0.36;
+  add('parasol:runner', new THREE.CylinderGeometry(0.026, 0.026, 0.05, 8), PROP_MAT.pole, local(0, runnerY, 0));
+  for (let k = 0; k < P; k++) {
+    const a = (k / P) * Math.PI * 2, ca = Math.cos(a), sa = Math.sin(a);
+    const rib = (t: number) => new THREE.Vector3(ca * t * R, ribY(t) - 0.014, sa * t * R);
+    bar(`parasol:rib${k}a`, rib(0.03), rib(0.5), 0.012, PROP_MAT.pole, Mc);
+    bar(`parasol:rib${k}b`, rib(0.49), rib(0.985), 0.012, PROP_MAT.pole, Mc); // 末端藏在下摆后面
+    bar(`parasol:stretcher${k}`, new THREE.Vector3(ca * 0.02, runnerY, sa * 0.02), rib(0.45), 0.009, PROP_MAT.pole, Mc);
+  }
+  // 伞顶帽 + 顶珠
+  add('parasol:cap', new THREE.CylinderGeometry(0.014, 0.046, 0.026, 8), PROP_MAT.pole, local(0, 0.004, 0));
+  add('parasol:finialNeck', new THREE.CylinderGeometry(0.009, 0.011, 0.04, 6, 1, true), PROP_MAT.pole, local(0, 0.035, 0));
+  add('parasol:finial', new THREE.IcosahedronGeometry(0.024, 1), PROP_MAT.pole, local(0, 0.07, 0));
+  return parts;
+}
+
+/**
+ * 沙滩躺椅 + 遮阳伞合并成一个非索引几何 (1 次绘制), 顶点带 aMat (材质分区) 与 aUV (伞面分片用)。约 2k 三角。
+ * 部件见 buildBeachPropParts()。
+ */
+export function buildBeachProps(): THREE.BufferGeometry {
+  const parts = buildBeachPropParts();
+  const out = mergeGeometries(parts.map((p) => p.geo));
+  parts.forEach((p) => p.geo.dispose());
   out.computeBoundingSphere();
   return out;
 }
 
-/** 靠背几何参数 (地面着色器画椅子落影要用)。 */
-export const CHAIR_BACK = { angle: BACK_ANGLE, pivotY: BACK_PIVOT.y, pivotZ: BACK_PIVOT.z, length: 0.76 } as const;
+/** 椅子几何参数 (地面着色器画椅子落影要用): 靠背铰点高 / 铰点 z / 与水平面夹角 / 长度; 坐垫顶高; 腿的 |x| 与 z。 */
+export const CHAIR_BACK = {
+  angle: FRAME.backAngle, pivotY: HINGE_Y, pivotZ: FRAME.hingeZ, length: FRAME.backLen,
+  seatTop: RAIL_TOP + FRAME.cushionT, legX: CHAIR.width / 2 - 0.03, legZ: FRAME.legZ,
+} as const;

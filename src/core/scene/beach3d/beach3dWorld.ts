@@ -451,6 +451,7 @@ export class Beach3DWorld {
           uCanopy: { value: canopyU },
           uChair: { value: chairU },
           uChairBack: { value: new THREE.Vector4(CHAIR_BACK.pivotY, CHAIR_BACK.pivotZ, CHAIR_BACK.angle, CHAIR_BACK.length) },
+          uChairSeat: { value: new THREE.Vector4(CHAIR_BACK.seatTop, CHAIR_BACK.legX, CHAIR_BACK.legZ[0], CHAIR_BACK.legZ[1]) },
           uShadowK: { value: clampN(cfg.props.groundShadow, 0, 1) },
           uComp: this.shared.uComp,
           ...haze,
