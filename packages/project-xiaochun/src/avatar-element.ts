@@ -21,7 +21,7 @@
  * 可用 ::part() 定制外壳: ::part(mount) ::part(wrapper) ::part(iframe) ::part(placeholder)  (iframe 内部不可被宿主 CSS 影响)
  * 事件 (CustomEvent, composed, detail = 协议 payload): xc-ready(模型加载完) xc-progress xc-state xc-stt xc-utterance xc-error xc-outfit-changed xc-scene-changed xc-lang-changed
  *   xc-move / xc-resize (用户拖动 / 缩放, detail = {phase, left, top, width, height})
- * 方法: say(text) speakAudio(source, opts) speakAudioStream(opts) motion(m) expression(name) setOutfit(id) setScene(id) getOutfits() getScenes() destroy()  (+ client 属性拿到完整 SDK 实例)
+ * 方法: say(text) speakAudio(source, opts) speakAudioStream(opts) setPlaybackRate(rate) setVolume(volume) motion(m) expression(name) setOutfit(id) setScene(id) getOutfits() getScenes() destroy()  (+ client 属性拿到完整 SDK 实例)
  */
 import {
   createXiaochun,
@@ -112,6 +112,8 @@ export interface XiaochunAvatarElement extends HTMLElement {
   /** 直接播放宿主给的音频 (不走 TTS), 同时由 EMAGE 生成动作 + 口型。 */
   speakAudio(source: XiaochunAudioSource, opts?: XiaochunAudioOptions): Promise<void>;
   speakAudioStream(opts: XiaochunAudioOptions & { sampleRate: number }): XiaochunAudioStream;
+  setPlaybackRate(rate: number): void;
+  setVolume(volume: number): void;
   motion(m: XcMotionPayload | string): Promise<void>;
   expression(name: XcExpressionPayload['name']): Promise<void>;
   /** 换内置服装 (串行 + last-wins, 见 XiaochunInstance.setOutfit)。 */
@@ -244,6 +246,8 @@ function createElementClass(): CustomElementConstructor {
     speakAudioStream(opts: XiaochunAudioOptions & { sampleRate: number }): XiaochunAudioStream {
       return this.requireClient().speakAudioStream(opts);
     }
+    setPlaybackRate(rate: number): void { this.client?.setPlaybackRate(rate); }
+    setVolume(volume: number): void { this.client?.setVolume(volume); }
     motion(m: XcMotionPayload | string): Promise<void> { return this.requireClient().motion(m); }
     expression(name: XcExpressionPayload['name']): Promise<void> { return this.requireClient().expression(name); }
     setOutfit(id: string): Promise<void> { return this.requireClient().setOutfit(id); }

@@ -34,6 +34,7 @@ export const XC_HOST_TO_FRAME = [
   'xc.prefetch',
   'xc.setConfig',
   'xc.mic',
+  'xc.transport',
   'xc.pause',
   'xc.resume',
   'xc.destroy',
@@ -75,6 +76,7 @@ export const XC_IMPLEMENTED_COMMANDS = [
   'xc.prefetch',
   'xc.setConfig',
   'xc.mic',
+  'xc.transport',
   'xc.pause',
   'xc.resume',
   'xc.destroy',
@@ -98,6 +100,7 @@ export const XC_PROTOCOL_MAPPING = [
   { xc: 'xc.audio', note: 'source 为 URL 字符串', action: 'speak', url: 'xiaochun://speak?audioUrl=…[&text=…]' },
   { xc: 'xc.audio', note: 'source 为 ArrayBuffer / Blob', action: 'audio', url: null },
   { xc: 'xc.audio.chunk / xc.audio.end', note: '流式 PCM', action: 'audio', url: null },
+  { xc: 'xc.transport', note: '改宿主音频倍速 / 音量, 无 deep link', action: null, url: null },
 ] as const;
 
 export type XcErrorCode =
@@ -375,6 +378,16 @@ export interface XcAudioOptions {
    * false: 仍解码并生成动作和口型, 增益为 0。宿主页面自己播放同一段音频时用来避免叠声。
    */
   audible?: boolean;
+  /**
+   * 播放倍速, 默认 1, 范围 0.25~3, 越界会夹到范围内。
+   * 这段音频和动作时钟一起变快变慢。改正在播的倍速用 xc.transport。
+   */
+  playbackRate?: number;
+  /**
+   * 音量 0~1, 默认 1。audible 为 false 时扬声器仍是 0, 这个值先记下。
+   * 改正在播的音量用 xc.transport。
+   */
+  volume?: number;
 }
 
 /**
@@ -400,7 +413,7 @@ export interface XcAudioPayload extends XcAudioOptions {
  * xc.audio.chunk — 流式音频分块 (原始 PCM)。信封 `id` = 流 id: 同一个 id 的第一个 chunk 开启一次说话,
  * 声音时钟起步时回 xc.utterance start,
  * 之后的 chunk 追加; 以 xc.audio.end 收尾。每个 chunk 的 `data` 应放进 transfer 列表。
- * 选项 (text/motion/lipsync) 只在第一个 chunk 里生效; sampleRate/format 整条流必须一致。
+ * 选项 (text/motion/lipsync/audible/playbackRate/volume) 只在第一个 chunk 里生效; sampleRate/format 整条流必须一致。
  */
 export interface XcAudioChunkPayload extends XcAudioOptions {
   data: ArrayBuffer;
@@ -487,6 +500,14 @@ export interface XcMicPayload {
   enabled: boolean;
 }
 
+/** xc.transport — 改当前宿主音频的倍速或音量, 不重开这一次说话。缺省字段保持原值。 */
+export interface XcTransportPayload {
+  /** 0.25~3。越界夹到范围内。不是数字则忽略。 */
+  playbackRate?: number;
+  /** 0~1。audible:false 时扬声器仍为 0。 */
+  volume?: number;
+}
+
 /* ───────────── iframe → 宿主 payload ───────────── */
 
 export interface XcReadyPayload {
@@ -498,7 +519,15 @@ export interface XcReadyPayload {
     stt: boolean;
     transparent: boolean;
     /** 宿主音频能力 (xc.audio / xc.audio.chunk)。旧版 /embed 没有这个字段。 */
-    audio?: { formats: XcAudioFormat[]; streaming: boolean; maxSeconds: number };
+    audio?: {
+      formats: XcAudioFormat[];
+      streaming: boolean;
+      maxSeconds: number;
+      /** 倍速范围。旧版没有。 */
+      playbackRate?: { min: number; max: number };
+      /** 音量范围。旧版没有。 */
+      volume?: { min: number; max: number };
+    };
     /** iframe 内 `self.crossOriginIsolated` (true = 可用 SharedArrayBuffer / 多线程 wasm)。旧版 /embed 没有这个字段。仅诊断用。 */
     crossOriginIsolated?: boolean;
     /** 可换的内置服装 (不含裸模)。旧版 /embed 没有这个字段 → 宿主应视为"不支持 xc.setOutfit"。 */
@@ -662,6 +691,7 @@ export interface XcHostPayloadMap {
   'xc.prefetch': XcPrefetchPayload;
   'xc.setConfig': XcConfig;
   'xc.mic': XcMicPayload;
+  'xc.transport': XcTransportPayload;
   'xc.pause': undefined;
   'xc.resume': undefined;
   'xc.destroy': undefined;

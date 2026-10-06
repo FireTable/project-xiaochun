@@ -45,6 +45,7 @@ import {
   type XcAudioChunkPayload,
   type XcAudioPayload,
   type XcConfig,
+  type XcTransportPayload,
   type XcErrorCode,
   type XcEnvelope,
   type XcFrameMessageType,
@@ -291,7 +292,13 @@ export function startEmbedBridge(opts: EmbedBridgeOptions): EmbedBridge {
           unsupported: [...XC_UNSUPPORTED_COMMANDS],
           stt: true,
           transparent: true,
-          audio: { formats: ['encoded', 'pcm16', 'float32'], streaming: true, maxSeconds: HOST_AUDIO.maxSec },
+          audio: {
+            formats: ['encoded', 'pcm16', 'float32'],
+            streaming: true,
+            maxSeconds: HOST_AUDIO.maxSec,
+            playbackRate: { min: HOST_AUDIO.minPlaybackRate, max: HOST_AUDIO.maxPlaybackRate },
+            volume: { min: HOST_AUDIO.minVolume, max: HOST_AUDIO.maxVolume },
+          },
           crossOriginIsolated: typeof self !== 'undefined' && self.crossOriginIsolated === true,
           outfits: listOutfits(addons),
           scenes: listScenes(APP_CONFIG.scenes.items),
@@ -663,7 +670,10 @@ export function startEmbedBridge(opts: EmbedBridgeOptions): EmbedBridge {
           // 只挑白名单字段: 不信任宿主发来的任何内部字段 (如 stream)
           await dispatchSpeech(id, {
             action: 'audio',
-            payload: { source: ap.source, format: ap.format, mimeType: ap.mimeType, sampleRate: ap.sampleRate, channels: ap.channels, text, motion: ap.motion, lipsync: ap.lipsync, audible: ap.audible },
+            payload: {
+              source: ap.source, format: ap.format, mimeType: ap.mimeType, sampleRate: ap.sampleRate, channels: ap.channels,
+              text, motion: ap.motion, lipsync: ap.lipsync, audible: ap.audible, playbackRate: ap.playbackRate, volume: ap.volume,
+            },
           }, text, 'xc.audio');
           break;
         }
@@ -691,7 +701,11 @@ export function startEmbedBridge(opts: EmbedBridgeOptions): EmbedBridge {
             const text = typeof cp.text === 'string' ? cp.text : '';
             void dispatchSpeech(streamId, {
               action: 'audio',
-              payload: { text, motion: cp.motion, lipsync: cp.lipsync, audible: cp.audible, stream: { sampleRate, chunks: q } },
+              payload: {
+                text, motion: cp.motion, lipsync: cp.lipsync, audible: cp.audible,
+                playbackRate: cp.playbackRate, volume: cp.volume,
+                stream: { sampleRate, chunks: q },
+              },
             }, text, 'xc.audio.chunk').finally(() => {
               const cur = audioStreams.get(streamId);
               if (cur) { cur.q.abort(); audioStreams.delete(streamId); }
@@ -784,6 +798,11 @@ export function startEmbedBridge(opts: EmbedBridgeOptions): EmbedBridge {
           const client = await ensureStt();
           if (p.enabled === true) await client.start();
           else await client.stop();
+          break;
+        }
+        case 'xc.transport': {
+          const tp = p as unknown as XcTransportPayload;
+          vrmEngine.setTransport({ playbackRate: tp.playbackRate, volume: tp.volume });
           break;
         }
         case 'xc.pause':

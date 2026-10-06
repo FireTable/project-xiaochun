@@ -278,6 +278,8 @@ export interface XiaochunInstance {
    * 直接播放宿主给的音频 (不经过 TTS): iframe 内解码 → EMAGE 生成动作 + 口型, 念完 (xc.utterance end) 才 resolve。
    * 首次调用才加载 EMAGE 模型 (首次会慢); opts.motion=false 则只播放不加载。
    * xc.utterance start 在思考动作和首窗之后、声音时钟起步时才发, 不是命令一到就发。
+   * opts.playbackRate (0.25~3, 默认 1) 与 opts.volume (0~1, 默认 1) 只作用于这次宿主音频, 动作时钟一起变。
+   * 不写则沿用上一次 setPlaybackRate / setVolume。audible:false 时音量不会送到扬声器。TTS (say) 不受影响。
    */
   speakAudio(source: XiaochunAudioSource, opts?: XiaochunAudioOptions): Promise<void>;
   /** 流式音频 (原始 PCM 分块)。sampleRate 必填; 首个 write 开始这次说话, utterance start 仍等到声音时钟起步。 */
@@ -332,6 +334,13 @@ export interface XiaochunInstance {
   mic(enabled: boolean): Promise<void>;
   pause(): void;
   resume(): void;
+  /**
+   * 改正在播的宿主音频倍速 (0.25~3, 越界由 iframe 夹到范围内)。不重开这次说话, 播放头不跳。
+   * 没在播时先记下, 下一次 speakAudio 用。不影响 TTS。
+   */
+  setPlaybackRate(rate: number): void;
+  /** 改宿主音频音量 (0~1)。audible:false 时扬声器仍是 0, 这个值留到下次出声。 */
+  setVolume(volume: number): void;
   destroy(): void;
   on<K extends keyof XiaochunEvents>(event: K, cb: (payload: XiaochunEvents[K]) => void): () => void;
 }
@@ -633,6 +642,7 @@ export function createXiaochun(options: XiaochunOptions): XiaochunInstance {
         if (!started) {
           started = true;
           body.text = rest.text; body.motion = rest.motion; body.lipsync = rest.lipsync;
+          body.audible = rest.audible; body.playbackRate = rest.playbackRate; body.volume = rest.volume;
           done = send('xc.audio.chunk', body, true, [buf], id);
           bindAbort(signal, id);
         } else {
@@ -1206,6 +1216,14 @@ export function createXiaochun(options: XiaochunOptions): XiaochunInstance {
     mic: (enabled) => send('xc.mic', { enabled }),
     pause() { userPaused = true; syncPause(); },
     resume() { userPaused = false; syncPause(); },
+    setPlaybackRate(rate) {
+      if (destroyed || typeof rate !== 'number' || !Number.isFinite(rate)) return;
+      postToFrame('xc.transport', { playbackRate: rate });
+    },
+    setVolume(volume) {
+      if (destroyed || typeof volume !== 'number' || !Number.isFinite(volume)) return;
+      postToFrame('xc.transport', { volume });
+    },
     destroy() {
       if (destroyed) return;
       try { port?.postMessage(xcMessage('xc.destroy')); } catch { /* ignore */ }

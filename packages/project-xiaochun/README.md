@@ -139,7 +139,7 @@ const { containerRef, client, ready, state } = useXiaochun({ width: 280, height:
 
 * **Props**: every `createXiaochun` option except `container`, plus `onHandshake / onReady / onProgress / onState / onStt / onUtterance / onHitRegion / onMove / onResize / onError / onDestroy`, `className`, `style`, `paused`, and `mic`.
 * **Rebuild vs. live update**: creation-time options (`src`, `lazy`, `transparent`, `position`, …) rebuild the instance when they change, so avoid passing fresh values on every render. `width`, `height`, `draggable`, `resizable` (effects call `setSize` / `setDraggable` / `setResizable`), `lang`, `outfit`, `scene` (and the deprecated `model`), `paused`, `mic` and the callbacks update in place without recreating the iframe (effects call `setOutfit` / `setScene` / `setConfig`). Also available: `onOutfitChanged`, `onSceneChanged`.
-* **Ref methods**: `say`, `speakAudio`, `speakAudioStream`, `motion`, `expression`, `lookAt`, `setOutfit`, `setScene`, `getOutfits`, `getScenes`, `prefetch`, `setModel`, `setConfig`, `startListening`, `stopListening`, `mic`, `pause`, `resume`, `activate`, `destroy`, plus `ready` and `instance`. Methods that return a Promise reject until the component is mounted.
+* **Ref methods**: `say`, `speakAudio`, `speakAudioStream`, `setPlaybackRate`, `setVolume`, `motion`, `expression`, `lookAt`, `setOutfit`, `setScene`, `getOutfits`, `getScenes`, `prefetch`, `setModel`, `setConfig`, `startListening`, `stopListening`, `mic`, `pause`, `resume`, `activate`, `destroy`, plus `ready` and `instance`. Methods that return a Promise reject until the component is mounted.
 
 ---
 
@@ -152,14 +152,17 @@ await xc.speakAudio(arrayBuffer, { text: 'Hi', motion: true, lipsync: true }); /
 await xc.speakAudio(blob);                                   // Blob (mp3 / wav / ogg …)
 await xc.speakAudio('https://cdn.example.com/voice.mp3');    // URL: fetched by the host page by default ({ fetch: 'frame' } = fetched inside the iframe)
 await xc.speakAudio(pcm, { format: 'pcm16', sampleRate: 24000 });   // headerless PCM needs sampleRate (8000–96000)
-await xc.speakAudio(pcm, { format: 'pcm16', sampleRate: 16000, audible: false }); // motion + lip-sync only; iframe gain is 0
+await xc.speakAudio(pcm, { format: 'pcm16', sampleRate: 16000, audible: false, playbackRate: 1.5, volume: 0.8 }); // motion + lip-sync only; iframe gain is 0
+xc.setPlaybackRate(1.25);                                    // live host-audio rate; the playhead does not jump
+xc.setVolume(0.6);                                           // 0–1; speakers stay silent while audible is false
 
-const s = xc.speakAudioStream({ sampleRate: 24000 });        // streaming: e.g. PCM chunks from a TTS server
+const s = xc.speakAudioStream({ sampleRate: 24000, playbackRate: 1.25 }); // streaming: e.g. PCM chunks from a TTS server
 s.write(int16Chunk); s.write(next); s.end(); await s.done;   // s.abort() stops immediately
 // Cancel any time: pass { signal: abortController.signal }
 ```
 
 * `audible` defaults to `true`. `false` still decodes the audio, generates motion, and drives lip-sync, but the iframe gain is 0 so the host page can be the only speaker.
+* `playbackRate` defaults to `1` and is clamped to `0.25–3`. `volume` defaults to `1` and is clamped to `0–1`. Both scale this host-audio utterance and its motion clock. `setPlaybackRate()` / `setVolume()` change them mid-playback without restarting; a rate change does not jump the playhead. Omitted values keep the last setting. TTS (`say`) stays at 1x and full volume. `audible: false` keeps the speaker gain at 0. `pause()` only suspends rendering; speech and the motion clock keep running.
 * For host audio, `utterance` `start` fires when the audio clock starts, after the thinking pose and the first EMAGE window. Hold the page's own player until that event if it must stay in sync.
 * Rejects with `bad_request` (undecodable / empty audio, bad URL or sampleRate), `unsupported`, or `failed`.
 * Browsers still require a user gesture on the host page before audio can play, and the iframe needs `allow="autoplay"` (the SDK sets it).
@@ -388,7 +391,7 @@ createXiaochun({
 | `crossOriginIsolated` | `false` | Append `cross-origin-isolated` to the iframe `allow` (default stays `microphone; autoplay`). Needs a host page that is itself isolated; see [Opt-in: cross-origin isolation](#opt-in-cross-origin-isolation-multi-threaded-emage) |
 | `zIndex` | `2147483000` | Floating mode layer (the `--xc-z-index` variable takes precedence) |
 
-**Instance**: `ready` · `say(text, { mode: 'speak' \| 'chat' })` · `speakAudio(source, opts)` · `speakAudioStream(opts)` · `motion(nameOrUrlOrOptions)` · `expression(name)` · `setOutfit(id)` · `setScene(id)` · `getOutfits()` · `getScenes()` · `prefetch(ids?)` · `outfit` / `scene` (getters) · `setModel(outfitOrUrl)` *(legacy)* · `setConfig(cfg)` · `setSize(w, h)` · `getBox()` · `setDraggable(on)` · `setResizable(on | limits)` · `startListening()` / `stopListening()` / `mic(on)` · `pause()` / `resume()` · `activate()` · `destroy()` · `on(event, cb)` · `lookAt()` *(reserved in the protocol; currently returns `unsupported`)*.
+**Instance**: `ready` · `say(text, { mode: 'speak' \| 'chat' })` · `speakAudio(source, opts)` · `speakAudioStream(opts)` · `setPlaybackRate(rate)` · `setVolume(volume)` · `motion(nameOrUrlOrOptions)` · `expression(name)` · `setOutfit(id)` · `setScene(id)` · `getOutfits()` · `getScenes()` · `prefetch(ids?)` · `outfit` / `scene` (getters) · `setModel(outfitOrUrl)` *(legacy)* · `setConfig(cfg)` · `setSize(w, h)` · `getBox()` · `setDraggable(on)` · `setResizable(on | limits)` · `startListening()` / `stopListening()` / `mic(on)` · `pause()` / `resume()` · `activate()` · `destroy()` · `on(event, cb)` · `lookAt()` *(reserved in the protocol; currently returns `unsupported`)*.
 
 **Events**: `handshake` · `ready` · `progress` · `state` · `stt` · `utterance` (`phase: 'start' | 'end'`, `kind: 'text' | 'audio'`) · `hit-region` · `outfit-changed` · `scene-changed` · `lang-changed` (`{ lang, previous?, initial? }`) · `move` / `resize` (`{ phase: 'start' | 'move' | 'end', left, top, width, height }`) · `error` (now also `busy`, `unknown_id`; one `unsupported` if gestures are enabled on an old iframe) · `destroy`. `progress.phase` is `'model' | 'outfit' | 'prefetch'`.
 
@@ -420,7 +423,7 @@ createXiaochun({
 | `cross-origin-isolated` | `false` | Same as `createXiaochun({ crossOriginIsolated })`; changing it rebuilds the iframe |
 
 **Events** (`CustomEvent`, `composed`, `detail` = protocol payload): `xc-ready` · `xc-progress` · `xc-state` · `xc-stt` · `xc-utterance` · `xc-outfit-changed` · `xc-scene-changed` · `xc-lang-changed` · `xc-move` · `xc-resize` · `xc-error`.
-**Methods**: `say` · `speakAudio` · `speakAudioStream` · `motion` · `expression` · `setOutfit` · `setScene` · `getOutfits` · `getScenes` · `prefetch` · `destroy`; `el.client` gives you the full SDK instance.
+**Methods**: `say` · `speakAudio` · `speakAudioStream` · `setPlaybackRate` · `setVolume` · `motion` · `expression` · `setOutfit` · `setScene` · `getOutfits` · `getScenes` · `prefetch` · `destroy`; `el.client` gives you the full SDK instance.
 
 ---
 

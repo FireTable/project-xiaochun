@@ -41,6 +41,8 @@ async function runAudio(payload: AudioPayload, hooks?: ProtocolRunHooks): Promis
     motion: payload.motion !== false,
     lipsync: payload.lipsync !== false,
     audible: payload.audible !== false,
+    playbackRate: payload.playbackRate,
+    volume: payload.volume,
     text: text || undefined,
     onAudibleStart: () => hooks?.onStart?.({ kind: 'audio', text }),
   });

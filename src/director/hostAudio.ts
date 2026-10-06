@@ -32,7 +32,25 @@ export const HOST_AUDIO = {
   maxSampleRate: 96000,
   /** EMAGE 要求的采样率 (Hz), 模型导出契约, 不要改。 */
   emageSampleRate: 16000,
+  /** 宿主音频倍速。和页面播放器的 0.5~2 对齐, 并留出 VRMA timeScale 一样的 0.25~3。 */
+  minPlaybackRate: 0.25,
+  maxPlaybackRate: 3,
+  /** 宿主音频音量。0 静音, 1 原来的增益。audible:false 时扬声器仍是 0。 */
+  minVolume: 0,
+  maxVolume: 1,
 } as const;
+
+/** 合法倍速夹到范围内。不是有限数字则返回 undefined, 调用方保持原值。 */
+export function clampPlaybackRate(v: unknown): number | undefined {
+  if (typeof v !== 'number' || !Number.isFinite(v)) return undefined;
+  return Math.min(HOST_AUDIO.maxPlaybackRate, Math.max(HOST_AUDIO.minPlaybackRate, v));
+}
+
+/** 合法音量夹到 0~1。不是有限数字则返回 undefined。 */
+export function clampVolume(v: unknown): number | undefined {
+  if (typeof v !== 'number' || !Number.isFinite(v)) return undefined;
+  return Math.min(HOST_AUDIO.maxVolume, Math.max(HOST_AUDIO.minVolume, v));
+}
 
 /** 主线程里"一段原始音频"的统一表示: 单声道 Float32 PCM + 采样率。 */
 export interface HostAudioInput {

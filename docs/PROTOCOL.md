@@ -160,6 +160,7 @@ The embed bridge (`src/embed/bridge.ts`) and the deep-link entry (`initProtocolL
 Notes:
 - **`audioUrl` is now implemented.** It used to be a reserved parameter that the handler ignored; it now plays the audio through the same pipeline as `xc.audio` (decode → 16 kHz mono windows → EMAGE motion + A/V sync + lip-sync), without calling TTS. The URL must be `https:` (or same-origin).
 - **`audible`** on `xc.audio` / `speakAudio` defaults to `true`. `false` sets the iframe playback gain to 0 after the analyser, so EMAGE and lip-sync still follow that buffer while the host page can play the sound itself.
+- **`playbackRate`** (`0.25–3`, default `1`) and **`volume`** (`0–1`, default `1`) on `xc.audio` / the first `xc.audio.chunk` / `speakAudio` scale that host-audio buffer and its motion clock together. `xc.transport` changes them without restarting the utterance. TTS is unchanged. `audible: false` still forces the speaker gain to 0. `xc.pause` suspends rendering only; it does not pause this clock or the voice.
 - **The `/embed` page does not respond to `xiaochun://`** and does not expose `__triggerXiaoChunProtocol`; use `xc.*` there.
 - Trust model differs: a deep link has no handshake (the OS is the trust boundary); `xc.*` is origin-checked and capped at `MAX_SAY_CHARS`.
 - Helpers in `@firetable/project-xiaochun`: `toProtocolUrl()`, `parseProtocolUrl()`, `XC_PROTOCOL_MAPPING`. See [`EMBED.md` §2.4–2.5](EMBED.md).

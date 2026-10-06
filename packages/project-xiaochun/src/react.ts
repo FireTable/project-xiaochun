@@ -216,6 +216,10 @@ export interface XiaochunHandle {
   mic(enabled: boolean): Promise<void>;
   pause(): void;
   resume(): void;
+  /** 改正在播的宿主音频倍速 (0.25~3)。见 XiaochunInstance.setPlaybackRate。 */
+  setPlaybackRate(rate: number): void;
+  /** 改宿主音频音量 (0~1)。见 XiaochunInstance.setVolume。 */
+  setVolume(volume: number): void;
   activate(): void;
   destroy(): void;
   /** 模型加载完成时 resolve。 */
@@ -262,6 +266,8 @@ function XiaochunInner(props: XiaochunProps, ref: ForwardedRef<XiaochunHandle>):
       mic: (e) => c()?.mic(e) ?? reject(),
       pause: () => c()?.pause(),
       resume: () => c()?.resume(),
+      setPlaybackRate: (rate) => c()?.setPlaybackRate(rate),
+      setVolume: (volume) => c()?.setVolume(volume),
       activate: () => c()?.activate(),
       destroy: () => c()?.destroy(),
       get ready() { return c()?.ready ?? reject<void>(); },

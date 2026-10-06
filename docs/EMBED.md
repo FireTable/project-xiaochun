@@ -67,8 +67,8 @@ Host commands may attach an `id`; matching `xc.error` / `xc.utterance` events ec
 | :-- | :-- | :-- | :-- |
 | `xc.init` | `{ hostOrigin }` + transfers `MessagePort` | ✅ | Handshake completion (once only). |
 | `xc.say` | `{ text, mode?: 'speak' | 'chat' }` | ✅ | `speak` → protocol action `speak` (same handler as `xiaochun://speak?text=`) → `vrmEngine.speakText` (TTS + EMAGE, **bypasses LLM**); `chat` → `vrmEngine.sendMessage` (via WebLLM / custom provider, loads LLM weights). Max length `MAX_SAY_CHARS=2000`. |
-| `xc.audio` | `{ source: ArrayBuffer | Blob | url, mimeType?, format?, sampleRate?, channels?, text?, motion?, lipsync?, audible? }` | ✅ | Host supplies **complete audio segment without TTS**: in-iframe decoding → mono → 16 kHz → EMAGE window inference (motion) + synchronized playback + RMS lipsync. `audible: false` keeps motion and lip-sync but sets playback gain to 0. See §2.4. Envelope `id` correlated with `xc.utterance` / `xc.error`. |
-| `xc.audio.chunk` | `{ data: ArrayBuffer, format: 'pcm16' | 'float32', sampleRate, channels?, text?, motion?, lipsync?, audible? }` (Envelope `id` = stream ID) | ✅ | Streamed PCM chunking; first chunk with a given `id` initializes the utterance, subsequent chunks append. Options, including `audible`, take effect on the first chunk. |
+| `xc.audio` | `{ source: ArrayBuffer | Blob | url, mimeType?, format?, sampleRate?, channels?, text?, motion?, lipsync?, audible?, playbackRate?, volume? }` | ✅ | Host supplies **complete audio segment without TTS**: in-iframe decoding → mono → 16 kHz → EMAGE window inference (motion) + synchronized playback + RMS lipsync. `audible: false` keeps motion and lip-sync but sets playback gain to 0. `playbackRate` (`0.25–3`, default `1`) and `volume` (`0–1`, default `1`) scale this utterance and its motion clock. See §2.4. Envelope `id` correlated with `xc.utterance` / `xc.error`. |
+| `xc.audio.chunk` | `{ data: ArrayBuffer, format: 'pcm16' | 'float32', sampleRate, channels?, text?, motion?, lipsync?, audible?, playbackRate?, volume? }` (Envelope `id` = stream ID) | ✅ | Streamed PCM chunking; first chunk with a given `id` initializes the utterance, subsequent chunks append. Options, including `audible`, `playbackRate`, and `volume`, take effect on the first chunk. |
 | `xc.audio.end` | `{ abort?: boolean }` (Envelope `id` = stream ID / `xc.audio` ID) | ✅ | Finalizes playback (finishing received buffer); `abort: true` halts immediately. Full `xc.audio` invocations can be aborted via this `id` (SDK `AbortSignal`). |
 | `xc.motion` | `{ url | name, loop?, fadeDuration?, timeScale?, mask? }` or `{ stop: true }` | ✅ | `vrmEngine.playMotion` / `stopMotion`. Limited to HTTPS or same-origin `.vrma`; built-in name currently only `thinking`. |
 | `xc.expression` | `{ name }` (`neutral/happy/angry/sad/relaxed/surprised`) | ✅ | `vrmEngine.setExpression`. |
@@ -79,7 +79,8 @@ Host commands may attach an `id`; matching `xc.error` / `xc.utterance` events ec
 | `xc.setModel` | `{ outfit }` or `{ url, name? }` | ✅ (Legacy compatibility) | Legacy command. `outfit` routes to same pipeline as `xc.setOutfit` (rejects `base`); `url` (HTTPS / same-origin `.vrm`, requires CORS) is **disabled by default**, requiring `allowCustomModel: true` in config. |
 | `xc.setConfig` | `{ lang?, transparent?, ui?, uiAutoHide?, camera?, heavy?, allowCustomModel?, gestures? }` | ✅ | Dynamic updates for i18n, internal scene switches, UI widget visibility, UI display mode, camera overrides, and heavy pre-warming. |
 | `xc.mic` | `{ enabled }` | ✅ | `SttClient.start/stop` (SenseVoice, downloads model on first invocation), results dispatched via `xc.stt`. |
-| `xc.pause` / `xc.resume` | — | ✅ | `suspendRendering` / `resumeRendering`. |
+| `xc.transport` | `{ playbackRate?: number, volume?: number }` | ✅ | Change the current host-audio rate or volume without restarting the utterance. Omitted fields stay. A rate change rebases the clock so the playhead does not jump. Does not affect TTS. See §2.4. |
+| `xc.pause` / `xc.resume` | — | ✅ | `suspendRendering` / `resumeRendering` (the render loop only). Host-audio speech and the motion clock keep running. `xc.resume` draws the pose at that clock; it does not resume a paused voice. |
 | `xc.destroy` | — | ✅ | `releaseHeavyResources` + `vrmEngine.dispose` + port closure; SDK unmounts iframe. |
 | `xc.lookAt` | `{ x, y }` | ⏳ **unsupported** | Returns `xc.error{code: 'unsupported'}`. |
 
@@ -136,7 +137,8 @@ xc.audio(ArrayBuffer/Blob/URL)                         xc.audio.chunk (PCM16/Flo
 - **EMAGE Requirements**: 16 kHz, Mono, Float32; window size `T=64` frames (~2.13s at 30 fps). Non-vocal audio is accepted, though motions are generated in speech style.
 - **Lipsync**: RMS amplitude mapping to mouth opening (`aa`), without viseme alignment; can be disabled via `lipsync: false`. The analyser sits before the gain, so lip-sync still sees the waveform when the speakers are muted.
 - **Silent motion**: `audible` defaults to `true`. `false` sets the playback gain to 0. The `AudioContext` clock and lip-sync still follow the buffer, so a host page can play the same audio itself without a second copy from the iframe.
-- **A/V Sync**: Motion playback is buffered until the audio buffer starts; playhead syncs with `AudioContext` clock. That clock runs even when `audible` is `false`. `xc.utterance{phase:'start', kind:'audio'}` is emitted at that same `AudioBufferSourceNode.start`, so a host player can stay paused until then and avoid leading the lips.
+- **Playback rate and volume**: `playbackRate` defaults to `1` and is clamped to `0.25–3` (the same span as VRMA `timeScale`; a page player's `0.5–2` sits inside it). `volume` defaults to `1` and is clamped to `0–1`. Both apply to this host-audio utterance and to its motion clock, so the body and the lips stay with the buffer. TTS (`xc.say`) stays at rate `1` and full gain. Change them mid-utterance with `xc.transport`; omitted fields keep the last value, including across later `speakAudio` calls that omit them. A rate change rebases the content clock, so the playhead does not jump. `audible: false` keeps the speaker gain at `0` even when `volume` is set; the stored volume applies the next time the iframe is audible. `capabilities.audio.playbackRate` and `capabilities.audio.volume` advertise the ranges. Older embeds omit those fields. Above realtime, the next 2s/4s slice still waits if EMAGE inference falls behind, the same way a slow machine waits at 1x.
+- **A/V Sync**: Motion playback is buffered until the audio buffer starts; playhead syncs with `AudioContext` clock, scaled by `playbackRate`. That clock runs even when `audible` is `false`. `xc.utterance{phase:'start', kind:'audio'}` is emitted at that same `AudioBufferSourceNode.start`, so a host player can stay paused until then and avoid leading the lips. `xc.pause` does not stop this clock. It only suspends rendering, including the offscreen `autoPause` path, so speech keeps going and resume shows the pose at the clock.
 - **Latency (TTFA)**: Decoding + first 2s slice inference + decode. Benchmarked on desktop Mac CPU (INT8 WASM): warm state TTFA ≈ 0.7s; cold start with models cached ≈ 4.0s. First run requiring model download (71.59 MB total) takes longer; call `xc.setConfig{heavy: 'eager'}` to pre-warm.
 - **Streaming**: Supported via `xc.audio.chunk`. Incoming streams are resliced into 2s / 4s segments; segments transition via `onended`.
 - **Input Constraints**: Single utterance duration ≤ 120s; encoded payload ≤ 32 MB; sample rates 8000–96000 Hz; PCM little-endian.
@@ -322,7 +324,9 @@ Events emitted: `xc-ready`, `xc-progress`, `xc-state`, `xc-stt`, `xc-utterance`,
 // Complete buffer
 const buf = await (await fetch('/voice/reply.mp3')).arrayBuffer();
 await xc.speakAudio(buf, { text: 'Speech synthesis', motion: true, lipsync: true });
-await xc.speakAudio(pcm, { format: 'pcm16', sampleRate: 16000, audible: false }); // motion + lip-sync, iframe stays silent
+await xc.speakAudio(pcm, { format: 'pcm16', sampleRate: 16000, audible: false, playbackRate: 1.5 }); // motion + lip-sync, iframe stays silent
+xc.setPlaybackRate(1.25); // live; playhead does not jump
+xc.setVolume(0.6);        // ignored by the speakers while audible is false
 
 // Streaming PCM chunks
 const stream = xc.speakAudioStream({ sampleRate: 24000, text: 'Streaming audio' });
