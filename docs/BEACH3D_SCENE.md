@@ -1,6 +1,6 @@
 # `beach3d` Scene: Real-time 3D Anime Beach Stage
 
-`beach3d` ("海滩 3D" / "Beach 3D" / "ビーチ 3D") is the 5th built-in scene and is opaque. Unlike `beach`, which scrolls a pre-rendered background strip, this scene is a small 3D stage built entirely in Three.js. The character stands on real sand with a real shadow, and every prop is a low-poly mesh with toon shading.
+`beach3d` (display name "海滩" / "Beach" / "ビーチ") is the 4th built-in scene and is opaque. It is a small 3D stage built entirely in Three.js. The character stands on real sand with a real shadow, and every prop is a low-poly mesh with toon shading.
 
 The look aims for an **anime MMD stage** (like an MMD or miHoYo PV set):
 - 3D toon-shaded props: palm trees with gently S-curved, tapering trunks, full layered fronds and round coconuts, smooth rounded shore rocks, and a few small shells on the sand.
@@ -20,7 +20,7 @@ There are no textures, no HDRI, no realistic materials and no third-party assets
 | `src/core/scene/beach3d/beach3dShaders.ts` | GLSL for sky, clouds, islands, ground (sand + sea), palms, rocks, shells |
 | `src/core/scene/beach3d/beach3dGeometry.ts` | Procedural low-poly geometry: palm trunk and crown (with coconuts), island silhouettes, rock, shell set |
 | `src/core/scene/beach3d/beach3dLayout.ts` | Pure data and functions (no three / DOM): shoreline, palm / rock / shell layout, island peaks and silhouette profile |
-| `src/core/scene/sceneMotion.ts` | `SceneMotionGovernor`, shared with `beach`: reduced-motion and low-FPS downgrade |
+| `src/core/scene/sceneMotion.ts` | `SceneMotionGovernor`: reduced-motion and low-FPS downgrade |
 | `src/core/scene/__tests__/beach3dLayout.test.ts` | Layout invariants (props on sand, keep-out zones, shoreline, horizon dip, shells above the swash, triangle budget) |
 | `src/config.ts` → `APP_CONFIG.beach3dScene` | All tunables. Ranges and meanings are documented in `src/types/config.ts` (`Beach3DSceneConfig`) |
 
@@ -136,7 +136,7 @@ With `horizonCurveR = 700` the horizon lands around the hips in full-body portra
 ## Render and post-processing conventions
 
 - Colour uniforms are linear. Output is multiplied by `uComp` (= 1 / exposure), so a config hex is roughly the colour that appears on screen.
-- Background pixels write alpha `uMark` (0.99 when rendering into the composer target). The UnrealBloom high-pass skips them, the same convention as `beach` (see `POSTFX.md`). Foam (swash head, lace, wave crests, rock rings) and sea glints write alpha 1, so they get a slight bloom while sand and sky do not.
+- Background pixels write alpha `uMark` (0.99 when rendering into the composer target). The UnrealBloom high-pass skips them (see `POSTFX.md`). Foam (swash head, lace, wave crests, rock rings) and sea glints write alpha 1, so they get a slight bloom while sand and sky do not.
 - Clouds and islands follow the camera's translation (not its rotation) and live inside the 100 m far plane, which makes them effectively infinitely far away.
 - The sky draws first (`renderOrder −1000`), then clouds, then islands.
 
@@ -169,9 +169,8 @@ Measured on an Apple M1 Ultra (Chrome, ANGLE Metal) with headless Puppeteer at 1
 | :--- | :--- | :--- | :--- |
 | `beach3d` | 8 / 36,686 | 70 / 158,413 | 59.8 (16.67 / 16.67 ms) |
 | `light` (baseline) | — | 73 / 122,469 | 60.0 (16.66 / 16.67 ms) |
-| `beach` (baseline) | — | 65 / 121,731 | 60.0 (16.66 / 16.67 ms) |
 
-All three are capped by vsync on this machine. Low-end and mobile GPUs have not been measured.
+Both are capped by vsync on this machine. Low-end and mobile GPUs have not been measured.
 
 To inspect at runtime, use `window.vrmEngine.beach3d.getStats()`.
 
