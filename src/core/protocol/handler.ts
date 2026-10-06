@@ -36,12 +36,13 @@ async function runAudio(payload: AudioPayload, hooks?: ProtocolRunHooks): Promis
     requireVRM(),
   ]);
   const text = typeof payload.text === 'string' ? payload.text : '';
-  hooks?.onStart?.({ kind: 'audio', text });
+  // start 等到声音时钟起步再发。思考动作和 EMAGE 首窗都在那之前, 宿主才能把自家播放对齐。
   await vrmEngine.speakAudio(input, {
     motion: payload.motion !== false,
     lipsync: payload.lipsync !== false,
     audible: payload.audible !== false,
     text: text || undefined,
+    onAudibleStart: () => hooks?.onStart?.({ kind: 'audio', text }),
   });
 }
 

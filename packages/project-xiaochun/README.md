@@ -160,6 +160,7 @@ s.write(int16Chunk); s.write(next); s.end(); await s.done;   // s.abort() stops 
 ```
 
 * `audible` defaults to `true`. `false` still decodes the audio, generates motion, and drives lip-sync, but the iframe gain is 0 so the host page can be the only speaker.
+* For host audio, `utterance` `start` fires when the audio clock starts, after the thinking pose and the first EMAGE window. Hold the page's own player until that event if it must stay in sync.
 * Rejects with `bad_request` (undecodable / empty audio, bad URL or sampleRate), `unsupported`, or `failed`.
 * Browsers still require a user gesture on the host page before audio can play, and the iframe needs `allow="autoplay"` (the SDK sets it).
 * A newer `say()` / `speakAudio()` call preempts the one in progress, and the preempted promise resolves.

@@ -378,7 +378,8 @@ export interface XcAudioOptions {
 }
 
 /**
- * xc.audio — 整段音频: iframe 内解码 → 16 kHz → EMAGE 窗口推理 + 同一段音频的时钟 + 口型, 播完回 xc.utterance{phase:'end'}。
+ * xc.audio — 整段音频: iframe 内解码 → 16 kHz → EMAGE 窗口推理 + 同一段音频的时钟 + 口型。
+ * xc.utterance start 在第一段时钟起步时发 (思考动作和首窗推理之后), 播完回 end。
  * audible 缺省或 true 时这段音频也送到扬声器; false 时增益为 0, 只留动作和口型。
  * 信封 `id` 用于关联 xc.utterance / xc.error。大 ArrayBuffer 请放进 postMessage 的 transfer 列表 (SDK 默认这么做)。
  */
@@ -396,7 +397,8 @@ export interface XcAudioPayload extends XcAudioOptions {
 }
 
 /**
- * xc.audio.chunk — 流式音频分块 (原始 PCM)。信封 `id` = 流 id: 同一个 id 的第一个 chunk 开启一次说话 (回 xc.utterance start),
+ * xc.audio.chunk — 流式音频分块 (原始 PCM)。信封 `id` = 流 id: 同一个 id 的第一个 chunk 开启一次说话,
+ * 声音时钟起步时回 xc.utterance start,
  * 之后的 chunk 追加; 以 xc.audio.end 收尾。每个 chunk 的 `data` 应放进 transfer 列表。
  * 选项 (text/motion/lipsync) 只在第一个 chunk 里生效; sampleRate/format 整条流必须一致。
  */

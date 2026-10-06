@@ -74,6 +74,9 @@ export class ProtocolError extends Error {
 
 /** 传输层可以挂的回调 (deep link 不需要; iframe 用它发 xc.utterance start)。 */
 export interface ProtocolRunHooks {
-  /** 校验通过、模型就绪、即将开始说话时调用一次。 */
+  /**
+   * 调用一次。文本: 模型就绪、即将开口。
+   * 音频: 思考动作和 EMAGE 首窗之后, 第一段 AudioBuffer 的时钟起步时。
+   */
   onStart?: (info: { kind: 'text' | 'audio'; text: string }) => void;
 }

@@ -277,9 +277,10 @@ export interface XiaochunInstance {
   /**
    * 直接播放宿主给的音频 (不经过 TTS): iframe 内解码 → EMAGE 生成动作 + 口型, 念完 (xc.utterance end) 才 resolve。
    * 首次调用才加载 EMAGE 模型 (首次会慢); opts.motion=false 则只播放不加载。
+   * xc.utterance start 在思考动作和首窗之后、声音时钟起步时才发, 不是命令一到就发。
    */
   speakAudio(source: XiaochunAudioSource, opts?: XiaochunAudioOptions): Promise<void>;
-  /** 流式音频 (原始 PCM 分块)。sampleRate 必填; 首个 write 开启说话。 */
+  /** 流式音频 (原始 PCM 分块)。sampleRate 必填; 首个 write 开始这次说话, utterance start 仍等到声音时钟起步。 */
   speakAudioStream(opts: XiaochunAudioOptions & { sampleRate: number }): XiaochunAudioStream;
   motion(m: XcMotionPayload | string): Promise<void>;
   expression(name: XcExpressionPayload['name']): Promise<void>;
