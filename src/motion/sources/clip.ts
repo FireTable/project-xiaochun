@@ -17,6 +17,19 @@ export interface PlayMotionOptions {
   mask?: MotionBoneMask;
   /** 动作播放完毕并完成淡出后的回调 */
   onEnd?: () => void;
+  /**
+   * 跳过 SMPL-H 反穿模限幅。Core27 已经重定向到 VRM 归一化骨的旋转不能再被
+   * 那套肩膀 12° 上限压扁。
+   */
+  preserveRotations?: boolean;
+  /**
+   * 尾帧未到齐时不要提前淡出到待机。ARDY 续写会在播放中把后续窗接上同一条剪辑。
+   */
+  holdAtEnd?: boolean;
+  /**
+   * 剪辑自己带脚和头。管线不要用 FootIK / 踱步改下半身，也不要用视线转动头颈。
+   */
+  preservePose?: boolean;
 }
 
 export interface UniversalMotionHandle {
@@ -51,6 +64,13 @@ export class UniversalMotionController {
   private fadeDuration = 0.75;
   private clipDuration = 0;
   private onEndTriggered = false;
+  /** While set, the tail clamps instead of crossfading back to idle. */
+  private holdAtEnd = false;
+  /** Authored clip: FootIK, stepping, and gaze must leave the pose alone. */
+  private preservePose = false;
+  private playbackListener: ((time: number, duration: number) => void) | null = null;
+  /** Bumps when a new clip starts or the current one stops, so a stream can tell it lost the mixer. */
+  private clipEpoch = 0;
   /** Remember string URL inputs for outfit-swap restore. */
   private lastUrl: string | null = null;
   private lastBuffer: ArrayBuffer | null = null;
@@ -63,9 +83,13 @@ export class UniversalMotionController {
   /**
    * 将任意输入解析为适配合法人形模型的 AnimationClip
    */
-  async parseToClip(input: string | ArrayBuffer | THREE.AnimationClip, vrm: VRM): Promise<THREE.AnimationClip> {
+  async parseToClip(
+    input: string | ArrayBuffer | THREE.AnimationClip,
+    vrm: VRM,
+    options: PlayMotionOptions = {},
+  ): Promise<THREE.AnimationClip> {
     if (input instanceof THREE.AnimationClip) {
-      return retargetClip(input, vrm);
+      return options.preserveRotations ? input : retargetClip(input, vrm);
     }
 
     let buffer: ArrayBuffer;
@@ -132,6 +156,10 @@ export class UniversalMotionController {
     const timeScale = options.timeScale ?? 1.0;
     this.fadeDuration = Math.max(0.26, options.fadeDuration ?? 0.75);
     this.clipDuration = clip.duration;
+    this.clipEpoch += 1;
+    this.playbackListener = null;
+    this.holdAtEnd = options.holdAtEnd ?? false;
+    this.preservePose = options.preservePose ?? false;
     this.isFadingOut = false;
     this.onEndTriggered = false;
 
@@ -172,11 +200,14 @@ export class UniversalMotionController {
 
     this.mixer.update(delta);
 
+    const curTime = this.currentAction.time;
+    this.playbackListener?.(curTime, this.clipDuration);
+
     const isLoop = this.currentOptions.loop ?? false;
     let justEnded = false;
 
-    if (!isLoop) {
-      const curTime = this.currentAction.time;
+    // 续写还没接上时停在末姿。提前淡出会把还在播的动作交回待机。
+    if (!isLoop && !this.holdAtEnd) {
       const fadeLead = Math.min(this.fadeDuration, this.clipDuration * 0.40);
 
       // 动作接近尾声，提前触发管线淡出
@@ -195,7 +226,76 @@ export class UniversalMotionController {
       }
     }
 
-    return { isFadingOut: this.isFadingOut, justEnded };
+    return { isFadingOut: this.holdAtEnd ? false : this.isFadingOut, justEnded };
+  }
+
+  /**
+   * 把正在播的剪辑换成更长的同一条动作，播放头不动。
+   * stop 会把绑定骨打回绑定姿，所以先记下姿态，换上新剪辑后立刻采样回去。
+   */
+  extendClip(clip: THREE.AnimationClip): void {
+    if (!this.holdAtEnd || !this.mixer || !this.currentAction || !this.active) {
+      this.play(clip, this.currentOptions);
+      return;
+    }
+
+    const preserved = this.currentAction.time;
+    const bones = this.snapshotBones();
+    const previousClip = this.currentAction.getClip();
+    this.currentAction.stop();
+    this.restoreBones(bones);
+    if (previousClip) this.mixer.uncacheClip(previousClip);
+
+    const action = this.mixer.clipAction(clip);
+    action.setLoop(THREE.LoopOnce, 1);
+    action.clampWhenFinished = true;
+    action.enabled = true;
+    action.setEffectiveWeight(1);
+    action.setEffectiveTimeScale(this.currentOptions.timeScale ?? 1);
+    action.play();
+    const duration = clip.duration;
+    action.time = duration > 0 ? Math.min(preserved, Math.max(duration - 1e-4, 0)) : 0;
+    action.paused = false;
+    this.mixer.update(0);
+
+    this.currentAction = action;
+    this.clipDuration = duration;
+    this.isFadingOut = false;
+    this.onEndTriggered = false;
+  }
+
+  setHoldAtEnd(hold: boolean): void {
+    this.holdAtEnd = hold;
+  }
+
+  setPlaybackListener(listener: ((time: number, duration: number) => void) | null): void {
+    this.playbackListener = listener;
+  }
+
+  currentEpoch(): number {
+    return this.clipEpoch;
+  }
+
+  private snapshotBones(): { node: THREE.Object3D; q: THREE.Quaternion; p?: THREE.Vector3 }[] {
+    const bones: { node: THREE.Object3D; q: THREE.Quaternion; p?: THREE.Vector3 }[] = [];
+    if (!this.vrm?.humanoid) return bones;
+    for (const name of PIPELINE_BONES) {
+      const node = this.vrm.humanoid.getNormalizedBoneNode(name);
+      if (!node) continue;
+      bones.push({
+        node,
+        q: node.quaternion.clone(),
+        p: name === 'hips' ? node.position.clone() : undefined,
+      });
+    }
+    return bones;
+  }
+
+  private restoreBones(bones: { node: THREE.Object3D; q: THREE.Quaternion; p?: THREE.Vector3 }[]): void {
+    for (const item of bones) {
+      item.node.quaternion.copy(item.q);
+      if (item.p) item.node.position.copy(item.p);
+    }
   }
 
   pause(): void {
@@ -216,28 +316,13 @@ export class UniversalMotionController {
   stop(_fadeDur?: number): void {
     if (!this.active && !this.currentAction) return;
 
-    // 保护当前姿态
-    const boneTransforms: { node: THREE.Object3D; q: THREE.Quaternion; p?: THREE.Vector3 }[] = [];
-    if (this.vrm?.humanoid) {
-      for (const name of PIPELINE_BONES) {
-        const node = this.vrm.humanoid.getNormalizedBoneNode(name);
-        if (node) {
-          boneTransforms.push({
-            node,
-            q: node.quaternion.clone(),
-            p: name === 'hips' ? node.position.clone() : undefined,
-          });
-        }
-      }
-    }
-
+    const boneTransforms = this.snapshotBones();
+    this.clipEpoch += 1;
+    this.playbackListener = null;
+    this.holdAtEnd = false;
+    this.preservePose = false;
     this.mixer?.stopAllAction();
-
-    // 还原姿态，交由管线平滑过渡接管
-    for (const item of boneTransforms) {
-      item.node.quaternion.copy(item.q);
-      if (item.p) item.node.position.copy(item.p);
-    }
+    this.restoreBones(boneTransforms);
 
     this.active = false;
     this.isFadingOut = false;
@@ -249,8 +334,16 @@ export class UniversalMotionController {
     }
   }
 
+  /** ARDY and other authored clips opt out of FootIK and gaze. */
+  preservesPose(): boolean {
+    return this.active && this.preservePose;
+  }
+
   isPlaying(): boolean {
-    return this.active && !this.isFadingOut && (this.currentAction?.isRunning() ?? false);
+    if (!this.active || this.isFadingOut) return false;
+    // 末姿被夹住时 action 会暂停。续写期间仍算正在播，避免管线把写手交回待机。
+    if (this.holdAtEnd) return this.currentAction !== null;
+    return this.currentAction?.isRunning() ?? false;
   }
 
   isActive(): boolean {

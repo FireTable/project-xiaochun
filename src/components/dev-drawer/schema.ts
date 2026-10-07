@@ -18,6 +18,7 @@ export const SECTIONS: SectionConfig[] = [
   { id: 'lighting', defaultCollapsed: false },
   { id: 'postfx', defaultCollapsed: false },
   { id: 'emagePerf', defaultCollapsed: false },
+  { id: 'ardy', defaultCollapsed: true },
 ];
 
 export const SECTION_IDS = SECTIONS.map(s => s.id);

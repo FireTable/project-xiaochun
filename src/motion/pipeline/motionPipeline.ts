@@ -11,6 +11,12 @@ import {
   type PlayMotionOptions,
   type UniversalMotionHandle,
 } from '../sources/clip';
+import {
+  playArdyMotion,
+  releaseArdyRuntime,
+  stopArdyPlayback,
+  type ArdyProgress,
+} from '../sources/ardy/play';
 import { NaturalIdleSystem } from '../sources/idle';
 import { VRMAMotionPlayer } from '../sources/vrma';
 import { EmagePlayer } from '../sources/emage';
@@ -135,7 +141,7 @@ export class MotionPipeline {
     lookAtOffsets?: { neck?: THREE.Quaternion; head?: THREE.Quaternion },
   ): Promise<UniversalMotionHandle> {
     this.bind(vrm);
-    const clip = await this.universalMotion.parseToClip(input, vrm);
+    const clip = await this.universalMotion.parseToClip(input, vrm, options);
 
     const fadeDur = Math.max(0.26, options.fadeDuration ?? SOURCE_FADE_DURATION);
     const mask = options.mask ?? 'all';
@@ -145,6 +151,64 @@ export class MotionPipeline {
 
     // 启动底层动画动作播放
     return this.universalMotion.play(clip, options);
+  }
+
+  /**
+   * ARDY Mini text-to-body. The pipeline owns the worker session.
+   * The first window starts the clip writer. Later windows extend that clip
+   * at the same playhead, the way the official demo keeps its frame cursor.
+   */
+  playArdy(
+    vrm: VRM,
+    prompt: string,
+    onProgress?: ArdyProgress,
+  ): Promise<UniversalMotionHandle> {
+    this.bind(vrm);
+    const lookAtOffsets = this.gaze.getLookAtOffsets();
+    return playArdyMotion(vrm, {
+      play: (clip) => this.playMotion(vrm, clip, {
+        fadeDuration: SOURCE_FADE_DURATION,
+        loop: false,
+        mask: 'all',
+        preserveRotations: true,
+        holdAtEnd: true,
+        preservePose: true,
+      }, lookAtOffsets),
+      extend: (clip) => this.extendClip(clip),
+      setHoldAtEnd: (hold) => this.setClipHoldAtEnd(hold),
+      setPlaybackTick: (tick) => this.setClipPlaybackTick(tick),
+      clipEpoch: () => this.clipEpoch(),
+    }, prompt, onProgress);
+  }
+
+  /** Stop further ARDY windows and fade the clip back to idle. */
+  stopArdy(fadeDuration = SOURCE_FADE_DURATION): void {
+    stopArdyPlayback();
+    this.stopMotion(fadeDuration, this.gaze.getLookAtOffsets());
+  }
+
+  /** Stop playback and unload the ARDY weights. */
+  releaseArdy(): Promise<void> {
+    stopArdyPlayback();
+    this.stopMotion(SOURCE_FADE_DURATION, this.gaze.getLookAtOffsets());
+    return releaseArdyRuntime();
+  }
+
+  /** 续写：替换剪辑并保住播放头，不重新走一层淡入。 */
+  extendClip(clip: THREE.AnimationClip): void {
+    this.universalMotion.extendClip(clip);
+  }
+
+  setClipHoldAtEnd(hold: boolean): void {
+    this.universalMotion.setHoldAtEnd(hold);
+  }
+
+  setClipPlaybackTick(listener: ((time: number, duration: number) => void) | null): void {
+    this.universalMotion.setPlaybackListener(listener);
+  }
+
+  clipEpoch(): number {
+    return this.universalMotion.currentEpoch();
   }
 
   /**
@@ -317,6 +381,7 @@ export class MotionPipeline {
     });
     const target = writerToPipelineSource(writer);
     const traits = this.traitsForWriter(writer);
+    const preservePose = writer === 'clip' && this.universalMotion.preservesPose();
     const targetDuration = writer === 'clip'
       ? (this.universalMotion.getCurrentOptions().fadeDuration ?? WRITER_FADE_DURATION.clip)
       : WRITER_FADE_DURATION[writer];
@@ -357,7 +422,11 @@ export class MotionPipeline {
       // 否则只要偏角越过 180° (π)，角位移符号就会瞬间倒置反转，导致角色在 180° 处卡死或反向抽搐。
       // 保持目标方向单调一致，平滑限幅弹簧加速度上限：
       const normYaw = Math.max(-2.5, Math.min(2.5, targetYaw));
-      vrm.scene.rotation.y += this.bodyTurn.update(delta, normYaw, true);
+      if (preservePose && (this.bodyTurn.isStepping() || this.bodyTurn.isTurning)) {
+        this.bodyTurn.reset();
+        this.locomotionWeight = 0;
+      }
+      vrm.scene.rotation.y += this.bodyTurn.update(delta, normYaw, !preservePose);
       this.bodyTurn.copyToLowerBodyBuffer(this.locomotionPose);
     }
 
@@ -366,7 +435,7 @@ export class MotionPipeline {
     // 步态层连续解剖学混合权重计算：
     // 进入踱步响应迅速 (~0.18s)，避免启动迟滞；
     // 退出踱步平滑释放 (~0.85s)，从落脚平稳从容地融入 EMAGE / 待机动作，抹平单帧顿挫与身体折回感
-    const targetLocomotionWeight = isStepping ? 1.0 : 0.0;
+    const targetLocomotionWeight = preservePose || !isStepping ? 0.0 : 1.0;
     const blendRate = isStepping ? 10.0 : 8.0;
     this.locomotionWeight = THREE.MathUtils.damp(this.locomotionWeight, targetLocomotionWeight, blendRate, delta);
     if (Math.abs(this.locomotionWeight - targetLocomotionWeight) < 0.0005) {
@@ -444,6 +513,7 @@ export class MotionPipeline {
       isSpeaking: ctx.isSpeaking,
       manualExpression: ctx.manualExpression,
       isStepping,
+      preservePose,
     });
   }
 
@@ -461,6 +531,7 @@ export class MotionPipeline {
       isSpeaking: boolean;
       manualExpression: string | null;
       isStepping: boolean;
+      preservePose: boolean;
     },
   ): void {
     if (!this.sampledThisFrame) return;
@@ -481,7 +552,7 @@ export class MotionPipeline {
     this.currentTransitionT = t;
 
     this.basePose.clampTorsoPitch(this.restPose);
-    this.actionPose.clampTorsoPitch(this.restPose);
+    if (!ctx.preservePose) this.actionPose.clampTorsoPitch(this.restPose);
 
     const targetUpper = (this.activeSource === 'idle') ? this.basePose : this.actionPose;
     const targetLowerBase = (this.activeSource === 'idle' || this.activeMask === 'upperBody')
@@ -496,7 +567,7 @@ export class MotionPipeline {
       this.lowerPose.copyFrom(targetLowerBase);
     }
 
-    if (this.locomotionWeight > 0.0001) {
+    if (!ctx.preservePose && this.locomotionWeight > 0.0001) {
       const w = this.locomotionWeight;
       const smoothW = w * w * w * (w * (w * 6 - 15) + 10);
       this.lowerPose.blendMasked(this.locomotionPose, smoothW, LEGS_MASK);
@@ -509,7 +580,12 @@ export class MotionPipeline {
 
     const grounding = this.bodyTurn.getFootGroundedAlpha();
     const locomotionBusy = ctx.isStepping || this.locomotionWeight > 0.08;
-    const wantFootIk = this.footIK.enabled && writer === 'emage' && this.emage.enableFootIK && !locomotionBusy;
+    const wantFootIk = !ctx.preservePose
+      && this.footIK.enabled
+      && writer === 'emage'
+      && this.emage.enableFootIK
+      && !locomotionBusy;
+    if (ctx.preservePose) this.footIkMix = 0;
     if (wantFootIk && !this.footIkWanted) {
       this.footIK.recapturePlantFromCurrent();
       this.footIK.anchorToCurrentFeet();
@@ -531,6 +607,7 @@ export class MotionPipeline {
       ctx.traits,
       ctx.isSpeaking,
       ctx.manualExpression,
+      !ctx.preservePose,
     );
 
     this.lowerPose.sampleFromVRM(vrm);

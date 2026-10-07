@@ -12,6 +12,7 @@ import { ChatDirector } from '@/director/chatDirector';
 import type { HostAudioInput } from '@/director/hostAudio';
 import { MotionPipeline } from '@/motion/pipeline/motionPipeline';
 import type { PlayMotionOptions, UniversalMotionHandle } from '@/motion/sources/clip';
+import type { ArdyProgress } from '@/motion/sources/ardy/play';
 import { preloadWebLLM, unloadWebLLM } from '@/llm/webLLMProvider';
 import { isHeavyPreloadAllowed } from '@/lib/heavyPreload';
 import { APP_CONFIG, type LightConfig } from '@/config';
@@ -2350,6 +2351,26 @@ export class VRMEngine {
     }
     const lookAtOffsets = this.gazeController.getLookAtOffsets();
     return this.motionPipeline.playMotion(this.currentVRM, input, options, lookAtOffsets);
+  }
+
+  /**
+   * On-demand ARDY Mini. MotionPipeline owns the session: the first window
+   * starts the clip writer, later windows extend it, and release unloads weights.
+   */
+  public playArdy(prompt: string, onProgress?: ArdyProgress): Promise<UniversalMotionHandle> {
+    if (!this.currentVRM) {
+      throw new Error('[VRMEngine] 模型尚未就绪，无法播放 ARDY');
+    }
+    return this.motionPipeline.playArdy(this.currentVRM, prompt, onProgress);
+  }
+
+  /** Stop generating further windows and fade the clip back to idle. */
+  public stopArdy(fadeDuration = 0.75): void {
+    this.motionPipeline.stopArdy(fadeDuration);
+  }
+
+  public releaseArdy(): Promise<void> {
+    return this.motionPipeline.releaseArdy();
   }
 
   public stopMotion(fadeDuration = 0.75): void {

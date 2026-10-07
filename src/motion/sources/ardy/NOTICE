@@ -1,0 +1,11 @@
+ARDY Mini browser runtime
+Copyright (c) 2026 intsuc
+SPDX-License-Identifier: Apache-2.0
+
+Vendored from https://github.com/intsuc/ardy-mini
+(web/src/runtime, inference.worker.ts, vrm-retarget.ts, motion-data.ts).
+
+Model weights are not in this repository. They download at runtime from
+intsuc/Llama-3-ARDY-Mini-Core40-Browser and stay under that model's
+NVIDIA Open Model License, MiniLM, and Llama 3 notices. See the upstream
+NOTICE and THIRD_PARTY_MODELS_AND_DATA.md before redistributing weights.

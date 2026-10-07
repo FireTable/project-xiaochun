@@ -149,6 +149,7 @@ export class GazeController {
     traits: MotionTraits,
     isSpeaking: boolean,
     manualExpression: string | null,
+    rotateHead = true,
   ): void {
     if (!this.enabled) {
       this.hasLastLookAt = false;
@@ -301,6 +302,13 @@ export class GazeController {
       forwardTargetY + (camTargetY - forwardTargetY) * fovWeight,
       forwardTargetZ + (camTargetZ - forwardTargetZ) * fovWeight,
     );
+
+    // 成片动作（ARDY）自己带头部。不要把视线乘到脖子和头上，眼球注视也不要再拧头。
+    if (!rotateHead) {
+      this.hasLastLookAt = false;
+      if (vrm.lookAt) vrm.lookAt.autoUpdate = false;
+      return;
+    }
 
     // ── 6. 头颈部伴随注视与神态合成 ──
     if (this.isLookAtHead && headNode && neckNode) {

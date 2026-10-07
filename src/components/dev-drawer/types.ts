@@ -38,7 +38,8 @@ export type SectionId =
   | 'wardrobe'
   | 'lighting'
   | 'camera'
-  | 'postfx';
+  | 'postfx'
+  | 'ardy';
 
 /** 历史撤销操作动作 */
 export interface DevDrawerHistoryAction {
