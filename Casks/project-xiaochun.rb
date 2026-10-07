@@ -3,7 +3,7 @@ cask "project-xiaochun" do
 
   version "0.1.22"
   sha256 arm:   "c9c2ec2be3b6b99f9a5e3ad5479cb23c1035eb1f54e7719b530c113160834d80",
-         intel: "e63d7c6efa0ef5bbb6b363289e9635c01b443a459479803d92a1692f3fbc23b1"
+         intel: "01f3e179a33e565cf6496535e8972daab08f94292553e570c1af5077686bd3f4"
 
   url "https://github.com/FireTable/project-xiaochun/releases/download/v#{version}/Project.XiaoChun_#{version}_#{arch}.dmg"
   name "Project XiaoChun"
