@@ -105,17 +105,28 @@ async function streamChunkAudioToCheckpoint(
     await ctx.resume();
   }
 
-  const res = await fetch('/api/tts', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({
-      text: ttsText,
-      voice: 'zh-CN-XiaoyiNeural',
-      pitch: '+10Hz',
-    }),
-  });
+  let res: Response | null = null;
+  for (let attempt = 1; attempt <= 2; attempt++) {
+    try {
+      res = await fetch('/api/tts', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          text: ttsText,
+          voice: 'zh-CN-XiaoyiNeural',
+          pitch: '+10Hz',
+        }),
+      });
+      if (res.ok && res.body) break;
+    } catch (fetchErr) {
+      if (attempt === 2) throw fetchErr;
+    }
+    if (attempt < 2) {
+      await new Promise((r) => setTimeout(r, 300));
+    }
+  }
 
-  if (!res.ok) throw new Error(`语音合成服务异常: HTTP ${res.status}`);
+  if (!res || !res.ok) throw new Error(`语音合成服务异常: HTTP ${res?.status ?? 'Unknown'}`);
   if (!res.body) throw new Error('语音合成响应无 body');
 
   const reader = res.body.getReader();

@@ -18,141 +18,239 @@ import {
 } from './lib/edge-tts-core';
 import { applySecurityHeaders, type SecurityEnv } from './lib/securityHeaders';
 
-async function fetchTTSAudioStream(
+interface SynthesisResult {
+  stream: ReadableStream<Uint8Array>;
+}
+
+async function synthesizeWithRetry(
   text: string,
   voice: string,
   pitch: string,
-  onAudioChunk: (chunk: Uint8Array) => void,
-  onStreamEnd: () => void,
-  onErrCb: (err: Error) => void,
-  signal?: AbortSignal,
-): Promise<void> {
-  const secMsGec = await makeSecMsGec();
-  const connId = makeConnectionId();
-  const url = new URL(EDGE_TTS_CONSTANTS.SYNTHESIS_URL);
-  url.searchParams.set('TrustedClientToken', EDGE_TTS_CONSTANTS.TRUSTED_CLIENT_TOKEN);
-  url.searchParams.set('Sec-MS-GEC', secMsGec);
-  url.searchParams.set('Sec-MS-GEC-Version', EDGE_TTS_CONSTANTS.SEC_MS_GEC_VERSION);
-  url.searchParams.set('ConnectionId', connId);
+  clientSignal: AbortSignal,
+  maxAttempts = 3,
+): Promise<SynthesisResult> {
+  let lastError: Error | null = null;
 
-  console.log('[TTS] Connecting to Edge-TTS:', url.toString().slice(0, 100));
-  let upgradeRes: Response & { webSocket?: WebSocket };
-  try {
-    upgradeRes = (await fetch(url.toString(), {
-      headers: {
-        'User-Agent': `Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/${EDGE_TTS_CONSTANTS.CHROMIUM_MAJOR_VERSION}.0.0.0 Safari/537.36 Edg/${EDGE_TTS_CONSTANTS.CHROMIUM_MAJOR_VERSION}.0.0.0`,
-        'Accept-Language': 'en-US,en;q=0.9',
-        Origin: 'chrome-extension://jdiccldimpdaibmpdkjnbmckianbfold',
-        Upgrade: 'websocket',
-        Cookie: `muid=${makeMuid()};`,
-      },
-    })) as Response & { webSocket?: WebSocket };
-  } catch (fetchErr) {
-    console.error('[TTS] fetch threw error:', fetchErr);
-    onErrCb(fetchErr instanceof Error ? fetchErr : new Error(String(fetchErr)));
-    return;
-  }
+  for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+    if (clientSignal.aborted) {
+      throw new Error('TTS request aborted by client');
+    }
 
-  console.log('[TTS] Upgrade response status:', upgradeRes.status, 'hasSocket:', !!upgradeRes.webSocket);
+    if (attempt > 1) {
+      const backoffMs = 150 * (attempt - 1) + Math.floor(Math.random() * 150);
+      console.warn(`[TTS] Synthesis attempt #${attempt} in ${backoffMs}ms...`);
+      await new Promise((r) => setTimeout(r, backoffMs));
+    }
 
-  if (upgradeRes.status !== 101 || !upgradeRes.webSocket) {
-    const err = new Error(`WebSocket upgrade failed: HTTP ${upgradeRes.status}`);
-    console.error('[TTS]', err.message);
-    onErrCb(err);
-    return;
-  }
+    let socket: WebSocket | null = null;
+    let streamController: ReadableStreamDefaultController<Uint8Array> | null = null;
+    let streamClosed = false;
+    let ended = false;
+    let pendingAsync = 0;
+    let receivedFirstChunk = false;
 
-  const socket = upgradeRes.webSocket;
-  (socket as any).accept?.();
-  try {
-    (socket as any).binaryType = 'arraybuffer';
-  } catch { }
-
-  const { speechConfig, ssmlMessage } = buildEdgeTTSPayloads(text, voice, pitch);
-
-  let pendingAsync = 0;
-  let ended = false;
-
-  const closeSocket = () => {
     try {
-      socket.close();
-    } catch { }
-  };
+      const secMsGec = await makeSecMsGec();
+      const connId = makeConnectionId();
+      const url = new URL(EDGE_TTS_CONSTANTS.SYNTHESIS_URL);
+      url.searchParams.set('TrustedClientToken', EDGE_TTS_CONSTANTS.TRUSTED_CLIENT_TOKEN);
+      url.searchParams.set('Sec-MS-GEC', secMsGec);
+      url.searchParams.set('Sec-MS-GEC-Version', EDGE_TTS_CONSTANTS.SEC_MS_GEC_VERSION);
+      url.searchParams.set('ConnectionId', connId);
 
-  const onMessage = async (e: MessageEvent) => {
-    const data = e.data;
-    if (typeof data === 'string') {
-      const h = parseHeaders(data);
-      if (data.includes('turn.failed') || data.includes('403 Forbidden') || data.includes('Unauthorized')) {
-        console.error('[Edge-TTS Error Msg]:', data);
-        ended = true;
-        closeSocket();
-        onErrCb(new Error(`Upstream rejected: ${data.slice(0, 150)}`));
-        return;
+      const res = (await fetch(url.toString(), {
+        headers: {
+          'User-Agent': `Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/${EDGE_TTS_CONSTANTS.CHROMIUM_MAJOR_VERSION}.0.0.0 Safari/537.36 Edg/${EDGE_TTS_CONSTANTS.CHROMIUM_MAJOR_VERSION}.0.0.0`,
+          'Accept-Language': 'en-US,en;q=0.9',
+          Origin: 'chrome-extension://jdiccldimpdaibmpdkjnbmckianbfold',
+          Upgrade: 'websocket',
+          Cookie: `muid=${makeMuid()};`,
+        },
+      })) as Response & { webSocket?: WebSocket };
+
+      if (res.status !== 101 || !res.webSocket) {
+        throw new Error(`Edge-TTS handshake failed: HTTP ${res.status}`);
       }
-      if (h.Path === 'turn.end') {
-        ended = true;
+
+      socket = res.webSocket;
+      (socket as any).accept?.();
+      try {
+        (socket as any).binaryType = 'arraybuffer';
+      } catch { }
+
+      const closeSocket = () => {
+        try {
+          socket?.close();
+        } catch { }
+      };
+
+      const cleanup = () => {
+        if (streamClosed) return;
+        streamClosed = true;
         closeSocket();
-        const wait = () => {
-          if (pendingAsync === 0) onStreamEnd();
-          else setTimeout(wait, 5);
+      };
+
+      const { speechConfig, ssmlMessage } = buildEdgeTTSPayloads(text, voice, pitch);
+
+      const result = await new Promise<SynthesisResult>((resolve, reject) => {
+        const timeoutId = setTimeout(() => {
+          if (!receivedFirstChunk) {
+            cleanup();
+            reject(new Error('Timeout waiting for first audio chunk from Edge-TTS'));
+          }
+        }, 5000);
+
+        const onAbort = () => {
+          clearTimeout(timeoutId);
+          cleanup();
+          reject(new Error('TTS request aborted by client'));
         };
-        wait();
-      }
-      return;
+        clientSignal.addEventListener('abort', onAbort, { once: true });
+
+        const stream = new ReadableStream<Uint8Array>({
+          start(controller) {
+            streamController = controller;
+          },
+          cancel() {
+            cleanup();
+          },
+        });
+
+        const onMessage = async (e: MessageEvent) => {
+          const data = e.data;
+          if (typeof data === 'string') {
+            const h = parseHeaders(data);
+            if (data.includes('turn.failed') || data.includes('403 Forbidden') || data.includes('Unauthorized')) {
+              console.error('[Edge-TTS Error Msg]:', data);
+              ended = true;
+              clearTimeout(timeoutId);
+              cleanup();
+              const err = new Error(`Upstream rejected: ${data.slice(0, 150)}`);
+              if (!receivedFirstChunk) {
+                reject(err);
+              } else if (streamController) {
+                try {
+                  streamController.error(err);
+                } catch { }
+              }
+              return;
+            }
+            if (h.Path === 'turn.end') {
+              ended = true;
+              closeSocket();
+              const wait = () => {
+                if (pendingAsync === 0) {
+                  if (!streamClosed && streamController) {
+                    streamClosed = true;
+                    try {
+                      streamController.close();
+                    } catch { }
+                  }
+                } else {
+                  setTimeout(wait, 5);
+                }
+              };
+              wait();
+            }
+            return;
+          }
+
+          pendingAsync++;
+          try {
+            let u8: Uint8Array;
+            if (data instanceof ArrayBuffer) u8 = new Uint8Array(data);
+            else if (data instanceof Uint8Array) u8 = data;
+            else if (typeof Blob !== 'undefined' && data instanceof Blob) u8 = new Uint8Array(await data.arrayBuffer());
+            else return;
+
+            const f = parseBinaryFrame(u8);
+            if (f.headers.Path === 'audio' && f.body.length > 0) {
+              if (!receivedFirstChunk) {
+                receivedFirstChunk = true;
+                clearTimeout(timeoutId);
+                if (!streamClosed && streamController) {
+                  try {
+                    streamController.enqueue(f.body);
+                  } catch { }
+                }
+                resolve({ stream });
+              } else {
+                if (!streamClosed && streamController) {
+                  try {
+                    streamController.enqueue(f.body);
+                  } catch { }
+                }
+              }
+            }
+          } catch (parseErr) {
+            console.error('[TTS Frame Parse Error]:', parseErr);
+          } finally {
+            pendingAsync--;
+          }
+        };
+
+        const onClose = (evt?: any) => {
+          console.log('[TTS] Socket closed, code:', evt?.code, 'ended:', ended, 'receivedFirstChunk:', receivedFirstChunk);
+          if (!receivedFirstChunk) {
+            clearTimeout(timeoutId);
+            cleanup();
+            reject(new Error(`Edge-TTS socket closed before audio data (code: ${evt?.code})`));
+            return;
+          }
+          if (!ended) {
+            ended = true;
+            if (!streamClosed && streamController) {
+              streamClosed = true;
+              try {
+                streamController.close();
+              } catch { }
+            }
+          }
+        };
+
+        const onSocketError = (err?: any) => {
+          console.error('[TTS] Socket error:', err?.message || err);
+          if (!receivedFirstChunk) {
+            clearTimeout(timeoutId);
+            cleanup();
+            reject(new Error('WebSocket connection error during synthesis'));
+            return;
+          }
+          if (ended) return;
+          ended = true;
+          cleanup();
+          if (!streamClosed && streamController) {
+            try {
+              streamController.error(new Error('WebSocket connection error during synthesis'));
+            } catch { }
+          }
+        };
+
+        socket!.addEventListener('message', onMessage);
+        socket!.addEventListener('close', onClose);
+        socket!.addEventListener('error', onSocketError);
+
+        try {
+          socket!.send(speechConfig);
+          socket!.send(ssmlMessage);
+        } catch (sendErr) {
+          clearTimeout(timeoutId);
+          cleanup();
+          reject(sendErr);
+        }
+      });
+
+      return result;
+    } catch (err) {
+      lastError = err instanceof Error ? err : new Error(String(err));
+      console.warn(`[TTS] Attempt ${attempt}/${maxAttempts} failed:`, lastError.message);
+      try {
+        socket?.close();
+      } catch { }
     }
-
-    pendingAsync++;
-    try {
-      let u8: Uint8Array;
-      if (data instanceof ArrayBuffer) u8 = new Uint8Array(data);
-      else if (data instanceof Uint8Array) u8 = data;
-      else if (typeof Blob !== 'undefined' && data instanceof Blob) u8 = new Uint8Array(await data.arrayBuffer());
-      else return;
-
-      const f = parseBinaryFrame(u8);
-      if (f.headers.Path === 'audio' && f.body.length > 0) {
-        onAudioChunk(f.body);
-      }
-    } catch (parseErr) {
-      console.error('[TTS Frame Parse Error]:', parseErr);
-    } finally {
-      pendingAsync--;
-    }
-  };
-
-  const onClose = (evt?: any) => {
-    console.log('[TTS] Socket closed, code:', evt?.code, 'reason:', evt?.reason, 'ended:', ended);
-    if (!ended) {
-      ended = true;
-      onStreamEnd();
-    }
-  };
-
-  const onSocketError = (err?: any) => {
-    console.error('[TTS] Socket error:', err?.message || err);
-    if (ended) return;
-    onErrCb(new Error('WebSocket connection error during synthesis'));
-  };
-
-  socket.addEventListener('message', onMessage);
-  socket.addEventListener('close', onClose);
-  socket.addEventListener('error', onSocketError);
-
-  signal?.addEventListener('abort', () => {
-    ended = true;
-    closeSocket();
-    onErrCb(new Error('TTS stream aborted by client'));
-  });
-
-  try {
-    socket.send(speechConfig);
-    socket.send(ssmlMessage);
-  } catch (sendErr) {
-    ended = true;
-    closeSocket();
-    onErrCb(sendErr instanceof Error ? sendErr : new Error(String(sendErr)));
   }
+
+  throw lastError ?? new Error('Failed to synthesize audio after retries');
 }
 
 async function handleTTS(request: Request): Promise<Response> {
@@ -184,53 +282,14 @@ async function handleTTS(request: Request): Promise<Response> {
       });
     }
 
-    let streamController: ReadableStreamDefaultController<Uint8Array> | null = null;
-    let streamClosed = false;
-    const stream = new ReadableStream<Uint8Array>({
-      start(controller) {
-        streamController = controller;
-      },
-      cancel() {
-        streamClosed = true;
-        try {
-          abortController.abort();
-        } catch { }
-      },
-    });
-
     const abortController = new AbortController();
-    fetchTTSAudioStream(
+    const { stream } = await synthesizeWithRetry(
       text.trim(),
       voice,
       pitch,
-      (chunk) => {
-        if (streamClosed || !streamController) return;
-        try {
-          streamController.enqueue(chunk);
-        } catch { }
-      },
-      () => {
-        if (streamClosed || !streamController) return;
-        streamClosed = true;
-        try {
-          streamController.close();
-        } catch { }
-      },
-      (err) => {
-        if (streamClosed || !streamController) return;
-        streamClosed = true;
-        try {
-          streamController.error(err);
-        } catch { }
-      },
       abortController.signal,
-    ).catch((err) => {
-      console.error('[TTS] Top-level unhandled fetchTTSAudioStream error:', err);
-      if (!streamClosed && streamController) {
-        streamClosed = true;
-        try { streamController.error(err); } catch {}
-      }
-    });
+      3,
+    );
 
     return new Response(stream, {
       status: 200,
@@ -242,6 +301,7 @@ async function handleTTS(request: Request): Promise<Response> {
     });
   } catch (e: unknown) {
     const msg = e instanceof Error ? e.message : String(e);
+    console.error('[TTS Handle Error]:', msg);
     return new Response(JSON.stringify({ error: msg }), {
       status: 502,
       headers: { 'Content-Type': 'application/json', ...EDGE_TTS_CONSTANTS.COMMON_CORS },
