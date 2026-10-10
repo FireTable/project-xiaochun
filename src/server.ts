@@ -35,22 +35,31 @@ async function fetchTTSAudioStream(
   url.searchParams.set('Sec-MS-GEC-Version', EDGE_TTS_CONSTANTS.SEC_MS_GEC_VERSION);
   url.searchParams.set('ConnectionId', connId);
 
-  const upgradeRes = (await fetch(url.toString(), {
-    headers: {
-      'User-Agent': `Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/${EDGE_TTS_CONSTANTS.CHROMIUM_MAJOR_VERSION}.0.0.0 Safari/537.36 Edg/${EDGE_TTS_CONSTANTS.CHROMIUM_MAJOR_VERSION}.0.0.0`,
-      'Accept-Language': 'en-US,en;q=0.9',
-      'Accept-Encoding': 'gzip, deflate, br, zstd',
-      Pragma: 'no-cache',
-      'Cache-Control': 'no-cache',
-      Origin: 'chrome-extension://jdiccldimpdaibmpdkjnbmckianbfold',
-      'Sec-WebSocket-Version': '13',
-      Upgrade: 'websocket',
-      Cookie: `muid=${makeMuid()};`,
-    },
-  })) as Response & { webSocket?: WebSocket };
+  console.log('[TTS] Connecting to Edge-TTS:', url.toString().slice(0, 100));
+  let upgradeRes: Response & { webSocket?: WebSocket };
+  try {
+    upgradeRes = (await fetch(url.toString(), {
+      headers: {
+        'User-Agent': `Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/${EDGE_TTS_CONSTANTS.CHROMIUM_MAJOR_VERSION}.0.0.0 Safari/537.36 Edg/${EDGE_TTS_CONSTANTS.CHROMIUM_MAJOR_VERSION}.0.0.0`,
+        'Accept-Language': 'en-US,en;q=0.9',
+        Origin: 'chrome-extension://jdiccldimpdaibmpdkjnbmckianbfold',
+        Upgrade: 'websocket',
+        Cookie: `muid=${makeMuid()};`,
+      },
+    })) as Response & { webSocket?: WebSocket };
+  } catch (fetchErr) {
+    console.error('[TTS] fetch threw error:', fetchErr);
+    onErrCb(fetchErr instanceof Error ? fetchErr : new Error(String(fetchErr)));
+    return;
+  }
+
+  console.log('[TTS] Upgrade response status:', upgradeRes.status, 'hasSocket:', !!upgradeRes.webSocket);
 
   if (upgradeRes.status !== 101 || !upgradeRes.webSocket) {
-    throw new Error(`WebSocket upgrade failed: HTTP ${upgradeRes.status}`);
+    const err = new Error(`WebSocket upgrade failed: HTTP ${upgradeRes.status}`);
+    console.error('[TTS]', err.message);
+    onErrCb(err);
+    return;
   }
 
   const socket = upgradeRes.webSocket;
@@ -112,14 +121,16 @@ async function fetchTTSAudioStream(
     }
   };
 
-  const onClose = () => {
+  const onClose = (evt?: any) => {
+    console.log('[TTS] Socket closed, code:', evt?.code, 'reason:', evt?.reason, 'ended:', ended);
     if (!ended) {
       ended = true;
       onStreamEnd();
     }
   };
 
-  const onSocketError = () => {
+  const onSocketError = (err?: any) => {
+    console.error('[TTS] Socket error:', err?.message || err);
     if (ended) return;
     onErrCb(new Error('WebSocket connection error during synthesis'));
   };
@@ -213,7 +224,13 @@ async function handleTTS(request: Request): Promise<Response> {
         } catch { }
       },
       abortController.signal,
-    );
+    ).catch((err) => {
+      console.error('[TTS] Top-level unhandled fetchTTSAudioStream error:', err);
+      if (!streamClosed && streamController) {
+        streamClosed = true;
+        try { streamController.error(err); } catch {}
+      }
+    });
 
     return new Response(stream, {
       status: 200,

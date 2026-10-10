@@ -39,9 +39,6 @@ async function streamNativeEdgeTTSNode(
       headers: {
         'User-Agent': `Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/${EDGE_TTS_CONSTANTS.CHROMIUM_MAJOR_VERSION}.0.0.0 Safari/537.36 Edg/${EDGE_TTS_CONSTANTS.CHROMIUM_MAJOR_VERSION}.0.0.0`,
         'Accept-Language': 'en-US,en;q=0.9',
-        'Accept-Encoding': 'gzip, deflate, br, zstd',
-        Pragma: 'no-cache',
-        'Cache-Control': 'no-cache',
         Origin: 'chrome-extension://jdiccldimpdaibmpdkjnbmckianbfold',
         Cookie: `muid=${makeMuid()};`,
       },
