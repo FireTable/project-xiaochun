@@ -75,11 +75,23 @@ export const OnboardingTour: React.FC<OnboardingTourProps> = ({ onComplete }) =>
   const finishTour = useCallback(() => {
     try {
       localStorage.setItem(ONBOARDING_STORAGE_KEY, '1');
+      vrmEngine.chatDirector.stop();
     } catch {
       // ignore
     }
     onComplete();
   }, [onComplete]);
+
+  // 组件卸载时停止语音与动作
+  useEffect(() => {
+    return () => {
+      try {
+        vrmEngine.chatDirector.stop();
+      } catch {
+        // ignore
+      }
+    };
+  }, []);
 
   // 当前阶段台词与选择分支
   const getStageContent = (): {
@@ -316,7 +328,29 @@ export const OnboardingTour: React.FC<OnboardingTourProps> = ({ onComplete }) =>
     return () => clearInterval(interval);
   }, [stage, currentContent.text]);
 
+  // 联动小蠢语音配音与全身动作 (speakText)
+  useEffect(() => {
+    const rawText = currentContent.text;
+    if (!rawText) return;
+
+    // 清除省略号等前导符号，确保 TTS 清晰自然朗读
+    const cleanSpeech = rawText.replace(/^[…\.\s]+/, '').trim();
+    if (!cleanSpeech) return;
+
+    void vrmEngine.speakText(cleanSpeech).catch((e) => {
+      console.warn('[OnboardingTour] speakText error:', e);
+    });
+  }, [stage, currentContent.text]);
+
   const handleBoxClick = () => {
+    // 恢复可能被浏览器初始自动播放策略挂起的 AudioContext
+    try {
+      const ctx = (vrmEngine.chatDirector as any).ctx as AudioContext | undefined;
+      if (ctx && ctx.state === 'suspended') {
+        void ctx.resume();
+      }
+    } catch {}
+
     // 若正在打字，点击立即显示全部文字；若打字完成且有下一步，则推进阶段
     if (isTyping) {
       setDisplayedText(currentContent.text);

@@ -203,8 +203,10 @@ export const App: React.FC = () => {
 
 
 
-      {/* 3D 角色头顶悬浮对话框 */}
-      {currentScene.components.headBubble !== false && <HeadBubble state={bubble} />}
+      {/* 3D 角色头顶悬浮对话框 — 新手向导期间隐藏以保证 Galgame 纯正体验 */}
+      {!isOnboardingActive && currentScene.components.headBubble !== false && (
+        <HeadBubble state={bubble} />
+      )}
 
       {/* 底部对话输入条 — 启动 splash 期间及新手向导期间不渲染 */}
       {!loading.active && !isOnboardingActive && currentScene.components.chatBar !== false && (
