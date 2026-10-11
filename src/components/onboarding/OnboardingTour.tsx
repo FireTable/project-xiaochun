@@ -120,7 +120,7 @@ export const OnboardingTour: React.FC<OnboardingTourProps> = ({ onComplete }) =>
 
         if (cleanSpeech) {
           try {
-            await vrmEngine.speakText(cleanSpeech, { skipThinking: true });
+            await vrmEngine.speakText(cleanSpeech);
           } catch (e) {
             console.warn('[OnboardingTour] speakText error:', e);
           }

@@ -515,7 +515,7 @@ export class ChatDirector {
       segmentIndex?: number,
       totalSegments?: number,
     ) => void,
-    opts?: { skipThinking?: boolean; voice?: string },
+    voiceOverride?: string,
   ): Promise<void> {
     const id = await this.handoff();
     if (id === null) return;
@@ -523,10 +523,8 @@ export class ChatDirector {
     this.speaking = false;
     this.player = player;
     this.emage = emage;
-    if (!opts?.skipThinking) {
-      await this.playThinking(vrm, player);
-      if (!this.owns(id)) return;
-    }
+    await this.playThinking(vrm, player);
+    if (!this.owns(id)) return;
 
     const isMobile = typeof navigator !== 'undefined' && /Mobi|Android|iPhone|iPad/i.test(navigator.userAgent);
     const staggerDelay = isMobile ? 380 : 50;
@@ -537,7 +535,7 @@ export class ChatDirector {
     if (!this.owns(id)) return;
 
     this.plan = { speech: text, llm_provider: 'DEV_BYPASS' };
-    await this.runSpeechPipeline(text, player, emage, status, id, opts?.voice);
+    await this.runSpeechPipeline(text, player, emage, status, id, voiceOverride);
   }
 
   /**
