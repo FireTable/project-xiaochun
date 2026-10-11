@@ -13,6 +13,7 @@ export interface OnboardingChoice {
   label: string;
   subLabel?: string;
   badge?: string;
+  icon?: string;
   mediaPreview?: {
     gradient: string;
     emoji: string;
@@ -52,14 +53,15 @@ export const createOnboardingSteps = (t: TFunction, i18n: I18nInstance): Record<
     id: 'step_intro',
     dialogues: [
       {
-        key: 'onboarding.galLangAsk',
-        defaultText: '你好呀！初次见面，我是小蠢～请问我们用哪种语言交流呢？',
+        key: 'onboarding.galIntro1',
+        defaultText: '呼啊……你终于来啦！初次见面，我是小蠢～\n那个……你来自哪里呀？我该用哪种语言跟你聊天呢？',
       },
     ],
     choiceLayout: 'text',
     getChoices: (ctx) => [
       {
         id: 'zh-CN',
+        icon: '🇨🇳',
         label: '用中文和小蠢交流吧',
         subLabel: '简体中文 (zh-CN)',
         onSelect: () => {
@@ -69,6 +71,7 @@ export const createOnboardingSteps = (t: TFunction, i18n: I18nInstance): Record<
       },
       {
         id: 'en',
+        icon: '🇺🇸',
         label: "Let's chat in English",
         subLabel: 'English (en)',
         onSelect: () => {
@@ -78,6 +81,7 @@ export const createOnboardingSteps = (t: TFunction, i18n: I18nInstance): Record<
       },
       {
         id: 'ja',
+        icon: '🇯🇵',
         label: '日本語でお話ししましょう',
         subLabel: '日本語 (ja)',
         onSelect: () => {
@@ -94,21 +98,23 @@ export const createOnboardingSteps = (t: TFunction, i18n: I18nInstance): Record<
     dialogues: [
       {
         key: 'onboarding.galTutorialAsk',
-        defaultText: '太好啦！以后请多关照哦～需要带你了解一下小蠢的操作方式与各项功能吗？',
+        defaultText: '太好啦！以后的日子请多关照啦～\n那个……需要我带你熟悉一下这个小世界的秘密吗？',
       },
     ],
     choiceLayout: 'text',
     getChoices: (ctx) => [
       {
         id: 'start_tut',
-        label: t('onboarding.galChoiceStartTutorial', '了解一下（开始新手教程）'),
-        subLabel: '学习视角控制、场景穿梭与个性化换装',
+        icon: '✨',
+        label: t('onboarding.galChoiceStartTutorial', '好呀，带我逛逛这个世界～'),
+        subLabel: t('onboarding.galChoiceStartTutSub', '探索视角转动、随心换装与专属空间'),
         onSelect: () => ctx.goToStep('step_camera_intro'),
       },
       {
         id: 'skip_tut',
-        label: t('onboarding.galChoiceSkipTutorial', '不用啦，直接开始日常（跳过教程）'),
-        subLabel: '立即进入对话，随时可在右上角重温',
+        icon: '💬',
+        label: t('onboarding.galChoiceSkipTutorial', '不用啦，已经迫不及待想跟你聊天了！'),
+        subLabel: t('onboarding.galChoiceSkipTutSub', '直接进入主界面，开启日常畅聊'),
         onSelect: () => ctx.finish(),
       },
     ],
@@ -121,55 +127,37 @@ export const createOnboardingSteps = (t: TFunction, i18n: I18nInstance): Record<
     dialogues: [
       {
         key: 'onboarding.galCameraAsk',
-        defaultText: '试着转动一下我吧！按住修饰键拖拽（手机长按拖动），可以从全方位看我哦～',
+        defaultText: '试着悄悄转动一下我吧？按住按键拖拽屏幕（手机长按拖动）……唔，别光站在正面对视，多换几个角度瞧瞧我嘛～',
       },
     ],
     choiceLayout: 'text',
     getChoices: (ctx) => [
       {
         id: 'camera_next',
+        icon: ctx.hasRotated ? '🎉' : '👉',
         label: ctx.hasRotated
-          ? t('onboarding.cameraDoneNext', '转动好啦，进入下一步！')
+          ? t('onboarding.cameraDoneNext', '转动好啦，看到全方位的你啦！')
           : t('onboarding.cameraSkipNext', '学会啦，进入下一步'),
-        onSelect: () => ctx.goToStep(ctx.hasRotated ? 'step_camera_done' : 'step_scene_choice'),
-      },
-    ],
-  },
-
-  // 4. 视角转动成功反馈
-  step_camera_done: {
-    id: 'step_camera_done',
-    dialogues: [
-      {
-        key: 'onboarding.galCameraDone',
-        defaultText: '哇，很熟练嘛！就是这样转动视角与镜头哦～',
-      },
-    ],
-    choiceLayout: 'text',
-    getChoices: (ctx) => [
-      {
-        id: 'scene_next',
-        label: t('onboarding.cameraExploreScene', '真棒！去看看不同的世界吧～'),
         onSelect: () => ctx.goToStep('step_scene_choice'),
       },
     ],
   },
 
-  // 5. 场景世界选择 — 【图文卡片 (media)】
+  // 4. 场景世界选择 — 【图文卡片 (media)】
   step_scene_choice: {
     id: 'step_scene_choice',
     dialogues: [
       {
         key: 'onboarding.galSceneAsk',
-        defaultText: '除了现在这个场景，我还可以住在不同的世界哦，你想去哪里看看？',
+        defaultText: '现在这片空间空荡荡的，只有我们两个人呢……你更喜欢带我去哪里？不管是夏日沙滩还是静谧星空，我都想陪你一起去！',
       },
     ],
     choiceLayout: 'media',
     getChoices: (ctx) => [
       {
         id: 'beach3d',
-        label: '阳光沙滩',
-        subLabel: '夏日海浪、沙滩与椰林实景',
+        label: t('onboarding.sceneBeach', '阳光沙滩'),
+        subLabel: t('onboarding.sceneBeachSub', '听海浪吹吹风，一起去度假吧～'),
         mediaPreview: {
           gradient: 'from-amber-500/30 via-orange-500/20 to-sky-500/30',
           emoji: '🏖️',
@@ -182,8 +170,8 @@ export const createOnboardingSteps = (t: TFunction, i18n: I18nInstance): Record<
       },
       {
         id: 'light',
-        label: '极简昼白',
-        subLabel: '纯白线稿空间，极简专注',
+        label: t('onboarding.sceneLight', '极简昼白'),
+        subLabel: t('onboarding.sceneLightSub', '纯白静谧空间，只专注看着你'),
         mediaPreview: {
           gradient: 'from-slate-100/30 via-sky-100/20 to-amber-100/30',
           emoji: '☀️',
@@ -196,8 +184,8 @@ export const createOnboardingSteps = (t: TFunction, i18n: I18nInstance): Record<
       },
       {
         id: 'dark',
-        label: '极夜星空',
-        subLabel: '黑夜与微光静谧舞台',
+        label: t('onboarding.sceneDark', '极夜星空'),
+        subLabel: t('onboarding.sceneDarkSub', '星芒微光舞台，浪漫静谧夜晚'),
         mediaPreview: {
           gradient: 'from-indigo-950/50 via-purple-900/40 to-slate-900/50',
           emoji: '🌌',
@@ -210,32 +198,32 @@ export const createOnboardingSteps = (t: TFunction, i18n: I18nInstance): Record<
       },
       ...(isTauri()
         ? [
-            {
-              id: 'transparent',
-              label: '透明桌宠',
-              subLabel: '无边框透明窗口，驻留桌面',
-              mediaPreview: {
-                gradient: 'from-pink-500/30 via-rose-500/20 to-purple-500/30',
-                emoji: '👻',
-                description: 'Transparent Pet',
-              },
-              onSelect: async () => {
-                await sceneManager.setScene('transparent', true);
-                ctx.goToStep('step_outfit_choice');
-              },
+          {
+            id: 'transparent',
+            label: t('onboarding.sceneTransparent', '透明桌宠'),
+            subLabel: t('onboarding.sceneTransparentSub', '变成桌面小透明，随时偷偷陪着你'),
+            mediaPreview: {
+              gradient: 'from-pink-500/30 via-rose-500/20 to-purple-500/30',
+              emoji: '👻',
+              description: 'Transparent Pet',
             },
-          ]
+            onSelect: async () => {
+              await sceneManager.setScene('transparent', true);
+              ctx.goToStep('step_outfit_choice');
+            },
+          },
+        ]
         : []),
     ],
   },
 
-  // 6. 服装试穿选择 — 【图文卡片 (media)】
+  // 5. 服装试穿选择 — 【图文卡片 (media)】
   step_outfit_choice: {
     id: 'step_outfit_choice',
     dialogues: [
       {
         key: 'onboarding.galOutfitAsk',
-        defaultText: '我平时还可以换上不同风格的服装哦！你也可以随时把本地制作的 .vrm 模型文件拖进窗口让我换上～',
+        defaultText: '唔……这身晚礼服……你喜欢吗？其实有点害羞呢……如果你想看别的风格，我还可以换上机能风、国风旗袍，甚至是……泳装哦？',
       },
     ],
     choiceLayout: 'media',
@@ -247,13 +235,18 @@ export const createOnboardingSteps = (t: TFunction, i18n: I18nInstance): Record<
         const gradient = isBikini
           ? 'from-sky-400/30 via-teal-400/20 to-cyan-400/30'
           : isCheongsam
-          ? 'from-rose-500/30 via-pink-400/20 to-amber-400/30'
-          : 'from-purple-500/30 via-indigo-400/20 to-blue-400/30';
+            ? 'from-rose-500/30 via-pink-400/20 to-amber-400/30'
+            : 'from-purple-500/30 via-indigo-400/20 to-blue-400/30';
+        const subLabel = isBikini
+          ? t('onboarding.outfitBikiniSub', '清凉夏日泳装，心跳加速中……')
+          : isCheongsam
+            ? t('onboarding.outfitCheongsamSub', '典雅温婉，尽显曼妙身姿～')
+            : t('onboarding.outfitTechwearSub', '酷飒机甲风，今天超神气！');
 
         return {
           id: k,
           label: addon.name.replace('XiaoChun ', ''),
-          subLabel: '实时热换装体验',
+          subLabel,
           mediaPreview: {
             gradient,
             emoji,
@@ -267,8 +260,8 @@ export const createOnboardingSteps = (t: TFunction, i18n: I18nInstance): Record<
       }),
       {
         id: 'keep_outfit',
-        label: '保持当前服装',
-        subLabel: '随时可在右上角衣架换装',
+        label: t('onboarding.outfitKeep', '这身晚礼服就很棒'),
+        subLabel: t('onboarding.outfitKeepSub', '这套就很喜欢，先不用换啦～'),
         mediaPreview: {
           gradient: 'from-slate-700/40 via-slate-800/30 to-slate-900/40',
           emoji: '👗',
@@ -279,21 +272,22 @@ export const createOnboardingSteps = (t: TFunction, i18n: I18nInstance): Record<
     ],
   },
 
-  // 7. AI 大脑选择 — 【纯文字卡片 (text)】
+  // 6. AI 大脑选择 — 【纯文字卡片 (text)】
   step_brain_choice: {
     id: 'step_brain_choice',
     dialogues: [
       {
         key: 'onboarding.galBrainAsk',
-        defaultText: '最后是我的“思考大脑”～你想先怎么和我聊天呢？',
+        defaultText: '最后……是让小蠢变得更聪明的‘思考核心’哦！你想怎么连接我的小脑袋呢？',
       },
     ],
     choiceLayout: 'text',
     getChoices: (ctx) => [
       {
         id: 'brain_webllm',
-        label: '⚡ 端侧轻量模型（开箱即用，无需配置）',
-        subLabel: '直接在浏览器内部运行，保护隐私且无需任何额外配置',
+        icon: '⚡',
+        label: t('onboarding.brainWebllm', '端侧轻量小脑筋（零配置即开即用）'),
+        subLabel: t('onboarding.brainWebllmHint', '直接在浏览器里运行，完全保护隐私不用配置哦'),
         onSelect: async () => {
           await setActiveProviderId(null);
           ctx.goToStep('step_finale');
@@ -301,34 +295,30 @@ export const createOnboardingSteps = (t: TFunction, i18n: I18nInstance): Record<
       },
       {
         id: 'brain_custom',
-        label: '🖥️ 本地模型服务（Ollama / LM Studio）',
-        subLabel: '连接本地运行的强大开源大模型',
-        onSelect: () => ctx.goToStep('step_finale'),
-      },
-      {
-        id: 'brain_default',
-        label: '💬 稍后再配，先默认开聊',
-        subLabel: '直接进入主界面体验',
+        icon: '🖥️',
+        label: t('onboarding.brainCustom', '接入自定义的模型'),
+        subLabel: t('onboarding.brainCustomHint', '连接本地或远程自定义模型服务（Ollama / LM Studio 等）'),
         onSelect: () => ctx.goToStep('step_finale'),
       },
     ],
   },
 
-  // 8. 终章启航 — 【纯文字卡片 (text)】
+  // 7. 终章启航 — 【纯文字卡片 (text)】
   step_finale: {
     id: 'step_finale',
     dialogues: [
       {
         key: 'onboarding.galFinale',
-        defaultText: '耶！所有准备都就绪啦～有想对我说的话，随时在下面的对话框告诉我哦！',
+        defaultText: '耶！所有契约与准备都完成啦～从现在起，小蠢就是你的专属伙伴了！有什么心里话，随时在下方打字告诉我哦！',
       },
     ],
     choiceLayout: 'text',
     getChoices: (ctx) => [
       {
         id: 'start_game',
-        label: '🚀 启程，开始与小蠢的日常！',
-        subLabel: '揭幕完整界面，随时开启畅聊',
+        icon: '🚀',
+        label: t('onboarding.startJourney', '启程，开启和小蠢的羁绊！'),
+        subLabel: t('onboarding.startJourneySub', '揭开完整面板，随时开启畅聊'),
         onSelect: () => ctx.finish(),
       },
     ],

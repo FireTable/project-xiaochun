@@ -15,7 +15,7 @@ import { resolveSystemPrompt, getCachedUserSettings, subscribeUserSettings } fro
 import { DEV_DRAWER_OPEN_KEY } from '@/lib/constants';
 import type { Lang } from '@/i18n';
 import { APP_CONFIG } from '@/config';
-import { useCurrentScene } from '@/core/scene/sceneManager';
+import { sceneManager, useCurrentScene } from '@/core/scene/sceneManager';
 import { usePetUiVisibility } from '@/hooks/usePetUiVisibility';
 import { initProtocolListener } from '@/core/protocol';
 import { isDev } from '@/lib/utils';
@@ -79,7 +79,10 @@ export const App: React.FC = () => {
 
   // 支持外部事件或菜单随时重温新手引导
   useEffect(() => {
-    const handleTrigger = () => setIsOnboardingActive(true);
+    const handleTrigger = () => {
+      setIsOnboardingActive(true);
+      void sceneManager.setScene('void', false);
+    };
     window.addEventListener('xc-trigger-onboarding', handleTrigger);
     return () => window.removeEventListener('xc-trigger-onboarding', handleTrigger);
   }, []);

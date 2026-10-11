@@ -210,7 +210,7 @@ export const TopHeader: React.FC<TopHeaderProps> = ({
           </DropdownMenuTrigger>
           <DropdownMenuContent align="end">
             {Object.values(APP_CONFIG.scenes.items)
-              .filter((scene) => !scene.isTransparent || isTauri())
+              .filter((scene) => (!scene.isTransparent || isTauri()) && !scene.hidden)
               .map((scene) => (
                 <DropdownMenuItem
                   key={scene.id}

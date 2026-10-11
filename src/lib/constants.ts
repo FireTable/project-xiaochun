@@ -177,3 +177,6 @@ export const INTERACTION_GUIDE_PHOTON = {
   cameraLength: 0.50,
 } as const;
 
+/** 沉浸式新手引导完成标记 (1 = 已完成) */
+export const ONBOARDING_STORAGE_KEY = 'xc_onboarding_completed_v1';
+

@@ -14,8 +14,8 @@ export interface LightConfig {
   globalMult: number;
 }
 
-/** 场景背景主题。light/dark = 线稿世界; transparent = 透明桌宠; beach3d = 海滩 (纯 Three.js 3D 场景, 见 Beach3DSceneConfig)。 */
-export type LineworkTheme = 'light' | 'dark' | 'transparent' | 'beach3d';
+/** 场景背景主题。light/dark = 线稿世界; transparent = 透明桌宠; beach3d = 海滩 (纯 Three.js 3D 场景); void = 纯粹虚空 (新手向导专属)。 */
+export type LineworkTheme = 'light' | 'dark' | 'transparent' | 'beach3d' | 'void';
 
 export interface SceneComponentConfig {
   topHeader?: boolean;
@@ -37,6 +37,7 @@ export interface SceneItemConfig {
   icon?: string;
   lineworkTheme: LineworkTheme;
   isTransparent?: boolean;
+  hidden?: boolean;
   components: SceneComponentConfig;
   tauri: SceneTauriConfig;
 }
@@ -573,3 +574,19 @@ export interface Beach3DSceneConfig {
     autoDowngrade: { enabled: boolean; minFps: number; windowFrames: number };
   };
 }
+
+export interface TtsVoiceConfig {
+  voice: string;
+  pitch: string;
+}
+
+export interface TtsConfig {
+  defaultPitch: string;
+  voices: {
+    'zh-CN': TtsVoiceConfig;
+    en: TtsVoiceConfig;
+    ja: TtsVoiceConfig;
+    [lang: string]: TtsVoiceConfig;
+  };
+}
+

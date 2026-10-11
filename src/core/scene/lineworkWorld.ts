@@ -13,7 +13,7 @@ type BuildingShape = 'box' | 'tower' | 'pyramid' | 'stepped' | 'antenna';
  * - 远景飞鸟：在雄伟山峦顶端开阔高空盘旋 (Z = -30 ~ -40, 高度 15.0 ~ 24.0m)
  * - 远景群山：高耸入云的两重起伏叠嶂山脊 (Z = -34 与 Z = -46, 宽度 84 ~ 115m, 峰顶高 16.0 ~ 26.0m)
  */
-export type LineworkTheme = 'light' | 'dark' | 'transparent' | 'beach3d';
+export type LineworkTheme = 'light' | 'dark' | 'transparent' | 'beach3d' | 'void';
 
 export class LineworkWorld {
   private rootGroup = new THREE.Group();
@@ -24,6 +24,7 @@ export class LineworkWorld {
   public currentTheme: LineworkTheme = 'light';
   private bgTextureLight: THREE.CanvasTexture | null = null;
   private bgColorDark: THREE.Color = new THREE.Color(0x202020);
+  private bgTextureVoid: THREE.CanvasTexture | null = null;
   private buildingColorLight: THREE.Color = new THREE.Color(0xdbd0d4);
   private groundColorLight: THREE.Color = new THREE.Color(0xc7bac0);
 
@@ -108,12 +109,17 @@ export class LineworkWorld {
     this.disposables = [];
     this.currentTheme = initialTheme;
 
-    // ── 0. 预制薄暮粉灰渐变背景与中性纯净炭黑纯色背景 ──
+    // ── 0. 预制薄暮粉灰渐变背景、中性纯净炭黑纯色背景与纯净深空虚空渐变 ──
     // 昼白线稿（Daylight Linework - 薄暮粉灰）：采用低饱和莫兰迪浅烟粉灰阶渐变（温润治愈，护眼且白色滑块清晰醒目）
     this.bgTextureLight = this.createGradientTexture('#E2D9DB', '#D5CACD');
     this.bgColorDark = new THREE.Color(0x202020);
+    // 纯粹虚空（Void Stage）：深邃微晕的暗场天顶渐变，极致纯净空灵，突出人物与聚光灯舞台
+    this.bgTextureVoid = this.createGradientTexture('#0d0f18', '#06070a');
 
-    if (initialTheme === 'transparent' || initialTheme === 'beach3d') {
+    if (initialTheme === 'void') {
+      scene.background = this.bgTextureVoid;
+      this.rootGroup.visible = false;
+    } else if (initialTheme === 'transparent' || initialTheme === 'beach3d') {
       // transparent: 透明桌宠; beach3d: Beach3DWorld 自己画; 线稿世界整组隐藏
       scene.background = null;
       this.rootGroup.visible = false;
@@ -671,6 +677,14 @@ export class LineworkWorld {
   setTheme(theme: LineworkTheme, scene?: THREE.Scene): void {
     this.currentTheme = theme;
     const targetScene = scene || this.sceneRef;
+
+    if (theme === 'void') {
+      if (targetScene) {
+        targetScene.background = this.bgTextureVoid ?? new THREE.Color(0x0a0c14);
+      }
+      this.rootGroup.visible = false;
+      return;
+    }
 
     if (theme === 'transparent' || theme === 'beach3d') {
       if (targetScene) {

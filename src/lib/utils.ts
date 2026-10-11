@@ -202,6 +202,16 @@ export function splitIntoSpeechChunks(text: string): string[] {
   const clean = text.trim();
   if (!clean) return [];
 
+  // 如果包含换行符 (\r 或 \n)，优先按显式换行切分独立意群/段落，绝不强行拼凑成单句
+  if (/[\r\n]/.test(clean)) {
+    const rawParagraphs = clean.split(/[\r\n]+/).map((p) => p.trim()).filter(Boolean);
+    const chunks: string[] = [];
+    for (const p of rawParagraphs) {
+      chunks.push(...splitIntoSpeechChunks(p));
+    }
+    return chunks;
+  }
+
   if (clean.length <= 45) {
     return [clean];
   }
@@ -220,11 +230,12 @@ export function splitIntoSpeechChunks(text: string): string[] {
 }
 
 /**
- * 剥离不可读 emoji 与多余空白字符
+ * 剥离不可读 emoji 与多余空白字符，并对波浪号进行二次元自然呼吸停顿补偿
  */
 export function stripForTTS(s: string): string {
   return s
     .replace(/\p{Extended_Pictographic}/gu, '')
+    .replace(/([~～])(?=[^\s，。！？、,!?…\.\n\r])/g, '$1，')
     .replace(/\s+/g, ' ')
     .trim();
 }

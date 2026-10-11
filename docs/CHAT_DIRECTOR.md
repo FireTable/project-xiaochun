@@ -136,8 +136,8 @@ A text `xc.utterance` `start` is emitted by the protocol handler before `speakTe
 
 - **Voices & Pitch**: Configured centrally in [`src/config.ts`](../src/config.ts):
   - Chinese: `zh-CN-XiaoyiNeural` (+10% pitch for a bright anime companion voice);
-  - English: `en-US-AnaNeural`;
-  - Japanese: `ja-JP-NanamiNeural`.
+  - English: `zh-CN-XiaoyiNeural` (+10% pitch);
+  - Japanese: `ja-JP-NanamiNeural` (+5% pitch).
 - **Interrupting speech**: a new `say` / `speakText` / `speakAudio` fades the audible line, then starts (§2.6). `vrmEngine.stopSpeaking()` or `chatDirector.stop()` cuts immediately. Do not call `resetClipCache()` to interrupt speech.
 
 

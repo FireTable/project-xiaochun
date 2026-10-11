@@ -1164,10 +1164,9 @@ export class VRMEngine {
     }
   };
 
-  // ── 外部控制代理 API ──
   public setLineworkTheme(theme: LineworkTheme, persist: boolean = true): void {
     this.lineworkWorld.setTheme(theme, this.scene);
-    this.updateShadowForTheme(theme === 'dark');
+    this.updateShadowForTheme(theme === 'dark' || theme === 'void');
     this.syncSceneBackdrop(theme);
     // ponytail: shadowPlane 现在带 radial alpha mask, 边缘自然 fade 到全透明,
     // 不再有"12x12 大网格污染穿透位图"的隐患, transparent 下保持显示让 directional

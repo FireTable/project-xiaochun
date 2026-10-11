@@ -77,21 +77,23 @@ function getChunkRMS(pcm: Float32Array): number {
 }
 
 /**
-/**
- * 根据文本语言自动解析最佳 Edge-TTS 萌妹声线：
- * - 命中日文字符（平假名/片假名）→ ja-JP-NanamiNeural（微软经典超高人气萌妹日语声线）
- * - 纯英文/拉丁字母文本 → en-US-AnaNeural（年轻可爱卡通女声）
- * - 中文及其他 → zh-CN-XiaoyiNeural（二次元甜美少女音）
+ * 根据文本语言自动解析最佳 Edge-TTS 萌妹声线 (配置源自 APP_CONFIG.tts)：
+ * - 命中日文字符（平假名/片假名）→ ja-JP-NanamiNeural
+ * - 纯英文/拉丁字母文本 → APP_CONFIG.tts.voices.en (zh-CN-XiaoyiNeural)
+ * - 中文及其他 → APP_CONFIG.tts.voices['zh-CN'] (zh-CN-XiaoyiNeural)
  */
-export function resolveTTSVoice(text: string, voiceOverride?: string): string {
-  if (voiceOverride) return voiceOverride;
+export function resolveTTSVoice(text: string, voiceOverride?: string): { voice: string; pitch: string } {
+  const ttsConfig = APP_CONFIG.tts;
+  if (voiceOverride) {
+    return { voice: voiceOverride, pitch: ttsConfig?.defaultPitch ?? '+10Hz' };
+  }
   if (/[\u3040-\u309F\u30A0-\u30FF]/.test(text)) {
-    return 'ja-JP-NanamiNeural';
+    return ttsConfig?.voices?.ja ?? { voice: 'ja-JP-NanamiNeural', pitch: '+5Hz' };
   }
   if (!/[\u4E00-\u9FFF]/.test(text) && /[a-zA-Z]/.test(text)) {
-    return 'en-US-AnaNeural';
+    return ttsConfig?.voices?.en ?? { voice: 'zh-CN-XiaoyiNeural', pitch: '+10Hz' };
   }
-  return 'zh-CN-XiaoyiNeural';
+  return ttsConfig?.voices?.['zh-CN'] ?? { voice: 'zh-CN-XiaoyiNeural', pitch: '+10Hz' };
 }
 
 /**
@@ -124,8 +126,7 @@ async function streamChunkAudioToCheckpoint(
     await ctx.resume();
   }
 
-  const voice = resolveTTSVoice(ttsText, voiceOverride);
-  const pitch = voice.startsWith('ja-JP') ? '+5Hz' : '+10Hz';
+  const { voice, pitch } = resolveTTSVoice(ttsText, voiceOverride);
 
   let res: Response | null = null;
   for (let attempt = 1; attempt <= 2; attempt++) {

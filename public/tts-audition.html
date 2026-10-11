@@ -1,0 +1,555 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Project XiaoChun - Edge-TTS 免费音色试听台</title>
+  <link rel="icon" href="/favicon.png">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@400;500;600;700&display=swap" rel="stylesheet">
+  <style>
+    * {
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0;
+    }
+    body {
+      font-family: 'Outfit', -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+      background: radial-gradient(circle at 50% 0%, #1e1b4b 0%, #0f172a 50%, #020617 100%);
+      color: #f8fafc;
+      min-height: 100vh;
+      padding: 32px 20px 60px;
+    }
+    .container {
+      max-width: 1080px;
+      margin: 0 auto;
+    }
+    header {
+      text-align: center;
+      margin-bottom: 32px;
+    }
+    h1 {
+      font-size: 28px;
+      font-weight: 700;
+      background: linear-gradient(135deg, #a78bfa 0%, #38bdf8 100%);
+      -webkit-background-clip: text;
+      -webkit-text-fill-color: transparent;
+      margin-bottom: 8px;
+    }
+    p.subtitle {
+      color: #94a3b8;
+      font-size: 14px;
+    }
+
+    /* 控制面板 */
+    .control-panel {
+      background: rgba(30, 41, 59, 0.7);
+      backdrop-filter: blur(16px);
+      border: 1px solid rgba(255, 255, 255, 0.1);
+      border-radius: 16px;
+      padding: 20px 24px;
+      margin-bottom: 28px;
+      display: flex;
+      flex-direction: column;
+      gap: 16px;
+      box-shadow: 0 10px 25px -5px rgba(0, 0, 0, 0.3);
+    }
+    .row {
+      display: flex;
+      gap: 16px;
+      flex-wrap: wrap;
+      align-items: center;
+    }
+    .input-group {
+      flex: 1;
+      min-width: 280px;
+      display: flex;
+      flex-direction: column;
+      gap: 6px;
+    }
+    label {
+      font-size: 12px;
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+      color: #94a3b8;
+      font-weight: 600;
+    }
+    input[type="text"] {
+      background: rgba(15, 23, 42, 0.8);
+      border: 1px solid rgba(255, 255, 255, 0.15);
+      border-radius: 10px;
+      padding: 10px 14px;
+      color: #f8fafc;
+      font-size: 14px;
+      outline: none;
+      transition: all 0.2s;
+    }
+    input[type="text"]:focus {
+      border-color: #38bdf8;
+      box-shadow: 0 0 0 2px rgba(56, 189, 248, 0.2);
+    }
+    select {
+      background: rgba(15, 23, 42, 0.8);
+      border: 1px solid rgba(255, 255, 255, 0.15);
+      border-radius: 10px;
+      padding: 10px 14px;
+      color: #f8fafc;
+      font-size: 14px;
+      outline: none;
+      cursor: pointer;
+    }
+
+    /* 分类标签 */
+    .section-title {
+      font-size: 18px;
+      font-weight: 600;
+      color: #e2e8f0;
+      margin: 28px 0 14px;
+      display: flex;
+      align-items: center;
+      gap: 10px;
+    }
+    .badge {
+      font-size: 11px;
+      padding: 3px 8px;
+      border-radius: 6px;
+      font-weight: 500;
+    }
+    .badge-pink { background: rgba(244, 63, 94, 0.2); color: #fda4af; border: 1px solid rgba(244, 63, 94, 0.3); }
+    .badge-purple { background: rgba(168, 85, 247, 0.2); color: #d8b4fe; border: 1px solid rgba(168, 85, 247, 0.3); }
+    .badge-cyan { background: rgba(6, 182, 212, 0.2); color: #67e8f9; border: 1px solid rgba(6, 182, 212, 0.3); }
+    .badge-amber { background: rgba(245, 158, 11, 0.2); color: #fcd34d; border: 1px solid rgba(245, 158, 11, 0.3); }
+
+    /* 卡片网格 */
+    .grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(320px, 1fr));
+      gap: 16px;
+    }
+    .voice-card {
+      background: rgba(30, 41, 59, 0.5);
+      border: 1px solid rgba(255, 255, 255, 0.08);
+      border-radius: 14px;
+      padding: 16px;
+      display: flex;
+      flex-direction: column;
+      gap: 12px;
+      transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+      position: relative;
+      overflow: hidden;
+    }
+    .voice-card:hover {
+      background: rgba(30, 41, 59, 0.8);
+      border-color: rgba(168, 85, 247, 0.4);
+      transform: translateY(-2px);
+      box-shadow: 0 8px 20px -4px rgba(0, 0, 0, 0.4);
+    }
+    .voice-card.active {
+      border-color: #38bdf8;
+      box-shadow: 0 0 15px rgba(56, 189, 248, 0.3);
+    }
+    .card-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: flex-start;
+    }
+    .voice-name {
+      font-size: 16px;
+      font-weight: 600;
+      color: #f1f5f9;
+    }
+    .voice-id {
+      font-size: 11px;
+      color: #64748b;
+      font-family: monospace;
+      margin-top: 2px;
+    }
+    .voice-desc {
+      font-size: 13px;
+      color: #94a3b8;
+      line-height: 1.4;
+      flex: 1;
+    }
+    .play-btns {
+      display: flex;
+      gap: 8px;
+      flex-wrap: wrap;
+    }
+    .btn-play {
+      background: linear-gradient(135deg, rgba(168, 85, 247, 0.8) 0%, rgba(99, 102, 241, 0.8) 100%);
+      color: #fff;
+      border: none;
+      padding: 8px 14px;
+      border-radius: 8px;
+      font-size: 12px;
+      font-weight: 600;
+      cursor: pointer;
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      transition: all 0.15s;
+    }
+    .btn-play:hover {
+      filter: brightness(1.15);
+      transform: scale(1.02);
+    }
+    .btn-play:active {
+      transform: scale(0.98);
+    }
+    .btn-play.playing {
+      background: linear-gradient(135deg, #10b981 0%, #059669 100%);
+      animation: pulse 1.5s infinite;
+    }
+    @keyframes pulse {
+      0%, 100% { opacity: 1; }
+      50% { opacity: 0.7; }
+    }
+    .status-toast {
+      position: fixed;
+      bottom: 24px;
+      right: 24px;
+      background: rgba(15, 23, 42, 0.9);
+      border: 1px solid #38bdf8;
+      padding: 12px 20px;
+      border-radius: 10px;
+      font-size: 13px;
+      color: #38bdf8;
+      display: none;
+      box-shadow: 0 10px 25px rgba(0,0,0,0.5);
+    }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <header>
+      <h1>Edge-TTS 免费音色试听台</h1>
+      <p class="subtitle">直连微软 Edge-TTS 免费实时合成服务 · 专为 Project XiaoChun 选型测试</p>
+    </header>
+
+    <!-- 顶部调试控制 -->
+    <div class="control-panel">
+      <div class="row">
+        <div class="input-group">
+          <label>自定义中文试听台词</label>
+          <input type="text" id="custom-zh" value="主人主人，我是小蠢，今天也要元气满满哦！">
+        </div>
+        <div class="input-group">
+          <label>自定义日文试听台词</label>
+          <input type="text" id="custom-ja" value="マスター、こんにちは！小蠢だよ、今日もよろしくね！">
+        </div>
+        <div class="input-group">
+          <label>自定义英文试听台词</label>
+          <input type="text" id="custom-en" value="Hello master! I am XiaoChun, nice to meet you!">
+        </div>
+      </div>
+      <div class="row">
+        <div style="display: flex; align-items: center; gap: 10px;">
+          <label style="margin: 0;">音调 (Pitch 萌妹调节):</label>
+          <select id="pitch-select">
+            <option value="+0Hz">原调 (+0Hz)</option>
+            <option value="+5Hz">微萌 (+5Hz)</option>
+            <option value="+10Hz" selected>少女推荐 (+10Hz)</option>
+            <option value="+15Hz">高音幼萌 (+15Hz)</option>
+          </select>
+        </div>
+        <div style="color: #64748b; font-size: 12px; margin-left: auto;">
+          点击卡片中的按钮即可立刻发音试听 ⚡
+        </div>
+      </div>
+    </div>
+
+    <!-- 1. 二次元与中文精选少女声 -->
+    <div class="section-title">
+      <span>🌸 中文二次元 & 特色少女女声</span>
+      <span class="badge badge-pink">首选二次元推荐</span>
+    </div>
+    <div class="grid" id="grid-zh"></div>
+
+    <!-- 2. 多语言一音多国语 (Multilingual) -->
+    <div class="section-title">
+      <span>🌐 多语言女声 (同一音色说中/英/日)</span>
+      <span class="badge badge-purple">统一音色跨语种</span>
+    </div>
+    <div class="grid" id="grid-multi"></div>
+
+    <!-- 3. 日文原生声线 -->
+    <div class="section-title">
+      <span>🎌 日语原生声线</span>
+      <span class="badge badge-cyan">纯正日漫女声</span>
+    </div>
+    <div class="grid" id="grid-ja"></div>
+
+    <!-- 4. 英文原生声线 -->
+    <div class="section-title">
+      <span>🗽 英语原生少女 / 女声</span>
+      <span class="badge badge-amber">美式发音</span>
+    </div>
+    <div class="grid" id="grid-en"></div>
+  </div>
+
+  <div class="status-toast" id="toast"></div>
+
+  <script>
+    const VOICES_DATA = {
+      zh: [
+        {
+          id: 'zh-CN-XiaoyiNeural',
+          name: '晓伊 (Xiaoyi)',
+          badge: '当前默认',
+          desc: '微软官方标签【Cartoon / Novel / Lively】。元气活泼甜美少女，动漫/小说最强二次元人设，音调+10Hz极度贴合小蠢。',
+          lang: 'zh',
+          defaultPitch: '+10Hz'
+        },
+        {
+          id: 'zh-CN-XiaoxiaoNeural',
+          name: '晓晓 (Xiaoxiao)',
+          badge: '温暖自然',
+          desc: '微软知名标杆女声。音质细腻极度自然，偏向温柔大姐姐、知性知己或陪伴助手。',
+          lang: 'zh',
+          defaultPitch: '+5Hz'
+        },
+        {
+          id: 'zh-CN-liaoning-XiaobeiNeural',
+          name: '晓北 (Xiaobei - 东北)',
+          badge: '东北风趣',
+          desc: '东北话风趣少女，自带喜感和豪爽活泼性格，非常有趣。',
+          lang: 'zh',
+          defaultPitch: '+5Hz'
+        },
+        {
+          id: 'zh-TW-HsiaoChenNeural',
+          name: '晓臻 (HsiaoChen - 台湾)',
+          badge: '台湾软萌',
+          desc: '台湾腔甜美少女，发音软糯温柔，适合撒娇软妹人设。',
+          lang: 'zh',
+          defaultPitch: '+5Hz'
+        },
+        {
+          id: 'zh-TW-HsiaoYuNeural',
+          name: '晓雨 (HsiaoYu - 台湾)',
+          badge: '温婉舒缓',
+          desc: '台湾日常温婉女声，亲近感强，适合舒缓陪伴。',
+          lang: 'zh',
+          defaultPitch: '+0Hz'
+        },
+        {
+          id: 'zh-HK-HiuMaanNeural',
+          name: '晓曼 (HiuMaan - 粤语)',
+          badge: '粤语女声',
+          desc: '香港地区标准粤语女声，自然流利。',
+          lang: 'zh',
+          defaultPitch: '+5Hz'
+        }
+      ],
+      multi: [
+        {
+          id: 'en-US-AvaMultilingualNeural',
+          name: 'Ava (多语言)',
+          badge: '中英日三语',
+          desc: '美式母语的多语言青年女声，能同时发音中文、日文和英文。音色统一但说中/日文带有外国人口音。',
+          supports: ['zh', 'en', 'ja']
+        },
+        {
+          id: 'en-US-EmmaMultilingualNeural',
+          name: 'Emma (多语言)',
+          badge: '中英日三语',
+          desc: '活泼轻快的多语言女声，支持中日英跨语种发音，音色年轻开朗。',
+          supports: ['zh', 'en', 'ja']
+        }
+      ],
+      ja: [
+        {
+          id: 'ja-JP-NanamiNeural',
+          name: '七海 (Nanami)',
+          badge: '日漫第一萌妹',
+          desc: '微软公认二次元最高人气日语女声，轻快俏皮、少女感拉满，配音动漫日剧极佳。',
+          lang: 'ja',
+          defaultPitch: '+5Hz'
+        },
+        {
+          id: 'ja-JP-KeitaNeural',
+          name: 'Keita (庆太 - 男声)',
+          badge: '温和少年',
+          desc: '温和积极的日语青年/少年音。',
+          lang: 'ja',
+          defaultPitch: '+0Hz'
+        }
+      ],
+      en: [
+        {
+          id: 'en-US-AnaNeural',
+          name: 'Ana',
+          badge: '活泼女孩',
+          desc: '专为年轻/幼态女孩打造的声音，语调轻快欢脱，搭配 +10Hz 音调极其灵动。',
+          lang: 'en',
+          defaultPitch: '+10Hz'
+        },
+        {
+          id: 'en-US-AriaNeural',
+          name: 'Aria',
+          badge: '表现力强',
+          desc: '多情感表现力丰富的美式女声，自然度高。',
+          lang: 'en',
+          defaultPitch: '+0Hz'
+        },
+        {
+          id: 'en-US-JennyNeural',
+          name: 'Jenny',
+          badge: '标准美式',
+          desc: '清晰自然、通用的美式青年女性发音。',
+          lang: 'en',
+          defaultPitch: '+5Hz'
+        }
+      ]
+    };
+
+    let currentAudio = null;
+    let activeBtn = null;
+
+    function showToast(msg) {
+      const toast = document.getElementById('toast');
+      toast.innerText = msg;
+      toast.style.display = 'block';
+      clearTimeout(toast._timer);
+      toast._timer = setTimeout(() => { toast.style.display = 'none'; }, 2500);
+    }
+
+    async function playVoice(voiceId, text, btn) {
+      const pitch = document.getElementById('pitch-select').value;
+      if (currentAudio) {
+        currentAudio.pause();
+        if (activeBtn) activeBtn.classList.remove('playing');
+      }
+
+      btn.classList.add('playing');
+      activeBtn = btn;
+      showToast(`正在合成与播放: ${voiceId} (${pitch})...`);
+
+      const url = `/api/tts?text=${encodeURIComponent(text)}&voice=${encodeURIComponent(voiceId)}&pitch=${encodeURIComponent(pitch)}`;
+      const audio = new Audio(url);
+      currentAudio = audio;
+
+      audio.onended = () => {
+        btn.classList.remove('playing');
+        activeBtn = null;
+      };
+      audio.onerror = (e) => {
+        btn.classList.remove('playing');
+        activeBtn = null;
+        showToast(`播放失败，该声线可能不响应该文本语言`);
+      };
+
+      try {
+        await audio.play();
+      } catch (err) {
+        btn.classList.remove('playing');
+        activeBtn = null;
+        showToast('播放被拦截或失败: ' + err.message);
+      }
+    }
+
+    function renderCards() {
+      // 1. 中文
+      const gridZh = document.getElementById('grid-zh');
+      VOICES_DATA.zh.forEach(item => {
+        const card = document.createElement('div');
+        card.className = 'voice-card';
+        card.innerHTML = `
+          <div class="card-header">
+            <div>
+              <div class="voice-name">${item.name}</div>
+              <div class="voice-id">${item.id}</div>
+            </div>
+            <span class="badge badge-pink">${item.badge}</span>
+          </div>
+          <div class="voice-desc">${item.desc}</div>
+          <div class="play-btns">
+            <button class="btn-play" onclick="playVoice('${item.id}', document.getElementById('custom-zh').value, this)">
+              ▶ 播放中文
+            </button>
+          </div>
+        `;
+        gridZh.appendChild(card);
+      });
+
+      // 2. 多语言
+      const gridMulti = document.getElementById('grid-multi');
+      VOICES_DATA.multi.forEach(item => {
+        const card = document.createElement('div');
+        card.className = 'voice-card';
+        card.innerHTML = `
+          <div class="card-header">
+            <div>
+              <div class="voice-name">${item.name}</div>
+              <div class="voice-id">${item.id}</div>
+            </div>
+            <span class="badge badge-purple">${item.badge}</span>
+          </div>
+          <div class="voice-desc">${item.desc}</div>
+          <div class="play-btns">
+            <button class="btn-play" onclick="playVoice('${item.id}', document.getElementById('custom-zh').value, this)">
+              ▶ 中文
+            </button>
+            <button class="btn-play" onclick="playVoice('${item.id}', document.getElementById('custom-ja').value, this)">
+              ▶ 日语
+            </button>
+            <button class="btn-play" onclick="playVoice('${item.id}', document.getElementById('custom-en').value, this)">
+              ▶ 英语
+            </button>
+          </div>
+        `;
+        gridMulti.appendChild(card);
+      });
+
+      // 3. 日语
+      const gridJa = document.getElementById('grid-ja');
+      VOICES_DATA.ja.forEach(item => {
+        const card = document.createElement('div');
+        card.className = 'voice-card';
+        card.innerHTML = `
+          <div class="card-header">
+            <div>
+              <div class="voice-name">${item.name}</div>
+              <div class="voice-id">${item.id}</div>
+            </div>
+            <span class="badge badge-cyan">${item.badge}</span>
+          </div>
+          <div class="voice-desc">${item.desc}</div>
+          <div class="play-btns">
+            <button class="btn-play" onclick="playVoice('${item.id}', document.getElementById('custom-ja').value, this)">
+              ▶ 播放日语
+            </button>
+          </div>
+        `;
+        gridJa.appendChild(card);
+      });
+
+      // 4. 英语
+      const gridEn = document.getElementById('grid-en');
+      VOICES_DATA.en.forEach(item => {
+        const card = document.createElement('div');
+        card.className = 'voice-card';
+        card.innerHTML = `
+          <div class="card-header">
+            <div>
+              <div class="voice-name">${item.name}</div>
+              <div class="voice-id">${item.id}</div>
+            </div>
+            <span class="badge badge-amber">${item.badge}</span>
+          </div>
+          <div class="voice-desc">${item.desc}</div>
+          <div class="play-btns">
+            <button class="btn-play" onclick="playVoice('${item.id}', document.getElementById('custom-en').value, this)">
+              ▶ 播放英语
+            </button>
+          </div>
+        `;
+        gridEn.appendChild(card);
+      });
+    }
+
+    renderCards();
+  </script>
+</body>
+</html>

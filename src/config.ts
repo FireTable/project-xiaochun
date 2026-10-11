@@ -39,6 +39,23 @@ export const APP_CONFIG = {
   api: {
     baseUrl: (import.meta.env?.VITE_API_BASE_URL as string | undefined) ?? 'https://xiaochun.firetable.tech',
   },
+  tts: {
+    defaultPitch: '+10Hz',
+    voices: {
+      'zh-CN': {
+        voice: 'zh-CN-XiaoyiNeural',
+        pitch: '+10Hz',
+      },
+      en: {
+        voice: 'zh-CN-XiaoyiNeural',
+        pitch: '+10Hz',
+      },
+      ja: {
+        voice: 'ja-JP-NanamiNeural',
+        pitch: '+5Hz',
+      },
+    },
+  },
   model: {
     defaultSource: '/vrm/xiaochun_base.vrmbase',
     defaultName: 'XiaoChun',
@@ -361,6 +378,17 @@ export const APP_CONFIG = {
         lineworkTheme: 'beach3d',
         isTransparent: false,
         components: { topHeader: true, chatBar: true, headBubble: true, heightRuler: true, dropZone: true },
+        tauri: { resizable: true, cornerHandles: false },
+      },
+      // 纯粹虚空: 新手向导专属初始场景，空无一物，极简暗场聚光灯舞台，待用户选定场景后具现化
+      void: {
+        id: 'void',
+        nameKey: 'header.switchScene.void',
+        icon: 'Sparkles',
+        lineworkTheme: 'void',
+        isTransparent: false,
+        hidden: true,
+        components: { topHeader: false, chatBar: false, headBubble: true, heightRuler: false, dropZone: false },
         tauri: { resizable: true, cornerHandles: false },
       },
     },

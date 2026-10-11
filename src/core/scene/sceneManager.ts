@@ -9,7 +9,7 @@
 
 import { useSyncExternalStore } from 'react';
 import { APP_CONFIG, type SceneItemConfig } from '@/config';
-import { SCENE_THEME_KEY } from '@/lib/constants';
+import { ONBOARDING_STORAGE_KEY, SCENE_THEME_KEY } from '@/lib/constants';
 import { isEmbed, isTauri } from '@/lib/platform';
 import { embedSceneFromSearch } from '@/embed/registry';
 
@@ -40,6 +40,16 @@ function resolveInitialSceneId(): string {
     const id = embedSceneFromSearch(window.location.search); // 与 vrmEngine 初始线稿主题同一份解析
     if (id !== null && hasScene(id)) return id;
   }
+
+  // 沉浸式新人引导向导状态 (首次进入或 URL 带 ?onboarding=1)：
+  // 此时舞台必须处于「纯粹虚空」(void)，空无一物，直到第 4 步用户选定世界后才正式具现化加载！
+  try {
+    const isExplicitOnboarding = new URLSearchParams(window.location.search).get('onboarding') === '1';
+    const isFirstVisit = localStorage.getItem(ONBOARDING_STORAGE_KEY) !== '1';
+    if (!isEmbed() && (isExplicitOnboarding || isFirstVisit) && hasScene('void')) {
+      return 'void';
+    }
+  } catch {}
 
   try {
     const stored = localStorage.getItem(SCENE_THEME_KEY);
