@@ -77,6 +77,24 @@ function getChunkRMS(pcm: Float32Array): number {
 }
 
 /**
+/**
+ * 根据文本语言自动解析最佳 Edge-TTS 萌妹声线：
+ * - 命中日文字符（平假名/片假名）→ ja-JP-NanamiNeural（微软经典超高人气萌妹日语声线）
+ * - 纯英文/拉丁字母文本 → en-US-AnaNeural（年轻可爱卡通女声）
+ * - 中文及其他 → zh-CN-XiaoyiNeural（二次元甜美少女音）
+ */
+export function resolveTTSVoice(text: string, voiceOverride?: string): string {
+  if (voiceOverride) return voiceOverride;
+  if (/[\u3040-\u309F\u30A0-\u30FF]/.test(text)) {
+    return 'ja-JP-NanamiNeural';
+  }
+  if (!/[\u4E00-\u9FFF]/.test(text) && /[a-zA-Z]/.test(text)) {
+    return 'en-US-AnaNeural';
+  }
+  return 'zh-CN-XiaoyiNeural';
+}
+
+/**
  * 单切片音频合成与流式注入 (会话不关闭，通过 Checkpoint 增量结算动作，前置拦截尾静音对齐时钟)[cite: 13]
  */
 async function streamChunkAudioToCheckpoint(
@@ -85,6 +103,7 @@ async function streamChunkAudioToCheckpoint(
   emage: EmagePlayer,
   isStopped: () => boolean,
   onEmagePhase?: (durationSec: number) => void,
+  voiceOverride?: string,
 ): Promise<{ audioBuffer: AudioBuffer; motion: EmageMotionData }> {
   const ttsText = stripForTTS(text);
   if (!ttsText) {
@@ -105,6 +124,9 @@ async function streamChunkAudioToCheckpoint(
     await ctx.resume();
   }
 
+  const voice = resolveTTSVoice(ttsText, voiceOverride);
+  const pitch = voice.startsWith('ja-JP') ? '+5Hz' : '+10Hz';
+
   let res: Response | null = null;
   for (let attempt = 1; attempt <= 2; attempt++) {
     try {
@@ -113,8 +135,8 @@ async function streamChunkAudioToCheckpoint(
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           text: ttsText,
-          voice: 'zh-CN-XiaoyiNeural',
-          pitch: '+10Hz',
+          voice,
+          pitch,
         }),
       });
       if (res.ok && res.body) break;
@@ -493,7 +515,7 @@ export class ChatDirector {
       segmentIndex?: number,
       totalSegments?: number,
     ) => void,
-    opts?: { skipThinking?: boolean },
+    opts?: { skipThinking?: boolean; voice?: string },
   ): Promise<void> {
     const id = await this.handoff();
     if (id === null) return;
@@ -515,7 +537,7 @@ export class ChatDirector {
     if (!this.owns(id)) return;
 
     this.plan = { speech: text, llm_provider: 'DEV_BYPASS' };
-    await this.runSpeechPipeline(text, player, emage, status, id);
+    await this.runSpeechPipeline(text, player, emage, status, id, opts?.voice);
   }
 
   /**
@@ -744,6 +766,7 @@ export class ChatDirector {
       totalSegments?: number,
     ) => void,
     utteranceId: number,
+    voiceOverride?: string,
   ): Promise<void> {
     const live = () => this.owns(utteranceId);
     console.log('[ChatDirector] speech:', this.plan!.speech, 'llm:', this.plan!.llm_provider);
@@ -824,6 +847,7 @@ export class ChatDirector {
             () => !live(),
             // ponytail: 仅 #0 触发 emage 阶段气泡 — 后续段切到 speaking 状态,避免重复刷屏。[cite: 13]
             i === 0 ? (sec) => status('emage', { seconds: sec.toFixed(1) }, false) : undefined,
+            voiceOverride,
           );
           if (!live()) break;
 
