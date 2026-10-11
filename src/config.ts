@@ -297,7 +297,7 @@ export const APP_CONFIG = {
   },
   renderer: {
     maxPixelRatioMobile: 2.75,
-    maxPixelRatioDesktop: 3,
+    maxPixelRatioDesktop: 2,
     targetFpsMobile: 40,
     targetFpsDesktop: 60,
   },

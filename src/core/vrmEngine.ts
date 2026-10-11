@@ -714,6 +714,7 @@ export class VRMEngine {
 
   private lastRenderWidth = 0;
   private lastRenderHeight = 0;
+  private _viewportDirty = true;
 
   /**
    * 统一获取渲染像素比：
@@ -1146,6 +1147,7 @@ export class VRMEngine {
 
     this.camera.aspect = w / h;
     this.camera.updateProjectionMatrix();
+    this._viewportDirty = true;
 
     // 当主动画循环未在运行时（如挂起或模型加载前），兜底同步重绘
     if (this.animFrameId === null || this.isRenderingSuspended) {
@@ -2538,12 +2540,13 @@ export class VRMEngine {
       }
 
       // 平台限帧：仍按 vsync 挂 rAF，未到下一拍则跳过 update/render。
-      // 用累加 interval 锁相（避免严格 < 在 ~33.3ms 时连跳成 ~20fps）；掉队超过 1 拍则重置。
+      // 用累加 interval 锁相 + 半帧容差（避免纳秒级时钟抖动造成意外丢帧）；掉队超过 1 拍则重置。
       if (this._animFrameIntervalMs > 0) {
+        const tolerance = Math.min(4, this._animFrameIntervalMs * 0.25);
         if (this._lastAnimTs === 0) {
           // 本帧立刻跑，下一拍锁在 +interval
           this._lastAnimTs = timestamp + this._animFrameIntervalMs;
-        } else if (timestamp < this._lastAnimTs) {
+        } else if (timestamp < this._lastAnimTs - tolerance) {
           return;
         } else {
           this._lastAnimTs += this._animFrameIntervalMs;
@@ -2553,24 +2556,27 @@ export class VRMEngine {
         }
       }
 
-      // 视口动态物理尺寸跟随（单主循环同步驱动，消除多重 rAF 竞争与双重绘制开销）
-      const curW = window.innerWidth;
-      const curH = window.innerHeight;
-      if (curW > 0 && curH > 0 && (curW !== this.lastRenderWidth || curH !== this.lastRenderHeight)) {
-        const isMobile = typeof navigator !== 'undefined' && /Mobi|Android|iPhone|iPad/i.test(navigator.userAgent);
-        if (isMobile && this.lastRenderWidth === curW) {
-          this.camera.aspect = curW / curH;
-          this.camera.updateProjectionMatrix();
-        } else {
-          this.lastRenderWidth = curW;
-          this.lastRenderHeight = curH;
-          this.camera.aspect = curW / curH;
-          this.camera.updateProjectionMatrix();
-          const ratio = this.getTargetPixelRatio();
-          this.renderer?.setPixelRatio(ratio);
-          this.renderer?.setSize(curW, curH);
-          if (this.postFx.isReady()) {
-            this.postFx.resize(curW, curH, ratio);
+      // 视口动态物理尺寸跟随（由 resize 事件标记驱动，避免每帧无谓轮询 innerWidth/innerHeight）
+      if (this._viewportDirty) {
+        this._viewportDirty = false;
+        const curW = window.innerWidth;
+        const curH = window.innerHeight;
+        if (curW > 0 && curH > 0 && (curW !== this.lastRenderWidth || curH !== this.lastRenderHeight)) {
+          const isMobile = typeof navigator !== 'undefined' && /Mobi|Android|iPhone|iPad/i.test(navigator.userAgent);
+          if (isMobile && this.lastRenderWidth === curW) {
+            this.camera.aspect = curW / curH;
+            this.camera.updateProjectionMatrix();
+          } else {
+            this.lastRenderWidth = curW;
+            this.lastRenderHeight = curH;
+            this.camera.aspect = curW / curH;
+            this.camera.updateProjectionMatrix();
+            const ratio = this.getTargetPixelRatio();
+            this.renderer?.setPixelRatio(ratio);
+            this.renderer?.setSize(curW, curH);
+            if (this.postFx.isReady()) {
+              this.postFx.resize(curW, curH, ratio);
+            }
           }
         }
       }

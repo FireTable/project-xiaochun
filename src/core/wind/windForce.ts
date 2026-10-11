@@ -102,6 +102,7 @@ export class WindForceController {
   // 缓存每个 joint 原始重力
   private _origGravity = new WeakMap<VRMSpringBoneJoint, { dir: THREE.Vector3; power: number }>();
   private _boundVrm: VRM | null = null;
+  private _isWindActive = true;
 
   constructor(overrides: Partial<WindForceConfig> = {}) {
     this.cfg = { ...DEFAULT_CONFIG, ...overrides };
@@ -121,6 +122,7 @@ export class WindForceController {
    */
   public resetGravityCache(): void {
     this._origGravity = new WeakMap();
+    this._isWindActive = true;
   }
 
   /**
@@ -134,6 +136,7 @@ export class WindForceController {
     if (this._boundVrm !== vrm) {
       this._origGravity = new WeakMap();
       this._boundVrm = vrm;
+      this._isWindActive = true;
     }
 
     if (!this._isEnabled) return;
@@ -202,6 +205,29 @@ export class WindForceController {
     const isMoving = this._speedFactor > 0.005;
 
     // ── 3. 逐 Joint 动力学计算与牛顿合力注入 ──────────────────────────────
+    // 静止或无鼠标状态短路：仅执行单次复位，后续静止帧零循环开销
+    if (!mouseActive || !isMoving) {
+      if (!this._isWindActive) {
+        return;
+      }
+      this._isWindActive = false;
+      mgr.joints.forEach((joint) => {
+        let orig = this._origGravity.get(joint);
+        if (!orig) {
+          orig = {
+            dir: joint.settings.gravityDir.clone(),
+            power: joint.settings.gravityPower,
+          };
+          this._origGravity.set(joint, orig);
+        }
+        joint.settings.gravityDir.copy(orig.dir);
+        joint.settings.gravityPower = orig.power;
+      });
+      return;
+    }
+
+    this._isWindActive = true;
+
     mgr.joints.forEach((joint) => {
       // 缓存原始重力
       let orig = this._origGravity.get(joint);
@@ -211,13 +237,6 @@ export class WindForceController {
           power: joint.settings.gravityPower,
         };
         this._origGravity.set(joint, orig);
-      }
-
-      // 无鼠标或静止状态 → 100% 保持原始重力自然悬垂
-      if (!mouseActive || !isMoving) {
-        joint.settings.gravityDir.copy(orig.dir);
-        joint.settings.gravityPower = orig.power;
-        return;
       }
 
       const bone = joint.bone;

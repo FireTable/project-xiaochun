@@ -53,8 +53,10 @@ class PassthroughManager {
   private readonly maskWidth = 140;
   private readonly maskHeight = 205;
   private lastSyncTime = 0;
+  private lastUIRectsSyncTime = 0;
   private lastSyncedUIRectsKey = '';
   private lastBitmask: Uint8Array | null = null;
+  private bitmaskBuffer = new Uint8Array(Math.ceil((140 * 205) / 8));
 
   constructor() {
     if (typeof window !== 'undefined') {
@@ -131,12 +133,16 @@ class PassthroughManager {
     if (!this.enabled || !isTauri() || !webglCanvas) return;
 
     const now = performance.now();
-    // 节流至 ~16ms (约 60 FPS 高刷跟随，配合脏检查实现极速响应与零冗余开销)
-    if (now - this.lastSyncTime < 16) return;
+    // 节流至 ~40ms (约 25 FPS 足够桌面光标穿透响应，同时削减 60% 的 GPU 阻塞式 Readback 停顿)
+    if (now - this.lastSyncTime < 40) return;
     this.lastSyncTime = now;
 
-    this.syncDomBlocks();
-    this.syncAllUIRects();
+    // DOM UI 区域巡检按 200ms 节流，坚决避免每帧调用 getComputedStyle 与 getBoundingClientRect 触发强制重排
+    if (now - this.lastUIRectsSyncTime >= 200) {
+      this.lastUIRectsSyncTime = now;
+      this.syncDomBlocks();
+      this.syncAllUIRects();
+    }
 
     this.initMaskCanvas();
     if (!this.maskCtx || !this.maskCanvas) return;
@@ -148,9 +154,8 @@ class PassthroughManager {
       const imgData = this.maskCtx.getImageData(0, 0, this.maskWidth, this.maskHeight);
       const data = imgData.data;
 
-      const numPixels = this.maskWidth * this.maskHeight;
-      const numBytes = Math.ceil(numPixels / 8);
-      const bitmask = new Uint8Array(numBytes);
+      const bitmask = this.bitmaskBuffer;
+      bitmask.fill(0);
 
       let pixelIdx = 0;
       for (let i = 3; i < data.length; i += 4) {
@@ -163,7 +168,7 @@ class PassthroughManager {
         pixelIdx++;
       }
 
-      // 快速脏检查：仅当蒙版内容发生变化时才向 Rust 发送 IPC，动作形变瞬间 16ms 实时更新，静止时 0 IPC 占用
+      // 快速脏检查：仅当蒙版内容发生变化时才向 Rust 发送 IPC，动作形变瞬间实时更新，静止时 0 IPC 占用
       let isChanged = !this.lastBitmask || this.lastBitmask.length !== bitmask.length;
       if (!isChanged && this.lastBitmask) {
         for (let i = 0; i < bitmask.length; i++) {
@@ -175,7 +180,11 @@ class PassthroughManager {
       }
 
       if (isChanged) {
-        this.lastBitmask = bitmask;
+        if (!this.lastBitmask || this.lastBitmask.length !== bitmask.length) {
+          this.lastBitmask = new Uint8Array(bitmask);
+        } else {
+          this.lastBitmask.set(bitmask);
+        }
         void import('@tauri-apps/api/core').then(({ invoke }) => {
           void invoke('update_alpha_bitmask', {
             width: this.maskWidth,

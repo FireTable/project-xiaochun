@@ -96,6 +96,12 @@ export class VRMBodyMorph {
   private _pureNeckWorldQuat = new THREE.Quaternion();
   private _headWorldQuat = new THREE.Quaternion();
   private _headWorldScale = new THREE.Vector3();
+  // 零 GC 预分配复用数学对象 (Zero-alloc Scratch Objects)
+  private readonly _xAxis = new THREE.Vector3(1, 0, 0);
+  private readonly _yAxis = new THREE.Vector3(0, 1, 0);
+  private readonly _scratchQuat = new THREE.Quaternion();
+  private readonly _localUpSpine = new THREE.Vector3();
+  private readonly _localUpChest = new THREE.Vector3();
 
   /**
    * 纯四元数自底向上链式世界旋转提取：
@@ -595,8 +601,8 @@ export class VRMBodyMorph {
       // 臀部提臀朝向：仅当用户调整 buttocksPitch 时叠加骨盆俯仰增量，绝不破坏动画系统原生姿态
       if (Math.abs(buttocksPitch) > 0.0001) {
         const pitchRad = -buttocksPitch * 0.45;
-        const pitchQ = new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(1, 0, 0), pitchRad);
-        this.rawHips.quaternion.multiply(pitchQ);
+        this._scratchQuat.setFromAxisAngle(this._xAxis, pitchRad);
+        this.rawHips.quaternion.multiply(this._scratchQuat);
       }
     }
 
@@ -619,9 +625,9 @@ export class VRMBodyMorph {
       // 【核心保障】：仅当用户主动调节 buttocksPitch 时对大腿施加反向逆补偿，
       // 默认 0 时 100% 保留动画系统（如 bodyTurn 踱步、naturalIdle 站姿）的大腿旋转！
       if (Math.abs(buttocksPitch) > 0.0001) {
-        const invPitchQ = new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(1, 0, 0), buttocksPitch * 0.45);
-        this.rawLLeg.quaternion.multiply(invPitchQ);
-        this.rawRLeg.quaternion.multiply(invPitchQ);
+        this._scratchQuat.setFromAxisAngle(this._xAxis, buttocksPitch * 0.45);
+        this.rawLLeg.quaternion.multiply(this._scratchQuat);
+        this.rawRLeg.quaternion.multiply(this._scratchQuat);
       }
     }
 
@@ -712,8 +718,8 @@ export class VRMBodyMorph {
 
       // 仅当用户主动调整 buttocksPitch 时施加反向逆补偿，默认 0 时保持呼吸与预旋姿态
       if (Math.abs(buttocksPitch) > 0.0001) {
-        const invPitchQ = new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(1, 0, 0), buttocksPitch * 0.55);
-        this.rawSpine.quaternion.multiply(invPitchQ);
+        this._scratchQuat.setFromAxisAngle(this._xAxis, buttocksPitch * 0.55);
+        this.rawSpine.quaternion.multiply(this._scratchQuat);
       }
     }
 
@@ -729,12 +735,12 @@ export class VRMBodyMorph {
 
     // ── 8. 躯干高度 (torsoLength) 胸腔与上胸位置精确合成 ──
 
-    const localUpSpine = new THREE.Vector3(0, 1, 0);
+    const localUpSpine = this._localUpSpine.set(0, 1, 0);
     if (this.rawSpine) {
       this.rawSpine.updateWorldMatrix(true, false);
-      const spineWorldQ = new THREE.Quaternion();
-      this.rawSpine.getWorldQuaternion(spineWorldQ);
-      localUpSpine.applyQuaternion(spineWorldQ.clone().invert());
+      this.rawSpine.getWorldQuaternion(this._scratchQuat);
+      this._scratchQuat.invert();
+      localUpSpine.applyQuaternion(this._scratchQuat);
     }
 
     if (this.rawChest) {
@@ -750,12 +756,12 @@ export class VRMBodyMorph {
       );
     }
 
-    const localUpChest = new THREE.Vector3(0, 1, 0);
+    const localUpChest = this._localUpChest.set(0, 1, 0);
     if (this.rawChest) {
       this.rawChest.updateWorldMatrix(true, false);
-      const chestWorldQ = new THREE.Quaternion();
-      this.rawChest.getWorldQuaternion(chestWorldQ);
-      localUpChest.applyQuaternion(chestWorldQ.clone().invert());
+      this.rawChest.getWorldQuaternion(this._scratchQuat);
+      this._scratchQuat.invert();
+      localUpChest.applyQuaternion(this._scratchQuat);
     }
 
     // ── 8.5 上胸 (UpperChest) 局部正交解耦 ──
@@ -906,12 +912,12 @@ export class VRMBodyMorph {
       // 仅在用户主动调节了纵向俯仰或外扩偏角时叠加旋转增量；
       // 绝不强行将四元数 reset 为静态 baseLBustRot，从而完整保留 VRM SpringBone 动力学物理模拟（乳摇）
       if (Math.abs(bustPitch) > 0.001) {
-        const pitchQ = new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(1, 0, 0), -bustPitch * 1.5);
-        this.rawLBust.quaternion.multiply(pitchQ);
+        this._scratchQuat.setFromAxisAngle(this._xAxis, -bustPitch * 1.5);
+        this.rawLBust.quaternion.multiply(this._scratchQuat);
       }
       if (Math.abs(spreadYaw) > 0.0001) {
-        const yawQ = new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0, 1, 0), -spreadYaw);
-        this.rawLBust.quaternion.multiply(yawQ);
+        this._scratchQuat.setFromAxisAngle(this._yAxis, -spreadYaw);
+        this.rawLBust.quaternion.multiply(this._scratchQuat);
       }
 
       const bustParentScaleZ = (this.rawLBust.parent === this.rawChest) ? targetChestZ : 1.0;
@@ -927,12 +933,12 @@ export class VRMBodyMorph {
 
       // 仅在用户主动调节了纵向俯仰或外扩偏角时叠加旋转增量；保留 SpringBone 实时动力学
       if (Math.abs(bustPitch) > 0.001) {
-        const pitchQ = new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(1, 0, 0), -bustPitch * 1.5);
-        this.rawRBust.quaternion.multiply(pitchQ);
+        this._scratchQuat.setFromAxisAngle(this._xAxis, -bustPitch * 1.5);
+        this.rawRBust.quaternion.multiply(this._scratchQuat);
       }
       if (Math.abs(spreadYaw) > 0.0001) {
-        const yawQ = new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0, 1, 0), spreadYaw);
-        this.rawRBust.quaternion.multiply(yawQ);
+        this._scratchQuat.setFromAxisAngle(this._yAxis, spreadYaw);
+        this.rawRBust.quaternion.multiply(this._scratchQuat);
       }
 
       const bustParentScaleZ = (this.rawRBust.parent === this.rawChest) ? targetChestZ : 1.0;
