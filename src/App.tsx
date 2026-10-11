@@ -241,7 +241,7 @@ export const App: React.FC = () => {
       <AppUpdateDialog allowPrompt={!loading.active} />
 
       {/* 顶部控制栏 — 始终挂载以维持模型冷启与换装，新手向导期间视觉隐藏 */}
-      {currentScene.components.topHeader !== false && (
+      {(currentScene.components.topHeader !== false || isOnboardingActive) && (
         <div className={isOnboardingActive ? 'hidden' : undefined}>
           <TopHeader
             isDev={showDevUi}
@@ -252,9 +252,9 @@ export const App: React.FC = () => {
         </div>
       )}
 
-      {/* 生产包默认不露抽屉；10 次连击后 hasDevEasterEgg 打开同一套面板。 */}
+      {/* 生产包默认不露抽屉；10 次连击后 hasDevEasterEgg 打开同一套面板。新手向导期间不遮挡 */}
       <DevDrawer
-        isOpen={isDrawerOpen && showDevUi}
+        isOpen={isDrawerOpen && showDevUi && !isOnboardingActive}
         onClose={() => setIsDrawerOpen(false)}
       />
 

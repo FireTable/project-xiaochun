@@ -388,7 +388,7 @@ export const APP_CONFIG = {
         lineworkTheme: 'void',
         isTransparent: false,
         hidden: true,
-        components: { topHeader: false, chatBar: false, headBubble: true, heightRuler: false, dropZone: false },
+        components: { topHeader: true, chatBar: false, headBubble: true, heightRuler: false, dropZone: false },
         tauri: { resizable: true, cornerHandles: false },
       },
     },

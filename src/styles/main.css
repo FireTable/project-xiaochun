@@ -35,7 +35,7 @@
     color: #f8fafc;
     -webkit-user-select: none;
     user-select: none;
-    background-color: transparent;
+    background-color: #08090f;
     /* ponytail: 禁止横向滚动 — 移动端任何定位元素溢出都会被截,避免界面"跳动"。 */
     overflow-x: hidden;
     /* ponytail: iOS 点击高亮关掉,避免 button 闪蓝光。 */

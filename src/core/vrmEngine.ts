@@ -996,7 +996,7 @@ export class VRMEngine {
       this.fitCamera(true);
       const storedTheme = resolveInitialSceneTheme();
       this.lineworkWorld.build(this.scene, storedTheme);
-      this.updateShadowForTheme(storedTheme === 'dark');
+      this.updateShadowForTheme(storedTheme === 'dark' || storedTheme === 'void');
       this.syncSceneBackdrop(storedTheme);
       this.startAnimation();
       this.cinematicIntro(1100);
@@ -1743,7 +1743,7 @@ export class VRMEngine {
             this.fitCamera(true);
             const storedTheme = resolveInitialSceneTheme();
             this.lineworkWorld.build(this.scene, storedTheme);
-            this.updateShadowForTheme(storedTheme === 'dark');
+            this.updateShadowForTheme(storedTheme === 'dark' || storedTheme === 'void');
             this.syncSceneBackdrop(storedTheme);
             this.startAnimation();
             this.cinematicIntro(1100);
@@ -2210,7 +2210,7 @@ export class VRMEngine {
             this.fitCamera(true);
             const storedTheme = resolveInitialSceneTheme();
             this.lineworkWorld.build(this.scene, storedTheme);
-            this.updateShadowForTheme(storedTheme === 'dark');
+            this.updateShadowForTheme(storedTheme === 'dark' || storedTheme === 'void');
             this.syncSceneBackdrop(storedTheme);
             this.startAnimation();
             this.cinematicIntro(1100);
