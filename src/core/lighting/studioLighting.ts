@@ -28,8 +28,8 @@ export class StudioLighting {
     this.dirLight.target.position.set(0, 1.0, 0);
     scene.add(this.dirLight.target);
     this.dirLight.castShadow = true;
-    this.dirLight.shadow.mapSize.width = 1024;
-    this.dirLight.shadow.mapSize.height = 1024;
+    this.dirLight.shadow.mapSize.width = 1536;
+    this.dirLight.shadow.mapSize.height = 1536;
     this.dirLight.shadow.bias = 0.00002;
     this.dirLight.shadow.normalBias = 0.035;
     this.dirLight.shadow.radius = 2.0;
