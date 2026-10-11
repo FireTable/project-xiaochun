@@ -585,6 +585,8 @@ export const zhCN = {
     cameraDoneNext: '转动好啦，进入下一步！',
     cameraSkipNext: '学会啦，进入下一步',
     cameraExploreScene: '真棒！去看看不同的世界吧～',
+    galIntro1: '你好呀！初次见面，我是小蠢～',
+    galIntro2: '请问我们用哪种语言交流呢？',
   },
 };
 

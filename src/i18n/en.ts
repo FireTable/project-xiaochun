@@ -582,5 +582,7 @@ export const en: Trans = {
     cameraDoneNext: 'Rotated! Let’s continue~',
     cameraSkipNext: 'Got it, next step',
     cameraExploreScene: 'Awesome! Let’s explore other worlds~',
+    galIntro1: "Hello there! Nice to meet you, I'm XiaoChun~",
+    galIntro2: 'Which language shall we use to chat?',
   },
 };

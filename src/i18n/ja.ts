@@ -582,5 +582,7 @@ export const ja: Trans = {
     cameraDoneNext: '回せたよ！次へ進もう～',
     cameraSkipNext: '分かったよ、次へ進む',
     cameraExploreScene: 'すごい！他の世界も見に行こう～',
+    galIntro1: 'こんにちは！初めまして、小蠢です～',
+    galIntro2: 'どの言語でお話ししましょうか？',
   },
 };
