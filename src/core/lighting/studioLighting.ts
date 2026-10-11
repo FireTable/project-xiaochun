@@ -28,12 +28,12 @@ export class StudioLighting {
     this.dirLight.target.position.set(0, 1.0, 0);
     scene.add(this.dirLight.target);
     this.dirLight.castShadow = true;
-    this.dirLight.shadow.mapSize.width = 1536;
-    this.dirLight.shadow.mapSize.height = 1536;
+    this.dirLight.shadow.mapSize.width = 1024;
+    this.dirLight.shadow.mapSize.height = 1024;
     this.dirLight.shadow.bias = 0.00002;
     this.dirLight.shadow.normalBias = 0.035;
     this.dirLight.shadow.radius = 2.0;
-    // 阴影相机正交视锥：保持 6m×6m ([-3.0, 3.0])，确保头部投影到地面的完整远端阴影不被边缘裁剪
+    // 对称标准正交视锥：保持 6m×6m ([-3.0, 3.0])，完全保证人物与全身地面头影完整投影，绝不发生偏移与裁切
     this.dirLight.shadow.camera.left = -3.0;
     this.dirLight.shadow.camera.right = 3.0;
     this.dirLight.shadow.camera.top = 3.0;
