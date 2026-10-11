@@ -235,6 +235,7 @@ export function splitIntoSpeechChunks(text: string): string[] {
 export function stripForTTS(s: string): string {
   return s
     .replace(/\p{Extended_Pictographic}/gu, '')
+    .replace(/⌘/g, 'Command')
     .replace(/([~～])(?=[^\s，。！？、,!?…\.\n\r])/g, '$1，')
     .replace(/\s+/g, ' ')
     .trim();

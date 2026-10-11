@@ -124,7 +124,7 @@ export const OnboardingTour: React.FC<OnboardingTourProps> = ({ onComplete }) =>
         if (isCancelled || currentSeq !== speechSequenceRef.current) break;
 
         const d = dialogues[i];
-        const rawText = t(d.key, d.defaultText);
+        const rawText = t(d.key, { defaultValue: d.defaultText, ...d.params });
         const cleanSpeech = rawText.replace(/^[…\.\s]+/, '').trim();
 
         if (cleanSpeech) {

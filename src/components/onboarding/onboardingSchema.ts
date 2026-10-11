@@ -2,7 +2,7 @@ import { sceneManager } from '@/core/scene/sceneManager';
 import { vrmEngine } from '@/core/vrmEngine';
 import { APP_CONFIG } from '@/config';
 import { changeLang, type Lang } from '@/i18n';
-import { isTauri } from '@/lib/platform';
+import { isTauri, getPrimaryModifierLabel, isMobile } from '@/lib/platform';
 import { setActiveProviderId } from '@/llm/customProvider';
 import type { TFunction, i18n as I18nInstance } from 'i18next';
 
@@ -24,6 +24,7 @@ export interface OnboardingChoice {
 
 export interface OnboardingDialogue {
   key: string;
+  params?: Record<string, string>;
   defaultText: string;
 }
 
@@ -127,7 +128,8 @@ export const createOnboardingSteps = (t: TFunction, i18n: I18nInstance): Record<
     dialogues: [
       {
         key: 'onboarding.galCameraAsk',
-        defaultText: '试着悄悄转动一下我吧？按住按键拖拽屏幕（手机长按拖动）……唔，别光站在正面对视，多换几个角度瞧瞧我嘛～',
+        params: { modifier: isMobile() ? t('onboarding.mobileHold', '长按') : getPrimaryModifierLabel() },
+        defaultText: '按住键盘上的 {{modifier}} 键拖拽（手机长按拖动）～\n不仅可以让我转身，还能调整视角的俯仰角与高度哦！\n别光站在正面对视，换几个角度瞧瞧我嘛～',
       },
     ],
     choiceLayout: 'text',
@@ -149,7 +151,7 @@ export const createOnboardingSteps = (t: TFunction, i18n: I18nInstance): Record<
     dialogues: [
       {
         key: 'onboarding.galSceneAsk',
-        defaultText: '现在这片空间空荡荡的，只有我们两个人呢……你更喜欢带我去哪里？不管是夏日沙滩还是静谧星空，我都想陪你一起去！',
+        defaultText: '现在这片空间空荡荡的，只有我们两个人呢……\n你更喜欢带我去哪里？不管是夏日沙滩还是静谧星空，我都想陪你一起去！',
       },
     ],
     choiceLayout: 'media',
@@ -223,7 +225,7 @@ export const createOnboardingSteps = (t: TFunction, i18n: I18nInstance): Record<
     dialogues: [
       {
         key: 'onboarding.galOutfitAsk',
-        defaultText: '唔……这身晚礼服……你喜欢吗？其实有点害羞呢……如果你想看别的风格，我还可以换上机能风、国风旗袍，甚至是……泳装哦？',
+        defaultText: '唔……这身晚礼服……你喜欢吗？其实有点害羞呢……\n如果你想看别的风格，我还可以换上机能风、国风旗袍，甚至是……泳装哦？',
       },
     ],
     choiceLayout: 'media',
@@ -278,7 +280,7 @@ export const createOnboardingSteps = (t: TFunction, i18n: I18nInstance): Record<
     dialogues: [
       {
         key: 'onboarding.galBrainAsk',
-        defaultText: '最后……是让小蠢变得更聪明的‘思考核心’哦！你想怎么连接我的小脑袋呢？',
+        defaultText: '最后……是让小蠢变得更聪明的‘思考核心’哦！\n你想怎么连接我的小脑袋呢？',
       },
     ],
     choiceLayout: 'text',
@@ -309,7 +311,7 @@ export const createOnboardingSteps = (t: TFunction, i18n: I18nInstance): Record<
     dialogues: [
       {
         key: 'onboarding.galFinale',
-        defaultText: '耶！所有契约与准备都完成啦～从现在起，小蠢就是你的专属伙伴了！有什么心里话，随时在下方打字告诉我哦！',
+        defaultText: '耶！所有契约与准备都完成啦～从现在起，小蠢就是你的专属伙伴了！\n有什么心里话，随时在下方打字告诉我哦！',
       },
     ],
     choiceLayout: 'text',
