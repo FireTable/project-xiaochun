@@ -153,12 +153,16 @@ export class PostFxPipeline {
       : (APP_CONFIG.postfx.composerMSAASamplesDesktop ?? 4);
     // ponytail: 主 RT 仍按全分辨率（× DPR）呈现。
     // 主 RT MSAA：移动端 / 桌面均默认 4x，保 MToon 描边锐利。
+    // 方案 5 优化：离屏帧缓冲裁剪冗余 Stencil (Disable Redundant Stencil)
+    // 后处理链路纯颜色计算无需模版测试，显式关闭 stencilBuffer 避免 GPU 分配 8-bit 模版深度附件，节约显存与带宽
     const renderTarget = new THREE.WebGLRenderTarget(
       Math.max(1, Math.round(size.width * pixelRatio)),
       Math.max(1, Math.round(size.height * pixelRatio)),
       {
         type: THREE.HalfFloatType,
         samples: msaa,
+        depthBuffer: true,
+        stencilBuffer: false,
       }
     );
     this.composer = new EffectComposer(renderer, renderTarget);

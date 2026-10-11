@@ -1616,8 +1616,18 @@ export class VRMEngine {
             obj.frustumCulled = false;
             if ((obj as THREE.Mesh).isMesh) {
               const mesh = obj as THREE.Mesh;
-              mesh.castShadow = true;
               const meshName = (mesh.name || '').toLowerCase();
+
+              // 仅剔除纯口腔内部的牙齿/舌头构件，坚决保证 Face/Head/Hair/衣服等外轮廓网格 100% 完整投射阴影
+              const isPureInnerMesh =
+                (meshName.includes('tooth') ||
+                 meshName.includes('teeth') ||
+                 meshName.includes('tongue')) &&
+                !meshName.includes('face') &&
+                !meshName.includes('head') &&
+                !meshName.includes('hair');
+              mesh.castShadow = !isPureInnerMesh;
+
               const isFaceMesh =
                 meshName.includes('face') ||
                 meshName.includes('head') ||
@@ -2063,8 +2073,18 @@ export class VRMEngine {
             obj.frustumCulled = false;
             if ((obj as THREE.Mesh).isMesh) {
               const mesh = obj as THREE.Mesh;
-              mesh.castShadow = true;
               const meshName = (mesh.name || '').toLowerCase();
+
+              // 仅剔除纯口腔内部的牙齿/舌头构件，坚决保证 Face/Head/Hair/衣服等外轮廓网格 100% 完整投射阴影
+              const isPureInnerMesh =
+                (meshName.includes('tooth') ||
+                 meshName.includes('teeth') ||
+                 meshName.includes('tongue')) &&
+                !meshName.includes('face') &&
+                !meshName.includes('head') &&
+                !meshName.includes('hair');
+              mesh.castShadow = !isPureInnerMesh;
+
               const isFaceMesh =
                 meshName.includes('face') ||
                 meshName.includes('head') ||

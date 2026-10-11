@@ -453,7 +453,28 @@ export class VRMMaterialManager {
 
         const materials = Array.isArray(mesh.material) ? mesh.material : [mesh.material];
         materials.forEach((mat: any) => {
-          if (!mat || !mat.isMToonMaterial) return;
+          if (!mat) return;
+
+          // 方案 4 优化：材质贴图各向异性过滤 (Texture Anisotropy = 4)
+          // 适度设为 4x，消除大倾角俯仰视角下百褶裙、丝袜、衣物面料的发糊与摩尔纹走样；现代 GPU 硬件单元近零额外开销
+          const texList = [
+            mat.map,
+            mat.shadeMultiplyTexture,
+            mat.normalMap,
+            mat.rimMultiplyTexture,
+            mat.matcapTexture,
+            mat.roughnessMap,
+            mat.metalnessMap,
+          ];
+          for (let t = 0; t < texList.length; t++) {
+            const tex = texList[t];
+            if (tex && tex.isTexture && typeof tex.anisotropy === 'number' && tex.anisotropy < 4) {
+              tex.anisotropy = 4;
+              tex.needsUpdate = true;
+            }
+          }
+
+          if (!mat.isMToonMaterial) return;
 
           // 2. 根据全局配置 APP_CONFIG.outline 统一应用描边参数（消除硬编码魔法值）
           if (!APP_CONFIG.outline.enabled) {

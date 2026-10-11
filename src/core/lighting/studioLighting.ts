@@ -33,12 +33,14 @@ export class StudioLighting {
     this.dirLight.shadow.bias = 0.00002;
     this.dirLight.shadow.normalBias = 0.035;
     this.dirLight.shadow.radius = 2.0;
+    // 阴影相机正交视锥：保持 6m×6m ([-3.0, 3.0])，确保头部投影到地面的完整远端阴影不被边缘裁剪
     this.dirLight.shadow.camera.left = -3.0;
     this.dirLight.shadow.camera.right = 3.0;
     this.dirLight.shadow.camera.top = 3.0;
     this.dirLight.shadow.camera.bottom = -3.0;
     this.dirLight.shadow.camera.near = 1.0;
     this.dirLight.shadow.camera.far = 16.0;
+    this.dirLight.shadow.camera.updateProjectionMatrix();
     scene.add(this.dirLight);
 
     // 前侧柔和冷色补光 (左前侧斜上方，柔和提亮背光暗部，避免过度正面冲刷胸前阴影)
