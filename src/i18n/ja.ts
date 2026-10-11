@@ -577,5 +577,10 @@ export const ja: Trans = {
     galBrainAsk: '最後に私の「思考頭脳」について～どうやってお話ししましょうか？',
     galFinale: 'やったー！準備万端です～話したいことがあれば、下の入力欄で教えてね！',
     clickToContinue: 'クリックして進む',
+    wakeReply: '聞こえるよ！こんにちは～',
+    langConfirmReply: 'よろしくね、小蠢！',
+    cameraDoneNext: '回せたよ！次へ進もう～',
+    cameraSkipNext: '分かったよ、次へ進む',
+    cameraExploreScene: 'すごい！他の世界も見に行こう～',
   },
 };

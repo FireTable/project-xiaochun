@@ -1,7 +1,6 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { useTranslation } from 'react-i18next';
 import {
-  Sparkles,
   ChevronRight,
   X,
   Check,
@@ -42,8 +41,6 @@ export const OnboardingTour: React.FC<OnboardingTourProps> = ({ onComplete }) =>
   const { t, i18n } = useTranslation();
   const [stage, setStage] = useState<DialogueStage>('stage_wake');
   const [hasRotated, setHasRotated] = useState(false);
-  const [displayedText, setDisplayedText] = useState('');
-  const [isTyping, setIsTyping] = useState(false);
 
   const isMobileDevice = isMobile();
   const modifierLabel = isMobileDevice ? t('onboarding.mobileHold', '长按') : getPrimaryModifierLabel();
@@ -97,15 +94,18 @@ export const OnboardingTour: React.FC<OnboardingTourProps> = ({ onComplete }) =>
   const getStageContent = (): {
     text: string;
     choices?: GalChoice[];
-    canClickNext?: boolean;
-    onNext?: () => void;
   } => {
     switch (stage) {
       case 'stage_wake':
         return {
           text: t('onboarding.galWake', '……呼啊，能听到我的声音吗？'),
-          canClickNext: true,
-          onNext: () => setStage('stage_lang_choice'),
+          choices: [
+            {
+              id: 'wake_reply',
+              label: t('onboarding.wakeReply', '能听到哦！你好呀～'),
+              onSelect: () => setStage('stage_lang_choice'),
+            },
+          ],
         };
 
       case 'stage_lang_choice':
@@ -145,8 +145,13 @@ export const OnboardingTour: React.FC<OnboardingTourProps> = ({ onComplete }) =>
       case 'stage_lang_confirm':
         return {
           text: t('onboarding.galLangConfirmed', '太好啦！以后请多关照哦～能在这里遇见你真开心！'),
-          canClickNext: true,
-          onNext: () => setStage('stage_tutorial_choice'),
+          choices: [
+            {
+              id: 'lang_confirm_reply',
+              label: t('onboarding.langConfirmReply', '请多关照，小蠢！'),
+              onSelect: () => setStage('stage_tutorial_choice'),
+            },
+          ],
         };
 
       case 'stage_tutorial_choice':
@@ -174,15 +179,27 @@ export const OnboardingTour: React.FC<OnboardingTourProps> = ({ onComplete }) =>
             'onboarding.galCameraAsk',
             '试着转动一下我吧！按住修饰键拖拽（手机长按拖动），可以从全方位看我哦～',
           ),
-          canClickNext: true,
-          onNext: () => setStage(hasRotated ? 'stage_camera_done' : 'stage_scene_choice'),
+          choices: [
+            {
+              id: 'camera_next',
+              label: hasRotated
+                ? t('onboarding.cameraDoneNext', '转动好啦，进入下一步！')
+                : t('onboarding.cameraSkipNext', '学会啦，进入下一步'),
+              onSelect: () => setStage(hasRotated ? 'stage_camera_done' : 'stage_scene_choice'),
+            },
+          ],
         };
 
       case 'stage_camera_done':
         return {
           text: t('onboarding.galCameraDone', '哇，很熟练嘛！就是这样转动视角与镜头哦～'),
-          canClickNext: true,
-          onNext: () => setStage('stage_scene_choice'),
+          choices: [
+            {
+              id: 'scene_next',
+              label: t('onboarding.cameraExploreScene', '真棒！去看看不同的世界吧～'),
+              onSelect: () => setStage('stage_scene_choice'),
+            },
+          ],
         };
 
       case 'stage_scene_choice':
@@ -307,28 +324,8 @@ export const OnboardingTour: React.FC<OnboardingTourProps> = ({ onComplete }) =>
 
   const currentContent = getStageContent();
 
-  // 打字机逐字显示动效
-  useEffect(() => {
-    const fullText = currentContent.text;
-    if (!fullText) return;
-
-    setDisplayedText('');
-    setIsTyping(true);
-
-    let idx = 0;
-    const interval = setInterval(() => {
-      idx++;
-      setDisplayedText(fullText.slice(0, idx));
-      if (idx >= fullText.length) {
-        clearInterval(interval);
-        setIsTyping(false);
-      }
-    }, 28);
-
-    return () => clearInterval(interval);
-  }, [stage, currentContent.text]);
-
   // 联动小蠢语音配音与全身动作 (speakText)
+  // 通过 HeadBubble 统一在小蠢头顶展示发言内容与口型/姿态
   useEffect(() => {
     const rawText = currentContent.text;
     if (!rawText) return;
@@ -342,31 +339,8 @@ export const OnboardingTour: React.FC<OnboardingTourProps> = ({ onComplete }) =>
     });
   }, [stage, currentContent.text]);
 
-  const handleBoxClick = () => {
-    // 恢复可能被浏览器初始自动播放策略挂起的 AudioContext
-    try {
-      const ctx = (vrmEngine.chatDirector as any).ctx as AudioContext | undefined;
-      if (ctx && ctx.state === 'suspended') {
-        void ctx.resume();
-      }
-    } catch {}
-
-    // 若正在打字，点击立即显示全部文字；若打字完成且有下一步，则推进阶段
-    if (isTyping) {
-      setDisplayedText(currentContent.text);
-      setIsTyping(false);
-      return;
-    }
-    if (currentContent.canClickNext && currentContent.onNext) {
-      currentContent.onNext();
-    }
-  };
-
   return (
-    <div className="fixed inset-0 z-50 pointer-events-none select-none flex flex-col justify-between p-4 sm:p-6 overflow-hidden animate-in fade-in duration-700">
-      {/* 顶部微弱暗角，让小蠢主体自然浮现 */}
-      <div className="absolute inset-0 bg-gradient-to-t from-black/60 via-transparent to-black/30 pointer-events-none" />
-
+    <div className="fixed inset-0 z-40 pointer-events-none select-none flex flex-col justify-between p-4 sm:p-6 overflow-hidden animate-in fade-in duration-500">
       {/* 顶栏控制：右上角极简跳过按钮 */}
       <div className="relative z-10 flex justify-end pointer-events-auto">
         <button
@@ -374,19 +348,46 @@ export const OnboardingTour: React.FC<OnboardingTourProps> = ({ onComplete }) =>
           onClick={finishTour}
           className="flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-slate-950/60 hover:bg-slate-950/90 border border-white/15 text-white/60 hover:text-white text-xs font-medium backdrop-blur-md transition-all shadow-md active:scale-95"
         >
-          <span>{t('onboarding.skip', '跳过剧情')}</span>
+          <span>{t('onboarding.skip', '跳过')}</span>
           <X className="w-3.5 h-3.5" />
         </button>
       </div>
 
-      {/* 屏幕中央：Galgame 悬浮剧情选项分支 (Choice Branches) */}
-      {currentContent.choices && currentContent.choices.length > 0 && !isTyping && (
-        <div className="relative z-20 pointer-events-auto w-full max-w-lg mx-auto flex flex-col gap-2.5 my-auto animate-in fade-in zoom-in-95 slide-in-from-bottom-4 duration-300">
+      {/* 3D 视角教学时的悬浮修饰键指引条 */}
+      {stage === 'stage_camera_intro' && (
+        <div className="relative z-20 pointer-events-auto w-fit mx-auto mt-auto mb-3 flex items-center gap-2 px-3.5 py-1.5 rounded-full bg-slate-950/85 border border-[#ea8377]/60 shadow-[0_0_20px_rgba(234,131,119,0.3)] backdrop-blur-xl animate-bounce">
+          <kbd className="px-2 py-0.5 text-xs font-mono font-bold rounded bg-gradient-to-b from-[#ea8377] to-[#d65f52] border border-[#f5aa9c] text-white shadow-sm">
+            {modifierLabel}
+          </kbd>
+          <span className="text-xs font-medium text-white/90">
+            {isMobileDevice
+              ? t('onboarding.mobileHint', '长按屏幕 480ms 后拖动')
+              : t('onboarding.desktopHint', '按住按键 + 鼠标左键拖拽')}
+          </span>
+          {hasRotated && (
+            <span className="flex items-center gap-1 text-xs font-semibold text-emerald-400 pl-1">
+              <Check className="w-3.5 h-3.5" />
+              {t('onboarding.success', '转动成功！')}
+            </span>
+          )}
+        </div>
+      )}
+
+      {/* 屏幕下半区：悬浮交互回复选项卡片 (Choice Options) */}
+      {currentContent.choices && currentContent.choices.length > 0 && (
+        <div className="relative z-30 pointer-events-auto w-full max-w-md mx-auto mt-auto mb-8 sm:mb-12 flex flex-col gap-2.5 animate-in fade-in zoom-in-95 slide-in-from-bottom-4 duration-300">
           {currentContent.choices.map((choice) => (
             <button
               key={choice.id}
               type="button"
-              onClick={choice.onSelect}
+              onClick={() => {
+                // 恢复可能被浏览器初始自动播放策略挂起的 AudioContext
+                try {
+                  const ctx = (vrmEngine.chatDirector as any).ctx as AudioContext | undefined;
+                  if (ctx && ctx.state === 'suspended') void ctx.resume();
+                } catch {}
+                choice.onSelect();
+              }}
               className="w-full py-3.5 px-5 rounded-2xl bg-slate-950/85 hover:bg-[#ea8377]/25 border border-white/20 hover:border-[#ea8377] text-white shadow-2xl backdrop-blur-2xl flex items-center justify-between transition-all duration-200 hover:translate-x-1.5 hover:scale-[1.01] active:scale-98 group cursor-pointer text-left"
             >
               <div className="flex flex-col gap-0.5 min-w-0 pr-3">
@@ -409,60 +410,6 @@ export const OnboardingTour: React.FC<OnboardingTourProps> = ({ onComplete }) =>
           ))}
         </div>
       )}
-
-      {/* 3D 视角教学时的悬浮修饰键指引条 */}
-      {stage === 'stage_camera_intro' && (
-        <div className="relative z-20 pointer-events-auto w-fit mx-auto mb-3 flex items-center gap-2 px-3.5 py-1.5 rounded-full bg-slate-950/85 border border-[#ea8377]/60 shadow-[0_0_20px_rgba(234,131,119,0.3)] backdrop-blur-xl animate-bounce">
-          <kbd className="px-2 py-0.5 text-xs font-mono font-bold rounded bg-gradient-to-b from-[#ea8377] to-[#d65f52] border border-[#f5aa9c] text-white shadow-sm">
-            {modifierLabel}
-          </kbd>
-          <span className="text-xs font-medium text-white/90">
-            {isMobileDevice
-              ? t('onboarding.mobileHint', '长按屏幕 480ms 后拖动')
-              : t('onboarding.desktopHint', '按住按键 + 鼠标左键拖拽')}
-          </span>
-          {hasRotated && (
-            <span className="flex items-center gap-1 text-xs font-semibold text-emerald-400 pl-1">
-              <Check className="w-3.5 h-3.5" />
-              {t('onboarding.success', '转动成功！')}
-            </span>
-          )}
-        </div>
-      )}
-
-      {/* 屏幕底部：正统 Galgame 文本框 (Dialogue Box) */}
-      <div
-        onClick={handleBoxClick}
-        className={`relative z-20 pointer-events-auto w-full max-w-4xl mx-auto rounded-2xl bg-slate-950/88 border border-white/15 shadow-[0_12px_40px_rgba(0,0,0,0.75)] backdrop-blur-2xl px-5 sm:px-7 pt-4 pb-4 min-h-[6.5rem] sm:min-h-[7.5rem] flex flex-col justify-between transition-all duration-300 ${
-          currentContent.canClickNext ? 'cursor-pointer hover:border-white/25 active:scale-[0.998]' : ''
-        }`}
-      >
-        {/* Galgame 角色名字标牌 */}
-        <div className="absolute -top-3.5 left-6 px-3 py-0.5 rounded-md bg-gradient-to-r from-[#ea8377] to-[#d65f52] text-white font-bold text-xs tracking-wider shadow-md flex items-center gap-1.5 border border-white/20">
-          <Sparkles className="w-3 h-3 text-amber-200" />
-          <span>{t('onboarding.characterName', '小蠢')}</span>
-        </div>
-
-        {/* 逐字台词文本区 */}
-        <div className="pt-2">
-          <p className="text-sm sm:text-base font-medium text-white/95 leading-relaxed tracking-wide select-text">
-            {displayedText}
-            {isTyping && <span className="inline-block w-1.5 h-4 bg-[#ea8377] ml-1 animate-pulse" />}
-          </p>
-        </div>
-
-        {/* 右下角跳动推进指示器 */}
-        <div className="flex justify-end items-center pt-2">
-          {currentContent.canClickNext && !isTyping ? (
-            <span className="flex items-center gap-1 text-[11px] font-mono text-[#f5aa9c] animate-bounce">
-              <span>{t('onboarding.clickToContinue', '点击继续')}</span>
-              <span>▼</span>
-            </span>
-          ) : (
-            <div className="h-4" />
-          )}
-        </div>
-      </div>
     </div>
   );
 };

@@ -580,6 +580,11 @@ export const zhCN = {
     galBrainAsk: '最后是我的“思考大脑”～你想先怎么和我聊天呢？',
     galFinale: '耶！所有准备都就绪啦～有想对我说的话，随时在下面的对话框告诉我哦！',
     clickToContinue: '点击继续',
+    wakeReply: '能听到哦！你好呀～',
+    langConfirmReply: '请多关照，小蠢！',
+    cameraDoneNext: '转动好啦，进入下一步！',
+    cameraSkipNext: '学会啦，进入下一步',
+    cameraExploreScene: '真棒！去看看不同的世界吧～',
   },
 };
 

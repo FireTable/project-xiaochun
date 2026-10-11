@@ -577,5 +577,10 @@ export const en: Trans = {
     galBrainAsk: 'Finally, about my "thinking brain"~ How would you like to start chatting with me?',
     galFinale: 'Yay! Everything is ready~ Whenever you want to chat, just let me know in the chat bar below!',
     clickToContinue: 'Click to continue',
+    wakeReply: 'I can hear you! Hello there~',
+    langConfirmReply: 'Nice to meet you, XiaoChun!',
+    cameraDoneNext: 'Rotated! Let’s continue~',
+    cameraSkipNext: 'Got it, next step',
+    cameraExploreScene: 'Awesome! Let’s explore other worlds~',
   },
 };
