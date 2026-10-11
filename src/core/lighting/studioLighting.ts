@@ -21,12 +21,23 @@ export class StudioLighting {
   };
 
   init(scene: THREE.Scene): void {
+    // 性能优化：静态环境光源矩阵冻结 (Static Matrix Freezing)
+    // 摄影棚灯光与追踪目标位置固定，显式关闭 matrixAutoUpdate 并预先计算一次矩阵，
+    // 彻底消灭 Three.js 在每帧主循环 scene.updateMatrixWorld() 中重复进行的位置分解与矩阵乘法开销
+    this.hemiLight.matrixAutoUpdate = false;
+    this.hemiLight.updateMatrix();
     scene.add(this.hemiLight);
 
     // 主方向光：二次元经典立体写真光 (右上方适度仰角，脸颊白净同时发丝优雅投射在胸前与衣服上)
     this.dirLight.position.set(2.4, 5.8, 4.0);
+    this.dirLight.matrixAutoUpdate = false;
+    this.dirLight.updateMatrix();
+
     this.dirLight.target.position.set(0, 1.0, 0);
+    this.dirLight.target.matrixAutoUpdate = false;
+    this.dirLight.target.updateMatrix();
     scene.add(this.dirLight.target);
+
     this.dirLight.castShadow = true;
     this.dirLight.shadow.mapSize.width = 1024;
     this.dirLight.shadow.mapSize.height = 1024;
@@ -45,7 +56,12 @@ export class StudioLighting {
 
     // 前侧柔和冷色补光 (左前侧斜上方，柔和提亮背光暗部，避免过度正面冲刷胸前阴影)
     this.fillLight.position.set(-2.0, 2.8, 1.8);
+    this.fillLight.matrixAutoUpdate = false;
+    this.fillLight.updateMatrix();
+
     this.fillLight.target.position.set(0, 1.0, 0);
+    this.fillLight.target.matrixAutoUpdate = false;
+    this.fillLight.target.updateMatrix();
     scene.add(this.fillLight.target);
     scene.add(this.fillLight);
 

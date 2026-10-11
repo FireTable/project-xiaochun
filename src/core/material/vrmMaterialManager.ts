@@ -9,6 +9,7 @@ import {
   type VrmMToonPartConfig,
 } from '@/config';
 import { MAT_SATURATION_KEY } from '@/lib/constants';
+import { isMobile } from '@/lib/platform';
 
 export type MaterialSaturationSettings = MaterialSaturationConfig;
 export type MaterialSaturationPresetKey = keyof typeof APP_CONFIG.saturation.presets;
@@ -455,21 +456,21 @@ export class VRMMaterialManager {
         materials.forEach((mat: any) => {
           if (!mat) return;
 
-          // 方案 4 优化：材质贴图各向异性过滤 (Texture Anisotropy = 4)
-          // 适度设为 4x，消除大倾角俯仰视角下百褶裙、丝袜、衣物面料的发糊与摩尔纹走样；现代 GPU 硬件单元近零额外开销
+          // 方案 3 优化：核心 UV 表面贴图精准各向异性过滤 (Texture Anisotropy: Desktop=4, Mobile=2)
+          // 仅对随网格 UV 透视倾斜拉伸的漫反射/阴影/法线贴图开启，精准消除大倾角俯仰视角下百褶裙、丝袜、发丝发糊走样；
+          // 排除基于视线法线采样的 MatCap 球面环境图与边缘贴图，避免浪费 TMU 采样带宽
+          const targetAnisotropy = isMobile() ? 2 : 4;
           const texList = [
             mat.map,
             mat.shadeMultiplyTexture,
             mat.normalMap,
-            mat.rimMultiplyTexture,
-            mat.matcapTexture,
             mat.roughnessMap,
             mat.metalnessMap,
           ];
           for (let t = 0; t < texList.length; t++) {
             const tex = texList[t];
-            if (tex && tex.isTexture && typeof tex.anisotropy === 'number' && tex.anisotropy < 4) {
-              tex.anisotropy = 4;
+            if (tex && tex.isTexture && typeof tex.anisotropy === 'number' && tex.anisotropy < targetAnisotropy) {
+              tex.anisotropy = targetAnisotropy;
               tex.needsUpdate = true;
             }
           }

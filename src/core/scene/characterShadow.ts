@@ -97,6 +97,8 @@ export class CharacterShadowSystem {
     this.shadowPlane.receiveShadow = true;
 
     this.group.add(this.shadowPlane);
+    this.group.matrixAutoUpdate = false;
+    this.group.updateMatrix();
 
     scene.add(this.group);
     this.applyTheme(theme);

@@ -561,7 +561,8 @@ export class LineworkWorld {
     groundLineMesh.renderOrder = 5;
     this.rootGroup.add(groundLineMesh);
     this.disposables.push(groundGeo);
-
+    this.rootGroup.matrixAutoUpdate = false;
+    this.rootGroup.updateMatrix();
     scene.add(this.rootGroup);
     this.isBuilt = true;
   }

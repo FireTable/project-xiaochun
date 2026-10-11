@@ -1626,7 +1626,18 @@ export class VRMEngine {
                 !meshName.includes('face') &&
                 !meshName.includes('head') &&
                 !meshName.includes('hair');
-              mesh.castShadow = !isPureInnerMesh;
+
+              // 剔除贴脸五官细碎贴花：眼球内部、眼部高光、睫毛、眉毛、眼线紧贴脸颊，
+              // 且脸部网格自身不接收阴影(receiveShadow=false)，让其投射阴影不仅徒增 Shadow Pass Draw Call，且视觉贡献为 0
+              const isFacialDecal =
+                (meshName.includes('iris') ||
+                 meshName.includes('highlight') ||
+                 meshName.includes('eyelash') ||
+                 meshName.includes('eyebrow') ||
+                 meshName.includes('eyeline')) &&
+                !meshName.includes('hair');
+
+              mesh.castShadow = !isPureInnerMesh && !isFacialDecal;
 
               const isFaceMesh =
                 meshName.includes('face') ||
@@ -2083,7 +2094,18 @@ export class VRMEngine {
                 !meshName.includes('face') &&
                 !meshName.includes('head') &&
                 !meshName.includes('hair');
-              mesh.castShadow = !isPureInnerMesh;
+
+              // 剔除贴脸五官细碎贴花：眼球内部、眼部高光、睫毛、眉毛、眼线紧贴脸颊，
+              // 且脸部网格自身不接收阴影(receiveShadow=false)，让其投射阴影不仅徒增 Shadow Pass Draw Call，且视觉贡献为 0
+              const isFacialDecal =
+                (meshName.includes('iris') ||
+                 meshName.includes('highlight') ||
+                 meshName.includes('eyelash') ||
+                 meshName.includes('eyebrow') ||
+                 meshName.includes('eyeline')) &&
+                !meshName.includes('hair');
+
+              mesh.castShadow = !isPureInnerMesh && !isFacialDecal;
 
               const isFaceMesh =
                 meshName.includes('face') ||

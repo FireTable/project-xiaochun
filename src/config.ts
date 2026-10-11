@@ -383,7 +383,7 @@ export const APP_CONFIG = {
     bloomInputScaleMobile: 0.3,
     bloomInputScaleDesktop: 0.5,
     composerMSAASamplesMobile: 3,
-    composerMSAASamplesDesktop: 4,
+    composerMSAASamplesDesktop: 3,
   },
   saturation: {
     default: {
