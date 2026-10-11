@@ -545,6 +545,7 @@ export const ja: Trans = {
     mobileHold: '長押し',
     mobileHint: '画面を480ms長押ししてからドラッグ',
     desktopHint: '修飾キー長押し + 左クリックドラッグ',
+    cameraExtraHint: '360° 自由旋回 · 仰角とカメラ距離の調整に対応',
     success: '回転成功！',
     galIntro1: 'ふぁ……やっと会えましたね！初めまして、小蠢です～\nあの……マスターはどこから来たの？何語でおしゃべりしましょうか？',
     galTutorialAsk: 'よかった！これからよろしくね～\nあの……この小さな世界の秘密、案内しましょうか？',

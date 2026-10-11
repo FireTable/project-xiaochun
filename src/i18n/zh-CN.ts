@@ -548,6 +548,7 @@ export const zhCN = {
     mobileHold: '长按',
     mobileHint: '长按屏幕 480ms 后拖动',
     desktopHint: '按住按键 + 鼠标左键拖拽',
+    cameraExtraHint: '支持 360° 自由环视 · 调整俯仰与视距',
     success: '转动成功！',
     galIntro1: '呼啊……你终于来啦！初次见面，我是小蠢～\n那个……你来自哪里呀？我该用哪种语言跟你聊天呢？',
     galTutorialAsk: '太好啦！以后的日子请多关照啦～\n那个……需要我带你熟悉一下这个小世界的秘密吗？',

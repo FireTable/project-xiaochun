@@ -545,6 +545,7 @@ export const en: Trans = {
     mobileHold: 'Hold',
     mobileHint: 'Long press for 480ms then drag',
     desktopHint: 'Hold modifier key + Left-click drag',
+    cameraExtraHint: '360° free orbit · adjust pitch & camera distance',
     success: 'Rotated!',
     galIntro1: "Whew... You're finally here! Nice to meet you, I'm XiaoChun~\nUm... Where are you from? Which language should I chat with you in?",
     galTutorialAsk: "Wonderful! Let's get along well from now on~\nUm... Would you like me to show you the secrets of this world?",

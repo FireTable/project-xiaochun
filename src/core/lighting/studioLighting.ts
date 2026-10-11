@@ -76,12 +76,19 @@ export class StudioLighting {
   }
 
   /**
-   * 切场景时重置灯色 (所有场景共用同一套默认灯色, 不改强度 / 不改任何角色材质)。强度仍由 channels / 调试抽屉控制。
+   * 切场景时重置灯色 (所有场景共用一套默认灯色, 虚空专属聚光氛围; 不改强度 / 不改任何角色材质)。强度仍由 channels / 调试抽屉控制。
    */
-  applyTheme(_theme: LineworkTheme): void {
-    this.hemiLight.color.setHex(0xfffaf8);
-    this.hemiLight.groundColor.setHex(0xe2d6e6);
-    this.dirLight.color.setHex(0xfffdfa);
+  applyTheme(theme: LineworkTheme): void {
+    if (theme === 'void') {
+      // 虚空舞台：顶部晶莹暖白聚光灯 + 极弱深空环境底色，烘托聚光灯人物立体轮廓
+      this.hemiLight.color.setHex(0xe0e4f8);
+      this.hemiLight.groundColor.setHex(0x0e101d);
+      this.dirLight.color.setHex(0xfff4ed);
+    } else {
+      this.hemiLight.color.setHex(0xfffaf8);
+      this.hemiLight.groundColor.setHex(0xe2d6e6);
+      this.dirLight.color.setHex(0xfffdfa);
+    }
   }
 
   setLight(key: string, enabled: boolean, value: number): void {

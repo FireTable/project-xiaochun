@@ -49,7 +49,7 @@ export const OnboardingTour: React.FC<OnboardingTourProps> = ({ onComplete }) =>
   const finishTour = useCallback(() => {
     try {
       localStorage.setItem(ONBOARDING_STORAGE_KEY, '1');
-      vrmEngine.chatDirector.stop();
+      vrmEngine.stopSpeaking();
       // 若当前仍在虚空场景 (例如用户在未选场景前提前跳过)，自动回退到默认场景
       if (sceneManager.getCurrentSceneId() === 'void') {
         void sceneManager.setScene(APP_CONFIG.scenes.defaultSceneId, true);
@@ -64,7 +64,7 @@ export const OnboardingTour: React.FC<OnboardingTourProps> = ({ onComplete }) =>
   useEffect(() => {
     return () => {
       try {
-        vrmEngine.chatDirector.stop();
+        vrmEngine.stopSpeaking();
       } catch {
         // ignore
       }
@@ -96,6 +96,7 @@ export const OnboardingTour: React.FC<OnboardingTourProps> = ({ onComplete }) =>
   useEffect(() => {
     if (currentStep.interaction !== 'camera_drag') return;
 
+    (window as any).__onboardingSetRotated = setHasRotated;
     const unsub = vrmEngine.interaction.onStateChange((state) => {
       if (state.isDragging) {
         setHasRotated(true);
@@ -103,6 +104,7 @@ export const OnboardingTour: React.FC<OnboardingTourProps> = ({ onComplete }) =>
     });
 
     return () => {
+      delete (window as any).__onboardingSetRotated;
       unsub();
     };
   }, [currentStep.interaction]);
@@ -155,11 +157,30 @@ export const OnboardingTour: React.FC<OnboardingTourProps> = ({ onComplete }) =>
   }, [currentStepId, t]);
 
   // 用户点击屏幕任意处可快速略过语音等待，直接弹出选项
-  const handleQuickReveal = () => {
+  const handleQuickReveal = useCallback(() => {
     if (isSpeaking) {
       setIsSpeaking(false);
+      try {
+        vrmEngine.stopSpeaking();
+      } catch {}
     }
-  };
+  }, [isSpeaking]);
+
+  useEffect(() => {
+    (window as any).__onboardingQuickReveal = handleQuickReveal;
+    if (!isSpeaking) return;
+
+    const handlePointerDown = (e: PointerEvent) => {
+      const target = e.target as HTMLElement | null;
+      if (target?.closest('button')) return;
+      handleQuickReveal();
+    };
+
+    window.addEventListener('pointerdown', handlePointerDown);
+    return () => {
+      window.removeEventListener('pointerdown', handlePointerDown);
+    };
+  }, [isSpeaking, handleQuickReveal]);
 
   const choices: OnboardingChoice[] = useMemo(() => {
     return currentStep.getChoices(stepContext);
@@ -172,7 +193,7 @@ export const OnboardingTour: React.FC<OnboardingTourProps> = ({ onComplete }) =>
     setSelectedChoiceId(choice.id);
 
     try {
-      const ctx = (vrmEngine.chatDirector as any).ctx as AudioContext | undefined;
+      const ctx = (vrmEngine as any).chatDirector?.ctx as AudioContext | undefined;
       if (ctx && ctx.state === 'suspended') void ctx.resume();
     } catch {}
 
@@ -204,23 +225,34 @@ export const OnboardingTour: React.FC<OnboardingTourProps> = ({ onComplete }) =>
         </button>
       </div>
 
-      {/* 3D 视角教学时的悬浮修饰键指引条 */}
+      {/* 3D 视角教学时的悬浮修饰键指引条 (游戏/原神风格触控与机械键帽 HUD) */}
       {currentStep.interaction === 'camera_drag' && (
-        <div className="relative z-20 pointer-events-auto w-fit mx-auto mt-auto mb-3 flex items-center gap-2 px-3.5 py-1.5 rounded-full bg-slate-950/85 border border-[#ea8377]/60 shadow-[0_0_20px_rgba(234,131,119,0.3)] backdrop-blur-xl animate-bounce">
-          <kbd className="px-2 py-0.5 text-xs font-mono font-bold rounded bg-gradient-to-b from-[#ea8377] to-[#d65f52] border border-[#f5aa9c] text-white shadow-sm">
-            {modifierLabel}
-          </kbd>
-          <span className="text-xs font-medium text-white/90">
-            {isMobileDevice
-              ? t('onboarding.mobileHint', '长按屏幕 480ms 后拖动')
-              : t('onboarding.desktopHint', '按住按键 + 鼠标左键拖拽')}
-          </span>
-          {hasRotated && (
-            <span className="flex items-center gap-1 text-xs font-semibold text-emerald-400 pl-1">
-              <Check className="w-3.5 h-3.5" />
-              {t('onboarding.success', '转动成功！')}
+        <div className="relative z-20 pointer-events-auto w-fit mx-auto mt-auto mb-4 flex flex-col items-center gap-1.5 animate-in fade-in slide-in-from-bottom-3 duration-300">
+          <div className="flex items-center gap-2.5 px-4 py-2 rounded-2xl bg-slate-950/90 border border-[#ea8377]/60 shadow-[0_0_25px_rgba(234,131,119,0.35),inset_0_1px_1px_rgba(255,255,255,0.2)] backdrop-blur-2xl">
+            {/* 游戏风格机械键帽 */}
+            <div className="flex items-center gap-1.5">
+              <span className="text-[#f5aa9c] text-xs">✦</span>
+              <kbd className="inline-flex items-center justify-center px-2.5 py-1 text-xs font-mono font-black rounded-lg bg-gradient-to-b from-slate-700 via-slate-800 to-slate-950 text-amber-200 border-t border-white/30 border-x border-slate-700 border-b-2 border-slate-950 shadow-[0_2px_4px_rgba(0,0,0,0.6),0_0_8px_rgba(251,191,36,0.3)] tracking-wider">
+                {modifierLabel}
+              </kbd>
+            </div>
+            <div className="h-4 w-px bg-white/20" />
+            <span className="text-xs font-medium text-white/95 tracking-wide">
+              {isMobileDevice
+                ? t('onboarding.mobileHint', '长按屏幕 480ms 后拖动')
+                : t('onboarding.desktopHint', '按住按键 + 鼠标左键拖拽')}
             </span>
-          )}
+            {hasRotated ? (
+              <span className="flex items-center gap-1 text-xs font-bold text-emerald-400 pl-1.5 border-l border-emerald-500/30">
+                <Check className="w-3.5 h-3.5" />
+                {t('onboarding.success', '转动成功！')}
+              </span>
+            ) : (
+              <span className="text-[10px] text-white/60 hidden sm:inline pl-1">
+                ({t('onboarding.cameraExtraHint', '支持 360° 自由环视 · 调整俯仰与视距')})
+              </span>
+            )}
+          </div>
         </div>
       )}
 
@@ -258,7 +290,7 @@ export const OnboardingTour: React.FC<OnboardingTourProps> = ({ onComplete }) =>
                         <div
                           className={`w-10 h-10 rounded-xl flex items-center justify-center text-xl shrink-0 shadow-inner transition-all duration-200 ${
                             isSelected
-                              ? 'bg-[#ea8377] border border-[#f5aa9c] scale-110'
+                              ? 'bg-[#ea8377] border border-[#f5aa9c] scale-110 shadow-[0_0_15px_rgba(234,131,119,0.5)]'
                               : 'bg-white/10 border border-white/15 group-hover:scale-110 group-hover:bg-[#ea8377]/20 group-hover:border-[#ea8377]/40'
                           }`}
                         >
@@ -266,15 +298,18 @@ export const OnboardingTour: React.FC<OnboardingTourProps> = ({ onComplete }) =>
                         </div>
                       )}
                       <div className="flex flex-col gap-0.5 min-w-0">
-                        <span
-                          className={`text-sm sm:text-[15px] font-semibold tracking-wide transition-colors truncate ${
-                            isSelected ? 'text-[#f5aa9c]' : 'text-white group-hover:text-[#f5aa9c]'
-                          }`}
-                        >
-                          {choice.label}
-                        </span>
+                        <div className="flex items-center gap-1.5">
+                          <span className="text-[#f5aa9c] text-[10px] opacity-75">✦</span>
+                          <span
+                            className={`text-sm sm:text-[15px] font-semibold tracking-wide transition-colors truncate ${
+                              isSelected ? 'text-[#f5aa9c]' : 'text-white group-hover:text-[#f5aa9c]'
+                            }`}
+                          >
+                            {choice.label}
+                          </span>
+                        </div>
                         {choice.subLabel && (
-                          <span className="text-[11px] sm:text-xs text-white/50 group-hover:text-white/70 transition-colors truncate font-normal">
+                          <span className="text-[11px] sm:text-xs text-white/50 group-hover:text-white/70 transition-colors truncate font-normal pl-3.5">
                             {choice.subLabel}
                           </span>
                         )}
@@ -301,7 +336,7 @@ export const OnboardingTour: React.FC<OnboardingTourProps> = ({ onComplete }) =>
 
           {/* 布局 2：带图文卡片 (media，适用于场景选择与服装试穿) */}
           {currentStep.choiceLayout === 'media' && (
-            <div className="w-full max-w-lg mx-auto grid grid-cols-2 gap-2.5 sm:gap-3.5">
+            <div className="w-full max-w-xl mx-auto grid grid-cols-2 gap-2.5 sm:gap-3.5">
               {choices.map((choice, index) => {
                 const isSelected = selectedChoiceId === choice.id;
                 const isDimmed = selectedChoiceId !== null && !isSelected;
@@ -312,7 +347,7 @@ export const OnboardingTour: React.FC<OnboardingTourProps> = ({ onComplete }) =>
                     type="button"
                     onClick={() => void handleSelectChoice(choice)}
                     style={{ animationDelay: `${index * 70}ms` }}
-                    className={`group relative flex flex-col p-3 rounded-2xl bg-slate-950/85 hover:bg-slate-900/90 border shadow-2xl backdrop-blur-2xl transition-all duration-200 cursor-pointer text-left overflow-hidden onboarding-card-enter ${
+                    className={`group relative flex flex-col p-2.5 sm:p-3 rounded-2xl bg-slate-950/85 hover:bg-slate-900/95 border shadow-2xl backdrop-blur-2xl transition-all duration-200 cursor-pointer text-left overflow-hidden onboarding-card-enter ${
                       isSelected
                         ? 'border-[#ea8377] bg-[#ea8377]/25 shadow-[0_0_35px_rgba(234,131,119,0.5)] scale-[1.02]'
                         : isDimmed
@@ -320,13 +355,42 @@ export const OnboardingTour: React.FC<OnboardingTourProps> = ({ onComplete }) =>
                           : 'border-white/20 hover:border-[#ea8377] hover:scale-[1.02] hover:shadow-[0_8px_30px_rgba(234,131,119,0.25)] active:scale-98'
                     }`}
                   >
-                    {/* 顶部彩色微缩视觉展台 Banner */}
-                    <div
-                      className={`w-full h-16 sm:h-20 rounded-xl bg-gradient-to-br ${
-                        choice.mediaPreview?.gradient ?? 'from-brand-500/30 to-purple-500/30'
-                      } border border-white/10 flex items-center justify-center text-3xl sm:text-4xl shadow-inner group-hover:scale-105 transition-transform duration-300`}
-                    >
-                      <span>{choice.mediaPreview?.emoji ?? '✨'}</span>
+                    {/* 顶部视觉预览展台 (16:9 比例) */}
+                    <div className="relative w-full aspect-video rounded-xl overflow-hidden bg-slate-900 border border-white/10 shadow-inner">
+                      {choice.image ? (
+                        <img
+                          src={choice.image}
+                          alt={choice.label}
+                          className="w-full h-full object-cover transition-transform duration-500 ease-out group-hover:scale-108"
+                          loading="eager"
+                        />
+                      ) : (
+                        <div
+                          className={`w-full h-full bg-gradient-to-br ${
+                            choice.mediaPreview?.gradient ?? 'from-brand-500/30 to-purple-500/30'
+                          } flex items-center justify-center text-3xl sm:text-4xl shadow-inner group-hover:scale-105 transition-transform duration-300`}
+                        >
+                          <span>{choice.mediaPreview?.emoji ?? '✨'}</span>
+                        </div>
+                      )}
+
+                      {/* 渐变遮罩压暗底部文字衔接处 */}
+                      <div className="absolute inset-0 bg-gradient-to-t from-slate-950/90 via-slate-950/20 to-transparent pointer-events-none" />
+
+                      {/* 角标 Badge (原神/二次元游戏风格) */}
+                      {choice.badge && (
+                        <div className="absolute top-1.5 left-1.5 px-2 py-0.5 rounded-md bg-slate-950/80 border border-white/20 backdrop-blur-md text-[10px] sm:text-[11px] font-semibold text-white/90 shadow-sm flex items-center gap-1">
+                          <span className="text-[#f5aa9c] text-[9px]">✦</span>
+                          <span>{choice.badge}</span>
+                        </div>
+                      )}
+
+                      {/* 选中高亮勾选标 */}
+                      {isSelected && (
+                        <div className="absolute top-1.5 right-1.5 w-6 h-6 rounded-full bg-[#ea8377] border border-[#f5aa9c] flex items-center justify-center shadow-lg animate-in zoom-in-75 duration-200">
+                          <Check className="w-3.5 h-3.5 text-white" />
+                        </div>
+                      )}
                     </div>
 
                     {/* 底部标题与描述 */}
@@ -341,7 +405,7 @@ export const OnboardingTour: React.FC<OnboardingTourProps> = ({ onComplete }) =>
                         </span>
                         <ChevronRight
                           className={`w-3.5 h-3.5 shrink-0 ml-1 transition-all ${
-                            isSelected ? 'text-white translate-x-0.5' : 'text-white/30 group-hover:text-white group-hover:translate-x-0.5'
+                            isSelected ? 'text-[#f5aa9c] translate-x-0.5' : 'text-white/30 group-hover:text-white group-hover:translate-x-0.5'
                           }`}
                         />
                       </div>

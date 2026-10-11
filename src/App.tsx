@@ -108,6 +108,10 @@ export const App: React.FC = () => {
 
     import('@/core/vrmEngine').then((mod) => {
       engineModule = mod;
+      if (typeof window !== 'undefined') {
+        (window as any).vrmEngine = mod.vrmEngine;
+        (window as any).sceneManager = sceneManager;
+      }
       // ponytail: 渲染循环不再被 LoadingOverlay suspend —— overlay 只是视觉遮罩,
       // 渲染从 startAnimation 一直跑,fitCamera + cinematicIntro 在 VRM 加载完后直接生效。
       // 后台页 visibilitychange 由 vrmEngine 自行 suspend/resume。
@@ -118,7 +122,11 @@ export const App: React.FC = () => {
       };
       unsubReady = mod.vrmEngine.onReadyChange((ready) => {
         setIsVRMReady(ready);
-        if (ready && typeof window !== 'undefined') (window as any).__VRM_ALREADY_READY__ = true;
+        if (ready && typeof window !== 'undefined') {
+          (window as any).__VRM_ALREADY_READY__ = true;
+          (window as any).vrmEngine = mod.vrmEngine;
+          (window as any).sceneManager = sceneManager;
+        }
       });
       // React 并发过渡：将气泡 UI 状态更新降级为非阻塞 transition，绝不阻塞主线程 3D 动画帧与交互
       mod.vrmEngine.onBubbleChange = (state) => {

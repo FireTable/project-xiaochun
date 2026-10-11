@@ -44,3 +44,4 @@ bench/
 .git.bak/
 .wrangler/
 .tanstack/
+tmp/

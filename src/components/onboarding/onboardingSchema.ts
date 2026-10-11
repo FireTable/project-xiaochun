@@ -1,7 +1,7 @@
 import { sceneManager } from '@/core/scene/sceneManager';
 import { vrmEngine } from '@/core/vrmEngine';
 import { APP_CONFIG } from '@/config';
-import { changeLang, type Lang } from '@/i18n';
+import { changeLang } from '@/i18n';
 import { isTauri, getPrimaryModifierLabel, isMobile } from '@/lib/platform';
 import { setActiveProviderId } from '@/llm/customProvider';
 import type { TFunction, i18n as I18nInstance } from 'i18next';
@@ -14,6 +14,7 @@ export interface OnboardingChoice {
   subLabel?: string;
   badge?: string;
   icon?: string;
+  image?: string;
   mediaPreview?: {
     gradient: string;
     emoji: string;
@@ -160,6 +161,8 @@ export const createOnboardingSteps = (t: TFunction, i18n: I18nInstance): Record<
         id: 'beach3d',
         label: t('onboarding.sceneBeach', '阳光沙滩'),
         subLabel: t('onboarding.sceneBeachSub', '听海浪吹吹风，一起去度假吧～'),
+        image: '/previews/scenes/beach3d.webp',
+        badge: '🏝️ 3D World',
         mediaPreview: {
           gradient: 'from-amber-500/30 via-orange-500/20 to-sky-500/30',
           emoji: '🏖️',
@@ -174,6 +177,8 @@ export const createOnboardingSteps = (t: TFunction, i18n: I18nInstance): Record<
         id: 'light',
         label: t('onboarding.sceneLight', '极简昼白'),
         subLabel: t('onboarding.sceneLightSub', '纯白静谧空间，只专注看着你'),
+        image: '/previews/scenes/light.webp',
+        badge: '☀️ Linework',
         mediaPreview: {
           gradient: 'from-slate-100/30 via-sky-100/20 to-amber-100/30',
           emoji: '☀️',
@@ -188,6 +193,8 @@ export const createOnboardingSteps = (t: TFunction, i18n: I18nInstance): Record<
         id: 'dark',
         label: t('onboarding.sceneDark', '极夜星空'),
         subLabel: t('onboarding.sceneDarkSub', '星芒微光舞台，浪漫静谧夜晚'),
+        image: '/previews/scenes/dark.webp',
+        badge: '🌌 Starry',
         mediaPreview: {
           gradient: 'from-indigo-950/50 via-purple-900/40 to-slate-900/50',
           emoji: '🌌',
@@ -204,6 +211,8 @@ export const createOnboardingSteps = (t: TFunction, i18n: I18nInstance): Record<
             id: 'transparent',
             label: t('onboarding.sceneTransparent', '透明桌宠'),
             subLabel: t('onboarding.sceneTransparentSub', '变成桌面小透明，随时偷偷陪着你'),
+            image: '/previews/scenes/transparent.webp',
+            badge: '👻 Desktop Pet',
             mediaPreview: {
               gradient: 'from-pink-500/30 via-rose-500/20 to-purple-500/30',
               emoji: '👻',
@@ -230,10 +239,34 @@ export const createOnboardingSteps = (t: TFunction, i18n: I18nInstance): Record<
     ],
     choiceLayout: 'media',
     getChoices: (ctx) => [
+      {
+        id: 'keep_outfit',
+        label: t('onboarding.outfitKeep', '这身晚礼服就很棒'),
+        subLabel: t('onboarding.outfitKeepSub', '这套就很喜欢，先不用换啦～'),
+        image: '/previews/outfits/keep_outfit.webp',
+        badge: '👗 经典华丽',
+        mediaPreview: {
+          gradient: 'from-slate-700/40 via-slate-800/30 to-slate-900/40',
+          emoji: '👗',
+          description: 'Keep Current Outfit',
+        },
+        onSelect: () => ctx.goToStep('step_brain_choice'),
+      },
       ...Object.entries(APP_CONFIG.model.addons).map(([k, addon]) => {
         const isBikini = k.includes('bikini');
         const isCheongsam = k.includes('cheongsam');
-        const emoji = isBikini ? '👙' : isCheongsam ? '🌸' : '⚡';
+        const isMaid = k.includes('maid');
+        const isSwimsuit = k.includes('swimsuit');
+        const emoji = isBikini ? '👙' : isCheongsam ? '🌸' : isMaid ? '🎀' : isSwimsuit ? '🏊‍♀️' : '⚡';
+        const badge = isBikini
+          ? '👙 清凉泳装'
+          : isCheongsam
+            ? '🌸 国风典雅'
+            : isMaid
+              ? '🎀 萌系女仆'
+              : isSwimsuit
+                ? '🏊‍♀️ 竞技泳衣'
+                : '⚡ 战术机甲';
         const gradient = isBikini
           ? 'from-sky-400/30 via-teal-400/20 to-cyan-400/30'
           : isCheongsam
@@ -249,6 +282,8 @@ export const createOnboardingSteps = (t: TFunction, i18n: I18nInstance): Record<
           id: k,
           label: addon.name.replace('XiaoChun ', ''),
           subLabel,
+          image: `/previews/outfits/${k}.webp`,
+          badge,
           mediaPreview: {
             gradient,
             emoji,
@@ -260,17 +295,6 @@ export const createOnboardingSteps = (t: TFunction, i18n: I18nInstance): Record<
           },
         };
       }),
-      {
-        id: 'keep_outfit',
-        label: t('onboarding.outfitKeep', '这身晚礼服就很棒'),
-        subLabel: t('onboarding.outfitKeepSub', '这套就很喜欢，先不用换啦～'),
-        mediaPreview: {
-          gradient: 'from-slate-700/40 via-slate-800/30 to-slate-900/40',
-          emoji: '👗',
-          description: 'Keep Current Outfit',
-        },
-        onSelect: () => ctx.goToStep('step_brain_choice'),
-      },
     ],
   },
 

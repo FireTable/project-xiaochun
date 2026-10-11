@@ -63,6 +63,85 @@ export class LineworkWorld {
     driftRangeZ: number;
   }> = [];
 
+  // ── 纯粹虚空舞台系统 (Void Stage: 聚光灯微晕底座 + 星尘浮光微粒) ──
+  private voidStageGroup: THREE.Group = new THREE.Group();
+  private voidPedestalMesh: THREE.Mesh | null = null;
+  private voidParticleGeo: THREE.BufferGeometry | null = null;
+  private voidParticlePositions: Float32Array | null = null;
+  private voidParticleCount = 45;
+
+  /** 创建虚空舞台地面微光圆盘与法阵光环贴图 */
+  private createVoidPedestalTexture(): THREE.CanvasTexture {
+    const canvas = document.createElement('canvas');
+    canvas.width = 512;
+    canvas.height = 512;
+    const ctx = canvas.getContext('2d')!;
+    ctx.clearRect(0, 0, 512, 512);
+
+    const cx = 256;
+    const cy = 256;
+
+    // 1. 核心柔和微光池 (Soft Radial Spotlight Pool)
+    const radGrad = ctx.createRadialGradient(cx, cy, 0, cx, cy, 240);
+    radGrad.addColorStop(0, 'rgba(234, 131, 119, 0.22)');
+    radGrad.addColorStop(0.3, 'rgba(245, 170, 156, 0.12)');
+    radGrad.addColorStop(0.65, 'rgba(180, 200, 255, 0.04)');
+    radGrad.addColorStop(1.0, 'rgba(0, 0, 0, 0)');
+    ctx.fillStyle = radGrad;
+    ctx.beginPath();
+    ctx.arc(cx, cy, 240, 0, Math.PI * 2);
+    ctx.fill();
+
+    // 2. 内圈晶透星环与四向准心刻度
+    ctx.strokeStyle = 'rgba(234, 131, 119, 0.50)';
+    ctx.lineWidth = 2;
+    ctx.beginPath();
+    ctx.arc(cx, cy, 115, 0, Math.PI * 2);
+    ctx.stroke();
+
+    ctx.strokeStyle = 'rgba(245, 170, 156, 0.65)';
+    ctx.lineWidth = 2.5;
+    const ticks = [0, Math.PI / 2, Math.PI, (Math.PI * 3) / 2];
+    for (const a of ticks) {
+      const cos = Math.cos(a);
+      const sin = Math.sin(a);
+      ctx.beginPath();
+      ctx.moveTo(cx + cos * 105, cy + sin * 105);
+      ctx.lineTo(cx + cos * 125, cy + sin * 125);
+      ctx.stroke();
+    }
+
+    // 3. 中圈虚线星轨与 8 颗微星符文
+    ctx.strokeStyle = 'rgba(180, 205, 255, 0.40)';
+    ctx.lineWidth = 1.5;
+    ctx.setLineDash([6, 8]);
+    ctx.beginPath();
+    ctx.arc(cx, cy, 175, 0, Math.PI * 2);
+    ctx.stroke();
+    ctx.setLineDash([]);
+
+    ctx.fillStyle = 'rgba(200, 225, 255, 0.60)';
+    for (let i = 0; i < 8; i++) {
+      const a = (i * Math.PI) / 4;
+      const rx = cx + Math.cos(a) * 175;
+      const ry = cy + Math.sin(a) * 175;
+      ctx.beginPath();
+      ctx.arc(rx, ry, 2.5, 0, Math.PI * 2);
+      ctx.fill();
+    }
+
+    // 4. 外圈柔光扩散界环
+    ctx.strokeStyle = 'rgba(160, 190, 240, 0.22)';
+    ctx.lineWidth = 1.2;
+    ctx.beginPath();
+    ctx.arc(cx, cy, 230, 0, Math.PI * 2);
+    ctx.stroke();
+
+    const texture = new THREE.CanvasTexture(canvas);
+    this.disposables.push(texture);
+    return texture;
+  }
+
   /** 创建高采样双色阶竖向渐变 CanvasTexture */
   private createGradientTexture(topColor: string, bottomColor: string): THREE.CanvasTexture {
     const canvas = document.createElement('canvas');
@@ -570,13 +649,78 @@ export class LineworkWorld {
     this.rootGroup.matrixAutoUpdate = false;
     this.rootGroup.updateMatrix();
     scene.add(this.rootGroup);
+
+    // ── 纯粹虚空舞台底座与微粒群 ──
+    const pedestalTex = this.createVoidPedestalTexture();
+    const pedestalGeo = new THREE.PlaneGeometry(3.6, 3.6);
+    this.disposables.push(pedestalGeo);
+    const pedestalMat = new THREE.MeshBasicMaterial({
+      map: pedestalTex,
+      transparent: true,
+      opacity: 0.88,
+      depthWrite: false,
+      side: THREE.DoubleSide,
+    });
+    this.disposables.push(pedestalMat);
+    this.voidPedestalMesh = new THREE.Mesh(pedestalGeo, pedestalMat);
+    this.voidPedestalMesh.rotation.x = -Math.PI / 2;
+    this.voidPedestalMesh.position.set(0, 0.001, 0);
+    this.voidStageGroup.add(this.voidPedestalMesh);
+
+    // 虚空星尘浮光微粒 (45 颗在人物周围轻柔悬浮飘动)
+    const voidPCount = this.voidParticleCount;
+    this.voidParticlePositions = new Float32Array(voidPCount * 3);
+    for (let i = 0; i < voidPCount; i++) {
+      const angle = Math.random() * Math.PI * 2;
+      const dist = 0.25 + Math.random() * 1.5;
+      this.voidParticlePositions[i * 3] = Math.cos(angle) * dist;
+      this.voidParticlePositions[i * 3 + 1] = 0.05 + Math.random() * 2.3;
+      this.voidParticlePositions[i * 3 + 2] = Math.sin(angle) * dist;
+    }
+    this.voidParticleGeo = new THREE.BufferGeometry();
+    this.voidParticleGeo.setAttribute('position', new THREE.BufferAttribute(this.voidParticlePositions, 3));
+    this.disposables.push(this.voidParticleGeo);
+
+    const voidParticleMat = new THREE.PointsMaterial({
+      color: 0xffe6e0,
+      size: 0.028,
+      transparent: true,
+      opacity: 0.65,
+      depthWrite: false,
+      blending: THREE.AdditiveBlending,
+    });
+    this.disposables.push(voidParticleMat);
+    const voidPoints = new THREE.Points(this.voidParticleGeo, voidParticleMat);
+    this.voidStageGroup.add(voidPoints);
+
+    this.voidStageGroup.visible = initialTheme === 'void';
+    scene.add(this.voidStageGroup);
+
     this.isBuilt = true;
   }
 
   /** 动态更新：持续驱动大范围水花喷洒下落与八角水面同心涟漪扩展 (极速零分配，耗时 < 0.015ms) */
   update(_delta: number, time: number): void {
+    if (!this.isBuilt) return;
+
+    // 虚空星尘微粒慢速浮动漂移 (极速零分配，耗时 < 0.005ms)
+    if (this.currentTheme === 'void' && this.voidParticlePositions && this.voidParticleGeo) {
+      const pos = this.voidParticlePositions;
+      for (let i = 0; i < this.voidParticleCount; i++) {
+        const i3 = i * 3;
+        pos[i3 + 1] += _delta * 0.12; // 缓步向上飘起
+        pos[i3] += Math.sin(time * 0.5 + i) * 0.0015;
+        pos[i3 + 2] += Math.cos(time * 0.4 + i) * 0.0015;
+        if (pos[i3 + 1] > 2.4) {
+          pos[i3 + 1] = 0.05;
+        }
+      }
+      this.voidParticleGeo.attributes.position.needsUpdate = true;
+      return;
+    }
+
     // 透明桌宠 root 不可见：喷泉/飞鸟用户看不到，不必每帧积分
-    if (!this.isBuilt || !this.rootGroup.visible) return;
+    if (!this.rootGroup.visible) return;
 
     const nozzle = this.fountainOrigin;
 
@@ -677,6 +821,7 @@ export class LineworkWorld {
   setTheme(theme: LineworkTheme, scene?: THREE.Scene): void {
     this.currentTheme = theme;
     const targetScene = scene || this.sceneRef;
+    this.voidStageGroup.visible = theme === 'void';
 
     if (theme === 'void') {
       if (targetScene) {
@@ -776,6 +921,8 @@ export class LineworkWorld {
 
     scene.remove(this.rootGroup);
     this.rootGroup.clear();
+    scene.remove(this.voidStageGroup);
+    this.voidStageGroup.clear();
     this.isBuilt = false;
   }
 }
