@@ -309,6 +309,7 @@ export const APP_CONFIG = {
     planeY: 0.0005,
     opacityDark: 0.50,
     opacityLight: 0.40,
+    updateIntervalFrames: 2, // 阴影隔帧更新：1 = 逐帧刷新(60fps)；2 = 隔1帧(30fps，削减50%深度绘制开销)；>2 = 进一步省电
     softShadow: {
       enabled: true,
       radialStops: [

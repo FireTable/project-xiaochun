@@ -222,6 +222,8 @@ export class VRMEngine {
   /** 下一帧允许跑重活的 rAF 时间戳；targetFpsMobile / targetFpsDesktop（≤0 不限） */
   private _lastAnimTs = 0;
   private _animFrameIntervalMs = 0;
+  /** 阴影隔帧更新帧计数器 */
+  private _shadowFrameCount = 0;
   // ── 模块化独立子系统 ──
   private lineworkWorld = new LineworkWorld();
   /** 海滩 3D 场景 (beach3d): 纯 Three.js 天空 / 云 / 远山 / 沙地 + 海 / 棕榈 / 礁石; 首次进入该场景时构建; 其余场景隐藏 (0 次绘制), 资源保留到引擎 dispose。 */
@@ -828,6 +830,8 @@ export class VRMEngine {
     this.renderer.toneMappingExposure = 1.08;
     this.renderer.shadowMap.enabled = true;
     this.renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+    this.renderer.shadowMap.autoUpdate = (APP_CONFIG.shadow.updateIntervalFrames ?? 1) <= 1;
+    this.renderer.shadowMap.needsUpdate = true;
     this.postFx.init(this.renderer, this.scene, this.camera);
     this.postFx.applyConfig();
     this.postFx.resize(width, height, ratio);
@@ -898,6 +902,8 @@ export class VRMEngine {
     this.postFx.resize(window.innerWidth, window.innerHeight, ratio);
     this.renderer.shadowMap.enabled = true;
     this.renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+    this.renderer.shadowMap.autoUpdate = (APP_CONFIG.shadow.updateIntervalFrames ?? 1) <= 1;
+    this.renderer.shadowMap.needsUpdate = true;
 
     this.camera.aspect = window.innerWidth / window.innerHeight;
     this.controls = new OrbitControls(this.camera, canvas);
@@ -1090,6 +1096,9 @@ export class VRMEngine {
   public renderFrameNow(): void {
     if (!this.renderer || !this.scene || !this.camera) return;
     try {
+      if (!this.renderer.shadowMap.autoUpdate) {
+        this.renderer.shadowMap.needsUpdate = true;
+      }
       if (this.postFx.isReady() && this.postFx.config.enabled) {
         this.postFx.render(0.016);
       } else {
@@ -2507,6 +2516,9 @@ export class VRMEngine {
 
   public renderSingleFrame(): void {
     if (this.renderer && this.currentVRM) {
+      if (!this.renderer.shadowMap.autoUpdate) {
+        this.renderer.shadowMap.needsUpdate = true;
+      }
       if (this.postFx.isReady() && this.postFx.config.enabled) {
         this.postFx.render(0);
       } else {
@@ -2713,6 +2725,13 @@ export class VRMEngine {
       // 相机不穿地的夹取包在 controls.update 里 (见 installGroundClamp)
       this.controls?.update();
       try {
+        if (this.renderer && !this.renderer.shadowMap.autoUpdate) {
+          const interval = Math.max(1, APP_CONFIG.shadow.updateIntervalFrames ?? 2);
+          this._shadowFrameCount++;
+          if (this._shadowFrameCount % interval === 0) {
+            this.renderer.shadowMap.needsUpdate = true;
+          }
+        }
         if (this.postFx.isReady() && this.postFx.config.enabled) {
           this.postFx.render(delta);
         } else {
