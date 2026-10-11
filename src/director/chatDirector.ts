@@ -493,6 +493,7 @@ export class ChatDirector {
       segmentIndex?: number,
       totalSegments?: number,
     ) => void,
+    opts?: { skipThinking?: boolean },
   ): Promise<void> {
     const id = await this.handoff();
     if (id === null) return;
@@ -500,8 +501,10 @@ export class ChatDirector {
     this.speaking = false;
     this.player = player;
     this.emage = emage;
-    await this.playThinking(vrm, player);
-    if (!this.owns(id)) return;
+    if (!opts?.skipThinking) {
+      await this.playThinking(vrm, player);
+      if (!this.owns(id)) return;
+    }
 
     const isMobile = typeof navigator !== 'undefined' && /Mobi|Android|iPhone|iPad/i.test(navigator.userAgent);
     const staggerDelay = isMobile ? 380 : 50;

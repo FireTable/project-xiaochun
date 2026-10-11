@@ -52,12 +52,8 @@ export const createOnboardingSteps = (t: TFunction, i18n: I18nInstance): Record<
     id: 'step_intro',
     dialogues: [
       {
-        key: 'onboarding.galIntro1',
-        defaultText: '你好呀！初次见面，我是小蠢～',
-      },
-      {
-        key: 'onboarding.galIntro2',
-        defaultText: '请问我们用哪种语言交流呢？',
+        key: 'onboarding.galLangAsk',
+        defaultText: '你好呀！初次见面，我是小蠢～请问我们用哪种语言交流呢？',
       },
     ],
     choiceLayout: 'text',
