@@ -1,6 +1,6 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
-import { Shirt, Check, Upload, Loader2, MountainSnow } from 'lucide-react';
+import { Shirt, Check, Upload, Loader2, MountainSnow, HelpCircle } from 'lucide-react';
 import { vrmEngine } from '@/core/vrmEngine';
 import { sceneManager, useCurrentScene } from '@/core/scene/sceneManager';
 import { Settings } from '@/components/icons';
@@ -311,6 +311,26 @@ export const TopHeader: React.FC<TopHeaderProps> = ({
         />
 
         <GithubButton />
+
+        {/* 随时重温小蠢新手引导 */}
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <Button
+              id="btn-revisit-onboarding"
+              variant="glass"
+              size="icon"
+              title={t('onboarding.revisitTutorial', '新手引导教程')}
+              aria-label={t('onboarding.revisitTutorial', '新手引导教程')}
+              onClick={() => window.dispatchEvent(new CustomEvent('xc-trigger-onboarding'))}
+              className="h-11 w-11 sm:h-9 sm:w-9"
+            >
+              <HelpCircle className="w-4 h-4 sm:w-3.5 sm:h-3.5" />
+            </Button>
+          </TooltipTrigger>
+          <TooltipContent side="bottom">
+            {t('onboarding.revisitTutorial', '新手引导教程')}
+          </TooltipContent>
+        </Tooltip>
 
         {isDev ? (
           <Tooltip>

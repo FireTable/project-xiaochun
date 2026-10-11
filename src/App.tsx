@@ -8,6 +8,7 @@ import { ChatBar } from '@/components/ChatBar';
 import { LoadingOverlay } from '@/components/LoadingOverlay';
 import { DevDrawer } from '@/components/dev-drawer';
 import { SceneCanvas } from '@/components/SceneCanvas';
+import { OnboardingTour, ONBOARDING_STORAGE_KEY } from '@/components/onboarding/OnboardingTour';
 
 import { XIAOCHUN_SYSTEM_PROMPT } from '@/llm/prompts';
 import { resolveSystemPrompt, getCachedUserSettings, subscribeUserSettings } from '@/llm/userSettings';
@@ -58,6 +59,30 @@ export const App: React.FC = () => {
   // ponytail: 10 次连击暗号触发后,生产构建也要能看见右上角调试按钮 — 用户已经
   // 「发现」了隐藏 dev 通道,继续藏按钮不合理。一次性解锁,刷新页面后重置。
   const [hasDevEasterEgg, setHasDevEasterEgg] = useState(false);
+
+  // 沉浸式新人引导向导状态：首次进入或 URL 带 ?onboarding=1 时触发
+  const [isOnboardingActive, setIsOnboardingActive] = useState(() => {
+    if (typeof localStorage === 'undefined') return false;
+    if (typeof window !== 'undefined' && new URLSearchParams(window.location.search).get('onboarding') === '1') {
+      return true;
+    }
+    return localStorage.getItem(ONBOARDING_STORAGE_KEY) !== '1';
+  });
+
+  // VRM 模型就绪状态：保证向导只在角色已渲染站立在舞台中时启动
+  const [isVRMReady, setIsVRMReady] = useState(() => {
+    if (typeof window !== 'undefined' && Boolean((window as any).__VRM_ALREADY_READY__)) {
+      return true;
+    }
+    return false;
+  });
+
+  // 支持外部事件或菜单随时重温新手引导
+  useEffect(() => {
+    const handleTrigger = () => setIsOnboardingActive(true);
+    window.addEventListener('xc-trigger-onboarding', handleTrigger);
+    return () => window.removeEventListener('xc-trigger-onboarding', handleTrigger);
+  }, []);
   const showDevUi = isDev() || hasDevEasterEgg;
 
   // 外部协议调用 (Deep Link / Single-Instance / 调试桥接) 监听初始化
@@ -76,6 +101,7 @@ export const App: React.FC = () => {
     // ponytail: 闭包局部变量,不能在 engineModule(ESM namespace, 冻结)上挂属性 ——
     // prod 构建会抛 "Cannot assign to property '_unsubUserSettings'"。
     let unsubUserSettings: (() => void) | null = null;
+    let unsubReady: (() => void) | null = null;
 
     import('@/core/vrmEngine').then((mod) => {
       engineModule = mod;
@@ -87,7 +113,8 @@ export const App: React.FC = () => {
         if (skipLoadingOverlay && state.progress < 100) return;
         setLoading(state);
       };
-      mod.vrmEngine.onReadyChange((ready) => {
+      unsubReady = mod.vrmEngine.onReadyChange((ready) => {
+        setIsVRMReady(ready);
         if (ready && typeof window !== 'undefined') (window as any).__VRM_ALREADY_READY__ = true;
       });
       // React 并发过渡：将气泡 UI 状态更新降级为非阻塞 transition，绝不阻塞主线程 3D 动画帧与交互
@@ -155,6 +182,7 @@ export const App: React.FC = () => {
       window.removeEventListener('dragleave', handleDragLeave);
       window.removeEventListener('drop', handleDrop);
       unsubUserSettings?.();
+      unsubReady?.();
     };
   }, [i18n]);
 
@@ -178,12 +206,17 @@ export const App: React.FC = () => {
       {/* 3D 角色头顶悬浮对话框 */}
       {currentScene.components.headBubble !== false && <HeadBubble state={bubble} />}
 
-      {/* 底部对话输入条 — 启动 splash 期间不渲染,避免跟 LoadingOverlay 重叠 */}
-      {!loading.active && currentScene.components.chatBar !== false && (
+      {/* 底部对话输入条 — 启动 splash 期间及新手向导期间不渲染 */}
+      {!loading.active && !isOnboardingActive && currentScene.components.chatBar !== false && (
         <ChatBar
           isPetUIVisible={isPetUIVisible}
           onShowDevPanel={() => setHasDevEasterEgg(true)}
         />
+      )}
+
+      {/* 沉浸式小蠢新手向导：仅在小蠢 3D 模型完全站立就绪且无全屏进度遮罩时呈现 */}
+      {!loading.active && isVRMReady && isOnboardingActive && (
+        <OnboardingTour onComplete={() => setIsOnboardingActive(false)} />
       )}
 
       {/* 模型加载进度遮罩 (dev 或 HMR 时彻底免除) */}
@@ -202,8 +235,8 @@ export const App: React.FC = () => {
 
       <AppUpdateDialog allowPrompt={!loading.active} />
 
-      {/* 顶部控制栏 */}
-      {currentScene.components.topHeader !== false && (
+      {/* 顶部控制栏 — 新手向导期间不渲染 */}
+      {!isOnboardingActive && currentScene.components.topHeader !== false && (
         <TopHeader
           isDev={showDevUi}
           isDrawerOpen={isDrawerOpen && showDevUi}
