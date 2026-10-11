@@ -235,14 +235,16 @@ export const App: React.FC = () => {
 
       <AppUpdateDialog allowPrompt={!loading.active} />
 
-      {/* 顶部控制栏 — 新手向导期间不渲染 */}
-      {!isOnboardingActive && currentScene.components.topHeader !== false && (
-        <TopHeader
-          isDev={showDevUi}
-          isDrawerOpen={isDrawerOpen && showDevUi}
-          isPetUIVisible={isPetUIVisible}
-          onToggleDrawer={() => setIsDrawerOpen((prev) => !prev)}
-        />
+      {/* 顶部控制栏 — 始终挂载以维持模型冷启与换装，新手向导期间视觉隐藏 */}
+      {currentScene.components.topHeader !== false && (
+        <div className={isOnboardingActive ? 'hidden' : undefined}>
+          <TopHeader
+            isDev={showDevUi}
+            isDrawerOpen={isDrawerOpen && showDevUi}
+            isPetUIVisible={isPetUIVisible}
+            onToggleDrawer={() => setIsDrawerOpen((prev) => !prev)}
+          />
+        </div>
       )}
 
       {/* 生产包默认不露抽屉；10 次连击后 hasDevEasterEgg 打开同一套面板。 */}
