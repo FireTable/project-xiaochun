@@ -103,9 +103,11 @@ const OnboardingTextChoiceCard: React.FC<OnboardingTextChoiceCardProps> = ({
         {icon && (
           <div
             className={`w-10 h-10 rounded-xl flex items-center justify-center text-xl shrink-0 shadow-inner transition-all duration-200 ${
-              isSelected || isHighlighted
-                ? 'bg-[#ea8377] border border-[#f5aa9c] scale-110 shadow-[0_0_15px_rgba(234,131,119,0.5)]'
-                : 'bg-white/10 border border-white/15 group-hover:scale-110 group-hover:bg-[#ea8377]/20 group-hover:border-[#ea8377]/40'
+              isSelected
+                ? 'bg-[#ea8377]/30 border border-[#ea8377]/70 scale-110 shadow-[0_0_15px_rgba(234,131,119,0.35),inset_0_1px_1px_rgba(255,255,255,0.2)]'
+                : isHighlighted
+                  ? 'bg-[#ea8377]/25 border border-[#ea8377]/50 scale-105 shadow-[0_0_12px_rgba(234,131,119,0.25)]'
+                  : 'bg-white/10 border border-white/15 group-hover:scale-110 group-hover:bg-[#ea8377]/20 group-hover:border-[#ea8377]/40'
             }`}
           >
             {icon}
@@ -128,14 +130,16 @@ const OnboardingTextChoiceCard: React.FC<OnboardingTextChoiceCardProps> = ({
       </div>
       <div
         className={`w-7 h-7 rounded-full flex items-center justify-center shrink-0 transition-all duration-200 ${
-          isSelected || isHighlighted
-            ? 'bg-[#ea8377] border border-[#f5aa9c]'
-            : 'bg-white/5 border border-white/10 group-hover:bg-[#ea8377] group-hover:border-[#f5aa9c]'
+          isSelected
+            ? 'bg-[#ea8377]/30 border border-[#ea8377]/70'
+            : isHighlighted
+              ? 'bg-[#ea8377]/20 border border-[#ea8377]/50'
+              : 'bg-white/5 border border-white/10 group-hover:bg-[#ea8377]/25 group-hover:border-[#ea8377]/50'
         }`}
       >
         <ChevronRight
           className={`w-3.5 h-3.5 transition-colors duration-200 ${
-            isSelected || isHighlighted ? 'text-white' : 'text-white/40 group-hover:text-white'
+            isSelected || isHighlighted ? 'text-[#f5aa9c]' : 'text-white/40 group-hover:text-white'
           }`}
         />
       </div>
