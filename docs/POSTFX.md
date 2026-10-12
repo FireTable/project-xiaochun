@@ -41,9 +41,9 @@ graph LR
 - **Calibrated Production Defaults**:
   ```typescript
   bloom: {
-    strength: 0.015, // Subtle glow, transparent and soft hair edges, zero fogging
-    radius: 0.32,    // Diffusion radius
-    threshold: 0.72  // Specular threshold
+    strength: 0.045, // Subtle glow, transparent and soft hair edges, zero fogging
+    radius: 0.36,    // Diffusion radius
+    threshold: 0.76  // Specular threshold
   }
   ```
 
@@ -53,7 +53,7 @@ Previously, color adjustments ran inside a dedicated `ColorGradingPass` immediat
 `PostFxPipeline` fuses color grading directly into Three.js's native `OutputPass` fragment shader, executing before tone mapping:
 1. **BC (Brightness & Contrast)**:
    - Linear contrast formula: `color = (color - 0.5) * (1.0 + contrast) + 0.5 + brightness`;
-   - Defaults to a subtle `contrast: +0.02` to enhance iris depth and clarity.
+   - Defaults to a subtle `contrast: +0.035` to enhance iris depth and clarity.
 2. **HS (Hue & Saturation)**:
    - Optimized RGB $\leftrightarrow$ HSV conversion; short-circuits trigonometric math when `saturation === 0 && hue === 0`.
 3. **Vignette**:
@@ -86,7 +86,7 @@ To eliminate this artifact without incurring heavy compute penalties, Jorge Jime
    - Injected immediately following tone mapping and `sRGBTransferOETF` to smoothly disperse 1-bit quantization steps into human-imperceptible continuous gradients.
 
 ### 2.6 VRAM & Scene Graph Optimizations (Zero-Cost Hardening)
-1. **Composer Ghost Buffer Release**: Three.js `EffectComposer` automatically allocates a ping-pong `renderTarget1` matching the main render target (including MSAA 4x). Because `RenderPass -> BloomPass -> OutputPass` directly reads and writes through dedicated targets, `renderTarget1` remained unreferenced in GPU memory. Manually calling `composer.renderTarget1.dispose()` frees **250MB–400MB** of wasted VRAM.
+1. **Composer Ghost Buffer Release**: Three.js `EffectComposer` automatically allocates a ping-pong `renderTarget1` matching the main render target (including MSAA). Because `RenderPass -> BloomPass -> OutputPass` directly reads and writes through dedicated targets, `renderTarget1` remained unreferenced in GPU memory. Manually calling `composer.renderTarget1.dispose()` frees **250MB–400MB** of wasted VRAM.
 2. **Bloom Intermediate FBO Stripping**: The 11 internal ping-pong render targets of `UnrealBloomPass` only process 2D texture blur; stripping their `depthBuffer: false` and `stencilBuffer: false` saves ~15MB–25MB of redundant depth buffer memory allocations.
 3. **Shadow Caster Pruning**: Redundant shadow casting on microscopic facial decal meshes (`iris`, `highlight`, `eyelash`, `eyebrow`, `eyeline`) is disabled, eliminating 5 redundant draw calls from the directional shadow map pass.
 4. **Static Scene Graph Matrix Freezing**: Studio lights (`dirLight`, `fillLight`, `hemiLight`), their target nodes, and static root groups have `matrixAutoUpdate = false` enabled upon setup, eliminating CPU-side matrix multiplication recursions during the main render loop.
@@ -100,7 +100,7 @@ Internal composer resolution still follows `getRenderPixelRatio()` (see `APP_CON
 | Knob | Role |
 |------|------|
 | `postfx.bloomInputScaleMobile` / `bloomInputScaleDesktop` | Scale passed into `UnrealBloomPass.setSize` (Pass also halves once more). Mobile `0.3` / desktop `0.5`. |
-| `postfx.composerMSAASamplesMobile` / `composerMSAASamplesDesktop` | Main RT MSAA sample count. Mobile `3` / desktop `4`. `0` disables MSAA. Outline needs some MSAA. Used for linework **and** transparent desk-pet whenever PostFX is on. |
+| `postfx.composerMSAASamplesMobile` / `composerMSAASamplesDesktop` | Main RT MSAA sample count. `3` on both platforms. `0` disables MSAA. Outline needs some MSAA. Used for linework **and** transparent desk-pet whenever PostFX is on. |
 
 Sim cadence (`renderer.targetFpsMobile` / `targetFpsDesktop`) is owned by `VRMEngine`’s animation loop, not by this pipeline.
 

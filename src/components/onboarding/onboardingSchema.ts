@@ -6,6 +6,8 @@ import { isTauri } from '@/lib/platform';
 import { setActiveProviderId } from '@/llm/customProvider';
 import { preloadWebLLM } from '@/llm/webLLMProvider';
 import { WEARING_OUTFIT_KEY } from '@/lib/constants';
+import { createElement, type ReactNode } from 'react';
+import { Ghost } from 'lucide-react';
 import type { TFunction, i18n as I18nInstance } from 'i18next';
 
 export type ChoiceLayoutType = 'text' | 'media';
@@ -17,9 +19,14 @@ export interface OnboardingChoice {
   badge?: string;
   icon?: string;
   image?: string;
+  /**
+   * media 卡预览区图标。给了就优先用它(替代 image / emoji),
+   * 适合「透明背景」这种没有画面可预览的选项。
+   */
+  previewIcon?: ReactNode;
   mediaPreview?: {
     gradient: string;
-    emoji: string;
+    emoji?: string;
     description?: string;
   };
   onSelect: (ctx: StepContext) => Promise<void> | void;
@@ -181,7 +188,7 @@ export const createOnboardingSteps = (t: TFunction, i18n: I18nInstance): Record<
     dialogues: [
       {
         key: 'onboarding.galSceneAsk',
-        defaultText: '现在这片空间空荡荡的，只有我们两个人呢……\n你更喜欢带我去哪里？不管是阳光海滩，还是线稿世界，我都想陪你一起去！',
+        defaultText: '现在这片空间空荡荡的，只有我们两个人呢……\n你更喜欢去哪？不管是阳光海滩，还是线稿世界，我都可以陪你一起去！',
       },
     ],
     choiceLayout: 'media',
@@ -239,11 +246,17 @@ export const createOnboardingSteps = (t: TFunction, i18n: I18nInstance): Record<
             {
               id: 'transparent',
               label: t('onboarding.sceneTransparent', '透明背景'),
-              subLabel: t('onboarding.sceneTransparentSub', '变成桌面小透明，随时偷偷陪着你'),
-              image: '/previews/scenes/transparent.webp',
+              subLabel: t('onboarding.sceneTransparentSub', '不渲染背景，仅仅陪着你'),
+              // 透明背景没有画面可预览, 用一个空态图标代替
+              previewIcon: createElement(Ghost, {
+                className: 'w-10 h-10 sm:w-12 sm:h-12 text-white/70',
+                strokeWidth: 1.5,
+                'aria-hidden': true,
+              }),
               mediaPreview: {
-                gradient: 'from-pink-500/30 via-rose-500/20 to-purple-500/30',
-                emoji: '👻',
+                // 统一走品牌珊瑚色阶 (brand-400 主色 → brand-500 深色),
+                // 原来的 pink/rose/purple 混了紫色, 与全站主题不搭
+                gradient: 'from-brand-400/30 via-brand-500/20 to-brand-600/30',
                 description: 'Transparent Pet',
               },
               onSelect: () => handleSelectScene('transparent'),
@@ -260,7 +273,7 @@ export const createOnboardingSteps = (t: TFunction, i18n: I18nInstance): Record<
     dialogues: [
       {
         key: 'onboarding.galOutfitAsk',
-        defaultText: '唔……这身衣服……你喜欢吗？其实有点害羞呢……\n如果你想看别的风格，我还可以换上国风旗袍、女仆装，甚至是……泳衣哦？',
+        defaultText: '唔……这身衣服……你喜欢吗？\n如果你想看别的风格，我还可以换上国风旗袍、女仆装，甚至是……泳衣哦？',
       },
     ],
     choiceLayout: 'media',

@@ -317,8 +317,8 @@ export const APP_CONFIG = {
     bust: { sensitivity: 0.23, speedExponent: 0.85, impulseBonus: 1.35 },
   },
   renderer: {
-    maxPixelRatioMobile: 2.75,
-    maxPixelRatioDesktop: 2,
+    maxPixelRatioMobile: 2.75,  // 压制现代 iPhone 的 3x DPR, 省 ~16% 片元
+    maxPixelRatioDesktop: 2,     // 桌面 HiDPI 屏 DPR 本就是 2, 这里只是上限
     targetFpsMobile: 40,
     targetFpsDesktop: 60,
   },

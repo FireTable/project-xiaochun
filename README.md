@@ -130,7 +130,7 @@ You can download installer packages directly from the official Releases page:
 * **VRM 1.0 & VRM 0.x Dual-Standard Modular Pipeline**: Powered by `@pixiv/three-vrm` with MToon NPR shading. The core engine (`VRMEngine`) is decoupled into specialized subsystems, natively accommodating both modern **VRM 1.0** and classic **VRM 0.x** avatars:
   * **Transparent Pipeline Translation**: All upstream motion generators (idle, EMAGE, VRMA clips, locomotion stepping, gaze) author poses strictly in the VRM 1.0 standard coordinate space. `PoseBuffer` automatically handles bone axis inversions and coordinate mapping under the hood, ensuring VRM 0.0 avatars work out-of-the-box with zero joint inversions.
   * **Dual-Theme Linework Outdoor Scene (`LineworkWorld`)**: Pure procedural code generating a minimalist wireframe outdoor world (sun with 12 radial rays, 19 stylized skyline buildings, ground grid, and 5 tree archetypes); natively supports `linework-light` and `linework-dark` dual themes linked to the global color mode — **100% white-on-white / black-on-white, zero external textures**.
-  * **Studio 3-Channel Lighting (`StudioLighting`)**: Streamlined directional sunlight (dir 1.00 with 2048 PCFSoft shadow camera), hemisphere sky/ground light (hemi 0.95), and back-rim fill light (fill 1.40), delivering clean and crisp anime contours without redundant lighting overhead.
+  * **Studio 3-Channel Lighting (`StudioLighting`)**: Streamlined directional sunlight (dir 1.10 with 2048 PCFSoft shadow camera), hemisphere sky/ground light (hemi 0.80), and back-rim fill light (fill 0.65), delivering clean and crisp anime contours without redundant lighting overhead.
   * **MToon Material Manager (`VRMMaterialManager`)**: Automatic mesh semantic categorization (skin / hair / eyes / clothing); dynamic fragment shader injection with uniform `uMatSaturation` for live color calibration; tuned hair saturation (default 1.50) for rich anime highlights.
   * **Companion Gaze Controller (`GazeController`)**: Companion eye & head tracking, physiological yaw/pitch safety clamping, micro-saccades, and thinking head sways.
   * **3D Head Bubble Tracker (`BubbleTracker`)**: 3D world-to-screen 2D projection with a 1.5px dead-zone filter, writing directly to DOM transforms to bypass 60~120 FPS React re-renders.
@@ -412,7 +412,7 @@ Project-XiaoChun/
 │   │   └── index.tsx          # Main index route
 │   ├── components/            # React UI components
 │   │   ├── onboarding/        # Immersive Galgame-style onboarding tour
-│   │   │   ├── OnboardingTour.tsx     # Tour orchestrator, 3-task camera checklist gating & reply cards
+│   │   │   ├── OnboardingTour.tsx     # Tour orchestrator, camera checklist gating (4 tasks web / 5 on Tauri) & reply cards
 │   │   │   └── onboardingSchema.ts    # Finite-state machine schema, speech lines & branching options
 │   │   ├── TauriWindowFrame.tsx   # Native desktop frameless resize handles & corner glow
 │   │   ├── TauriTopHeader.tsx     # Desktop ⋯ menu (updates / reload / quit)

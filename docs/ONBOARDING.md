@@ -11,7 +11,7 @@ The onboarding tour is designed to let first-time visitors familiarize themselve
 1. **Schema-driven guided state machine (`onboardingSchema.ts`)**
    - All steps (including the pre-greeting entry `step_greet`) are declared through a single `createOnboardingSteps()` factory. Every step is driven by two pieces — a `dialogues` (lines list) and a `getChoices(ctx)` (dynamic option factory) — with no step-specific branching in the rendering component.
 2. **Dedicated "void realm" stage (`src/core/scene/void/voidWorld.ts`)**
-   - Strips away all extraneous world content, keeping only a deep starry gradient, a soft ring-shaped floor, and a fine stream of stardust — putting the character and the crystalline cards front and center.
+   - Strips away all extraneous world content: a solid deep-space background color (`0x0b0f19`, matching the engine's scene init) and nothing else. No ground, no props, and deliberately **no aura gradient texture** — the 3D stardust field is the only source of depth. Putting the character and the crystalline cards front and center.
 3. **Synchronized audiovisual driver (`OnboardingTour.tsx`)**
    - Every line is wired through `vrmEngine.speakText()`, triggering local Edge-TTS streaming audio, RMS mouth-shape matching, and EMAGE full-body speaking gestures, while a live speech bubble above the character renders each line as it is delivered.
 

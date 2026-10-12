@@ -44,7 +44,7 @@ describe('VoidWorld', () => {
     // 激活虚空世界
     voidWorld.setActive(true, scene);
     expect(voidWorld.group.visible).toBe(true);
-    expect(scene.background).toBeInstanceOf(THREE.CanvasTexture);
+    expect(scene.background).toBeInstanceOf(THREE.Color);
 
     // 隐藏虚空世界
     voidWorld.setActive(false, scene);

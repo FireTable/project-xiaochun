@@ -818,7 +818,7 @@ export const OnboardingTour: React.FC<OnboardingTourProps> = ({ onComplete }) =>
                           className={`w-full h-full bg-gradient-to-br ${choice.mediaPreview?.gradient ?? 'from-brand-500/30 to-purple-500/30'
                             } flex items-center justify-center text-3xl sm:text-4xl shadow-inner group-hover:scale-105 transition-transform duration-300`}
                         >
-                          <span>{choice.mediaPreview?.emoji ?? '✨'}</span>
+                          {choice.previewIcon ?? <span>{choice.mediaPreview?.emoji ?? '✨'}</span>}
                         </div>
                       )}
 

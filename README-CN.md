@@ -121,7 +121,7 @@ brew upgrade --cask project-xiaochun
 * **VRM 1.0 & VRM 0.x 双规格渲染中枢**:基于 `@pixiv/three-vrm` 与 MToon NPR 着色，核心引擎经深度模块化解耦，原生兼顾现代 **VRM 1.0** 与经典 **VRM 0.x** 模型体系：
   * **全局动作管线透明适配**:所有上层动作逻辑（待机、EMAGE、动作片段、转向踱步、Gaze）一律以 VRM 1.0 标准空间编写，由 `PoseBuffer` 在管线底层自动进行 X/Z 镜像与四元数转换，VRM 0.0 模型开箱即用，零肢体反向或扭曲。
   * **双主题线稿世界 (`LineworkWorld`)**:纯代码程序化构建太阳与 12 条发散光线、19 栋线稿建筑天际线、网格地面与 5 种风格化树木；原生支持 `linework-light`（亮色线稿）与 `linework-dark`（深色线稿）双主题随全局色彩一键切换 —— **纯白底黑线/黑底白线，零外部贴图**。
-  * **影棚 3 通道专业光照 (`StudioLighting`)**:主日光（dir 1.00，带 2048 PCFSoft 阴影相机）/ 半球天光（hemi 0.95）/ 背后轮廓补光（fill 1.40），去除冗余通道，打造通透干净的二次元光影。
+  * **影棚 3 通道专业光照 (`StudioLighting`)**:主日光（dir 1.10，带 2048 PCFSoft 阴影相机）/ 半球天光（hemi 0.80）/ 背后轮廓补光（fill 0.65），去除冗余通道，打造通透干净的二次元光影。
   * **MToon 材质管线 (`VRMMaterialManager`)**:全自动网格材质语义分类（skin / hair / eyes / clothing），动态注入片元着色器 Uniform `uMatSaturation` 并在 Shader 层实施灰度混合校色；头发饱和度精细调优（默认 1.50），光泽通透。
   * **视线与微表情交互 (`GazeController`)**:陪伴式注视、微扫视、生理仰俯/偏航安全角限位、自然生理眨眼与思考神态摇头。
   * **3D 空间气泡追踪 (`BubbleTracker`)**:头部世界坐标到屏幕 2D 像素投影，带 1.5px 移动死区过滤算法，直接操控 DOM 变换，避免 60~120 FPS React 重渲染。
@@ -402,7 +402,7 @@ Project-XiaoChun/
 │   │   │   │   └── EmagePerfSection.tsx        # P0b wasm_env / 隔离 / 分阶段耗时
 │   │   │   └── hooks/                 # 共用段 hook(useCollapse)
 │   │   ├── onboarding/        # 沉浸式 Galgame 风格新手引导
-│   │   │   ├── OnboardingTour.tsx     # 引导主流程、三任务打卡完成门控、跳过与交互卡片
+│   │   │   ├── OnboardingTour.tsx     # 引导主流程、视角任务打卡门控（Web 4 项 / Tauri 5 项）、跳过与交互卡片
 │   │   │   └── onboardingSchema.ts    # 状态机步骤 Schema、多步分支、语音与文本配置
 │   │   ├── AdvancedSettingsDialog.tsx  # 用户自定义系统提示词 + 记忆轮数 slider
 │   │   ├── SyncDialog.tsx     # 跨设备加密文本传输 (AES-GCM)

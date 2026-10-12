@@ -22,16 +22,6 @@ async function run() {
   await page.waitForFunction(() => Boolean(window.vrmEngine && window.vrmEngine.currentVRM), { timeout: 20000 });
   console.log('✨ VRM ready!');
 
-  // Helper to get sceneManager
-  const getSceneManagerCode = `
-    async () => {
-      if (window.sceneManager) return window.sceneManager;
-      const mod = await import('/src/core/scene/sceneManager.ts');
-      window.sceneManager = mod.sceneManager;
-      return mod.sceneManager;
-    }
-  `;
-
   // Temporarily hide UI elements for clean captures
   await page.evaluate(() => {
     let el = document.getElementById('temp-screenshot-style');
@@ -109,10 +99,6 @@ async function run() {
     });
     await new Promise((r) => setTimeout(r, 800));
     await captureThumbnail(path.join(SCENES_DIR, 'dark.webp'));
-
-    // 4. Transparent Pet Scene
-    console.log('  → Capturing transparent scene preview...');
-    await captureThumbnail(path.join(SCENES_DIR, 'transparent.webp'));
 
     console.log('\n👗 Capturing Outfit Previews on Void Stage...');
     // Reveal character and set to void stage

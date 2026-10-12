@@ -5,7 +5,7 @@ import * as THREE from 'three';
  *
  * 核心美学设计：
  * 1. 纯背景纵深，杜绝任何地台束缚，角色静谧悬浮于深空。
- * 2. 电影级以角色为中心的 360° 径向漫射光晕 (Deep Midnight & Subtle Coral Aura)。
+ * 2. 纯色深空背景，不做任何径向光晕 / 渐变贴图 —— 星尘本身就是唯一的视觉层次。
  * 3. 真实三维空间星尘微粒系统 (3D Stardust with Parallax)，用户旋转视角时呈现立体的三维视差流动。
  */
 export class VoidWorld {
@@ -16,10 +16,8 @@ export class VoidWorld {
   private active = false;
   private sceneRef: THREE.Scene | null = null;
 
-  // 背景天顶贴图与画布
-  private bgTexture: THREE.CanvasTexture | null = null;
-  private bgCanvas: HTMLCanvasElement | null = null;
-  private bgCtx: CanvasRenderingContext2D | null = null;
+  // 纯色深空背景 (与 vrmEngine 初始化的 0x0b0f19 一致)
+  private readonly bgColor = new THREE.Color(0x0b0f19);
 
   // 三维深空浮游星尘流系统 (细致微光流萤/星尘)
   private particlesMesh: THREE.Points | null = null;
@@ -34,76 +32,6 @@ export class VoidWorld {
 
   // 资源回收清单
   private disposables: Array<{ dispose: () => void }> = [];
-
-  /**
-   * 构造 1024x1024 电影级双重径向暗场漫射贴图
-   * 中心偏下微晕 (冷幽蓝 #0c1220 融合小春珊瑚粉 #160f16)，边缘极暗天鹅绒黑 (#030406)，带防断层噪点微扰
-   */
-  private createCinematicAuraTexture(): THREE.CanvasTexture | null {
-    if (typeof document === 'undefined') return null;
-    const size = 1024;
-    const canvas = document.createElement('canvas');
-    canvas.width = size;
-    canvas.height = size;
-    const ctx = canvas.getContext('2d', { willReadFrequently: true });
-    if (!ctx) return null;
-
-    this.bgCanvas = canvas;
-    this.bgCtx = ctx;
-
-    this.renderAuraBackground(0);
-
-    const texture = new THREE.CanvasTexture(canvas);
-    texture.generateMipmaps = false;
-    texture.minFilter = THREE.LinearFilter;
-    texture.magFilter = THREE.LinearFilter;
-    this.disposables.push(texture);
-    return texture;
-  }
-
-  /** 绘制径向漫射光晕背景 (微立柱影棚柔光) */
-  private renderAuraBackground(breathFactor: number = 0): void {
-    if (!this.bgCanvas || !this.bgCtx) return;
-    const ctx = this.bgCtx;
-    const size = this.bgCanvas.width;
-    const cx = size * 0.5;
-    const cy = size * 0.48; // 略微居于视心，形成角色身后的纵深光幕
-
-    // 1. 底层极暗微蓝深渊
-    ctx.fillStyle = '#020306';
-    ctx.fillRect(0, 0, size, size);
-
-    // 2. 主体柔和中心径向高斯辉光 (冷夜藏青 -> 深空幽蓝 -> 边缘纯黑)
-    const baseRadius = size * (0.60 + breathFactor * 0.03);
-    const radGrad = ctx.createRadialGradient(cx, cy, 0, cx, cy, baseRadius);
-    radGrad.addColorStop(0, 'rgba(18, 26, 46, 0.95)'); // 中心幽邃冷蓝
-    radGrad.addColorStop(0.32, 'rgba(12, 17, 32, 0.78)');
-    radGrad.addColorStop(0.68, 'rgba(6, 9, 18, 0.40)');
-    radGrad.addColorStop(1, 'rgba(2, 3, 6, 0.0)');
-    ctx.fillStyle = radGrad;
-    ctx.fillRect(0, 0, size, size);
-
-    // 3. 伴随小春专属主题色的极微暗暮暖粉光晕 (给予纯冷暗场以生命温度)
-    const warmRadius = size * 0.42;
-    const warmGrad = ctx.createRadialGradient(cx, cy * 0.98, 0, cx, cy * 0.98, warmRadius);
-    warmGrad.addColorStop(0, 'rgba(234, 131, 119, 0.085)'); // 极轻微的 8.5% 珊瑚暖色漫射
-    warmGrad.addColorStop(0.48, 'rgba(200, 100, 110, 0.025)');
-    warmGrad.addColorStop(1, 'rgba(0, 0, 0, 0.0)');
-    ctx.fillStyle = warmGrad;
-    ctx.fillRect(0, 0, size, size);
-
-    // 4. 极弱微噪点 (Micro-dither)，彻底杜绝色阶断层 (Color Banding)
-    const imgData = ctx.getImageData(0, 0, size, size);
-    const data = imgData.data;
-    const len = data.length;
-    for (let i = 0; i < len; i += 16) {
-      const noise = (Math.random() - 0.5) * 3;
-      data[i] = Math.max(0, Math.min(255, data[i] + noise));
-      data[i + 1] = Math.max(0, Math.min(255, data[i + 1] + noise));
-      data[i + 2] = Math.max(0, Math.min(255, data[i + 2] + noise));
-    }
-    ctx.putImageData(imgData, 0, 0);
-  }
 
   /**
    * 生成极细发光星尘微粒贴图 (Pinpoint Crystal Stardust)
@@ -125,9 +53,9 @@ export class VoidWorld {
     const grad = ctx.createRadialGradient(cx, cy, 0, cx, cy, cx * 0.85);
     grad.addColorStop(0, 'rgba(255, 255, 255, 1.0)');
     grad.addColorStop(0.08, 'rgba(255, 255, 255, 0.95)');
-    grad.addColorStop(0.22, 'rgba(220, 235, 255, 0.55)');
-    grad.addColorStop(0.48, 'rgba(180, 205, 255, 0.18)');
-    grad.addColorStop(0.78, 'rgba(150, 180, 255, 0.04)');
+    grad.addColorStop(0.22, 'rgba(239, 246, 255, 0.55)');
+    grad.addColorStop(0.48, 'rgba(219, 232, 255, 0.18)');
+    grad.addColorStop(0.78, 'rgba(202, 219, 255, 0.04)');
     grad.addColorStop(1.0, 'rgba(0, 0, 0, 0.0)');
 
     ctx.fillStyle = grad;
@@ -136,6 +64,8 @@ export class VoidWorld {
     ctx.fill();
 
     const texture = new THREE.CanvasTexture(canvas);
+    // 同上: canvas 是 sRGB 像素, 必须显式标注, 否则加色混合的星尘会整体过曝
+    texture.colorSpace = THREE.SRGBColorSpace;
     this.disposables.push(texture);
     return texture;
   }
@@ -225,7 +155,6 @@ export class VoidWorld {
     if (this.isBuilt) return;
     this.sceneRef = scene;
 
-    this.bgTexture = this.createCinematicAuraTexture();
     this.buildStardustSystem();
 
     this.group.visible = false;
@@ -250,7 +179,7 @@ export class VoidWorld {
 
     this.group.visible = active;
     if (active && targetScene) {
-      targetScene.background = this.bgTexture;
+      targetScene.background = this.bgColor;
     }
   }
 
@@ -343,16 +272,9 @@ export class VoidWorld {
     }
     this.disposables = [];
 
-    if (targetScene && targetScene.background === this.bgTexture) {
+    if (targetScene && targetScene.background === this.bgColor) {
       targetScene.background = null;
     }
-
-    if (this.bgTexture) {
-      this.bgTexture.dispose();
-      this.bgTexture = null;
-    }
-    this.bgCanvas = null;
-    this.bgCtx = null;
 
     if (targetScene) {
       targetScene.remove(this.group);
