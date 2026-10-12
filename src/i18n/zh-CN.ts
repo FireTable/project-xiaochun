@@ -604,7 +604,7 @@ export const zhCN = {
     brainWebllmHint: '直接在浏览器本地运行，无需任何配置，数据私密安全',
     brainCustom: '接入自定义 AI 模型',
     brainCustomHint: '连接本地或云端模型服务（如 Ollama、LM Studio 等）',
-    galFinale: '耶！所有准备都完成啦～从现在起，小蠢就是你的专属伙伴了！\n有什么心里话，随时在下方打字告诉我哦！',
+    galFinale: '耶！所有准备都完成啦～从现在起，小蠢就是你的专属伙伴了！\n有什么要跟我聊的，随时找我哦～',
     startJourney: '启程，开启和小蠢的羁绊！',
     startJourneySub: '揭开完整面板，随时开启畅聊',
   },

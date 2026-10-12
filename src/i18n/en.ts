@@ -601,7 +601,7 @@ export const en: Trans = {
     brainWebllmHint: 'Runs directly in your browser with zero setup, completely private and secure',
     brainCustom: 'Connect Custom AI Model',
     brainCustomHint: 'Connect to local or cloud model services (such as Ollama, LM Studio)',
-    galFinale: "Yay! All preparations are complete~ From now on, XiaoChun is your personal companion!\nFeel free to talk to me in the chat bar below anytime!",
+    galFinale: "Yay! All preparations are complete~ From now on, XiaoChun is your personal companion!\nIf there's anything you want to chat about, feel free to reach out anytime~",
     startJourney: "Embark, begin your journey with XiaoChun!",
     startJourneySub: 'Unveil the full interface and start chatting anytime',
   },

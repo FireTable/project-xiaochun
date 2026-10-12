@@ -371,7 +371,7 @@ export const createOnboardingSteps = (t: TFunction, i18n: I18nInstance): Record<
     dialogues: [
       {
         key: 'onboarding.galFinale',
-        defaultText: '耶！所有准备都完成啦～从现在起，小蠢就是你的专属伙伴了！\n有什么心里话，随时在下方打字告诉我哦！',
+        defaultText: '耶！所有准备都完成啦～从现在起，小蠢就是你的专属伙伴了！\n有什么要跟我聊的，随时找我哦～',
       },
     ],
     choiceLayout: 'text',

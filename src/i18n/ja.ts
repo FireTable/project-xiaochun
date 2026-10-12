@@ -601,7 +601,7 @@ export const ja: Trans = {
     brainWebllmHint: 'ブラウザ上で直接動作し、設定不要でプライベートかつ安全です',
     brainCustom: 'カスタムAIモデルを連携',
     brainCustomHint: 'ローカルやクラウドのモデルサービス（Ollama、LM Studioなど）に接続',
-    galFinale: 'やったー！すべての準備が完了しました～今日から小蠢はあなたの専属パートナーです！\n話したいことがあれば、いつでも下に入力して教えてね！',
+    galFinale: 'やったー！すべての準備が完了しました～今日から小蠢はあなたの専属パートナーです！\n話したいことがあったら、いつでも声をかけてね～',
     startJourney: '出発、小蠢との絆を始めよう！',
     startJourneySub: 'フル画面を開いて、いつでもおしゃべり開始',
   },
