@@ -64,12 +64,18 @@ export class LineworkWorld {
     driftRangeZ: number;
   }> = [];
 
+  public get built(): boolean {
+    return this.isBuilt;
+  }
+
   /** 创建高采样双色阶竖向渐变 CanvasTexture */
-  private createGradientTexture(topColor: string, bottomColor: string): THREE.CanvasTexture {
+  private createGradientTexture(topColor: string, bottomColor: string): THREE.CanvasTexture | null {
+    if (typeof document === 'undefined') return null;
     const canvas = document.createElement('canvas');
     canvas.width = 4;
     canvas.height = 512;
-    const ctx = canvas.getContext('2d')!;
+    const ctx = canvas.getContext('2d');
+    if (!ctx) return null;
     const grad = ctx.createLinearGradient(0, 0, 0, 512);
     grad.addColorStop(0, topColor);
     grad.addColorStop(1, bottomColor);
@@ -81,11 +87,13 @@ export class LineworkWorld {
   }
 
   /** 创建高清晰度、晶莹剔透的水珠微形贴图（微椭圆水滴，核心凝聚高亮，远景清晰立现） */
-  private createDropletTexture(): THREE.CanvasTexture {
+  private createDropletTexture(): THREE.CanvasTexture | null {
+    if (typeof document === 'undefined') return null;
     const canvas = document.createElement('canvas');
     canvas.width = 32;
     canvas.height = 48;
-    const ctx = canvas.getContext('2d')!;
+    const ctx = canvas.getContext('2d');
+    if (!ctx) return null;
     ctx.clearRect(0, 0, 32, 48);
 
     const grad = ctx.createRadialGradient(16, 24, 0, 16, 24, 15);
@@ -444,7 +452,7 @@ export class LineworkWorld {
     this.fountainParticleMat = new THREE.PointsMaterial({
       color: isDark ? 0xd4d4d8 : 0xffffff, // 浅色线稿下采用纯白高亮水滴，晶莹剔透、灵动醒目
       size: 0.08, // 恰当适中、晶莹清晰的粒子尺寸，清晰可见
-      map: dropletTex,
+      ...(dropletTex ? { map: dropletTex } : {}),
       transparent: true,
       opacity: isDark ? 0.95 : 0.90,
       depthWrite: false,
@@ -666,20 +674,29 @@ export class LineworkWorld {
 
   /** 挂载至主场景 */
   attach(scene: THREE.Scene): void {
-    if (!this.isBuilt) {
-      this.build(scene, this.currentTheme);
-    } else if (this.sceneRef !== scene) {
-      this.sceneRef = scene;
+    this.sceneRef = scene;
+    if (this.rootGroup && !this.rootGroup.parent) {
       scene.add(this.rootGroup);
     }
   }
 
   /** 控制线稿世界激活与背景显隐 */
   setActive(active: boolean, scene?: THREE.Scene): void {
-    this.rootGroup.visible = active;
     const targetScene = scene || this.sceneRef;
-    if (active && targetScene) {
-      targetScene.background = this.currentTheme === 'dark' ? this.bgColorDark : this.bgTextureLight;
+    if (targetScene && !this.sceneRef) {
+      this.sceneRef = targetScene;
+    }
+
+    if (active) {
+      if (!this.isBuilt && targetScene) {
+        this.build(targetScene, this.currentTheme);
+      }
+      this.rootGroup.visible = true;
+      if (targetScene) {
+        targetScene.background = this.currentTheme === 'dark' ? this.bgColorDark : this.bgTextureLight;
+      }
+    } else {
+      this.rootGroup.visible = false;
     }
   }
 
@@ -687,6 +704,14 @@ export class LineworkWorld {
   setTheme(theme: LineworkColorMode, scene?: THREE.Scene): void {
     this.currentTheme = theme;
     const targetScene = scene || this.sceneRef;
+    if (targetScene && !this.sceneRef) {
+      this.sceneRef = targetScene;
+    }
+
+    if (!this.isBuilt && targetScene) {
+      this.build(targetScene, theme);
+      return;
+    }
 
     if (this.rootGroup.visible && targetScene) {
       targetScene.background = theme === 'dark' ? this.bgColorDark : this.bgTextureLight;

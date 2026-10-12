@@ -661,6 +661,8 @@ export class VRMEngine {
     this.gazeController.init(this.scene);
     this.gazeController.enabled = APP_CONFIG.camera.defaultEnableGaze ?? true;
     this.lighting.init(this.scene);
+    // 场景世界初始化并挂载
+    this.lineworkWorld.attach(this.scene);
     // 海滩 3D: 挂进场景 (默认不可见, 首次进入时才构建); 太阳方向取主方向光
     this.beach3d.attach(this.scene, this.lighting.dirLight);
     // 虚空场景: 挂进场景 (默认不可见, 首次进入时才构建浮游微尘)
