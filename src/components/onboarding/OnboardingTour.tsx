@@ -567,7 +567,7 @@ const LiquidGlassKey: React.FC<{ label: string; isPressed: boolean }> = ({ label
                       }`}
                     >
                       <ChevronRight
-                        className={`w-3.5 h-3.5 transition-transform duration-200 group-hover:translate-x-0.5 ${
+                        className={`w-3.5 h-3.5 transition-colors duration-200 ${
                           isSelected || isAllTasksDone ? 'text-white' : 'text-white/40 group-hover:text-white'
                         }`}
                       />
@@ -631,7 +631,7 @@ const LiquidGlassKey: React.FC<{ label: string; isPressed: boolean }> = ({ label
                         }`}
                     >
                       <ChevronRight
-                        className={`w-3.5 h-3.5 transition-transform duration-200 group-hover:translate-x-0.5 ${isSelected ? 'text-white' : 'text-white/40 group-hover:text-white'
+                        className={`w-3.5 h-3.5 transition-colors duration-200 ${isSelected ? 'text-white' : 'text-white/40 group-hover:text-white'
                           }`}
                       />
                     </div>
@@ -707,7 +707,7 @@ const LiquidGlassKey: React.FC<{ label: string; isPressed: boolean }> = ({ label
                           {choice.label}
                         </span>
                         <ChevronRight
-                          className={`w-3.5 h-3.5 shrink-0 ml-1 transition-all ${isSelected ? 'text-[#f5aa9c] translate-x-0.5' : 'text-white/30 group-hover:text-white group-hover:translate-x-0.5'
+                          className={`w-3.5 h-3.5 shrink-0 ml-1 transition-colors duration-200 ${isSelected ? 'text-[#f5aa9c]' : 'text-white/30 group-hover:text-white'
                             }`}
                         />
                       </div>
