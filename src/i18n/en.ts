@@ -596,7 +596,7 @@ export const en: Trans = {
     outfitSwimsuitSub: 'Classic navy-collar pleated swimsuit, full of youthful charm~',
     outfitKeep: 'Evening Dress',
     outfitKeepSub: 'Elegant black and white evening gown, your exclusive companion tonight~',
-    galBrainAsk: "Last step! Let's pick a large language model for me~\nHow would you like to chat with me?",
+    galBrainAsk: "Last step! Let's pick a large language model for me~\nWhich model would you like to use to chat with me?",
     brainWebllm: 'In-Browser Built-in Model (Zero Config)',
     brainWebllmHint: 'Runs directly in your browser with zero setup, completely private and secure',
     brainCustom: 'Connect Custom AI Model',

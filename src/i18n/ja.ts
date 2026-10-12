@@ -596,7 +596,7 @@ export const ja: Trans = {
     outfitSwimsuitSub: '爽やかなセーラー襟とプリーツスカートの水着、青春のトキメキがいっぱい～',
     outfitKeep: 'イブニングドレス',
     outfitKeepSub: '優雅なモノトーンのドレス、今宵あなたの特別なパートナーに～',
-    galBrainAsk: '最後の一歩です！私に大規模言語モデル（LLM）を選んでね～\nどの方法で私とおしゃべりしますか？',
+    galBrainAsk: '最後の一歩です！私に大規模言語モデル（LLM）を選んでね～\nどのモデルで私とおしゃべりしますか？',
     brainWebllm: 'ブラウザ内蔵モデル（設定不要・すぐに使える）',
     brainWebllmHint: 'ブラウザ上で直接動作し、設定不要でプライベートかつ安全です',
     brainCustom: 'カスタムAIモデルを連携',

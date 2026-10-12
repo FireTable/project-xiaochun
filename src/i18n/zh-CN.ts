@@ -599,7 +599,7 @@ export const zhCN = {
     outfitSwimsuitSub: '蓝白水手领百褶裙泳装，洋溢着青春心动的气息～',
     outfitKeep: '华美晚礼服',
     outfitKeepSub: '优雅黑白撞色礼服，今晚做你的专属女伴～',
-    galBrainAsk: '最后一步啦，来为我挑选一个大语言模型吧～\n你想用哪种方式和我对话呢？',
+    galBrainAsk: '最后一步啦，来为我挑选一个大语言模型吧～\n你想用什么模型跟我对话呢？',
     brainWebllm: '浏览器内置模型（免配置·开箱即用）',
     brainWebllmHint: '直接在浏览器本地运行，无需任何配置，数据私密安全',
     brainCustom: '接入自定义 AI 模型',

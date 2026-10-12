@@ -333,7 +333,7 @@ export const createOnboardingSteps = (t: TFunction, i18n: I18nInstance): Record<
     dialogues: [
       {
         key: 'onboarding.galBrainAsk',
-        defaultText: '最后一步啦，来为我挑选一个大语言模型吧～\n你想用哪种方式和我对话呢？',
+        defaultText: '最后一步啦，来为我挑选一个大语言模型吧～\n你想用什么模型跟我对话呢？',
       },
     ],
     choiceLayout: 'text',
