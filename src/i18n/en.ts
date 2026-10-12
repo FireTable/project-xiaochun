@@ -554,6 +554,7 @@ export const en: Trans = {
     galChoiceStartTutSub: 'Explore camera rotation, custom outfits, and special spaces',
     galChoiceSkipTutorial: "No need, I can't wait to chat with you!",
     galChoiceSkipTutSub: 'Jump straight into the main interface for daily chat',
+    galSkipEarly: "Haha, you're in such a rush~ Alright then~",
     galCameraAsk: "In this space, you can check me out from different angles~\nThere are a few fun exploration tasks on the card below, give them a try!",
     cameraTaskListTitle: 'Perspective Missions',
     cameraTaskModifier: 'Hold modifier key',

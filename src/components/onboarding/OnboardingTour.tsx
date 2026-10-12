@@ -22,6 +22,7 @@ import {
   type StepContext,
   type OnboardingChoice,
 } from './onboardingSchema';
+import { ProviderConfigDialog } from '@/components/ProviderConfigDialog';
 
 export { ONBOARDING_STORAGE_KEY };
 
@@ -79,6 +80,16 @@ export const OnboardingTour: React.FC<OnboardingTourProps> = ({ onComplete }) =>
     }
   }, []);
 
+  const [isProviderConfigOpen, setIsProviderConfigOpen] = useState(false);
+  const [isSkippingWithVoice, setIsSkippingWithVoice] = useState(false);
+
+  const handleProviderConfigOpenChange = useCallback((open: boolean) => {
+    setIsProviderConfigOpen(open);
+    if (!open) {
+      setCurrentStepId('step_finale');
+    }
+  }, []);
+
   const finishTour = useCallback(() => {
     try {
       localStorage.setItem(ONBOARDING_STORAGE_KEY, '1');
@@ -92,6 +103,32 @@ export const OnboardingTour: React.FC<OnboardingTourProps> = ({ onComplete }) =>
     }
     onComplete();
   }, [onComplete]);
+
+  const skipTourWithVoice = useCallback(async () => {
+    if (isSkippingWithVoice) return;
+    setIsSkippingWithVoice(true);
+
+    // 1. 打断任何正在播报的普通段落，使当前 speechSequence 失效
+    speechSequenceRef.current++;
+    try {
+      vrmEngine.stopSpeaking();
+    } catch {}
+
+    // 2. 离场折叠选项面板，防止用户再次点击其他选项
+    setIsSpeaking(true);
+    setIsExiting(true);
+
+    // 3. 朗读猴急跳过语音与头顶气泡
+    const skipSpeechText = t('onboarding.galSkipEarly', '哈哈，你太猴急啦～ 那好吧～');
+    try {
+      await vrmEngine.speakText(skipSpeechText);
+    } catch (e) {
+      console.warn('[OnboardingTour] skip speech error:', e);
+    }
+
+    // 4. 读完之后，才正式完成向导并进入主界面
+    finishTour();
+  }, [isSkippingWithVoice, t, finishTour]);
 
   // 组件卸载时停止语音与动作
   useEffect(() => {
@@ -182,8 +219,12 @@ export const OnboardingTour: React.FC<OnboardingTourProps> = ({ onComplete }) =>
         setCurrentStepId(stepId);
       },
       finish: finishTour,
+      skipWithVoice: skipTourWithVoice,
+      openProviderConfig: () => {
+        setIsProviderConfigOpen(true);
+      },
     }),
-    [t, i18n, isAllTasksDone, finishTour],
+    [t, i18n, isAllTasksDone, finishTour, skipTourWithVoice],
   );
 
   // 仅在任务清单面板正式浮现 (!isSpeaking) 且当前是 camera_drag 教学步骤时，才开启手势统计与事件监听！
@@ -396,12 +437,15 @@ const LiquidGlassKey: React.FC<{ label: string; isPressed: boolean }> = ({ label
       <div className="relative z-10 flex justify-end pointer-events-auto">
         <button
           type="button"
-          onClick={finishTour}
+          disabled={isSkippingWithVoice}
+          onClick={skipTourWithVoice}
           title={t('onboarding.skipTourTooltip', '第 {{current}} / {{total}} 步，点击可跳过向导', {
             current: currentStepNumber,
             total: totalSteps,
           })}
-          className="flex items-center gap-2 px-3 py-1.5 rounded-full bg-slate-950/70 hover:bg-slate-900/90 border border-white/15 text-white/70 hover:text-white text-xs font-medium backdrop-blur-md transition-all shadow-md active:scale-95 group cursor-pointer"
+          className={`flex items-center gap-2 px-3 py-1.5 rounded-full bg-slate-950/70 hover:bg-slate-900/90 border border-white/15 text-white/70 hover:text-white text-xs font-medium backdrop-blur-md transition-all shadow-md active:scale-95 group cursor-pointer ${
+            isSkippingWithVoice ? 'opacity-50 pointer-events-none' : ''
+          }`}
         >
           <span className="font-mono text-white/90 font-semibold tracking-tight">
             {currentStepNumber}/{totalSteps}
@@ -744,6 +788,12 @@ const LiquidGlassKey: React.FC<{ label: string; isPressed: boolean }> = ({ label
           )}
         </div>
       )}
+
+      {/* 自定义模型配置弹窗 */}
+      <ProviderConfigDialog
+        open={isProviderConfigOpen}
+        onOpenChange={handleProviderConfigOpenChange}
+      />
     </div>
   );
 };

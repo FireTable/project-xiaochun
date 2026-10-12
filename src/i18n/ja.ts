@@ -554,6 +554,7 @@ export const ja: Trans = {
     galChoiceStartTutSub: '視点操作、自由なお着替え、専用空間を体験',
     galChoiceSkipTutorial: 'ううん、早くお話ししたい！',
     galChoiceSkipTutSub: 'すぐにメイン画面へ進んで日常会話を始める',
+    galSkipEarly: 'ふふっ、せっかちさんですね～それじゃあ行こっか～',
     galCameraAsk: 'この空間では、いろんな角度から私を見てみてね～\n下のカードに楽しい操作ミッションを用意したよ、試してみてね！',
     cameraTaskListTitle: '視点操作ミッション',
     cameraTaskModifier: 'キーを長押し',

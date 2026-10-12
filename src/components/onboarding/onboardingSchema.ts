@@ -48,6 +48,8 @@ export interface StepContext {
   hasRotated: boolean;
   goToStep: (stepId: string) => void;
   finish: () => void;
+  skipWithVoice: () => void;
+  openProviderConfig: () => void;
 }
 
 export const createOnboardingSteps = (t: TFunction, i18n: I18nInstance): Record<string, OnboardingStep> => ({
@@ -118,7 +120,7 @@ export const createOnboardingSteps = (t: TFunction, i18n: I18nInstance): Record<
         icon: '💬',
         label: t('onboarding.galChoiceSkipTutorial', '不用啦，已经迫不及待想跟你聊天了！'),
         subLabel: t('onboarding.galChoiceSkipTutSub', '直接进入主界面，开启日常畅聊'),
-        onSelect: () => ctx.finish(),
+        onSelect: () => ctx.skipWithVoice(),
       },
     ],
   },
@@ -343,7 +345,7 @@ export const createOnboardingSteps = (t: TFunction, i18n: I18nInstance): Record<
         icon: '🖥️',
         label: t('onboarding.brainCustom', '接入自定义 AI 模型'),
         subLabel: t('onboarding.brainCustomHint', '连接本地或云端模型服务（如 Ollama、LM Studio 等）'),
-        onSelect: () => ctx.goToStep('step_finale'),
+        onSelect: () => ctx.openProviderConfig(),
       },
     ],
   },
