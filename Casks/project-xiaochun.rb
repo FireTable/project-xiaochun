@@ -1,7 +1,7 @@
 cask "project-xiaochun" do
   arch arm: "aarch64", intel: "x64"
 
-  version "0.1.26"
+  version "0.1.27"
   sha256 arm:   "6aa88dff313c4f342447033eada1f10f4c1e0847620ee21be42e342b344ac3f1",
          intel: "c53dc3eca0a5370cc93958dd29d32779240d01f2bf95c741d1237a04399daae8"
 
