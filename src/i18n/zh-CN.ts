@@ -597,7 +597,7 @@ export const zhCN = {
     outfitKeep: '华美晚礼服',
     outfitKeepSub: '优雅黑白撞色礼服，今晚做你的专属女伴～',
     galBrainAsk: '最后……是让小蠢变得更聪明的‘思考核心’哦！\n你想怎么连接我的小脑袋呢？',
-    brainWebllm: '⚡ 端侧轻量小脑筋（零配置即开即用）',
+    brainWebllm: '端侧轻量小脑筋（零配置即开即用）',
     brainWebllmHint: '直接在浏览器里运行，完全保护隐私不用配置哦',
     brainCustom: '接入自定义的模型',
     brainCustomHint: '连接本地或远程自定义模型服务（Ollama / LM Studio 等）',
