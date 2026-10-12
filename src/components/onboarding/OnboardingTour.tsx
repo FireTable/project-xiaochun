@@ -709,13 +709,6 @@ const LiquidGlassKey: React.FC<{ label: string; isPressed: boolean }> = ({ label
                       {/* 渐变遮罩压暗底部文字衔接处 */}
                       <div className="absolute inset-0 bg-gradient-to-t from-slate-950/90 via-slate-950/20 to-transparent pointer-events-none" />
 
-                      {/* 角标 Badge */}
-                      {choice.badge && (
-                        <div className="absolute top-1.5 left-1.5 px-2 py-0.5 rounded-md bg-slate-950/80 border border-white/20 backdrop-blur-md text-[10px] sm:text-[11px] font-semibold text-white/90 shadow-sm">
-                          <span>{choice.badge}</span>
-                        </div>
-                      )}
-
                       {/* 选中高亮勾选标 */}
                       {isSelected && (
                         <div className="absolute top-1.5 right-1.5 w-6 h-6 rounded-full bg-[#ea8377] border border-[#f5aa9c] flex items-center justify-center shadow-lg animate-in zoom-in-75 duration-200">

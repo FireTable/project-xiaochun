@@ -165,7 +165,6 @@ export const createOnboardingSteps = (t: TFunction, i18n: I18nInstance): Record<
         label: t('onboarding.sceneBeach', '阳光海滩'),
         subLabel: t('onboarding.sceneBeachSub', '听海浪吹吹风，一起去度假吧～'),
         image: '/previews/scenes/beach3d.webp',
-        badge: '🏝️ 3D World',
         mediaPreview: {
           gradient: 'from-amber-500/30 via-orange-500/20 to-sky-500/30',
           emoji: '🏖️',
@@ -183,7 +182,6 @@ export const createOnboardingSteps = (t: TFunction, i18n: I18nInstance): Record<
         label: t('onboarding.sceneLight', '昼白线稿'),
         subLabel: t('onboarding.sceneLightSub', '纯白静谧空间，只专注看着你'),
         image: '/previews/scenes/light.webp',
-        badge: '☀️ Linework',
         mediaPreview: {
           gradient: 'from-slate-100/30 via-sky-100/20 to-amber-100/30',
           emoji: '☀️',
@@ -201,7 +199,6 @@ export const createOnboardingSteps = (t: TFunction, i18n: I18nInstance): Record<
         label: t('onboarding.sceneDark', '极夜线稿'),
         subLabel: t('onboarding.sceneDarkSub', '星芒微光舞台，浪漫静谧夜晚'),
         image: '/previews/scenes/dark.webp',
-        badge: '🌌 Starry',
         mediaPreview: {
           gradient: 'from-indigo-950/50 via-purple-900/40 to-slate-900/50',
           emoji: '🌌',
@@ -221,7 +218,6 @@ export const createOnboardingSteps = (t: TFunction, i18n: I18nInstance): Record<
             label: t('onboarding.sceneTransparent', '透明背景'),
             subLabel: t('onboarding.sceneTransparentSub', '变成桌面小透明，随时偷偷陪着你'),
             image: '/previews/scenes/transparent.webp',
-            badge: '👻 Desktop Pet',
             mediaPreview: {
               gradient: 'from-pink-500/30 via-rose-500/20 to-purple-500/30',
               emoji: '👻',
@@ -274,7 +270,6 @@ export const createOnboardingSteps = (t: TFunction, i18n: I18nInstance): Record<
           label: t('onboarding.outfitDinnerDress', '华美晚礼服'),
           subLabel: t('onboarding.outfitDinnerDressSub', '优雅黑白撞色礼服，今晚做你的专属女伴～'),
           image: '/previews/outfits/xiaochun_dinner_dress.webp',
-          badge: '👗 经典高贵',
           mediaPreview: {
             gradient: 'from-slate-700/40 via-slate-800/30 to-slate-900/40',
             emoji: '👗',
@@ -287,7 +282,6 @@ export const createOnboardingSteps = (t: TFunction, i18n: I18nInstance): Record<
           label: t('onboarding.outfitCheongsam', '国风旗袍'),
           subLabel: t('onboarding.outfitCheongsamSub', '典雅温婉，尽显曼妙身姿～'),
           image: '/previews/outfits/xiaochun_cheongsam.webp',
-          badge: '🌸 国风典雅',
           mediaPreview: {
             gradient: 'from-rose-500/30 via-pink-400/20 to-amber-400/30',
             emoji: '🌸',
@@ -300,7 +294,6 @@ export const createOnboardingSteps = (t: TFunction, i18n: I18nInstance): Record<
           label: t('onboarding.outfitMaid', '萌系女仆'),
           subLabel: t('onboarding.outfitMaidSub', '黑白围裙，今天想让我为你做些什么呢？'),
           image: '/previews/outfits/xiaochun_maid.webp',
-          badge: '🎀 萌系女仆',
           mediaPreview: {
             gradient: 'from-purple-500/30 via-pink-400/20 to-indigo-400/30',
             emoji: '🎀',
@@ -313,7 +306,6 @@ export const createOnboardingSteps = (t: TFunction, i18n: I18nInstance): Record<
           label: t('onboarding.outfitBikini', '清凉比基尼'),
           subLabel: t('onboarding.outfitBikiniSub', '清凉夏日泳装，心跳加速中……'),
           image: '/previews/outfits/xiaochun_bikini.webp',
-          badge: '👙 清凉泳装',
           mediaPreview: {
             gradient: 'from-sky-400/30 via-teal-400/20 to-cyan-400/30',
             emoji: '👙',
