@@ -103,7 +103,7 @@ export const createOnboardingSteps = (t: TFunction, i18n: I18nInstance): Record<
     dialogues: [
       {
         key: 'onboarding.galTutorialAsk',
-        defaultText: '太好啦！以后的日子请多关照啦～\n嗯……需要我带你熟悉一下这个小世界的秘密吗？',
+        defaultText: '太好啦！以后的日子请多关照啦～\n嗯……需要我带你熟悉一下这片空间的秘密吗？',
       },
     ],
     choiceLayout: 'text',
@@ -111,8 +111,8 @@ export const createOnboardingSteps = (t: TFunction, i18n: I18nInstance): Record<
       {
         id: 'start_tut',
         icon: '✨',
-        label: t('onboarding.galChoiceStartTutorial', '好呀，带我逛逛这个世界～'),
-        subLabel: t('onboarding.galChoiceStartTutSub', '探索视角转动、随心换装与专属空间'),
+        label: t('onboarding.galChoiceStartTutorial', '好呀，带我逛逛这片空间～'),
+        subLabel: t('onboarding.galChoiceStartTutSub', '探索视角转动、随心换装与心仪场景'),
         onSelect: () => ctx.goToStep('step_camera_intro'),
       },
       {
@@ -141,7 +141,7 @@ export const createOnboardingSteps = (t: TFunction, i18n: I18nInstance): Record<
         id: 'camera_next',
         icon: ctx.hasRotated ? '🎉' : '👉',
         label: ctx.hasRotated
-          ? t('onboarding.cameraDoneNext', '转动好啦，看到全方位的你啦！')
+          ? t('onboarding.cameraDoneNext', '学会了，看到全方位的你啦！')
           : t('onboarding.cameraSkipNext', '学会啦，进入下一步'),
         subLabel: ctx.hasRotated
           ? t('onboarding.cameraDoneNextSub', '视角操作已掌握，进入场景探索')

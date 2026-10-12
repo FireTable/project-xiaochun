@@ -582,7 +582,7 @@ const LiquidGlassKey: React.FC<{ label: string; isPressed: boolean }> = ({ label
                 const isSelected = selectedChoiceId === choice.id;
                 const isDimmed = selectedChoiceId !== null && !isSelected;
                 const label = isAllTasksDone
-                  ? t('onboarding.cameraDoneNext', '转动好啦，看到全方位的你啦！')
+                  ? t('onboarding.cameraDoneNext', '学会了，看到全方位的你啦！')
                   : t('onboarding.cameraSkipNext', '学会啦，进入下一步');
                 const subLabel = isAllTasksDone
                   ? t('onboarding.cameraDoneNextSub', '视角操作已掌握，进入场景探索')
