@@ -323,9 +323,12 @@ export const TopHeader: React.FC<TopHeaderProps> = ({
                 title={t('header.settingsPanel')}
                 aria-label={t('header.settingsPanel')}
                 onClick={onToggleDrawer}
-                className={`h-11 w-11 sm:h-9 sm:w-9 ${isDrawerOpen ? 'bg-brand-500/25 border-brand-300 text-brand-100 rotate-90' : ''}`}
+                // 激活态交给 glass 变体的 data-state 分支 (只改描边与文字, 不动深色底),
+                // 这里只额外做齿轮旋转 —— 不要再用 className 覆写 bg, 否则亮场景下会白底白字。
+                data-state={isDrawerOpen ? 'on' : 'closed'}
+                className={`h-11 w-11 sm:h-9 sm:w-9 ${isDrawerOpen ? 'rotate-90' : ''}`}
               >
-                <Settings className={`w-4 h-4 sm:w-3.5 sm:h-3.5 ${isDrawerOpen ? 'text-slate-900' : ''}`} />
+                <Settings className="w-4 h-4 sm:w-3.5 sm:h-3.5" />
               </Button>
             </TooltipTrigger>
             <TooltipContent side="bottom">

@@ -10,8 +10,12 @@ const buttonVariants = cva(
       variant: {
         default:
           'bg-gradient-to-r from-brand-500 via-brand-400 to-brand-300 text-white hover:from-brand-600 hover:via-brand-500 hover:to-brand-400 active:scale-95',
+        // glass 底色必须始终保持深色不透明层 —— 它浮在任意场景背景之上,
+        // 一旦被调用方用 className 覆写成半透白 (bg-white/15), 亮场景下就白底白字。
+        // 激活态一律走 data-state, 只改描边和文字, 绝不碰底色, 因此亮/暗背景都清晰。
         glass:
-          'bg-slate-950/80 hover:bg-slate-900/90 text-white/90 hover:text-white border border-white/20 hover:border-brand-300/60 backdrop-blur-xl active:scale-95',
+          'bg-slate-950/80 hover:bg-slate-900/90 text-white/90 hover:text-white border border-white/20 hover:border-brand-300/60 backdrop-blur-xl active:scale-95 ' +
+          'data-[state=open]:bg-slate-900 data-[state=open]:border-brand-300/70 data-[state=on]:bg-slate-900 data-[state=on]:border-brand-300/70 data-[state=open]:text-white data-[state=on]:text-white',
         secondary:
           'bg-white/10 hover:bg-white/20 text-white border border-white/10 backdrop-blur-md active:scale-95',
         ghost:

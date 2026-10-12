@@ -38,7 +38,7 @@ export const TauriTopHeader: React.FC<TauriTopHeaderProps> = ({ onMenuOpenChange
               variant="glass"
               size="icon"
               aria-label={t('header.more')}
-              className="h-11 w-11 sm:h-9 sm:w-9 text-white/85 hover:text-white hover:bg-white/15"
+              className="h-11 w-11 sm:h-9 sm:w-9 text-white/85 hover:text-white"
             >
               <MoreHorizontal className="w-4 h-4 sm:w-3.5 sm:h-3.5" />
             </Button>
