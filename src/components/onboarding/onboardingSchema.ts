@@ -4,6 +4,7 @@ import { APP_CONFIG } from '@/config';
 import { changeLang } from '@/i18n';
 import { isTauri } from '@/lib/platform';
 import { setActiveProviderId } from '@/llm/customProvider';
+import { preloadWebLLM } from '@/llm/webLLMProvider';
 import { WEARING_OUTFIT_KEY } from '@/lib/constants';
 import type { TFunction, i18n as I18nInstance } from 'i18next';
 
@@ -368,6 +369,9 @@ export const createOnboardingSteps = (t: TFunction, i18n: I18nInstance): Record<
         subLabel: t('onboarding.brainWebllmHint', '直接在浏览器本地运行，无需任何配置，数据私密安全'),
         onSelect: async () => {
           await setActiveProviderId(null);
+          // 用户明确选了端侧模型 → 意图信号成立,烤一遍 WGSL 管线,让首轮对话零卡顿。
+          // 幂等:模型已在下载/已就绪时 getWebLLMEngine 直接复用 engine,不会重来一遍。
+          preloadWebLLM({ warmup: true });
           ctx.goToStep('step_finale');
         },
       },

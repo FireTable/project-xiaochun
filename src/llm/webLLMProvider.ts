@@ -410,14 +410,20 @@ export async function getWebLLMEngine(opts?: {
 /**
  * 启动时或空闲期后台静默预热 WebLLM 模型 (跑在独立 Dedicated Worker，不卡顿 3D 渲染)。
  * 当前激活的是 custom provider 时直接 no-op — 加载了也用不上,白占 1-2GB 显存。
+ *
+ * `warmup` 默认 false — 只把模型拉下来,不做 1-token 微前向。代价是首轮推理会
+ * 现场 JIT 编译 WGSL 算子 (约 500ms~1s); 确认用户马上要对话时再显式传 true 换首轮零卡顿。
  */
 export function preloadWebLLM(opts?: {
   onProgressText?: (text: string) => void;
+  /** 加载后再跑一次 1-token 微前向，提前触发 WGSL 算子 JIT 编译。默认 false。 */
+  warmup?: boolean;
 }): void {
   if (typeof window === 'undefined') return;
   if (readActiveModel()?.kind === 'custom') return;
   void getWebLLMEngine({ onProgressText: opts?.onProgressText })
     .then(async (engine) => {
+      if (!opts?.warmup) return;
       // 后台轻量预热：触发一次 1-token 微前向传播，让驱动提前完成 WGSL 算子 JIT 编译，
       // 避免用户首轮发消息时命中 GPU 编译着色器导致的 500ms~1s 卡顿。
       try {
