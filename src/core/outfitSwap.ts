@@ -131,6 +131,8 @@ export function restoreSpringBones(vrm: VRM | null, snaps: SpringBoneJointSnap[]
   for (const joint of mgr.joints) {
     const snap = joint.bone?.name ? byName.get(joint.bone.name) : undefined;
     if (!snap) continue;
+    const name = joint.bone?.name ?? '';
+    if (/skirt|coat/i.test(name)) continue;
     joint.bone.quaternion.set(...snap.quaternion);
     const j = joint as unknown as {
       _currentTail?: THREE.Vector3;

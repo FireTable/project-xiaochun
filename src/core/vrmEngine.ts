@@ -1727,6 +1727,10 @@ export class VRMEngine {
             // 4b. 体型差：对齐旧髋世界高度，再缓回真实贴地 baseY（减轻穿脱瞬间抖）
             const trueFloorY = this.vrmBaseSceneY;
             this.applyOutfitHeightContinuity(previousVrm, vrm, trueFloorY);
+            const settledBaseY = this.vrmBaseSceneY - this.footIK.getSinkOffset() + this.bodyMorph.getLegHeightDelta();
+            vrm.scene.position.y = settledBaseY;
+            vrm.scene.updateMatrixWorld(true);
+            this.settleSpringBones(vrm);
 
             // 5. 同步原子切换：移除旧模型、挂入已处于正确动作姿势的新模型
             this.scene.remove(previousVrm.scene);
@@ -1756,6 +1760,18 @@ export class VRMEngine {
           this.bodyMorph.bind(vrm);
           this.applySpringBoneTuning(vrm);
           this.applySavedBodyYawToVRM(vrm);
+          const initialBaseY = this.vrmBaseSceneY - this.footIK.getSinkOffset() + this.bodyMorph.getLegHeightDelta();
+          vrm.scene.position.y = initialBaseY;
+          this.motionPipeline.tick(vrm, {
+            camera: this.camera,
+            delta: 0,
+            time: performance.now() * 0.001,
+            enableBodyTurn: false,
+            isSpeaking: false,
+            manualExpression: this.manualExpression,
+          });
+          vrm.scene.updateMatrixWorld(true);
+          this.settleSpringBones(vrm);
           if (typeof window !== 'undefined') {
             (window as any).emagePlayer = this.emagePlayer;
             (window as any).vrmEngine = this;
@@ -1817,6 +1833,34 @@ export class VRMEngine {
       }
     }
     this.windForce.resetGravityCache();
+  }
+
+  /**
+   * 弹簧骨骼加载瞬间零速预热与碰撞松弛 (方案 B):
+   * 仅在模型上屏前瞬间在后台迭代 16 步小物理步长，解除大腿碰撞体穿透并清零初速度。
+   * 完全不改动任何日常物理参数 (stiffness, dragForce, gravityPower)，确保日常动感 100% 原汁原味。
+   */
+  public settleSpringBones(vrm: VRM): void {
+    const mgr = vrm.springBoneManager;
+    if (!mgr) return;
+
+    vrm.scene.updateMatrixWorld(true);
+
+    for (const joint of mgr.joints) {
+      (joint as any).reset?.();
+    }
+
+    const subDelta = 0.016;
+    for (let step = 0; step < 16; step++) {
+      mgr.update(subDelta);
+      for (const joint of mgr.joints) {
+        const j = joint as unknown as { _currentTail?: THREE.Vector3; _prevTail?: THREE.Vector3 };
+        if (j._currentTail && j._prevTail) {
+          j._prevTail.copy(j._currentTail);
+        }
+      }
+      vrm.scene.updateMatrixWorld(true);
+    }
   }
 
   /**
@@ -2192,6 +2236,10 @@ export class VRMEngine {
             // 4b. 体型差：对齐旧髋世界高度，再缓回真实贴地 baseY（减轻穿脱瞬间抖）
             const trueFloorY = this.vrmBaseSceneY;
             this.applyOutfitHeightContinuity(previousVrm, vrm, trueFloorY);
+            const settledBaseY = this.vrmBaseSceneY - this.footIK.getSinkOffset() + this.bodyMorph.getLegHeightDelta();
+            vrm.scene.position.y = settledBaseY;
+            vrm.scene.updateMatrixWorld(true);
+            this.settleSpringBones(vrm);
 
             // 5. 同步原子切换：移除旧模型、挂入已处于正确动作姿势的新模型
             this.scene.remove(previousVrm.scene);
@@ -2221,6 +2269,18 @@ export class VRMEngine {
           this.bodyMorph.bind(vrm);
           this.applySpringBoneTuning(vrm);
           this.applySavedBodyYawToVRM(vrm);
+          const initialBaseY = this.vrmBaseSceneY - this.footIK.getSinkOffset() + this.bodyMorph.getLegHeightDelta();
+          vrm.scene.position.y = initialBaseY;
+          this.motionPipeline.tick(vrm, {
+            camera: this.camera,
+            delta: 0,
+            time: performance.now() * 0.001,
+            enableBodyTurn: false,
+            isSpeaking: false,
+            manualExpression: this.manualExpression,
+          });
+          vrm.scene.updateMatrixWorld(true);
+          this.settleSpringBones(vrm);
           if (typeof window !== 'undefined') {
             (window as any).emagePlayer = this.emagePlayer;
             (window as any).vrmEngine = this;
