@@ -2,7 +2,7 @@ import { sceneManager } from '@/core/scene/sceneManager';
 import { vrmEngine } from '@/core/vrmEngine';
 import { APP_CONFIG } from '@/config';
 import { changeLang } from '@/i18n';
-import { isTauri, getPrimaryModifierLabel, isMobile } from '@/lib/platform';
+import { isTauri } from '@/lib/platform';
 import { setActiveProviderId } from '@/llm/customProvider';
 import type { TFunction, i18n as I18nInstance } from 'i18next';
 
@@ -129,8 +129,7 @@ export const createOnboardingSteps = (t: TFunction, i18n: I18nInstance): Record<
     dialogues: [
       {
         key: 'onboarding.galCameraAsk',
-        params: { modifier: isMobile() ? t('onboarding.mobileHold', '长按') : getPrimaryModifierLabel() },
-        defaultText: '按住键盘上的 {{modifier}} 键拖拽（手机长按拖动）～\n不仅可以让我转身，还能调整视角的俯仰角与高度哦！\n别光站在正面对视，换几个角度瞧瞧我嘛～',
+        defaultText: '在这片空间里，你可以从各种角度看看我哦～\n你看，下面的卡片里有一些好玩的探索任务，试着操作一下吧！',
       },
     ],
     choiceLayout: 'text',
@@ -191,7 +190,7 @@ export const createOnboardingSteps = (t: TFunction, i18n: I18nInstance): Record<
       },
       {
         id: 'dark',
-        label: t('onboarding.sceneDark', '极夜黑线稿'),
+        label: t('onboarding.sceneDark', '极夜线稿'),
         subLabel: t('onboarding.sceneDarkSub', '星芒微光舞台，浪漫静谧夜晚'),
         image: '/previews/scenes/dark.webp',
         badge: '🌌 Starry',

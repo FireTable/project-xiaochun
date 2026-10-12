@@ -4,12 +4,18 @@ import {
   ChevronRight,
   X,
   Check,
+  RotateCcw,
+  ArrowUpDown,
+  Camera,
+  ZoomIn,
+  Move,
+  Sparkles,
 } from 'lucide-react';
 import { vrmEngine } from '@/core/vrmEngine';
 import { sceneManager } from '@/core/scene/sceneManager';
 import { APP_CONFIG } from '@/config';
 import { ONBOARDING_STORAGE_KEY } from '@/lib/constants';
-import { getPrimaryModifierLabel, isMobile } from '@/lib/platform';
+import { getPrimaryModifierLabel, isMobile, isTauri } from '@/lib/platform';
 import {
   createOnboardingSteps,
   type OnboardingStep,
@@ -31,10 +37,22 @@ export const OnboardingTour: React.FC<OnboardingTourProps> = ({ onComplete }) =>
   const [isExiting, setIsExiting] = useState(false);
   const [selectedChoiceId, setSelectedChoiceId] = useState<string | null>(null);
 
+  // 视角探索任务清单完成状态 (0 ~ 5)
+  const [cameraTasks, setCameraTasks] = useState({
+    modifierHeld: false,
+    modifierDone: false,
+    orbit360: false,
+    pitch: false,
+    cameraHeight: false,
+    wheelZoom: false,
+    dragCharacter: false,
+  });
+
   // 记录当前正在播报的对话段落索引，防止竞争
   const speechSequenceRef = useRef<number>(0);
 
   const isMobileDevice = isMobile();
+  const isTauriEnv = isTauri();
   const modifierLabel = isMobileDevice ? t('onboarding.mobileHold', '长按') : getPrimaryModifierLabel();
 
   // 预热重资源 (EMAGE)
@@ -92,20 +110,73 @@ export const OnboardingTour: React.FC<OnboardingTourProps> = ({ onComplete }) =>
     [t, i18n, hasRotated, finishTour],
   );
 
-  // 监听玩家 3D 旋转操作 (视角教学环节)
+  // 监听玩家 3D 旋转与视角教学环节全部手势任务
   useEffect(() => {
     if (currentStep.interaction !== 'camera_drag') return;
 
     (window as any).__onboardingSetRotated = setHasRotated;
-    const unsub = vrmEngine.interaction.onStateChange((state) => {
+    (window as any).__onboardingSetCameraTasks = setCameraTasks;
+
+    // 1. 订阅 InteractionController 状态变化 (修饰键按下状态 + 拖动状态)
+    const unsubState = vrmEngine.interaction.onStateChange((state) => {
+      if (state.isModifierActive) {
+        setCameraTasks((prev) => ({ ...prev, modifierHeld: true, modifierDone: true }));
+      } else {
+        setCameraTasks((prev) => ({ ...prev, modifierHeld: false }));
+      }
       if (state.isDragging) {
         setHasRotated(true);
       }
     });
 
+    // 2. 订阅底层细粒度手势 (turn dx/dy, guide-drag, move-*)
+    const unsubGesture = vrmEngine.interaction.onGesture((ev) => {
+      if (ev.type === 'turn') {
+        if (Math.abs(ev.dx) >= 3) {
+          setCameraTasks((prev) => ({ ...prev, orbit360: true }));
+          setHasRotated(true);
+        }
+        if (Math.abs(ev.dy) >= 3) {
+          setCameraTasks((prev) => ({ ...prev, pitch: true }));
+          setHasRotated(true);
+        }
+      } else if (ev.type === 'guide-drag') {
+        setCameraTasks((prev) => ({ ...prev, cameraHeight: true }));
+      } else if (ev.type === 'move-start' || ev.type === 'move-delta') {
+        setCameraTasks((prev) => ({ ...prev, dragCharacter: true }));
+      }
+    });
+
+    // 3. 监听全局键盘事件 (针对直接按下/松开 Cmd/Ctrl 键)
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Meta' || e.key === 'Control') {
+        setCameraTasks((prev) => ({ ...prev, modifierHeld: true, modifierDone: true }));
+      }
+    };
+    const handleKeyUp = (e: KeyboardEvent) => {
+      if (e.key === 'Meta' || e.key === 'Control') {
+        setCameraTasks((prev) => ({ ...prev, modifierHeld: false }));
+      }
+    };
+    window.addEventListener('keydown', handleKeyDown);
+    window.addEventListener('keyup', handleKeyUp);
+
+    // 4. 监听鼠标滚轮缩放事件
+    const handleWheel = (e: WheelEvent) => {
+      if (Math.abs(e.deltaY) >= 2) {
+        setCameraTasks((prev) => ({ ...prev, wheelZoom: true }));
+      }
+    };
+    window.addEventListener('wheel', handleWheel, { passive: true });
+
     return () => {
       delete (window as any).__onboardingSetRotated;
-      unsub();
+      delete (window as any).__onboardingSetCameraTasks;
+      unsubState();
+      unsubGesture();
+      window.removeEventListener('keydown', handleKeyDown);
+      window.removeEventListener('keyup', handleKeyUp);
+      window.removeEventListener('wheel', handleWheel);
     };
   }, [currentStep.interaction]);
 
@@ -195,6 +266,71 @@ export const OnboardingTour: React.FC<OnboardingTourProps> = ({ onComplete }) =>
     }
   };
 
+  // 视角探索任务清单 (0 ~ 5)
+  const taskItems = useMemo(() => {
+    const list = [
+      {
+        id: 'modifier',
+        num: 0,
+        label: t('onboarding.cameraTaskModifier', '按住按键'),
+        subLabel: isMobileDevice ? t('onboarding.mobileHold', '长按屏幕') : `按住 ${modifierLabel} 键`,
+        done: cameraTasks.modifierDone,
+        active: cameraTasks.modifierHeld,
+        isKey: true,
+      },
+      {
+        id: 'orbit',
+        num: 1,
+        label: t('onboarding.cameraTaskOrbit', '调整 360° 环视'),
+        subLabel: t('onboarding.cameraOrbitSub', '按住按键水平左右拖动'),
+        done: cameraTasks.orbit360,
+        icon: RotateCcw,
+      },
+      {
+        id: 'pitch',
+        num: 2,
+        label: t('onboarding.cameraTaskPitch', '调整俯仰角'),
+        subLabel: t('onboarding.cameraPitchSub', '按住按键垂直上下拖动'),
+        done: cameraTasks.pitch,
+        icon: ArrowUpDown,
+      },
+      {
+        id: 'height',
+        num: 3,
+        label: t('onboarding.cameraTaskHeight', '调整相机高度'),
+        subLabel: t('onboarding.cameraHeightSub', '拖动左侧高度标尺滑块'),
+        done: cameraTasks.cameraHeight,
+        icon: Camera,
+      },
+      {
+        id: 'zoom',
+        num: 4,
+        label: t('onboarding.cameraTaskZoom', '鼠标滚轮缩放'),
+        subLabel: t('onboarding.cameraZoomSub', '鼠标滚轮前后推拉视距'),
+        done: cameraTasks.wheelZoom,
+        icon: ZoomIn,
+      },
+    ];
+
+    if (isTauriEnv) {
+      list.push({
+        id: 'drag',
+        num: 5,
+        label: t('onboarding.cameraTaskDrag', '拖动角色'),
+        subLabel: t('onboarding.cameraDragSub', '直接拖拽角色移动桌面窗口'),
+        done: cameraTasks.dragCharacter,
+        icon: Move,
+      });
+    }
+
+    return list;
+  }, [t, isMobileDevice, modifierLabel, cameraTasks, isTauriEnv]);
+
+  const completedCount = useMemo(() => {
+    return taskItems.filter((item) => item.done).length;
+  }, [taskItems]);
+  const isAllTasksDone = completedCount === taskItems.length;
+
   return (
     <div
       className="fixed inset-0 z-40 pointer-events-none select-none flex flex-col justify-between p-4 sm:p-6 overflow-hidden animate-in fade-in duration-500"
@@ -211,36 +347,6 @@ export const OnboardingTour: React.FC<OnboardingTourProps> = ({ onComplete }) =>
         </button>
       </div>
 
-      {/* 3D 视角教学时的悬浮修饰键指引条 */}
-      {currentStep.interaction === 'camera_drag' && (
-        <div className="relative z-20 pointer-events-auto w-fit mx-auto mt-auto mb-4 flex flex-col items-center gap-1.5 animate-in fade-in slide-in-from-bottom-3 duration-300">
-          <div className="flex items-center gap-2.5 px-4 py-2 rounded-2xl bg-slate-950/90 border border-[#ea8377]/60 shadow-[0_0_25px_rgba(234,131,119,0.35),inset_0_1px_1px_rgba(255,255,255,0.2)] backdrop-blur-2xl">
-            {/* 游戏风格机械键帽 */}
-            <div className="flex items-center">
-              <kbd className="inline-flex items-center justify-center px-2.5 py-1 text-xs font-mono font-black rounded-lg bg-gradient-to-b from-slate-700 via-slate-800 to-slate-950 text-amber-200 border-t border-white/30 border-x border-slate-700 border-b-2 border-slate-950 shadow-[0_2px_4px_rgba(0,0,0,0.6),0_0_8px_rgba(251,191,36,0.3)] tracking-wider">
-                {modifierLabel}
-              </kbd>
-            </div>
-            <div className="h-4 w-px bg-white/20" />
-            <span className="text-xs font-medium text-white/95 tracking-wide">
-              {isMobileDevice
-                ? t('onboarding.mobileHint', '长按屏幕 480ms 后拖动')
-                : t('onboarding.desktopHint', '按住按键 + 鼠标左键拖拽')}
-            </span>
-            {hasRotated ? (
-              <span className="flex items-center gap-1 text-xs font-bold text-emerald-400 pl-1.5 border-l border-emerald-500/30">
-                <Check className="w-3.5 h-3.5" />
-                {t('onboarding.success', '转动成功！')}
-              </span>
-            ) : (
-              <span className="text-[10px] text-white/60 hidden sm:inline pl-1">
-                ({t('onboarding.cameraExtraHint', '支持 360° 自由环视 · 调整俯仰与视距')})
-              </span>
-            )}
-          </div>
-        </div>
-      )}
-
       {/* 选项区域：角色说完台词后（!isSpeaking）平滑浮现 */}
       {!isSpeaking && choices.length > 0 && (
         <div
@@ -248,8 +354,147 @@ export const OnboardingTour: React.FC<OnboardingTourProps> = ({ onComplete }) =>
             isExiting ? 'onboarding-dock-exit' : ''
           }`}
         >
-          {/* 布局 1：纯文字/图标精致卡片 (text) */}
-          {currentStep.choiceLayout === 'text' && (
+          {/* 布局 0：视角探索特训任务清单卡片 (interaction === 'camera_drag') */}
+          {currentStep.interaction === 'camera_drag' && (
+            <div className="w-full max-w-lg mx-auto flex flex-col rounded-3xl bg-slate-950/90 border border-white/20 shadow-[0_12px_40px_rgba(0,0,0,0.6)] backdrop-blur-2xl p-4 sm:p-5 gap-3 onboarding-card-enter">
+              {/* 卡片头部：标题与完成计数指示器 */}
+              <div className="flex items-center justify-between border-b border-white/10 pb-2.5">
+                <div className="flex items-center gap-2">
+                  <span className="text-[10px] font-bold tracking-widest text-[#f5aa9c] bg-[#ea8377]/20 border border-[#ea8377]/35 px-2 py-0.5 rounded-full uppercase">
+                    QUEST
+                  </span>
+                  <h3 className="text-sm sm:text-[15px] font-bold text-white tracking-wide">
+                    {t('onboarding.cameraTaskListTitle', '视角探索任务')}
+                  </h3>
+                </div>
+                <div className="flex items-center gap-1.5 text-xs">
+                  <span className={`font-mono font-bold ${isAllTasksDone ? 'text-emerald-400' : 'text-amber-300'}`}>
+                    {completedCount}
+                  </span>
+                  <span className="text-white/40 font-mono">/</span>
+                  <span className="text-white/60 font-mono">{taskItems.length}</span>
+                  {isAllTasksDone && (
+                    <span className="ml-1 text-[10px] font-semibold text-emerald-400 bg-emerald-500/15 border border-emerald-500/30 px-1.5 py-0.5 rounded-full flex items-center gap-0.5">
+                      <Check className="w-3 h-3" />
+                      All Clear
+                    </span>
+                  )}
+                </div>
+              </div>
+
+              {/* 任务项清单 (0 ~ 5) */}
+              <div className="flex flex-col gap-1.5">
+                {taskItems.map((item) => {
+                  const Icon = item.icon;
+                  return (
+                    <div
+                      key={item.id}
+                      className={`flex items-center justify-between px-3 py-2 rounded-xl transition-all duration-200 border ${
+                        item.done
+                          ? 'bg-emerald-950/20 border-emerald-500/30 text-emerald-100'
+                          : item.active
+                            ? 'bg-[#ea8377]/15 border-[#ea8377]/50 text-white shadow-[0_0_15px_rgba(234,131,119,0.2)]'
+                            : 'bg-white/[0.03] border-white/10 text-white/80'
+                      }`}
+                    >
+                      <div className="flex items-center gap-2.5 min-w-0 pr-2">
+                        {/* 左侧序号与专属图标/键帽 */}
+                        <div className="flex items-center gap-1.5 shrink-0">
+                          <span className="text-xs font-mono font-semibold text-white/40 w-3 text-right">
+                            {item.num}.
+                          </span>
+                          {item.isKey ? (
+                            <kbd
+                              className={`inline-flex items-center justify-center px-2 py-0.5 text-[11px] font-mono font-black rounded-md transition-all shadow-[0_2px_4px_rgba(0,0,0,0.6)] ${
+                                item.active
+                                  ? 'bg-gradient-to-b from-amber-300 to-amber-500 text-slate-950 border border-amber-200 shadow-[0_0_12px_rgba(251,191,36,0.6)] scale-105'
+                                  : 'bg-gradient-to-b from-slate-700 via-slate-800 to-slate-950 text-amber-200 border-t border-white/30 border-x border-slate-700 border-b-2 border-slate-950'
+                              }`}
+                            >
+                              {modifierLabel}
+                            </kbd>
+                          ) : (
+                            Icon && (
+                              <div
+                                className={`w-6 h-6 rounded-lg flex items-center justify-center ${
+                                  item.done
+                                    ? 'bg-emerald-500/20 text-emerald-300'
+                                    : 'bg-white/10 text-white/70'
+                                }`}
+                              >
+                                <Icon className="w-3.5 h-3.5" />
+                              </div>
+                            )
+                          )}
+                        </div>
+
+                        {/* 任务文案 */}
+                        <div className="flex flex-col min-w-0">
+                          <span className={`text-xs sm:text-[13px] font-medium tracking-wide truncate ${item.done ? 'text-emerald-200' : 'text-white'}`}>
+                            {item.label}
+                          </span>
+                          <span className="text-[10px] sm:text-[11px] text-white/50 truncate font-normal">
+                            {item.subLabel}
+                          </span>
+                        </div>
+                      </div>
+
+                      {/* 右侧打勾状态 */}
+                      <div className="shrink-0 pl-2">
+                        {item.done ? (
+                          <div className="w-5 h-5 rounded-full bg-emerald-500 text-slate-950 flex items-center justify-center shadow-[0_0_10px_rgba(16,185,129,0.5)] animate-in zoom-in-75 duration-200">
+                            <Check className="w-3.5 h-3.5 stroke-[3]" />
+                          </div>
+                        ) : item.active ? (
+                          <div className="w-5 h-5 rounded-full border border-amber-400 bg-amber-400/20 flex items-center justify-center animate-pulse">
+                            <div className="w-2 h-2 rounded-full bg-amber-400" />
+                          </div>
+                        ) : (
+                          <div className="w-5 h-5 rounded-full border border-white/20 flex items-center justify-center">
+                            <div className="w-1.5 h-1.5 rounded-full bg-white/20" />
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+
+              {/* 底部行动卡片：6. 学会啦，进入下一步 */}
+              <div className="pt-1 border-t border-white/10">
+                <button
+                  type="button"
+                  onClick={() => choices[0] && void handleSelectChoice(choices[0])}
+                  className={`w-full py-3 px-4 sm:px-5 rounded-2xl flex items-center justify-between font-semibold text-sm transition-all duration-200 cursor-pointer shadow-xl active:scale-[0.98] group ${
+                    isAllTasksDone
+                      ? 'bg-gradient-to-r from-[#ea8377] to-[#e66c5f] text-white shadow-[0_0_30px_rgba(234,131,119,0.5)] border border-[#f5aa9c]'
+                      : 'bg-slate-900/90 hover:bg-slate-800/90 text-white border border-white/20 hover:border-[#ea8377]/60 hover:shadow-[0_4px_20px_rgba(234,131,119,0.25)]'
+                  }`}
+                >
+                  <div className="flex items-center gap-2">
+                    <span className="text-xs font-mono font-semibold text-white/50 group-hover:text-white/80">
+                      6.
+                    </span>
+                    <span className="tracking-wide">
+                      {isAllTasksDone
+                        ? t('onboarding.cameraDoneNext', '转动好啦，看到全方位的你啦！')
+                        : t('onboarding.cameraSkipNext', '学会啦，进入下一步')}
+                    </span>
+                    {isAllTasksDone && (
+                      <span className="text-[10px] bg-black/25 px-2 py-0.5 rounded-full text-amber-200 font-bold border border-amber-300/30 flex items-center gap-1">
+                        <Sparkles className="w-3 h-3 text-amber-300" />
+                        ✨
+                      </span>
+                    )}
+                  </div>
+                  <ChevronRight className="w-4 h-4 text-white/70 group-hover:text-white group-hover:translate-x-0.5 transition-transform" />
+                </button>
+              </div>
+            </div>
+          )}
+
+          {/* 布局 1：纯文字/图标精致卡片 (text, 非视角教学) */}
+          {currentStep.choiceLayout === 'text' && currentStep.interaction !== 'camera_drag' && (
             <div className="w-full max-w-md mx-auto flex flex-col gap-2.5">
               {choices.map((choice, index) => {
                 const isSelected = selectedChoiceId === choice.id;
