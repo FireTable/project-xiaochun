@@ -395,7 +395,7 @@ Project-XiaoChun/
 │   ├── FOOT_IK.md             # Ground anchoring & foot inverse kinematics solver
 │   ├── CHAT_DIRECTOR.md       # LLM + TTS + EMAGE streaming orchestration
 │   ├── STT.md                   # SenseVoice ChatBar dictation (VAD + ORT Worker)
-│   ├── ON_DEVICE_AI.md        # On-device AI inference full stack
+│   ├── ONBOARDING.md          # Galgame-style immersive onboarding system specification & schema
 │   ├── EMAGE_MODEL.md         # EMAGE status & known limits (wasm/INT8, streaming, isolation)
 │   └── PERFORMANCE.md         # Performance & size notes: measured numbers, rejected options, unmeasured items (Chinese)
 ├── packages/                  # pnpm workspace packages
@@ -411,6 +411,9 @@ Project-XiaoChun/
 │   │   ├── __root.tsx         # Root layout (i18n SSR hydration, GEO JSON-LD & meta tags)
 │   │   └── index.tsx          # Main index route
 │   ├── components/            # React UI components
+│   │   ├── onboarding/        # Immersive Galgame-style onboarding tour
+│   │   │   ├── OnboardingTour.tsx     # Tour orchestrator, 3-task camera checklist gating & reply cards
+│   │   │   └── onboardingSchema.ts    # Finite-state machine schema, speech lines & branching options
 │   │   ├── TauriWindowFrame.tsx   # Native desktop frameless resize handles & corner glow
 │   │   ├── TauriTopHeader.tsx     # Desktop ⋯ menu (updates / reload / quit)
 │   │   ├── TopHeader.tsx          # Responsive top navigation (scene / wardrobe / lang / settings)
@@ -427,7 +430,7 @@ Project-XiaoChun/
 │   │   ├── protocol/          # Inter-process protocol layer (types.ts, handler.ts, index.ts)
 │   │   ├── interaction/       # 3D holographic controls (interactionController, turnGuide, pitchGuide, cameraYGuide)
 │   │   ├── wind/              # Aerodynamic localized cursor wind forces (windForce.ts)
-│   │   ├── scene/             # Scene manager, lineworkWorld, characterShadow, and passthroughManager
+│   │   ├── scene/             # Scene manager, lineworkWorld, beach3d, voidWorld, and passthroughManager
 │   │   ├── lighting/          # 3-channel studio lighting (studioLighting.ts: dir / hemi / fill)
 │   │   ├── postfx/            # Post-processing pipeline (postFxPipeline.ts: Bloom/ToneMapping/ColorGrading)
 │   │   ├── material/          # MToon material management (vrmMaterialManager.ts: saturation injection)

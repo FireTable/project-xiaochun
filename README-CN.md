@@ -366,6 +366,7 @@ Project-XiaoChun/
 │   ├── CHAT_DIRECTOR.md       # LLM + TTS + EMAGE 流式状态机编排
 │   ├── STT.md                   # SenseVoice ChatBar 听写（VAD + ORT Worker）
 │   ├── ON_DEVICE_AI.md        # 端侧 AI 推理全栈
+│   ├── ONBOARDING.md          # 沉浸式 Galgame 风格新手引导白皮书 (Schema 状态机/Void 舞台/任务打卡)
 │   ├── EMAGE_MODEL.md         # EMAGE 现状与已知限制（wasm/INT8、流式、隔离）
 │   └── PERFORMANCE.md         # 性能与体积优化笔记：实测数据、否决方案、未实测项
 ├── packages/                  # pnpm workspace 子包
@@ -400,6 +401,9 @@ Project-XiaoChun/
 │   │   │   │   ├── PostFxSection.tsx           # Bloom 辉光 / ToneMapping / 调色
 │   │   │   │   └── EmagePerfSection.tsx        # P0b wasm_env / 隔离 / 分阶段耗时
 │   │   │   └── hooks/                 # 共用段 hook(useCollapse)
+│   │   ├── onboarding/        # 沉浸式 Galgame 风格新手引导
+│   │   │   ├── OnboardingTour.tsx     # 引导主流程、三任务打卡完成门控、跳过与交互卡片
+│   │   │   └── onboardingSchema.ts    # 状态机步骤 Schema、多步分支、语音与文本配置
 │   │   ├── AdvancedSettingsDialog.tsx  # 用户自定义系统提示词 + 记忆轮数 slider
 │   │   ├── SyncDialog.tsx     # 跨设备加密文本传输 (AES-GCM)
 │   │   ├── SliderWithAnchors.tsx       # 滑块 + 视觉锚点刻度 (Radix 精确对齐,onTick/onCommit 拆分)
@@ -410,7 +414,7 @@ Project-XiaoChun/
 │   │   ├── vrmWorker.ts       # 后台 Worker (WASM bspatch 补丁应用与双层 IDB 缓存)
 │   │   ├── morph/             # DevDrawer 滑块驱动的运行时骨骼微调
 │   │   │   └── vrmBodyMorph.ts # VRMBodyMorph — 28 项单骨绑定的 body part 缩放
-│   │   ├── scene/             # 线稿背景世界 (lineworkWorld.ts: 双主题/太阳光芒/大楼/地面/树木)
+│   │   ├── scene/             # 多主题背景世界 (lineworkWorld / beach3d / void 虚空舞台)
 │   │   ├── lighting/          # 3 通道影棚打光 (studioLighting.ts: 主光/半球天光/轮廓补光)
 │   │   ├── postfx/            # 电影级后期管线 (postFxPipeline.ts: Bloom/ToneMapping/ColorGrading)
 │   │   ├── material/          # MToon 材质管理 (vrmMaterialManager.ts: 部件可见性 + Shader 饱和度)
