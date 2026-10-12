@@ -35,6 +35,7 @@ const TOUR_STEPS = [
   'step_brain_choice',
   'step_finale',
 ];
+// step_greet 不计入进度步骤（它是前置问候/AudioContext 解锁入口，不占 Tour 编号）
 
 // 统一卡片基础样式生成器 (纯透晶体液态玻璃：无毛玻璃模糊、保持背后角色与场景100%清晰通透，物理顶沿微光高光与纤细晶体边缘)
 const getOnboardingCardBaseClass = ({
@@ -178,7 +179,7 @@ interface OnboardingTourProps {
 
 export const OnboardingTour: React.FC<OnboardingTourProps> = ({ onComplete }) => {
   const { t, i18n } = useTranslation();
-  const [currentStepId, setCurrentStepId] = useState<string>('step_intro');
+  const [currentStepId, setCurrentStepId] = useState<string>('step_greet');
   const [, setHasRotated] = useState(false);
   const [isSpeaking, setIsSpeaking] = useState(true);
   const [isExiting, setIsExiting] = useState(false);
@@ -738,10 +739,10 @@ export const OnboardingTour: React.FC<OnboardingTourProps> = ({ onComplete }) =>
                 const isDimmed = selectedChoiceId !== null && !isSelected;
                 const label = isAllTasksDone
                   ? t('onboarding.cameraDoneNext', '学会了，看到全方位的你啦！')
-                  : t('onboarding.cameraSkipNext', '学会啦，进入下一步');
+                  : t('onboarding.cameraSkipNext', '跳过探索，进入下一步');
                 const subLabel = isAllTasksDone
                   ? t('onboarding.cameraDoneNextSub', '视角操作已掌握，进入场景探索')
-                  : t('onboarding.cameraSkipNextSub', '随时可进入下一步选择心仪场景');
+                  : t('onboarding.cameraSkipNextSub', '先进入下一步，随时可以回来探索视角');
                 const icon = isAllTasksDone ? '🎉' : '👉';
 
                 return (

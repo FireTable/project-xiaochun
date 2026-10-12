@@ -1,47 +1,104 @@
-# 沉浸式新手引导系统 (Immersive Onboarding Tour)
+# Immersive Onboarding Tour
 
-本文档面向开发者与 AI Coding Agent，详细规范 Project XiaoChun 的 **Galgame 风格沉浸式新手引导系统** 的设计哲学、状态机架构、舞台编排与持久化机制。
-
----
-
-## 1. 核心架构与设计哲学
-
-新手引导系统旨在让初次访问的用户在充满二次元沉浸感与互动乐趣的氛围中熟悉 XiaoChun 的各项核心能力。系统由三大支柱构成：
-
-1. **Schema 驱动的导引状态机 (`onboardingSchema.ts`)**：
-   - 包含分支导引（是否需要新手教学）、镜头操作任务打卡（水平环顾、仰俯调角、滚轮缩放）、场景初选、常服挑选、智能模型讲解（WebLLM vs 自定义 API 兼容服务）、以及温馨收尾。
-2. **专属虚空虚境舞台 (`src/core/scene/void/voidWorld.ts`)**：
-   - 彻底剥离多余的世界杂质，仅保留深邃星空渐变、柔和地面环形底盘与细密星尘流光，突出角色主体与晶态卡片。
-3. **全流程同步视听驱动 (`OnboardingTour.tsx`)**：
-   - 每一句台词均通过 `vrmEngine.speakText()` 联动 Edge-TTS 本地流式语音、RMS 口型匹配与 EMAGE 全身演讲动作，并在头顶对话气泡中实时逐句呈现。
+This document is written for developers and AI Coding Agents. It specifies the design philosophy, state-machine architecture, stage choreography, and persistence mechanisms of the **Galgame-style immersive onboarding tour** in Project XiaoChun.
 
 ---
 
-## 2. 状态机流转与步骤定义
+## 1. Core Architecture & Design Philosophy
 
-| 步骤 Index | 步骤 ID | 核心任务与交互形式 | 推进门控 (Gating) |
+The onboarding tour is designed to let first-time visitors familiarize themselves with XiaoChun's core capabilities in an atmosphere full of immersive, interactive charm. The system rests on three pillars:
+
+1. **Schema-driven guided state machine (`onboardingSchema.ts`)**
+   - All steps (including the pre-greeting entry `step_greet`) are declared through a single `createOnboardingSteps()` factory. Every step is driven by two pieces — a `dialogues` (lines list) and a `getChoices(ctx)` (dynamic option factory) — with no step-specific branching in the rendering component.
+2. **Dedicated "void realm" stage (`src/core/scene/void/voidWorld.ts`)**
+   - Strips away all extraneous world content, keeping only a deep starry gradient, a soft ring-shaped floor, and a fine stream of stardust — putting the character and the crystalline cards front and center.
+3. **Synchronized audiovisual driver (`OnboardingTour.tsx`)**
+   - Every line is wired through `vrmEngine.speakText()`, triggering local Edge-TTS streaming audio, RMS mouth-shape matching, and EMAGE full-body speaking gestures, while a live speech bubble above the character renders each line as it is delivered.
+
+---
+
+## 2. State Machine Flow & Step Definitions
+
+| Step Index | Step ID | Core task & interaction form | Advance gating |
 | :--- | :--- | :--- | :--- |
-| **0** | `welcome` | 角色初次打招呼并自我介绍 | 必须等角色语音播报完首句并展开选项后方可交互。 |
-| **1** | `choiceTutorial` | 询问用户是否需要操作介绍（新手引导 vs 直接探索） | 双卡片二选一（“需要指引” 或 “自由探索”）。点击自由探索将播报告别语音后安全退出。 |
-| **2** | `cameraTour` | 镜头三维操控任务清单（转动角色、仰俯视角、滚轮缩放） | 实时监测用户鼠标/触控拖拽角位移与视距缩放，全部三项打卡完成后点亮“下一步”晶态卡片。 |
-| **3** | `sceneSelect` | 场景初选（阳光海滩 vs 极夜线稿世界） | 附带带预览图的媒体卡片，点击立即无缝热切换场景并过渡到下阶段。 |
-| **4** | `outfitSelect` | 服饰试穿（晚礼服、国风旗袍、经典女仆装、海滩比基尼） | 实时无缝原子换装，试穿不中断语音与引导流。 |
-| **5** | `brainSelect` | 认知核心讲解（端侧 WebLLM WebGPU 极速体验 vs 外部自定义 API） | 若选择外部 API，引导完成后自动弹开配置窗口。 |
-| **6** | `finale` | 终章庆祝与正式启航 | 角色致谢，淡出引导 UI，重置相机到默认取景，持久化完成标志。 |
+| **—** | `step_greet` | **Pre-greeting entry**: No dialogue; a single crystalline card "👋 诶？你是？" appears immediately, awaiting an active user click. The click doubles as the **browser AudioContext unlock gesture**, solving the silent-audio problem caused by the default `suspended` state on mobile / cold start. | Transitions to `step_intro` once the card is clicked. Not counted in progress numbering (not included in the TOUR_STEPS array). |
+| **1** | `step_intro` | Character greets the user, introduces themselves, and asks for language preference (中文 / English / 日本語). | Wait for the line to finish, then three language cards appear. Clicking switches i18n and advances to the next step. |
+| **2** | `step_tutorial_choice` | Asks whether the user wants the operation walkthrough (guided tutorial vs. free exploration). | Two-card choice. Clicking "skip" plays a farewell line and exits safely. |
+| **3** | `step_camera_intro` | Camera 3D control task list (rotate the character, tilt the angle, scroll to zoom). | Tracks the user's drag in real time. Once all three tasks are checked off, the "Next" crystal card lights up; an "Skip exploration" option remains available. |
+| **4** | `step_scene_choice` | Scene pick (Sunny Beach, Daytime Lineart, Nightfall Lineart, Transparent Background). | Media cards with previews; click instantly hot-swaps the scene and transitions to the next stage. |
+| **5** | `step_outfit_choice` | Outfit try-on (Evening Gown, Qipao, Maid, Sailor Swimsuit). | Real-time atomic outfit swap. Trying things on does not interrupt speech or the guided flow. |
+| **6** | `step_brain_choice` | Cognition core explanation (on-device WebLLM WebGPU ultra-fast experience vs. external custom API). | If the external API is chosen, the configuration window automatically pops open after the guided tour. |
+| **7** | `step_finale` | Finale celebration and official launch. | The character thanks the user, the onboarding UI fades out, the camera resets to its default framing, and the completion flag is persisted. |
 
 ---
 
-## 3. 晶态液态玻璃设计规范 (Liquid Glass Aesthetic)
+## 3. AudioContext Unlock Mechanism
 
-- **无突兀弹窗**：避免传统遮罩式黑色 Modal，改用微模糊透明晶态面板（`backdrop-blur-md bg-white/[0.08]`）。
-- **动态呼吸光效**：卡片悬浮与选中时呈柔和主题粉色辐射辉光（`box-shadow: 0 0 24px rgba(234, 131, 119, 0.45)`）。
-- **HUD 键帽视觉**：长按键（`Space` / `Cmd` / `Ctrl`）采用拟真拟物半透键帽，精确居中对齐图标。
-- **无感进度药丸**：右上方集成无框晶态跳过药丸，实时展示 `1/7 跳过` 进度，点击随时安全撤离。
+On mobile browsers — and on some desktop cold-start scenarios — the Web Audio API's `AudioContext` starts in the `suspended` state. It must be unlocked by calling `ctx.resume()` from inside a **valid user gesture** (click/touch) handler.
+
+`step_greet` is purpose-built as this pre-interaction gate:
+
+```ts
+// onboardingSchema.ts — step_greet.getChoices
+onSelect: () => {
+  try {
+    const ctx = (vrmEngine as any).chatDirector?.ctx as AudioContext | undefined;
+    if (ctx && ctx.state === 'suspended') void ctx.resume();
+  } catch { }
+  ctx.goToStep('step_intro');
+},
+```
+
+Because `step_greet`'s `dialogues: []`, the speech effect inside `OnboardingTour` skips it entirely (`dialogues.length === 0` → `isSpeaking = false`), so the card appears instantly without relying on any special state or component-level branching.
 
 ---
 
-## 4. 持久化与状态管理
+## 4. i18n Conventions
 
-- **完成标志存储**：用户完成引导或主动跳过时，立即写入 `localStorage.setItem('xiaochun_onboarded', 'true')`。
-- **冷启动与 HMR**：根路由 `src/routes/index.tsx` 挂载时检查该标志，未完成且非 iframe embed 环境时启动 `OnboardingTour`。
-- **重温与重置**：可通过控制台执行 `localStorage.removeItem('xiaochun_onboarded'); location.reload()` 随时重测引导全流程。
+All onboarding-related strings are aggregated under the `onboarding.` prefix across three language files (`zh-CN.ts` / `en.ts` / `ja.ts`) and must be kept in sync. The full list of currently used keys:
+
+| Key | Purpose |
+| :--- | :--- |
+| `onboarding.skip` | Skip button text in the top-right |
+| `onboarding.skipTourTooltip` | Skip button tooltip (contains `{{current}}` / `{{total}}`) |
+| `onboarding.revisitTutorial` | Settings entry: re-run tour button text |
+| `onboarding.greetPrompt` | `step_greet` primary card title |
+| `onboarding.greetPromptSub` | `step_greet` primary card subtitle |
+| `onboarding.galIntro1` | `step_intro` line |
+| `onboarding.galTutorialAsk` | `step_tutorial_choice` line |
+| `onboarding.galChoiceStartTutorial` / `galChoiceStartTutSub` | Tutorial option |
+| `onboarding.galChoiceSkipTutorial` / `galChoiceSkipTutSub` | Skip-tutorial option |
+| `onboarding.galSkipEarly` | Early-exit line |
+| `onboarding.galCameraAsk` | `step_camera_intro` line |
+| `onboarding.cameraTaskListTitle` | Camera task panel title |
+| `onboarding.cameraHoldPrefix` / `cameraHoldPrefixMobile` | Modifier-key prefix text |
+| `onboarding.cameraDirectAction` | No-extra-key hint |
+| `onboarding.mobileScreen` | Mobile-screen reference term |
+| `onboarding.cameraTask*` / `camera*Sub` | Each camera task name and description |
+| `onboarding.cameraDoneNext` / `cameraDoneNextSub` | Continue button after camera tasks |
+| `onboarding.cameraSkipNext` / `cameraSkipNextSub` | Skip-camera-tasks button |
+| `onboarding.galSceneAsk` | `step_scene_choice` line |
+| `onboarding.scene*` | Scene names and subtitles |
+| `onboarding.galOutfitAsk` | `step_outfit_choice` line |
+| `onboarding.outfit*` | Outfit names and subtitles |
+| `onboarding.galBrainAsk` | `step_brain_choice` line |
+| `onboarding.brain*` | AI model option names and descriptions |
+| `onboarding.galFinale` | `step_finale` line |
+| `onboarding.startJourney` / `startJourneySub` | Finale launch button |
+
+---
+
+## 5. Liquid Glass Aesthetic
+
+- **No jarring modal popups**: Avoid traditional black overlay modals. Use subtly blurred translucent crystalline panels (`backdrop-blur-md bg-white/[0.08]`).
+- **Dynamic breathing light**: On hover/select, cards emit a soft theme-pink radial glow (`box-shadow: 0 0 24px rgba(234, 131, 119, 0.45)`).
+- **HUD keycap visuals**: Long modifier keys (`Space` / `Cmd` / `Ctrl`) are rendered as skeuomorphic semi-transparent keycaps, precisely centered against their icons.
+- **Seamless progress pill**: A borderless crystalline skip pill anchored top-right shows live progress (`1/7 跳过`) and lets the user exit any time. Note that `step_greet` is not counted toward progress; numbering starts at `1/7` only after the user clicks the greeting card.
+
+---
+
+## 6. Persistence & State Management
+
+- **Completion flag**: As soon as the user finishes or skips the tour, immediately write `localStorage.setItem('xiaochun_onboarded', 'true')`.
+- **Cold start & HMR**: When the root route `src/routes/index.tsx` mounts, check the flag; if absent and the environment is not an iframe embed, launch `OnboardingTour`.
+- **Re-run & reset**: Re-test the entire flow at any time by running `localStorage.removeItem('xiaochun_onboarded'); location.reload()` in the console.

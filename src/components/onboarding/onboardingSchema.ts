@@ -53,13 +53,36 @@ export interface StepContext {
 }
 
 export const createOnboardingSteps = (t: TFunction, i18n: I18nInstance): Record<string, OnboardingStep> => ({
+  // 0. 问候入口：无台词，单卡片触发，作为 AudioContext unlock 手势（移动端/冷启动必须有合法用户交互才能播音频）
+  step_greet: {
+    id: 'step_greet',
+    dialogues: [],  // 无台词 → isSpeaking 立即 false → 卡片立刻显示
+    choiceLayout: 'text',
+    getChoices: (ctx) => [
+      {
+        id: 'greet',
+        icon: '👋',
+        label: t('onboarding.greetPrompt', '诶？你是？'),
+        subLabel: t('onboarding.greetPromptSub', '点击向未知的少女打个招呼吧'),
+        onSelect: () => {
+          // 合法用户手势 → resume AudioContext，杜绝移动端/冷启动 suspended 阻塞语音
+          try {
+            const ctx_ = (vrmEngine as any).chatDirector?.ctx as AudioContext | undefined;
+            if (ctx_ && ctx_.state === 'suspended') void ctx_.resume();
+          } catch { }
+          ctx.goToStep('step_intro');
+        },
+      },
+    ],
+  },
+
   // 1. 初次见面 -> 自动分两段推进 (段1自我介绍打招呼 -> 段2询问语言展开选项，无需人工确认)
   step_intro: {
     id: 'step_intro',
     dialogues: [
       {
         key: 'onboarding.galIntro1',
-        defaultText: '呼啊……你终于来啦！初次见面，我是小蠢～\n那个……你来自哪里呀？我该用哪种语言跟你聊天呢？',
+        defaultText: '呀！……你好呀，初次见面，我是小蠢～\n那个……你来自哪里呀？我该用哪种语言跟你聊天呢？',
       },
     ],
     choiceLayout: 'text',
@@ -103,7 +126,7 @@ export const createOnboardingSteps = (t: TFunction, i18n: I18nInstance): Record<
     dialogues: [
       {
         key: 'onboarding.galTutorialAsk',
-        defaultText: '太好啦！以后的日子请多关照啦～\n嗯……需要我带你了解一下这片空间吗？',
+        defaultText: '好呀！以后的日子请多关照啦～\n需要我带你熟悉一下这片空间吗？',
       },
     ],
     choiceLayout: 'text',
@@ -142,10 +165,10 @@ export const createOnboardingSteps = (t: TFunction, i18n: I18nInstance): Record<
         icon: ctx.hasRotated ? '🎉' : '👉',
         label: ctx.hasRotated
           ? t('onboarding.cameraDoneNext', '学会了，看到全方位的你啦！')
-          : t('onboarding.cameraSkipNext', '学会啦，进入下一步'),
+          : t('onboarding.cameraSkipNext', '跳过探索，进入下一步'),
         subLabel: ctx.hasRotated
           ? t('onboarding.cameraDoneNextSub', '视角操作已掌握，进入场景探索')
-          : t('onboarding.cameraSkipNextSub', '随时可进入下一步选择心仪场景'),
+          : t('onboarding.cameraSkipNextSub', '先进入下一步，随时可以回来探索视角'),
         onSelect: () => ctx.goToStep('step_scene_choice'),
       },
     ],
