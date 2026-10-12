@@ -1191,10 +1191,8 @@ export class VRMEngine {
 
     this.updateShadowForTheme(theme === 'dark' || theme === 'void');
     this.syncSceneBackdrop(theme);
-    // ponytail: shadowPlane 现在带 radial alpha mask, 边缘自然 fade 到全透明,
-    // 不再有"12x12 大网格污染穿透位图"的隐患, transparent 下保持显示让 directional
-    // 影子投到带 mask 的 plane 上, 边界软渐隐 (ani 风格)。visibility 不再随 theme 切换。
-    if (this.shadow.group) this.shadow.group.visible = true;
+    // 纯虚空 (void) 场景彻底隐藏地面侧向硬投影，营造纯净空灵的真实三维悬浮感；其余场景正常开启
+    if (this.shadow.group) this.shadow.group.visible = theme !== 'void';
     if (typeof document !== 'undefined') {
       document.documentElement.classList.toggle('scene-transparent', theme === 'transparent');
     }

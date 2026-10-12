@@ -21,14 +21,16 @@ export class VoidWorld {
   private bgCanvas: HTMLCanvasElement | null = null;
   private bgCtx: CanvasRenderingContext2D | null = null;
 
-  // 三维深空浮游星尘系统
+  // 三维深空浮游星尘流系统 (细致微光流萤/星尘)
   private particlesMesh: THREE.Points | null = null;
   private particleGeo: THREE.BufferGeometry | null = null;
   private particleMat: THREE.PointsMaterial | null = null;
-  private particleCount = 180;
-  private initialPositions: Float32Array | null = null;
-  private particlePhases: Float32Array | null = null;
+  private particleCount = 380; // 细腻微尘流，密度充盈且极速无压力
   private particleSpeeds: Float32Array | null = null;
+  private particlePhases: Float32Array | null = null;
+  private particleRadii: Float32Array | null = null;
+  private particleAngles: Float32Array | null = null;
+  private baseColors: Float32Array | null = null;
 
   // 资源回收清单
   private disposables: Array<{ dispose: () => void }> = [];
@@ -59,33 +61,33 @@ export class VoidWorld {
     return texture;
   }
 
-  /** 绘制径向漫射光晕背景 (支持微弱呼吸感) */
+  /** 绘制径向漫射光晕背景 (微立柱影棚柔光) */
   private renderAuraBackground(breathFactor: number = 0): void {
     if (!this.bgCanvas || !this.bgCtx) return;
     const ctx = this.bgCtx;
     const size = this.bgCanvas.width;
     const cx = size * 0.5;
-    const cy = size * 0.52; // 略微居于视心偏下，贴合角色胸腔后方漫射
+    const cy = size * 0.48; // 略微居于视心，形成角色身后的纵深光幕
 
     // 1. 底层极暗微蓝深渊
-    ctx.fillStyle = '#030407';
+    ctx.fillStyle = '#020306';
     ctx.fillRect(0, 0, size, size);
 
     // 2. 主体柔和中心径向高斯辉光 (冷夜藏青 -> 深空幽蓝 -> 边缘纯黑)
-    const baseRadius = size * (0.62 + breathFactor * 0.03);
+    const baseRadius = size * (0.60 + breathFactor * 0.03);
     const radGrad = ctx.createRadialGradient(cx, cy, 0, cx, cy, baseRadius);
-    radGrad.addColorStop(0, 'rgba(16, 24, 42, 0.95)'); // 中心幽邃冷蓝
-    radGrad.addColorStop(0.35, 'rgba(10, 15, 28, 0.75)');
-    radGrad.addColorStop(0.70, 'rgba(5, 7, 14, 0.40)');
-    radGrad.addColorStop(1, 'rgba(3, 4, 7, 0.0)');
+    radGrad.addColorStop(0, 'rgba(18, 26, 46, 0.95)'); // 中心幽邃冷蓝
+    radGrad.addColorStop(0.32, 'rgba(12, 17, 32, 0.78)');
+    radGrad.addColorStop(0.68, 'rgba(6, 9, 18, 0.40)');
+    radGrad.addColorStop(1, 'rgba(2, 3, 6, 0.0)');
     ctx.fillStyle = radGrad;
     ctx.fillRect(0, 0, size, size);
 
     // 3. 伴随小春专属主题色的极微暗暮暖粉光晕 (给予纯冷暗场以生命温度)
-    const warmRadius = size * 0.45;
-    const warmGrad = ctx.createRadialGradient(cx, cy * 0.96, 0, cx, cy * 0.96, warmRadius);
-    warmGrad.addColorStop(0, 'rgba(234, 131, 119, 0.075)'); // 极轻微的 7.5% 珊瑚暖色漫射
-    warmGrad.addColorStop(0.5, 'rgba(200, 100, 110, 0.025)');
+    const warmRadius = size * 0.42;
+    const warmGrad = ctx.createRadialGradient(cx, cy * 0.98, 0, cx, cy * 0.98, warmRadius);
+    warmGrad.addColorStop(0, 'rgba(234, 131, 119, 0.085)'); // 极轻微的 8.5% 珊瑚暖色漫射
+    warmGrad.addColorStop(0.48, 'rgba(200, 100, 110, 0.025)');
     warmGrad.addColorStop(1, 'rgba(0, 0, 0, 0.0)');
     ctx.fillStyle = warmGrad;
     ctx.fillRect(0, 0, size, size);
@@ -94,7 +96,6 @@ export class VoidWorld {
     const imgData = ctx.getImageData(0, 0, size, size);
     const data = imgData.data;
     const len = data.length;
-    // 稀疏高频微量噪声 (+/- 1~2 色阶)
     for (let i = 0; i < len; i += 16) {
       const noise = (Math.random() - 0.5) * 3;
       data[i] = Math.max(0, Math.min(255, data[i] + noise));
@@ -104,10 +105,13 @@ export class VoidWorld {
     ctx.putImageData(imgData, 0, 0);
   }
 
-  /** 生成晶莹微发光星尘粒子贴图 (中心纯白凝聚，边缘柔和泛光，偶带微十字光芒) */
+  /**
+   * 生成极细发光星尘微粒贴图 (Pinpoint Crystal Stardust)
+   * 采用高斯指数衰减发光微核，告别大面积肥硕白球，呈现晶莹剔透的高级星钻感
+   */
   private createStardustParticleTexture(): THREE.CanvasTexture | null {
     if (typeof document === 'undefined') return null;
-    const size = 64;
+    const size = 128;
     const canvas = document.createElement('canvas');
     canvas.width = size;
     canvas.height = size;
@@ -117,79 +121,91 @@ export class VoidWorld {
     const cx = size / 2;
     const cy = size / 2;
 
-    // 柔光微晕
-    const grad = ctx.createRadialGradient(cx, cy, 0, cx, cy, cx);
+    // 柔光微核 (高锐度中心点 + 极柔散焦外晕)
+    const grad = ctx.createRadialGradient(cx, cy, 0, cx, cy, cx * 0.85);
     grad.addColorStop(0, 'rgba(255, 255, 255, 1.0)');
-    grad.addColorStop(0.18, 'rgba(240, 245, 255, 0.85)');
-    grad.addColorStop(0.45, 'rgba(210, 225, 255, 0.35)');
-    grad.addColorStop(0.80, 'rgba(160, 190, 255, 0.08)');
+    grad.addColorStop(0.08, 'rgba(255, 255, 255, 0.95)');
+    grad.addColorStop(0.22, 'rgba(220, 235, 255, 0.55)');
+    grad.addColorStop(0.48, 'rgba(180, 205, 255, 0.18)');
+    grad.addColorStop(0.78, 'rgba(150, 180, 255, 0.04)');
     grad.addColorStop(1.0, 'rgba(0, 0, 0, 0.0)');
 
     ctx.fillStyle = grad;
     ctx.beginPath();
-    ctx.arc(cx, cy, cx, 0, Math.PI * 2);
+    ctx.arc(cx, cy, cx * 0.85, 0, Math.PI * 2);
     ctx.fill();
-
-    // 核心微弱十字光晕细线 (增加科幻空间星象质感)
-    ctx.strokeStyle = 'rgba(255, 255, 255, 0.28)';
-    ctx.lineWidth = 1;
-    ctx.beginPath();
-    ctx.moveTo(cx - 16, cy);
-    ctx.lineTo(cx + 16, cy);
-    ctx.moveTo(cx, cy - 16);
-    ctx.lineTo(cx, cy + 16);
-    ctx.stroke();
 
     const texture = new THREE.CanvasTexture(canvas);
     this.disposables.push(texture);
     return texture;
   }
 
-  /** 构建 3D 深空浮游星尘微粒 */
+  /** 构建 3D 深空细致微尘流系统 (上升微光流萤/星尘) */
   private buildStardustSystem(): void {
     const count = this.particleCount;
     const positions = new Float32Array(count * 3);
-    const initialPos = new Float32Array(count * 3);
-    const phases = new Float32Array(count);
+    const colors = new Float32Array(count * 3);
     const speeds = new Float32Array(count);
+    const phases = new Float32Array(count);
+    const radii = new Float32Array(count);
+    const angles = new Float32Array(count);
+    const baseColors = new Float32Array(count * 3);
 
-    // 在以角色为中心、半径 6m ~ 28m 的三维球壳深空空间随机散布
+    // 4 种精雕细琢的高级星光基色 (钻石白 / 冰魄蓝 / 丁香微紫 / 浅金珊瑚)
+    const palette = [
+      new THREE.Color(0xffffff), // 钻石纯白 (45%)
+      new THREE.Color(0xd6e8ff), // 冰魄微蓝 (25%)
+      new THREE.Color(0xe8ddff), // 丁香微紫 (20%)
+      new THREE.Color(0xffecea), // 浅金珊瑚微温 (10%)
+    ];
+
     for (let i = 0; i < count; i++) {
       const idx = i * 3;
-      const radius = 6.0 + Math.random() * 22.0;
-      const theta = Math.random() * Math.PI * 2;
-      const phi = Math.acos(2 * Math.random() - 1);
+      // 以角色为中心立体环抱 (半径 0.75m ~ 3.6m，避开面部核心遮挡)
+      const r = 0.75 + Math.random() * 2.85;
+      const angle = Math.random() * Math.PI * 2;
+      // 高度自脚底下方 -0.4m 到头顶上方 2.6m 之间均匀散布
+      const y = -0.4 + Math.random() * 3.0;
 
-      const x = radius * Math.sin(phi) * Math.cos(theta);
-      const y = radius * Math.sin(phi) * Math.sin(theta) + 0.8; // 中心稍偏高
-      const z = radius * Math.cos(phi) - 2.0;
-
-      positions[idx] = x;
-      positions[idx + 1] = y;
-      positions[idx + 2] = z;
-
-      initialPos[idx] = x;
-      initialPos[idx + 1] = y;
-      initialPos[idx + 2] = z;
-
+      radii[i] = r;
+      angles[i] = angle;
+      // 轻灵微上升速率 (0.07m/s ~ 0.16m/s，柔美诗意缓浮)
+      speeds[i] = 0.07 + Math.random() * 0.09;
       phases[i] = Math.random() * Math.PI * 2;
-      speeds[i] = 0.4 + Math.random() * 0.8;
+
+      positions[idx] = Math.cos(angle) * r;
+      positions[idx + 1] = y;
+      positions[idx + 2] = Math.sin(angle) * r * 0.75; // Z 轴略微压扁，形成自然环绕光幕
+
+      // 赋予微弱不同星系基色
+      const pColor = palette[Math.floor(Math.random() * palette.length)];
+      colors[idx] = pColor.r;
+      colors[idx + 1] = pColor.g;
+      colors[idx + 2] = pColor.b;
+
+      baseColors[idx] = pColor.r;
+      baseColors[idx + 1] = pColor.g;
+      baseColors[idx + 2] = pColor.b;
     }
 
     const geo = new THREE.BufferGeometry();
     geo.setAttribute('position', new THREE.BufferAttribute(positions, 3));
+    geo.setAttribute('color', new THREE.BufferAttribute(colors, 3));
     this.particleGeo = geo;
-    this.initialPositions = initialPos;
-    this.particlePhases = phases;
     this.particleSpeeds = speeds;
+    this.particlePhases = phases;
+    this.particleRadii = radii;
+    this.particleAngles = angles;
+    this.baseColors = baseColors;
     this.disposables.push(geo);
 
     const pTex = this.createStardustParticleTexture();
     const mat = new THREE.PointsMaterial({
-      size: 0.38,
+      size: 0.052, // 极其细腻的晶莹微尘尺寸 (0.052m，远离原先 0.38m 肥硕大球)
       map: pTex ?? undefined,
       transparent: true,
-      opacity: 0.65,
+      opacity: 0.72,
+      vertexColors: true,
       blending: THREE.AdditiveBlending,
       depthWrite: false,
       depthTest: true,
@@ -243,38 +259,77 @@ export class VoidWorld {
     return this.particlesMesh;
   }
 
-  /** 每帧动画：驱动星尘微粒浮游漂移与微弱呼吸 */
-  public update(_delta: number, time: number): void {
+  /** 每帧动画：驱动星尘微粒轻灵上升流动与自然呼吸 */
+  public update(delta: number, time: number): void {
     if (!this.isBuilt || !this.active) return;
 
-    // 1. 星尘微粒缓速三维浮动与脉冲呼吸
+    // 1. 驱动微光流萤/星尘自下而上缓缓飘散
     if (
       this.particleGeo &&
-      this.initialPositions &&
-      this.particlePhases &&
+      this.particleRadii &&
+      this.particleAngles &&
       this.particleSpeeds &&
+      this.particlePhases &&
+      this.baseColors &&
       this.particleMat
     ) {
       const posAttr = this.particleGeo.attributes.position as THREE.BufferAttribute;
+      const colAttr = this.particleGeo.attributes.color as THREE.BufferAttribute;
       const pos = posAttr.array as Float32Array;
-      const init = this.initialPositions;
+      const col = colAttr.array as Float32Array;
+      const baseCol = this.baseColors;
       const count = this.particleCount;
+      const dt = Math.min(delta, 0.05);
+
+      const topLimit = 2.65;
+      const bottomLimit = -0.45;
+      const totalHeight = topLimit - bottomLimit;
 
       for (let i = 0; i < count; i++) {
         const idx = i * 3;
-        const phase = this.particlePhases[i];
         const speed = this.particleSpeeds[i];
+        const phase = this.particlePhases[i];
+        const r = this.particleRadii[i];
+        const angle = this.particleAngles[i];
 
-        // 极轻微的漂浮位移 (纵深空间慢速呼吸)
-        pos[idx] = init[idx] + Math.sin(time * speed * 0.6 + phase) * 0.18;
-        pos[idx + 1] = init[idx + 1] + Math.cos(time * speed * 0.5 + phase) * 0.22;
-        pos[idx + 2] = init[idx + 2] + Math.sin(time * speed * 0.4 + phase * 1.3) * 0.15;
+        // 持续微速上升
+        pos[idx + 1] += speed * dt;
+
+        // 飞出顶界后平滑循环回底部，并重新随机径向角度
+        if (pos[idx + 1] > topLimit) {
+          pos[idx + 1] = bottomLimit + Math.random() * 0.15;
+          this.particleRadii[i] = 0.75 + Math.random() * 2.85;
+          this.particleAngles[i] = Math.random() * Math.PI * 2;
+        }
+
+        // 空间极柔和对流微摇摆 (幅度仅 3~5cm)
+        const currentAngle = angle + Math.sin(time * 0.25 + phase) * 0.08;
+        pos[idx] = Math.cos(currentAngle) * r + Math.sin(time * 0.45 + phase) * 0.04;
+        pos[idx + 2] = Math.sin(currentAngle) * r * 0.75 + Math.cos(time * 0.35 + phase) * 0.04;
+
+        // 上下边界渐隐渐现 (底部生发淡入，顶部消散淡出)，确保流动毫无突兀
+        const normalizedY = (pos[idx + 1] - bottomLimit) / totalHeight;
+        let fade = 1.0;
+        if (normalizedY < 0.15) {
+          fade = normalizedY / 0.15;
+        } else if (normalizedY > 0.85) {
+          fade = (1.0 - normalizedY) / 0.15;
+        }
+
+        // 微弱单个微尘明灭闪烁 (Scintillation)
+        const twinkle = 0.70 + Math.sin(time * (speed * 18.0) + phase) * 0.30;
+        const lum = Math.max(0, fade * twinkle);
+
+        col[idx] = baseCol[idx] * lum;
+        col[idx + 1] = baseCol[idx + 1] * lum;
+        col[idx + 2] = baseCol[idx + 2] * lum;
       }
-      posAttr.needsUpdate = true;
 
-      // 整体微弱闪烁呼吸
-      const globalBreath = 0.55 + Math.sin(time * 0.8) * 0.15;
-      this.particleMat.opacity = globalBreath;
+      posAttr.needsUpdate = true;
+      colAttr.needsUpdate = true;
+
+      // 整体氛围微弱宏观呼吸
+      this.particleMat.opacity = 0.70 + Math.sin(time * 0.45) * 0.08;
     }
   }
 
@@ -307,9 +362,11 @@ export class VoidWorld {
     this.particlesMesh = null;
     this.particleGeo = null;
     this.particleMat = null;
-    this.initialPositions = null;
-    this.particlePhases = null;
     this.particleSpeeds = null;
+    this.particlePhases = null;
+    this.particleRadii = null;
+    this.particleAngles = null;
+    this.baseColors = null;
     this.isBuilt = false;
     this.sceneRef = null;
   }
