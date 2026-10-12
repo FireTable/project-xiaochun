@@ -233,7 +233,7 @@ export const OnboardingTour: React.FC<OnboardingTourProps> = ({ onComplete }) =>
       setIsSpeaking(false);
       try {
         vrmEngine.stopSpeaking();
-      } catch {}
+      } catch { }
     };
     return () => {
       delete (window as any).__onboardingQuickReveal;
@@ -253,7 +253,7 @@ export const OnboardingTour: React.FC<OnboardingTourProps> = ({ onComplete }) =>
     try {
       const ctx = (vrmEngine as any).chatDirector?.ctx as AudioContext | undefined;
       if (ctx && ctx.state === 'suspended') void ctx.resume();
-    } catch {}
+    } catch { }
 
     // 优雅离场动效 260ms
     await new Promise((resolve) => setTimeout(resolve, 260));
@@ -267,47 +267,58 @@ export const OnboardingTour: React.FC<OnboardingTourProps> = ({ onComplete }) =>
   };
 
   // 视角探索任务清单 (0 ~ 5)
+// 拟物液体玻璃按键 (响应按压/按住修饰键状态)
+const LiquidGlassKey: React.FC<{ label: string; isPressed: boolean }> = ({ label, isPressed }) => {
+  return (
+    <kbd
+      className={`inline-flex items-center justify-center px-1.5 py-0.5 text-[10.5px] font-mono font-medium rounded-md border backdrop-blur-md transition-all duration-150 select-none ${
+        isPressed
+          ? 'bg-white/25 border-white/60 text-white shadow-[0_0_12px_rgba(255,255,255,0.4),inset_0_1px_2px_rgba(255,255,255,0.6)] scale-95 translate-y-[0.5px]'
+          : 'bg-white/[0.08] hover:bg-white/[0.12] border-white/20 text-white/85 shadow-[inset_0_1px_1px_rgba(255,255,255,0.25),0_2px_4px_rgba(0,0,0,0.3)]'
+      }`}
+    >
+      {label}
+    </kbd>
+  );
+};
+
+  // 视角探索任务清单 (从 1 开始编号，修饰键下沉到各任务 subtitle 作为触发指引)
   const taskItems = useMemo(() => {
     const list = [
-      {
-        id: 'modifier',
-        num: 0,
-        label: t('onboarding.cameraTaskModifier', '按住按键'),
-        subLabel: isMobileDevice ? t('onboarding.mobileHold', '长按屏幕') : `按住 ${modifierLabel} 键`,
-        done: cameraTasks.modifierDone,
-        active: cameraTasks.modifierHeld,
-        isKey: true,
-      },
       {
         id: 'orbit',
         num: 1,
         label: t('onboarding.cameraTaskOrbit', '调整 360° 环视'),
-        subLabel: t('onboarding.cameraOrbitSub', '按住按键水平左右拖动'),
+        subLabel: t('onboarding.cameraOrbitSub', '水平左右拖动'),
         done: cameraTasks.orbit360,
+        needsModifier: true,
         icon: RotateCcw,
       },
       {
         id: 'pitch',
         num: 2,
         label: t('onboarding.cameraTaskPitch', '调整俯仰角'),
-        subLabel: t('onboarding.cameraPitchSub', '按住按键垂直上下拖动'),
+        subLabel: t('onboarding.cameraPitchSub', '垂直上下拖动'),
         done: cameraTasks.pitch,
+        needsModifier: true,
         icon: ArrowUpDown,
       },
       {
         id: 'height',
         num: 3,
         label: t('onboarding.cameraTaskHeight', '调整相机高度'),
-        subLabel: t('onboarding.cameraHeightSub', '拖动左侧高度标尺滑块'),
+        subLabel: t('onboarding.cameraHeightSub', '拖动左侧标尺滑块'),
         done: cameraTasks.cameraHeight,
+        needsModifier: true,
         icon: Camera,
       },
       {
         id: 'zoom',
         num: 4,
         label: t('onboarding.cameraTaskZoom', '鼠标滚轮缩放'),
-        subLabel: t('onboarding.cameraZoomSub', '鼠标滚轮前后推拉视距'),
+        subLabel: t('onboarding.cameraZoomSub', '前后推拉镜头视距'),
         done: cameraTasks.wheelZoom,
+        needsModifier: false,
         icon: ZoomIn,
       },
     ];
@@ -317,14 +328,15 @@ export const OnboardingTour: React.FC<OnboardingTourProps> = ({ onComplete }) =>
         id: 'drag',
         num: 5,
         label: t('onboarding.cameraTaskDrag', '拖动角色'),
-        subLabel: t('onboarding.cameraDragSub', '直接拖拽角色移动桌面窗口'),
+        subLabel: t('onboarding.cameraDragSub', '拖拽角色移动桌面窗口'),
         done: cameraTasks.dragCharacter,
+        needsModifier: false,
         icon: Move,
       });
     }
 
     return list;
-  }, [t, isMobileDevice, modifierLabel, cameraTasks, isTauriEnv]);
+  }, [t, cameraTasks, isTauriEnv]);
 
   const completedCount = useMemo(() => {
     return taskItems.filter((item) => item.done).length;
@@ -354,142 +366,203 @@ export const OnboardingTour: React.FC<OnboardingTourProps> = ({ onComplete }) =>
             isExiting ? 'onboarding-dock-exit' : ''
           }`}
         >
-          {/* 布局 0：视角探索特训任务清单卡片 (interaction === 'camera_drag') */}
+          {/* 布局 0：视角探索任务清单 + 独立下一步卡片 (interaction === 'camera_drag') */}
           {currentStep.interaction === 'camera_drag' && (
-            <div className="w-full max-w-lg mx-auto flex flex-col rounded-3xl bg-slate-950/90 border border-white/20 shadow-[0_12px_40px_rgba(0,0,0,0.6)] backdrop-blur-2xl p-4 sm:p-5 gap-3 onboarding-card-enter">
-              {/* 卡片头部：标题与完成计数指示器 */}
-              <div className="flex items-center justify-between border-b border-white/10 pb-2.5">
-                <div className="flex items-center gap-2">
-                  <span className="text-[10px] font-bold tracking-widest text-[#f5aa9c] bg-[#ea8377]/20 border border-[#ea8377]/35 px-2 py-0.5 rounded-full uppercase">
-                    QUEST
-                  </span>
-                  <h3 className="text-sm sm:text-[15px] font-bold text-white tracking-wide">
-                    {t('onboarding.cameraTaskListTitle', '视角探索任务')}
-                  </h3>
-                </div>
-                <div className="flex items-center gap-1.5 text-xs">
-                  <span className={`font-mono font-bold ${isAllTasksDone ? 'text-emerald-400' : 'text-amber-300'}`}>
-                    {completedCount}
-                  </span>
-                  <span className="text-white/40 font-mono">/</span>
-                  <span className="text-white/60 font-mono">{taskItems.length}</span>
-                  {isAllTasksDone && (
-                    <span className="ml-1 text-[10px] font-semibold text-emerald-400 bg-emerald-500/15 border border-emerald-500/30 px-1.5 py-0.5 rounded-full flex items-center gap-0.5">
-                      <Check className="w-3 h-3" />
-                      All Clear
-                    </span>
-                  )}
-                </div>
-              </div>
-
-              {/* 任务项清单 (0 ~ 5) */}
-              <div className="flex flex-col gap-1.5">
-                {taskItems.map((item) => {
-                  const Icon = item.icon;
-                  return (
-                    <div
-                      key={item.id}
-                      className={`flex items-center justify-between px-3 py-2 rounded-xl transition-all duration-200 border ${
-                        item.done
-                          ? 'bg-emerald-950/20 border-emerald-500/30 text-emerald-100'
-                          : item.active
-                            ? 'bg-[#ea8377]/15 border-[#ea8377]/50 text-white shadow-[0_0_15px_rgba(234,131,119,0.2)]'
-                            : 'bg-white/[0.03] border-white/10 text-white/80'
-                      }`}
-                    >
-                      <div className="flex items-center gap-2.5 min-w-0 pr-2">
-                        {/* 左侧序号与专属图标/键帽 */}
-                        <div className="flex items-center gap-1.5 shrink-0">
-                          <span className="text-xs font-mono font-semibold text-white/40 w-3 text-right">
-                            {item.num}.
-                          </span>
-                          {item.isKey ? (
-                            <kbd
-                              className={`inline-flex items-center justify-center px-2 py-0.5 text-[11px] font-mono font-black rounded-md transition-all shadow-[0_2px_4px_rgba(0,0,0,0.6)] ${
-                                item.active
-                                  ? 'bg-gradient-to-b from-amber-300 to-amber-500 text-slate-950 border border-amber-200 shadow-[0_0_12px_rgba(251,191,36,0.6)] scale-105'
-                                  : 'bg-gradient-to-b from-slate-700 via-slate-800 to-slate-950 text-amber-200 border-t border-white/30 border-x border-slate-700 border-b-2 border-slate-950'
-                              }`}
-                            >
-                              {modifierLabel}
-                            </kbd>
-                          ) : (
-                            Icon && (
-                              <div
-                                className={`w-6 h-6 rounded-lg flex items-center justify-center ${
-                                  item.done
-                                    ? 'bg-emerald-500/20 text-emerald-300'
-                                    : 'bg-white/10 text-white/70'
-                                }`}
-                              >
-                                <Icon className="w-3.5 h-3.5" />
-                              </div>
-                            )
-                          )}
-                        </div>
-
-                        {/* 任务文案 */}
-                        <div className="flex flex-col min-w-0">
-                          <span className={`text-xs sm:text-[13px] font-medium tracking-wide truncate ${item.done ? 'text-emerald-200' : 'text-white'}`}>
-                            {item.label}
-                          </span>
-                          <span className="text-[10px] sm:text-[11px] text-white/50 truncate font-normal">
-                            {item.subLabel}
-                          </span>
-                        </div>
-                      </div>
-
-                      {/* 右侧打勾状态 */}
-                      <div className="shrink-0 pl-2">
-                        {item.done ? (
-                          <div className="w-5 h-5 rounded-full bg-emerald-500 text-slate-950 flex items-center justify-center shadow-[0_0_10px_rgba(16,185,129,0.5)] animate-in zoom-in-75 duration-200">
-                            <Check className="w-3.5 h-3.5 stroke-[3]" />
-                          </div>
-                        ) : item.active ? (
-                          <div className="w-5 h-5 rounded-full border border-amber-400 bg-amber-400/20 flex items-center justify-center animate-pulse">
-                            <div className="w-2 h-2 rounded-full bg-amber-400" />
-                          </div>
-                        ) : (
-                          <div className="w-5 h-5 rounded-full border border-white/20 flex items-center justify-center">
-                            <div className="w-1.5 h-1.5 rounded-full bg-white/20" />
-                          </div>
-                        )}
-                      </div>
-                    </div>
-                  );
-                })}
-              </div>
-
-              {/* 底部行动卡片：6. 学会啦，进入下一步 */}
-              <div className="pt-1 border-t border-white/10">
-                <button
-                  type="button"
-                  onClick={() => choices[0] && void handleSelectChoice(choices[0])}
-                  className={`w-full py-3 px-4 sm:px-5 rounded-2xl flex items-center justify-between font-semibold text-sm transition-all duration-200 cursor-pointer shadow-xl active:scale-[0.98] group ${
-                    isAllTasksDone
-                      ? 'bg-gradient-to-r from-[#ea8377] to-[#e66c5f] text-white shadow-[0_0_30px_rgba(234,131,119,0.5)] border border-[#f5aa9c]'
-                      : 'bg-slate-900/90 hover:bg-slate-800/90 text-white border border-white/20 hover:border-[#ea8377]/60 hover:shadow-[0_4px_20px_rgba(234,131,119,0.25)]'
-                  }`}
-                >
+            <div className="w-full max-w-lg mx-auto flex flex-col gap-2.5 onboarding-card-enter">
+              {/* 任务清单面板 */}
+              <div className="w-full flex flex-col rounded-3xl bg-slate-950/90 border border-white/20 shadow-[0_12px_40px_rgba(0,0,0,0.6)] backdrop-blur-2xl p-4 sm:p-5 gap-3">
+                {/* 面板头部：标题与完成计数指示器 */}
+                <div className="flex items-center justify-between border-b border-white/10 pb-2.5">
                   <div className="flex items-center gap-2">
-                    <span className="text-xs font-mono font-semibold text-white/50 group-hover:text-white/80">
-                      6.
+                    <span className="text-[10px] font-bold tracking-widest text-[#f5aa9c] bg-[#ea8377]/20 border border-[#ea8377]/35 px-2 py-0.5 rounded-full uppercase">
+                      MISSION
                     </span>
-                    <span className="tracking-wide">
-                      {isAllTasksDone
-                        ? t('onboarding.cameraDoneNext', '转动好啦，看到全方位的你啦！')
-                        : t('onboarding.cameraSkipNext', '学会啦，进入下一步')}
+                    <h3 className="text-sm sm:text-[15px] font-bold text-white tracking-wide">
+                      {t('onboarding.cameraTaskListTitle', '视角探索任务')}
+                    </h3>
+                  </div>
+                  <div className="flex items-center gap-1.5 text-xs">
+                    <span className={`font-mono font-bold ${isAllTasksDone ? 'text-emerald-400' : 'text-amber-300'}`}>
+                      {completedCount}
                     </span>
+                    <span className="text-white/40 font-mono">/</span>
+                    <span className="text-white/60 font-mono">{taskItems.length}</span>
                     {isAllTasksDone && (
-                      <span className="text-[10px] bg-black/25 px-2 py-0.5 rounded-full text-amber-200 font-bold border border-amber-300/30 flex items-center gap-1">
-                        <Sparkles className="w-3 h-3 text-amber-300" />
-                        ✨
+                      <span className="ml-1 text-[10px] font-semibold text-emerald-400 bg-emerald-500/15 border border-emerald-500/30 px-1.5 py-0.5 rounded-full flex items-center gap-0.5">
+                        <Check className="w-3 h-3" />
+                        All Clear
                       </span>
                     )}
                   </div>
-                  <ChevronRight className="w-4 h-4 text-white/70 group-hover:text-white group-hover:translate-x-0.5 transition-transform" />
-                </button>
+                </div>
+
+                {/* 任务项清单 (从 1 开始编号) */}
+                <div className="flex flex-col gap-1.5">
+                  {taskItems.map((item) => {
+                    const Icon = item.icon;
+                    const isModifierActiveOnRow = item.needsModifier && cameraTasks.modifierHeld && !item.done;
+
+                    return (
+                      <div
+                        key={item.id}
+                        className={`flex items-center justify-between px-3 py-2 rounded-xl transition-all duration-200 border ${
+                          item.done
+                            ? 'bg-emerald-950/20 border-emerald-500/30 text-emerald-100'
+                            : isModifierActiveOnRow
+                              ? 'bg-white/[0.07] border-white/35 text-white shadow-[0_0_15px_rgba(255,255,255,0.08)]'
+                              : 'bg-white/[0.03] border-white/10 text-white/80'
+                        }`}
+                      >
+                        <div className="flex items-center gap-2.5 min-w-0 pr-2">
+                          {/* 左侧序号与图标 */}
+                          <div className="flex items-center gap-2 shrink-0">
+                            <span className="text-xs font-mono font-semibold text-white/40 w-3.5 text-right">
+                              {item.num}.
+                            </span>
+                            <div
+                              className={`w-6 h-6 rounded-lg flex items-center justify-center transition-colors ${
+                                item.done
+                                  ? 'bg-emerald-500/20 text-emerald-300'
+                                  : isModifierActiveOnRow
+                                    ? 'bg-white/20 text-white'
+                                    : 'bg-white/10 text-white/70'
+                              }`}
+                            >
+                              <Icon className="w-3.5 h-3.5" />
+                            </div>
+                          </div>
+
+                          {/* 任务标题与带液体玻璃按键指引的 Subtitle */}
+                          <div className="flex flex-col min-w-0">
+                            <div className="flex items-center gap-2">
+                              <span
+                                className={`text-xs sm:text-[13px] font-medium tracking-wide truncate ${
+                                  item.done ? 'text-emerald-200' : 'text-white'
+                                }`}
+                              >
+                                {item.label}
+                              </span>
+                              {!item.needsModifier && (
+                                <span className="text-[10px] text-white/40 bg-white/[0.05] border border-white/10 px-1.5 py-0.2 rounded-full font-normal">
+                                  {t('onboarding.cameraDirectAction', '无需按键')}
+                                </span>
+                              )}
+                            </div>
+
+                            {/* 副标题：对于 1/2/3 任务展示液体玻璃按键，对于滚轮任务直接展示文案 */}
+                            {item.needsModifier ? (
+                              <div className="flex items-center gap-1.5 text-[10.5px] sm:text-[11px] text-white/50 mt-0.5">
+                                <span>{t('onboarding.cameraHoldPrefix', '按住')}</span>
+                                <LiquidGlassKey label={modifierLabel} isPressed={cameraTasks.modifierHeld} />
+                                <span>{item.subLabel}</span>
+                              </div>
+                            ) : (
+                              <span className="text-[10.5px] sm:text-[11px] text-white/50 truncate font-normal mt-0.5">
+                                {item.subLabel}
+                              </span>
+                            )}
+                          </div>
+                        </div>
+
+                        {/* 右侧打勾状态 */}
+                        <div className="shrink-0 pl-2">
+                          {item.done ? (
+                            <div className="w-5 h-5 rounded-full bg-emerald-500 text-slate-950 flex items-center justify-center shadow-[0_0_10px_rgba(16,185,129,0.5)] animate-in zoom-in-75 duration-200">
+                              <Check className="w-3.5 h-3.5 stroke-[3]" />
+                            </div>
+                          ) : isModifierActiveOnRow ? (
+                            <div className="w-5 h-5 rounded-full border border-white/40 bg-white/10 flex items-center justify-center animate-pulse">
+                              <div className="w-2 h-2 rounded-full bg-white/70" />
+                            </div>
+                          ) : (
+                            <div className="w-5 h-5 rounded-full border border-white/20 flex items-center justify-center">
+                              <div className="w-1.5 h-1.5 rounded-full bg-white/20" />
+                            </div>
+                          )}
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
               </div>
+
+              {/* 独立下一步选项卡片（复用全局统一的选项卡片样式） */}
+              {choices.map((choice) => {
+                const isSelected = selectedChoiceId === choice.id;
+                const isDimmed = selectedChoiceId !== null && !isSelected;
+                const label = isAllTasksDone
+                  ? t('onboarding.cameraDoneNext', '转动好啦，看到全方位的你啦！')
+                  : choice.label;
+                const subLabel = isAllTasksDone
+                  ? t('onboarding.cameraDoneNextSub', '视角操作已掌握，进入场景探索')
+                  : choice.subLabel || t('onboarding.cameraSkipNextSub', '随时可进入下一步选择心仪场景');
+                const icon = isAllTasksDone ? '🎉' : choice.icon || '✨';
+
+                return (
+                  <button
+                    key={choice.id}
+                    type="button"
+                    onClick={() => void handleSelectChoice(choice)}
+                    className={`w-full py-3 px-4 sm:px-5 rounded-2xl bg-slate-950/80 hover:bg-slate-900/90 border text-white shadow-xl backdrop-blur-2xl flex items-center justify-between transition-all duration-200 hover:-translate-y-0.5 active:scale-[0.98] group cursor-pointer text-left overflow-hidden relative ${
+                      isSelected
+                        ? 'border-[#ea8377] bg-[#ea8377]/25 shadow-[0_0_35px_rgba(234,131,119,0.5)] scale-[1.02]'
+                        : isDimmed
+                          ? 'opacity-25 scale-95 pointer-events-none border-white/10'
+                          : isAllTasksDone
+                            ? 'border-[#ea8377]/70 bg-[#ea8377]/10 hover:border-[#ea8377] hover:bg-[#ea8377]/20 shadow-[0_0_25px_rgba(234,131,119,0.25)]'
+                            : 'border-white/15 hover:border-[#ea8377]/60 hover:shadow-[0_8px_30px_rgba(234,131,119,0.2)]'
+                    }`}
+                  >
+                    <div className="flex items-center gap-3.5 min-w-0 pr-2">
+                      {/* 左侧徽章 */}
+                      <div
+                        className={`w-10 h-10 rounded-xl flex items-center justify-center text-xl shrink-0 shadow-inner transition-all duration-200 ${
+                          isSelected || isAllTasksDone
+                            ? 'bg-[#ea8377] border border-[#f5aa9c] scale-110 shadow-[0_0_15px_rgba(234,131,119,0.5)]'
+                            : 'bg-white/10 border border-white/15 group-hover:scale-110 group-hover:bg-[#ea8377]/20 group-hover:border-[#ea8377]/40'
+                        }`}
+                      >
+                        {icon}
+                      </div>
+                      <div className="flex flex-col gap-0.5 min-w-0">
+                        <div className="flex items-center gap-2">
+                          <span
+                            className={`text-sm sm:text-[15px] font-semibold tracking-wide transition-colors truncate ${
+                              isSelected ? 'text-[#f5aa9c]' : 'text-white group-hover:text-[#f5aa9c]'
+                            }`}
+                          >
+                            {label}
+                          </span>
+                          {isAllTasksDone && (
+                            <span className="text-[10px] bg-[#ea8377]/20 border border-[#ea8377]/40 text-[#f5aa9c] px-2 py-0.5 rounded-full font-bold flex items-center gap-1">
+                              <Sparkles className="w-3 h-3" />
+                              全部达成
+                            </span>
+                          )}
+                        </div>
+                        <span className="text-[11px] sm:text-xs text-white/50 group-hover:text-white/70 transition-colors truncate font-normal">
+                          {subLabel}
+                        </span>
+                      </div>
+                    </div>
+                    <div
+                      className={`w-7 h-7 rounded-full flex items-center justify-center shrink-0 transition-all duration-200 ${
+                        isSelected || isAllTasksDone
+                          ? 'bg-[#ea8377] border border-[#f5aa9c]'
+                          : 'bg-white/5 border border-white/10 group-hover:bg-[#ea8377] group-hover:border-[#f5aa9c]'
+                      }`}
+                    >
+                      <ChevronRight
+                        className={`w-3.5 h-3.5 transition-all ${
+                          isSelected || isAllTasksDone
+                            ? 'text-white translate-x-0.5'
+                            : 'text-white/40 group-hover:text-white group-hover:translate-x-0.5'
+                        }`}
+                      />
+                    </div>
+                  </button>
+                );
+              })}
             </div>
           )}
 
@@ -506,32 +579,29 @@ export const OnboardingTour: React.FC<OnboardingTourProps> = ({ onComplete }) =>
                     type="button"
                     onClick={() => void handleSelectChoice(choice)}
                     style={{ animationDelay: `${index * 60}ms` }}
-                    className={`w-full py-3 px-4 sm:px-5 rounded-2xl bg-slate-950/80 hover:bg-slate-900/90 border text-white shadow-xl backdrop-blur-2xl flex items-center justify-between transition-all duration-200 hover:-translate-y-0.5 active:scale-[0.98] group cursor-pointer text-left overflow-hidden relative onboarding-card-enter ${
-                      isSelected
-                        ? 'border-[#ea8377] bg-[#ea8377]/25 shadow-[0_0_35px_rgba(234,131,119,0.5)] scale-[1.02]'
-                        : isDimmed
-                          ? 'opacity-25 scale-95 pointer-events-none border-white/10'
-                          : 'border-white/15 hover:border-[#ea8377]/60 hover:shadow-[0_8px_30px_rgba(234,131,119,0.2)]'
-                    }`}
+                    className={`w-full py-3 px-4 sm:px-5 rounded-2xl bg-slate-950/80 hover:bg-slate-900/90 border text-white shadow-xl backdrop-blur-2xl flex items-center justify-between transition-all duration-200 hover:-translate-y-0.5 active:scale-[0.98] group cursor-pointer text-left overflow-hidden relative onboarding-card-enter ${isSelected
+                      ? 'border-[#ea8377] bg-[#ea8377]/25 shadow-[0_0_35px_rgba(234,131,119,0.5)] scale-[1.02]'
+                      : isDimmed
+                        ? 'opacity-25 scale-95 pointer-events-none border-white/10'
+                        : 'border-white/15 hover:border-[#ea8377]/60 hover:shadow-[0_8px_30px_rgba(234,131,119,0.2)]'
+                      }`}
                   >
                     <div className="flex items-center gap-3.5 min-w-0 pr-2">
                       {/* 左侧徽章 / 国旗 / 图标 */}
                       {choice.icon && (
                         <div
-                          className={`w-10 h-10 rounded-xl flex items-center justify-center text-xl shrink-0 shadow-inner transition-all duration-200 ${
-                            isSelected
-                              ? 'bg-[#ea8377] border border-[#f5aa9c] scale-110 shadow-[0_0_15px_rgba(234,131,119,0.5)]'
-                              : 'bg-white/10 border border-white/15 group-hover:scale-110 group-hover:bg-[#ea8377]/20 group-hover:border-[#ea8377]/40'
-                          }`}
+                          className={`w-10 h-10 rounded-xl flex items-center justify-center text-xl shrink-0 shadow-inner transition-all duration-200 ${isSelected
+                            ? 'bg-[#ea8377] border border-[#f5aa9c] scale-110 shadow-[0_0_15px_rgba(234,131,119,0.5)]'
+                            : 'bg-white/10 border border-white/15 group-hover:scale-110 group-hover:bg-[#ea8377]/20 group-hover:border-[#ea8377]/40'
+                            }`}
                         >
                           {choice.icon}
                         </div>
                       )}
                       <div className="flex flex-col gap-0.5 min-w-0">
                         <span
-                          className={`text-sm sm:text-[15px] font-semibold tracking-wide transition-colors truncate ${
-                            isSelected ? 'text-[#f5aa9c]' : 'text-white group-hover:text-[#f5aa9c]'
-                          }`}
+                          className={`text-sm sm:text-[15px] font-semibold tracking-wide transition-colors truncate ${isSelected ? 'text-[#f5aa9c]' : 'text-white group-hover:text-[#f5aa9c]'
+                            }`}
                         >
                           {choice.label}
                         </span>
@@ -543,16 +613,14 @@ export const OnboardingTour: React.FC<OnboardingTourProps> = ({ onComplete }) =>
                       </div>
                     </div>
                     <div
-                      className={`w-7 h-7 rounded-full flex items-center justify-center shrink-0 transition-all duration-200 ${
-                        isSelected
-                          ? 'bg-[#ea8377] border border-[#f5aa9c]'
-                          : 'bg-white/5 border border-white/10 group-hover:bg-[#ea8377] group-hover:border-[#f5aa9c]'
-                      }`}
+                      className={`w-7 h-7 rounded-full flex items-center justify-center shrink-0 transition-all duration-200 ${isSelected
+                        ? 'bg-[#ea8377] border border-[#f5aa9c]'
+                        : 'bg-white/5 border border-white/10 group-hover:bg-[#ea8377] group-hover:border-[#f5aa9c]'
+                        }`}
                     >
                       <ChevronRight
-                        className={`w-3.5 h-3.5 transition-all ${
-                          isSelected ? 'text-white translate-x-0.5' : 'text-white/40 group-hover:text-white group-hover:translate-x-0.5'
-                        }`}
+                        className={`w-3.5 h-3.5 transition-all ${isSelected ? 'text-white translate-x-0.5' : 'text-white/40 group-hover:text-white group-hover:translate-x-0.5'
+                          }`}
                       />
                     </div>
                   </button>
@@ -574,13 +642,12 @@ export const OnboardingTour: React.FC<OnboardingTourProps> = ({ onComplete }) =>
                     type="button"
                     onClick={() => void handleSelectChoice(choice)}
                     style={{ animationDelay: `${index * 70}ms` }}
-                    className={`group relative flex flex-col p-2.5 sm:p-3 rounded-2xl bg-slate-950/85 hover:bg-slate-900/95 border shadow-2xl backdrop-blur-2xl transition-all duration-200 cursor-pointer text-left overflow-hidden onboarding-card-enter ${
-                      isSelected
-                        ? 'border-[#ea8377] bg-[#ea8377]/25 shadow-[0_0_35px_rgba(234,131,119,0.5)] scale-[1.02]'
-                        : isDimmed
-                          ? 'opacity-25 scale-95 pointer-events-none border-white/10'
-                          : 'border-white/20 hover:border-[#ea8377] hover:scale-[1.02] hover:shadow-[0_8px_30px_rgba(234,131,119,0.25)] active:scale-98'
-                    }`}
+                    className={`group relative flex flex-col p-2.5 sm:p-3 rounded-2xl bg-slate-950/85 hover:bg-slate-900/95 border shadow-2xl backdrop-blur-2xl transition-all duration-200 cursor-pointer text-left overflow-hidden onboarding-card-enter ${isSelected
+                      ? 'border-[#ea8377] bg-[#ea8377]/25 shadow-[0_0_35px_rgba(234,131,119,0.5)] scale-[1.02]'
+                      : isDimmed
+                        ? 'opacity-25 scale-95 pointer-events-none border-white/10'
+                        : 'border-white/20 hover:border-[#ea8377] hover:scale-[1.02] hover:shadow-[0_8px_30px_rgba(234,131,119,0.25)] active:scale-98'
+                      }`}
                   >
                     {/* 顶部视觉预览展台 (16:9 比例) */}
                     <div className="relative w-full aspect-video rounded-xl overflow-hidden bg-slate-900 border border-white/10 shadow-inner">
@@ -593,9 +660,8 @@ export const OnboardingTour: React.FC<OnboardingTourProps> = ({ onComplete }) =>
                         />
                       ) : (
                         <div
-                          className={`w-full h-full bg-gradient-to-br ${
-                            choice.mediaPreview?.gradient ?? 'from-brand-500/30 to-purple-500/30'
-                          } flex items-center justify-center text-3xl sm:text-4xl shadow-inner group-hover:scale-105 transition-transform duration-300`}
+                          className={`w-full h-full bg-gradient-to-br ${choice.mediaPreview?.gradient ?? 'from-brand-500/30 to-purple-500/30'
+                            } flex items-center justify-center text-3xl sm:text-4xl shadow-inner group-hover:scale-105 transition-transform duration-300`}
                         >
                           <span>{choice.mediaPreview?.emoji ?? '✨'}</span>
                         </div>
@@ -623,16 +689,14 @@ export const OnboardingTour: React.FC<OnboardingTourProps> = ({ onComplete }) =>
                     <div className="mt-2.5 flex flex-col gap-0.5 min-w-0">
                       <div className="flex items-center justify-between">
                         <span
-                          className={`text-xs sm:text-sm font-bold transition-colors truncate ${
-                            isSelected ? 'text-[#f5aa9c]' : 'text-white group-hover:text-[#f5aa9c]'
-                          }`}
+                          className={`text-xs sm:text-sm font-bold transition-colors truncate ${isSelected ? 'text-[#f5aa9c]' : 'text-white group-hover:text-[#f5aa9c]'
+                            }`}
                         >
                           {choice.label}
                         </span>
                         <ChevronRight
-                          className={`w-3.5 h-3.5 shrink-0 ml-1 transition-all ${
-                            isSelected ? 'text-[#f5aa9c] translate-x-0.5' : 'text-white/30 group-hover:text-white group-hover:translate-x-0.5'
-                          }`}
+                          className={`w-3.5 h-3.5 shrink-0 ml-1 transition-all ${isSelected ? 'text-[#f5aa9c] translate-x-0.5' : 'text-white/30 group-hover:text-white group-hover:translate-x-0.5'
+                            }`}
                         />
                       </div>
                       {choice.subLabel && (
