@@ -9,6 +9,7 @@ import {
   Camera,
   ZoomIn,
   Move,
+  Command,
 } from 'lucide-react';
 import { vrmEngine } from '@/core/vrmEngine';
 import { sceneManager } from '@/core/scene/sceneManager';
@@ -282,17 +283,27 @@ export const OnboardingTour: React.FC<OnboardingTourProps> = ({ onComplete }) =>
   };
 
   // 视角探索任务清单 (0 ~ 5)
-// 拟物液体玻璃按键 (响应按压/按住修饰键状态)
+// 拟物液体玻璃按键 (响应按压/按住修饰键状态，使用 SVG 矢量几何居中杜绝字体基线偏移)
 const LiquidGlassKey: React.FC<{ label: string; isPressed: boolean }> = ({ label, isPressed }) => {
+  const isCmd = label === '⌘';
+
   return (
     <kbd
-      className={`inline-flex items-center justify-center px-1.5 py-0.5 text-[10.5px] font-mono font-medium rounded-md border backdrop-blur-md transition-all duration-150 select-none ${
+      className={`inline-flex items-center justify-center shrink-0 h-[18px] ${
+        isCmd ? 'w-[18px]' : 'min-w-[18px] px-1.5'
+      } rounded-[5px] border backdrop-blur-md transition-all duration-150 select-none leading-none ${
         isPressed
-          ? 'bg-white/25 border-white/60 text-white shadow-[0_0_12px_rgba(255,255,255,0.4),inset_0_1px_2px_rgba(255,255,255,0.6)] scale-95 translate-y-[0.5px]'
+          ? 'bg-white/25 border-white/60 text-white shadow-[0_0_12px_rgba(255,255,255,0.4),inset_0_1px_2px_rgba(255,255,255,0.6)] scale-95'
           : 'bg-white/[0.08] hover:bg-white/[0.12] border-white/20 text-white/85 shadow-[inset_0_1px_1px_rgba(255,255,255,0.25),0_2px_4px_rgba(0,0,0,0.3)]'
       }`}
     >
-      {label}
+      {isCmd ? (
+        <Command className="w-2.5 h-2.5 text-current shrink-0 stroke-[2.2]" />
+      ) : (
+        <span className="text-[10px] font-sans font-medium leading-none tracking-tight">
+          {label}
+        </span>
+      )}
     </kbd>
   );
 };
@@ -461,9 +472,9 @@ const LiquidGlassKey: React.FC<{ label: string; isPressed: boolean }> = ({ label
                             {/* 副标题：对于 1/2/3 任务展示液体玻璃按键，对于滚轮任务直接展示文案 */}
                             {item.needsModifier ? (
                               <div className="flex items-center gap-1.5 text-[10.5px] sm:text-[11px] text-white/50 mt-0.5">
-                                <span>{t('onboarding.cameraHoldPrefix', '按住')}</span>
+                                <span className="leading-none">{t('onboarding.cameraHoldPrefix', '按住')}</span>
                                 <LiquidGlassKey label={modifierLabel} isPressed={cameraTasks.modifierHeld} />
-                                <span>{item.subLabel}</span>
+                                <span className="leading-none">{item.subLabel}</span>
                               </div>
                             ) : (
                               <span className="text-[10.5px] sm:text-[11px] text-white/50 truncate font-normal mt-0.5">
@@ -556,10 +567,8 @@ const LiquidGlassKey: React.FC<{ label: string; isPressed: boolean }> = ({ label
                       }`}
                     >
                       <ChevronRight
-                        className={`w-3.5 h-3.5 transition-all ${
-                          isSelected || isAllTasksDone
-                            ? 'text-white translate-x-0.5'
-                            : 'text-white/40 group-hover:text-white group-hover:translate-x-0.5'
+                        className={`w-3.5 h-3.5 transition-transform duration-200 group-hover:translate-x-0.5 ${
+                          isSelected || isAllTasksDone ? 'text-white' : 'text-white/40 group-hover:text-white'
                         }`}
                       />
                     </div>
@@ -622,7 +631,7 @@ const LiquidGlassKey: React.FC<{ label: string; isPressed: boolean }> = ({ label
                         }`}
                     >
                       <ChevronRight
-                        className={`w-3.5 h-3.5 transition-all ${isSelected ? 'text-white translate-x-0.5' : 'text-white/40 group-hover:text-white group-hover:translate-x-0.5'
+                        className={`w-3.5 h-3.5 transition-transform duration-200 group-hover:translate-x-0.5 ${isSelected ? 'text-white' : 'text-white/40 group-hover:text-white'
                           }`}
                       />
                     </div>
