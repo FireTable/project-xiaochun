@@ -558,7 +558,7 @@ export const zhCN = {
     galChoiceSkipTutorial: '不用啦，已经迫不及待想跟你聊天了！',
     galChoiceSkipTutSub: '直接进入主界面，开启日常畅聊',
     galSkipEarly: '哈哈，你太猴急啦～那好吧～',
-    galCameraAsk: '在这片空间里，你可以从各种角度看看我哦～\n下面的卡片里有一些好玩的探索任务，试着操作一下吧！',
+    galCameraAsk: '在这片空间里，你可以从各种视角看我哦～\n下面的卡片里有一些好玩的探索任务，试着操作一下吧！',
     cameraTaskListTitle: '视角探索任务',
     cameraTaskModifier: '按住按键',
     cameraHoldPrefix: '按住',
