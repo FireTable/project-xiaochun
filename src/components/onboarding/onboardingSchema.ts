@@ -227,73 +227,105 @@ export const createOnboardingSteps = (t: TFunction, i18n: I18nInstance): Record<
     ],
   },
 
-  // 5. 服装试穿选择 — 【图文卡片 (media)】
+  // 5. 服装试穿选择 — 【图文卡片 (media)】默认精选 4 套
   step_outfit_choice: {
     id: 'step_outfit_choice',
     dialogues: [
       {
         key: 'onboarding.galOutfitAsk',
-        defaultText: '唔……这身晚礼服……你喜欢吗？其实有点害羞呢……\n如果你想看别的风格，我还可以换上机能风、国风旗袍，甚至是……泳装哦？',
+        defaultText: '唔……这身晚礼服……你喜欢吗？其实有点害羞呢……\n如果你想看别的风格，我还可以换上国风旗袍、女仆装，甚至是……泳装哦？',
       },
     ],
     choiceLayout: 'media',
     getChoices: (ctx) => [
       {
-        id: 'keep_outfit',
-        label: t('onboarding.outfitKeep', '这身晚礼服就很棒'),
-        subLabel: t('onboarding.outfitKeepSub', '这套就很喜欢，先不用换啦～'),
-        image: '/previews/outfits/keep_outfit.webp',
-        badge: '👗 经典华丽',
+        id: 'xiaochun_dinner_dress',
+        label: t('onboarding.outfitDinnerDress', '华美晚礼服'),
+        subLabel: t('onboarding.outfitDinnerDressSub', '优雅黑白撞色礼服，今晚做你的专属女伴～'),
+        image: '/previews/outfits/xiaochun_dinner_dress.webp',
+        badge: '👗 经典高贵',
         mediaPreview: {
           gradient: 'from-slate-700/40 via-slate-800/30 to-slate-900/40',
           emoji: '👗',
-          description: 'Keep Current Outfit',
+          description: 'Dinner Dress',
         },
-        onSelect: () => ctx.goToStep('step_brain_choice'),
+        onSelect: async () => {
+          try {
+            localStorage.setItem('xc_wearing_outfit_key_v1', 'xiaochun_dinner_dress');
+            const addon = APP_CONFIG.model.addons.xiaochun_dinner_dress;
+            if (addon && (vrmEngine as any).currentWearingAddonKey !== 'xiaochun_dinner_dress') {
+              await vrmEngine.swapOutfit(addon.source, addon.name);
+            }
+          } catch {}
+          ctx.goToStep('step_brain_choice');
+        },
       },
-      ...Object.entries(APP_CONFIG.model.addons).map(([k, addon]) => {
-        const isBikini = k.includes('bikini');
-        const isCheongsam = k.includes('cheongsam');
-        const isMaid = k.includes('maid');
-        const isSwimsuit = k.includes('swimsuit');
-        const emoji = isBikini ? '👙' : isCheongsam ? '🌸' : isMaid ? '🎀' : isSwimsuit ? '🏊‍♀️' : '⚡';
-        const badge = isBikini
-          ? '👙 清凉泳装'
-          : isCheongsam
-            ? '🌸 国风典雅'
-            : isMaid
-              ? '🎀 萌系女仆'
-              : isSwimsuit
-                ? '🏊‍♀️ 竞技泳衣'
-                : '⚡ 战术机甲';
-        const gradient = isBikini
-          ? 'from-sky-400/30 via-teal-400/20 to-cyan-400/30'
-          : isCheongsam
-            ? 'from-rose-500/30 via-pink-400/20 to-amber-400/30'
-            : 'from-purple-500/30 via-indigo-400/20 to-blue-400/30';
-        const subLabel = isBikini
-          ? t('onboarding.outfitBikiniSub', '清凉夏日泳装，心跳加速中……')
-          : isCheongsam
-            ? t('onboarding.outfitCheongsamSub', '典雅温婉，尽显曼妙身姿～')
-            : t('onboarding.outfitTechwearSub', '酷飒机甲风，今天超神气！');
-
-        return {
-          id: k,
-          label: addon.name.replace('XiaoChun ', ''),
-          subLabel,
-          image: `/previews/outfits/${k}.webp`,
-          badge,
-          mediaPreview: {
-            gradient,
-            emoji,
-            description: addon.name,
-          },
-          onSelect: async () => {
-            await vrmEngine.swapOutfit(addon.source, addon.name);
-            ctx.goToStep('step_brain_choice');
-          },
-        };
-      }),
+      {
+        id: 'xiaochun_cheongsam',
+        label: t('onboarding.outfitCheongsam', '国风旗袍'),
+        subLabel: t('onboarding.outfitCheongsamSub', '典雅温婉，尽显曼妙身姿～'),
+        image: '/previews/outfits/xiaochun_cheongsam.webp',
+        badge: '🌸 国风典雅',
+        mediaPreview: {
+          gradient: 'from-rose-500/30 via-pink-400/20 to-amber-400/30',
+          emoji: '🌸',
+          description: 'Cheongsam',
+        },
+        onSelect: async () => {
+          try {
+            localStorage.setItem('xc_wearing_outfit_key_v1', 'xiaochun_cheongsam');
+            const addon = APP_CONFIG.model.addons.xiaochun_cheongsam;
+            if (addon) {
+              await vrmEngine.swapOutfit(addon.source, addon.name);
+            }
+          } catch {}
+          ctx.goToStep('step_brain_choice');
+        },
+      },
+      {
+        id: 'xiaochun_maid',
+        label: t('onboarding.outfitMaid', '萌系女仆'),
+        subLabel: t('onboarding.outfitMaidSub', '黑白围裙，今天想让我为你做些什么呢？'),
+        image: '/previews/outfits/xiaochun_maid.webp',
+        badge: '🎀 萌系女仆',
+        mediaPreview: {
+          gradient: 'from-purple-500/30 via-pink-400/20 to-indigo-400/30',
+          emoji: '🎀',
+          description: 'Maid',
+        },
+        onSelect: async () => {
+          try {
+            localStorage.setItem('xc_wearing_outfit_key_v1', 'xiaochun_maid');
+            const addon = APP_CONFIG.model.addons.xiaochun_maid;
+            if (addon) {
+              await vrmEngine.swapOutfit(addon.source, addon.name);
+            }
+          } catch {}
+          ctx.goToStep('step_brain_choice');
+        },
+      },
+      {
+        id: 'xiaochun_bikini',
+        label: t('onboarding.outfitBikini', '清凉比基尼'),
+        subLabel: t('onboarding.outfitBikiniSub', '清凉夏日泳装，心跳加速中……'),
+        image: '/previews/outfits/xiaochun_bikini.webp',
+        badge: '👙 清凉泳装',
+        mediaPreview: {
+          gradient: 'from-sky-400/30 via-teal-400/20 to-cyan-400/30',
+          emoji: '👙',
+          description: 'Bikini',
+        },
+        onSelect: async () => {
+          try {
+            localStorage.setItem('xc_wearing_outfit_key_v1', 'xiaochun_bikini');
+            const addon = APP_CONFIG.model.addons.xiaochun_bikini;
+            if (addon) {
+              await vrmEngine.swapOutfit(addon.source, addon.name);
+            }
+          } catch {}
+          ctx.goToStep('step_brain_choice');
+        },
+      },
     ],
   },
 

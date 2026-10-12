@@ -143,7 +143,7 @@ async function runE2ETests() {
   logStep('Branch A - Step 5: Outfit Selection (Media Previews)');
   await waitForChoices(3);
   await takeScreenshot('branch_a_05_outfit_selection_media');
-  await clickChoiceByText('Techwear');
+  await clickChoiceByText('晚礼服');
   await sleep(1000);
 
   // Step 6: AI Brain Connection Choice
