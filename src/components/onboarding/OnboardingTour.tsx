@@ -117,31 +117,41 @@ export const OnboardingTour: React.FC<OnboardingTourProps> = ({ onComplete }) =>
     (window as any).__onboardingSetRotated = setHasRotated;
     (window as any).__onboardingSetCameraTasks = setCameraTasks;
 
-    // 1. 订阅 InteractionController 状态变化 (修饰键按下状态 + 拖动状态)
+    // 1. 订阅 InteractionController 状态变化 (修饰键按下状态)
     const unsubState = vrmEngine.interaction.onStateChange((state) => {
       if (state.isModifierActive) {
         setCameraTasks((prev) => ({ ...prev, modifierHeld: true, modifierDone: true }));
       } else {
         setCameraTasks((prev) => ({ ...prev, modifierHeld: false }));
       }
-      if (state.isDragging) {
-        setHasRotated(true);
-      }
     });
 
-    // 2. 订阅底层细粒度手势 (turn dx/dy, guide-drag, move-*)
+    // 2. 订阅底层细粒度手势并累计旋转量 (累计达到足够角度/位移才触发完成，避免微触即触发)
+    let cumTurnDx = 0;
+    let cumTurnDy = 0;
+    let cumGuideDy = 0;
+    let cumWheel = 0;
+
     const unsubGesture = vrmEngine.interaction.onGesture((ev) => {
       if (ev.type === 'turn') {
-        if (Math.abs(ev.dx) >= 3) {
+        cumTurnDx += Math.abs(ev.dx);
+        cumTurnDy += Math.abs(ev.dy);
+
+        // 任务 1：水平 360° 环视拖动（累计拖动 ≥ 100px，约对应 30°~45° 转角，真正转动角色才判定完成）
+        if (cumTurnDx >= 100) {
           setCameraTasks((prev) => ({ ...prev, orbit360: true }));
           setHasRotated(true);
         }
-        if (Math.abs(ev.dy) >= 3) {
+        // 任务 2：垂直俯仰角拖动（累计上下拖动 ≥ 65px，显著调整镜头高度俯仰角才判定完成）
+        if (cumTurnDy >= 65) {
           setCameraTasks((prev) => ({ ...prev, pitch: true }));
           setHasRotated(true);
         }
       } else if (ev.type === 'guide-drag') {
-        setCameraTasks((prev) => ({ ...prev, cameraHeight: true }));
+        cumGuideDy += Math.abs(ev.dy);
+        if (cumGuideDy >= 25) {
+          setCameraTasks((prev) => ({ ...prev, cameraHeight: true }));
+        }
       } else if (ev.type === 'move-start' || ev.type === 'move-delta') {
         setCameraTasks((prev) => ({ ...prev, dragCharacter: true }));
       }
@@ -161,9 +171,10 @@ export const OnboardingTour: React.FC<OnboardingTourProps> = ({ onComplete }) =>
     window.addEventListener('keydown', handleKeyDown);
     window.addEventListener('keyup', handleKeyUp);
 
-    // 4. 监听鼠标滚轮缩放事件
+    // 4. 监听鼠标滚轮缩放事件 (累计滚轮距离 ≥ 60，避免单次微滚误判)
     const handleWheel = (e: WheelEvent) => {
-      if (Math.abs(e.deltaY) >= 2) {
+      cumWheel += Math.abs(e.deltaY);
+      if (cumWheel >= 60) {
         setCameraTasks((prev) => ({ ...prev, wheelZoom: true }));
       }
     };
