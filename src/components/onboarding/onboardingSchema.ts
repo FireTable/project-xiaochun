@@ -103,7 +103,7 @@ export const createOnboardingSteps = (t: TFunction, i18n: I18nInstance): Record<
     dialogues: [
       {
         key: 'onboarding.galTutorialAsk',
-        defaultText: '太好啦！以后的日子请多关照啦～\n嗯……需要我带你熟悉一下这片空间的秘密吗？',
+        defaultText: '太好啦！以后的日子请多关照啦～\n嗯……需要我带你了解一下这片空间吗？',
       },
     ],
     choiceLayout: 'text',
@@ -111,7 +111,7 @@ export const createOnboardingSteps = (t: TFunction, i18n: I18nInstance): Record<
       {
         id: 'start_tut',
         icon: '✨',
-        label: t('onboarding.galChoiceStartTutorial', '好呀，带我逛逛这片空间～'),
+        label: t('onboarding.galChoiceStartTutorial', '请带我了解一下这片空间'),
         subLabel: t('onboarding.galChoiceStartTutSub', '探索视角转动、随心换装与心仪场景'),
         onSelect: () => ctx.goToStep('step_camera_intro'),
       },

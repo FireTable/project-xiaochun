@@ -262,6 +262,14 @@ export class VRMEngine {
   // 中途换模型不重建场景,只 fitCamera。
   private _sceneInitialized = false;
 
+  public getControls(): OrbitControls | null {
+    return this.controls;
+  }
+
+  public getCamera(): THREE.PerspectiveCamera | null {
+    return this.camera;
+  }
+
   public onHeightChange(callback: () => void): () => void {
     this.heightListeners.add(callback);
     return () => {

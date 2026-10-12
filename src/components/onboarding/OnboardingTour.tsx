@@ -49,7 +49,7 @@ const getOnboardingCardBaseClass = ({
   extraClass?: string;
 }) => {
   const base =
-    'bg-slate-950/40 hover:bg-slate-900/55 border text-white shadow-[inset_0_1px_1px_rgba(255,255,255,0.25),0_4px_16px_rgba(0,0,0,0.35)] transition-all duration-200 hover:-translate-y-0.5 active:scale-[0.98] group cursor-pointer text-left overflow-hidden relative';
+    'pointer-events-auto bg-slate-950/40 hover:bg-slate-900/55 border text-white shadow-[inset_0_1px_1px_rgba(255,255,255,0.25),0_4px_16px_rgba(0,0,0,0.35)] transition-all duration-200 hover:-translate-y-0.5 active:scale-[0.98] group cursor-pointer text-left overflow-hidden relative';
 
   if (isSelected) {
     return `${base} border-[#ea8377] bg-[#ea8377]/25 shadow-[inset_0_1px_2px_rgba(255,255,255,0.35),0_0_18px_rgba(234,131,119,0.4)] scale-[1.02] ${extraClass}`;
@@ -205,7 +205,8 @@ export const OnboardingTour: React.FC<OnboardingTourProps> = ({ onComplete }) =>
 
   const isMobileDevice = isMobile();
   const isTauriEnv = isTauri();
-  const modifierLabel = isMobileDevice ? t('onboarding.mobileHold', '长按') : getPrimaryModifierLabel();
+  const modifierLabel = isMobileDevice ? t('onboarding.mobileScreen', '屏幕') : getPrimaryModifierLabel();
+  const holdPrefix = isMobileDevice ? t('onboarding.cameraHoldPrefixMobile', '长按') : t('onboarding.cameraHoldPrefix', '按住');
 
   // 预热重资源 (EMAGE)
   useEffect(() => {
@@ -310,8 +311,12 @@ export const OnboardingTour: React.FC<OnboardingTourProps> = ({ onComplete }) =>
       {
         id: 'zoom',
         num: 4,
-        label: t('onboarding.cameraTaskZoom', '鼠标滚轮缩放'),
-        subLabel: t('onboarding.cameraZoomSub', '前后推拉镜头视距'),
+        label: isMobileDevice
+          ? t('onboarding.cameraTaskZoomMobile', '双指缩放')
+          : t('onboarding.cameraTaskZoom', '鼠标滚轮缩放'),
+        subLabel: isMobileDevice
+          ? t('onboarding.cameraZoomSubMobile', '调整镜头视距')
+          : t('onboarding.cameraZoomSub', '前后推拉镜头视距'),
         done: cameraTasks.wheelZoom,
         needsModifier: false,
         icon: ZoomIn,
@@ -427,7 +432,30 @@ export const OnboardingTour: React.FC<OnboardingTourProps> = ({ onComplete }) =>
     window.addEventListener('keydown', handleKeyDown);
     window.addEventListener('keyup', handleKeyUp);
 
-    // 4. 监听鼠标滚轮缩放事件 (累计滚轮距离 ≥ 60，避免单次微滚误判)
+    // 4. 监听镜头缩放变化 (支持移动端双指 Pinch 缩放、Mac 触控板缩放、鼠标滚轮推拉)
+    const controls = vrmEngine.getControls();
+    let lastDistance = controls ? controls.getDistance() : 0;
+    let cumDistanceDelta = 0;
+
+    const handleControlsChange = () => {
+      if (!controls) return;
+      const currentDistance = controls.getDistance();
+      const delta = Math.abs(currentDistance - lastDistance);
+      if (delta > 0.005) {
+        cumDistanceDelta += delta;
+        lastDistance = currentDistance;
+        // 累计视距改变 ≥ 0.10m 判定完成
+        if (cumDistanceDelta >= 0.10) {
+          setCameraTasks((prev) => (prev.wheelZoom ? prev : { ...prev, wheelZoom: true }));
+        }
+      }
+    };
+
+    if (controls) {
+      controls.addEventListener('change', handleControlsChange);
+    }
+
+    // 桌面端鼠标滚轮兜底监听 (累计滚轮距离 ≥ 60，避免单次微滚误判)
     const handleWheel = (e: WheelEvent) => {
       cumWheel += Math.abs(e.deltaY);
       if (cumWheel >= 60) {
@@ -443,6 +471,9 @@ export const OnboardingTour: React.FC<OnboardingTourProps> = ({ onComplete }) =>
       unsubGesture();
       window.removeEventListener('keydown', handleKeyDown);
       window.removeEventListener('keyup', handleKeyUp);
+      if (controls) {
+        controls.removeEventListener('change', handleControlsChange);
+      }
       window.removeEventListener('wheel', handleWheel);
     };
   }, [currentStep.interaction, isSpeaking]);
@@ -583,15 +614,15 @@ export const OnboardingTour: React.FC<OnboardingTourProps> = ({ onComplete }) =>
       {/* 选项区域：角色说完台词后（!isSpeaking）平滑浮现 */}
       {!isSpeaking && choices.length > 0 && (
         <div
-          className={`relative z-30 pointer-events-auto w-full mx-auto mt-auto mb-8 sm:mb-12 transition-all duration-300 ${
+          className={`relative z-30 pointer-events-none w-full mx-auto mt-auto mb-8 sm:mb-12 transition-all duration-300 ${
             isExiting ? 'onboarding-dock-exit' : ''
           }`}
         >
           {/* 布局 0：视角探索任务清单 + 独立下一步卡片 (interaction === 'camera_drag') */}
           {currentStep.interaction === 'camera_drag' && (
-            <div className="w-full max-w-lg mx-auto flex flex-col gap-2.5 onboarding-card-enter">
-              {/* 任务清单面板 (高通透液态玻璃质感) */}
-              <div className="w-full flex flex-col rounded-3xl bg-slate-950/40 border border-white/20 shadow-[inset_0_1px_1px_rgba(255,255,255,0.2),0_12px_40px_rgba(0,0,0,0.4)] p-4 sm:p-5 gap-3">
+            <div className="w-full max-w-lg mx-auto flex flex-col gap-2.5 onboarding-card-enter pointer-events-none">
+              {/* 任务清单面板 (高通透液态玻璃质感，移动端下触控完全穿透到底层 3D 画布与标尺) */}
+              <div className="w-full flex flex-col rounded-3xl bg-slate-950/40 border border-white/20 shadow-[inset_0_1px_1px_rgba(255,255,255,0.2),0_12px_40px_rgba(0,0,0,0.4)] p-4 sm:p-5 gap-3 pointer-events-none">
                 {/* 面板头部：标题与完成计数指示器 */}
                 <div className="flex items-center justify-between border-b border-white/10 pb-2.5">
                   <div className="flex items-center gap-2">
@@ -667,7 +698,7 @@ export const OnboardingTour: React.FC<OnboardingTourProps> = ({ onComplete }) =>
                             {/* 副标题：对于 1/2/3 任务展示液体玻璃按键，对于滚轮任务直接展示文案 */}
                             {item.needsModifier ? (
                               <div className="flex items-center gap-1.5 text-[10.5px] sm:text-[11px] text-white/75 mt-0.5 drop-shadow-[0_1px_2px_rgba(0,0,0,0.9)]">
-                                <span className="leading-none text-white/60">{t('onboarding.cameraHoldPrefix', '按住')}</span>
+                                <span className="leading-none text-white/60">{holdPrefix}</span>
                                 <LiquidGlassKey label={modifierLabel} isPressed={cameraTasks.modifierHeld} />
                                 <span className="leading-none text-white/80">{item.subLabel}</span>
                               </div>
