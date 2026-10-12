@@ -159,7 +159,7 @@ export const createOnboardingSteps = (t: TFunction, i18n: I18nInstance): Record<
     getChoices: (ctx) => [
       {
         id: 'beach3d',
-        label: t('onboarding.sceneBeach', '阳光沙滩'),
+        label: t('onboarding.sceneBeach', '阳光海滩'),
         subLabel: t('onboarding.sceneBeachSub', '听海浪吹吹风，一起去度假吧～'),
         image: '/previews/scenes/beach3d.webp',
         badge: '🏝️ 3D World',
@@ -175,7 +175,7 @@ export const createOnboardingSteps = (t: TFunction, i18n: I18nInstance): Record<
       },
       {
         id: 'light',
-        label: t('onboarding.sceneLight', '极简昼白'),
+        label: t('onboarding.sceneLight', '昼白线稿'),
         subLabel: t('onboarding.sceneLightSub', '纯白静谧空间，只专注看着你'),
         image: '/previews/scenes/light.webp',
         badge: '☀️ Linework',
@@ -191,7 +191,7 @@ export const createOnboardingSteps = (t: TFunction, i18n: I18nInstance): Record<
       },
       {
         id: 'dark',
-        label: t('onboarding.sceneDark', '极夜星空'),
+        label: t('onboarding.sceneDark', '极夜黑线稿'),
         subLabel: t('onboarding.sceneDarkSub', '星芒微光舞台，浪漫静谧夜晚'),
         image: '/previews/scenes/dark.webp',
         badge: '🌌 Starry',
@@ -209,7 +209,7 @@ export const createOnboardingSteps = (t: TFunction, i18n: I18nInstance): Record<
         ? [
           {
             id: 'transparent',
-            label: t('onboarding.sceneTransparent', '透明桌宠'),
+            label: t('onboarding.sceneTransparent', '透明背景'),
             subLabel: t('onboarding.sceneTransparentSub', '变成桌面小透明，随时偷偷陪着你'),
             image: '/previews/scenes/transparent.webp',
             badge: '👻 Desktop Pet',

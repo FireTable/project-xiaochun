@@ -130,7 +130,7 @@ async function runE2ETests() {
   logStep('Branch A - Step 4: Scene World Selection (Media Previews)');
   await waitForChoices(3);
   await takeScreenshot('branch_a_04_scene_selection_media');
-  await clickChoiceByText('阳光沙滩');
+  await clickChoiceByText('阳光海滩');
   await sleep(1200); // Allow scene switch
 
   const selectedScene = await page.evaluate(() => window.sceneManager?.currentSceneId);
