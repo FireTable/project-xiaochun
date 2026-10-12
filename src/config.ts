@@ -62,6 +62,19 @@ export const APP_CONFIG = {
     defaultSha: 'e99fcc335a512b5a',
     spawn: { x: 0, y: 0, z: -4 },
     addons: {
+      'xiaochun_dinner_dress': {
+        source: '/vrm/addons/xiaochun_dinner_dress.vrmaddon',
+        name: 'XiaoChun Dinner Dress',
+        sha: 'bc2e42f754e635af',
+        default: true,
+        onboard: true,
+        bodyMorph: {
+          shoulderWidth: 1.05,
+          waist: 0.7,
+          bustPitch: 0.01,
+          bustSpread: -0.024,
+        },
+      },
       'xiaochun_techwear': {
         source: '/vrm/addons/xiaochun_techwear.vrmaddon',
         name: 'XiaoChun Techwear',
@@ -78,6 +91,7 @@ export const APP_CONFIG = {
         source: '/vrm/addons/xiaochun_cheongsam.vrmaddon',
         name: 'XiaoChun Cheongsam',
         sha: 'c2bf3c1591a5a22a',
+        onboard: true,
         bodyMorph: {
           waist: 0.74,
           bust: 1.2,
@@ -103,6 +117,7 @@ export const APP_CONFIG = {
         source: '/vrm/addons/xiaochun_maid.vrmaddon',
         name: 'XiaoChun Maid',
         sha: '318e2d2914d76b4d',
+        onboard: true,
         bodyMorph: {
           shoulderWidth: 1.4,
           waist: 0.7,
@@ -112,6 +127,7 @@ export const APP_CONFIG = {
         source: '/vrm/addons/xiaochun_swimsuit.vrmaddon',
         name: 'XiaoChun Swimsuit',
         sha: 'b7511150c85ce0c1',
+        onboard: true,
         bodyMorph: {
           shoulderWidth: 1.38,
           bustPitch: 0.0,
@@ -129,18 +145,6 @@ export const APP_CONFIG = {
           bustThickness: 1.06,
           bustPitch: 0,
           thighs: 0.98,
-        },
-      },
-      'xiaochun_dinner_dress': {
-        source: '/vrm/addons/xiaochun_dinner_dress.vrmaddon',
-        name: 'XiaoChun Dinner Dress',
-        sha: 'bc2e42f754e635af',
-        default: true,
-        bodyMorph: {
-          shoulderWidth: 1.05,
-          waist: 0.7,
-          bustPitch: 0.01,
-          bustSpread: -0.024,
         },
       },
       'xiaochun_office_lady': {

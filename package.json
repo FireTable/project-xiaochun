@@ -28,7 +28,6 @@
     "check:i18n": "npx tsx scripts/check-i18n.ts",
     "test": "vitest run",
     "test:embed": "node --test src/embed/__tests__/*.test.mjs",
-    "test:onboarding": "node scripts/test-onboarding-e2e.mjs",
     "generate:previews": "node scripts/generate-previews.mjs"
   },
   "engines": {

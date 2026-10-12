@@ -275,6 +275,7 @@ export interface AddonDefinition {
   name: string;
   sha: string;
   default?: boolean;
+  onboard?: boolean;
   bodyMorph?: Partial<BodyMorphConfig>;
 }
 

@@ -80,8 +80,8 @@ test('?ui= 解析: 部件名白名单; 默认空; 旧 1/true 映射为 chat+bubb
 });
 
 test('listOutfits: 带 sizeMB 提示 (未知服装没有该字段, 不含 base)', () => {
-  const list = listOutfits({ xiaochun_wedding: { source: '/w', name: 'W' }, mystery: { source: '/m', name: 'M' } });
-  assert.deepEqual(list, [{ id: 'xiaochun_wedding', name: 'W', sizeMB: 13.9 }, { id: 'mystery', name: 'M' }]);
+  const list = listOutfits({ xiaochun_dinner_dress: { source: '/w', name: 'W' }, mystery: { source: '/m', name: 'M' } });
+  assert.deepEqual(list, [{ id: 'xiaochun_dinner_dress', name: 'W', sizeMB: 4.3 }, { id: 'mystery', name: 'M' }]);
   assert.ok(!list.some((o) => o.id === 'base'));
 });
 

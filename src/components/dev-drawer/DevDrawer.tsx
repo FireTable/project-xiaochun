@@ -4,6 +4,8 @@ import { vrmEngine } from '@/core/vrmEngine';
 import { APP_CONFIG, type BodyMorphConfig } from '@/config';
 import type { MaterialSaturationSettings } from '@/core/vrmEngine';
 import { X, Sliders, RotateCcw, Copy, Check, Undo, Redo } from '@/components/icons';
+import { Compass } from 'lucide-react';
+import { ONBOARDING_STORAGE_KEY } from '@/lib/constants';
 import { SectionRenderer } from './renderer';
 import { SECTIONS } from './schema';
 import { useCollapse } from './hooks/useCollapse';
@@ -295,6 +297,14 @@ export const DevDrawer: React.FC<DevDrawerProps> = ({ isOpen, onClose }) => {
     setResetSignal((s) => s + 1);
   }, []);
 
+  const handleTriggerOnboarding = useCallback(() => {
+    onClose();
+    try {
+      localStorage.removeItem(ONBOARDING_STORAGE_KEY);
+    } catch {}
+    window.dispatchEvent(new CustomEvent('xc-trigger-onboarding'));
+  }, [onClose]);
+
   return (
     <DevDrawerContext.Provider
       value={{
@@ -405,6 +415,22 @@ export const DevDrawer: React.FC<DevDrawerProps> = ({ isOpen, onClose }) => {
           {SECTIONS.map((s) => (
             <SectionRenderer key={`${s.id}-${resetSignal}`} id={s.id} />
           ))}
+        </div>
+
+        {/* 底部吸底栏：用于测试的一键进入新手引导入口 */}
+        <div className="p-3 bg-slate-950/95 backdrop-blur-md border-t border-white/10 shrink-0">
+          <button
+            id="btn-dev-revisit-onboarding"
+            type="button"
+            onClick={handleTriggerOnboarding}
+            className="w-full py-2.5 px-3 rounded-xl bg-gradient-to-r from-[#ea8377]/15 to-[#f5aa9c]/15 hover:from-[#ea8377]/25 hover:to-[#f5aa9c]/25 border border-[#ea8377]/35 hover:border-[#ea8377]/60 text-white text-xs font-semibold flex items-center justify-center gap-2 transition-all hover:scale-[1.01] active:scale-[0.98] cursor-pointer shadow-sm group"
+          >
+            <Compass className="w-4 h-4 text-[#ea8377] group-hover:rotate-45 transition-transform duration-300" />
+            <span>{t('onboarding.revisitTutorial', '进入新手引导')}</span>
+            <span className="text-[10px] px-1.5 py-0.5 text-white/50 bg-white/10 rounded font-mono font-normal">
+              TEST
+            </span>
+          </button>
         </div>
       </aside>
     </DevDrawerContext.Provider>

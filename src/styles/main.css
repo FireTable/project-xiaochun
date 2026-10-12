@@ -399,7 +399,7 @@ html.is-tauri .dialog-overlay {
 }
 
 .onboarding-card-enter {
-  animation: onboarding-card-in 360ms cubic-bezier(0.16, 1, 0.3, 1) both;
+  animation: onboarding-card-in 360ms cubic-bezier(0.16, 1, 0.3, 1);
 }
 
 .onboarding-dock-exit {

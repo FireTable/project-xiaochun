@@ -402,6 +402,113 @@ export const OnboardingTour: React.FC<OnboardingTourProps> = ({ onComplete }) =>
   };
 
   // 视角探索任务清单 (0 ~ 5)
+// 统一卡片基础样式生成器 (统一管理半透明毛玻璃、边框、投影与交互态，确保所有卡片视觉风格完全一致)
+const getOnboardingCardBaseClass = ({
+  isSelected,
+  isDimmed,
+  isHighlighted = false,
+  extraClass = '',
+}: {
+  isSelected: boolean;
+  isDimmed: boolean;
+  isHighlighted?: boolean;
+  extraClass?: string;
+}) => {
+  const base =
+    'bg-slate-950/80 hover:bg-slate-900/90 border text-white shadow-xl backdrop-blur-2xl transition-all duration-200 hover:-translate-y-0.5 active:scale-[0.98] group cursor-pointer text-left overflow-hidden relative';
+
+  if (isSelected) {
+    return `${base} border-[#ea8377] bg-[#ea8377]/25 shadow-[0_0_35px_rgba(234,131,119,0.5)] scale-[1.02] ${extraClass}`;
+  }
+  if (isDimmed) {
+    return `${base} opacity-25 scale-95 pointer-events-none border-white/10 ${extraClass}`;
+  }
+  if (isHighlighted) {
+    return `${base} border-[#ea8377]/70 bg-[#ea8377]/10 hover:border-[#ea8377] hover:bg-[#ea8377]/20 shadow-[0_0_25px_rgba(234,131,119,0.25)] ${extraClass}`;
+  }
+  return `${base} border-white/15 hover:border-[#ea8377]/60 hover:shadow-[0_8px_30px_rgba(234,131,119,0.2)] ${extraClass}`;
+};
+
+// 统一纯文本/图标选项卡片组件 (用于语言选择、视角步骤下一步按钮、模型选择与终章)
+interface OnboardingTextChoiceCardProps {
+  label: string;
+  subLabel?: string;
+  icon?: React.ReactNode;
+  isSelected: boolean;
+  isDimmed: boolean;
+  isHighlighted?: boolean;
+  style?: React.CSSProperties;
+  onClick: () => void;
+}
+
+const OnboardingTextChoiceCard: React.FC<OnboardingTextChoiceCardProps> = ({
+  label,
+  subLabel,
+  icon,
+  isSelected,
+  isDimmed,
+  isHighlighted = false,
+  style,
+  onClick,
+}) => {
+  const cardClassName = getOnboardingCardBaseClass({
+    isSelected,
+    isDimmed,
+    isHighlighted,
+    extraClass: 'w-full py-3 px-4 sm:px-5 rounded-2xl flex items-center justify-between',
+  });
+
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      style={style}
+      className={cardClassName}
+    >
+      <div className="flex items-center gap-3.5 min-w-0 pr-2">
+        {icon && (
+          <div
+            className={`w-10 h-10 rounded-xl flex items-center justify-center text-xl shrink-0 shadow-inner transition-all duration-200 ${
+              isSelected || isHighlighted
+                ? 'bg-[#ea8377] border border-[#f5aa9c] scale-110 shadow-[0_0_15px_rgba(234,131,119,0.5)]'
+                : 'bg-white/10 border border-white/15 group-hover:scale-110 group-hover:bg-[#ea8377]/20 group-hover:border-[#ea8377]/40'
+            }`}
+          >
+            {icon}
+          </div>
+        )}
+        <div className="flex flex-col gap-0.5 min-w-0">
+          <span
+            className={`text-sm sm:text-[15px] font-semibold tracking-wide transition-colors truncate ${
+              isSelected || isHighlighted ? 'text-[#f5aa9c]' : 'text-white group-hover:text-[#f5aa9c]'
+            }`}
+          >
+            {label}
+          </span>
+          {subLabel && (
+            <span className="text-[11px] sm:text-xs text-white/50 group-hover:text-white/70 transition-colors truncate font-normal">
+              {subLabel}
+            </span>
+          )}
+        </div>
+      </div>
+      <div
+        className={`w-7 h-7 rounded-full flex items-center justify-center shrink-0 transition-all duration-200 ${
+          isSelected || isHighlighted
+            ? 'bg-[#ea8377] border border-[#f5aa9c]'
+            : 'bg-white/5 border border-white/10 group-hover:bg-[#ea8377] group-hover:border-[#f5aa9c]'
+        }`}
+      >
+        <ChevronRight
+          className={`w-3.5 h-3.5 transition-colors duration-200 ${
+            isSelected || isHighlighted ? 'text-white' : 'text-white/40 group-hover:text-white'
+          }`}
+        />
+      </div>
+    </button>
+  );
+};
+
 // 拟物液体玻璃按键 (响应按压/按住修饰键状态，使用 SVG 矢量几何居中杜绝字体基线偏移)
 const LiquidGlassKey: React.FC<{ label: string; isPressed: boolean }> = ({ label, isPressed }) => {
   const isCmd = label === '⌘';
@@ -467,7 +574,7 @@ const LiquidGlassKey: React.FC<{ label: string; isPressed: boolean }> = ({ label
           {currentStep.interaction === 'camera_drag' && (
             <div className="w-full max-w-lg mx-auto flex flex-col gap-2.5 onboarding-card-enter">
               {/* 任务清单面板 */}
-              <div className="w-full flex flex-col rounded-3xl bg-slate-950/90 border border-white/20 shadow-[0_12px_40px_rgba(0,0,0,0.6)] backdrop-blur-2xl p-4 sm:p-5 gap-3">
+              <div className="w-full flex flex-col rounded-3xl bg-slate-950/70 border border-white/15 shadow-[0_12px_40px_rgba(0,0,0,0.5)] backdrop-blur-2xl p-4 sm:p-5 gap-3">
                 {/* 面板头部：标题与完成计数指示器 */}
                 <div className="flex items-center justify-between border-b border-white/10 pb-2.5">
                   <div className="flex items-center gap-2">
@@ -577,7 +684,7 @@ const LiquidGlassKey: React.FC<{ label: string; isPressed: boolean }> = ({ label
                 </div>
               </div>
 
-              {/* 独立下一步选项卡片（复用全局统一的选项卡片样式，仅当全部任务完成时才切换为达成态） */}
+              {/* 独立下一步选项卡片（复用全局统一的选项卡片组件与半透明毛玻璃样式） */}
               {choices.map((choice) => {
                 const isSelected = selectedChoiceId === choice.id;
                 const isDimmed = selectedChoiceId !== null && !isSelected;
@@ -590,60 +697,16 @@ const LiquidGlassKey: React.FC<{ label: string; isPressed: boolean }> = ({ label
                 const icon = isAllTasksDone ? '🎉' : '👉';
 
                 return (
-                  <button
+                  <OnboardingTextChoiceCard
                     key={choice.id}
-                    type="button"
+                    label={label}
+                    subLabel={subLabel}
+                    icon={icon}
+                    isSelected={isSelected}
+                    isDimmed={isDimmed}
+                    isHighlighted={isAllTasksDone}
                     onClick={() => void handleSelectChoice(choice)}
-                    className={`w-full py-3 px-4 sm:px-5 rounded-2xl bg-slate-950/80 hover:bg-slate-900/90 border text-white shadow-xl backdrop-blur-2xl flex items-center justify-between transition-all duration-200 hover:-translate-y-0.5 active:scale-[0.98] group cursor-pointer text-left overflow-hidden relative ${
-                      isSelected
-                        ? 'border-[#ea8377] bg-[#ea8377]/25 shadow-[0_0_35px_rgba(234,131,119,0.5)] scale-[1.02]'
-                        : isDimmed
-                          ? 'opacity-25 scale-95 pointer-events-none border-white/10'
-                          : isAllTasksDone
-                            ? 'border-[#ea8377]/70 bg-[#ea8377]/10 hover:border-[#ea8377] hover:bg-[#ea8377]/20 shadow-[0_0_25px_rgba(234,131,119,0.25)]'
-                            : 'border-white/15 hover:border-[#ea8377]/60 hover:shadow-[0_8px_30px_rgba(234,131,119,0.2)]'
-                    }`}
-                  >
-                    <div className="flex items-center gap-3.5 min-w-0 pr-2">
-                      {/* 左侧徽章 */}
-                      <div
-                        className={`w-10 h-10 rounded-xl flex items-center justify-center text-xl shrink-0 shadow-inner transition-all duration-200 ${
-                          isSelected || isAllTasksDone
-                            ? 'bg-[#ea8377] border border-[#f5aa9c] scale-110 shadow-[0_0_15px_rgba(234,131,119,0.5)]'
-                            : 'bg-white/10 border border-white/15 group-hover:scale-110 group-hover:bg-[#ea8377]/20 group-hover:border-[#ea8377]/40'
-                        }`}
-                      >
-                        {icon}
-                      </div>
-                      <div className="flex flex-col gap-0.5 min-w-0">
-                        <div className="flex items-center gap-2">
-                          <span
-                            className={`text-sm sm:text-[15px] font-semibold tracking-wide transition-colors truncate ${
-                              isSelected ? 'text-[#f5aa9c]' : 'text-white group-hover:text-[#f5aa9c]'
-                            }`}
-                          >
-                            {label}
-                          </span>
-                        </div>
-                        <span className="text-[11px] sm:text-xs text-white/50 group-hover:text-white/70 transition-colors truncate font-normal">
-                          {subLabel}
-                        </span>
-                      </div>
-                    </div>
-                    <div
-                      className={`w-7 h-7 rounded-full flex items-center justify-center shrink-0 transition-all duration-200 ${
-                        isSelected || isAllTasksDone
-                          ? 'bg-[#ea8377] border border-[#f5aa9c]'
-                          : 'bg-white/5 border border-white/10 group-hover:bg-[#ea8377] group-hover:border-[#f5aa9c]'
-                      }`}
-                    >
-                      <ChevronRight
-                        className={`w-3.5 h-3.5 transition-colors duration-200 ${
-                          isSelected || isAllTasksDone ? 'text-white' : 'text-white/40 group-hover:text-white'
-                        }`}
-                      />
-                    </div>
-                  </button>
+                  />
                 );
               })}
             </div>
@@ -651,62 +714,22 @@ const LiquidGlassKey: React.FC<{ label: string; isPressed: boolean }> = ({ label
 
           {/* 布局 1：纯文字/图标精致卡片 (text, 非视角教学) */}
           {currentStep.choiceLayout === 'text' && currentStep.interaction !== 'camera_drag' && (
-            <div className="w-full max-w-md mx-auto flex flex-col gap-2.5">
+            <div className="w-full max-w-lg mx-auto flex flex-col gap-2.5 onboarding-card-enter">
               {choices.map((choice, index) => {
                 const isSelected = selectedChoiceId === choice.id;
                 const isDimmed = selectedChoiceId !== null && !isSelected;
 
                 return (
-                  <button
+                  <OnboardingTextChoiceCard
                     key={choice.id}
-                    type="button"
-                    onClick={() => void handleSelectChoice(choice)}
+                    label={choice.label}
+                    subLabel={choice.subLabel}
+                    icon={choice.icon}
+                    isSelected={isSelected}
+                    isDimmed={isDimmed}
                     style={{ animationDelay: `${index * 60}ms` }}
-                    className={`w-full py-3 px-4 sm:px-5 rounded-2xl bg-slate-950/80 hover:bg-slate-900/90 border text-white shadow-xl backdrop-blur-2xl flex items-center justify-between transition-all duration-200 hover:-translate-y-0.5 active:scale-[0.98] group cursor-pointer text-left overflow-hidden relative onboarding-card-enter ${isSelected
-                      ? 'border-[#ea8377] bg-[#ea8377]/25 shadow-[0_0_35px_rgba(234,131,119,0.5)] scale-[1.02]'
-                      : isDimmed
-                        ? 'opacity-25 scale-95 pointer-events-none border-white/10'
-                        : 'border-white/15 hover:border-[#ea8377]/60 hover:shadow-[0_8px_30px_rgba(234,131,119,0.2)]'
-                      }`}
-                  >
-                    <div className="flex items-center gap-3.5 min-w-0 pr-2">
-                      {/* 左侧徽章 / 国旗 / 图标 */}
-                      {choice.icon && (
-                        <div
-                          className={`w-10 h-10 rounded-xl flex items-center justify-center text-xl shrink-0 shadow-inner transition-all duration-200 ${isSelected
-                            ? 'bg-[#ea8377] border border-[#f5aa9c] scale-110 shadow-[0_0_15px_rgba(234,131,119,0.5)]'
-                            : 'bg-white/10 border border-white/15 group-hover:scale-110 group-hover:bg-[#ea8377]/20 group-hover:border-[#ea8377]/40'
-                            }`}
-                        >
-                          {choice.icon}
-                        </div>
-                      )}
-                      <div className="flex flex-col gap-0.5 min-w-0">
-                        <span
-                          className={`text-sm sm:text-[15px] font-semibold tracking-wide transition-colors truncate ${isSelected ? 'text-[#f5aa9c]' : 'text-white group-hover:text-[#f5aa9c]'
-                            }`}
-                        >
-                          {choice.label}
-                        </span>
-                        {choice.subLabel && (
-                          <span className="text-[11px] sm:text-xs text-white/50 group-hover:text-white/70 transition-colors truncate font-normal">
-                            {choice.subLabel}
-                          </span>
-                        )}
-                      </div>
-                    </div>
-                    <div
-                      className={`w-7 h-7 rounded-full flex items-center justify-center shrink-0 transition-all duration-200 ${isSelected
-                        ? 'bg-[#ea8377] border border-[#f5aa9c]'
-                        : 'bg-white/5 border border-white/10 group-hover:bg-[#ea8377] group-hover:border-[#f5aa9c]'
-                        }`}
-                    >
-                      <ChevronRight
-                        className={`w-3.5 h-3.5 transition-colors duration-200 ${isSelected ? 'text-white' : 'text-white/40 group-hover:text-white'
-                          }`}
-                      />
-                    </div>
-                  </button>
+                    onClick={() => void handleSelectChoice(choice)}
+                  />
                 );
               })}
             </div>
@@ -718,6 +741,11 @@ const LiquidGlassKey: React.FC<{ label: string; isPressed: boolean }> = ({ label
               {choices.map((choice, index) => {
                 const isSelected = selectedChoiceId === choice.id;
                 const isDimmed = selectedChoiceId !== null && !isSelected;
+                const cardClassName = getOnboardingCardBaseClass({
+                  isSelected,
+                  isDimmed,
+                  extraClass: 'flex flex-col p-2.5 sm:p-3 rounded-2xl shadow-2xl active:scale-98',
+                });
 
                 return (
                   <button
@@ -725,15 +753,10 @@ const LiquidGlassKey: React.FC<{ label: string; isPressed: boolean }> = ({ label
                     type="button"
                     onClick={() => void handleSelectChoice(choice)}
                     style={{ animationDelay: `${index * 70}ms` }}
-                    className={`group relative flex flex-col p-2.5 sm:p-3 rounded-2xl bg-slate-950/85 hover:bg-slate-900/95 border shadow-2xl backdrop-blur-2xl transition-all duration-200 cursor-pointer text-left overflow-hidden onboarding-card-enter ${isSelected
-                      ? 'border-[#ea8377] bg-[#ea8377]/25 shadow-[0_0_35px_rgba(234,131,119,0.5)] scale-[1.02]'
-                      : isDimmed
-                        ? 'opacity-25 scale-95 pointer-events-none border-white/10'
-                        : 'border-white/20 hover:border-[#ea8377] hover:scale-[1.02] hover:shadow-[0_8px_30px_rgba(234,131,119,0.25)] active:scale-98'
-                      }`}
+                    className={cardClassName}
                   >
                     {/* 顶部视觉预览展台 (16:9 比例) */}
-                    <div className="relative w-full aspect-video rounded-xl overflow-hidden bg-slate-900 border border-white/10 shadow-inner">
+                    <div className="relative w-full aspect-video rounded-xl overflow-hidden bg-slate-900/60 border border-white/10 shadow-inner">
                       {choice.image ? (
                         <img
                           src={choice.image}
@@ -751,7 +774,7 @@ const LiquidGlassKey: React.FC<{ label: string; isPressed: boolean }> = ({ label
                       )}
 
                       {/* 渐变遮罩压暗底部文字衔接处 */}
-                      <div className="absolute inset-0 bg-gradient-to-t from-slate-950/90 via-slate-950/20 to-transparent pointer-events-none" />
+                      <div className="absolute inset-0 bg-gradient-to-t from-slate-950/80 via-slate-950/10 to-transparent pointer-events-none" />
 
                       {/* 选中高亮勾选标 */}
                       {isSelected && (

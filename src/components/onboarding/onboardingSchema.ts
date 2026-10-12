@@ -266,56 +266,71 @@ export const createOnboardingSteps = (t: TFunction, i18n: I18nInstance): Record<
         ctx.goToStep('step_brain_choice');
       };
 
-      return [
-        {
-          id: 'xiaochun_dinner_dress',
-          label: t('onboarding.outfitDinnerDress', '华美晚礼服'),
-          subLabel: t('onboarding.outfitDinnerDressSub', '优雅黑白撞色礼服，今晚做你的专属女伴～'),
-          image: '/previews/outfits/xiaochun_dinner_dress.webp',
-          mediaPreview: {
-            gradient: 'from-slate-700/40 via-slate-800/30 to-slate-900/40',
-            emoji: '👗',
-            description: 'Dinner Dress',
-          },
-          onSelect: () => handleSelectOutfit('xiaochun_dinner_dress'),
+      const OUTFIT_META: Record<
+        string,
+        { labelKey: string; defaultLabel: string; subKey: string; defaultSub: string; emoji: string; gradient: string }
+      > = {
+        xiaochun_dinner_dress: {
+          labelKey: 'onboarding.outfitDinnerDress',
+          defaultLabel: '华美晚礼服',
+          subKey: 'onboarding.outfitDinnerDressSub',
+          defaultSub: '优雅黑白撞色礼服，今晚做你的专属女伴～',
+          emoji: '👗',
+          gradient: 'from-slate-700/40 via-slate-800/30 to-slate-900/40',
         },
-        {
-          id: 'xiaochun_cheongsam',
-          label: t('onboarding.outfitCheongsam', '国风旗袍'),
-          subLabel: t('onboarding.outfitCheongsamSub', '典雅温婉，尽显曼妙身姿～'),
-          image: '/previews/outfits/xiaochun_cheongsam.webp',
-          mediaPreview: {
-            gradient: 'from-rose-500/30 via-pink-400/20 to-amber-400/30',
-            emoji: '🌸',
-            description: 'Cheongsam',
-          },
-          onSelect: () => handleSelectOutfit('xiaochun_cheongsam'),
+        xiaochun_cheongsam: {
+          labelKey: 'onboarding.outfitCheongsam',
+          defaultLabel: '国风旗袍',
+          subKey: 'onboarding.outfitCheongsamSub',
+          defaultSub: '典雅温婉，尽显曼妙身姿～',
+          emoji: '🌸',
+          gradient: 'from-rose-500/30 via-pink-400/20 to-amber-400/30',
         },
-        {
-          id: 'xiaochun_maid',
-          label: t('onboarding.outfitMaid', '萌系女仆'),
-          subLabel: t('onboarding.outfitMaidSub', '黑白围裙，今天想让我为你做些什么呢？'),
-          image: '/previews/outfits/xiaochun_maid.webp',
-          mediaPreview: {
-            gradient: 'from-purple-500/30 via-pink-400/20 to-indigo-400/30',
-            emoji: '🎀',
-            description: 'Maid',
-          },
-          onSelect: () => handleSelectOutfit('xiaochun_maid'),
+        xiaochun_maid: {
+          labelKey: 'onboarding.outfitMaid',
+          defaultLabel: '萌系女仆',
+          subKey: 'onboarding.outfitMaidSub',
+          defaultSub: '黑白围裙，今天想让我为你做些什么呢？',
+          emoji: '🎀',
+          gradient: 'from-purple-500/30 via-pink-400/20 to-indigo-400/30',
         },
-        {
-          id: 'xiaochun_bikini',
-          label: t('onboarding.outfitBikini', '清凉比基尼'),
-          subLabel: t('onboarding.outfitBikiniSub', '清凉夏日泳装，心跳加速中……'),
-          image: '/previews/outfits/xiaochun_bikini.webp',
-          mediaPreview: {
-            gradient: 'from-sky-400/30 via-teal-400/20 to-cyan-400/30',
-            emoji: '👙',
-            description: 'Bikini',
-          },
-          onSelect: () => handleSelectOutfit('xiaochun_bikini'),
+        xiaochun_swimsuit: {
+          labelKey: 'onboarding.outfitSwimsuit',
+          defaultLabel: '经典连体泳装',
+          subKey: 'onboarding.outfitSwimsuitSub',
+          defaultSub: '清爽水手风泳装，心跳加速中……',
+          emoji: '🩱',
+          gradient: 'from-sky-400/30 via-teal-400/20 to-cyan-400/30',
         },
-      ];
+      };
+
+      const onboardAddons = Object.entries(APP_CONFIG.model.addons).filter(
+        ([_, addon]) => addon.onboard,
+      );
+
+      return onboardAddons.map(([id, addon]) => {
+        const meta = OUTFIT_META[id] || {
+          labelKey: `onboarding.outfit_${id}`,
+          defaultLabel: addon.name,
+          subKey: `onboarding.outfitSub_${id}`,
+          defaultSub: addon.name,
+          emoji: '✨',
+          gradient: 'from-brand-500/30 to-purple-500/30',
+        };
+
+        return {
+          id,
+          label: t(meta.labelKey, meta.defaultLabel),
+          subLabel: t(meta.subKey, meta.defaultSub),
+          image: `/previews/outfits/${id}.webp`,
+          mediaPreview: {
+            gradient: meta.gradient,
+            emoji: meta.emoji,
+            description: addon.name,
+          },
+          onSelect: () => handleSelectOutfit(id),
+        };
+      });
     },
   },
 
@@ -356,7 +371,7 @@ export const createOnboardingSteps = (t: TFunction, i18n: I18nInstance): Record<
     dialogues: [
       {
         key: 'onboarding.galFinale',
-        defaultText: '耶！所有契约与准备都完成啦～从现在起，小蠢就是你的专属伙伴了！\n有什么心里话，随时在下方打字告诉我哦！',
+        defaultText: '耶！所有准备都完成啦～从现在起，小蠢就是你的专属伙伴了！\n有什么心里话，随时在下方打字告诉我哦！',
       },
     ],
     choiceLayout: 'text',
