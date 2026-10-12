@@ -1829,7 +1829,7 @@ export class VRMEngine {
             const state = { active: true as const, subtitleKey: preserveMotion ? 'swappingOutfit' : 'loadingModel', subtitleVars: { name: filename }, progress: pct };
             this.onSwapProgress?.(state);
             if (!preserveMotion) {
-              const scaledProgress = Math.min(75, Math.round(pct * 0.75));
+              const scaledProgress = Math.min(45, Math.round(pct * 0.45));
               this.reportLoading({ ...state, progress: scaledProgress });
             }
           }
@@ -2123,20 +2123,20 @@ export class VRMEngine {
         const addonSha = addonKey ? APP_CONFIG.model.addons[addonKey].sha : '';
         const composed = await this.composeVRMFromAddon(url, addonSha, { phaseLabel, subtitleVars, preserveMotion });
         if (!preserveMotion) {
-          this.reportLoading({ active: true, subtitleKey: 'parsingModel', subtitleVars, progress: 78 });
+          this.reportLoading({ active: true, subtitleKey: 'parsingModel', subtitleVars, progress: 45 });
         }
         await this.loadVRMFromBuffer(composed, filename, { preserveMotion });
         if (!preserveMotion) {
-          this.reportLoading({ active: true, subtitleKey: 'parsingModel', subtitleVars, progress: 85 });
+          this.reportLoading({ active: true, subtitleKey: 'parsingModel', subtitleVars, progress: 55 });
         }
         this.notifyOutfitChange(addonKey);
       } else if (!this.currentVRM) {
         if (!preserveMotion) {
-          this.reportLoading({ active: true, subtitleKey: 'parsingModel', subtitleVars, progress: 78 });
+          this.reportLoading({ active: true, subtitleKey: 'parsingModel', subtitleVars, progress: 45 });
         }
         await this.loadVRM(url, filename);
         if (!preserveMotion) {
-          this.reportLoading({ active: true, subtitleKey: 'parsingModel', subtitleVars, progress: 85 });
+          this.reportLoading({ active: true, subtitleKey: 'parsingModel', subtitleVars, progress: 55 });
         }
         this.notifyOutfitChange('__upload__');
       } else {
@@ -2147,7 +2147,7 @@ export class VRMEngine {
       // 冷启动阶段：等待 EMAGE 动作模型加载就绪，使 LoadingOverlay 的 04 动作管线就绪名副其实
       // 破次元进入 3D 舞台后小春开口第一句话可直接无缝做出灵动肢体动作
       if (!preserveMotion && isHeavyPreloadAllowed()) {
-        let emageProgress = 88;
+        let emageProgress = 55;
         this.reportLoading({ active: true, subtitleKey: 'madMotionSync', subtitleVars, progress: emageProgress });
         try {
           // 最多等待 25s（容纳 25~50 Mbps 宽带与移动网络冷启动拉取 68MB ONNX 及 WASM 会话编译），超时兜底放行
@@ -2158,7 +2158,7 @@ export class VRMEngine {
                 const current = Number(match[1]);
                 const total = Number(match[2]);
                 if (total > 0) {
-                  emageProgress = Math.min(98, Math.round(88 + (current / total) * 10));
+                  emageProgress = Math.min(98, Math.round(55 + (current / total) * 43));
                   this.reportLoading({ active: true, subtitleKey: 'madMotionSync', subtitleVars, progress: emageProgress });
                 }
               }
@@ -2439,8 +2439,8 @@ export class VRMEngine {
         const rawPct = e.data.pct;
         this.onSwapProgress?.({ active: true as const, subtitleKey: phaseLabel, subtitleVars: meta?.subtitleVars, progress: rawPct });
         if (meta && !meta.preserveMotion) {
-          // compose 占整个冷启动加载的 0% ~ 75% 空间，留出后段给模型解析(78~85%)与动作引擎预热(88~98%)
-          const scaledProgress = Math.min(75, Math.round(rawPct * 0.75));
+          // compose 占整个冷启动加载的 0% ~ 45% 空间，留出后段给模型解析(45~55%)与动作引擎预热(55~98%)
+          const scaledProgress = Math.min(45, Math.round(rawPct * 0.45));
           this.reportLoading({ active: true, subtitleKey: phaseLabel, subtitleVars: meta.subtitleVars, progress: scaledProgress });
         }
         return;
