@@ -63,84 +63,11 @@ export class LineworkWorld {
     driftRangeZ: number;
   }> = [];
 
-  // ── 纯粹虚空舞台系统 (Void Stage: 聚光灯微晕底座 + 星尘浮光微粒) ──
+  // ── 纯粹虚空舞台系统 (Void Stage: 极简纯净深空 + 星尘浮光微粒) ──
   private voidStageGroup: THREE.Group = new THREE.Group();
-  private voidPedestalMesh: THREE.Mesh | null = null;
   private voidParticleGeo: THREE.BufferGeometry | null = null;
   private voidParticlePositions: Float32Array | null = null;
   private voidParticleCount = 45;
-
-  /** 创建虚空舞台地面微光圆盘与法阵光环贴图 */
-  private createVoidPedestalTexture(): THREE.CanvasTexture {
-    const canvas = document.createElement('canvas');
-    canvas.width = 512;
-    canvas.height = 512;
-    const ctx = canvas.getContext('2d')!;
-    ctx.clearRect(0, 0, 512, 512);
-
-    const cx = 256;
-    const cy = 256;
-
-    // 1. 核心柔和微光池 (Soft Radial Spotlight Pool)
-    const radGrad = ctx.createRadialGradient(cx, cy, 0, cx, cy, 240);
-    radGrad.addColorStop(0, 'rgba(234, 131, 119, 0.22)');
-    radGrad.addColorStop(0.3, 'rgba(245, 170, 156, 0.12)');
-    radGrad.addColorStop(0.65, 'rgba(180, 200, 255, 0.04)');
-    radGrad.addColorStop(1.0, 'rgba(0, 0, 0, 0)');
-    ctx.fillStyle = radGrad;
-    ctx.beginPath();
-    ctx.arc(cx, cy, 240, 0, Math.PI * 2);
-    ctx.fill();
-
-    // 2. 内圈晶透星环与四向准心刻度
-    ctx.strokeStyle = 'rgba(234, 131, 119, 0.50)';
-    ctx.lineWidth = 2;
-    ctx.beginPath();
-    ctx.arc(cx, cy, 115, 0, Math.PI * 2);
-    ctx.stroke();
-
-    ctx.strokeStyle = 'rgba(245, 170, 156, 0.65)';
-    ctx.lineWidth = 2.5;
-    const ticks = [0, Math.PI / 2, Math.PI, (Math.PI * 3) / 2];
-    for (const a of ticks) {
-      const cos = Math.cos(a);
-      const sin = Math.sin(a);
-      ctx.beginPath();
-      ctx.moveTo(cx + cos * 105, cy + sin * 105);
-      ctx.lineTo(cx + cos * 125, cy + sin * 125);
-      ctx.stroke();
-    }
-
-    // 3. 中圈虚线星轨与 8 颗微星符文
-    ctx.strokeStyle = 'rgba(180, 205, 255, 0.40)';
-    ctx.lineWidth = 1.5;
-    ctx.setLineDash([6, 8]);
-    ctx.beginPath();
-    ctx.arc(cx, cy, 175, 0, Math.PI * 2);
-    ctx.stroke();
-    ctx.setLineDash([]);
-
-    ctx.fillStyle = 'rgba(200, 225, 255, 0.60)';
-    for (let i = 0; i < 8; i++) {
-      const a = (i * Math.PI) / 4;
-      const rx = cx + Math.cos(a) * 175;
-      const ry = cy + Math.sin(a) * 175;
-      ctx.beginPath();
-      ctx.arc(rx, ry, 2.5, 0, Math.PI * 2);
-      ctx.fill();
-    }
-
-    // 4. 外圈柔光扩散界环
-    ctx.strokeStyle = 'rgba(160, 190, 240, 0.22)';
-    ctx.lineWidth = 1.2;
-    ctx.beginPath();
-    ctx.arc(cx, cy, 230, 0, Math.PI * 2);
-    ctx.stroke();
-
-    const texture = new THREE.CanvasTexture(canvas);
-    this.disposables.push(texture);
-    return texture;
-  }
 
   /** 创建高采样双色阶竖向渐变 CanvasTexture */
   private createGradientTexture(topColor: string, bottomColor: string): THREE.CanvasTexture {
@@ -650,24 +577,7 @@ export class LineworkWorld {
     this.rootGroup.updateMatrix();
     scene.add(this.rootGroup);
 
-    // ── 纯粹虚空舞台底座与微粒群 ──
-    const pedestalTex = this.createVoidPedestalTexture();
-    const pedestalGeo = new THREE.PlaneGeometry(3.6, 3.6);
-    this.disposables.push(pedestalGeo);
-    const pedestalMat = new THREE.MeshBasicMaterial({
-      map: pedestalTex,
-      transparent: true,
-      opacity: 0.88,
-      depthWrite: false,
-      side: THREE.DoubleSide,
-    });
-    this.disposables.push(pedestalMat);
-    this.voidPedestalMesh = new THREE.Mesh(pedestalGeo, pedestalMat);
-    this.voidPedestalMesh.rotation.x = -Math.PI / 2;
-    this.voidPedestalMesh.position.set(0, 0.001, 0);
-    this.voidStageGroup.add(this.voidPedestalMesh);
-
-    // 虚空星尘浮光微粒 (45 颗在人物周围轻柔悬浮飘动)
+    // ── 纯粹虚空舞台微粒群 (45 颗在人物周围轻柔悬浮飘动) ──
     const voidPCount = this.voidParticleCount;
     this.voidParticlePositions = new Float32Array(voidPCount * 3);
     for (let i = 0; i < voidPCount; i++) {

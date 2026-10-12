@@ -78,11 +78,13 @@ async function runE2ETests() {
   // ==========================================
   logStep('--- TEST BRANCH A: Full Immersion Walkthrough ---');
 
-  // 1. Reset state and load onboarding
-  await page.evaluate(() => {
-    localStorage.removeItem('xc_onboarding_completed_v1');
-  });
+  // 1. Load onboarding and reset state
   await page.goto('https://localhost:5185/?onboarding=1', { waitUntil: 'domcontentloaded' });
+  await page.evaluate(() => {
+    try {
+      localStorage.removeItem('xc_onboarding_completed_v1');
+    } catch {}
+  });
   await page.waitForFunction(() => Boolean(window.vrmEngine && window.vrmEngine.currentVRM), { timeout: 25000 });
   await sleep(1000);
 
@@ -173,10 +175,12 @@ async function runE2ETests() {
   // ==========================================
   logStep('--- TEST BRANCH B: Skip Tutorial Option ---');
 
-  await page.evaluate(() => {
-    localStorage.removeItem('xc_onboarding_completed_v1');
-  });
   await page.goto('https://localhost:5185/?onboarding=1', { waitUntil: 'domcontentloaded' });
+  await page.evaluate(() => {
+    try {
+      localStorage.removeItem('xc_onboarding_completed_v1');
+    } catch {}
+  });
   await page.waitForFunction(() => Boolean(window.vrmEngine && window.vrmEngine.currentVRM), { timeout: 25000 });
   await sleep(1000);
 
@@ -208,10 +212,12 @@ async function runE2ETests() {
   // ==========================================
   logStep('--- TEST BRANCH C: Top-Right Global Skip Button ---');
 
-  await page.evaluate(() => {
-    localStorage.removeItem('xc_onboarding_completed_v1');
-  });
   await page.goto('https://localhost:5185/?onboarding=1', { waitUntil: 'domcontentloaded' });
+  await page.evaluate(() => {
+    try {
+      localStorage.removeItem('xc_onboarding_completed_v1');
+    } catch {}
+  });
   await page.waitForFunction(() => Boolean(window.vrmEngine && window.vrmEngine.currentVRM), { timeout: 25000 });
   await sleep(1000);
 

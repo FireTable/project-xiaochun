@@ -156,31 +156,18 @@ export const OnboardingTour: React.FC<OnboardingTourProps> = ({ onComplete }) =>
     };
   }, [currentStepId, t]);
 
-  // 用户点击屏幕任意处可快速略过语音等待，直接弹出选项
-  const handleQuickReveal = useCallback(() => {
-    if (isSpeaking) {
+  // 仅对外暴露测试钩子，不监听用户任何点击事件（确保等话说完再自然弹出卡片）
+  useEffect(() => {
+    (window as any).__onboardingQuickReveal = () => {
       setIsSpeaking(false);
       try {
         vrmEngine.stopSpeaking();
       } catch {}
-    }
-  }, [isSpeaking]);
-
-  useEffect(() => {
-    (window as any).__onboardingQuickReveal = handleQuickReveal;
-    if (!isSpeaking) return;
-
-    const handlePointerDown = (e: PointerEvent) => {
-      const target = e.target as HTMLElement | null;
-      if (target?.closest('button')) return;
-      handleQuickReveal();
     };
-
-    window.addEventListener('pointerdown', handlePointerDown);
     return () => {
-      window.removeEventListener('pointerdown', handlePointerDown);
+      delete (window as any).__onboardingQuickReveal;
     };
-  }, [isSpeaking, handleQuickReveal]);
+  }, []);
 
   const choices: OnboardingChoice[] = useMemo(() => {
     return currentStep.getChoices(stepContext);
@@ -210,7 +197,6 @@ export const OnboardingTour: React.FC<OnboardingTourProps> = ({ onComplete }) =>
 
   return (
     <div
-      onClick={handleQuickReveal}
       className="fixed inset-0 z-40 pointer-events-none select-none flex flex-col justify-between p-4 sm:p-6 overflow-hidden animate-in fade-in duration-500"
     >
       {/* 顶栏控制：右上角极简跳过按钮 */}
@@ -225,13 +211,12 @@ export const OnboardingTour: React.FC<OnboardingTourProps> = ({ onComplete }) =>
         </button>
       </div>
 
-      {/* 3D 视角教学时的悬浮修饰键指引条 (游戏/原神风格触控与机械键帽 HUD) */}
+      {/* 3D 视角教学时的悬浮修饰键指引条 */}
       {currentStep.interaction === 'camera_drag' && (
         <div className="relative z-20 pointer-events-auto w-fit mx-auto mt-auto mb-4 flex flex-col items-center gap-1.5 animate-in fade-in slide-in-from-bottom-3 duration-300">
           <div className="flex items-center gap-2.5 px-4 py-2 rounded-2xl bg-slate-950/90 border border-[#ea8377]/60 shadow-[0_0_25px_rgba(234,131,119,0.35),inset_0_1px_1px_rgba(255,255,255,0.2)] backdrop-blur-2xl">
             {/* 游戏风格机械键帽 */}
-            <div className="flex items-center gap-1.5">
-              <span className="text-[#f5aa9c] text-xs">✦</span>
+            <div className="flex items-center">
               <kbd className="inline-flex items-center justify-center px-2.5 py-1 text-xs font-mono font-black rounded-lg bg-gradient-to-b from-slate-700 via-slate-800 to-slate-950 text-amber-200 border-t border-white/30 border-x border-slate-700 border-b-2 border-slate-950 shadow-[0_2px_4px_rgba(0,0,0,0.6),0_0_8px_rgba(251,191,36,0.3)] tracking-wider">
                 {modifierLabel}
               </kbd>
@@ -298,18 +283,15 @@ export const OnboardingTour: React.FC<OnboardingTourProps> = ({ onComplete }) =>
                         </div>
                       )}
                       <div className="flex flex-col gap-0.5 min-w-0">
-                        <div className="flex items-center gap-1.5">
-                          <span className="text-[#f5aa9c] text-[10px] opacity-75">✦</span>
-                          <span
-                            className={`text-sm sm:text-[15px] font-semibold tracking-wide transition-colors truncate ${
-                              isSelected ? 'text-[#f5aa9c]' : 'text-white group-hover:text-[#f5aa9c]'
-                            }`}
-                          >
-                            {choice.label}
-                          </span>
-                        </div>
+                        <span
+                          className={`text-sm sm:text-[15px] font-semibold tracking-wide transition-colors truncate ${
+                            isSelected ? 'text-[#f5aa9c]' : 'text-white group-hover:text-[#f5aa9c]'
+                          }`}
+                        >
+                          {choice.label}
+                        </span>
                         {choice.subLabel && (
-                          <span className="text-[11px] sm:text-xs text-white/50 group-hover:text-white/70 transition-colors truncate font-normal pl-3.5">
+                          <span className="text-[11px] sm:text-xs text-white/50 group-hover:text-white/70 transition-colors truncate font-normal">
                             {choice.subLabel}
                           </span>
                         )}
@@ -377,10 +359,9 @@ export const OnboardingTour: React.FC<OnboardingTourProps> = ({ onComplete }) =>
                       {/* 渐变遮罩压暗底部文字衔接处 */}
                       <div className="absolute inset-0 bg-gradient-to-t from-slate-950/90 via-slate-950/20 to-transparent pointer-events-none" />
 
-                      {/* 角标 Badge (原神/二次元游戏风格) */}
+                      {/* 角标 Badge */}
                       {choice.badge && (
-                        <div className="absolute top-1.5 left-1.5 px-2 py-0.5 rounded-md bg-slate-950/80 border border-white/20 backdrop-blur-md text-[10px] sm:text-[11px] font-semibold text-white/90 shadow-sm flex items-center gap-1">
-                          <span className="text-[#f5aa9c] text-[9px]">✦</span>
+                        <div className="absolute top-1.5 left-1.5 px-2 py-0.5 rounded-md bg-slate-950/80 border border-white/20 backdrop-blur-md text-[10px] sm:text-[11px] font-semibold text-white/90 shadow-sm">
                           <span>{choice.badge}</span>
                         </div>
                       )}
