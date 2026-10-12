@@ -2111,12 +2111,23 @@ export class VRMEngine {
       // 冷启动阶段：等待 EMAGE 动作模型加载就绪，使 LoadingOverlay 的 04 动作管线就绪名副其实
       // 破次元进入 3D 舞台后小春开口第一句话可直接无缝做出灵动肢体动作
       if (!preserveMotion && isHeavyPreloadAllowed()) {
-        this.onLoadingChange?.({ active: true, subtitleKey: 'madMotionSync', subtitleVars, progress: 95 });
+        let emageProgress = 88;
+        this.onLoadingChange?.({ active: true, subtitleKey: 'madMotionSync', subtitleVars, progress: emageProgress });
         try {
-          // 最多等待 8s（弱网兜底，防止挂起），超时或加载完成立即放行
+          // 最多等待 25s（容纳 25~50 Mbps 宽带与移动网络冷启动拉取 68MB ONNX 及 WASM 会话编译），超时兜底放行
           await Promise.race([
-            this.emagePlayer.ensureLoaded(),
-            new Promise((resolve) => setTimeout(resolve, 8000)),
+            this.emagePlayer.ensureLoaded((msg) => {
+              const match = msg.match(/\[(\d+)\/(\d+)\]/);
+              if (match) {
+                const current = Number(match[1]);
+                const total = Number(match[2]);
+                if (total > 0) {
+                  emageProgress = Math.min(98, Math.round(88 + (current / total) * 10));
+                  this.onLoadingChange?.({ active: true, subtitleKey: 'madMotionSync', subtitleVars, progress: emageProgress });
+                }
+              }
+            }),
+            new Promise((resolve) => setTimeout(resolve, 25000)),
           ]);
         } catch (e) {
           console.warn('[vrmEngine] cold-start emage load notice:', e);
