@@ -49,18 +49,18 @@ const getOnboardingCardBaseClass = ({
   extraClass?: string;
 }) => {
   const base =
-    'bg-slate-950/40 hover:bg-slate-900/55 border text-white shadow-[inset_0_1px_1px_rgba(255,255,255,0.25),0_8px_32px_rgba(0,0,0,0.35)] transition-all duration-200 hover:-translate-y-0.5 active:scale-[0.98] group cursor-pointer text-left overflow-hidden relative';
+    'bg-slate-950/40 hover:bg-slate-900/55 border text-white shadow-[inset_0_1px_1px_rgba(255,255,255,0.25),0_4px_16px_rgba(0,0,0,0.35)] transition-all duration-200 hover:-translate-y-0.5 active:scale-[0.98] group cursor-pointer text-left overflow-hidden relative';
 
   if (isSelected) {
-    return `${base} border-[#ea8377] bg-[#ea8377]/25 shadow-[inset_0_1px_2px_rgba(255,255,255,0.35),0_0_35px_rgba(234,131,119,0.5)] scale-[1.02] ${extraClass}`;
+    return `${base} border-[#ea8377] bg-[#ea8377]/25 shadow-[inset_0_1px_2px_rgba(255,255,255,0.35),0_0_18px_rgba(234,131,119,0.4)] scale-[1.02] ${extraClass}`;
   }
   if (isDimmed) {
     return `${base} opacity-25 scale-95 pointer-events-none border-white/10 ${extraClass}`;
   }
   if (isHighlighted) {
-    return `${base} border-[#ea8377]/70 bg-[#ea8377]/15 hover:border-[#ea8377] hover:bg-[#ea8377]/25 shadow-[inset_0_1px_1px_rgba(255,255,255,0.25),0_0_25px_rgba(234,131,119,0.28)] ${extraClass}`;
+    return `${base} border-[#ea8377]/70 bg-[#ea8377]/15 hover:border-[#ea8377] hover:bg-[#ea8377]/25 shadow-[inset_0_1px_1px_rgba(255,255,255,0.25),0_0_14px_rgba(234,131,119,0.25)] ${extraClass}`;
   }
-  return `${base} border-white/20 hover:border-[#ea8377]/65 hover:bg-slate-900/55 hover:shadow-[inset_0_1px_2px_rgba(255,255,255,0.3),0_12px_36px_rgba(234,131,119,0.25)] ${extraClass}`;
+  return `${base} border-white/20 hover:border-[#ea8377]/65 hover:bg-slate-900/55 hover:shadow-[inset_0_1px_2px_rgba(255,255,255,0.3),0_0_16px_rgba(234,131,119,0.3)] ${extraClass}`;
 };
 
 // 统一纯文本/图标选项卡片组件 (用于语言选择、视角步骤下一步按钮、模型选择与终章)
@@ -557,7 +557,7 @@ export const OnboardingTour: React.FC<OnboardingTourProps> = ({ onComplete }) =>
             current: currentStepNumber,
             total: totalSteps,
           })}
-          className={`flex items-center gap-2 px-3 py-1.5 rounded-full bg-slate-950/40 hover:bg-slate-900/60 border border-white/20 hover:border-[#ea8377]/65 text-white/80 hover:text-white text-xs font-medium transition-all shadow-[inset_0_1px_1px_rgba(255,255,255,0.25),0_8px_32px_rgba(0,0,0,0.35)] hover:shadow-[inset_0_1px_2px_rgba(255,255,255,0.3),0_8px_24px_rgba(234,131,119,0.2)] active:scale-95 group cursor-pointer ${
+          className={`flex items-center gap-2 px-3 py-1.5 rounded-full bg-slate-950/40 hover:bg-slate-900/60 border border-white/20 hover:border-[#ea8377]/65 text-white/80 hover:text-white text-xs font-medium transition-all shadow-[inset_0_1px_1px_rgba(255,255,255,0.25),0_4px_16px_rgba(0,0,0,0.35)] hover:shadow-[inset_0_1px_2px_rgba(255,255,255,0.3),0_0_14px_rgba(234,131,119,0.25)] active:scale-95 group cursor-pointer ${
             isSkippingWithVoice ? 'opacity-50 pointer-events-none' : ''
           }`}
         >
@@ -751,7 +751,7 @@ export const OnboardingTour: React.FC<OnboardingTourProps> = ({ onComplete }) =>
                 const cardClassName = getOnboardingCardBaseClass({
                   isSelected,
                   isDimmed,
-                  extraClass: 'flex flex-col p-2.5 sm:p-3 rounded-2xl shadow-2xl active:scale-98',
+                  extraClass: 'flex flex-col p-2.5 sm:p-3 rounded-2xl active:scale-98',
                 });
 
                 return (
