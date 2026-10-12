@@ -9,7 +9,6 @@ import {
   Camera,
   ZoomIn,
   Move,
-  Sparkles,
 } from 'lucide-react';
 import { vrmEngine } from '@/core/vrmEngine';
 import { sceneManager } from '@/core/scene/sceneManager';
@@ -403,12 +402,6 @@ const LiquidGlassKey: React.FC<{ label: string; isPressed: boolean }> = ({ label
                     </span>
                     <span className="text-white/40 font-mono">/</span>
                     <span className="text-white/60 font-mono">{taskItems.length}</span>
-                    {isAllTasksDone && (
-                      <span className="ml-1 text-[10px] font-semibold text-emerald-400 bg-emerald-500/15 border border-emerald-500/30 px-1.5 py-0.5 rounded-full flex items-center gap-0.5">
-                        <Check className="w-3 h-3" />
-                        All Clear
-                      </span>
-                    )}
                   </div>
                 </div>
 
@@ -549,12 +542,6 @@ const LiquidGlassKey: React.FC<{ label: string; isPressed: boolean }> = ({ label
                           >
                             {label}
                           </span>
-                          {isAllTasksDone && (
-                            <span className="text-[10px] bg-[#ea8377]/20 border border-[#ea8377]/40 text-[#f5aa9c] px-2 py-0.5 rounded-full font-bold flex items-center gap-1">
-                              <Sparkles className="w-3 h-3" />
-                              全部达成
-                            </span>
-                          )}
                         </div>
                         <span className="text-[11px] sm:text-xs text-white/50 group-hover:text-white/70 transition-colors truncate font-normal">
                           {subLabel}
