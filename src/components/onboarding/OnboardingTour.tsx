@@ -168,10 +168,14 @@ const LiquidGlassKey: React.FC<{ label: string; isPressed: boolean }> = ({ label
   );
 };
 
+interface OnboardingTourProps {
+  onComplete: () => void;
+}
+
 export const OnboardingTour: React.FC<OnboardingTourProps> = ({ onComplete }) => {
   const { t, i18n } = useTranslation();
   const [currentStepId, setCurrentStepId] = useState<string>('step_intro');
-  const [hasRotated, setHasRotated] = useState(false);
+  const [, setHasRotated] = useState(false);
   const [isSpeaking, setIsSpeaking] = useState(true);
   const [isExiting, setIsExiting] = useState(false);
   const [selectedChoiceId, setSelectedChoiceId] = useState<string | null>(null);
