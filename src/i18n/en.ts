@@ -583,7 +583,7 @@ export const en: Trans = {
     sceneDarkSub: 'Gentle starlit stage for romantic quiet nights',
     sceneTransparent: 'No Background',
     sceneTransparentSub: 'Become a desktop companion secretly staying by your side',
-    galOutfitAsk: "Um... this evening dress... do you like it? I'm actually a little shy...\nIf you want to see other styles, I can change into a cheongsam, maid outfit, or even... a sailor uniform?",
+    galOutfitAsk: "Um... this outfit... do you like it? I'm actually a little shy...\nIf you want to see other styles, I can change into a cheongsam, maid outfit, or even... a sailor uniform?",
     outfitDinnerDress: 'Evening Dress',
     outfitDinnerDressSub: 'Elegant black and white evening gown, your exclusive companion tonight~',
     outfitCheongsam: 'Cheongsam',

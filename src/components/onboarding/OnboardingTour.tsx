@@ -803,18 +803,12 @@ export const OnboardingTour: React.FC<OnboardingTourProps> = ({ onComplete }) =>
 
                     {/* 底部标题与描述 */}
                     <div className="mt-2.5 flex flex-col gap-0.5 min-w-0">
-                      <div className="flex items-center justify-between">
-                        <span
-                          className={`text-xs sm:text-sm font-bold transition-colors truncate ${isSelected ? 'text-[#f5aa9c]' : 'text-white group-hover:text-[#f5aa9c]'
-                            }`}
-                        >
-                          {choice.label}
-                        </span>
-                        <ChevronRight
-                          className={`w-3.5 h-3.5 shrink-0 ml-1 transition-colors duration-200 ${isSelected ? 'text-[#f5aa9c]' : 'text-white/30 group-hover:text-white'
-                            }`}
-                        />
-                      </div>
+                      <span
+                        className={`text-xs sm:text-sm font-bold transition-colors truncate ${isSelected ? 'text-[#f5aa9c]' : 'text-white group-hover:text-[#f5aa9c]'
+                          }`}
+                      >
+                        {choice.label}
+                      </span>
                       {choice.subLabel && (
                         <span className="text-[10px] sm:text-[11px] text-white/50 truncate font-normal">
                           {choice.subLabel}

@@ -586,7 +586,7 @@ export const zhCN = {
     sceneDarkSub: '星芒微光舞台，浪漫静谧夜晚',
     sceneTransparent: '透明背景',
     sceneTransparentSub: '变成桌面小透明，随时偷偷陪着你',
-    galOutfitAsk: '唔……这身晚礼服……你喜欢吗？其实有点害羞呢……\n如果你想看别的风格，我还可以换上国风旗袍、女仆装，甚至是……水手服哦？',
+    galOutfitAsk: '唔……这身衣服……你喜欢吗？其实有点害羞呢……\n如果你想看别的风格，我还可以换上国风旗袍、女仆装，甚至是……水手服哦？',
     outfitDinnerDress: '华美晚礼服',
     outfitDinnerDressSub: '优雅黑白撞色礼服，今晚做你的专属女伴～',
     outfitCheongsam: '国风旗袍',

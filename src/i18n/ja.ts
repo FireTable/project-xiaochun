@@ -583,7 +583,7 @@ export const ja: Trans = {
     sceneDarkSub: '星明かりのステージ、ロマンチックで静かな夜',
     sceneTransparent: '透明背景',
     sceneTransparentSub: 'デスクトップにそっと常驻する小さな相棒',
-    galOutfitAsk: 'うーん……このイブニングドレス……気に入ってくれた？実はちょっと恥ずかしいな……\n他のスタイルが見たければ、チャイナドレスやメイド服、それとも……セーラー服にも着替えられますよ？',
+    galOutfitAsk: 'うーん……この衣装……気に入ってくれた？実はちょっと恥ずかしいな……\n他のスタイルが見たければ、チャイナドレスやメイド服、それとも……セーラー服にも着替えられますよ？',
     outfitDinnerDress: 'イブニングドレス',
     outfitDinnerDressSub: '優雅なモノトーンのドレス、今宵あなたの特別なパートナーに～',
     outfitCheongsam: 'チャイナドレス',
