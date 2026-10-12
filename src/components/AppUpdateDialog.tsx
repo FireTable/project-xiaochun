@@ -1,6 +1,6 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
-import { Download, ExternalLink, Loader2 } from 'lucide-react';
+import { Download, Loader2 } from 'lucide-react';
 import {
   Dialog,
   DialogContent,
@@ -14,11 +14,9 @@ import {
   APP_UPDATE_CHECK_EVENT,
   checkForAppUpdate,
   downloadAndInstallAppUpdate,
-  githubReleaseUrl,
   type AppUpdateInfo,
 } from '@/lib/appUpdater';
 import { isTauri } from '@/lib/platform';
-import { openExternal } from '@/lib/openExternal';
 
 type DialogMode = 'hidden' | 'checking' | 'available' | 'upToDate' | 'error';
 
@@ -202,20 +200,6 @@ export const AppUpdateDialog: React.FC<AppUpdateDialogProps> = ({ allowPrompt })
                 {notes}
               </p>
             ) : null}
-            <a
-              href={githubReleaseUrl(info.version)}
-              target="_blank"
-              rel="noopener noreferrer"
-              className="inline-flex items-center gap-1 text-[11px] text-brand-300/90 hover:text-brand-200 transition-colors"
-              onClick={(e) => {
-                if (!isTauri()) return;
-                e.preventDefault();
-                void openExternal(githubReleaseUrl(info.version));
-              }}
-            >
-              <ExternalLink className="h-3 w-3" />
-              {t('updater.changelog')}
-            </a>
             {installing && (
               <div className="space-y-1.5">
                 <div className="h-1.5 overflow-hidden rounded-full bg-white/10">

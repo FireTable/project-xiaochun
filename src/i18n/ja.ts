@@ -59,7 +59,8 @@ export const ja: Trans = {
     nextLabel: '新バージョン',
     later: 'あとで',
     ok: 'OK',
-    changelog: '更新ログを見る',
+    // 「更新ログを見る」入口は一時停止 (Release body が空のため)。履歴ができたら復活させる
+    // changelog: '更新履歴を見る',
     install: '今すぐ更新',
     downloading: '更新をダウンロード中…',
     errorTitle: '更新に失敗しました',

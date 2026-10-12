@@ -59,7 +59,8 @@ export const en: Trans = {
     nextLabel: 'New',
     later: 'Later',
     ok: 'OK',
-    changelog: 'View release notes',
+    // "View release notes" entry retired (release body is empty). Restore once release notes exist.
+    // changelog: 'View release notes',
     install: 'Update now',
     downloading: 'Downloading update…',
     errorTitle: 'Update failed',

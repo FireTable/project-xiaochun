@@ -58,7 +58,8 @@ export const zhCN = {
     nextLabel: '新版本',
     later: '稍后',
     ok: '好的',
-    changelog: '查看更新日志',
+    // 「查看更新日志」入口已下线 (Release body 为空)。有 Release Log 后恢复, 见 appUpdater.ts
+    // changelog: '查看更新日志',
     install: '立即更新',
     downloading: '正在下载更新…',
     errorTitle: '更新失败',

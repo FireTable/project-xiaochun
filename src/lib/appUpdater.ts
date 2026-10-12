@@ -5,7 +5,7 @@
  */
 
 import type { Update } from '@tauri-apps/plugin-updater';
-import { APP_CONFIG } from '@/config';
+// import { APP_CONFIG } from '@/config';   // githubReleaseUrl 恢复时再加回来
 import { isTauri } from '@/lib/platform';
 
 export const APP_UPDATE_CHECK_EVENT = 'xiaochun:check-app-update';
@@ -23,10 +23,13 @@ export function requestAppUpdateCheck(): void {
   window.dispatchEvent(new Event(APP_UPDATE_CHECK_EVENT));
 }
 
-export function githubReleaseUrl(version: string): string {
-  const tag = version.startsWith('v') ? version : `v${version}`;
-  return `${APP_CONFIG.brand.github}/releases/tag/${tag}`;
-}
+// 更新弹窗里的「查看更新日志」入口已下线 —— 当前 GitHub Release 的 body 是空的,
+// 点进去只会打开一个空白页面。Release Log 有内容后把这段和 updater.changelog
+// 一起恢复, 并在 AppUpdateDialog 的 notes 下方重新挂上外链。
+// export function githubReleaseUrl(version: string): string {
+//   const tag = version.startsWith('v') ? version : `v${version}`;
+//   return `${APP_CONFIG.brand.github}/releases/tag/${tag}`;
+// }
 
 export async function checkForAppUpdate(): Promise<AppUpdateInfo | null> {
   pendingUpdate = null;
