@@ -140,6 +140,9 @@ export const createOnboardingSteps = (t: TFunction, i18n: I18nInstance): Record<
         label: ctx.hasRotated
           ? t('onboarding.cameraDoneNext', '转动好啦，看到全方位的你啦！')
           : t('onboarding.cameraSkipNext', '学会啦，进入下一步'),
+        subLabel: ctx.hasRotated
+          ? t('onboarding.cameraDoneNextSub', '视角操作已掌握，进入场景探索')
+          : t('onboarding.cameraSkipNextSub', '随时可进入下一步选择心仪场景'),
         onSelect: () => ctx.goToStep('step_scene_choice'),
       },
     ],

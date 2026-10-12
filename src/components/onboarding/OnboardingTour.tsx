@@ -89,6 +89,67 @@ export const OnboardingTour: React.FC<OnboardingTourProps> = ({ onComplete }) =>
     };
   }, []);
 
+  // 视角探索任务清单 (从 1 开始编号，修饰键下沉到各任务 subtitle 作为触发指引)
+  const taskItems = useMemo(() => {
+    const list = [
+      {
+        id: 'orbit',
+        num: 1,
+        label: t('onboarding.cameraTaskOrbit', '调整 360° 环视'),
+        subLabel: t('onboarding.cameraOrbitSub', '水平左右拖动'),
+        done: cameraTasks.orbit360,
+        needsModifier: true,
+        icon: RotateCcw,
+      },
+      {
+        id: 'pitch',
+        num: 2,
+        label: t('onboarding.cameraTaskPitch', '调整俯仰角'),
+        subLabel: t('onboarding.cameraPitchSub', '垂直上下拖动'),
+        done: cameraTasks.pitch,
+        needsModifier: true,
+        icon: ArrowUpDown,
+      },
+      {
+        id: 'height',
+        num: 3,
+        label: t('onboarding.cameraTaskHeight', '调整相机高度'),
+        subLabel: t('onboarding.cameraHeightSub', '拖动左侧标尺滑块'),
+        done: cameraTasks.cameraHeight,
+        needsModifier: true,
+        icon: Camera,
+      },
+      {
+        id: 'zoom',
+        num: 4,
+        label: t('onboarding.cameraTaskZoom', '鼠标滚轮缩放'),
+        subLabel: t('onboarding.cameraZoomSub', '前后推拉镜头视距'),
+        done: cameraTasks.wheelZoom,
+        needsModifier: false,
+        icon: ZoomIn,
+      },
+    ];
+
+    if (isTauriEnv) {
+      list.push({
+        id: 'drag',
+        num: 5,
+        label: t('onboarding.cameraTaskDrag', '拖动角色'),
+        subLabel: t('onboarding.cameraDragSub', '拖拽角色移动桌面窗口'),
+        done: cameraTasks.dragCharacter,
+        needsModifier: false,
+        icon: Move,
+      });
+    }
+
+    return list;
+  }, [t, cameraTasks, isTauriEnv]);
+
+  const completedCount = useMemo(() => {
+    return taskItems.filter((item) => item.done).length;
+  }, [taskItems]);
+  const isAllTasksDone = completedCount === taskItems.length;
+
   // 构造 Schema 上下文与步骤字典
   const steps: Record<string, OnboardingStep> = useMemo(
     () => createOnboardingSteps(t, i18n),
@@ -101,13 +162,13 @@ export const OnboardingTour: React.FC<OnboardingTourProps> = ({ onComplete }) =>
     () => ({
       t,
       i18n,
-      hasRotated,
+      hasRotated: isAllTasksDone,
       goToStep: (stepId: string) => {
         setCurrentStepId(stepId);
       },
       finish: finishTour,
     }),
-    [t, i18n, hasRotated, finishTour],
+    [t, i18n, isAllTasksDone, finishTour],
   );
 
   // 仅在任务清单面板正式浮现 (!isSpeaking) 且当前是 camera_drag 教学步骤时，才开启手势统计与事件监听！
@@ -141,12 +202,10 @@ export const OnboardingTour: React.FC<OnboardingTourProps> = ({ onComplete }) =>
         // 任务 1：水平 360° 环视拖动（累计拖动 ≥ 100px，约对应 30°~45° 转角，真正转动角色才判定完成）
         if (cumTurnDx >= 100) {
           setCameraTasks((prev) => ({ ...prev, orbit360: true }));
-          setHasRotated(true);
         }
         // 任务 2：垂直俯仰角拖动（累计上下拖动 ≥ 65px，显著调整镜头高度俯仰角才判定完成）
         if (cumTurnDy >= 65) {
           setCameraTasks((prev) => ({ ...prev, pitch: true }));
-          setHasRotated(true);
         }
       } else if (ev.type === 'guide-drag') {
         cumGuideDy += Math.abs(ev.dy);
@@ -308,66 +367,7 @@ const LiquidGlassKey: React.FC<{ label: string; isPressed: boolean }> = ({ label
   );
 };
 
-  // 视角探索任务清单 (从 1 开始编号，修饰键下沉到各任务 subtitle 作为触发指引)
-  const taskItems = useMemo(() => {
-    const list = [
-      {
-        id: 'orbit',
-        num: 1,
-        label: t('onboarding.cameraTaskOrbit', '调整 360° 环视'),
-        subLabel: t('onboarding.cameraOrbitSub', '水平左右拖动'),
-        done: cameraTasks.orbit360,
-        needsModifier: true,
-        icon: RotateCcw,
-      },
-      {
-        id: 'pitch',
-        num: 2,
-        label: t('onboarding.cameraTaskPitch', '调整俯仰角'),
-        subLabel: t('onboarding.cameraPitchSub', '垂直上下拖动'),
-        done: cameraTasks.pitch,
-        needsModifier: true,
-        icon: ArrowUpDown,
-      },
-      {
-        id: 'height',
-        num: 3,
-        label: t('onboarding.cameraTaskHeight', '调整相机高度'),
-        subLabel: t('onboarding.cameraHeightSub', '拖动左侧标尺滑块'),
-        done: cameraTasks.cameraHeight,
-        needsModifier: true,
-        icon: Camera,
-      },
-      {
-        id: 'zoom',
-        num: 4,
-        label: t('onboarding.cameraTaskZoom', '鼠标滚轮缩放'),
-        subLabel: t('onboarding.cameraZoomSub', '前后推拉镜头视距'),
-        done: cameraTasks.wheelZoom,
-        needsModifier: false,
-        icon: ZoomIn,
-      },
-    ];
 
-    if (isTauriEnv) {
-      list.push({
-        id: 'drag',
-        num: 5,
-        label: t('onboarding.cameraTaskDrag', '拖动角色'),
-        subLabel: t('onboarding.cameraDragSub', '拖拽角色移动桌面窗口'),
-        done: cameraTasks.dragCharacter,
-        needsModifier: false,
-        icon: Move,
-      });
-    }
-
-    return list;
-  }, [t, cameraTasks, isTauriEnv]);
-
-  const completedCount = useMemo(() => {
-    return taskItems.filter((item) => item.done).length;
-  }, [taskItems]);
-  const isAllTasksDone = completedCount === taskItems.length;
 
   return (
     <div
@@ -506,17 +506,17 @@ const LiquidGlassKey: React.FC<{ label: string; isPressed: boolean }> = ({ label
                 </div>
               </div>
 
-              {/* 独立下一步选项卡片（复用全局统一的选项卡片样式） */}
+              {/* 独立下一步选项卡片（复用全局统一的选项卡片样式，仅当全部任务完成时才切换为达成态） */}
               {choices.map((choice) => {
                 const isSelected = selectedChoiceId === choice.id;
                 const isDimmed = selectedChoiceId !== null && !isSelected;
                 const label = isAllTasksDone
                   ? t('onboarding.cameraDoneNext', '转动好啦，看到全方位的你啦！')
-                  : choice.label;
+                  : t('onboarding.cameraSkipNext', '学会啦，进入下一步');
                 const subLabel = isAllTasksDone
                   ? t('onboarding.cameraDoneNextSub', '视角操作已掌握，进入场景探索')
-                  : choice.subLabel || t('onboarding.cameraSkipNextSub', '随时可进入下一步选择心仪场景');
-                const icon = isAllTasksDone ? '🎉' : choice.icon || '✨';
+                  : t('onboarding.cameraSkipNextSub', '随时可进入下一步选择心仪场景');
+                const icon = isAllTasksDone ? '🎉' : '👉';
 
                 return (
                   <button
