@@ -568,7 +568,7 @@ export const ja: Trans = {
     cameraDragSub: 'キャラをドラッグしてウィンドウ移動',
     cameraDoneNext: '回せたよ！全方位から見えたよ～',
     cameraSkipNext: '分かったよ、次へ進む',
-    galSceneAsk: '今この空間は空っぽで、私たち二人きりですね……\nどこへ連れて行ってくれますか？青いビーチでも星空でも、一緒に行きたいな！',
+    galSceneAsk: '今この空間は空っぽで、私たち二人きりですね……\nどこへ連れて行ってくれますか？日差しビーチでも極夜線画でも、一緒に行きたいな！',
     sceneBeach: '日差しビーチ',
     sceneBeachSub: '潮風を感じながら、一緒にバカンスへ行こう～',
     sceneLight: '白昼線画',

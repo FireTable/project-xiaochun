@@ -151,7 +151,7 @@ export const createOnboardingSteps = (t: TFunction, i18n: I18nInstance): Record<
     dialogues: [
       {
         key: 'onboarding.galSceneAsk',
-        defaultText: '现在这片空间空荡荡的，只有我们两个人呢……\n你更喜欢带我去哪里？不管是夏日沙滩还是静谧星空，我都想陪你一起去！',
+        defaultText: '现在这片空间空荡荡的，只有我们两个人呢……\n你更喜欢带我去哪里？不管是阳光海滩还是极夜线稿，我都想陪你一起去！',
       },
     ],
     choiceLayout: 'media',

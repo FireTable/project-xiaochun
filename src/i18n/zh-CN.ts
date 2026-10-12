@@ -571,7 +571,7 @@ export const zhCN = {
     cameraDragSub: '直接拖拽角色移动桌面窗口',
     cameraDoneNext: '转动好啦，看到全方位的你啦！',
     cameraSkipNext: '学会啦，进入下一步',
-    galSceneAsk: '现在这片空间空荡荡的，只有我们两个人呢……\n你更喜欢带我去哪里？不管是夏日沙滩还是静谧星空，我都想陪你一起去！',
+    galSceneAsk: '现在这片空间空荡荡的，只有我们两个人呢……\n你更喜欢带我去哪里？不管是阳光海滩还是极夜线稿，我都想陪你一起去！',
     sceneBeach: '阳光海滩',
     sceneBeachSub: '听海浪吹吹风，一起去度假吧～',
     sceneLight: '昼白线稿',

@@ -568,7 +568,7 @@ export const en: Trans = {
     cameraDragSub: 'Drag companion to move window',
     cameraDoneNext: "Rotated! I can see you from all angles now~",
     cameraSkipNext: 'Got it, next step',
-    galSceneAsk: "Right now this space is empty, just the two of us...\nWhere would you like to take me? Whether a sunny beach or starry night, I want to be with you!",
+    galSceneAsk: "Right now this space is empty, just the two of us...\nWhere would you like to take me? Whether the sunny beach or midnight linework, I want to be with you!",
     sceneBeach: 'Sunny Beach',
     sceneBeachSub: 'Listen to the ocean breeze and go on a vacation together~',
     sceneLight: 'Day White',
