@@ -577,7 +577,7 @@ export const zhCN = {
     cameraDoneNextSub: '视角操作已掌握，进入场景探索',
     cameraSkipNext: '学会啦，进入下一步',
     cameraSkipNextSub: '随时可进入下一步选择心仪场景',
-    galSceneAsk: '现在这片空间空荡荡的，只有我们两个人呢……\n你更喜欢带我去哪里？不管是阳光海滩还是极夜线稿，我都想陪你一起去！',
+    galSceneAsk: '现在这片空间空荡荡的，只有我们两个人呢……\n你更喜欢带我去哪里？不管是阳光海滩，还是线稿世界，我都想陪你一起去！',
     sceneBeach: '阳光海滩',
     sceneBeachSub: '听海浪吹吹风，一起去度假吧～',
     sceneLight: '昼白线稿',

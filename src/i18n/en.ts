@@ -574,7 +574,7 @@ export const en: Trans = {
     cameraDoneNextSub: 'Controls mastered, proceed to scene world',
     cameraSkipNext: 'Got it, next step',
     cameraSkipNextSub: 'Ready to proceed to scene selection anytime',
-    galSceneAsk: "Right now this space is empty, just the two of us...\nWhere would you like to take me? Whether the sunny beach or midnight linework, I want to be with you!",
+    galSceneAsk: "Right now this space is empty, just the two of us...\nWhere would you like to take me? Whether the sunny beach or the linework world, I want to be with you!",
     sceneBeach: 'Sunny Beach',
     sceneBeachSub: 'Listen to the ocean breeze and go on a vacation together~',
     sceneLight: 'Day White',

@@ -574,7 +574,7 @@ export const ja: Trans = {
     cameraDoneNextSub: '操作完了、シーン選択へ進む',
     cameraSkipNext: '分かったよ、次へ進む',
     cameraSkipNextSub: 'いつでも次へ進んでシーンを選択できます',
-    galSceneAsk: '今この空間は空っぽで、私たち二人きりですね……\nどこへ連れて行ってくれますか？日差しビーチでも極夜線画でも、一緒に行きたいな！',
+    galSceneAsk: '今この空間は空っぽで、私たち二人きりですね……\nどこへ連れて行ってくれますか？日差しビーチでも線画の世界でも、一緒に行きたいな！',
     sceneBeach: '日差しビーチ',
     sceneBeachSub: '潮風を感じながら、一緒にバカンスへ行こう～',
     sceneLight: '白昼線画',
