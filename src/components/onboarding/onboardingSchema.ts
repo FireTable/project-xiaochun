@@ -100,7 +100,7 @@ export const createOnboardingSteps = (t: TFunction, i18n: I18nInstance): Record<
     dialogues: [
       {
         key: 'onboarding.galTutorialAsk',
-        defaultText: '太好啦！以后的日子请多关照啦～\n那个……需要我带你熟悉一下这个小世界的秘密吗？',
+        defaultText: '太好啦！以后的日子请多关照啦～\n嗯……需要我带你熟悉一下这个小世界的秘密吗？',
       },
     ],
     choiceLayout: 'text',

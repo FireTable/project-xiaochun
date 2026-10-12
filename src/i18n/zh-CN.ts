@@ -551,7 +551,7 @@ export const zhCN = {
     cameraExtraHint: '支持 360° 自由环视 · 调整俯仰与视距',
     success: '转动成功！',
     galIntro1: '呼啊……你终于来啦！初次见面，我是小蠢～\n那个……你来自哪里呀？我该用哪种语言跟你聊天呢？',
-    galTutorialAsk: '太好啦！以后的日子请多关照啦～\n那个……需要我带你熟悉一下这个小世界的秘密吗？',
+    galTutorialAsk: '太好啦！以后的日子请多关照啦～\n嗯……需要我带你熟悉一下这个小世界的秘密吗？',
     galChoiceStartTutorial: '好呀，带我逛逛这个世界～',
     galChoiceStartTutSub: '探索视角转动、随心换装与专属空间',
     galChoiceSkipTutorial: '不用啦，已经迫不及待想跟你聊天了！',
