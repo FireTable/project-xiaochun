@@ -557,7 +557,7 @@ export const en: Trans = {
     cameraTaskListTitle: 'Perspective Missions',
     cameraTaskModifier: 'Hold modifier key',
     cameraHoldPrefix: 'Hold',
-    cameraDirectAction: 'Direct Action',
+    cameraDirectAction: 'No Extra Key',
     cameraTaskOrbit: 'Adjust 360° orbit',
     cameraOrbitSub: 'drag horizontally',
     cameraTaskPitch: 'Adjust camera pitch',

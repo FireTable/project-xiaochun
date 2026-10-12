@@ -557,7 +557,7 @@ export const ja: Trans = {
     cameraTaskListTitle: '視点操作ミッション',
     cameraTaskModifier: 'キーを長押し',
     cameraHoldPrefix: 'キーを押しながら',
-    cameraDirectAction: 'キー不要',
+    cameraDirectAction: '追加キー不要',
     cameraTaskOrbit: '360° 自由旋回',
     cameraOrbitSub: '水平ドラッグ',
     cameraTaskPitch: '仰角の調整',

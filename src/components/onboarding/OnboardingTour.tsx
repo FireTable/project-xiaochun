@@ -425,7 +425,7 @@ const LiquidGlassKey: React.FC<{ label: string; isPressed: boolean }> = ({ label
                     return (
                       <div
                         key={item.id}
-                        className={`flex items-center justify-between px-3 py-2 rounded-xl transition-all duration-200 border ${
+                        className={`flex items-center justify-between px-3.5 py-2.5 rounded-2xl transition-all duration-200 border ${
                           item.done
                             ? 'bg-emerald-950/20 border-emerald-500/30 text-emerald-100'
                             : isModifierActiveOnRow
@@ -433,14 +433,14 @@ const LiquidGlassKey: React.FC<{ label: string; isPressed: boolean }> = ({ label
                               : 'bg-white/[0.03] border-white/10 text-white/80'
                         }`}
                       >
-                        <div className="flex items-center gap-2.5 min-w-0 pr-2">
+                        <div className="flex items-center gap-3 min-w-0 pr-2">
                           {/* 左侧序号与图标 */}
-                          <div className="flex items-center gap-2 shrink-0">
+                          <div className="flex items-center gap-2.5 shrink-0">
                             <span className="text-xs font-mono font-semibold text-white/40 w-3.5 text-right">
                               {item.num}.
                             </span>
                             <div
-                              className={`w-6 h-6 rounded-lg flex items-center justify-center transition-colors ${
+                              className={`w-8 h-8 rounded-xl flex items-center justify-center transition-colors ${
                                 item.done
                                   ? 'bg-emerald-500/20 text-emerald-300'
                                   : isModifierActiveOnRow
@@ -448,7 +448,7 @@ const LiquidGlassKey: React.FC<{ label: string; isPressed: boolean }> = ({ label
                                     : 'bg-white/10 text-white/70'
                               }`}
                             >
-                              <Icon className="w-3.5 h-3.5" />
+                              <Icon className="w-4 h-4 stroke-[2.2]" />
                             </div>
                           </div>
 
@@ -463,8 +463,8 @@ const LiquidGlassKey: React.FC<{ label: string; isPressed: boolean }> = ({ label
                                 {item.label}
                               </span>
                               {!item.needsModifier && (
-                                <span className="text-[10px] text-white/40 bg-white/[0.05] border border-white/10 px-1.5 py-0.2 rounded-full font-normal">
-                                  {t('onboarding.cameraDirectAction', '无需按键')}
+                                <span className="text-[10px] text-white/40 bg-white/[0.05] border border-white/10 px-1.5 py-0.5 rounded-full font-normal leading-none">
+                                  {t('onboarding.cameraDirectAction', '无需额外按键')}
                                 </span>
                               )}
                             </div>

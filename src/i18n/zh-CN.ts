@@ -560,7 +560,7 @@ export const zhCN = {
     cameraTaskListTitle: '视角探索任务',
     cameraTaskModifier: '按住按键',
     cameraHoldPrefix: '按住',
-    cameraDirectAction: '无需按键',
+    cameraDirectAction: '无需额外按键',
     cameraTaskOrbit: '调整 360° 环视',
     cameraOrbitSub: '水平左右拖动',
     cameraTaskPitch: '调整俯仰角',
