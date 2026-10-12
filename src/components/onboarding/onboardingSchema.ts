@@ -4,6 +4,7 @@ import { APP_CONFIG } from '@/config';
 import { changeLang } from '@/i18n';
 import { isTauri } from '@/lib/platform';
 import { setActiveProviderId } from '@/llm/customProvider';
+import { WEARING_OUTFIT_KEY } from '@/lib/constants';
 import type { TFunction, i18n as I18nInstance } from 'i18next';
 
 export type ChoiceLayoutType = 'text' | 'media';
@@ -171,7 +172,9 @@ export const createOnboardingSteps = (t: TFunction, i18n: I18nInstance): Record<
           description: 'Beach 3D World',
         },
         onSelect: async () => {
-          await sceneManager.setScene('beach3d', true);
+          if (sceneManager.getCurrentSceneId() !== 'beach3d') {
+            await sceneManager.setScene('beach3d', true);
+          }
           ctx.goToStep('step_outfit_choice');
         },
       },
@@ -187,7 +190,9 @@ export const createOnboardingSteps = (t: TFunction, i18n: I18nInstance): Record<
           description: 'Minimalist Light',
         },
         onSelect: async () => {
-          await sceneManager.setScene('light', true);
+          if (sceneManager.getCurrentSceneId() !== 'light') {
+            await sceneManager.setScene('light', true);
+          }
           ctx.goToStep('step_outfit_choice');
         },
       },
@@ -203,7 +208,9 @@ export const createOnboardingSteps = (t: TFunction, i18n: I18nInstance): Record<
           description: 'Starry Dark Night',
         },
         onSelect: async () => {
-          await sceneManager.setScene('dark', true);
+          if (sceneManager.getCurrentSceneId() !== 'dark') {
+            await sceneManager.setScene('dark', true);
+          }
           ctx.goToStep('step_outfit_choice');
         },
       },
@@ -221,7 +228,9 @@ export const createOnboardingSteps = (t: TFunction, i18n: I18nInstance): Record<
               description: 'Transparent Pet',
             },
             onSelect: async () => {
-              await sceneManager.setScene('transparent', true);
+              if (sceneManager.getCurrentSceneId() !== 'transparent') {
+                await sceneManager.setScene('transparent', true);
+              }
               ctx.goToStep('step_outfit_choice');
             },
           },
@@ -240,96 +249,80 @@ export const createOnboardingSteps = (t: TFunction, i18n: I18nInstance): Record<
       },
     ],
     choiceLayout: 'media',
-    getChoices: (ctx) => [
-      {
-        id: 'xiaochun_dinner_dress',
-        label: t('onboarding.outfitDinnerDress', '华美晚礼服'),
-        subLabel: t('onboarding.outfitDinnerDressSub', '优雅黑白撞色礼服，今晚做你的专属女伴～'),
-        image: '/previews/outfits/xiaochun_dinner_dress.webp',
-        badge: '👗 经典高贵',
-        mediaPreview: {
-          gradient: 'from-slate-700/40 via-slate-800/30 to-slate-900/40',
-          emoji: '👗',
-          description: 'Dinner Dress',
-        },
-        onSelect: async () => {
-          try {
-            localStorage.setItem('xc_wearing_outfit_key_v1', 'xiaochun_dinner_dress');
-            const addon = APP_CONFIG.model.addons.xiaochun_dinner_dress;
-            if (addon && (vrmEngine as any).currentWearingAddonKey !== 'xiaochun_dinner_dress') {
-              await vrmEngine.swapOutfit(addon.source, addon.name);
-            }
-          } catch {}
-          ctx.goToStep('step_brain_choice');
-        },
-      },
-      {
-        id: 'xiaochun_cheongsam',
-        label: t('onboarding.outfitCheongsam', '国风旗袍'),
-        subLabel: t('onboarding.outfitCheongsamSub', '典雅温婉，尽显曼妙身姿～'),
-        image: '/previews/outfits/xiaochun_cheongsam.webp',
-        badge: '🌸 国风典雅',
-        mediaPreview: {
-          gradient: 'from-rose-500/30 via-pink-400/20 to-amber-400/30',
-          emoji: '🌸',
-          description: 'Cheongsam',
-        },
-        onSelect: async () => {
-          try {
-            localStorage.setItem('xc_wearing_outfit_key_v1', 'xiaochun_cheongsam');
-            const addon = APP_CONFIG.model.addons.xiaochun_cheongsam;
+    getChoices: (ctx) => {
+      const handleSelectOutfit = async (outfitKey: string) => {
+        try {
+          localStorage.setItem(WEARING_OUTFIT_KEY, outfitKey);
+          // 当前穿戴的服装 (默认为 xiaochun_dinner_dress)
+          const currentOutfit = vrmEngine.currentOutfitKey || 'xiaochun_dinner_dress';
+          // 本质上已经是同一套就没必要重新触发换装
+          if (currentOutfit !== outfitKey) {
+            const addon = APP_CONFIG.model.addons[outfitKey];
             if (addon) {
               await vrmEngine.swapOutfit(addon.source, addon.name);
             }
-          } catch {}
-          ctx.goToStep('step_brain_choice');
+          }
+        } catch (e) {
+          console.warn('[OnboardingTour] swap outfit error:', e);
+        }
+        ctx.goToStep('step_brain_choice');
+      };
+
+      return [
+        {
+          id: 'xiaochun_dinner_dress',
+          label: t('onboarding.outfitDinnerDress', '华美晚礼服'),
+          subLabel: t('onboarding.outfitDinnerDressSub', '优雅黑白撞色礼服，今晚做你的专属女伴～'),
+          image: '/previews/outfits/xiaochun_dinner_dress.webp',
+          badge: '👗 经典高贵',
+          mediaPreview: {
+            gradient: 'from-slate-700/40 via-slate-800/30 to-slate-900/40',
+            emoji: '👗',
+            description: 'Dinner Dress',
+          },
+          onSelect: () => handleSelectOutfit('xiaochun_dinner_dress'),
         },
-      },
-      {
-        id: 'xiaochun_maid',
-        label: t('onboarding.outfitMaid', '萌系女仆'),
-        subLabel: t('onboarding.outfitMaidSub', '黑白围裙，今天想让我为你做些什么呢？'),
-        image: '/previews/outfits/xiaochun_maid.webp',
-        badge: '🎀 萌系女仆',
-        mediaPreview: {
-          gradient: 'from-purple-500/30 via-pink-400/20 to-indigo-400/30',
-          emoji: '🎀',
-          description: 'Maid',
+        {
+          id: 'xiaochun_cheongsam',
+          label: t('onboarding.outfitCheongsam', '国风旗袍'),
+          subLabel: t('onboarding.outfitCheongsamSub', '典雅温婉，尽显曼妙身姿～'),
+          image: '/previews/outfits/xiaochun_cheongsam.webp',
+          badge: '🌸 国风典雅',
+          mediaPreview: {
+            gradient: 'from-rose-500/30 via-pink-400/20 to-amber-400/30',
+            emoji: '🌸',
+            description: 'Cheongsam',
+          },
+          onSelect: () => handleSelectOutfit('xiaochun_cheongsam'),
         },
-        onSelect: async () => {
-          try {
-            localStorage.setItem('xc_wearing_outfit_key_v1', 'xiaochun_maid');
-            const addon = APP_CONFIG.model.addons.xiaochun_maid;
-            if (addon) {
-              await vrmEngine.swapOutfit(addon.source, addon.name);
-            }
-          } catch {}
-          ctx.goToStep('step_brain_choice');
+        {
+          id: 'xiaochun_maid',
+          label: t('onboarding.outfitMaid', '萌系女仆'),
+          subLabel: t('onboarding.outfitMaidSub', '黑白围裙，今天想让我为你做些什么呢？'),
+          image: '/previews/outfits/xiaochun_maid.webp',
+          badge: '🎀 萌系女仆',
+          mediaPreview: {
+            gradient: 'from-purple-500/30 via-pink-400/20 to-indigo-400/30',
+            emoji: '🎀',
+            description: 'Maid',
+          },
+          onSelect: () => handleSelectOutfit('xiaochun_maid'),
         },
-      },
-      {
-        id: 'xiaochun_bikini',
-        label: t('onboarding.outfitBikini', '清凉比基尼'),
-        subLabel: t('onboarding.outfitBikiniSub', '清凉夏日泳装，心跳加速中……'),
-        image: '/previews/outfits/xiaochun_bikini.webp',
-        badge: '👙 清凉泳装',
-        mediaPreview: {
-          gradient: 'from-sky-400/30 via-teal-400/20 to-cyan-400/30',
-          emoji: '👙',
-          description: 'Bikini',
+        {
+          id: 'xiaochun_bikini',
+          label: t('onboarding.outfitBikini', '清凉比基尼'),
+          subLabel: t('onboarding.outfitBikiniSub', '清凉夏日泳装，心跳加速中……'),
+          image: '/previews/outfits/xiaochun_bikini.webp',
+          badge: '👙 清凉泳装',
+          mediaPreview: {
+            gradient: 'from-sky-400/30 via-teal-400/20 to-cyan-400/30',
+            emoji: '👙',
+            description: 'Bikini',
+          },
+          onSelect: () => handleSelectOutfit('xiaochun_bikini'),
         },
-        onSelect: async () => {
-          try {
-            localStorage.setItem('xc_wearing_outfit_key_v1', 'xiaochun_bikini');
-            const addon = APP_CONFIG.model.addons.xiaochun_bikini;
-            if (addon) {
-              await vrmEngine.swapOutfit(addon.source, addon.name);
-            }
-          } catch {}
-          ctx.goToStep('step_brain_choice');
-        },
-      },
-    ],
+      ];
+    },
   },
 
   // 6. AI 大脑选择 — 【纯文字卡片 (text)】
@@ -338,7 +331,7 @@ export const createOnboardingSteps = (t: TFunction, i18n: I18nInstance): Record<
     dialogues: [
       {
         key: 'onboarding.galBrainAsk',
-        defaultText: '最后……是让小蠢变得更聪明的‘思考核心’哦！\n你想怎么连接我的小脑袋呢？',
+        defaultText: '最后一步啦，来为我挑选一个 AI 聊天模型吧～\n你想用哪种方式和我对话呢？',
       },
     ],
     choiceLayout: 'text',
@@ -346,8 +339,8 @@ export const createOnboardingSteps = (t: TFunction, i18n: I18nInstance): Record<
       {
         id: 'brain_webllm',
         icon: '⚡',
-        label: t('onboarding.brainWebllm', '端侧轻量小脑筋（零配置即开即用）'),
-        subLabel: t('onboarding.brainWebllmHint', '直接在浏览器里运行，完全保护隐私不用配置哦'),
+        label: t('onboarding.brainWebllm', '浏览器内置模型（免配置·开箱即用）'),
+        subLabel: t('onboarding.brainWebllmHint', '直接在浏览器本地运行，无需任何配置，数据私密安全'),
         onSelect: async () => {
           await setActiveProviderId(null);
           ctx.goToStep('step_finale');
@@ -356,8 +349,8 @@ export const createOnboardingSteps = (t: TFunction, i18n: I18nInstance): Record<
       {
         id: 'brain_custom',
         icon: '🖥️',
-        label: t('onboarding.brainCustom', '接入自定义的模型'),
-        subLabel: t('onboarding.brainCustomHint', '连接本地或远程自定义模型服务（Ollama / LM Studio 等）'),
+        label: t('onboarding.brainCustom', '接入自定义 AI 模型'),
+        subLabel: t('onboarding.brainCustomHint', '连接本地或云端模型服务（如 Ollama、LM Studio 等）'),
         onSelect: () => ctx.goToStep('step_finale'),
       },
     ],

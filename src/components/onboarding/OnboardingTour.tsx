@@ -25,6 +25,16 @@ import {
 
 export { ONBOARDING_STORAGE_KEY };
 
+const TOUR_STEPS = [
+  'step_intro',
+  'step_tutorial_choice',
+  'step_camera_intro',
+  'step_scene_choice',
+  'step_outfit_choice',
+  'step_brain_choice',
+  'step_finale',
+];
+
 interface OnboardingTourProps {
   onComplete: () => void;
 }
@@ -36,6 +46,11 @@ export const OnboardingTour: React.FC<OnboardingTourProps> = ({ onComplete }) =>
   const [isSpeaking, setIsSpeaking] = useState(true);
   const [isExiting, setIsExiting] = useState(false);
   const [selectedChoiceId, setSelectedChoiceId] = useState<string | null>(null);
+
+  // 向导当前总步数与进度指示
+  const currentStepIndex = Math.max(0, TOUR_STEPS.indexOf(currentStepId));
+  const currentStepNumber = currentStepIndex + 1;
+  const totalSteps = TOUR_STEPS.length;
 
   // 视角探索任务清单完成状态 (0 ~ 5)
   const [cameraTasks, setCameraTasks] = useState({
@@ -319,10 +334,9 @@ export const OnboardingTour: React.FC<OnboardingTourProps> = ({ onComplete }) =>
     return currentStep.getChoices(stepContext);
   }, [currentStep, stepContext]);
 
-  // 处理选项点击：先播放高光选中与离场折叠动效，再正式推进步骤
+  // 处理选项点击：先高亮定格当前选中项（给用户明确的点击与选中视觉反馈），再播放平滑下沉离场动效，最后推进步骤
   const handleSelectChoice = async (choice: OnboardingChoice) => {
-    if (isExiting) return;
-    setIsExiting(true);
+    if (isExiting || selectedChoiceId !== null) return;
     setSelectedChoiceId(choice.id);
 
     try {
@@ -330,9 +344,14 @@ export const OnboardingTour: React.FC<OnboardingTourProps> = ({ onComplete }) =>
       if (ctx && ctx.state === 'suspended') void ctx.resume();
     } catch { }
 
-    // 优雅离场动效 260ms
-    await new Promise((resolve) => setTimeout(resolve, 260));
+    // 1. 留出 200ms 交互定格时间，让用户看清选中高光、边框及勾选态
+    await new Promise((resolve) => setTimeout(resolve, 200));
 
+    // 2. 选项面板平滑下沉淡出动效 240ms
+    setIsExiting(true);
+    await new Promise((resolve) => setTimeout(resolve, 240));
+
+    // 3. 执行选项业务逻辑并进入下一步
     try {
       await choice.onSelect(stepContext);
     } finally {
@@ -373,15 +392,23 @@ const LiquidGlassKey: React.FC<{ label: string; isPressed: boolean }> = ({ label
     <div
       className="fixed inset-0 z-40 pointer-events-none select-none flex flex-col justify-between p-4 sm:p-6 overflow-hidden animate-in fade-in duration-500"
     >
-      {/* 顶栏控制：右上角极简跳过按钮 */}
+      {/* 顶栏控制：右上角步数进度与跳过按钮 */}
       <div className="relative z-10 flex justify-end pointer-events-auto">
         <button
           type="button"
           onClick={finishTour}
-          className="flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-slate-950/60 hover:bg-slate-950/90 border border-white/15 text-white/60 hover:text-white text-xs font-medium backdrop-blur-md transition-all shadow-md active:scale-95"
+          title={t('onboarding.skipTourTooltip', '第 {{current}} / {{total}} 步，点击可跳过向导', {
+            current: currentStepNumber,
+            total: totalSteps,
+          })}
+          className="flex items-center gap-2 px-3 py-1.5 rounded-full bg-slate-950/70 hover:bg-slate-900/90 border border-white/15 text-white/70 hover:text-white text-xs font-medium backdrop-blur-md transition-all shadow-md active:scale-95 group cursor-pointer"
         >
+          <span className="font-mono text-white/90 font-semibold tracking-tight">
+            {currentStepNumber}/{totalSteps}
+          </span>
+          <span className="w-px h-3 bg-white/20" />
           <span>{t('onboarding.skip', '跳过')}</span>
-          <X className="w-3.5 h-3.5" />
+          <X className="w-3.5 h-3.5 text-white/50 group-hover:text-white transition-colors" />
         </button>
       </div>
 

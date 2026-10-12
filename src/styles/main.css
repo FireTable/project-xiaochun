@@ -393,8 +393,8 @@ html.is-tauri .dialog-overlay {
   }
   100% {
     opacity: 0;
-    transform: translateY(18px) scale(0.93);
-    filter: blur(6px);
+    transform: translateY(24px) scale(0.96);
+    filter: blur(4px);
   }
 }
 
