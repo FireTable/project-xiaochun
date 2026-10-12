@@ -2083,6 +2083,10 @@ export class VRMEngine {
     const subtitleVars = { name: filename };
     if (!preserveMotion) {
       this.onLoadingChange?.({ active: true, subtitleKey: phaseLabel, subtitleVars, progress: 0 });
+      // 冷启动期并行提前拉取 EMAGE 模型，与 VRM 下载/Worker 组装充分并发
+      if (isHeavyPreloadAllowed()) {
+        void this.emagePlayer.ensureLoaded();
+      }
     }
     this.onSwapProgress?.({ active: true, subtitleKey: phaseLabel, subtitleVars, progress: 0 });
     try {
@@ -2096,15 +2100,28 @@ export class VRMEngine {
         const composed = await this.composeVRMFromAddon(url, addonSha, { phaseLabel, subtitleVars, preserveMotion });
         await this.loadVRMFromBuffer(composed, filename, { preserveMotion });
         this.notifyOutfitChange(addonKey);
-        return;
-      }
-      if (!this.currentVRM) {
+      } else if (!this.currentVRM) {
         await this.loadVRM(url, filename);
         this.notifyOutfitChange('__upload__');
-        return;
+      } else {
+        await this.loadVRM(url, filename, { preserveMotion: true });
+        this.notifyOutfitChange('__upload__');
       }
-      await this.loadVRM(url, filename, { preserveMotion: true });
-      this.notifyOutfitChange('__upload__');
+
+      // 冷启动阶段：等待 EMAGE 动作模型加载就绪，使 LoadingOverlay 的 04 动作管线就绪名副其实
+      // 破次元进入 3D 舞台后小春开口第一句话可直接无缝做出灵动肢体动作
+      if (!preserveMotion && isHeavyPreloadAllowed()) {
+        this.onLoadingChange?.({ active: true, subtitleKey: 'madMotionSync', subtitleVars, progress: 95 });
+        try {
+          // 最多等待 8s（弱网兜底，防止挂起），超时或加载完成立即放行
+          await Promise.race([
+            this.emagePlayer.ensureLoaded(),
+            new Promise((resolve) => setTimeout(resolve, 8000)),
+          ]);
+        } catch (e) {
+          console.warn('[vrmEngine] cold-start emage load notice:', e);
+        }
+      }
     } finally {
       // ponytail: 末尾回调 — 成功 / 失败都发,UI 收起 spinner + overlay。
       // 用 progress:100 而非 0 — 上一版本用 0 让 bar 倒带回 0%,看着像失败。
