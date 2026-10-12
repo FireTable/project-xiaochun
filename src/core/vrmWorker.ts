@@ -152,23 +152,35 @@ async function composeOutfit(req: ComposeRequest): Promise<void> {
   console.log(`cache MISS (composed) ${req.addonUrl} → full pipeline`);
 
 
-  // ponytail: 阶段权重表 — worker 端算 pct,engine 直接 forward。
-  // .vrmaddon swap 路径: fetch_addon(40%) + fetch_base(35%) + bspatch(20%) + pack(5%)
-  // .vrmbase cold-start 路径 (addon 自带 whole BIN): fetch_addon(95%) + pack(5%)
-  // 提前读 addon 第一字节 peek 太麻烦 — 等 fetch 完后看 entries 决定走哪条路径,
-  // 所以先用 swap 权重,peek 出 whole BIN 后再覆盖。
-  let phaseWeights: Record<ComposePhase, [number, number]> = {
-    fetch_addon: [0, 40],
-    fetch_base:  [40, 75],
-    unzip:       [75, 78],
-    bspatch:     [78, 95],
-    pack:        [95, 100],
-  };
+  // 阶段权重表与时序对齐：
+  // 1. 全量 whole-BIN (如 cold-start .vrmbase): fetch_addon(85%) + unzip(10%) + pack(5%)
+  // 2. 差异补丁 swap (.vrmaddon): fetch_addon(15%) -> unzip(5%) -> fetch_base(60%) -> bspatch(15%) -> pack(5%)
+  // 时序严格递增，彻底消除原先 unzip(75%) 后切到 fetch_base 跌回 40% 的倒退问题！
+  const isDirectWholeGlb = !req.baseUrl || req.baseUrl === req.addonUrl || req.addonUrl.endsWith('.vrmbase');
+  let phaseWeights: Record<ComposePhase, [number, number]> = isDirectWholeGlb
+    ? {
+        fetch_addon: [0, 85],
+        fetch_base:  [0, 0],
+        unzip:       [85, 95],
+        bspatch:     [0, 0],
+        pack:        [95, 100],
+      }
+    : {
+        fetch_addon: [0, 15],
+        unzip:       [15, 20],
+        fetch_base:  [20, 80],
+        bspatch:     [80, 95],
+        pack:        [95, 100],
+      };
+
+  let lastEmittedPct = 0;
   const emitProgress = (phase: ComposePhase, loaded?: number, total?: number) => {
     const [start, end] = phaseWeights[phase];
-    const pct = (loaded !== undefined && total && total > 0)
+    const rawPct = (loaded !== undefined && total && total > 0)
       ? Math.min(end, Math.round(start + (loaded / total) * (end - start)))
       : start;
+    const pct = Math.max(lastEmittedPct, Math.min(100, rawPct));
+    lastEmittedPct = pct;
     ctx.postMessage({ id: req.id, type: 'compose_progress', phase, loaded, total, pct });
   };
 
@@ -178,15 +190,13 @@ async function composeOutfit(req: ComposeRequest): Promise<void> {
   const targetJson = entries['target.json'];
   if (!targetJson) throw new Error("[vrmWorker] addon missing 'target.json'");
 
-  // ponytail: 看完 entries 才知道是 cold-start 还是 swap,覆盖 phaseWeights。
   if (!entries['bin-patch.bin'] && entries['whole-glb.bin']) {
-    // cold-start .vrmbase 路径 — 没有 base fetch / bspatch。
     phaseWeights = {
-      fetch_addon: [0, 95],
+      fetch_addon: [0, 85],
       fetch_base:  [0, 0],
-      unzip:       [95, 97],
+      unzip:       [85, 95],
       bspatch:     [0, 0],
-      pack:        [97, 100],
+      pack:        [95, 100],
     };
   }
 

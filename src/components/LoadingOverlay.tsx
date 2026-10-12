@@ -136,11 +136,19 @@ export const LoadingOverlay: React.FC<LoadingOverlayProps> = ({ state, onBreakSt
     }
   }, [effectiveState.active]);
 
-  if (hasExited) {
-    return null;
-  }
+  // 保持单调递增：UI 层面永远只增不减，彻底杜绝任何事件乱序导致进度条回退
+  const maxProgressRef = useRef(0);
+  useEffect(() => {
+    if (effectiveState.active && effectiveState.progress === 0) {
+      maxProgressRef.current = 0;
+    }
+  }, [effectiveState.active, effectiveState.progress]);
 
-  const progress = Math.min(100, Math.max(0, effectiveState.progress || 0));
+  const rawProgress = Math.min(100, Math.max(0, effectiveState.progress || 0));
+  if (rawProgress > maxProgressRef.current) {
+    maxProgressRef.current = rawProgress;
+  }
+  const progress = maxProgressRef.current;
 
   // 原神/星铁风格：分阶段着色器与管线动态文字
   const getStageText = () => {

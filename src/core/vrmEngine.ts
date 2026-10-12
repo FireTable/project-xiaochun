@@ -344,6 +344,26 @@ export class VRMEngine {
   // ── 外部状态与回调 ──
   public translateSync: ((key: string, vars?: Record<string, unknown>) => string) | null = null;
   public onLoadingChange?: (state: LoadingState) => void;
+  private _lastLoadingProgress = 0;
+
+  /** 发送 Loading 进度：内置严格单调递增保护，杜绝异步各阶段因事件乱序或重设导致进度条倒退或突跳 */
+  public reportLoading(state: LoadingState): void {
+    if (state.active) {
+      this._lastLoadingProgress = Math.max(
+        this._lastLoadingProgress,
+        Math.max(0, Math.min(100, state.progress))
+      );
+      this.onLoadingChange?.({ ...state, progress: this._lastLoadingProgress });
+    } else {
+      this._lastLoadingProgress = 100;
+      this.onLoadingChange?.({ ...state, progress: 100 });
+    }
+  }
+
+  /** 重设 Loading 进度追踪（冷启动开始时调用） */
+  public resetLoadingProgress(): void {
+    this._lastLoadingProgress = 0;
+  }
   // ponytail: 换装进度专给 TopHeader 按钮用 — 即便冷启动 LoadingOverlay 不显示
   // (preserveMotion=true 时 overlay 被跳过),按钮也要有 spinner 反馈。
   // shape 跟 LoadingState 一致,这样 UI 可以用同一个 component / 同样的字段。
@@ -1808,7 +1828,10 @@ export class VRMEngine {
             // emit 到 onSwapProgress (按钮) + onLoadingChange (overlay,仅 cold-start)。
             const state = { active: true as const, subtitleKey: preserveMotion ? 'swappingOutfit' : 'loadingModel', subtitleVars: { name: filename }, progress: pct };
             this.onSwapProgress?.(state);
-            if (!preserveMotion) this.onLoadingChange?.(state);
+            if (!preserveMotion) {
+              const scaledProgress = Math.min(75, Math.round(pct * 0.75));
+              this.reportLoading({ ...state, progress: scaledProgress });
+            }
           }
         },
         (error) => {
@@ -2082,7 +2105,8 @@ export class VRMEngine {
     const phaseLabel = preserveMotion ? 'swappingOutfit' : 'loadingModel';
     const subtitleVars = { name: filename };
     if (!preserveMotion) {
-      this.onLoadingChange?.({ active: true, subtitleKey: phaseLabel, subtitleVars, progress: 0 });
+      this.resetLoadingProgress();
+      this.reportLoading({ active: true, subtitleKey: phaseLabel, subtitleVars, progress: 0 });
       // 冷启动期并行提前拉取 EMAGE 模型，与 VRM 下载/Worker 组装充分并发
       if (isHeavyPreloadAllowed()) {
         void this.emagePlayer.ensureLoaded();
@@ -2098,10 +2122,22 @@ export class VRMEngine {
         ) ?? null;
         const addonSha = addonKey ? APP_CONFIG.model.addons[addonKey].sha : '';
         const composed = await this.composeVRMFromAddon(url, addonSha, { phaseLabel, subtitleVars, preserveMotion });
+        if (!preserveMotion) {
+          this.reportLoading({ active: true, subtitleKey: 'parsingModel', subtitleVars, progress: 78 });
+        }
         await this.loadVRMFromBuffer(composed, filename, { preserveMotion });
+        if (!preserveMotion) {
+          this.reportLoading({ active: true, subtitleKey: 'parsingModel', subtitleVars, progress: 85 });
+        }
         this.notifyOutfitChange(addonKey);
       } else if (!this.currentVRM) {
+        if (!preserveMotion) {
+          this.reportLoading({ active: true, subtitleKey: 'parsingModel', subtitleVars, progress: 78 });
+        }
         await this.loadVRM(url, filename);
+        if (!preserveMotion) {
+          this.reportLoading({ active: true, subtitleKey: 'parsingModel', subtitleVars, progress: 85 });
+        }
         this.notifyOutfitChange('__upload__');
       } else {
         await this.loadVRM(url, filename, { preserveMotion: true });
@@ -2112,7 +2148,7 @@ export class VRMEngine {
       // 破次元进入 3D 舞台后小春开口第一句话可直接无缝做出灵动肢体动作
       if (!preserveMotion && isHeavyPreloadAllowed()) {
         let emageProgress = 88;
-        this.onLoadingChange?.({ active: true, subtitleKey: 'madMotionSync', subtitleVars, progress: emageProgress });
+        this.reportLoading({ active: true, subtitleKey: 'madMotionSync', subtitleVars, progress: emageProgress });
         try {
           // 最多等待 25s（容纳 25~50 Mbps 宽带与移动网络冷启动拉取 68MB ONNX 及 WASM 会话编译），超时兜底放行
           await Promise.race([
@@ -2123,7 +2159,7 @@ export class VRMEngine {
                 const total = Number(match[2]);
                 if (total > 0) {
                   emageProgress = Math.min(98, Math.round(88 + (current / total) * 10));
-                  this.onLoadingChange?.({ active: true, subtitleKey: 'madMotionSync', subtitleVars, progress: emageProgress });
+                  this.reportLoading({ active: true, subtitleKey: 'madMotionSync', subtitleVars, progress: emageProgress });
                 }
               }
             }),
@@ -2138,7 +2174,7 @@ export class VRMEngine {
       // 用 progress:100 而非 0 — 上一版本用 0 让 bar 倒带回 0%,看着像失败。
       this.onSwapProgress?.({ active: false, subtitleKey: '', progress: 100 });
       if (!preserveMotion) {
-        this.onLoadingChange?.({ active: false, subtitleKey: '', progress: 100 });
+        this.reportLoading({ active: false, subtitleKey: '', progress: 100 });
       }
     }
   }
@@ -2400,9 +2436,13 @@ export class VRMEngine {
       if (e.data.type === 'compose_progress') {
         const meta = this.bspatchPendingMeta.get(e.data.id);
         const phaseLabel = meta?.phaseLabel ?? 'swappingOutfit';
-        const state = { active: true as const, subtitleKey: phaseLabel, subtitleVars: meta?.subtitleVars, progress: e.data.pct };
-        this.onSwapProgress?.(state);
-        if (meta && !meta.preserveMotion) this.onLoadingChange?.(state);
+        const rawPct = e.data.pct;
+        this.onSwapProgress?.({ active: true as const, subtitleKey: phaseLabel, subtitleVars: meta?.subtitleVars, progress: rawPct });
+        if (meta && !meta.preserveMotion) {
+          // compose 占整个冷启动加载的 0% ~ 75% 空间，留出后段给模型解析(78~85%)与动作引擎预热(88~98%)
+          const scaledProgress = Math.min(75, Math.round(rawPct * 0.75));
+          this.reportLoading({ active: true, subtitleKey: phaseLabel, subtitleVars: meta.subtitleVars, progress: scaledProgress });
+        }
         return;
       }
       const req = this.bspatchPending.get(e.data.id);
