@@ -21,8 +21,10 @@ import type { Lang } from '@/i18n';
 import { langFromSystemPrompt } from '@/llm/prompts';
 
 // ── 抽离子系统导入 ──
-import { LineworkWorld, type LineworkTheme } from './scene/lineworkWorld';
+import { LineworkWorld } from './scene/lineworkWorld';
 import { Beach3DWorld } from './scene/beach3d/beach3dWorld';
+import { VoidWorld } from './scene/void/voidWorld';
+import type { SceneThemeId, LineworkTheme } from '@/types/config';
 import { passthroughManager } from './scene/passthroughManager';
 import { StudioLighting } from './lighting/studioLighting';
 import {
@@ -225,9 +227,12 @@ export class VRMEngine {
   /** 阴影隔帧更新帧计数器 */
   private _shadowFrameCount = 0;
   // ── 模块化独立子系统 ──
-  private lineworkWorld = new LineworkWorld();
+  public readonly lineworkWorld = new LineworkWorld();
   /** 海滩 3D 场景 (beach3d): 纯 Three.js 天空 / 云 / 远山 / 沙地 + 海 / 棕榈 / 礁石; 首次进入该场景时构建; 其余场景隐藏 (0 次绘制), 资源保留到引擎 dispose。 */
   public readonly beach3d = new Beach3DWorld();
+  /** 虚空静谧场景 (void): 双层径向光晕 + 浮游微尘，营造专注静谧的纯背景感 */
+  public readonly voidWorld = new VoidWorld();
+  private _currentSceneTheme: SceneThemeId = 'light';
   public readonly lighting = new StudioLighting();
   public readonly materialManager = new VRMMaterialManager();
   public readonly bubbleTracker = new BubbleTracker();
@@ -658,6 +663,8 @@ export class VRMEngine {
     this.lighting.init(this.scene);
     // 海滩 3D: 挂进场景 (默认不可见, 首次进入时才构建); 太阳方向取主方向光
     this.beach3d.attach(this.scene, this.lighting.dirLight);
+    // 虚空场景: 挂进场景 (默认不可见, 首次进入时才构建浮游微尘)
+    this.voidWorld.attach(this.scene);
 
     // 动作与聊天控制器事件绑定
     this.vrmaPlayer.bindTransitionManager(this.motionTransition);
@@ -995,9 +1002,7 @@ export class VRMEngine {
       this._sceneInitialized = true;
       this.fitCamera(true);
       const storedTheme = resolveInitialSceneTheme();
-      this.lineworkWorld.build(this.scene, storedTheme);
-      this.updateShadowForTheme(storedTheme === 'dark' || storedTheme === 'void');
-      this.syncSceneBackdrop(storedTheme);
+      this.setScene(storedTheme, false);
       this.startAnimation();
       this.cinematicIntro(1100);
     } else if (this.currentVRM || this._sceneInitialized) {
@@ -1165,7 +1170,23 @@ export class VRMEngine {
   };
 
   public setLineworkTheme(theme: LineworkTheme, persist: boolean = true): void {
-    this.lineworkWorld.setTheme(theme, this.scene);
+    this.setScene(theme, persist);
+  }
+
+  public setScene(theme: SceneThemeId, persist: boolean = true): void {
+    this._currentSceneTheme = theme;
+    const isLinework = theme === 'light' || theme === 'dark';
+    this.lineworkWorld.setActive(isLinework, this.scene);
+    if (isLinework) {
+      this.lineworkWorld.setTheme(theme, this.scene);
+    }
+    this.beach3d.setActive(theme === 'beach3d');
+    this.voidWorld.setActive(theme === 'void', this.scene);
+
+    if (theme === 'transparent' || theme === 'beach3d') {
+      this.scene.background = null;
+    }
+
     this.updateShadowForTheme(theme === 'dark' || theme === 'void');
     this.syncSceneBackdrop(theme);
     // ponytail: shadowPlane 现在带 radial alpha mask, 边缘自然 fade 到全透明,
@@ -1197,14 +1218,18 @@ export class VRMEngine {
    *   重置为所有场景共用的默认值, 没有场景专属的灯光 / 落影微调。
    * 不改任何角色材质。
    */
-  private syncSceneBackdrop(theme: LineworkTheme): void {
+  private syncSceneBackdrop(theme: SceneThemeId): void {
     this.beach3d.setActive(theme === 'beach3d');
     this.lighting.applyTheme(theme);
     this.shadow.applyTheme(theme);
   }
 
   public getLineworkTheme(): LineworkTheme {
-    return this.lineworkWorld.currentTheme;
+    return this._currentSceneTheme;
+  }
+
+  public getSceneTheme(): SceneThemeId {
+    return this._currentSceneTheme;
   }
 
   public setLight(key: string, enabled: boolean, value: number): void {
@@ -1742,9 +1767,7 @@ export class VRMEngine {
             this._sceneInitialized = true;
             this.fitCamera(true);
             const storedTheme = resolveInitialSceneTheme();
-            this.lineworkWorld.build(this.scene, storedTheme);
-            this.updateShadowForTheme(storedTheme === 'dark' || storedTheme === 'void');
-            this.syncSceneBackdrop(storedTheme);
+            this.setScene(storedTheme, false);
             this.startAnimation();
             this.cinematicIntro(1100);
           } else if (this.controls) {
@@ -2209,9 +2232,7 @@ export class VRMEngine {
             this._sceneInitialized = true;
             this.fitCamera(true);
             const storedTheme = resolveInitialSceneTheme();
-            this.lineworkWorld.build(this.scene, storedTheme);
-            this.updateShadowForTheme(storedTheme === 'dark' || storedTheme === 'void');
-            this.syncSceneBackdrop(storedTheme);
+            this.setScene(storedTheme, false);
             this.startAnimation();
             this.cinematicIntro(1100);
           } else if (this.controls) {
@@ -2639,6 +2660,8 @@ export class VRMEngine {
 
       // 持续驱动线稿背景世界的动态喷水花坛（水珠物理重力飞溅与同心涟漪波纹）
       this.lineworkWorld.update(delta, time);
+      // 持续驱动虚空星尘粒子的微动悬浮
+      this.voidWorld.update(delta, time);
 
       const vrm = this.currentVRM;
       if (vrm) {
@@ -2938,6 +2961,7 @@ export class VRMEngine {
 
     this.renderer?.dispose();
     this.lineworkWorld.dispose(this.scene);
+    this.voidWorld.dispose(this.scene);
     this.beach3d.dispose(this.scene);
     // ponytail: 角色阴影系统释放 (含 shadowPlane geometry/material + mask texture)
     this.shadow.dispose();
@@ -2946,4 +2970,4 @@ export class VRMEngine {
 }
 
 export const vrmEngine = new VRMEngine();
-export type { LineworkTheme } from './scene/lineworkWorld';
+export type { LineworkTheme, SceneThemeId } from '@/types/config';

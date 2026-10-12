@@ -4,7 +4,7 @@ import { APP_CONFIG } from '@/config';
 import { isEmbed, isMobile, isTauri } from '@/lib/platform';
 import { embedSceneFromSearch } from '@/embed/registry';
 import { ONBOARDING_STORAGE_KEY, POSTFX_STORAGE_KEY, SCENE_THEME_KEY } from '@/lib/constants';
-import type { LineworkTheme } from '@/core/scene/lineworkWorld';
+import type { LineworkTheme } from '@/types/config';
 
 export function cn(...inputs: ClassValue[]) {
   return twMerge(clsx(inputs));

@@ -13,18 +13,19 @@ type BuildingShape = 'box' | 'tower' | 'pyramid' | 'stepped' | 'antenna';
  * - 远景飞鸟：在雄伟山峦顶端开阔高空盘旋 (Z = -30 ~ -40, 高度 15.0 ~ 24.0m)
  * - 远景群山：高耸入云的两重起伏叠嶂山脊 (Z = -34 与 Z = -46, 宽度 84 ~ 115m, 峰顶高 16.0 ~ 26.0m)
  */
-export type LineworkTheme = 'light' | 'dark' | 'transparent' | 'beach3d' | 'void';
+export type LineworkColorMode = 'light' | 'dark';
+export type LineworkTheme = LineworkColorMode;
 
 export class LineworkWorld {
-  private rootGroup = new THREE.Group();
+  public readonly id = 'linework';
+  public readonly rootGroup = new THREE.Group();
   private isBuilt = false;
   private disposables: Array<{ dispose: () => void }> = [];
   private sceneRef: THREE.Scene | null = null;
 
-  public currentTheme: LineworkTheme = 'light';
+  public currentTheme: LineworkColorMode = 'light';
   private bgTextureLight: THREE.CanvasTexture | null = null;
   private bgColorDark: THREE.Color = new THREE.Color(0x202020);
-  private bgTextureVoid: THREE.CanvasTexture | null = null;
   private buildingColorLight: THREE.Color = new THREE.Color(0xdbd0d4);
   private groundColorLight: THREE.Color = new THREE.Color(0xc7bac0);
 
@@ -62,9 +63,6 @@ export class LineworkWorld {
     driftRangeX: number;
     driftRangeZ: number;
   }> = [];
-
-  // ── 纯粹虚空舞台系统 (Void Stage: 极简纯净深空) ──
-  private voidStageGroup: THREE.Group = new THREE.Group();
 
   /** 创建高采样双色阶竖向渐变 CanvasTexture */
   private createGradientTexture(topColor: string, bottomColor: string): THREE.CanvasTexture {
@@ -112,24 +110,14 @@ export class LineworkWorld {
     this.disposables = [];
     this.currentTheme = initialTheme;
 
-    // ── 0. 预制薄暮粉灰渐变背景、中性纯净炭黑纯色背景与纯净深空虚空渐变 ──
+    // ── 0. 预制薄暮粉灰渐变背景与中性纯净炭黑纯色背景 ──
     // 昼白线稿（Daylight Linework - 薄暮粉灰）：采用低饱和莫兰迪浅烟粉灰阶渐变（温润治愈，护眼且白色滑块清晰醒目）
     this.bgTextureLight = this.createGradientTexture('#E2D9DB', '#D5CACD');
     this.bgColorDark = new THREE.Color(0x202020);
-    // 纯粹虚空（Void Stage）：深邃微晕的暗场天顶渐变，极致纯净空灵，突出人物与聚光灯舞台
-    this.bgTextureVoid = this.createGradientTexture('#0d0f18', '#06070a');
 
-    if (initialTheme === 'void') {
-      scene.background = this.bgTextureVoid;
-      this.rootGroup.visible = false;
-    } else if (initialTheme === 'transparent' || initialTheme === 'beach3d') {
-      // transparent: 透明桌宠; beach3d: Beach3DWorld 自己画; 线稿世界整组隐藏
-      scene.background = null;
-      this.rootGroup.visible = false;
-    } else {
-      scene.background = initialTheme === 'dark' ? this.bgColorDark : this.bgTextureLight;
-      this.rootGroup.visible = true;
-    }
+    const isLightMode = initialTheme === 'light';
+    scene.background = isLightMode ? this.bgTextureLight : this.bgColorDark;
+    this.rootGroup.visible = true;
 
     // ── 材质单例池 ──
     const isDark = initialTheme === 'dark';
@@ -574,21 +562,12 @@ export class LineworkWorld {
     this.rootGroup.updateMatrix();
     scene.add(this.rootGroup);
 
-    this.voidStageGroup.visible = initialTheme === 'void';
-    scene.add(this.voidStageGroup);
-
     this.isBuilt = true;
   }
 
   /** 动态更新：持续驱动大范围水花喷洒下落与八角水面同心涟漪扩展 (极速零分配，耗时 < 0.015ms) */
   update(_delta: number, time: number): void {
-    if (!this.isBuilt) return;
-
-    // 虚空场景无动态元素需要积分
-    if (this.currentTheme === 'void') return;
-
-    // 透明桌宠 root 不可见：喷泉/飞鸟用户看不到，不必每帧积分
-    if (!this.rootGroup.visible) return;
+    if (!this.isBuilt || !this.rootGroup.visible) return;
 
     const nozzle = this.fountainOrigin;
 
@@ -685,30 +664,31 @@ export class LineworkWorld {
     }
   }
 
+  /** 挂载至主场景 */
+  attach(scene: THREE.Scene): void {
+    if (!this.isBuilt) {
+      this.build(scene, this.currentTheme);
+    } else if (this.sceneRef !== scene) {
+      this.sceneRef = scene;
+      scene.add(this.rootGroup);
+    }
+  }
+
+  /** 控制线稿世界激活与背景显隐 */
+  setActive(active: boolean, scene?: THREE.Scene): void {
+    this.rootGroup.visible = active;
+    const targetScene = scene || this.sceneRef;
+    if (active && targetScene) {
+      targetScene.background = this.currentTheme === 'dark' ? this.bgColorDark : this.bgTextureLight;
+    }
+  }
+
   /** 动态无缝切换背景主题 (0ms 开销，无需重建几何体) */
-  setTheme(theme: LineworkTheme, scene?: THREE.Scene): void {
+  setTheme(theme: LineworkColorMode, scene?: THREE.Scene): void {
     this.currentTheme = theme;
     const targetScene = scene || this.sceneRef;
-    this.voidStageGroup.visible = theme === 'void';
 
-    if (theme === 'void') {
-      if (targetScene) {
-        targetScene.background = this.bgTextureVoid ?? new THREE.Color(0x0a0c14);
-      }
-      this.rootGroup.visible = false;
-      return;
-    }
-
-    if (theme === 'transparent' || theme === 'beach3d') {
-      if (targetScene) {
-        targetScene.background = null;
-      }
-      this.rootGroup.visible = false;
-      return;
-    }
-
-    this.rootGroup.visible = true;
-    if (targetScene) {
+    if (this.rootGroup.visible && targetScene) {
       targetScene.background = theme === 'dark' ? this.bgColorDark : this.bgTextureLight;
     }
 
@@ -789,8 +769,6 @@ export class LineworkWorld {
 
     scene.remove(this.rootGroup);
     this.rootGroup.clear();
-    scene.remove(this.voidStageGroup);
-    this.voidStageGroup.clear();
     this.isBuilt = false;
   }
 }

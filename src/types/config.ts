@@ -15,7 +15,8 @@ export interface LightConfig {
 }
 
 /** 场景背景主题。light/dark = 线稿世界; transparent = 透明桌宠; beach3d = 海滩 (纯 Three.js 3D 场景); void = 纯粹虚空 (新手向导专属)。 */
-export type LineworkTheme = 'light' | 'dark' | 'transparent' | 'beach3d' | 'void';
+export type SceneThemeId = 'light' | 'dark' | 'transparent' | 'beach3d' | 'void';
+export type LineworkTheme = SceneThemeId;
 
 export interface SceneComponentConfig {
   topHeader?: boolean;
