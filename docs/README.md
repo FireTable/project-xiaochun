@@ -33,6 +33,7 @@ docs/
 ├── POSTFX.md                      # Anime post-processing pipeline (UnrealBloom background bypass, ToneMapping & ColorGrading)
 ├── VRM_BUILD_WORKFLOW.md          # Offline VRM toolchain (.vrmbase + .vrmaddon extraction, oxipng & deterministic builds)
 ├── VRM_ENGINE_AND_WORKER.md       # Core architecture (Main VRMEngine orchestrator + background vrmWorker WASM synthesis)
+├── ONBOARDING.md                  # Galgame-style immersive onboarding system: schema steps, void stage, liquid glass cards, and voice flow
 └── MTOON.md                       # MToon NPR material extensions, uniforms & part presets
 ```
 
@@ -43,6 +44,8 @@ docs/
 When tasked with modifications or refactoring, consult the dedicated technical guide before making code edits:
 
 | Task Objective | Primary Guide | Core Invariants & Rules |
+| :--- | :--- | :--- |
+| **Immersive Galgame Onboarding / First-time user tour / Void stage** | [`ONBOARDING.md`](ONBOARDING.md) | Schema-driven onboarding (`onboardingSchema.ts`), Void stage (`voidWorld.ts`), liquid glass cards, full voice & EMAGE synchronization, persistent `xiaochun_onboarded` flag. |
 | :--- | :--- | :--- |
 | **User interactions / Hotkeys / Platform differences / Gestures** | [`INTERACTION_AND_CONTROLS.md`](INTERACTION_AND_CONTROLS.md) | Long-press adjust mode (all platforms); Cmd/Ctrl instant 3D; Tauri short-drag window; 60Hz alpha click-through + guide passthrough capture. |
 | **Desktop companion / Tauri 2.x / Alpha click-through / Window state / In-app updater** | [`HYBRID_DESKTOP_APP.md`](HYBRID_DESKTOP_APP.md) | Canvas alpha bitmask + DOM capture; window-state; corner handles; opacity pet chrome; official updater + opener; signing secrets. |

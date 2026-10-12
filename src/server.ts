@@ -115,7 +115,7 @@ function executeSingleFlight(
       }
 
       socket = res.webSocket;
-      socket.accept?.();
+      (socket as any).accept?.();
       try {
         (socket as any).binaryType = 'arraybuffer';
       } catch { }
@@ -226,7 +226,7 @@ function executeSingleFlight(
         }
       };
 
-      const onSocketError = (err?: any) => {
+      const onSocketError = (_err?: any) => {
         if (!receivedFirstChunk) {
           clearTimeout(timeoutId);
           cleanup();

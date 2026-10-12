@@ -21,8 +21,10 @@ import type { Lang } from '@/i18n';
 import { langFromSystemPrompt } from '@/llm/prompts';
 
 // ── 抽离子系统导入 ──
-import { LineworkWorld, type LineworkTheme } from './scene/lineworkWorld';
+import { LineworkWorld } from './scene/lineworkWorld';
 import { Beach3DWorld } from './scene/beach3d/beach3dWorld';
+import { VoidWorld } from './scene/void/voidWorld';
+import type { SceneThemeId, LineworkTheme } from '@/types/config';
 import { passthroughManager } from './scene/passthroughManager';
 import { StudioLighting } from './lighting/studioLighting';
 import {
@@ -225,9 +227,12 @@ export class VRMEngine {
   /** 阴影隔帧更新帧计数器 */
   private _shadowFrameCount = 0;
   // ── 模块化独立子系统 ──
-  private lineworkWorld = new LineworkWorld();
+  public readonly lineworkWorld = new LineworkWorld();
   /** 海滩 3D 场景 (beach3d): 纯 Three.js 天空 / 云 / 远山 / 沙地 + 海 / 棕榈 / 礁石; 首次进入该场景时构建; 其余场景隐藏 (0 次绘制), 资源保留到引擎 dispose。 */
   public readonly beach3d = new Beach3DWorld();
+  /** 虚空静谧场景 (void): 双层径向光晕 + 浮游微尘，营造专注静谧的纯背景感 */
+  public readonly voidWorld = new VoidWorld();
+  private _currentSceneTheme: SceneThemeId = 'light';
   public readonly lighting = new StudioLighting();
   public readonly materialManager = new VRMMaterialManager();
   public readonly bubbleTracker = new BubbleTracker();
@@ -656,8 +661,12 @@ export class VRMEngine {
     this.gazeController.init(this.scene);
     this.gazeController.enabled = APP_CONFIG.camera.defaultEnableGaze ?? true;
     this.lighting.init(this.scene);
+    // 场景世界初始化并挂载
+    this.lineworkWorld.attach(this.scene);
     // 海滩 3D: 挂进场景 (默认不可见, 首次进入时才构建); 太阳方向取主方向光
     this.beach3d.attach(this.scene, this.lighting.dirLight);
+    // 虚空场景: 挂进场景 (默认不可见, 首次进入时才构建浮游微尘)
+    this.voidWorld.attach(this.scene);
 
     // 动作与聊天控制器事件绑定
     this.vrmaPlayer.bindTransitionManager(this.motionTransition);
@@ -995,9 +1004,7 @@ export class VRMEngine {
       this._sceneInitialized = true;
       this.fitCamera(true);
       const storedTheme = resolveInitialSceneTheme();
-      this.lineworkWorld.build(this.scene, storedTheme);
-      this.updateShadowForTheme(storedTheme === 'dark');
-      this.syncSceneBackdrop(storedTheme);
+      this.setScene(storedTheme, false);
       this.startAnimation();
       this.cinematicIntro(1100);
     } else if (this.currentVRM || this._sceneInitialized) {
@@ -1164,15 +1171,28 @@ export class VRMEngine {
     }
   };
 
-  // ── 外部控制代理 API ──
   public setLineworkTheme(theme: LineworkTheme, persist: boolean = true): void {
-    this.lineworkWorld.setTheme(theme, this.scene);
-    this.updateShadowForTheme(theme === 'dark');
+    this.setScene(theme, persist);
+  }
+
+  public setScene(theme: SceneThemeId, persist: boolean = true): void {
+    this._currentSceneTheme = theme;
+    const isLinework = theme === 'light' || theme === 'dark';
+    this.lineworkWorld.setActive(isLinework, this.scene);
+    if (isLinework) {
+      this.lineworkWorld.setTheme(theme, this.scene);
+    }
+    this.beach3d.setActive(theme === 'beach3d');
+    this.voidWorld.setActive(theme === 'void', this.scene);
+
+    if (theme === 'transparent' || theme === 'beach3d') {
+      this.scene.background = null;
+    }
+
+    this.updateShadowForTheme(theme === 'dark' || theme === 'void');
     this.syncSceneBackdrop(theme);
-    // ponytail: shadowPlane 现在带 radial alpha mask, 边缘自然 fade 到全透明,
-    // 不再有"12x12 大网格污染穿透位图"的隐患, transparent 下保持显示让 directional
-    // 影子投到带 mask 的 plane 上, 边界软渐隐 (ani 风格)。visibility 不再随 theme 切换。
-    if (this.shadow.group) this.shadow.group.visible = true;
+    // 纯虚空 (void) 场景彻底隐藏地面侧向硬投影，营造纯净空灵的真实三维悬浮感；其余场景正常开启
+    if (this.shadow.group) this.shadow.group.visible = theme !== 'void';
     if (typeof document !== 'undefined') {
       document.documentElement.classList.toggle('scene-transparent', theme === 'transparent');
     }
@@ -1198,14 +1218,18 @@ export class VRMEngine {
    *   重置为所有场景共用的默认值, 没有场景专属的灯光 / 落影微调。
    * 不改任何角色材质。
    */
-  private syncSceneBackdrop(theme: LineworkTheme): void {
+  private syncSceneBackdrop(theme: SceneThemeId): void {
     this.beach3d.setActive(theme === 'beach3d');
     this.lighting.applyTheme(theme);
     this.shadow.applyTheme(theme);
   }
 
   public getLineworkTheme(): LineworkTheme {
-    return this.lineworkWorld.currentTheme;
+    return this._currentSceneTheme;
+  }
+
+  public getSceneTheme(): SceneThemeId {
+    return this._currentSceneTheme;
   }
 
   public setLight(key: string, enabled: boolean, value: number): void {
@@ -1703,6 +1727,10 @@ export class VRMEngine {
             // 4b. 体型差：对齐旧髋世界高度，再缓回真实贴地 baseY（减轻穿脱瞬间抖）
             const trueFloorY = this.vrmBaseSceneY;
             this.applyOutfitHeightContinuity(previousVrm, vrm, trueFloorY);
+            const settledBaseY = this.vrmBaseSceneY - this.footIK.getSinkOffset() + this.bodyMorph.getLegHeightDelta();
+            vrm.scene.position.y = settledBaseY;
+            vrm.scene.updateMatrixWorld(true);
+            this.settleSpringBones(vrm);
 
             // 5. 同步原子切换：移除旧模型、挂入已处于正确动作姿势的新模型
             this.scene.remove(previousVrm.scene);
@@ -1732,6 +1760,18 @@ export class VRMEngine {
           this.bodyMorph.bind(vrm);
           this.applySpringBoneTuning(vrm);
           this.applySavedBodyYawToVRM(vrm);
+          const initialBaseY = this.vrmBaseSceneY - this.footIK.getSinkOffset() + this.bodyMorph.getLegHeightDelta();
+          vrm.scene.position.y = initialBaseY;
+          this.motionPipeline.tick(vrm, {
+            camera: this.camera,
+            delta: 0,
+            time: performance.now() * 0.001,
+            enableBodyTurn: false,
+            isSpeaking: false,
+            manualExpression: this.manualExpression,
+          });
+          vrm.scene.updateMatrixWorld(true);
+          this.settleSpringBones(vrm);
           if (typeof window !== 'undefined') {
             (window as any).emagePlayer = this.emagePlayer;
             (window as any).vrmEngine = this;
@@ -1743,9 +1783,7 @@ export class VRMEngine {
             this._sceneInitialized = true;
             this.fitCamera(true);
             const storedTheme = resolveInitialSceneTheme();
-            this.lineworkWorld.build(this.scene, storedTheme);
-            this.updateShadowForTheme(storedTheme === 'dark');
-            this.syncSceneBackdrop(storedTheme);
+            this.setScene(storedTheme, false);
             this.startAnimation();
             this.cinematicIntro(1100);
           } else if (this.controls) {
@@ -1795,6 +1833,34 @@ export class VRMEngine {
       }
     }
     this.windForce.resetGravityCache();
+  }
+
+  /**
+   * 弹簧骨骼加载瞬间零速预热与碰撞松弛 (方案 B):
+   * 仅在模型上屏前瞬间在后台迭代 16 步小物理步长，解除大腿碰撞体穿透并清零初速度。
+   * 完全不改动任何日常物理参数 (stiffness, dragForce, gravityPower)，确保日常动感 100% 原汁原味。
+   */
+  public settleSpringBones(vrm: VRM): void {
+    const mgr = vrm.springBoneManager;
+    if (!mgr) return;
+
+    vrm.scene.updateMatrixWorld(true);
+
+    for (const joint of mgr.joints) {
+      (joint as any).reset?.();
+    }
+
+    const subDelta = 0.016;
+    for (let step = 0; step < 16; step++) {
+      mgr.update(subDelta);
+      for (const joint of mgr.joints) {
+        const j = joint as unknown as { _currentTail?: THREE.Vector3; _prevTail?: THREE.Vector3 };
+        if (j._currentTail && j._prevTail) {
+          j._prevTail.copy(j._currentTail);
+        }
+      }
+      vrm.scene.updateMatrixWorld(true);
+    }
   }
 
   /**
@@ -2170,6 +2236,10 @@ export class VRMEngine {
             // 4b. 体型差：对齐旧髋世界高度，再缓回真实贴地 baseY（减轻穿脱瞬间抖）
             const trueFloorY = this.vrmBaseSceneY;
             this.applyOutfitHeightContinuity(previousVrm, vrm, trueFloorY);
+            const settledBaseY = this.vrmBaseSceneY - this.footIK.getSinkOffset() + this.bodyMorph.getLegHeightDelta();
+            vrm.scene.position.y = settledBaseY;
+            vrm.scene.updateMatrixWorld(true);
+            this.settleSpringBones(vrm);
 
             // 5. 同步原子切换：移除旧模型、挂入已处于正确动作姿势的新模型
             this.scene.remove(previousVrm.scene);
@@ -2199,6 +2269,18 @@ export class VRMEngine {
           this.bodyMorph.bind(vrm);
           this.applySpringBoneTuning(vrm);
           this.applySavedBodyYawToVRM(vrm);
+          const initialBaseY = this.vrmBaseSceneY - this.footIK.getSinkOffset() + this.bodyMorph.getLegHeightDelta();
+          vrm.scene.position.y = initialBaseY;
+          this.motionPipeline.tick(vrm, {
+            camera: this.camera,
+            delta: 0,
+            time: performance.now() * 0.001,
+            enableBodyTurn: false,
+            isSpeaking: false,
+            manualExpression: this.manualExpression,
+          });
+          vrm.scene.updateMatrixWorld(true);
+          this.settleSpringBones(vrm);
           if (typeof window !== 'undefined') {
             (window as any).emagePlayer = this.emagePlayer;
             (window as any).vrmEngine = this;
@@ -2210,9 +2292,7 @@ export class VRMEngine {
             this._sceneInitialized = true;
             this.fitCamera(true);
             const storedTheme = resolveInitialSceneTheme();
-            this.lineworkWorld.build(this.scene, storedTheme);
-            this.updateShadowForTheme(storedTheme === 'dark');
-            this.syncSceneBackdrop(storedTheme);
+            this.setScene(storedTheme, false);
             this.startAnimation();
             this.cinematicIntro(1100);
           } else if (this.controls) {
@@ -2449,7 +2529,7 @@ export class VRMEngine {
    * ponytail: 跳过 LLM,直接跑 TTS → EMAGE → 播放流水线。
    * 当前仅 dev 测试按钮调用;函数本身通用,后续其他 "直接念" 场景也可复用。
    */
-  public async speakText(text: string): Promise<void> {
+  public async speakText(text: string, voiceOverride?: string): Promise<void> {
     if (!this.currentVRM) return;
 
     const setStatus = (
@@ -2476,7 +2556,7 @@ export class VRMEngine {
       );
     };
 
-    await this.chatDirector.speakText(text, this.currentVRM, this.vrmaPlayer, this.emagePlayer, setStatus);
+    await this.chatDirector.speakText(text, this.currentVRM, this.vrmaPlayer, this.emagePlayer, setStatus, voiceOverride);
   }
 
   /**
@@ -2640,6 +2720,8 @@ export class VRMEngine {
 
       // 持续驱动线稿背景世界的动态喷水花坛（水珠物理重力飞溅与同心涟漪波纹）
       this.lineworkWorld.update(delta, time);
+      // 持续驱动虚空星尘粒子的微动悬浮
+      this.voidWorld.update(delta, time);
 
       const vrm = this.currentVRM;
       if (vrm) {
@@ -2939,6 +3021,7 @@ export class VRMEngine {
 
     this.renderer?.dispose();
     this.lineworkWorld.dispose(this.scene);
+    this.voidWorld.dispose(this.scene);
     this.beach3d.dispose(this.scene);
     // ponytail: 角色阴影系统释放 (含 shadowPlane geometry/material + mask texture)
     this.shadow.dispose();
@@ -2947,4 +3030,4 @@ export class VRMEngine {
 }
 
 export const vrmEngine = new VRMEngine();
-export type { LineworkTheme } from './scene/lineworkWorld';
+export type { LineworkTheme, SceneThemeId } from '@/types/config';

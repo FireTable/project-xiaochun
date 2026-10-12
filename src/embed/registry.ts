@@ -75,7 +75,9 @@ export function listOutfits(addons: Readonly<Record<string, AddonLike>>): XcOutf
 
 
 export function listScenes(items: Readonly<Record<string, SceneLike>>): XcSceneInfo[] {
-  return Object.keys(items).map((id) => ({ id, transparent: Boolean(items[id].isTransparent) }));
+  return Object.keys(items)
+    .filter((id) => !(items[id] as any).hidden)
+    .map((id) => ({ id, transparent: Boolean(items[id].isTransparent) }));
 }
 
 /**

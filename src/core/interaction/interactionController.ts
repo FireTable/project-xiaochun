@@ -97,10 +97,19 @@ export class InteractionController {
   private _currentCameraYOffset = 0;
 
   private stateListeners = new Set<(state: InteractionState) => void>();
+  private gestureListeners = new Set<(ev: GestureEvent) => void>();
 
   constructor() {
     this.machine.on(this.onGestureEvent);
     this.setupGlobalKeyListeners();
+  }
+
+  /** 订阅底层细粒度手势事件 (turn, guide-drag, move 等) */
+  public onGesture(cb: (ev: GestureEvent) => void): () => void {
+    this.gestureListeners.add(cb);
+    return () => {
+      this.gestureListeners.delete(cb);
+    };
   }
 
   /**
@@ -241,6 +250,10 @@ export class InteractionController {
 
   /** 消费 GestureMachine 的语义事件: 3D 表现 / 光标 / 穿透 / 指针捕获 / Tauri 原生拖窗。 */
   private onGestureEvent = (ev: GestureEvent): void => {
+    this.gestureListeners.forEach((cb) => {
+      try { cb(ev); } catch {}
+    });
+
     switch (ev.type) {
       case 'move-start':
         // 必须同步调用: 本回调处于 GestureMachine.pointerMove 的同步栈里, 即 pointermove 事件处理中

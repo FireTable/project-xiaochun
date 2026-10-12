@@ -76,7 +76,7 @@ export class StudioLighting {
   }
 
   /**
-   * 切场景时重置灯色 (所有场景共用同一套默认灯色, 不改强度 / 不改任何角色材质)。强度仍由 channels / 调试抽屉控制。
+   * 切场景时重置灯色 (统一所有场景包含 void 虚空使用同一套明亮通透的灯色，避免角色暗部发灰)。
    */
   applyTheme(_theme: LineworkTheme): void {
     this.hemiLight.color.setHex(0xfffaf8);

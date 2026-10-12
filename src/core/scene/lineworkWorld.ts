@@ -13,15 +13,17 @@ type BuildingShape = 'box' | 'tower' | 'pyramid' | 'stepped' | 'antenna';
  * - 远景飞鸟：在雄伟山峦顶端开阔高空盘旋 (Z = -30 ~ -40, 高度 15.0 ~ 24.0m)
  * - 远景群山：高耸入云的两重起伏叠嶂山脊 (Z = -34 与 Z = -46, 宽度 84 ~ 115m, 峰顶高 16.0 ~ 26.0m)
  */
-export type LineworkTheme = 'light' | 'dark' | 'transparent' | 'beach3d';
+export type LineworkColorMode = 'light' | 'dark';
+export type LineworkTheme = LineworkColorMode;
 
 export class LineworkWorld {
-  private rootGroup = new THREE.Group();
+  public readonly id = 'linework';
+  public readonly rootGroup = new THREE.Group();
   private isBuilt = false;
   private disposables: Array<{ dispose: () => void }> = [];
   private sceneRef: THREE.Scene | null = null;
 
-  public currentTheme: LineworkTheme = 'light';
+  public currentTheme: LineworkColorMode = 'light';
   private bgTextureLight: THREE.CanvasTexture | null = null;
   private bgColorDark: THREE.Color = new THREE.Color(0x202020);
   private buildingColorLight: THREE.Color = new THREE.Color(0xdbd0d4);
@@ -62,12 +64,18 @@ export class LineworkWorld {
     driftRangeZ: number;
   }> = [];
 
+  public get built(): boolean {
+    return this.isBuilt;
+  }
+
   /** 创建高采样双色阶竖向渐变 CanvasTexture */
-  private createGradientTexture(topColor: string, bottomColor: string): THREE.CanvasTexture {
+  private createGradientTexture(topColor: string, bottomColor: string): THREE.CanvasTexture | null {
+    if (typeof document === 'undefined') return null;
     const canvas = document.createElement('canvas');
     canvas.width = 4;
     canvas.height = 512;
-    const ctx = canvas.getContext('2d')!;
+    const ctx = canvas.getContext('2d');
+    if (!ctx) return null;
     const grad = ctx.createLinearGradient(0, 0, 0, 512);
     grad.addColorStop(0, topColor);
     grad.addColorStop(1, bottomColor);
@@ -79,11 +87,13 @@ export class LineworkWorld {
   }
 
   /** 创建高清晰度、晶莹剔透的水珠微形贴图（微椭圆水滴，核心凝聚高亮，远景清晰立现） */
-  private createDropletTexture(): THREE.CanvasTexture {
+  private createDropletTexture(): THREE.CanvasTexture | null {
+    if (typeof document === 'undefined') return null;
     const canvas = document.createElement('canvas');
     canvas.width = 32;
     canvas.height = 48;
-    const ctx = canvas.getContext('2d')!;
+    const ctx = canvas.getContext('2d');
+    if (!ctx) return null;
     ctx.clearRect(0, 0, 32, 48);
 
     const grad = ctx.createRadialGradient(16, 24, 0, 16, 24, 15);
@@ -113,14 +123,9 @@ export class LineworkWorld {
     this.bgTextureLight = this.createGradientTexture('#E2D9DB', '#D5CACD');
     this.bgColorDark = new THREE.Color(0x202020);
 
-    if (initialTheme === 'transparent' || initialTheme === 'beach3d') {
-      // transparent: 透明桌宠; beach3d: Beach3DWorld 自己画; 线稿世界整组隐藏
-      scene.background = null;
-      this.rootGroup.visible = false;
-    } else {
-      scene.background = initialTheme === 'dark' ? this.bgColorDark : this.bgTextureLight;
-      this.rootGroup.visible = true;
-    }
+    const isLightMode = initialTheme === 'light';
+    scene.background = isLightMode ? this.bgTextureLight : this.bgColorDark;
+    this.rootGroup.visible = true;
 
     // ── 材质单例池 ──
     const isDark = initialTheme === 'dark';
@@ -447,7 +452,7 @@ export class LineworkWorld {
     this.fountainParticleMat = new THREE.PointsMaterial({
       color: isDark ? 0xd4d4d8 : 0xffffff, // 浅色线稿下采用纯白高亮水滴，晶莹剔透、灵动醒目
       size: 0.08, // 恰当适中、晶莹清晰的粒子尺寸，清晰可见
-      map: dropletTex,
+      ...(dropletTex ? { map: dropletTex } : {}),
       transparent: true,
       opacity: isDark ? 0.95 : 0.90,
       depthWrite: false,
@@ -564,12 +569,12 @@ export class LineworkWorld {
     this.rootGroup.matrixAutoUpdate = false;
     this.rootGroup.updateMatrix();
     scene.add(this.rootGroup);
+
     this.isBuilt = true;
   }
 
   /** 动态更新：持续驱动大范围水花喷洒下落与八角水面同心涟漪扩展 (极速零分配，耗时 < 0.015ms) */
   update(_delta: number, time: number): void {
-    // 透明桌宠 root 不可见：喷泉/飞鸟用户看不到，不必每帧积分
     if (!this.isBuilt || !this.rootGroup.visible) return;
 
     const nozzle = this.fountainOrigin;
@@ -667,21 +672,48 @@ export class LineworkWorld {
     }
   }
 
+  /** 挂载至主场景 */
+  attach(scene: THREE.Scene): void {
+    this.sceneRef = scene;
+    if (this.rootGroup && !this.rootGroup.parent) {
+      scene.add(this.rootGroup);
+    }
+  }
+
+  /** 控制线稿世界激活与背景显隐 */
+  setActive(active: boolean, scene?: THREE.Scene): void {
+    const targetScene = scene || this.sceneRef;
+    if (targetScene && !this.sceneRef) {
+      this.sceneRef = targetScene;
+    }
+
+    if (active) {
+      if (!this.isBuilt && targetScene) {
+        this.build(targetScene, this.currentTheme);
+      }
+      this.rootGroup.visible = true;
+      if (targetScene) {
+        targetScene.background = this.currentTheme === 'dark' ? this.bgColorDark : this.bgTextureLight;
+      }
+    } else {
+      this.rootGroup.visible = false;
+    }
+  }
+
   /** 动态无缝切换背景主题 (0ms 开销，无需重建几何体) */
-  setTheme(theme: LineworkTheme, scene?: THREE.Scene): void {
+  setTheme(theme: LineworkColorMode, scene?: THREE.Scene): void {
     this.currentTheme = theme;
     const targetScene = scene || this.sceneRef;
+    if (targetScene && !this.sceneRef) {
+      this.sceneRef = targetScene;
+    }
 
-    if (theme === 'transparent' || theme === 'beach3d') {
-      if (targetScene) {
-        targetScene.background = null;
-      }
-      this.rootGroup.visible = false;
+    if (!this.isBuilt && targetScene) {
+      this.build(targetScene, theme);
       return;
     }
 
-    this.rootGroup.visible = true;
-    if (targetScene) {
+    if (this.rootGroup.visible && targetScene) {
       targetScene.background = theme === 'dark' ? this.bgColorDark : this.bgTextureLight;
     }
 

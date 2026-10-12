@@ -3,8 +3,8 @@ import { twMerge } from 'tailwind-merge';
 import { APP_CONFIG } from '@/config';
 import { isEmbed, isMobile, isTauri } from '@/lib/platform';
 import { embedSceneFromSearch } from '@/embed/registry';
-import { POSTFX_STORAGE_KEY, SCENE_THEME_KEY } from '@/lib/constants';
-import type { LineworkTheme } from '@/core/scene/lineworkWorld';
+import { ONBOARDING_STORAGE_KEY, POSTFX_STORAGE_KEY, SCENE_THEME_KEY } from '@/lib/constants';
+import type { LineworkTheme } from '@/types/config';
 
 export function cn(...inputs: ClassValue[]) {
   return twMerge(clsx(inputs));
@@ -79,9 +79,20 @@ export function resolveInitialSceneTheme(): LineworkTheme {
     if (fromUrl === 'transparent') document.documentElement.classList.add('scene-transparent');
     if (fromUrl) return fromUrl;
   }
+
+  // 沉浸式新人引导向导状态 (首次进入或 URL 带 ?onboarding=1)：
+  // 此时舞台必须处于「纯粹虚空」(void)，空无一物，直到第 4 步用户选定世界后才正式具现化加载！
+  try {
+    const isExplicitOnboarding = new URLSearchParams(window.location.search).get('onboarding') === '1';
+    const isFirstVisit = localStorage.getItem(ONBOARDING_STORAGE_KEY) !== '1';
+    if (!isEmbed() && (isExplicitOnboarding || isFirstVisit)) {
+      return 'void';
+    }
+  } catch {}
+
   try {
     const stored = localStorage.getItem(SCENE_THEME_KEY) as LineworkTheme | null;
-    if (stored === 'light' || stored === 'dark' || stored === 'transparent' || stored === 'beach3d') {
+    if (stored === 'light' || stored === 'dark' || stored === 'transparent' || stored === 'beach3d' || stored === 'void') {
       if (typeof document !== 'undefined' && stored === 'transparent') {
         document.documentElement.classList.add('scene-transparent');
       }
@@ -202,6 +213,16 @@ export function splitIntoSpeechChunks(text: string): string[] {
   const clean = text.trim();
   if (!clean) return [];
 
+  // 如果包含换行符 (\r 或 \n)，优先按显式换行切分独立意群/段落，绝不强行拼凑成单句
+  if (/[\r\n]/.test(clean)) {
+    const rawParagraphs = clean.split(/[\r\n]+/).map((p) => p.trim()).filter(Boolean);
+    const chunks: string[] = [];
+    for (const p of rawParagraphs) {
+      chunks.push(...splitIntoSpeechChunks(p));
+    }
+    return chunks;
+  }
+
   if (clean.length <= 45) {
     return [clean];
   }
@@ -220,11 +241,13 @@ export function splitIntoSpeechChunks(text: string): string[] {
 }
 
 /**
- * 剥离不可读 emoji 与多余空白字符
+ * 剥离不可读 emoji 与多余空白字符，并对波浪号进行二次元自然呼吸停顿补偿
  */
 export function stripForTTS(s: string): string {
   return s
     .replace(/\p{Extended_Pictographic}/gu, '')
+    .replace(/⌘/g, 'Command')
+    .replace(/([~～])(?=[^\s，。！？、,!?…\.\n\r])/g, '$1，')
     .replace(/\s+/g, ' ')
     .trim();
 }

@@ -111,7 +111,7 @@ export class CharacterShadowSystem {
     if (this.shadowPlane && this.shadowPlane.material instanceof THREE.ShadowMaterial) {
       const m = this.shadowPlane.material;
       m.color.setHex(0x000000);
-      m.opacity = theme === 'dark' ? APP_CONFIG.shadow.opacityDark : APP_CONFIG.shadow.opacityLight;
+      m.opacity = (theme === 'dark' || theme === 'void') ? APP_CONFIG.shadow.opacityDark : APP_CONFIG.shadow.opacityLight;
       m.needsUpdate = true;
     }
   }

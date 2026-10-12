@@ -35,7 +35,7 @@
     color: #f8fafc;
     -webkit-user-select: none;
     user-select: none;
-    background-color: transparent;
+    background-color: #08090f;
     /* ponytail: 禁止横向滚动 — 移动端任何定位元素溢出都会被截,避免界面"跳动"。 */
     overflow-x: hidden;
     /* ponytail: iOS 点击高亮关掉,避免 button 闪蓝光。 */
@@ -365,3 +365,35 @@ html.is-tauri .dialog-overlay {
 .mic-ripple--busy-d1 { animation-delay: 0.175s; }
 .mic-ripple--busy-d2 { animation-delay: 0.35s; }
 .mic-ripple--busy-d3 { animation-delay: 0.525s; }
+
+/* ── 新手向导卡片出场/退场动画 ── */
+@keyframes onboarding-card-in {
+  0% {
+    opacity: 0;
+    transform: translateY(20px) scale(0.96);
+  }
+  100% {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
+@keyframes onboarding-dock-out {
+  0% {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+  100% {
+    opacity: 0;
+    transform: translateY(20px) scale(0.96);
+  }
+}
+
+.onboarding-card-enter {
+  animation: onboarding-card-in 360ms cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+.onboarding-dock-exit {
+  animation: onboarding-dock-out 260ms cubic-bezier(0.4, 0, 0.2, 1) forwards;
+  pointer-events: none;
+}

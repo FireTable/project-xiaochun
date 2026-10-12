@@ -62,7 +62,7 @@ export const EmbedPicker: React.FC<Props> = ({ flags, bridge, autoHide = false, 
     () => listOutfits(APP_CONFIG.model.addons as Record<string, { source: string; name: string }>),
     [],
   );
-  const scenes = Object.values(APP_CONFIG.scenes.items);
+  const scenes = Object.values(APP_CONFIG.scenes.items).filter((s) => !s.hidden);
   const loading = state.loading !== null;
 
   // 轻提示: notice.n 变化就弹 NOTICE_MS
