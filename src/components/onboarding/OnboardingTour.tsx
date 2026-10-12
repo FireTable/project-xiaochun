@@ -532,12 +532,18 @@ export const OnboardingTour: React.FC<OnboardingTourProps> = ({ onComplete }) =>
     setIsExiting(true);
     await new Promise((resolve) => setTimeout(resolve, 240));
 
-    // 3. 执行选项业务逻辑并进入下一步
+    // 3. 离场动效完成后立即置为 speaking 隐藏态并重置离场标志
+    // 确保在异步换场景/换装或步骤切换期间，旧卡片已干净退场，绝不会在状态过渡时闪回
+    setIsSpeaking(true);
+    setIsExiting(false);
+    setSelectedChoiceId(null);
+
+    // 4. 执行选项业务逻辑并进入下一步
     try {
       await choice.onSelect(stepContext);
-    } finally {
-      setIsExiting(false);
-      setSelectedChoiceId(null);
+    } catch (e) {
+      console.warn('[OnboardingTour] onSelect error:', e);
+      setIsSpeaking(false);
     }
   };
 

@@ -161,80 +161,73 @@ export const createOnboardingSteps = (t: TFunction, i18n: I18nInstance): Record<
       },
     ],
     choiceLayout: 'media',
-    getChoices: (ctx) => [
-      {
-        id: 'beach3d',
-        label: t('onboarding.sceneBeach', '阳光海滩'),
-        subLabel: t('onboarding.sceneBeachSub', '听海浪吹吹风，一起去度假吧～'),
-        image: '/previews/scenes/beach3d.webp',
-        mediaPreview: {
-          gradient: 'from-amber-500/30 via-orange-500/20 to-sky-500/30',
-          emoji: '🏖️',
-          description: 'Beach 3D World',
-        },
-        onSelect: async () => {
-          if (sceneManager.getCurrentSceneId() !== 'beach3d') {
-            await sceneManager.setScene('beach3d', true);
+    getChoices: (ctx) => {
+      const handleSelectScene = async (sceneId: string) => {
+        try {
+          if (sceneManager.getCurrentSceneId() !== sceneId) {
+            await sceneManager.setScene(sceneId, true);
           }
-          ctx.goToStep('step_outfit_choice');
-        },
-      },
-      {
-        id: 'light',
-        label: t('onboarding.sceneLight', '昼白线稿'),
-        subLabel: t('onboarding.sceneLightSub', '纯白静谧空间，只专注看着你'),
-        image: '/previews/scenes/light.webp',
-        mediaPreview: {
-          gradient: 'from-slate-100/30 via-sky-100/20 to-amber-100/30',
-          emoji: '☀️',
-          description: 'Minimalist Light',
-        },
-        onSelect: async () => {
-          if (sceneManager.getCurrentSceneId() !== 'light') {
-            await sceneManager.setScene('light', true);
-          }
-          ctx.goToStep('step_outfit_choice');
-        },
-      },
-      {
-        id: 'dark',
-        label: t('onboarding.sceneDark', '极夜线稿'),
-        subLabel: t('onboarding.sceneDarkSub', '星芒微光舞台，浪漫静谧夜晚'),
-        image: '/previews/scenes/dark.webp',
-        mediaPreview: {
-          gradient: 'from-indigo-950/50 via-purple-900/40 to-slate-900/50',
-          emoji: '🌌',
-          description: 'Starry Dark Night',
-        },
-        onSelect: async () => {
-          if (sceneManager.getCurrentSceneId() !== 'dark') {
-            await sceneManager.setScene('dark', true);
-          }
-          ctx.goToStep('step_outfit_choice');
-        },
-      },
-      ...(isTauri()
-        ? [
-          {
-            id: 'transparent',
-            label: t('onboarding.sceneTransparent', '透明背景'),
-            subLabel: t('onboarding.sceneTransparentSub', '变成桌面小透明，随时偷偷陪着你'),
-            image: '/previews/scenes/transparent.webp',
-            mediaPreview: {
-              gradient: 'from-pink-500/30 via-rose-500/20 to-purple-500/30',
-              emoji: '👻',
-              description: 'Transparent Pet',
-            },
-            onSelect: async () => {
-              if (sceneManager.getCurrentSceneId() !== 'transparent') {
-                await sceneManager.setScene('transparent', true);
-              }
-              ctx.goToStep('step_outfit_choice');
-            },
+        } catch (e) {
+          console.warn('[OnboardingTour] setScene error:', e);
+        }
+        ctx.goToStep('step_outfit_choice');
+      };
+
+      return [
+        {
+          id: 'beach3d',
+          label: t('onboarding.sceneBeach', '阳光海滩'),
+          subLabel: t('onboarding.sceneBeachSub', '听海浪吹吹风，一起去度假吧～'),
+          image: '/previews/scenes/beach3d.webp',
+          mediaPreview: {
+            gradient: 'from-amber-500/30 via-orange-500/20 to-sky-500/30',
+            emoji: '🏖️',
+            description: 'Beach 3D World',
           },
-        ]
-        : []),
-    ],
+          onSelect: () => handleSelectScene('beach3d'),
+        },
+        {
+          id: 'light',
+          label: t('onboarding.sceneLight', '昼白线稿'),
+          subLabel: t('onboarding.sceneLightSub', '纯白静谧空间，只专注看着你'),
+          image: '/previews/scenes/light.webp',
+          mediaPreview: {
+            gradient: 'from-slate-100/30 via-sky-100/20 to-amber-100/30',
+            emoji: '☀️',
+            description: 'Minimalist Light',
+          },
+          onSelect: () => handleSelectScene('light'),
+        },
+        {
+          id: 'dark',
+          label: t('onboarding.sceneDark', '极夜线稿'),
+          subLabel: t('onboarding.sceneDarkSub', '星芒微光舞台，浪漫静谧夜晚'),
+          image: '/previews/scenes/dark.webp',
+          mediaPreview: {
+            gradient: 'from-indigo-950/50 via-purple-900/40 to-slate-900/50',
+            emoji: '🌌',
+            description: 'Starry Dark Night',
+          },
+          onSelect: () => handleSelectScene('dark'),
+        },
+        ...(isTauri()
+          ? [
+            {
+              id: 'transparent',
+              label: t('onboarding.sceneTransparent', '透明背景'),
+              subLabel: t('onboarding.sceneTransparentSub', '变成桌面小透明，随时偷偷陪着你'),
+              image: '/previews/scenes/transparent.webp',
+              mediaPreview: {
+                gradient: 'from-pink-500/30 via-rose-500/20 to-purple-500/30',
+                emoji: '👻',
+                description: 'Transparent Pet',
+              },
+              onSelect: () => handleSelectScene('transparent'),
+            },
+          ]
+          : []),
+      ];
+    },
   },
 
   // 5. 服装试穿选择 — 【图文卡片 (media)】默认精选 4 套
