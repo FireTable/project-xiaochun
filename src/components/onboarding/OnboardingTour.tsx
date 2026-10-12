@@ -110,9 +110,10 @@ export const OnboardingTour: React.FC<OnboardingTourProps> = ({ onComplete }) =>
     [t, i18n, hasRotated, finishTour],
   );
 
-  // 监听玩家 3D 旋转与视角教学环节全部手势任务
+  // 仅在任务清单面板正式浮现 (!isSpeaking) 且当前是 camera_drag 教学步骤时，才开启手势统计与事件监听！
+  // 台词播报期间绝不监听或统计，彻底杜绝全局误触与视角推拉打断台词
   useEffect(() => {
-    if (currentStep.interaction !== 'camera_drag') return;
+    if (currentStep.interaction !== 'camera_drag' || isSpeaking) return;
 
     (window as any).__onboardingSetRotated = setHasRotated;
     (window as any).__onboardingSetCameraTasks = setCameraTasks;
@@ -189,9 +190,13 @@ export const OnboardingTour: React.FC<OnboardingTourProps> = ({ onComplete }) =>
       window.removeEventListener('keyup', handleKeyUp);
       window.removeEventListener('wheel', handleWheel);
     };
-  }, [currentStep.interaction]);
+  }, [currentStep.interaction, isSpeaking]);
+
+  const tRef = useRef(t);
+  tRef.current = t;
 
   // 步骤推进时：依序逐段朗读台词（多段自动衔接），直至全部播报完成才弹出选项卡片！
+  // 严格仅在步骤 ID 切换时触发，防止因外部组件刷新或其它状态变动误打断语音播放
   useEffect(() => {
     const dialogues = currentStep.dialogues;
     if (!dialogues || dialogues.length === 0) {
@@ -208,7 +213,7 @@ export const OnboardingTour: React.FC<OnboardingTourProps> = ({ onComplete }) =>
         if (isCancelled || currentSeq !== speechSequenceRef.current) break;
 
         const d = dialogues[i];
-        const rawText = t(d.key, { defaultValue: d.defaultText, ...d.params });
+        const rawText = tRef.current(d.key, { defaultValue: d.defaultText, ...d.params });
         const cleanSpeech = rawText.replace(/^[…\.\s]+/, '').trim();
 
         if (cleanSpeech) {
@@ -226,7 +231,7 @@ export const OnboardingTour: React.FC<OnboardingTourProps> = ({ onComplete }) =>
       }
 
       if (!isCancelled && currentSeq === speechSequenceRef.current) {
-        // 全部段落说完，角色讲完后卡片顺滑浮现
+        // 全部段落说完，角色讲完后卡片顺滑浮现，并开启任务手势统计
         setIsSpeaking(false);
       }
     };
@@ -236,7 +241,7 @@ export const OnboardingTour: React.FC<OnboardingTourProps> = ({ onComplete }) =>
     return () => {
       isCancelled = true;
     };
-  }, [currentStepId, t]);
+  }, [currentStepId]);
 
   // 仅对外暴露测试钩子，不监听用户任何点击事件（确保等话说完再自然弹出卡片）
   useEffect(() => {
