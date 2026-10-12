@@ -557,16 +557,16 @@ export const OnboardingTour: React.FC<OnboardingTourProps> = ({ onComplete }) =>
             current: currentStepNumber,
             total: totalSteps,
           })}
-          className={`flex items-center gap-2 px-3 py-1.5 rounded-full bg-black/30 hover:bg-black/50 text-white/70 hover:text-white text-xs font-medium transition-all active:scale-95 group cursor-pointer ${
+          className={`flex items-center gap-2 px-3 py-1.5 rounded-full bg-slate-950/40 hover:bg-slate-900/60 border border-white/20 hover:border-[#ea8377]/65 text-white/80 hover:text-white text-xs font-medium transition-all shadow-[inset_0_1px_1px_rgba(255,255,255,0.25),0_8px_32px_rgba(0,0,0,0.35)] hover:shadow-[inset_0_1px_2px_rgba(255,255,255,0.3),0_8px_24px_rgba(234,131,119,0.2)] active:scale-95 group cursor-pointer ${
             isSkippingWithVoice ? 'opacity-50 pointer-events-none' : ''
           }`}
         >
-          <span className="font-mono text-white/80 font-semibold tracking-tight">
+          <span className="font-mono text-white/90 font-semibold tracking-tight">
             {currentStepNumber}/{totalSteps}
           </span>
-          <span className="w-px h-3 bg-white/15" />
+          <span className="w-px h-3 bg-white/20" />
           <span>{t('onboarding.skip', '跳过')}</span>
-          <X className="w-3.5 h-3.5 text-white/40 group-hover:text-white transition-colors" />
+          <X className="w-3.5 h-3.5 text-white/50 group-hover:text-white transition-colors" />
         </button>
       </div>
 
@@ -602,7 +602,7 @@ export const OnboardingTour: React.FC<OnboardingTourProps> = ({ onComplete }) =>
                 </div>
 
                 {/* 任务项清单 (从 1 开始编号) */}
-                <div className="flex flex-col gap-1.5">
+                <div className="flex flex-col gap-2">
                   {taskItems.map((item) => {
                     const Icon = item.icon;
                     const isModifierActiveOnRow = item.needsModifier && cameraTasks.modifierHeld && !item.done;
@@ -612,25 +612,25 @@ export const OnboardingTour: React.FC<OnboardingTourProps> = ({ onComplete }) =>
                         key={item.id}
                         className={`flex items-center justify-between px-3.5 py-2.5 rounded-2xl transition-all duration-200 border ${
                           item.done
-                            ? 'bg-emerald-950/20 border-emerald-500/30 text-emerald-100'
+                            ? 'bg-emerald-950/40 border-emerald-500/40 text-emerald-100 shadow-[inset_0_1px_1px_rgba(255,255,255,0.15),0_4px_16px_rgba(0,0,0,0.25)]'
                             : isModifierActiveOnRow
-                              ? 'bg-white/[0.07] border-white/35 text-white shadow-[0_0_15px_rgba(255,255,255,0.08)]'
-                              : 'bg-white/[0.03] border-white/10 text-white/80'
+                              ? 'bg-slate-900/80 border-[#ea8377]/65 text-white shadow-[inset_0_1px_1px_rgba(255,255,255,0.2),0_0_16px_rgba(234,131,119,0.25)]'
+                              : 'bg-slate-950/50 hover:bg-slate-900/65 border-white/15 hover:border-white/25 text-white shadow-[inset_0_1px_1px_rgba(255,255,255,0.15),0_4px_16px_rgba(0,0,0,0.25)]'
                         }`}
                       >
                         <div className="flex items-center gap-3 min-w-0 pr-2">
                           {/* 左侧序号与图标 */}
                           <div className="flex items-center gap-2.5 shrink-0">
-                            <span className="text-xs font-mono font-semibold text-white/40 w-3.5 text-right">
+                            <span className="text-xs font-mono font-bold text-white/60 w-3.5 text-right drop-shadow-[0_1px_1px_rgba(0,0,0,0.8)]">
                               {item.num}.
                             </span>
                             <div
-                              className={`w-8 h-8 rounded-xl flex items-center justify-center transition-colors ${
+                              className={`w-8 h-8 rounded-xl flex items-center justify-center transition-colors border ${
                                 item.done
-                                  ? 'bg-emerald-500/20 text-emerald-300'
+                                  ? 'bg-emerald-500/25 border-emerald-400/40 text-emerald-300'
                                   : isModifierActiveOnRow
-                                    ? 'bg-white/20 text-white'
-                                    : 'bg-white/10 text-white/70'
+                                    ? 'bg-[#ea8377]/25 border-[#ea8377]/40 text-white shadow-[0_0_10px_rgba(234,131,119,0.3)]'
+                                    : 'bg-white/10 border-white/15 text-white shadow-[inset_0_1px_1px_rgba(255,255,255,0.2)]'
                               }`}
                             >
                               <Icon className="w-4 h-4 stroke-[2.2]" />
@@ -641,14 +641,14 @@ export const OnboardingTour: React.FC<OnboardingTourProps> = ({ onComplete }) =>
                           <div className="flex flex-col min-w-0">
                             <div className="flex items-center gap-2">
                               <span
-                                className={`text-xs sm:text-[13px] font-medium tracking-wide truncate ${
+                                className={`text-xs sm:text-[13px] font-semibold tracking-wide truncate drop-shadow-[0_1px_2px_rgba(0,0,0,0.9)] ${
                                   item.done ? 'text-emerald-200' : 'text-white'
                                 }`}
                               >
                                 {item.label}
                               </span>
                               {!item.needsModifier && (
-                                <span className="text-[10px] text-white/40 bg-white/[0.05] border border-white/10 px-1.5 py-0.5 rounded-full font-normal leading-none">
+                                <span className="text-[10px] text-white/70 bg-white/10 border border-white/15 px-1.5 py-0.5 rounded-full font-normal leading-none drop-shadow-[0_1px_1px_rgba(0,0,0,0.6)]">
                                   {t('onboarding.cameraDirectAction', '无需额外按键')}
                                 </span>
                               )}
@@ -656,13 +656,13 @@ export const OnboardingTour: React.FC<OnboardingTourProps> = ({ onComplete }) =>
 
                             {/* 副标题：对于 1/2/3 任务展示液体玻璃按键，对于滚轮任务直接展示文案 */}
                             {item.needsModifier ? (
-                              <div className="flex items-center gap-1.5 text-[10.5px] sm:text-[11px] text-white/50 mt-0.5">
-                                <span className="leading-none">{t('onboarding.cameraHoldPrefix', '按住')}</span>
+                              <div className="flex items-center gap-1.5 text-[10.5px] sm:text-[11px] text-white/75 mt-0.5 drop-shadow-[0_1px_2px_rgba(0,0,0,0.9)]">
+                                <span className="leading-none text-white/60">{t('onboarding.cameraHoldPrefix', '按住')}</span>
                                 <LiquidGlassKey label={modifierLabel} isPressed={cameraTasks.modifierHeld} />
-                                <span className="leading-none">{item.subLabel}</span>
+                                <span className="leading-none text-white/80">{item.subLabel}</span>
                               </div>
                             ) : (
-                              <span className="text-[10.5px] sm:text-[11px] text-white/50 truncate font-normal mt-0.5">
+                              <span className="text-[10.5px] sm:text-[11px] text-white/75 truncate font-normal mt-0.5 drop-shadow-[0_1px_2px_rgba(0,0,0,0.9)]">
                                 {item.subLabel}
                               </span>
                             )}
@@ -680,8 +680,8 @@ export const OnboardingTour: React.FC<OnboardingTourProps> = ({ onComplete }) =>
                               <div className="w-2 h-2 rounded-full bg-white/70" />
                             </div>
                           ) : (
-                            <div className="w-5 h-5 rounded-full border border-white/20 flex items-center justify-center">
-                              <div className="w-1.5 h-1.5 rounded-full bg-white/20" />
+                            <div className="w-5 h-5 rounded-full border border-white/30 bg-white/5 flex items-center justify-center">
+                              <div className="w-1.5 h-1.5 rounded-full bg-white/40" />
                             </div>
                           )}
                         </div>
