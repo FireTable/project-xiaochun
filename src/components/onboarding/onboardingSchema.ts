@@ -129,7 +129,7 @@ export const createOnboardingSteps = (t: TFunction, i18n: I18nInstance): Record<
     dialogues: [
       {
         key: 'onboarding.galCameraAsk',
-        defaultText: '在这片空间里，你可以从各种角度看看我哦～\n你看，下面的卡片里有一些好玩的探索任务，试着操作一下吧！',
+        defaultText: '在这片空间里，你可以从各种角度看看我哦～\n下面的卡片里有一些好玩的探索任务，试着操作一下吧！',
       },
     ],
     choiceLayout: 'text',
