@@ -63,11 +63,8 @@ export class LineworkWorld {
     driftRangeZ: number;
   }> = [];
 
-  // ── 纯粹虚空舞台系统 (Void Stage: 极简纯净深空 + 星尘浮光微粒) ──
+  // ── 纯粹虚空舞台系统 (Void Stage: 极简纯净深空) ──
   private voidStageGroup: THREE.Group = new THREE.Group();
-  private voidParticleGeo: THREE.BufferGeometry | null = null;
-  private voidParticlePositions: Float32Array | null = null;
-  private voidParticleCount = 45;
 
   /** 创建高采样双色阶竖向渐变 CanvasTexture */
   private createGradientTexture(topColor: string, bottomColor: string): THREE.CanvasTexture {
@@ -577,32 +574,6 @@ export class LineworkWorld {
     this.rootGroup.updateMatrix();
     scene.add(this.rootGroup);
 
-    // ── 纯粹虚空舞台微粒群 (45 颗在人物周围轻柔悬浮飘动) ──
-    const voidPCount = this.voidParticleCount;
-    this.voidParticlePositions = new Float32Array(voidPCount * 3);
-    for (let i = 0; i < voidPCount; i++) {
-      const angle = Math.random() * Math.PI * 2;
-      const dist = 0.25 + Math.random() * 1.5;
-      this.voidParticlePositions[i * 3] = Math.cos(angle) * dist;
-      this.voidParticlePositions[i * 3 + 1] = 0.05 + Math.random() * 2.3;
-      this.voidParticlePositions[i * 3 + 2] = Math.sin(angle) * dist;
-    }
-    this.voidParticleGeo = new THREE.BufferGeometry();
-    this.voidParticleGeo.setAttribute('position', new THREE.BufferAttribute(this.voidParticlePositions, 3));
-    this.disposables.push(this.voidParticleGeo);
-
-    const voidParticleMat = new THREE.PointsMaterial({
-      color: 0xffe6e0,
-      size: 0.028,
-      transparent: true,
-      opacity: 0.65,
-      depthWrite: false,
-      blending: THREE.AdditiveBlending,
-    });
-    this.disposables.push(voidParticleMat);
-    const voidPoints = new THREE.Points(this.voidParticleGeo, voidParticleMat);
-    this.voidStageGroup.add(voidPoints);
-
     this.voidStageGroup.visible = initialTheme === 'void';
     scene.add(this.voidStageGroup);
 
@@ -613,21 +584,8 @@ export class LineworkWorld {
   update(_delta: number, time: number): void {
     if (!this.isBuilt) return;
 
-    // 虚空星尘微粒慢速浮动漂移 (极速零分配，耗时 < 0.005ms)
-    if (this.currentTheme === 'void' && this.voidParticlePositions && this.voidParticleGeo) {
-      const pos = this.voidParticlePositions;
-      for (let i = 0; i < this.voidParticleCount; i++) {
-        const i3 = i * 3;
-        pos[i3 + 1] += _delta * 0.12; // 缓步向上飘起
-        pos[i3] += Math.sin(time * 0.5 + i) * 0.0015;
-        pos[i3 + 2] += Math.cos(time * 0.4 + i) * 0.0015;
-        if (pos[i3 + 1] > 2.4) {
-          pos[i3 + 1] = 0.05;
-        }
-      }
-      this.voidParticleGeo.attributes.position.needsUpdate = true;
-      return;
-    }
+    // 虚空场景无动态元素需要积分
+    if (this.currentTheme === 'void') return;
 
     // 透明桌宠 root 不可见：喷泉/飞鸟用户看不到，不必每帧积分
     if (!this.rootGroup.visible) return;
