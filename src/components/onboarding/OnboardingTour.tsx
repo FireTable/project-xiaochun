@@ -557,16 +557,16 @@ export const OnboardingTour: React.FC<OnboardingTourProps> = ({ onComplete }) =>
             current: currentStepNumber,
             total: totalSteps,
           })}
-          className={`flex items-center gap-2 px-3 py-1.5 rounded-full bg-slate-950/40 hover:bg-slate-900/60 border border-white/20 text-white/80 hover:text-white text-xs font-medium transition-all shadow-[inset_0_1px_1px_rgba(255,255,255,0.2),0_4px_16px_rgba(0,0,0,0.3)] active:scale-95 group cursor-pointer ${
+          className={`flex items-center gap-2 px-3 py-1.5 rounded-full bg-black/30 hover:bg-black/50 text-white/70 hover:text-white text-xs font-medium transition-all active:scale-95 group cursor-pointer ${
             isSkippingWithVoice ? 'opacity-50 pointer-events-none' : ''
           }`}
         >
-          <span className="font-mono text-white/90 font-semibold tracking-tight">
+          <span className="font-mono text-white/80 font-semibold tracking-tight">
             {currentStepNumber}/{totalSteps}
           </span>
-          <span className="w-px h-3 bg-white/20" />
+          <span className="w-px h-3 bg-white/15" />
           <span>{t('onboarding.skip', '跳过')}</span>
-          <X className="w-3.5 h-3.5 text-white/50 group-hover:text-white transition-colors" />
+          <X className="w-3.5 h-3.5 text-white/40 group-hover:text-white transition-colors" />
         </button>
       </div>
 
