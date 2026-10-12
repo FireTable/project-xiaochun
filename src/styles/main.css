@@ -370,18 +370,11 @@ html.is-tauri .dialog-overlay {
 @keyframes onboarding-card-in {
   0% {
     opacity: 0;
-    transform: translateY(24px) scale(0.92);
-    filter: blur(4px);
-  }
-  65% {
-    opacity: 0.95;
-    transform: translateY(-2px) scale(1.01);
-    filter: blur(0px);
+    transform: translateY(20px) scale(0.96);
   }
   100% {
     opacity: 1;
     transform: translateY(0) scale(1);
-    filter: blur(0px);
   }
 }
 
@@ -389,12 +382,10 @@ html.is-tauri .dialog-overlay {
   0% {
     opacity: 1;
     transform: translateY(0) scale(1);
-    filter: blur(0px);
   }
   100% {
     opacity: 0;
-    transform: translateY(24px) scale(0.96);
-    filter: blur(4px);
+    transform: translateY(20px) scale(0.96);
   }
 }
 
