@@ -36,7 +36,7 @@ const TOUR_STEPS = [
   'step_finale',
 ];
 
-// 统一卡片基础样式生成器 (统一管理半透明毛玻璃、边框、投影与交互态，确保所有卡片视觉风格完全一致)
+// 统一卡片基础样式生成器 (高通透液态玻璃质感：半透明晶体底色、物理顶沿高光内微光、超强毛玻璃与小蠢粉金辉光)
 const getOnboardingCardBaseClass = ({
   isSelected,
   isDimmed,
@@ -49,18 +49,18 @@ const getOnboardingCardBaseClass = ({
   extraClass?: string;
 }) => {
   const base =
-    'bg-slate-950/80 hover:bg-slate-900/90 border text-white shadow-xl backdrop-blur-2xl transition-all duration-200 hover:-translate-y-0.5 active:scale-[0.98] group cursor-pointer text-left overflow-hidden relative';
+    'bg-slate-950/45 hover:bg-slate-900/60 border text-white shadow-[inset_0_1px_1px_rgba(255,255,255,0.2),0_12px_40px_rgba(0,0,0,0.35)] backdrop-blur-2xl transition-all duration-200 hover:-translate-y-0.5 active:scale-[0.98] group cursor-pointer text-left overflow-hidden relative';
 
   if (isSelected) {
-    return `${base} border-[#ea8377] bg-[#ea8377]/25 shadow-[0_0_35px_rgba(234,131,119,0.5)] scale-[1.02] ${extraClass}`;
+    return `${base} border-[#ea8377] bg-[#ea8377]/25 shadow-[inset_0_1px_2px_rgba(255,255,255,0.35),0_0_35px_rgba(234,131,119,0.5)] scale-[1.02] ${extraClass}`;
   }
   if (isDimmed) {
     return `${base} opacity-25 scale-95 pointer-events-none border-white/10 ${extraClass}`;
   }
   if (isHighlighted) {
-    return `${base} border-[#ea8377]/70 bg-[#ea8377]/10 hover:border-[#ea8377] hover:bg-[#ea8377]/20 shadow-[0_0_25px_rgba(234,131,119,0.25)] ${extraClass}`;
+    return `${base} border-[#ea8377]/70 bg-[#ea8377]/15 hover:border-[#ea8377] hover:bg-[#ea8377]/25 shadow-[inset_0_1px_1px_rgba(255,255,255,0.25),0_0_25px_rgba(234,131,119,0.28)] ${extraClass}`;
   }
-  return `${base} border-white/15 hover:border-[#ea8377]/60 hover:shadow-[0_8px_30px_rgba(234,131,119,0.2)] ${extraClass}`;
+  return `${base} border-white/20 hover:border-[#ea8377]/65 hover:bg-slate-900/65 hover:shadow-[inset_0_1px_2px_rgba(255,255,255,0.3),0_12px_36px_rgba(234,131,119,0.25)] ${extraClass}`;
 };
 
 // 统一纯文本/图标选项卡片组件 (用于语言选择、视角步骤下一步按钮、模型选择与终章)
@@ -553,7 +553,7 @@ export const OnboardingTour: React.FC<OnboardingTourProps> = ({ onComplete }) =>
             current: currentStepNumber,
             total: totalSteps,
           })}
-          className={`flex items-center gap-2 px-3 py-1.5 rounded-full bg-slate-950/70 hover:bg-slate-900/90 border border-white/15 text-white/70 hover:text-white text-xs font-medium backdrop-blur-md transition-all shadow-md active:scale-95 group cursor-pointer ${
+          className={`flex items-center gap-2 px-3 py-1.5 rounded-full bg-slate-950/45 hover:bg-slate-900/65 border border-white/20 text-white/80 hover:text-white text-xs font-medium backdrop-blur-xl transition-all shadow-[inset_0_1px_1px_rgba(255,255,255,0.2),0_4px_16px_rgba(0,0,0,0.3)] active:scale-95 group cursor-pointer ${
             isSkippingWithVoice ? 'opacity-50 pointer-events-none' : ''
           }`}
         >
@@ -576,8 +576,8 @@ export const OnboardingTour: React.FC<OnboardingTourProps> = ({ onComplete }) =>
           {/* 布局 0：视角探索任务清单 + 独立下一步卡片 (interaction === 'camera_drag') */}
           {currentStep.interaction === 'camera_drag' && (
             <div className="w-full max-w-lg mx-auto flex flex-col gap-2.5 onboarding-card-enter">
-              {/* 任务清单面板 */}
-              <div className="w-full flex flex-col rounded-3xl bg-slate-950/70 border border-white/15 shadow-[0_12px_40px_rgba(0,0,0,0.5)] backdrop-blur-2xl p-4 sm:p-5 gap-3">
+              {/* 任务清单面板 (高通透液态玻璃质感) */}
+              <div className="w-full flex flex-col rounded-3xl bg-slate-950/45 border border-white/20 shadow-[inset_0_1px_1px_rgba(255,255,255,0.18),0_12px_40px_rgba(0,0,0,0.45)] backdrop-blur-2xl p-4 sm:p-5 gap-3">
                 {/* 面板头部：标题与完成计数指示器 */}
                 <div className="flex items-center justify-between border-b border-white/10 pb-2.5">
                   <div className="flex items-center gap-2">
@@ -759,7 +759,7 @@ export const OnboardingTour: React.FC<OnboardingTourProps> = ({ onComplete }) =>
                     className={cardClassName}
                   >
                     {/* 顶部视觉预览展台 (16:9 比例) */}
-                    <div className="relative w-full aspect-video rounded-xl overflow-hidden bg-slate-900/60 border border-white/10 shadow-inner">
+                    <div className="relative w-full aspect-video rounded-xl overflow-hidden bg-slate-900/40 border border-white/15 shadow-inner">
                       {choice.image ? (
                         <img
                           src={choice.image}
