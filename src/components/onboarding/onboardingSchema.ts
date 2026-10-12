@@ -236,7 +236,7 @@ export const createOnboardingSteps = (t: TFunction, i18n: I18nInstance): Record<
     dialogues: [
       {
         key: 'onboarding.galOutfitAsk',
-        defaultText: '唔……这身衣服……你喜欢吗？其实有点害羞呢……\n如果你想看别的风格，我还可以换上国风旗袍、女仆装，甚至是……水手服哦？',
+        defaultText: '唔……这身衣服……你喜欢吗？其实有点害羞呢……\n如果你想看别的风格，我还可以换上国风旗袍、女仆装，甚至是……泳衣哦？',
       },
     ],
     choiceLayout: 'media',
@@ -289,10 +289,10 @@ export const createOnboardingSteps = (t: TFunction, i18n: I18nInstance): Record<
         },
         xiaochun_swimsuit: {
           labelKey: 'onboarding.outfitSwimsuit',
-          defaultLabel: '清纯水手服',
+          defaultLabel: '水手风泳衣',
           subKey: 'onboarding.outfitSwimsuitSub',
-          defaultSub: '蓝白水手领百褶裙，洋溢着青春元气的气息～',
-          emoji: '⚓',
+          defaultSub: '蓝白水手领百褶裙泳装，洋溢着青春心动的气息～',
+          emoji: '🩱',
           gradient: 'from-blue-500/30 via-sky-400/20 to-indigo-400/30',
         },
       };
