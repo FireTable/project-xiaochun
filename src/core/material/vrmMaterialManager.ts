@@ -474,6 +474,9 @@ export class VRMMaterialManager {
               tex.needsUpdate = true;
             }
           }
+          // 注: 颜色类贴图的 mipmap 补回不在这里做 —— 已下沉到
+          // @firetable/three-vrm-materials-mtoon 的 MToonMaterialLoaderPlugin,
+          // 在贴图赋值完成的源头统一处理 (见该包 _ensureMipmapForColorTextures)。
 
           if (!mat.isMToonMaterial) return;
 

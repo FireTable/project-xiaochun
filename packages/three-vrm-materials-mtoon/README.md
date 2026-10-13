@@ -20,6 +20,7 @@ This version extends standard MToon with configurable parameters for stylized ch
 - **Shadow Reception Factor**: `receiveShadowRate` (0.0 ~ 1.0) allowing clean face shadow map rejection while keeping accurate body/clothing hair shadow reception.
 - **Fabric Grazing Sheen**: `fabricSheenStrength`, `fabricSheenPower`, `fabricSheenColor` for soft grazing-angle velvet / cheongsam / silk cloth sheen.
 - **Screen Outline Distance Clamp**: Screen-space outline expansion distance clamped to `[0.45, 5.0]` to prevent dark blob ballooning at far zoom and clipping at extreme closeups.
+- **Color-Texture Mipmap Restoration**: glTF only defaults `minFilter` to `LinearMipmapLinearFilter` when the sampler is *undeclared*; exporters that write `minFilter: LINEAR` (VRoid Studio does, for every texture) ship an entire model with no mip chain, and isolated high-contrast texels — such as a painted anime nose highlight — then alias into per-frame flicker at distance. Color textures (`map`, `emissiveMap`, `shadeMultiplyTexture`, `shadingShiftTexture`, `rimMultiplyTexture`) get a trilinear chain back; `normalMap` (averaging normals is geometrically meaningless), `matcapTexture` (view-normal sampled, not UV) and mask textures are deliberately left alone.
 
 All extended parameters default to 0 / neutral values, preserving standard MToon visual behavior by default.
 

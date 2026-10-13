@@ -1,6 +1,6 @@
 {
   "name": "@firetable/three-vrm-materials-mtoon",
-  "version": "3.5.5",
+  "version": "3.5.6",
   "description": "Extended @pixiv/three-vrm-materials-mtoon with NPR shading controls while preserving MToon API",
   "license": "MIT",
   "author": "pixiv",

@@ -51,6 +51,19 @@ The monorepo package is located at `packages/three-vrm-materials-mtoon`. In the 
    this.dirLight.shadow.normalBias = 0.035; // Inward normal offset, completely eliminating shadow acne
    ```
    This maintains clean hair shadow projection onto the torso while keeping skin surfaces completely artifact-free.
+4. **Color-Texture Mipmap Restoration**:  
+   `GLTFLoader#loadTexture` derives `generateMipmaps` from the glTF `samplers[].minFilter` — only the **absence** of a sampler declaration defaults to `LinearMipmapLinearFilter`. Exporters that write `minFilter: LINEAR` (VRoid Studio 2.14.0 does, for every texture in this model) therefore land every texture without a mip chain.
+
+   The cost is minification aliasing on isolated high-contrast texels: a painted nose-bridge highlight degenerates to a sub-pixel feature whose visibility flips as the sample point moves, reading as **flickering at distance, stable up close**. `MToonMaterialLoaderPlugin._ensureMipmapForColorTextures()` restores a trilinear chain for color textures only, after `assignHelper.pending` resolves (the point where GLTFLoader's standard-path `map` / `emissiveMap` *and* the MToon-extension textures are all assigned):
+
+   | Texture | Mipmap | Why |
+   | :--- | :-- | :--- |
+   | `map` (baseColor), `emissiveMap`, `shadeMultiplyTexture`, `shadingShiftTexture`, `rimMultiplyTexture` | ✅ restored | Carry visible high-contrast detail; aliasing is most visible here |
+   | `normalMap` | ❌ excluded | Averaging differently-oriented normals yields a physically nonexistent intermediate direction, collapsing lighting transitions at distance. Normals are high-frequency by nature and *should* blur out |
+   | `matcapTexture` | ❌ excluded | Spherical environment map sampled by view-space normal, not by UV — no minification path |
+   | `outlineWidthMultiplyTexture`, `uvAnimationMaskTexture` | ❌ excluded | Data-like masks; aliasing is imperceptible |
+
+   Measured on `xiaochun_base.vrmbase` (23 textures, 82.25 MB decoded): blanket mipmap would cost **+27.4 MB**; the classified subset costs **+13.7 MB** — half the VRAM for the same fix.
 
 ---
 

@@ -257,6 +257,47 @@ export class MToonMaterialLoaderPlugin implements GLTFLoaderPlugin {
     assignHelper.assignPrimitive('debugMode', this.debugMode);
 
     await assignHelper.pending;
+
+    this._ensureMipmapForColorTextures(materialParams);
+  }
+
+  /**
+   * VRM/glTF 的 sampler 一旦声明 minFilter=LINEAR, GLTFLoader 就会据此关掉 mipmap
+   * (`GLTFLoader#loadTexture`: generateMipmaps 由 sampler.minFilter 推导, 缺省才是
+   * LinearMipmapLinearFilter)。VRoid Studio 之类导出器会统一写LINEAR, 于是整模型的
+   * 贴图全部无 mip。
+   *
+   * 后果是贴图里孤立的高亮像素 (例如二次元脸部贴图预画的鼻梁菱形高光) 在缩小显示时
+   * 退化成亚像素, 随采样点位置逐帧跳动 —— 表现为「离得远一闪一闪、靠近就稳」。
+   *
+   * 这里只给「颜色类」贴图补回三线性 mip:
+   *   - baseColor / emissive / shadeMultiply / shadingShift / rimMultiply 承载可见的高对比
+   *     细节, 缩远走样最刺眼;
+   *   - normalMap 刻意不开: mipmap 会把朝向不同的法线取平均, 得到物理上不存在的中间
+   *     向量, 远处光照过渡会塌陷; 而法线本身高频、缩远本就该糊掉, 走样并不明显;
+   *   - matcapTexture 也不开: 它按视线法线采样的球面环境图, 不走 UV 缩小路径。
+   *
+   * 必须在 assignHelper.pending 之后调用 —— 此时 baseColor / emissive (GLTFLoader 标准
+   * 路径) 与 MToon 扩展专属贴图才全部就位。
+   */
+  private _ensureMipmapForColorTextures(materialParams: MToonMaterialParameters): void {
+    const p = materialParams as unknown as Record<string, THREE.Texture | undefined>;
+    const COLOR_TEXTURE_SLOTS = [
+      'map', // baseColorTexture (GLTFLoader 标准路径)
+      'emissiveMap', // emissiveTexture (GLTFLoader 标准路径)
+      'shadeMultiplyTexture',
+      'shadingShiftTexture',
+      'rimMultiplyTexture',
+    ];
+
+    for (const slot of COLOR_TEXTURE_SLOTS) {
+      const tex = p[slot];
+      if (tex && tex.isTexture && tex.generateMipmaps === false) {
+        tex.generateMipmaps = true;
+        tex.minFilter = THREE.LinearMipmapLinearFilter;
+        tex.needsUpdate = true;
+      }
+    }
   }
 
   /**
