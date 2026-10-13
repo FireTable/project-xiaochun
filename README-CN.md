@@ -43,13 +43,13 @@ UI 走 **TanStack Start SSR + i18next** 水合,**完整支持简体中文 / Engl
 ## 🖼️ 项目预览 (Preview)
 
 <p align="center">
-  <img src="screenshots/preview-mad.jpg" width="100%" alt="小蠢 MAD 动态预载画面" /><br/>
-  <i>进场预载：2D MAD 卡面，加载完成后破次元进入 3D</i>
+  <img src="screenshots/preview-mad.jpg" width="100%" alt="小蠢加载画面" /><br/>
+  <i>进场预载：偶像出道海报风加载页，加载完成后破次元进入 3D</i>
 </p>
 
 <p align="center">
-  <img src="screenshots/preview-3d.jpg" width="100%" alt="小蠢在线稿户外场景中对话" /><br/>
-  <i>3D 舞台：MToon NPR 角色、线稿场景、头顶气泡与底部对话条</i>
+  <img src="screenshots/preview-3d.jpg" width="100%" alt="小蠢在阳光海滩场景中对话" /><br/>
+  <i>3D 舞台：MToon NPR 角色、阳光海滩场景、头顶气泡与底部对话条</i>
 </p>
 
 ### 👗 换装展示 (Outfit Showcase)
@@ -187,6 +187,7 @@ brew upgrade --cask project-xiaochun
   * **Layer 2 (Locomotion)**：`BodyTurnSystem` 物理转身步态，仅覆盖 `LEGS_MASK`（不含髋旋转、无脊柱预旋）；
   * **Compose**：FootIK + Gaze 写入目标后，每帧 `composeLayeredSmooth` 再 `commitToVRM`。
 * **系统生命周期与主循环规约**：一帧生命周期 10 步精确时序图与开发者避坑红线详见 [`docs/ARCHITECTURE_AND_RULES.md`](docs/ARCHITECTURE_AND_RULES.md)。
+* **加载页设计**：布局、视觉层级、动效与性能规则及文案详见 [`docs/LOADING_OVERLAY.md`](docs/LOADING_OVERLAY.md)。
 * **完整技术文档中心**：架构全景与 Agent 快速路由导航详见 [`docs/README.md`](docs/README.md)。
 * **Tauri / Web 主站 / `/embed` 三端差异**：窗口 / 背景 / 点击穿透、手势、界面、相机、持久化、加载、安全、构建与测试的逐项对照表（含代码位置、共享 / 独有标注、维护规则）详见 [`docs/PLATFORM_DIFFERENCES.md`](docs/PLATFORM_DIFFERENCES.md)。
 
@@ -373,7 +374,7 @@ Project-XiaoChun/
 │   │   ├── xiaochun_wedding.vrmaddon       # 梦幻婚纱 (13 MB)
 │   │   └── xiaochun_shroud.vrmaddon       # 全身绷带装 (自带 per-outfit bodyMorph baseline)
 │   ├── thinking.vrma          # 待机思考动作循环
-│   ├── materials/             # MAD 破次元卡素材 (立绘/徽章/服饰预览 PNG)
+│   ├── materials/             # 加载页主视觉 (xiaochun_keyvisual*.webp)
 │   ├── onnx/                  # EMAGE 全身动作模型权重 (vq_* / emage_step / postprocess)
 │   ├── _headers               # 静态资源强缓存与安全响应头
 │   ├── robots.txt / sitemap.* # SEO 搜索引擎爬虫协议

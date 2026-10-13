@@ -43,13 +43,13 @@ The UI is fully **SSR-hydrated multi-language** (zh-CN / en / ja) via TanStack S
 ## 🖼️ Preview
 
 <p align="center">
-  <img src="screenshots/preview-mad.jpg" width="100%" alt="XiaoChun MAD dynamic preloader" /><br/>
-  <i>Entry: 2D MAD card, then a dimension-break into the 3D stage</i>
+  <img src="screenshots/preview-mad.jpg" width="100%" alt="XiaoChun loading screen" /><br/>
+  <i>Entry: idol-debut style loading screen, then a dimension-break into the 3D stage</i>
 </p>
 
 <p align="center">
-  <img src="screenshots/preview-3d.jpg" width="100%" alt="XiaoChun chatting in the linework outdoor scene" /><br/>
-  <i>3D stage: MToon NPR character, linework city, head bubble, and chat bar</i>
+  <img src="screenshots/preview-3d.jpg" width="100%" alt="XiaoChun chatting on the sunny beach stage" /><br/>
+  <i>3D stage: MToon NPR character, sunny beach scene, head bubble, and chat bar</i>
 </p>
 
 ### 👗 Outfit Showcase
@@ -196,6 +196,7 @@ You can download installer packages directly from the official Releases page:
   * **Layer 2 (Locomotion)**: `BodyTurnSystem` procedural stepping on `LEGS_MASK` only (no hip rotation, no spine yaw);
   * **Compose**: `composeLayeredSmooth` after FootIK + Gaze so ground plant and look-at are follow targets, then `commitToVRM`.
 * **Architecture Rules & Lifecycle Order**: Full 10-step render loop lifecycle and developer anti-patterns detailed in [`docs/ARCHITECTURE_AND_RULES.md`](docs/ARCHITECTURE_AND_RULES.md).
+* **Loading Screen**: layout, visual layers, motion/performance rules and copy for the splash are documented in [`docs/LOADING_OVERLAY.md`](docs/LOADING_OVERLAY.md).
 * **Technical Docs Center**: Complete architecture sitemap and agent navigation available in [`docs/README.md`](docs/README.md).
 * **Tauri vs Web vs `/embed` differences**: side-by-side table (window / background / click-through, gestures, UI, camera, persistence, loading, security, build & test) with code locations and maintenance rules in [`docs/PLATFORM_DIFFERENCES.md`](docs/PLATFORM_DIFFERENCES.md).
 
@@ -394,7 +395,7 @@ Project-XiaoChun/
 │   │   ├── xiaochun_wedding.vrmaddon       # Wedding Dress (13 MB)
 │   │   └── xiaochun_shroud.vrmaddon       # Bandage Wrap (with per-outfit bodyMorph baseline)
 │   ├── thinking.vrma          # Idle thinking animation loop
-│   ├── materials/             # MAD preload chibi / badge / outfit preview PNGs
+│   ├── materials/             # Loading screen key visual (xiaochun_keyvisual*.webp)
 │   ├── onnx/                  # EMAGE body motion model weights (vq_*, emage_step, postprocess)
 │   ├── _headers               # Cache-Control and security headers
 │   ├── robots.txt / sitemap.* # Search engine crawler contracts

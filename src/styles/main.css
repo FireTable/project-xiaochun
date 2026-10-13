@@ -163,115 +163,7 @@ input[type="range"]::-webkit-slider-thumb:hover {
 }
 
 /* Hardware-accelerated distinct anime float animations for MAD preloader (PC 端生动浮动) */
-@keyframes float-sway {
-  0%,
-  100% {
-    transform: translate3d(0, 0, 0) rotate(-3deg);
-  }
-  50% {
-    transform: translate3d(8px, -18px, 0) rotate(4deg);
-  }
-}
-
-@keyframes float-bob {
-  0%,
-  100% {
-    transform: translate3d(0, 0, 0) rotate(2deg);
-  }
-  50% {
-    transform: translate3d(-10px, -22px, 0) rotate(-3deg);
-  }
-}
-
-@keyframes float-drift {
-  0%,
-  100% {
-    transform: translate3d(0, 0, 0) rotate(0deg);
-  }
-  33% {
-    transform: translate3d(12px, -14px, 0) rotate(3deg);
-  }
-  66% {
-    transform: translate3d(-8px, -20px, 0) rotate(-2deg);
-  }
-}
-
-@keyframes float-orbit {
-  0%,
-  100% {
-    transform: translate3d(0, 0, 0) rotate(-2deg) scale(1);
-  }
-  50% {
-    transform: translate3d(10px, -16px, 0) rotate(3deg) scale(1.04);
-  }
-}
-
-@keyframes float-pulse-gentle {
-  0%,
-  100% {
-    transform: translate3d(0, 0, 0) rotate(0.5deg);
-  }
-  50% {
-    transform: translate3d(0, -8px, 0) rotate(-0.5deg);
-  }
-}
-
 /* 移动端专属自然微浮动（幅度 12~14px，运动生动灵巧不拖沓） */
-@keyframes float-sway-mobile {
-  0%,
-  100% {
-    transform: translate3d(0, 0, 0) rotate(-2deg);
-  }
-  50% {
-    transform: translate3d(5px, -12px, 0) rotate(2.5deg);
-  }
-}
-
-@keyframes float-bob-mobile {
-  0%,
-  100% {
-    transform: translate3d(0, 0, 0) rotate(1.8deg);
-  }
-  50% {
-    transform: translate3d(-5px, -14px, 0) rotate(-2deg);
-  }
-}
-
-@keyframes float-drift-mobile {
-  0%,
-  100% {
-    transform: translate3d(0, 0, 0) rotate(-1.2deg);
-  }
-  33% {
-    transform: translate3d(6px, -9px, 0) rotate(1.5deg);
-  }
-  66% {
-    transform: translate3d(-4px, -13px, 0) rotate(-1.5deg);
-  }
-}
-
-@keyframes float-orbit-mobile {
-  0%,
-  100% {
-    transform: translate3d(0, 0, 0) rotate(-1.5deg) scale(1);
-  }
-  50% {
-    transform: translate3d(5px, -12px, 0) rotate(2deg) scale(1.03);
-  }
-}
-
-@keyframes stream-rotate {
-  from {
-    transform: rotate(0deg);
-  }
-  to {
-    transform: rotate(360deg);
-  }
-}
-
-.animate-stream-rotate {
-  animation: stream-rotate 3.2s linear infinite;
-}
 
 /* ─────────────────────────────────────────────────────────────
  * 桌面端/桌宠/透明模式：位于所有 @layer 之外（Unlayered CSS），
@@ -396,4 +288,150 @@ html.is-tauri .dialog-overlay {
 .onboarding-dock-exit {
   animation: onboarding-dock-out 260ms cubic-bezier(0.4, 0, 0.2, 1) forwards;
   pointer-events: none;
+}
+
+/* ─── LoadingOverlay：偶像出道海报风（仅 transform/opacity 动画） ─── */
+.font-xc-italic {
+  font-family: Didot, 'Bodoni 72', 'Iowan Old Style', 'Palatino Linotype', Palatino, 'Noto Serif', 'Songti SC', Georgia, serif;
+  font-style: italic;
+  font-weight: 400;
+}
+.font-xc-sc {
+  font-family: 'Iowan Old Style', 'Palatino Linotype', Palatino, Georgia, serif;
+  font-weight: 500;
+}
+.font-xc-cjk {
+  font-family: 'Songti SC', 'STSong', 'Noto Serif SC', 'Noto Serif CJK SC', 'Source Han Serif SC', serif;
+}
+.xc-hero-img {
+  -webkit-mask-image: linear-gradient(180deg, #000 0%, #000 52%, transparent 64%);
+  mask-image: linear-gradient(180deg, #000 0%, #000 52%, transparent 64%);
+}
+@media (min-width: 768px) {
+  .xc-hero-img {
+    -webkit-mask-image: linear-gradient(180deg, #000 0%, #000 80%, transparent 99%);
+    mask-image: linear-gradient(180deg, #000 0%, #000 80%, transparent 99%);
+  }
+}
+.xc-sweep {
+  background: linear-gradient(90deg, transparent 0%, rgba(255, 236, 214, 0.07) 45%, rgba(200, 170, 255, 0.06) 55%, transparent 100%);
+  animation: xc-sweep 9s ease-in-out infinite;
+  will-change: transform;
+}
+.xc-twinkle {
+  opacity: 0.2;
+  animation: xc-twinkle 3.6s ease-in-out infinite;
+  will-change: transform, opacity;
+}
+.xc-breathe {
+  animation: xc-breathe 7s ease-in-out infinite;
+  will-change: transform;
+}
+.xc-paused,
+.xc-paused * {
+  animation-play-state: paused !important;
+}
+@keyframes xc-drift {
+  from { transform: translate3d(0, 0, 0); }
+  to { transform: translate3d(24px, -18px, 0); }
+}
+@keyframes xc-sweep {
+  0% { transform: translate3d(0, 0, 0) skewX(-16deg); }
+  55%, 100% { transform: translate3d(320%, 0, 0) skewX(-16deg); }
+}
+@keyframes xc-twinkle {
+  0%, 100% { opacity: 0.15; transform: scale(0.6) rotate(0deg); }
+  50% { opacity: 0.9; transform: scale(1) rotate(20deg); }
+}
+@keyframes xc-breathe {
+  0%, 100% { transform: translate3d(0, 0, 0) scale(1); }
+  50% { transform: translate3d(0, -6px, 0) scale(1.012); }
+}
+@media (prefers-reduced-motion: reduce) {
+  .xc-sweep, .xc-twinkle, .xc-breathe { animation: none; }
+  .xc-sweep { opacity: 0; }
+}
+
+/* 标题：香槟金金属渐变 + 缓慢高光扫过（background-position，仅重绘标题区域） */
+.xc-title {
+  letter-spacing: 0.01em;
+  color: transparent;
+  background-image:
+    linear-gradient(100deg, transparent 38%, rgba(255, 252, 244, 0.85) 48%, transparent 58%),
+    linear-gradient(180deg, #fbf3e2 0%, #ecd9ae 38%, #d6b77a 58%, #efdcb6 74%, #cbb6e6 100%);
+  background-size: 260% 100%, 100% 100%;
+  background-position: 130% 0, 0 0;
+  background-repeat: no-repeat;
+  -webkit-background-clip: text;
+  background-clip: text;
+  filter: drop-shadow(0 1px 0 rgba(10, 6, 20, 0.55)) drop-shadow(0 6px 18px rgba(10, 6, 20, 0.55));
+  animation: xc-title-sheen 7s ease-in-out infinite;
+}
+@keyframes xc-title-sheen {
+  0%, 35% { background-position: 130% 0, 0 0; }
+  75%, 100% { background-position: -30% 0, 0 0; }
+}
+/* 星空：多层 radial-gradient 平铺，静态；一层做 opacity 闪烁 */
+.xc-stars {
+  background-image:
+    radial-gradient(1px 1px at 12px 18px, rgba(255, 255, 255, 0.75), transparent 60%),
+    radial-gradient(1px 1px at 83px 64px, rgba(255, 240, 220, 0.6), transparent 60%),
+    radial-gradient(1.2px 1.2px at 140px 120px, rgba(255, 228, 180, 0.7), transparent 60%),
+    radial-gradient(0.8px 0.8px at 47px 150px, rgba(255, 255, 255, 0.5), transparent 60%),
+    radial-gradient(1px 1px at 176px 30px, rgba(255, 255, 255, 0.55), transparent 60%);
+  background-size: 190px 190px;
+  -webkit-mask-image: linear-gradient(180deg, #000 0%, #000 55%, transparent 95%);
+  mask-image: linear-gradient(180deg, #000 0%, #000 55%, transparent 95%);
+  opacity: 0.7;
+}
+.xc-stars--twinkle {
+  background-image:
+    radial-gradient(1.4px 1.4px at 60px 40px, rgba(255, 255, 255, 0.95), transparent 60%),
+    radial-gradient(1.6px 1.6px at 250px 210px, rgba(255, 236, 200, 0.9), transparent 60%),
+    radial-gradient(1.2px 1.2px at 330px 90px, rgba(255, 232, 190, 0.9), transparent 60%);
+  background-size: 410px 330px;
+  animation: xc-star-twinkle 4.5s ease-in-out infinite;
+}
+@keyframes xc-star-twinkle {
+  0%, 100% { opacity: 0.25; }
+  50% { opacity: 0.95; }
+}
+.xc-nebula {
+  position: absolute;
+  border-radius: 9999px;
+  will-change: transform;
+  animation: xc-drift 22s ease-in-out infinite alternate;
+}
+.xc-nebula--lav {
+  width: 120vmax; height: 60vmax; left: -30vmax; top: -12vmax;
+  background: radial-gradient(closest-side, rgba(160, 120, 210, 0.13), rgba(160, 120, 210, 0.04) 55%, transparent);
+  transform: rotate(-12deg);
+}
+.xc-nebula--rose {
+  width: 100vmax; height: 50vmax; right: -35vmax; top: 20%;
+  background: radial-gradient(closest-side, rgba(240, 160, 160, 0.11), rgba(240, 160, 160, 0.03) 55%, transparent);
+  animation-duration: 28s;
+  animation-delay: -9s;
+}
+.xc-mist {
+  position: absolute;
+  left: -20%; right: -20%; bottom: -8%; height: 38%;
+  background: radial-gradient(60% 60% at 50% 100%, rgba(230, 190, 200, 0.12), transparent 70%);
+  will-change: transform;
+  animation: xc-mist 18s ease-in-out infinite alternate;
+}
+@keyframes xc-mist {
+  from { transform: translate3d(-4%, 0, 0); }
+  to { transform: translate3d(4%, -2%, 0); }
+}
+@media (prefers-reduced-motion: reduce) {
+  .xc-title, .xc-stars--twinkle, .xc-nebula, .xc-mist, .xc-tip { animation: none; }
+  #loading-overlay.xc-loading { transform: none !important; transition-property: opacity !important; }
+}
+.xc-tip {
+  animation: xc-tip-in 0.6s ease-out both;
+}
+@keyframes xc-tip-in {
+  from { opacity: 0; transform: translate3d(0, 3px, 0); }
+  to { opacity: 1; transform: none; }
 }
