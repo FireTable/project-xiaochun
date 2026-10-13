@@ -592,3 +592,38 @@ export interface TtsConfig {
   };
 }
 
+
+/**
+ * 虚空场景 (id: void) 参数。颜色一律 sRGB 十六进制; 画面颜色 = 这里的颜色 (已抵消曝光)。
+ * 整体亮度远低于后期 Bloom 阈值 (APP_CONFIG.postfx.bloom.threshold), 不会被吹亮。
+ */
+export interface VoidSceneConfig {
+  sky: {
+    /** 渐变 0% 色标 (中心) */
+    inner: number;
+    /** 中段色标颜色 */
+    mid: number;
+    /** 中段色标位置 0.1 ~ 0.9 */
+    midStop: number;
+    /** 渐变 100% 色标 (边缘), 也是 scene.background 兜底色 */
+    outer: number;
+    /** 渐变中心 [x, y] 屏幕比例 (y 从上往下), 同 CSS "at 60% 30%" */
+    center: [number, number];
+    /** 椭圆半径 [宽比例, 高比例], 同 CSS "120% 90%" */
+    radius: [number, number];
+  };
+  nebula: {
+    /** 星云强度 0 ~ 0.15 */
+    strength: number;
+    /** 冷侧星云色 */
+    plum: number;
+    /** 暖侧星云色 */
+    apricot: number;
+    /** 噪声频率 0.5 ~ 4 */
+    scale: number;
+    /** 漂移速度 0 ~ 0.03 */
+    driftSpeed: number;
+  };
+  /** 抖动强度 (1/255 单位) 0 ~ 2 */
+  dither: number;
+}

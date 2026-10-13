@@ -4,6 +4,7 @@
 import * as THREE from 'three';
 import { GUIDE_COLOR } from './core/interaction/guideStyle';
 import { BEACH3D_SCENE_CONFIG } from './core/scene/beach3d/beach3dConfig';
+import { VOID_SCENE_CONFIG } from './core/scene/void/voidConfig';
 export * from './types/config';
 import type {
   LightConfig,
@@ -399,6 +400,8 @@ export const APP_CONFIG = {
   } as SceneRegistryConfig,
   // 海滩 3D (id: beach3d) 的参数在 src/core/scene/beach3d/beach3dConfig.ts 维护, 这里只引用。说明见 docs/BEACH3D_SCENE.md
   beach3dScene: BEACH3D_SCENE_CONFIG,
+  // 虚空场景 (id: void) 的渐变夜空 / 星云参数在 src/core/scene/void/voidConfig.ts 维护
+  voidScene: VOID_SCENE_CONFIG,
   lights: {
     dir: { base: 1.10, enabled: true },
     hemi: { base: 0.80, enabled: true },

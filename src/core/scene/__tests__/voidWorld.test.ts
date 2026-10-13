@@ -1,6 +1,7 @@
 import * as THREE from 'three';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { VoidWorld } from '../void/voidWorld';
+import { APP_CONFIG } from '@/config';
 
 describe('VoidWorld', () => {
   beforeAll(() => {
@@ -62,7 +63,7 @@ describe('VoidWorld', () => {
 
     voidWorld.group.traverse((obj) => {
       if (obj instanceof THREE.Mesh) {
-        meshCount++;
+        if (obj.name !== 'VoidSky') meshCount++; // 全屏渐变夜空不算地面
       } else if (obj instanceof THREE.Points) {
         pointsCount++;
       }
@@ -71,6 +72,34 @@ describe('VoidWorld', () => {
     expect(meshCount).toBe(0); // 严格保证零地面/地台
     expect(pointsCount).toBe(1); // 存在 3D 浮游星尘微粒系统
     expect(voidWorld.mesh).not.toBeNull();
+  });
+
+  it('builds an opaque full-screen gradient sky that hides with the world', () => {
+    const scene = new THREE.Scene();
+    const voidWorld = new VoidWorld();
+    voidWorld.attach(scene);
+
+    const sky = voidWorld.skyMesh!;
+    expect(sky).not.toBeNull();
+    expect(sky.parent).toBe(voidWorld.group);
+    expect(sky.frustumCulled).toBe(false);
+    const mat = sky.material as THREE.ShaderMaterial;
+    expect(mat.depthWrite).toBe(false);
+    expect(mat.depthTest).toBe(false);
+    expect(mat.transparent).toBe(false);
+    // 色标与 CSS radial-gradient 一致 (sRGB 0..1)
+    expect((mat.uniforms.uInner.value as THREE.Vector3).x).toBeCloseTo(0x3a / 255, 5);
+    expect(mat.uniforms.uMidStop.value).toBeCloseTo(APP_CONFIG.voidScene.sky.midStop, 5);
+    // 星云强度远低于 Bloom 阈值
+    expect(mat.uniforms.uNebula.value).toBeLessThanOrEqual(0.15);
+
+    voidWorld.setActive(true, scene);
+    expect(sky.visible && voidWorld.group.visible).toBe(true);
+    voidWorld.setActive(false, scene);
+    expect(voidWorld.group.visible).toBe(false);
+
+    voidWorld.dispose(scene);
+    expect(voidWorld.skyMesh).toBeNull();
   });
 
   it('updates stardust drift and breathing animation without errors', () => {

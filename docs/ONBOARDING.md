@@ -11,7 +11,7 @@ The onboarding tour is designed to let first-time visitors familiarize themselve
 1. **Schema-driven guided state machine (`onboardingSchema.ts`)**
    - All steps (including the pre-greeting entry `step_greet`) are declared through a single `createOnboardingSteps()` factory. Every step is driven by two pieces — a `dialogues` (lines list) and a `getChoices(ctx)` (dynamic option factory) — with no step-specific branching in the rendering component.
 2. **Dedicated "void realm" stage (`src/core/scene/void/voidWorld.ts`)**
-   - Strips away all extraneous world content: a solid deep-space background color (`0x0b0f19`, matching the engine's scene init) and nothing else. No ground, no props, and deliberately **no aura gradient texture** — the 3D stardust field is the only source of depth. Putting the character and the crystalline cards front and center.
+   - Strips away all extraneous world content: no ground, no props. The backdrop is an in-scene deep plum → near-black radial gradient sky (based on the loading screen palette, with a smaller glow and a larger black share), a very faint plum / apricot nebula, and the 3D stardust field floating in front of it. Details and tunables: see [§7](#7-void-scene-backdrop).
 3. **Synchronized audiovisual driver (`OnboardingTour.tsx`)**
    - Every line is wired through `vrmEngine.speakText()`, triggering local Edge-TTS streaming audio, RMS mouth-shape matching, and EMAGE full-body speaking gestures, while a live speech bubble above the character renders each line as it is delivered.
 
@@ -102,3 +102,28 @@ All onboarding-related strings are aggregated under the `onboarding.` prefix acr
 - **Completion flag**: As soon as the user finishes or skips the tour, immediately write `localStorage.setItem('xiaochun_onboarded', 'true')`.
 - **Cold start & HMR**: When the root route `src/routes/index.tsx` mounts, check the flag; if absent and the environment is not an iframe embed, launch `OnboardingTour`.
 - **Re-run & reset**: Re-test the entire flow at any time by running `localStorage.removeItem('xiaochun_onboarded'); location.reload()` in the console.
+
+---
+
+## 7. Void Scene Backdrop
+
+Implemented in `src/core/scene/void/voidWorld.ts` + `voidSkyShaders.ts`; tunables in `src/core/scene/void/voidConfig.ts`, exposed as `APP_CONFIG.voidScene` (type `VoidSceneConfig` in `src/types/config.ts`).
+
+- **Sky quad**: a full-screen `PlaneGeometry(2, 2)` `ShaderMaterial` (`depthTest`/`depthWrite` off, `frustumCulled = false`, `renderOrder = -1000`) drawn first; stardust points use `renderOrder = -1`. `scene.background` is set to `sky.outer` as a fallback while the void is active and cleared on exit.
+- **Colour accuracy**: stops are sRGB hex and are interpolated in sRGB (like a CSS gradient), with nebula and dithering added, then converted to linear. The shader then multiplies by `uComp = 1 / exposure` (only under `LinearToneMapping`, exposure clamped ≥ 0.2) so the engine's tone mapping does not brighten it, so on-screen colour equals the configured colour.
+- **Grading compensation**: `vrmEngine` calls `voidWorld.setGradingSource(() => this.postFx.config)`. When rendering into the composer's off-screen target with postfx enabled, the shader inverts the OutputPass brightness/contrast (`x = (out − 0.5 − b) / (1 + c) + 0.5`) so the contrast boost does not crush the dark plum values. When rendering straight to screen (postfx off), no compensation is applied.
+- **Tauri window**: the sky writes opaque alpha (1.0), so it renders the same inside the transparent / rounded Tauri window; transparent desktop-pet mode is unaffected.
+
+| Knob | Default | Range / meaning |
+| --- | --- | --- |
+| `sky.inner` | `0x3a1c3e` | 0% (centre) stop, plum |
+| `sky.mid` | `0x1d0d22` | Middle stop colour |
+| `sky.midStop` | `0.38` | Middle stop position, 0.1 – 0.9 |
+| `sky.outer` | `0x0a0509` | 100% (edge) stop, near-black plum; also `scene.background` fallback |
+| `sky.center` | `[0.6, 0.3]` | Gradient centre as screen fraction (x from left, y from top), like CSS `at 60% 30%` |
+| `sky.radius` | `[0.8, 0.6]` | Ellipse radii as fraction of screen width / height (min 0.05) |
+| `nebula.strength` | `0.035` | 0 – 0.15; 0 = pure gradient, higher looks dirty |
+| `nebula.plum` / `nebula.apricot` | `0x6b2f63` / `0xc98a5a` | Cool / warm nebula tints |
+| `nebula.scale` | `1.6` | Noise frequency by view direction, 0.5 – 4 (lower = larger, softer clouds) |
+| `nebula.driftSpeed` | `0.006` | Drift speed, 0 – 0.03 (0 = static) |
+| `dither` | `1.0` | Dither amplitude in 1/255 units, 0 – 2; removes banding in dark gradients |

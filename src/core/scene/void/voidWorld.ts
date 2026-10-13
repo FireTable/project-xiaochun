@@ -1,11 +1,23 @@
 import * as THREE from 'three';
+import { APP_CONFIG } from '@/config';
+import { VOID_SKY_FRAG, VOID_SKY_VERT } from './voidSkyShaders';
+
+/** sRGB 十六进制 → sRGB 0..1 向量 (不做线性化: 渐变要像 CSS 一样在 sRGB 空间插值, 着色器里再转线性) */
+function srgbVec(hex: number): THREE.Vector3 {
+  return new THREE.Vector3(((hex >> 16) & 255) / 255, ((hex >> 8) & 255) / 255, (hex & 255) / 255);
+}
+
+function clampN(v: number, lo: number, hi: number): number {
+  return Math.min(hi, Math.max(lo, Number.isFinite(v) ? v : lo));
+}
 
 /**
  * VoidWorld — 纯粹虚空场景世界 (新手向导第一相遇空间)
  *
  * 核心美学设计：
  * 1. 纯背景纵深，杜绝任何地台束缚，角色静谧悬浮于深空。
- * 2. 纯色深空背景，不做任何径向光晕 / 渐变贴图 —— 星尘本身就是唯一的视觉层次。
+ * 2. 深梅紫渐变夜空 (与 LoadingOverlay / webgl-warp 同一 CSS 径向渐变, 场景内全屏着色器实现, 叠加极淡星云与抖动),
+ *    参数见 APP_CONFIG.voidScene (src/core/scene/void/voidConfig.ts)。输出不透明, 兼容 Tauri 透明窗口 + 圆角裁切。
  * 3. 真实三维空间星尘微粒系统 (3D Stardust with Parallax)，用户旋转视角时呈现立体的三维视差流动。
  */
 export class VoidWorld {
@@ -16,8 +28,15 @@ export class VoidWorld {
   private active = false;
   private sceneRef: THREE.Scene | null = null;
 
-  // 纯色深空背景 (与 vrmEngine 初始化的 0x0b0f19 一致)
-  private readonly bgColor = new THREE.Color(0x0b0f19);
+  // 兜底背景色 (= 渐变 100% 色标); 夜空四边形未绘制的瞬间也不会露出别的颜色
+  private readonly bgColor = new THREE.Color().setHex(APP_CONFIG.voidScene.sky.outer, THREE.SRGBColorSpace);
+
+  // 渐变夜空 (全屏四边形)
+  private sky: THREE.Mesh | null = null;
+  private skyUniforms: Record<string, THREE.IUniform> | null = null;
+  // 后期调色来源 (vrmEngine 注入 postFx.config): OutputPass 在线性 HDR 上做 contrast/brightness,
+  // 会把 < ~0.017 的深色直接压成纯黑; 夜空在着色器里做反向补偿, 保证画面 = CSS 取色
+  private gradingSource: (() => { enabled: boolean; bc: { brightness: number; contrast: number } } | null) | null = null;
 
   // 三维深空浮游星尘流系统 (细致微光流萤/星尘)
   private particlesMesh: THREE.Points | null = null;
@@ -150,11 +169,79 @@ export class VoidWorld {
     this.group.add(points);
   }
 
+  /** 构建渐变夜空: 全屏四边形, 最先绘制 (renderOrder -1000), 不写深度, 不参与视锥剔除 */
+  private buildSky(): void {
+    const cfg = APP_CONFIG.voidScene;
+    const midStop = clampN(cfg.sky.midStop, 0.1, 0.9);
+    const uniforms: Record<string, THREE.IUniform> = {
+      uInvProj: { value: new THREE.Matrix4() },
+      uCamWorld: { value: new THREE.Matrix4() },
+      uInner: { value: srgbVec(cfg.sky.inner) },
+      uMid: { value: srgbVec(cfg.sky.mid) },
+      uOuter: { value: srgbVec(cfg.sky.outer) },
+      uMidStop: { value: midStop },
+      uCenter: { value: new THREE.Vector2(cfg.sky.center[0], cfg.sky.center[1]) },
+      uRadius: { value: new THREE.Vector2(Math.max(0.05, cfg.sky.radius[0]), Math.max(0.05, cfg.sky.radius[1])) },
+      uPlum: { value: srgbVec(cfg.nebula.plum) },
+      uApricot: { value: srgbVec(cfg.nebula.apricot) },
+      uNebula: { value: clampN(cfg.nebula.strength, 0, 0.15) },
+      uScale: { value: clampN(cfg.nebula.scale, 0.5, 4) },
+      uTime: { value: 0 },
+      uDither: { value: clampN(cfg.dither, 0, 2) },
+      uComp: { value: 1 },
+      uContrast: { value: 0 },
+      uBright: { value: 0 },
+    };
+    this.skyUniforms = uniforms;
+
+    const geo = new THREE.PlaneGeometry(2, 2);
+    const mat = new THREE.ShaderMaterial({
+      vertexShader: VOID_SKY_VERT,
+      fragmentShader: VOID_SKY_FRAG,
+      uniforms,
+      depthTest: false,
+      depthWrite: false,
+    });
+    this.disposables.push(geo, mat);
+
+    const sky = new THREE.Mesh(geo, mat);
+    sky.name = 'VoidSky';
+    sky.frustumCulled = false;
+    sky.renderOrder = -1000;
+    sky.onBeforeRender = (renderer, _s, camera) => {
+      (uniforms.uInvProj.value as THREE.Matrix4).copy(camera.projectionMatrixInverse);
+      (uniforms.uCamWorld.value as THREE.Matrix4).copy(camera.matrixWorld);
+      // 抵消线性色调映射曝光, 让画面颜色 = 配置色 (= CSS 取色); 与 Beach3DSky 同一规则
+      const exp = renderer.toneMapping === THREE.LinearToneMapping ? renderer.toneMappingExposure : 1;
+      uniforms.uComp.value = 1 / Math.max(0.2, exp || 1);
+      // 只有画进 composer 的离屏 RT 时才会再经过 OutputPass 调色; 直出屏幕 (postfx 关闭) 不补偿
+      const grading = renderer.getRenderTarget() !== null ? this.gradingSource?.() : null;
+      const on = !!grading && grading.enabled;
+      uniforms.uContrast.value = on ? clampN(grading!.bc.contrast, -0.9, 2) : 0;
+      uniforms.uBright.value = on ? clampN(grading!.bc.brightness, -1, 1) : 0;
+    };
+    this.sky = sky;
+    this.group.add(sky);
+  }
+
+  /** 注入后期调色参数来源 (通常是 postFxPipeline.config), 用于反向补偿 OutputPass 的 contrast / brightness */
+  public setGradingSource(
+    source: (() => { enabled: boolean; bc: { brightness: number; contrast: number } } | null) | null,
+  ): void {
+    this.gradingSource = source;
+  }
+
+  /** 获取渐变夜空网格（用于测试或外部调试） */
+  public get skyMesh(): THREE.Mesh | null {
+    return this.sky;
+  }
+
   /** 构建虚空世界 */
   public build(scene: THREE.Scene): void {
     if (this.isBuilt) return;
     this.sceneRef = scene;
 
+    this.buildSky();
     this.buildStardustSystem();
 
     this.group.visible = false;
@@ -191,6 +278,10 @@ export class VoidWorld {
   /** 每帧动画：驱动星尘微粒轻灵上升流动与自然呼吸 */
   public update(delta: number, time: number): void {
     if (!this.isBuilt || !this.active) return;
+
+    if (this.skyUniforms) {
+      this.skyUniforms.uTime.value = time * clampN(APP_CONFIG.voidScene.nebula.driftSpeed, 0, 0.03);
+    }
 
     // 1. 驱动微光流萤/星尘自下而上缓缓飘散
     if (
@@ -281,6 +372,8 @@ export class VoidWorld {
     }
     this.group.clear();
 
+    this.sky = null;
+    this.skyUniforms = null;
     this.particlesMesh = null;
     this.particleGeo = null;
     this.particleMat = null;

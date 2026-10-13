@@ -695,6 +695,8 @@ export class VRMEngine {
     this.beach3d.attach(this.scene, this.lighting.dirLight);
     // 虚空场景: 挂进场景 (默认不可见, 首次进入时才构建浮游微尘)
     this.voidWorld.attach(this.scene);
+    // 夜空需要知道后期调色参数, 以反向补偿 OutputPass 对深色的压黑 (保证与 CSS 渐变同色)
+    this.voidWorld.setGradingSource(() => this.postFx.config);
 
     // 动作与聊天控制器事件绑定
     this.vrmaPlayer.bindTransitionManager(this.motionTransition);
