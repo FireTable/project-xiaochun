@@ -1,5 +1,5 @@
 /*!
- * @firetable/three-vrm-materials-mtoon v3.5.5
+ * @firetable/three-vrm-materials-mtoon v3.5.6
  * Extended @pixiv/three-vrm-materials-mtoon with NPR shading controls while preserving MToon API
  *
  * Copyright (c) 2019-2026 pixiv Inc.; FireTable XiaoChun fork
