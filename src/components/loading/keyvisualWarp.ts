@@ -47,8 +47,9 @@ const FS =
   // light despill of green-screen fringe
   // ka eases the whole deformation in from 0, so the first frame matches the static <img> exactly
   'p=mix(v*R,p,ka);vec4 c=texture2D(s,p/R);c.g=mix(c.g,min(c.g,max(c.r,c.b)),ka);'+
-  // Bottom fade baked in (same linear ramp as the img's CSS mask), so no CSS mask ever touches the GL canvas.
-  'float y=1.-gl_FragCoord.y/fd.z;gl_FragColor=c*clamp((fd.y-y)/(fd.y-fd.x),0.,1.);}';
+  // Shader fade off (experiment: CSS mask + translateZ(0) on the wrapper). To re-enable the baked ramp:
+  // 'float y=1.-gl_FragCoord.y/fd.z;gl_FragColor=c*clamp((fd.y-y)/(fd.y-fd.x),0.,1.);}'
+  'gl_FragColor=c;}';
 
 export interface KeyvisualWarp {
   /** Stop or restart animation. A paused warp keeps its last frame. */
@@ -95,6 +96,7 @@ export async function startKeyvisualWarp(
   host: HTMLElement,
   maskSrc: string,
   canvasClassName = '',
+  hostMaskClass = '',
 ): Promise<KeyvisualWarp> {
   if (typeof window === 'undefined') return NOOP;
   if (window.matchMedia?.('(prefers-reduced-motion: reduce)').matches) return NOOP;
@@ -245,7 +247,7 @@ export async function startKeyvisualWarp(
     const resize = () => {
       snap();
       const d = Math.min(window.devicePixelRatio || 1, 3);
-      const cs = getComputedStyle(canvas);
+      const cs = getComputedStyle(host); // canvas fills host 100% and may still be detached
       const w = Math.max(1, Math.round(parseFloat(cs.width) * d)), h = Math.max(1, Math.round(parseFloat(cs.height) * d));
       if (canvas.width === w && canvas.height === h) return false;
       canvas.width = w; // clears the drawing buffer, so the caller redraws in the same task
@@ -269,49 +271,48 @@ export async function startKeyvisualWarp(
 
     canvas.setAttribute('aria-hidden', 'true');
     if (canvasClassName) canvas.className = canvasClassName;
-    // The canvas stays hidden (no background, no transition) until a frame has drawn, so a blank or white buffer
-    // never shows. The swap is instant: in one rAF, draw a frame identical to the img (ka=0 on a cold start), show
-    // the canvas and hide the img. There is no crossfade and therefore no doubled image.
     Object.assign(canvas.style, {
-      position: 'absolute', inset: '0', width: '100%', height: '100%', visibility: 'hidden',
+      position: 'absolute', inset: '0', width: '100%', height: '100%',
       background: 'transparent', pointerEvents: 'none',
     });
-    host.appendChild(canvas);
+    // The canvas is rendered while DETACHED and only inserted (already visible) in the same rAF that hides the img,
+    // so the page never composites a GL canvas without content. A detached canvas has no compositor surface yet, so
+    // the frame is drawn again right after insertion, in the same task, to be safe.
+    // The bottom fade starts on the img (single masked layer, known-good). Only once the canvas is live and the img
+    // is hidden does it move to the wrapper (hostMaskClass; CSS drops the img mask under it). Same stops, so the
+    // fade looks identical. dispose() removes the class, so the img carries its own mask again.
     resize();
     setFade();
     draw(now());
-    // Warm remount: everything is cached, so this runs in the same task as the React commit. Show the (already
-    // deformed, ka=1) frame and hide the img before the browser paints, so neither the static img nor an empty box
-    // is ever shown for a frame.
-    if (warm) {
-      canvas.style.visibility = 'visible';
+    const moveMask = () => { if (hostMaskClass && !disposed) host.classList.add(hostMaskClass); };
+    const goLive = () => {
+      host.appendChild(canvas);
+      resize();
+      draw(now());
       img.style.visibility = 'hidden';
       shownAt = performance.now();
+    };
+    if (warm) {
+      // Warm remount: everything is cached, so this runs in the same task as the React commit, before paint.
+      goLive();
+      swapRaf = requestAnimationFrame(() => { swapRaf = 0; moveMask(); });
+    } else {
+      swapRaf = requestAnimationFrame(() => {
+        if (disposed) return;
+        goLive();
+        kick();
+        swapRaf = requestAnimationFrame(() => {
+          swapRaf = requestAnimationFrame(() => { swapRaf = 0; moveMask(); });
+        });
+      });
     }
     const onMq = () => { setFade(); draw(now()); };
     mq.addEventListener('change', onMq);
     cleanups.push(() => mq.removeEventListener('change', onMq));
-    // Overlay, don't swap: the img stays visible underneath while the canvas shows its first frame (identical to the
-    // img at ka=0). Only after that frame has had a full rAF to reach the screen is the img hidden, so a blank or
-    // pending GL surface can never expose the page background. The img is hidden only to avoid ghosting once the
-    // warp starts moving; any failure or context loss restores it.
-    if (!warm) swapRaf = requestAnimationFrame(() => {
-      if (disposed) return;
-      resize();
-      draw(now());
-      canvas.style.visibility = 'visible';
-      swapRaf = requestAnimationFrame(() => {
-        swapRaf = 0;
-        if (disposed) return;
-        img.style.visibility = 'hidden';
-        shownAt = performance.now();
-        kick();
-      });
-    });
 
     if (typeof ResizeObserver !== 'undefined') {
       const ro = new ResizeObserver(() => { if (resize()) draw(now()); });
-      ro.observe(canvas);
+      ro.observe(host);
       cleanups.push(() => ro.disconnect());
     } else {
       const onResize = () => { if (resize()) draw(now()); };
@@ -333,6 +334,7 @@ export async function startKeyvisualWarp(
     if (import.meta.env?.DEV) console.warn('[keyvisualWarp] fallback to static image:', err);
     lose();
     canvas.remove();
+    if (hostMaskClass) host.classList.remove(hostMaskClass);
     img.style.visibility = '';
     return NOOP;
   }
@@ -349,11 +351,12 @@ export async function startKeyvisualWarp(
     dispose() {
       if (disposed) return;
       disposed = true;
-      if (canvas.style.visibility === 'visible') lastAliveAt = performance.now();
+      if (canvas.isConnected) lastAliveAt = performance.now();
       if (raf) cancelAnimationFrame(raf);
       raf = 0;
       cancelAnimationFrame(swapRaf);
       cleanups.forEach((f) => f());
+      if (hostMaskClass) host.classList.remove(hostMaskClass);
       img.style.visibility = '';
       canvas.remove();
       lose();
