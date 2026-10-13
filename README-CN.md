@@ -52,6 +52,26 @@ UI 走 **TanStack Start SSR + i18next** 水合,**完整支持简体中文 / Engl
   <i>3D 舞台：MToon NPR 角色、线稿场景、头顶气泡与底部对话条</i>
 </p>
 
+### 👗 换装展示 (Outfit Showcase)
+
+<p align="center"><i>内置服装一览，均可运行时一键换装</i></p>
+
+<table align="center">
+  <tr>
+    <td align="center"><img src="screenshots/outfits/dinner_dress.webp" width="140" alt="小蠢 - 晚礼服" /><br/><sub>晚礼服</sub></td>
+    <td align="center"><img src="screenshots/outfits/techwear.webp" width="140" alt="小蠢 - 机能风" /><br/><sub>机能风</sub></td>
+    <td align="center"><img src="screenshots/outfits/cheongsam.webp" width="140" alt="小蠢 - 旗袍" /><br/><sub>旗袍</sub></td>
+    <td align="center"><img src="screenshots/outfits/bikini.webp" width="140" alt="小蠢 - 比基尼" /><br/><sub>比基尼</sub></td>
+    <td align="center"><img src="screenshots/outfits/maid.webp" width="140" alt="小蠢 - 女仆装" /><br/><sub>女仆装</sub></td>
+  </tr>
+  <tr>
+    <td align="center"><img src="screenshots/outfits/swimsuit.webp" width="140" alt="小蠢 - 泳衣" /><br/><sub>泳衣</sub></td>
+    <td align="center"><img src="screenshots/outfits/shroud.webp" width="140" alt="小蠢 - 斗篷" /><br/><sub>斗篷</sub></td>
+    <td align="center"><img src="screenshots/outfits/office_lady.webp" width="140" alt="小蠢 - OL 职业装" /><br/><sub>OL 职业装</sub></td>
+    <td align="center"><img src="screenshots/outfits/wedding.webp" width="140" alt="小蠢 - 婚纱" /><br/><sub>婚纱</sub></td>
+  </tr>
+</table>
+
 ---
 
 ## 📥 桌面客户端安装与下载 (Download & Install)

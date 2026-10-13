@@ -52,6 +52,26 @@ The UI is fully **SSR-hydrated multi-language** (zh-CN / en / ja) via TanStack S
   <i>3D stage: MToon NPR character, linework city, head bubble, and chat bar</i>
 </p>
 
+### 👗 Outfit Showcase
+
+<p align="center"><i>Built-in outfits, all swappable at runtime</i></p>
+
+<table align="center">
+  <tr>
+    <td align="center"><img src="screenshots/outfits/dinner_dress.webp" width="140" alt="XiaoChun in Dinner Dress" /><br/><sub>Dinner Dress</sub></td>
+    <td align="center"><img src="screenshots/outfits/techwear.webp" width="140" alt="XiaoChun in Techwear" /><br/><sub>Techwear</sub></td>
+    <td align="center"><img src="screenshots/outfits/cheongsam.webp" width="140" alt="XiaoChun in Cheongsam" /><br/><sub>Cheongsam</sub></td>
+    <td align="center"><img src="screenshots/outfits/bikini.webp" width="140" alt="XiaoChun in Bikini" /><br/><sub>Bikini</sub></td>
+    <td align="center"><img src="screenshots/outfits/maid.webp" width="140" alt="XiaoChun in Maid" /><br/><sub>Maid</sub></td>
+  </tr>
+  <tr>
+    <td align="center"><img src="screenshots/outfits/swimsuit.webp" width="140" alt="XiaoChun in Swimsuit" /><br/><sub>Swimsuit</sub></td>
+    <td align="center"><img src="screenshots/outfits/shroud.webp" width="140" alt="XiaoChun in Shroud" /><br/><sub>Shroud</sub></td>
+    <td align="center"><img src="screenshots/outfits/office_lady.webp" width="140" alt="XiaoChun in Office Lady" /><br/><sub>Office Lady</sub></td>
+    <td align="center"><img src="screenshots/outfits/wedding.webp" width="140" alt="XiaoChun in Wedding Dress" /><br/><sub>Wedding Dress</sub></td>
+  </tr>
+</table>
+
 ---
 
 ## 📥 Desktop App Download & Installation
