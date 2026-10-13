@@ -303,8 +303,9 @@ html.is-tauri .dialog-overlay {
 .font-xc-cjk {
   font-family: 'Songti SC', 'STSong', 'Noto Serif SC', 'Noto Serif CJK SC', 'Source Han Serif SC', serif;
 }
-/* EXPERIMENT: bottom fade on the hero <img> only. The warp canvas currently has no fade (shader fd commented out in
-   keyvisualWarp.ts). NEVER put a mask on the canvas or its wrapper (heroBoxRef): confirmed white-rect flash in Chrome. */
+/* Bottom fade for the hero <img> only; the warp canvas bakes the identical ramp into its fragment shader (fd uniform in
+   keyvisualWarp.ts, keep the stops in sync). NEVER put a mask, filter or background on the canvas or its wrapper
+   (heroBoxRef): user-confirmed in real Chrome that either one paints the hero box as a white rect during load. */
 .xc-hero-img {
   -webkit-mask-image: linear-gradient(180deg, #000 0%, #000 52%, transparent 64%);
   mask-image: linear-gradient(180deg, #000 0%, #000 52%, transparent 64%);

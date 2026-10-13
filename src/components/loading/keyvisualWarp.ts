@@ -47,9 +47,10 @@ const FS =
   // light despill of green-screen fringe
   // ka eases the whole deformation in from 0, so the first frame matches the static <img> exactly
   'p=mix(v*R,p,ka);vec4 c=texture2D(s,p/R);c.g=mix(c.g,min(c.g,max(c.r,c.b)),ka);'+
-  // Shader fade off (experiment: CSS mask + translateZ(0) on the wrapper). To re-enable the baked ramp:
-  // 'float y=1.-gl_FragCoord.y/fd.z;gl_FragColor=c*clamp((fd.y-y)/(fd.y-fd.x),0.,1.);}'
-  'gl_FragColor=c;}';
+  // Bottom fade baked in (same linear ramp as the img's CSS mask): a CSS mask on the GL canvas or its wrapper makes
+  // Chrome paint a white box (user-confirmed). c is premultiplied (texture uploaded with UNPACK_PREMULTIPLY_ALPHA,
+  // context premultipliedAlpha:true, clear 0,0,0,0), so scaling all four channels keeps vec4(rgb*a,a).
+  'float y=1.-gl_FragCoord.y/fd.z;gl_FragColor=c*clamp((fd.y-y)/(fd.y-fd.x),0.,1.);}';
 
 export interface KeyvisualWarp {
   /** Stop or restart animation. A paused warp keeps its last frame. */
