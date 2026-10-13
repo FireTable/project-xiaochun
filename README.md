@@ -72,7 +72,7 @@ The UI is fully **SSR-hydrated multi-language** (zh-CN / en / ja) via TanStack S
   </tr>
   <tr>
     <td align="center"><img src="screenshots/outfits/swimsuit.webp" width="140" alt="XiaoChun in Swimsuit" /><br/><sub>Swimsuit</sub></td>
-    <td align="center"><img src="screenshots/outfits/shroud.webp" width="140" alt="XiaoChun in Shroud" /><br/><sub>Shroud</sub></td>
+    <td align="center"><img src="screenshots/outfits/shroud.webp" width="140" alt="XiaoChun in Bandage Wrap" /><br/><sub>Bandage Wrap</sub></td>
     <td align="center"><img src="screenshots/outfits/office_lady.webp" width="140" alt="XiaoChun in Office Lady" /><br/><sub>Office Lady</sub></td>
     <td align="center"><img src="screenshots/outfits/wedding.webp" width="140" alt="XiaoChun in Wedding Dress" /><br/><sub>Wedding Dress</sub></td>
   </tr>
@@ -166,7 +166,7 @@ You can download installer packages directly from the official Releases page:
 
 ### 👗 Atomic Outfit Swap & Delta Addons
 * **Zero-Frame T-Pose Pop-in & Seamless Hot Reloading**: Captures a millisecond-level snapshot of bone rotations, expression weights, gaze coordinates, and playback timestamps before swapping. The new VRM is built in the background, pose-restored in memory before scene mounting, and atomically swapped within a microtask — guaranteeing 0 frames of T-pose glitching.
-* **Delta Patch Distribution (`.vrmbase` + `.vrmaddon`)**: Eliminates bloated multi-megabyte model downloads by stripping shared body geometry into a compact base model `xiaochun_base.vrmbase` (~5.9 MB, oxipng texture-compressed); 9 distinct wardrobe sets (Dinner Dress, Techwear, Cheongsam, Bikini, Maid, Swimsuit, Office Lady, Wedding Dress, Shroud) are distributed as incremental `.vrmaddon` patches (1~4 MB each, 13 MB for grand wedding gown).
+* **Delta Patch Distribution (`.vrmbase` + `.vrmaddon`)**: Eliminates bloated multi-megabyte model downloads by stripping shared body geometry into a compact base model `xiaochun_base.vrmbase` (~5.9 MB, oxipng texture-compressed); 9 distinct wardrobe sets (Dinner Dress, Techwear, Cheongsam, Bikini, Maid, Swimsuit, Office Lady, Wedding Dress, Bandage Wrap) are distributed as incremental `.vrmaddon` patches (1~4 MB each, 13 MB for grand wedding gown).
 * **Web Worker WASM bspatch Assembly**: Reconstructs the complete VRM in a Dedicated Web Worker using WASM bspatch with zero main-thread frame drops.
 * **Two-Tier IndexedDB Cache**: Base models and patched VRMs are locally cached in IndexedDB (`xiaochun-vrm-cache`) for instant subsequent swaps. Detailed in [`docs/OUTFIT_SWAP.md`](docs/OUTFIT_SWAP.md) and [`docs/VRM_BUILD_WORKFLOW.md`](docs/VRM_BUILD_WORKFLOW.md).
 
@@ -392,7 +392,7 @@ Project-XiaoChun/
 │   │   ├── xiaochun_office_lady.vrmaddon   # Office Lady
 │   │   ├── xiaochun_techwear.vrmaddon      # Techwear
 │   │   ├── xiaochun_wedding.vrmaddon       # Wedding Dress (13 MB)
-│   │   └── xiaochun_shroud.vrmaddon       # Shroud (with per-outfit bodyMorph baseline)
+│   │   └── xiaochun_shroud.vrmaddon       # Bandage Wrap (with per-outfit bodyMorph baseline)
 │   ├── thinking.vrma          # Idle thinking animation loop
 │   ├── materials/             # MAD preload chibi / badge / outfit preview PNGs
 │   ├── onnx/                  # EMAGE body motion model weights (vq_*, emage_step, postprocess)
