@@ -8,19 +8,30 @@
 const C = {
   hairL: [337, 301, 234, 432], hairR: [584, 291, 266, 416], // rootX, rootY, width, length
   neck: [476, 496], bust: [430, 770, 190, 95], jiggle: [430, 770, 190, 95], abdomen: [425, 915, 205, 78],
-  elbow: [785, 1125], armL: [210, 520], skirtTop: 1150, mouth: [455, 423, 505, 412],
+  elbow: [785, 1125], armL: [210, 520], skirtTop: 1000, mouth: [455, 423, 505, 412],
   amp: {
-    breath: 0.0035, tilt: 0.012, hair: 5.5, bust: 9, skirt: 5, flare: 12, arm: 0.021,
-    lipPress: 0.3, lipPeriod: 7.5, lipIn: 0.03, jig: 9, jelStretch: 0.005, jelNarrow: 0.0025, jelLag: 0.35,
-    waist: 0.03, armLRot: 0.013, armLLift: 1.2,
+    breath: 0.0035, tilt: 0.012, hair: 5.5, bust: 12.6, skirt: 5, flare: 16, arm: 0.021,
+    lipPress: 0.3, lipPeriod: 9.24, lipIn: 0.03, jig: 9, jelStretch: 0.005, jelNarrow: 0.0025, jelLag: 0.35,
+    waist: 0.07, armLRot: 0.013, armLLift: 1.2,
   },
 } as const;
 
+// Master breath: every motion except the skirt follows one breath cycle (period 2π/1.36 ≈ 4.62 s, ~13 breaths/min),
+// asymmetric like real breathing (inhale 40 %, exhale 60 %), C1-smooth. br() in both shaders matches breath() here.
+// Lags behind the chest (s): head tilt 0.15, left forearm 0.15, right forearm 0.20, bust follow jelLag/1.36 ≈ 0.26,
+// hair L 0.35 / R 0.50. The skirt keeps its own sway and its faster flare (t × 1.95).
+const BREATH_W = 1.36;
+function breath(t: number): number {
+  const x = (((t * BREATH_W) / (2 * Math.PI)) % 1 + 1) % 1;
+  return x < 0.4 ? 0.5 - 0.5 * Math.cos((Math.PI * x) / 0.4) : 0.5 + 0.5 * Math.cos((Math.PI * (x - 0.4)) / 0.6);
+}
+const breathS = (t: number) => 2 * breath(t) - 1;
+
 const VS =
   'attribute vec2 p;uniform float t,ka;uniform vec2 nk;uniform vec2 am;varying vec2 v;' +
-  'void main(){v=p;vec2 q=p;float a=sin(t*1.37)*am.y*ka*(1.-smoothstep(nk.y-.06,nk.y+.05,p.y));vec2 o=q-nk;' +
+  'float br(float t){float x=fract(t*.21645);return x<.4?.5-.5*cos(7.854*x):.5+.5*cos(5.236*(x-.4));}void main(){v=p;vec2 q=p;float a=(2.*br(t-.15)-1.)*am.y*ka*(1.-smoothstep(nk.y-.06,nk.y+.05,p.y));vec2 o=q-nk;' +
   'q=nk+vec2(o.x*cos(a)-o.y*sin(a)*1.6145,o.x*sin(a)/1.6145+o.y*cos(a));' +
-  'q.y=1.-(1.-q.y)*(1.+am.x*ka*(.5+.5*sin(t*1.36)));gl_Position=vec4(q.x*2.-1.,1.-q.y*2.,0,1);}';
+  'q.y=1.-(1.-q.y)*(1.+am.x*ka*br(t));gl_Position=vec4(q.x*2.-1.,1.-q.y*2.,0,1);}';
 
 const FS =
   'precision highp float;uniform sampler2D s,m;uniform float t,ka;uniform vec4 hl,hr,bu,A;uniform vec3 el;uniform vec2 sk;uniform vec4 mo,J,JB,AB;uniform vec3 lp;uniform vec4 LA;uniform vec2 JG;uniform vec3 fd;varying vec2 v;' +
@@ -28,20 +39,20 @@ const FS =
   'vec2 rot(vec2 p,vec2 c,float a){vec2 o=p-c;return c+vec2(o.x*cos(a)-o.y*sin(a),o.x*sin(a)+o.y*cos(a));}' +
   'float sw(vec4 h,float sg,vec2 p){float d=clamp((p.y-h.y)/h.w,0.,1.);float cx=h.x+sg*h.z*.5;' +
   'return (1.-smoothstep(h.z*.35,h.z*.65,abs(p.x-cx)))*d*d*smoothstep(0.,30.,p.y-h.y)*(1.-smoothstep(h.w*.95,h.w*1.15,p.y-h.y));}' +
-  'void main(){vec2 p=v*R;vec4 k=texture2D(m,v);' +
+  'float br(float t){float x=fract(t*.21645);return x<.4?.5-.5*cos(7.854*x):.5+.5*cos(5.236*(x-.4));}void main(){vec2 p=v*R;vec4 k=texture2D(m,v);' +
   // hair sway (hair channel already fades out near skin/other parts)
-  'float l=sw(hl,-1.,p)*k.r,r=sw(hr,1.,p)*k.r,s1=sin(t*1.1),s2=sin(t*.91+1.3);p.x-=A.x*(l*s1+r*s2);p.y+=A.x*.2*(l*abs(s1)+r*abs(s2));' +
+  'float l=sw(hl,-1.,p)*k.r,r=sw(hr,1.,p)*k.r,s1=2.*br(t-.35)-1.,s2=2.*br(t-.5)-1.;p.x-=A.x*(l*s1+r*s2);p.y+=A.x*.2*(l*abs(s1)+r*abs(s2));' +
   // slow lip press, never opens
   'float ga=(1.-k.a)*2.;vec2 mc=(mo.xy+mo.zw)*.5;float mw=length(mo.zw-mo.xy)*.5,mx=dot(p-mc,normalize(mo.zw-mo.xy))/mw,my=p.y-mc.y-(p.x-mc.x)*(mo.w-mo.y)/(mo.z-mo.x);' +
   'float wm=ga*step(p.y,470.)*exp(-my*my/90.)*smoothstep(1.45,.9,abs(mx)),pr=.5-.5*cos(6.2832*t/lp.y);pr=pr*pr*pr*lp.x;p.y+=wm*my*pr;p.x+=wm*(p.x-mc.x)*pr*lp.z;' +
   // bust swell + lagged follow, abdomen draw-in
-  'float bb=.5+.5*sin(t*1.36-.45),g=exp(-pow((p.x-bu.x)/bu.z,2.)-pow((p.y-bu.y)/bu.w,2.))*smoothstep(655.,700.,p.y)*ga;p.y+=A.y*bb*g;p-=(p-bu.xy)*.018*bb*g;' +
+  'float bb=br(t),g=exp(-pow((p.x-bu.x)/bu.z,2.)-pow((p.y-bu.y)/bu.w,2.))*smoothstep(655.,700.,p.y)*ga;p.y+=A.y*bb*g;p-=(p-bu.xy)*.018*bb*g;' +
   'float gj=exp(-pow((p.x-JB.x)/JB.z,2.)-pow((p.y-JB.y)/JB.w,2.))*smoothstep(655.,700.,p.y)*ga;p.y+=J.x*JG.x*gj;p.y-=(p.y-JB.y)*J.y*JG.y*gj;p.x+=(p.x-JB.x)*J.z*JG.y*gj;' +
-  'float gw=exp(-pow((p.x-AB.x)/AB.z,2.)-pow((p.y-AB.y)/AB.w,2.))*ga,ih=.5+.5*sin(t*1.36-.3);p.x+=(p.x-AB.x)*J.w*ih*gw;p.y+=1.6*ih*gw;' +
+  'float gw=exp(-pow((p.x-AB.x)/AB.z,2.)-pow((p.y-AB.y)/AB.w,2.))*ga,ih=br(t-.15);p.x+=(p.x-AB.x)*J.w*bb*gw;p.y+=1.6*bb*gw;' +
   // skirt flutter (mirror-symmetric hem flare) + viewer-right forearm, blended as one field
-  'float ws=pow(smoothstep(sk.x,R.y,p.y),1.4)*k.b,ph=t*1.3,pf=t*1.95,wr=k.g*step(400.,p.x),wl=k.g-wr;' +
+  'float ws=pow(smoothstep(sk.x,R.y,p.y),1.4)*k.b,pf=t*1.95,wr=k.g*step(400.,p.x),wl=k.g-wr;' +
   'vec2 dS=vec2(-(A.z*(.5*sin(t+p.x*.004)+.35*sin(t*2.1+p.x*.011+1.))+A.w*(p.x-470.)/470.*sin(pf+.6)),-A.w*.25*sin(pf+.6+p.x*.004))*ws;' +
-  'vec2 dA=rot(p,el.xy,-el.z*sin(ph-.8))-p;p+=mix(dS,dA,wr);' +
+  'vec2 dA=rot(p,el.xy,-el.z*(2.*br(t-.2)-1.))-p;p+=mix(dS,dA,wr);' +
   // viewer-left raised forearm: rotation about the wrist (hand stays on the hair) + small lift
   'p=mix(p,rot(p,LA.xy,LA.z*(ih-.5)),wl);p.y+=LA.w*ih*wl*smoothstep(560.,860.,p.y);' +
   // light despill of green-screen fringe
@@ -222,9 +233,9 @@ export async function startKeyvisualWarp(
     const draw = (s: number) => {
       const k = warm ? 1 : shownAt < 0 ? 0 : Math.min(1, (performance.now() - shownAt) / RAMP_MS);
       gl.uniform1f(uKa, k * k * (3 - 2 * k));
-      // The bust follows breath with a small lag and no rebound. JG holds the residual vs breath, then velocity.
-      const b0 = s * 1.36 - 0.45, b1 = b0 - a.jelLag;
-      gl.uniform2f(uJG, Math.sin(b1) - Math.sin(b0), 1.36 * Math.cos(b1));
+      // The bust follows the master breath with a small lag and no rebound. JG = residual vs breath, then velocity.
+      const lag = a.jelLag / BREATH_W, bl = breathS(s - lag);
+      gl.uniform2f(uJG, bl - breathS(s), (bl - breathS(s - lag - 1 / 120)) * 120);
       gl.uniform1f(uT, s);
       gl.clear(gl.COLOR_BUFFER_BIT);
       gl.drawElements(gl.TRIANGLES, N, gl.UNSIGNED_SHORT, 0);

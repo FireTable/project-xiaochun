@@ -99,7 +99,7 @@ No other images or fonts are loaded by the overlay; everything else is CSS gradi
 
 ### 7.1 Hero warp (Live2D-lite)
 
-`src/components/loading/keyvisualWarp.ts` animates the hero in raw WebGL1, without three.js. It draws a 48 × 80 grid in one draw call. The vertex shader adds a slight head tilt and breathing stretch; the fragment shader applies small inverse-UV offsets gated by a UV-space region mask. The eyes are static.
+`src/components/loading/keyvisualWarp.ts` animates the hero in raw WebGL1, without three.js. It draws a 48 × 80 grid in one draw call. The vertex shader adds a slight head tilt and breathing stretch; the fragment shader applies small inverse-UV offsets gated by a UV-space region mask. The eyes are static and there is no blink.
 
 **DOM**: `.xc-breathe` (CSS scale/translate, shared by img and canvas) → `heroBoxRef` (`relative h-full`, no mask/filter/background) → `<img class="xc-hero-img">` (CSS mask) plus the canvas (`position:absolute; inset:0; 100% × 100%`, transparent, no class, no mask, fade in shader, `aria-hidden`). React renders no `style` on the img; its `visibility` is written only by the warp code, so a re-render never re-shows it.
 
@@ -118,15 +118,31 @@ No other images or fonts are loaded by the overlay; everything else is CSS gradi
 
 **Lifecycle**: no warp under `prefers-reduced-motion` or without WebGL; the static image remains. It pauses (keeping its last frame) when offscreen (IntersectionObserver), when the document is hidden, and during the exit zoom (`isBreaking`). `dispose()` (exit, unmount, `webglcontextlost`) cancels rAFs, disconnects observers, removes the canvas, calls `WEBGL_lose_context` and restores the img.
 
+**Master breath**: every motion except the skirt follows one breath cycle, so the figure moves as one body. Period `2π / 1.36 ≈ 4.62 s` (~13 breaths/min). The curve `br()` (GLSL, mirrored by `breath()` in TS) is asymmetric like real breathing: inhale 40 % of the cycle (`0.5 − 0.5·cos(π·x/0.4)`), exhale 60 % (`0.5 + 0.5·cos(π·(x−0.4)/0.6)`), C1-smooth with zero velocity at both turning points. Small deliberate lags behind the chest:
+
+| Motion | Driver | Lag behind chest |
+|---|---|---|
+| Chest rise and swell (`bust`) | breath | 0 |
+| Waist draw-in (`waist`, sides pulled toward x 425) and small lift | breath | 0 (chest up = waist in) |
+| Body breathing stretch (VS, `breath`) | breath | 0 |
+| Bust lagged follow (`jig`, no rebound) | breath | `jelLag / 1.36 ≈ 0.26 s` |
+| Head tilt (VS, `tilt`) | breath | 0.15 s |
+| Left raised forearm (rotation + lift) | breath | 0.15 s |
+| Right forearm | breath | 0.20 s |
+| Hair, left / right strand | breath | 0.35 s / 0.50 s |
+| Lip press (discrete) | every 2 breaths (`lipPeriod 9.24 s`) | peaks at the end of an exhale |
+| Skirt sway | own (`t`, `t × 2.1`) | independent |
+| Skirt hem flare | own (`t × 1.95`) | independent |
+
 **Motion regions** (mask `public/materials/warp-mask.webp`, 248 × 400, UV-space; coordinates in 991 × 1600 key-visual px):
 
 - R = hair, two strands (`hairL`, `hairR`: root x/y, width, length), faded out within ~30 px of skin and other parts.
-- G = arms: x < 400 is the raised left arm, rotating about the wrist pivot `armL` (210, 520) with a small lift; the right forearm (pivot `elbow` 785, 1125) shares one blended field with the skirt so hand and skirt never tear.
-- B = skirt below `skirtTop` (1150): sway plus a mirror-symmetric hem flare with decorrelated phases. The flare runs at `t × 1.95` rad/s (1.5× the 1.3 base); the forearm and the rest of the skirt sway stay at `t × 1.3`.
-- A = `255 − gate × 127` for torso and mouth: `bust`/`jiggle` (lagged breath follow, no rebound), `abdomen` draw-in, `mouth` lip press. Never use alpha 0 (browsers drop RGB of fully transparent texels).
+- G = arms: x < 400 is the raised left arm, rotating about the wrist pivot `armL` (210, 520) with a small lift; the right forearm (pivot `elbow` 785, 1125) shares one blended displacement field with the skirt, so hand and skirt never tear even though they run on different clocks.
+- B = skirt: weight ramps from `skirtTop` (1000) to the hem. The mask's B channel ramps in smoothly from y ≈ 1000 and is full from y ≈ 1110 across the whole width (raised from ≈ 1100–1150). Sway plus a mirror-symmetric hem flare (`flare 16`, phase `t × 1.95`) with decorrelated phases.
+- A = `255 − gate × 127` for torso and mouth: `bust`/`jiggle` (lagged breath follow, no rebound), `abdomen` (centre 425, 915; width 205, height 78) draw-in, `mouth` lip press. The torso gate extends ~25–30 px beyond the waist silhouette so the draw-in never tears. Never use alpha 0 (browsers drop RGB of fully transparent texels).
 - VS: head tilt about `neck` (476, 496) above the neck line, and a breathing vertical stretch.
 
-**Tuning constants** (`C.amp` at the top of the module): `breath 0.0035`, `tilt 0.012`, `hair 5.5`, `bust 9`, `skirt 5`, `flare 12`, `arm 0.021`, `lipPress 0.3`, `lipPeriod 7.5`, `lipIn 0.03`, `jig 9`, `jelStretch 0.005`, `jelNarrow 0.0025`, `jelLag 0.35`, `waist 0.03`, `armLRot 0.013`, `armLLift 1.2`. Timing: `RAMP_MS 1200`, `WARM_MS 3000`, start delay 120 ms, watchdog 600 ms, DPR cap 3. Debug/mesh tools exist only in the prototype under `grok/webgl-warp` (`?debug=1`, `?mesh=1`, `?t=`).
+**Tuning constants** (`C.amp` at the top of the module): `breath 0.0035`, `tilt 0.012`, `hair 5.5`, `bust 12.6`, `skirt 5`, `flare 16`, `arm 0.021`, `lipPress 0.3`, `lipPeriod 9.24` (2 breaths), `lipIn 0.03`, `jig 9`, `jelStretch 0.005`, `jelNarrow 0.0025`, `jelLag 0.35`, `waist 0.07`, `armLRot 0.013`, `armLLift 1.2`; `C.skirtTop 1000`; `BREATH_W 1.36`. Timing: `RAMP_MS 1200`, `WARM_MS 3000`, start delay 120 ms, watchdog 600 ms, DPR cap 3. Debug/mesh tools exist only in the prototype under `grok/webgl-warp` (`?debug=1`, `?mesh=1`, `?t=`).
 
 
 ### Regenerating the key visual
