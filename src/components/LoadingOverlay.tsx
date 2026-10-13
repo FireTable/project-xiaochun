@@ -1,9 +1,16 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useLayoutEffect, useRef } from 'react';
 import { useTranslation } from 'react-i18next';
 import type { LoadingState } from '@/core/vrmEngine';
 import { onLlmLoadProgress, getLlmLoadProgress } from '@/llm/progress';
 import { APP_CONFIG } from '@/config';
 import { readActiveModel, subscribeActiveModel, type ActiveModel } from '@/llm/activeModel';
+import type { KeyvisualWarp } from './loading/keyvisualWarp';
+
+// Module-level, so a remounted overlay (pending component -> App, StrictMode, HMR) reuses the loaded chunk at once.
+let warpModule: Promise<typeof import('./loading/keyvisualWarp')> | null = null;
+let warpModuleReady = false;
+let warpMod: typeof import('./loading/keyvisualWarp') | null = null;
+const useIsoLayoutEffect = typeof window === 'undefined' ? useEffect : useLayoutEffect;
 
 // ponytail: SSR fallback state —— 当 LoadingOverlay 被注册成 router defaultPendingComponent
 // 时,没有 state prop 也能渲染"启动期"的样子:VRM 解析中、progress 0。
@@ -119,6 +126,60 @@ export const LoadingOverlay: React.FC<LoadingOverlayProps> = ({ state, onBreakSt
       onBreakComplete?.();
     }, 1100);
   };
+
+  // Key-visual warp (WebGL1, lazy chunk). The <img> is the first paint and the fallback. Once the browser has
+  // decoded its chosen srcset candidate, the warp reuses that same element as the texture (no second download) and
+  // swaps a canvas in over it (see docs/LOADING_OVERLAY.md §7.1). The warp pauses (freezes its last frame) during the exit zoom and is disposed on exit.
+  const heroImgRef = useRef<HTMLImageElement>(null);
+  const heroBoxRef = useRef<HTMLDivElement>(null);
+  const warpRef = useRef<KeyvisualWarp | null>(null);
+  const isBreakingRef = useRef(false);
+  isBreakingRef.current = isBreaking;
+  // Layout effect: on a warm remount (pending component -> App, StrictMode, HMR) the warp takes over in the same task
+  // as the commit, so the fresh <img> is never painted on its own. The img's visibility is only ever written
+  // imperatively by the warp module (React renders no style prop on it, so it never overwrites it).
+  useIsoLayoutEffect(() => {
+    if (hasExited) return;
+    const img = heroImgRef.current, box = heroBoxRef.current;
+    if (!img || !box) return;
+    // A live warp is handing over: keep the new img hidden while the cached warp starts. The warp restores it on any
+    // failure, and a watchdog restores it if the takeover has not happened within 600 ms.
+    let watchdog = 0;
+    if (warpMod?.isWarpWarm()) {
+      img.style.visibility = 'hidden';
+      watchdog = window.setTimeout(() => { if (!warpRef.current) img.style.visibility = ''; }, 600);
+    }
+    let cancelled = false;
+    let timer = 0;
+    const start = () => {
+      if (cancelled) return;
+      warpModule ??= import('./loading/keyvisualWarp').then((m) => { warpModuleReady = true; warpMod = m; return m; });
+      void warpModule
+        .then((m) => m.startKeyvisualWarp(img, box, '/materials/warp-mask.webp'))
+        .then((w) => {
+          if (cancelled) { w.dispose(); return; }
+          warpRef.current = w;
+          w.setPaused(isBreakingRef.current);
+        })
+        .catch(() => { /* keep the static image */ });
+    };
+    // Defer past first paint and img decode so the warp never competes with the overlay's first frame.
+    // On a remount, the chunk is already loaded: start at once so there is no static-image gap.
+    const schedule = () => { if (warpModuleReady) start(); else timer = window.setTimeout(start, 120); };
+    if (img.complete && img.naturalWidth) schedule();
+    else img.addEventListener('load', schedule, { once: true });
+    return () => {
+      cancelled = true;
+      clearTimeout(timer);
+      clearTimeout(watchdog);
+      img.removeEventListener('load', schedule);
+      warpRef.current?.dispose();
+      warpRef.current = null;
+    };
+  }, [hasExited]);
+  useEffect(() => {
+    warpRef.current?.setPaused(isBreaking);
+  }, [isBreaking]);
 
   // 当 VRM 引擎汇报加载完成 (progress === 100 且 active === false) 时，平滑进入破次元倒计时
   useEffect(() => {
@@ -311,7 +372,9 @@ export const LoadingOverlay: React.FC<LoadingOverlayProps> = ({ state, onBreakSt
           />
           <div className="absolute inset-0 transition-transform duration-700 ease-out [transform:translate3d(calc(var(--mx,0)*-14px),calc(var(--my,0)*-8px),0)]">
             <div className="xc-breathe absolute inset-x-0 top-[calc(env(safe-area-inset-top)+40px)] md:top-auto md:bottom-0 h-[138%] md:h-[96%] flex justify-center">
+              <div ref={heroBoxRef} className="relative h-full">
               <img
+                ref={heroImgRef}
                 src="/materials/xiaochun_keyvisual-1000.webp"
                 srcSet="/materials/xiaochun_keyvisual-1000.webp 619w, /materials/xiaochun_keyvisual.webp 991w"
                 sizes="(min-width: 768px) 45vw, 92vw"
@@ -322,6 +385,7 @@ export const LoadingOverlay: React.FC<LoadingOverlayProps> = ({ state, onBreakSt
                 onDragStart={(e) => e.preventDefault()}
                 className="xc-hero-img h-full w-auto max-w-none object-contain object-top select-none"
               />
+              </div>
             </div>
           </div>
           {/* 竖排小字装饰（桌面） */}

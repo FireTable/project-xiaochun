@@ -58,7 +58,7 @@ The overlay is a visual cover only; the render loop keeps running underneath.
 **Hero key visual**
 
 - `public/materials/xiaochun_keyvisual.webp` (991 × 1600) and `xiaochun_keyvisual-1000.webp` (619 × 1000), alpha WebP, served via `srcSet` / `sizes` (`(min-width: 768px) 45vw, 92vw`), `fetchPriority="high"`, `decoding="async"`.
-- The bottom fade is a static `mask-image` (`.xc-hero-img`, with a different stop on `md:`).
+- **Bottom fade**: a static `mask-image` on the `<img>` only (`.xc-hero-img`: opaque to 52 %, transparent at 64 %; on `md:` 80 % → 99 %). The warp canvas bakes the identical linear ramp into its fragment shader (uniform `fd` = start, end, buffer height; stops chosen by `matchMedia('(min-width: 768px)')`, redrawn on change). Keep both in sync. **The wrapper (`heroBoxRef`) and the canvas must never get a mask, filter or background**: confirmed in real Chrome that a mask on the wrapper paints the whole hero box as a white rect during load (reproduced twice, gone once the mask is off the wrapper).
 
 **Typography (system fonts only)**
 
@@ -93,8 +93,41 @@ The overlay is a visual cover only; the render loop keeps running underneath.
 | :--- | :--- | :--- |
 | `public/materials/xiaochun_keyvisual.webp` | 991 × 1600, ~141 KB | Hero (desktop / high-DPR) |
 | `public/materials/xiaochun_keyvisual-1000.webp` | 619 × 1000, ~74 KB | Hero (small screens) |
+| `public/materials/warp-mask.webp` | 248 × 400 lossless, ~14 KB | Region mask for the hero warp (§7.1) |
 
 No other images or fonts are loaded by the overlay; everything else is CSS gradients and inline SVG.
+
+### 7.1 Hero warp (Live2D-lite)
+
+`src/components/loading/keyvisualWarp.ts` animates the hero in raw WebGL1, without three.js. It draws a 48 × 80 grid in one draw call. The vertex shader adds a slight head tilt and breathing stretch; the fragment shader applies small inverse-UV offsets gated by a UV-space region mask. The eyes are static.
+
+**DOM**: `.xc-breathe` (CSS scale/translate, shared by img and canvas) → `heroBoxRef` (`relative h-full`, no mask/filter/background) → `<img class="xc-hero-img">` plus the canvas (`position:absolute; inset:0; 100% × 100%`, transparent, `aria-hidden`). React renders no `style` on the img; its `visibility` is written only by the warp code, so a re-render never re-shows it.
+
+**Load / swap sequence (cold start)**
+
+1. SSR paints the `<img>` (srcset, `fetchPriority="high"`). It is the first paint and the permanent fallback.
+2. After the img has loaded, `LoadingOverlay` (layout effect) waits 120 ms, then dynamically imports the module (~3.5 KB gz) and calls `startKeyvisualWarp(img, box, '/materials/warp-mask.webp')`.
+3. The module awaits `img.decode()` (only if not yet complete) and the cached mask, compiles, and creates the context (`alpha:true, premultipliedAlpha:true, antialias:false`, clear `0,0,0,0`).
+4. Texture: the same `<img>` (whatever `currentSrc` the browser picked, no second download) is pre-downscaled on a 2D canvas to the exact drawing-buffer size with `imageSmoothingQuality='high'` and uploaded premultiplied. This makes the ka = 0 frame match the browser-scaled img (plain bilinear minification of the 991 w source is visibly sharper, and WebGL1 cannot mipmap the NPOT texture). It is re-uploaded on every buffer resize.
+5. Buffer size = untransformed layout size (`getComputedStyle` width/height, not `getBoundingClientRect`, which would bake the `.xc-breathe` scale phase in) × `min(devicePixelRatio, 3)`.
+6. The host is pixel-snapped: `startKeyvisualWarp` sets `host.style.translate` to minus the host's sub-pixel offset inside its parent (e.g. the centred desktop hero sits at x = 740.43). Chrome rasterizes the img at that sub-pixel phase but places the canvas on whole pixels, which made every edge differ at the swap.
+7. The canvas is appended `visibility:hidden` and draws a frame. rAF 1: redraw and show the canvas over the still-visible img (both identical at ka = 0). rAF 2: hide the img (`visibility:hidden`, no transition) and start the ka ramp. So there is exactly one overlap frame and never a frame with neither visible.
+8. `ka` ramps 0 → 1 over 1200 ms (smoothstep) and scales every deformation, the despill and the VS tilt/breath, so motion eases in from the static pose.
+
+**Remounts**: the overlay can remount during boot (router pending component → App, StrictMode, HMR). Time uses a module-level origin, and `lastAliveAt` records the last live frame. Within `WARM_MS` (3000 ms) of a live warp (`isWarpWarm()`), the layout effect hides the new img immediately, the cached module and mask make the start run in the same task as the commit, and the warp shows its ka = 1 frame and hides the img before the browser paints. The warp re-shows the img on any failure, and a 600 ms watchdog re-shows it if the takeover did not happen.
+
+**Lifecycle**: no warp under `prefers-reduced-motion` or without WebGL; the static image remains. It pauses (keeping its last frame) when offscreen (IntersectionObserver), when the document is hidden, and during the exit zoom (`isBreaking`). `dispose()` (exit, unmount, `webglcontextlost`) cancels rAFs, disconnects observers, removes the canvas, calls `WEBGL_lose_context` and restores the img.
+
+**Motion regions** (mask `public/materials/warp-mask.webp`, 248 × 400, UV-space; coordinates in 991 × 1600 key-visual px):
+
+- R = hair, two strands (`hairL`, `hairR`: root x/y, width, length), faded out within ~30 px of skin and other parts.
+- G = arms: x < 400 is the raised left arm, rotating about the wrist pivot `armL` (210, 520) with a small lift; the right forearm (pivot `elbow` 785, 1125) shares one blended field with the skirt so hand and skirt never tear.
+- B = skirt below `skirtTop` (1150): sway plus a mirror-symmetric hem flare with decorrelated phases. The flare runs at `t × 1.95` rad/s (1.5× the 1.3 base); the forearm and the rest of the skirt sway stay at `t × 1.3`.
+- A = `255 − gate × 127` for torso and mouth: `bust`/`jiggle` (lagged breath follow, no rebound), `abdomen` draw-in, `mouth` lip press. Never use alpha 0 (browsers drop RGB of fully transparent texels).
+- VS: head tilt about `neck` (476, 496) above the neck line, and a breathing vertical stretch.
+
+**Tuning constants** (`C.amp` at the top of the module): `breath 0.0035`, `tilt 0.012`, `hair 5.5`, `bust 9`, `skirt 5`, `flare 12`, `arm 0.021`, `lipPress 0.3`, `lipPeriod 7.5`, `lipIn 0.03`, `jig 9`, `jelStretch 0.005`, `jelNarrow 0.0025`, `jelLag 0.35`, `waist 0.03`, `armLRot 0.013`, `armLLift 1.2`. Timing: `RAMP_MS 1200`, `WARM_MS 3000`, start delay 120 ms, watchdog 600 ms, DPR cap 3. Debug/mesh tools exist only in the prototype under `grok/webgl-warp` (`?debug=1`, `?mesh=1`, `?t=`).
+
 
 ### Regenerating the key visual
 

@@ -303,6 +303,9 @@ html.is-tauri .dialog-overlay {
 .font-xc-cjk {
   font-family: 'Songti SC', 'STSong', 'Noto Serif SC', 'Noto Serif CJK SC', 'Source Han Serif SC', serif;
 }
+/* Bottom fade for the hero <img> only; the warp canvas bakes the identical ramp into its fragment shader (fd uniform in
+   keyvisualWarp.ts, keep the stops in sync). NEVER put a mask, filter or background on the canvas or on its wrapper
+   (heroBoxRef): confirmed in real Chrome that a masked wrapper paints the whole box as a white rect during load. */
 .xc-hero-img {
   -webkit-mask-image: linear-gradient(180deg, #000 0%, #000 52%, transparent 64%);
   mask-image: linear-gradient(180deg, #000 0%, #000 52%, transparent 64%);
