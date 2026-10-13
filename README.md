@@ -54,7 +54,13 @@ The UI is fully **SSR-hydrated multi-language** (zh-CN / en / ja) via TanStack S
 
 ### 👗 Outfit Showcase
 
-<p align="center"><i>Built-in outfits, all swappable at runtime</i></p>
+<p align="center">
+  <img src="screenshots/outfits-studio.webp" width="560" alt="XiaoChun's 9 built-in outfits" /><br/>
+  <i>Built-in outfits, all swappable at runtime</i>
+</p>
+
+<details>
+<summary>Individual outfits</summary>
 
 <table align="center">
   <tr>
@@ -71,6 +77,8 @@ The UI is fully **SSR-hydrated multi-language** (zh-CN / en / ja) via TanStack S
     <td align="center"><img src="screenshots/outfits/wedding.webp" width="140" alt="XiaoChun in Wedding Dress" /><br/><sub>Wedding Dress</sub></td>
   </tr>
 </table>
+
+</details>
 
 ---
 

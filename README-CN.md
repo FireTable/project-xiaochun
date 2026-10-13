@@ -54,7 +54,13 @@ UI 走 **TanStack Start SSR + i18next** 水合,**完整支持简体中文 / Engl
 
 ### 👗 换装展示 (Outfit Showcase)
 
-<p align="center"><i>内置服装一览，均可运行时一键换装</i></p>
+<p align="center">
+  <img src="screenshots/outfits-studio.webp" width="560" alt="小蠢 9 套内置服装合照" /><br/>
+  <i>内置服装一览，均可运行时一键换装</i>
+</p>
+
+<details>
+<summary>单套服装截图</summary>
 
 <table align="center">
   <tr>
@@ -71,6 +77,8 @@ UI 走 **TanStack Start SSR + i18next** 水合,**完整支持简体中文 / Engl
     <td align="center"><img src="screenshots/outfits/wedding.webp" width="140" alt="小蠢 - 婚纱" /><br/><sub>婚纱</sub></td>
   </tr>
 </table>
+
+</details>
 
 ---
 
