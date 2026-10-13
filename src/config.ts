@@ -852,7 +852,7 @@ export const APP_CONFIG = {
     { key: 'surprised' },
   ],
   dev: {
-    disableLoadingOverlayInDev: true,
+    disableLoadingOverlayInDev: false,
   },
 } as const;
 
