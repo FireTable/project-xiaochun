@@ -246,6 +246,7 @@ export const zhCN = {
     greeting: '你好呀！很高兴和你聊天！',
     // HeadBubble 渲染时硬加 "bubble." 前缀,所以状态 key 必须是 bubble.error.llm
     // 而非 error.llm。message 为空时由 chatDirector 兜底"未知错误",避免秃尾巴。
+    ttsUnavailable: '语音暂时不可用',
     error: { llm: '端侧 LLM 异常：{{message}}' },
   },
   panel: {

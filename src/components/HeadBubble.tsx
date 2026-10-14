@@ -1,7 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import type { BubbleState } from '@/core/vrmEngine';
-import { Sparkles, Volume2, Activity, AlertCircle } from '@/components/icons';
+import { Sparkles, Volume2, VolumeX, Activity, AlertCircle } from '@/components/icons';
 import {
   getUserSettings,
   getCachedUserSettings,
@@ -43,6 +43,8 @@ export const HeadBubble: React.FC<HeadBubbleProps> = ({ state }) => {
 
   const iconKind = state.isError ? 'idle' : ICON_BY_KEY[state.statusKey] ?? 'idle';
   const isSpeaking = state.statusKey === 'speaking';
+  // TTS 不可用：非错误状态；头部行换成 VolumeX + 简短提示，回复文字照常显示 (技术细节只进 console)。
+  const ttsDown = state.statusKey === 'ttsUnavailable';
 
   return (
     <div
@@ -59,7 +61,9 @@ export const HeadBubble: React.FC<HeadBubbleProps> = ({ state }) => {
             className={`flex items-center justify-center gap-1.5 text-[11px] font-medium tracking-wide shrink-0 ${state.isError ? 'text-rose-400 font-semibold' : 'text-brand-300'
               }`}
           >
-            {state.isError ? (
+            {ttsDown ? (
+              <VolumeX className="w-3 h-3 text-brand-300 shrink-0" />
+            ) : state.isError ? (
               <AlertCircle className="w-3 h-3 text-rose-400 shrink-0" />
             ) : iconKind === 'thinking' ? (
               <Sparkles className="w-3 h-3 text-brand-300 animate-spin shrink-0" />
@@ -71,7 +75,7 @@ export const HeadBubble: React.FC<HeadBubbleProps> = ({ state }) => {
               <Sparkles className="w-3 h-3 text-brand-300 shrink-0" />
             )}
             <span>
-              {t(`bubble.${state.statusKey}`, state.statusVars as Record<string, unknown> | undefined)}
+              {ttsDown ? t('bubble.ttsUnavailable') : t(`bubble.${state.statusKey}`, state.statusVars as Record<string, unknown> | undefined)}
             </span>
             {/* 多段流式朗读进度指示胶囊 (并排放在 来啦来啦~ 旁边) */}
             {isSpeaking && state.totalSegments && state.totalSegments > 1 && state.segmentIndex ? (
@@ -85,7 +89,7 @@ export const HeadBubble: React.FC<HeadBubbleProps> = ({ state }) => {
           </div>
         )}
         {/* 只有在“来啦来啦～” (speaking) 状态时才展示文本，其他时候仅展示状态提示 */}
-        {isSpeaking && state.speechText && (
+        {(isSpeaking || ttsDown) && state.speechText && (
           <div
             className={`text-sm font-medium text-white leading-snug break-words max-h-[calc(5*1.375em)] overflow-y-auto pr-1.5 pl-0.5 select-text custom-bubble-scrollbar pointer-events-auto ${state.speechText.length > 30 ? 'text-left' : 'text-center'
               }`}
