@@ -39,7 +39,8 @@ Microphone dictation uses **SenseVoice Small int8** in a Dedicated Worker with e
 ## 2. WebLLM Client-Side Inference (WebGPU + Web Worker)
 
 ### 2.1 Engine Architecture & Thread Isolation
-- **Non-Blocking Render Thread**: WebLLM runs inside an isolated Web Worker via `@mlc-ai/web-llm` (`CreateWebWorkerMLCEngine`). Prompt prefill and autoregressive decoding never block Three.js 60 FPS animation;
+- **Non-Blocking Render Thread**: WebLLM runs inside an isolated Web Worker (`src/llm/llmWorker.ts`, `WebWorkerMLCEngineHandler`). Prompt prefill and autoregressive decoding never block Three.js 60 FPS animation;
+- **Thin Main-Thread Client**: the main thread never imports `@mlc-ai/web-llm` (a ~6.5 MB file that cannot be tree-shaken). `webllmThinClient.ts` (`ThinMLCEngine`) speaks the web-llm worker protocol (pinned to 0.2.84; `webllmThinClient.test.ts` fails on a version change), and the model list comes from the worker via our `xcModelList` message. See [`PERFORMANCE.md` §2.1](PERFORMANCE.md);
 - **Tiered Device Adaptation**:
   - **High-Tier Default**: `MiniCPM5-2B-q4f16_1-MLC` (OpenBMB 2B parameter edge model on WebGPU, striking optimal balance of conversational depth, bilingual proficiency, and low latency);
   - **Low-VRAM Fallback**: Automatically downgrades to `Qwen2.5-0.5B-Instruct-q4f16_1-MLC` on mobile or memory-constrained GPUs;

@@ -23,17 +23,18 @@ docs/
 ├── MOTION_PIPELINE.md             # Universal motion pipeline (Layered Graph), APIs & Quintic Smootherstep crossfade
 ├── ARCHITECTURE_AND_RULES.md      # Render loop lifecycle sequence, wardrobe system & 5 critical agent rules
 ├── BODY_TURN_AND_GAZE.md          # Critically damped spring yaw, 4-phase stepping state machine & companion gaze
-├── CHAT_DIRECTOR.md               # Director scheduler, 30~60 chars slicer, speech handoff, parallel TTS & anti-spoil bubble rules
+├── CHAT_DIRECTOR.md               # Director scheduler, 30~60 chars slicer, speech handoff, parallel TTS, anti-spoil bubble rules & TTS-failure text fallback
 ├── ON_DEVICE_AI.md                # WebLLM (WebGPU) + EMAGE ONNX Worker + Client-side multi-tier IndexedDB memory
+├── TTS.md                         # Edge TTS Worker proxy /api/tts: endpoints, retry/budget, 2026-10 403 incident & debugging
 ├── STT.md                         # SenseVoice Small int8 ChatBar dictation (energy VAD + ORT Worker)
-├── PERFORMANCE.md                 # v0.1.14 performance & size notes: EMAGE slimming (191.35 → 71.59 MB), parallel download, lazy web-llm, opt-in crossOriginIsolated; measured numbers, rejected options, unmeasured items
+├── PERFORMANCE.md                 # v0.1.14 performance & size notes: EMAGE slimming (191.35 → 71.59 MB), parallel download, lazy web-llm, opt-in crossOriginIsolated, thin WebLLM client, boot/runtime main-thread prewarm (GPU, AudioContext, scene/outfit switch); measured numbers, rejected options, unmeasured items
 ├── EMAGE_MODEL.md                 # EMAGE tip status + Worker PCM→chunk flowchart; limits (wasm/INT8, no WebGPU-EMAGE)
 │   (pack) ../packages/emage-onnx/  # Offline EMAGE ONNX slim/quantize/optimize toolchain (slim step, INT8 Conv, layer removal, graph optimization, host-side seed): README.md / README-CN.md
 ├── OUTFIT_SWAP.md                 # Full-outfit swap (Delta .vrmaddon packages, 2-tier IDB caching, 0-frame pop-in)
 ├── POSTFX.md                      # Anime post-processing pipeline (UnrealBloom background bypass, ToneMapping & ColorGrading)
 ├── VRM_BUILD_WORKFLOW.md          # Offline VRM toolchain (.vrmbase + .vrmaddon extraction, oxipng & deterministic builds)
 ├── VRM_ENGINE_AND_WORKER.md       # Core architecture (Main VRMEngine orchestrator + background vrmWorker WASM synthesis)
-├── LOADING_OVERLAY.md             # Startup loading screen: logic contract, portrait/desktop layout, night-sky layers, system-font title, transform/opacity-only motion, i18n tips, key-visual regeneration
+├── LOADING_OVERLAY.md             # Startup loading screen: single-mount overlay + loadingStore, logic contract, layout (text panel avoids the figure), night-sky layers, system-font title, transform/opacity-only motion, i18n tips, OffscreenCanvas worker hero warp (swap, bleed, shader fade, master breath, APP_CONFIG.loading.warp), key-visual regeneration
 ├── ONBOARDING.md                  # Galgame-style immersive onboarding system: schema steps, void stage, liquid glass cards, and voice flow
 └── MTOON.md                       # MToon NPR material extensions, uniforms & part presets
 ```
@@ -71,8 +72,9 @@ When tasked with modifications or refactoring, consult the dedicated technical g
 | **Latency tuning / Voice lag / Speech lip-sync** | [`CHAT_DIRECTOR.md`](CHAT_DIRECTOR.md) | Maintain 30~60 chars chunking; no `xc.say` length cap; a newer line fades ~0.4s then starts (`stop()` cuts immediately); pre-fetch TTS in parallel; reveal text when speaking; EMAGE `motion_chunk` + A/V hold; **orchestration flowchart** in doc. |
 | **EMAGE download size / ONNX slimming, quantization and optimization / emage_step outputs / host-side seed** | [`../packages/emage-onnx/README.md`](../packages/emage-onnx/README.md) | Slim step outputs only `cls_*`; `seed` is rebuilt in `emageSeed.ts` from the full-window argmax via `vq_*_idx` + `postprocess` with the jaw 6D fixed to identity (zero face gives a wrong jaw); `vq_*`/`postprocess` calls are serialized by `withVqLock`; keep `vqFace` disabled with the slim step; `emage-onnx-export` is read-only here. |
 | **Upgrading LLM / Memory optimization / Custom APIs**| [`ON_DEVICE_AI.md`](ON_DEVICE_AI.md) | WebLLM runs in Web Worker (may use WebGPU); cap short-term turns (default 2); 100% zero-backend privacy for local path. |
+| **TTS 502 / Edge TTS 403 / `/api/tts` upstream** | [`TTS.md`](TTS.md) | New host `api.msedgeservices.com` + v1 token, legacy fallback on 403; single-flight ≤3 rounds, 429→3 s, ~7 s budget; debug via curl / `wrangler tail` / raw handshake. |
 | **ChatBar mic / SenseVoice STT / VAD / Worker** | [`STT.md`](STT.md) | Energy VAD auto-segment + SenseVoice int8 Worker; CDN `…/stt/…-2024-07-17`; no Zipformer; keep listening, insert at caret. |
-| **Performance / bundle size / EMAGE download size / what was measured vs not** | [`PERFORMANCE.md`](PERFORMANCE.md) | Only measured numbers; EMAGE set 71.59 MB at `cdn.firetable.tech/xiaochun/emage/` (cache `emage-models-v2`); web-llm lazy chunk; `crossOriginIsolated` is opt-in; unmeasured items are listed. |
+| **Performance / bundle size / EMAGE download size / what was measured vs not** | [`PERFORMANCE.md`](PERFORMANCE.md) | Only measured numbers; EMAGE set 71.59 MB at `cdn.firetable.tech/xiaochun/emage/` (cache `emage-models-v2`); web-llm only inside `llmWorker` (thin main-thread client, protocol pinned); `crossOriginIsolated` is opt-in; boot prewarm items are unconditional (no `PERF_FLAGS`); unmeasured items are listed. |
 | **EMAGE EP / INT8 / WebGPU myths / hop & seams** | [`EMAGE_MODEL.md`](EMAGE_MODEL.md) | EMAGE = **wasm + INT8 only**; T=64; `emage.motion`; **Worker flowchart**; no fake ms. |
 
 ---

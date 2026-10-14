@@ -2,6 +2,7 @@
 
 > This document summarizes the v0.1.14 optimization cycle for Project XiaoChun covering **bundle size, initial load latency, and inference speed**: what was done, empirical measurements, discarded alternatives, and **unverified follow-ups**.  
 > **Guiding Principle**: Numbers must reflect actual empirical measurements; unmeasured items are explicitly flagged as "Unverified"; model quality is evaluated only at the logits / argmax level without formal subjective visual studies.  
+> **Main-thread smoothness** (boot prewarm, off-thread loading warp, thin WebLLM client): §2.1 and §7.  
 > **Related Documents**: [`EMAGE_MODEL.md`](EMAGE_MODEL.md) (online architecture & constraints) · [`packages/emage-onnx`](../packages/emage-onnx/README-CN.md) (offline toolchain, complete datasets & reproduction scripts) · [`EMBED.md`](EMBED.md) (iframe / SDK / security headers).
 
 ---
@@ -103,6 +104,8 @@ Requests to `emage_step_int8.onnx` (66,550,463 bytes) on the CDN with varied `Ac
 - `/embed`: Loaded only on `xc.say` in chat mode, during `heavy: 'eager'` pre-warming, or when `ui` includes chat controls and the user opens the model selector;
 - When unloaded, model ID validation defaults to trusting stored IDs, with strict validation executed after `getWebLLMEngine` completes.
 
+> Superseded on the main thread by the thin client (§2.1): the dynamic import described here no longer exists, the page no longer loads `lib-*`, and the library is bundled only into the `llmWorker` chunk. The table below is the historical v0.1.14 measurement.
+
 **Build Artifact Size Comparison (Bytes)**:
 
 | Chunk | Previous | Current |
@@ -114,6 +117,18 @@ Requests to `emage_step_int8.onnx` (66,550,463 bytes) on the CDN with varied `Ac
 - Verified in headless Chrome: Loading `/embed` and calling `speakAudio` requests only `vrmEngine`, completely omitting `lib-*` and `llmWorker` while successfully loading EMAGE models and synthesizing gestures.
 - Main site `/` still loads `lib-*`.
 - **Unverified**: Full chat loop pulling WebLLM on WebGPU-enabled machines post-dynamic-import; end-to-end `xc.say` chat mode; mobile devices.
+
+---
+
+### 2.1 Thin Main-Thread Client (current)
+
+**Problem**: `@mlc-ai/web-llm` ships as one ~6.5 MB ESM file that cannot be tree-shaken. Even a dynamic `import()` of only `CreateWebWorkerMLCEngine` evaluated all of it on the main thread (a long task during boot), although inference already ran in `llmWorker.ts`.
+
+**Solution**: the client half of web-llm's worker protocol is re-implemented in `src/llm/webllmThinClient.ts` (`ThinMLCEngine`). The library is imported **only inside `llmWorker.ts`**; `webLLMProvider.ts` keeps type-only imports.
+
+- Protocol pin: mirrors `WebWorkerMLCEngine` of web-llm **0.2.84** (`WEBLLM_PROTOCOL_VERSION`): `{ kind, uuid, content }` messages, `return` / `throw` replies, `initProgressCallback` pushes during reload, `chatCompletionStreamInit` + `completionStreamNextChunk` for streaming. `webllmThinClient.test.ts` fails when the installed version changes; re-check the client on every web-llm upgrade.
+- Model list: the main thread asks the worker with our own `xcModelList` message, answered by `llmWorker.ts` from `prebuiltAppConfig.model_list`. Until the list has arrived, stored / UI model ids are trusted, then validated strictly.
+- The engine worker is created on first need (model list or engine) and the same client is reused by the engine.
 
 ---
 
@@ -189,4 +204,27 @@ Based on experiments documented in [`packages/emage-onnx`](../packages/emage-onn
 - Prolonged multi-minute conversational stability, voice diversity, singing, silence handling, and top-k output distributions;
 - In-browser empirical latency comparison of 1 thread vs. 8 threads;
 - Verification of whether `VITE_EMAGE_BASE_PROD` is configured in production Cloudflare deployment environments (which would override the default CDN URL);
-- End-to-end WebGPU chat pipeline on the main site following web-llm dynamic imports.
+- End-to-end WebGPU chat pipeline on the main site through the thin client (§2.1);
+- Production / mobile timings for the main-thread items in §7.
+
+---
+
+## 7. Main-Thread Smoothness During Boot and Runtime
+
+Goal: no long main-thread task while the loading overlay animates or while the character is on screen. All items below are **always on**; the former `PERF_FLAGS` switches (`src/perfFlags.ts`) were removed together with the flag file.
+
+| Item | Where | What it does |
+| :-- | :-- | :-- |
+| Off-thread hero warp | `src/components/loading/keyvisualWarp*.ts`, `warpGL.ts` | The loading key visual is drawn in an `OffscreenCanvas` worker, so VRM parse / shader links / React commits no longer stall it; main-thread WebGL only when OffscreenCanvas is unsupported. See [`LOADING_OVERLAY.md` §7.1](LOADING_OVERLAY.md#71-hero-warp-live2d-lite). |
+| Single-mount overlay + `loadingStore` | `src/routes/index.tsx`, `loadingStore.ts` | One overlay instance for the whole boot; progress is coalesced to whole percent at ≤ 10 Hz and only the overlay subscribes (`useSyncExternalStore`), so progress reports no longer re-render `App` (70–150 ms commits in dev). The hero is `React.memo`. |
+| Async scene init | `vrmEngine.ts` (`yieldToMain`) | Cold-start VRM setup (`applyVrmUtilsOptimizations`, material / scene setup) yields to the event loop between heavy steps. Not used on outfit swap (`preserveMotion`), which keeps the old model animating instead. |
+| GPU prewarm | `vrmEngine.prewarmGpu()` | Before the first frame: textures are uploaded with `renderer.initTexture` in ~12 ms slices that yield, then programs are linked with `renderer.compileAsync` (`KHR_parallel_shader_compile`) into the post-fx input target, so cache keys (tone mapping / colour space) match the real RenderPass. `PCFSoftShadowMap` is switched to `PCFShadowMap` up front (three r18x downgrades it inside the first shadow render, which would recompile everything). Replaces a ~600 ms synchronous first render. Failure falls back to compile-on-first-render. |
+| Outfit-swap prewarm | `vrmEngine.ts` (swap path) | The new outfit's textures / programs are prewarmed while the old model keeps animating, instead of inside the first frame after the atomic swap (~400–700 ms freeze). See [`OUTFIT_SWAP.md`](OUTFIT_SWAP.md). |
+| Scene-switch prewarm | `vrmEngine.setScene('beach3d')` | A live switch builds `beach3d` hidden (`beach3d.prepare()`), prewarms its group, then switches. Its first render previously linked ~800 ms of shaders in one frame. See [`BEACH3D_SCENE.md`](BEACH3D_SCENE.md). |
+| AudioContext prewarm | `vrmEngine.preloadHeavyResources()` → `chatDirector.prewarmAudio()` | `new AudioContext()` is a ~150 ms synchronous call on macOS (CoreAudio). It is created in its own task behind the overlay (suspended until the first `resume()`), not mid-chat as speech starts. |
+| Memoised DevDrawer | `App.tsx` (`React.memo(DevDrawer)`, stable `closeDrawer`) | The drawer (hundreds of sliders) is mounted even when closed; chat / loading re-renders of `App` no longer re-render it (60–80 ms per commit in dev). |
+| Thin WebLLM client | `src/llm/webllmThinClient.ts`, `llmWorker.ts` | See §2.1: the main thread never evaluates `@mlc-ai/web-llm`. |
+
+**Intentionally unchanged**: EMAGE model loading, STT and WebLLM preload / download still run during the overlay (`preloadHeavyResources`). They run in workers, and starting them early is what keeps the first reply fast.
+
+Numbers above (ms) are dev-build profiles on the development machine, recorded to motivate each change; production / mobile timings are **Unverified**.

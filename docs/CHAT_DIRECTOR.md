@@ -96,6 +96,7 @@ Dialogue bubbles strictly follow the **Anti-Spoil Principle**:
 | **TTS Synthesis** | `'tts'` | Blue capsule: `🎙️ Preparing voice...` | Maintains conversational pacing |
 | **EMAGE Synthesis** | `'emage'` | Amber capsule: `✨ Rehearsing gestures...` | Displays pipeline state only |
 | **Active Speech** | `'speaking'` | **Expands full speech bubble with text** | **Reveals dialogue text exclusively when audio & motion play!** |
+| **TTS Unavailable** | `'ttsUnavailable'` | Header row with a `VolumeX` icon + `bubble.ttsUnavailable` (语音暂时不可用 / Voice unavailable), **plus the reply text** | Not an error state; no technical detail in the UI (§2.7) |
 
 Screen position uses `VRMBodyMorph.getHeadTopWorldPosition` (raw crown), the same anchor as the dev height ruler — not the normalized `head` joint + 0.24m.
 
@@ -131,6 +132,17 @@ Details and non-goals (no WebGPU-EMAGE, no P0d): [`EMAGE_MODEL.md`](EMAGE_MODEL.
 `resetClipCache()` only drops the cached thinking VRMA so the next think clip rebinds after an outfit swap. It does not stop speech. A wardrobe change does not preempt an utterance.
 
 A text `xc.utterance` `start` is emitted by the protocol handler before `speakText` enters `handoff`, so the host can see that start before the fade ends. An audio `start` waits for the playback clock. When a preempted command returns, the bridge still sends that command's `xc.utterance` `end`.
+
+### 2.7 TTS Failure (text-only fallback, never stuck)
+
+When TTS (or the per-chunk EMAGE feed) throws in the producer loop, `runSpeechPipeline` still finishes cleanly:
+
+1. The producer records `producerError`, marks itself finished and wakes the consumer.
+2. EMAGE stream: on error it calls `emage.abortAudioStream()` instead of `endAudioStream()` (the worker may never answer `feed_audio_end`). On success `endAudioStream()` is wrapped in `withTimeout(…, END_STREAM_TIMEOUT_MS)` (8 s). Both are skipped when a newer utterance owns the session.
+3. After `stop()` / `onEnd`, a failed run sets status `ttsUnavailable` (not `isError`) with the speech text, so `HeadBubble` shows the reply text under a `VolumeX` header with `bubble.ttsUnavailable`. The raw message goes to `console.warn('[ChatDirector] TTS unavailable, showing text only: …')` only.
+4. The final wait on the producer is also bounded by `withTimeout(producerPromise, 8000)`, so the call always returns and the send button never stays in its loading state.
+
+Covered by `src/director/chatDirector.ttsError.test.ts`. On the server, `/api/tts` failures now carry the real cause (e.g. `Handshake failed: HTTP 403`, plus `(after N attempts)`, with a `reasons` array in the 502 body), for logs only. Upstream endpoint, retry policy and the 2026-10 403 incident: see [`TTS.md`](TTS.md).
 
 ## 3. Developer Configuration Quick Reference
 
