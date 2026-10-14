@@ -438,3 +438,23 @@ html.is-tauri .dialog-overlay {
   from { opacity: 0; transform: translate3d(0, 3px, 0); }
   to { opacity: 1; transform: none; }
 }
+
+/* ── Loading 左侧文字面板：避让主视觉 ──
+   几何与 LoadingOverlay 主舞台一致：容器宽 W = min(100vw, 72rem)（max-w-6xl），
+   主视觉列宽 md 46% / lg 50%，立绘高 = 列高 96%、宽高比 619/1000，水平居中于列。
+   立绘左缘距列中心 = 0.96 * 100dvh * 0.619 / 2 ≈ 29.71dvh。
+   当立绘半宽 > 列半宽时，立绘向左越界 (29.71dvh - C/2)，面板右内边距随之加大。 */
+@media (min-width: 768px) {
+  .xc-copy-panel {
+    --xc-stage-w: min(100vw, 72rem);
+    --xc-hero-col: calc(var(--xc-stage-w) * 0.46);
+    --xc-hero-half: 29.71vh;
+    --xc-hero-half: 29.71dvh;
+    /* 额外 1.25rem 留白；不越界时保持原 pr-4 (1rem) */
+    padding-right: max(1rem, calc(var(--xc-hero-half) - var(--xc-hero-col) / 2 + 1.25rem));
+  }
+  .xc-copy-panel > * { max-width: 100%; }
+}
+@media (min-width: 1024px) {
+  .xc-copy-panel { --xc-hero-col: calc(var(--xc-stage-w) * 0.5); }
+}

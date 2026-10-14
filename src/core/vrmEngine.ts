@@ -4,6 +4,14 @@ import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
 import { VRM, VRMLoaderPlugin, VRMUtils, type VRMExpressionPresetName } from '@pixiv/three-vrm';
 // @pixiv/three-vrm inlines stock MToon in its bundle — load fork explicitly (pnpm override → packages/...)
 import { MToonMaterial, MToonMaterialLoaderPlugin } from '@pixiv/three-vrm-materials-mtoon';
+import { PERF_FLAGS } from '@/perfFlags';
+
+/** Give the event loop (rAF, hero warp, input) a turn between heavy VRM setup steps. */
+const yieldToMain = (): Promise<void> => {
+  const sch = (globalThis as any).scheduler;
+  if (sch?.yield) return sch.yield();
+  return new Promise((r) => setTimeout(r, 0));
+};
 import { CAMERA_STATE_KEY, BODY_YAW_KEY, CAMERA_PITCH_KEY, SCENE_THEME_KEY, CAMERA_Y_OFFSET_KEY } from '@/lib/constants';
 
 import { VRMBodyMorph } from './morph/vrmBodyMorph';
@@ -1076,6 +1084,52 @@ export class VRMEngine {
   }
 
   /**
+   * Cold start only (PERF_FLAGS.asyncSceneInit): upload textures and link programs before the first frame, in small
+   * steps that yield to the event loop, so the first render is no longer one ~600ms synchronous task (texture uploads
+   * + program links) that stalls the loading overlay's hero warp. Programs compile into the post-fx input target so
+   * their cache keys (tone mapping / colour space) match the real RenderPass; compileAsync uses
+   * KHR_parallel_shader_compile when available.
+   */
+  private async prewarmGpu(root: THREE.Object3D = this.scene): Promise<void> {
+    const renderer = this.renderer;
+    if (!renderer) return;
+    const textures = new Set<THREE.Texture>();
+    root.traverse((obj) => {
+      const mats = (obj as THREE.Mesh).material;
+      if (!mats) return;
+      for (const m of Array.isArray(mats) ? mats : [mats]) {
+        for (const k in m) {
+          const v = (m as any)[k];
+          if (v && (v as THREE.Texture).isTexture) textures.add(v);
+        }
+        const u = (m as any).uniforms;
+        if (u) for (const uk in u) { const v = u[uk]?.value; if (v && (v as THREE.Texture).isTexture) textures.add(v); }
+      }
+    });
+    let since = performance.now();
+    for (const t of textures) {
+      if ((t as any).isRenderTargetTexture) continue;
+      try { renderer.initTexture(t); } catch { /* first render uploads it instead */ }
+      if (performance.now() - since > 12) { await yieldToMain(); since = performance.now(); }
+    }
+    await yieldToMain();
+    // three r18x silently downgrades PCFSoftShadowMap to PCFShadowMap inside the first shadow render; apply the same
+    // downgrade up front, otherwise every precompiled program's cache key (shadowMapType) misses and relinks.
+    if (renderer.shadowMap.type === THREE.PCFSoftShadowMap) renderer.shadowMap.type = THREE.PCFShadowMap;
+    const prevTarget = renderer.getRenderTarget();
+    try {
+      renderer.setRenderTarget(this.postFx.composer?.readBuffer ?? null);
+      const p = root === this.scene ? renderer.compileAsync(this.scene, this.camera) : renderer.compileAsync(root, this.camera, this.scene);
+      renderer.setRenderTarget(prevTarget);
+      await p;
+    } catch (e) {
+      renderer.setRenderTarget(prevTarget);
+      console.warn('[VRMEngine] prewarm compileAsync failed; first render will compile:', e);
+    }
+    await yieldToMain();
+  }
+
+  /**
    * 当 WebGL 上下文在 HMR 或重新挂载重建时，深度同步所有 Mesh、MToon 材质、纹理与阴影
    */
   private syncSceneToNewRenderer(): void {
@@ -1205,7 +1259,23 @@ export class VRMEngine {
     this.setScene(theme, persist);
   }
 
+  private _beachPrewarmed = false;
+  private _pendingScene: SceneThemeId | null = null;
+
   public setScene(theme: SceneThemeId, persist: boolean = true): void {
+    // Live switch to beach3d: build it hidden and link its programs (KHR_parallel_shader_compile, yielding) while the
+    // current scene keeps rendering, then switch. Its first render otherwise linked ~800 ms of shaders in one frame.
+    if (PERF_FLAGS.prewarmSceneSwitch && theme === 'beach3d' && !this._beachPrewarmed && this.renderer && this.animFrameId !== null) {
+      this._pendingScene = theme;
+      const group = this.beach3d.prepare();
+      void this.prewarmGpu(group).finally(() => {
+        this._beachPrewarmed = true;
+        if (this._pendingScene === theme) { this._pendingScene = null; this.setScene(theme, persist); }
+      });
+      return;
+    }
+    this._pendingScene = null;
+    if (theme === 'beach3d') this._beachPrewarmed = true;
     this._currentSceneTheme = theme;
     const isLinework = theme === 'light' || theme === 'dark';
     this.lineworkWorld.setActive(isLinework, this.scene);
@@ -1664,7 +1734,10 @@ export class VRMEngine {
             return;
           }
 
+          const asyncInit = PERF_FLAGS.asyncSceneInit && !preserveMotion;
+          if (asyncInit) await yieldToMain();
           applyVrmUtilsOptimizations(gltf.scene, vrm);
+          if (asyncInit) await yieldToMain();
 
           vrm.scene.traverse((obj) => {
             obj.frustumCulled = false;
@@ -1704,7 +1777,9 @@ export class VRMEngine {
           });
 
           // 委托材质管理器进行 MToon 优化与 Shader 注入
+          if (asyncInit) await yieldToMain();
           this.materialManager.optimize(vrm);
+          if (asyncInit) await yieldToMain();
           VRMUtils.rotateVRM0(vrm);
           vrm.scene.position.set(0, 0, 0);
           if (vrm.meta?.metaVersion !== '0') {
@@ -1726,6 +1801,9 @@ export class VRMEngine {
 
           // ponytail: 无缝换装核心时序 —— 旧模型全速运动直到此时，新模型在内存就绪后原子交接
           if (preserveMotion && previousVrm) {
+            // Outfit swap: upload the new model's textures and link its programs (yielding) while the old model keeps
+            // animating, instead of inside the first renderSingleFrame after the atomic swap (~400–700 ms freeze).
+            if (PERF_FLAGS.asyncOutfitSwap) await this.prewarmGpu(vrm.scene);
             // 1. 在交接瞬间抓取旧模型的最新姿态/时间戳/表情/惯性
             const swapState = this.captureAnimationState();
 
@@ -1780,6 +1858,16 @@ export class VRMEngine {
           }
 
           // 常规/冷启动加载路径
+          if (asyncInit && this.renderer) {
+            // Compile the VRM programs off the critical frame (KHR_parallel_shader_compile when available) instead of
+            // a synchronous link on the first render; scene lights are passed so the programs match the live scene.
+            try {
+              await this.renderer.compileAsync(vrm.scene, this.camera, this.scene);
+            } catch (e) {
+              console.warn('[VRMEngine] compileAsync failed, falling back to first-render compile:', e);
+            }
+            await yieldToMain();
+          }
           this.currentVRM = vrm;
           this.scene.add(vrm.scene);
           this.notifyReady(true);
@@ -1807,6 +1895,7 @@ export class VRMEngine {
             (window as any).vrmEngine = this;
           }
 
+          if (asyncInit) await yieldToMain();
           this.preloadHeavyResources();
 
           if (this.controls && !this._sceneInitialized) {
@@ -1814,6 +1903,8 @@ export class VRMEngine {
             this.fitCamera(true);
             const storedTheme = resolveInitialSceneTheme();
             this.setScene(storedTheme, false);
+            // Cold start: upload textures / link programs in yielding steps before the first frame.
+            if (PERF_FLAGS.asyncSceneInit) await this.prewarmGpu();
             this.startAnimation();
             this.cinematicIntro(1100);
           } else if (this.controls) {
@@ -2279,6 +2370,9 @@ export class VRMEngine {
 
           // ponytail: 无缝换装核心时序 —— 旧模型全速运动直到此时，新模型在内存就绪后原子交接
           if (preserveMotion && previousVrm) {
+            // Outfit swap: upload the new model's textures and link its programs (yielding) while the old model keeps
+            // animating, instead of inside the first renderSingleFrame after the atomic swap (~400–700 ms freeze).
+            if (PERF_FLAGS.asyncOutfitSwap) await this.prewarmGpu(vrm.scene);
             // 1. 在交接瞬间抓取旧模型的最新姿态/时间戳/表情/惯性
             const swapState = this.captureAnimationState();
 
@@ -2367,6 +2461,8 @@ export class VRMEngine {
             this.fitCamera(true);
             const storedTheme = resolveInitialSceneTheme();
             this.setScene(storedTheme, false);
+            // Cold start: upload textures / link programs in yielding steps before the first frame.
+            if (PERF_FLAGS.asyncSceneInit) await this.prewarmGpu();
             this.startAnimation();
             this.cinematicIntro(1100);
           } else if (this.controls) {
@@ -2695,6 +2791,9 @@ export class VRMEngine {
     if (!force && !isHeavyPreloadAllowed()) return;
     if (!this.emagePlayer.ready) void this.emagePlayer.ensureLoaded();
     preloadWebLLM();
+    // new AudioContext() is a ~150 ms synchronous main-thread call (macOS CoreAudio); do it now, behind the loading
+    // overlay, instead of mid-chat where it froze the VRM for a frame burst right as speech starts.
+    if (PERF_FLAGS.prewarmAudioContext) setTimeout(() => this.chatDirector.prewarmAudio(), 0); // own task, not stacked on VRM setup
   }
 
   public releaseHeavyResources(): void {

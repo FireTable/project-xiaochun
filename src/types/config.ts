@@ -627,3 +627,39 @@ export interface VoidSceneConfig {
   /** 抖动强度 (1/255 单位) 0 ~ 2 */
   dither: number;
 }
+
+/** 加载页主视觉 "Live2D-lite" 形变的可调参数 / Tunables of the loading key-visual warp. */
+export interface LoadingWarpConfig {
+  /** 主呼吸角频率 (rad/s)，周期 = 2π/breathW；Master breath angular freq, period 2π/breathW. 1 ~ 3 */
+  breathW: number;
+  /** 首帧显示后形变从 0 渐入到满幅的时长 (ms)；Deformation ease-in after first show. 300 ~ 3000 */
+  rampMs: number;
+  /** 重挂载时若距上次存活 < warmMs 直接满幅接管 (ms)；Remount within this window takes over at full amplitude. 1000 ~ 10000 */
+  warmMs: number;
+  amp: {
+    /** 胸部起伏位移 (px)；Bust swell (px). 0 ~ 25 */
+    bust: number;
+    /** 腹部收腹比例；Abdomen draw-in ratio. 0 ~ 0.15 */
+    waist: number;
+    /** 整体呼吸纵向缩放；Whole-body breath vertical scale. 0 ~ 0.01 */
+    breath: number;
+    /** 头部倾斜 (rad)；Head tilt (rad). 0 ~ 0.03 */
+    tilt: number;
+    /** 头发摆动 (px)；Hair sway (px). 0 ~ 15 */
+    hair: number;
+    /** 裙摆摆动 (px)；Skirt sway (px). 0 ~ 12 */
+    skirt: number;
+    /** 裙摆下摆外扩 (px)；Skirt hem flare (px). 0 ~ 35 */
+    flare: number;
+    /** 右前臂(观众视角)旋转 (rad)；Viewer-right forearm rotation (rad). 0 ~ 0.05 */
+    arm: number;
+    /** 左前臂(观众视角)绕手腕旋转 (rad)；Viewer-left forearm rotation about the wrist (rad). 0 ~ 0.03 */
+    armLRot: number;
+    /** 左前臂抬起 (px)；Viewer-left forearm lift (px). 0 ~ 3 */
+    armLLift: number;
+    /** 抿嘴强度；Lip-press strength. 0 ~ 1 */
+    lipPress: number;
+    /** 抿嘴周期 (s)；Lip-press period (s). 1 ~ 12 */
+    lipPeriod: number;
+  };
+}

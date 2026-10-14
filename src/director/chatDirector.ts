@@ -23,6 +23,15 @@ import { StreamResampler16k, PcmSlicer, HOST_AUDIO, clampPlaybackRate, clampVolu
 interface Plan { speech: string; llm_provider?: string }
 
 import { splitIntoSpeechChunks, stripForTTS } from '@/lib/utils';
+
+/** endAudioStream / 生产者收尾的最长等待；超时后不再阻塞发送按钮 */
+export const END_STREAM_TIMEOUT_MS = 8000;
+export function withTimeout<T>(p: Promise<T>, ms: number): Promise<T> {
+  return new Promise<T>((resolve, reject) => {
+    const t = setTimeout(() => reject(new Error(`timeout after ${ms}ms`)), ms);
+    p.then((v) => { clearTimeout(t); resolve(v); }, (e) => { clearTimeout(t); reject(e); });
+  });
+}
 export { splitIntoSpeechChunks, stripForTTS };
 
 /**
@@ -752,6 +761,13 @@ export class ChatDirector {
    * 3. 彻底删除 setTimeout(220) 硬挂起，动作切换由 switchSegment 的 Slerp 自动吸收断层[cite: 11]
    * 4. 所有切片全部生成完毕后，在最外层调用 endAudioStream() 正式收尾闭环[cite: 13]
    */
+  /** Create the shared AudioContext ahead of the first reply (suspended until the first resume()). */
+  public prewarmAudio(): void {
+    if (!this.ctx && typeof AudioContext !== 'undefined') {
+      try { this.ctx = new AudioContext(); } catch { /* created lazily on first speech instead */ }
+    }
+  }
+
   private async runSpeechPipeline(
     userText: string,
     player: VRMAMotionPlayer,
@@ -774,6 +790,7 @@ export class ChatDirector {
     this.ctx = this.ctx ?? new AudioContext();
     if (this.ctx.state === 'suspended') await this.ctx.resume();
 
+    const speechText = this.plan!.speech;
     const chunks = splitIntoSpeechChunks(this.plan!.speech);
     const tracker = new PipelineTableTracker(chunks);
 
@@ -815,6 +832,8 @@ export class ChatDirector {
 
     const readyQueue: SpeechSegment[] = [];
     let producerFinished = false;
+    /** TTS/EMAGE 生产失败的原因；消费者收尾后据此给用户报错 */
+    let producerError: unknown = null;
     const notifyReady: (() => void)[] = [];
     /** P0a-AV: 跨段累计已播 TTS 秒数，驱动连续 motion playhead */
     let audioTimelineOffsetSec = 0;
@@ -866,6 +885,7 @@ export class ChatDirector {
             console.warn(`[ChatDirector] 生产第 ${i} 段动作异常:`, e);
             tracker.update(i, { 'TTS & EMAGE Stream': '❌ 异常中断' }, `切片 #${i} 异常中断`);
           }
+          producerError = e;
           producerFinished = true;
           wakeConsumer();
           break;
@@ -874,9 +894,14 @@ export class ChatDirector {
       producerFinished = true;
       // 被新的一句抢走时不能关流：这时的 EMAGE 会话可能已经属于下一句。
       if (live()) {
-        try {
-          await emage.endAudioStream();
-        } catch { /* 收尾失败不挡住播放循环 */ }
+        if (producerError) {
+          // 出错后 worker 可能永远不回 feed_audio_end：直接中止会话，不等它。
+          try { emage.abortAudioStream(); } catch { /* ignore */ }
+        } else {
+          try {
+            await withTimeout(emage.endAudioStream(), END_STREAM_TIMEOUT_MS);
+          } catch { /* 收尾失败/超时不挡住播放循环 */ }
+        }
       }
       wakeConsumer();
     })();
@@ -980,7 +1005,15 @@ export class ChatDirector {
     this.stop();
     this.onEnd?.();
 
-    await producerPromise.catch(() => { });
+    if (producerError) {
+      // 语音合成失败：照常显示 LLM 文字回复，气泡下挂一枚低调的“语音暂时不可用”胶囊；技术细节只进 tooltip + console。
+      const msg = ((producerError as any)?.message ?? String(producerError) ?? '').trim();
+      console.warn('[ChatDirector] TTS unavailable, showing text only:', msg);
+      status('ttsUnavailable', { message: msg || 'Unknown error' }, false, speechText);
+    }
+
+    // 生产者理论上已结束；再兜一层超时，保证这句永远会返回。
+    await withTimeout(producerPromise, END_STREAM_TIMEOUT_MS).catch(() => { });
   }
 
   private playAudioSource(

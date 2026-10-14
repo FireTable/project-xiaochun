@@ -196,6 +196,12 @@ export class Beach3DWorld {
   public get downgraded(): boolean { return this.motion.downgraded; }
   public set downgraded(v: boolean) { this.motion.downgraded = v; }
 
+  /** Build the world without showing it (so its programs can be precompiled before the switch). */
+  public prepare(): THREE.Object3D {
+    if (!this.disposed) this.ensureBuilt();
+    return this.group;
+  }
+
   public setActive(active: boolean): void {
     if (this.disposed) return;
     this.active = active;

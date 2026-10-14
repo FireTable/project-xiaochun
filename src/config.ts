@@ -18,6 +18,7 @@ import type {
   ModelPartCategoryDefinition,
   ModelPartDefinition,
   AddonDefinition,
+  LoadingWarpConfig,
 } from './types/config';
 
 export const POSTFX_TONE_MAPPING_MODE = {
@@ -31,6 +32,29 @@ const useInt8 = true;
 const q = (fp32: string) => (useInt8 ? fp32.replace('.onnx', '_int8.onnx') : fp32);
 
 export const APP_CONFIG = {
+  /** 加载页 (LoadingOverlay) */
+  loading: {
+    /** 主视觉形变参数，主线程与 OffscreenCanvas worker 共用 (init 消息传入)；范围见 LoadingWarpConfig */
+    warp: {
+      breathW: 2.1, // 主呼吸角频率 rad/s (周期 ≈ 3.14 s)
+      rampMs: 1200, // 形变渐入 ms
+      warmMs: 3000, // 热接管窗口 ms
+      amp: {
+        bust: 21, // 胸部起伏 px
+        waist: 0.08, // 收腹比例
+        breath: 0.010, // 整体呼吸纵向缩放
+        tilt: 0.03, // 头部倾斜 rad
+        hair: 10, // 头发摆动 px
+        skirt: 15, // 裙摆摆动 px
+        flare: 50, // 裙摆外扩 px
+        arm: 0.021, // 右前臂旋转 rad
+        armLRot: 0.013, // 左前臂旋转 rad
+        armLLift: 1.2, // 左前臂抬起 px
+        lipPress: 0.5, // 抿嘴强度
+        lipPeriod: 2.4, // 抿嘴周期 s
+      },
+    } satisfies LoadingWarpConfig as LoadingWarpConfig,
+  },
   brand: {
     name: 'Project XiaoChun',
     logo: '/logo.png',

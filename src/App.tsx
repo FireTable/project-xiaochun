@@ -1,4 +1,4 @@
-import React, { useState, useEffect, startTransition } from 'react';
+import React, { useState, useEffect, useCallback, startTransition } from 'react';
 import { useTranslation } from 'react-i18next';
 import type { LoadingState, BubbleState } from '@/core/vrmEngine';
 import { TopHeader } from '@/components/TopHeader';
@@ -6,6 +6,13 @@ import { AppUpdateDialog } from '@/components/AppUpdateDialog';
 import { HeadBubble } from '@/components/HeadBubble';
 import { ChatBar } from '@/components/ChatBar';
 import { LoadingOverlay } from '@/components/LoadingOverlay';
+import { loadingStore } from '@/components/loading/loadingStore';
+import { PERF_FLAGS } from '@/perfFlags';
+
+// The dev drawer (hundreds of radix sliders) is mounted even while closed; memoised so App re-renders during chat /
+// loading (status, bubbles) no longer re-render it (60–80 ms per commit in dev).
+const DevDrawerMemo = React.memo(DevDrawer);
+const DevDrawerHost = PERF_FLAGS.memoHeavyPanels ? DevDrawerMemo : DevDrawer;
 import { DevDrawer } from '@/components/dev-drawer';
 import { SceneCanvas } from '@/components/SceneCanvas';
 import { OnboardingTour, ONBOARDING_STORAGE_KEY } from '@/components/onboarding/OnboardingTour';
@@ -31,11 +38,17 @@ export const App: React.FC = () => {
     (APP_CONFIG.dev.disableLoadingOverlayInDev && typeof window !== 'undefined' && Boolean((window as any).__VRM_ALREADY_READY__))
   );
 
-  const [loading, setLoading] = useState<LoadingState>(() => ({
-    active: !skipLoadingOverlay,
-    subtitleKey: skipLoadingOverlay ? '' : 'parsingModel',
-    progress: skipLoadingOverlay ? 100 : 0,
-  }));
+  // Only `active` lives in App state: per-report progress goes to loadingStore (coalesced, overlay-only subscriber),
+  // so progress updates no longer re-render the whole App and stall the hero warp.
+  const [loadingActive, setLoadingActive] = useState<boolean>(() => {
+    const init: LoadingState = {
+      active: !skipLoadingOverlay,
+      subtitleKey: skipLoadingOverlay ? '' : 'parsingModel',
+      progress: skipLoadingOverlay ? 100 : 0,
+    };
+    loadingStore.init(init);
+    return init.active;
+  });
 
   const [bubble, setBubble] = useState<BubbleState>({
     visible: false,
@@ -55,6 +68,7 @@ export const App: React.FC = () => {
     if (typeof localStorage === 'undefined') return;
     localStorage.setItem(DEV_DRAWER_OPEN_KEY, isDrawerOpen ? '1' : '0');
   }, [isDrawerOpen]);
+  const closeDrawer = useCallback(() => setIsDrawerOpen(false), []);
   const [isDragOver, setIsDragOver] = useState(false);
   // ponytail: 10 次连击暗号触发后,生产构建也要能看见右上角调试按钮 — 用户已经
   // 「发现」了隐藏 dev 通道,继续藏按钮不合理。一次性解锁,刷新页面后重置。
@@ -116,9 +130,12 @@ export const App: React.FC = () => {
       // 渲染从 startAnimation 一直跑,fitCamera + cinematicIntro 在 VRM 加载完后直接生效。
       // 后台页 visibilitychange 由 vrmEngine 自行 suspend/resume。
       mod.vrmEngine.resumeRendering();
+      // ponytail: cinematic 已经在 loadVRM 回调里触发过,overlay 开始退场时只唤醒渲染循环。
+      loadingStore.setBreakStartHandler(() => mod.vrmEngine.resumeRendering());
       mod.vrmEngine.onLoadingChange = (state) => {
         if (skipLoadingOverlay && state.progress < 100) return;
-        setLoading(state);
+        loadingStore.set(state);
+        setLoadingActive(state.active);
       };
       unsubReady = mod.vrmEngine.onReadyChange((ready) => {
         setIsVRMReady(ready);
@@ -220,7 +237,7 @@ export const App: React.FC = () => {
       )}
 
       {/* 底部对话输入条 — 启动 splash 期间及新手向导期间不渲染 */}
-      {!loading.active && !isOnboardingActive && currentScene.components.chatBar !== false && (
+      {!loadingActive && !isOnboardingActive && currentScene.components.chatBar !== false && (
         <ChatBar
           isPetUIVisible={isPetUIVisible}
           onShowDevPanel={() => setHasDevEasterEgg(true)}
@@ -228,25 +245,14 @@ export const App: React.FC = () => {
       )}
 
       {/* 沉浸式小蠢新手向导：仅在小蠢 3D 模型完全站立就绪且无全屏进度遮罩时呈现 */}
-      {!loading.active && isVRMReady && isOnboardingActive && (
+      {!loadingActive && isVRMReady && isOnboardingActive && (
         <OnboardingTour onComplete={() => setIsOnboardingActive(false)} />
       )}
 
       {/* 模型加载进度遮罩 (dev 或 HMR 时彻底免除) */}
-      {!skipLoadingOverlay && (
-        <LoadingOverlay
-          state={loading}
-          onBreakStart={() => {
-            import('@/core/vrmEngine').then((mod) => {
-              // ponytail: cinematic 已经在 loadVRM 回调里触发过,这里只唤醒渲染循环
-              // 让用户看到已经在飞的 tween —— 单一触发源,无双 tween。
-              mod.vrmEngine.resumeRendering();
-            });
-          }}
-        />
-      )}
+      {!skipLoadingOverlay && !PERF_FLAGS.singleMountOverlay && <LoadingOverlay />}
 
-      <AppUpdateDialog allowPrompt={!loading.active} />
+      <AppUpdateDialog allowPrompt={!loadingActive} />
 
       {/* 顶部控制栏 — 始终挂载以维持模型冷启与换装，新手向导期间视觉隐藏 */}
       {(currentScene.components.topHeader !== false || isOnboardingActive) && (
@@ -261,9 +267,9 @@ export const App: React.FC = () => {
       )}
 
       {/* 生产包默认不露抽屉；10 次连击后 hasDevEasterEgg 打开同一套面板。新手向导期间不遮挡 */}
-      <DevDrawer
+      <DevDrawerHost
         isOpen={isDrawerOpen && showDevUi && !isOnboardingActive}
-        onClose={() => setIsDrawerOpen(false)}
+        onClose={PERF_FLAGS.memoHeavyPanels ? closeDrawer : () => setIsDrawerOpen(false)}
       />
 
       {/* 实时身高 3D 浮动指示线与 HUD 标牌 (头顶发光微点 + 科技感延伸指示线) */}
