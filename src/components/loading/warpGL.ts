@@ -10,15 +10,18 @@ export const C = {
   elbow: [785, 1125], armL: [210, 520],
   // Raised hand (viewer-left, fingers in the hair): centre x/y + radii (px). Inside it every term is made rigid
   // (hair sway off, head tilt at one constant angle, breath scale as a pure shift, forearm rotation at full weight).
-  hand: [250, 490, 78, 82], skirtTop: 1000, mouth: [455, 423, 505, 412],
+  hand: [250, 490, 78, 82],
+  // Lowered hand (viewer-right, beside the skirt): centre x/y + radii (px). k.g fades out across its outer edge, which
+  // let the skirt flare leak in and bulge the hand; inside it the forearm rotation is forced to full weight (rigid).
+  hand2: [888, 1480, 75, 125], skirtTop: 1000, mouth: [455, 423, 505, 412],
   // Tunable amplitudes (bust, hair, flare, lip period, …) live in APP_CONFIG.loading.warp and are passed in.
   amp: { lipIn: 0.03, jig: 9, jelStretch: 0.005, jelNarrow: 0.0025, jelLag: 0.26 },
 } as const;
 
-// Master breath: every motion except the skirt follows one breath cycle (period 2π/breathW, breathW from APP_CONFIG.loading.warp),
+// Master breath: every motion (skirt included) follows one breath cycle (period 2π/breathW, breathW from APP_CONFIG.loading.warp),
 // asymmetric like real breathing (inhale 40 %, exhale 60 %), C1-smooth. br() in both shaders matches breath() here.
 // Lags behind the chest (s): head tilt 0.15, left forearm 0.15, right forearm 0.20, bust follow jelLag 0.26 (s),
-// hair L 0.35 / R 0.50. The skirt keeps its own sway and its faster flare (t × 1.95).
+// hair L 0.35 / R 0.50, skirt 0.35 (sides up to 0.45; inhale draws in, exhale flares out).
 // breathW comes from APP_CONFIG.loading.warp; the shader constant is derived from it so they can't drift.
 function breath(t: number, w: number): number {
   const x = (((t * w) / (2 * Math.PI)) % 1 + 1) % 1;
@@ -28,15 +31,15 @@ export const breathS = (t: number, w: number) => 2 * breath(t, w) - 1;
 const brGLSL = (w: number) => 'float br(float t){float x=fract(t*' + (w / (2 * Math.PI)).toFixed(6) + ');return x<.4?.5-.5*cos(7.854*x):.5+.5*cos(5.236*(x-.4));}';
 
 export const makeVS = (w: number) =>
-  'attribute vec2 p;uniform float t,ka;uniform vec2 nk;uniform vec2 am;uniform vec4 hd;varying vec2 v;' +
+  'attribute vec2 p;uniform float t,ka;uniform vec2 nk,xf;uniform vec2 am;uniform vec4 hd;varying vec2 v;' +
   brGLSL(w) + 'void main(){v=p;vec2 q=p;float wh=1.-smoothstep(.9,1.3,length((p*vec2(991.,1600.)-hd.xy)/hd.zw)),hy=hd.y/1600.;' +
   // hand: tilt angle frozen at the hand centre's falloff, so the tilt is a rigid rotation there (no shear)
   'float a=(2.*br(t-.15)-1.)*am.y*ka*(1.-smoothstep(nk.y-.06,nk.y+.05,mix(p.y,hy,wh)));vec2 o=q-nk;' +
   'q=nk+vec2(o.x*cos(a)-o.y*sin(a)*1.6145,o.x*sin(a)/1.6145+o.y*cos(a));' +
-  'q.y-=mix(1.-q.y,1.-hy,wh)*am.x*ka*br(t);gl_Position=vec4(q.x*2.-1.,1.-q.y*2.,0,1);}';
+  'q.y-=mix(1.-q.y,1.-hy,wh)*am.x*ka*br(t);gl_Position=vec4((q.x*xf.x+xf.y)*2.-1.,1.-q.y*2.,0,1);}';
 
 export const makeFS = (w: number) =>
-  'precision highp float;uniform sampler2D s,m;uniform float t,ka;uniform vec4 hl,hr,bu,A;uniform vec3 el;uniform vec2 sk;uniform vec4 mo,J,JB,AB;uniform vec3 lp;uniform vec4 LA;uniform vec2 JG;uniform vec3 fd;uniform vec4 hd;varying vec2 v;' +
+  'precision highp float;uniform sampler2D s,m;uniform float t,ka;uniform vec4 hl,hr,bu,A;uniform vec3 el;uniform vec2 sk;uniform vec4 mo,J,JB,AB;uniform vec3 lp;uniform vec4 LA;uniform vec2 JG;uniform vec3 fd;uniform vec4 hd,h2;varying vec2 v;' +
   'const vec2 R=vec2(991.,1600.);' +
   'vec2 rot(vec2 p,vec2 c,float a){vec2 o=p-c;return c+vec2(o.x*cos(a)-o.y*sin(a),o.x*sin(a)+o.y*cos(a));}' +
   'float sw(vec4 h,float sg,vec2 p){float d=clamp((p.y-h.y)/h.w,0.,1.);float cx=h.x+sg*h.z*.5;' +
@@ -48,18 +51,30 @@ export const makeFS = (w: number) =>
   'float ga=(1.-k.a)*2.;vec2 mc=(mo.xy+mo.zw)*.5;float mw=length(mo.zw-mo.xy)*.5,mx=dot(p-mc,normalize(mo.zw-mo.xy))/mw,my=p.y-mc.y-(p.x-mc.x)*(mo.w-mo.y)/(mo.z-mo.x);' +
   'float wm=ga*step(p.y,470.)*exp(-my*my/90.)*smoothstep(1.45,.9,abs(mx)),pr=.5-.5*cos(6.2832*t/lp.y);pr=pr*pr*pr*lp.x;p.y+=wm*my*pr;p.x+=wm*(p.x-mc.x)*pr*lp.z;' +
   // bust swell + lagged follow, abdomen draw-in
-  'float bb=br(t),g=exp(-pow((p.x-bu.x)/bu.z,2.)-pow((p.y-bu.y)/bu.w,2.))*smoothstep(655.,700.,p.y)*ga;p.y+=A.y*bb*g;p-=(p-bu.xy)*.018*bb*g;' +
+  'float bb=br(t),g=exp(-pow((p.x-bu.x)/bu.z,2.)-pow((p.y-bu.y)/bu.w,2.))*smoothstep(655.,700.,p.y)*ga;p.y+=A.y*(1.25*bb-.25)*g;p-=(p-bu.xy)*.018*bb*g;' +
   'float gj=exp(-pow((p.x-JB.x)/JB.z,2.)-pow((p.y-JB.y)/JB.w,2.))*smoothstep(655.,700.,p.y)*ga;p.y+=J.x*JG.x*gj;p.y-=(p.y-JB.y)*J.y*JG.y*gj;p.x+=(p.x-JB.x)*J.z*JG.y*gj;' +
-  'float gw=exp(-pow((p.x-AB.x)/AB.z,2.)-pow((p.y-AB.y)/AB.w,2.))*ga,ih=br(t-.15);p.x+=(p.x-AB.x)*J.w*bb*gw;p.y+=1.6*bb*gw;' +
+  // Abdomen draw-in. x uses a side-tapered weight: above the waist centre the vertical falloff stretches toward the
+  // flanks (centre-front |dx|<.3 unchanged) and fades out at y 780-850, so the bodice side outline moves in as one
+  // curve up to the armpit. On the viewer-right flank the mask (k.a) already zeroes ga a few px inside the bodice
+  // edge, which held the outline + its light fringe while the bodice moved (step + exposed halo); there ga is
+  // replaced by a fade toward the arm's inner outline (x≈650+(y-793)*.19), so only the background gap compresses
+  // and the arm stays put (faded out below the waist so the bow/skirt keep their mask).
+  'float ax=abs(p.x-AB.x)/AB.z,sd=smoothstep(.3,1.,ax),ay=(p.y-AB.y)/(AB.w*(1.+1.4*sd*step(p.y,AB.y))),xa=650.+(p.y-793.)*.19,' +
+  'gs=p.x>AB.x?max(ga,.94*(1.-smoothstep(xa-40.,xa,p.x))*(1.-smoothstep(930.,990.,p.y))):ga,gw=exp(-ax*ax-pow((p.y-AB.y)/AB.w,2.))*ga,' +
+  'gx=exp(-ax*ax-ay*ay)*gs*mix(1.,smoothstep(780.,850.,p.y),sd),ih=br(t-.15);p.x+=(p.x-AB.x)*J.w*bb*gx;p.y+=1.6*bb*gw;' +
   // skirt flutter (mirror-symmetric hem flare) + viewer-right forearm, blended as one field
-  'float ws=pow(smoothstep(sk.x,R.y,p.y),1.4)*k.b,pf=t*1.95,wr=k.g*step(400.,p.x),wl=mix(k.g-wr,1.,wh);' +
-  'vec2 dS=vec2(-(A.z*(.5*sin(t+p.x*.004)+.35*sin(t*2.1+p.x*.011+1.))+A.w*(p.x-470.)/470.*sin(pf+.6)),-A.w*.25*sin(pf+.6+p.x*.004))*ws;' +
+  // Skirt follows the master breath (lag 0.35 s, +up to ~0.1 s towards the sides): inhale (sb>0) samples outward =>
+  // skirt draws in; exhale (sb<0) => hem flares out and lifts slightly. br() is C1, so no jitter; ws keeps the hem seamless.
+  'float ws=pow(smoothstep(sk.x,R.y,p.y),1.4)*k.b,dx=(p.x-470.)/470.,sb=2.*br(t-.35)-1.,sc=2.*br(t-.35-abs(dx)*.1)-1.,wr=k.g*step(400.,p.x),wl=mix(k.g-wr,1.,wh);' +
+  // lowered hand: rigid with the forearm (full rotation weight), blended out over 1-2 radii into the background/skirt
+  'wr=max(wr,1.-smoothstep(1.,2.,length((p-h2.xy)/h2.zw)));' +
+  'vec2 dS=vec2((A.w*sb+A.z*sc)*dx,-A.w*.25*sc)*ws;' +
   'vec2 dA=rot(p,el.xy,-el.z*(2.*br(t-.2)-1.))-p;p+=mix(dS,dA,wr);' +
   // viewer-left raised forearm: rotation about the wrist (hand stays on the hair) + small lift
   'p=mix(p,rot(p,LA.xy,LA.z*(ih-.5)),wl);p.y+=LA.w*ih*wl*smoothstep(560.,860.,p.y);' +
   // light despill of green-screen fringe
   // ka eases the whole deformation in from 0, so the first frame matches the static <img> exactly
-  'p=mix(v*R,p,ka);vec4 c=texture2D(s,p/R);c.g=mix(c.g,min(c.g,max(c.r,c.b)),ka);'+
+  'p=mix(v*R,p,ka);vec4 c=texture2D(s,p/R)*clamp(min(p.x,R.x-p.x)+.5,0.,1.);c.g=mix(c.g,min(c.g,max(c.r,c.b)),ka);'+
   // Bottom fade baked in (same linear ramp as the img's CSS mask): a CSS mask on the GL canvas or its wrapper makes
   // Chrome paint a white box (user-confirmed). c is premultiplied (texture uploaded with UNPACK_PREMULTIPLY_ALPHA,
   // context premultipliedAlpha:true, clear 0,0,0,0), so scaling all four channels keeps vec4(rgb*a,a).
@@ -69,7 +84,8 @@ export const makeFS = (w: number) =>
 export interface WarpGL {
   /** Upload the (pre-downscaled, premultiplied) key visual for the current buffer size. */
   upload(src: TexImageSource): void;
-  viewport(w: number, h: number): void;
+  /** Buffer size w×h; the image spans [pad, w - pad] horizontally (pad = bleed for the outward skirt flare). */
+  viewport(w: number, h: number, pad?: number): void;
   /** Bottom fade: opaque down to f0, transparent at f1 (fractions of the buffer height h). */
   setFade(f0: number, f1: number, h: number): void;
   /** Draw at time s (seconds) with deformation ease k in [0, 1]. */
@@ -97,8 +113,10 @@ export function createWarpGL(gl: WebGLRenderingContext, img: TexImageSource, mas
   gl.useProgram(prog);
   const U = (n: string) => gl.getUniformLocation(prog, n);
 
-  const X = 48, Y = 80, vs: number[] = [], ix: number[] = [];
-  for (let j = 0; j <= Y; j++) for (let i = 0; i <= X; i++) vs.push(i / X, j / Y);
+  // The mesh reaches MX beyond the image on both sides (>= WARP_PAD in pixelSnap.ts) so flared hem pixels displaced
+  // past the image edge are still rasterized into the canvas bleed; outside the image the sample is masked to 0.
+  const MX = 0.12, X = 60, Y = 80, vs: number[] = [], ix: number[] = [];
+  for (let j = 0; j <= Y; j++) for (let i = 0; i <= X; i++) vs.push(-MX + ((1 + 2 * MX) * i) / X, j / Y);
   for (let j = 0; j < Y; j++) for (let i = 0; i < X; i++) {
     const a = j * (X + 1) + i;
     ix.push(a, a + 1, a + X + 1, a + 1, a + X + 2, a + X + 1);
@@ -140,9 +158,10 @@ export function createWarpGL(gl: WebGLRenderingContext, img: TexImageSource, mas
   gl.uniform4f(U('LA'), C.armL[0], C.armL[1], a.armLRot, a.armLLift);
   gl.uniform4f(U('J'), a.jig, a.jelStretch, a.jelNarrow, a.waist);
   gl.uniform4fv(U('hd'), C.hand);
+  gl.uniform4fv(U('h2'), C.hand2);
   gl.uniform4fv(U('JB'), C.jiggle);
   gl.uniform4fv(U('AB'), C.abdomen);
-  const uT = U('t'), uJG = U('JG'), uKa = U('ka'), uFd = U('fd');
+  const uT = U('t'), uJG = U('JG'), uKa = U('ka'), uFd = U('fd'), uXf = U('xf');
   gl.enable(gl.BLEND);
   gl.blendFunc(gl.ONE, gl.ONE_MINUS_SRC_ALPHA);
   gl.clearColor(0, 0, 0, 0);
@@ -155,7 +174,7 @@ export function createWarpGL(gl: WebGLRenderingContext, img: TexImageSource, mas
       gl.pixelStorei(gl.UNPACK_PREMULTIPLY_ALPHA_WEBGL, true);
       gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, src);
     },
-    viewport(w, h) { gl.viewport(0, 0, w, h); },
+    viewport(w, h, pad = 0) { gl.viewport(0, 0, w, h); gl.uniform2f(uXf, (w - 2 * pad) / w, pad / w); },
     setFade(f0, f1, h) { gl.uniform3f(uFd, f0, f1, h); },
     draw(s, k) {
       gl.uniform1f(uKa, k * k * (3 - 2 * k));

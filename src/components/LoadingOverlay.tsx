@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useLayoutEffect, useRef, useSyncExternalStore } from 'react';
-import { canvasSizeFor, snapToPixel } from './loading/pixelSnap';
+import { canvasSizeFor, placeCanvas, snapToPixel } from './loading/pixelSnap';
 import { useTranslation } from 'react-i18next';
 import type { LoadingState } from '@/core/vrmEngine';
 import { onLlmLoadProgress, getLlmLoadProgress } from '@/llm/progress';
@@ -437,7 +437,8 @@ const HeroKeyvisual = React.memo(function HeroKeyvisual({ paused, exited }: { pa
     // shift) and size the canvas backing store, so nothing about the layout changes at the swap.
     const prime = () => {
       snapToPixel(box);
-      const [w, h] = canvasSizeFor(box);
+      const [w, h, pad] = canvasSizeFor(box);
+      placeCanvas(cv, w, pad);
       // After transferControlToOffscreen (worker warp) the worker owns the size; setting it here would throw.
       if (!cv.dataset.xcOffscreen && (cv.width !== w || cv.height !== h)) { cv.width = w; cv.height = h; }
     };
@@ -501,7 +502,7 @@ const HeroKeyvisual = React.memo(function HeroKeyvisual({ paused, exited }: { pa
     <canvas
       ref={heroCanvasRef}
       aria-hidden
-      className="absolute inset-0 w-full h-full opacity-0 pointer-events-none"
+      className="absolute inset-y-0 left-0 w-full h-full max-w-none opacity-0 pointer-events-none"
     />
     </div>
   </div>

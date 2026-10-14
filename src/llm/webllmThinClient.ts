@@ -1,5 +1,5 @@
 /**
- * Thin main-thread client for web-llm's WebWorkerMLCEngineHandler (PERF_FLAGS.thinLLMClient).
+ * Thin main-thread client for web-llm's WebWorkerMLCEngineHandler.
  *
  * @mlc-ai/web-llm ships as a single ~6.5 MB ESM file that cannot be tree-shaken: importing only
  * `CreateWebWorkerMLCEngine` still evaluates all of it on the main thread. The client half of the protocol is small,

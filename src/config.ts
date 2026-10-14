@@ -36,21 +36,21 @@ export const APP_CONFIG = {
   loading: {
     /** 主视觉形变参数，主线程与 OffscreenCanvas worker 共用 (init 消息传入)；范围见 LoadingWarpConfig */
     warp: {
-      breathW: 2.1, // 主呼吸角频率 rad/s (周期 ≈ 3.14 s)
-      rampMs: 1200, // 形变渐入 ms
+      breathW: 2, // 主呼吸角频率 rad/s (周期 ≈ 3.14 s)
+      rampMs: 500, // 形变渐入 ms
       warmMs: 3000, // 热接管窗口 ms
       amp: {
-        bust: 21, // 胸部起伏 px
-        waist: 0.08, // 收腹比例
-        breath: 0.010, // 整体呼吸纵向缩放
+        bust: 18, // 胸部起伏 px
+        waist: 0.1, // 收腹比例
+        breath: 0.0082, // 整体呼吸纵向缩放
         tilt: 0.03, // 头部倾斜 rad
-        hair: 10, // 头发摆动 px
+        hair: 11, // 头发摆动 px
         skirt: 15, // 裙摆摆动 px
-        flare: 50, // 裙摆外扩 px
-        arm: 0.021, // 右前臂旋转 rad
-        armLRot: 0.013, // 左前臂旋转 rad
-        armLLift: 1.2, // 左前臂抬起 px
-        lipPress: 0.5, // 抿嘴强度
+        flare: 40, // 裙摆外扩 px
+        arm: 0.020, // 右前臂旋转 rad
+        armLRot: 0.02, // 左前臂旋转 rad
+        armLLift: 1.8, // 左前臂抬起 px
+        lipPress: 0.7, // 抿嘴强度
         lipPeriod: 2.4, // 抿嘴周期 s
       },
     } satisfies LoadingWarpConfig as LoadingWarpConfig,

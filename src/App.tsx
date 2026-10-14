@@ -5,14 +5,11 @@ import { TopHeader } from '@/components/TopHeader';
 import { AppUpdateDialog } from '@/components/AppUpdateDialog';
 import { HeadBubble } from '@/components/HeadBubble';
 import { ChatBar } from '@/components/ChatBar';
-import { LoadingOverlay } from '@/components/LoadingOverlay';
 import { loadingStore } from '@/components/loading/loadingStore';
-import { PERF_FLAGS } from '@/perfFlags';
 
 // The dev drawer (hundreds of radix sliders) is mounted even while closed; memoised so App re-renders during chat /
 // loading (status, bubbles) no longer re-render it (60–80 ms per commit in dev).
-const DevDrawerMemo = React.memo(DevDrawer);
-const DevDrawerHost = PERF_FLAGS.memoHeavyPanels ? DevDrawerMemo : DevDrawer;
+const DevDrawerHost = React.memo(DevDrawer);
 import { DevDrawer } from '@/components/dev-drawer';
 import { SceneCanvas } from '@/components/SceneCanvas';
 import { OnboardingTour, ONBOARDING_STORAGE_KEY } from '@/components/onboarding/OnboardingTour';
@@ -249,8 +246,7 @@ export const App: React.FC = () => {
         <OnboardingTour onComplete={() => setIsOnboardingActive(false)} />
       )}
 
-      {/* 模型加载进度遮罩 (dev 或 HMR 时彻底免除) */}
-      {!skipLoadingOverlay && !PERF_FLAGS.singleMountOverlay && <LoadingOverlay />}
+      {/* 模型加载进度遮罩由 routes/index.tsx 单实例渲染，App 通过 loadingStore 驱动 */}
 
       <AppUpdateDialog allowPrompt={!loadingActive} />
 
@@ -269,7 +265,7 @@ export const App: React.FC = () => {
       {/* 生产包默认不露抽屉；10 次连击后 hasDevEasterEgg 打开同一套面板。新手向导期间不遮挡 */}
       <DevDrawerHost
         isOpen={isDrawerOpen && showDevUi && !isOnboardingActive}
-        onClose={PERF_FLAGS.memoHeavyPanels ? closeDrawer : () => setIsDrawerOpen(false)}
+        onClose={closeDrawer}
       />
 
       {/* 实时身高 3D 浮动指示线与 HUD 标牌 (头顶发光微点 + 科技感延伸指示线) */}

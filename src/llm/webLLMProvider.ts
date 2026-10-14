@@ -8,9 +8,7 @@
 
 // ponytail: @mlc-ai/web-llm 库体积 ~6MB,只在真正需要 LLM(主站 ChatBar / 预热 / 首次 chat)时动态加载,
 // 这里只引类型。/embed 默认路径(纯朗读)因此不再下载这个 chunk。
-import { PERF_FLAGS } from '@/perfFlags';
 import type {
-  WebWorkerMLCEngine,
   ModelRecord,
   AppConfig,
   ChatCompletionChunk,
@@ -20,7 +18,7 @@ import type {
 } from '@mlc-ai/web-llm';
 import { ThinMLCEngine } from './webllmThinClient';
 
-/** What the provider needs from an engine; satisfied by web-llm's WebWorkerMLCEngine and by ThinMLCEngine. */
+/** What the provider needs from an engine; satisfied by ThinMLCEngine. */
 interface LLMEngine {
   chat: { completions: { create(request: ChatCompletionRequest): Promise<unknown> } };
   resetChat(): Promise<void>;
@@ -52,13 +50,9 @@ export const CUSTOM_WEBLLM_MODELS: ModelRecord[] = [
   },
 ];
 
-type WebLLMLib = typeof import('@mlc-ai/web-llm');
-
-let webllmLib: WebLLMLib | null = null;
-let webllmLibPromise: Promise<WebLLMLib> | null = null;
 const libReadyListeners = new Set<() => void>();
 
-// ── Thin client path (PERF_FLAGS.thinLLMClient): the library loads only inside llmWorker.ts ──
+// ── Thin client: the library loads only inside llmWorker.ts ──
 // The engine worker is created on first need (model list or engine) and its client is reused by the engine.
 let thinClient: ThinMLCEngine | null = null;
 let prebuiltList: ModelRecord[] | null = null;
@@ -95,32 +89,15 @@ function loadModelListThin(): Promise<ModelRecord[]> {
 
 /**
  * 动态加载 @mlc-ai/web-llm(只加载一次,失败后允许重试)。
- * thinLLMClient: resolves once the prebuilt model list arrived from the worker (no main-thread import).
+ * Resolves once the prebuilt model list arrived from the worker (no main-thread import).
  */
 export function loadWebLLMLib(): Promise<unknown> {
-  if (PERF_FLAGS.thinLLMClient) return loadModelListThin();
-  if (webllmLib) return Promise.resolve(webllmLib);
-  if (!webllmLibPromise) {
-    webllmLibPromise = import('@mlc-ai/web-llm').then(
-      (lib) => {
-        webllmLib = lib;
-        libReadyListeners.forEach((fn) => {
-          try { fn(); } catch { /* noop */ }
-        });
-        return lib;
-      },
-      (err) => {
-        webllmLibPromise = null;
-        throw err;
-      },
-    );
-  }
-  return webllmLibPromise;
+  return loadModelListThin();
 }
 
 /** 库是否已就绪(prebuilt 模型列表可用)。 */
 export function isWebLLMLibLoaded(): boolean {
-  return webllmLib !== null || prebuiltList !== null;
+  return prebuiltList !== null;
 }
 
 /** 库加载完成时回调(列表从「仅自定义模型」扩展为完整 prebuilt 列表,UI 需刷新)。已就绪则不回调。 */
@@ -130,7 +107,7 @@ export function onWebLLMLibReady(cb: () => void): () => void {
 }
 
 function currentModelList(): ModelRecord[] {
-  return [...CUSTOM_WEBLLM_MODELS, ...(webllmLib?.prebuiltAppConfig.model_list ?? prebuiltList ?? [])];
+  return [...CUSTOM_WEBLLM_MODELS, ...(prebuiltList ?? [])];
 }
 
 function getAppLlmConfig(): AppConfig {
@@ -181,7 +158,7 @@ const readyChangeListeners = new Set<(ready: boolean) => void>();
 
 function isKnownModelId(id: string): boolean {
   // 库未加载时 prebuilt 列表不可得: 信任已存储/UI 传入的 id,getWebLLMEngine 加载库后会再严格校验。
-  if (!webllmLib && !prebuiltList) return true;
+  if (!prebuiltList) return true;
   return currentModelList().some((m) => m.model_id === id);
 }
 
@@ -391,8 +368,7 @@ export async function getWebLLMEngine(opts?: {
     onMilestone?.('loadingWebGpu');
 
     // 动态加载 web-llm 库(~6MB,首次 LLM 使用时才下载);之后 prebuilt 列表可用,校验已存储的模型 id。
-    const lib = PERF_FLAGS.thinLLMClient ? null : (await loadWebLLMLib()) as WebLLMLib;
-    if (PERF_FLAGS.thinLLMClient) await loadModelListThin();
+    await loadModelListThin();
     if (gen !== loadGen) throw new Error('model switched');
     if (activeModelId && !isKnownModelId(activeModelId)) activeModelId = null;
     const appConfig = getAppLlmConfig();
@@ -411,8 +387,7 @@ export async function getWebLLMEngine(opts?: {
       writeActiveModel({ kind: 'webllm', modelId: FALLBACK_LLM_MODEL });
     }
 
-    const thin = PERF_FLAGS.thinLLMClient;
-    const worker = thin ? ensureThinClient().worker : new Worker(new URL('./llmWorker.ts', import.meta.url), { type: 'module' });
+    const worker = ensureThinClient().worker;
     engineWorker = worker;
     const onInit = (report: InitProgressReport) => {
       if (gen !== loadGen) return;
@@ -421,7 +396,6 @@ export async function getWebLLMEngine(opts?: {
     };
     // Same sequence as web-llm's CreateWebWorkerMLCEngine: setAppConfig, then reload(modelId, chatOpts).
     const create = async (w: Worker, id: string, opts: ChatOptions): Promise<LLMEngine> => {
-      if (!thin) return lib!.CreateWebWorkerMLCEngine(w, id, { appConfig, initProgressCallback: onInit }, opts) as Promise<WebWorkerMLCEngine>;
       const client = thinClient && thinClient.worker === w ? thinClient : (thinClient = new ThinMLCEngine(w));
       client.setAppConfig(appConfig);
       client.initProgressCallback = onInit;
@@ -433,9 +407,6 @@ export async function getWebLLMEngine(opts?: {
     // 既不破坏 cs1k 分块契约，又最大化节省 KV Cache 显存占用并防止驱动超时
     const chatOpts = {
       context_window_size: profile.contextWindowSize,
-      // Smaller prefill chunks = shorter individual GPU submissions, so the three.js frame can interleave while the
-      // prompt is being prefilled (one 1k-token chunk held the GPU ~260 ms and froze the VRM at send time).
-      ...(PERF_FLAGS.llmPrefillChunk > 0 ? { prefill_chunk_size: PERF_FLAGS.llmPrefillChunk } : {}),
     };
 
     try {
@@ -454,7 +425,7 @@ export async function getWebLLMEngine(opts?: {
         try { worker.terminate(); } catch {}
         thinClient?.dispose();
         thinClient = null;
-        const freshWorker = thin ? ensureThinClient().worker : new Worker(new URL('./llmWorker.ts', import.meta.url), { type: 'module' });
+        const freshWorker = ensureThinClient().worker;
         engineWorker = freshWorker;
         activeModelId = FALLBACK_LLM_MODEL;
         const engine = await create(freshWorker, FALLBACK_LLM_MODEL, chatOpts);

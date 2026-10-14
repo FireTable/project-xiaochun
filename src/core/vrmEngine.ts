@@ -4,7 +4,6 @@ import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
 import { VRM, VRMLoaderPlugin, VRMUtils, type VRMExpressionPresetName } from '@pixiv/three-vrm';
 // @pixiv/three-vrm inlines stock MToon in its bundle — load fork explicitly (pnpm override → packages/...)
 import { MToonMaterial, MToonMaterialLoaderPlugin } from '@pixiv/three-vrm-materials-mtoon';
-import { PERF_FLAGS } from '@/perfFlags';
 
 /** Give the event loop (rAF, hero warp, input) a turn between heavy VRM setup steps. */
 const yieldToMain = (): Promise<void> => {
@@ -1084,7 +1083,7 @@ export class VRMEngine {
   }
 
   /**
-   * Cold start only (PERF_FLAGS.asyncSceneInit): upload textures and link programs before the first frame, in small
+   * Cold start / outfit swap: upload textures and link programs before the first frame, in small
    * steps that yield to the event loop, so the first render is no longer one ~600ms synchronous task (texture uploads
    * + program links) that stalls the loading overlay's hero warp. Programs compile into the post-fx input target so
    * their cache keys (tone mapping / colour space) match the real RenderPass; compileAsync uses
@@ -1265,7 +1264,7 @@ export class VRMEngine {
   public setScene(theme: SceneThemeId, persist: boolean = true): void {
     // Live switch to beach3d: build it hidden and link its programs (KHR_parallel_shader_compile, yielding) while the
     // current scene keeps rendering, then switch. Its first render otherwise linked ~800 ms of shaders in one frame.
-    if (PERF_FLAGS.prewarmSceneSwitch && theme === 'beach3d' && !this._beachPrewarmed && this.renderer && this.animFrameId !== null) {
+    if (theme === 'beach3d' && !this._beachPrewarmed && this.renderer && this.animFrameId !== null) {
       this._pendingScene = theme;
       const group = this.beach3d.prepare();
       void this.prewarmGpu(group).finally(() => {
@@ -1734,7 +1733,7 @@ export class VRMEngine {
             return;
           }
 
-          const asyncInit = PERF_FLAGS.asyncSceneInit && !preserveMotion;
+          const asyncInit = !preserveMotion;
           if (asyncInit) await yieldToMain();
           applyVrmUtilsOptimizations(gltf.scene, vrm);
           if (asyncInit) await yieldToMain();
@@ -1803,7 +1802,7 @@ export class VRMEngine {
           if (preserveMotion && previousVrm) {
             // Outfit swap: upload the new model's textures and link its programs (yielding) while the old model keeps
             // animating, instead of inside the first renderSingleFrame after the atomic swap (~400–700 ms freeze).
-            if (PERF_FLAGS.asyncOutfitSwap) await this.prewarmGpu(vrm.scene);
+            await this.prewarmGpu(vrm.scene);
             // 1. 在交接瞬间抓取旧模型的最新姿态/时间戳/表情/惯性
             const swapState = this.captureAnimationState();
 
@@ -1904,7 +1903,7 @@ export class VRMEngine {
             const storedTheme = resolveInitialSceneTheme();
             this.setScene(storedTheme, false);
             // Cold start: upload textures / link programs in yielding steps before the first frame.
-            if (PERF_FLAGS.asyncSceneInit) await this.prewarmGpu();
+            await this.prewarmGpu();
             this.startAnimation();
             this.cinematicIntro(1100);
           } else if (this.controls) {
@@ -2372,7 +2371,7 @@ export class VRMEngine {
           if (preserveMotion && previousVrm) {
             // Outfit swap: upload the new model's textures and link its programs (yielding) while the old model keeps
             // animating, instead of inside the first renderSingleFrame after the atomic swap (~400–700 ms freeze).
-            if (PERF_FLAGS.asyncOutfitSwap) await this.prewarmGpu(vrm.scene);
+            await this.prewarmGpu(vrm.scene);
             // 1. 在交接瞬间抓取旧模型的最新姿态/时间戳/表情/惯性
             const swapState = this.captureAnimationState();
 
@@ -2462,7 +2461,7 @@ export class VRMEngine {
             const storedTheme = resolveInitialSceneTheme();
             this.setScene(storedTheme, false);
             // Cold start: upload textures / link programs in yielding steps before the first frame.
-            if (PERF_FLAGS.asyncSceneInit) await this.prewarmGpu();
+            await this.prewarmGpu();
             this.startAnimation();
             this.cinematicIntro(1100);
           } else if (this.controls) {
@@ -2793,7 +2792,7 @@ export class VRMEngine {
     preloadWebLLM();
     // new AudioContext() is a ~150 ms synchronous main-thread call (macOS CoreAudio); do it now, behind the loading
     // overlay, instead of mid-chat where it froze the VRM for a frame burst right as speech starts.
-    if (PERF_FLAGS.prewarmAudioContext) setTimeout(() => this.chatDirector.prewarmAudio(), 0); // own task, not stacked on VRM setup
+    setTimeout(() => this.chatDirector.prewarmAudio(), 0); // own task, not stacked on VRM setup
   }
 
   public releaseHeavyResources(): void {

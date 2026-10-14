@@ -5,9 +5,8 @@
 // source has the same aspect ratio, so the mask and coordinates fit both srcset candidates.
 // The caller keeps the <img> as the static fallback. The canvas fades in only after the first frame has drawn.
 
-import { canvasSizeFor, snapToPixel } from './pixelSnap';
+import { canvasSizeFor, placeCanvas, snapToPixel } from './pixelSnap';
 import { createWarpGL } from './warpGL';
-import { PERF_FLAGS } from '@/perfFlags';
 import { APP_CONFIG } from '@/config';
 import type { FromWorker, ToWorker } from './keyvisualWarp.worker';
 
@@ -68,7 +67,9 @@ export async function startKeyvisualWarp(
   const live = canvas.style.opacity === '1';
 
   const session = workerSessions.get(canvas);
-  if (session || (PERF_FLAGS.warpInWorker && canTransfer(canvas))) return startInWorker(img, canvas, host, maskSrc, session);
+  // Capability fallback (not a flag): WebViews without OffscreenCanvas/transferControlToOffscreen (older Safari /
+  // Tauri WKWebView) keep drawing on the main thread below.
+  if (session || canTransfer(canvas)) return startInWorker(img, canvas, host, maskSrc, session);
 
   const gl = canvas.getContext('webgl', { premultipliedAlpha: true, alpha: true, antialias: false, powerPreference: 'low-power' });
   if (!gl) return NOOP;
@@ -134,15 +135,16 @@ export async function startKeyvisualWarp(
     let uploaded = false;
     const resize = () => {
       snapToPixel(host);
-      const [w, h] = canvasSizeFor(host);
+      const [w, h, pad] = canvasSizeFor(host);
+      placeCanvas(canvas, w, pad);
       if (canvas.width === w && canvas.height === h) {
-        if (!uploaded) { W.viewport(w, h); uploadImg(w, h); setFade(); uploaded = true; }
+        if (!uploaded) { W.viewport(w, h, pad); uploadImg(w - 2 * pad, h); setFade(); uploaded = true; }
         return false;
       }
       canvas.width = w; // clears the drawing buffer, so the caller redraws in the same task
       canvas.height = h;
-      W.viewport(w, h);
-      uploadImg(w, h);
+      W.viewport(w, h, pad);
+      uploadImg(w - 2 * pad, h);
       uploaded = true;
       setFade();
       return true;
@@ -239,7 +241,7 @@ export async function startKeyvisualWarp(
   return handle;
 }
 
-// ── Worker path (PERF_FLAGS.warpInWorker) ────────────────────────────────────────────────────────────────────────
+// ── Worker path ────────────────────────────────────────────────────────────────────────
 // The canvas is transferred to a worker once (transferControlToOffscreen is one-shot), so a restart on the same
 // element (StrictMode, effect re-run) re-attaches to the live session instead of creating a new one. A dispose keeps
 // the worker for 250 ms for exactly that; after that it is terminated and the img restored.
@@ -295,9 +297,10 @@ async function startInWorker(
       await img.decode().catch(() => {});
       snapToPixel(host);
       size = canvasSizeFor(host);
+      placeCanvas(canvas, size[0], size[2]);
       const maskImg = await loadImage(maskSrc);
       const [bmp, maskBmp] = await Promise.all([
-        imgBitmap(img, size[0], size[1]),
+        imgBitmap(img, size[0] - 2 * size[2], size[1]),
         createImageBitmap(maskImg, { premultiplyAlpha: 'none' }),
       ]);
       if (disposed) { bmp.close(); maskBmp.close(); return NOOP; }
@@ -319,7 +322,7 @@ async function startInWorker(
       worker.onerror = () => { sess.failed = true; showImg(); };
       if (!timeOrigin) timeOrigin = performance.now();
       const init: ToWorker = {
-        type: 'init', canvas: off, img: bmp, mask: maskBmp, w: size[0], h: size[1], fade: fadeFor(),
+        type: 'init', canvas: off, img: bmp, mask: maskBmp, w: size[0], h: size[1], pad: size[2], fade: fadeFor(),
         startEpoch: performance.timeOrigin + timeOrigin, warm: performance.now() - lastAliveAt < WARM_MS,
         warp: APP_CONFIG.loading.warp,
       };
@@ -355,12 +358,13 @@ async function startInWorker(
   const onResize = () => {
     snapToPixel(host);
     const next = canvasSizeFor(host);
-    if (next[0] === size[0] && next[1] === size[1]) return;
+    placeCanvas(canvas, next[0], next[2]);
+    if (next[0] === size[0] && next[1] === size[1] && next[2] === size[2]) return;
     size = next;
     const id = ++sizing;
-    void imgBitmap(img, next[0], next[1]).then((bmp) => {
+    void imgBitmap(img, next[0] - 2 * next[2], next[1]).then((bmp) => {
       if (disposed || id !== sizing) { bmp.close(); return; }
-      send({ type: 'resize', w: next[0], h: next[1], img: bmp }, [bmp]);
+      send({ type: 'resize', w: next[0], h: next[1], pad: next[2], img: bmp }, [bmp]);
     }).catch(() => {});
   };
   if (typeof ResizeObserver !== 'undefined') {

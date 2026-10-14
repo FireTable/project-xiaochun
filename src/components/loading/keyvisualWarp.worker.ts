@@ -1,12 +1,12 @@
 /// <reference lib="webworker" />
-// OffscreenCanvas host for the key-visual warp (PERF_FLAGS.warpInWorker). Draws the same frames as the main-thread
+// OffscreenCanvas host for the key-visual warp. Draws the same frames as the main-thread
 // warp (shared warpGL.ts), so main-thread long tasks during boot (VRM parse, shader links, React commits) no longer
 // stall the hero. The main thread only flips opacities and forwards size / fade / run state.
 import { createWarpGL, type WarpGL, type LoadingWarpConfig } from './warpGL';
 
 export type ToWorker =
-  | { type: 'init'; canvas: OffscreenCanvas; img: ImageBitmap; mask: ImageBitmap; w: number; h: number; fade: [number, number]; startEpoch: number; warm: boolean; warp: LoadingWarpConfig }
-  | { type: 'resize'; w: number; h: number; img: ImageBitmap }
+  | { type: 'init'; canvas: OffscreenCanvas; img: ImageBitmap; mask: ImageBitmap; w: number; h: number; pad: number; fade: [number, number]; startEpoch: number; warm: boolean; warp: LoadingWarpConfig }
+  | { type: 'resize'; w: number; h: number; pad: number; img: ImageBitmap }
   | { type: 'fade'; fade: [number, number] }
   | { type: 'shown' }
   | { type: 'run'; run: boolean };
@@ -58,7 +58,7 @@ self.onmessage = (e: MessageEvent<ToWorker>) => {
         W = createWarpGL(gl, m.img, m.mask, m.warp);
         m.img.close();
         m.mask.close();
-        W.viewport(m.w, m.h);
+        W.viewport(m.w, m.h, m.pad);
         fade = m.fade;
         W.setFade(fade[0], fade[1], m.h);
         startEpoch = m.startEpoch;
@@ -72,7 +72,7 @@ self.onmessage = (e: MessageEvent<ToWorker>) => {
         if (!W || !canvas) { m.img.close(); break; }
         canvas.width = m.w;
         canvas.height = m.h;
-        W.viewport(m.w, m.h);
+        W.viewport(m.w, m.h, m.pad);
         W.upload(m.img);
         m.img.close();
         W.setFade(fade[0], fade[1], m.h);

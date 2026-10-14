@@ -17,9 +17,31 @@ export function snapToPixel(host: HTMLElement): void {
   host.style.translate = Math.abs(fx) + Math.abs(fy) > 0.01 ? `${-fx}px ${-fy}px` : '';
 }
 
-/** Canvas backing-store size for a canvas that fills `host`: untransformed layout size × min(DPR, 3). */
-export function canvasSizeFor(host: HTMLElement): [number, number] {
+/**
+ * Horizontal bleed of the warp canvas on each side, as a fraction of the image width. The skirt flare pushes the
+ * hem outward (up to ~skirt+flare px of the 991 px source at the canvas edge), and the hem's lower-left/right corners
+ * sit within ~35 px of the image edge, so a canvas exactly the image's size cut the flared hem off with a vertical
+ * straight edge. The canvas extends WARP_PAD beyond the img on both sides; the image itself still lands on the same
+ * device pixels as the <img> (whole-pixel bleed), so the swap does not jump. Must cover the max outward flare.
+ */
+export const WARP_PAD = 0.1;
+
+/**
+ * Canvas backing-store size for the warp canvas over `host`: untransformed layout size × min(DPR, 3), plus `pad`
+ * whole device pixels of bleed on the left and right (the image occupies [pad, w - pad]).
+ */
+export function canvasSizeFor(host: HTMLElement): [number, number, number] {
   const d = Math.min(window.devicePixelRatio || 1, 3);
   const cs = getComputedStyle(host);
-  return [Math.max(1, Math.round(parseFloat(cs.width) * d)), Math.max(1, Math.round(parseFloat(cs.height) * d))];
+  const iw = Math.max(1, Math.round(parseFloat(cs.width) * d)), h = Math.max(1, Math.round(parseFloat(cs.height) * d));
+  const pad = Math.round(iw * WARP_PAD);
+  return [iw + 2 * pad, h, pad];
+}
+
+/** Place the canvas so its middle `w - 2*pad` device pixels coincide with the host (= img) box. */
+export function placeCanvas(canvas: HTMLCanvasElement, w: number, pad: number): void {
+  const d = Math.min(window.devicePixelRatio || 1, 3);
+  const left = `${-pad / d}px`, width = `${w / d}px`;
+  if (canvas.style.left !== left) canvas.style.left = left;
+  if (canvas.style.width !== width) canvas.style.width = width;
 }
