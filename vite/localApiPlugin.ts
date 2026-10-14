@@ -28,8 +28,9 @@ async function streamNativeEdgeTTSNode(
 ): Promise<void> {
   const secMsGec = await makeSecMsGec();
   const connId = makeConnectionId();
-  const url = new URL(EDGE_TTS_CONSTANTS.SYNTHESIS_WSS_URL);
-  url.searchParams.set('TrustedClientToken', EDGE_TTS_CONSTANTS.TRUSTED_CLIENT_TOKEN);
+  // 2026-10 起旧 host 对 v1 token 握手 403，改走新 host（同一 token 作 Ocp-Apim-Subscription-Key）
+  const url = new URL(EDGE_TTS_CONSTANTS.SYNTHESIS_URL_V2.replace(/^https:/, 'wss:'));
+  url.searchParams.set('Ocp-Apim-Subscription-Key', EDGE_TTS_CONSTANTS.TRUSTED_CLIENT_TOKEN);
   url.searchParams.set('Sec-MS-GEC', secMsGec);
   url.searchParams.set('Sec-MS-GEC-Version', EDGE_TTS_CONSTANTS.SEC_MS_GEC_VERSION);
   url.searchParams.set('ConnectionId', connId);

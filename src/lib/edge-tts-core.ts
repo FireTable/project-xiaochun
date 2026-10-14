@@ -14,6 +14,8 @@ export const EDGE_TTS_CONSTANTS = {
     CHROMIUM_MAJOR_VERSION: '143',
     SEC_MS_GEC_VERSION: '1-143.0.3650.75',
     SYNTHESIS_URL: 'https://speech.platform.bing.com/consumer/speech/synthesize/readaloud/edge/v1',
+    // 2026-10 起旧 host 对 v1 Sec-MS-GEC 握手一律 403（rany2/edge-tts#490）；新 host 仍接受 v1 token。
+    SYNTHESIS_URL_V2: 'https://api.msedgeservices.com/tts/cognitiveservices/websocket/v1',
     SYNTHESIS_WSS_URL: 'wss://speech.platform.bing.com/consumer/speech/synthesize/readaloud/edge/v1',
     DEFAULT_OUTPUT_FORMAT: 'audio-24khz-48kbitrate-mono-mp3',
     COMMON_CORS,

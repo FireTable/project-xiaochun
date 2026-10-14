@@ -50,6 +50,7 @@ function executeSingleFlight(
   voice: string,
   pitch: string,
   flightSignal: AbortSignal,
+  endpoint: 'v2' | 'legacy' = 'v2',
 ): Promise<SingleFlightResult> {
   return new Promise<SingleFlightResult>(async (resolve, reject) => {
     let socket: WebSocket | null = null;
@@ -79,7 +80,7 @@ function executeSingleFlight(
         cleanup();
         reject(new Error('Timeout waiting for first audio chunk'));
       }
-    }, 4500);
+    }, 3500);
 
     const onAbort = () => {
       clearTimeout(timeoutId);
@@ -91,8 +92,12 @@ function executeSingleFlight(
     try {
       const secMsGec = await makeSecMsGec();
       const connId = makeConnectionId();
-      const url = new URL(EDGE_TTS_CONSTANTS.SYNTHESIS_URL);
-      url.searchParams.set('TrustedClientToken', EDGE_TTS_CONSTANTS.TRUSTED_CLIENT_TOKEN);
+      // v2: api.msedgeservices.com + Ocp-Apim-Subscription-Key（同一 token）；legacy: 旧 bing host
+      const url = new URL(endpoint === 'v2' ? EDGE_TTS_CONSTANTS.SYNTHESIS_URL_V2 : EDGE_TTS_CONSTANTS.SYNTHESIS_URL);
+      url.searchParams.set(
+        endpoint === 'v2' ? 'Ocp-Apim-Subscription-Key' : 'TrustedClientToken',
+        EDGE_TTS_CONSTANTS.TRUSTED_CLIENT_TOKEN,
+      );
       url.searchParams.set('Sec-MS-GEC', secMsGec);
       url.searchParams.set('Sec-MS-GEC-Version', EDGE_TTS_CONSTANTS.SEC_MS_GEC_VERSION);
       url.searchParams.set('ConnectionId', connId);
@@ -264,69 +269,76 @@ function executeSingleFlight(
 }
 
 /**
- * Hedged Dual-Flight execution:
- * 启动通道 1；若 300ms 内未收到首包音频或出错，立即并发拉起通道 2。
- * 两路通过 Promise.any 进行竞速，谁先就绪谁胜出，另一路立即被 abort 取消。
+ * 解包 Promise.any 抛出的 AggregateError，取出底层真实错误。
+ *
+ * Promise.any 全部 reject 时抛 AggregateError，其 .message 是字面量
+ * "All promises were rejected" —— 会把真实原因（如 "Handshake failed: HTTP 403"）
+ * 完全吞掉。必须遍历 .errors[] 还原真实 message，否则排障时只能看到
+ * 一句无信息量的文案。这里保留最有诊断价值的那条：优先带 HTTP 状态码 /
+ * 超时语义的消息，其次取最后一条；全部丢失时才退回原始 message。
  */
-async function hedgeFlightRound(
+function unwrapAggregateError(err: unknown): Error {
+  if (!(err instanceof AggregateError) || !Array.isArray(err.errors) || err.errors.length === 0) {
+    return err instanceof Error ? err : new Error(String(err));
+  }
+
+  const inner = err.errors.map((e) => (e instanceof Error ? e : new Error(String(e))));
+
+  // 有诊断价值的错误优先：握手 HTTP 状态码 / 上游拒绝 / 首包超时
+  const meaningful = inner.find(
+    (e) =>
+      /HTTP \d{3}/.test(e.message) ||
+      /Upstream rejected/i.test(e.message) ||
+      /Timeout waiting for first audio chunk/i.test(e.message),
+  );
+  const picked = meaningful ?? inner[inner.length - 1];
+
+  return new Error(picked.message, { cause: err });
+}
+
+/**
+ * 单发一轮：先走新 host（v2）；若握手 403 则同轮回退旧 host 一次。
+ * 不再并发双发——新 host 对突发更敏感（429），双发只会放大限流。
+ */
+async function singleFlightRound(
   text: string,
   voice: string,
   pitch: string,
   roundSignal: AbortSignal,
 ): Promise<SingleFlightResult> {
-  const ctrl1 = new AbortController();
-  const ctrl2 = new AbortController();
-
-  const onRoundAbort = () => {
-    ctrl1.abort();
-    ctrl2.abort();
-  };
-  roundSignal.addEventListener('abort', onRoundAbort, { once: true });
-
-  const p1 = executeSingleFlight(text, voice, pitch, ctrl1.signal);
-
-  const hedgeDelay = new Promise<void>((r) => setTimeout(r, 300));
-  const p2Starter = Promise.race([
-    hedgeDelay,
-    p1.then(() => {}, () => {}),
-  ]).then(() => {
-    if (roundSignal.aborted) throw new Error('Round aborted');
-    return executeSingleFlight(text, voice, pitch, ctrl2.signal);
-  });
-
   try {
-    const winner = await Promise.any([
-      p1.then((res) => ({ res, flight: 1 })),
-      p2Starter.then((p) => p).then((res) => ({ res, flight: 2 })),
-    ]);
-
-    if (winner.flight === 1) {
-      ctrl2.abort();
-    } else {
-      ctrl1.abort();
-    }
-
-    return winner.res;
+    return await executeSingleFlight(text, voice, pitch, roundSignal, 'v2');
   } catch (err) {
-    ctrl1.abort();
-    ctrl2.abort();
-    throw err;
-  } finally {
-    roundSignal.removeEventListener('abort', onRoundAbort);
+    const e = unwrapAggregateError(err);
+    if (/HTTP 403/.test(e.message) && !roundSignal.aborted) {
+      console.warn('[TTS] v2 host 403, falling back to legacy host');
+      try {
+        return await executeSingleFlight(text, voice, pitch, roundSignal, 'legacy');
+      } catch (legacyErr) {
+        const le = unwrapAggregateError(legacyErr);
+        throw new Error(`v2: ${e.message}; legacy: ${le.message}`, { cause: legacyErr });
+      }
+    }
+    throw e;
   }
 }
 
 /**
- * 多轮对冲调度器：最多执行 4 轮对冲竞速，带指数退避与 Jitter
+ * 顺序重试调度器：每轮单发；429 等 3s；其余短退避。
+ * 总预算 ~7s，保证客户端 8s withTimeout 仍能拿到 502 + reasons。
  */
-async function synthesizeWithHedgedRetry(
+async function synthesizeWithRetry(
   text: string,
   voice: string,
   pitch: string,
   clientSignal: AbortSignal,
-  maxRounds = 4,
+  maxRounds = 3,
+  budgetMs = 7000,
 ): Promise<SingleFlightResult> {
   let lastError: Error | null = null;
+  const seenMessages: string[] = [];
+  const startedAt = Date.now();
+  let roundsRun = 0;
 
   for (let round = 1; round <= maxRounds; round++) {
     if (clientSignal.aborted) {
@@ -334,27 +346,36 @@ async function synthesizeWithHedgedRetry(
     }
 
     if (round > 1) {
-      const backoffMs = 150 * (round - 1) + Math.floor(Math.random() * 200);
-      console.warn(`[TTS] Hedged Round #${round} retry in ${backoffMs}ms...`);
+      const rateLimited = !!lastError && /HTTP 429/.test(lastError.message);
+      const backoffMs = rateLimited ? 3000 : 200 * (round - 1) + Math.floor(Math.random() * 200);
+      // 等待 + 一次首包超时（3.5s）会超预算就不再重试
+      if (Date.now() - startedAt + backoffMs + 3500 > budgetMs) break;
+      console.warn(`[TTS] Round #${round} retry in ${backoffMs}ms...`);
       await new Promise((r) => setTimeout(r, backoffMs));
     }
 
     const roundCtrl = new AbortController();
     const onClientAbort = () => roundCtrl.abort();
     clientSignal.addEventListener('abort', onClientAbort, { once: true });
+    roundsRun = round;
 
     try {
-      const result = await hedgeFlightRound(text, voice, pitch, roundCtrl.signal);
-      return result;
+      return await singleFlightRound(text, voice, pitch, roundCtrl.signal);
     } catch (err) {
       lastError = err instanceof Error ? err : new Error(String(err));
-      console.warn(`[TTS] Hedged Round #${round} failed:`, lastError.message);
+      if (!seenMessages.includes(lastError.message)) {
+        seenMessages.push(lastError.message);
+      }
+      console.warn(`[TTS] Round #${round} failed:`, lastError.message);
     } finally {
       clientSignal.removeEventListener('abort', onClientAbort);
     }
   }
 
-  throw lastError ?? new Error('Failed to synthesize audio after hedged attempts');
+  const root = lastError ?? new Error('Failed to synthesize audio');
+  const error = new Error(`${root.message} (after ${roundsRun} attempts)`, { cause: root });
+  (error as Error & { reasons?: string[] }).reasons = seenMessages;
+  throw error;
 }
 
 async function handleTTS(request: Request): Promise<Response> {
@@ -411,12 +432,12 @@ async function handleTTS(request: Request): Promise<Response> {
 
     // 2. 双通道并发对冲竞速合成
     const abortController = new AbortController();
-    const { stream, collectedChunks, onFinished } = await synthesizeWithHedgedRetry(
+    const { stream, collectedChunks, onFinished } = await synthesizeWithRetry(
       cleanText,
       voice,
       pitch,
       abortController.signal,
-      4,
+      3,
     );
 
     // 3. 流完成后异步写入边缘缓存，供后续并发高频复用
@@ -456,8 +477,18 @@ async function handleTTS(request: Request): Promise<Response> {
     });
   } catch (e: unknown) {
     const msg = e instanceof Error ? e.message : String(e);
-    console.error('[TTS Handle Error]:', msg);
-    return new Response(JSON.stringify({ error: msg }), {
+    const reasons = e instanceof Error ? (e as Error & { reasons?: string[] }).reasons : undefined;
+    console.error('[TTS Handle Error]:', msg, reasons ? { reasons } : '');
+
+    // 返回真实原因而非 "All promises were rejected"。
+    // reason 取真实根因（已由 unwrapAggregateError 解包），attempts 说明重试轮数，
+    // 两者分开是为了让调用方既能读 error 字段，也能拿到轮次这类上下文。
+    const body: Record<string, unknown> = { error: msg };
+    if (reasons && reasons.length > 0) {
+      body.reasons = reasons;
+    }
+
+    return new Response(JSON.stringify(body), {
       status: 502,
       headers: { 'Content-Type': 'application/json', ...EDGE_TTS_CONSTANTS.COMMON_CORS },
     });
