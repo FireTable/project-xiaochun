@@ -1,7 +1,7 @@
 {
   "$schema": "../node_modules/@tauri-apps/cli/config.schema.json",
   "productName": "Project XiaoChun",
-  "version": "0.1.31",
+  "version": "0.1.32",
   "identifier": "tech.firetable.xiaochun",
   "build": {
     "frontendDist": "../dist/client",
