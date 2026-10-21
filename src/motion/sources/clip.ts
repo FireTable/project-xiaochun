@@ -2,7 +2,7 @@ import * as THREE from 'three';
 import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
 import { VRMAnimationLoaderPlugin, createVRMAnimationClip } from '@pixiv/three-vrm-animation';
 import type { VRM } from '@pixiv/three-vrm';
-import { retargetClip } from '../vrmaRetarget';
+import { retargetClip, makeClipSeamless } from '../vrmaRetarget';
 import { PIPELINE_BONES, type MotionBoneMask } from '../pipeline/poseBuffer';
 import { DEFAULT_MOTION_TRAITS, type MotionTraits } from '../pipeline/types';
 
@@ -129,6 +129,9 @@ export class UniversalMotionController {
 
     this.currentOptions = options;
     const isLoop = !!options.loop;
+    if (isLoop) {
+      makeClipSeamless(clip);
+    }
     const timeScale = options.timeScale ?? 1.0;
     this.fadeDuration = Math.max(0.26, options.fadeDuration ?? 0.75);
     this.clipDuration = clip.duration;

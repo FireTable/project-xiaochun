@@ -745,7 +745,7 @@ export function startEmbedBridge(opts: EmbedBridgeOptions): EmbedBridge {
             loop: p.loop === true,
             fadeDuration: clamp(p.fadeDuration, FADE_RANGE, 0.75),
             timeScale: clamp(p.timeScale, TIMESCALE_RANGE, 1),
-            mask: p.mask === 'upperBody' ? 'upperBody' : 'all',
+            mask: p.mask === 'upperBody' || p.name === 'thinking' ? 'upperBody' : 'all',
           });
           break;
         }
