@@ -35,6 +35,7 @@ export const XC_HOST_TO_FRAME = [
   'xc.setConfig',
   'xc.mic',
   'xc.transport',
+  'xc.clock',
   'xc.pause',
   'xc.resume',
   'xc.destroy',
@@ -77,6 +78,7 @@ export const XC_IMPLEMENTED_COMMANDS = [
   'xc.setConfig',
   'xc.mic',
   'xc.transport',
+  'xc.clock',
   'xc.pause',
   'xc.resume',
   'xc.destroy',
@@ -101,6 +103,7 @@ export const XC_PROTOCOL_MAPPING = [
   { xc: 'xc.audio', note: 'source 为 ArrayBuffer / Blob', action: 'audio', url: null },
   { xc: 'xc.audio.chunk / xc.audio.end', note: '流式 PCM', action: 'audio', url: null },
   { xc: 'xc.transport', note: '改宿主音频倍速 / 音量, 无 deep link', action: null, url: null },
+  { xc: 'xc.clock', note: '宿主音频播放位置 (hostClock), 无 deep link', action: null, url: null },
 ] as const;
 
 export type XcErrorCode =
@@ -392,6 +395,12 @@ export interface XcAudioOptions {
    * 改正在播的音量用 xc.transport。
    */
   volume?: number;
+  /**
+   * 宿主自己播放这段音频 (配合 audible:false), 并用 xc.clock 报告播放位置。默认 false。
+   * true: 跳过思考动作和起步等待, 首窗动作一好就发 utterance start; 动作和口型都跟宿主时钟走 (seek / 暂停 / 卡顿都跟得上),
+   * 没收到 xc.clock 时从 start 起按倍速自走。需要 capabilities.audio.hostClock, 旧版 /embed 忽略这个字段。
+   */
+  hostClock?: boolean;
 }
 
 /**
@@ -512,6 +521,21 @@ export interface XcTransportPayload {
   volume?: number;
 }
 
+/**
+ * xc.clock — 宿主音频的当前位置 (配合 xc.audio hostClock:true)。约 4 次/秒, 以及 play / pause / seeked / waiting 时各发一次。
+ * 旧版 /embed 没有 capabilities.audio.hostClock, 会回 unsupported; SDK 的 syncClock 在那种情况下不发。
+ */
+export interface XcClockPayload {
+  /** 秒, 相对这次 xc.audio 音频的开头。 */
+  time: number;
+  /** 宿主音频此刻在走 (false = 暂停 / 卡顿缓冲)。 */
+  playing: boolean;
+  /** 宿主当前倍速 (可选, 0.25~3)。 */
+  playbackRate?: number;
+  /** 这是一次跳转: 动作播放头直接跳过去, 不限速追赶。 */
+  seek?: boolean;
+}
+
 /* ───────────── iframe → 宿主 payload ───────────── */
 
 export interface XcReadyPayload {
@@ -531,6 +555,8 @@ export interface XcReadyPayload {
       playbackRate?: { min: number; max: number };
       /** 音量范围。旧版没有。 */
       volume?: { min: number; max: number };
+      /** 支持 xc.audio hostClock + xc.clock。旧版没有。 */
+      hostClock?: boolean;
     };
     /** iframe 内 `self.crossOriginIsolated` (true = 可用 SharedArrayBuffer / 多线程 wasm)。旧版 /embed 没有这个字段。仅诊断用。 */
     crossOriginIsolated?: boolean;
@@ -696,6 +722,7 @@ export interface XcHostPayloadMap {
   'xc.setConfig': XcConfig;
   'xc.mic': XcMicPayload;
   'xc.transport': XcTransportPayload;
+  'xc.clock': XcClockPayload;
   'xc.pause': undefined;
   'xc.resume': undefined;
   'xc.destroy': undefined;

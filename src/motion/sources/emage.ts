@@ -204,6 +204,8 @@ export class EmagePlayer {
   private externalClock: (() => number) | null = null;
   /** 上一帧外部时钟的秒数。用来跟倍速, 而不是把追赶上限锁死在 1 倍。换时钟时清掉。 */
   private prevExternalClockT = -1;
+  /** 下一帧直接跳到外部时钟的位置 (宿主 seek), 不走限速追赶。 */
+  private snapToClock = false;
   private audio: HTMLAudioElement | null = null;
   private audioUrl: string | null = null;
   private cachedF0 = -1;
@@ -343,6 +345,12 @@ export class EmagePlayer {
   clearExternalClock(): void {
     this.externalClock = null;
     this.prevExternalClockT = -1;
+    this.snapToClock = false;
+  }
+
+  /** 宿主 seek 了: 下一帧播放头直接跳到时钟位置。 */
+  snapToExternalClock(): void {
+    this.snapToClock = true;
   }
 
   getIdleWeight(): number {
@@ -1069,7 +1077,11 @@ export class EmagePlayer {
         // 绝对音频时钟 → 帧：streaming 下 duration 会随 chunk 增长，用 t*fps 更稳
         const fps = this.fps > 0 ? this.fps : FPS;
         const target = Math.min(this.frameCount - 1, Math.max(0, t * fps));
-        if (this.streamingMotionActive) {
+        if (this.snapToClock) {
+          this.snapToClock = false;
+          this.prevExternalClockT = t;
+          this.playhead = target;
+        } else if (this.streamingMotionActive) {
           // 跟时钟自己的步长走, 倍速高于 1 时动作才追得上。单帧仍最多 0.1s, 晚到的 chunk 不会把姿态抽过去。
           const clockStep = this.prevExternalClockT >= 0 ? Math.max(0, t - this.prevExternalClockT) : delta;
           this.prevExternalClockT = t;

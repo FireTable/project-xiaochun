@@ -347,6 +347,14 @@ export interface XiaochunInstance {
   setPlaybackRate(rate: number): void;
   /** 改宿主音频音量 (0~1)。audible:false 时扬声器仍是 0, 这个值留到下次出声。 */
   setVolume(volume: number): void;
+  /**
+   * 报告宿主音频的播放位置, 给 speakAudio({ hostClock: true }) 那一句用 (time = 相对那段音频开头的秒数)。
+   * 约 4 次/秒, 以及 play / pause / seeked / waiting 时各调一次; seek:true 让动作直接跳过去。
+   * 返回 false = 这个 /embed 不支持 (握手里没有 capabilities.audio.hostClock, 或还没握手), 什么也没发。
+   */
+  syncClock(state: { time: number; playing: boolean; playbackRate?: number; seek?: boolean }): boolean;
+  /** /embed 支持 hostClock + xc.clock (握手后才知道; 握手前为 false)。 */
+  supportsHostClock(): boolean;
   destroy(): void;
   on<K extends keyof XiaochunEvents>(event: K, cb: (payload: XiaochunEvents[K]) => void): () => void;
 }
@@ -648,7 +656,7 @@ export function createXiaochun(options: XiaochunOptions): XiaochunInstance {
         if (!started) {
           started = true;
           body.text = rest.text; body.motion = rest.motion; body.lipsync = rest.lipsync;
-          body.audible = rest.audible; body.playbackRate = rest.playbackRate; body.volume = rest.volume;
+          body.audible = rest.audible; body.playbackRate = rest.playbackRate; body.volume = rest.volume; body.hostClock = rest.hostClock;
           done = send('xc.audio.chunk', body, true, [buf], id);
           bindAbort(signal, id);
         } else {
@@ -1226,6 +1234,18 @@ export function createXiaochun(options: XiaochunOptions): XiaochunInstance {
       if (destroyed || typeof rate !== 'number' || !Number.isFinite(rate)) return;
       postToFrame('xc.transport', { playbackRate: rate });
     },
+    syncClock(state) {
+      if (destroyed || !port || !caps?.audio?.hostClock) return false;
+      if (!state || typeof state.time !== 'number' || !Number.isFinite(state.time)) return false;
+      postToFrame('xc.clock', {
+        time: state.time,
+        playing: state.playing === true,
+        playbackRate: state.playbackRate,
+        seek: state.seek === true || undefined,
+      });
+      return true;
+    },
+    supportsHostClock: () => !destroyed && !!caps?.audio?.hostClock,
     setVolume(volume) {
       if (destroyed || typeof volume !== 'number' || !Number.isFinite(volume)) return;
       postToFrame('xc.transport', { volume });

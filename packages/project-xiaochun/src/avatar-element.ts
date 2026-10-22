@@ -114,6 +114,8 @@ export interface XiaochunAvatarElement extends HTMLElement {
   speakAudioStream(opts: XiaochunAudioOptions & { sampleRate: number }): XiaochunAudioStream;
   setPlaybackRate(rate: number): void;
   setVolume(volume: number): void;
+  syncClock(state: { time: number; playing: boolean; playbackRate?: number; seek?: boolean }): boolean;
+  supportsHostClock(): boolean;
   motion(m: XcMotionPayload | string): Promise<void>;
   expression(name: XcExpressionPayload['name']): Promise<void>;
   /** 换内置服装 (串行 + last-wins, 见 XiaochunInstance.setOutfit)。 */
@@ -248,6 +250,8 @@ function createElementClass(): CustomElementConstructor {
     }
     setPlaybackRate(rate: number): void { this.client?.setPlaybackRate(rate); }
     setVolume(volume: number): void { this.client?.setVolume(volume); }
+    syncClock(state: { time: number; playing: boolean; playbackRate?: number; seek?: boolean }): boolean { return this.client?.syncClock(state) ?? false; }
+    supportsHostClock(): boolean { return this.client?.supportsHostClock() ?? false; }
     motion(m: XcMotionPayload | string): Promise<void> { return this.requireClient().motion(m); }
     expression(name: XcExpressionPayload['name']): Promise<void> { return this.requireClient().expression(name); }
     setOutfit(id: string): Promise<void> { return this.requireClient().setOutfit(id); }

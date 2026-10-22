@@ -46,6 +46,7 @@ import {
   type XcAudioPayload,
   type XcConfig,
   type XcTransportPayload,
+  type XcClockPayload,
   type XcErrorCode,
   type XcEnvelope,
   type XcFrameMessageType,
@@ -296,6 +297,7 @@ export function startEmbedBridge(opts: EmbedBridgeOptions): EmbedBridge {
             maxSeconds: HOST_AUDIO.maxSec,
             playbackRate: { min: HOST_AUDIO.minPlaybackRate, max: HOST_AUDIO.maxPlaybackRate },
             volume: { min: HOST_AUDIO.minVolume, max: HOST_AUDIO.maxVolume },
+            hostClock: true,
           },
           crossOriginIsolated: typeof self !== 'undefined' && self.crossOriginIsolated === true,
           outfits: listOutfits(addons),
@@ -670,6 +672,7 @@ export function startEmbedBridge(opts: EmbedBridgeOptions): EmbedBridge {
             payload: {
               source: ap.source, format: ap.format, mimeType: ap.mimeType, sampleRate: ap.sampleRate, channels: ap.channels,
               text, motion: ap.motion, lipsync: ap.lipsync, audible: ap.audible, playbackRate: ap.playbackRate, volume: ap.volume,
+              hostClock: ap.hostClock === true,
             },
           }, text, 'xc.audio');
           break;
@@ -700,7 +703,7 @@ export function startEmbedBridge(opts: EmbedBridgeOptions): EmbedBridge {
               action: 'audio',
               payload: {
                 text, motion: cp.motion, lipsync: cp.lipsync, audible: cp.audible,
-                playbackRate: cp.playbackRate, volume: cp.volume,
+                playbackRate: cp.playbackRate, volume: cp.volume, hostClock: cp.hostClock === true,
                 stream: { sampleRate, chunks: q },
               },
             }, text, 'xc.audio.chunk').finally(() => {
@@ -800,6 +803,12 @@ export function startEmbedBridge(opts: EmbedBridgeOptions): EmbedBridge {
         case 'xc.transport': {
           const tp = p as unknown as XcTransportPayload;
           vrmEngine.setTransport({ playbackRate: tp.playbackRate, volume: tp.volume });
+          break;
+        }
+        case 'xc.clock': {
+          const cp = p as unknown as XcClockPayload;
+          if (!cp || typeof cp.time !== 'number' || !Number.isFinite(cp.time)) throw new CmdError('bad_request', 'xc.clock needs a finite time');
+          vrmEngine.setHostClock({ time: cp.time, playing: cp.playing === true, playbackRate: cp.playbackRate, seek: cp.seek === true });
           break;
         }
         case 'xc.pause':

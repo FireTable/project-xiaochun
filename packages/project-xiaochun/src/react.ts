@@ -220,6 +220,10 @@ export interface XiaochunHandle {
   setPlaybackRate(rate: number): void;
   /** 改宿主音频音量 (0~1)。见 XiaochunInstance.setVolume。 */
   setVolume(volume: number): void;
+  /** 报告宿主音频播放位置 (speakAudio hostClock)。见 XiaochunInstance.syncClock。 */
+  syncClock(state: { time: number; playing: boolean; playbackRate?: number; seek?: boolean }): boolean;
+  /** 见 XiaochunInstance.supportsHostClock。 */
+  supportsHostClock(): boolean;
   activate(): void;
   destroy(): void;
   /** 模型加载完成时 resolve。 */
@@ -268,6 +272,8 @@ function XiaochunInner(props: XiaochunProps, ref: ForwardedRef<XiaochunHandle>):
       resume: () => c()?.resume(),
       setPlaybackRate: (rate) => c()?.setPlaybackRate(rate),
       setVolume: (volume) => c()?.setVolume(volume),
+      syncClock: (state) => c()?.syncClock(state) ?? false,
+      supportsHostClock: () => c()?.supportsHostClock() ?? false,
       activate: () => c()?.activate(),
       destroy: () => c()?.destroy(),
       get ready() { return c()?.ready ?? reject<void>(); },

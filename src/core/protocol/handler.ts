@@ -43,6 +43,7 @@ async function runAudio(payload: AudioPayload, hooks?: ProtocolRunHooks): Promis
     audible: payload.audible !== false,
     playbackRate: payload.playbackRate,
     volume: payload.volume,
+    hostClock: payload.hostClock === true,
     text: text || undefined,
     onAudibleStart: () => hooks?.onStart?.({ kind: 'audio', text }),
   });

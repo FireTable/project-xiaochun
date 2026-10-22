@@ -389,6 +389,21 @@ export class ChatDirector {
   /** 宿主音频可关闭口型 (lipsync:false)。stop() 会复位, 所以 say/speakText 路径永远是开的。 */
   private lipsyncDisabled = false;
 
+  /**
+   * 宿主时钟模式 (speakAudio opts.hostClock): 声音由宿主页面播放, 动作与口型都跟宿主发来的 xc.clock,
+   * 不再跟本地 AudioBufferSource。没收到 xc.clock 时从开口那一刻按倍速自走。
+   */
+  private hostClockMode = false;
+  /** 这次 speakAudio 开始后是否收到过宿主时钟。 */
+  private hostClockSeen = false;
+  private hostT0 = 0;
+  private hostAnchorMs = 0;
+  private hostPlaying = true;
+  /** 宿主时钟模式下已收到的整段单声道 PCM (原采样率), 口型按宿主时间直接从这里算 RMS。 */
+  private hostPcm: Float32Array = new Float32Array(0);
+  private hostPcmLen = 0;
+  private hostPcmRate = 16000;
+
   bindPipeline(pipeline: MotionPipeline): void {
     this.pipeline = pipeline;
   }
@@ -577,11 +592,21 @@ export class ChatDirector {
       segmentIndex?: number,
       totalSegments?: number,
     ) => void,
-    opts: { motion?: boolean; lipsync?: boolean; audible?: boolean; text?: string; playbackRate?: number; volume?: number; onAudibleStart?: () => void } = {},
+    opts: { motion?: boolean; lipsync?: boolean; audible?: boolean; text?: string; playbackRate?: number; volume?: number; hostClock?: boolean; onAudibleStart?: () => void } = {},
   ): Promise<void> {
     const useMotion = opts.motion !== false;
+    const hostClock = opts.hostClock === true;
     const session = await this.handoff();
     if (session === null) return;
+    if (hostClock) {
+      this.hostClockMode = true;
+      this.hostClockSeen = false;
+      this.hostPlaying = true;
+      this.hostT0 = 0;
+      this.hostAnchorMs = performance.now();
+      this.hostPcmLen = 0;
+      this.hostPcmRate = input.sampleRate;
+    }
     this.hostClockStart = opts.onAudibleStart ?? null;
     this.followTransport = true;
     const rate = clampPlaybackRate(opts.playbackRate);
@@ -595,7 +620,8 @@ export class ChatDirector {
     this.emage = emage;
     this.lipsyncDisabled = opts.lipsync === false;
 
-    if (useMotion) {
+    // 宿主时钟模式: 宿主等我们开口才出声, 思考动作和错峰等待只会推迟开口, 直接跳过。
+    if (useMotion && !hostClock) {
       await this.playThinking(vrm, player);
       const isMobile = typeof navigator !== 'undefined' && /Mobi|Android|iPhone|iPad/i.test(navigator.userAgent);
       await new Promise((r) => setTimeout(r, isMobile ? 380 : 50));
@@ -603,7 +629,8 @@ export class ChatDirector {
     if (gone()) return;
 
     this.ctx = this.ctx ?? new AudioContext();
-    if (this.ctx.state === 'suspended') {
+    // 宿主时钟模式不出声, 只用 ctx 建 buffer, suspended 也没关系。
+    if (!hostClock && this.ctx.state === 'suspended') {
       // 没有用户激活 (且宿主 iframe 没有 allow="autoplay") 时 resume() 会一直 pending: 给个明确的错误而不是静默挂死。
       const resumed = await Promise.race([
         this.ctx.resume().then(() => true),
@@ -659,6 +686,7 @@ export class ChatDirector {
         motion = await emage.checkpointAudioStream();
       }
       if (gone()) return;
+      if (hostClock) this.appendHostPcm(slice);
       const buf = ctx.createBuffer(1, slice.length, sr);
       buf.copyToChannel(slice as Float32Array<ArrayBuffer>, 0);
       segmentCount++;
@@ -698,7 +726,10 @@ export class ChatDirector {
 
     let timeline = 0;
     let played = 0;
-    while (!gone()) {
+    if (hostClock && !gone() && readyQueue.length > 0) {
+      await this.runHostClockConsumer(readyQueue, notifyReady, () => producerFinished, gone, emage, useMotion, opts.text, status);
+    }
+    while (!hostClock && !gone()) {
       if (readyQueue.length === 0) {
         if (producerFinished) break;
         // 下一片还在推理: 保持 EMAGE 末姿 (streamingMotionActive) 等待, 不进 SpeakIdle (避免姿态回弹)
@@ -1125,7 +1156,10 @@ export class ChatDirector {
   tick(vrm: VRM, _player: VRMAMotionPlayer): void {
     if (!this.ctx || this.stopped) return;
 
-    if (this.audioBuffer && !this.audioDone && this.analyser && this.analyserBuf && !this.lipsyncDisabled) {
+    if (this.hostClockMode && this.speaking && !this.audioDone && !this.lipsyncDisabled) {
+      const mouth = this.hostPlaying ? this.hostMouthAt(this.hostNow()) : 0;
+      if (vrm.expressionManager) vrm.expressionManager.setValue('aa', mouth);
+    } else if (this.audioBuffer && !this.audioDone && this.analyser && this.analyserBuf && !this.lipsyncDisabled) {
       this.analyser.getByteTimeDomainData(this.analyserBuf as any);
       let sum = 0;
       for (let i = 0; i < this.analyserBuf.length; i++) {
@@ -1151,6 +1185,117 @@ export class ChatDirector {
     }
   }
 
+  /** 宿主时钟当前的内容时间 (秒, 相对这次 speakAudio 的音频开头)。 */
+  private hostNow(): number {
+    if (!this.hostPlaying) return this.hostT0;
+    return Math.max(0, this.hostT0 + ((performance.now() - this.hostAnchorMs) / 1000) * this.playbackRate);
+  }
+
+  private appendHostPcm(slice: Float32Array): void {
+    const need = this.hostPcmLen + slice.length;
+    if (need > this.hostPcm.length) {
+      const next = new Float32Array(Math.max(need, this.hostPcm.length * 2, 16000));
+      next.set(this.hostPcm.subarray(0, this.hostPcmLen));
+      this.hostPcm = next;
+    }
+    this.hostPcm.set(slice, this.hostPcmLen);
+    this.hostPcmLen = need;
+  }
+
+  /** 宿主时间 t 附近 ~32 ms 的 RMS → 口型。 */
+  private hostMouthAt(t: number): number {
+    const sr = this.hostPcmRate;
+    const center = Math.floor(t * sr);
+    const half = Math.max(1, Math.floor(sr * 0.016));
+    const a = Math.max(0, center - half);
+    const b = Math.min(this.hostPcmLen, center + half);
+    if (b <= a) return 0;
+    let sum = 0;
+    for (let i = a; i < b; i++) { const v = this.hostPcm[i]!; sum += v * v; }
+    return Math.min(1, Math.sqrt(sum / (b - a)) * 4);
+  }
+
+  /**
+   * 宿主时钟模式的消费循环: 动作块一到就接上, 播放头 = 宿主时间。宿主时间走到末尾且推理全部完成时返回。
+   * seek 只是时钟跳变, 已经推理过的范围直接跳过去, 不重开 EMAGE。
+   */
+  private async runHostClockConsumer(
+    readyQueue: { audioBuffer: AudioBuffer; motion: EmageMotionData }[],
+    notifyReady: (() => void)[],
+    finished: () => boolean,
+    gone: () => boolean,
+    emage: EmagePlayer,
+    useMotion: boolean,
+    text: string | undefined,
+    status: (key: string, vars?: Record<string, unknown>, isError?: boolean, speechText?: string, segmentIndex?: number, totalSegments?: number) => void,
+  ): Promise<void> {
+    const drain = () => {
+      while (readyQueue.length > 0) {
+        const seg = readyQueue.shift()!;
+        if (useMotion && seg.motion.frameCount > 0) emage.appendMotionChunk(seg.motion);
+      }
+    };
+    if (useMotion) this.pipeline?.beginEmageSpeech();
+    this.speaking = true;
+    this.audioDone = false;
+    this.audioDoneTime = 0;
+    this.audioBuffer = null;
+    document.body.classList.add('chat-playing');
+    if (text) status('speaking', undefined, false, text, 1, 1);
+    drain();
+    if (!this.hostClockSeen) {
+      this.hostT0 = 0;
+      this.hostAnchorMs = performance.now();
+      this.hostPlaying = true;
+    }
+    if (useMotion) {
+      emage.setExternalClock(() => (this.stopped || this.audioDone ? -1 : this.hostNow()));
+      if (this.hostClockSeen) emage.snapToExternalClock();
+      if (emage.streamingMotionActive) {
+        if (emage.awaitingAudioStart || !emage.isPlaying()) emage.releaseMotionForAudio(APP_CONFIG.emage.motion.fadeInDuration);
+      } else {
+        emage.play();
+      }
+    }
+    this.emitHostClockStart();
+    while (!gone()) {
+      drain();
+      if (finished() && readyQueue.length === 0 && this.hostNow() >= this.hostPcmLen / this.hostPcmRate - 0.02) break;
+      await new Promise<void>((resolve) => {
+        notifyReady.push(resolve);
+        setTimeout(resolve, 100);
+      });
+    }
+  }
+
+  /**
+   * 宿主时钟 (xc.clock): 宿主页面自己播放的音频此刻的位置 / 是否在走 / 倍速。
+   * 不在宿主时钟模式时忽略 (只记倍速)。抖动 < 40 ms 不重设原点, 避免口型来回跳。
+   */
+  setHostClock(c: { time: number; playing: boolean; playbackRate?: number; seek?: boolean }): void {
+    const rate = clampPlaybackRate(c.playbackRate);
+    if (rate !== undefined && rate !== this.playbackRate) {
+      // 先按旧倍速把原点推到现在, 再换倍速
+      if (this.hostClockMode) { this.hostT0 = this.hostNow(); this.hostAnchorMs = performance.now(); }
+      this.playbackRate = rate;
+    }
+    if (!this.hostClockMode) return;
+    if (typeof c.time !== 'number' || !Number.isFinite(c.time)) return;
+    const time = Math.max(0, c.time);
+    const playing = c.playing === true;
+    const predicted = this.hostNow();
+    const jump = Math.abs(predicted - time);
+    const changed = playing !== this.hostPlaying || c.seek === true || !this.hostClockSeen;
+    if (changed || jump > 0.04) {
+      this.hostT0 = time;
+      this.hostAnchorMs = performance.now();
+      this.hostPlaying = playing;
+    }
+    this.hostClockSeen = true;
+    if (c.seek === true || jump > 0.5) this.emage?.snapToExternalClock();
+    this.wakeSpeakAudio?.();
+  }
+
   private emitHostClockStart(): void {
     const fn = this.hostClockStart;
     this.hostClockStart = null;
@@ -1164,6 +1309,7 @@ export class ChatDirector {
   setTransport(opts: { playbackRate?: number; volume?: number }): void {
     const rate = clampPlaybackRate(opts.playbackRate);
     const volume = clampVolume(opts.volume);
+    if (rate !== undefined && this.hostClockMode) { this.hostT0 = this.hostNow(); this.hostAnchorMs = performance.now(); }
     if (rate !== undefined) this.playbackRate = rate;
     if (volume !== undefined) this.volume = volume;
     if (!this.followTransport) return;
@@ -1227,6 +1373,10 @@ export class ChatDirector {
 
   private hardStop(): void {
     this.followTransport = false;
+    this.hostClockMode = false;
+    this.hostClockSeen = false;
+    this.hostPcmLen = 0;
+    this.hostPcm = new Float32Array(0);
     this.hostClockStart = null;
     this.wakeSpeakAudio?.();
     if (this.stopped && !this.ctx && !this.currentSource) return;

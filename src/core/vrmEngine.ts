@@ -2750,6 +2750,7 @@ export class VRMEngine {
       text?: string;
       playbackRate?: number;
       volume?: number;
+      hostClock?: boolean;
       onAudibleStart?: () => void;
     } = {},
   ): Promise<void> {
@@ -2774,6 +2775,11 @@ export class VRMEngine {
   /** 改当前宿主音频的倍速或音量。没在说话时先记下, 下一次 speakAudio 用。不影响 TTS。 */
   public setTransport(opts: { playbackRate?: number; volume?: number }): void {
     this.chatDirector.setTransport(opts);
+  }
+
+  /** 宿主时钟 (xc.clock): 宿主音频当前位置 / 是否在走 / 倍速。只在 speakAudio hostClock 模式下生效。 */
+  public setHostClock(c: { time: number; playing: boolean; playbackRate?: number; seek?: boolean }): void {
+    this.chatDirector.setHostClock(c);
   }
 
   /** 打断当前说话 (文字/音频均可)。 */
