@@ -312,7 +312,8 @@ export class MotionPipeline {
     // 1. 动态选择上层活跃动作源
     const writer = selectLiveMotionSource({
       clip: this.universalMotion.isPlaying(),
-      emage: this.emage.isPlaying(),
+      // 宿主暂停时手势让出 (播放头不动), 走同一套切源淡化回待机; 继续时再淡回手势
+      emage: this.emage.isPlaying() && !this.emage.isHostHeld(),
       vrma: this.vrma.isPlaying(),
     });
     const target = writerToPipelineSource(writer);
@@ -375,11 +376,10 @@ export class MotionPipeline {
 
     // 3. Idle into PoseBuffer only (never a VRM writer while another source is live)
     // 关键修正：从动作源平滑回归待机时，允许待机系统释放有机呼吸与肌肉放松曲线，杜绝整个人僵直机械拉拽
-    // 宿主软暂停: 手势混向待机时让待机层放开呼吸 / 放松 (不按"说话中"压住)
-    const hostHold = writer === 'emage' ? this.emage.getHostHoldWeight() : 0;
-    const speakingNow = ctx.isSpeaking && hostHold < 0.5;
+    // 宿主暂停: 待机层按"没在说话"跑 (呼吸 / 放松), 和说完一句回待机一样
+    const speakingNow = ctx.isSpeaking && !this.emage.isHostHeld();
     const isReturningToIdle = this.activeSource === 'idle' && !speakingNow;
-    const isBusyAction = hostHold >= 0.5 ? false : (speakingNow || this.activeSource !== 'idle' || (this.isCrossfading && !isReturningToIdle));
+    const isBusyAction = speakingNow || this.activeSource !== 'idle' || (this.isCrossfading && !isReturningToIdle);
     if (this.idle.enabled) {
       const btCtx = ctx.enableBodyTurn ? {
         yawVel: this.bodyTurn.yawVel,
@@ -421,7 +421,6 @@ export class MotionPipeline {
         const wrote = this.emage.update(delta);
         if (wrote) {
           this.emage.copyToPoseBuffer(this.actionPose, 'all');
-          if (hostHold > 0.0001) this.actionPose.slerp(this.basePose, hostHold);
           this.waitingForActionSample = false;
           if (this.vrma.isPlaying()) this.vrma.stop();
         } else if (this.activeSource === 'idle') {
@@ -445,7 +444,7 @@ export class MotionPipeline {
       time,
       camera,
       traits,
-      isSpeaking: ctx.isSpeaking,
+      isSpeaking: speakingNow,
       manualExpression: ctx.manualExpression,
       isStepping,
     });
