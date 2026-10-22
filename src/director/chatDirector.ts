@@ -618,6 +618,8 @@ export class ChatDirector {
     this.speaking = false;
     this.player = player;
     this.emage = emage;
+    // hostClock 跳过了 playThinking (原来在那里记下 currentVRM): 这里记下, stop 时 hardStop 才能把嘴 ('aa') 合上
+    this.currentVRM = vrm;
     this.lipsyncDisabled = opts.lipsync === false;
 
     // 宿主时钟模式: 宿主等我们开口才出声, 思考动作和错峰等待只会推迟开口, 直接跳过。
