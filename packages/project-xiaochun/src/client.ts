@@ -177,7 +177,7 @@ export interface XiaochunOptions {
   /**
    * 自动预取服装资源到 iframe 的 IndexedDB (之后 setOutfit 不走网络), 默认 false。
    * true = 全部内置服装 **除了**婚纱 (13.9MB); string[] = 只预取这些 id。
-   * 只在 `heavy: 'eager'` 时自动触发 (模型首次加载完成后发一次 xc.prefetch): 并发 1, 排在 EMAGE 加载之后, 不会和换装抢带宽。
+   * 只在 `heavy: 'eager'` 或 `'motion'` 时自动触发 (模型首次加载完成后发一次 xc.prefetch): 并发 1, 排在 EMAGE 加载之后, 不会和换装抢带宽。
    * heavy 为默认 'lazy' 时本选项不生效 —— 想按需预取请直接调用 `prefetch()`。
    */
   prefetch?: boolean | string[];
@@ -778,7 +778,7 @@ export function createXiaochun(options: XiaochunOptions): XiaochunInstance {
         if (!loaded) {
           loaded = true;
           // 自动预取: 只在 heavy:'eager' 且 iframe 声明支持时; 失败 / 部分失败都不打扰宿主 (显式 prefetch() 才返回结果)
-          if (options.prefetch && options.heavy === 'eager' && caps?.prefetch) {
+          if (options.prefetch && (options.heavy === 'eager' || options.heavy === 'motion') && caps?.prefetch) {
             const ids = Array.isArray(options.prefetch) ? options.prefetch : undefined;
             void api.prefetch(ids).catch(() => {});
           }

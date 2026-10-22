@@ -116,7 +116,7 @@ Recognition logic is centralized in `src/core/gesture/` (`gestureMachine.ts`, `r
 | Dimension | Tauri | Web Main Site | `/embed` | Code Location / Notes |
 | :-- | :-- | :-- | :-- | :-- |
 | First Screen | Launch `LoadingOverlay` + cinematic push | SSR renders `LoadingOverlay`, then dynamically loads `App` | Nothing rendered prior to SSR / mount; host SDK draws placeholder (configurable `lazy: 'idle' | 'click'`), progress streams via `xc.load.progress` | `src/routes/index.tsx`, `src/routes/embed.tsx`, `client.ts` |
-| WebLLM / EMAGE Pre-warming | Follows `heavyPreload` policy | Same | `heavy=lazy` (default, loads on first interaction) or `eager`; host can invoke `xc.prefetch` to download without decompressing | `src/lib/heavyPreload.ts`, `bridge.ts` (`heavy`) |
+| WebLLM / EMAGE Pre-warming | Follows `heavyPreload` policy | Same | `heavy=lazy` (default, loads on first interaction), `eager` (EMAGE + WebLLM) or `motion` (EMAGE only, never WebLLM); host can invoke `xc.prefetch` to download without decompressing | `src/lib/heavyPreload.ts`, `bridge.ts` (`heavy`) |
 | WGSL JIT Warmup | Opt-in only — `preloadWebLLM()` downloads weights without the 1-token dry run; `warmup: true` is passed solely when the onboarding user picks the on-device model | Same | Same | `src/llm/webLLMProvider.ts`, `onboardingSchema.ts` (`step_brain_choice`) |
 | HTTP Cache Headers | `/vrm/*` 1 hour + must-revalidate, `/assets/*` immutable | Same | Same | `public/_headers`, `src/lib/securityHeaders.ts` (must stay in sync) |
 | API Base URL | `/api/*` transparently redirected to `APP_CONFIG.api.baseUrl` (production Worker) | Same-origin `/api/*` | Same-origin `/api/*` on iframe origin (Edge-TTS proxy, etc.) | `src/lib/api.ts` |

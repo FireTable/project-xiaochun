@@ -20,7 +20,7 @@ import type { HostAudioInput } from '@/director/hostAudio';
 import { MotionPipeline } from '@/motion/pipeline/motionPipeline';
 import type { PlayMotionOptions, UniversalMotionHandle } from '@/motion/sources/clip';
 import { preloadWebLLM, unloadWebLLM } from '@/llm/webLLMProvider';
-import { isHeavyPreloadAllowed } from '@/lib/heavyPreload';
+import { isHeavyPreloadAllowed, isLlmPreloadAllowed } from '@/lib/heavyPreload';
 import { APP_CONFIG, type LightConfig } from '@/config';
 import { loadPostFxEnabledFromStorage, getRenderPixelRatio, resolveInitialSceneTheme } from '@/lib/utils';
 import { isMobile, isTauri } from '@/lib/platform';
@@ -2783,13 +2783,14 @@ export class VRMEngine {
   /**
    * 预加载重资源 (EMAGE ONNX + WebLLM)。
    * 主站: VRM 加载完成即自动预热 (行为不变)。
-   * /embed 默认 heavy=lazy: 跳过自动预热, 宿主 `xc.setConfig{heavy:'eager'}` 或首次互动时再显式调用。
-   * force=true 忽略 lazy 开关 (显式预热)。
+   * /embed 默认 heavy=lazy: 跳过自动预热, 宿主 `xc.setConfig{heavy:'eager'|'motion'}` 或首次互动时再显式调用。
+   * heavy=motion 只预热 EMAGE, 从不预热 WebLLM。
+   * force=true 忽略 lazy 开关 (显式预热)。opts.llm 不传时按 heavy 策略决定是否预热 WebLLM。
    */
-  public preloadHeavyResources(force = false): void {
+  public preloadHeavyResources(force = false, opts: { llm?: boolean } = {}): void {
     if (!force && !isHeavyPreloadAllowed()) return;
     if (!this.emagePlayer.ready) void this.emagePlayer.ensureLoaded();
-    preloadWebLLM();
+    if (opts.llm ?? isLlmPreloadAllowed()) preloadWebLLM();
     // new AudioContext() is a ~150 ms synchronous main-thread call (macOS CoreAudio); do it now, behind the loading
     // overlay, instead of mid-chat where it froze the VRM for a frame burst right as speech starts.
     setTimeout(() => this.chatDirector.prewarmAudio(), 0); // own task, not stacked on VRM setup

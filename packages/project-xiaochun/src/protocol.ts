@@ -300,8 +300,12 @@ export type XcLang = 'zh-CN' | 'en' | 'ja';
 /** iframe 支持的界面语言 (与主站 SUPPORTED_LANGS 同一份; capabilities.ui.langs)。 */
 export const XC_LANGS: readonly XcLang[] = ['zh-CN', 'en', 'ja'];
 export type XcPhase = 'idle' | 'loading' | 'thinking' | 'speaking' | 'listening' | 'paused';
-/** lazy = 不预热 WebLLM / EMAGE, 首次互动再加载 (默认); eager = 立即预热。 */
-export type XcHeavyMode = 'lazy' | 'eager';
+/**
+ * lazy = 不预热 WebLLM / EMAGE, 首次互动再加载 (默认); eager = 立即预热 EMAGE + WebLLM;
+ * motion = 只预热 EMAGE (动作), 从不预热 WebLLM (适合没有聊天界面的宿主)。
+ * 旧版 iframe 不认识 motion: setConfig 会以 bad_request 拒绝, 不会退回 eager。
+ */
+export type XcHeavyMode = 'lazy' | 'eager' | 'motion';
 
 export interface XcEnvelope<T extends string = string, P = unknown> {
   type: T;

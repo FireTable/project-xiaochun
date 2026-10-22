@@ -301,7 +301,7 @@ createXiaochun({
   allowCustomModel: false,       // Allow setModel({ url })
   ui: [],                        // Widgets: ['chat', 'bubble', 'outfit', 'scene', 'lang', 'github']
   uiAutoHide: undefined,         // 'transparent' | true | false
-  heavy: 'lazy',                 // 'lazy' | 'eager'
+  heavy: 'lazy',                 // 'lazy' | 'eager' (EMAGE + WebLLM) | 'motion' (EMAGE only)
   controls: true,                // Enable wheel zoom
   autoPause: true,               // Suspend render loop when outside viewport
   passthrough: undefined,        // Alpha hit testing toggle (defaults to transparent)

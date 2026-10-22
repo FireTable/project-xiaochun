@@ -390,10 +390,11 @@ export function startEmbedBridge(opts: EmbedBridgeOptions): EmbedBridge {
       }
     }
     if (cfg.heavy !== undefined) {
-      if (cfg.heavy !== 'lazy' && cfg.heavy !== 'eager') throw new CmdError('bad_request', `invalid heavy: ${String(cfg.heavy)}`);
+      if (cfg.heavy !== 'lazy' && cfg.heavy !== 'eager' && cfg.heavy !== 'motion') throw new CmdError('bad_request', `invalid heavy: ${String(cfg.heavy)}`);
       heavy = cfg.heavy;
-      setHeavyPreloadOverride(heavy === 'eager');
-      if (heavy === 'eager') vrmEngine.preloadHeavyResources(true);
+      setHeavyPreloadOverride(heavy);
+      // eager: EMAGE + WebLLM; motion: 只有 EMAGE, 从不预热 WebLLM
+      if (heavy !== 'lazy') vrmEngine.preloadHeavyResources(true, { llm: heavy === 'eager' });
     }
     void command;
     publishState(true);
@@ -472,7 +473,7 @@ export function startEmbedBridge(opts: EmbedBridgeOptions): EmbedBridge {
   const prefetchLastKey = new Map<string, number>();
   const prefetcher = new PrefetchScheduler({
     gate: async () => {
-      if (heavy === 'eager') { try { await vrmEngine.emagePlayer.ensureLoaded(); } catch { /* EMAGE 加载失败不该卡住预取 */ } }
+      if (heavy !== 'lazy') { try { await vrmEngine.emagePlayer.ensureLoaded(); } catch { /* EMAGE 加载失败不该卡住预取 */ } }
       await swapQueue.idle();
     },
     work: (id, onProgress) => {

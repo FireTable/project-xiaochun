@@ -192,7 +192,7 @@ xc.on('scene-changed', (p) => console.log(p.id));
 * **能力协商**:协议仍是 v1。对旧版 `/embed`(`xc.ready` 里没有 `capabilities.outfits` / `scenes` / `prefetch`),新方法 reject `[unsupported]`,`getOutfits()` / `getScenes()` 返回 `[]`。
 * **偏好保存**:iframe 用**自己的** localStorage 记住用户最近的服装 / 场景(键 `xiaochun_wearing_outfit` / `xiaochun_scene_theme`,与主站一致)。优先级:显式的 `outfit` / `scene`(URL 或 SDK 选项)> 已保存 > 默认;存的 id 不在白名单会被忽略并清掉;存储被拦截 / 分区时静默回退默认。第三方存储按顶层站点分区,每个宿主站各一份。
 * **`persist`**(可选)另外把它们存在宿主页 localStorage,并作为显式值传回 iframe,因此会盖过 iframe 自己存的。默认 `false`。
-* **`prefetch`**(默认关)只把服装文件下载进 iframe 的 IndexedDB(不解压不合成),串行、排在 EMAGE 加载之后,除非你点名否则不含婚纱。`await xc.prefetch(['xiaochun_cheongsam'])` 任何模式都能用;自动预取需要 `heavy: 'eager'`。用户开了省流量模式则跳过。之后 `setOutfit` 不再走网络(解压合成约 0.9 秒仍在)。
+* **`prefetch`**(默认关)只把服装文件下载进 iframe 的 IndexedDB(不解压不合成),串行、排在 EMAGE 加载之后,除非你点名否则不含婚纱。`await xc.prefetch(['xiaochun_cheongsam'])` 任何模式都能用;自动预取需要 `heavy: 'eager'` 或 `'motion'`。用户开了省流量模式则跳过。之后 `setOutfit` 不再走网络(解压合成约 0.9 秒仍在)。
 * **内置按钮**:见下一节(`ui: ['outfit', 'scene', 'lang', 'github']`、`uiAutoHide`)。
 * **自定义模型**:`setModel({ url })` **默认关闭**,需要 `allowCustomModel: true` 显式开启。
 * **迁移**:选项 `model` → `outfit`;旧的 `setModel('base')` 不再可用(列表请用 `getOutfits()`)。
@@ -379,10 +379,10 @@ createXiaochun({
 | `camera` | — | 相机取景 `{ fov, distance, height, intro }`:`fov` 15–60°(默认 30,视距按 fov 自动补偿,角色大小基本不变),`distance` 1–15 米(默认约 2.5;首次取景时盖过 iframe 保存的缩放 / 俯仰),`height` ±1 米取景高度偏移(iframe 不保存),`intro: false` 不播推镜头。越界值夹到范围;没有 `pitch`(相机只绕角色上下俯仰,左右是角色自身的 bodyTurn)。创建期写进 `?cameraFov=` 等 URL 参数;运行时用 `setConfig({ camera })`(缺省键不变、`null` 恢复默认,立即重新取景并取消进行中的推镜头)。旧版 `/embed`(无 `capabilities.camera`)忽略。优先级:显式 > iframe 保存的视角 > 默认。 |
 | `persistBox` | `false` | 在**宿主页** localStorage 记住拖动 / 缩放后的位置和大小,下次创建时恢复:`true`(key `xiaochun:box`)或命名空间字符串(`xiaochun:box:<名字>`)。需要 `draggable` / `resizable`。优先级:显式 `width` / `height` > 已保存 > 默认;恢复时钳制到当前视口。`clearPersistedBox({ reset? })` 清除。见「手势」一节 |
 | `persist` | `false` | 可选:另把服装 + 场景偏好保存在**宿主页**的 localStorage(iframe 本来就会存一份自己的):`false` \| `'host'`(`xiaochun:prefs`)\| 自定义 key。显式的 `outfit` / `scene` 选项优先于已保存的偏好;宿主保存的优先于 iframe 自己存的 |
-| `prefetch` | `false` | `true`(全部服装,婚纱 13.9 MB 除外)或 `string[]`。首次加载完成后自动发一次,**仅在 `heavy: 'eager'` 时**;否则请自己调用 `prefetch()` |
+| `prefetch` | `false` | `true`(全部服装,婚纱 13.9 MB 除外)或 `string[]`。首次加载完成后自动发一次,**仅在 `heavy: 'eager'` 或 `'motion'` 时**;否则请自己调用 `prefetch()` |
 | `ui` | `[]` | iframe 内要显示的内置界面部件,数组,可选 `'chat'`(聊天栏)· `'bubble'`(头顶气泡)· `'outfit'`(换装按钮)· `'scene'`(换场景按钮)· `'lang'`(语言切换)· `'github'`(GitHub 链接,新标签页打开)。不写/空 = 都不显示;未知名字被忽略并 `console.warn`。见下文「内置按钮」 |
 | `uiAutoHide` | `'transparent'` | 内置界面何时显示,**与桌面端一致**:`'transparent'` = 只有透明(桌宠)场景初始隐藏、单击角色才出现,亮 / 暗场景常显;`true` = 所有场景都点击才出现;`false` = 一直显示(旧行为)。运行时 `setConfig({ uiAutoHide })` 热切换 |
-| `heavy` | `'lazy'` | `'lazy'`:首次使用才加载 WebLLM / EMAGE · `'eager'`:预加载 |
+| `heavy` | `'lazy'` | `'lazy'`:首次使用才加载 WebLLM / EMAGE · `'eager'`:预加载 EMAGE + WebLLM · `'motion'`:只预加载 EMAGE(动作),从不预加载 WebLLM,适合没有聊天界面的宿主。旧版 iframe 会以 `bad_request` 拒绝 `'motion'`,不会退回 `'eager'` |
 | `controls` | `true` | iframe 内滚轮缩放,默认开(与主站一致)。透明场景:只有指针在角色上才缩放,其余位置滚轮仍滚动宿主页;不透明场景:iframe 铺满,该区域内滚轮 = 缩放,**会吞掉该区域的页面滚动**。`false` 锁定(`?controls=0`) |
 | `autoPause` | `true` | 滚出视口自动暂停 |
 | `passthrough` | = `transparent` | 按"鼠标是否在角色上"切换 iframe 的 pointer-events |

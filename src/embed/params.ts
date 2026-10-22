@@ -9,7 +9,7 @@
  *   ?lang=zh-CN|en|ja                                    默认: iframe 自己 localStorage 里记住的用户选择 > 浏览器语言 > zh-CN (显式 ?lang= 最优先)
  *   ?cameraFov=<15..60> ?cameraDistance=<1..15> ?cameraHeight=<-1..1> ?cameraIntro=0|1  相机: 视野角(度) / 视距(米) / 取景高度偏移(米) / 是否播推镜头
  *        缺省 = 不覆盖 (走 iframe 保存值 / 默认); 越界夹到范围并 warn, 非法值忽略并 warn
- *   ?heavy=lazy|eager  WebLLM / EMAGE 预热策略          默认 lazy
+ *   ?heavy=lazy|eager|motion  WebLLM / EMAGE 预热策略 (motion = 只预热 EMAGE)  默认 lazy
  *   ?outfit=<id>     初始服装 (capabilities.outfits 里的 id, 严格校验: 小写字母/数字/下划线, 且必须是内置服装; 裸模 base 不开放)
  *                    非法或未知 → 回退默认服装并通过 xc.error{unknown_id} 告知宿主     默认 default addon
  *   ?scene=light|dark|transparent|beach3d  初始场景 (优先于 ?transparent / ?theme; 非法 → 忽略)   默认跟随 ?transparent / 系统
@@ -92,7 +92,7 @@ export function readEmbedParams(search?: string): EmbedParams {
     lang: isLang(lang) ? lang : null,
     camera: cam.camera,
     cameraWarnings: cam.warnings,
-    heavy: q.get('heavy') === 'eager' ? 'eager' : 'lazy',
+    heavy: q.get('heavy') === 'eager' || q.get('heavy') === 'motion' ? (q.get('heavy') as XcHeavyMode) : 'lazy',
     outfit: q.get('outfit'),
     scene: q.get('scene'),
     controls: parseControls(q.get('controls')),

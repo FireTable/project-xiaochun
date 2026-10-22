@@ -101,7 +101,7 @@ Requests to `emage_step_int8.onnx` (66,550,463 bytes) on the CDN with varied `Ac
 **Solution**: Replaced static imports with `import('@mlc-ai/web-llm')` dynamic loading (retaining only type references), fetching the dependency **only on first actual LLM invocation**:
 
 - Main site: Preloaded in background when `ChatBar` mounts (needed for model lists);
-- `/embed`: Loaded only on `xc.say` in chat mode, during `heavy: 'eager'` pre-warming, or when `ui` includes chat controls and the user opens the model selector;
+- `/embed`: Loaded only on `xc.say` in chat mode, during `heavy: 'eager'` pre-warming (never with `heavy: 'motion'`), or when `ui` includes chat controls and the user opens the model selector;
 - When unloaded, model ID validation defaults to trusting stored IDs, with strict validation executed after `getWebLLMEngine` completes.
 
 > Superseded on the main thread by the thin client (§2.1): the dynamic import described here no longer exists, the page no longer loads `lib-*`, and the library is bundled only into the `llmWorker` chunk. The table below is the historical v0.1.14 measurement.
