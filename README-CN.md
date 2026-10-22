@@ -143,9 +143,14 @@ brew upgrade --cask project-xiaochun
 ## ✨ 核心特性 (Key Features)
 
 ### 🖥️ 原生混合桌面端 (Tauri 2.x)
+* **透明桌宠与全屏双模式**：极低内存占用，支持真正 100% 操作系统透明合成的无边框桌面宠物。
+* **60Hz 像素级鼠标穿透（macOS & Windows）**：双端原生支持 16ms 高频 alpha 位图采样检测，空隙精准穿透到底层桌面，角色身体与 UI 元素可靠拦截交互；采样管线经过 32 位脏检查与字节打包降载。
+* **屏幕边界弹性吸附（防出圈）**：拉伸边角或拖动窗口松手后，自动依据当前显示器真实工作区（Work Area，避开任务栏/Dock）执行弹性限幅吸附，角色绝不出圈；启动遮罩（LoadingOverlay）原生支持窗口拖拽。
 * **应用内更新**：官方 `tauri-plugin-updater` 读取 GitHub Releases 的 `latest.json`。启动后有新版本再弹窗；手动「检查更新」先出对话框再请求。整包替换（不是模型文件热更）。详见 [`docs/HYBRID_DESKTOP_APP.md`](docs/HYBRID_DESKTOP_APP.md)。
 
 ### 🎭 VRM 核心引擎与模块化子系统 (VRM Engine & Modular Architecture)
+* **WebGL 上下文丢失恢复与渲染鲁棒性**：注册 `webglcontextlost` 与 `webglcontextrestored` 监听，在显卡驱动重置或系统睡眠唤醒后自动挂起渲染循环并重建渲染上下文与纹理，彻底杜绝黑屏死锁。
+* **低开销音频管线与防混叠平滑**：TTS 音频下采样采用面积加权盒状滤波（Area-Weighted Box Filter）消除高频折叠混叠；音频预解码改用 `OfflineAudioContext` 纯软件内存操作，避免多实例争抢操作系统音频硬件句柄；Tone.js 具名解构按需引入，显著压减首屏包体积与无用合成器解析。
 * **VRM 1.0 & VRM 0.x 双规格渲染中枢**:基于 `@pixiv/three-vrm` 与 MToon NPR 着色，核心引擎经深度模块化解耦，原生兼顾现代 **VRM 1.0** 与经典 **VRM 0.x** 模型体系：
   * **全局动作管线透明适配**:所有上层动作逻辑（待机、EMAGE、动作片段、转向踱步、Gaze）一律以 VRM 1.0 标准空间编写，由 `PoseBuffer` 在管线底层自动进行 X/Z 镜像与四元数转换，VRM 0.0 模型开箱即用，零肢体反向或扭曲。
   * **双主题线稿世界 (`LineworkWorld`)**:纯代码程序化构建太阳与 12 条发散光线、19 栋线稿建筑天际线、网格地面与 5 种风格化树木；原生支持 `linework-light`（亮色线稿）与 `linework-dark`（深色线稿）双主题随全局色彩一键切换 —— **纯白底黑线/黑底白线，零外部贴图**。
@@ -273,7 +278,7 @@ brew upgrade --cask project-xiaochun
 
 ## 🧩 嵌入你的网站 (npm)
 
-几行代码就能把小蠢放到你自己的网站上:懒加载、严格校验 origin 的 `<iframe>`,无框架 SDK、`<xiaochun-avatar>` Web Component、React 封装,以及可传入自己音频的 `speakAudio()`。宿主页面自己出声时,传 `audible: false`,小蠢只做动作和口型。这类音频的 `utterance start` 在思考动作和第一段动作窗口之后、声音时钟起步时才发。`playbackRate`(0.25~3)和 `volume`(0~1)会同时改变这段宿主音频和它的动作时钟;播放中用 `setPlaybackRate()` / `setVolume()` 改。TTS 不受影响。
+几行代码就能把小蠢放到你自己的网站上:懒加载、严格校验 origin 的 `<iframe>`,无框架 SDK、`<xiaochun-avatar>` Web Component、React 封装,以及可传入自己音频的 `speakAudio()`。宿主页面自己出声时,传 `audible: false`,小蠢只做动作和口型。这类音频的 `utterance start` 在思考动作和第一段动作窗口之后、声音时钟起步时才发。`playbackRate`(0.25~3)和 `volume`(0~1)会同时改变这段宿主音频和它的动作时钟;播放中用 `setPlaybackRate()` / `setVolume()` 改。TTS 不受影响。0.1.35 起,`hostClock: true` 跳过思考动作,`syncClock({ time, playing, playbackRate?, seek? })` 让动作和口型跟着页面播放器的时钟走,暂停、seek、缓冲都跟得上(`supportsHostClock()` 判断 embed 是否支持)。
 
 ```bash
 npm i @firetable/project-xiaochun

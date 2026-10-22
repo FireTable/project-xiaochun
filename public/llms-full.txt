@@ -241,6 +241,12 @@ Project XiaoChun features a cross-platform desktop build powered by **Tauri 2.x*
 
 ---
 
+## 9.3 Embedding & Host-Audio Sync (`/embed`, `@firetable/project-xiaochun`)
+
+- `speakAudio(source, opts)` / `xc.audio`: host audio → EMAGE motion + RMS lip-sync. `audible: false` mutes the iframe so the page can be the only speaker. `playbackRate` 0.25–3 and `volume` 0–1; change live with `setPlaybackRate()` / `setVolume()` (`xc.transport`).
+- **Host clock (0.1.35+)**: `hostClock: true` skips the thinking pose and start-up wait (`utterance start` as soon as the first motion window is ready). Then `syncClock({ time, playing, playbackRate?, seek? })` (`xc.clock`; `time` = seconds from the start of that `speakAudio` audio) drives motion + lips: `seek: true` snaps, `playing: false` freezes, in-audio seeks do not restart EMAGE; without clock messages it free-runs from start. Capability: `capabilities.audio.hostClock`; SDK `supportsHostClock()`. Older embeds ignore `hostClock`, and `syncClock()` returns `false` there.
+- **Recommended host pattern**: fetch the audio once and share it (blob URL for the page `<audio>`, same bytes to `speakAudio`); hold the page player until `utterance start` (with a fallback timeout); send `syncClock` every ~250 ms and on play / pause / seeked / waiting; re-issue `speakAudio` only for seeks outside the sent audio; on old embeds, stop and restart on pause / seek. Details: `docs/EMBED.md` §2.4, `docs/PROTOCOL.md`.
+
 ## 10. Third-Party Attributions
 
 - [pixiv / three-vrm](https://github.com/pixiv/three-vrm) — VRM runtime (MIT)

@@ -124,6 +124,9 @@ class PassthroughManager {
     this.maskCanvas.width = this.maskWidth;
     this.maskCanvas.height = this.maskHeight;
     this.maskCtx = this.maskCanvas.getContext('2d', { willReadFrequently: true });
+    if (this.maskCtx) {
+      this.maskCtx.imageSmoothingEnabled = false;
+    }
   }
 
   /**
@@ -155,26 +158,47 @@ class PassthroughManager {
       const data = imgData.data;
 
       const bitmask = this.bitmaskBuffer;
-      bitmask.fill(0);
+      let byteIdx = 0;
+      let currentByte = 0;
+      let bitCount = 0;
 
-      let pixelIdx = 0;
       for (let i = 3; i < data.length; i += 4) {
         // 阈值设为 40 (约 16% 不透明度)：彻底避免微弱边缘漫射杂散像素污染，确保小春身体 (255) 100% 精准响应
-        if (data[i] > 40) {
-          const byteIdx = pixelIdx >> 3;
-          const bitIdx = pixelIdx & 7;
-          bitmask[byteIdx] |= (1 << bitIdx);
+        if (data[i]! > 40) {
+          currentByte |= (1 << bitCount);
         }
-        pixelIdx++;
+        bitCount++;
+        if (bitCount === 8) {
+          bitmask[byteIdx++] = currentByte;
+          currentByte = 0;
+          bitCount = 0;
+        }
+      }
+      if (bitCount > 0 && byteIdx < bitmask.length) {
+        bitmask[byteIdx++] = currentByte;
+      }
+      while (byteIdx < bitmask.length) {
+        bitmask[byteIdx++] = 0;
       }
 
-      // 快速脏检查：仅当蒙版内容发生变化时才向 Rust 发送 IPC，动作形变瞬间实时更新，静止时 0 IPC 占用
+      // 快速脏检查：基于 32 位整型字长并行快速对比，仅当蒙版内容发生变化时才向 Rust 发送 IPC
       let isChanged = !this.lastBitmask || this.lastBitmask.length !== bitmask.length;
       if (!isChanged && this.lastBitmask) {
-        for (let i = 0; i < bitmask.length; i++) {
-          if (bitmask[i] !== this.lastBitmask[i]) {
+        const u32Len = Math.floor(bitmask.length / 4);
+        const curU32 = new Uint32Array(bitmask.buffer, bitmask.byteOffset, u32Len);
+        const lastU32 = new Uint32Array(this.lastBitmask.buffer, this.lastBitmask.byteOffset, u32Len);
+        for (let i = 0; i < u32Len; i++) {
+          if (curU32[i] !== lastU32[i]) {
             isChanged = true;
             break;
+          }
+        }
+        if (!isChanged) {
+          for (let i = u32Len * 4; i < bitmask.length; i++) {
+            if (bitmask[i] !== this.lastBitmask[i]) {
+              isChanged = true;
+              break;
+            }
           }
         }
       }

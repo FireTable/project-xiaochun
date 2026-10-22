@@ -11,7 +11,7 @@
  *     监听器同步调用本函数, 中间没有 await / 微任务。
  *   - 透明场景下先 setInteracting(true) (关闭 Rust 轮询穿透), 再 startDragging, 松手 (pointerup / mouseup) 才 setInteracting(false)。
  */
-import { startWindowDragging, startWindowResize } from '@/lib/platform';
+import { startWindowDragging, startWindowResize, clampWindowToMonitor } from '@/lib/platform';
 import { sceneManager } from '@/core/scene/sceneManager';
 import { passthroughManager } from '@/core/scene/passthroughManager';
 import type { ResizeCorner } from '../types';
@@ -25,6 +25,7 @@ export function startNativeWindowDrag(): void {
       window.removeEventListener('pointerup', onEndDrag);
       window.removeEventListener('mouseup', onEndDrag);
       void passthroughManager.setInteracting(false);
+      void clampWindowToMonitor();
     };
     window.addEventListener('pointerup', onEndDrag);
     window.addEventListener('mouseup', onEndDrag);
@@ -51,6 +52,7 @@ export async function startNativeCornerResize(corner: ResizeCorner, onEnd: () =>
     const onMouseUp = () => {
       window.removeEventListener('mouseup', onMouseUp);
       void passthroughManager.setInteracting(false);
+      void clampWindowToMonitor();
       onEnd();
     };
     window.addEventListener('mouseup', onMouseUp);
@@ -59,3 +61,5 @@ export async function startNativeCornerResize(corner: ResizeCorner, onEnd: () =>
     onEnd();
   }
 }
+
+export { clampWindowToMonitor };

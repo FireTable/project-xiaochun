@@ -857,6 +857,27 @@ export class VRMEngine {
     this.recreateRendererContext();
   }
 
+  private handleContextLost = (event: Event): void => {
+    event.preventDefault();
+    console.warn('[VRMEngine] WebGL context lost. Suspending rendering loop...');
+    this.isRenderingSuspended = true;
+    if (this.animFrameId !== null) {
+      cancelAnimationFrame(this.animFrameId);
+      this.animFrameId = null;
+    }
+  };
+
+  private handleContextRestored = (): void => {
+    console.info('[VRMEngine] WebGL context restored. Recreating renderer context...');
+    try {
+      this.recreateRendererContext();
+      this.isRenderingSuspended = false;
+      this.startAnimation();
+    } catch (e) {
+      console.error('[VRMEngine] Failed to recreate WebGL context upon restoration:', e);
+    }
+  };
+
   private recreateRendererContext(): void {
     const canvas = this.canvas;
     if (!canvas) return;
@@ -912,9 +933,15 @@ export class VRMEngine {
       this.renderer.dispose();
       this.renderer = null;
     }
+    if (this.canvas && this.canvas !== canvas) {
+      this.canvas.removeEventListener('webglcontextlost', this.handleContextLost);
+      this.canvas.removeEventListener('webglcontextrestored', this.handleContextRestored);
+    }
     window.removeEventListener('resize', this.handleResize);
 
     this.canvas = canvas;
+    canvas.addEventListener('webglcontextlost', this.handleContextLost);
+    canvas.addEventListener('webglcontextrestored', this.handleContextRestored);
 
     const storedEnabled = loadPostFxEnabledFromStorage();
     this.postFx.config = {
@@ -3230,6 +3257,10 @@ export class VRMEngine {
     this.interaction.dispose();
     this.windForce.dispose();
     window.removeEventListener('resize', this.handleResize);
+    if (this.canvas) {
+      this.canvas.removeEventListener('webglcontextlost', this.handleContextLost);
+      this.canvas.removeEventListener('webglcontextrestored', this.handleContextRestored);
+    }
     this.controls?.dispose();
 
     if (this.currentVRM) {

@@ -5,7 +5,7 @@ import { useCurrentScene } from '@/core/scene/sceneManager';
 import { passthroughManager } from '@/core/scene/passthroughManager';
 import { CORNER_HIT_SIZE, ResizeGesture } from '@/core/gesture';
 import { fillPointerSample, newPointerSample } from '@/core/gesture/adapters/domSample';
-import { startNativeCornerResize } from '@/core/gesture/adapters/tauriWindow';
+import { startNativeCornerResize, clampWindowToMonitor } from '@/core/gesture/adapters/tauriWindow';
 import { CornerHandle, CORNERS, type Corner } from './CornerHandle';
 
 /**
@@ -44,6 +44,8 @@ export const TauriWindowFrame: React.FC = () => {
     if (typeof document !== 'undefined') {
       document.documentElement.classList.add('is-tauri');
     }
+
+    void clampWindowToMonitor();
 
     const handleCornerFlash = () => setIsCornerLingering(true);
     const handlePetUiHide = () => setIsCornerLingering(false);

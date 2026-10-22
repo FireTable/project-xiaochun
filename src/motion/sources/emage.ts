@@ -42,19 +42,68 @@ const HEAD_INDICES = new Set([12, 15]);
 
 export function resample16k(src: Float32Array, sampleRate: number): Float32Array {
   if (sampleRate === SR) return src;
+  const srcLen = src.length;
+  if (srcLen === 0) return new Float32Array(0);
+
   const ratio = sampleRate / SR;
-  const n = Math.max(1, Math.floor(src.length / ratio));
+  const n = Math.max(1, Math.floor(srcLen / ratio));
   const out = new Float32Array(n);
-  for (let i = 0; i < n; i++) out[i] = src[Math.min(src.length - 1, Math.floor(i * ratio))]!;
+
+  if (ratio > 1) {
+    // 下采样 (Downsampling, 如 24kHz/48kHz -> 16kHz):
+    // 采用面积加权盒状积分滤波 (Area-weighted anti-aliasing integration) 消除高频阶梯折叠噪声
+    for (let i = 0; i < n; i++) {
+      const start = i * ratio;
+      const end = (i + 1) * ratio;
+      const startIdx = Math.floor(start);
+      const endIdx = Math.min(srcLen - 1, Math.floor(end));
+
+      if (startIdx === endIdx) {
+        out[i] = src[startIdx]!;
+      } else {
+        let sum = 0;
+        let count = 0;
+        for (let j = startIdx; j <= endIdx; j++) {
+          sum += src[j]!;
+          count++;
+        }
+        out[i] = count > 0 ? sum / count : src[startIdx]!;
+      }
+    }
+  } else {
+    // 上采样 (Upsampling, 如 8kHz -> 16kHz): 线性插值
+    for (let i = 0; i < n; i++) {
+      const pos = i * ratio;
+      const idx = Math.floor(pos);
+      const frac = pos - idx;
+      const s0 = src[Math.min(srcLen - 1, idx)]!;
+      const s1 = src[Math.min(srcLen - 1, idx + 1)]!;
+      out[i] = s0 + frac * (s1 - s0);
+    }
+  }
   return out;
 }
 
 export async function decodeAudioToPcm(buf: ArrayBuffer): Promise<Float32Array> {
-  const actx = new AudioContext({ sampleRate: SR });
-  const decoded = await actx.decodeAudioData(buf.slice(0));
-  const pcm = resample16k(decoded.getChannelData(0), decoded.sampleRate);
-  await actx.close();
-  return pcm;
+  if (!buf || buf.byteLength === 0) return new Float32Array(0);
+  const hasOffline = typeof OfflineAudioContext !== 'undefined';
+  const hasAudio = typeof AudioContext !== 'undefined';
+  if (!hasOffline && !hasAudio) return new Float32Array(0);
+
+  // 纯音频解码优先使用内存态 OfflineAudioContext，避免占用操作系统底层物理扬声器硬件通道
+  const actx = hasOffline
+    ? new OfflineAudioContext(1, 1, SR)
+    : new AudioContext({ sampleRate: SR });
+
+  try {
+    const decoded = await actx.decodeAudioData(buf.slice(0));
+    const pcm = resample16k(decoded.getChannelData(0), decoded.sampleRate);
+    return pcm;
+  } finally {
+    if ('close' in actx && typeof (actx as any).close === 'function') {
+      try { await (actx as any).close(); } catch {}
+    }
+  }
 }
 
 export function pcmFromAudioBuffer(buf: AudioBuffer): Float32Array {

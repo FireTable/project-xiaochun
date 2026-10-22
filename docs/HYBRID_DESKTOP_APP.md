@@ -11,8 +11,8 @@ Project XiaoChun extends beyond traditional in-browser execution into a high-per
 | :--- | :--- | :--- |
 | **Window Frame & Decor** | Constrained inside browser chrome, address bar, tabs | Frameless, borderless, custom rounded aesthetic |
 | **Background & Compositing** | Opaque canvas or constrained inside viewport | **100% True Transparent Desktop Compositing** directly over OS desktop |
-| **Mouse Event Pass-through** | All clicks trapped inside browser window | Canvas alpha bitmask on empty 3D pixels; HTML UI never click-through |
-| **Window Dragging & Resize** | Browser controls window position | Corner arcs (resize) + short left-drag on the character (move) |
+| **Mouse Event Pass-through** | All clicks trapped inside browser window | Canvas alpha bitmask on empty 3D pixels (60Hz thread on macOS & Windows); HTML UI never click-through |
+| **Window Dragging & Resize** | Browser controls window position | Corner arcs (resize) + character drag (move), LoadingOverlay drag; **screen-edge snap-back clamp** prevents escaping monitor bounds |
 | **Window State Persistence** | Lost or reset on browser reload | **Auto-persisted position and size** across app restarts |
 | **External Inter-Process Protocol** | Only web URLs (cannot be cold-started by OS) | **Custom URL Scheme (`xiaochun://`)** with cold-start & hot-wake |
 | **Resource Overhead** | Heavy browser engine overhead + extensions | Extremely lightweight OS-native webview (~30MB binary footprint) |
@@ -23,12 +23,13 @@ Project XiaoChun extends beyond traditional in-browser execution into a high-per
 
 ## 3. Core Desktop Capabilities
 
-### 3.1 60Hz Alpha Bitmask Click-Through Engine
+### 3.1 60Hz Alpha Bitmask Click-Through Engine (macOS & Windows)
 In transparent desk-pet mode, user clicks should interact with XiaoChun when hovering over her body, clothing, or UI buttons, but pass through seamlessly to the underlying desktop (text editors, icons, browsers) when hovering over empty space (e.g. between her legs or beside her torso).
 
 - **Implementation Architecture** ([passthroughManager.ts](../src/core/scene/passthroughManager.ts) + `src-tauri/src/lib.rs`):
-  - A dedicated background thread running at **60Hz (16ms interval)**.
+  - A dedicated background thread running at **60Hz (16ms interval)** on both macOS and Windows.
   - **Canvas only** uploads a 1-bit alpha mask of the WebGL framebuffer (character silhouette). HTML is **not** stamped into that bitmap.
+  - Mask sampling uses disabled smoothing and packed 8-bit byte accumulation with 32-bit `Uint32Array` dirty checks, cutting redundant IPC traffic by 87.5%.
   - **DOM never uses the mask.** Pointer over HTML (`elementFromPoint` not on `canvas`), or an open menu/dialog (`set_dom_blocks_passthrough`), captures the whole window. Open overlays cannot rely on `elementFromPoint` while click-through is already on (the webview gets no mouse events).
   - Header / chat bar still send CSS rects so the cursor can slide from empty canvas onto chrome while click-through is active.
   - While 3D adjust guides are active, the webview calls `set_is_interacting(true)` so thin guide pixels are not click-through.
@@ -89,6 +90,21 @@ Private key is **not** in git (`.tauri/` is gitignored). Public key is the `plug
 | GitHub Actions | Secrets of the same names | `.github/workflows/release-tauri.yml` fails the job if `TAURI_SIGNING_PRIVATE_KEY` is empty. |
 
 CI (`tauri-apps/tauri-action`, `includeUpdaterJson: true`) uploads `.sig` files and merges `latest.json` across the matrix. First desktop build that contains this plugin is a **reinstall** for older clients that had no updater; later versions can self-update.
+
+### 3.7 Screen-Boundary Snap-Back Clamp (Scheme A) & Loading Drag
+In desktop companion mode, XiaoChun should never be lost offscreen or dragged outside the user's visible display:
+- **Rust-Level Monitor Work Area Clamp** (`clamp_window_to_monitor` in `src-tauri/src/lib.rs`):
+  - Triggered at the end of window dragging (`startWindowDragging`, `startNativeWindowDrag`) and 4-corner resizing (`startNativeCornerResize`) upon mouse release (`mouseup`/`pointerup`).
+  - Reads `monitor.work_area()` to respect macOS Dock / Menu Bar and Windows Taskbar automatically.
+  - Mathematically clamps window size and position:
+    $$\text{win.width}' = \min(\text{win.width}, \text{work\_area.width})$$
+    $$\text{win.height}' = \min(\text{win.height}, \text{work\_area.height})$$
+    $$\text{pos.x}' = \text{clamp}(\text{pos.x}, \text{work\_area.x}, \text{work\_area.x} + \text{work\_area.width} - \text{win.width}')$$
+    $$\text{pos.y}' = \text{clamp}(\text{pos.y}, \text{work\_area.y}, \text{work\_area.y} + \text{work\_area.height} - \text{win.height}')$$
+  - Idempotent: 0 overhead or lag when the window is already within bounds.
+  - Auto-clamps on mount (`TauriWindowFrame.tsx`) so disconnecting external monitors cleanly snaps the window back onto the primary screen.
+- **LoadingOverlay Drag Support**:
+  - `LoadingOverlay` features `data-tauri-drag-region` and mouse-down handlers so the companion window can be freely repositioned even while initial assets and WebLLM models are loading.
 
 ---
 

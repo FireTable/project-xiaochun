@@ -7,6 +7,7 @@ import { APP_CONFIG } from '@/config';
 import { readActiveModel, subscribeActiveModel, type ActiveModel } from '@/llm/activeModel';
 import type { KeyvisualWarp } from './loading/keyvisualWarp';
 import { loadingStore } from './loading/loadingStore';
+import { isTauri, startWindowDragging } from '@/lib/platform';
 
 // Module-level, so a remounted overlay (pending component -> App, StrictMode, HMR) reuses the loaded chunk at once.
 let warpModule: Promise<typeof import('./loading/keyvisualWarp')> | null = null;
@@ -234,7 +235,14 @@ export const LoadingOverlay: React.FC<LoadingOverlayProps> = ({ state, onBreakSt
     <div
       id="loading-overlay"
       ref={containerRef}
+      data-tauri-drag-region
       onMouseMove={handleMouseMove}
+      onMouseDown={(e) => {
+        // 允许在 Tauri 桌面端启动遮罩期间按住左键拖拽窗口位置
+        if (e.button === 0 && isTauri()) {
+          void startWindowDragging(e);
+        }
+      }}
       // ponytail: position/inset/z/background inline 写死,CSS 没编译完也保证遮盖 —— 否则
       // 早期 paint 帧会看到背后的 three.js clear color。
       // zIndex: 55 → 在 TopHeader (z-50) 之上;仍在 DevDrawer mobile (z-60) 之下。

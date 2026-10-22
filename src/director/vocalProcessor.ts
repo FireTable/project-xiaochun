@@ -1,4 +1,12 @@
-import * as Tone from 'tone';
+import {
+  setContext,
+  connect,
+  Gain,
+  Filter,
+  EQ3,
+  Compressor,
+  Freeverb,
+} from 'tone';
 import {
   APP_CONFIG,
   type VocalAudioConfig,
@@ -23,15 +31,15 @@ export class VocalAudioProcessor {
   private initialized = false;
   private config: VocalAudioConfig = { ...APP_CONFIG.vocal.default };
 
-  // Tone.js 节点与路由
-  private inputNode: Tone.Gain | null = null;
-  private outputNode: Tone.Gain | null = null;
-  private dryGain: Tone.Gain | null = null;
-  private wetGain: Tone.Gain | null = null;
-  private lowCut: Tone.Filter | null = null;
-  private eq: Tone.EQ3 | null = null;
-  private compressor: Tone.Compressor | null = null;
-  private reverb: Tone.Freeverb | null = null;
+  // Tone.js 节点与路由 (采用按需命名导入，避免全量打包 Synth/Transport/MIDI 等非必需模块)
+  private inputNode: Gain | null = null;
+  private outputNode: Gain | null = null;
+  private dryGain: Gain | null = null;
+  private wetGain: Gain | null = null;
+  private lowCut: Filter | null = null;
+  private eq: EQ3 | null = null;
+  private compressor: Compressor | null = null;
+  private reverb: Freeverb | null = null;
 
   // 扬声器已连标志，避免重复绑定 destination
   private destinationConnected = false;
@@ -64,28 +72,28 @@ export class VocalAudioProcessor {
     try {
       this.ctx = ctx;
       // 绑定现有的 AudioContext 到 Tone.js
-      Tone.setContext(ctx);
+      setContext(ctx);
 
       // 创建输入和输出总线
-      this.inputNode = new Tone.Gain(1);
-      this.outputNode = new Tone.Gain(1);
+      this.inputNode = new Gain(1);
+      this.outputNode = new Gain(1);
 
       // 干湿切分支：若未开启美化或选用原声直通，走 100% 纯干声直通
       const isRawBypass = !this.config.enabled || this.config.preset === 'bypass';
       const initialDry = isRawBypass ? (this.config.enabled ? this.config.outputGain : 1) : 0;
       const initialWet = isRawBypass ? 0 : this.config.outputGain;
-      this.dryGain = new Tone.Gain(initialDry);
-      this.wetGain = new Tone.Gain(initialWet);
+      this.dryGain = new Gain(initialDry);
+      this.wetGain = new Gain(initialWet);
 
       // 1. 低切滤波 (Highpass Filter, 滤掉低频爆破音与麦克风闷感)
-      this.lowCut = new Tone.Filter({
+      this.lowCut = new Filter({
         frequency: this.config.lowCutFreq,
         type: 'highpass',
         rolloff: -12,
       });
 
       // 2. 三段均衡器 (EQ3, 胸腔共鸣 + 中频清晰度 + 空气感高频)
-      this.eq = new Tone.EQ3({
+      this.eq = new EQ3({
         low: this.config.chestResonance,
         mid: this.config.midGain,
         high: this.config.airGain,
@@ -94,7 +102,7 @@ export class VocalAudioProcessor {
       });
 
       // 3. 动态压限器 (Compressor, 带来广播级电台贴耳感)
-      this.compressor = new Tone.Compressor({
+      this.compressor = new Compressor({
         threshold: this.config.compressorThreshold,
         ratio: this.config.compressorRatio,
         attack: 0.01,
@@ -102,7 +110,7 @@ export class VocalAudioProcessor {
       });
 
       // 4. 空间微混响 (Freeverb, 营造临场空间感，消除死板干音)
-      this.reverb = new Tone.Freeverb({
+      this.reverb = new Freeverb({
         roomSize: this.config.reverbRoomSize,
         dampening: this.config.reverbDampening,
         wet: this.config.reverbWet,
@@ -149,12 +157,12 @@ export class VocalAudioProcessor {
     }
 
     try {
-      // 1. sourceNode (原生 AudioNode) 连接到 inputNode (Tone.Gain.input)
-      Tone.connect(sourceNode, this.inputNode);
+      // 1. sourceNode (原生 AudioNode) 连接到 inputNode (Gain.input)
+      connect(sourceNode, this.inputNode);
 
       // 2. outputNode 连接到扬声器 (只在初次或重置后连接一次)
       if (!this.destinationConnected) {
-        Tone.connect(this.outputNode, destination);
+        connect(this.outputNode, destination);
         this.destinationConnected = true;
       }
     } catch (e) {

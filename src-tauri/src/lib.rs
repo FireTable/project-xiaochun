@@ -288,6 +288,47 @@ fn get_pending_protocol_actions(
   Ok(messages)
 }
 
+/// 方案 A：松手/拖拽/拉伸结束时，将原生窗口位置与大小吸附限幅在当前显示器的可见工作区内（禁止出圈）
+#[tauri::command]
+fn clamp_window_to_monitor(window: WebviewWindow) -> Result<(), String> {
+  let monitor = match window.current_monitor().map_err(|e| e.to_string())? {
+    Some(m) => m,
+    None => return Ok(()),
+  };
+
+  let win_pos = window.outer_position().map_err(|e| e.to_string())?;
+  let win_size = window.outer_size().map_err(|e| e.to_string())?;
+
+  let work_area = monitor.work_area();
+  let (area_pos, area_size) = if work_area.size.width > 0 && work_area.size.height > 0 {
+    (work_area.position, work_area.size)
+  } else {
+    (*monitor.position(), *monitor.size())
+  };
+
+  // 1. 宽、高不得超过屏幕可见工作区
+  let new_width = win_size.width.min(area_size.width);
+  let new_height = win_size.height.min(area_size.height);
+
+  // 2. 窗口边框 [x, y, x + width, y + height] 严格限制在工作区之内
+  let min_x = area_pos.x;
+  let max_x = area_pos.x + (area_size.width as i32) - (new_width as i32);
+  let min_y = area_pos.y;
+  let max_y = area_pos.y + (area_size.height as i32) - (new_height as i32);
+
+  let new_x = win_pos.x.clamp(min_x, max_x.max(min_x));
+  let new_y = win_pos.y.clamp(min_y, max_y.max(min_y));
+
+  if new_width != win_size.width || new_height != win_size.height {
+    let _ = window.set_size(tauri::PhysicalSize::new(new_width, new_height));
+  }
+  if new_x != win_pos.x || new_y != win_pos.y {
+    let _ = window.set_position(tauri::PhysicalPosition::new(new_x, new_y));
+  }
+
+  Ok(())
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
   let passthrough_state = Arc::new(PassthroughState::default());
@@ -322,7 +363,8 @@ pub fn run() {
       set_dom_blocks_passthrough,
       update_interactive_rects,
       update_alpha_bitmask,
-      get_pending_protocol_actions
+      get_pending_protocol_actions,
+      clamp_window_to_monitor
     ])
     .setup(move |app| {
       #[cfg(desktop)]
@@ -415,12 +457,13 @@ pub fn run() {
       }
 
       #[cfg(target_os = "macos")]
-      {
-        if let Some(window) = app.get_webview_window("main") {
-          let _ = window.set_shadow(false);
-        }
+      if let Some(window) = app.get_webview_window("main") {
+        let _ = window.set_shadow(false);
+      }
 
-        // 方案 3：macOS 原生级 Canvas 像素透明度位图 (Alpha Bitmask) 高频判定线程 (16ms / ~60Hz)
+      #[cfg(any(target_os = "macos", target_os = "windows"))]
+      {
+        // 方案 3：macOS / Windows 原生级 Canvas 像素透明度位图 (Alpha Bitmask) 高频判定线程 (16ms / ~60Hz)
         let app_handle: AppHandle = app.handle().clone();
         let state = monitor_state;
 

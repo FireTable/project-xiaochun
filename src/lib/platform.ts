@@ -58,13 +58,36 @@ export function hasInteractionModifier(e: MouseEvent | PointerEvent | KeyboardEv
 }
 
 /**
+ * 方案 A：松手/拖拽/拉伸结束时，将原生窗口位置与大小吸附限幅在当前显示器的可见工作区内（禁止出圈）
+ */
+export async function clampWindowToMonitor(): Promise<void> {
+  if (!isTauri()) return;
+  try {
+    const { invoke } = await import('@tauri-apps/api/core');
+    await invoke('clamp_window_to_monitor');
+  } catch (err) {
+    console.warn('[platform] clampWindowToMonitor failed:', err);
+  }
+}
+
+/**
  * 触发原生无框窗口拖拽 (Tauri)
  */
 export async function startWindowDragging(_e?: React.MouseEvent | MouseEvent): Promise<void> {
   if (!isTauri()) return;
   try {
+    const onDragEnd = () => {
+      window.removeEventListener('pointerup', onDragEnd);
+      window.removeEventListener('mouseup', onDragEnd);
+      void clampWindowToMonitor();
+    };
+    window.addEventListener('pointerup', onDragEnd, { once: true });
+    window.addEventListener('mouseup', onDragEnd, { once: true });
+
     const { getCurrentWindow } = await import('@tauri-apps/api/window');
     await getCurrentWindow().startDragging();
+    // macOS 上 performWindowDragWithEvent 为模态阻塞，await 结束后立刻执行一次吸附
+    void clampWindowToMonitor();
   } catch (err) {
     console.warn('[platform] startDragging failed:', err);
   }

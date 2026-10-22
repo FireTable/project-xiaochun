@@ -36,6 +36,7 @@ Project XiaoChun is a dual-mode anime companion application running both in mode
 - [TTS & Vocal Post-Processing Guide](/docs/TTS.md): Edge-TTS proxy architecture and Tone.js 3D spatial vocal processing.
 - [Desktop Companion Docs](/docs/HYBRID_DESKTOP_APP.md): Architecture of the Tauri 2.x hybrid desktop mode.
 - [Protocol Specification](/docs/PROTOCOL.md): Detailed specification of the `xiaochun://` URL scheme.
+- [Embed / SDK Guide](/docs/EMBED.md): iframe embed + `@firetable/project-xiaochun` SDK. Host audio: `speakAudio(data, { audible: false, hostClock: true })` (0.1.35+, skips the thinking pose), hold the page player until `utterance start`, then `syncClock({ time, playing, playbackRate?, seek? })` (`xc.clock`) every ~250 ms and on play / pause / seeked / waiting so motion + lip-sync follow the page audio. Check `supportsHostClock()` (`capabilities.audio.hostClock`); older embeds need stop/restart on pause and seek. Fetch the audio once and share it between the page `<audio>` and `speakAudio`.
 - [Agent Skill Guide](/docs/AGENT_SKILL.md): Standard AI Agent skill for autonomous control of XiaoChun.
 - [STT Guide](/docs/STT.md): SenseVoice ChatBar dictation (energy VAD + ORT Worker).
 - [Live Demo](https://xiaochun.firetable.tech): Full-stack SSR deploy on Cloudflare Workers.

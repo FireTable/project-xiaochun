@@ -139,7 +139,7 @@ const { containerRef, client, ready, state } = useXiaochun({ width: 280, height:
 
 * **Props**:`createXiaochun` 除 `container` 外的全部选项,加上 `onHandshake / onReady / onProgress / onState / onStt / onUtterance / onHitRegion / onMove / onResize / onError / onDestroy`、`className`、`style`、`paused`、`mic`。
 * **重建与热更新**:创建期选项(`src`、`lazy`、`transparent`、`position` 等)变化会重建实例,所以不要在每次渲染里传新值。`width`、`height`、`draggable`、`resizable`(effect 调 `setSize` / `setDraggable` / `setResizable`)、`lang`、`outfit`、`scene`(以及已弃用的 `model`)、`paused`、`mic` 与回调会原地更新,不重建 iframe(由 effect 调 `setOutfit` / `setScene` / `setConfig`)。另有回调 `onOutfitChanged`、`onSceneChanged`。
-* **ref 方法**:`say`、`speakAudio`、`speakAudioStream`、`setPlaybackRate`、`setVolume`、`motion`、`expression`、`lookAt`、`setOutfit`、`setScene`、`getOutfits`、`getScenes`、`prefetch`、`setModel`、`setConfig`、`startListening`、`stopListening`、`mic`、`pause`、`resume`、`activate`、`destroy`,以及 `ready` 与 `instance`。组件挂载前,返回 Promise 的方法会 reject。
+* **ref 方法**:`say`、`speakAudio`、`speakAudioStream`、`setPlaybackRate`、`setVolume`、`syncClock`、`supportsHostClock`、`motion`、`expression`、`lookAt`、`setOutfit`、`setScene`、`getOutfits`、`getScenes`、`prefetch`、`setModel`、`setConfig`、`startListening`、`stopListening`、`mic`、`pause`、`resume`、`activate`、`destroy`,以及 `ready` 与 `instance`。组件挂载前,返回 Promise 的方法会 reject。
 
 ---
 
@@ -164,6 +164,15 @@ s.write(int16Chunk); s.write(next); s.end(); await s.done;   // s.abort() 立即
 * `audible` 默认 `true`。`false` 仍会解码、生成动作并驱动口型,但 iframe 增益为 0,声音可以由宿主页面自己播放。
 * `playbackRate` 默认 `1`,夹到 `0.25~3`。`volume` 默认 `1`,夹到 `0~1`。两者同时作用于这次宿主音频和它的动作时钟。`setPlaybackRate()` / `setVolume()` 在播放中修改,不重开;改倍速时播放头不跳。省略则沿用上一次的值。TTS(`say`)仍是 1 倍、满音量。`audible: false` 时扬声器增益保持 0。`pause()` 只暂停渲染,语音和动作时钟继续走。
 * 宿主音频的 `utterance start` 在思考动作和 EMAGE 首窗之后、声音时钟起步时才发。页面自己的播放器要等这个事件再出声,口型才对齐。
+* **宿主时钟(0.1.35+)**:`hostClock: true` 表示这段音频由宿主页面播放(配合 `audible: false`)。iframe 跳过思考动作和起步等待,首个动作窗口一好就发 `utterance start`;之后肢体动作和口型都跟 `syncClock({ time, playing, playbackRate?, seek? })`(即 `xc.clock`)走,不再跟 iframe 自己的时钟:`seek: true` 让动作直接跳过去,`playing: false`(暂停 / 缓冲)冻住,在已送进去的音频里 seek 不会重开 EMAGE。一直不调 `syncClock` 时从 `start` 起自己走。`supportsHostClock()` 对应 `capabilities.audio.hostClock`;旧版 embed 上 `syncClock()` 什么也不发并返回 `false`,`hostClock` 被忽略。
+
+**推荐的宿主做法(页面出声, 小蠢跟着页面走):**
+
+1. 音频只下载**一次**: 页面 `<audio>` 用 blob URL 播这份字节, 同一份字节(或解码好的 PCM)交给 `speakAudio`, iframe 不再下载、解码第二遍。
+2. 调 `speakAudio(data, { audible: false, hostClock: true, playbackRate })`, 页面播放器**停住等 `utterance` `start`** 再出声。留一个兜底超时(几秒; 第一次会加载 EMAGE), 页面不会卡死。
+3. `start` 之后约每 **250 ms** 调一次 `syncClock({ time, playing, playbackRate })`, 并在 `play`、`pause`、`seeked`(`seek: true`)、`waiting`(`playing: false`)时立刻调一次。`time` 是相对这次 `speakAudio` 那段音频开头的秒数。
+4. 在这段音频里面 seek 只要 `syncClock({ ..., seek: true })`; 跳出这段才需要从新位置重新 `speakAudio`(再停住等开口)。暂停 = `syncClock({ playing: false })`, 不用重开。
+5. **旧版 embed:** `supportsHostClock()` 为 `false`(或 SDK 没有 `syncClock`)时退回旧做法: 暂停 / seek 时停掉并重开 `speakAudio`, 页面播放器等 `start` 再出声, `hostClock` 会被忽略。
 * 失败时 reject:`bad_request`(无法解码 / 空音频 / URL 或 sampleRate 不合法)、`unsupported`、`failed`。
 * 浏览器仍要求宿主页先有用户手势才能出声,iframe 也要有 `allow="autoplay"`(SDK 已自动设置)。
 * 新的 `say()` / `speakAudio()` 会把正在念的一句淡出（大约 0.4 秒；增益已经是 0 则不等），再念新的一句。被打断的 Promise 会 resolve。`stop()`、`AbortSignal`，或 `xc.audio.end` 带 `{ abort: true }`，会立刻切断。`say()` 没有字数上限，长文在 iframe 里按句切开再合成。

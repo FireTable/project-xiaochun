@@ -144,8 +144,9 @@ You can download installer packages directly from the official Releases page:
 
 ### 🖥️ Native Hybrid Desktop Companion (Tauri 2.x)
 * **Frameless Transparent Desktop Pet (桌宠)**: Floats borderless and chromeless directly over the desktop environment with 100% transparent operating system compositing.
-* **60Hz Real-Time Canvas Alpha Bitmask Click-Through**: 16ms high-frequency thread evaluates true character alpha pixels using 1-ns bitwise shift tests. Clicks seamlessly pass through transparent pixels to desktop apps beneath, while retaining solid interaction on the character and UI.
-* **Persistent Window Coordinates & Freeform Dragging**: Built-in `tauri-plugin-window-state` automatically restores window position and size. Four corner handles enable fluid resizing without canvas flickering, alongside an `Option/Alt + Drag` shortcut anywhere on the character.
+* **60Hz Real-Time Canvas Alpha Bitmask Click-Through (macOS & Windows)**: 16ms high-frequency thread evaluates true character alpha pixels using 1-ns bitwise shift tests. Clicks seamlessly pass through transparent pixels to desktop apps beneath, while retaining solid interaction on the character and UI. Sampling pipeline is optimized with 32-bit dirty checks and byte packing.
+* **Screen-Boundary Snap-Back Clamp (Scheme A)**: On corner resize or dragging release, window position and bounds automatically snap back within the active display's `work_area` (respecting taskbars and docks), preventing XiaoChun from getting lost offscreen. LoadingOverlay natively supports window dragging.
+* **Persistent Window Coordinates & Freeform Dragging**: Built-in `tauri-plugin-window-state` automatically restores window position and size. Four corner handles enable fluid resizing without canvas flickering, alongside dragging anywhere on the character or loading overlay.
 * **Cross-Process Protocol (`xiaochun://`)**: Custom OS URL Scheme enabling external scripts, AI agents, browsers, and CLI tools to wake up XiaoChun and trigger `speakText` with full body motion and lip-syncing.
 * **In-app updates**: Official Tauri updater reads `latest.json` from GitHub Releases, prompts after the splash, and replaces the whole app (not a model-file patch). Details: [`docs/HYBRID_DESKTOP_APP.md`](docs/HYBRID_DESKTOP_APP.md).
 
@@ -155,6 +156,8 @@ You can download installer packages directly from the official Releases page:
 * **Pure Quaternion Chain & Biomechanical Fixes**: Eradicates head rotation snap and non-uniform shearing distortions through pure affine coordinates and quaternion interpolation.
 
 ### 🎭 VRM Core Engine & Modular Architecture
+* **WebGL Context Lost / Restored Resilience**: Registers `webglcontextlost` and `webglcontextrestored` event hooks to gracefully suspend render loops and reconstruct renderer/texture states upon GPU reset or system wake from sleep.
+* **Lightweight Audio Pipeline & Anti-Aliased Resampling**: EMAGE downsampling incorporates area-weighted box filtering to eliminate high-frequency aliasing; pre-decoding utilizes pure software `OfflineAudioContext` to avoid occupying OS audio device output handles; Tone.js named imports minimize initial bundle footprint.
 * **VRM 1.0 & VRM 0.x Dual-Standard Modular Pipeline**: Powered by `@pixiv/three-vrm` with MToon NPR shading. The core engine (`VRMEngine`) is decoupled into specialized subsystems, natively accommodating both modern **VRM 1.0** and classic **VRM 0.x** avatars:
   * **Transparent Pipeline Translation**: All upstream motion generators (idle, EMAGE, VRMA clips, locomotion stepping, gaze) author poses strictly in the VRM 1.0 standard coordinate space. `PoseBuffer` automatically handles bone axis inversions and coordinate mapping under the hood, ensuring VRM 0.0 avatars work out-of-the-box with zero joint inversions.
   * **Dual-Theme Linework Outdoor Scene (`LineworkWorld`)**: Pure procedural code generating a minimalist wireframe outdoor world (sun with 12 radial rays, 19 stylized skyline buildings, ground grid, and 5 tree archetypes); natively supports `linework-light` and `linework-dark` dual themes linked to the global color mode — **100% white-on-white / black-on-white, zero external textures**.
@@ -282,7 +285,7 @@ Numbers, methods, what was tried and rejected, and what is **not measured**: [`d
 
 ## 🧩 Embed in Your Website (npm)
 
-Put XiaoChun on your own site with a few lines: a lazy, origin-checked `<iframe>`, a framework-free SDK, a `<xiaochun-avatar>` Web Component, React bindings, and `speakAudio()` for feeding your own audio. Pass `audible: false` when the host page plays the sound and XiaoChun should only move and lip-sync. For that audio, `utterance start` fires when the clock starts, after the thinking pose and the first motion window. `playbackRate` (`0.25–3`) and `volume` (`0–1`) scale host audio and its motion clock; `setPlaybackRate()` / `setVolume()` change them while it plays. TTS is unchanged.
+Put XiaoChun on your own site with a few lines: a lazy, origin-checked `<iframe>`, a framework-free SDK, a `<xiaochun-avatar>` Web Component, React bindings, and `speakAudio()` for feeding your own audio. Pass `audible: false` when the host page plays the sound and XiaoChun should only move and lip-sync. For that audio, `utterance start` fires when the clock starts, after the thinking pose and the first motion window. `playbackRate` (`0.25–3`) and `volume` (`0–1`) scale host audio and its motion clock; `setPlaybackRate()` / `setVolume()` change them while it plays. TTS is unchanged. Since 0.1.35, `hostClock: true` skips the thinking pose, and `syncClock({ time, playing, playbackRate?, seek? })` keeps motion and lips on the page player's clock through pause, seek and buffering (`supportsHostClock()` tells whether the embed supports it).
 
 ```bash
 npm i @firetable/project-xiaochun

@@ -36,12 +36,14 @@ export { detectGpuDeviceProfile, getQuickDeviceTier, getCachedDeviceProfile, typ
 import './polyfill';
 import { extractNextSpeechChunk } from '@/lib/utils';
 
+const hfBase = (APP_CONFIG.llm?.hfEndpoint || 'https://huggingface.co').replace(/\/+$/, '');
+
 export const CUSTOM_WEBLLM_MODELS: ModelRecord[] = [
   {
-    model: 'https://huggingface.co/ozhyhinas/MiniCPM5-2B-q4f16_1-MLC',
+    model: `${hfBase}/ozhyhinas/MiniCPM5-2B-q4f16_1-MLC`,
     model_id: 'MiniCPM5-2B-q4f16_1-MLC',
     model_lib:
-      'https://huggingface.co/ozhyhinas/MiniCPM5-2B-q4f16_1-MLC/resolve/main/libs/MiniCPM5-2B-q4f16_1-MLC-webgpu.wasm',
+      `${hfBase}/ozhyhinas/MiniCPM5-2B-q4f16_1-MLC/resolve/main/libs/MiniCPM5-2B-q4f16_1-MLC-webgpu.wasm`,
     vram_required_MB: 1600,
     low_resource_required: false,
     overrides: {

@@ -139,7 +139,7 @@ const { containerRef, client, ready, state } = useXiaochun({ width: 280, height:
 
 * **Props**: every `createXiaochun` option except `container`, plus `onHandshake / onReady / onProgress / onState / onStt / onUtterance / onHitRegion / onMove / onResize / onError / onDestroy`, `className`, `style`, `paused`, and `mic`.
 * **Rebuild vs. live update**: creation-time options (`src`, `lazy`, `transparent`, `position`, …) rebuild the instance when they change, so avoid passing fresh values on every render. `width`, `height`, `draggable`, `resizable` (effects call `setSize` / `setDraggable` / `setResizable`), `lang`, `outfit`, `scene` (and the deprecated `model`), `paused`, `mic` and the callbacks update in place without recreating the iframe (effects call `setOutfit` / `setScene` / `setConfig`). Also available: `onOutfitChanged`, `onSceneChanged`.
-* **Ref methods**: `say`, `speakAudio`, `speakAudioStream`, `setPlaybackRate`, `setVolume`, `motion`, `expression`, `lookAt`, `setOutfit`, `setScene`, `getOutfits`, `getScenes`, `prefetch`, `setModel`, `setConfig`, `startListening`, `stopListening`, `mic`, `pause`, `resume`, `activate`, `destroy`, plus `ready` and `instance`. Methods that return a Promise reject until the component is mounted.
+* **Ref methods**: `say`, `speakAudio`, `speakAudioStream`, `setPlaybackRate`, `setVolume`, `syncClock`, `supportsHostClock`, `motion`, `expression`, `lookAt`, `setOutfit`, `setScene`, `getOutfits`, `getScenes`, `prefetch`, `setModel`, `setConfig`, `startListening`, `stopListening`, `mic`, `pause`, `resume`, `activate`, `destroy`, plus `ready` and `instance`. Methods that return a Promise reject until the component is mounted.
 
 ---
 
@@ -156,6 +156,15 @@ await xc.speakAudio(pcm, { format: 'pcm16', sampleRate: 16000, audible: false, p
 xc.setPlaybackRate(1.25);                                    // live host-audio rate; the playhead does not jump
 xc.setVolume(0.6);                                           // 0–1; speakers stay silent while audible is false
 
+// 0.1.35+: the page plays the sound, XiaoChun follows the page's clock (motion + lips)
+await xc.ready;
+if (xc.supportsHostClock()) {
+  void xc.speakAudio(bytes, { audible: false, hostClock: true });  // skips the thinking pose; start ASAP
+  xc.on('utterance', (u) => { if (u.phase === 'start') audioEl.play(); });
+  setInterval(() => xc.syncClock({ time: audioEl.currentTime, playing: !audioEl.paused, playbackRate: audioEl.playbackRate }), 250);
+  audioEl.addEventListener('seeked', () => xc.syncClock({ time: audioEl.currentTime, playing: !audioEl.paused, seek: true }));
+}
+
 const s = xc.speakAudioStream({ sampleRate: 24000, playbackRate: 1.25 }); // streaming: e.g. PCM chunks from a TTS server
 s.write(int16Chunk); s.write(next); s.end(); await s.done;   // s.abort() stops immediately
 // Cancel any time: pass { signal: abortController.signal }
@@ -164,6 +173,15 @@ s.write(int16Chunk); s.write(next); s.end(); await s.done;   // s.abort() stops 
 * `audible` defaults to `true`. `false` still decodes the audio, generates motion, and drives lip-sync, but the iframe gain is 0 so the host page can be the only speaker.
 * `playbackRate` defaults to `1` and is clamped to `0.25–3`. `volume` defaults to `1` and is clamped to `0–1`. Both scale this host-audio utterance and its motion clock. `setPlaybackRate()` / `setVolume()` change them mid-playback without restarting; a rate change does not jump the playhead. Omitted values keep the last setting. TTS (`say`) stays at 1x and full volume. `audible: false` keeps the speaker gain at 0. `pause()` only suspends rendering; speech and the motion clock keep running.
 * For host audio, `utterance` `start` fires when the audio clock starts, after the thinking pose and the first EMAGE window. Hold the page's own player until that event if it must stay in sync.
+* **Host clock (0.1.35+)**: `hostClock: true` means the host page plays this audio (use it with `audible: false`). The iframe skips the thinking pose and start-up wait and fires `utterance` `start` as soon as the first motion window is ready. Body motion and lip-sync then follow `syncClock({ time, playing, playbackRate?, seek? })` (`xc.clock`) instead of the iframe's own clock: `seek: true` snaps the motion, `playing: false` (pause / buffering) freezes it, and seeks inside the audio already sent do not restart EMAGE. With no `syncClock` calls it runs on from `start`. `supportsHostClock()` reports `capabilities.audio.hostClock`; on older embeds `syncClock()` sends nothing and returns `false`, and `hostClock` is ignored.
+
+**Recommended host pattern (page plays the sound, XiaoChun follows it):**
+
+1. Fetch the audio **once**. Play it in the page's `<audio>` from a blob URL and hand the same bytes (or decoded PCM) to `speakAudio`, so the iframe never downloads or decodes a second copy.
+2. Call `speakAudio(data, { audible: false, hostClock: true, playbackRate })` and keep the page player **paused until `utterance` `start`**. Keep a fallback timeout (a few seconds; the first call loads EMAGE) so the page never hangs.
+3. After `start`, call `syncClock({ time, playing, playbackRate })` about every **250 ms** and right away on `play`, `pause`, `seeked` (`seek: true`) and `waiting` (`playing: false`). `time` is seconds from the start of the audio you passed to that `speakAudio` call.
+4. A seek inside that audio only needs `syncClock({ ..., seek: true })`; a seek outside it needs a new `speakAudio` from the new offset (hold the player again). Pause = `syncClock({ playing: false })`, not a new utterance.
+5. **Old embeds:** if `supportsHostClock()` is `false` (or the SDK has no `syncClock`), fall back: stop and restart `speakAudio` on pause/seek, hold the page player until `start`, and treat `hostClock` as ignored.
 * Rejects with `bad_request` (undecodable / empty audio, bad URL or sampleRate), `unsupported`, or `failed`.
 * Browsers still require a user gesture on the host page before audio can play, and the iframe needs `allow="autoplay"` (the SDK sets it).
 * A newer `say()` / `speakAudio()` fades out the line still playing (about 0.4s, skipped when the gain is already 0), then speaks the new one. The preempted promise resolves. `stop()`, an `AbortSignal`, or `xc.audio.end` with `{ abort: true }` cuts immediately. `say()` has no character cap; long text is split into short clauses inside the iframe before TTS.
