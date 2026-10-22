@@ -19,7 +19,137 @@ import type {
   ModelPartDefinition,
   AddonDefinition,
   LoadingWarpConfig,
+  VocalPresetKey,
+  VocalAudioConfig,
+  SceneThemeId,
 } from './types/config';
+
+/** 3D 场景专属的环境声学特征配置 (开阔度 / 房间材质 / 贴耳度) */
+export const SCENE_VOCAL_PROFILES: Record<SceneThemeId, Partial<VocalAudioConfig>> = {
+  beach3d: {
+    lowCutFreq: 95,
+    reverbWet: 0.03,
+    reverbDampening: 2200,
+    reverbRoomSize: 0.15,
+    airGain: 1.8,
+  },
+  transparent: {
+    lowCutFreq: 80,
+    reverbWet: 0.0,
+    reverbDampening: 3000,
+    reverbRoomSize: 0.1,
+    compressorThreshold: -20,
+    compressorRatio: 4.0,
+    airGain: 2.5,
+  },
+  light: {
+    lowCutFreq: 85,
+    reverbWet: 0.07,
+    reverbDampening: 3200,
+    reverbRoomSize: 0.22,
+    airGain: 3.0,
+  },
+  dark: {
+    lowCutFreq: 85,
+    reverbWet: 0.07,
+    reverbDampening: 3200,
+    reverbRoomSize: 0.22,
+    airGain: 2.8,
+  },
+  void: {
+    lowCutFreq: 80,
+    reverbWet: 0.16,
+    reverbDampening: 4200,
+    reverbRoomSize: 0.55,
+    airGain: 4.0,
+  },
+};
+
+// 注意：预设切换（包括原声直通与各音色）只改变下方声学调节滑块数值，不篡改用户上方 checkbox 开关
+export const VOCAL_PRESETS: Record<Exclude<VocalPresetKey, 'custom'>, VocalAudioConfig> = {
+  bypass: {
+    enabled: true,
+    sceneLinkage: false,
+    distanceAttenuation: true,
+    preset: 'bypass',
+    lowCutFreq: 20,      // 全频带直通，不做低切滤波
+    chestResonance: 0,
+    midGain: 0,
+    airGain: 0,
+    compressorThreshold: 0, // 0 dB 门限，完全不触发压缩 (关闭)
+    compressorRatio: 1,
+    reverbWet: 0,        // 0% 纯干声
+    reverbDampening: 3000,
+    reverbRoomSize: 0.1,
+    outputGain: 1.0,     // 1.00x 标准原声电平
+  },
+  sweet: {
+    enabled: true,
+    sceneLinkage: false,
+    distanceAttenuation: true,
+    preset: 'sweet',
+    lowCutFreq: 85,
+    chestResonance: -0.5,
+    midGain: 0.5,
+    airGain: 3.0,
+    compressorThreshold: -16,
+    compressorRatio: 3.0,
+    reverbWet: 0.06,
+    reverbDampening: 3500,
+    reverbRoomSize: 0.2,
+    outputGain: 1.05,
+  },
+  oneesan: {
+    enabled: true,
+    sceneLinkage: false,
+    distanceAttenuation: true,
+    preset: 'oneesan',
+    lowCutFreq: 75,
+    chestResonance: 3.5,
+    midGain: 1.0,
+    airGain: 1.5,
+    compressorThreshold: -22,
+    compressorRatio: 4.5,
+    reverbWet: 0.10,
+    reverbDampening: 2500,
+    reverbRoomSize: 0.3,
+    outputGain: 1.1,
+  },
+  radio: {
+    enabled: true,
+    sceneLinkage: false,
+    distanceAttenuation: true,
+    preset: 'radio',
+    lowCutFreq: 300,
+    chestResonance: -6.0,
+    midGain: 4.5,
+    airGain: -4.0,
+    compressorThreshold: -28,
+    compressorRatio: 8.0,
+    reverbWet: 0.04,
+    reverbDampening: 1500,
+    reverbRoomSize: 0.15,
+    outputGain: 0.95,
+  },
+  whisper: {
+    enabled: true,
+    sceneLinkage: false,
+    distanceAttenuation: true,
+    preset: 'whisper',
+    lowCutFreq: 100,
+    chestResonance: 1.0,
+    midGain: -1.5,
+    airGain: 5.0,
+    compressorThreshold: -26,
+    compressorRatio: 5.0,
+    reverbWet: 0.15,
+    reverbDampening: 4000,
+    reverbRoomSize: 0.45,
+    outputGain: 1.15,
+  },
+};
+
+
 
 export const POSTFX_TONE_MAPPING_MODE = {
   NEUTRAL: THREE.NeutralToneMapping,
@@ -79,6 +209,23 @@ export const APP_CONFIG = {
         voice: 'ja-JP-NanamiNeural',
         pitch: '+5Hz',
       },
+    },
+  },
+  /** TTS 语音后处理声学插件配置 (基于 Tone.js) */
+  vocal: {
+    defaultPreset: 'bypass' as VocalPresetKey,
+    default: { ...VOCAL_PRESETS.bypass },
+    presets: VOCAL_PRESETS,
+    sceneProfiles: SCENE_VOCAL_PROFILES,
+    /** 镜头距离声学衰减基准参数 (仅作用于音量大小与胸腔共鸣) */
+    cameraAcoustics: {
+      referenceDistance: 2.2, // 基准标准视距 (m)
+      minDistance: 0.6,       // 极近视距下限 (m)
+      maxDistance: 15.0,      // 远场视距上限 (m, 与相机 defaultMaxDistance 15m 对齐)
+      attenuationStartDistance: 8.0, // 远场音量衰减起始视距 (m, 8m 之前保持 0dB，8m 以后才开始衰减)
+      proximityGainBoostDb: 3.0, // 贴耳近场音量提升上限 (+3.0dB, 饱满靠前)
+      proximityLowBoost: 3.0, // 贴耳近场低频胸腔共鸣提升上限 (+3.0dB 贴耳浑厚)
+      maxVolumeDropDb: 8.0,   // 远场音量自然衰减上限 (-8.0dB, 约0.4x 自然远距)
     },
   },
   model: {

@@ -199,6 +199,7 @@ brew upgrade --cask project-xiaochun
 * **动作生成** — **EMAGE** 全身协同动作 (ONNX Runtime Web) 在 Dedicated Web Worker 中运行：**wasm 执行提供者 + INT8**（`useInt8`）；**不使用 WebGPU**（模型含 int64）。时序高斯滤波与自然待机混合。流式窗长 **T=64**，每窗 `motion_chunk` 降低 TTFA；可听 TTS 前 A/V hold；hop/接缝参数集中在 `APP_CONFIG.emage.motion`（`advanceFrames` 60..64）。详情见 [`docs/EMAGE_MODEL.md`](docs/EMAGE_MODEL.md)。 线上使用的是瘦身、INT8 量化并离线优化后的模型集(下载 191.35 → 71.59 MB,无需重训),由 [`packages/emage-onnx`](packages/emage-onnx/README-CN.md) 产出,见 [`docs/PERFORMANCE.md`](docs/PERFORMANCE.md)。
 * **语音识别** — **SenseVoice Small int8**（中/英/日/韩/粤）Dedicated Worker：能量 VAD 自动切段、端上识别、回填 ChatBar 光标处。CDN：`cdn.firetable.tech/xiaochun/stt/…-2024-07-17`。详见 [`docs/STT.md`](docs/STT.md)。
 * **语音合成** — **Edge-TTS 晓伊 (XiaoyiNeural, zh-CN, +10 Hz)**，基于自研原生 WebSocket 客户端（`src/lib/edge-tts-core.ts`,无第三方 TTS SDK）；网络传输前智能剥离 emoji。
+* **客户端语音美化与 3D 空间声学** — **Tone.js 15.x + Web Audio DSP 链路**（`src/director/vocalProcessor.ts`）：低切滤波、三段均衡器、电台动态压限、空间微混响，配合**原声直通 (bypass)** 纯净旁路与 **3D 镜头自适应距离声学**（$<2.2\text{m}$ 贴耳低频共鸣增强、标准对话平直无染与 $>8\text{m}$ 远景平滑音量衰减）。详见 [`docs/TTS.md`](docs/TTS.md)。
 * **LLM + TTS + EMAGE 一体编排**：chat director 全链路统一协调，主线程满帧 60 FPS。**LLM 可用 WebGPU**（WebLLM）；**EMAGE 固定 wasm/INT8**。
 
 ### ⚡ 智能分段流式语音管线 (Streaming Speech Pipeline)
@@ -393,6 +394,7 @@ Project-XiaoChun/
 │   ├── BONE_MORPH.md          # 28 项正交体型微调生物力学白皮书
 │   ├── FOOT_IK.md             # 脚部物理地锚与贴地解算
 │   ├── CHAT_DIRECTOR.md       # LLM + TTS + EMAGE 流式状态机编排
+│   ├── TTS.md                 # Edge-TTS 代理与 Tone.js 客户端语音美化管线
 │   ├── STT.md                   # SenseVoice ChatBar 听写（VAD + ORT Worker）
 │   ├── ON_DEVICE_AI.md        # 端侧 AI 推理全栈
 │   ├── ONBOARDING.md          # 沉浸式 Galgame 风格新手引导白皮书 (Schema 状态机/Void 舞台/任务打卡)
@@ -470,7 +472,8 @@ Project-XiaoChun/
 │   │   ├── syncPayload.ts      # 跨设备同步 payload (AES-GCM + xs:v1:iv.ct.key 格式)
 │   │   └── progress.ts         # LLM 进度事件总线
 │   ├── director/
-│   │   └── chatDirector.ts    # LLM → TTS → EMAGE 流式全链路状态编排
+│   │   ├── chatDirector.ts    # LLM → TTS → EMAGE 流式全链路状态编排
+│   │   └── vocalProcessor.ts  # Tone.js 语音美化后处理管线与 3D 空间声学
 │   ├── i18n/                  # zh-CN / en / ja 翻译字典 + 服务端 Cookie 提取
 │   ├── lib/                   # 横切工具
 │   │   ├── utils.ts           # cn() className 合并助手

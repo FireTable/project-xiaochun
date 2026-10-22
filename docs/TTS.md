@@ -1,8 +1,9 @@
-# Edge TTS Proxy (`/api/tts`)
+# Edge TTS Proxy (`/api/tts`) & Client Vocal Post-Processing
 
 > **Core Files**:
 > - [`src/server.ts`](../src/server.ts) — Cloudflare Worker `/api/tts`: single-flight Edge TTS WebSocket proxy, retry, edge cache, 502 with `reasons`
 > - [`src/lib/edge-tts-core.ts`](../src/lib/edge-tts-core.ts) — endpoints, `TRUSTED_CLIENT_TOKEN`, `Sec-MS-GEC` (v1), SSML / frame parsing
+> - [`src/director/vocalProcessor.ts`](../src/director/vocalProcessor.ts) — Web Audio & Tone.js 15.x DSP pipeline (`VocalAudioProcessor`), 3D distance attenuation, bit-exact bypass routing
 > - [`vite/localApiPlugin.ts`](../vite/localApiPlugin.ts) — dev-only `/api/tts`: proxies to `TTS_PROXY_URL` (Node `fetch`, UA `node`) or connects Edge directly
 >
 > **Related**: client chunking, parallel prefetch and text fallback on TTS failure → [`CHAT_DIRECTOR.md`](CHAT_DIRECTOR.md).
@@ -100,3 +101,173 @@ A 403 says nothing about *why* (bad token, version, or host all look the same) �
 ### 3.7 Long-Term Risk
 - Microsoft may start requiring the v2 token on the new host as well. The fix would be porting edge-tts 7.3.0's v2 generator (PR #492). That algorithm is reconstructed from `msedge.dll` and embeds a Microsoft copyright string — **review the legal implications before adopting it**.
 - `/api/tts` is unauthenticated with CORS `*`; third-party callers (e.g. Node clients on VPS IPs) consume upstream quota and raise 429 risk.
+
+---
+
+## 4. Client-Side Vocal Post-Processing Pipeline & 3D Spatial Acoustics
+
+> **Core Files**:
+> - [`src/director/vocalProcessor.ts`](../src/director/vocalProcessor.ts) — Web Audio & Tone.js 15.x DSP pipeline (`VocalAudioProcessor`), bit-exact bypass routing, 3D distance attenuation curve, safe parameter ramping
+> - [`src/config.ts`](../src/config.ts) — Vocal presets (`bypass`, `sweet`, `oneesan`, `radio`, `whisper`), default configuration (`bypass` + `distanceAttenuation: true`), 3D camera acoustic bounds
+> - [`src/director/chatDirector.ts`](../src/director/chatDirector.ts) — Signal routing insertion (`sourceNode -> vocalProcessor -> destination`) and viseme isolation
+> - [`src/components/dev-drawer/sections/VocalSection.tsx`](../src/components/dev-drawer/sections/VocalSection.tsx) — Real-time acoustics control, live spatial distance badges (`near` / `standard` / `mid` / `far`), parameter sliders
+
+While `/api/tts` synthesizes raw Microsoft Edge-TTS audio at the edge, Project XiaoChun features an advanced **in-browser DSP vocal post-processing pipeline** powered by Web Audio API and Tone.js 15.x. It delivers broadcast-quality vocal presence, anime warmth, and dynamic 3D camera distance acoustics directly on the client.
+
+### 4.1 Architecture & Separation of Concerns
+
+To guarantee that post-processing never degrades motion fidelity or introduces visual artifacts, the audio processing is strictly decoupled across functional domains:
+
+1. **Viseme & Motion Isolation**:
+   - The lip-sync analyzer (`AnalyserNode`) and EMAGE co-speech gesture engine receive the **raw, unadulterated audio stream** before any DSP coloration.
+   - Reverb tails, dynamic compression, and EQ boosts never leak into viseme energy calculation or body gesture prediction.
+2. **Bit-Exact Pure Bypass Branch**:
+   - When the user selects the default `bypass` (原声直通) preset or disables vocal enhancement, audio travels exclusively through a dedicated `dryGain` bypass node (`inputNode -> dryGain -> outputNode`).
+   - The signal completely skips the filter, EQ, compressor, and reverb nodes, ensuring zero phase shift, zero harmonic distortion, and 100% digital parity with raw Edge-TTS.
+3. **Decoupled Control State**:
+   - Switching acoustic presets modulates **only** DSP slider parameters (low cut, EQ gains, compressor threshold/ratio, reverb wet/size). It **never** mutates the user's top-level switches (`enabled`, `sceneLinkage`, `distanceAttenuation`).
+4. **Zero-Glitch Live Automation**:
+   - All acoustic parameters support smooth microsecond ramps (`rampTime = 0.03s`), allowing live adjustment from the DevDrawer during active playback without clicks, pops, or audio dropouts.
+5. **Robust Headless Fallback**:
+   - In SSR, Node.js unit test environments, or older browsers without Web Audio context support, the processor smoothly degrades to a native passthrough node without crashing.
+
+### 4.2 Signal Routing & Processing Graph
+
+```mermaid
+flowchart TD
+    subgraph Input["Audio Input Stream"]
+        RawAudio["Decoded Edge-TTS Audio (MP3)"]
+    end
+
+    subgraph MotionPath["Isolated Analysis Branch"]
+        Analyser["AnalyserNode (Lip-Sync & Visemes)"]
+        Emage["EMAGE Gesture Model (Raw Audio)"]
+    end
+
+    subgraph VocalProcessor["VocalAudioProcessor (Tone.js Graph)"]
+        InputNode["inputNode (Tone.Gain)"]
+        
+        subgraph DryBranch["Bit-Exact Bypass Path"]
+            DryGain["dryGain (Tone.Gain)"]
+        end
+        
+        subgraph WetBranch["Acoustic Enhancement DSP Chain"]
+            LowCut["lowCut (Tone.Filter Highpass @ 70~100Hz)"]
+            EQ["eq (Tone.EQ3: 350Hz Low / Mid / 3500Hz High)"]
+            Comp["compressor (Tone.Compressor: Fast Attack / 150ms Release)"]
+            Verb["reverb (Tone.Freeverb: Room Size & Dampening)"]
+            WetGain["wetGain (Tone.Gain)"]
+        end
+        
+        OutputNode["outputNode (Tone.Gain)"]
+    end
+
+    subgraph Destination["Hardware Output"]
+        Speakers["audioContext.destination (Speakers / Headphones)"]
+    end
+
+    RawAudio --> Analyser
+    RawAudio --> Emage
+    RawAudio --> InputNode
+
+    %% Bypass Routing
+    InputNode -->|isRawBypass = true| DryGain
+    DryGain --> OutputNode
+
+    %% Wet Chain Routing
+    InputNode -->|isRawBypass = false| LowCut
+    LowCut --> EQ
+    EQ --> Comp
+    Comp --> Verb
+    Verb --> WetGain
+    WetGain --> OutputNode
+
+    OutputNode --> Speakers
+```
+
+### 4.3 3D Camera Distance Attenuation & Spatial Zoning
+
+Project XiaoChun links the 3D orbit camera distance to the vocal acoustics, simulating realistic auditory perspective.
+
+#### 4.3.1 Distance-to-Acoustic Mapping Algorithm
+
+The acoustic mapping distinguishes three primary distance domains:
+
+$$\begin{aligned}
+d_{\text{min}} &= 0.6\,\text{m} \quad (\text{Minimum camera approach}) \\
+d_{\text{ref}} &= 2.2\,\text{m} \quad (\text{Reference conversation distance}) \\
+d_{\text{drop}} &= 8.0\,\text{m} \quad (\text{Attenuation start threshold}) \\
+d_{\text{max}} &= 15.0\,\text{m} \quad (\text{Maximum stage vista})
+\end{aligned}$$
+
+1. **Near-Field Proximity Boost ($0.6\,\text{m} \le d < 2.2\,\text{m}$)**:
+   - As the camera pushes close to XiaoChun, the voice increases in volume and gains chest warmth, recreating an intimate, close-mic ear-whispering sensation.
+   - **Interpolation factor**: $t = \frac{d_{\text{ref}} - d}{d_{\text{ref}} - d_{\text{min}}} \in [0, 1]$
+   - **Chest Resonance (EQ Low 350Hz)**: Boosted up to $+3.0\text{ dB}$ ($\Delta \text{chest} = +3.0 \times t\,\text{dB}$).
+   - **Volume Gain**: Boosted up to $+3.0\text{ dB}$ ($G_{\text{offset}} = 10^{(3.0 \times t) / 20}$).
+2. **Standard & Mid-Field Flat Zone ($2.2\,\text{m} \le d \le 8.0\,\text{m}$)**:
+   - Within typical observation and medium staging distances, **no volume attenuation occurs** ($G_{\text{offset}} = 1.0\times / 0\text{ dB}$).
+   - Chest resonance offset remains flat ($0\text{ dB}$), preserving clear, clean, and uncolored vocal delivery.
+3. **Far-Field Distance Attenuation ($8.0\,\text{m} < d \le 15.0\,\text{m}$)**:
+   - Volume attenuation strictly begins **after 8.0 meters**, preventing XiaoChun's voice from dropping off when simply reframing full-body shots.
+   - **Interpolation factor**: $s = \frac{d - d_{\text{drop}}}{d_{\text{max}} - d_{\text{drop}}} \in [0, 1]$
+   - **Volume Attenuation**: Smoothly drops from $0\text{ dB}$ at $8.0\text{m}$ down to $-8.0\text{ dB}$ ($\approx 0.40\times$) at $15.0\text{m}$ ($G_{\text{offset}} = 10^{(-8.0 \times s) / 20}$).
+   - **Chest Resonance**: Remains flat at $0\text{ dB}$, ensuring distant speech stays crisp without muddiness.
+
+#### 4.3.2 Camera Spatial Zones
+
+The DevDrawer and acoustic inspector display real-time spatial badges based on distance:
+
+| Zone Badge | Distance Range | Acoustic Characteristics | Typical Framing |
+| :--- | :--- | :--- | :--- |
+| `near` | $< 1.6\text{m}$ | Proximity boost: $+3.0\text{ dB}$ volume & $+3.0\text{ dB}$ chest resonance (warm & intimate) | Close-up portrait, facial details |
+| `standard` | $1.6\text{m} \sim 4.5\text{m}$ | Flat unity gain ($0\text{ dB}$), natural timbre (default distance $2.2\text{m} \sim 4.3\text{m}$) | Bust-up, standard conversation |
+| `mid` | $4.5\text{m} \sim 8.0\text{m}$ | Flat unity gain ($0\text{ dB}$), full-body framing stability | Full-body dancing, walking |
+| `far` | $\ge 8.0\text{m}$ | Smooth volume attenuation (down to $-8.0\text{ dB}$ / $0.40\times$ at $15\text{m}$) | Wide stage vista, architectural view |
+
+### 4.4 Acoustic Presets Matrix
+
+The application provides 5 curated acoustic presets configured in `src/config.ts`:
+
+| Preset | Key | Low-Cut | Chest EQ (350Hz) | Mid EQ | Air EQ (3.5kHz) | Compressor | Reverb Wet / Room | Character |
+| :--- | :--- | :--- | :--- | :--- | :--- | :--- | :--- | :--- |
+| **原声直通 (Default)** | `bypass` | *Bypassed* | *Bypassed* | *Bypassed* | *Bypassed* | *Off (0 dB / 1:1)* | *0%* | 100% digital bit-exact Edge-TTS dry signal; distance attenuation active |
+| **甜美软萌** | `sweet` | 85 Hz | -0.5 dB | +0.5 dB | +3.0 dB | -16 dB (3.0:1) | 6% wet (0.20 room) | Transparent highs, crisp presence, sweet anime idol timbre |
+| **温柔御姐** | `oneesan` | 75 Hz | +3.5 dB | +1.0 dB | +1.5 dB | -22 dB (4.5:1) | 10% wet (0.30 room) | Deep chest resonance, warm mid-body, mature and calming presence |
+| **复古电台** | `radio` | 300 Hz | -6.0 dB | +4.5 dB | -4.0 dB | -28 dB (8.0:1) | 4% wet (0.15 room) | Bandpass lo-fi, focused mid-range, telephone/radio broadcast character |
+| **贴耳耳语** | `whisper` | 100 Hz | +1.0 dB | -1.5 dB | +5.0 dB | -26 dB (5.0:1) | 15% wet (0.45 room) | Enhanced air harmonics, intimate compression, ASMR room space |
+
+### 4.5 Critical Web Audio & Tone.js Engineering Standards
+
+When developing or extending audio processing nodes in modern browsers, adhere strictly to these architectural invariants:
+
+#### 1. The `exponentialRampToValueAtTime` Crash Trap (`safeRampParam`)
+- **The Problem**: According to the W3C Web Audio API specification, calling `exponentialRampToValueAtTime` on an `AudioParam` throws an immediate, fatal `DOMException` if the target value is less than or equal to zero ($\le 0$).
+- **The Pitfall in Tone.js**: Tone.js's native `Param.rampTo()` method inspects the parameter's unit. When `unit === "decibels"`, Tone.js naively issues an exponential ramp. Consequently, setting negative decibels (such as compressor threshold at $-18\text{ dB}$, or EQ cuts at $-0.5\text{ dB}$) or zero gain triggers a DOMException, muting the audio output permanently!
+- **The Solution**: All parameter automations in `VocalAudioProcessor` must go through `safeRampParam()`:
+  ```ts
+  private safeRampParam(param: any, value: number, rampTime = 0.03): void {
+    if (!param) return;
+    try {
+      if (typeof param.targetRampTo === 'function') {
+        param.targetRampTo(value, rampTime); // Uses setTargetAtTime
+      } else if (typeof param.linearRampTo === 'function') {
+        param.linearRampTo(value, rampTime); // Safe linear interpolation
+      } else if ('value' in param) {
+        param.value = value;
+      }
+    } catch {
+      if ('value' in param) param.value = value;
+    }
+  }
+  ```
+
+#### 2. Bit-Exact Bypass Routing Guarantee
+- When `preset === 'bypass'`, the audio graph **must not** route audio through inactive filters or zero-wet effects. Even with wet gain at 0, passing through digital IIR filters (like highpass or peaking EQ) introduces phase smearing and latency.
+- Instead, the processor switches routing entirely to `dryGain`:
+  ```ts
+  this.safeRampParam(this.dryGain?.gain, effDry, smoothTime);
+  this.safeRampParam(this.wetGain?.gain, 0, smoothTime);
+  ```
+  This guarantees that in the default state, users hear pristine, bit-exact Edge-TTS audio with zero distortion.
+

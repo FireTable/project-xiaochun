@@ -16,12 +16,13 @@ import { CAMERA_STATE_KEY, BODY_YAW_KEY, CAMERA_PITCH_KEY, SCENE_THEME_KEY, CAME
 import { VRMBodyMorph } from './morph/vrmBodyMorph';
 import { postFxPipeline, type PostFxPipeline } from './postfx/postFxPipeline';
 import { ChatDirector } from '@/director/chatDirector';
+import type { VocalAudioProcessor } from '@/director/vocalProcessor';
 import type { HostAudioInput } from '@/director/hostAudio';
 import { MotionPipeline } from '@/motion/pipeline/motionPipeline';
 import type { PlayMotionOptions, UniversalMotionHandle } from '@/motion/sources/clip';
 import { preloadWebLLM, unloadWebLLM } from '@/llm/webLLMProvider';
 import { isHeavyPreloadAllowed, isLlmPreloadAllowed } from '@/lib/heavyPreload';
-import { APP_CONFIG, type LightConfig } from '@/config';
+import { APP_CONFIG, type LightConfig, type VocalAudioConfig, type VocalPresetKey } from '@/config';
 import { loadPostFxEnabledFromStorage, getRenderPixelRatio, resolveInitialSceneTheme } from '@/lib/utils';
 import { isMobile, isTauri } from '@/lib/platform';
 import type { Lang } from '@/i18n';
@@ -1321,6 +1322,7 @@ export class VRMEngine {
     this.beach3d.setActive(theme === 'beach3d');
     this.lighting.applyTheme(theme);
     this.shadow.applyTheme(theme);
+    this.chatDirector.vocalProcessor.applySceneTheme(theme);
   }
 
   public getLineworkTheme(): LineworkTheme {
@@ -2779,6 +2781,32 @@ export class VRMEngine {
     try { this.chatDirector.stop(); } catch { /* ignore */ }
   }
 
+  /** TTS 语音后处理插件处理器 (Tone.js) */
+  public get vocalProcessor(): VocalAudioProcessor {
+    return this.chatDirector.vocalProcessor;
+  }
+
+  /** 获取当前 TTS 语音美化声学配置 */
+  public getVocalConfig(): VocalAudioConfig {
+    return this.chatDirector.vocalProcessor.getConfig();
+  }
+
+  /** 更新 TTS 语音美化参数 (实时生效) */
+  public setVocalConfig(partial: Partial<VocalAudioConfig>): void {
+    this.chatDirector.vocalProcessor.updateConfig(partial);
+  }
+
+  /** 切换 TTS 语音美化预设风格 */
+  public setVocalPreset(preset: VocalPresetKey): void {
+    this.chatDirector.vocalProcessor.setPreset(preset);
+  }
+
+  /** 当前是否正在说话中 */
+  public get isSpeaking(): boolean {
+    return this.chatDirector.speaking;
+  }
+
+
 
   /**
    * 预加载重资源 (EMAGE ONNX + WebLLM)。
@@ -3025,6 +3053,14 @@ export class VRMEngine {
 
       // 相机不穿地的夹取包在 controls.update 里 (见 installGroundClamp)
       this.controls?.update();
+
+      // 实时驱动语音后处理插件的镜头空间声学衰减 (推近贴耳、拉远空气高频衰减、俯仰离轴遮蔽)
+      if (this.controls && this.chatDirector.vocalProcessor.ready) {
+        const dist = this.controls.getDistance();
+        const pitch = this.controls.getPolarAngle();
+        const bodyYaw = vrm?.scene.rotation.y ?? 0;
+        this.chatDirector.vocalProcessor.updateCameraAcoustics({ distance: dist, pitch, bodyYaw });
+      }
       try {
         if (this.renderer && !this.renderer.shadowMap.autoUpdate) {
           const interval = Math.max(1, APP_CONFIG.shadow.updateIntervalFrames ?? 2);

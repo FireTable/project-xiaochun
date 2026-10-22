@@ -3,7 +3,7 @@
  * drawer.tsx 读 SECTIONS 配置渲染壳,每个段组件自己接 props 实现内容。
  */
 import type { MaterialSaturationSettings } from '@/core/vrmEngine';
-import type { BodyMorphConfig } from '@/config';
+import type { BodyMorphConfig, VocalAudioConfig } from '@/config';
 import type { PostFxConfig } from '@/core/postfx/postFxPipeline';
 
 /** localStorage 存的完整配置 (跟旧 DevDrawer 兼容) */
@@ -18,6 +18,7 @@ export interface DevDrawerFullSettings {
     fill: { enabled: boolean; base: number };
   };
   postfx: PostFxConfig;
+  vocal?: VocalAudioConfig;
   camera: {
     fov?: number;
     minDistance?: number;
@@ -32,6 +33,7 @@ export interface DevDrawerFullSettings {
 /** 段 id — 跟 schema SECTIONS 一一对应 */
 export type SectionId =
   | 'expressions'
+  | 'vocal'
   | 'emagePerf'
   | 'saturation'
   | 'bodyMorph'
@@ -39,6 +41,7 @@ export type SectionId =
   | 'lighting'
   | 'camera'
   | 'postfx';
+
 
 /** 历史撤销操作动作 */
 export interface DevDrawerHistoryAction {

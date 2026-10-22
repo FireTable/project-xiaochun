@@ -60,12 +60,24 @@ AI runs in the browser tab. **WebLLM may use WebGPU**; **EMAGE uses ONNX Runtime
 - **Orchestrator**: `src/motion/emagePlayer.ts` — streaming player, temporal Gaussian smoothing, natural idle blends → Universal Motion Pipeline Layer 1.
 - **Status doc**: `docs/EMAGE_MODEL.md` (export = emage-onnx-export README scripts only). **Not shipped**: WebGPU-EMAGE, P0d residual-gate.
 
-### 2.4 TTS (Edge-TTS)
-- **Engine**: native WebSocket client `src/lib/edge-tts-core.ts` (Microsoft Edge-TTS protocol; no third-party TTS SDK)
+### 2.4 TTS & Vocal Post-Processing Pipeline
+- **Edge TTS Engine**: native WebSocket client `src/lib/edge-tts-core.ts` (Microsoft Edge-TTS protocol; no third-party TTS SDK)
 - **Default voice**: `zh-CN-XiaoyiNeural` with `+10Hz` pitch (energetic anime-girl timbre)
-- **Production endpoint**: Cloudflare Worker at `src/server.ts` — opens WebSocket to `speech.platform.bing.com`, streams audio chunks as `audio/mpeg`
-- **Dev endpoint**: Same shape, served by `vite.config.ts → localApiPlugin` middleware with Miniflare
+- **Production endpoint**: Cloudflare Worker at `src/server.ts` — opens WebSocket to `speech.platform.bing.com` / `api.msedgeservices.com`, streams audio chunks as `audio/mpeg`
+- **Dev endpoint**: Same shape, served by `vite.config.ts → localApiPlugin` middleware with Miniflare / EU egress proxy
 - **Emoji handling**: Text passed to TTS is stripped of `\p{Extended_Pictographic}` characters to avoid prosody glitches (Microsoft TTS tends to over-articulate emoji)
+- **Client-Side Tone.js Vocal DSP Pipeline (`src/director/vocalProcessor.ts`)**:
+  - Encapsulates Web Audio API and Tone.js 15.x (`VocalAudioProcessor`) inserted between `sourceNode` and audio output.
+  - **Decoupled Lip-Sync**: Raw decoded audio is sent directly to `AnalyserNode` for viseme calculation and EMAGE motion prediction. EQ, compression, and reverb coloration never contaminate mouth shapes or body gesture timing.
+  - **Dual-Branch Signal Routing**:
+    - *Dry Bypass Branch* (`inputNode -> dryGain -> outputNode`): Active on default `bypass` (原声直通) preset or when enhancement is disabled. Completely bypasses filters and reverb with 0 phase shift and 0 latency.
+    - *Wet Enhancement Chain* (`inputNode -> lowCut -> eq -> compressor -> reverb -> wetGain -> outputNode`): Highpass low-cut (80Hz), 3-band EQ3 (350Hz low chest resonance, mid clarity, 3500Hz high air), dynamic compressor (fast 10ms attack, 150ms release), and Freeverb room reflection.
+  - **3D Camera Distance Attenuation Curve**:
+    - *Near-field proximity* ($0.6\text{m} \sim 2.2\text{m}$): Volume boosted smoothly up to $+3.0\text{ dB}$, Low EQ (350Hz chest resonance) boosted up to $+3.0\text{ dB}$ for an intimate, close-mic whisper feel.
+    - *Normal & mid-field flat zone* ($2.2\text{m} \sim 8.0\text{m}$): Completely flat unity gain ($0\text{ dB}$ offset, $0\text{ dB}$ chest resonance offset) ensuring pristine, uncolored conversation dialogue.
+    - *Far-field distance falloff* ($8.0\text{m} \sim 15.0\text{m}$): Volume smoothly attenuates from $0\text{ dB}$ at $8.0\text{m}$ down to $-8.0\text{ dB}$ ($\approx 0.40\times$) at $15.0\text{m}$.
+  - **Web Audio Safety Standard (`safeRampParam`)**: Uses `targetRampTo` (`setTargetAtTime`) and `linearRampTo` over 30ms windows to avert Web Audio `DOMException` when setting $\le 0$ dB on Tone.js decibel parameters.
+  - **Presets**: `bypass` (default), `sweet`, `oneesan`, `radio`, `whisper`. Presets modify acoustic sliders only, never touching top-level switches (`enabled`, `sceneLinkage`, `distanceAttenuation`). Full documentation in `docs/TTS.md`.
 
 ### 2.5 Chat Director
 - **File**: `src/director/chatDirector.ts`

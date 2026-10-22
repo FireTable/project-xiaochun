@@ -11,6 +11,7 @@ export interface SectionConfig {
 
 export const SECTIONS: SectionConfig[] = [
   { id: 'expressions', defaultCollapsed: false },
+  { id: 'vocal', defaultCollapsed: false },
   { id: 'camera', defaultCollapsed: false },
   { id: 'saturation', defaultCollapsed: false },
   { id: 'bodyMorph', defaultCollapsed: false },

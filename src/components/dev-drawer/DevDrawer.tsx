@@ -168,6 +168,7 @@ export const DevDrawer: React.FC<DevDrawerProps> = ({ isOpen, onClose }) => {
       });
     }
     if (saved.activeExpr && saved.activeExpr !== 'neutral') vrmEngine.setExpression(saved.activeExpr);
+    if (saved.vocal) vrmEngine.setVocalConfig(saved.vocal);
   }, []);
 
   // 换装时同步应用当前服装的有效体型
@@ -216,6 +217,7 @@ export const DevDrawer: React.FC<DevDrawerProps> = ({ isOpen, onClose }) => {
       wardrobeVisibility: saved?.wardrobeVisibility ?? { ...vrmEngine.materialManager.partsVisibility },
       activeExpr: saved?.activeExpr ?? 'neutral',
       postfx: saved?.postfx ?? { ...vrmEngine.postFx.config },
+      vocal: saved?.vocal ?? vrmEngine.getVocalConfig(),
     };
     const jsonStr = JSON.stringify(fullConfig, null, 2);
     try {
@@ -287,6 +289,11 @@ export const DevDrawer: React.FC<DevDrawerProps> = ({ isOpen, onClose }) => {
         hs: { ...APP_CONFIG.postfx.hs },
       },
     });
+
+    // 重置 TTS 语音后处理音效至默认状态并持久化
+    const defaultVocal = { ...APP_CONFIG.vocal.default };
+    vrmEngine.setVocalConfig(defaultVocal);
+    saveDevDrawerSettings({ vocal: defaultVocal });
 
     // 重置撤销与重做历史
     setUndoStack([]);

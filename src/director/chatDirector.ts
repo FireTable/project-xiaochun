@@ -23,6 +23,8 @@ import { StreamResampler16k, PcmSlicer, HOST_AUDIO, clampPlaybackRate, clampVolu
 interface Plan { speech: string; llm_provider?: string }
 
 import { splitIntoSpeechChunks, stripForTTS } from '@/lib/utils';
+import { VocalAudioProcessor } from './vocalProcessor';
+
 
 /** endAudioStream / 生产者收尾的最长等待；超时后不再阻塞发送按钮 */
 export const END_STREAM_TIMEOUT_MS = 8000;
@@ -343,6 +345,7 @@ class PipelineTableTracker {
 }
 
 export class ChatDirector {
+  public readonly vocalProcessor = new VocalAudioProcessor();
   private ctx: AudioContext | null = null;
   private analyser: AnalyserNode | null = null;
   private analyserBuf: Uint8Array | null = null;
@@ -764,7 +767,10 @@ export class ChatDirector {
   /** Create the shared AudioContext ahead of the first reply (suspended until the first resume()). */
   public prewarmAudio(): void {
     if (!this.ctx && typeof AudioContext !== 'undefined') {
-      try { this.ctx = new AudioContext(); } catch { /* created lazily on first speech instead */ }
+      try {
+        this.ctx = new AudioContext();
+        this.vocalProcessor.init(this.ctx);
+      } catch { /* created lazily on first speech instead */ }
     }
   }
 
@@ -1053,7 +1059,8 @@ export class ChatDirector {
     src.playbackRate.value = followTransport ? this.playbackRate : 1;
     src.connect(this.analyser);
     this.analyser.connect(this.currentGain);
-    this.currentGain.connect(this.ctx.destination);
+    this.vocalProcessor.init(this.ctx);
+    this.vocalProcessor.connectChain(this.currentGain, this.ctx.destination);
     this.currentSource = src;
 
     // P0a-AV: 连续流 playhead 用累计 TTS 时间，跨段不回跳；

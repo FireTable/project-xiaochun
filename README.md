@@ -207,6 +207,7 @@ You can download installer packages directly from the official Releases page:
 * **User-Customizable System Prompt, Memory Turns & Head Bubble** — Open the chat-bar menu → **对话设置 / Chat Settings** to override the character system prompt (free-form text, falls back to default when empty/equal), tune the conversation memory-turn count (1–50, default = device-recommended), and toggle the head chat bubble (`APP_CONFIG.chat.showHeadBubble`, default on). When off, `HeadBubble` does not render; ChatDirector / `bubbleTracker` events still fire. Overrides persist in IndexedDB (`xiaochun-user-settings`); turn bounds live in `APP_CONFIG.memory.userTurnsMin/Max`.
 * **Motion** — **EMAGE** full-body co-speech motion (ONNX Runtime Web) in a Dedicated Web Worker: **wasm execution provider + INT8** (`useInt8`); **does not use WebGPU** (model tensors include int64). Temporal Gaussian smoothing and natural idle blends. Streaming windows **T=64** with per-window `motion_chunk` for TTFA; A/V hold until audible TTS; hop/seam tunables under `APP_CONFIG.emage.motion` (`advanceFrames` 60..64). See [`docs/EMAGE_MODEL.md`](docs/EMAGE_MODEL.md). The shipped model set is a slimmed, INT8-quantized and graph-optimized build (download 191.35 → 71.59 MB, no retraining), produced by [`packages/emage-onnx`](packages/emage-onnx/README.md); see [`docs/PERFORMANCE.md`](docs/PERFORMANCE.md).
 * **TTS** — **Edge-TTS 晓伊 (XiaoyiNeural, zh-CN, +10 Hz)** via a hand-rolled native WebSocket client in `src/lib/edge-tts-core.ts` (no third-party TTS SDK); emoji stripped before speech.
+* **Vocal Post-Processing & 3D Spatial Acoustics** — **Tone.js 15.x + Web Audio DSP pipeline** (`src/director/vocalProcessor.ts`): low-cut highpass filter, 3-band EQ, broadcast dynamics compressor, subtle room reverb, bit-exact pure dry bypass routing, and 3D camera distance acoustics (near-field $<2.2\text{m}$ proximity boost, $2.2\sim 8\text{m}$ flat conversation, and $>8\text{m}$ smooth distance attenuation). Documented in [`docs/TTS.md`](docs/TTS.md).
 * **STT** — **SenseVoice Small int8** (zh/en/ja/ko/yue) in a Dedicated Worker: energy VAD auto-segments utterances, recognizes on-device, inserts at the ChatBar caret. CDN weights under `cdn.firetable.tech/xiaochun/stt/…-2024-07-17`. See [`docs/STT.md`](docs/STT.md).
 * **LLM + TTS + EMAGE orchestrated** by the chat director on the main thread at 60 FPS. **LLM may use WebGPU** (WebLLM); **EMAGE stays on wasm/INT8**.
 
@@ -423,6 +424,7 @@ Project-XiaoChun/
 │   ├── BONE_MORPH.md          # 28-parameter orthogonal biomechanical morphing whitepaper
 │   ├── FOOT_IK.md             # Ground anchoring & foot inverse kinematics solver
 │   ├── CHAT_DIRECTOR.md       # LLM + TTS + EMAGE streaming orchestration
+│   ├── TTS.md                 # Edge-TTS proxy & Tone.js vocal post-processing pipeline
 │   ├── STT.md                   # SenseVoice ChatBar dictation (VAD + ORT Worker)
 │   ├── ONBOARDING.md          # Galgame-style immersive onboarding system specification & schema
 │   ├── EMAGE_MODEL.md         # EMAGE status & known limits (wasm/INT8, streaming, isolation)
@@ -475,7 +477,8 @@ Project-XiaoChun/
 │   ├── memory/                # Client-side multi-tier memory (IndexedDB / entity extraction / n-gram retrieval)
 │   ├── llm/                   # LLM layer — WebLLM + custom OpenAI-compatible provider factory
 │   ├── director/
-│   │   └── chatDirector.ts    # LLM → TTS → EMAGE streaming coordinator pipeline
+│   │   ├── chatDirector.ts    # LLM → TTS → EMAGE streaming coordinator pipeline
+│   │   └── vocalProcessor.ts  # Tone.js vocal post-processing pipeline & 3D spatial acoustics
 │   ├── i18n/                  # zh-CN / en / ja translation dictionaries + server cookie helper
 │   ├── lib/                   # Cross-cutting utilities
 │   │   ├── platform.ts        # Desktop/Tauri/Browser environment detection & window actions

@@ -663,3 +663,39 @@ export interface LoadingWarpConfig {
     lipPeriod: number;
   };
 }
+
+/** TTS 语音后处理风格预设 */
+export type VocalPresetKey = 'bypass' | 'sweet' | 'oneesan' | 'radio' | 'whisper' | 'custom';
+
+/** TTS 语音后处理声学参数配置 (基于 Tone.js) */
+export interface VocalAudioConfig {
+  /** 效果链总开关 (false 时 100% 直通原声) */
+  enabled: boolean;
+  /** 跟随 3D 场景自动适配环境声学 (海滩开阔去回音、桌宠贴耳、虚空深邃空灵) */
+  sceneLinkage: boolean;
+  /** 跟随 3D 镜头距离与姿态衰减 (推近贴耳、拉远空气高频衰减、俯仰角发音朝向) */
+  distanceAttenuation: boolean;
+  /** 当前预设风格 */
+  preset: VocalPresetKey;
+  /** 低切滤波频率 (Hz, 50~150Hz, 默认 80Hz) */
+  lowCutFreq: number;
+  /** 胸腔共鸣 / 低频增益 (dB, -8~+8dB, 默认 0dB, 御姐可拉高至 +3.5dB) */
+  chestResonance: number;
+  /** 中频清晰度 / 结像 (dB, -6~+6dB, 默认 0dB) */
+  midGain: number;
+  /** 空气通透度 / 高频泛音 (dB, -6~+8dB, 默认 +2.5dB, 甜美/通透) */
+  airGain: number;
+  /** 动态压缩阈值 (dB, -36~-6dB, 默认 -18dB, 越低越贴耳) */
+  compressorThreshold: number;
+  /** 动态压缩比 (1~10, 默认 3.5) */
+  compressorRatio: number;
+  /** 空间微混响干湿比 (0~0.35, 默认 0.08, 8% 自然房间感) */
+  reverbWet: number;
+  /** 混响阻尼频率 (Hz, 1000~5000Hz, 默认 3000Hz) */
+  reverbDampening: number;
+  /** 混响房间尺寸 (0.1~0.8, 默认 0.25) */
+  reverbRoomSize: number;
+  /** 输出音量补偿倍率 (0.6~1.6, 默认 1.0) */
+  outputGain: number;
+}
+
