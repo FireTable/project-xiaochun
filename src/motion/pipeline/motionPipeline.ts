@@ -375,8 +375,11 @@ export class MotionPipeline {
 
     // 3. Idle into PoseBuffer only (never a VRM writer while another source is live)
     // 关键修正：从动作源平滑回归待机时，允许待机系统释放有机呼吸与肌肉放松曲线，杜绝整个人僵直机械拉拽
-    const isReturningToIdle = this.activeSource === 'idle' && !ctx.isSpeaking;
-    const isBusyAction = ctx.isSpeaking || this.activeSource !== 'idle' || (this.isCrossfading && !isReturningToIdle);
+    // 宿主软暂停: 手势混向待机时让待机层放开呼吸 / 放松 (不按"说话中"压住)
+    const hostHold = writer === 'emage' ? this.emage.getHostHoldWeight() : 0;
+    const speakingNow = ctx.isSpeaking && hostHold < 0.5;
+    const isReturningToIdle = this.activeSource === 'idle' && !speakingNow;
+    const isBusyAction = hostHold >= 0.5 ? false : (speakingNow || this.activeSource !== 'idle' || (this.isCrossfading && !isReturningToIdle));
     if (this.idle.enabled) {
       const btCtx = ctx.enableBodyTurn ? {
         yawVel: this.bodyTurn.yawVel,
@@ -392,7 +395,7 @@ export class MotionPipeline {
         1.0,
         isStepping ? 1.0 : this.locomotionWeight,
         delta,
-        ctx.isSpeaking,
+        speakingNow,
         isBusyAction,
         btCtx,
       );
@@ -418,6 +421,7 @@ export class MotionPipeline {
         const wrote = this.emage.update(delta);
         if (wrote) {
           this.emage.copyToPoseBuffer(this.actionPose, 'all');
+          if (hostHold > 0.0001) this.actionPose.slerp(this.basePose, hostHold);
           this.waitingForActionSample = false;
           if (this.vrma.isPlaying()) this.vrma.stop();
         } else if (this.activeSource === 'idle') {

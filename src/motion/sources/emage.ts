@@ -250,6 +250,9 @@ export class EmagePlayer {
   private playhead = 0;
   private playing = false;
   private idleWeight = 0.0;
+  /** 宿主暂停 (xc.clock playing:false) 时的软暂停: 手势保持在原位置, 姿态混向待机。0 = 手势, 1 = 待机 */
+  private hostHold = false;
+  private hostHoldBlend = 0;
   private externalClock: (() => number) | null = null;
   /** 上一帧外部时钟的秒数。用来跟倍速, 而不是把追赶上限锁死在 1 倍。换时钟时清掉。 */
   private prevExternalClockT = -1;
@@ -391,7 +394,22 @@ export class EmagePlayer {
     this.prevExternalClockT = -1;
   }
 
+  /** 宿主暂停 / 继续: 暂停约 0.4s 混到待机 (呼吸、眨眼), 继续约 0.3s 混回当前时钟位置的手势。 */
+  setHostHold(hold: boolean): void {
+    if (hold === this.hostHold) return;
+    this.hostHold = hold;
+    if (!hold) this.snapToClock = true;
+  }
+
+  /** 软暂停的待机混合权重 (smoothstep 后), 由 MotionPipeline 把动作姿态混向待机姿态。 */
+  getHostHoldWeight(): number {
+    const p = this.hostHoldBlend;
+    return p * p * (3 - 2 * p);
+  }
+
   clearExternalClock(): void {
+    this.hostHold = false;
+    this.hostHoldBlend = 0;
     this.externalClock = null;
     this.prevExternalClockT = -1;
     this.snapToClock = false;
@@ -1123,6 +1141,13 @@ export class EmagePlayer {
     if (this.externalClock) {
       const t = this.externalClock();
       if (t >= 0 && this.frameCount > 0) {
+        const holdTarget = this.hostHold ? 1 : 0;
+        if (this.hostHoldBlend !== holdTarget) {
+          const step = delta / (this.hostHold ? 0.4 : 0.3);
+          this.hostHoldBlend = this.hostHold
+            ? Math.min(1, this.hostHoldBlend + step)
+            : Math.max(0, this.hostHoldBlend - step);
+        }
         // 绝对音频时钟 → 帧：streaming 下 duration 会随 chunk 增长，用 t*fps 更稳
         const fps = this.fps > 0 ? this.fps : FPS;
         const target = Math.min(this.frameCount - 1, Math.max(0, t * fps));

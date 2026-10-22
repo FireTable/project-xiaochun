@@ -1294,6 +1294,8 @@ export class ChatDirector {
       this.hostPlaying = playing;
     }
     this.hostClockSeen = true;
+    // 软暂停: 停下时手势混向待机 (嘴在 tick 里已合上), 继续时从当前时钟位置混回手势, 不重开这一句
+    this.emage?.setHostHold(!playing);
     if (c.seek === true || jump > 0.5) this.emage?.snapToExternalClock();
     this.wakeSpeakAudio?.();
   }
