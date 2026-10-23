@@ -474,30 +474,22 @@ export class ChatDirector {
   }
 
   /**
-   * 自动播放拦截: 页面 (含宿主透传到 iframe 的点击) 从未被用户激活时, AudioContext.resume() 会一直 pending。
-   * 这时不进思考动作、不请求 TTS, 直接放弃这一句; 并开始轮询 userActivation, 一旦激活就补一次 resume()。
-   * 实测 (Chrome, 跨源 iframe + allow="autoplay"): 父页面点击后 iframe 的 hasBeenActive 会变 true,
-   * 但之前挂起的 resume() 不会自己完成, 必须重新调用一次。
+   * 自动播放拦截: 没有用户激活时 AudioContext.resume() 会一直 pending, 以前整句就卡在思考动作里。
+   * 不能用 navigator.userActivation 判断: 宿主页面的点击经 iframe allow="autoplay" 委派后音频可以出声,
+   * 但 iframe 自己的 hasBeenActive 仍是 false (实测 Chrome, 博客嵌入场景)。
+   * 所以直接试一次 resume(): 被允许时几毫秒内就会完成, 短时间内没完成就当作被拦截, 放弃这一句。
+   * 每句都重新试, 用户点过宿主页面之后的下一句自然就能出声。
    */
-  private audioBlocked(): boolean {
-    if (this.ctx?.state === 'running') return false;
-    const ua = (typeof navigator !== 'undefined' ? (navigator as Navigator & { userActivation?: { hasBeenActive: boolean } }).userActivation : undefined);
-    if (!ua || ua.hasBeenActive) return false; // 不支持 userActivation 的浏览器照旧走原流程
-    this.watchAudioUnlock();
-    return true;
-  }
-
-  private unlockTimer: ReturnType<typeof setInterval> | null = null;
-  private watchAudioUnlock(): void {
-    if (this.unlockTimer) return;
-    this.unlockTimer = setInterval(() => {
-      const ua = (navigator as Navigator & { userActivation?: { hasBeenActive: boolean } }).userActivation;
-      if (!ua?.hasBeenActive) return;
-      clearInterval(this.unlockTimer!);
-      this.unlockTimer = null;
-      this.ctx = this.ctx ?? new AudioContext();
-      void this.ctx.resume().catch(() => { });
-    }, 500);
+  private static readonly AUDIO_PROBE_MS = 200;
+  private async audioBlocked(): Promise<boolean> {
+    if (typeof AudioContext === 'undefined') return false;
+    this.ctx = this.ctx ?? new AudioContext();
+    if (this.ctx.state === 'running') return false;
+    await Promise.race([
+      this.ctx.resume().catch(() => { }),
+      new Promise((r) => setTimeout(r, ChatDirector.AUDIO_PROBE_MS)),
+    ]);
+    return (this.ctx.state as AudioContextState) !== 'running';
   }
 
   async say(
@@ -514,7 +506,7 @@ export class ChatDirector {
       totalSegments?: number,
     ) => void,
   ): Promise<void> {
-    if (this.audioBlocked()) {
+    if (await this.audioBlocked()) {
       console.info('[ChatDirector] 自动播放被拦截 (页面尚未被用户激活), 跳过这一句:', text);
       return;
     }
@@ -576,7 +568,7 @@ export class ChatDirector {
     ) => void,
     voiceOverride?: string,
   ): Promise<void> {
-    if (this.audioBlocked()) {
+    if (await this.audioBlocked()) {
       console.info('[ChatDirector] 自动播放被拦截 (页面尚未被用户激活), 跳过这一句:', text);
       return;
     }
@@ -632,8 +624,8 @@ export class ChatDirector {
     const useMotion = opts.motion !== false;
     const hostClock = opts.hostClock === true;
     // 宿主时钟模式不出声, 不受自动播放限制
-    if (!hostClock && this.audioBlocked()) {
-      throw new Error('AudioContext is blocked by the autoplay policy (page has no user activation yet)');
+    if (!hostClock && await this.audioBlocked()) {
+      throw new Error('AudioContext is blocked by the autoplay policy (no user activation in the host page yet)');
     }
     const session = await this.handoff();
     if (session === null) return;
