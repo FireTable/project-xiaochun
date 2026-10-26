@@ -48,6 +48,7 @@ import {
 import { BubbleTracker, type BubbleState } from './ui/bubbleTracker';
 import { InteractionController } from './interaction/interactionController';
 import { WindForceController } from './wind/windForce';
+import { applyBustClothFit, bustJointHitRadius } from './spring/bustClothFit';
 import { CharacterShadowSystem } from './scene/characterShadow';
 import { adjustZoomInWhileClamped, solveGroundClamp, visibleRatioCap } from './camera/groundClamp';
 import {
@@ -2066,40 +2067,20 @@ export class VRMEngine {
   }
 
   /**
-   * 应用胸部等 SpringBone 动力学物理调优：
-   * 将 VRoid 官方默认的高刚度硬塑料参数 (stiffness 0.75) 优化为富有弹性、反应自然的仿生乳摇效果。
-   */
-  /**
-   * 应用弹簧骨骼 (SpringBone) 物理动力学参数与碰撞拓扑
-   *
-   * 采用 3 段式动态感知半径计算公式：
-   * 1. 读取 VRM 真实的值（从模型文件原始 settings.hitRadius 首次读取并持久缓存）
-   * 2. 算上形变值（结合当前服装/体型的 bust 与 bustThickness 动态厚度缩放）
-   * 3. 加上偏移值（俯仰下垂空间补偿 pitchOffset + 表皮织物安全间隙 clearanceOffset）
+   * Bust spring stiffness, arm colliders, and cloth fit.
+   * Joint hitRadius tracks the bust bone's world scale. Cloth clearance lives on the
+   * bust collider spheres, not on this radius.
    */
   public applySpringBoneTuning(vrm: VRM | null = this.currentVRM): void {
     const mgr = vrm?.springBoneManager;
-    if (!mgr) return;
+    if (!mgr || !vrm) return;
     const cfg = APP_CONFIG.springBone.bust;
+    const visualScale = this.bodyMorph.getBustVisualScale();
 
-    // 筛选双臂与手腕的碰撞体组 (Left/Right UpperArm, LowerArm, Hand)
     const armColliderGroups = mgr.colliderGroups.filter((cg) => {
       const name = (cg.name ?? '').toLowerCase();
       return name.includes('arm') || name.includes('hand');
     });
-
-    // 2. 算上形变值 (读取当前体型的 bust 与 bustThickness)
-    const bustScale = this.bodyMorph.getPart('bust') || 1.0;
-    const bustThickness = this.bodyMorph.getPart('bustThickness') || 1.0;
-    const deltaThickness = bustThickness - 1.0;
-    const thickMultiplier = deltaThickness >= 0 ? 1.0 + deltaThickness * 0.65 : 1.0 + deltaThickness * 0.70;
-    const morphMultiplier = bustScale * thickMultiplier;
-
-    // 3. 加上偏移值 (俯仰下垂空间补偿 + 表皮织物安全间隙)
-    const bustPitch = this.bodyMorph.getPart('bustPitch') || 0.0;
-    const pitchOffset = Math.max(0, -bustPitch * 0.08);
-    const clearanceOffset = (cfg as any).clearanceOffset ?? 0.019;
-    const totalOffset = pitchOffset + clearanceOffset;
 
     for (const joint of mgr.joints) {
       const name = joint.bone?.name ?? '';
@@ -2109,20 +2090,14 @@ export class VRMEngine {
         joint.settings.dragForce = cfg.dragForce;
         joint.settings.gravityPower = cfg.gravityPower;
 
-        // 1. 读取 VRM 真实的值 (通过 WeakMap 缓存模型的初始原生物理值，避免读写三方实例上未初始化的 userData)
         if (!this.rawHitRadiusMap.has(joint)) {
           const initialRadius = joint.settings.hitRadius > 0 ? joint.settings.hitRadius : cfg.hitRadius;
           this.rawHitRadiusMap.set(joint, initialRadius);
         }
         const rawHitRadius: number = this.rawHitRadiusMap.get(joint)!;
+        joint.settings.hitRadius = bustJointHitRadius(rawHitRadius, visualScale);
 
-        // 动态计算 hitRadius = (真实值 * 形变值) + 偏移值
-        const dynamicHitRadius = (rawHitRadius * morphMultiplier) + totalOffset;
-        joint.settings.hitRadius = dynamicHitRadius;
-
-        // 接通双臂与胸部的 SpringBone 软碰撞！
-        // VRoid 默认把 bust 的 colliderGroups 留空，导致手和手臂直接穿透胸部。
-        // 将手臂/手掌的碰撞体组挂入 joint.colliderGroups，使手臂掠过胸部时触发真实的弹性推挤与避让。
+        // VRoid leaves bust colliderGroups empty, so the arm passes through the chest.
         if (armColliderGroups.length > 0) {
           const currentGroups = new Set(joint.colliderGroups);
           for (const acg of armColliderGroups) {
@@ -2132,6 +2107,8 @@ export class VRMEngine {
         }
       }
     }
+
+    applyBustClothFit(vrm, visualScale, cfg.clothClearance);
     this.windForce.resetGravityCache();
   }
 

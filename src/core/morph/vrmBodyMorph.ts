@@ -79,6 +79,11 @@ export class VRMBodyMorph {
   private baseRBustPos: THREE.Vector3 = new THREE.Vector3();
   private baseLBustRot: THREE.Quaternion = new THREE.Quaternion();
   private baseRBustRot: THREE.Quaternion = new THREE.Quaternion();
+  /** Bust bone world scale at bind, before morph. Slider scale is current / this. */
+  private restBustWorldScale = 1;
+  private readonly _bustScalePos = new THREE.Vector3();
+  private readonly _bustScaleQuat = new THREE.Quaternion();
+  private readonly _bustScaleVec = new THREE.Vector3();
   private baseHipsRot: THREE.Quaternion = new THREE.Quaternion();
   private baseSpineRot: THREE.Quaternion = new THREE.Quaternion();
   private baseLLegRot: THREE.Quaternion = new THREE.Quaternion();
@@ -359,7 +364,29 @@ export class VRMBodyMorph {
       this.baseRestHeight = 1.636;
     }
 
+    this.captureBustRestScale();
     this.apply();
+  }
+
+  /** World-scale ratio of the bust bone against its bind pose. 1 means the sliders have not grown it. */
+  public getBustVisualScale(): number {
+    const bone = this.rawLBust ?? this.rawRBust;
+    if (!bone) return 1;
+    bone.updateWorldMatrix(true, false);
+    bone.matrixWorld.decompose(this._bustScalePos, this._bustScaleQuat, this._bustScaleVec);
+    const cur = Math.max(this._bustScaleVec.x, this._bustScaleVec.y, this._bustScaleVec.z);
+    return cur / this.restBustWorldScale;
+  }
+
+  private captureBustRestScale(): void {
+    const bone = this.rawLBust ?? this.rawRBust;
+    if (!bone) {
+      this.restBustWorldScale = 1;
+      return;
+    }
+    bone.updateWorldMatrix(true, false);
+    bone.matrixWorld.decompose(this._bustScalePos, this._bustScaleQuat, this._bustScaleVec);
+    this.restBustWorldScale = Math.max(this._bustScaleVec.x, this._bustScaleVec.y, this._bustScaleVec.z, 1e-4);
   }
 
   /**
