@@ -11,12 +11,12 @@ import { computeAdaptiveFadeDuration } from '../pipeline/adaptiveFade';
  * - 右臂：大臂贴胸前收，小臂深屈折叠向上，手掌微托下颌，食指轻贴脸颊。
  * - 躯干与头颈：轻微前倾与向右侧偏，随呼吸微动。
  *
- * 过渡曲线：与全局 MotionPipeline 严格统一，采用 0.75s ± 0.25s [0.50s, 1.00s] 黄金自适应五次平滑步阶曲线。
+ * 过渡曲线：与全局 MotionPipeline 严格统一，以 0.75s 为绝对最小值底线，采用自适应五次平滑步阶曲线。
  */
 export class ListeningMotionSystem {
   public enabled = true;
 
-  /** 0 为待机，平滑过渡至 1 为完整托腮倾听 (受自适应 Quintic 驱动) */
+  /** 0 为待机，平滑过渡至 1 为完整托腮倾听 (受自适应 Quintic 驱动，保底不低于 0.75s) */
   public weight = 0;
   /** 归一化过渡进度 [0, 1] */
   private progress = 0;
@@ -30,7 +30,7 @@ export class ListeningMotionSystem {
     const target = this.enabled && active ? 1 : 0;
     const isEntering = target > this.progress;
 
-    // 倾听态为温和微神态 (diff ≈ 0.20)，自适应切入时间约为 0.60s，退回待机保护为 0.70s~0.75s
+    // 倾听态为温和微神态 (diff ≈ 0.15~0.20)，以 0.75s 为绝对最小值底线自适应延伸至 ~0.80s
     const duration = computeAdaptiveFadeDuration(0.20, {
       crossfadeScale: this.crossfadeScale,
       isActionToIdle: !isEntering,
