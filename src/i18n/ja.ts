@@ -79,6 +79,7 @@ export const ja: Trans = {
     loadingModelProgress: 'モデル読み込み中（{{percent}}%）',
     waitReadyHint: '準備できたら今のメッセージを送ります',
     sending: '返信中…',
+    stopSpeaking: '停止',
     send: '送信',
     sttIdle: '音声入力',
     sttLoading: '音声モデルを読み込み中…',

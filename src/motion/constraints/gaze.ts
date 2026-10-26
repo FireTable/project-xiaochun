@@ -149,6 +149,7 @@ export class GazeController {
     traits: MotionTraits,
     isSpeaking: boolean,
     manualExpression: string | null,
+    listening = 0,
   ): void {
     if (!this.enabled) {
       this.hasLastLookAt = false;
@@ -180,6 +181,10 @@ export class GazeController {
         vrm.expressionManager.setValue('ou', 0);
         vrm.expressionManager.setValue('relaxed', 0);
         vrm.expressionManager.setValue('happy', 0);
+      } else if (listening > 0.01) {
+        vrm.expressionManager.setValue('ou', 0);
+        vrm.expressionManager.setValue('relaxed', 0.15 * listening);
+        vrm.expressionManager.setValue('happy', 0.2 * listening);
       } else {
         // 待机态：思考嘴型随 tw 渐变，保持平淡素雅自然神态
         vrm.expressionManager.setValue('ou', 0.65 * tw);
@@ -246,7 +251,9 @@ export class GazeController {
     if (this.gazeShiftTimer >= this.gazeShiftInterval) {
       this.gazeShiftTimer = 0;
       // 说话时以与观众直接眼神交流为主 (注视率 92%)，避免讲话时眼神持续飘走；待机时自然游移
-      const baseGlanceChance = isSpeaking ? 0.08 : (traits.glanceChance ?? 0.20);
+      const baseGlanceChance = isSpeaking || listening > 0.5
+        ? 0.08
+        : (traits.glanceChance ?? 0.20);
       this.isGlancingAway = !this.isGlancingAway && Math.random() < baseGlanceChance;
       if (this.isGlancingAway) {
         const side = Math.random() < 0.5 ? -1 : 1;

@@ -356,7 +356,16 @@ export class ChatDirector {
   private audioDoneTime = 0;
 
   private plan: Plan | null = null;
-  public speaking = false;
+  private _speaking = false;
+  public get speaking(): boolean {
+    return this._speaking;
+  }
+  public set speaking(val: boolean) {
+    if (this._speaking === val) return;
+    this._speaking = val;
+    this.onSpeakingChange?.(val);
+  }
+  public onSpeakingChange: ((speaking: boolean) => void) | null = null;
   private stopped = false;
   private onEnd: (() => void) | null = null;
   private player: VRMAMotionPlayer | null = null;

@@ -17,6 +17,7 @@ export type SttClientEvent =
   | { type: 'state'; state: SttUiState }
   | { type: 'progress'; phase: 'download' | 'init' | 'ready'; percent: number }
   | { type: 'partial_rms'; rms: number }
+  | { type: 'speech_start' }
   | { type: 'text'; text: string }
   | { type: 'error'; message: string };
 
@@ -234,7 +235,7 @@ export class SttClient {
           if (ev.type === 'frame') {
             this.emit({ type: 'partial_rms', rms: ev.rms });
           } else if (ev.type === 'speech_start') {
-            // stay listening
+            this.emit({ type: 'speech_start' });
           } else if (ev.type === 'speech_end') {
             if (this.shouldSkipUtterance(ev.pcm, ev.durationMs)) {
               return; // stay listening; no decode / no insert

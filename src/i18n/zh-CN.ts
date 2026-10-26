@@ -78,6 +78,7 @@ export const zhCN = {
     loadingModelProgress: '加载模型（{{percent}}%）',
     waitReadyHint: '就绪后会自动发出刚才那句话',
     sending: '回复中…',
+    stopSpeaking: '停止朗读',
     send: '发送',
     sttIdle: '语音输入',
     sttLoading: '加载语音模型…',

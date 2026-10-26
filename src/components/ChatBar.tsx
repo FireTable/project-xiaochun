@@ -103,8 +103,13 @@ export const ChatBar: React.FC<{
   const restingVvHeightRef = useRef<number>(typeof window !== 'undefined' && window.visualViewport ? window.visualViewport.height : 0);
   const [hasText, setHasText] = useState(false);
   const [isSending, setIsSending] = useState(false);
+  const [isSpeaking, setIsSpeaking] = useState(() => vrmEngine.isSpeaking);
   const [isQueued, setIsQueued] = useState(false);
   const [isInputFocused, setIsInputFocused] = useState(false);
+
+  useEffect(() => {
+    return vrmEngine.onSpeakingChange(setIsSpeaking);
+  }, []);
   const queuedTextRef = useRef('');
   const [thinkingOn, setThinkingOn] = useState(() => isThinkingEnabled());
   const [activeModel, setActiveModel] = useState(() => getActiveModelId());
@@ -121,7 +126,15 @@ export const ChatBar: React.FC<{
     const off = client.on((ev) => {
       if (ev.type === 'state') {
         setSttState(ev.state);
+        if (ev.state === 'listening') {
+          vrmEngine.setListening(true);
+        } else if (ev.state === 'idle' && document.activeElement !== inputRef.current) {
+          vrmEngine.setListening(false);
+        }
         if (ev.state !== 'error') setSttErrorKind(null);
+      } else if (ev.type === 'speech_start') {
+        vrmEngine.stopSpeaking();
+        vrmEngine.setListening(true);
       } else if (ev.type === 'progress') setSttPercent(ev.percent);
       else if (ev.type === 'text') {
         const el = inputRef.current;
@@ -480,8 +493,11 @@ export const ChatBar: React.FC<{
 
   const handleSend = async () => {
     const text = inputRef.current?.value.trim() ?? '';
-    if (!text || isSending) return;
+    if (!text) return;
+    if (isSending && !isSpeaking) return;
 
+    vrmEngine.stopSpeaking();
+    vrmEngine.setListening(false);
     inputRef.current?.blur();
 
     // 模型尚未完全就绪：智能转入排队状态，输入内容安全保留，不吞字
@@ -577,6 +593,9 @@ export const ChatBar: React.FC<{
     const nowHasText = val.trim().length > 0;
     if (nowHasText !== hasText) {
       setHasText(nowHasText);
+    }
+    if (nowHasText) {
+      vrmEngine.setListening(true);
     }
     syncComposerHeight();
     if (isQueued) {
@@ -808,9 +827,11 @@ export const ChatBar: React.FC<{
               onFocus={() => {
                 setIsInputFocused(true);
                 handleInputFocus();
+                vrmEngine.setListening(true);
               }}
               onBlur={() => {
                 setIsInputFocused(false);
+                if (!inputRef.current?.value.trim()) vrmEngine.setListening(false);
                 const vv = window.visualViewport;
                 if (vv) {
                   restingVvHeightRef.current = vv.height;
@@ -953,14 +974,26 @@ export const ChatBar: React.FC<{
             </div>
           );
 
+          const canStop = !hasText && isSpeaking;
+          const isBusySending = isSending && !isSpeaking;
+          const isButtonActive = canStop || isQueued || hasText;
+
           const sendBtn = (
             <button
               id="chatSend"
               type="button"
-              onClick={() => void handleSend()}
-              disabled={isSending || !hasText}
+              onClick={() => {
+                if (canStop) {
+                  vrmEngine.stopSpeaking();
+                  return;
+                }
+                void handleSend();
+              }}
+              disabled={isBusySending || (!hasText && !canStop)}
               aria-label={
-                isSending
+                canStop
+                  ? t('chat.stopSpeaking')
+                  : isBusySending
                   ? t('chat.sending')
                   : isQueued
                   ? t('chat.queued')
@@ -969,7 +1002,9 @@ export const ChatBar: React.FC<{
                   : t('chat.send')
               }
               title={
-                isSending
+                canStop
+                  ? t('chat.stopSpeaking')
+                  : isBusySending
                   ? t('chat.sending')
                   : isQueued
                   ? `${t('chat.queued')}${!isLLMReady ? ` ${llmPct}%` : ''}`
@@ -977,17 +1012,19 @@ export const ChatBar: React.FC<{
                   ? t('chat.queueSend')
                   : t('chat.send')
               }
-              className={`relative h-9 w-9 shrink-0 rounded-full flex items-center justify-center select-none touch-manipulation active:scale-95 appearance-none outline-none border-none transition-colors ${
-                isSending
+              className={`relative h-9 w-9 shrink-0 rounded-full flex items-center justify-center select-none touch-manipulation active:scale-95 appearance-none outline-none border-none transition-all ${
+                isBusySending
                   ? 'bg-white/10 text-white/50 cursor-wait'
-                  : isQueued || hasText
-                  ? 'text-white bg-[#ea8377] shadow-[0_4px_14px_rgba(234,131,119,0.35)] cursor-pointer'
+                  : isButtonActive
+                  ? 'text-white bg-[#ea8377] shadow-[0_4px_14px_rgba(234,131,119,0.35)] cursor-pointer hover:brightness-105'
                   : 'text-white/40 bg-transparent cursor-not-allowed'
               }`}
             >
-              <AccentFill on={!isSending && (isQueued || hasText)} />
+              <AccentFill on={!isBusySending && isButtonActive} />
               <span className="relative z-10 flex items-center justify-center">
-                {isSending || isQueued ? (
+                {canStop ? (
+                  <span className="w-3 h-3 bg-white rounded-[2.5px] shadow-sm block" />
+                ) : isBusySending || isQueued ? (
                   <Loader2 className="w-4 h-4 animate-spin text-white" />
                 ) : hasText && !isModelReady ? (
                   <Sparkles className="w-4 h-4 text-white animate-pulse" />

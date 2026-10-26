@@ -712,6 +712,11 @@ export class VRMEngine {
     this.chatDirector.onSuspendRendering = () => this.suspendRendering();
     this.chatDirector.onResumeRendering = () => this.resumeRendering();
     this.chatDirector.setOnEnd(() => this.bubbleTracker.hide());
+    this.chatDirector.onSpeakingChange = (speaking) => {
+      this.speakingListeners.forEach((cb) => {
+        try { cb(speaking); } catch (e) { console.error(e); }
+      });
+    };
   }
 
   /**
@@ -1470,6 +1475,17 @@ export class VRMEngine {
     return this.gazeController.enabled;
   }
 
+  /** 倾听开关。姿态由独立的 listening 动作源负责，这里只记状态。 */
+  private listening = false;
+
+  public setListening(listening: boolean): void {
+    this.listening = listening;
+  }
+
+  public isListening(): boolean {
+    return this.listening;
+  }
+
   /** DevDrawer / P0b: thin forward to EmagePlayer.getPerfSnapshot(). */
   public getEmagePerfSnapshot() {
     return this.emagePlayer.getPerfSnapshot();
@@ -1914,6 +1930,7 @@ export class VRMEngine {
             time: performance.now() * 0.001,
             enableBodyTurn: false,
             isSpeaking: false,
+            isListening: false,
             manualExpression: this.manualExpression,
           });
           vrm.scene.updateMatrixWorld(true);
@@ -2473,6 +2490,7 @@ export class VRMEngine {
             time: performance.now() * 0.001,
             enableBodyTurn: false,
             isSpeaking: false,
+            isListening: false,
             manualExpression: this.manualExpression,
           });
           vrm.scene.updateMatrixWorld(true);
@@ -2809,9 +2827,12 @@ export class VRMEngine {
     this.chatDirector.setHostClock(c);
   }
 
-  /** 打断当前说话 (文字/音频均可)。 */
+  /** 打断当前说话（文字和音频），并收掉头顶字幕。 */
   public stopSpeaking(): void {
-    try { this.chatDirector.stop(); } catch { /* ignore */ }
+    try {
+      this.chatDirector.stop();
+      this.bubbleTracker.hide();
+    } catch { /* ignore */ }
   }
 
   /** TTS 语音后处理插件处理器 (Tone.js) */
@@ -2837,6 +2858,14 @@ export class VRMEngine {
   /** 当前是否正在说话中 */
   public get isSpeaking(): boolean {
     return this.chatDirector.speaking;
+  }
+
+  private speakingListeners = new Set<(speaking: boolean) => void>();
+
+  public onSpeakingChange(cb: (speaking: boolean) => void): () => void {
+    this.speakingListeners.add(cb);
+    cb(this.isSpeaking);
+    return () => this.speakingListeners.delete(cb);
   }
 
 
@@ -2986,6 +3015,7 @@ export class VRMEngine {
           time,
           enableBodyTurn: this.enableBodyTurn,
           isSpeaking: this.chatDirector.speaking,
+          isListening: this.listening,
           manualExpression: this.manualExpression,
         });
 

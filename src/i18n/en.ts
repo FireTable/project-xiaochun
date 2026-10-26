@@ -79,6 +79,7 @@ export const en: Trans = {
     loadingModelProgress: 'Loading model ({{percent}}%)',
     waitReadyHint: 'Your message will send when ready',
     sending: 'Replying…',
+    stopSpeaking: 'Stop speaking',
     send: 'Send',
     sttIdle: 'Voice input',
     sttLoading: 'Loading speech model…',

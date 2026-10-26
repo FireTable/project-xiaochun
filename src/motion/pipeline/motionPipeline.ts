@@ -12,6 +12,7 @@ import {
   type UniversalMotionHandle,
 } from '../sources/clip';
 import { NaturalIdleSystem } from '../sources/idle';
+import { ListeningMotionSystem } from '../sources/listening';
 import { VRMAMotionPlayer } from '../sources/vrma';
 import { EmagePlayer } from '../sources/emage';
 import { FootIKSolver } from '../constraints/footIK';
@@ -63,6 +64,7 @@ export class MotionPipeline {
 
   // ── Plugins (sources + constraints). tick() is the unique per-frame driver. ──
   public readonly idle = new NaturalIdleSystem();
+  public readonly listening = new ListeningMotionSystem();
   public readonly vrma = new VRMAMotionPlayer();
   public readonly universalMotion = new UniversalMotionController();
   public readonly emage = new EmagePlayer();
@@ -302,6 +304,7 @@ export class MotionPipeline {
       time: number;
       enableBodyTurn: boolean;
       isSpeaking: boolean;
+      isListening?: boolean;
       manualExpression: string | null;
     },
   ): void {
@@ -398,6 +401,12 @@ export class MotionPipeline {
         speakingNow,
         isBusyAction,
         btCtx,
+      );
+      this.listening.sampleInto(
+        this.basePose,
+        time,
+        delta,
+        ctx.isListening && !speakingNow && this.activeSource === 'idle',
       );
     } else {
       this.basePose.copyFrom(this.restPose);
@@ -534,6 +543,7 @@ export class MotionPipeline {
       ctx.traits,
       ctx.isSpeaking,
       ctx.manualExpression,
+      this.listening.weight,
     );
 
     this.lowerPose.sampleFromVRM(vrm);
