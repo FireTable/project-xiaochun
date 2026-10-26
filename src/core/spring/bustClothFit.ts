@@ -7,13 +7,15 @@ import {
 } from '@pixiv/three-vrm-springbone';
 
 /**
- * Bust morph scales the bust bones. three-vrm collision ignores that scale, and a lot of
- * outfits keep the bodice on the chest bone, so the skin grows out of the dress.
+ * Bust morph scales, pitches, and spreads the bust bones. three-vrm collision ignores
+ * bone scale, and many outfits keep the bodice on the chest bone, so the skin grows
+ * out of the dress.
  *
- * Do not retarget skin weights. A hard cut puts neighboring vertices on different bones,
- * the cloth tears, and the MToon edge shows up as a white line. Slide the cloth rest pose
- * instead: full extra scale at the bust, fading to nothing a few centimeters out.
- * A sphere on each bust root pushes skirt and ribbon springs clear as the bust grows.
+ * Keep the skin weights. Changing them tears the cloth and the MToon edge shows as a
+ * white line. Move the cloth rest pose by the bust bone's change from bind, then take
+ * the chest motion back out so skinning does not apply it twice. Fade that follow to
+ * nothing a few centimeters out. A sphere on each bust root pushes skirt and ribbon
+ * springs clear as the bust grows.
  */
 
 const CLOTH_HINT = /cloth|dress|skirt|onepiece|tops|shirt|coat|jacket|ribbon|outfit|costume|uniform|pants|sleeve|kimono|gown|robe|apron|vest|blouse|cape|frill|bustier|leotard|swimsuit|bikini|fabric|wear|hoodie|sweater|scarf|bodice|lace|pleat/;
@@ -48,12 +50,104 @@ export function bustFalloff(distance: number, inner: number, outer: number): num
 }
 
 /**
- * Extra scale applied on top of the bones. A vertex already fully on the bust bone
- * needs none; the bone scale moves it. Returns the multiplier for the vector from the bust center.
+ * How much of the bust-bone follow a cloth vertex still needs.
+ * A vertex already fully on the bust bone needs none; skinning moves it.
  */
-export function clothScaleGap(bustWeight: number, falloff: number, visualScale: number): number {
-  const follow = bustWeight < 0 ? 0 : bustWeight > 1 ? 1 : bustWeight;
-  return (visualScale - 1) * (1 - follow) * falloff;
+export function clothFollowAmount(bustWeight: number, falloff: number): number {
+  const carried = bustWeight < 0 ? 0 : bustWeight > 1 ? 1 : bustWeight;
+  const fade = falloff < 0 ? 0 : falloff > 1 ? 1 : falloff;
+  return (1 - carried) * fade;
+}
+
+const _bustDelta = new THREE.Matrix4();
+const _carrierDelta = new THREE.Matrix4();
+const _carrierInv = new THREE.Matrix4();
+const _relative = new THREE.Matrix4();
+const _followTmp = new THREE.Matrix4();
+const _stablePos = new THREE.Vector3();
+const _stableQuat = new THREE.Quaternion();
+const _stableScale = new THREE.Vector3();
+const _stableLocal = new THREE.Matrix4();
+
+/**
+ * World matrix the spring solver will commit on its next tick.
+ *
+ * Bust joints set `matrixAutoUpdate` off and write `bone.matrix` from the
+ * solved quaternion. A morph slider updates `.scale` and `.position` first.
+ * `matrixWorld` still holds the previous tick, so reading it misses this
+ * slider change. The solved quaternion stays; the temporary pitch multiply
+ * does not, because the next tick replaces it.
+ */
+export function springStableWorldMatrix(out: THREE.Matrix4, bone: THREE.Object3D): THREE.Matrix4 {
+  bone.matrix.decompose(_stablePos, _stableQuat, _stableScale);
+  _stableLocal.compose(bone.position, _stableQuat, bone.scale);
+  const parent = bone.parent;
+  if (!parent) return out.copy(_stableLocal);
+  parent.updateWorldMatrix(true, false);
+  return out.multiplyMatrices(parent.matrixWorld, _stableLocal);
+}
+
+/**
+ * Mesh-local matrix that takes a bind-space vertex to where the bust bone would
+ * place it, with the carrier bone's own motion removed.
+ *
+ * Skinning then applies the carrier again. Leaving it in here would scale the
+ * bodice twice. With identity binds and no carrier, this is the bust world matrix.
+ */
+export function composeClothFollowMatrix(
+  out: THREE.Matrix4,
+  bindMatrix: THREE.Matrix4,
+  bindMatrixInverse: THREE.Matrix4,
+  bustWorld: THREE.Matrix4,
+  bustInverse: THREE.Matrix4,
+  carrierWorld: THREE.Matrix4 | null,
+  carrierInverse: THREE.Matrix4 | null,
+): THREE.Matrix4 {
+  _bustDelta.multiplyMatrices(bustWorld, bustInverse);
+  if (carrierWorld && carrierInverse) {
+    _carrierDelta.multiplyMatrices(carrierWorld, carrierInverse);
+    _carrierInv.copy(_carrierDelta).invert();
+    _relative.multiplyMatrices(_carrierInv, _bustDelta);
+  } else {
+    _relative.copy(_bustDelta);
+  }
+  _followTmp.multiplyMatrices(_relative, bindMatrix);
+  return out.multiplyMatrices(bindMatrixInverse, _followTmp);
+}
+
+/**
+ * Blend a bind-space vertex toward each bust target.
+ * `influences` already include clothFollowAmount. Equal influences meet in the middle,
+ * so spread does not split the neckline.
+ */
+export function blendClothRestInto(
+  out: THREE.Vector3,
+  base: THREE.Vector3,
+  targets: readonly THREE.Vector3[],
+  influences: ArrayLike<number>,
+  count: number,
+): void {
+  let weightSum = 0;
+  let best = 0;
+  out.set(0, 0, 0);
+  for (let i = 0; i < count; i++) {
+    const amount = influences[i] ?? 0;
+    if (amount <= 0) continue;
+    if (amount > best) best = amount;
+    weightSum += amount;
+    const target = targets[i]!;
+    out.x += target.x * amount;
+    out.y += target.y * amount;
+    out.z += target.z * amount;
+  }
+  if (weightSum <= 0 || best <= 0) {
+    out.copy(base);
+    return;
+  }
+  const inv = 1 / weightSum;
+  out.x = base.x + (out.x * inv - base.x) * best;
+  out.y = base.y + (out.y * inv - base.y) * best;
+  out.z = base.z + (out.z * inv - base.z) * best;
 }
 
 export function shouldConsiderCloth(meshName: string, materialName: string): boolean {
@@ -76,10 +170,23 @@ interface TrackedCollider {
   rest: number;
 }
 
+interface ClothBone {
+  root: THREE.Object3D;
+  parent: THREE.Object3D | null;
+  boneInverse: THREE.Matrix4 | null;
+  parentInverse: THREE.Matrix4 | null;
+}
+
 interface ClothShell {
   position: THREE.BufferAttribute;
   base: Float32Array;
-  push: Float32Array;
+  /** Per vertex, per bust root. 0 where the bone already carries the vertex or the fade ends. */
+  influence: Float32Array;
+  rootCount: number;
+  bindMatrix: THREE.Matrix4;
+  bindMatrixInverse: THREE.Matrix4;
+  bones: ClothBone[];
+  follow: THREE.Matrix4[];
 }
 
 interface BustCenter {
@@ -110,7 +217,7 @@ export function applyBustClothFit(vrm: VRM, visualScale: number, clearance: numb
     const item = state.tracked[i]!;
     item.shape.radius = scaledBustColliderRadius(item.rest, scale, clearance);
   }
-  applyShells(state.shells, scale);
+  applyShells(state.shells);
 }
 
 function prepare(vrm: VRM): BustFitState {
@@ -167,9 +274,15 @@ function prepare(vrm: VRM): BustFitState {
   if (roots.length > 0) {
     let moved = 0;
     for (let i = 0; i < shells.length; i++) {
-      const push = shells[i]!.push;
-      for (let k = 0; k < push.length; k += 3) {
-        if (push[k]! !== 0 || push[k + 1]! !== 0 || push[k + 2]! !== 0) moved++;
+      const influence = shells[i]!.influence;
+      const rootCount = shells[i]!.rootCount;
+      if (rootCount === 0) continue;
+      for (let v = 0; v < influence.length; v += rootCount) {
+        let any = false;
+        for (let r = 0; r < rootCount; r++) {
+          if (influence[v + r]! > 0) any = true;
+        }
+        if (any) moved++;
       }
     }
     console.info(
@@ -180,14 +293,64 @@ function prepare(vrm: VRM): BustFitState {
   return { tracked, shells };
 }
 
-function applyShells(shells: ClothShell[], visualScale: number): void {
-  const gap = visualScale - 1;
+const _base = new THREE.Vector3();
+const _blended = new THREE.Vector3();
+const _bustWorld = new THREE.Matrix4();
+const _amounts: number[] = [];
+const _targets: THREE.Vector3[] = [];
+
+function applyShells(shells: ClothShell[]): void {
   for (let s = 0; s < shells.length; s++) {
     const shell = shells[s]!;
+    const roots = shell.rootCount;
+    while (_amounts.length < roots) _amounts.push(0);
+    while (_targets.length < roots) _targets.push(new THREE.Vector3());
+
+    for (let r = 0; r < roots; r++) {
+      const bone = shell.bones[r]!;
+      const follow = shell.follow[r]!;
+      if (!bone.boneInverse) {
+        follow.identity();
+        continue;
+      }
+      springStableWorldMatrix(_bustWorld, bone.root);
+      composeClothFollowMatrix(
+        follow,
+        shell.bindMatrix,
+        shell.bindMatrixInverse,
+        _bustWorld,
+        bone.boneInverse,
+        bone.parent ? bone.parent.matrixWorld : null,
+        bone.parentInverse,
+      );
+    }
+
     const dst = shell.position.array as Float32Array;
     const base = shell.base;
-    const push = shell.push;
-    for (let i = 0; i < dst.length; i++) dst[i] = base[i]! + push[i]! * gap;
+    const influence = shell.influence;
+    const count = base.length / 3;
+    for (let i = 0; i < count; i++) {
+      _base.fromArray(base, i * 3);
+      let any = false;
+      for (let r = 0; r < roots; r++) {
+        const amount = influence[i * roots + r] ?? 0;
+        _amounts[r] = amount;
+        if (amount > 0) {
+          any = true;
+          _targets[r]!.copy(_base).applyMatrix4(shell.follow[r]!);
+        }
+      }
+      if (!any) {
+        dst[i * 3] = _base.x;
+        dst[i * 3 + 1] = _base.y;
+        dst[i * 3 + 2] = _base.z;
+        continue;
+      }
+      blendClothRestInto(_blended, _base, _targets, _amounts, roots);
+      dst[i * 3] = _blended.x;
+      dst[i * 3 + 1] = _blended.y;
+      dst[i * 3 + 2] = _blended.z;
+    }
     shell.position.needsUpdate = true;
   }
 }
@@ -233,6 +396,7 @@ function buildShell(mesh: THREE.SkinnedMesh, centers: BustCenter[]): ClothShell 
   if (!(position.array instanceof Float32Array)) return null;
 
   const chains = centers.map((center) => chainIndices(mesh.skeleton, center.root));
+  const bones: ClothBone[] = [];
   const bindCenters: THREE.Vector3[] = [];
   const rootPositions: THREE.Vector3[] = [];
   const forwards: THREE.Vector3[] = [];
@@ -243,6 +407,15 @@ function buildShell(mesh: THREE.SkinnedMesh, centers: BustCenter[]): ClothShell 
     const center = centers[c]!;
     const boneIndex = indexOfBone(mesh.skeleton, center.root);
     const inverse = boneIndex >= 0 ? mesh.skeleton.boneInverses[boneIndex] : undefined;
+    const parent = inverse ? carrierOf(center.root, mesh.skeleton) : null;
+    const parentIndex = parent ? indexOfBone(mesh.skeleton, parent) : -1;
+    const parentInverse = parentIndex >= 0 ? mesh.skeleton.boneInverses[parentIndex] : undefined;
+    bones.push({
+      root: center.root,
+      parent,
+      boneInverse: inverse ? new THREE.Matrix4().copy(inverse) : null,
+      parentInverse: parentInverse ? new THREE.Matrix4().copy(parentInverse) : null,
+    });
     if (!inverse) {
       bindCenters.push(new THREE.Vector3());
       rootPositions.push(new THREE.Vector3());
@@ -261,38 +434,50 @@ function buildShell(mesh: THREE.SkinnedMesh, centers: BustCenter[]): ClothShell 
   }
 
   const base = new Float32Array(position.array);
-  const push = new Float32Array(base.length);
+  const rootCount = centers.length;
+  const influence = new Float32Array(position.count * rootCount);
   const vertex = new THREE.Vector3();
   const away = new THREE.Vector3();
   const count = position.count;
 
   for (let i = 0; i < count; i++) {
     vertex.fromArray(base, i * 3);
-    let best = 0;
-    let bestCenter = 0;
-    for (let c = 0; c < centers.length; c++) {
+    let bustWeight = 0;
+    for (let c = 0; c < rootCount; c++) bustWeight += weightOn(skinIndex, skinWeight, i, chains[c]!);
+    if (bustWeight > 1) bustWeight = 1;
+
+    for (let c = 0; c < rootCount; c++) {
+      if (!bones[c]!.boneInverse) continue;
       const center = centers[c]!;
       away.subVectors(vertex, rootPositions[c]!);
+      // Behind the chest wall. The measured bone axis is the forward, not a fixed world axis.
       if (away.dot(forwards[c]!) < -0.01) continue;
       const dist = vertex.distanceTo(bindCenters[c]!);
       const falloff = bustFalloff(dist, center.inner, center.inner + FADE);
-      if (falloff > best) {
-        best = falloff;
-        bestCenter = c;
-      }
+      influence[i * rootCount + c] = clothFollowAmount(bustWeight, falloff);
     }
-    if (best <= 0) continue;
-    const bustWeight = weightOn(skinIndex, skinWeight, i, chains[bestCenter]!);
-    // Unit of extra scale. applyShells multiplies by (visualScale - 1).
-    const gap = clothScaleGap(bustWeight, best, 2);
-    if (gap === 0) continue;
-    away.subVectors(vertex, bindCenters[bestCenter]!).multiplyScalar(gap);
-    push[i * 3] = away.x;
-    push[i * 3 + 1] = away.y;
-    push[i * 3 + 2] = away.z;
   }
 
-  return { position, base, push };
+  return {
+    position,
+    base,
+    influence,
+    rootCount,
+    bindMatrix: mesh.bindMatrix.clone(),
+    bindMatrixInverse: mesh.bindMatrixInverse.clone(),
+    bones,
+    follow: bones.map(() => new THREE.Matrix4()),
+  };
+}
+
+/** First non-bust skeleton bone above the bust root. Cloth skinned there must not inherit that motion twice. */
+function carrierOf(root: THREE.Object3D, skeleton: THREE.Skeleton): THREE.Object3D | null {
+  let node = root.parent;
+  while (node) {
+    if (!/bust/i.test(node.name) && indexOfBone(skeleton, node) >= 0) return node;
+    node = node.parent;
+  }
+  return null;
 }
 
 function findBustRoots(scene: THREE.Object3D): THREE.Object3D[] {

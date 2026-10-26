@@ -1,4 +1,5 @@
 import * as THREE from 'three';
+import { springStableWorldMatrix } from '../spring/bustClothFit';
 import { VRM } from '@pixiv/three-vrm';
 import { APP_CONFIG, type BodyMorphConfig, type BodyMorphPartKey } from '../../config';
 import { BODY_MORPH_KEY } from '@/lib/constants';
@@ -84,6 +85,7 @@ export class VRMBodyMorph {
   private readonly _bustScalePos = new THREE.Vector3();
   private readonly _bustScaleQuat = new THREE.Quaternion();
   private readonly _bustScaleVec = new THREE.Vector3();
+  private readonly _bustWorld = new THREE.Matrix4();
   private baseHipsRot: THREE.Quaternion = new THREE.Quaternion();
   private baseSpineRot: THREE.Quaternion = new THREE.Quaternion();
   private baseLLegRot: THREE.Quaternion = new THREE.Quaternion();
@@ -372,8 +374,9 @@ export class VRMBodyMorph {
   public getBustVisualScale(): number {
     const bone = this.rawLBust ?? this.rawRBust;
     if (!bone) return 1;
-    bone.updateWorldMatrix(true, false);
-    bone.matrixWorld.decompose(this._bustScalePos, this._bustScaleQuat, this._bustScaleVec);
+    // Spring bones leave matrixWorld one tick behind .scale. Read the scale the next tick will commit.
+    springStableWorldMatrix(this._bustWorld, bone);
+    this._bustWorld.decompose(this._bustScalePos, this._bustScaleQuat, this._bustScaleVec);
     const cur = Math.max(this._bustScaleVec.x, this._bustScaleVec.y, this._bustScaleVec.z);
     return cur / this.restBustWorldScale;
   }
@@ -384,8 +387,8 @@ export class VRMBodyMorph {
       this.restBustWorldScale = 1;
       return;
     }
-    bone.updateWorldMatrix(true, false);
-    bone.matrixWorld.decompose(this._bustScalePos, this._bustScaleQuat, this._bustScaleVec);
+    springStableWorldMatrix(this._bustWorld, bone);
+    this._bustWorld.decompose(this._bustScalePos, this._bustScaleQuat, this._bustScaleVec);
     this.restBustWorldScale = Math.max(this._bustScaleVec.x, this._bustScaleVec.y, this._bustScaleVec.z, 1e-4);
   }
 
