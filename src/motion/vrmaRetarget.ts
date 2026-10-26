@@ -124,8 +124,23 @@ function buildNodeToHumanoidMap(vrm: VRM): Map<string, string> {
   return map;
 }
 
+export interface RetargetOptions {
+  /**
+   * 是否开启 AI 动作防穿模限幅（ANTI_CLIP_BONES 上臂 60° 限制与锁骨削减）。
+   * - true: 用于 SimpleText2Motion 等 AI 生成的粗糙动作（如老旧 thinking.vrma）；
+   * - false: 用于标准真人动捕 VRMA（如 listening.vrma、各类高质量动捕），保留原汁原味的人体关节自由度。
+   * 默认 true 以保持旧 AI 动作向后兼容。
+   */
+  antiClip?: boolean;
+}
+
 // ponytail: 主入口 —— 直接改 THREE.AnimationClip 的 tracks,不碰 GLB。
-export function retargetClip(clip: THREE.AnimationClip, vrm: VRM): THREE.AnimationClip {
+export function retargetClip(
+  clip: THREE.AnimationClip,
+  vrm: VRM,
+  options: RetargetOptions = {},
+): THREE.AnimationClip {
+  const antiClip = options.antiClip ?? true;
   // ponytail: 库生成的 track 名字用 VRM 实际节点名(例 "J_Bip_L_Shoulder"),
   // 我们 ANTI_CLIP_BONES 用 humanoid 规范名("leftShoulder"),需要个映射表。
   const nodeToHname = buildNodeToHumanoidMap(vrm);
@@ -190,41 +205,50 @@ export function retargetClip(clip: THREE.AnimationClip, vrm: VRM): THREE.Animati
   console.log(`[Retarget] ratio-scaling disabled (bad bone measurements); ${rotScaled} rotation track(s), ${posScaled} position track(s)`);
 
   // 3) 肩膀/锁骨 (Shoulder) 旋转衰减 ——
-  // 防止 AI 生成动作导致锁骨剧烈抬升与耸肩内缩 (彻底解决图一耸肩、恢复图二舒展状态)
-  for (const track of clip.tracks) {
-    if (!track.name.endsWith('.quaternion')) continue;
-    const hname = hnameOf(track.name);
-    if (hname === 'leftShoulder' || hname === 'rightShoulder') {
-      for (let i = 0; i < track.values.length; i += 4) {
-        scaleQuaternion(track.values as unknown as Float32Array, i, 0.15);
+  // 仅在 AI 动作启用 antiClip 时生效，防止 SimpleText2Motion 导致锁骨剧烈抬升与耸肩内缩
+  if (antiClip) {
+    for (const track of clip.tracks) {
+      if (!track.name.endsWith('.quaternion')) continue;
+      const hname = hnameOf(track.name);
+      if (hname === 'leftShoulder' || hname === 'rightShoulder') {
+        for (let i = 0; i < track.values.length; i += 4) {
+          scaleQuaternion(track.values as unknown as Float32Array, i, 0.15);
+        }
       }
     }
   }
 
-  // 过滤掉任何试图驱动眼球的动画轨道，确保眼球始终由 VRMLookAt 系统精确注视镜头
-  // 同时严密过滤脚掌与脚趾轨道：小蠢模型穿厚底高跟鞋，通用平底鞋动捕的脚踝旋转会导致鞋尖翘起悬空
+  // 4) 过滤眼球驱动轨道，确保眼球始终由 VRMLookAt 视线系统精确注视镜头
+  // 若启用 antiClip，则额外过滤脚掌与脚趾轨道（避免高跟鞋模型因平底鞋动捕翘起悬空）
   clip.tracks = clip.tracks.filter((track) => {
     const lower = track.name.toLowerCase();
     if (lower.includes('eye')) return false;
-    if (lower.includes('foot') || lower.includes('toe')) return false;
     const hname = hnameOf(track.name);
-    if (hname && (hname === 'leftEye' || hname === 'rightEye' || hname === 'leftFoot' || hname === 'rightFoot' || hname === 'leftToes' || hname === 'rightToes')) return false;
+    if (hname && (hname === 'leftEye' || hname === 'rightEye')) return false;
+    if (antiClip) {
+      if (lower.includes('foot') || lower.includes('toe')) return false;
+      if (hname && (hname === 'leftFoot' || hname === 'rightFoot' || hname === 'leftToes' || hname === 'rightToes')) return false;
+    }
     return true;
   });
+
   let clamped = 0;
   const clampedBones: string[] = [];
-  for (const track of clip.tracks) {
-    if (!track.name.endsWith('.quaternion')) continue;
-    const hname = hnameOf(track.name);
-    if (!hname) continue;
-    const maxSwing = ANTI_CLIP_BONES[hname];
-    if (maxSwing === undefined) continue;
-    for (let i = 0; i < track.values.length; i += 4) {
-      clampSwing(track.values as unknown as Float32Array, i, maxSwing);
+  if (antiClip) {
+    for (const track of clip.tracks) {
+      if (!track.name.endsWith('.quaternion')) continue;
+      const hname = hnameOf(track.name);
+      if (!hname) continue;
+      const maxSwing = ANTI_CLIP_BONES[hname];
+      if (maxSwing === undefined) continue;
+      for (let i = 0; i < track.values.length; i += 4) {
+        clampSwing(track.values as unknown as Float32Array, i, maxSwing);
+      }
+      clamped++;
+      if (!clampedBones.includes(hname)) clampedBones.push(hname);
     }
-    clamped++;
-    if (!clampedBones.includes(hname)) clampedBones.push(hname);
   }
+
   // 5) 轨迹 low-pass 四元数平滑滤波 (消除高频抖动，大幅提升动作丝滑度)
   for (const track of clip.tracks) {
     if (track.name.endsWith('.quaternion')) {
@@ -232,7 +256,7 @@ export function retargetClip(clip: THREE.AnimationClip, vrm: VRM): THREE.Animati
     }
   }
 
-  console.log(`[Retarget] swing-clamped ${clamped} track(s): ${clampedBones.join(', ')}`);
+  console.log(`[Retarget] antiClip=${antiClip}, swing-clamped ${clamped} track(s): ${clampedBones.join(', ')}`);
   return clip;
 }
 

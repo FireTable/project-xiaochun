@@ -20,6 +20,7 @@ import type { VocalAudioProcessor } from '@/director/vocalProcessor';
 import type { HostAudioInput } from '@/director/hostAudio';
 import { MotionPipeline } from '@/motion/pipeline/motionPipeline';
 import type { PlayMotionOptions, UniversalMotionHandle } from '@/motion/sources/clip';
+import { MOTION_CATALOG, type MotionCatalogId, isMotionCatalogId } from '@/motion/catalog';
 import { preloadWebLLM, unloadWebLLM } from '@/llm/webLLMProvider';
 import { isHeavyPreloadAllowed, isLlmPreloadAllowed } from '@/lib/heavyPreload';
 import { APP_CONFIG, type LightConfig, type VocalAudioConfig, type VocalPresetKey } from '@/config';
@@ -1481,11 +1482,68 @@ export class VRMEngine {
     return this.gazeController.enabled;
   }
 
-  /** 倾听开关。姿态由独立的 listening 动作源负责，这里只记状态。 */
+  /** 倾听开关与动捕资产驱动 */
   private listening = false;
+  private listeningMotionHandle: UniversalMotionHandle | null = null;
+  private listeningBuffer: ArrayBuffer | null = null;
+  private cachedListeningClip: THREE.AnimationClip | null = null;
+
+  public async preloadListening(): Promise<void> {
+    try {
+      const res = await fetch(MOTION_CATALOG.listening.url);
+      if (res.ok) {
+        this.listeningBuffer = await res.arrayBuffer();
+      }
+    } catch (e) {
+      console.warn('预加载倾听动作失败', e);
+    }
+  }
 
   public setListening(listening: boolean): void {
+    if (this.listening === listening) return;
     this.listening = listening;
+
+    if (listening) {
+      void this.startListeningMotion();
+    } else {
+      this.stopListeningMotion();
+    }
+  }
+
+  private async startListeningMotion(): Promise<void> {
+    if (!this.listening) return;
+    if (this.chatDirector.isSpeaking || this.chatDirector.turnState !== 'idle') return;
+    if (!this.currentVRM) return;
+
+    try {
+      if (!this.listeningBuffer) {
+        await this.preloadListening();
+      }
+      if (!this.listening) return;
+      if (!this.cachedListeningClip && this.listeningBuffer && this.currentVRM) {
+        this.cachedListeningClip = await this.motionPipeline.universalMotion.parseToClip(
+          this.listeningBuffer,
+          this.currentVRM,
+          MOTION_CATALOG.listening,
+        );
+      }
+      if (!this.listening) return;
+      if (this.cachedListeningClip && this.currentVRM) {
+        this.listeningMotionHandle = await this.playMotion(
+          this.cachedListeningClip,
+          MOTION_CATALOG.listening,
+        );
+      }
+    } catch (e) {
+      console.warn('[Listening] 播放 listening.vrma 失败:', e);
+    }
+  }
+
+  private stopListeningMotion(): void {
+    if (this.listeningMotionHandle) {
+      this.stopMotion(0.75);
+      this.listeningMotionHandle = null;
+    }
   }
 
   public isListening(): boolean {
@@ -1784,6 +1842,7 @@ export class VRMEngine {
       if ((m as THREE.Mesh).geometry) (m as THREE.Mesh).geometry.dispose();
     });
     this.chatDirector.resetClipCache();
+    this.cachedListeningClip = null;
 
     return new Promise<VRM>((resolve, reject) => {
       this.loader.load(
@@ -2714,14 +2773,23 @@ export class VRMEngine {
 
   // ── 万能动作播放接口 ──
   public async playMotion(
-    input: string | ArrayBuffer | THREE.AnimationClip,
+    input: MotionCatalogId | string | ArrayBuffer | THREE.AnimationClip,
     options: PlayMotionOptions = {},
   ): Promise<UniversalMotionHandle> {
     if (!this.currentVRM) {
       throw new Error('[VRMEngine] 模型尚未就绪，无法播放动作');
     }
+    let targetInput: string | ArrayBuffer | THREE.AnimationClip = input;
+    let mergedOptions: PlayMotionOptions = { ...options };
+
+    if (typeof input === 'string' && isMotionCatalogId(input)) {
+      const catalogItem = MOTION_CATALOG[input];
+      targetInput = catalogItem.url;
+      mergedOptions = { ...catalogItem, ...options };
+    }
+
     const lookAtOffsets = this.gazeController.getLookAtOffsets();
-    return this.motionPipeline.playMotion(this.currentVRM, input, options, lookAtOffsets);
+    return this.motionPipeline.playMotion(this.currentVRM, targetInput, mergedOptions, lookAtOffsets);
   }
 
   public stopMotion(fadeDuration = 0.75): void {

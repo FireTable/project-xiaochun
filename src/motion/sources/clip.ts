@@ -17,6 +17,16 @@ export interface PlayMotionOptions {
   mask?: MotionBoneMask;
   /** 动作播放完毕并完成淡出后的回调 */
   onEnd?: () => void;
+  /**
+   * 是否启用 AI 粗糙动作防穿模限幅（默认 false）。
+   * 标准动捕 VRMA 默认保持原生真实度（无 60° 强行截断），避免出现 A-Pose/翅膀悬空畸变。
+   */
+  antiClip?: boolean;
+  /**
+   * 动作截取时间区间 [startTime, endTime]（秒）。
+   * 用于掐掉动捕原始素材首尾的 T-Pose / A-Pose 标定帧。
+   */
+  timeRange?: [number, number];
 }
 
 export interface UniversalMotionHandle {
@@ -63,9 +73,22 @@ export class UniversalMotionController {
   /**
    * 将任意输入解析为适配合法人形模型的 AnimationClip
    */
-  async parseToClip(input: string | ArrayBuffer | THREE.AnimationClip, vrm: VRM): Promise<THREE.AnimationClip> {
+  async parseToClip(
+    input: string | ArrayBuffer | THREE.AnimationClip,
+    vrm: VRM,
+    options?: PlayMotionOptions,
+  ): Promise<THREE.AnimationClip> {
+    const antiClip = options?.antiClip ?? false;
     if (input instanceof THREE.AnimationClip) {
-      return retargetClip(input, vrm);
+      let clip = input;
+      if (options?.timeRange) {
+        const [startSec, endSec] = options.timeRange;
+        const fps = 30;
+        const startFrame = Math.round(startSec * fps);
+        const endFrame = Math.round(endSec * fps);
+        clip = THREE.AnimationUtils.subclip(clip, clip.name || 'subclip', startFrame, endFrame, fps);
+      }
+      return retargetClip(clip, vrm, { antiClip });
     }
 
     let buffer: ArrayBuffer;
@@ -92,6 +115,15 @@ export class UniversalMotionController {
 
     let clip = createVRMAnimationClip(vrmAnim, vrm);
 
+    // 如果指定了时间截取区间，掐掉头尾无用/标定帧（如 T-pose/A-pose）
+    if (options?.timeRange) {
+      const [startSec, endSec] = options.timeRange;
+      const fps = 30;
+      const startFrame = Math.round(startSec * fps);
+      const endFrame = Math.round(endSec * fps);
+      clip = THREE.AnimationUtils.subclip(clip, clip.name || 'subclip', startFrame, endFrame, fps);
+    }
+
     // 纠正 Hips 初始位置偏移，防止角色位置暴冲
     const hips = vrm.humanoid?.getNormalizedBoneNode('hips');
     if (hips) {
@@ -112,7 +144,7 @@ export class UniversalMotionController {
       });
     }
 
-    return retargetClip(clip, vrm);
+    return retargetClip(clip, vrm, { antiClip });
   }
 
   /**

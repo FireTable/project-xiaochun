@@ -361,6 +361,7 @@ export const APP_CONFIG = {
       vqFace: { file: q('vq_face.onnx'), enabled: false, label: 'vq_face (jaw + face 106D, disabled)' },
       vqGlobal: { file: q('vq_global.onnx'), enabled: false, label: 'vq_global (root translation 61D, disabled)' },
     } satisfies Record<string, { file: string; enabled: boolean; label: string }>,
+    // 注册的静态/动捕 VRMA 动作（如 thinking、listening 等）统一在 src/motion/catalog.ts 中管理
     motion: {
       gestureIntensity: 1.0,
       fingerIntensity: 0.5,

@@ -139,7 +139,7 @@ export class MotionPipeline {
     lookAtOffsets?: { neck?: THREE.Quaternion; head?: THREE.Quaternion },
   ): Promise<UniversalMotionHandle> {
     this.bind(vrm);
-    const clip = await this.universalMotion.parseToClip(input, vrm);
+    const clip = await this.universalMotion.parseToClip(input, vrm, options);
 
     const fadeDur = Math.max(0.26, options.fadeDuration ?? SOURCE_FADE_DURATION);
     const mask = options.mask ?? 'all';
