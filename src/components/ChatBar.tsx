@@ -126,9 +126,12 @@ export const ChatBar: React.FC<{
     const off = client.on((ev) => {
       if (ev.type === 'state') {
         setSttState(ev.state);
-        if (ev.state === 'listening') {
+        // 对齐 input focus 逻辑：只要麦克风处于激活会话态（listening / recognizing / loading），
+        // 就必须持续保持倾听姿态；唯有真正退回到 idle 或 error 且输入框没有焦点时才解除。
+        const isMicActive = ev.state === 'listening' || ev.state === 'recognizing' || ev.state === 'loading';
+        if (isMicActive) {
           vrmEngine.setListening(true);
-        } else if (ev.state === 'idle' && document.activeElement !== inputRef.current) {
+        } else if (document.activeElement !== inputRef.current && !inputRef.current?.value.trim()) {
           vrmEngine.setListening(false);
         }
         if (ev.state !== 'error') setSttErrorKind(null);
