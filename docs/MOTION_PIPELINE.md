@@ -202,5 +202,26 @@ $$S(t) = 6t^5 - 15t^4 + 10t^3 \quad (t \in [0, 1])$$
 >    - `VRMUtils.rotateVRM0(vrm)` sets `vrm.scene.rotation.y = Math.PI` to face forward in world space; Gaze and BodyTurn offset targeting yaw by `vrm.scene.rotation.y - baseYaw`.
 >    - `FootIK` adapts the forward pole vector $\mathbf{V}_{\text{forward}}$ to $(0, 0, -1)$ in local hips space so knees bend forward in world space, and clamps ankle targets to $\ge \text{restAnkleY}$ to prevent floor penetration.
 
+> [!CAUTION]
+> ### Pitfall 8: Mocap Asset Ingestion, Pelvis Sinking Trap & SpringBone Explosive Flailing Trap (动捕切片、骨盆高度篡改与裙摆物理狂甩陷阱)
+> **Symptom**: Playing a looped mocap VRMA (such as `listening.vrma`) causes the character's skirt (`SpringBone`) to flare open like a parachute and violently flap/shake continuously ("裙子狂甩"), while loop repeats produce a visible jerk.  
+> **Root Causes**:
+> 1. **Hips Y Depression Colliding with Thigh Spheres**:
+>    In VRM humanoid hierarchy, the skirt bones hang from `Hips`, while the collision spheres (`VRMSpringBoneColliderGroup`) attach to `UpperLeg`. Tampering with `Root_M` translation Y (e.g. subtracting `hipsYOffset = -0.094m` or `-0.054m` in an attempt to manually "ground" the character) sinks the waistband directly into the middle of the thigh colliders! Any movement of the legs applies explosive contact impulses, kicking the skirt outwards into an undamped limit-cycle oscillation.
+> 2. **Loop Boundary Discontinuity (Seam Pop)**:
+>    Raw mocap slices cut without boundary smoothing create instant velocity and angle jumps between the last frame and frame 0 (e.g. $13.3^\circ$ on `Upper_Leg_R`, $12.3^\circ$ on `Foot_R`, $1.9\text{cm}$ on `Root_M`). Every loop repeat imparts an instantaneous shockwave to all spring bones.
+> 3. **Excessive Lateral Pelvic Sway in Standing Clips**:
+>    Raw human mocap often includes full-body weight shifting (e.g. 26cm lateral $X$ swing). When played while feet are planted or constrained, the thighs tilt severely outward, continuously driving colliders into the skirt mesh.
+> 
+> **Architecture Standard & Rules**:
+> 1. **Never Arbitrarily Offset Hips Y**:
+>    Mocap animations authored with standard humanoid rigs already place the feet at ground level ($Y \approx 0.00\text{m}$ at the sole). Do not subtract arbitrary negative offsets from `Root_M.translation.y`.
+> 2. **Quintic Seamless Loop Bake on Sliced Assets (`scripts/slice-vrma.mjs`)**:
+>    Always apply Quintic Smootherstep ($6t^5 - 15t^4 + 10t^3$) over the tail $0.75\text{s}$ ($\approx 18$ frames) to Slerp/Lerp all bone channels into frame 0. Guarantees $0.00\text{mm}$ position jump, $< 0.04^\circ$ angular delta, and zero acceleration impulse at the seam.
+> 3. **Center & Damp Lateral Sway for Standing Clips**:
+>    Scale down large horizontal sway ($X$) on standing idle/listening clips to subtle organic micro-sway ($\le \pm 1.5\text{cm}$), keeping thighs in the center of the skirt volume.
+> 4. **Idempotent Mocap Slicing**:
+>    Keep pristine raw source files under `public/vrm/motion/raw/` to ensure offline toolchains never repeatedly re-slice or degrade already processed assets.
+
 
 

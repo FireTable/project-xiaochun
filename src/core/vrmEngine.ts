@@ -1495,13 +1495,17 @@ export class VRMEngine {
   private listeningMotionHandle: UniversalMotionHandle | null = null;
   private listeningBuffer: ArrayBuffer | null = null;
   private cachedListeningClip: THREE.AnimationClip | null = null;
+  private lastListeningUrl: string | null = null;
 
   public async preloadListening(): Promise<void> {
+    const url = MOTION_CATALOG.listening.url;
+    if (this.listeningBuffer && this.lastListeningUrl === url) return;
     try {
-      const res = await fetch(MOTION_CATALOG.listening.url);
+      const res = await fetch(url);
       if (res.ok) {
         this.listeningBuffer = await res.arrayBuffer();
         this.cachedListeningClip = null;
+        this.lastListeningUrl = url;
       }
     } catch (e) {
       console.warn('预加载倾听动作失败', e);
@@ -1525,7 +1529,8 @@ export class VRMEngine {
     if (!this.currentVRM) return;
 
     try {
-      if (!this.listeningBuffer) {
+      const url = MOTION_CATALOG.listening.url;
+      if (!this.listeningBuffer || this.lastListeningUrl !== url) {
         await this.preloadListening();
       }
       if (!this.listening) return;

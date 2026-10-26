@@ -106,6 +106,21 @@ export const HEAD_NECK_MASK: readonly VRMHumanBoneName[] = [
   'neck', 'head',
 ] as const;
 
+export const FINGER_BONES: readonly VRMHumanBoneName[] = [
+  'leftThumbMetacarpal', 'leftThumbProximal', 'leftThumbDistal',
+  'leftIndexProximal', 'leftIndexIntermediate', 'leftIndexDistal',
+  'leftMiddleProximal', 'leftMiddleIntermediate', 'leftMiddleDistal',
+  'leftRingProximal', 'leftRingIntermediate', 'leftRingDistal',
+  'leftLittleProximal', 'leftLittleIntermediate', 'leftLittleDistal',
+  'rightThumbMetacarpal', 'rightThumbProximal', 'rightThumbDistal',
+  'rightIndexProximal', 'rightIndexIntermediate', 'rightIndexDistal',
+  'rightMiddleProximal', 'rightMiddleIntermediate', 'rightMiddleDistal',
+  'rightRingProximal', 'rightRingIntermediate', 'rightRingDistal',
+  'rightLittleProximal', 'rightLittleIntermediate', 'rightLittleDistal',
+] as const;
+
+export const FINGER_BONE_SET = new Set<string>(FINGER_BONES);
+
 export type MotionBoneMask = 'all' | 'upperBody' | 'lowerBody' | 'headNeck';
 
 export function getBoneMask(mask?: MotionBoneMask): readonly VRMHumanBoneName[] | null {
@@ -268,8 +283,10 @@ export class PoseBuffer {
     lower: PoseBuffer,
     upper: PoseBuffer,
     delta: number,
+    options?: { skipFingerSmooth?: boolean },
   ): this {
     const dt = Math.max(0.0001, Math.min(delta, 0.1));
+    const skipFingerSmooth = options?.skipFingerSmooth ?? false;
 
     for (const boneName of LOWER_BODY_MASK) {
       const idx = BONE_INDEX_MAP.get(boneName);
@@ -290,7 +307,11 @@ export class PoseBuffer {
     for (const boneName of UPPER_BODY_MASK) {
       const idx = BONE_INDEX_MAP.get(boneName);
       if (idx === undefined) continue;
-      this.smoothBoneQuaternion(idx, upper.quaternions[idx]!, dt);
+      if (skipFingerSmooth && FINGER_BONE_SET.has(boneName)) {
+        this.quaternions[idx]!.copy(upper.quaternions[idx]!);
+      } else {
+        this.smoothBoneQuaternion(idx, upper.quaternions[idx]!, dt);
+      }
     }
 
     return this;

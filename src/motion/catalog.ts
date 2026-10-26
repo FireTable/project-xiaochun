@@ -21,7 +21,7 @@ export const MOTION_CATALOG = {
     id: 'listening',
     nameKey: 'motion.listening.name',
     descriptionKey: 'motion.listening.description',
-    url: '/vrm/motion/listening.vrma',
+    url: '/vrm/motion/listening.vrma?v=10',
     loop: true,
     fadeDuration: 0.95,
     antiClip: false,

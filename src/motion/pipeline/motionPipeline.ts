@@ -3,6 +3,8 @@ import type { VRM, VRMHumanBoneName } from '@pixiv/three-vrm';
 import {
   PoseBuffer,
   LEGS_MASK,
+  FINGER_BONES,
+  BONE_INDEX_MAP,
   copyTransitionSnapshot,
   type MotionBoneMask,
 } from './poseBuffer';
@@ -101,6 +103,11 @@ export class MotionPipeline {
   private footIkMix = 0;
   private footIkWanted = false;
   private locomotionWeight = 0; // 下半身步态连续混合权重 [0: 动作源下半身, 1: 步态踱步]
+  private locomotionTransitionElapsed = 0;
+  private locomotionTransitionDuration = 0.5;
+  private locomotionTransitionFromWeight = 0;
+  private locomotionTransitionTargetWeight = 0;
+  private wasStepping = false;
   public targetYawOffset = 0.0;
   private boundVrm: VRM | null = null;
   private _btPos = new THREE.Vector3();
@@ -185,6 +192,11 @@ export class MotionPipeline {
   public resetLocomotion(): void {
     this.bodyTurn.reset();
     this.locomotionWeight = 0;
+    this.locomotionTransitionElapsed = 0;
+    this.locomotionTransitionDuration = 0.5;
+    this.locomotionTransitionFromWeight = 0;
+    this.locomotionTransitionTargetWeight = 0;
+    this.wasStepping = false;
   }
 
   /** Play thinking VRMA as the live pipeline source (thinkSway trait disabled to prevent asynchronous sinusoidal collision with clip). */
@@ -379,14 +391,40 @@ export class MotionPipeline {
 
     const isStepping = ctx.enableBodyTurn && this.bodyTurn.isStepping();
 
-    // 步态层连续解剖学混合权重计算：
-    // 进入踱步响应迅速 (~0.18s)，避免启动迟滞；
-    // 退出踱步平滑释放 (~0.85s)，从落脚平稳从容地融入 EMAGE / 待机动作，抹平单帧顿挫与身体折回感
-    const targetLocomotionWeight = isStepping ? 1.0 : 0.0;
-    const blendRate = isStepping ? 10.0 : 8.0;
-    this.locomotionWeight = THREE.MathUtils.damp(this.locomotionWeight, targetLocomotionWeight, blendRate, delta);
-    if (Math.abs(this.locomotionWeight - targetLocomotionWeight) < 0.0005) {
-      this.locomotionWeight = targetLocomotionWeight;
+    // 步态层自适应五次平滑过渡 (Adaptive Quintic Locomotion Transition)
+    // 动态联动主动作配置的 fadeDuration，彻底杜绝从动捕站姿突变/瞬移进出步态
+    if (isStepping !== this.wasStepping) {
+      this.wasStepping = isStepping;
+      this.locomotionTransitionFromWeight = this.locomotionWeight;
+      this.locomotionTransitionTargetWeight = isStepping ? 1.0 : 0.0;
+      this.locomotionTransitionElapsed = 0;
+
+      if (isStepping) {
+        // 进入踱步：若当前是真人动捕(clip)，给足 ~0.35s 柔和让步，防止腿部瞬间抽走；待机则保持敏捷 ~0.26s
+        this.locomotionTransitionDuration = (writer === 'clip')
+          ? Math.min(0.45, Math.max(0.28, targetDuration * 0.40))
+          : 0.26;
+      } else {
+        // 退出踱步回主动作：复用主动作的 fadeDuration (例如 listening 0.95s -> 约 0.66s 平滑收步落脚)
+        this.locomotionTransitionDuration = (writer === 'clip')
+          ? Math.min(0.85, Math.max(0.48, targetDuration * 0.70))
+          : 0.45;
+      }
+    }
+
+    if (this.locomotionWeight !== this.locomotionTransitionTargetWeight) {
+      this.locomotionTransitionElapsed += delta;
+      const progress = Math.min(1.0, this.locomotionTransitionElapsed / Math.max(0.001, this.locomotionTransitionDuration));
+      // 五次平滑步阶曲线 (Quintic Smootherstep: 6t^5 - 15t^4 + 10t^3)，首尾速度零、加速度严格连续
+      const t = progress * progress * progress * (progress * (progress * 6 - 15) + 10);
+      this.locomotionWeight = THREE.MathUtils.lerp(
+        this.locomotionTransitionFromWeight,
+        this.locomotionTransitionTargetWeight,
+        t,
+      );
+      if (progress >= 1.0) {
+        this.locomotionWeight = this.locomotionTransitionTargetWeight;
+      }
     }
 
     // 3. Idle into PoseBuffer only (never a VRM writer while another source is live)
@@ -515,16 +553,23 @@ export class MotionPipeline {
     if (this.isCrossfading) {
       this.upperPose.copyFrom(this.transitionFromPose).slerp(targetUpper, t);
       this.lowerPose.copyFrom(this.transitionFromPose).slerp(targetLowerBase, t);
+      // 结束待机切入动作时，手指立即取目标动作的手势形态，去掉弯曲平滑与滞后过渡
+      if (this.previousSource === 'idle' && this.activeSource !== 'idle') {
+        for (const fingerName of FINGER_BONES) {
+          const idx = BONE_INDEX_MAP.get(fingerName);
+          if (idx !== undefined) {
+            this.upperPose.quaternions[idx]!.copy(targetUpper.quaternions[idx]!);
+          }
+        }
+      }
     } else {
       this.upperPose.copyFrom(targetUpper);
       this.lowerPose.copyFrom(targetLowerBase);
     }
 
     if (this.locomotionWeight > 0.0001) {
-      const w = this.locomotionWeight;
-      const smoothW = w * w * w * (w * (w * 6 - 15) + 10);
-      this.lowerPose.blendMasked(this.locomotionPose, smoothW, LEGS_MASK);
-      this.lowerPose.hipsPosition.lerp(this.locomotionPose.hipsPosition, smoothW);
+      this.lowerPose.blendMasked(this.locomotionPose, this.locomotionWeight, LEGS_MASK);
+      this.lowerPose.hipsPosition.lerp(this.locomotionPose.hipsPosition, this.locomotionWeight);
     }
 
     this.draftPose.composeLayered(this.lowerPose, this.upperPose);
@@ -546,8 +591,6 @@ export class MotionPipeline {
     if (wantFootIk && this.footIkMix > 0) {
       this.footIK.solve(delta, grounding.left, grounding.right, 1.0);
       this.footIK.levelFeet(vrm, false, grounding.left, grounding.right);
-    } else if (writer === 'clip' && !locomotionBusy) {
-      this.footIK.levelFeet(vrm, false, 1.0, 1.0);
     }
 
     this.gaze.update(
@@ -567,7 +610,10 @@ export class MotionPipeline {
       this.footIK.writeHipsInto(this.lowerPose.hipsPosition, vrm);
     }
 
-    this.finalPose.composeLayeredSmooth(this.lowerPose, this.upperPose, delta);
+    const isActionActive = writer !== 'idle';
+    this.finalPose.composeLayeredSmooth(this.lowerPose, this.upperPose, delta, {
+      skipFingerSmooth: isActionActive,
+    });
     this.finalPose.sceneY = vrm.scene.position.y;
     this.finalPose.commitToVRM(vrm);
   }

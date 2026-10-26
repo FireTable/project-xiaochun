@@ -129,21 +129,20 @@ export class UniversalMotionController {
       clip = THREE.AnimationUtils.subclip(clip, clip.name || 'subclip', startFrame, endFrame, fps);
     }
 
-    // 纠正 Hips 初始位置偏移，防止角色位置暴冲
+    // 纠正 Hips 水平位置偏移，保持在世界中心，保留动作原生/烘焙的贴地垂直高度 Y
     const hips = vrm.humanoid?.getNormalizedBoneNode('hips');
     if (hips) {
       if (!this.hipsRest) {
         this.hipsRest = { x: hips.position.x, y: hips.position.y, z: hips.position.z };
       }
-      const { x: restX, y: restY, z: restZ } = this.hipsRest;
+      const { x: restX, z: restZ } = this.hipsRest;
       clip.tracks.forEach((t) => {
         if (!t.name.endsWith('.position')) return;
         const offX = t.values[0] - restX;
-        const offY = t.values[1] - restY;
         const offZ = t.values[2] - restZ;
         for (let i = 0; i < t.values.length; i += 3) {
           t.values[i]     -= offX;
-          t.values[i + 1] -= offY;
+          // 保留 Y 轴高度，绝不强制抹平成 T-Pose restY，防止双足被抬离地面悬空
           t.values[i + 2] -= offZ;
         }
       });

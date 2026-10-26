@@ -178,7 +178,20 @@ The 3D motion pipeline involves complex layered logic. Follow these geometric an
   3. **Code Ingestion Rule**:
      - When adding new 3D features, the first rule is to create or extend dedicated subsystem modules. `vrmEngine.ts` only handles instantiation and facade delegation.
 
-### 2.12 Performance & Frame-Budget Disciplines (Zero GC & 60 FPS Guarantees)
+### 2.12 Mocap Asset Ingestion, Pelvis Sinking Trap & SpringBone Limit-Cycle Oscillation (动捕切片、骨盆高度篡改与裙摆物理狂甩陷阱)
+- Files: `scripts/slice-vrma.mjs`, `src/motion/sources/clip.ts`, `src/motion/vrmaRetarget.ts`, `src/motion/catalog.ts`
+- **Pitfall Symptom**: When playing a looped mocap VRMA (such as `listening.vrma`), the character's skirt (`SpringBone`) violently blows up and flaps like an inflated parachute ("裙子一直狂甩"), and seam loop points produce noticeable snapping and stuttering.
+- **Root Cause**:
+  1. **Hips Y Depression Colliding with Thigh Spheres**: In the VRM bone hierarchy, the skirt (`J_Sec_L/R_Skirt...`) hangs from `Hips`, while the collision spheres (`VRMSpringBoneColliderGroup`) are attached to `UpperLeg`. Arbitrarily subtracting a negative offset (`hipsYOffset = -0.094m` or `-0.054m`) from `Root_M` translation Y sinks the waistband directly down onto the thigh colliders! Any movement of the legs pushes the skirt mesh outwards with high physics impulses, inducing an undamped limit-cycle oscillation ("狂甩").
+  2. **Loop Boundary Discontinuity (Seam Pop)**: Raw mocap cuts without boundary smoothing create instant velocity and angle jumps between the last frame and frame 0 (e.g. $13.3^\circ$ on `Upper_Leg_R`, $12.3^\circ$ on `Foot_R`, $1.9\text{cm}$ on `Root_M`), imparting an explosive shockwave to all spring bones every 5.75s.
+  3. **Excessive Lateral Pelvic Sway in Standing Clips**: Raw mocap actors often shift full body weight (e.g. 26cm lateral $X$ swing). With planted feet, this forces the thighs to rotate outwards, driving colliders into the skirt.
+- **Engineering Standard & Rules**:
+  1. **Never Tamper with Mocap Hips Y**: Standard humanoid VRMA mocap tracks already calibrate foot soles to ground level ($Y \approx 0.00\text{m}$). `hipsYOffset` must default to `0.0`. Never depress the pelvis to fix perceived "ankle floating" (the ankle joint is naturally ~13cm above the sole in T-pose).
+  2. **Quintic Seamless Loop Bake on Sliced Assets (`scripts/slice-vrma.mjs`)**: Always apply Quintic Smootherstep ($6t^5 - 15t^4 + 10t^3$) over the tail $0.75\text{s}$ ($\approx 18$ frames) to Slerp/Lerp all bone channels into frame 0. Guarantees $0.00\text{mm}$ position jump, $< 0.04^\circ$ angular delta, and zero acceleration impulse at the seam.
+  3. **Center & Damp Lateral Sway for Standing Clips**: Scale down large horizontal sway ($X$) on standing idle/listening clips to subtle organic micro-sway ($\le \pm 1.5\text{cm}$), keeping thighs in the center of the skirt volume.
+  4. **Idempotent Mocap Slicing**: Keep pristine raw source files under `public/vrm/motion/raw/` so offline toolchains never repeatedly re-slice or degrade already processed assets.
+
+### 2.13 Performance & Frame-Budget Disciplines (Zero GC & 60 FPS Guarantees)
 - Target: Strictly protect the 16.6ms frame budget, maintaining stable 60 FPS on both mobile and desktop with zero visible frame drops, micro-stutters, or memory leaks.
 - **Core Engineering Disciplines**:
   1. **Zero Dynamic Allocation in Render Loop (Zero GC in Tick / Update)**:
