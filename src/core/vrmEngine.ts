@@ -2067,6 +2067,13 @@ export class VRMEngine {
     const mgr = vrm?.springBoneManager;
     if (!mgr) return;
     const cfg = APP_CONFIG.springBone.bust;
+
+    // 筛选双臂与手腕的碰撞体组 (Left/Right UpperArm, LowerArm, Hand)
+    const armColliderGroups = mgr.colliderGroups.filter((cg) => {
+      const name = (cg.name ?? '').toLowerCase();
+      return name.includes('arm') || name.includes('hand');
+    });
+
     for (const joint of mgr.joints) {
       const name = joint.bone?.name ?? '';
       if (/bust/i.test(name)) {
@@ -2076,6 +2083,17 @@ export class VRMEngine {
         joint.settings.gravityPower = cfg.gravityPower;
         if (cfg.hitRadius > 0) {
           joint.settings.hitRadius = cfg.hitRadius;
+        }
+
+        // 接通双臂与胸部的 SpringBone 软碰撞！
+        // VRoid 默认把 bust 的 colliderGroups 留空，导致手和手臂直接穿透胸部。
+        // 将手臂/手掌的碰撞体组挂入 joint.colliderGroups，使手臂掠过胸部时触发真实的弹性推挤与避让。
+        if (armColliderGroups.length > 0) {
+          const currentGroups = new Set(joint.colliderGroups);
+          for (const acg of armColliderGroups) {
+            currentGroups.add(acg);
+          }
+          joint.colliderGroups = Array.from(currentGroups);
         }
       }
     }
