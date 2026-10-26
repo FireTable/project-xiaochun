@@ -4,19 +4,19 @@ import { BONE_INDEX_MAP, type PoseBuffer } from '../pipeline/poseBuffer';
 import { computeAdaptiveFadeDuration } from '../pipeline/adaptiveFade';
 
 /**
- * 倾听动作系统 (Listening Motion System)
+ * 专注倾听动作系统 (Attentive Listening Motion System)
  *
- * 姿态：单手（右手）托腮，身体微倾，歪头玩味注视。
- * - 左臂：自然垂顺在身体左侧（Z 轴负向垂落）。
- * - 右臂：大臂贴胸前收，小臂深屈折叠向上，手掌微托下颌，食指轻贴脸颊。
- * - 躯干与头颈：轻微前倾与向右侧偏，随呼吸微动。
- *
- * 过渡曲线：与全局 MotionPipeline 严格统一，以 0.75s 为绝对最小值底线，采用自适应五次平滑步阶曲线。
+ * 核心设计蓝图（4 维少女专注体态）：
+ * 1. 手部姿态：双手自然背后相扣/轻叠（规整乖巧端正，零发丝物理碰撞与穿模，面部轮廓干净留白）；
+ * 2. 躯干体态：上身专注微前倾 ~3°（拉近心理距离）+ 微偏航 ~2.5° 迎合 + 18s 超低频重心微漂移与呼吸；
+ * 3. 头颈部：亲和力侧倾 ~6° + 核心灵魂「相槌 (Aizuchi) 微点头」（每隔 ~2.8s 产生一次柔和点头：下点0.25s ➔ 停留0.15s ➔ 慢回弹0.45s ➔ 停顿）；
+ * 4. 眼神表情：92% 时间视线专注锁定用户，眉眼放松舒展 (relaxed: 0.18)，嘴角平顺微抿 (happy: 0.04)；
+ * 5. 过渡节奏：严格坚守 0.75s 黄金自适应底线，五次平滑步阶曲线 (Quintic Smootherstep)。
  */
 export class ListeningMotionSystem {
   public enabled = true;
 
-  /** 0 为待机，平滑过渡至 1 为完整托腮倾听 (受自适应 Quintic 驱动，保底不低于 0.75s) */
+  /** 0 为待机，平滑过渡至 1 为完整专注倾听 (受自适应 Quintic 驱动，保底不低于 0.75s) */
   public weight = 0;
   /** 归一化过渡进度 [0, 1] */
   private progress = 0;
@@ -52,61 +52,118 @@ export class ListeningMotionSystem {
     }
 
     const w = this.weight;
-    const breath = Math.sin(time * 1.25);
-    const sway = Math.sin(time * 0.9) * 0.015;
 
-    // ── 1. 躯干与胸腔：专注微前倾 + 侧倾迎合托手侧 ──
-    this.slerpEuler(out, 'spine', 0.03, 0.02, -0.02, w * 0.7);
-    this.slerpEuler(out, 'chest', 0.05 + breath * 0.006, 0.02 + sway, -0.03, w * 0.85);
-    this.slerpEuler(out, 'upperChest', 0.03, 0.01, -0.02, w * 0.85);
+    // ── 生理节律与超低频微动 ──
+    // 呼吸波动 (约 3.6s 周期)
+    const breath = Math.sin(time * 1.75);
+    // 18s 超低频重心漂移微晃 (彻底消除木桩死板定格感)
+    const slowDrift = Math.sin(time * (Math.PI * 2 / 18.0)) * 0.012;
+    const slowSway = Math.cos(time * (Math.PI * 2 / 14.0)) * 0.008;
 
-    // ── 2. 头颈部：随右侧托手自然歪头 ──
-    this.slerpEuler(out, 'neck', 0.03 + breath * 0.004, 0.02, 0.03, w);
-    this.slerpEuler(out, 'head', 0.04 + Math.sin(time * 1.8) * 0.006, sway * 0.4, 0.065, w);
+    // ── 1. 躯干与体态：前倾倾注 (~3°) + 微侧身迎合 (~2.5°) ──
+    // spine: 前倾 ~1.4° (0.025 rad) + 微侧偏航 ~1.4° (0.025 rad)
+    this.slerpEuler(out, 'spine', 0.025 + breath * 0.003, 0.025 + slowDrift, -0.010 + slowSway, w * 0.75);
+    // chest: 前倾 ~1.6° (0.028 rad) + 微侧偏航 ~1.1° (0.020 rad) + 呼吸起伏
+    this.slerpEuler(out, 'chest', 0.028 + breath * 0.006, 0.020 + slowDrift * 0.6, -0.012, w * 0.85);
+    // upperChest: 前倾 ~0.9° (0.015 rad)
+    this.slerpEuler(out, 'upperChest', 0.015 + breath * 0.004, 0.010, -0.008, w * 0.85);
 
-    // ── 3. 左臂：保持自然垂顺在身体侧面 (VRM 左大臂垂顺 Z ≈ -1.33) ──
-    this.slerpEuler(out, 'leftShoulder', 0.01, 0, -0.02, w);
-    this.slerpEuler(out, 'leftUpperArm', 0.04, 0.02, -1.33, w);
-    this.slerpEuler(out, 'leftLowerArm', 0.0, 0.0, 0.08, w);
-    this.slerpEuler(out, 'leftHand', 0.04, 0.0, 0.0, w);
+    // ── 2. 头颈部：歪头倾听 (~6.3°) + 核心灵魂「相槌（Aizuchi）微点头」 ──
+    // 相槌动态循环：周期 2.85s (下点 0.25s ➔ 停留 0.15s ➔ 慢回弹 0.45s ➔ 待机停顿 2.0s)
+    const aizuchiPeriod = 2.85;
+    const cycleT = (time + 0.3) % aizuchiPeriod;
+    let nodPitch = 0.0; // 弧度
 
-    // ── 4. 右臂：核心托腮折叠动力学 (VRM 右大臂垂顺基准 Z ≈ +1.33) ──
-    // 右肩微耸前引
-    this.slerpEuler(out, 'rightShoulder', 0.02, -0.03, 0.04, w);
-    // 右大臂：向前俯仰 (X ≈ -1.15) 并贴胸向内 (Y ≈ 0.55, Z ≈ 1.30)
-    this.slerpEuler(out, 'rightUpperArm', -1.15 + breath * 0.008, 0.55, 1.30, w);
-    // 右小臂：深屈手肘向上引向脸颊 (Y 轴折叠向上 2.05 rad，Z 轴微内收 0.25 rad)
-    this.slerpEuler(out, 'rightLowerArm', 0.0, 2.05, 0.25, w);
-    // 右手腕：轻度背屈托下巴
-    this.slerpEuler(out, 'rightHand', 0.15, -0.10, 0.05, w);
+    if (cycleT < 0.25) {
+      // Phase 1: 0.25s 柔和下点 (幅值 ~2° = 0.035 rad)
+      const t1 = cycleT / 0.25;
+      const s1 = t1 * t1 * (3 - 2 * t1); // smoothstep
+      nodPitch = 0.035 * s1;
+    } else if (cycleT < 0.40) {
+      // Phase 2: 0.15s 短暂停留（心领神会）
+      nodPitch = 0.035;
+    } else if (cycleT < 0.85) {
+      // Phase 3: 0.45s 慢速柔和回弹
+      const t3 = (cycleT - 0.40) / 0.45;
+      const s3 = t3 * t3 * (3 - 2 * t3);
+      nodPitch = 0.035 * (1.0 - s3);
+    } else {
+      // Phase 4: 待机聆听静止期 (2.0s)
+      nodPitch = 0.0;
+    }
 
-    // ── 5. 右手五指造型：大拇指托颌、食指点颊、三指自然收拢 ──
-    this.applyChinRestHand(out, w);
+    // neck: 轻微俯仰随动 + 侧倾 ~2.3° (0.040 rad) + 偏航
+    this.slerpEuler(out, 'neck', 0.015 + nodPitch * 0.35 + breath * 0.003, 0.015 + slowDrift * 0.4, 0.040, w);
+    // head: 主点头幅值 + 侧倾 ~4.0° (0.070 rad)
+    this.slerpEuler(out, 'head', 0.020 + nodPitch * 0.65, slowSway * 0.5, 0.070, w);
+
+    // ── 3. 手部姿态：双手自然背后轻扣（规整乖巧、彻底杜绝发丝与衣服穿模） ──
+    // 左肩与右肩：轻微后展 (Retraction)，打开胸膛
+    this.slerpEuler(out, 'leftShoulder', 0.02, -0.04, -0.04, w);
+    this.slerpEuler(out, 'rightShoulder', 0.02, 0.04, 0.04, w);
+
+    // 左大臂：顺肩向下后方自然收拢 (X: +0.25 伸展向后, Y: -0.18 内收向腰背, Z: -1.30 下垂)
+    this.slerpEuler(out, 'leftUpperArm', 0.25 + breath * 0.004, -0.18, -1.30, w);
+    // 右大臂：顺肩向下后方自然收拢 (X: +0.25 伸展向后, Y: +0.18 内收向腰背, Z: +1.30 下垂)
+    this.slerpEuler(out, 'rightUpperArm', 0.25 + breath * 0.004, 0.18, 1.30, w);
+
+    // 左小臂：手肘轻折向后腰/尾椎部位 (X: -0.10, Y: -0.22, Z: -0.28)
+    this.slerpEuler(out, 'leftLowerArm', -0.10, -0.22, -0.28, w);
+    // 右小臂：手肘轻折向后腰/尾椎部位 (X: -0.10, Y: +0.22, Z: +0.28)
+    this.slerpEuler(out, 'rightLowerArm', -0.10, 0.22, 0.28, w);
+
+    // 左手手腕：在后腰处放松轻叠
+    this.slerpEuler(out, 'leftHand', -0.06, -0.10, 0.12, w);
+    // 右手手腕：轻扣在左手背/手腕处
+    this.slerpEuler(out, 'rightHand', -0.06, 0.10, -0.12, w);
+
+    // ── 4. 双手十指造型：后背放松微卷轻搭，优雅舒展 ──
+    this.applyBackFingersPose(out, w);
   }
 
-  private applyChinRestHand(out: PoseBuffer, w: number): void {
-    // 大拇指承托
-    this.slerpEuler(out, 'rightThumbMetacarpal', -0.08, -0.18, 0.20, w);
-    this.slerpEuler(out, 'rightThumbProximal', -0.04, -0.12, 0.26, w);
-    this.slerpEuler(out, 'rightThumbDistal', 0.0, -0.05, 0.20, w);
+  /** 双手置于后腰时的自然微扣十指造型 */
+  private applyBackFingersPose(out: PoseBuffer, w: number): void {
+    // 左手五指：自然微曲轻搭
+    this.slerpEuler(out, 'leftThumbMetacarpal', -0.05, 0.05, -0.15, w);
+    this.slerpEuler(out, 'leftThumbProximal', -0.04, 0.08, -0.18, w);
+    this.slerpEuler(out, 'leftThumbDistal', 0.0, 0.05, -0.12, w);
 
-    // 食指自然伸展微屈（贴在脸颊）
-    this.slerpEuler(out, 'rightIndexProximal', 0.02, -0.01, 0.18, w);
-    this.slerpEuler(out, 'rightIndexIntermediate', 0.0, 0.0, 0.20, w);
-    this.slerpEuler(out, 'rightIndexDistal', 0.0, 0.0, 0.12, w);
+    this.slerpEuler(out, 'leftIndexProximal', 0.04, 0.0, -0.25, w);
+    this.slerpEuler(out, 'leftIndexIntermediate', 0.0, 0.0, -0.32, w);
+    this.slerpEuler(out, 'leftIndexDistal', 0.0, 0.0, -0.20, w);
 
-    // 中指 / 无名指 / 小指：自然半握蜷在下巴底
-    this.slerpEuler(out, 'rightMiddleProximal', 0.0, 0.0, 0.45, w);
-    this.slerpEuler(out, 'rightMiddleIntermediate', 0.0, 0.0, 0.65, w);
-    this.slerpEuler(out, 'rightMiddleDistal', 0.0, 0.0, 0.35, w);
+    this.slerpEuler(out, 'leftMiddleProximal', 0.02, 0.0, -0.28, w);
+    this.slerpEuler(out, 'leftMiddleIntermediate', 0.0, 0.0, -0.35, w);
+    this.slerpEuler(out, 'leftMiddleDistal', 0.0, 0.0, -0.22, w);
 
-    this.slerpEuler(out, 'rightRingProximal', -0.02, 0.01, 0.50, w);
-    this.slerpEuler(out, 'rightRingIntermediate', 0.0, 0.0, 0.70, w);
-    this.slerpEuler(out, 'rightRingDistal', 0.0, 0.0, 0.40, w);
+    this.slerpEuler(out, 'leftRingProximal', 0.0, 0.0, -0.30, w);
+    this.slerpEuler(out, 'leftRingIntermediate', 0.0, 0.0, -0.38, w);
+    this.slerpEuler(out, 'leftRingDistal', 0.0, 0.0, -0.24, w);
 
-    this.slerpEuler(out, 'rightLittleProximal', -0.04, 0.02, 0.55, w);
-    this.slerpEuler(out, 'rightLittleIntermediate', 0.0, 0.0, 0.75, w);
-    this.slerpEuler(out, 'rightLittleDistal', 0.0, 0.0, 0.45, w);
+    this.slerpEuler(out, 'leftLittleProximal', -0.02, 0.0, -0.32, w);
+    this.slerpEuler(out, 'leftLittleIntermediate', 0.0, 0.0, -0.40, w);
+    this.slerpEuler(out, 'leftLittleDistal', 0.0, 0.0, -0.26, w);
+
+    // 右手五指：对称轻扣
+    this.slerpEuler(out, 'rightThumbMetacarpal', -0.05, -0.05, 0.15, w);
+    this.slerpEuler(out, 'rightThumbProximal', -0.04, -0.08, 0.18, w);
+    this.slerpEuler(out, 'rightThumbDistal', 0.0, -0.05, 0.12, w);
+
+    this.slerpEuler(out, 'rightIndexProximal', 0.04, 0.0, 0.25, w);
+    this.slerpEuler(out, 'rightIndexIntermediate', 0.0, 0.0, 0.32, w);
+    this.slerpEuler(out, 'rightIndexDistal', 0.0, 0.0, 0.20, w);
+
+    this.slerpEuler(out, 'rightMiddleProximal', 0.02, 0.0, 0.28, w);
+    this.slerpEuler(out, 'rightMiddleIntermediate', 0.0, 0.0, 0.35, w);
+    this.slerpEuler(out, 'rightMiddleDistal', 0.0, 0.0, 0.22, w);
+
+    this.slerpEuler(out, 'rightRingProximal', 0.0, 0.0, 0.30, w);
+    this.slerpEuler(out, 'rightRingIntermediate', 0.0, 0.0, 0.38, w);
+    this.slerpEuler(out, 'rightRingDistal', 0.0, 0.0, 0.24, w);
+
+    this.slerpEuler(out, 'rightLittleProximal', -0.02, 0.0, 0.32, w);
+    this.slerpEuler(out, 'rightLittleIntermediate', 0.0, 0.0, 0.40, w);
+    this.slerpEuler(out, 'rightLittleDistal', 0.0, 0.0, 0.26, w);
   }
 
   private slerpEuler(

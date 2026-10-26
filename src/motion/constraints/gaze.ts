@@ -182,9 +182,10 @@ export class GazeController {
         vrm.expressionManager.setValue('relaxed', 0);
         vrm.expressionManager.setValue('happy', 0);
       } else if (listening > 0.01) {
+        // 倾听态：专注安静温和，眉眼舒展放松为主 (relaxed: 0.18)，嘴角平顺微抿 (happy: 0.04)
         vrm.expressionManager.setValue('ou', 0);
-        vrm.expressionManager.setValue('relaxed', 0.15 * listening);
-        vrm.expressionManager.setValue('happy', 0.2 * listening);
+        vrm.expressionManager.setValue('relaxed', 0.18 * listening);
+        vrm.expressionManager.setValue('happy', 0.04 * listening);
       } else {
         // 待机态：思考嘴型随 tw 渐变，保持平淡素雅自然神态
         vrm.expressionManager.setValue('ou', 0.65 * tw);
