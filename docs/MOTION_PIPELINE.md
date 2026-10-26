@@ -223,5 +223,33 @@ $$S(t) = 6t^5 - 15t^4 + 10t^3 \quad (t \in [0, 1])$$
 > 4. **Idempotent Mocap Slicing**:
 >    Keep pristine raw source files under `public/vrm/motion/raw/` to ensure offline toolchains never repeatedly re-slice or degrade already processed assets.
 
+> [!CAUTION]
+> ### Pitfall 9: Locomotion Layer Stepping Collision & Weight-Shift FSM on Upper/Full Body Actions (步态层与动捕下半身冲突、骨盆跳跃与生理移心状态机)
+> **Symptom 1**: When `bodyTurn` triggers during an active mocap pose (e.g. `listening`), the lower body abruptly snaps from a wide mocap stance into stepping legs, and upon completing stepping, the pelvis suddenly jumps horizontally sideways (`小幅小平移与骨盆横移跳变`).  
+> **Symptom 2**: Playing a mocap action with high-heels or non-zero floor offsets causes the avatar's feet to float in the air ("小飞侠悬空").
+> 
+> **Root Causes**:
+> 1. **Mocap Foot Kinematics vs Standby Sole Anchoring**:
+>    Raw human mocap recorded in heels or non-standard studios encodes root and foot trajectories that do not match the avatar's procedural sole grounding. When applied full-body (`mask: 'all'`), the character lifts off the physical plane ($Y > 0$).
+> 2. **Abrupt Stance Tearing on Stepping Entry**:
+>    Entering `BodyTurnSystem` directly from an arbitrary asymmetrical mocap leg stance forcibly tears the legs into stepping angles within 1 frame.
+> 3. **Idle Weight-Shift Residue Snapping**:
+>    `NaturalIdleSystem` maintains a slow, realistic weight-shift state machine (`currentWeightShift` up to $\pm 2.46\text{cm}$). Stepping froze this value rather than dampening it. When stepping finished, `NaturalIdleSystem` immediately resumed pulling the pelvis in the opposite direction, creating a visible lateral jolt.
+> 
+> **Architecture Standards & Rules**:
+> 1. **Upper-Body Isolation for In-Place Actions (`mask: 'upperBody'`)**:
+>    For conversational or listening actions where the core expression is in the hands, arms, breathing, and head, configure `mask: 'upperBody'` in `MOTION_CATALOG`. This delegates the lower body 100% to `NaturalIdleSystem` and `BodyTurnSystem`:
+>    - Both feet remain mathematically grounded at $Y = 0.0000\text{m}$.
+>    - Turning triggers instantly with 0 delay at $24^\circ$ (`turnStartThreshold: 0.42`).
+> 2. **Universal Lower-Body Locomotion FSM (Action <-> Idle <-> Stepping)**:
+>    When full-body actions (`mask: 'all'`) are active, `MotionPipeline` operates a 5-phase physiological weight-shift sequence on `LEGS_MASK`:
+>    `Action Stance -> (0.25s Quintic Shift) -> Neutral Idle Legs -> (Stepping) -> (0.18s Settle Hold) -> (0.50~0.85s Quintic Restore) -> Action Stance`.
+>    - Angle threshold is elevated to $\sim 38^\circ$ (`actionTurnStartThreshold: 0.66`) so micro camera motions only drive Gaze without leg shuffling.
+>    - Interrupted turns safely reverse back to `pre_turn` without popping.
+> 3. **Locomotion Hip Dynamics & Weight-Shift Reset**:
+>    - In `NaturalIdleSystem.update`, when `locomotionWeight > 0.05` or stepping is active, damp `currentWeightShift` and `currentTorsoTurnYaw` to $0$ with rate $12.0$.
+>    - In `BodyTurnSystem`, elevate `SP.SETTLE` damping rate to $12.0$ and explicitly align `currentHipsPos` / `currentHipsQ` to `restHipsPos` / `restHipsQ` upon entering `SP.IDLE`.
+
+
 
 

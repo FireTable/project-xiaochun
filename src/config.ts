@@ -455,6 +455,9 @@ export const APP_CONFIG = {
   bodyTurn: {
     turnStartThreshold: 0.42,
     turnStopThreshold: 0.20,
+    actionTurnStartThreshold: 0.66,
+    preTurnShiftDuration: 0.25,
+    postTurnSettleDuration: 0.18,
     springK: 5.95,
     maxYawVel: 2.6,
     phaseDuration: { idle: 0, lift: 0.21, swing: 0.16, plant: 0.09, settle: 0.21 },

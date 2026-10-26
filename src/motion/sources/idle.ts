@@ -303,7 +303,21 @@ export class NaturalIdleSystem {
     const dt = deltaParam ?? (this.lastTime > 0 ? Math.min(0.1, Math.max(0.001, time - this.lastTime)) : 0.016);
     this.lastTime = time;
 
-    const isBusy = isSpeaking || isActiveAction || locomotionWeight > 0.1;
+    const isBusy = isSpeaking || isActiveAction || locomotionWeight > 0.1 || Boolean(_bodyTurnCtx?.isStepping);
+
+    // 踱步或移心期间：将待机旧重心平滑归零，杜绝转身停步后骨盆横向猛拽或反向跳变
+    if (locomotionWeight > 0.05 || _bodyTurnCtx?.isStepping) {
+      this.currentWeightShift = THREE.MathUtils.damp(this.currentWeightShift, 0.0, 12.0, dt);
+      this.isShiftingWeight = false;
+      this.shiftProgress = 0;
+      this.weightShiftTimer = 8.0 + Math.random() * 8.0;
+
+      if (this.torsoTurnPhase !== 'idle') {
+        this.torsoTurnPhase = 'idle';
+        this.currentTorsoTurnYaw = THREE.MathUtils.damp(this.currentTorsoTurnYaw, 0.0, 12.0, dt);
+        this.torsoTurnTimer = 12.0 + Math.random() * 8.0;
+      }
+    }
 
     // ── 模块 1：站姿重心换脚状态机 (Weight-Shift State) ──
     // 告别连续机械摇摆：换脚后在左脚或右脚稳稳停靠 10~22 秒，重力感扎实真实；思考与动作期间绝不突兀换腿
@@ -324,9 +338,8 @@ export class NaturalIdleSystem {
           this.isShiftingWeight = true;
         }
       }
-    } else {
-      const shiftSpeedFactor = isBusy ? 1.8 : 1.0;
-      this.shiftProgress += (dt / this.shiftDuration) * shiftSpeedFactor;
+    } else if (!isBusy) {
+      this.shiftProgress += (dt / this.shiftDuration);
       if (this.shiftProgress >= 1.0) {
         this.shiftProgress = 1.0;
         this.currentWeightShift = this.targetWeightShift;

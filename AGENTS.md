@@ -115,11 +115,17 @@ The 3D motion pipeline involves complex layered logic. Follow these geometric an
     * `EmagePlayer.stancePillar` defaults to `'balanced'` (`stanceRatio = 0.5`).
     * `APP_CONFIG.emage.motion.legIntensity` defaults to `0.40`: legs follow hip/audio; FootIK still stands the character.
 
-### 2.7 BodyTurn Stepping & Head Gaze Decoupling
+### 2.7 BodyTurn Stepping & Head Gaze Decoupling (Universal Lower-Body Locomotion FSM)
 - Files: `src/motion/constraints/bodyTurn.ts`, `src/motion/pipeline/motionPipeline.ts`
 - Overlay **`LEGS_MASK` only** (no hip rotation, no spine yaw). Gaze owns the head via draft LookAt then compose.
 - Do not call `MotionTransitionManager` for stepping handoffs.
 - While BodyTurn is busy, skip FootIK `solve`/`levelFeet` (fade mix out damp 14). After locomotion settles, recapture plants from the new stance, then fade FootIK back (damp 6).
+- **Universal Lower-Body Locomotion FSM (Action <-> Idle <-> BodyTurn Stepping)**:
+  * **Unified Behavior**: All actions (`mask: 'all'`) dynamically isolate the upper and lower body when locomotion triggers. The upper body remains 100% engaged in the action (listening, speaking, thinking, gestures), while the lower body strictly obeys the physiological weight-shift sequence:
+    `Action Stance -> (0.25s Quintic Shift) -> Neutral Idle Legs -> (Stepping) -> (0.18s Settle Hold) -> (0.50~0.85s Quintic Restore) -> Action Stance`.
+  * **Idle Fast-Path**: When in standby idle or `mask: 'upperBody'`, the legs are already in neutral stance. Transitions immediately into stepping with 0 delay at standard $24^\circ$ threshold (`turnStartThreshold: 0.42`).
+  * **Full-Body Protection Angle**: Full-body actions employ a higher threshold $\sim 38^\circ$ (`actionTurnStartThreshold: 0.66`). Camera micro-adjustments only drive Gaze and head tracking without triggering leg shuffling.
+  * **Timing Safety**: `bodyTurn.update` runs before checking stepping completion to prevent zero-frame early-exit races. Stepping completion transitions into neutral idle settle before smoothly restoring the action leg pose.
 
 ### 2.8 Biomechanical Bone Morphing & Orthogonal Decoupling Engine
 - Files: `src/core/morph/vrmBodyMorph.ts`, `src/config.ts`, `src/components/DevDrawer.tsx`, and detailed specification in [`docs/BONE_MORPH.md`](docs/BONE_MORPH.md)

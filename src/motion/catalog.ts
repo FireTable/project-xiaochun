@@ -25,9 +25,8 @@ export const MOTION_CATALOG = {
     loop: true,
     fadeDuration: 0.95,
     antiClip: false,
-    enableFootIK: true,
-    // 可选：timeRange: [0.0, 5.75], 随时可在代码中按秒截取动捕时间区间
-    mask: 'all',
+    enableFootIK: false,
+    mask: 'upperBody',
   },
   /** 思考动作（SimpleText2Motion AI 生成，22 骨骼带防穿模限幅） */
   thinking: {

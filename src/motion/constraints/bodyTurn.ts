@@ -257,22 +257,31 @@ export class BodyTurnSystem {
   }
 
   /**
+   * 转身状态机是否处于活跃迈步意图/流转阶段
+   */
+  public isTurnActive(): boolean {
+    return this.isTurning || this.phase !== SP.IDLE;
+  }
+
+  /**
    * 每帧调用。
    * @param delta      帧时间（秒）
    * @param normYaw    相机相对模型的偏航角（rad），范围 [-π, π]，正值 = 相机在角色右边
-   * @param allowLocomotion  false 时禁用踱步（说话 EMAGE 等种植姿源）
+   * @param allowLocomotion  false 时禁用踱步（说话 EMAGE 等种植姿源或前置移心阶段）
+   * @param startThreshold   可选自定义触发角门槛（例如全身动捕提高门槛防误触）
    * @returns                本帧应叠加到 vrm.scene.rotation.y 的 yawDelta（rad）
    */
-  update(delta: number, normYaw: number, allowLocomotion: boolean = true): number {
+  update(delta: number, normYaw: number, allowLocomotion: boolean = true, startThreshold?: number): number {
     if (!this.vrm) return 0;
 
     const dt = Math.min(delta, 0.05);
 
     const absYaw = Math.abs(normYaw);
+    const threshold = startThreshold ?? this.TURN_START_THRESHOLD;
 
     // ── 1. 转身状态机触发与流转 ───────────────────────────────────────────────
     if (allowLocomotion) {
-      if (!this.isTurning && absYaw > this.TURN_START_THRESHOLD) {
+      if (!this.isTurning && absYaw > threshold) {
         this.isTurning = true;
         // 生物力学生理匹配先导腿：向左转(normYaw > 0)先迈左腿；向右转(normYaw < 0)先迈右腿，彻底杜绝交叉内别腿顿挫
         this.stepLeft = normYaw >= 0;
@@ -431,15 +440,15 @@ export class BodyTurnSystem {
 
         case SP.SETTLE: {
           // 全身归位：髋部和所有腿平滑回正
-          curSteppingUpper.slerp(restSteppingUpper, Math.min(1.0, dt * 6.0));
-          curSteppingLower.slerp(restSteppingLower, Math.min(1.0, dt * 6.0));
-          curSupportUpper.slerp(restSupportUpper, Math.min(1.0, dt * 6.0));
-          curSupportLower.slerp(restSupportLower, Math.min(1.0, dt * 6.0));
+          curSteppingUpper.slerp(restSteppingUpper, Math.min(1.0, dt * 12.0));
+          curSteppingLower.slerp(restSteppingLower, Math.min(1.0, dt * 12.0));
+          curSupportUpper.slerp(restSupportUpper, Math.min(1.0, dt * 12.0));
+          curSupportLower.slerp(restSupportLower, Math.min(1.0, dt * 12.0));
 
           const supportSign = steppingLeft ? 1.0 : -1.0;
           const settleSide = supportSign * 0.5 * (1.0 - t);
           const settleBounce = (1.0 - t) * 0.3;
-          this._applyHipDynamics(settleSide, settleBounce, (1.0 - t) * this.stepBlendWeight, dt);
+          this._applyHipDynamics(settleSide, settleBounce, (1.0 - t) * this.stepBlendWeight, dt, 12.0);
           break;
         }
       }
@@ -468,12 +477,14 @@ export class BodyTurnSystem {
             } else {
               this.isTurning = false;
               this.phase = SP.IDLE;
+              this.currentHipsPos.copy(this.restHipsPos);
+              this.currentHipsQ.copy(this.restHipsQ);
             }
             break;
         }
       }
     } else if (this.phase === SP.IDLE) {
-      const settleDt = Math.min(1.0, dt * 6.0);
+      const settleDt = Math.min(1.0, dt * 10.0);
       this.currentLeftUpperLegQ.slerp(this.restLeftUpperLegQ, settleDt);
       this.currentRightUpperLegQ.slerp(this.restRightUpperLegQ, settleDt);
       this.currentLeftLowerLegQ.slerp(this.restLeftLowerLegQ, settleDt);
@@ -495,14 +506,15 @@ export class BodyTurnSystem {
    * @param bounceMult 重心下沉系数 [-0.3, 1.0] (落脚踩实缓冲达到峰值)
    * @param weight     步态混合权重 0~1
    * @param dt         帧时间
+   * @param rate       收敛速度乘数
    */
-  private _applyHipDynamics(sideSign: number, bounceMult: number, weight: number, dt: number): void {
+  private _applyHipDynamics(sideSign: number, bounceMult: number, weight: number, dt: number, rate: number = 8.0): void {
     const targetX = this.restHipsPos.x + sideSign * this.HIP_SWAY_AMOUNT * weight;
     const targetY = this.restHipsPos.y - bounceMult * this.HIP_BOUNCE_AMOUNT * weight;
     this._v.set(targetX, targetY, this.restHipsPos.z);
-    this.currentHipsPos.lerp(this._v, Math.min(1.0, dt * 8.0));
+    this.currentHipsPos.lerp(this._v, Math.min(1.0, dt * rate));
 
     // 骨盆旋转保持与 Layer-1 呼吸待机姿态一致（避免孤立扭转破坏脊柱平衡与腿部协调）
-    this.currentHipsQ.slerp(this.restHipsQ, Math.min(1.0, dt * 8.0));
+    this.currentHipsQ.slerp(this.restHipsQ, Math.min(1.0, dt * rate));
   }
 }

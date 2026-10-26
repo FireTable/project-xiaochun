@@ -59,6 +59,28 @@ To eliminate initial stutter, counter-intuitive roll, and mechanical tugging whi
 3. **Unconstrained Posture Continuity**:
    Eliminates artificial inertial spine reverse-twisting and compensatory bending injected in the Layer-1 Idle layer, preserving natural anatomical weight-shift and breathing vitality while eliminating oscillatory twitching when settling back into Idle.
 
+### 2.4 Universal Lower-Body Locomotion FSM (Action Legs <-> Idle Stand <-> Stepping)
+
+When a full-body action (such as `listening`, `speech`, or custom VRMA) is active, stepping cannot abruptly tear arbitrary limb positions directly into locomotion. Instead, `MotionPipeline` operates a universal physiological weight-shift state machine on `LEGS_MASK`:
+
+```mermaid
+stateDiagram-v2
+    [*] --> STANCE: Action Started (actionLegsWeight = 1.0)
+    STANCE --> PRE_TURN: absYaw > actionThreshold (~38°)
+    PRE_TURN --> STEPPING: 0.25s Quintic Shift (actionLegsWeight -> 0.0)
+    STEPPING --> SETTLE: Stepping Finished & Returned to IDLE
+    SETTLE --> POST_TURN: 0.18s Anti-Fidget Hold Complete
+    POST_TURN --> STANCE: Quintic Restore (0.48~0.85s, actionLegsWeight -> 1.0)
+
+    note right of PRE_TURN: Feet stay planted, shifting weight into neutral idle stand
+    note right of STEPPING: BodyTurn executes stepping on clean neutral idle base
+    note right of SETTLE: Holds on two neutral feet; smoothly chains if user drags camera again
+```
+
+- **Upper Body Preservation**: Throughout `PRE_TURN`, `STEPPING`, `SETTLE`, and `POST_TURN`, the upper body remains 100% engaged in the action pose (hands resting on chin, gestures, breathing). Only the lower body (`LEGS_MASK`) transitions through the neutral center.
+- **Idle Fast-Path**: For standby `idle` or `mask: 'upperBody'`, legs are already at neutral center, transitioning immediately to `STEPPING` with 0s latency at the standard $24^\circ$ threshold (`turnStartThreshold: 0.42`).
+- **Angle Filtering**: Full-body actions use `actionTurnStartThreshold: 0.66` ($\sim 38^\circ$), preventing small camera micro-adjustments from triggering step jitter while allowing full Gaze and head tracking.
+
 ---
 
 ## 3. GazeController: Companion Eye & Head Tracking
