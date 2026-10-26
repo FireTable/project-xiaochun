@@ -600,7 +600,7 @@ vec3 seaColor(vec2 q, float dist, float ds, float d, float aa, float rising, flo
   }
   // 冲刷浪头: 宽度沿岸起伏 (fwv), 推上来时厚, 退回时变薄; 孔洞越往后越多 (退潮时更碎), 后面拖着两层蕾丝泡沫纹
   float fw = uFoamWidth * fwv * (0.6 + 0.55 * rising);
-  float head = 1.0 - smoothstep(fw - aa, fw + aa, d);
+  float head = (1.0 - smoothstep(fw - aa, fw + aa, d)) * (1.0 - smoothstep(fw * 1.2, fw * 2.2, d));
   float hn = vnoise(q * vec2(3.2, 5.5) + vec2(uTime * 0.15, 0.0)) * 0.65 + vnoise(q * vec2(7.0, 11.0) - uTime * 0.1) * 0.35;
   float holeT = mix(0.8, 0.5, smoothstep(0.15, 1.0, d / max(fw, 1e-3))) - 0.12 * (1.0 - rising);
   float holes = smoothstep(holeT, holeT + 0.05, hn) * uFoamBreak;
@@ -618,7 +618,9 @@ vec3 seaColor(vec2 q, float dist, float ds, float d, float aa, float rising, flo
     float rw = (0.12 + 0.06 * sin(uTime * 1.6 + float(i) * 2.3 + atan(q.y - r.y, q.x - r.x) * 3.0)) * max(1.0, r.z / 0.8);  // 大礁石 (灯塔底座) 白浪圈更宽
     ring = max(ring, 1.0 - smoothstep(rw - aa, rw + aa, abs(rd - 0.02)));
   }
-  fm = clamp(max(max(fm, head), max(ring * 0.9, lace)), 0.0, 1.0);
+  // 浪花与泡沫随视距自然消退: 远海 (>25m) 完全平缓无碎沫, 根除在深海远方/海天线因掠射走样产生断续虚线
+  float foamDistFade = 1.0 - smoothstep(12.0, 26.0, dist);
+  fm = clamp(max(max(fm, head), max(ring * 0.9, lace)), 0.0, 1.0) * foamDistFade;
   col = mix(col, uFoam, fm);
   return col;
 }
@@ -641,7 +643,8 @@ void main() {
   float hiMark = lo + reach * reachVar + scal;      // 这一轮推到的最高处
   float edge = lo + reach * reachVar * sw + scal * (0.3 + 0.7 * sw);
   float fwv = mix(1.0, 0.45 + 1.0 * vnoise(vec2(q.x * 0.32 + cyc * 5.1, 7.0)), uFoamVar);  // 白浪宽度沿岸起伏
-  float aa = max(fwidth(q.y), 1e-3);
+  // 约束世界空间抗锯齿过渡宽度上限 (<= 0.08m), 杜绝掠射视线在远海处因 fwidth 趋于无穷拉出宽达数十米的虚假泡沫带
+  float aa = clamp(fwidth(q.y), 1e-3, 0.08);
   float s = q.y - edge;
   float ds = sb - q.y;
   vec3 sand = sandColor(q, dist, top, hiMark);
@@ -666,8 +669,9 @@ void main() {
   // 角色的脚下落影取的是同一份颜色, 两边的影子颜色才对得上。
   float psh = propShadow(q) * uShadowK * mix(0.55, 1.0, uLightLevel) * (s > 0.0 ? 1.0 : 0.45 * (1.0 - smoothstep(0.0, 1.5, ds)));
   col = mix(col, col * uShadowTint, psh);
+  // 空气透视: 远海向海平线色完全淡出 (权重 1.0), 彻底抹除远方网格截断边与海天边界处的锯齿阶梯与断续线条
   vec3 haze = ds > 0.0 ? uSeaHorizon : uSandHaze;
-  col = mix(col, haze, smoothstep(uHazeStart, uHazeEnd, dist) * (ds > 0.0 ? 0.85 : 0.9));
+  col = mix(col, haze, smoothstep(uHazeStart, uHazeEnd, dist));
   gl_FragColor = vec4(col * uComp, 1.0);
   #include <tonemapping_fragment>
   #include <colorspace_fragment>
