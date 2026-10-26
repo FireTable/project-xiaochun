@@ -82,3 +82,15 @@
     1. 彻底干掉操作按钮上的 `Loader2` 加载菊花和 `disabled` 锁死；
     2. **发送即打断**: 只要系统在处理中（无论是 LLM 思考生成还是语音朗读），只要输入框为空，按钮常驻为红粉高亮的「停止」按钮（`■`），点击立即中止请求、平息动作回待机；
     3. **随时插话覆盖**: 只要用户输入了内容（`hasText`），按钮瞬间变更为「发送」（`➤`），点击或回车立刻掐断旧动作/旧语音并发出新意图。
+- **13:45 - 架构级状态收敛：引入 `TurnState` 单一权威源，根除按钮脱节**
+  - **根因排查**:
+    1. 前端 `ChatBar.tsx` 依赖本地 `isSending` 状态，多次发送或提前返回时 `finally` 会将 `isSending` 错误归零，导致角色正在思考（头顶气泡 "让小蠢想想嘛" + 思考动作），按钮却错误展示为闲置灰色发送图标；
+    2. `ChatDirector` 内部思考状态无对外派发机制，打断后后置的异步推理 milestone 可能会把已关闭的气泡错误召回。
+  - **正统架构方案**:
+    1. **底层状态单一真实源 (`TurnState = 'idle' | 'thinking' | 'speaking'`)**:
+       - 在 `ChatDirector` 核心生命周期中定义 `turnState`，并在 `say()` 阶段严格把控 `handoff() ➔ thinking ➔ speaking ➔ idle`；
+       - `VRMEngine` 通过 `onTurnStateChange` 响应式向外统一派发；
+    2. **气泡防僵尸回调防护**:
+       - 在 `say()` 中将 `status` 注入 `guardedStatus` 守卫，一旦代号（`utterance`）过时或被打断，严禁任何未完成的 LLM 异步回调复活气泡；
+    3. **UI 彻底解耦**:
+       - `ChatBar.tsx` 彻底移除无用的本地 `isSending` 状态，统一由 `turnState !== 'idle'` 计算 `isBusy`，确保任何时候角色在思考或朗读，按钮 100% 呈现为可随时点击的红色停止方块（`■`）。

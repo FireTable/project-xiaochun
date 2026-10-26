@@ -102,13 +102,13 @@ export const ChatBar: React.FC<{
   /** 未聚焦时记录 visualViewport 高度，用来判断 Android 键盘是否挤矮了可视区 */
   const restingVvHeightRef = useRef<number>(typeof window !== 'undefined' && window.visualViewport ? window.visualViewport.height : 0);
   const [hasText, setHasText] = useState(false);
-  const [isSending, setIsSending] = useState(false);
-  const [isSpeaking, setIsSpeaking] = useState(() => vrmEngine.isSpeaking);
+  const [turnState, setTurnState] = useState(() => vrmEngine.turnState);
+  const isBusy = turnState !== 'idle';
   const [isQueued, setIsQueued] = useState(false);
   const [isInputFocused, setIsInputFocused] = useState(false);
 
   useEffect(() => {
-    return vrmEngine.onSpeakingChange(setIsSpeaking);
+    return vrmEngine.onTurnStateChange(setTurnState);
   }, []);
   const queuedTextRef = useRef('');
   const [thinkingOn, setThinkingOn] = useState(() => isThinkingEnabled());
@@ -480,21 +480,16 @@ export const ChatBar: React.FC<{
       setHasText(false);
       setInputRows(1);
       setIsQueued(false);
-      setIsSending(true);
 
       void vrmEngine
         .sendMessage(toSend)
-        .catch((e) => console.error('[ChatBar Queue] Send failed:', e))
-        .finally(() => {
-          setIsSending(false);
-        });
+        .catch((e) => console.error('[ChatBar Queue] Send failed:', e));
     }
   }, [isModelReady, isQueued]);
 
   const handleStop = () => {
     vrmEngine.stopSpeaking();
     vrmEngine.setListening(false);
-    setIsSending(false);
   };
 
   const handleSend = async () => {
@@ -520,32 +515,26 @@ export const ChatBar: React.FC<{
     setHasText(false);
     setInputRows(1);
     setIsQueued(false);
-    setIsSending(true);
 
     try {
       await vrmEngine.sendMessage(text);
     } catch (e) {
       console.error(e);
-    } finally {
-      setIsSending(false);
     }
   };
 
   const handleSpeakText = async (which: 'spring' | 'shudao' = 'spring') => {
-    if (isSending || !isVRMReady) return;
+    if (isBusy || !isVRMReady) return;
     // ponytail: dev 测试菜单 — spring 复用原 testSpeakText 键(向后兼容),
     // shudao 是新增的 ~280 字长文(李白《蜀道难》),用于压测长会话流水线
     const text = which === 'shudao'
       ? t('chat.testSpeakShudaoText')
       : t('chat.testSpeakText');
     if (!text) return;
-    setIsSending(true);
     try {
       await vrmEngine.speakText(text);
     } catch (e) {
       console.error('[ChatBar SpeakText]', e);
-    } finally {
-      setIsSending(false);
     }
   };
 
@@ -617,7 +606,7 @@ export const ChatBar: React.FC<{
     shudaoSegs: splitIntoSpeechChunks(t('chat.testSpeakShudaoText')).length,
   }), [t]);
 
-  const showChatBar = !autoHideActive || isPetUIVisible || isMenuOpen || isInputFocused || hasText || isSending || sttState === 'listening' || sttState === 'recognizing' || sttState === 'loading';
+  const showChatBar = !autoHideActive || isPetUIVisible || isMenuOpen || isInputFocused || hasText || isBusy || sttState === 'listening' || sttState === 'recognizing' || sttState === 'loading';
   const visibilityClass = showChatBar
     ? 'opacity-100 pointer-events-auto'
     : 'opacity-0 pointer-events-none';
@@ -710,7 +699,7 @@ export const ChatBar: React.FC<{
                             return (
                               <DropdownMenuItem
                                 key={m.id}
-                                disabled={isSending}
+                                disabled={isBusy}
                                 onSelect={() => {
                                   if (selected) return;
                                   // ponytail: setActiveModelId 现在写统一 key 的 webllm 分支,
@@ -979,7 +968,6 @@ export const ChatBar: React.FC<{
             </div>
           );
 
-          const isBusy = isSending || isSpeaking;
           const canStop = !hasText && isBusy;
           const isButtonActive = canStop || isQueued || hasText;
 
@@ -1050,15 +1038,15 @@ export const ChatBar: React.FC<{
                 <button
                   id="chatTestSpeak"
                   type="button"
-                  disabled={isSending || !isVRMReady}
+                  disabled={isBusy || !isVRMReady}
                   aria-label={t('chat.testSpeak')}
                   className={`shrink-0 h-9 w-9 rounded-full flex items-center justify-center select-none touch-manipulation active:scale-95 appearance-none outline-none border-none transition-colors ${
-                    isSending || !isVRMReady
+                    isBusy || !isVRMReady
                       ? 'text-white/30 cursor-not-allowed'
                       : 'text-[#f5aa9c] hover:bg-[#ea8377]/20 hover:text-[#ea8377] data-[state=open]:bg-[#ea8377]/20 data-[state=open]:text-[#ea8377]'
                   }`}
                 >
-                  <Zap className={`w-4 h-4 ${isSending ? '' : 'animate-pulse'}`} />
+                  <Zap className={`w-4 h-4 ${isBusy ? '' : 'animate-pulse'}`} />
                 </button>
               </DropdownMenuTrigger>
               <DropdownMenuContent

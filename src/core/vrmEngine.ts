@@ -15,7 +15,7 @@ import { CAMERA_STATE_KEY, BODY_YAW_KEY, CAMERA_PITCH_KEY, SCENE_THEME_KEY, CAME
 
 import { VRMBodyMorph } from './morph/vrmBodyMorph';
 import { postFxPipeline, type PostFxPipeline } from './postfx/postFxPipeline';
-import { ChatDirector } from '@/director/chatDirector';
+import { ChatDirector, type TurnState } from '@/director/chatDirector';
 import type { VocalAudioProcessor } from '@/director/vocalProcessor';
 import type { HostAudioInput } from '@/director/hostAudio';
 import { MotionPipeline } from '@/motion/pipeline/motionPipeline';
@@ -60,6 +60,7 @@ import {
 
 export type {
   BubbleState,
+  TurnState,
   MaterialSaturationSettings,
   MaterialSaturationPresetKey,
   ModelPartDefinition,
@@ -715,6 +716,11 @@ export class VRMEngine {
     this.chatDirector.onSpeakingChange = (speaking) => {
       this.speakingListeners.forEach((cb) => {
         try { cb(speaking); } catch (e) { console.error(e); }
+      });
+    };
+    this.chatDirector.onTurnStateChange = (state) => {
+      this.turnStateListeners.forEach((cb) => {
+        try { cb(state); } catch (e) { console.error(e); }
       });
     };
   }
@@ -2879,6 +2885,19 @@ export class VRMEngine {
     this.speakingListeners.add(cb);
     cb(this.isSpeaking);
     return () => this.speakingListeners.delete(cb);
+  }
+
+  /** 当前对话状态 ('idle' | 'thinking' | 'speaking') */
+  public get turnState(): TurnState {
+    return this.chatDirector.turnState;
+  }
+
+  private turnStateListeners = new Set<(state: TurnState) => void>();
+
+  public onTurnStateChange(cb: (state: TurnState) => void): () => void {
+    this.turnStateListeners.add(cb);
+    cb(this.turnState);
+    return () => this.turnStateListeners.delete(cb);
   }
 
 

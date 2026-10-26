@@ -20,6 +20,8 @@ import type { Lang } from '@/i18n';
 import { APP_CONFIG } from '@/config';
 import { StreamResampler16k, PcmSlicer, HOST_AUDIO, clampPlaybackRate, clampVolume, type HostAudioInput } from '@/director/hostAudio';
 
+export type TurnState = 'idle' | 'thinking' | 'speaking';
+
 interface Plan { speech: string; llm_provider?: string }
 
 import { splitIntoSpeechChunks, stripForTTS } from '@/lib/utils';
@@ -356,14 +358,26 @@ export class ChatDirector {
   private audioDoneTime = 0;
 
   private plan: Plan | null = null;
+  private _turnState: TurnState = 'idle';
+  public get turnState(): TurnState {
+    return this._turnState;
+  }
+  public onTurnStateChange: ((state: TurnState) => void) | null = null;
+
+  public setTurnState(state: TurnState): void {
+    if (this._turnState === state) return;
+    this._turnState = state;
+    this.onTurnStateChange?.(state);
+    this._speaking = state === 'speaking';
+    this.onSpeakingChange?.(this._speaking);
+  }
+
   private _speaking = false;
   public get speaking(): boolean {
     return this._speaking;
   }
   public set speaking(val: boolean) {
-    if (this._speaking === val) return;
-    this._speaking = val;
-    this.onSpeakingChange?.(val);
+    this.setTurnState(val ? 'speaking' : (this._turnState === 'thinking' ? 'thinking' : 'idle'));
   }
   public onSpeakingChange: ((speaking: boolean) => void) | null = null;
   private stopped = false;
@@ -522,9 +536,9 @@ export class ChatDirector {
     const id = await this.handoff();
     if (id === null) return;
     this.audioDone = false;
-    this.speaking = false;
     this.player = player;
     this.emage = emage;
+    this.setTurnState('thinking');
     await this.playThinking(vrm, player);
     if (!this.owns(id)) return;
 
@@ -539,9 +553,13 @@ export class ChatDirector {
         prompt: this.getSystemPrompt?.() ?? '',
         lang: 'zh-CN' as Lang,
       }));
+      const guardedStatus = (key: string, vars?: Record<string, unknown>) => {
+        if (!this.owns(id)) return;
+        status(key, vars);
+      };
       speechText = await generateSpeechReply(
         text,
-        (key, vars) => status(key, vars),
+        guardedStatus,
         ctx.prompt,
         ctx.lang,
       );
@@ -584,9 +602,9 @@ export class ChatDirector {
     const id = await this.handoff();
     if (id === null) return;
     this.audioDone = false;
-    this.speaking = false;
     this.player = player;
     this.emage = emage;
+    this.setTurnState('thinking');
     await this.playThinking(vrm, player);
     if (!this.owns(id)) return;
 
@@ -655,9 +673,9 @@ export class ChatDirector {
     if (volume !== undefined) this.volume = volume;
     const gone = () => !this.owns(session);
     this.audioDone = false;
-    this.speaking = false;
     this.player = player;
     this.emage = emage;
+    this.setTurnState('thinking');
     // hostClock 跳过了 playThinking (原来在那里记下 currentVRM): 这里记下, stop 时 hardStop 才能把嘴 ('aa') 合上
     this.currentVRM = vrm;
     this.lipsyncDisabled = opts.lipsync === false;
@@ -1426,7 +1444,8 @@ export class ChatDirector {
     if (this.stopped && !this.ctx && !this.currentSource) return;
     this.stopped = true;
     this.pipeline?.resetChatMotion();
-    this.speaking = false;
+    this.pipeline?.stopMotion(0.75);
+    this.setTurnState('idle');
     this.audioDoneTime = 0;
     this.onResumeRendering?.();
     if (this.stopPlaySegment) {
