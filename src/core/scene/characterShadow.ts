@@ -113,10 +113,12 @@ export class CharacterShadowSystem {
     this.currentTheme = theme;
     if (this.shadowPlane && this.shadowPlane.material instanceof THREE.ShadowMaterial) {
       const m = this.shadowPlane.material;
-      m.color.setHex(0x000000);
-      // 在 3D 海滩场景下, 地面道具落影将沙地压暗约 50%~55%; 角色落影使用 0.52 基准不透明度, 与场景落影深度完美对齐
-      const base = (theme as string) === 'beach3d'
-        ? 0.52
+      // 在 3D 海滩场景下: 道具阴影是温暖的沙滩环境染色 (约 33%~35% 阴影吸收深度);
+      // 角色落影使用 0.34 基准不透明度与微暖黑 0x1f1d24, 与场景道具落影在深浅与色温上完美对齐
+      const isBeach = (theme as string) === 'beach3d';
+      m.color.setHex(isBeach ? 0x1f1d24 : 0x000000);
+      const base = isBeach
+        ? 0.34
         : (theme === 'dark' || theme === 'void')
           ? APP_CONFIG.shadow.opacityDark
           : APP_CONFIG.shadow.opacityLight;
@@ -143,8 +145,10 @@ export class CharacterShadowSystem {
   public updateOpacity(isDark: boolean): void {
     if (this.shadowPlane && this.shadowPlane.material instanceof THREE.ShadowMaterial) {
       const sc = APP_CONFIG.shadow;
-      const base = this.currentTheme === 'beach3d'
-        ? 0.52
+      const isBeach = this.currentTheme === 'beach3d';
+      this.shadowPlane.material.color.setHex(isBeach ? 0x1f1d24 : 0x000000);
+      const base = isBeach
+        ? 0.34
         : (isDark ? sc.opacityDark : sc.opacityLight);
       this.shadowPlane.material.opacity = base * this.opacityScale;
       this.shadowPlane.material.needsUpdate = true;

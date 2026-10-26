@@ -148,8 +148,7 @@ void main() {
     // 贴海面的薄白雾: 海平线处最浓, 往上按平方很快淡进天色 (薄、软, 不是一堵白墙)
     float wm = 1.0 - smoothstep(0.0, uWaterMistH, h);
     col = mix(col, uWaterMistColor, uWaterMist * wm * wm);
-    // 海平线细亮线: 跟直射光强度 uLightLevel 联动, 夜里熄灭, 绝不在漆黑海天线上留下一道断续白线
-    col = mix(col, uHorizonGlow, uHorizonLine * (1.0 - smoothstep(0.0, 0.012, h)) * max(0.0, uLightLevel - 0.2) * 1.25);
+    // 海天交接处完全由贴海薄雾 (uWaterMist) 与空气透视自然过渡, 杜绝海平线上出现断续亮线
   } else {
     col = mix(uSeaHorizon, uSeaDeep, smoothstep(0.0, -0.3, h));
   }
@@ -440,18 +439,39 @@ float grainOct(vec2 q, float f) {
   return (vnoise(q * f) - 0.5) * (1.0 - smoothstep(0.3, 0.75, fw));
 }
 
-// 道具落影 (0..1): 紧凑 9 采样滤波 (收紧采样半径消除锯齿走样与过度模糊, 阴影清晰自然, 与角色落影清晰度匹配)
+// 道具落影 (0..1): 16-tap 泊松圆盘抗锯齿滤波 (消除网格走样与阶梯锯齿, 提供丝滑柔和的投影过渡)
 float bakedShadow(vec2 q) {
   vec2 uv = (q - uMaskRect.xy) / uMaskRect.zw;
   if (uv.x <= 0.0 || uv.y <= 0.0 || uv.x >= 1.0 || uv.y >= 1.0) return 0.0;
-  vec2 r = uMaskTexel * 0.75 * uMaskSoft;
-  float s = texture2D(uShadowMask, uv).r * 0.28;
-  s += (texture2D(uShadowMask, uv + vec2(r.x, 0.0)).r + texture2D(uShadowMask, uv - vec2(r.x, 0.0)).r
-      + texture2D(uShadowMask, uv + vec2(0.0, r.y)).r + texture2D(uShadowMask, uv - vec2(0.0, r.y)).r) * 0.11;
-  vec2 r2 = r * 0.85;
-  s += (texture2D(uShadowMask, uv + vec2(r2.x, r2.y)).r + texture2D(uShadowMask, uv - vec2(r2.x, r2.y)).r
-      + texture2D(uShadowMask, uv + vec2(r2.x, -r2.y)).r + texture2D(uShadowMask, uv + vec2(-r2.x, r2.y)).r) * 0.07;
-  return s;
+  // 边缘平滑柔和渐隐: 距遮罩边缘 4% 区域内 smoothstep 衰减至 0, 杜绝在任何极端光照下产生硬切截断线
+  vec2 edgeDist = min(uv, 1.0 - uv);
+  float edgeFade = smoothstep(0.0, 0.04, min(edgeDist.x, edgeDist.y));
+  vec2 r = uMaskTexel * 1.65 * uMaskSoft;
+
+  const vec2 poisson[16] = vec2[16](
+    vec2(-0.94201624, -0.39906216),
+    vec2(0.94558609, -0.76890725),
+    vec2(-0.094184101, -0.92938870),
+    vec2(0.34495938, 0.29387760),
+    vec2(-0.91588581, 0.45771432),
+    vec2(-0.81544232, -0.87912464),
+    vec2(-0.38277543, 0.27676845),
+    vec2(0.97484398, 0.75648379),
+    vec2(0.44323325, -0.97511554),
+    vec2(0.53742981, -0.47373420),
+    vec2(-0.26496911, -0.41893023),
+    vec2(0.79197514, 0.19090188),
+    vec2(-0.24188840, 0.99706507),
+    vec2(-0.81409955, 0.91437590),
+    vec2(0.19984126, 0.78641367),
+    vec2(0.14383161, -0.14100790)
+  );
+
+  float s = texture2D(uShadowMask, uv).r * 0.16;
+  for (int i = 0; i < 16; i++) {
+    s += texture2D(uShadowMask, uv + poisson[i] * r).r * 0.0525;
+  }
+  return s * edgeFade;
 }
 
 // 道具落影 (0..1): 棕榈 / 沙堡 / 躺椅 / 遮阳伞全部统一由真实 3D 几何压平烘焙 (含柔和双圈滤波, 彻底杜绝分段阶梯撕裂与缝隙)
@@ -556,15 +576,15 @@ vec3 seaColor(vec2 q, float dist, float ds, float d, float aa, float rising, flo
     float fi = float(i);
     if (fi >= uBands) break;
     float spd = i == 0 ? 0.071 : (i == 1 ? 0.052 : (i == 2 ? 0.088 : 0.061));
-    float st = i == 0 ? 7.5 : (i == 1 ? 10.5 : (i == 2 ? 5.2 : 13.0));
+    float st = i == 0 ? 5.2 : (i == 1 ? 6.5 : (i == 2 ? 3.8 : 5.8));
     float cyc = uTime * spd + fi * 0.37 + 0.11;
     float ph = fract(cyc);
     float k = floor(cyc);
-    float bend = 1.3 * (vnoise(vec2(q.x * 0.15 + k * 3.1 + fi * 7.0, fi + 0.5)) - 0.5) + 0.25 * sin(q.x * 0.31 + fi * 1.7 + k);
+    float bend = 1.0 * (vnoise(vec2(q.x * 0.15 + k * 3.1 + fi * 7.0, fi + 0.5)) - 0.5) + 0.25 * sin(q.x * 0.31 + fi * 1.7 + k);
     float c = pow(1.0 - ph, 1.25) * st + 0.35 + bend * (0.35 + 0.65 * (1.0 - ph));
     float x = ds - c;
-    // 浪花只在近岸推涌 (ds <= 18m); 远海平缓无白浪, 杜绝在漆黑深海海平线附近拉出断续虚线
-    float fade = smoothstep(0.0, 0.2, ph) * (1.0 - smoothstep(0.86, 1.0, ph)) * uWaves * (0.75 + 0.25 * hash12(vec2(k, fi))) * (1.0 - smoothstep(6.0, 18.0, ds));
+    // 浪花严格限制在近岸推涌带 (ds <= 7.0m); 外海与深水区彻底平缓无碎白浪, 根除在深海远方产生断续虚线
+    float fade = smoothstep(0.0, 0.2, ph) * (1.0 - smoothstep(0.86, 1.0, ph)) * uWaves * (0.75 + 0.25 * hash12(vec2(k, fi))) * (1.0 - smoothstep(2.5, 7.0, ds));
     float brkN = vnoise(vec2(q.x * 0.62 + fi * 13.0 + k * 5.3, k * 7.0 + fi)) * 0.7 + vnoise(vec2(q.x * 1.9 + fi * 3.0, k)) * 0.3;
     float brk = smoothstep(0.5 - 0.16 * ph, 0.64 - 0.14 * ph, brkN);   // 一段一段的碎浪; 外海更断续, 近岸更连贯
     float wn = vnoise(vec2(q.x * 0.6 + k * 1.7, fi * 3.0 + 9.0));

@@ -16,6 +16,16 @@ export const zhCN = {
     realTime: '实时',
     followSystem: '跟随现实时间',
     fineTune: '时间调节',
+    atmospheres: {
+      dawn: '破晓晨曦',
+      dawnBadge: '晨曦',
+      day: '明媚白昼',
+      dayBadge: '白昼',
+      sunset: '落日黄昏',
+      sunsetBadge: '黄昏',
+      night: '静谧星夜',
+      nightBadge: '星夜',
+    },
     presets: {
       auto: '自动',
       autoHint: '现实时间',

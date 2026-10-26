@@ -34,6 +34,7 @@ import { LineworkWorld } from './scene/lineworkWorld';
 import { Beach3DWorld } from './scene/beach3d/beach3dWorld';
 import { VoidWorld } from './scene/void/voidWorld';
 import type { EnvironmentTimeMode, EnvironmentTimeOptions, EnvironmentTimeState } from './scene/environmentTime';
+import { resolveEffectiveHour } from './scene/beach3d/beach3dTime';
 import type { SceneThemeId, LineworkTheme } from '@/types/config';
 import { passthroughManager } from './scene/passthroughManager';
 import { StudioLighting } from './lighting/studioLighting';
@@ -707,6 +708,7 @@ export class VRMEngine {
     this.lineworkWorld.attach(this.scene);
     // 海滩 3D: 挂进场景 (默认不可见, 首次进入时才构建); 太阳方向取主方向光
     this.beach3d.attach(this.scene, this.lighting.dirLight);
+    this.beach3d.setEnvironmentTime(this._environmentTime);
     // 虚空场景: 挂进场景 (默认不可见, 首次进入时才构建浮游微尘)
     this.voidWorld.attach(this.scene);
     // 夜空需要知道后期调色参数, 以反向补偿 OutputPass 对深色的压黑 (保证与 CSS 渐变同色)
@@ -1379,6 +1381,9 @@ export class VRMEngine {
     this.beach3d.setActive(theme === 'beach3d');
     if (theme === 'beach3d') {
       this.beach3d.setEnvironmentTime(this._environmentTime);
+      if (typeof window !== 'undefined') {
+        window.dispatchEvent(new CustomEvent('environment-time-changed', { detail: this._environmentTime }));
+      }
     }
     // 场景退场时先把"接管灯光"还回去 (否则 beach 的主光会漏到别的场景)
     this.lighting.clearEnvironmentLight();
@@ -1420,7 +1425,7 @@ export class VRMEngine {
     if (this.beach3d.isActive()) {
       this.beach3d.setEnvironmentTime(time, options);
     }
-    if (typeof window !== 'undefined') {
+    if (typeof window !== 'undefined' && !options?.isDragging) {
       window.dispatchEvent(new CustomEvent('environment-time-changed', { detail: time }));
     }
   }
@@ -1440,8 +1445,12 @@ export class VRMEngine {
       const state = this.beach3d.getEnvironmentTime();
       return { ...state, isSupported: true };
     }
-    const mode = typeof this._environmentTime === 'string' ? this._environmentTime : 'auto';
-    const hour = typeof this._environmentTime === 'number' ? this._environmentTime : 12;
+    const mode = typeof this._environmentTime === 'string'
+      ? this._environmentTime
+      : (this._environmentTime >= 6.5 && this._environmentTime < 16.5 ? 'day' : (this._environmentTime >= 16.5 && this._environmentTime < 19.5 ? 'sunset' : 'night'));
+    const hour = typeof this._environmentTime === 'number'
+      ? this._environmentTime
+      : resolveEffectiveHour(this._environmentTime);
     return { mode, currentHour: hour, isSupported: false };
   }
 

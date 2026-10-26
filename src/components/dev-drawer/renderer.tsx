@@ -7,7 +7,6 @@ import { SaturationSection } from './sections/SaturationSection';
 import { BoneMorphSection } from './sections/BoneMorphSection';
 import { WardrobeSection } from './sections/WardrobeSection';
 import { LightingSection } from './sections/LightingSection';
-import { EnvironmentTimeSection } from './sections/EnvironmentTimeSection';
 import { CameraSection } from './sections/CameraSection';
 import { PostFxSection } from './sections/PostFxSection';
 
@@ -23,7 +22,6 @@ const REGISTRY: Record<SectionId, React.FC> = {
   bodyMorph: BoneMorphSection,
   wardrobe: WardrobeSection,
   lighting: LightingSection,
-  environmentTime: EnvironmentTimeSection,
   camera: CameraSection,
   postfx: PostFxSection,
 };

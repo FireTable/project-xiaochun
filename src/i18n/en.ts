@@ -17,7 +17,17 @@ export const en: Trans = {
     title: 'Scene Time',
     realTime: 'Live',
     followSystem: 'Follow System Time',
-    fineTune: 'Time Adjustment',
+    fineTune: 'Drag celestial body to adjust',
+    atmospheres: {
+      dawn: 'Dawn Awakening',
+      dawnBadge: 'Dawn',
+      day: 'Sunny Day',
+      dayBadge: 'Day',
+      sunset: 'Sunset Glow',
+      sunsetBadge: 'Sunset',
+      night: 'Starry Night',
+      nightBadge: 'Night',
+    },
     presets: {
       auto: 'Auto',
       autoHint: 'Real-time',

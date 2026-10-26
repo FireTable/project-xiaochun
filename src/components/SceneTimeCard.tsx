@@ -1,135 +1,114 @@
-import React, { useEffect, useRef, useState } from 'react';
+import React, { useState, useRef, useEffect, useCallback } from 'react';
 import { useTranslation } from 'react-i18next';
-import { RotateCcw, ChevronDown, ChevronUp } from 'lucide-react';
+import { ChevronDown, Clock, Sun, Sunset, Moon, type LucideIcon } from 'lucide-react';
 import { vrmEngine } from '@/core/vrmEngine';
 import { useCurrentScene } from '@/core/scene/sceneManager';
-import { formatHourToString, type EnvironmentTimeMode } from '@/core/scene/environmentTime';
-import { SliderWithAnchors } from '@/components/SliderWithAnchors';
+import type { EnvironmentTimeMode } from '@/core/scene/environmentTime';
 
 // ──────────────────────────────────────────────────────────────────
-// 高精手绘二次元风格天气与天体矢量图标 (SVG Primitives)
+// 辅助计算、氛围定义与时间流逝/倒流缓动 (Ease-In-Out Cubic)
 // ──────────────────────────────────────────────────────────────────
 
-/** 黄金暖日图标 (白天) */
-const DaySunSvg: React.FC<{ className?: string }> = ({ className = 'w-4 h-4' }) => (
-  <svg viewBox="0 0 24 24" fill="none" className={className}>
-    <circle cx="12" cy="12" r="5" fill="url(#daySunGrad)" />
-    <g stroke="url(#dayRayGrad)" strokeWidth="1.75" strokeLinecap="round">
-      <line x1="12" y1="2" x2="12" y2="4.5" />
-      <line x1="12" y1="19.5" x2="12" y2="22" />
-      <line x1="2" y1="12" x2="4.5" y2="12" />
-      <line x1="19.5" y1="12" x2="22" y2="12" />
-      <line x1="4.93" y1="4.93" x2="6.7" y2="6.7" />
-      <line x1="17.3" y1="17.3" x2="19.07" y2="19.07" />
-      <line x1="4.93" y1="19.07" x2="6.7" y2="17.3" />
-      <line x1="17.3" y1="6.7" x2="19.07" y2="4.93" />
-    </g>
-    <defs>
-      <linearGradient id="daySunGrad" x1="7" y1="7" x2="17" y2="17" gradientUnits="userSpaceOnUse">
-        <stop stopColor="#fef08a" />
-        <stop offset="1" stopColor="#f59e0b" />
-      </linearGradient>
-      <linearGradient id="dayRayGrad" x1="2" y1="2" x2="22" y2="22" gradientUnits="userSpaceOnUse">
-        <stop stopColor="#fde047" />
-        <stop offset="1" stopColor="#ea580c" />
-      </linearGradient>
-    </defs>
-  </svg>
-);
+/**
+ * 经典时间流转缓动曲线 (Ease-In-Out Cubic: 从慢起步 ➔ 加速奔流 ➔ 缓驻落定)
+ * - 0% ~ 30%: 极慢起跑 (从慢)，彻底消除首帧"跳一段"的突兀感
+ * - 30% ~ 70%: 飞速流转 (到快)，产生身临其境的时间流逝/倒流感
+ * - 70% ~ 100%: 柔和减速，优雅平稳落停
+ */
+const timeLapseEase = (t: number): number => {
+  const clamped = Math.max(0, Math.min(1, t));
+  return clamped < 0.5 ? 4 * clamped * clamped * clamped : 1 - Math.pow(-2 * clamped + 2, 3) / 2;
+};
 
-/** 暮色晚霞沉日图标 (黄昏) */
-const SunsetSvg: React.FC<{ className?: string }> = ({ className = 'w-4 h-4' }) => (
-  <svg viewBox="0 0 24 24" fill="none" className={className}>
-    <path
-      d="M17 14A5 5 0 0 0 7 14"
-      fill="url(#sunsetSunGrad)"
-    />
-    <line x1="3" y1="15" x2="21" y2="15" stroke="#f472b6" strokeWidth="1.75" strokeLinecap="round" />
-    <line x1="5.5" y1="18.5" x2="18.5" y2="18.5" stroke="#fb7185" strokeWidth="1.5" strokeLinecap="round" strokeOpacity="0.8" />
-    <path d="M12 4V6.5M5.6 7.6L7.4 9.4M18.4 7.6L16.6 9.4" stroke="#fb923c" strokeWidth="1.5" strokeLinecap="round" />
-    <defs>
-      <linearGradient id="sunsetSunGrad" x1="7" y1="9" x2="17" y2="14" gradientUnits="userSpaceOnUse">
-        <stop stopColor="#fdba74" />
-        <stop offset="0.6" stopColor="#f43f5e" />
-        <stop offset="1" stopColor="#be185d" />
-      </linearGradient>
-    </defs>
-  </svg>
-);
+/** 格式化总分钟数为 HH:MM */
+const formatMinutesToString = (totalMinutes: number): string => {
+  const m = Math.max(0, Math.min(1439, Math.round(totalMinutes)));
+  const h = Math.floor(m / 60).toString().padStart(2, '0');
+  const min = Math.floor(m % 60).toString().padStart(2, '0');
+  return `${h}:${min}`;
+};
 
-/** 静谧月牙与星宿图标 (夜晚) */
-const NightMoonSvg: React.FC<{ className?: string }> = ({ className = 'w-4 h-4' }) => (
-  <svg viewBox="0 0 24 24" fill="none" className={className}>
-    <path
-      d="M18.8 14.5A7.5 7.5 0 1 1 10.5 4.2a6 6 0 0 0 8.3 10.3Z"
-      fill="url(#moonGrad)"
-    />
-    {/* 星芒闪烁 */}
-    <path d="M18.5 4L19 5.5L20.5 6L19 6.5L18.5 8L18 6.5L16.5 6L18 5.5L18.5 4Z" fill="#a5f3fc" />
-    <path d="M14 2L14.4 3L15.5 3.4L14.4 3.8L14 5L13.6 3.8L12.5 3.4L13.6 3L14 2Z" fill="#bae6fd" />
-    <defs>
-      <linearGradient id="moonGrad" x1="6" y1="6" x2="18" y2="18" gradientUnits="userSpaceOnUse">
-        <stop stopColor="#e0f2fe" />
-        <stop offset="0.7" stopColor="#93c5fd" />
-        <stop offset="1" stopColor="#6366f1" />
-      </linearGradient>
-    </defs>
-  </svg>
-);
+/** 根据分钟数获取动态天体氛围色、i18n 多语言配置与对应矢量图标 */
+const getTimeAtmosphere = (totalMinutes: number) => {
+  const hour = totalMinutes / 60;
+  if (hour >= 5.0 && hour < 8.0) {
+    return {
+      labelKey: 'sceneTimeCard.atmospheres.dawn',
+      defaultLabel: '破晓晨曦',
+      badgeKey: 'sceneTimeCard.atmospheres.dawnBadge',
+      defaultBadge: '晨曦',
+      accent: '#f472b6',
+      glow: 'from-indigo-500/20 via-pink-500/15 to-amber-400/10',
+      icon: Sunset,
+    };
+  }
+  if (hour >= 8.0 && hour < 16.5) {
+    return {
+      labelKey: 'sceneTimeCard.atmospheres.day',
+      defaultLabel: '明媚白昼',
+      badgeKey: 'sceneTimeCard.atmospheres.dayBadge',
+      defaultBadge: '白昼',
+      accent: '#38bdf8',
+      glow: 'from-sky-400/25 via-blue-500/10 to-amber-300/10',
+      icon: Sun,
+    };
+  }
+  if (hour >= 16.5 && hour < 19.5) {
+    return {
+      labelKey: 'sceneTimeCard.atmospheres.sunset',
+      defaultLabel: '落日黄昏',
+      badgeKey: 'sceneTimeCard.atmospheres.sunsetBadge',
+      defaultBadge: '黄昏',
+      accent: '#fb923c',
+      glow: 'from-orange-500/25 via-rose-500/15 to-purple-900/20',
+      icon: Sunset,
+    };
+  }
+  return {
+    labelKey: 'sceneTimeCard.atmospheres.night',
+    defaultLabel: '静谧星夜',
+    badgeKey: 'sceneTimeCard.atmospheres.nightBadge',
+    defaultBadge: '星夜',
+    accent: '#818cf8',
+    glow: 'from-indigo-600/25 via-slate-900/40 to-blue-950/30',
+    icon: Moon,
+  };
+};
 
-/** 天体天球流转时钟图标 (自动现实时间) */
-const AutoOrbitSvg: React.FC<{ className?: string }> = ({ className = 'w-4 h-4' }) => (
-  <svg viewBox="0 0 24 24" fill="none" className={className}>
-    <circle cx="12" cy="12" r="8.5" stroke="url(#orbitRingGrad)" strokeWidth="1.5" strokeDasharray="3 2" />
-    <circle cx="12" cy="12" r="3.2" fill="#38bdf8" />
-    {/* 日球 */}
-    <circle cx="17.8" cy="7.2" r="2.2" fill="#f59e0b" />
-    {/* 月球 */}
-    <circle cx="6.2" cy="16.8" r="1.8" fill="#a5b4fc" />
-    <defs>
-      <linearGradient id="orbitRingGrad" x1="3" y1="3" x2="21" y2="21" gradientUnits="userSpaceOnUse">
-        <stop stopColor="#38bdf8" />
-        <stop offset="0.5" stopColor="#fb923c" />
-        <stop offset="1" stopColor="#818cf8" />
-      </linearGradient>
-    </defs>
-  </svg>
-);
-
-// ──────────────────────────────────────────────────────────────────
-// 预设配置
-// ──────────────────────────────────────────────────────────────────
-
-interface PresetItem {
-  key: EnvironmentTimeMode;
-  icon: React.FC<{ className?: string }>;
-  accentColor: string;
+interface PresetConfig {
+  id: EnvironmentTimeMode;
+  labelKey: string;
+  defaultLabel: string;
+  sub: string;
+  icon: LucideIcon;
 }
 
-const PRESET_LIST: PresetItem[] = [
-  {
-    key: 'auto',
-    icon: AutoOrbitSvg,
-    accentColor: 'from-sky-500/20 to-indigo-500/20 border-sky-400/40 text-sky-200',
-  },
-  {
-    key: 'day',
-    icon: DaySunSvg,
-    accentColor: 'from-amber-500/20 to-yellow-500/20 border-amber-400/50 text-amber-200',
-  },
-  {
-    key: 'sunset',
-    icon: SunsetSvg,
-    accentColor: 'from-rose-500/20 to-orange-500/20 border-rose-400/50 text-rose-200',
-  },
-  {
-    key: 'night',
-    icon: NightMoonSvg,
-    accentColor: 'from-indigo-500/20 to-violet-500/20 border-indigo-400/50 text-indigo-200',
-  },
+const PRESETS: PresetConfig[] = [
+  { id: 'auto', labelKey: 'sceneTimeCard.presets.auto', defaultLabel: '自动', sub: 'SYNC', icon: Clock },
+  { id: 'day', labelKey: 'sceneTimeCard.presets.day', defaultLabel: '白天', sub: '12:00', icon: Sun },
+  { id: 'sunset', labelKey: 'sceneTimeCard.presets.sunset', defaultLabel: '黄昏', sub: '17:45', icon: Sunset },
+  { id: 'night', labelKey: 'sceneTimeCard.presets.night', defaultLabel: '夜晚', sub: '22:00', icon: Moon },
 ];
 
-interface SceneTimeCardProps {
+/** 根据预设模式获取目标分钟数 */
+const getPresetTargetMinutes = (presetId: EnvironmentTimeMode): number => {
+  if (presetId === 'day') return 12 * 60;
+  if (presetId === 'sunset') return 17 * 60 + 45;
+  if (presetId === 'night') return 22 * 60;
+  const now = new Date();
+  return now.getHours() * 60 + now.getMinutes();
+};
+
+/** 按照时间差跨度动态计算流逝/倒流时长 (秒) */
+const calcFlowDuration = (startMins: number, targetMins: number): number => {
+  const diffHours = Math.abs(targetMins - startMins) / 60;
+  if (diffHours < 0.05) return 0;
+  // 基础起步 1.2s，每相隔 1 小时增加 0.22s：
+  // 1 小时微调 ~1.4s，5.75 小时 (白天到黄昏) ~2.46s，10 小时 (白天到夜晚) ~3.4s，最长 3.8s
+  return Math.min(3.8, Math.max(1.2, 1.2 + diffHours * 0.22));
+};
+
+export interface SceneTimeCardProps {
   /** 桌面桌宠模式时，是否跟随整体宠物 UI 的淡出淡入 */
   isPetUIVisible?: boolean;
 }
@@ -137,48 +116,161 @@ interface SceneTimeCardProps {
 export const SceneTimeCard: React.FC<SceneTimeCardProps> = () => {
   const { t } = useTranslation();
   const currentScene = useCurrentScene();
-  const isSupported = currentScene.id === 'beach3d' || vrmEngine.isEnvironmentTimeSupported();
-  const [timeState, setTimeState] = useState(() => vrmEngine.getEnvironmentTime());
+  const [engineSupported, setEngineSupported] = useState(() => vrmEngine.isEnvironmentTimeSupported());
+  const isSupported = currentScene.id === 'beach3d' || engineSupported;
+  const isTransparent = Boolean(currentScene.id === 'transparent' || currentScene.isTransparent);
+
   const [expanded, setExpanded] = useState(false);
+  const [timeState, setTimeState] = useState(() => vrmEngine.getEnvironmentTime());
+  const [minutes, setMinutes] = useState(() => Math.round(timeState.currentHour * 60));
+  const [isDragging, setIsDragging] = useState(false);
+
+  // 阻尼与平滑时间流逝/倒流动画引用
+  const displayedMinutesRef = useRef(minutes);
+  const targetMinutesRef = useRef(minutes);
+  const isDraggingRef = useRef(false);
+  const rafIdRef = useRef<number | null>(null);
+  const lastTimeRef = useRef<number | null>(null);
+  const transitionRef = useRef<{
+    startTime: number;
+    duration: number;
+    startMinutes: number;
+    targetMinutes: number;
+    targetMode?: EnvironmentTimeMode;
+  } | null>(null);
+
   const cardRef = useRef<HTMLDivElement>(null);
-  const hourDisplayRef = useRef<HTMLSpanElement>(null);
+  const svgRef = useRef<SVGSVGElement | null>(null);
 
-  // 监听场景与时间变动
-  useEffect(() => {
-    const handleSync = () => {
-      const updated = vrmEngine.getEnvironmentTime();
-      setTimeState(updated);
-      if (hourDisplayRef.current) {
-        hourDisplayRef.current.textContent = formatHourToString(updated.currentHour);
+  // SVG 半圆星盘几何参数
+  const cx = 130;
+  const cy = 115;
+  const r = 92;
+
+  // 将当前 0~1440 分钟映射到圆弧角度 (00:00 在左 PI, 12:00 在顶 PI/2, 24:00 在右 0)
+  const progress = Math.max(0, Math.min(1, minutes / 1440));
+  const angleRad = Math.PI * (1 - progress);
+  const thumbX = cx + r * Math.cos(angleRad);
+  const thumbY = cy - r * Math.sin(angleRad);
+
+  const atmosphere = getTimeAtmosphere(minutes);
+  const localizedAtmosphereLabel = t(atmosphere.labelKey, atmosphere.defaultLabel);
+
+  // 判定当前高亮的预设标签：严格根据阻尼时间 (minutes) 实时动态联动
+  const hourFloat = (((minutes % 1440) + 1440) % 1440) / 60;
+  const isTransitioning = Boolean(transitionRef.current);
+  const activePresetId: EnvironmentTimeMode =
+    timeState.mode === 'auto' && !isTransitioning && !isDragging
+      ? 'auto'
+      : hourFloat >= 6.5 && hourFloat < 16.5
+        ? 'day'
+        : hourFloat >= 16.5 && hourFloat < 19.5
+          ? 'sunset'
+          : 'night';
+
+  const CurrentPillIcon = activePresetId === 'auto' ? Clock : atmosphere.icon;
+
+  // 核心动画帧循环：平滑时间流逝/倒流 (Ease-In-Out Cubic: 从慢起步 ➔ 加速奔流 ➔ 缓驻落定)
+  const tickAnimation = useCallback((now: number) => {
+    if (transitionRef.current) {
+      const { startTime, duration, startMinutes, targetMinutes, targetMode } = transitionRef.current;
+      const elapsed = now - startTime;
+      const tNorm = Math.min(1, Math.max(0, elapsed / duration));
+      const eased = timeLapseEase(tNorm);
+
+      const currentMins = startMinutes + (targetMinutes - startMinutes) * eased;
+      displayedMinutesRef.current = currentMins;
+      setMinutes(Math.round(currentMins));
+      vrmEngine.setEnvironmentTime(currentMins / 60, { isDragging: true });
+
+      if (tNorm < 1) {
+        rafIdRef.current = requestAnimationFrame(tickAnimation);
+      } else {
+        // 到达目标，优雅落定
+        transitionRef.current = null;
+        rafIdRef.current = null;
+        lastTimeRef.current = null;
+        displayedMinutesRef.current = targetMinutes;
+        setMinutes(Math.round(targetMinutes));
+        const finalTime = targetMode ?? targetMinutes / 60;
+        vrmEngine.setEnvironmentTime(finalTime, { isDragging: false });
+        setTimeState(vrmEngine.getEnvironmentTime());
       }
+      return;
+    }
+
+    rafIdRef.current = null;
+    lastTimeRef.current = null;
+  }, []);
+
+  // 启动平滑过渡流逝动画 (按时间跨度精准放慢)
+  const startTransition = useCallback((targetMins: number, mode?: EnvironmentTimeMode) => {
+    if (rafIdRef.current) cancelAnimationFrame(rafIdRef.current);
+    const startMins = displayedMinutesRef.current;
+    const diff = Math.abs(targetMins - startMins);
+    if (diff < 0.5) {
+      displayedMinutesRef.current = targetMins;
+      setMinutes(Math.round(targetMins));
+      vrmEngine.setEnvironmentTime(mode ?? targetMins / 60, { isDragging: false });
+      return;
+    }
+
+    const durationSeconds = calcFlowDuration(startMins, targetMins);
+
+    transitionRef.current = {
+      startTime: performance.now(),
+      duration: durationSeconds * 1000,
+      startMinutes: startMins,
+      targetMinutes: targetMins,
+      targetMode: mode,
     };
+    lastTimeRef.current = performance.now();
+    rafIdRef.current = requestAnimationFrame(tickAnimation);
+  }, [tickAnimation]);
 
-    window.addEventListener('scene-changed', handleSync);
-    window.addEventListener('scene-theme-changed', handleSync);
-    window.addEventListener('environment-time-changed', handleSync);
+  // 同步外部/引擎时间状态与场景支持情况
+  const syncFromEngine = useCallback(() => {
+    setEngineSupported(vrmEngine.isEnvironmentTimeSupported());
+    // 如果本地正在进行拖拽或平滑过渡，不接受外部强制覆盖打断
+    if (isDraggingRef.current || transitionRef.current) return;
+    const updated = vrmEngine.getEnvironmentTime();
+    setTimeState(updated);
+    const updatedMins = Math.round(updated.currentHour * 60);
+    displayedMinutesRef.current = updatedMins;
+    targetMinutesRef.current = updatedMins;
+    setMinutes(updatedMins);
+  }, []);
 
-    // 自动模式下，每 10 秒刷新一次显示，保持现实钟点跟随
+  useEffect(() => {
+    window.addEventListener('scene-changed', syncFromEngine);
+    window.addEventListener('scene-theme-changed', syncFromEngine);
+    window.addEventListener('environment-time-changed', syncFromEngine);
+    syncFromEngine();
+
+    // 自动模式下，每 10 秒平滑跟随现实钟点
     const interval = setInterval(() => {
-      if (vrmEngine.isEnvironmentTimeSupported()) {
+      if (vrmEngine.isEnvironmentTimeSupported() && !isDraggingRef.current && !transitionRef.current) {
         const curr = vrmEngine.getEnvironmentTime();
         if (curr.mode === 'auto') {
-          setTimeState(curr);
-          if (hourDisplayRef.current) {
-            hourDisplayRef.current.textContent = formatHourToString(curr.currentHour);
+          const now = new Date();
+          const targetM = now.getHours() * 60 + now.getMinutes();
+          if (Math.abs(targetM - displayedMinutesRef.current) >= 1) {
+            startTransition(targetM, 'auto');
           }
         }
       }
     }, 10000);
 
     return () => {
-      window.removeEventListener('scene-changed', handleSync);
-      window.removeEventListener('scene-theme-changed', handleSync);
-      window.removeEventListener('environment-time-changed', handleSync);
+      window.removeEventListener('scene-changed', syncFromEngine);
+      window.removeEventListener('scene-theme-changed', syncFromEngine);
+      window.removeEventListener('environment-time-changed', syncFromEngine);
       clearInterval(interval);
+      if (rafIdRef.current) cancelAnimationFrame(rafIdRef.current);
     };
-  }, []);
+  }, [syncFromEngine, startTransition]);
 
-  // 点击卡片外部时自动收起
+  // 点击外部自动收起卡片
   useEffect(() => {
     if (!expanded) return;
     const handleClickOutside = (e: MouseEvent) => {
@@ -190,182 +282,288 @@ export const SceneTimeCard: React.FC<SceneTimeCardProps> = () => {
     return () => window.removeEventListener('pointerdown', handleClickOutside);
   }, [expanded]);
 
-  // 不支持时间流转的场景（如 void / light / transparent）完全静默，不占界面空间
-  if (!isSupported) return null;
+  // 指针坐标计算半圆弧度上的精准分钟数 (使用 atan2 极坐标角，消除边缘余弦畸变与速度突变)
+  const calcMinutesFromPointer = useCallback((clientX: number, clientY: number) => {
+    if (!svgRef.current) return displayedMinutesRef.current;
+    const rect = svgRef.current.getBoundingClientRect();
+    const pointerX = clientX - rect.left;
+    const pointerY = clientY - rect.top;
 
-  const handleSelectPreset = (mode: EnvironmentTimeMode) => {
-    vrmEngine.setEnvironmentTime(mode);
-    const updated = vrmEngine.getEnvironmentTime();
-    setTimeState(updated);
-    if (hourDisplayRef.current) {
-      hourDisplayRef.current.textContent = formatHourToString(updated.currentHour);
+    const dx = pointerX - cx;
+    const dy = cy - pointerY; // SVG Y轴向下，dy 为向上高度
+
+    let angle = Math.atan2(dy, dx);
+    if (angle < 0) {
+      angle = dx < 0 ? Math.PI : 0;
+    }
+
+    const progress = 1 - angle / Math.PI;
+    return Math.min(1439, Math.max(0, Math.round(progress * 1439)));
+  }, [cx, cy]);
+
+  // 指针按下开始交互
+  const handlePointerDown = (e: React.PointerEvent) => {
+    const clickedMinutes = calcMinutesFromPointer(e.clientX, e.clientY);
+    const diffFromThumb = Math.abs(clickedMinutes - displayedMinutesRef.current);
+
+    // 如果点击在当前光球附近 (<= 45 分钟)，判定为直接抓取拖拽：无缝贴合光标，0 突跳！
+    if (diffFromThumb <= 45) {
+      if (rafIdRef.current) cancelAnimationFrame(rafIdRef.current);
+      transitionRef.current = null;
+      isDraggingRef.current = true;
+      setIsDragging(true);
+      targetMinutesRef.current = clickedMinutes;
+      displayedMinutesRef.current = clickedMinutes;
+      setMinutes(clickedMinutes);
+      vrmEngine.setEnvironmentTime(clickedMinutes / 60, { isDragging: true });
+    } else {
+      // 若点击远离手柄的轨道，判定为点击寻时：以"从慢到快"缓动曲线平滑飞渡过去，彻底消除首帧暴跳！
+      startTransition(clickedMinutes);
     }
   };
 
-  const handleSliderTick = (hour: number) => {
-    vrmEngine.setEnvironmentTime(hour, { isDragging: true });
-    if (hourDisplayRef.current) {
-      hourDisplayRef.current.textContent = formatHourToString(hour);
-    }
+  useEffect(() => {
+    if (!isDragging) return;
+    const handleMove = (e: PointerEvent) => {
+      const currentPointerMins = calcMinutesFromPointer(e.clientX, e.clientY);
+      targetMinutesRef.current = currentPointerMins;
+      displayedMinutesRef.current = currentPointerMins;
+      setMinutes(currentPointerMins);
+      vrmEngine.setEnvironmentTime(currentPointerMins / 60, { isDragging: true });
+    };
+    const handleUp = () => {
+      if (!isDraggingRef.current) return;
+      isDraggingRef.current = false;
+      setIsDragging(false);
+      const finalMins = displayedMinutesRef.current;
+      vrmEngine.setEnvironmentTime(finalMins / 60, { isDragging: false });
+      setTimeState(vrmEngine.getEnvironmentTime());
+    };
+    window.addEventListener('pointermove', handleMove);
+    window.addEventListener('pointerup', handleUp);
+    return () => {
+      window.removeEventListener('pointermove', handleMove);
+      window.removeEventListener('pointerup', handleUp);
+    };
+  }, [isDragging, calcMinutesFromPointer]);
+
+  // 快捷预设点击：启动流逝/倒流阻尼动画 (由阻尼时间推进联动高亮，不提前突跳)
+  const handlePresetClick = (preset: PresetConfig) => {
+    const targetMins = getPresetTargetMinutes(preset.id);
+    startTransition(targetMins, preset.id);
   };
 
-  const handleSliderChange = (hour: number) => {
-    vrmEngine.setEnvironmentTime(hour, { isDragging: false });
-    setTimeState(vrmEngine.getEnvironmentTime());
-  };
-
-  // 根据当前小时或模式获取代表图标
-  const CurrentIcon = (() => {
-    if (timeState.mode === 'auto') return AutoOrbitSvg;
-    const h = timeState.currentHour;
-    if (h >= 6.5 && h < 16.5) return DaySunSvg;
-    if (h >= 16.5 && h < 19.5) return SunsetSvg;
-    return NightMoonSvg;
-  })();
-
-  const currentPeriodName = (() => {
-    if (timeState.mode === 'auto') return '实时';
-    const h = timeState.currentHour;
-    if (h >= 6.5 && h < 16.5) return '白昼';
-    if (h >= 16.5 && h < 19.5) return '黄昏';
-    return '深夜';
-  })();
+  // 桌宠透明模式 或 不支持时间流转的场景（如 void / light / transparent / dark）完全不展示
+  if (isTransparent || !isSupported) return null;
 
   return (
     <div
       ref={cardRef}
-      className="fixed top-[74px] right-6 z-20 flex flex-col items-end select-none font-sans"
+      className="fixed top-[72px] right-4 z-20 flex flex-col items-end select-none font-sans"
     >
-      {/* ── 状态气泡 / 胶囊胶囊（折叠状态） ── */}
+      {/* ── 顶部紧凑星盘微胶囊 ── */}
       <button
         type="button"
         onClick={() => setExpanded((prev) => !prev)}
-        className={`group relative flex items-center gap-2.5 px-3 py-1.5 rounded-full transition-all duration-300 cursor-pointer shadow-xl backdrop-blur-xl border ${
-          expanded
-            ? 'bg-black/75 border-white/30 ring-1 ring-white/20 shadow-brand-500/10'
-            : 'bg-black/45 hover:bg-black/65 border-white/15 hover:border-white/30 text-white/90 hover:text-white'
-        }`}
-        title="设置场景时间"
-      >
-        {/* 左侧动态天体/时段微标 */}
-        <div className="flex items-center justify-center w-5 h-5 rounded-full bg-white/10 group-hover:scale-105 transition-transform duration-200">
-          <CurrentIcon className="w-3.5 h-3.5" />
-        </div>
-
-        {/* 动态时间文本 */}
-        <span className="font-mono text-xs font-semibold tracking-wide text-white drop-shadow-sm">
-          {formatHourToString(timeState.currentHour)}
-        </span>
-
-        {/* 状态徽章 */}
-        <span
-          className={`text-[10px] px-1.5 py-0.5 rounded-md font-medium tracking-tight ${
-            timeState.mode === 'auto'
-              ? 'bg-sky-500/25 text-sky-200 border border-sky-400/30'
-              : timeState.mode === 'sunset'
-                ? 'bg-rose-500/25 text-rose-200 border border-rose-400/30'
-                : timeState.mode === 'night'
-                  ? 'bg-indigo-500/25 text-indigo-200 border border-indigo-400/30'
-                  : 'bg-amber-500/25 text-amber-200 border border-amber-400/30'
+        className={`group relative inline-flex items-center justify-center h-8 gap-2 px-3 rounded-full transition-all duration-300 cursor-pointer shadow-[0_4px_20px_rgba(0,0,0,0.35)] backdrop-blur-xl border ${expanded
+          ? 'bg-slate-900/90 border-white/30 ring-1 ring-white/20'
+          : 'bg-slate-950/65 hover:bg-slate-900/80 border-white/15 hover:border-white/30 text-white/90 hover:text-white'
           }`}
-        >
-          {currentPeriodName}
+        title={t('sceneTimeCard.title', '场景时间')}
+      >
+        {/* 天体时段矢量图标 (静态精致，随模式与时段自适应，光学居中) */}
+        <CurrentPillIcon
+          className="w-3.5 h-3.5 shrink-0 block transition-colors duration-300"
+          style={{ color: atmosphere.accent }}
+          strokeWidth={2}
+        />
+
+        {/* 核心时间文字 (光学基线微调 -translate-y-[0.5px]，与两侧 14px 图标严格同心居中) */}
+        <span className="font-mono text-xs font-semibold tracking-wider text-white/95 drop-shadow-sm tabular-nums -translate-y-[0.5px] leading-none select-none">
+          {formatMinutesToString(minutes)}
         </span>
 
-        {/* 展开/收起折角图标 */}
-        {expanded ? (
-          <ChevronUp className="w-3.5 h-3.5 text-white/60 group-hover:text-white transition-colors" />
-        ) : (
-          <ChevronDown className="w-3.5 h-3.5 text-white/60 group-hover:text-white transition-colors" />
-        )}
+        {/* 折叠箭头 (光学基线微调 -translate-y-[0.25px]) */}
+        <ChevronDown
+          className={`w-3.5 h-3.5 shrink-0 block text-white/50 group-hover:text-white transition-transform duration-300 -translate-y-[0.25px] ${expanded ? 'rotate-180 text-white' : ''
+            }`}
+          strokeWidth={2}
+        />
       </button>
 
-      {/* ── 展开控制面板（卡片形态） ── */}
+      {/* ── 展开的天体轨迹星盘 HUD 卡片 ── */}
       {expanded && (
-        <div className="mt-2 w-[296px] p-3.5 rounded-2xl bg-black/60 backdrop-blur-2xl border border-white/20 shadow-2xl shadow-black/70 flex flex-col gap-3 text-white animate-in fade-in zoom-in-95 duration-200">
-          {/* 卡片头部 */}
-          <div className="flex items-center justify-between border-b border-white/10 pb-2.5">
-            <div className="flex items-center gap-2">
-              <span className="text-xs font-semibold text-white/90">
-                {t('sceneTimeCard.title')}
-              </span>
-              <span
-                ref={hourDisplayRef}
-                className="font-mono text-xs font-bold px-1.5 py-0.5 rounded bg-white/10 text-brand-300"
-              >
-                {formatHourToString(timeState.currentHour)}
-              </span>
-            </div>
+        <div
+          className="mt-2.5 w-[280px] rounded-2xl p-4 relative overflow-hidden
+                     bg-slate-900/80 backdrop-blur-2xl border border-white/12
+                     shadow-[0_20px_50px_rgba(0,0,0,0.65),inset_0_1px_0_rgba(255,255,255,0.12)]
+                     text-white animate-in fade-in zoom-in-95 duration-200"
+        >
+          {/* 动态随时间变化的环境背光光晕层 */}
+          <div
+            className={`absolute -top-12 -left-12 -right-12 h-44 bg-gradient-to-b ${atmosphere.glow} blur-2xl pointer-events-none transition-all duration-700`}
+          />
 
-            {/* 快捷重置回现实时间 */}
-            {timeState.mode !== 'auto' && (
-              <button
-                type="button"
-                onClick={() => handleSelectPreset('auto')}
-                className="flex items-center gap-1 text-[11px] text-white/60 hover:text-brand-300 transition-colors cursor-pointer px-1.5 py-0.5 rounded hover:bg-white/5"
-                title={t('sceneTimeCard.followSystem')}
-              >
-                <RotateCcw className="w-3 h-3" />
-                <span>{t('sceneTimeCard.realTime')}</span>
-              </button>
-            )}
+          {/* 顶部微标签栏（统一文案：场景时间 + 当前氛围描述） */}
+          <div className="relative z-10 flex items-center justify-between text-[11px] text-white/50 px-1 pb-1">
+            <span className="tracking-wide font-medium text-[11px] text-white/70">
+              {t('sceneTimeCard.title', '场景时间')}
+            </span>
+            <span
+              className="font-medium text-xs transition-colors duration-300"
+              style={{ color: atmosphere.accent }}
+            >
+              {activePresetId === 'auto'
+                ? `${t('sceneTimeCard.realTime', '实时')} · ${localizedAtmosphereLabel}`
+                : localizedAtmosphereLabel}
+            </span>
           </div>
 
-          {/* 4 宫格快捷时段选择卡片 */}
-          <div className="grid grid-cols-2 gap-1.5">
-            {PRESET_LIST.map(({ key, icon: Icon, accentColor }) => {
-              const isSelected = timeState.mode === key;
+          {/* 核心交互：SVG 半圆天体轨迹星盘 */}
+          <div className="relative z-10 flex flex-col items-center my-1">
+            <svg
+              ref={svgRef}
+              width="260"
+              height="135"
+              className="cursor-pointer overflow-visible select-none touch-none"
+              onPointerDown={handlePointerDown}
+            >
+              <defs>
+                {/* 昼夜光谱渐变轨道 */}
+                <linearGradient id="skyGradient" x1="0%" y1="0%" x2="100%" y2="0%">
+                  <stop offset="0%" stopColor="#312e81" />
+                  <stop offset="22%" stopColor="#f472b6" />
+                  <stop offset="50%" stopColor="#38bdf8" />
+                  <stop offset="78%" stopColor="#fb923c" />
+                  <stop offset="100%" stopColor="#312e81" />
+                </linearGradient>
+                {/* 天体光球发光滤镜 */}
+                <filter id="celestialGlow" x="-50%" y="-50%" width="200%" height="200%">
+                  <feGaussianBlur stdDeviation="3.5" result="blur" />
+                  <feComposite in="SourceGraphic" in2="blur" operator="over" />
+                </filter>
+              </defs>
+
+              {/* 外圈细刻度虚线 */}
+              <path
+                d={`M ${cx - r - 10} ${cy} A ${r + 10} ${r + 10} 0 0 1 ${cx + r + 10} ${cy}`}
+                fill="none"
+                stroke="rgba(255,255,255,0.08)"
+                strokeWidth="1"
+                strokeDasharray="2 6"
+              />
+
+              {/* 轨道底槽 */}
+              <path
+                d={`M ${cx - r} ${cy} A ${r} ${r} 0 0 1 ${cx + r} ${cy}`}
+                fill="none"
+                stroke="rgba(255,255,255,0.1)"
+                strokeWidth="4"
+                strokeLinecap="round"
+              />
+
+              {/* 昼夜光谱高亮轨迹 */}
+              <path
+                d={`M ${cx - r} ${cy} A ${r} ${r} 0 0 1 ${cx + r} ${cy}`}
+                fill="none"
+                stroke="url(#skyGradient)"
+                strokeWidth="4"
+                strokeLinecap="round"
+                strokeDasharray={Math.PI * r}
+                strokeDashoffset={Math.PI * r * (1 - progress)}
+              />
+
+              {/* 地面地平线参考基线 */}
+              <line
+                x1="20"
+                y1={cy}
+                x2="240"
+                y2={cy}
+                stroke="rgba(255,255,255,0.08)"
+                strokeWidth="1"
+              />
+              <text x="24" y={cy + 14} className="fill-white/30 text-[9px] font-mono">00:00</text>
+              <text x="118" y={cy + 14} className="fill-white/30 text-[9px] font-mono">12:00</text>
+              <text x="212" y={cy + 14} className="fill-white/30 text-[9px] font-mono">24:00</text>
+
+              {/* 天体拖拽手柄（太阳 / 月亮发光星体：拖拽时无过渡延迟，绝对 1:1 跟随） */}
+              <g
+                transform={`translate(${thumbX}, ${thumbY})`}
+                className={isDragging ? 'cursor-grabbing' : 'cursor-grab'}
+              >
+                <circle
+                  r="13"
+                  fill={atmosphere.accent}
+                  fillOpacity="0.3"
+                  filter="url(#celestialGlow)"
+                />
+                <circle
+                  r="7"
+                  fill="#ffffff"
+                  stroke={atmosphere.accent}
+                  strokeWidth="3"
+                />
+              </g>
+            </svg>
+
+            {/* 星盘中央超大数字主视觉 */}
+            <div className="absolute bottom-5 flex flex-col items-center pointer-events-none">
+              <div className="font-mono text-3xl font-bold tracking-tight text-white drop-shadow-sm">
+                {formatMinutesToString(minutes)}
+              </div>
+              <span className="text-[10px] text-white/40 tracking-wider mt-0.5 font-medium">
+                {t('sceneTimeCard.fineTune', '时间调节')}
+              </span>
+            </div>
+          </div>
+
+          {/* 底部紧凑型 4 宫格分段控制器 Dock (选中项字体、底色与天体色实时联动) */}
+          <div className="relative z-10 grid grid-cols-4 gap-1 mt-2.5 bg-black/40 p-1 rounded-xl border border-white/5">
+            {PRESETS.map((item) => {
+              const isSelected = activePresetId === item.id;
+              const Icon = item.icon;
               return (
                 <button
-                  key={key}
+                  key={item.id}
                   type="button"
-                  onClick={() => handleSelectPreset(key)}
-                  className={`group relative flex items-center gap-2 p-2 rounded-xl border text-left transition-all duration-200 cursor-pointer ${
+                  onClick={() => handlePresetClick(item)}
+                  style={
                     isSelected
-                      ? `bg-gradient-to-br ${accentColor} shadow-md font-semibold`
-                      : 'bg-white/[0.04] hover:bg-white/[0.08] border-white/10 text-white/70 hover:text-white'
-                  }`}
+                      ? {
+                        backgroundColor: `${atmosphere.accent}20`,
+                        borderColor: `${atmosphere.accent}50`,
+                        boxShadow: `0 0 16px ${atmosphere.accent}25`,
+                      }
+                      : undefined
+                  }
+                  className={`flex flex-col items-center justify-center py-2 px-1 rounded-lg transition-all duration-200 cursor-pointer ${isSelected
+                    ? 'border'
+                    : 'text-white/45 hover:text-white/80 hover:bg-white/5 border border-transparent'
+                    }`}
                 >
-                  <div className={`p-1 rounded-lg ${isSelected ? 'bg-white/20' : 'bg-white/5 group-hover:bg-white/10'}`}>
-                    <Icon className="w-4 h-4" />
-                  </div>
-                  <div className="flex flex-col min-w-0 flex-1">
-                    <span className="text-xs font-semibold leading-tight text-white/90">
-                      {t(`sceneTimeCard.presets.${key}`)}
-                    </span>
-                    <span className="text-[10px] text-white/40 leading-tight">
-                      {t(`sceneTimeCard.presets.${key}Hint`)}
-                    </span>
-                  </div>
+                  <Icon
+                    className="w-4 h-4 mb-1.5 transition-colors"
+                    style={{ color: isSelected ? atmosphere.accent : undefined }}
+                    strokeWidth={isSelected ? 2.2 : 1.8}
+                  />
+                  <span
+                    className="text-[11px] font-medium leading-tight transition-colors"
+                    style={{ color: isSelected ? atmosphere.accent : undefined }}
+                  >
+                    {t(item.labelKey, item.defaultLabel)}
+                  </span>
+                  <span
+                    className="text-[9px] font-mono mt-0.5 transition-colors"
+                    style={{
+                      color: isSelected ? atmosphere.accent : undefined,
+                      opacity: isSelected ? 0.8 : 0.45,
+                    }}
+                  >
+                    {item.sub}
+                  </span>
                 </button>
               );
             })}
-          </div>
-
-          {/* 0 ~ 24h 连续时间滑块 */}
-          <div className="pt-1.5 flex flex-col gap-2">
-            <div className="flex justify-between items-center text-[11px] text-white/70">
-              <span className="text-white/60 font-medium">{t('sceneTimeCard.fineTune')}</span>
-              <span className="font-mono text-brand-200 text-xs font-semibold">
-                {formatHourToString(timeState.currentHour)}
-              </span>
-            </div>
-
-            <SliderWithAnchors
-              value={timeState.currentHour}
-              min={0}
-              max={24}
-              step={0.1}
-              anchors={[
-                { value: 0, label: '0h' },
-                { value: 6, label: '6h' },
-                { value: 12, label: '12h' },
-                { value: 18, label: '18h' },
-                { value: 24, label: '24h' },
-              ]}
-              onTick={handleSliderTick}
-              onChange={handleSliderChange}
-            />
           </div>
         </div>
       )}

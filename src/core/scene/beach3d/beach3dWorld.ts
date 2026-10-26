@@ -99,10 +99,12 @@ const SKY_LAYER_RADIUS = 72;
 
 /** 地面着色器里"水中礁石白浪"最多几块。 */const ROCK_MAX = 12;
 /**
- * 棕榈 / 沙堡落影遮罩覆盖的地面范围 (局部坐标, m) 与分辨率: x −26 ~ 24, z −21 ~ 3 (所有棕榈连同落影、沙堡都在里面),
- * 2048 × 1024 单通道 (约 2.4cm / 像素, 2MB)。范围外没有棕榈落影 (都是海或远处)。
+ * 棕榈 / 沙堡 / 道具落影遮罩覆盖的地面范围 (局部坐标, m) 与分辨率:
+ * 动态环境时间 (太阳/月亮全天候天体轨道) 下, 当光线从海面打向沙滩时, 7~8m 高的棕榈会长长地投向前景 (+Z 达 25m 以上)。
+ * 范围扩展至: x −32 ~ 32 (size 64), z −26 ~ 26 (size 52), 配合 2048 × 2048 R8 单通道 (约 2.5cm/像素, 4MB)。
+ * 确保全天候任何日照与月光角度下, 远近景道具落影连绵完整, 绝不在角色前景沙滩发生水平截断。
  */
-const SHADOW_MASK = { minX: -26, minZ: -21, sizeX: 50, sizeZ: 24, w: 2048, h: 1024 } as const;
+const SHADOW_MASK = { minX: -32, minZ: -26, sizeX: 64, sizeZ: 52, w: 2048, h: 2048 } as const;
 /** 远岛着色器里最多几座岛。 */
 const ISL_MAX = 12;
 
@@ -584,6 +586,7 @@ export class Beach3DWorld implements IEnvironmentTimeAware, IEnvironmentLightPro
       magFilter: THREE.LinearFilter,
       wrapS: THREE.ClampToEdgeWrapping,
       wrapT: THREE.ClampToEdgeWrapping,
+      samples: 4,
     });
     this.shadowRT.texture.name = 'Beach3DShadowMask';
     const maskRect = new THREE.Vector4(SHADOW_MASK.minX, SHADOW_MASK.minZ, SHADOW_MASK.sizeX, SHADOW_MASK.sizeZ);
@@ -952,8 +955,9 @@ export class Beach3DWorld implements IEnvironmentTimeAware, IEnvironmentLightPro
   public setEnvironmentTime(time: EnvironmentTimeMode | number, options?: EnvironmentTimeOptions): void {
     this.isTimeDragging = Boolean(options?.isDragging);
     if (typeof time === 'number') {
-      this.timeMode = 'auto'; // 自定义具体小时数值
-      this.manualHour = ((time % 24) + 24) % 24;
+      const h = ((time % 24) + 24) % 24;
+      this.timeMode = h >= 6.5 && h < 16.5 ? 'day' : (h >= 16.5 && h < 19.5 ? 'sunset' : 'night');
+      this.manualHour = h;
     } else if (time === 'auto') {
       this.timeMode = 'auto';
       this.manualHour = null;

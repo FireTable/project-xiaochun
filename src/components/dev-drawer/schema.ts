@@ -17,7 +17,6 @@ export const SECTIONS: SectionConfig[] = [
   { id: 'bodyMorph', defaultCollapsed: false },
   { id: 'wardrobe', defaultCollapsed: false },
   { id: 'lighting', defaultCollapsed: false },
-  { id: 'environmentTime', defaultCollapsed: false },
   { id: 'postfx', defaultCollapsed: false },
   { id: 'emagePerf', defaultCollapsed: false },
 ];

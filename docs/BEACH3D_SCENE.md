@@ -121,7 +121,7 @@ The character shadow is the engine's existing `CharacterShadowSystem` plane. The
 - **Character**: the engine's `CharacterShadowSystem`, unchanged.
 - **Consistency**: every ground shadow (baked palms and sandcastle, analytic chair and parasol, the real-time character shadow) is projected along the same sun direction, and only the character casts a real-time shadow, so no prop gets a second shadow. While the scene is active the engine key light follows the scene's sun (see [Environment time](#environment-time-day--sunset--night)), so the character's shadow points the same way as the chair's and the palms'. All of them fold the sun's elevation through the same floor (`SUN_Y_FLOOR`), which keeps their lengths in proportion when the sun is near the horizon.
 - **Chair and parasol**: analytic soft shapes in the ground shader (see above).
-- **Palms and sandcastle**: a baked shadow mask. Palm trunks (with their real bend, lean and height), the textured frond ribbons (alpha-tested, so each frond gives a long, narrow, tapering shadow with serrated leaflet edges) and the sandcastle are rendered once, projected along the sun direction onto y = 0, into a 2048 × 1024 single-channel (R8, ~2 MB) render target that covers the near beach (x −26 … 24 m, z −21 … 3 m around the character). The ground shader samples it with a small blur, using the same tone as the chair shadow and `props.groundShadow` for strength.
+- **Palms and sandcastle**: a baked shadow mask. Palm trunks (with their real bend, lean and height), the textured frond ribbons (alpha-tested, so each frond gives a long, narrow, tapering shadow with serrated leaflet edges) and the sandcastle are rendered once, projected along the sun direction onto y = 0, into a 2048 × 2048 single-channel (R8, ~4 MB) render target that covers the entire near-to-foreground beach (x −32 … 32 m, z −26 … 26 m around the character) with edge smoothstep fade to prevent truncation during dynamic sun/moon arcs. The ground shader samples it with a small blur, using the same tone as the chair shadow and `props.groundShadow` for strength.
 - The bake runs only when the scene is activated, when the frond texture finishes loading and when the sun direction changes; there is no per-frame shadow-map pass and no extra draw call in the normal frame. Palm sway is not reflected in the shadow.
 - `vegetation.frondShadow` (0.85) sets frond shadows relative to the trunk shadow (lower = lighter, more dappled), and `vegetation.shadowSoftness` (1.0) scales the blur of palm and sandcastle shadows.
 
@@ -198,21 +198,44 @@ With `horizonCurveR = 700` the horizon lands around the hips in full-body portra
 - Clouds and islands follow the camera's translation (not its rotation) and live inside the 100 m far plane, which makes them effectively infinitely far away.
 - The sky draws first (`renderOrder −1000`), then clouds (−990), then islands (−980).
 
-## Environment time (day / sunset / night)
+## Environment time & 24-hour day-night cycle (全天时间设定)
 
-The scene can be lit by the time of day. The time system is **generic**: the engine and the debug drawer only know the `IEnvironmentTimeAware` contract in `src/core/scene/environmentTime.ts`, and each scene decides what to do with it. `beach3d` is the first scene to implement it; a future scene only has to implement the same interface to get the same panel.
+The scene can be lit by the time of day with a continuous **24-hour solar and lunar celestial progression**. The time system is **generic**: the engine and UI components interact exclusively through the `IEnvironmentTimeAware` and `IEnvironmentLightProvider` contracts in `src/core/scene/environmentTime.ts`. `beach3d` is the reference scene implementing full 24-hour dynamic illumination, sky gradients, and synchronized character lighting.
 
-### Time modes
+### Time modes and presets
 
-| Mode | Meaning |
-| :--- | :--- |
-| `auto` | Follows the system clock (0.00 – 24.00) |
-| `day` | 12:00 — the reference look |
-| `sunset` | 17:45 — golden hour, the sun almost on the sea horizon |
-| `night` | 22:00 — moonlit beach, the lighthouse lamp as the only warm light |
-| a number | Any hour in 0 – 24, driven continuously (the drawer slider) |
+| Mode | Hour | Atmosphere | Visual Characteristic |
+| :--- | :--- | :--- | :--- |
+| `auto` | Real-time | Follows system clock | Automatically syncs with reality, smoothly interpolated every 10 seconds |
+| `dawn` | 05:00 – 08:00 | 破晓晨曦 / Dawn Awakening | Warm pinkish-violet sky (`#f472b6`), low sunrise elevation, soft violet ambient shadows |
+| `day` | 08:00 – 16:30 | 明媚白昼 / Sunny Day | 12:00 reference look (`#38bdf8`), turquoise sea, bright sand, crisp noon shadow |
+| `sunset` | 16:30 – 19:30 | 落日黄昏 / Sunset Glow | 17:45 golden hour (`#fb923c`), sun touching the sea horizon, sparkling water glint path |
+| `night` | 19:30 – 05:00 | 静谧星夜 / Starry Night | 22:00 moonlit beach (`#818cf8`), cool high moon, illuminated lighthouse beacon |
+| `number` | 0.00 – 24.00 | Continuous 24h dial | Exact hour float with seamless palette interpolation and shadow-sun alignment |
 
-`vrmEngine.setEnvironmentTime(time, { isDragging })` is the entry point; the drawer section "场景时间" writes to it. The engine keeps the last value and re-applies it when the scene is switched back on. Scenes that do not support time make the drawer section show a disabled notice instead.
+`vrmEngine.setEnvironmentTime(time, { isDragging })` is the unified entry point. The engine retains the latest active environment time across scene switches and notifies listeners via the `environment-time-changed` event. Scenes without environment time support return `isEnvironmentTimeSupported() === false`, cleanly hiding time cards in desktop-pet and static canvas modes.
+
+### Interactive celestial HUD (`SceneTimeCard`)
+
+The beach scene features an interactive glassmorphic HUD (`src/components/SceneTimeCard.tsx`) positioned at the top-right corner of the canvas:
+
+1. **Optical-aligned micro-capsule**:
+   - Fixed `h-8` (32px) glassmorphism capsule button with three geometrically and optically centered elements:
+     `[CurrentPillIcon (14px)] [HH:MM (SF Mono Tabular)] [ChevronDown (14px)]`
+   - Dynamically tinted by the active period's accent color (`atmosphere.accent`), with redundant outer labels removed for a clean, distraction-free aesthetic.
+2. **Polar-angle celestial track (`Math.atan2`)**:
+   - A semicircle arc with center $(130, 115)$ and radius $r = 92\text{px}$, spanning from 00:00 (left, $\pi$) through 12:00 (top, $\pi/2$) to 24:00 (right, $0$).
+   - Drag coordinates are evaluated using true polar angles `Math.atan2(cy - y, x - cx)`, eliminating the infinite derivative singularities and boundary-speed warping previously caused by $\arccos$ horizontal projections.
+3. **Cinematic "从慢到快" time-lapse easing (`timeLapseEase`)**:
+   - Uses an Ease-In-Out Cubic curve ($f(t) = 4t^3$ for $t < 0.5$, $1 - (-2t+2)^3 / 2$ for $t \ge 0.5$).
+   - Starts at initial velocity $v(0) = 0$ ("从慢起步"), smoothly accelerates into peak flow velocity across the middle hours ("加速飞逝"), and gently settles into the target hour.
+   - Proportional duration scaling:
+     $$\text{Duration} = \min(3.8, \max(1.2, 1.2 + \Delta\text{Hours} \times 0.22)) \text{ seconds}$$
+     Small adjustments take ~1.4s; long daytime-to-night transitions (10+ hours) take ~3.4s to provide an immersive time-travel sensation.
+4. **Real-time dock preset binding (`activePresetId`)**:
+   - The bottom 4-preset dock (`自动`, `白天`, `黄昏`, `夜晚`) strictly follows the current damped minute during animation and user dragging, eliminating premature preset highlighting.
+5. **Full Internationalization (i18n)**:
+   - Full translation coverage in Chinese (`zh-CN`), English (`en`), and Japanese (`ja`) for all atmospheric titles, badges, and preset options.
 
 ### Solar and lunar arc
 
@@ -252,9 +275,9 @@ While `beach3d` is active the engine therefore asks the scene for its light (`IE
 
 Both the prop shadows and the character use the same **effective sun elevation floor** (`SUN_Y_FLOOR = 0.26`, shared by the GLSL and the TypeScript side). Without it, a sun sitting on the horizon would cast shadows longer than the frame — and, worse, the props and the character would use different floors and stop agreeing. `beach3dShadowAlign.test.ts` locks this down.
 
-### Cost
+### Cost & zero-overhead dragging
 
-Re-evaluating the palette is a handful of `THREE.Color.copy()` calls and only happens when the hour actually changes. While the slider is being dragged the shadow-mask bake is paused (`isDragging`), so dragging stays at 60 fps; the bake runs once when the slider is released.
+Re-evaluating the palette is a handful of `THREE.Color.copy()` calls and only happens when the hour actually changes. While the celestial handle is being dragged (`isDragging = true`), the heavy 2048×2048 shadow-mask bake is deferred so dragging maintains 60 FPS without garbage collection. Once the pointer is released, the baked shadow mask updates cleanly in a single background frame.
 
 ## Dynamics and fallbacks
 
