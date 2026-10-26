@@ -11,7 +11,23 @@ export const ja: Trans = {
     version: '0.0.0',
   },
   app: {
-    dropZoneHint: 'マウスを離すとこの `.vrm` モデルを読み込みます',
+    dropZoneHint: 'マウスを离すとこの `.vrm` モデルを読み込みます',
+  },
+  sceneTimeCard: {
+    title: 'シーン時間',
+    realTime: 'リアルタイム',
+    followSystem: '現実時間に同期',
+    fineTune: '時間調整',
+    presets: {
+      auto: '自動',
+      autoHint: '現実時間',
+      day: '昼間',
+      dayHint: '12:00',
+      sunset: '夕暮れ',
+      sunsetHint: '17:45',
+      night: '夜間',
+      nightHint: '22:00',
+    },
   },
   /** ponytail: /embed 内置换装 / 换场景按钮 (?picker=) 的轻提示; 按钮本身复用 header.switchOutfit / header.switchScene 文案。 */
   embedPicker: {
@@ -274,6 +290,16 @@ export const ja: Trans = {
     emagePerfFailUnknown: 'FAIL：原因不明',
     emagePerfRecentStages: '最近の stage（{{n}}/12）',
     lightsLabel: '💡 ライトチャンネルと全体倍率',
+    environmentTimeLabel: '🕒 シーン時間',
+    environmentTimePresetLabel: '時間帯プリセット',
+    environmentTimePresets: {
+      auto: '🧭 自動（現実時間）',
+      day: '☀️ 昼間',
+      sunset: '🌅 夕暮れ',
+      night: '🌙 夜間',
+    },
+    environmentTimeHour: '時間帯スライダー',
+    environmentTimeUnsupported: '現在のシーンは時間変化に対応していません（ビーチなどの3Dシーンで有効）',
     cameraLabel: '🎥 カメラ設定',
     globalLight: '全体光量倍率',
     fov: 'カメラ視野角 (FOV)',

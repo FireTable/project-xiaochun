@@ -44,8 +44,22 @@ import {
   ROCK_FRAG, ROCK_VERT,
   SHADOW_BAKE_FRAG, SHADOW_BAKE_VERT,
   SHELL_FRAG, SHELL_VERT,
+  SHADOW_SUN_Y_FLOOR,
   SKY_FRAG, SKY_VERT,
 } from './beach3dShaders';
+import type {
+  IEnvironmentTimeAware,
+  EnvironmentTimeMode,
+  EnvironmentTimeOptions,
+  EnvironmentLightState,
+  IEnvironmentLightProvider,
+} from '../environmentTime';
+import {
+  computeSunDirection,
+  evaluateBeachPalette,
+  resolveEffectiveHour,
+  type BeachPaletteState,
+} from './beach3dTime';
 
 /**
  * Beach3DWorld — "海滩" 场景 (id: beach3d), 纯 Three.js 搭建的真实 3D 海滩。
@@ -69,15 +83,21 @@ import {
  * 贴图: 只有云图集与棕榈羽叶两张 (APP_CONFIG.beach3dScene.assets, public/scene/beach3d/), 场景激活时才加载; 加载完成前云 / 叶冠不画。
  * "远景层" (云 / 远岛) 每帧跟随相机平移 (不跟随旋转): 等价于无限远, 不受相机远裁剪面 (100m) 限制。
  * 地平线弧度 (layout.horizonCurveR) 见 beach3dShaders.ts 文件头; 天空 / 远岛 / 云按同一个 uDip 对齐 (computeHorizonDip)。
- * 太阳方向 = 引擎主方向光方向 (每帧读取)。动态走 SceneMotionGovernor: reduced-motion 或低帧率自动静止 (停在当时的画面, 不跳回);
+ * 太阳方向 = 场景自己的太阳 (由"场景时间"算出, 见 beach3dTime.ts); 引擎主光也跟着它走 (getEnvironmentLight), 角色的受光与脚下落影因此和场景里的道具落影一致。
+ * 动态走 SceneMotionGovernor: reduced-motion 或低帧率自动静止 (停在当时的画面, 不跳回);
  * 云 / 高空卷云的漂移走单独的漂移时钟, 低帧率降级时也继续 (只有总开关 / reduced-motion 才停), 漂移角不取模、不复位。
  */
 
 /** 远景层半径 (m): 云在此球面上。须小于相机远裁剪面 100m。 */
 const SKY_LAYER_RADIUS = 72;
 
-/** 地面着色器里"水中礁石白浪"最多几块。 */
-const ROCK_MAX = 12;
+/**
+ * 落影用的"有效太阳高度角"下限 (sin 仰角) 与着色器里的 GLSL 常量 SUN_Y_FLOOR 同源 (从 beach3dShaders 引入, 不会走样)。
+ * 太阳贴到海平面时影子会长到画面外 (也超出角色落影平面), 场景道具与角色必须按同一个下限折算,
+ * 两套影子的方向与长度比例才一致。
+ */
+
+/** 地面着色器里"水中礁石白浪"最多几块。 */const ROCK_MAX = 12;
 /**
  * 棕榈 / 沙堡落影遮罩覆盖的地面范围 (局部坐标, m) 与分辨率: x −26 ~ 24, z −21 ~ 3 (所有棕榈连同落影、沙堡都在里面),
  * 2048 × 1024 单通道 (约 2.4cm / 像素, 2MB)。范围外没有棕榈落影 (都是海或远处)。
@@ -116,14 +136,83 @@ function clampN(v: number, lo: number, hi: number): number {
   return Math.min(hi, Math.max(lo, Number.isFinite(v) ? v : lo));
 }
 
-export class Beach3DWorld {
+export class Beach3DWorld implements IEnvironmentTimeAware, IEnvironmentLightProvider {
   public readonly group = new THREE.Group();
 
   private built = false;
   private active = false;
   private disposed = false;
-  private sun: THREE.DirectionalLight | null = null;
   private readonly motion = new SceneMotionGovernor(() => APP_CONFIG.beach3dScene.dynamics);
+
+  // ── 通用场景环境时间状态 ──
+  private timeMode: EnvironmentTimeMode = 'auto';
+  private manualHour: number | null = null;
+  private isTimeDragging = false;
+  private lastEvaluatedHour = -999;
+  private paletteDirty = true;
+  private readonly paletteState: BeachPaletteState = evaluateBeachPalette(12);
+  private readonly timeUniforms: {
+    skyZenith?: THREE.IUniform<THREE.Color>;
+    skyMid?: THREE.IUniform<THREE.Color>;
+    skyHorizon?: THREE.IUniform<THREE.Color>;
+    skyHorizonGlow?: THREE.IUniform<THREE.Color>;
+    skyWaterMistColor?: THREE.IUniform<THREE.Color>;
+    skySunGlow?: THREE.IUniform<number>;
+    skyCirrus?: THREE.IUniform<number>;
+    skyHorizonBand?: THREE.IUniform<number>;
+    sunTint?: THREE.IUniform<THREE.Color>;
+
+    cloudsTint?: THREE.IUniform<THREE.Color>;
+    cloudsOpacity?: THREE.IUniform<number>;
+    cloudsHorizon?: THREE.IUniform<THREE.Color>;
+    cloudsHorizonGlow?: THREE.IUniform<THREE.Color>;
+
+    mountainsFar?: THREE.IUniform<THREE.Color>;
+    mountainsMid?: THREE.IUniform<THREE.Color>;
+    mountainsNear?: THREE.IUniform<THREE.Color>;
+    mountainsHorizon?: THREE.IUniform<THREE.Color>;
+
+    sandBase?: THREE.IUniform<THREE.Color>;
+    sandShade?: THREE.IUniform<THREE.Color>;
+    sandLight?: THREE.IUniform<THREE.Color>;
+    sandWet?: THREE.IUniform<THREE.Color>;
+    seaShallow?: THREE.IUniform<THREE.Color>;
+    seaMid?: THREE.IUniform<THREE.Color>;
+    seaDeep?: THREE.IUniform<THREE.Color>;
+    seaHorizon?: THREE.IUniform<THREE.Color>;
+    seaFoam?: THREE.IUniform<THREE.Color>;
+    seaGlint?: THREE.IUniform<number>;
+    skyRefl?: THREE.IUniform<THREE.Color>;
+    sandHaze?: THREE.IUniform<THREE.Color>;
+
+    leafLight?: THREE.IUniform<THREE.Color>;
+    leafShade?: THREE.IUniform<THREE.Color>;
+    trunkLight?: THREE.IUniform<THREE.Color>;
+    trunkShade?: THREE.IUniform<THREE.Color>;
+    bootColor?: THREE.IUniform<THREE.Color>;
+    coconutColor?: THREE.IUniform<THREE.Color>;
+
+    rockLight?: THREE.IUniform<THREE.Color>;
+    rockShade?: THREE.IUniform<THREE.Color>;
+
+    lighthouseGlow?: THREE.IUniform<number>;
+
+    propFrame?: THREE.IUniform<THREE.Color>;
+    propCushion?: THREE.IUniform<THREE.Color>;
+    propStripe?: THREE.IUniform<THREE.Color>;
+    propCanopyA?: THREE.IUniform<THREE.Color>;
+    propCanopyB?: THREE.IUniform<THREE.Color>;
+    propPillow?: THREE.IUniform<THREE.Color>;
+
+    castleSand?: THREE.IUniform<THREE.Color>;
+    castleFlag?: THREE.IUniform<THREE.Color>;
+
+    lhBody?: THREE.IUniform<THREE.Color>;
+    lhBand?: THREE.IUniform<THREE.Color>;
+    lhRoof?: THREE.IUniform<THREE.Color>;
+    lhGlass?: THREE.IUniform<THREE.Color>;
+    lhRock?: THREE.IUniform<THREE.Color>;
+  } = {};
 
   private sky: THREE.Mesh | null = null;
   private clouds: THREE.InstancedMesh | null = null;
@@ -162,12 +251,44 @@ export class Beach3DWorld {
     uPxScale: { value: 1 },
   };
   private readonly skyUniforms: Record<string, THREE.IUniform> = {};
+  /**
+   * 场景统一光照 uniform (所有材质共用同一对象引用): 把着色器里写死的白天色 / 近白高光改成随时间变化。
+   * uAmbMul 乘在写死的"环境冷色"上, uHighlight 乘在写死的"近白高光"上,
+   * uLightLevel 是直射光强度 (贴图混入比例 / 高光显隐), uPalmBase 是树干根部的沙色。
+   */
+  private readonly lightUniforms: {
+    uAmbMul: THREE.IUniform<THREE.Color>;
+    uHighlight: THREE.IUniform<THREE.Color>;
+    uLightTint: THREE.IUniform<THREE.Color>;
+    uLightLevel: THREE.IUniform<number>;
+    uPalmBase: THREE.IUniform<THREE.Color>;
+    uShadowTint: THREE.IUniform<THREE.Color>;
+  } = {
+    uAmbMul: { value: new THREE.Color(1, 1, 1) },
+    uHighlight: { value: new THREE.Color(1, 1, 1) },
+    uLightTint: { value: new THREE.Color(1, 1, 1) },
+    uLightLevel: { value: 1 },
+    uPalmBase: { value: new THREE.Color(0.95, 0.87, 0.74) },
+    // 白天默认 = 地面着色器原先写死的影子染色, 正午画面零变化
+    uShadowTint: { value: new THREE.Color(0.60, 0.60, 0.67) },
+  };
   private readonly tmpV = new THREE.Vector3();
+  /** getEnvironmentLight 返回的复用对象 (0 GC / 帧)。 */
+  private readonly envLightDir = new THREE.Vector3();
+  private readonly envLightState: EnvironmentLightState = {
+    direction: this.envLightDir,
+    color: new THREE.Color(),
+    keyScale: 1,
+    hemiSky: new THREE.Color(),
+    hemiGround: new THREE.Color(),
+    hemiScale: 1,
+    fillColor: new THREE.Color(),
+    fillScale: 1,
+  };
   /** 相机是否在地面以上 (上一帧)。 */
   private groundAbove = true;
   /** 棕榈羽叶贴图是否已加载。 */
   private frondReady = false;
-  private readonly tmpV2 = new THREE.Vector3();
 
   constructor() {
     this.group.name = 'Beach3DWorld';
@@ -177,9 +298,8 @@ export class Beach3DWorld {
     this.group.visible = false;
   }
 
-  /** 挂进场景; sun = 引擎主方向光 (太阳方向的唯一来源)。 */
-  public attach(scene: THREE.Scene, sun: THREE.DirectionalLight): void {
-    this.sun = sun;
+  /** 挂进场景; _sun 为向后兼容参数 */
+  public attach(scene: THREE.Scene, _sun?: THREE.DirectionalLight): void {
     if (this.group.parent !== scene) scene.add(this.group);
   }
 
@@ -280,6 +400,7 @@ export class Beach3DWorld {
       uCloudShade: { value: lin(cfg.clouds.shade) },
       uSunDir: this.shared.uSunDir,
       uSunGlow: { value: cfg.sky.sunGlow },
+      uSunTint: { value: new THREE.Color(1.0, 0.985, 0.94) },
       uCirrus: { value: cfg.sky.cirrus },
       uHorizonGlow: { value: lin(cfg.sky.horizonGlow) },
       uHorizonBand: { value: clampN(cfg.sky.horizonBand, 0, 1) },
@@ -295,6 +416,7 @@ export class Beach3DWorld {
       uTime: this.shared.uDriftTime, // 天空里只有卷云 / 积云带的漂移用到时间
       uDipSin: this.shared.uDipSin,
       uComp: this.shared.uComp,
+      uHighlight: this.lightUniforms.uHighlight,
     });
     this.sky = new THREE.Mesh(
       new THREE.PlaneGeometry(2, 2),
@@ -311,6 +433,17 @@ export class Beach3DWorld {
     this.sky.renderOrder = -1000;
     this.sky.onBeforeRender = (renderer, _s, camera) => this.beforeRender(renderer, camera as THREE.PerspectiveCamera);
     this.group.add(this.sky);
+
+    // 注册天空时间受控 Uniforms
+    this.timeUniforms.skyZenith = this.skyUniforms.uZenith;
+    this.timeUniforms.skyMid = this.skyUniforms.uMid;
+    this.timeUniforms.skyHorizon = this.skyUniforms.uHorizon;
+    this.timeUniforms.skyHorizonGlow = this.skyUniforms.uHorizonGlow;
+    this.timeUniforms.skyWaterMistColor = this.skyUniforms.uWaterMistColor;
+    this.timeUniforms.skySunGlow = this.skyUniforms.uSunGlow;
+    this.timeUniforms.skyCirrus = this.skyUniforms.uCirrus;
+    this.timeUniforms.skyHorizonBand = this.skyUniforms.uHorizonBand;
+    this.timeUniforms.sunTint = this.skyUniforms.uSunTint;
 
     // 远景层 (云 / 远岛) 共用的混合: 留在不透明队列 (按 renderOrder 紧跟天空), alpha 通道保持天空写的不透明值
     const farBlend = {
@@ -368,6 +501,11 @@ export class Beach3DWorld {
       this.clouds.visible = false; // 贴图加载完成后显示
       this.clouds.onBeforeRender = (_r, _s, camera) => this.followCamera(this.clouds!, camera);
       this.group.add(this.clouds);
+
+      this.timeUniforms.cloudsTint = mat.uniforms.uTint;
+      this.timeUniforms.cloudsOpacity = mat.uniforms.uOpacity;
+      this.timeUniforms.cloudsHorizon = mat.uniforms.uHorizon;
+      this.timeUniforms.cloudsHorizonGlow = mat.uniforms.uHorizonGlow;
     }
 
     // ── 远岛 (远景层, 画在云之后: 低处的远云被岛挡住) ──
@@ -384,35 +522,41 @@ export class Beach3DWorld {
       });
       const hs = clampN(cfg.mountains.heightScale, 0.3, 2);
       const maxDeg = Math.max(...peaks.map(([p]) => p.h)) * hs + 0.6;
-      this.islands = new THREE.Mesh(
-        buildIslandStrip(maxDeg),
-        this.register(new THREE.ShaderMaterial({
-          vertexShader: ISLAND_VERT,
-          fragmentShader: ISLAND_FRAG,
-          uniforms: {
-            uIsl: { value: isl },
-            uFar: { value: lin(cfg.mountains.far) },
-            uMid: { value: lin(cfg.mountains.mid) },
-            uNear: { value: lin(cfg.mountains.near) },
-            uHorizon: { value: lin(cfg.sky.waterMistColor) }, // 空气透视 / 山脚薄雾的目标色 = 贴海面白雾色, 与天边白雾无缝
-            uSunDir: this.shared.uSunDir,
-            uHeight: { value: hs },
-            uDetail: { value: clampN(cfg.mountains.detail, 0, 2) },
-            uHazeK: { value: clampN(cfg.mountains.haze, 0, 1.5) },
-            uRadius: { value: ISLAND_RADIUS },
-            uDipTan: this.shared.uDipTan,
-            uComp: this.shared.uComp,
-          },
-          defines: { ISL_MAX },
-          side: THREE.DoubleSide,
-          ...farBlend,
-        })),
-      );
+      const islMat = this.register(new THREE.ShaderMaterial({
+        vertexShader: ISLAND_VERT,
+        fragmentShader: ISLAND_FRAG,
+        uniforms: {
+          uIsl: { value: isl },
+          uFar: { value: lin(cfg.mountains.far) },
+          uMid: { value: lin(cfg.mountains.mid) },
+          uNear: { value: lin(cfg.mountains.near) },
+          uHorizon: { value: lin(cfg.sky.waterMistColor) }, // 空气透视 / 山脚薄雾的目标色 = 远岛自己的薄雾色, 与天边白雾无缝
+          uSunDir: this.shared.uSunDir,
+          uHeight: { value: hs },
+          uDetail: { value: clampN(cfg.mountains.detail, 0, 2) },
+          uHazeK: { value: clampN(cfg.mountains.haze, 0, 1.5) },
+          uRadius: { value: ISLAND_RADIUS },
+          uDipTan: this.shared.uDipTan,
+          uComp: this.shared.uComp,
+          uHighlight: this.lightUniforms.uHighlight,
+          uAmbMul: this.lightUniforms.uAmbMul,
+          uLightLevel: this.lightUniforms.uLightLevel,
+        },
+        defines: { ISL_MAX },
+        side: THREE.DoubleSide,
+        ...farBlend,
+      }));
+      this.islands = new THREE.Mesh(buildIslandStrip(maxDeg), islMat);
       this.islands.name = 'Beach3DIslands';
       this.islands.frustumCulled = false;
       this.islands.renderOrder = -980;
       this.islands.onBeforeRender = (_r, _s, camera) => this.followCamera(this.islands!, camera);
       this.group.add(this.islands);
+
+      this.timeUniforms.mountainsFar = islMat.uniforms.uFar;
+      this.timeUniforms.mountainsMid = islMat.uniforms.uMid;
+      this.timeUniforms.mountainsNear = islMat.uniforms.uNear;
+      this.timeUniforms.mountainsHorizon = islMat.uniforms.uHorizon;
     }
 
     // ── 礁石布局 (地面着色器要知道水中礁石的位置来画白浪, 所以先算) ──
@@ -505,6 +649,9 @@ export class Beach3DWorld {
           uChairSeat: { value: new THREE.Vector4(CHAIR_BACK.seatTop, CHAIR_BACK.legX, CHAIR_BACK.legZ[0], CHAIR_BACK.legZ[1]) },
           uShadowK: { value: clampN(cfg.props.groundShadow, 0, 1) },
           uComp: this.shared.uComp,
+          uHighlight: this.lightUniforms.uHighlight,
+          uAmbMul: this.lightUniforms.uAmbMul,
+          uLightLevel: this.lightUniforms.uLightLevel,
           ...haze,
         },
         defines: { ROCK_MAX },
@@ -516,6 +663,20 @@ export class Beach3DWorld {
     this.ground.name = 'Beach3DGround';
     this.ground.receiveShadow = false;
     this.group.add(this.ground);
+
+    const gMat = (this.ground.material as THREE.ShaderMaterial);
+    this.timeUniforms.sandBase = gMat.uniforms.uSandBase;
+    this.timeUniforms.sandShade = gMat.uniforms.uSandShade;
+    this.timeUniforms.sandLight = gMat.uniforms.uSandLight;
+    this.timeUniforms.sandWet = gMat.uniforms.uSandWet;
+    this.timeUniforms.seaShallow = gMat.uniforms.uShallow;
+    this.timeUniforms.seaMid = gMat.uniforms.uSeaMid;
+    this.timeUniforms.seaDeep = gMat.uniforms.uSeaDeep;
+    this.timeUniforms.seaHorizon = gMat.uniforms.uSeaHorizon;
+    this.timeUniforms.seaFoam = gMat.uniforms.uFoam;
+    this.timeUniforms.seaGlint = gMat.uniforms.uGlint;
+    this.timeUniforms.skyRefl = gMat.uniforms.uSkyRefl;
+    this.timeUniforms.sandHaze = gMat.uniforms.uSandHaze;
 
     // ── 棕榈 (树干 + 叶冠) ──
     const palmMat = this.register(new THREE.ShaderMaterial({
@@ -547,10 +708,21 @@ export class Beach3DWorld {
         uSunDir: this.shared.uSunDir,
         uHaze: { value: sandHaze },
         uComp: this.shared.uComp,
+        uHighlight: this.lightUniforms.uHighlight,
+        uAmbMul: this.lightUniforms.uAmbMul,
+        uLightLevel: this.lightUniforms.uLightLevel,
+        uPalmBase: this.lightUniforms.uPalmBase,
+        uLightTint: this.lightUniforms.uLightTint,
         ...haze,
       },
       side: THREE.DoubleSide,
     }));
+    this.timeUniforms.leafLight = palmMat.uniforms.uLeafLight;
+    this.timeUniforms.leafShade = palmMat.uniforms.uLeafShade;
+    this.timeUniforms.trunkLight = palmMat.uniforms.uTrunkLight;
+    this.timeUniforms.trunkShade = palmMat.uniforms.uTrunkShade;
+    this.timeUniforms.bootColor = palmMat.uniforms.uBoot;
+    this.timeUniforms.coconutColor = palmMat.uniforms.uNut;
     const trunkGeo = buildPalmTrunk();
     const veg = cfg.vegetation;
     const crownGeo = buildPalmCrown(clampN(veg.fronds, 8, 16), clampN(veg.frondWidth, 0.7, 1.4), {
@@ -622,6 +794,15 @@ export class Beach3DWorld {
       cm.frustumCulled = false;
       this.bakeScene.add(cm);
     }
+    if (propsOn) {
+      const pg = buildBeachProps();
+      this.bakeGeos.push(pg);
+      const pm = new THREE.Mesh(pg, this.register(new THREE.ShaderMaterial({ vertexShader: SHADOW_BAKE_VERT, fragmentShader: SHADOW_BAKE_FRAG, uniforms: bakeUniforms, defines: { SOLID: 1 }, ...bakeBlend })));
+      pm.position.set(CHAIR.x, 0, CHAIR.z);
+      pm.rotation.y = CHAIR.yaw;
+      pm.frustumCulled = false;
+      this.bakeScene.add(pm);
+    }
 
     // ── 礁石 ──
     if (rockLayout.length > 0) {
@@ -634,6 +815,8 @@ export class Beach3DWorld {
           uSunDir: this.shared.uSunDir,
           uHaze: { value: sandHaze },
           uComp: this.shared.uComp,
+          uHighlight: this.lightUniforms.uHighlight,
+          uAmbMul: this.lightUniforms.uAmbMul,
           ...haze,
         },
       })), rockLayout.length);
@@ -646,6 +829,10 @@ export class Beach3DWorld {
       this.rocks.name = 'Beach3DRocks';
       this.rocks.computeBoundingSphere();
       this.group.add(this.rocks);
+
+      const rMat = (this.rocks.material as THREE.ShaderMaterial);
+      this.timeUniforms.rockLight = rMat.uniforms.uRockLight;
+      this.timeUniforms.rockShade = rMat.uniforms.uRockShade;
     }
 
     // ── 扇贝 (1 次绘制) ──
@@ -667,6 +854,7 @@ export class Beach3DWorld {
           uHaze: { value: sandHaze },
           uRibs: { value: SCALLOP_RIBS },
           uComp: this.shared.uComp,
+          uAmbMul: this.lightUniforms.uAmbMul,
           ...haze,
         },
         side: THREE.DoubleSide,
@@ -727,6 +915,9 @@ export class Beach3DWorld {
           uHaze: { value: sandHaze },
           uCanopyW: { value: new THREE.Vector4(cnp.x + spawn.x, cnp.y, cnp.z + spawn.z, cnp.r) },
           uComp: this.shared.uComp,
+          uHighlight: this.lightUniforms.uHighlight,
+          uAmbMul: this.lightUniforms.uAmbMul,
+          uLightLevel: this.lightUniforms.uLightLevel,
           ...haze,
         },
         side: THREE.DoubleSide,
@@ -735,7 +926,174 @@ export class Beach3DWorld {
       this.props.rotation.y = CHAIR.yaw;
       this.props.name = 'Beach3DProps';
       this.group.add(this.props);
+
+      const pMat = (this.props.material as THREE.ShaderMaterial);
+      this.timeUniforms.lighthouseGlow = pMat.uniforms.uLhGlow;
+      this.timeUniforms.propFrame = pMat.uniforms.uFrame;
+      this.timeUniforms.propCushion = pMat.uniforms.uCushion;
+      this.timeUniforms.propStripe = pMat.uniforms.uStripe;
+      this.timeUniforms.propCanopyA = pMat.uniforms.uCanopyA;
+      this.timeUniforms.propCanopyB = pMat.uniforms.uCanopyB;
+      this.timeUniforms.propPillow = pMat.uniforms.uPillow;
+      this.timeUniforms.castleSand = pMat.uniforms.uCastleSand;
+      this.timeUniforms.castleFlag = pMat.uniforms.uCastleFlag;
+      this.timeUniforms.lhBody = pMat.uniforms.uLhBody;
+      this.timeUniforms.lhBand = pMat.uniforms.uLhBand;
+      this.timeUniforms.lhRoof = pMat.uniforms.uLhRoof;
+      this.timeUniforms.lhGlass = pMat.uniforms.uLhGlass;
+      this.timeUniforms.lhRock = pMat.uniforms.uLhRock;
     }
+    this.paletteDirty = true;
+  }
+
+  /**
+   * 实现通用环境时间接口：设置时间时段 ('auto' | 'day' | 'sunset' | 'night') 或具体小时浮点数 (0~24)
+   */
+  public setEnvironmentTime(time: EnvironmentTimeMode | number, options?: EnvironmentTimeOptions): void {
+    this.isTimeDragging = Boolean(options?.isDragging);
+    if (typeof time === 'number') {
+      this.timeMode = 'auto'; // 自定义具体小时数值
+      this.manualHour = ((time % 24) + 24) % 24;
+    } else if (time === 'auto') {
+      this.timeMode = 'auto';
+      this.manualHour = null;
+    } else {
+      this.timeMode = time;
+      this.manualHour = resolveEffectiveHour(time);
+    }
+    this.paletteDirty = true;
+    this.maskDirty = true;
+  }
+
+  /**
+   * 读取当前环境时间状态与当前生效小时
+   */
+  public getEnvironmentTime(): { mode: EnvironmentTimeMode; currentHour: number } {
+    const h = this.manualHour ?? resolveEffectiveHour('auto');
+    return { mode: this.timeMode, currentHour: h };
+  }
+
+  public isDraggingTime(): boolean {
+    return this.isTimeDragging;
+  }
+
+  /**
+   * 重新评估当前小时的调色板与太阳方向 (小时没变则直接跳过, 0 开销)。
+   * 渲染前 (beforeRender) 与引擎每帧同步角色主光时都会调一次, 后者保证"这一帧"的光照是新的。
+   */
+  public updateEnvironmentTime(): void {
+    const currentHour = this.manualHour !== null ? this.manualHour : resolveEffectiveHour('auto');
+    if (Math.abs(currentHour - this.lastEvaluatedHour) <= 0.0005 && !this.paletteDirty) return;
+    this.lastEvaluatedHour = currentHour;
+    this.paletteDirty = false;
+    evaluateBeachPalette(currentHour, this.paletteState);
+    const sunDir = computeSunDirection(currentHour);
+    (this.shared.uSunDir.value as THREE.Vector3).copy(sunDir);
+    this.applyPalette(this.paletteState);
+  }
+
+  /**
+   * 当前时刻场景应该怎么打光 —— 引擎据此把角色主光 (与角色脚下落影) 对齐到场景的太阳 / 月亮,
+   * 角色的影子才会和椅子 / 棕榈 / 沙堡的影子指向同一边。
+   *
+   * 太阳贴到海平面时影子会长到画面外, 所以按与地面着色器同一个高度角下限折算
+   * (着色器里的 SUN_Y_FLOOR), 场景道具的影子与角色的影子长度比例才一致。
+   */
+  public getEnvironmentLight(): EnvironmentLightState {
+    const p = this.paletteState;
+    const d = this.shared.uSunDir.value as THREE.Vector3;
+    const eff = this.envLightDir.copy(d);
+    eff.y = Math.max(eff.y, SHADOW_SUN_Y_FLOOR);
+    eff.normalize();
+    // 复用同一个对象 (0 GC): 颜色直接引用调色板里的 Color, 调色板原地更新后这里自动跟着变
+    const s = this.envLightState;
+    s.direction = eff;
+    s.color = p.keyLightColor;
+    s.keyScale = p.keyLightScale;
+    s.hemiSky = p.hemiSky;
+    s.hemiGround = p.hemiGround;
+    s.hemiScale = p.hemiScale;
+    s.fillColor = p.fillColor;
+    s.fillScale = p.fillScale;
+    return s;
+  }
+
+  /**
+   * 原地应用调色板数值，0 内存开销，无 shader 重编
+   */
+  private applyPalette(p: BeachPaletteState): void {
+    const tu = this.timeUniforms;
+    if (tu.skyZenith) tu.skyZenith.value.copy(p.skyZenith);
+    if (tu.skyMid) tu.skyMid.value.copy(p.skyMid);
+    if (tu.skyHorizon) tu.skyHorizon.value.copy(p.skyHorizon);
+    if (tu.skyHorizonGlow) tu.skyHorizonGlow.value.copy(p.skyHorizonGlow);
+    if (tu.skyWaterMistColor) tu.skyWaterMistColor.value.copy(p.skyWaterMistColor);
+    if (tu.skySunGlow) tu.skySunGlow.value = p.skySunGlow;
+    if (tu.skyCirrus) tu.skyCirrus.value = p.skyCirrus;
+    if (tu.skyHorizonBand) tu.skyHorizonBand.value = p.skyHorizonBand;
+    if (tu.sunTint) tu.sunTint.value.copy(p.sunTint);
+
+    if (tu.cloudsTint) tu.cloudsTint.value.copy(p.cloudsTint);
+    if (tu.cloudsOpacity) tu.cloudsOpacity.value = p.cloudsOpacity;
+    if (tu.cloudsHorizon) tu.cloudsHorizon.value.copy(p.skyHorizon);
+    if (tu.cloudsHorizonGlow) tu.cloudsHorizonGlow.value.copy(p.skyHorizonGlow);
+
+    if (tu.mountainsFar) tu.mountainsFar.value.copy(p.mountainsFar);
+    if (tu.mountainsMid) tu.mountainsMid.value.copy(p.mountainsMid);
+    if (tu.mountainsNear) tu.mountainsNear.value.copy(p.mountainsNear);
+    if (tu.mountainsHorizon) tu.mountainsHorizon.value.copy(p.islandMist);
+
+    if (tu.sandBase) tu.sandBase.value.copy(p.sandBase);
+    if (tu.sandShade) tu.sandShade.value.copy(p.sandShade);
+    if (tu.sandLight) tu.sandLight.value.copy(p.sandLight);
+    if (tu.sandWet) tu.sandWet.value.copy(p.sandWet);
+    if (tu.seaShallow) tu.seaShallow.value.copy(p.seaShallow);
+    if (tu.seaMid) tu.seaMid.value.copy(p.seaMid);
+    if (tu.seaDeep) tu.seaDeep.value.copy(p.seaDeep);
+    if (tu.seaHorizon) tu.seaHorizon.value.copy(p.seaHorizon);
+    if (tu.seaFoam) tu.seaFoam.value.copy(p.seaFoam);
+    if (tu.seaGlint) tu.seaGlint.value = p.seaGlint;
+    if (tu.skyRefl) tu.skyRefl.value.copy(p.skyMid);
+    if (tu.sandHaze) tu.sandHaze.value.copy(p.sandLight).lerp(p.skyHorizon, 0.55);
+
+    if (tu.leafLight) tu.leafLight.value.copy(p.leafLight);
+    if (tu.leafShade) tu.leafShade.value.copy(p.leafShade);
+    if (tu.trunkLight) tu.trunkLight.value.copy(p.trunkLight);
+    if (tu.trunkShade) tu.trunkShade.value.copy(p.trunkShade);
+    if (tu.bootColor) tu.bootColor.value.copy(p.bootColor);
+    if (tu.coconutColor) tu.coconutColor.value.copy(p.coconutColor);
+
+    if (tu.rockLight) tu.rockLight.value.copy(p.rockLight);
+    if (tu.rockShade) tu.rockShade.value.copy(p.rockShade);
+
+    if (tu.lighthouseGlow) tu.lighthouseGlow.value = p.lighthouseGlow;
+
+    // 场景统一光照 (写死的白天色 / 近白高光改成随时间)
+    this.lightUniforms.uAmbMul.value.copy(p.ambientMul);
+    this.lightUniforms.uHighlight.value.copy(p.highlight);
+    this.lightUniforms.uLightTint.value.copy(p.lightTint);
+    this.lightUniforms.uLightLevel.value = p.lightLevel;
+    this.lightUniforms.uPalmBase.value.copy(p.palmBase);
+    this.lightUniforms.uShadowTint.value.copy(p.shadowTint);
+
+    // 道具 (椅子 / 伞): 夜里重新上色, 否则粉白坐垫像霓虹灯
+    if (tu.propFrame) tu.propFrame.value.copy(p.propFrame);
+    if (tu.propCushion) tu.propCushion.value.copy(p.propCushion);
+    if (tu.propStripe) tu.propStripe.value.copy(p.propStripe);
+    if (tu.propCanopyA) tu.propCanopyA.value.copy(p.propCanopyA);
+    if (tu.propCanopyB) tu.propCanopyB.value.copy(p.propCanopyB);
+    if (tu.propPillow) tu.propPillow.value.copy(p.propPillow);
+
+    // 沙堡: 湿沙色跟着沙滩走
+    if (tu.castleSand) tu.castleSand.value.copy(p.castleSand);
+    if (tu.castleFlag) tu.castleFlag.value.copy(p.castleFlag);
+
+    // 灯塔
+    if (tu.lhBody) tu.lhBody.value.copy(p.lhBody);
+    if (tu.lhBand) tu.lhBand.value.copy(p.lhBand);
+    if (tu.lhRoof) tu.lhRoof.value.copy(p.lhRoof);
+    if (tu.lhGlass) tu.lhGlass.value.copy(p.lhGlass);
+    if (tu.lhRock) tu.lhRock.value.copy(p.lhRock);
   }
 
   /** 远景层: 跟随相机平移 (不旋转) → 等价无限远, 底边永远在相机眼高 (= 真实海平线)。 */
@@ -754,14 +1112,14 @@ export class Beach3DWorld {
     this.shared.uSway.value = dyn ? cfg.vegetation.sway : 0;
     this.shared.uPxScale.value = renderer.getPixelRatio();
 
-    if (this.sun) {
-      this.sun.getWorldPosition(this.tmpV);
-      this.sun.target.getWorldPosition(this.tmpV2);
-      const d = this.tmpV.sub(this.tmpV2);
-      if (d.lengthSq() > 1e-8) (this.shared.uSunDir.value as THREE.Vector3).copy(d.normalize());
-    }
+    // 驱动通用场景环境时间与太阳轨迹
+    this.updateEnvironmentTime();
+
     const sunDir = this.shared.uSunDir.value as THREE.Vector3;
-    if (this.shadowRT && (this.maskDirty || sunDir.dot(this.bakedSun) < 0.99995)) this.bakeShadowMask(renderer);
+    // 太阳方向变化或时间更新时实时重烘棕榈与沙堡落影 (仅 2 次 Instanced 绘制, 开销极小, 拖拽滑块时树影实时连续跟手)
+    if (this.shadowRT && (this.maskDirty || sunDir.dot(this.bakedSun) < 0.99995)) {
+      this.bakeShadowMask(renderer);
+    }
 
     camera.getWorldPosition(this.tmpV);
     const camDist = Math.hypot(this.tmpV.x - this.group.position.x, this.tmpV.z - this.group.position.z);

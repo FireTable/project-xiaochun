@@ -2,6 +2,7 @@ import React, { useState, useEffect, useCallback, startTransition } from 'react'
 import { useTranslation } from 'react-i18next';
 import type { LoadingState, BubbleState } from '@/core/vrmEngine';
 import { TopHeader } from '@/components/TopHeader';
+import { SceneTimeCard } from '@/components/SceneTimeCard';
 import { AppUpdateDialog } from '@/components/AppUpdateDialog';
 import { HeadBubble } from '@/components/HeadBubble';
 import { ChatBar } from '@/components/ChatBar';
@@ -261,6 +262,9 @@ export const App: React.FC = () => {
           />
         </div>
       )}
+
+      {/* 场景时间卡片 (独立浮窗，位于 TopHeader 下方，仅在支持时间流转的场景呈现) */}
+      <SceneTimeCard isPetUIVisible={isPetUIVisible} />
 
       {/* 生产包默认不露抽屉；10 次连击后 hasDevEasterEgg 打开同一套面板。新手向导期间不遮挡 */}
       <DevDrawerHost

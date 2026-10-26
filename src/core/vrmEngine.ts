@@ -33,6 +33,7 @@ import { langFromSystemPrompt } from '@/llm/prompts';
 import { LineworkWorld } from './scene/lineworkWorld';
 import { Beach3DWorld } from './scene/beach3d/beach3dWorld';
 import { VoidWorld } from './scene/void/voidWorld';
+import type { EnvironmentTimeMode, EnvironmentTimeOptions, EnvironmentTimeState } from './scene/environmentTime';
 import type { SceneThemeId, LineworkTheme } from '@/types/config';
 import { passthroughManager } from './scene/passthroughManager';
 import { StudioLighting } from './lighting/studioLighting';
@@ -1355,6 +1356,20 @@ export class VRMEngine {
     this.shadow.updateOpacity(isDark);
   }
 
+  private _environmentTime: EnvironmentTimeMode | number = (() => {
+    if (typeof localStorage !== 'undefined') {
+      try {
+        const saved = localStorage.getItem('xiaochun_environment_time');
+        if (saved) {
+          const num = parseFloat(saved);
+          if (!isNaN(num) && saved.trim() === String(num)) return num;
+          if (['auto', 'day', 'sunset', 'night'].includes(saved)) return saved as EnvironmentTimeMode;
+        }
+      } catch {}
+    }
+    return 'auto';
+  })();
+
   /**
    * 切场景时同步背景: beach3d 背景层显隐; 灯色 (StudioLighting.applyTheme) 与角色落影配色 (CharacterShadowSystem.applyTheme)
    *   重置为所有场景共用的默认值, 没有场景专属的灯光 / 落影微调。
@@ -1362,9 +1377,72 @@ export class VRMEngine {
    */
   private syncSceneBackdrop(theme: SceneThemeId): void {
     this.beach3d.setActive(theme === 'beach3d');
+    if (theme === 'beach3d') {
+      this.beach3d.setEnvironmentTime(this._environmentTime);
+    }
+    // 场景退场时先把"接管灯光"还回去 (否则 beach 的主光会漏到别的场景)
+    this.lighting.clearEnvironmentLight();
+    this.shadow.setOpacityScale(1);
     this.lighting.applyTheme(theme);
     this.shadow.applyTheme(theme);
     this.chatDirector.vocalProcessor.applySceneTheme(theme);
+  }
+
+  /**
+   * 把当前激活场景提供的光照 (太阳 / 月亮的方向与颜色) 应用到引擎主光。
+   * 角色 (MToon) 与角色脚下落影都用这套主光, 于是角色的影子和场景里椅子、棕榈、沙堡的影子指向同一边。
+   * 没有提供光照的场景 (void / light / transparent) 走默认摄影棚灯。
+   */
+  private applyEnvironmentLight(): void {
+    if (!this.beach3d.isActive()) {
+      this.lighting.clearEnvironmentLight();
+      this.shadow.setOpacityScale(1);
+      return;
+    }
+    this.beach3d.updateEnvironmentTime();
+    const light = this.beach3d.getEnvironmentLight();
+    this.lighting.applyEnvironmentLight(light);
+    this.shadow.setOpacityScale(light.keyScale);
+  }
+
+  /**
+   * 通用场景环境时间调度接口
+   * 引擎保持通用抽象，不绑定任何具体场景名词；
+   * 若当前激活场景支持时间（如 beach3d），则实时分发响应；未来新增场景可直接并列接入。
+   */
+  public setEnvironmentTime(time: EnvironmentTimeMode | number, options?: EnvironmentTimeOptions): void {
+    this._environmentTime = time;
+    if (typeof localStorage !== 'undefined' && !options?.isDragging) {
+      try {
+        localStorage.setItem('xiaochun_environment_time', String(time));
+      } catch {}
+    }
+    if (this.beach3d.isActive()) {
+      this.beach3d.setEnvironmentTime(time, options);
+    }
+    if (typeof window !== 'undefined') {
+      window.dispatchEvent(new CustomEvent('environment-time-changed', { detail: time }));
+    }
+  }
+
+  /**
+   * 当前激活的场景是否支持环境时间变化
+   */
+  public isEnvironmentTimeSupported(): boolean {
+    return this.beach3d.isActive();
+  }
+
+  /**
+   * 读取当前环境时间状态（模式、当前生效小时、是否支持）
+   */
+  public getEnvironmentTime(): EnvironmentTimeState {
+    if (this.beach3d.isActive()) {
+      const state = this.beach3d.getEnvironmentTime();
+      return { ...state, isSupported: true };
+    }
+    const mode = typeof this._environmentTime === 'string' ? this._environmentTime : 'auto';
+    const hour = typeof this._environmentTime === 'number' ? this._environmentTime : 12;
+    return { mode, currentHour: hour, isSupported: false };
   }
 
   public getLineworkTheme(): LineworkTheme {
@@ -3043,6 +3121,7 @@ export class VRMEngine {
 
   public renderSingleFrame(): void {
     if (this.renderer && this.currentVRM) {
+      this.applyEnvironmentLight();
       if (!this.renderer.shadowMap.autoUpdate) {
         this.renderer.shadowMap.needsUpdate = true;
       }
@@ -3268,6 +3347,8 @@ export class VRMEngine {
         this.chatDirector.vocalProcessor.updateCameraAcoustics({ distance: dist, pitch, bodyYaw });
       }
       try {
+        // 场景时间 → 引擎主光 (角色的受光与脚下落影跟随场景的太阳 / 月亮)
+        this.applyEnvironmentLight();
         if (this.renderer && !this.renderer.shadowMap.autoUpdate) {
           const interval = Math.max(1, APP_CONFIG.shadow.updateIntervalFrames ?? 2);
           this._shadowFrameCount++;

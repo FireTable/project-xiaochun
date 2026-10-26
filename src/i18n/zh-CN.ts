@@ -11,6 +11,22 @@ export const zhCN = {
   app: {
     dropZoneHint: '松开鼠标加载该 `.vrm` 模型',
   },
+  sceneTimeCard: {
+    title: '场景时间',
+    realTime: '实时',
+    followSystem: '跟随现实时间',
+    fineTune: '时间调节',
+    presets: {
+      auto: '自动',
+      autoHint: '现实时间',
+      day: '白天',
+      dayHint: '12:00',
+      sunset: '黄昏',
+      sunsetHint: '17:45',
+      night: '夜晚',
+      nightHint: '22:00',
+    },
+  },
   /** ponytail: /embed 内置换装 / 换场景按钮 (?picker=) 的轻提示; 按钮本身复用 header.switchOutfit / header.switchScene 文案。 */
   embedPicker: {
     busy: '正在换装,已记下你的最新选择',
@@ -275,6 +291,16 @@ export const zhCN = {
     emagePerfFailUnknown: 'FAIL：未知原因',
     emagePerfRecentStages: '最近 stage（{{n}}/12）',
     lightsLabel: '💡 灯光通道与全局倍率',
+    environmentTimeLabel: '🕒 场景时间',
+    environmentTimePresetLabel: '时段预设',
+    environmentTimePresets: {
+      auto: '🧭 自动（现实时间）',
+      day: '☀️ 白天',
+      sunset: '🌅 黄昏夕阳',
+      night: '🌙 静谧夜晚',
+    },
+    environmentTimeHour: '时段流转',
+    environmentTimeUnsupported: '当前场景不支持时间流转（仅在支持时间变化的 3D 场景生效，如海滩）',
     cameraLabel: '🎥 镜头设置',
     globalLight: '全局总光照倍率',
     fov: '镜头视场角 （FOV）',

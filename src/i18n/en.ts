@@ -13,6 +13,22 @@ export const en: Trans = {
   app: {
     dropZoneHint: 'Release to load this `.vrm` model',
   },
+  sceneTimeCard: {
+    title: 'Scene Time',
+    realTime: 'Live',
+    followSystem: 'Follow System Time',
+    fineTune: 'Time Adjustment',
+    presets: {
+      auto: 'Auto',
+      autoHint: 'Real-time',
+      day: 'Day',
+      dayHint: '12:00',
+      sunset: 'Sunset',
+      sunsetHint: '17:45',
+      night: 'Night',
+      nightHint: '22:00',
+    },
+  },
   /** ponytail: /embed 内置换装 / 换场景按钮 (?picker=) 的轻提示; 按钮本身复用 header.switchOutfit / header.switchScene 文案。 */
   embedPicker: {
     busy: 'Swapping outfit; your latest pick is queued',
@@ -274,6 +290,16 @@ export const en: Trans = {
     emagePerfFailUnknown: 'FAIL: unknown reason',
     emagePerfRecentStages: 'Recent stages ({{n}}/12)',
     lightsLabel: '💡 Light Channels & Global Mult',
+    environmentTimeLabel: '🕒 Scene Time',
+    environmentTimePresetLabel: 'Time of Day Presets',
+    environmentTimePresets: {
+      auto: '🧭 Auto (Real-time)',
+      day: '☀️ Day',
+      sunset: '🌅 Sunset',
+      night: '🌙 Night',
+    },
+    environmentTimeHour: 'Time of Day',
+    environmentTimeUnsupported: 'Current scene does not support dynamic time (available in 3D Beach, etc.)',
     cameraLabel: '🎥 Camera Settings',
     globalLight: 'Global Light Multiplier',
     fov: 'Camera FOV',

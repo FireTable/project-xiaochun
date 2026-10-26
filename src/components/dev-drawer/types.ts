@@ -39,6 +39,7 @@ export type SectionId =
   | 'bodyMorph'
   | 'wardrobe'
   | 'lighting'
+  | 'environmentTime'
   | 'camera'
   | 'postfx';
 
