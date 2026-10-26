@@ -49,6 +49,16 @@ export const en: Trans = {
       ja: '日本語',
     },
   },
+  motion: {
+    listening: {
+      name: 'Listening',
+      description: 'Pure listening posture with hands naturally folded in front, gently breathing',
+    },
+    thinking: {
+      name: 'Thinking',
+      description: 'Pensive posture with hand resting on chin',
+    },
+  },
   updater: {
     title: 'Update available',
     checkingTitle: 'Checking for updates',

@@ -49,6 +49,16 @@ export const ja: Trans = {
       ja: '日本語',
     },
   },
+  motion: {
+    listening: {
+      name: '傾聴',
+      description: '両手を自然にお腹の前で重ね、静かに息づくピュアな傾聴ポーズ',
+    },
+    thinking: {
+      name: '思案',
+      description: '片手をあごに添えて考え込むポーズ',
+    },
+  },
   updater: {
     title: '新しいバージョンがあります',
     checkingTitle: '更新を確認しています',

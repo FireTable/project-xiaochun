@@ -258,6 +258,7 @@ export class VRMEngine {
   private get vrmaPlayer() { return this.motionPipeline.vrma; }
   private get bodyTurn() { return this.motionPipeline.bodyTurn; }
   public readonly bodyMorph = new VRMBodyMorph(APP_CONFIG.bodyMorph.default);
+  private rawHitRadiusMap = new WeakMap<object, number>();
   // ponytail: 后期管线单例 — attachCanvas 时 init,render() 走 composer
   public readonly postFx: PostFxPipeline = postFxPipeline;
   // ponytail: dev 探针 (浏览器 console 调试用),生产不影响 bundle tree-shake
@@ -1429,6 +1430,9 @@ export class VRMEngine {
   // ── 骨骼体型微调系统 (Bone Morphing) ──
   public setBodyPartScale(part: import('@/config').BodyMorphPartKey, value: number): void {
     this.bodyMorph.setPart(part, value);
+    if (part.startsWith('bust')) {
+      this.applySpringBoneTuning();
+    }
     this.notifyHeightChange();
   }
 
@@ -1442,6 +1446,7 @@ export class VRMEngine {
 
   public resetBodyMorph(): void {
     this.bodyMorph.reset();
+    this.applySpringBoneTuning();
     this.notifyHeightChange();
   }
 
@@ -1460,6 +1465,7 @@ export class VRMEngine {
 
   public setBustScale(scale: number): void {
     this.bodyMorph.setPart('bust', scale);
+    this.applySpringBoneTuning();
   }
 
   public getBustScale(): number {
@@ -2063,6 +2069,14 @@ export class VRMEngine {
    * 应用胸部等 SpringBone 动力学物理调优：
    * 将 VRoid 官方默认的高刚度硬塑料参数 (stiffness 0.75) 优化为富有弹性、反应自然的仿生乳摇效果。
    */
+  /**
+   * 应用弹簧骨骼 (SpringBone) 物理动力学参数与碰撞拓扑
+   *
+   * 采用 3 段式动态感知半径计算公式：
+   * 1. 读取 VRM 真实的值（从模型文件原始 settings.hitRadius 首次读取并持久缓存）
+   * 2. 算上形变值（结合当前服装/体型的 bust 与 bustThickness 动态厚度缩放）
+   * 3. 加上偏移值（俯仰下垂空间补偿 pitchOffset + 表皮织物安全间隙 clearanceOffset）
+   */
   public applySpringBoneTuning(vrm: VRM | null = this.currentVRM): void {
     const mgr = vrm?.springBoneManager;
     if (!mgr) return;
@@ -2074,6 +2088,19 @@ export class VRMEngine {
       return name.includes('arm') || name.includes('hand');
     });
 
+    // 2. 算上形变值 (读取当前体型的 bust 与 bustThickness)
+    const bustScale = this.bodyMorph.getPart('bust') || 1.0;
+    const bustThickness = this.bodyMorph.getPart('bustThickness') || 1.0;
+    const deltaThickness = bustThickness - 1.0;
+    const thickMultiplier = deltaThickness >= 0 ? 1.0 + deltaThickness * 0.65 : 1.0 + deltaThickness * 0.70;
+    const morphMultiplier = bustScale * thickMultiplier;
+
+    // 3. 加上偏移值 (俯仰下垂空间补偿 + 表皮织物安全间隙)
+    const bustPitch = this.bodyMorph.getPart('bustPitch') || 0.0;
+    const pitchOffset = Math.max(0, -bustPitch * 0.08);
+    const clearanceOffset = (cfg as any).clearanceOffset ?? 0.019;
+    const totalOffset = pitchOffset + clearanceOffset;
+
     for (const joint of mgr.joints) {
       const name = joint.bone?.name ?? '';
       if (/bust/i.test(name)) {
@@ -2081,9 +2108,17 @@ export class VRMEngine {
         joint.settings.stiffness = isTip ? cfg.stiffness * 0.85 : cfg.stiffness;
         joint.settings.dragForce = cfg.dragForce;
         joint.settings.gravityPower = cfg.gravityPower;
-        if (cfg.hitRadius > 0) {
-          joint.settings.hitRadius = cfg.hitRadius;
+
+        // 1. 读取 VRM 真实的值 (通过 WeakMap 缓存模型的初始原生物理值，避免读写三方实例上未初始化的 userData)
+        if (!this.rawHitRadiusMap.has(joint)) {
+          const initialRadius = joint.settings.hitRadius > 0 ? joint.settings.hitRadius : cfg.hitRadius;
+          this.rawHitRadiusMap.set(joint, initialRadius);
         }
+        const rawHitRadius: number = this.rawHitRadiusMap.get(joint)!;
+
+        // 动态计算 hitRadius = (真实值 * 形变值) + 偏移值
+        const dynamicHitRadius = (rawHitRadius * morphMultiplier) + totalOffset;
+        joint.settings.hitRadius = dynamicHitRadius;
 
         // 接通双臂与胸部的 SpringBone 软碰撞！
         // VRoid 默认把 bust 的 colliderGroups 留空，导致手和手臂直接穿透胸部。

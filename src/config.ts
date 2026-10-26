@@ -473,7 +473,13 @@ export const APP_CONFIG = {
     trackSpeed: 10.0,
   },
   springBone: {
-    bust: { stiffness: 0.22, dragForce: 0.26, gravityPower: 0.005, hitRadius: 0.048 },
+    bust: {
+      stiffness: 0.22,
+      dragForce: 0.26,
+      gravityPower: 0.005,
+      hitRadius: 0.0232,
+      clearanceOffset: 0.019,
+    },
     // 裙子: stiffness 合法 0~1, 越大越硬回弹越快; dragForce 合法 0~1, 越大阻尼越大、晃动停得越快 (调大=更稳, 调小=更飘); gravityPower 越大越下垂
     skirt: { stiffness: 0.35, dragForce: 0.40, gravityPower: 0.10, hitRadius: 0.018 },
     ribbon: { stiffness: 0.42, dragForce: 0.16, gravityPower: 0.005, hitRadius: 0.025 },

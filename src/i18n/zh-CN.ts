@@ -48,6 +48,16 @@ export const zhCN = {
       ja: '日本語',
     },
   },
+  motion: {
+    listening: {
+      name: '纯净倾听',
+      description: '双手自然环抱身前，身体轻微起伏呼吸的纯净倾听姿态',
+    },
+    thinking: {
+      name: '托腮沉思',
+      description: '单手托下巴作沉思状',
+    },
+  },
   updater: {
     title: '发现新版本',
     checkingTitle: '正在检查更新',
