@@ -480,6 +480,8 @@ export const APP_CONFIG = {
       hitRadius: 0.0232,
       // Extra meters added to the bust collider only after the bust grows past its bind size.
       clothClearance: 0.003,
+      // How far an arm vertex may slide out of the bust, in meters. The spring sphere stays small.
+      armPushCap: 0.02,
     },
     // 裙子: stiffness 合法 0~1, 越大越硬回弹越快; dragForce 合法 0~1, 越大阻尼越大、晃动停得越快 (调大=更稳, 调小=更飘); gravityPower 越大越下垂
     skirt: { stiffness: 0.35, dragForce: 0.40, gravityPower: 0.10, hitRadius: 0.018 },
