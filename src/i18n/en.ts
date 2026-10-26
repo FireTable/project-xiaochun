@@ -52,7 +52,7 @@ export const en: Trans = {
   motion: {
     listening: {
       name: 'Listening',
-      description: 'Pure listening posture with hands naturally folded in front, gently breathing',
+      description: 'Attentive listening posture with a slight body lean and gentle smile (dm_124)',
     },
     thinking: {
       name: 'Thinking',

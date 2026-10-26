@@ -51,7 +51,7 @@ export const zhCN = {
   motion: {
     listening: {
       name: '纯净倾听',
-      description: '双手自然环抱身前，身体轻微起伏呼吸的纯净倾听姿态',
+      description: '身躯微倾、面带微笑的亲切倾听姿态 (dm_124)',
     },
     thinking: {
       name: '托腮沉思',

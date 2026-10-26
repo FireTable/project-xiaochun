@@ -27,6 +27,11 @@ export interface PlayMotionOptions {
    * 用于掐掉动捕原始素材首尾的 T-Pose / A-Pose 标定帧。
    */
   timeRange?: [number, number];
+  /**
+   * 是否启用双足接地与足底放平约束（默认 false；站姿待机/倾听建议开启）。
+   * 由 FootIKSolver 连续平滑解算接地与放平，杜绝骨盆瞬降造成的裙摆物理甩动。
+   */
+  enableFootIK?: boolean;
 }
 
 export interface UniversalMotionHandle {
@@ -162,7 +167,7 @@ export class UniversalMotionController {
     this.currentOptions = options;
     const isLoop = !!options.loop;
     if (isLoop) {
-      makeClipSeamless(clip);
+      makeClipSeamless(clip, options.fadeDuration);
     }
     const timeScale = options.timeScale ?? 1.0;
     this.fadeDuration = Math.max(0.26, options.fadeDuration ?? 0.75);

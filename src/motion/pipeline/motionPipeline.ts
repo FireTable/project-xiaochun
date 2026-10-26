@@ -418,7 +418,7 @@ export class MotionPipeline {
         this.basePose,
         time,
         delta,
-        ctx.isListening && !speakingNow && this.activeSource === 'idle',
+        Boolean(ctx.isListening && !speakingNow && this.activeSource === 'idle'),
       );
     } else {
       this.basePose.copyFrom(this.restPose);
@@ -533,7 +533,8 @@ export class MotionPipeline {
 
     const grounding = this.bodyTurn.getFootGroundedAlpha();
     const locomotionBusy = ctx.isStepping || this.locomotionWeight > 0.08;
-    const wantFootIk = this.footIK.enabled && writer === 'emage' && this.emage.enableFootIK && !locomotionBusy;
+    const clipWantsFootIk = writer === 'clip' && Boolean(this.universalMotion.getCurrentOptions()?.enableFootIK);
+    const wantFootIk = this.footIK.enabled && (writer === 'emage' ? this.emage.enableFootIK : clipWantsFootIk) && !locomotionBusy;
     if (wantFootIk && !this.footIkWanted) {
       this.footIK.recapturePlantFromCurrent();
       this.footIK.anchorToCurrentFeet();
@@ -545,6 +546,8 @@ export class MotionPipeline {
     if (wantFootIk && this.footIkMix > 0) {
       this.footIK.solve(delta, grounding.left, grounding.right, 1.0);
       this.footIK.levelFeet(vrm, false, grounding.left, grounding.right);
+    } else if (writer === 'clip' && !locomotionBusy) {
+      this.footIK.levelFeet(vrm, false, 1.0, 1.0);
     }
 
     this.gaze.update(

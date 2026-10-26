@@ -16,16 +16,17 @@ export interface MotionCatalogItem extends PlayMotionOptions {
 }
 
 export const MOTION_CATALOG = {
-  /** 倾听待机姿态（标准 52 骨骼真人动捕，截取 3.3s~12.0s 核心抱腹循环，剔除头尾 T-Pose 标定帧） */
+  /** 倾听待机姿态（dm_124 标准 52 骨骼真人动捕，身躯微倾微带微笑，已物理烘焙纯净 5.75s 核心专注倾听循环） */
   listening: {
     id: 'listening',
     nameKey: 'motion.listening.name',
     descriptionKey: 'motion.listening.description',
     url: '/vrm/motion/listening.vrma',
     loop: true,
-    fadeDuration: 1.05,
+    fadeDuration: 0.95,
     antiClip: false,
-    timeRange: [3.3, 12.0],
+    enableFootIK: true,
+    // 可选：timeRange: [0.0, 5.75], 随时可在代码中按秒截取动捕时间区间
     mask: 'all',
   },
   /** 思考动作（SimpleText2Motion AI 生成，22 骨骼带防穿模限幅） */

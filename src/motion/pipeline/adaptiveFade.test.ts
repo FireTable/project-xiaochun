@@ -1,9 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import {
   computeAdaptiveFadeDuration,
-  BASE_FADE_DURATION,
-  MIN_FADE_DURATION,
-  MAX_FADE_DURATION,
 } from './adaptiveFade';
 import { PoseBuffer } from './poseBuffer';
 

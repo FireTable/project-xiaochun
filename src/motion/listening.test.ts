@@ -51,7 +51,7 @@ describe('ListeningMotionSystem (Mocap-Driven Listening Weight)', () => {
       expect(resolveKey(ja, item.descriptionKey!)).toBeTruthy();
 
       // getMotionName / getMotionDescription helpers
-      const mockT = (key: string) => resolveKey(zhCN, key);
+      const mockT = (key: string): string => String(resolveKey(zhCN, key));
       expect(getMotionName(item, mockT)).toBe(resolveKey(zhCN, item.nameKey));
       expect(getMotionDescription(item, mockT)).toBe(resolveKey(zhCN, item.descriptionKey!));
     }

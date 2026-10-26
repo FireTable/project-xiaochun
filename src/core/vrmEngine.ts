@@ -48,7 +48,7 @@ import {
 import { BubbleTracker, type BubbleState } from './ui/bubbleTracker';
 import { InteractionController } from './interaction/interactionController';
 import { WindForceController } from './wind/windForce';
-import { bindBustArmContact, updateBustArmContact } from './contact/bustArmContact';
+import { bindBustArmContact, clearBustArms, updateBustArmContact } from './contact/bustArmContact';
 import { applyBustClothFit, bustJointHitRadius } from './spring/bustClothFit';
 import { CharacterShadowSystem } from './scene/characterShadow';
 import { adjustZoomInWhileClamped, solveGroundClamp, visibleRatioCap } from './camera/groundClamp';
@@ -1501,6 +1501,7 @@ export class VRMEngine {
       const res = await fetch(MOTION_CATALOG.listening.url);
       if (res.ok) {
         this.listeningBuffer = await res.arrayBuffer();
+        this.cachedListeningClip = null;
       }
     } catch (e) {
       console.warn('预加载倾听动作失败', e);
@@ -1520,7 +1521,7 @@ export class VRMEngine {
 
   private async startListeningMotion(): Promise<void> {
     if (!this.listening) return;
-    if (this.chatDirector.isSpeaking || this.chatDirector.turnState !== 'idle') return;
+    if (this.chatDirector.speaking || this.chatDirector.turnState !== 'idle') return;
     if (!this.currentVRM) return;
 
     try {
@@ -3153,6 +3154,10 @@ export class VRMEngine {
 
         this.chatDirector.tick(vrm, this.vrmaPlayer);
 
+        // The spring hits raw arm colliders. Swing the normalized arm first;
+        // vrm.update copies it onto those bones. The shader cannot move them.
+        clearBustArms(vrm);
+
         // ponytail: 注入 wind (ambient + 鼠标冲量) 到 springBone joints 的 gravityDir/Power,
         // 必须在 vrm.update(delta) 之前, 因为 springBoneManager.update() 内部读取这些 settings.
         this.windForce.applyTo(vrm, delta, this.camera);
@@ -3443,4 +3448,7 @@ export class VRMEngine {
 }
 
 export const vrmEngine = new VRMEngine();
+if (typeof window !== 'undefined') {
+  (window as any).vrmEngine = vrmEngine;
+}
 export type { LineworkTheme, SceneThemeId } from '@/types/config';

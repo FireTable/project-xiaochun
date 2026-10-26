@@ -52,7 +52,7 @@ export const ja: Trans = {
   motion: {
     listening: {
       name: '傾聴',
-      description: '両手を自然にお腹の前で重ね、静かに息づくピュアな傾聴ポーズ',
+      description: '体をわずかに傾け微笑む親しみやすい傾聴ポーズ (dm_124)',
     },
     thinking: {
       name: '思案',

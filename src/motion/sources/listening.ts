@@ -1,4 +1,3 @@
-import * as THREE from 'three';
 import { type PoseBuffer } from '../pipeline/poseBuffer';
 import { computeAdaptiveFadeDuration } from '../pipeline/adaptiveFade';
 

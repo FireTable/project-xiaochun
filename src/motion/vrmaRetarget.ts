@@ -287,20 +287,41 @@ function smoothQuaternionTrack(values: Float32Array) {
   }
 }
 
-// 循环首尾无缝缝合 (将末尾 25% 帧平滑 Slerp/Lerp 到第 0 帧，确保 Loop 循环 100% 丝滑无跳跃、无瞬移)
-export function makeClipSeamless(clip: THREE.AnimationClip): THREE.AnimationClip {
+// 循环首尾无缝缝合：支持复用外部 fadeDuration（或默认 0.75s），基于物理真实时间轴实施 Quintic Smootherstep
+export function makeClipSeamless(clip: THREE.AnimationClip, seamlessDuration?: number): THREE.AnimationClip {
+  if ((clip as any)._seamlessBaked) return clip;
+
   for (const track of clip.tracks) {
     const isQuat = track.name.endsWith('.quaternion');
     const isPos = track.name.endsWith('.position');
     if (!isQuat && !isPos) continue;
 
     const values = track.values as unknown as Float32Array;
+    const times = track.times as unknown as Float32Array;
     const stride = isQuat ? 4 : 3;
     const numFrames = values.length / stride;
     if (numFrames < 8) continue;
 
-    const blendCount = Math.max(4, Math.floor(numFrames * 0.25));
-    const startFrame = numFrames - blendCount;
+    const totalDur = times && times.length === numFrames
+      ? Math.max(0.01, times[numFrames - 1] - times[0])
+      : clip.duration;
+
+    // 动态计算缝合时长：复用动作配置的 fadeDuration，最大不超过动作总长 35%，保底不少于 0.35s
+    const targetDur = Math.max(0.35, Math.min(seamlessDuration ?? 0.75, totalDur * 0.35));
+
+    let startFrame = 0;
+    if (times && times.length === numFrames) {
+      const cutoffTime = times[numFrames - 1] - targetDur;
+      while (startFrame < numFrames - 4 && times[startFrame] < cutoffTime) {
+        startFrame++;
+      }
+    } else {
+      const blendFrames = Math.max(4, Math.round(numFrames * (targetDur / totalDur)));
+      startFrame = Math.max(0, numFrames - blendFrames);
+    }
+
+    const blendCount = numFrames - startFrame;
+    if (blendCount < 2) continue;
 
     if (isQuat) {
       const q0 = new THREE.Quaternion(values[0], values[1], values[2], values[3]);
@@ -312,7 +333,9 @@ export function makeClipSeamless(clip: THREE.AnimationClip): THREE.AnimationClip
         // 当 i = numFrames - 1 时，alpha 正好为 1.0，确保首尾完全重合
         const alpha = (i - startFrame + 1) / blendCount;
         const clampedAlpha = Math.min(1.0, Math.max(0.0, alpha));
-        const easedAlpha = clampedAlpha * clampedAlpha * (3 - 2 * clampedAlpha); // Smoothstep S 曲线
+        // Quintic Smootherstep: 6t^5 - 15t^4 + 10t^3，保证首尾速度与加速度一阶、二阶导数连续归零
+        const t = clampedAlpha;
+        const easedAlpha = t * t * t * (t * (t * 6 - 15) + 10);
         qCur.slerp(q0, easedAlpha);
 
         values[idx]     = qCur.x;
@@ -329,7 +352,8 @@ export function makeClipSeamless(clip: THREE.AnimationClip): THREE.AnimationClip
         pCur.set(values[idx], values[idx + 1], values[idx + 2]);
         const alpha = (i - startFrame + 1) / blendCount;
         const clampedAlpha = Math.min(1.0, Math.max(0.0, alpha));
-        const easedAlpha = clampedAlpha * clampedAlpha * (3 - 2 * clampedAlpha);
+        const t = clampedAlpha;
+        const easedAlpha = t * t * t * (t * (t * 6 - 15) + 10);
         pCur.lerp(p0, easedAlpha);
 
         values[idx]     = pCur.x;
@@ -338,5 +362,6 @@ export function makeClipSeamless(clip: THREE.AnimationClip): THREE.AnimationClip
       }
     }
   }
+  (clip as any)._seamlessBaked = true;
   return clip;
 }
