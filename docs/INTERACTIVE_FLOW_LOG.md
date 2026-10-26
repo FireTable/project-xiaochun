@@ -56,3 +56,10 @@
        - 角色朗读说话中：按钮变更为优雅的「停止朗读」方块图标（`Square`），点击即刻静音打断；
        - 模型思考生成中：保留加载菊花（`Loader2`）；
        - 闲置待机态：恢复普通灰色不可点状态。
+- **13:20 - 倾听态过渡时长与全局 MotionPipeline 严格统一 (0.75s Quintic Smootherstep)**
+  - **问题分析**: 原版 `ListeningMotionSystem` 采用 `damp 4.5` 指数阻尼，导致切入倾听仅需 ~0.35s，抬手偏急偏促，破坏了管线全局 0.75s 的从容优雅感。
+  - **解法**:
+    1. 统一引入 `SOURCE_FADE_DURATION = 0.75s` 基准；
+    2. 采用管线同款 Ken Perlin 五次平滑步阶曲线（Quintic Smootherstep：$S(p) = 6p^5 - 15p^4 + 10p^3$），首尾一阶与二阶导数严格为 0；
+    3. 支持 `crossfadeScale` 倍率调控，与 Thinking / Speaking 动作过渡保持 100% 物理与美学一致性；
+    4. 全库 153/153 单元测试全部通过。

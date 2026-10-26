@@ -1,6 +1,7 @@
 import * as THREE from 'three';
 import type { VRMHumanBoneName } from '@pixiv/three-vrm';
 import { BONE_INDEX_MAP, type PoseBuffer } from '../pipeline/poseBuffer';
+import { SOURCE_FADE_DURATION } from '../pipeline/selectLiveMotionSource';
 
 /**
  * 倾听动作系统 (Listening Motion System)
@@ -9,20 +10,37 @@ import { BONE_INDEX_MAP, type PoseBuffer } from '../pipeline/poseBuffer';
  * - 左臂：自然垂顺在身体左侧（Z 轴负向垂落）。
  * - 右臂：大臂贴胸前收，小臂深屈折叠向上，手掌微托下颌，食指轻贴脸颊。
  * - 躯干与头颈：轻微前倾与向右侧偏，随呼吸微动。
+ *
+ * 过渡曲线：与全局 MotionPipeline 严格统一，采用标准 0.75s 五次平滑步阶曲线 (Quintic Smootherstep)。
  */
 export class ListeningMotionSystem {
   public enabled = true;
 
-  /** 0 为待机，平滑过渡至 1 为完整托腮倾听 */
+  /** 0 为待机，平滑过渡至 1 为完整托腮倾听 (受 0.75s Quintic 驱动) */
   public weight = 0;
+  /** 归一化过渡进度 [0, 1] */
+  private progress = 0;
+  /** 过渡时长倍率，默认 1.0 (基准时长 0.75s) */
+  public crossfadeScale = 1.0;
+
   private _euler = new THREE.Euler();
   private _targetQ = new THREE.Quaternion();
 
   sampleInto(out: PoseBuffer, time: number, delta: number, active: boolean): void {
     const target = this.enabled && active ? 1 : 0;
-    // 缓动平滑淡入淡出 (进入约 0.35s，退出约 0.45s)
-    this.weight = THREE.MathUtils.damp(this.weight, target, target > this.weight ? 4.5 : 3.2, delta);
-    if (this.weight < 0.002) {
+    const duration = Math.max(0.2, SOURCE_FADE_DURATION * this.crossfadeScale);
+
+    if (target > this.progress) {
+      this.progress = Math.min(1.0, this.progress + delta / duration);
+    } else if (target < this.progress) {
+      this.progress = Math.max(0.0, this.progress - delta / duration);
+    }
+
+    // 采用与全局管线 100% 一致的五次平滑步阶曲线 (首尾零速度零加速度，消除任何机械冲击)
+    const p = this.progress;
+    this.weight = p * p * p * (p * (p * 6 - 15) + 10);
+
+    if (this.weight < 0.0005) {
       this.weight = 0;
       return;
     }
