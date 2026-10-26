@@ -1486,6 +1486,19 @@ export class VRMEngine {
     return this.listening;
   }
 
+  /**
+   * 设置全局动作过渡时长倍率 (基准为 0.75s ± 0.25s，默认 1.0)
+   */
+  public setCrossfadeScale(scale: number): void {
+    const s = Math.max(0.2, scale);
+    this.motionPipeline.crossfadeScale = s;
+    this.motionPipeline.listening.crossfadeScale = s;
+  }
+
+  public getCrossfadeScale(): number {
+    return this.motionPipeline.crossfadeScale;
+  }
+
   /** DevDrawer / P0b: thin forward to EmagePlayer.getPerfSnapshot(). */
   public getEmagePerfSnapshot() {
     return this.emagePlayer.getPerfSnapshot();

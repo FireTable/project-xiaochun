@@ -1,7 +1,7 @@
 import * as THREE from 'three';
 import type { VRMHumanBoneName } from '@pixiv/three-vrm';
 import { BONE_INDEX_MAP, type PoseBuffer } from '../pipeline/poseBuffer';
-import { SOURCE_FADE_DURATION } from '../pipeline/selectLiveMotionSource';
+import { computeAdaptiveFadeDuration } from '../pipeline/adaptiveFade';
 
 /**
  * 倾听动作系统 (Listening Motion System)
@@ -11,16 +11,16 @@ import { SOURCE_FADE_DURATION } from '../pipeline/selectLiveMotionSource';
  * - 右臂：大臂贴胸前收，小臂深屈折叠向上，手掌微托下颌，食指轻贴脸颊。
  * - 躯干与头颈：轻微前倾与向右侧偏，随呼吸微动。
  *
- * 过渡曲线：与全局 MotionPipeline 严格统一，采用标准 0.75s 五次平滑步阶曲线 (Quintic Smootherstep)。
+ * 过渡曲线：与全局 MotionPipeline 严格统一，采用 0.75s ± 0.25s [0.50s, 1.00s] 黄金自适应五次平滑步阶曲线。
  */
 export class ListeningMotionSystem {
   public enabled = true;
 
-  /** 0 为待机，平滑过渡至 1 为完整托腮倾听 (受 0.75s Quintic 驱动) */
+  /** 0 为待机，平滑过渡至 1 为完整托腮倾听 (受自适应 Quintic 驱动) */
   public weight = 0;
   /** 归一化过渡进度 [0, 1] */
   private progress = 0;
-  /** 过渡时长倍率，默认 1.0 (基准时长 0.75s) */
+  /** 过渡时长倍率，默认 1.0 */
   public crossfadeScale = 1.0;
 
   private _euler = new THREE.Euler();
@@ -28,9 +28,15 @@ export class ListeningMotionSystem {
 
   sampleInto(out: PoseBuffer, time: number, delta: number, active: boolean): void {
     const target = this.enabled && active ? 1 : 0;
-    const duration = Math.max(0.2, SOURCE_FADE_DURATION * this.crossfadeScale);
+    const isEntering = target > this.progress;
 
-    if (target > this.progress) {
+    // 倾听态为温和微神态 (diff ≈ 0.20)，自适应切入时间约为 0.60s，退回待机保护为 0.70s~0.75s
+    const duration = computeAdaptiveFadeDuration(0.20, {
+      crossfadeScale: this.crossfadeScale,
+      isActionToIdle: !isEntering,
+    });
+
+    if (isEntering) {
       this.progress = Math.min(1.0, this.progress + delta / duration);
     } else if (target < this.progress) {
       this.progress = Math.max(0.0, this.progress - delta / duration);

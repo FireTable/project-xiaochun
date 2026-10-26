@@ -27,6 +27,7 @@ import {
   WRITER_FADE_DURATION,
   type LiveMotionWriter,
 } from './selectLiveMotionSource';
+import { computeAdaptiveFadeDuration } from './adaptiveFade';
 
 export type PipelineMotionSource = 'idle' | 'vrma' | 'emage' | 'motion';
 export type { MotionTraits, MotionSource, MotionConstraint, PlayHandle } from './types';
@@ -84,6 +85,7 @@ export class MotionPipeline {
   }
 
   // ── 主动作平滑 Crossfader ──
+  public crossfadeScale = 1.0;
   private activeSource: PipelineMotionSource = 'idle';
   public previousSource: PipelineMotionSource = 'idle';
   private activeMask: MotionBoneMask = 'all';
@@ -241,7 +243,17 @@ export class MotionPipeline {
     this.previousSource = this.activeSource;
     this.activeSource = source;
     this.activeMask = mask;
-    this.crossfadeDuration = Math.max(0.26, duration);
+
+    // ── 0.75s ± 0.25s [0.50s, 1.00s] 黄金自适应过渡时长计算 ──
+    const targetPose = (source === 'idle') ? this.basePose : this.actionPose;
+    const diffScore = this.transitionFromPose.distanceTo(targetPose);
+    const isActionToIdle = (source === 'idle' && this.previousSource !== 'idle');
+    this.crossfadeDuration = computeAdaptiveFadeDuration(diffScore, {
+      crossfadeScale: this.crossfadeScale,
+      isActionToIdle,
+      userRequestedDuration: duration,
+    });
+
     this.crossfadeElapsed = 0;
     this.isCrossfading = true;
     this.waitingForActionSample = source !== 'idle';
