@@ -491,10 +491,15 @@ export const ChatBar: React.FC<{
     }
   }, [isModelReady, isQueued]);
 
+  const handleStop = () => {
+    vrmEngine.stopSpeaking();
+    vrmEngine.setListening(false);
+    setIsSending(false);
+  };
+
   const handleSend = async () => {
     const text = inputRef.current?.value.trim() ?? '';
     if (!text) return;
-    if (isSending && !isSpeaking) return;
 
     vrmEngine.stopSpeaking();
     vrmEngine.setListening(false);
@@ -974,8 +979,8 @@ export const ChatBar: React.FC<{
             </div>
           );
 
-          const canStop = !hasText && isSpeaking;
-          const isBusySending = isSending && !isSpeaking;
+          const isBusy = isSending || isSpeaking;
+          const canStop = !hasText && isBusy;
           const isButtonActive = canStop || isQueued || hasText;
 
           const sendBtn = (
@@ -984,17 +989,15 @@ export const ChatBar: React.FC<{
               type="button"
               onClick={() => {
                 if (canStop) {
-                  vrmEngine.stopSpeaking();
+                  handleStop();
                   return;
                 }
                 void handleSend();
               }}
-              disabled={isBusySending || (!hasText && !canStop)}
+              disabled={!isButtonActive}
               aria-label={
                 canStop
                   ? t('chat.stopSpeaking')
-                  : isBusySending
-                  ? t('chat.sending')
                   : isQueued
                   ? t('chat.queued')
                   : hasText && !isModelReady
@@ -1004,8 +1007,6 @@ export const ChatBar: React.FC<{
               title={
                 canStop
                   ? t('chat.stopSpeaking')
-                  : isBusySending
-                  ? t('chat.sending')
                   : isQueued
                   ? `${t('chat.queued')}${!isLLMReady ? ` ${llmPct}%` : ''}`
                   : hasText && !isModelReady
@@ -1013,19 +1014,15 @@ export const ChatBar: React.FC<{
                   : t('chat.send')
               }
               className={`relative h-9 w-9 shrink-0 rounded-full flex items-center justify-center select-none touch-manipulation active:scale-95 appearance-none outline-none border-none transition-all ${
-                isBusySending
-                  ? 'bg-white/10 text-white/50 cursor-wait'
-                  : isButtonActive
+                isButtonActive
                   ? 'text-white bg-[#ea8377] shadow-[0_4px_14px_rgba(234,131,119,0.35)] cursor-pointer hover:brightness-105'
                   : 'text-white/40 bg-transparent cursor-not-allowed'
               }`}
             >
-              <AccentFill on={!isBusySending && isButtonActive} />
+              <AccentFill on={isButtonActive} />
               <span className="relative z-10 flex items-center justify-center">
                 {canStop ? (
                   <span className="w-3 h-3 bg-white rounded-[2.5px] shadow-sm block" />
-                ) : isBusySending || isQueued ? (
-                  <Loader2 className="w-4 h-4 animate-spin text-white" />
                 ) : hasText && !isModelReady ? (
                   <Sparkles className="w-4 h-4 text-white animate-pulse" />
                 ) : (
