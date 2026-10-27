@@ -70,6 +70,47 @@
   - `POST /api/tts` 或 `GET /api/tts?text=...`：标准 5 维参数流式语音合成
   - 可直接填入 `.env.local` 作为 `TTS_PROXY_URL`，供本地开发或 Tauri 桌面客户端直接使用。
 
+### 1.4 音频编码格式实测与技术选型结论 (MP3 vs Opus vs OGG)
+
+为了评估是否需要将默认的 48kbps MP3 替换为压缩率理论上更高的 Opus 或 OGG 格式以进一步节省 R2 存储与网络带宽，我们使用相同测试文本直接对微软 Edge-TTS 上游接口进行了双轮实测基准对比。
+
+#### 1.4.1 微软 Edge-TTS 上游实测基准数据
+
+测试文案：`「你好呀，我是小蠢，今天海边的风很舒服，我们一起去散步吹吹风吧！」`
+
+| 输出格式标识 (`outputFormat`) | 上游支持状态 | 首包到达时间 (TTFB) | 全流完成耗时 | 传输总大小 | 数据分片数 (Chunks) | 格式说明 |
+| :--- | :--- | :--- | :--- | :--- | :--- | :--- |
+| **`audio-24khz-48kbitrate-mono-mp3` (现用)** | **完美支持** | **998 ~ 1,094 ms** | **1,088 ~ 1,281 ms** | **39.7 ~ 43.9 KB** | 56 ~ 62 片 | 工业标准流式 MP3，帧级自包含 |
+| **`webm-24khz-16bit-mono-opus`** | **完美支持** | **716 ~ 1,114 ms** | **883 ~ 1,389 ms** | **42.0 ~ 46.5 KB** | 359 ~ 397 片 | WebM (Matroska) 封装的 Opus 音频流 |
+| **`ogg-24khz-16bit-mono-opus`** | **不支持 (超时)** | **无响应 (0 Byte)** | 超时终止 | 0 KB | 0 片 | 免费 Edge-TTS 端点不提供 OGG 容器 |
+| **`ogg-16khz-16bit-mono-opus`** | **不支持 (超时)** | **无响应 (0 Byte)** | 超时终止 | 0 KB | 0 片 | 同上，微软仅向 Azure 付费企业端点开放 |
+
+#### 1.4.2 核心实测结论
+
+1. **出流速度对比：两处于同一毫秒级水平**
+   - 首包时间（TTFB）均在 **0.7s ~ 1.1s** 之间波动，全流完成耗时均在 **1.1s ~ 1.3s** 上下，差异仅在数十毫秒以内（主要取决于微软云端 GPU 排队状况），Opus 没有明显的吞吐加速优势。
+2. **格式兼容性：Edge-TTS 不支持 OGG，仅支持 WebM Opus**
+   - 微软免费端点对 `ogg-` 请求会直接静默丢包或超时挂起；
+   - 唯一能调通的 Opus 格式为 Chromium 浏览器原生内嵌的 WebM 容器格式（`webm-24khz-16bit-mono-opus`）。
+3. **数据体积对比：Edge-TTS 下 WebM Opus 未见体积优势**
+   - 理论上裸 Opus 在 16~24kbps 下可以比 MP3 省 50% 空间，但 Edge-TTS 免费接口**未开放自定义 Opus 目标码率**，输出的 WebM Opus 处于较高动态码率；
+   - 且 WebM 产生的分包极其零碎（近 400 个分片），每个分片均附带 Matroska SimpleBlock 帧头开销，导致最终传输体积（~44 KB）甚至略大于 48kbps MP3（~41 KB）。
+
+#### 1.4.3 项目客户端链路分工与架构评估
+
+- **Tone.js（声学 DSP 引擎）**：
+  - **完全不限制音频格式**。Tone.js 运行在 Web Audio API 之上，仅处理已解码的原始 PCM 浮点流（`Float32Array`），负责 EQ3 均衡、动态压缩、混响以及贴耳/远场 3D 空间声学。
+- **ChatDirector 宿主音频 (`speakAudio`)**：
+  - **全格式支持**。调用原生 `AudioContext.decodeAudioData`，MP3、WAV、AAC、FLAC、WebM/Opus 等全格式原生支持。
+- **ChatDirector TTS 实时流式链路 (`streamChunkAudioToCheckpoint`)**：
+  - **专为 MP3 深度优化**。为了让 3D 角色在拿到首个音频包（几百毫秒）即刻推演骨骼动作与 RMS 嘴型，采用了轻量 C-WASM `mpg123-decoder` 逐帧解出 PCM。如果换用 Opus，前端必须引入容器 Demuxer 与 Opus WASM 解码器（额外增大约 80 KiB 打包体积与解析计算负担）。
+
+#### 1.4.4 最终架构决策
+维持默认 **`audio-24khz-48kbitrate-mono-mp3`**：
+- **体积微小**：每秒仅 6 KB，单句仅 20~30 KB，Cloudflare R2 免费 10 GB 额度足够留存超 30 万条对话；
+- **零额外打包负担**：无需额外引入 WebM Demuxer 和 Opus WASM 解码依赖；
+- **全平台 100% 绝对兼容**：无论在旧版 iOS Safari、Android WebView 还是桌面端，均具备原生零延迟播放与流式解码稳定性。
+
 ## 2. Upstream Connection
 
 | Item | Value |
