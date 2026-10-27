@@ -25,7 +25,7 @@ export const MOTION_CATALOG = {
     descriptionKey: 'motion.listening.description',
     name: '纯净倾听',
     description: '身躯微倾、面带微笑的亲切专注倾听姿态',
-    url: '/vrm/motion/listening.vrma?v=10',
+    url: '/vrm/motion/listening.vrma?v=11',
     loop: true,
     fadeDuration: 0.95,
     antiClip: false,

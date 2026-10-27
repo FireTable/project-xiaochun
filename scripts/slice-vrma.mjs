@@ -36,6 +36,7 @@ export function sliceVrma(
   const {
     seamless = false,
     seamlessDuration = 0.65,
+    zeroZ = false,
   } = options;
 
   if (!existsSync(inputPath)) {
@@ -123,10 +124,18 @@ export function sliceVrma(
     );
     const newVals = new Float32Array(count * stride);
 
-    // 纯粹复制指定帧区间，绝不擅自篡改任何骨盆位移数值
+    const isTranslation = anim.channels.some(
+      (c) => c.sampler === sIdx && c.target.path === 'translation'
+    );
+
+    // 复制指定帧区间（若开启 zeroZ 则将位移的 Z 轴彻底置零）
     for (let i = 0; i < count; i++) {
       for (let j = 0; j < stride; j++) {
-        newVals[i * stride + j] = origVals[(startFrame + i) * stride + j];
+        let val = origVals[(startFrame + i) * stride + j];
+        if (isTranslation && stride === 3 && j === 2 && zeroZ) {
+          val = 0.0;
+        }
+        newVals[i * stride + j] = val;
       }
     }
 
@@ -309,6 +318,9 @@ if (process.argv[1] && process.argv[1].endsWith('slice-vrma.mjs')) {
 
   # 2. 循环待机动作 (带尾首平滑循环闭环):
   node scripts/slice-vrma.mjs public/vrm/motion/attentive-lean.vrma public/vrm/motion/listening.vrma 3.3 12.0 --seamless
+
+  # 3. 剔除 Z 轴纵深位移 (Z 轴强制归零):
+  node scripts/slice-vrma.mjs public/vrm/motion/attentive-lean.vrma public/vrm/motion/listening2.vrma 6.0 12.0 --seamless --zero-z
 `);
     process.exit(1);
   }
@@ -318,6 +330,7 @@ if (process.argv[1] && process.argv[1].endsWith('slice-vrma.mjs')) {
   const start = args[2] ? parseFloat(args[2]) : 0.0;
   const end = args[3] && !args[3].startsWith('--') ? parseFloat(args[3]) : Infinity;
   const isSeamless = args.includes('--seamless');
+  const isZeroZ = args.includes('--zero-z');
 
-  sliceVrma(inPath, outPath, start, end, { seamless: isSeamless });
+  sliceVrma(inPath, outPath, start, end, { seamless: isSeamless, zeroZ: isZeroZ });
 }
