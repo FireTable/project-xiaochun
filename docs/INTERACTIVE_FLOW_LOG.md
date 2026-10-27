@@ -1,120 +1,119 @@
-# 交互式场景流迭代日志 (Interactive Scene Flow Development Log)
+# Interactive Scene Flow Development Log
 
-> **分支**: `feature/interactive-scene-flow`  
-> **基线 Commit**: `524af1c` (v0.1.39)  
-> **启动时间**: 2026-10-26 11:30 (GMT+8)  
-> **目标定位**: 沉浸式场景全双工语音交互、可编排舞台指令与离线可复现运行闭环。
-
----
-
-## 任务全景与执行路线 (Milestones)
-
-- [x] **Task 1: 全双工打断与独立倾听状态机 (Full-duplex Interruption & Listening State)**
-- [ ] **Task 2: 结构化舞台指令协议 (Stage Directive Protocol)**
-- [ ] **Task 3: 可插拔情境沙盒 (Pluggable Scenario Sandbox)**
-- [ ] **Task 4: 离线 Mock 回放系统与交付验收 (Mock Replay Mode & Deliverables)**
+> **Branch**: `feature/interactive-scene-flow`  
+> **Baseline Commit**: `524af1c` (v0.1.39)  
+> **Start Time**: 2026-10-26 11:30 (GMT+8)  
+> **Target Scope**: Immersive full-duplex conversational voice interaction, orchestratable stage directives, and offline reproducible runtime closed-loop.
 
 ---
 
-## Task 1 迭代详情记录
+## Milestones & Execution Roadmap
 
-### 时间线与变更
-- **11:30 - 分支初始化**
-  - 从 `main` (`524af1c`) 检出功能开发分支 `feature/interactive-scene-flow`。
-- **11:40 - 全双工语音打断链路打通**
-  - `src/stt/sttClient.ts`: 实时 VAD 开口检测到说话时广播 `speech_start` 事件。
-  - `src/core/vrmEngine.ts`: 增强 `stopSpeaking()`，即刻触发 `chatDirector.stop()` 并同步调用 `bubbleTracker.hide()` 隐藏头顶气泡与字幕。
-  - `src/components/ChatBar.tsx`: 建立多模态倾听生命周期闭环：
-    - 输入框聚焦 (`onFocus`) / 打字输入 (`onInput`) / 麦克风开始监听 / VAD 开口识别时立即打断角色发言并激活倾听；
-    - 发送消息 (`handleSend`) 或失焦且无草稿时退出倾听。
-- **12:10 - 倾听系统架构正统化重构**
-  - 纠正错误挂载在 `gaze.ts`（约束层）的方案，杜绝破坏单一骨骼写入者规范。
-  - 确立 `src/motion/sources/` 体系，新增独立一级动作源 `listening.ts` (`ListeningMotionSystem`)，与 `idle.ts`、`vrma.ts`、`emage.ts` 保持同级解耦。
-  - `motionPipeline.ts`: 作为管线调度器持有 `this.listening`，在每帧 `tick` 中针对 `basePose` 平滑采样，说话与主动作激活时优雅让位。
-- **12:35 - 倾听姿态审美升级（单手托腮玩味注视）**
-  - **躯干**: 重心向托腮侧倾斜，胸腔轻微前倾迎合，随自然呼吸微起伏。
-  - **右臂动力链**: 大臂（`rightUpperArm`）贴胸前收，小臂（`rightLowerArm`）深屈折叠向上，手腕背屈，大拇指承托下颌底缘，食指自然贴附脸颊，其余三指收拢下颌底。
-  - **左臂**: 纠正 VRM 骨骼局部坐标系 Z 轴旋转符号，保持在身侧松弛微屈下垂。
-  - **头颈与眼神**: 头颈随托手方向倾斜，`gaze.ts` 倾听权重驱动眼神锁定屏幕前用户（屏蔽走神侧目），嘴角叠加微弱玩味浅笑。
-- **12:45 - 自动化验证**
-  - 编写 `src/motion/listening.test.ts` 姿态与阻尼测试，全库 153/153 单元测试全部通过。
-- **12:55 - 精细化区分「文字打字」与「语音开口」的打断体验**
-  - **问题分析**: 原方案在输入框获取焦点 (`onFocus`) 或有输入内容 (`onInput`) 时均强行调用 `stopSpeaking()`，导致用户只是点开输入框想边听边构思回复时，角色说话就会被粗暴掐断。
-  - **正统人机工学解法**:
-    1. **文字输入流 (Text Composer)**:
-       - 聚焦输入框或正在打字时，**不掐断角色说话**，允许小蠢从容把话讲完；
-       - 当角色说话完毕（`isSpeaking` 变回 `false`）而用户仍在输入框中时，自动平滑滑入托腮倾听姿态；
-       - 唯有在用户点击**发送** (`handleSend`) 时，才果断打断角色可能仍在播的旧语音并提交新对话。
-    2. **语音对讲流 (Voice / STT)**:
-       - 保持全双工拟人性：一旦 VAD 检测到用户真实开口发出声音 (`speech_start`)，立即打断角色发言，进入专注倾听。
-- **13:05 - 修复角色说话期间发送按钮卡死禁用状态**
-  - **根因**: `sendMessage()` 在整个语音朗读期间一直保持 pending 状态，导致 `isSending` 维持为 `true`，按钮被 `disabled={isSending}` 强行锁定并持续转菊花。
-  - **解法**:
-    1. 在 `ChatDirector` 与 `VRMEngine` 中加入 `onSpeakingChange` 响应式状态派发；
-    2. **有输入内容时 (`hasText`)**: 发送按钮解除禁用，高亮为可点击的发送箭头，点击或回车立即打断当前旧语音并发出新消息；
-    3. **无输入内容时 (`!hasText`)**:
-       - 角色朗读说话中：按钮变更为优雅的「停止朗读」方块图标（`Square`），点击即刻静音打断；
-       - 模型思考生成中：保留加载菊花（`Loader2`）；
-       - 闲置待机态：恢复普通灰色不可点状态。
-- **13:20 - 倾听态过渡时长与全局 MotionPipeline 严格统一 (0.75s Quintic Smootherstep)**
-  - **问题分析**: 原版 `ListeningMotionSystem` 采用 `damp 4.5` 指数阻尼，导致切入倾听仅需 ~0.35s，抬手偏急偏促，破坏了管线全局 0.75s 的从容优雅感。
-  - **解法**:
-    1. 统一引入 `SOURCE_FADE_DURATION = 0.75s` 基准；
-    2. 采用管线同款 Ken Perlin 五次平滑步阶曲线（Quintic Smootherstep：$S(p) = 6p^5 - 15p^4 + 10p^3$），首尾一阶与二阶导数严格为 0；
-    3. 支持 `crossfadeScale` 倍率调控，与 Thinking / Speaking 动作过渡保持 100% 物理与美学一致性；
-    4. 全库 153/153 单元测试全部通过。
-- **13:25 - 落地基于 0.75s 起步底线 [0.75s, 1.00s] 黄金自适应动作过渡算法**
-  - **设计目标**: 坚守 0.75s 作为绝对最小值起步底线（绝不向下抢快，保障长发、裙摆与二次元少女身姿的优雅从容感），位姿差异仅向上自适应扩展至 1.00s。
-  - **实现架构**:
-    1. **零 GC 位姿距离测算 (`PoseBuffer.distanceTo`)**: 52 根骨骼四元数夹角加权求和（躯干四肢 1.2x，指节 0.4x）+ 骨盆位移评估，执行耗时仅 ~3 微秒，无任何内存分配；
-    2. **自适应映射公式 (`src/motion/pipeline/adaptiveFade.ts`)**:
-       - 绝对起步底线：`MIN_FADE_DURATION = 0.75s`；
-       - 动态向上浮动区间：`[0.75s, 1.00s]`；
-       - 微小神态（倾听/微点头，diff ≈ 0.1~0.2）$\to$ 坚守 0.75s ~ 0.80s，绝无急躁抽搐；
-       - 常规手势（思考/说话，diff ≈ 0.4~0.5）$\to$ ~0.85s 从容流转；
-       - 大跨度动作（大甩手/舞蹈，diff ≈ 0.8~1.0）$\to$ 向上宽裕延展至 0.95s~1.00s；
-       - 退回待机保护（Action $\to$ Idle）：设立严格 0.75s 平滑底线，防止骨盆回正顿挫；
-    3. **倍率旋钮联动**: `MotionPipeline` 与 `ListeningMotionSystem` 挂载 `crossfadeScale`（默认 1.0），并在 `VRMEngine` 暴露 `setCrossfadeScale()`；
-    4. **自动化核验**: 编写 `src/motion/pipeline/adaptiveFade.test.ts`，全库 159/159 单元测试全部通过。
-- **13:30 - 彻底移除「发送 ➔ Loading」锁死态，升级为全双工随时可打断机制**
-  - **交互洞察**: 传统网页表单的“发送 ➔ 禁用按钮 ➔ 转菊花等待”完全破坏了场景沉浸感，剥夺了用户随时叫停的权利。
-  - **实现方案**:
-    1. 彻底干掉操作按钮上的 `Loader2` 加载菊花和 `disabled` 锁死；
-    2. **发送即打断**: 只要系统在处理中（无论是 LLM 思考生成还是语音朗读），只要输入框为空，按钮常驻为红粉高亮的「停止」按钮（`■`），点击立即中止请求、平息动作回待机；
-    3. **随时插话覆盖**: 只要用户输入了内容（`hasText`），按钮瞬间变更为「发送」（`➤`），点击或回车立刻掐断旧动作/旧语音并发出新意图。
-- **13:45 - 架构级状态收敛：引入 `TurnState` 单一权威源，根除按钮脱节**
-  - **根因排查**:
-    1. 前端 `ChatBar.tsx` 依赖本地 `isSending` 状态，多次发送或提前返回时 `finally` 会将 `isSending` 错误归零，导致角色正在思考（头顶气泡 "让小蠢想想嘛" + 思考动作），按钮却错误展示为闲置灰色发送图标；
-    2. `ChatDirector` 内部思考状态无对外派发机制，打断后后置的异步推理 milestone 可能会把已关闭的气泡错误召回。
-  - **正统架构方案**:
-    1. **底层状态单一真实源 (`TurnState = 'idle' | 'thinking' | 'speaking'`)**:
-       - 在 `ChatDirector` 核心生命周期中定义 `turnState`，并在 `say()` 阶段严格把控 `handoff() ➔ thinking ➔ speaking ➔ idle`；
-       - `VRMEngine` 通过 `onTurnStateChange` 响应式向外统一派发；
-    2. **气泡防僵尸回调防护**:
-       - 在 `say()` 中将 `status` 注入 `guardedStatus` 守卫，一旦代号（`utterance`）过时或被打断，严禁任何未完成的 LLM 异步回调复活气泡；
-    3. **UI 彻底解耦**:
-       - `ChatBar.tsx` 彻底移除无用的本地 `isSending` 状态，统一由 `turnState !== 'idle'` 计算 `isBusy`，确保任何时候角色在思考或朗读，按钮 100% 呈现为可随时点击的红色停止方块（`■`）。
-- **14:25 - 倾听态姿态全面升阶：重塑为「专注倾听、安静聆听」4 维少女体态**
-  - **设计背景**: 原版「单手托腮、歪头玩味偷笑」体态容易在视觉上被读成沉思、无聊或轻挑，且手臂折叠贴脸极易穿插脸颊两侧 11 组发丝 SpringBone 弹簧。根据全新蓝图全面重构为温婉乖巧的聆听身姿。
-  - **4 维视觉系统实现**:
-    1. **手部姿态（双手自然背后）**: 双臂顺着肩膀向后下方优雅收拢（`leftUpperArm` / `rightUpperArm` 后展伸展 $X \approx +0.25$ rad），小臂轻折，双手在后腰/尾椎位置轻叠放松相扣。胸前面部彻底留白，彻底杜绝头发与袖口穿模；
-    2. **躯干与体态（前倾迎合 + 慢漂移）**: `spine` 与 `chest` 向前倾斜倾注约 $3^\circ$（拉近与倾诉者的心理距离），朝向对话者微偏航约 $2.5^\circ$，叠加 18 秒超低频重心漂移微动，消除木桩感；
-    3. **头颈部（微侧倾 + 灵魂相槌点头）**: 侧倾 $6.3^\circ$ 展现亲和力；注入 **2.85s 周期相槌（Aizuchi）点头状态机**（下点 0.25s ➔ 停留 0.15s ➔ 慢回弹 0.45s ➔ 待机停顿 2.0s），产生真正在倾听理解的拟人灵动感；
-    4. **眼神与表情（专注平静）**: 废除 `happy: 0.20` 玩味挑眉微笑，切换为舒展放松的眉眼（`relaxed: 0.18`）与平顺微抿闭唇（`happy: 0.04`）；走神几率压制到 8%（92% 坚定注视用户）。
-  - **自动化核验**: 重构 `src/motion/listening.test.ts`，验证前倾、双臂后背与相槌点头动态差值，全库 160/160 项单元测试全部通过。
-- **21:30 - 真人动捕 (dm_124) 倾听姿态管线接入**
-  - 将待机倾听升级为高精真人动捕资产 `dm_124.vrma`（双手前抱腹温婉微倾姿态）；
-  - 在 `src/core/contact/bustArmContact.ts` 中实现实时胸臂物理防穿模限幅，全库 178/178 测试通过。
-- **22:30~23:05 - 动捕切片平滑缝合、骨盆原生高度守恒与裙摆物理狂甩根治**
-  - **现象**: 循环播放倾听动作时，小蠢礼服长裙出现剧烈无阻尼外翻与狂甩（像降落伞膨胀）。
-  - **根因定位**:
-    1. `slice-vrma.mjs` 中误注入了负向 `hipsYOffset`，骨盆被人为下压后，裙腰被强行压入大腿碰撞球内部（`UpperLeg` 碰撞球侵入 `Hips` 裙摆网格），引发爆炸性物理排斥；
-    2. 切片脚本在 6.6s 与 12.4s 进行硬截断，首尾接缝单帧角度跳变高达 $13.3^\circ$（`Upper_Leg_R`），每次循环（5.75s）的机械脉冲冲击直接踢翻裙摆弹簧；
-    3. 原动捕演员横摆近 26cm，加剧了大腿对外侧裙摆的挤压。
-  - **正统工程解法**:
-    1. **恢复原生骨盆高度**: `hipsYOffset = 0.0`，双足贴地同时彻底恢复裙腰与大腿碰撞球的舒适安全间距；
-    2. **五次平滑首尾循环无缝缝合（Quintic Seamless Loop Blend）**: 在尾部 18 帧应用 $6t^5 - 15t^4 + 10t^3$ 平滑重定向回第 0 帧，首尾跳变位移降至 $0.0000\text{cm}$，角度跳变 $< 0.038^\circ$；
-    3. **骨盆横摆中心化与阻尼**: 将 26cm 巨大平移收敛为 $\pm 1.5\text{cm}$ 自然微幅重心起伏；
-    4. **资产管理幂等性**: 原始素材沉淀至 `public/vrm/motion/raw/listening.vrma`，切片资产重新烘焙，catalog 升级至 `?v=10`；
-  - **验证**: 碰撞模拟下裙摆突变速度从 $> 2150\text{ cm/s}$ 降至 $0.21\text{ cm/s}$，狂甩彻底消除；全库 178/178 单元测试全绿通过。
+- [x] **Task 1: Full-Duplex Interruption & Dedicated Listening State Machine**
+- [ ] **Task 2: Structured Stage Directive Protocol**
+- [ ] **Task 3: Pluggable Scenario Sandbox**
+- [ ] **Task 4: Offline Mock Replay System & Verification**
 
+---
+
+## Task 1 Iteration Details
+
+### Timeline & Changes
+- **11:30 - Branch Initialization**
+  - Checked out feature development branch `feature/interactive-scene-flow` from `main` (`524af1c`).
+- **11:40 - Full-Duplex Voice Interruption Pipeline Established**
+  - `src/stt/sttClient.ts`: Broadcasts `speech_start` event the moment real-time VAD voice activity is detected.
+  - `src/core/vrmEngine.ts`: Enhanced `stopSpeaking()`, immediately triggering `chatDirector.stop()` while synchronously hiding overhead chat bubbles and subtitles via `bubbleTracker.hide()`.
+  - `src/components/ChatBar.tsx`: Established multimodal listening lifecycle:
+    - Input focus (`onFocus`), typing (`onInput`), mic listening start, and VAD speech recognition immediately interrupt character speech and activate the listening state;
+    - Sending a message (`handleSend`) or blurring without a draft exits the listening state.
+- **12:10 - Architectural Refactor for Listening System**
+  - Corrected the preliminary scheme that erroneously mounted listening logic onto `gaze.ts` (constraint layer), eliminating violations of the Single Bone Writer principle.
+  - Established proper placement within `src/motion/sources/`, creating an independent Layer-1 motion source `listening.ts` (`ListeningMotionSystem`) decoupled alongside `idle.ts`, `vrma.ts`, and `emage.ts`.
+  - `motionPipeline.ts`: Holds `this.listening` as pipeline orchestrator, smoothly sampling into `basePose` in each frame's `tick`, gracefully yielding priority when speech or primary action clips activate.
+- **12:35 - Aesthetic Upgrade to Listening Pose (One-Handed Chin-Rest Attentive Gaze)**
+  - **Torso**: Center of gravity subtly shifts towards the resting hand, chest pitches forward gently, rising and falling in sync with natural breathing.
+  - **Right Arm Kinematic Chain**: Upper arm (`rightUpperArm`) adducts against the chest, forearm (`rightLowerArm`) deeply flexes upward, wrist dorsiflexes, thumb cradles the mandibular base, index finger naturally rests against the cheek, and remaining fingers curl beneath the jawline.
+  - **Left Arm**: Inverted VRM bone local Z-axis rotation sign to hang relaxed with a subtle elbow bend at the side.
+  - **Head, Neck, and Gaze**: Head tilts gently toward the resting hand; `gaze.ts` listening weight locks eye focus directly onto the user in front of the screen (suppressing daydreaming glances), layered with a subtle playful smile.
+- **12:45 - Automated Verification**
+  - Authored `src/motion/listening.test.ts` for pose geometry and damping verification; all 153/153 unit tests pass cleanly.
+- **12:55 - Ergonomic Separation of "Text Typing" vs. "Voice Speech" Interruption**
+  - **Problem Analysis**: The preliminary scheme unconditionally called `stopSpeaking()` on input focus (`onFocus`) or keystrokes (`onInput`). When a user merely focused the input box to compose a thought while listening, the character's speech was rudely cut short.
+  - **Ergonomic Solution**:
+    1. **Text Composer Stream**:
+       - Focusing the input box or typing **does not cut off character speech**, allowing XiaoChun to finish speaking naturally;
+       - Once speech finishes (`isSpeaking` returns to `false`) while the user is still in the input field, the avatar smoothly transitions into the listening pose;
+       - Only when the user explicitly clicks **Send** (`handleSend`) does the system forcefully interrupt any active speech and submit the new utterance.
+    2. **Voice / STT Stream**:
+       - Preserves full-duplex conversational immediacy: the moment VAD detects real user voice input (`speech_start`), it immediately interrupts character speech and enters attentive listening.
+- **13:05 - Fix Send Button Stuck in Disabled State During Speech**
+  - **Root Cause**: `sendMessage()` remained pending throughout audio playback, keeping `isSending` at `true` and permanently disabling the button with `disabled={isSending}` while showing a spinner.
+  - **Solution**:
+    1. Added `onSpeakingChange` reactive state dispatching in `ChatDirector` and `VRMEngine`;
+    2. **With text draft (`hasText`)**: Send button is unlocked and highlighted as an active send arrow (`➤`); clicking or pressing Enter immediately interrupts any ongoing speech and sends the new message;
+    3. **Without text draft (`!hasText`)**:
+       - While speaking: Button morphs into an elegant "Stop Speech" square icon (`Square`), allowing one-click mute and interruption;
+       - While model is thinking: Retains loading spinner (`Loader2`);
+       - Idle: Returns to normal inactive state.
+- **13:20 - Listening Transition Duration Harmonized with Global MotionPipeline (0.75s Quintic Smootherstep)**
+  - **Problem Analysis**: `ListeningMotionSystem` originally used exponential damping (`damp 4.5`), taking only ~0.35s to snap into listening, causing an abrupt arm raise that clashed with the pipeline's 0.75s graceful standard.
+  - **Solution**:
+    1. Standardized onto `SOURCE_FADE_DURATION = 0.75s` baseline;
+    2. Adopted Ken Perlin's quintic smootherstep curve ($S(p) = 6p^5 - 15p^4 + 10p^3$), guaranteeing zero first and second derivatives at both ends;
+    3. Added `crossfadeScale` multiplier support, maintaining 100% aesthetic and physical consistency with Thinking and Speaking transitions;
+    4. All 153/153 unit tests pass.
+- **13:25 - Adaptive [0.75s, 1.00s] Golden Transition Window with 0.75s Floor**
+  - **Design Goal**: Uphold 0.75s as the absolute minimum transition floor (never speeding up downward to preserve the graceful anime posture of hair, skirt, and limbs), allowing large pose differences to adaptively expand upward to 1.00s.
+  - **Implementation Architecture**:
+    1. **Zero-GC Pose Distance Measurement (`PoseBuffer.distanceTo`)**: Weighted sum of 52 bone quaternion angular distances (torso and limbs 1.2x, phalanges 0.4x) plus pelvis displacement evaluation, executing in ~3 microseconds with zero memory allocations;
+    2. **Adaptive Mapping Formula (`src/motion/pipeline/adaptiveFade.ts`)**:
+       - Absolute minimum floor: `MIN_FADE_DURATION = 0.75s`;
+       - Dynamic upward range: `[0.75s, 1.00s]`;
+       - Micro-expressions (listening/subtle nodding, diff ≈ 0.1~0.2) $\to$ holds firm at 0.75s ~ 0.80s, preventing jitter;
+       - Standard gestures (thinking/speaking, diff ≈ 0.4~0.5) $\to$ ~0.85s graceful flow;
+       - Large-span actions (dances/sweeping arms, diff ≈ 0.8~1.0) $\to$ expands comfortably to 0.95s ~ 1.00s;
+       - Standby return protection (Action $\to$ Idle): Enforces a strict 0.75s smooth floor to prevent pelvis snap-back;
+    3. **Tuning Multiplier**: Connected `crossfadeScale` (default 1.0) to `MotionPipeline` and `ListeningMotionSystem`, exposed via `vrmEngine.setCrossfadeScale()`;
+    4. **Automated Verification**: Authored `src/motion/pipeline/adaptiveFade.test.ts`; all 159/159 unit tests pass.
+- **13:30 - Eliminate "Send ➔ Loading" Lockout State, Upgrading to Full-Duplex Interruption**
+  - **Interaction Insight**: The traditional web form pattern ("Send ➔ Disable Button ➔ Spin Loader") breaks scene immersion and robs the user of the ability to cancel or interrupt.
+  - **Implementation**:
+    1. Removed `Loader2` locking and `disabled` states from the primary action button;
+    2. **Send is Interruptible**: Whenever the system is busy (LLM generation or TTS audio playback), if the input box is empty, the button displays a red/pink "Stop" square (`■`); clicking immediately halts requests and returns to idle;
+    3. **Instant Utterance Interruption**: If the user has typed text (`hasText`), the button displays "Send" (`➤`); clicking or pressing Enter immediately interrupts any ongoing speech/action and submits the new prompt.
+- **13:45 - Architecture Convergence: SSOT `TurnState` Machine, Eradicating UI Button De-sync**
+  - **Root Cause Investigation**:
+    1. Frontend `ChatBar.tsx` relied on local `isSending` state; repeated submissions or early returns caused `finally` blocks to prematurely zero out `isSending`, displaying an idle send button while the character was still actively thinking (overhead bubble "Let me think..." + thinking posture);
+    2. `ChatDirector` lacked external reactive thinking state dispatching; post-interruption asynchronous LLM milestones could inadvertently re-spawn an already dismissed bubble.
+  - **Architectural Solution**:
+    1. **SSOT Turn State (`TurnState = 'idle' | 'listening' | 'thinking' | 'speaking'`)**:
+       - Defined `turnState` in `ChatDirector` lifecycle, strictly governing `handoff() ➔ thinking ➔ speaking ➔ idle` in `say()`;
+       - `VRMEngine` reactively dispatches changes outward via `onTurnStateChange`;
+    2. **Zombie Bubble Callback Guard**:
+       - Wrapped `status` inside `guardedStatus` in `say()`; once an utterance is superseded or interrupted, lingering LLM async callbacks are strictly forbidden from reviving the bubble;
+    3. **UI Decoupling**:
+       - Completely removed redundant local `isSending` from `ChatBar.tsx`; `isBusy` is evaluated purely as `turnState !== 'idle'`, ensuring the stop button (`■`) is 100% reliably shown whenever the avatar is active.
+- **14:25 - Listening Pose Evolution: 4-Dimensional Demure & Attentive Posture**
+  - **Design Context**: The earlier "one-handed chin rest with playful smirk" posture could be visually interpreted as bored or flippant, and folding the forearm against the face caused clipping with the 11 SpringBone hair strands on the cheek. Refactored into a gentle, demure listening stance.
+  - **4-Dimensional Visual System Implementation**:
+    1. **Hand Posture (Hands Folded Behind Back)**: Both arms sweep gracefully back and down (`leftUpperArm` / `rightUpperArm` extension $X \approx +0.25$ rad), forearms gently bend, and hands lightly clasp near the lower back/sacrum. Leaves the chest and face unobstructed, completely preventing hair and sleeve clipping;
+    2. **Torso & Posture (Forward Lean + Slow Drift)**: `spine` and `chest` lean forward by $\sim 3^\circ$ (reducing psychological distance with the speaker), yawing $\sim 2.5^\circ$ toward the interlocutor, layered with an 18-second ultra-low-frequency center-of-gravity micro-drift to eliminate rigidity;
+    3. **Head & Neck (Subtle Tilt + Aizuchi Nodding FSM)**: Tilts $6.3^\circ$ to express warmth; injects a **2.85s cyclical Aizuchi nodding state machine** (nod down 0.25s ➔ hold 0.15s ➔ slow rebound 0.45s ➔ pause 2.0s), creating an organic sense of empathetic listening;
+    4. **Facial Expression (Serene Attentiveness)**: Replaced `happy: 0.20` smirk with relaxed brow and eyes (`relaxed: 0.18`) and gently closed lips (`happy: 0.04`); daydreaming gaze frequency suppressed to 8% (92% steady gaze on user).
+  - **Automated Verification**: Refactored `src/motion/listening.test.ts` to test forward lean, clasped arms, and aizuchi nodding dynamics; all 160/160 unit tests pass.
+- **21:30 - High-Fidelity Human Mocap (`dm_124`) Listening Asset Ingestion**
+  - Upgraded standby listening to high-precision human mocap asset `dm_124.vrma` (demure forward-leaning stance with hands gently resting over abdomen);
+  - Implemented real-time physical chest-arm contact limiting in `src/core/contact/bustArmContact.ts`; all 178/178 unit tests pass.
+- **22:30~23:05 - Mocap Slicing Seamless Boundary Sewing, Hips Y Native Height Conservation & SpringBone Flailing Remediation**
+  - **Symptom**: Looping the listening motion caused XiaoChun's long dress skirt to violently inflate and flap continuously like a parachute.
+  - **Root Causes**:
+    1. `slice-vrma.mjs` erroneously injected a negative `hipsYOffset`. Depressing the pelvis forced the waistband directly into the thigh collision spheres (`UpperLeg` colliders encroaching into `Hips` skirt mesh), triggering explosive physics repulsion;
+    2. Slicing script hard-cut frames at 6.6s and 12.4s, creating a single-frame boundary angle pop of up to $13.3^\circ$ (`Upper_Leg_R`); the mechanical impulse shockwave on every 5.75s loop cycle destabilized the skirt springs;
+    3. The original mocap actor swayed laterally by nearly 26cm, forcing the thighs outward into the skirt volume.
+  - **Engineering Solution**:
+    1. **Conserve Native Pelvis Height**: Set `hipsYOffset = 0.0`, grounding soles while restoring safe clearance between the waistband and thigh colliders;
+    2. **Quintic Seamless Loop Blend**: Applied $6t^5 - 15t^4 + 10t^3$ over the final 18 frames to smoothly retarget back to frame 0, reducing seam position delta to $0.0000\text{cm}$ and angular delta to $< 0.038^\circ$;
+    3. **Center & Damp Lateral Sway**: Damped 26cm lateral translation down to natural $\pm 1.5\text{cm}$ micro-sway;
+    4. **Idempotent Asset Toolchain**: Preserved pristine raw assets in `public/vrm/motion/raw/listening.vrma`, rebaked sliced assets, and bumped catalog cache query to `?v=10`;
+  - **Verification**: Under collision simulation, peak skirt velocity dropped from $> 2150\text{ cm/s}$ to $0.21\text{ cm/s}$, completely eradicating skirt flailing; all 178/178 unit tests pass green.

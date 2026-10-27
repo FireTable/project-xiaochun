@@ -13,10 +13,10 @@
 ## 1. Request / Response
 
 `POST /api/tts` (or `GET ?text=&voice=&pitch=&rate=&volume=`), body `{ text, voice?, pitch?, rate?, volume? }`:
-- `voice`: 目标发音人（默认 `zh-CN-XiaoyiNeural`）
-- `pitch`: 音调偏移（默认 `+10Hz`）
-- `rate`: 语速变化，支持百分比（默认 `+0%`，如 `+20%`, `-10%`）
-- `volume`: 音量增益（默认 `+0%`，如 `+15%`）
+- `voice`: target voice (defaults to `zh-CN-XiaoyiNeural`)
+- `pitch`: pitch offset (defaults to `+10Hz`)
+- `rate`: speaking rate change with percentage (defaults to `+0%`, e.g. `+20%`, `-10%`)
+- `volume`: volume gain (defaults to `+0%`, e.g. `+15%`)
 
 | Result | Status | Body / Headers |
 | :-- | :-- | :-- |
@@ -26,90 +26,92 @@
 
 ### 1.1 3-Tier Multi-Layer Caching Architecture
 
-为了同时保障低延迟、高并发可用性与持久留存，`/api/tts` 采用三级渐进式缓存设计：
-1. **L1 边缘 PoP 内存缓存 (`caches.default`)**:
-   - 响应延迟: **< 15 ms**
-   - 存储生命周期: 短期热点（受 Cloudflare PoP LRU 内存置换机制管理）
-   - 响应标头: `X-TTS-Cache: HIT`
-2. **L2 R2 对象存储持久化缓存 (`TTS_BUCKET` -> `xiaochun-tts`)**:
-   - 响应延迟: **20 ~ 50 ms**
-   - 存储生命周期: 永久沉淀，跨区域共享，0 Egress 流量费用
-   - 命中时自动异步写回所在 PoP 的 L1 缓存，下一次直接进入 < 15ms 极速通道
-   - 响应标头: `X-TTS-Cache: R2-HIT`
-   - 存储路径: `v1/${voice}/${hashKey}.mp3`
-   - 复合缓存哈希: `hashKey = SHA-256(voice|pitch|rate|volume|text)`，严格隔离不同语速、音高和音量参数，杜绝跨参数音频碰撞
-3. **L3 Edge-TTS 上游实时合成**:
-   - 响应延迟: **~1.0 s** 首包流式下发
-   - 响应标头: `X-TTS-Cache: MISS`
-   - 合成完成后在后台自动双写异步沉淀至 L1 与 L2
+To guarantee low latency, high availability under concurrency, and persistent audio retention, `/api/tts` employs a 3-tier progressive caching architecture:
 
-### 1.2 开源项目零配置与优雅降级保证
-本项目开源部署对 R2 持久存储完全解耦（Duck-Typed）：
-- **启用 R2 持久缓存（推荐）**：
+1. **L1 Edge PoP Memory Cache (`caches.default`)**:
+   - Response latency: **< 15 ms**
+   - Eviction lifecycle: Short-term hot cache governed by Cloudflare's PoP-local LRU memory reclamation
+   - Response header: `X-TTS-Cache: HIT`
+2. **L2 R2 Object Storage Persistent Cache (`TTS_BUCKET` -> `xiaochun-tts`)**:
+   - Response latency: **20 ~ 50 ms**
+   - Eviction lifecycle: Permanent retention, cross-region sharing, 0 egress bandwidth fees
+   - On cache hit, asynchronously backfills the current PoP's L1 cache for subsequent < 15ms requests
+   - Response header: `X-TTS-Cache: R2-HIT`
+   - Object path: `v1/${voice}/${hashKey}.mp3`
+   - Compound cache key: `hashKey = SHA-256(voice|pitch|rate|volume|text)`, strictly isolating different speed, pitch, and volume parameters to prevent cross-prosody audio collisions
+3. **L3 Edge-TTS Upstream Live Synthesis**:
+   - Response latency: **~1.0 s** time-to-first-byte (TTFB) stream
+   - Response header: `X-TTS-Cache: MISS`
+   - Automatically dual-writes to both L1 and L2 asynchronously via `ctx.waitUntil` upon stream completion
+
+### 1.2 Open-Source Zero-Config & Graceful Degradation Guarantee
+
+Open-source deployments are fully decoupled from R2 persistent storage via duck-typing:
+- **Enable R2 Persistent Cache (Recommended)**:
   ```bash
-  # 1. 创建 R2 bucket (仅需执行一次)
+  # 1. Create the R2 bucket (one-time setup)
   pnpm run setup:tts-cache
-  # 2. wrangler.jsonc 默认已包含 TTS_BUCKET 绑定，直接部署即可
+  # 2. wrangler.jsonc includes the TTS_BUCKET binding by default; deploy directly
   pnpm run deploy
   ```
-- **无需 R2 持久缓存**：
-  若个人用户无 R2 额度，仅需在 `wrangler.jsonc` 中删除或注释 `r2_buckets` 配置。Worker 运行时会自动检测 `env.TTS_BUCKET`，缺失时自动无缝退化为 `L1 PoP 内存缓存 + L3 实时合成`，没有任何运行时报错或部署阻碍。
+- **Deploy Without R2 Persistent Cache**:
+  If a user has no Cloudflare R2 allocation, simply delete or comment out the `r2_buckets` section in `wrangler.jsonc`. The Worker runtime detects `env.TTS_BUCKET === undefined` and seamlessly falls back to `L1 PoP Memory Cache + L3 Live Synthesis` with zero runtime exceptions or deployment barriers.
 
-### 1.3 独立 TTS 专属微服务 Worker (`xiaochun-tts`)
+### 1.3 Standalone Dedicated TTS Microservice Worker (`xiaochun-tts`)
 
-项目不仅支持在主站内内置 `/api/tts`，还支持将 TTS 提取为纯净的微服务单独部署：
-- **入口代码**: [`src/tts-worker.ts`](../src/tts-worker.ts)（与主站共用 [`src/server/ttsHandler.ts`](../src/server/ttsHandler.ts)）
-- **配置文件**: [`wrangler.tts.jsonc`](../wrangler.tts.jsonc)
-- **极速部署**:
+Project XiaoChun supports deploying the TTS subsystem as a pure, standalone microservice completely decoupled from the main website:
+- **Entry point**: [`src/tts-worker.ts`](../src/tts-worker.ts) (shares [`src/server/ttsHandler.ts`](../src/server/ttsHandler.ts) with the main site)
+- **Configuration**: [`wrangler.tts.jsonc`](../wrangler.tts.jsonc)
+- **Instant Deployment**:
   ```bash
-  # 单独部署 TTS 微服务（仅 34 KiB，0 前端依赖，秒级上线）
+  # Deploy standalone TTS microservice (only 34 KiB, 0 frontend dependencies, second-level deployment)
   pnpm run deploy:tts
   ```
-- **线上地址**: `https://xiaochun-tts.firetable.workers.dev`
-  - `GET /` 或 `/health`：返回微服务运行状态与 R2 缓存能力检测
-  - `POST /api/tts` 或 `GET /api/tts?text=...`：标准 5 维参数流式语音合成
-  - 可直接填入 `.env.local` 作为 `TTS_PROXY_URL`，供本地开发或 Tauri 桌面客户端直接使用。
+- **Live Endpoint**: `https://xiaochun-tts.firetable.workers.dev`
+  - `GET /` or `/health`: Returns service health status and R2 capability readiness
+  - `POST /api/tts` or `GET /api/tts?text=...`: Standard 5D prosody matrix streaming speech synthesis
+  - Can be populated directly into `.env.local` as `TTS_PROXY_URL` for local development or Tauri desktop client use.
 
-### 1.4 音频编码格式实测与技术选型结论 (MP3 vs Opus vs OGG)
+### 1.4 Audio Encoding Benchmark & Codec Evaluation (MP3 vs Opus vs OGG)
 
-为了评估是否需要将默认的 48kbps MP3 替换为压缩率理论上更高的 Opus 或 OGG 格式以进一步节省 R2 存储与网络带宽，我们使用相同测试文本直接对微软 Edge-TTS 上游接口进行了双轮实测基准对比。
+To evaluate whether the default 48 kbps MP3 should be replaced by theoretically higher-compression formats like Opus or OGG to save R2 storage and network bandwidth, we conducted two-round benchmarks against Microsoft's live Edge-TTS upstream interface using identical text payloads.
 
-#### 1.4.1 微软 Edge-TTS 上游实测基准数据
+#### 1.4.1 Live Edge-TTS Upstream Benchmark Data
 
-测试文案：`「你好呀，我是小蠢，今天海边的风很舒服，我们一起去散步吹吹风吧！」`
+Test payload: `"你好呀，我是小蠢，今天海边的风很舒服，我们一起去散步吹吹风吧！"`
 
-| 输出格式标识 (`outputFormat`) | 上游支持状态 | 首包到达时间 (TTFB) | 全流完成耗时 | 传输总大小 | 数据分片数 (Chunks) | 格式说明 |
+| Output Format Specifier (`outputFormat`) | Upstream Support | Time to First Byte (TTFB) | Total Stream Duration | Total Transfer Size | Chunk Count | Format Profile |
 | :--- | :--- | :--- | :--- | :--- | :--- | :--- |
-| **`audio-24khz-48kbitrate-mono-mp3` (现用)** | **完美支持** | **998 ~ 1,094 ms** | **1,088 ~ 1,281 ms** | **39.7 ~ 43.9 KB** | 56 ~ 62 片 | 工业标准流式 MP3，帧级自包含 |
-| **`webm-24khz-16bit-mono-opus`** | **完美支持** | **716 ~ 1,114 ms** | **883 ~ 1,389 ms** | **42.0 ~ 46.5 KB** | 359 ~ 397 片 | WebM (Matroska) 封装的 Opus 音频流 |
-| **`ogg-24khz-16bit-mono-opus`** | **不支持 (超时)** | **无响应 (0 Byte)** | 超时终止 | 0 KB | 0 片 | 免费 Edge-TTS 端点不提供 OGG 容器 |
-| **`ogg-16khz-16bit-mono-opus`** | **不支持 (超时)** | **无响应 (0 Byte)** | 超时终止 | 0 KB | 0 片 | 同上，微软仅向 Azure 付费企业端点开放 |
+| **`audio-24khz-48kbitrate-mono-mp3` (Current)** | **Supported** | **998 ~ 1,094 ms** | **1,088 ~ 1,281 ms** | **39.7 ~ 43.9 KB** | 56 ~ 62 chunks | Industry-standard streaming MP3, frame-level self-contained |
+| **`webm-24khz-16bit-mono-opus`** | **Supported** | **716 ~ 1,114 ms** | **883 ~ 1,389 ms** | **42.0 ~ 46.5 KB** | 359 ~ 397 chunks | WebM (Matroska) containerized Opus audio stream |
+| **`ogg-24khz-16bit-mono-opus`** | **Unsupported (Timeout)** | **No data (0 Bytes)** | Timed out | 0 KB | 0 chunks | Free Edge-TTS endpoint does not provide OGG containers |
+| **`ogg-16khz-16bit-mono-opus`** | **Unsupported (Timeout)** | **No data (0 Bytes)** | Timed out | 0 KB | 0 chunks | Same as above; Microsoft reserves OGG for paid Azure Speech tiers |
 
-#### 1.4.2 核心实测结论
+#### 1.4.2 Key Benchmark Conclusions
 
-1. **出流速度对比：两处于同一毫秒级水平**
-   - 首包时间（TTFB）均在 **0.7s ~ 1.1s** 之间波动，全流完成耗时均在 **1.1s ~ 1.3s** 上下，差异仅在数十毫秒以内（主要取决于微软云端 GPU 排队状况），Opus 没有明显的吞吐加速优势。
-2. **格式兼容性：Edge-TTS 不支持 OGG，仅支持 WebM Opus**
-   - 微软免费端点对 `ogg-` 请求会直接静默丢包或超时挂起；
-   - 唯一能调通的 Opus 格式为 Chromium 浏览器原生内嵌的 WebM 容器格式（`webm-24khz-16bit-mono-opus`）。
-3. **数据体积对比：Edge-TTS 下 WebM Opus 未见体积优势**
-   - 理论上裸 Opus 在 16~24kbps 下可以比 MP3 省 50% 空间，但 Edge-TTS 免费接口**未开放自定义 Opus 目标码率**，输出的 WebM Opus 处于较高动态码率；
-   - 且 WebM 产生的分包极其零碎（近 400 个分片），每个分片均附带 Matroska SimpleBlock 帧头开销，导致最终传输体积（~44 KB）甚至略大于 48kbps MP3（~41 KB）。
+1. **Synthesis & Streaming Latency: Identical Millisecond Tier**
+   - TTFB fluctuates between **0.7s ~ 1.1s**, and total completion takes **1.1s ~ 1.3s**, differing by only tens of milliseconds (primarily driven by Microsoft cloud GPU scheduling queues). Opus exhibits no meaningful throughput speedup.
+2. **Container Compatibility: Edge-TTS Does Not Support OGG, Only WebM Opus**
+   - The free Edge-TTS endpoint silently drops or times out on `ogg-` requests.
+   - The only functional Opus container is WebM (`webm-24khz-16bit-mono-opus`), which aligns with Chromium's internal streaming media pipeline.
+3. **Payload Size: WebM Opus Offers No Size Advantage Under Edge-TTS**
+   - While bare Opus can theoretically save ~50% space at 16~24 kbps, the free Edge-TTS service does not expose target bitrate tuning and produces high dynamic bitrates.
+   - WebM splits audio into hundreds of tiny fragments (~400 chunks), each carrying Matroska SimpleBlock header overhead. Consequently, the final payload (~44 KB) is slightly larger than 48 kbps MP3 (~41 KB).
 
-#### 1.4.3 项目客户端链路分工与架构评估
+#### 1.4.3 Client-Side Architecture Breakdown
 
-- **Tone.js（声学 DSP 引擎）**：
-  - **完全不限制音频格式**。Tone.js 运行在 Web Audio API 之上，仅处理已解码的原始 PCM 浮点流（`Float32Array`），负责 EQ3 均衡、动态压缩、混响以及贴耳/远场 3D 空间声学。
-- **ChatDirector 宿主音频 (`speakAudio`)**：
-  - **全格式支持**。调用原生 `AudioContext.decodeAudioData`，MP3、WAV、AAC、FLAC、WebM/Opus 等全格式原生支持。
-- **ChatDirector TTS 实时流式链路 (`streamChunkAudioToCheckpoint`)**：
-  - **专为 MP3 深度优化**。为了让 3D 角色在拿到首个音频包（几百毫秒）即刻推演骨骼动作与 RMS 嘴型，采用了轻量 C-WASM `mpg123-decoder` 逐帧解出 PCM。如果换用 Opus，前端必须引入容器 Demuxer 与 Opus WASM 解码器（额外增大约 80 KiB 打包体积与解析计算负担）。
+- **Tone.js (Vocal DSP Engine)**:
+  - **Completely codec-agnostic**. Tone.js operates in the Web Audio graph on uncompressed Float32 PCM arrays, handling EQ3 equalization, dynamic compression, reverb, and 3D camera distance attenuation.
+- **ChatDirector Host Audio (`speakAudio`)**:
+  - **Universal format support**. Delegates to browser-native `AudioContext.decodeAudioData`, supporting MP3, WAV, AAC, FLAC, and WebM/Opus out of the box.
+- **ChatDirector Live TTS Pipeline (`streamChunkAudioToCheckpoint`)**:
+  - **Optimized for streaming MP3**. To allow the 3D avatar to drive bone animation and RMS lipsync within hundreds of milliseconds of the first packet, it employs a lightweight C-WASM `mpg123-decoder` for chunk-by-chunk PCM extraction. Switching to Opus would require adding a container demuxer and Opus WASM decoder (adding ~80 KiB to the frontend bundle).
 
-#### 1.4.4 最终架构决策
-维持默认 **`audio-24khz-48kbitrate-mono-mp3`**：
-- **体积微小**：每秒仅 6 KB，单句仅 20~30 KB，Cloudflare R2 免费 10 GB 额度足够留存超 30 万条对话；
-- **零额外打包负担**：无需额外引入 WebM Demuxer 和 Opus WASM 解码依赖；
-- **全平台 100% 绝对兼容**：无论在旧版 iOS Safari、Android WebView 还是桌面端，均具备原生零延迟播放与流式解码稳定性。
+#### 1.4.4 Final Architectural Decision
+Retain default **`audio-24khz-48kbitrate-mono-mp3`**:
+- **Ultra-compact**: ~6 KB/s, only 20~30 KB per sentence. Cloudflare R2's free 10 GB tier comfortably stores over 300,000 sentences.
+- **Zero bundle overhead**: Eliminates the need for WebM demuxers or additional WASM decoders.
+- **100% universal compatibility**: Plays reliably with low latency across legacy iOS Safari, Android WebViews, and desktop clients.
 
 ## 2. Upstream Connection
 

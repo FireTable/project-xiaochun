@@ -198,7 +198,7 @@ With `horizonCurveR = 700` the horizon lands around the hips in full-body portra
 - Clouds and islands follow the camera's translation (not its rotation) and live inside the 100 m far plane, which makes them effectively infinitely far away.
 - The sky draws first (`renderOrder −1000`), then clouds (−990), then islands (−980).
 
-## Environment time & 24-hour day-night cycle (全天时间设定)
+## Environment time & 24-hour day-night cycle
 
 The scene can be lit by the time of day with a continuous **24-hour solar and lunar celestial progression**. The time system is **generic**: the engine and UI components interact exclusively through the `IEnvironmentTimeAware` and `IEnvironmentLightProvider` contracts in `src/core/scene/environmentTime.ts`. `beach3d` is the reference scene implementing full 24-hour dynamic illumination, sky gradients, and synchronized character lighting.
 
@@ -207,10 +207,10 @@ The scene can be lit by the time of day with a continuous **24-hour solar and lu
 | Mode | Hour | Atmosphere | Visual Characteristic |
 | :--- | :--- | :--- | :--- |
 | `auto` | Real-time | Follows system clock | Automatically syncs with reality, smoothly interpolated every 10 seconds |
-| `dawn` | 05:00 – 08:00 | 破晓晨曦 / Dawn Awakening | Warm pinkish-violet sky (`#f472b6`), low sunrise elevation, soft violet ambient shadows |
-| `day` | 08:00 – 16:30 | 明媚白昼 / Sunny Day | 12:00 reference look (`#38bdf8`), turquoise sea, bright sand, crisp noon shadow |
-| `sunset` | 16:30 – 19:30 | 落日黄昏 / Sunset Glow | 17:45 golden hour (`#fb923c`), sun touching the sea horizon, sparkling water glint path |
-| `night` | 19:30 – 05:00 | 静谧星夜 / Starry Night | 22:00 moonlit beach (`#818cf8`), cool high moon, illuminated lighthouse beacon |
+| `dawn` | 05:00 – 08:00 | Dawn Awakening | Warm pinkish-violet sky (`#f472b6`), low sunrise elevation, soft violet ambient shadows |
+| `day` | 08:00 – 16:30 | Sunny Day | 12:00 reference look (`#38bdf8`), turquoise sea, bright sand, crisp noon shadow |
+| `sunset` | 16:30 – 19:30 | Sunset Glow | 17:45 golden hour (`#fb923c`), sun touching the sea horizon, sparkling water glint path |
+| `night` | 19:30 – 05:00 | Starry Night | 22:00 moonlit beach (`#818cf8`), cool high moon, illuminated lighthouse beacon |
 | `number` | 0.00 – 24.00 | Continuous 24h dial | Exact hour float with seamless palette interpolation and shadow-sun alignment |
 
 `vrmEngine.setEnvironmentTime(time, { isDragging })` is the unified entry point. The engine retains the latest active environment time across scene switches and notifies listeners via the `environment-time-changed` event. Scenes without environment time support return `isEnvironmentTimeSupported() === false`, cleanly hiding time cards in desktop-pet and static canvas modes.
@@ -226,15 +226,15 @@ The beach scene features an interactive glassmorphic HUD (`src/components/SceneT
 2. **Polar-angle celestial track (`Math.atan2`)**:
    - A semicircle arc with center $(130, 115)$ and radius $r = 92\text{px}$, spanning from 00:00 (left, $\pi$) through 12:00 (top, $\pi/2$) to 24:00 (right, $0$).
    - Drag coordinates are evaluated using true polar angles `Math.atan2(cy - y, x - cx)`, eliminating the infinite derivative singularities and boundary-speed warping previously caused by $\arccos$ horizontal projections.
-3. **Cinematic "从慢到快" time-lapse easing (`timeLapseEase`)**:
+3. **Cinematic ease-in-out time-lapse pacing (`timeLapseEase`)**:
    - Uses an Ease-In-Out Cubic curve ($f(t) = 4t^3$ for $t < 0.5$, $1 - (-2t+2)^3 / 2$ for $t \ge 0.5$).
-   - Starts at initial velocity $v(0) = 0$ ("从慢起步"), smoothly accelerates into peak flow velocity across the middle hours ("加速飞逝"), and gently settles into the target hour.
+   - Starts at initial velocity $v(0) = 0$ (gentle start), smoothly accelerates into peak flow velocity across the middle hours (time-warp acceleration), and gently settles into the target hour.
    - Proportional duration scaling:
      $$\text{Duration} = \min(3.8, \max(1.2, 1.2 + \Delta\text{Hours} \times 0.22)) \text{ seconds}$$
      Small adjustments take ~1.4s; long daytime-to-night transitions (10+ hours) take ~3.4s to provide an immersive time-travel sensation.
 4. **Real-time 5-preset dock binding (`activePresetId`)**:
-   - The bottom 5-preset dock (`自动 SYNC`, `凌晨 00:00`, `破晓 06:00`, `正午 12:00`, `黄昏 18:00`) strictly follows every 6-hour symmetrical quadrant (±3h centered window) during animation and user dragging, completely eliminating cross-period misattribution bugs.
-   - Symmetrical 4-quadrant celestial cycle: 幽邃凌晨 (21:00~03:00, center 00:00), 破晓晨曦 (03:00~09:00, center 06:00), 烈日正午 (09:00~15:00, center 12:00), 落日黄昏 (15:00~21:00, center 18:00).
+   - The bottom 5-preset dock (`Auto Sync`, `Midnight 00:00`, `Dawn 06:00`, `Noon 12:00`, `Dusk 18:00`) strictly follows every 6-hour symmetrical quadrant (±3h centered window) during animation and user dragging, completely eliminating cross-period misattribution bugs.
+   - Symmetrical 4-quadrant celestial cycle: Midnight (21:00~03:00, center 00:00), Dawn (03:00~09:00, center 06:00), Noon (09:00~15:00, center 12:00), Dusk (15:00~21:00, center 18:00).
 5. **Full Internationalization (i18n)**:
    - Full translation coverage in Chinese (`zh-CN`), English (`en`), and Japanese (`ja`) for all atmospheric titles, badges, and preset options.
 

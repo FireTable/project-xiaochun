@@ -203,8 +203,8 @@ $$S(t) = 6t^5 - 15t^4 + 10t^3 \quad (t \in [0, 1])$$
 >    - `FootIK` adapts the forward pole vector $\mathbf{V}_{\text{forward}}$ to $(0, 0, -1)$ in local hips space so knees bend forward in world space, and clamps ankle targets to $\ge \text{restAnkleY}$ to prevent floor penetration.
 
 > [!CAUTION]
-> ### Pitfall 8: Mocap Asset Ingestion, Pelvis Sinking Trap & SpringBone Explosive Flailing Trap (动捕切片、骨盆高度篡改与裙摆物理狂甩陷阱)
-> **Symptom**: Playing a looped mocap VRMA (such as `listening.vrma`) causes the character's skirt (`SpringBone`) to flare open like a parachute and violently flap/shake continuously ("裙子狂甩"), while loop repeats produce a visible jerk.  
+> ### Pitfall 8: Mocap Asset Ingestion, Pelvis Sinking Trap & SpringBone Explosive Flailing Trap
+> **Symptom**: Playing a looped mocap VRMA (such as `listening.vrma`) causes the character's skirt (`SpringBone`) to flare open like a parachute and violently flap/shake continuously ("skirt violent flailing"), while loop repeats produce a visible jerk.  
 > **Root Causes**:
 > 1. **Hips Y Depression Colliding with Thigh Spheres**:
 >    In VRM humanoid hierarchy, the skirt bones hang from `Hips`, while the collision spheres (`VRMSpringBoneColliderGroup`) attach to `UpperLeg`. Tampering with `Root_M` translation Y (e.g. subtracting `hipsYOffset = -0.094m` or `-0.054m` in an attempt to manually "ground" the character) sinks the waistband directly into the middle of the thigh colliders! Any movement of the legs applies explosive contact impulses, kicking the skirt outwards into an undamped limit-cycle oscillation.
@@ -224,9 +224,9 @@ $$S(t) = 6t^5 - 15t^4 + 10t^3 \quad (t \in [0, 1])$$
 >    Keep pristine raw source files under `public/vrm/motion/raw/` to ensure offline toolchains never repeatedly re-slice or degrade already processed assets.
 
 > [!CAUTION]
-> ### Pitfall 9: Locomotion Layer Stepping Collision & Weight-Shift FSM on Upper/Full Body Actions (步态层与动捕下半身冲突、骨盆跳跃与生理移心状态机)
-> **Symptom 1**: When `bodyTurn` triggers during an active mocap pose (e.g. `listening`), the lower body abruptly snaps from a wide mocap stance into stepping legs, and upon completing stepping, the pelvis suddenly jumps horizontally sideways (`小幅小平移与骨盆横移跳变`).  
-> **Symptom 2**: Playing a mocap action with high-heels or non-zero floor offsets causes the avatar's feet to float in the air ("小飞侠悬空").
+> ### Pitfall 9: Locomotion Layer Stepping Collision & Weight-Shift FSM on Upper/Full Body Actions
+> **Symptom 1**: When `bodyTurn` triggers during an active mocap pose (e.g. `listening`), the lower body abruptly snaps from a wide mocap stance into stepping legs, and upon completing stepping, the pelvis suddenly jumps horizontally sideways (lateral pelvic jump).  
+> **Symptom 2**: Playing a mocap action with high-heels or non-zero floor offsets causes the avatar's feet to float in the air ("floating feet").
 > 
 > **Root Causes**:
 > 1. **Mocap Foot Kinematics vs Standby Sole Anchoring**:
@@ -249,6 +249,76 @@ $$S(t) = 6t^5 - 15t^4 + 10t^3 \quad (t \in [0, 1])$$
 > 3. **Locomotion Hip Dynamics & Weight-Shift Reset**:
 >    - In `NaturalIdleSystem.update`, when `locomotionWeight > 0.05` or stepping is active, damp `currentWeightShift` and `currentTorsoTurnYaw` to $0$ with rate $12.0$.
 >    - In `BodyTurnSystem`, elevate `SP.SETTLE` damping rate to $12.0$ and explicitly align `currentHipsPos` / `currentHipsQ` to `restHipsPos` / `restHipsQ` upon entering `SP.IDLE`.
+
+---
+
+## 3. MotionAssetManager & Type-Safe Motion Groups (`MOTION_GROUPS`)
+
+To eliminate duplicate motion loading, network fetches, and imperative magic calls, motion asset management is unified under `MotionAssetManager` (`src/motion/pipeline/motionAssetManager.ts`):
+
+### 3.1 Three-Tier Asset Cache Hierarchy
+1. **L1 Memory ArrayBuffer Pool** (`Map<string, ArrayBuffer>`): Instantaneous (0ms) synchronous access for frequently used or warmed motion binaries.
+2. **L2 IndexedDB Cache** (`vrm-assets-cache` store): Persistent on-device storage via `idbGetMotion` / `idbPutMotion`. Survives page reloads and browser sessions without redundant network transfers.
+3. **L3 Bound AnimationClip Pool** (`Map<string, THREE.AnimationClip>`): Pre-retargeted, seamless-baked animation clips bound to the current VRM skeleton.
+   - **Outfit Swap Invalidation Guarantee**: When model swaps, `invalidateBoundClips()` flushes L3 while preserving L1/L2 binary pools intact. Re-binding to the new skeleton takes only 5~10ms purely in CPU memory.
+
+### 3.2 Motion Catalog Warmup (`warmup: true`)
+Entries in `MOTION_CATALOG` (`src/motion/catalog.ts`) can declare `warmup: true` (e.g. `thinking`, `listening`, `showFullBody`, `joyfulJump`, `handHeart`, `pokeDimple`).
+During model initialization / heavy preload (`vrmEngine.preloadHeavyResources`), `motionAssetManager.warmCatalogMotions(vrm)` fetches and pre-parses these clips in parallel.
+
+### 3.3 Compile-Time Type-Safe Motion Groups (`MOTION_GROUPS`)
+Interactive scenarios often trigger dynamic weighted motion playback (e.g. `outfitShowcase`).
+Groups are defined with `as const satisfies Record<string, readonly MotionGroupItem<MotionCatalogId>[]>`:
+- **Compile-Time Safety**: If any action ID in `MOTION_GROUPS` is renamed or deleted from `MOTION_CATALOG`, TypeScript immediately throws a compile-time error (`tsc TS2322`).
+- **Weighted Random Selection**: `selectMotionFromGroup(groupName)` executes weighted random sampling according to declared ratios (e.g. 60% `showFullBody`, 20% `joyfulJump`, 15% `handHeart`, 5% `pokeDimple`).
+
+---
+
+## 4. SSOT Turn State Machine (`TurnState`)
+
+Fragmented flags (`isListening`, `listening`, `speaking`, `isThinking`) are unified into a Single Source of Truth:
+
+$$\text{TurnState} \in \{\text{'idle'}, \; \text{'listening'}, \; \text{'thinking'}, \; \text{'speaking'}\}$$
+
+1. **State-Driven Motion**:
+   - Calling `vrmEngine.setTurnState(state)` or `chatDirector.setTurnState(state)` notifies `motionPipeline.onTurnStateChange(state)`.
+   - `'listening'` smoothly blends mocap posture and facial focus.
+   - `'thinking'` automatically starts the pre-warmed thinking clip with fallback to procedural sway.
+   - `'speaking'` activates the EMAGE conversational gesture stream.
+   - `'idle'` Quintic-crossfades smoothly back to `NaturalIdle`.
+2. **UI & Busyness Contract**:
+   - `isBusy = turnState === 'thinking' || turnState === 'speaking'`.
+   - When typing in `'listening'`, `isBusy` remains `false`, preventing premature Send button locking.
+   - DOM class `chat-playing` on `document.body` is strictly governed by `turnState !== 'idle'`.
+
+---
+
+## 5. VRMA Motion Optimization Toolchain (`scripts/slice-vrma.mjs`)
+
+Mocap files direct from DCC tools often contain dense sampling (60 FPS), unmapped secondary bones (hair, bust), and redundant static keyframes. To maintain low memory footprint and fast network loading without compromising motion quality, `scripts/slice-vrma.mjs` provides an automated, lossless optimization pipeline:
+
+### 5.1 Optimization Principles
+1. **Adaptive FPS Capping (max 30 FPS)**:
+   - Motions with native framerates $> 32\text{ FPS}$ (e.g. 60 FPS) are cleanly downsampled to 30 FPS.
+   - Three.js `AnimationMixer` computes spherical linear interpolation (Slerp) on the fly, rendering at full 60/120 Hz display refresh rates with **zero visible difference** (max angular deviation $< 1.5^\circ$, hips position deviation $< 0.45\text{ mm}$).
+   - Motions already authored at $\le 30\text{ FPS}$ (e.g. 24 FPS) keep their native frames 100% untouched.
+2. **Orphan & Ignored Channel Stripping**:
+   - Drops non-humanoid channels (hair, bust, eyes) that `@pixiv/three-vrm-animation` ignores, preventing conflicts with `VRMSpringBone` and reclaiming ~40% of buffer memory.
+   - Strips non-standard `translation` tracks on bones other than `hips` (eliminates runtime Three.js console warnings).
+3. **Exact Zero-Diff Static Track Collapse**:
+   - Channels with zero or negligible motion ($\Delta_{\max} \le 10^{-4}$) over the whole clip are collapsed into 2 constant keyframes ($t=0$ and $t=\text{duration}$).
+4. **Shared Time Accessor**:
+   - Eliminates per-sampler duplicated time arrays, consolidating time tracks into a single shared glTF accessor.
+
+### 5.2 CLI Usage
+```bash
+# Batch optimize all VRMA files in public/vrm/motion/
+node scripts/slice-vrma.mjs --optimize-all
+
+# Optimize a single VRMA file (in-place or to target)
+node scripts/slice-vrma.mjs --optimize public/vrm/motion/show-full-body.vrma
+```
+
 
 
 
