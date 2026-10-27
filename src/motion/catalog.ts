@@ -40,7 +40,7 @@ export const MOTION_CATALOG = {
     id: 'thinking',
     nameKey: 'motion.thinking.name',
     descriptionKey: 'motion.thinking.description',
-    name: '托腮沉思',
+    name: '比划思考',
     description: '单手轻托下巴、陷入思索的专注思考姿态',
     url: '/vrm/motion/thinking.vrma',
     warmup: true,
@@ -58,6 +58,7 @@ export const MOTION_CATALOG = {
     name: '放松舒展',
     description: '全身舒展放松、调整站姿的自然一次性动作',
     url: '/vrm/motion/relax-stretch.vrma?v=3',
+    warmup: true,
     loop: false,
     fadeDuration: 0.85,
     mask: 'all',
@@ -72,6 +73,7 @@ export const MOTION_CATALOG = {
     antiClip: false,
     description: '身躯前倾、食指轻抵唇边的俏皮比嘘手势',
     url: '/vrm/motion/shh-lean.vrma?v=2',
+    warmup: true,
     loop: false,
     fadeDuration: 0.85,
     mask: 'all',
@@ -84,6 +86,7 @@ export const MOTION_CATALOG = {
     name: '观望打量',
     description: '左右轻轻观望打量周围环境的惬意站姿',
     url: '/vrm/motion/gaze-observe.vrma?v=4',
+    warmup: true,
     loop: true,
     fadeDuration: 0.85,
     mask: 'all',
@@ -97,6 +100,7 @@ export const MOTION_CATALOG = {
     name: '困倦打盹',
     description: '脑袋轻点打盹、困意朦胧的可爱瞬间',
     url: '/vrm/motion/sleepy-nod.vrma?v=3',
+    warmup: true,
     loop: false,
     fadeDuration: 0.85,
     mask: 'all',
@@ -112,6 +116,7 @@ export const MOTION_CATALOG = {
     name: '热情招手',
     description: '高举右臂向远方用力挥手问好',
     url: '/vrm/motion/waving.vrma?v=2',
+    warmup: true,
     loop: false,
     fadeDuration: 0.75,
     mask: 'all',
@@ -154,6 +159,7 @@ export const MOTION_CATALOG = {
     name: '戳小手指',
     description: '双手在胸前紧张戳着小手指的害羞姿态',
     url: '/vrm/motion/poke-fingers.vrma?v=3',
+    warmup: true,
     loop: true,
     fadeDuration: 0.75,
     mask: 'all',
@@ -167,6 +173,7 @@ export const MOTION_CATALOG = {
     name: '撒娇轻哼',
     description: '微偏过头轻哼一声的傲娇撒娇小动作',
     url: '/vrm/motion/pout-hum.vrma?v=2',
+    warmup: true,
     loop: false,
     fadeDuration: 0.65,
     mask: 'all',
@@ -194,6 +201,7 @@ export const MOTION_CATALOG = {
     name: '猫咪拳头',
     description: '双手握成猫咪小拳头放在腮边的萌态',
     url: '/vrm/motion/cat-paws.vrma?v=4',
+    warmup: true,
     loop: false,
     fadeDuration: 0.65,
     mask: 'all',
@@ -207,6 +215,7 @@ export const MOTION_CATALOG = {
     name: '小狗拳头',
     description: '双手如小狗爪爪般乖巧握拳比划',
     url: '/vrm/motion/puppy-paws.vrma?v=3',
+    warmup: true,
     loop: false,
     fadeDuration: 0.65,
     mask: 'all',
@@ -347,6 +356,7 @@ export const MOTION_CATALOG = {
     name: '核对时间',
     description: '抬起手腕认真查看手表核对时间的日常动作',
     url: '/vrm/motion/check-time.vrma?v=3',
+    warmup: true,
     loop: false,
     fadeDuration: 0.85,
     mask: 'all',
@@ -388,12 +398,52 @@ export interface MotionGroupItem<T extends MotionCatalogId = MotionCatalogId> {
  * 包含随机触发权重（权重不必归一化为 100，自动按相对比例抽取）。
  */
 export const MOTION_GROUPS = {
-  /** 换装走秀展示动作组 (showcase: 60% 全身展示, 20% 惊喜轻跳, 15% 双手比心, 5% 戳小酒窝) */
+  /** 换装走秀展示动作组 (showcase: 70% 全身展示, 20% 双手比心, 10% 戳小酒窝) */
   outfitShowcase: [
-    { id: 'showFullBody', weight: 60 },
-    { id: 'joyfulJump', weight: 20 },
-    { id: 'handHeart', weight: 15 },
-    { id: 'pokeDimple', weight: 5 },
+    { id: 'showFullBody', weight: 70 },
+    { id: 'handHeart', weight: 20 },
+    { id: 'pokeDimple', weight: 10 },
+  ],
+
+  /** 待机自发微动作组 (idleFlavor: 50% 放松舒展, 30% 核对时间, 20% 困倦打盹) */
+  idleFlavor: [
+    { id: 'relaxStretch', weight: 50 },
+    { id: 'checkTime', weight: 30 },
+    { id: 'sleepyNod', weight: 20 },
+  ],
+
+  /** 专注倾听姿态组 (listening: 70% 纯净倾听, 30% 观望打量) */
+  listening: [
+    { id: 'listening', weight: 70 },
+    { id: 'gazeObserve', weight: 30 },
+  ],
+
+  /** 深度思考姿态组 (thinking: 70% 比划思考, 30% 戳手指思索) */
+  thinking: [
+    { id: 'thinking', weight: 70 },
+    { id: 'pokeFingers', weight: 30 },
+  ],
+
+  /** 热情迎候问候组 (greeting: 100% 热情招手) */
+  greeting: [
+    { id: 'waving', weight: 100 },
+  ],
+
+  /** 夸赞心动反应组 (praiseCute: 100% 双手比心) */
+  praiseCute: [
+    { id: 'handHeart', weight: 100 },
+  ],
+
+  /** 撒娇与小情绪组 (playfulSulking: 100% 傲娇轻哼) */
+  playfulSulking: [
+    { id: 'poutHum', weight: 100 },
+  ],
+
+  /** 才艺与舞蹈表演组 (dancePerformance: 40% 拉丁伦巴, 35% 波浪肚皮舞, 25% 东方肚皮舞) */
+  dancePerformance: [
+    { id: 'rumbaDance', weight: 40 },
+    { id: 'bellyDanceWave', weight: 35 },
+    { id: 'bellyDance', weight: 25 },
   ],
 } as const satisfies Record<string, readonly MotionGroupItem<MotionCatalogId>[]>;
 

@@ -20,7 +20,7 @@ import type { VocalAudioProcessor } from '@/director/vocalProcessor';
 import type { HostAudioInput } from '@/director/hostAudio';
 import { MotionPipeline } from '@/motion/pipeline/motionPipeline';
 import type { PlayMotionOptions, UniversalMotionHandle } from '@/motion/sources/clip';
-import { MOTION_CATALOG, type MotionCatalogId, isMotionCatalogId, selectMotionFromGroup } from '@/motion/catalog';
+import { MOTION_CATALOG, type MotionCatalogId, type MotionGroupName, isMotionCatalogId, selectMotionFromGroup } from '@/motion/catalog';
 import { motionAssetManager } from '@/motion/pipeline/motionAssetManager';
 import { resolveMotionUrl } from '@/motion/motionResolver';
 import { preloadWebLLM, unloadWebLLM } from '@/llm/webLLMProvider';
@@ -413,6 +413,8 @@ export class VRMEngine {
   public hostPaused = false;
   /** document.visibilitychange → 后台 suspend / 前台 resume */
   private visibilityPauseHandler: (() => void) | null = null;
+  /** 页面切出到后台的时间戳，用于重返前台时长计算与迎候判定 */
+  private lastHiddenTime = 0;
   /** 当前 WebGL 上下文属性指纹（antialias / preserveDrawingBuffer / powerPreference） */
   private _rendererContextKey = '';
   /** 电池未充电 → low-power；插电或未知桌面 → high-performance */
@@ -507,9 +509,24 @@ export class VRMEngine {
     if (typeof document === 'undefined' || this.visibilityPauseHandler) return;
     this.visibilityPauseHandler = () => {
       if (document.hidden) {
+        this.lastHiddenTime = Date.now();
         this.suspendRendering();
       } else {
+        const wasAwayLong = this.lastHiddenTime > 0 && Date.now() - this.lastHiddenTime >= 45000;
+        this.lastHiddenTime = 0;
         this.resumeForeground();
+        // 用户离开标签页超过 45s 重返：自发招手迎候 (greeting)
+        if (wasAwayLong) {
+          const isChatActive = this.turnState === 'thinking' || this.turnState === 'speaking' || this.turnState === 'listening' || this.chatDirector.speaking;
+          if (!isChatActive && this.turnState === 'idle' && !this.interaction.getState().isDragging) {
+            setTimeout(() => {
+              const stillClean = this.turnState === 'idle' && !this.chatDirector.speaking && !this.interaction.getState().isDragging;
+              if (stillClean) {
+                void this.playMotionGroup('greeting', { fadeDuration: 0.85, loop: false }).catch(() => {});
+              }
+            }, 300);
+          }
+        }
       }
     };
     document.addEventListener('visibilitychange', this.visibilityPauseHandler);
@@ -655,7 +672,25 @@ export class VRMEngine {
     }
   }
 
-  public cinematicIntro(durationMs: number = 1100): void {
+  /**
+   * 将相机设置在入场全景预备机位 (中远景)，为开屏 greeting 留出全身视距，并在之后平滑推向特写
+   */
+  public prepareCinematicCamera(multiplier = 2.0): void {
+    const camera = this.camera;
+    const controls = this.controls;
+    if (!camera || !controls || this.cameraOverride.intro === false) return;
+    const finalTarget = controls.target.clone();
+    const { pitch, distance: dist } = this.resolveShot(true);
+    const finalPos = new THREE.Vector3(...computeCameraPositionFromPitch(pitch, dist, finalTarget));
+    const offset = finalPos.clone().sub(finalTarget);
+    const startPos = finalTarget.clone().add(offset.clone().multiplyScalar(multiplier));
+    camera.position.copy(startPos);
+    camera.lookAt(finalTarget);
+    controls.target.copy(finalTarget);
+    controls.update();
+  }
+
+  public cinematicIntro(durationMs: number = 1100, multiplier = 2.0): void {
     const camera = this.camera;
     const controls = this.controls;
     if (!camera || !controls) return;
@@ -679,10 +714,14 @@ export class VRMEngine {
     // 再跳到 startPos 准备推进。
     camera.position.copy(finalPos);
     controls.target.copy(finalTarget);
-    // 沿 finalPos→finalTarget 反方向 ×3.3 = 从同视角的远处起步,VRM 一开始是个小点
+    // 从同视角的较远机位起步推进
     const offset = finalPos.clone().sub(finalTarget);
-    const startPos = finalTarget.clone().add(offset.clone().multiplyScalar(3.3));
-    camera.position.copy(startPos);
+    const startPos = finalTarget.clone().add(offset.clone().multiplyScalar(multiplier));
+    // 若当前相机已处于中远景预备机位，则以当前位置为起点无缝推近；否则跳到 startPos 推进
+    const fromPos = camera.position.distanceTo(finalTarget) > dist * 1.15
+      ? camera.position.clone()
+      : startPos;
+    camera.position.copy(fromPos);
     camera.lookAt(finalTarget);
     controls.target.copy(finalTarget);
     const wasEnabled = controls.enabled;
@@ -693,7 +732,7 @@ export class VRMEngine {
       this.cinematicIntroRafId = null;
       const t = Math.min(1, (performance.now() - startTime) / durationMs);
       const eased = easeOutCubic(t);
-      camera.position.lerpVectors(startPos, finalPos, eased);
+      camera.position.lerpVectors(fromPos, finalPos, eased);
       camera.lookAt(finalTarget);
       if (t < 1) {
         this.cinematicIntroRafId = requestAnimationFrame(tick);
@@ -1116,7 +1155,7 @@ export class VRMEngine {
       const storedTheme = resolveInitialSceneTheme();
       this.setScene(storedTheme, false);
       this.startAnimation();
-      this.cinematicIntro(1100);
+      this.prepareCinematicCamera(2.0);
     } else if (this.currentVRM || this._sceneInitialized) {
       this.startAnimation();
     }
@@ -2125,7 +2164,7 @@ export class VRMEngine {
             // Cold start: upload textures / link programs in yielding steps before the first frame.
             await this.prewarmGpu();
             this.startAnimation();
-            this.cinematicIntro(1100);
+            this.prepareCinematicCamera(2.0);
           } else if (this.controls) {
             this.fitCamera();
             this.renderSingleFrame();
@@ -2560,6 +2599,25 @@ export class VRMEngine {
       this.onSwapProgress?.({ active: false, subtitleKey: '', progress: 100 });
       if (!preserveMotion) {
         this.reportLoading({ active: false, subtitleKey: '', progress: 100 });
+        // 冷启动进入 3D 舞台：先播放 greeting (热情招手问候)，在招手展开时平滑推镜头
+        setTimeout(() => {
+          const isChatActive = this.turnState === 'thinking' || this.turnState === 'speaking' || this.turnState === 'listening' || this.chatDirector.speaking;
+          if (!isChatActive && this.turnState === 'idle' && !this.interaction.getState().isDragging && (options?.showcase ?? true)) {
+            // 1. 先播放 greeting 招手
+            void this.playMotionGroup('greeting', { fadeDuration: 0.65, loop: false }).catch((e) => {
+              console.warn('[vrmEngine] cold-start greeting motion notice:', e);
+            });
+            // 2. 然后推镜头 (在小春抬手热情招手展开时，镜头平滑推向角色特写)
+            setTimeout(() => {
+              const stillClean = this.turnState === 'idle' && !this.chatDirector.speaking && !this.interaction.getState().isDragging;
+              if (stillClean) {
+                this.cinematicIntro(1200);
+              }
+            }, 600);
+          } else {
+            this.cinematicIntro(1100);
+          }
+        }, 300);
       }
     }
   }
@@ -2775,7 +2833,7 @@ export class VRMEngine {
             // Cold start: upload textures / link programs in yielding steps before the first frame.
             await this.prewarmGpu();
             this.startAnimation();
-            this.cinematicIntro(1100);
+            this.prepareCinematicCamera(2.0);
           } else if (this.controls) {
             this.renderSingleFrame();
           }
@@ -2958,11 +3016,70 @@ export class VRMEngine {
     });
   }
 
+  // ── 待机自发小动作调度器 (Idle Flavor / Fidget Scheduler) ──
+  private idleFlavorTimer = 0;
+  private nextIdleFlavorInterval = 14 + Math.random() * 10; // 14s ~ 24s 随机冷却窗口
+  private enableIdleFlavor = (APP_CONFIG as any)?.idleFlavor?.enabled ?? true;
+
+  /** 是否开启待机自发小动作 */
+  public setEnableIdleFlavor(enable: boolean): void {
+    this.enableIdleFlavor = enable;
+    if (!enable) this.idleFlavorTimer = 0;
+  }
+
+  public get isIdleFlavorEnabled(): boolean {
+    return this.enableIdleFlavor;
+  }
+
+  /** 重置待机小动作计时器（在用户交互、发消息、换装时调用） */
+  public resetIdleFlavorTimer(): void {
+    this.idleFlavorTimer = 0;
+    const minSec = (APP_CONFIG as any)?.idleFlavor?.minIntervalSec ?? 14;
+    const maxSec = (APP_CONFIG as any)?.idleFlavor?.maxIntervalSec ?? 24;
+    this.nextIdleFlavorInterval = minSec + Math.random() * Math.max(1, maxSec - minSec);
+  }
+
+  /** 待机小动作逐帧心跳（在 render 循环中驱动） */
+  private updateIdleFlavor(delta: number): void {
+    if (!this.enableIdleFlavor || !this.currentVRM) return;
+
+    // 前置守卫：必须处于纯粹待机（idle），且无对话、无动作播放、无过渡融合
+    const isCleanIdle =
+      this.turnState === 'idle' &&
+      !this.chatDirector.speaking &&
+      !this.motionPipeline.isMotionPlaying() &&
+      !this.motionPipeline.isTransitioning();
+
+    if (!isCleanIdle) {
+      this.idleFlavorTimer = 0;
+      return;
+    }
+
+    // 若用户正在拖拽镜头或与角色进行 3D 交互，重置计时器，绝不打扰用户操作
+    if (this.interaction.getState().isDragging) {
+      this.idleFlavorTimer = 0;
+      return;
+    }
+
+    this.idleFlavorTimer += delta;
+    if (this.idleFlavorTimer >= this.nextIdleFlavorInterval) {
+      this.idleFlavorTimer = 0;
+      const minSec = (APP_CONFIG as any)?.idleFlavor?.minIntervalSec ?? 14;
+      const maxSec = (APP_CONFIG as any)?.idleFlavor?.maxIntervalSec ?? 24;
+      this.nextIdleFlavorInterval = minSec + Math.random() * Math.max(1, maxSec - minSec);
+      const motionId = selectMotionFromGroup('idleFlavor');
+      void this.playMotion(motionId, { fadeDuration: 0.85, loop: false }).catch((e) => {
+        console.warn('[VRMEngine] 待机小动作播放提示:', e);
+      });
+    }
+  }
+
   // ── 万能动作播放接口 ──
   public async playMotion(
     input: MotionCatalogId | string | ArrayBuffer | THREE.AnimationClip,
     options: PlayMotionOptions = {},
   ): Promise<UniversalMotionHandle> {
+    this.resetIdleFlavorTimer();
     if (!this.currentVRM) {
       throw new Error('[VRMEngine] 模型尚未就绪，无法播放动作');
     }
@@ -2981,6 +3098,19 @@ export class VRMEngine {
 
     const lookAtOffsets = this.gazeController.getLookAtOffsets();
     return this.motionPipeline.playMotion(this.currentVRM, targetInput, mergedOptions, lookAtOffsets);
+  }
+
+  /**
+   * 从指定动作组按权重随机抽取动作并播放
+   * @param groupName 动作组名 (如 'greeting' | 'outfitShowcase' | 'praiseCute' 等)
+   * @param options 播放配置
+   */
+  public playMotionGroup(
+    groupName: MotionGroupName,
+    options: PlayMotionOptions = {},
+  ): Promise<UniversalMotionHandle> {
+    const motionId = selectMotionFromGroup(groupName);
+    return this.playMotion(motionId, options);
   }
 
   public stopMotion(fadeDuration = 0.75): void {
@@ -3172,6 +3302,7 @@ export class VRMEngine {
   }
 
   public setTurnState(state: TurnState): void {
+    this.resetIdleFlavorTimer();
     this.chatDirector.setTurnState(state);
   }
 
@@ -3341,6 +3472,7 @@ export class VRMEngine {
         });
 
         this.chatDirector.tick(vrm, this.vrmaPlayer);
+        this.updateIdleFlavor(delta);
 
         // The spring hits raw arm colliders. Swing the normalized arm first;
         // vrm.update copies it onto those bones. The shader cannot move them.

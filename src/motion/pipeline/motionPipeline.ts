@@ -32,7 +32,7 @@ import {
 import { computeAdaptiveFadeDuration } from './adaptiveFade';
 import { APP_CONFIG } from '../../config';
 import { motionAssetManager } from './motionAssetManager';
-import { MOTION_CATALOG } from '../catalog';
+import { MOTION_CATALOG, selectMotionFromGroup } from '../catalog';
 import { makeClipSeamless } from '../vrmaRetarget';
 import type { TurnState } from '../../director/chatDirector';
 
@@ -294,20 +294,22 @@ export class MotionPipeline {
     const targetVrm = vrm ?? this.boundVrm;
     switch (state) {
       case 'thinking': {
-        const thinkingClip = motionAssetManager.getClip('thinking') ?? motionAssetManager.getClip(MOTION_CATALOG.thinking.url);
+        const motionId = selectMotionFromGroup('thinking');
+        const catalogItem = MOTION_CATALOG[motionId];
+        const thinkingClip = motionAssetManager.getClip(motionId) ?? motionAssetManager.getClip(catalogItem.url);
         if (thinkingClip && targetVrm) {
-          const fadeDur = MOTION_CATALOG.thinking.fadeDuration ?? 0.65;
-          const mask = (MOTION_CATALOG.thinking.mask as 'all' | 'upperBody') ?? 'upperBody';
+          const fadeDur = catalogItem.fadeDuration ?? 0.65;
+          const mask = (catalogItem.mask as 'all' | 'upperBody') ?? 'upperBody';
           this.playThinkingClip(thinkingClip, targetVrm, fadeDur, mask);
         } else if (targetVrm) {
           this.setIdleThinkSway(true);
-          void this.universalMotion.parseToClip(MOTION_CATALOG.thinking.url, targetVrm, MOTION_CATALOG.thinking).then((clip) => {
-            makeClipSeamless(clip, MOTION_CATALOG.thinking.fadeDuration);
-            motionAssetManager.setClip('thinking', clip);
-            motionAssetManager.setClip(MOTION_CATALOG.thinking.url, clip);
+          void this.universalMotion.parseToClip(catalogItem.url, targetVrm, catalogItem).then((clip) => {
+            makeClipSeamless(clip, catalogItem.fadeDuration);
+            motionAssetManager.setClip(motionId, clip);
+            motionAssetManager.setClip(catalogItem.url, clip);
             if (this.activeSource === 'idle' && this.idle.traits.thinkSway) {
-              const fadeDur = MOTION_CATALOG.thinking.fadeDuration ?? 0.65;
-              const mask = (MOTION_CATALOG.thinking.mask as 'all' | 'upperBody') ?? 'upperBody';
+              const fadeDur = catalogItem.fadeDuration ?? 0.65;
+              const mask = (catalogItem.mask as 'all' | 'upperBody') ?? 'upperBody';
               this.playThinkingClip(clip, targetVrm, fadeDur, mask);
             }
           }).catch((err) => {
@@ -323,17 +325,19 @@ export class MotionPipeline {
         break;
       }
       case 'listening': {
-        const listeningClip = motionAssetManager.getClip('listening') ?? motionAssetManager.getClip(MOTION_CATALOG.listening.url);
+        const motionId = selectMotionFromGroup('listening');
+        const catalogItem = MOTION_CATALOG[motionId];
+        const listeningClip = motionAssetManager.getClip(motionId) ?? motionAssetManager.getClip(catalogItem.url);
         if (listeningClip && targetVrm) {
-          const fadeDur = MOTION_CATALOG.listening.fadeDuration ?? 0.75;
-          const mask = MOTION_CATALOG.listening.mask ?? 'all';
-          void this.playMotion(targetVrm, listeningClip, { ...MOTION_CATALOG.listening, fadeDuration: fadeDur, mask });
+          const fadeDur = catalogItem.fadeDuration ?? 0.75;
+          const mask = catalogItem.mask ?? 'all';
+          void this.playMotion(targetVrm, listeningClip, { ...catalogItem, fadeDuration: fadeDur, mask });
         } else if (targetVrm) {
-          void this.universalMotion.parseToClip(MOTION_CATALOG.listening.url, targetVrm, MOTION_CATALOG.listening).then((clip) => {
-            makeClipSeamless(clip, MOTION_CATALOG.listening.fadeDuration);
-            motionAssetManager.setClip('listening', clip);
-            motionAssetManager.setClip(MOTION_CATALOG.listening.url, clip);
-            void this.playMotion(targetVrm, clip, MOTION_CATALOG.listening);
+          void this.universalMotion.parseToClip(catalogItem.url, targetVrm, catalogItem).then((clip) => {
+            makeClipSeamless(clip, catalogItem.fadeDuration);
+            motionAssetManager.setClip(motionId, clip);
+            motionAssetManager.setClip(catalogItem.url, clip);
+            void this.playMotion(targetVrm, clip, catalogItem);
           }).catch((err) => {
             console.warn('[MotionPipeline] 异步预热倾听动作失败:', err);
           });

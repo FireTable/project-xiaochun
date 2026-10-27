@@ -284,10 +284,31 @@ Entries in `MOTION_CATALOG` (`src/motion/catalog.ts`) can declare `warmup: true`
 During model initialization / heavy preload (`vrmEngine.preloadHeavyResources`), `motionAssetManager.warmCatalogMotions(vrm)` fetches and pre-parses these clips in parallel.
 
 ### 3.3 Compile-Time Type-Safe Motion Groups (`MOTION_GROUPS`)
-Interactive scenarios often trigger dynamic weighted motion playback (e.g. `outfitShowcase`).
+Interactive scenarios trigger dynamic weighted motion playback across carefully partitioned situational groups:
+- **`outfitShowcase`**: Wardrobe change showcase (`showFullBody` 70%, `handHeart` 20%, `pokeDimple` 10%);
+- **`idleFlavor`**: Spontaneous standby fidgets during prolonged idle (`relaxStretch` 50%, `checkTime` 30%, `sleepyNod` 20%);
+- **`listening`**: Focused attention during user speech & input focus (`listening` 70%, `gazeObserve` 30%);
+- **`thinking`**: Deep thinking during LLM reasoning & prefetch (`thinking` 70%, `pokeFingers` 30%);
+- **`greeting`**: User arrival & hello welcome (`waving` 100%);
+- **`praiseCute`**: Compliment & affection reactions (`handHeart` 100%);
+- **`playfulSulking`**: Teasing & playful petulance (`poutHum` 100%);
+- **`dancePerformance`**: Looped dance showcases (`rumbaDance` 40%, `bellyDanceWave` 35%, `bellyDance` 25%).
+
 Groups are defined with `as const satisfies Record<string, readonly MotionGroupItem<MotionCatalogId>[]>`:
 - **Compile-Time Safety**: If any action ID in `MOTION_GROUPS` is renamed or deleted from `MOTION_CATALOG`, TypeScript immediately throws a compile-time error (`tsc TS2322`).
-- **Weighted Random Selection**: `selectMotionFromGroup(groupName)` executes weighted random sampling according to declared ratios (e.g. 60% `showFullBody`, 20% `joyfulJump`, 15% `handHeart`, 5% `pokeDimple`).
+- **Weighted Random Selection**: `selectMotionFromGroup(groupName)` executes weighted random sampling according to declared ratios.
+
+### 3.4 Standby Fidget System (Idle Flavor Scheduler)
+To eliminate unnatural "mannequin idling" while standing in procedural breathing (`NaturalIdleSystem`), `VRMEngine` runs an internal, non-intrusive `updateIdleFlavor(delta)` scheduler:
+1. **Natural Cooling Window**: Triggers at randomized intervals ($14\text{s} \sim 24\text{s}$) when the avatar is in pure, uninterrupted idle.
+2. **Strict Non-Intrusive Guards**:
+   - Only ticks when `turnState === 'idle'`, `!speaking`, and no motion or crossfade is active;
+   - Immediately pauses and resets if the user is dragging the camera (`interaction.getState().isDragging`);
+   - Resets when input is focused, speech starts, or outfits are swapped.
+3. **Graceful Takeover & Recovery**:
+   - Spontaneously plays a weighted action from `MOTION_GROUPS.idleFlavor` via 0.85s Quintic Smootherstep crossfade;
+   - Upon completion, the pipeline automatically fades back into `NaturalIdleSystem`;
+   - If the user interrupts mid-fidget (e.g. typing or sending a message), `forceTransition = true` seamlessly blends into `listening` or `thinking` with zero hitching.
 
 ---
 

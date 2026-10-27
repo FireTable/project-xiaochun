@@ -78,22 +78,37 @@ describe('MotionAssetManager & MOTION_GROUPS Architecture', () => {
   });
 
   describe('MOTION_GROUPS & Weighted Random Selection', () => {
-    it('selects valid catalog IDs strictly constrained to MOTION_CATALOG', () => {
-      expect(MOTION_GROUPS.outfitShowcase).toHaveLength(4);
-      for (let i = 0; i < 50; i++) {
-        const id = selectMotionFromGroup('outfitShowcase');
-        expect(isMotionCatalogId(id)).toBe(true);
-        expect(MOTION_CATALOG[id]).toBeDefined();
+    it('validates all defined MOTION_GROUPS strictly constrained to MOTION_CATALOG', () => {
+      const groupNames = Object.keys(MOTION_GROUPS) as (keyof typeof MOTION_GROUPS)[];
+      expect(groupNames).toContain('outfitShowcase');
+      expect(groupNames).toContain('idleFlavor');
+      expect(groupNames).toContain('listening');
+      expect(groupNames).toContain('thinking');
+      expect(groupNames).toContain('greeting');
+      expect(groupNames).toContain('praiseCute');
+      expect(groupNames).toContain('playfulSulking');
+      expect(groupNames).toContain('dancePerformance');
+
+      for (const name of groupNames) {
+        const group = MOTION_GROUPS[name];
+        expect(group.length).toBeGreaterThan(0);
+        for (const item of group) {
+          expect(isMotionCatalogId(item.id)).toBe(true);
+          expect(MOTION_CATALOG[item.id]).toBeDefined();
+          expect(item.weight).toBeGreaterThan(0);
+        }
       }
     });
 
-    it('obeys weighted distribution statistics (60% showFullBody, 20% joyfulJump, 15% handHeart, 5% pokeDimple)', () => {
+    it('obeys weighted distribution statistics for outfitShowcase (70% showFullBody, 20% handHeart, 10% pokeDimple - no joyfulJump)', () => {
       const counts: Record<string, number> = {
         showFullBody: 0,
-        joyfulJump: 0,
         handHeart: 0,
         pokeDimple: 0,
       };
+
+      const group = MOTION_GROUPS.outfitShowcase;
+      expect(group.find((item) => item.id === 'joyfulJump')).toBeUndefined();
 
       const SAMPLES = 20000;
       for (let i = 0; i < SAMPLES; i++) {
@@ -102,22 +117,89 @@ describe('MotionAssetManager & MOTION_GROUPS Architecture', () => {
       }
 
       const pShowFullBody = counts.showFullBody / SAMPLES;
-      const pJoyfulJump = counts.joyfulJump / SAMPLES;
       const pHandHeart = counts.handHeart / SAMPLES;
       const pPokeDimple = counts.pokeDimple / SAMPLES;
 
       // 允许 ±3.5% 的随机统计误差
-      expect(pShowFullBody).toBeGreaterThan(0.565);
-      expect(pShowFullBody).toBeLessThan(0.635);
+      expect(pShowFullBody).toBeGreaterThan(0.665);
+      expect(pShowFullBody).toBeLessThan(0.735);
 
-      expect(pJoyfulJump).toBeGreaterThan(0.165);
-      expect(pJoyfulJump).toBeLessThan(0.235);
+      expect(pHandHeart).toBeGreaterThan(0.165);
+      expect(pHandHeart).toBeLessThan(0.235);
 
-      expect(pHandHeart).toBeGreaterThan(0.115);
-      expect(pHandHeart).toBeLessThan(0.185);
+      expect(pPokeDimple).toBeGreaterThan(0.075);
+      expect(pPokeDimple).toBeLessThan(0.125);
+    });
 
-      expect(pPokeDimple).toBeGreaterThan(0.025);
-      expect(pPokeDimple).toBeLessThan(0.075);
+    it('obeys weighted distribution statistics for idleFlavor (50% relaxStretch, 30% checkTime, 20% sleepyNod)', () => {
+      const counts: Record<string, number> = {
+        relaxStretch: 0,
+        checkTime: 0,
+        sleepyNod: 0,
+      };
+
+      const SAMPLES = 20000;
+      for (let i = 0; i < SAMPLES; i++) {
+        const picked = selectMotionFromGroup('idleFlavor');
+        counts[picked] = (counts[picked] || 0) + 1;
+      }
+
+      const pRelaxStretch = counts.relaxStretch / SAMPLES;
+      const pCheckTime = counts.checkTime / SAMPLES;
+      const pSleepyNod = counts.sleepyNod / SAMPLES;
+
+      expect(pRelaxStretch).toBeGreaterThan(0.465);
+      expect(pRelaxStretch).toBeLessThan(0.535);
+
+      expect(pCheckTime).toBeGreaterThan(0.265);
+      expect(pCheckTime).toBeLessThan(0.335);
+
+      expect(pSleepyNod).toBeGreaterThan(0.165);
+      expect(pSleepyNod).toBeLessThan(0.235);
+    });
+
+    it('obeys weighted distribution statistics for listening (70% listening, 30% gazeObserve)', () => {
+      const counts: Record<string, number> = {
+        listening: 0,
+        gazeObserve: 0,
+      };
+
+      const SAMPLES = 20000;
+      for (let i = 0; i < SAMPLES; i++) {
+        const picked = selectMotionFromGroup('listening');
+        counts[picked] = (counts[picked] || 0) + 1;
+      }
+
+      const pListening = counts.listening / SAMPLES;
+      const pGazeObserve = counts.gazeObserve / SAMPLES;
+
+      expect(pListening).toBeGreaterThan(0.665);
+      expect(pListening).toBeLessThan(0.735);
+
+      expect(pGazeObserve).toBeGreaterThan(0.265);
+      expect(pGazeObserve).toBeLessThan(0.335);
+    });
+
+    it('obeys weighted distribution statistics for thinking (70% thinking, 30% pokeFingers)', () => {
+      const counts: Record<string, number> = {
+        thinking: 0,
+        pokeFingers: 0,
+      };
+
+      const SAMPLES = 20000;
+      for (let i = 0; i < SAMPLES; i++) {
+        const picked = selectMotionFromGroup('thinking');
+        counts[picked] = (counts[picked] || 0) + 1;
+      }
+
+      const pThinking = counts.thinking / SAMPLES;
+      const pPokeFingers = counts.pokeFingers / SAMPLES;
+
+      expect(pThinking).toBeGreaterThan(0.665);
+      expect(pThinking).toBeLessThan(0.735);
+
+      expect(pPokeFingers).toBeGreaterThan(0.265);
+      expect(pPokeFingers).toBeLessThan(0.335);
     });
   });
 
@@ -302,6 +384,70 @@ describe('MotionAssetManager & MOTION_GROUPS Architecture', () => {
 
       expect(onTurnSpy).toHaveBeenCalledWith('listening');
       expect(pipeline.boundVRM).toBe(newVrm);
+    });
+  });
+
+  describe('Idle Flavor / Fidget System (Spontaneous Standby Motions)', () => {
+    it('ensures all idleFlavor group members are non-looping (loop: false) and pre-warmed (warmup: true)', () => {
+      const group = MOTION_GROUPS.idleFlavor;
+      expect(group.length).toBeGreaterThan(0);
+
+      for (const item of group) {
+        const catalogItem = MOTION_CATALOG[item.id];
+        expect(catalogItem).toBeDefined();
+        // 待机自发小动作必须是单次动作（loop: false），播完后才能自动五次平滑步阶淡出回 NaturalIdle 代码待机
+        expect(catalogItem.loop).toBe(false);
+        // 必须配置 warmup: true，保证冷启动常驻内存，触发时 0ms 零延迟起播
+        expect(catalogItem.warmup).toBe(true);
+      }
+    });
+
+    it('ensures greeting group members are non-looping (loop: false) and pre-warmed', () => {
+      const group = MOTION_GROUPS.greeting;
+      expect(group.length).toBe(1);
+      expect(group[0].id).toBe('waving');
+
+      for (const item of group) {
+        const catalogItem = MOTION_CATALOG[item.id];
+        expect(catalogItem).toBeDefined();
+        expect(catalogItem.loop).toBe(false);
+        expect(catalogItem.warmup).toBe(true);
+      }
+    });
+
+    it('ensures listening and thinking group members are looping (loop: true) and pre-warmed (warmup: true)', () => {
+      const listeningGroup = MOTION_GROUPS.listening;
+      expect(listeningGroup.length).toBe(2);
+      for (const item of listeningGroup) {
+        const catalogItem = MOTION_CATALOG[item.id];
+        expect(catalogItem).toBeDefined();
+        expect(catalogItem.loop).toBe(true);
+        expect(catalogItem.warmup).toBe(true);
+      }
+
+      const thinkingGroup = MOTION_GROUPS.thinking;
+      expect(thinkingGroup.length).toBe(2);
+      for (const item of thinkingGroup) {
+        const catalogItem = MOTION_CATALOG[item.id];
+        expect(catalogItem).toBeDefined();
+        expect(catalogItem.loop).toBe(true);
+        expect(catalogItem.warmup).toBe(true);
+      }
+    });
+
+    it('ensures praiseCute and playfulSulking single-focus invariants', () => {
+      expect(MOTION_GROUPS.praiseCute).toHaveLength(1);
+      expect(MOTION_GROUPS.praiseCute[0].id).toBe('handHeart');
+
+      expect(MOTION_GROUPS.playfulSulking).toHaveLength(1);
+      expect(MOTION_GROUPS.playfulSulking[0].id).toBe('poutHum');
+    });
+
+    it('executes selectMotionFromGroup("greeting") returning waving for greeting group', () => {
+      const picked = selectMotionFromGroup('greeting');
+      expect(picked).toBe('waving');
+      expect(MOTION_CATALOG[picked].loop).toBe(false);
+      expect((MOTION_CATALOG[picked] as { warmup?: boolean }).warmup).toBe(true);
     });
   });
 });

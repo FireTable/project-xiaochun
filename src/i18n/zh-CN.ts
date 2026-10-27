@@ -94,7 +94,7 @@ export const zhCN = {
       description: '身躯微倾、面带微笑的亲切专注倾听姿态',
     },
     thinking: {
-      name: '托腮沉思',
+      name: '比划思考',
       description: '单手轻托下巴、陷入思索的专注思考姿态',
     },
     relaxStretch: {

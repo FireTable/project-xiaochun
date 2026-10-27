@@ -101,6 +101,7 @@ The 3D motion pipeline involves complex layered logic. Follow these geometric an
     * **VRM Reference SSOT Across Swaps**: `ChatDirector` and `MotionPipeline` must never retain or pass stale/disposed VRM references across outfit swaps. `chatDirector.bindVRM(vrm)` updates synchronously with `pipeline.bind(vrm)`. `onTurnStateChange` defaults strictly to `pipeline.boundVRM`.
     * **Consecutive Motion Clip Crossfading**: When switching between two motion clips (e.g. showcase to listening), `MotionPipeline.setMotionSource('motion', ..., forceTransition = true)` forces a Quintic snapshot and crossfade, preventing instant 1-frame snaps.
     * **Mid-Chat Swap Showcase Suppression**: Swapping outfits during dialogue/thinking (`wasSpeakingOrThinkingAtStart`) or while chat is active (`isChatActive`) strictly suppresses `outfitShowcase`, preventing unexpected motion triggers that conflict with user interaction.
+    * **Idle Flavor / Fidget Scheduler**: In `vrmEngine.ts`, `updateIdleFlavor(delta)` triggers spontaneous, non-intrusive one-shot motions (`MOTION_GROUPS.idleFlavor`) every 14~24s during pure idle, smoothly returning to `NaturalIdleSystem` via Quintic Slerp. Resets on user drag, speech, or input focus.
 
 ### 2.5 EMAGE Cross-Segment Streaming Continuity (`switchSegment`)
 - File: `src/motion/sources/emage.ts`

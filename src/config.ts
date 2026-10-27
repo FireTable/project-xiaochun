@@ -483,6 +483,11 @@ export const APP_CONFIG = {
     fovBlindHalfAngle: 2.35,
     trackSpeed: 10.0,
   },
+  idleFlavor: {
+    enabled: true,
+    minIntervalSec: 14, // 待机小动作随机最小冷却时间 (秒)
+    maxIntervalSec: 24, // 待机小动作随机最大冷却时间 (秒)
+  },
   springBone: {
     bust: {
       stiffness: 0.22,
