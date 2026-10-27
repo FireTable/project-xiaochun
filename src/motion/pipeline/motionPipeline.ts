@@ -641,7 +641,13 @@ export class MotionPipeline {
     this.currentTransitionT = t;
 
     this.basePose.clampTorsoPitch(this.restPose);
-    this.actionPose.clampTorsoPitch(this.restPose);
+
+    // 通用动作剪辑 (clip)：默认保持动捕资产 100% 原生骨骼自由度，彻底消除骨盆后撅与双足浮空；
+    // 仅在显式配置 clampTorsoPitch: true 时（针对粗糙 AI 动作）才执行躯干硬限幅。
+    const shouldClampAction = writer !== 'clip' || Boolean(this.universalMotion.getCurrentOptions()?.clampTorsoPitch);
+    if (shouldClampAction) {
+      this.actionPose.clampTorsoPitch(this.restPose);
+    }
 
     const targetUpper = (this.activeSource === 'idle') ? this.basePose : this.actionPose;
     const targetLowerBase = (this.activeSource === 'idle' || this.activeMask === 'upperBody')

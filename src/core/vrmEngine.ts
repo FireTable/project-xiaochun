@@ -1378,7 +1378,7 @@ export class VRMEngine {
         if (saved) {
           const num = parseFloat(saved);
           if (!isNaN(num) && saved.trim() === String(num)) return num;
-          if (['auto', 'day', 'sunset', 'night'].includes(saved)) return saved as EnvironmentTimeMode;
+          if (['auto', 'weeHours', 'dawn', 'noon', 'dusk', 'day', 'sunset', 'night'].includes(saved)) return saved as EnvironmentTimeMode;
         }
       } catch {}
     }

@@ -458,3 +458,15 @@ html.is-tauri .dialog-overlay {
 @media (min-width: 1024px) {
   .xc-copy-panel { --xc-hero-col: calc(var(--xc-stage-w) * 0.5); }
 }
+
+/* ── 故事剧场模式：头顶气泡与前情提要卡片 View Transition ── */
+::view-transition-group(story-dialog-card) {
+  animation-duration: 0.38s;
+  animation-timing-function: cubic-bezier(0.16, 1, 0.3, 1);
+}
+::view-transition-old(story-dialog-card),
+::view-transition-new(story-dialog-card) {
+  animation-duration: 0.38s;
+  animation-timing-function: cubic-bezier(0.16, 1, 0.3, 1);
+  mix-blend-mode: normal;
+}

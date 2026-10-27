@@ -49,13 +49,18 @@ export const HeadBubble: React.FC<HeadBubbleProps> = ({ state }) => {
   return (
     <div
       id="head-bubble"
-      className="pointer-events-none fixed top-0 left-0 z-20 will-change-transform transition-transform duration-150 ease-out"
+      className="pointer-events-none fixed top-0 left-0 z-35 will-change-transform transition-transform duration-150 ease-out"
       style={{
-        transform: `translate3d(calc(${state.x}px - 50%), calc(${state.y}px - 100% - 16px), 0)`,
+        transform: `translate3d(clamp(16px, calc(${state.x}px - 50%), calc(100vw - 100% - 16px)), max(16px, calc(${state.y}px - 100% - 16px)), 0)`,
       }}
     >
       {/* ponytail: 移动端 max-w 收紧到 240px,避免窄屏贴边;sm 起拉到 320px 让长句能展开。 */}
-      <div className="relative max-w-[240px] sm:max-w-xs px-3.5 sm:px-4 py-2 sm:py-2.5 rounded-2xl bg-slate-950/90 shadow-2xl backdrop-blur-2xl flex flex-col gap-1 text-center ring-1 ring-brand-400/30 animate-in fade-in zoom-in-95 duration-200 pointer-events-auto">
+      <div
+        style={{
+          viewTransitionName: isSpeaking ? 'story-dialog-card' : undefined,
+        }}
+        className="relative max-w-[240px] sm:max-w-xs px-3.5 sm:px-4 py-2 sm:py-2.5 rounded-2xl bg-slate-950/90 shadow-2xl backdrop-blur-2xl flex flex-col gap-1 text-center ring-1 ring-brand-400/30 animate-in fade-in zoom-in-95 duration-200 pointer-events-auto"
+      >
         {state.statusKey && (
           <div
             className={`flex items-center justify-center gap-1.5 text-[11px] font-medium tracking-wide shrink-0 ${state.isError ? 'text-rose-400 font-semibold' : 'text-brand-300'

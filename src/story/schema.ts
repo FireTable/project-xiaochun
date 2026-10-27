@@ -135,6 +135,19 @@ export const AudioDirectiveSchema = z.object({
 export type AudioDirective = z.input<typeof AudioDirectiveSchema>;
 
 /**
+ * 剧情历史记录项 (Story History Entry)
+ */
+export const StoryHistoryEntrySchema = z.object({
+  id: z.string(),
+  role: z.enum(['xiaochun', 'user', 'system']),
+  text: z.string(),
+  subText: z.string().optional(),
+  choiceBadge: z.string().optional(),
+  timestamp: z.number().default(() => Date.now()),
+});
+export type StoryHistoryEntry = z.infer<typeof StoryHistoryEntrySchema>;
+
+/**
  * 抉择分支与交互引子 (Story Choice)
  */
 export const StoryChoiceSchema = z.object({
@@ -155,6 +168,7 @@ export const StoryChoiceSchema = z.object({
   ]).optional().default('next_beat'),
   actionPayload: z.any().optional(),
   nextBeatId: z.string().optional(),
+  selected: z.boolean().optional(),
 });
 export type StoryChoice = z.input<typeof StoryChoiceSchema>;
 
@@ -168,6 +182,7 @@ export const StoryBeatSchema = z.object({
   actor: ActorDirectiveSchema,
   audio: AudioDirectiveSchema.optional(),
   choices: z.array(StoryChoiceSchema).optional(),
+  confirmChoice: StoryChoiceSchema.optional(),
   choiceLayout: z.enum(['list', 'grid', 'auto']).optional().default('auto'),
   allowInput: z.boolean().optional().default(false),
   inputPlaceholder: z.string().optional(),

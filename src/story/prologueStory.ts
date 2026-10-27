@@ -260,7 +260,7 @@ export const prologueStory: StoryScript = {
           subText: '黑白双色轻奢长裙',
           actionType: 'swap_outfit',
           actionPayload: 'xiaochun_dinner_dress',
-          nextBeatId: 'beat_brain_choice',
+          selected: true,
         },
         {
           id: 'outfit_maid',
@@ -270,7 +270,6 @@ export const prologueStory: StoryScript = {
           subText: '黑白围裙荷叶边女仆装',
           actionType: 'swap_outfit',
           actionPayload: 'xiaochun_maid',
-          nextBeatId: 'beat_brain_choice',
         },
         {
           id: 'outfit_qipao',
@@ -280,9 +279,16 @@ export const prologueStory: StoryScript = {
           subText: '中式典雅暗金刺绣旗袍',
           actionType: 'swap_outfit',
           actionPayload: 'xiaochun_cheongsam',
-          nextBeatId: 'beat_brain_choice',
         },
       ],
+      confirmChoice: {
+        id: 'outfit_confirm',
+        icon: '✨',
+        text: '确定这套穿搭，前往下一步',
+        subText: '换装完成，探索小蠢的 AI 大脑',
+        actionType: 'next_beat',
+        nextBeatId: 'beat_brain_choice',
+      },
     },
 
     // 6. AI 大脑选择

@@ -9,7 +9,15 @@
 
 import type * as THREE from 'three';
 
-export type EnvironmentTimeMode = 'auto' | 'day' | 'sunset' | 'night';
+export type EnvironmentTimeMode =
+  | 'auto'
+  | 'weeHours'
+  | 'dawn'
+  | 'noon'
+  | 'dusk'
+  | 'day'
+  | 'sunset'
+  | 'night';
 
 export interface EnvironmentTimeOptions {
   /** 是否正在拖拽滑块中（用于通知场景节流高开销操作，如地面落影贴图重新烘焙） */

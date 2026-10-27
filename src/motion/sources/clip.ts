@@ -22,6 +22,13 @@ export interface PlayMotionOptions {
    * 标准动捕 VRMA 默认保持原生真实度（无 60° 强行截断），避免出现 A-Pose/翅膀悬空畸变。
    */
   antiClip?: boolean;
+  clampTorsoPitch?: boolean;
+  /**
+   * 是否将骨盆（Hips）水平移动锁定在原点（默认 false）。
+   * 默认保持动捕原生的重心与骨盆位移（如前倾、后坐、重心偏移），保证双脚稳固原地不滑步。
+   * 仅在特定需要原地跑步或漫游动画时可显式开启。
+   */
+  lockHipsXZ?: boolean;
   /**
    * 动作截取时间区间 [startTime, endTime]（秒）。
    * 用于掐掉动捕原始素材首尾的 T-Pose / A-Pose 标定帧。
@@ -131,23 +138,26 @@ export class UniversalMotionController {
       clip = THREE.AnimationUtils.subclip(clip, clip.name || 'subclip', startFrame, endFrame, fps);
     }
 
-    // 纠正 Hips 水平位置偏移，保持在世界中心，保留动作原生/烘焙的贴地垂直高度 Y
-    const hips = vrm.humanoid?.getNormalizedBoneNode('hips');
-    if (hips) {
-      if (!this.hipsRest) {
-        this.hipsRest = { x: hips.position.x, y: hips.position.y, z: hips.position.z };
-      }
-      const { x: restX, z: restZ } = this.hipsRest;
-      clip.tracks.forEach((t) => {
-        if (!t.name.endsWith('.position')) return;
-        const offX = t.values[0] - restX;
-        const offZ = t.values[2] - restZ;
-        for (let i = 0; i < t.values.length; i += 3) {
-          t.values[i]     -= offX;
-          // 保留 Y 轴高度，绝不强制抹平成 T-Pose restY，防止双足被抬离地面悬空
-          t.values[i + 2] -= offZ;
+    // 仅在显式配置 lockHipsXZ: true 时才纠正/扣减 Hips 水平位置偏移
+    // 默认保持动作原生 Hips 水平位移，让骨盆随生理重心自然摆动，双脚牢牢踩在地面不滑步
+    if (options?.lockHipsXZ) {
+      const hips = vrm.humanoid?.getNormalizedBoneNode('hips');
+      if (hips) {
+        if (!this.hipsRest) {
+          this.hipsRest = { x: hips.position.x, y: hips.position.y, z: hips.position.z };
         }
-      });
+        const { x: restX, z: restZ } = this.hipsRest;
+        clip.tracks.forEach((t) => {
+          if (!t.name.endsWith('.position')) return;
+          const offX = t.values[0] - restX;
+          const offZ = t.values[2] - restZ;
+          for (let i = 0; i < t.values.length; i += 3) {
+            t.values[i]     -= offX;
+            // 保留 Y 轴高度，绝不强制抹平成 T-Pose restY，防止双足被抬离地面悬空
+            t.values[i + 2] -= offZ;
+          }
+        });
+      }
     }
 
     return retargetClip(clip, vrm, { antiClip });

@@ -1,6 +1,6 @@
 import React, { useState, useRef, useEffect, useCallback } from 'react';
 import { useTranslation } from 'react-i18next';
-import { ChevronDown, Clock, Sun, Sunset, Moon, type LucideIcon } from 'lucide-react';
+import { ChevronDown, Clock, MoonStar, Sunrise, Sun, Sunset, type LucideIcon } from 'lucide-react';
 import { vrmEngine } from '@/core/vrmEngine';
 import { useCurrentScene } from '@/core/scene/sceneManager';
 import type { EnvironmentTimeMode } from '@/core/scene/environmentTime';
@@ -28,50 +28,62 @@ const formatMinutesToString = (totalMinutes: number): string => {
   return `${h}:${min}`;
 };
 
-/** 根据分钟数获取动态天体氛围色、i18n 多语言配置与对应矢量图标 */
+/** 根据分钟数获取动态天体氛围色、i18n 多语言配置与高饱和液态玻璃核心渐变 (每6小时一个对称时段) */
 const getTimeAtmosphere = (totalMinutes: number) => {
-  const hour = totalMinutes / 60;
-  if (hour >= 5.0 && hour < 8.0) {
+  const hour = (((totalMinutes % 1440) + 1440) % 1440) / 60;
+
+  // 03:00 ~ 09:00: 破晓晨曦 (以 06:00 为中心，粉紫朝霞、旭日初升)
+  if (hour >= 3.0 && hour < 9.0) {
     return {
       labelKey: 'sceneTimeCard.atmospheres.dawn',
       defaultLabel: '破晓晨曦',
       badgeKey: 'sceneTimeCard.atmospheres.dawnBadge',
-      defaultBadge: '晨曦',
+      defaultBadge: '破晓',
       accent: '#f472b6',
-      glow: 'from-indigo-500/20 via-pink-500/15 to-amber-400/10',
-      icon: Sunset,
+      glowGradient:
+        'radial-gradient(circle at 50% 0%, rgba(244, 63, 94, 0.52) 0%, rgba(251, 146, 60, 0.28) 45%, transparent 80%)',
+      icon: Sunrise,
     };
   }
-  if (hour >= 8.0 && hour < 16.5) {
+
+  // 09:00 ~ 15:00: 烈日正午 (以 12:00 为中心，艳阳高照、晴空澄澈)
+  if (hour >= 9.0 && hour < 15.0) {
     return {
-      labelKey: 'sceneTimeCard.atmospheres.day',
-      defaultLabel: '明媚白昼',
-      badgeKey: 'sceneTimeCard.atmospheres.dayBadge',
-      defaultBadge: '白昼',
+      labelKey: 'sceneTimeCard.atmospheres.noon',
+      defaultLabel: '烈日正午',
+      badgeKey: 'sceneTimeCard.atmospheres.noonBadge',
+      defaultBadge: '正午',
       accent: '#38bdf8',
-      glow: 'from-sky-400/25 via-blue-500/10 to-amber-300/10',
+      glowGradient:
+        'radial-gradient(circle at 50% 0%, rgba(14, 165, 233, 0.46) 0%, rgba(250, 204, 21, 0.24) 45%, transparent 80%)',
       icon: Sun,
     };
   }
-  if (hour >= 16.5 && hour < 19.5) {
+
+  // 15:00 ~ 21:00: 落日黄昏 (以 18:00 为中心，夕阳晚霞、落日熔金)
+  if (hour >= 15.0 && hour < 21.0) {
     return {
-      labelKey: 'sceneTimeCard.atmospheres.sunset',
+      labelKey: 'sceneTimeCard.atmospheres.dusk',
       defaultLabel: '落日黄昏',
-      badgeKey: 'sceneTimeCard.atmospheres.sunsetBadge',
+      badgeKey: 'sceneTimeCard.atmospheres.duskBadge',
       defaultBadge: '黄昏',
       accent: '#fb923c',
-      glow: 'from-orange-500/25 via-rose-500/15 to-purple-900/20',
+      glowGradient:
+        'radial-gradient(circle at 50% 0%, rgba(249, 115, 22, 0.55) 0%, rgba(217, 70, 239, 0.28) 45%, transparent 80%)',
       icon: Sunset,
     };
   }
+
+  // 21:00 ~ 03:00 (跨午夜): 幽邃凌晨 (以 00:00 为中心，星河清冷、深夜静谧)
   return {
-    labelKey: 'sceneTimeCard.atmospheres.night',
-    defaultLabel: '静谧星夜',
-    badgeKey: 'sceneTimeCard.atmospheres.nightBadge',
-    defaultBadge: '星夜',
+    labelKey: 'sceneTimeCard.atmospheres.weeHours',
+    defaultLabel: '幽邃凌晨',
+    badgeKey: 'sceneTimeCard.atmospheres.weeHoursBadge',
+    defaultBadge: '凌晨',
     accent: '#818cf8',
-    glow: 'from-indigo-600/25 via-slate-900/40 to-blue-950/30',
-    icon: Moon,
+    glowGradient:
+      'radial-gradient(circle at 50% 0%, rgba(99, 102, 241, 0.48) 0%, rgba(168, 85, 247, 0.26) 45%, transparent 80%)',
+    icon: MoonStar,
   };
 };
 
@@ -83,18 +95,21 @@ interface PresetConfig {
   icon: LucideIcon;
 }
 
+/** 5 宫格预设：自动排在第一，凌晨排在第二 (00:00)，每 6 小时一个点 */
 const PRESETS: PresetConfig[] = [
   { id: 'auto', labelKey: 'sceneTimeCard.presets.auto', defaultLabel: '自动', sub: 'SYNC', icon: Clock },
-  { id: 'day', labelKey: 'sceneTimeCard.presets.day', defaultLabel: '白天', sub: '12:00', icon: Sun },
-  { id: 'sunset', labelKey: 'sceneTimeCard.presets.sunset', defaultLabel: '黄昏', sub: '17:45', icon: Sunset },
-  { id: 'night', labelKey: 'sceneTimeCard.presets.night', defaultLabel: '夜晚', sub: '22:00', icon: Moon },
+  { id: 'weeHours', labelKey: 'sceneTimeCard.presets.weeHours', defaultLabel: '凌晨', sub: '00:00', icon: MoonStar },
+  { id: 'dawn', labelKey: 'sceneTimeCard.presets.dawn', defaultLabel: '破晓', sub: '06:00', icon: Sunrise },
+  { id: 'noon', labelKey: 'sceneTimeCard.presets.noon', defaultLabel: '正午', sub: '12:00', icon: Sun },
+  { id: 'dusk', labelKey: 'sceneTimeCard.presets.dusk', defaultLabel: '黄昏', sub: '18:00', icon: Sunset },
 ];
 
 /** 根据预设模式获取目标分钟数 */
 const getPresetTargetMinutes = (presetId: EnvironmentTimeMode): number => {
-  if (presetId === 'day') return 12 * 60;
-  if (presetId === 'sunset') return 17 * 60 + 45;
-  if (presetId === 'night') return 22 * 60;
+  if (presetId === 'weeHours') return 0;
+  if (presetId === 'dawn') return 6 * 60;
+  if (presetId === 'noon' || presetId === 'day') return 12 * 60;
+  if (presetId === 'dusk' || presetId === 'sunset') return 18 * 60;
   const now = new Date();
   return now.getHours() * 60 + now.getMinutes();
 };
@@ -104,7 +119,7 @@ const calcFlowDuration = (startMins: number, targetMins: number): number => {
   const diffHours = Math.abs(targetMins - startMins) / 60;
   if (diffHours < 0.05) return 0;
   // 基础起步 1.2s，每相隔 1 小时增加 0.22s：
-  // 1 小时微调 ~1.4s，5.75 小时 (白天到黄昏) ~2.46s，10 小时 (白天到夜晚) ~3.4s，最长 3.8s
+  // 1 小时微调 ~1.4s，6 小时 ~2.5s，12 小时 ~3.8s
   return Math.min(3.8, Math.max(1.2, 1.2 + diffHours * 0.22));
 };
 
@@ -113,7 +128,7 @@ export interface SceneTimeCardProps {
   isPetUIVisible?: boolean;
 }
 
-export const SceneTimeCard: React.FC<SceneTimeCardProps> = () => {
+export const SceneTimeCard: React.FC<SceneTimeCardProps> = ({ isPetUIVisible = true }) => {
   const { t } = useTranslation();
   const currentScene = useCurrentScene();
   const [engineSupported, setEngineSupported] = useState(() => vrmEngine.isEnvironmentTimeSupported());
@@ -156,17 +171,19 @@ export const SceneTimeCard: React.FC<SceneTimeCardProps> = () => {
   const atmosphere = getTimeAtmosphere(minutes);
   const localizedAtmosphereLabel = t(atmosphere.labelKey, atmosphere.defaultLabel);
 
-  // 判定当前高亮的预设标签：严格根据阻尼时间 (minutes) 实时动态联动
+  // 判定当前高亮的预设标签：严格根据每 6 小时对称窗口 (±3h) 实时动态联动
   const hourFloat = (((minutes % 1440) + 1440) % 1440) / 60;
   const isTransitioning = Boolean(transitionRef.current);
   const activePresetId: EnvironmentTimeMode =
     timeState.mode === 'auto' && !isTransitioning && !isDragging
       ? 'auto'
-      : hourFloat >= 6.5 && hourFloat < 16.5
-        ? 'day'
-        : hourFloat >= 16.5 && hourFloat < 19.5
-          ? 'sunset'
-          : 'night';
+      : hourFloat >= 3.0 && hourFloat < 9.0
+        ? 'dawn'
+        : hourFloat >= 9.0 && hourFloat < 15.0
+          ? 'noon'
+          : hourFloat >= 15.0 && hourFloat < 21.0
+            ? 'dusk'
+            : 'weeHours';
 
   const CurrentPillIcon = activePresetId === 'auto' ? Clock : atmosphere.icon;
 
@@ -359,58 +376,116 @@ export const SceneTimeCard: React.FC<SceneTimeCardProps> = () => {
   return (
     <div
       ref={cardRef}
-      className="fixed top-[72px] right-4 z-20 flex flex-col items-end select-none font-sans"
+      className={`fixed top-[72px] right-4 z-20 flex flex-col items-end select-none font-sans transition-opacity duration-300 ${
+        isPetUIVisible ? 'opacity-100 pointer-events-auto' : 'opacity-0 pointer-events-none'
+      }`}
     >
-      {/* ── 顶部紧凑星盘微胶囊 ── */}
+      {/* ── 顶部紧凑星盘微胶囊 (烟熏透光液态玻璃 + 晶莹高光，兼顾通透与高对比度) ── */}
       <button
         type="button"
         onClick={() => setExpanded((prev) => !prev)}
-        className={`group relative inline-flex items-center justify-center h-8 gap-2 px-3 rounded-full transition-all duration-300 cursor-pointer shadow-[0_4px_20px_rgba(0,0,0,0.35)] backdrop-blur-xl border ${expanded
-          ? 'bg-slate-900/90 border-white/30 ring-1 ring-white/20'
-          : 'bg-slate-950/65 hover:bg-slate-900/80 border-white/15 hover:border-white/30 text-white/90 hover:text-white'
-          }`}
+        className="group relative inline-flex items-center justify-center h-8 pl-3 pr-2.5 rounded-full cursor-pointer transition-all duration-300 select-none overflow-hidden"
+        style={{
+          background: expanded
+            ? 'linear-gradient(135deg, rgba(30, 41, 59, 0.38) 0%, rgba(15, 23, 42, 0.46) 100%)'
+            : 'linear-gradient(135deg, rgba(15, 23, 42, 0.26) 0%, rgba(2, 6, 23, 0.35) 100%)',
+          backdropFilter: 'blur(24px) saturate(180%) contrast(105%)',
+          WebkitBackdropFilter: 'blur(24px) saturate(180%) contrast(105%)',
+          border: '1px solid rgba(255, 255, 255, 0.18)',
+          borderTop: '1px solid rgba(255, 255, 255, 0.50)',
+          boxShadow: expanded
+            ? `inset 0 1.2px 1px 0 rgba(255, 255, 255, 0.55), inset 0 0 10px 0 ${atmosphere.accent}25, 0 8px 24px -4px rgba(0, 0, 0, 0.30)`
+            : `inset 0 1px 1px 0 rgba(255, 255, 255, 0.40), inset 0 0 8px 0 ${atmosphere.accent}18, 0 4px 16px -2px rgba(0, 0, 0, 0.25)`,
+        }}
         title={t('sceneTimeCard.title', '场景时间')}
       >
-        {/* 天体时段矢量图标 (静态精致，随模式与时段自适应，光学居中) */}
-        <CurrentPillIcon
-          className="w-3.5 h-3.5 shrink-0 block transition-colors duration-300"
-          style={{ color: atmosphere.accent }}
-          strokeWidth={2}
+        {/* 胶囊内部清透液态微光 */}
+        <div
+          className="absolute inset-0 opacity-40 pointer-events-none transition-opacity duration-500 group-hover:opacity-60"
+          style={{
+            background: atmosphere.glowGradient,
+          }}
         />
 
-        {/* 核心时间文字 (光学基线微调 -translate-y-[0.5px]，与两侧 14px 图标严格同心居中) */}
-        <span className="font-mono text-xs font-semibold tracking-wider text-white/95 drop-shadow-sm tabular-nums -translate-y-[0.5px] leading-none select-none">
-          {formatMinutesToString(minutes)}
-        </span>
+        {/* 顶部微透镜高光条 */}
+        <div
+          className="absolute top-0 left-2 right-2 h-[1px] pointer-events-none"
+          style={{
+            background: 'linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.7), transparent)',
+          }}
+        />
 
-        {/* 折叠箭头 (光学基线微调 -translate-y-[0.25px]) */}
-        <ChevronDown
-          className={`w-3.5 h-3.5 shrink-0 block text-white/50 group-hover:text-white transition-transform duration-300 -translate-y-[0.25px] ${expanded ? 'rotate-180 text-white' : ''
+        {/* 内容水平与垂直同心居中容器 (补偿顶部 2px 物理高光沉坠感与 Lucide 箭头右侧内置边距) */}
+        <div className="relative z-10 flex items-center justify-center -translate-y-[1px]">
+          {/* 天体时段矢量图标 */}
+          <CurrentPillIcon
+            className="w-3.5 h-3.5 shrink-0 block text-white transition-colors duration-300 drop-shadow-[0_1px_3px_rgba(0,0,0,0.6)]"
+            strokeWidth={2}
+          />
+
+          {/* 核心时间文字 (去除 tracking-wider 消除末尾字符产生的右偏间隙，两侧等宽间距 mx-2) */}
+          <span className="font-mono text-xs font-semibold tracking-normal text-white drop-shadow-[0_1px_3px_rgba(0,0,0,0.6)] tabular-nums leading-none select-none mx-2">
+            {formatMinutesToString(minutes)}
+          </span>
+
+          {/* 折叠箭头 (使用 -ml-0.5 补偿 Lucide SVG 内部 25% 的内置留白，消除视觉右偏) */}
+          <ChevronDown
+            className={`w-3.5 h-3.5 shrink-0 block text-white/75 group-hover:text-white transition-transform duration-300 -ml-0.5 ${
+              expanded ? 'rotate-180 text-white' : ''
             }`}
-          strokeWidth={2}
-        />
+            strokeWidth={2}
+          />
+        </div>
       </button>
 
-      {/* ── 展开的天体轨迹星盘 HUD 卡片 ── */}
+      {/* ── 展开的天体轨迹星盘 HUD 卡片 (黄金半透明液态玻璃：通透折射背景 + 清晰高对比文字) ── */}
       {expanded && (
         <div
-          className="mt-2.5 w-[280px] rounded-2xl p-4 relative overflow-hidden
-                     bg-slate-900/80 backdrop-blur-2xl border border-white/12
-                     shadow-[0_20px_50px_rgba(0,0,0,0.65),inset_0_1px_0_rgba(255,255,255,0.12)]
-                     text-white animate-in fade-in zoom-in-95 duration-200"
+          className="mt-2.5 w-[288px] rounded-2xl p-4 relative overflow-hidden
+                     text-white animate-in fade-in zoom-in-95 duration-200 select-none"
+          style={{
+            background:
+              'linear-gradient(135deg, rgba(15, 23, 42, 0.26) 0%, rgba(2, 6, 23, 0.36) 100%)',
+            backdropFilter: 'blur(28px) saturate(190%) contrast(105%)',
+            WebkitBackdropFilter: 'blur(28px) saturate(190%) contrast(105%)',
+            border: '1px solid rgba(255, 255, 255, 0.16)',
+            borderTop: '1px solid rgba(255, 255, 255, 0.48)',
+            boxShadow: `
+              inset 0 1.5px 1.5px 0 rgba(255, 255, 255, 0.45),
+              inset 0 -1px 1px 0 rgba(255, 255, 255, 0.08),
+              inset 0 0 28px 0 ${atmosphere.accent}20,
+              0 20px 50px -10px rgba(0, 0, 0, 0.45),
+              0 0 24px -6px ${atmosphere.accent}18
+            `,
+          }}
         >
-          {/* 动态随时间变化的环境背光光晕层 */}
+          {/* 顶部液态玻璃透镜反射条 (Specular Rim Gleam) */}
           <div
-            className={`absolute -top-12 -left-12 -right-12 h-44 bg-gradient-to-b ${atmosphere.glow} blur-2xl pointer-events-none transition-all duration-700`}
+            className="absolute -top-1 left-3 right-3 h-14 pointer-events-none rounded-t-2xl"
+            style={{
+              background:
+                'linear-gradient(180deg, rgba(255, 255, 255, 0.20) 0%, rgba(255, 255, 255, 0.02) 45%, transparent 100%)',
+              maskImage: 'radial-gradient(ellipse at 50% 0%, black 50%, transparent 85%)',
+              WebkitMaskImage: 'radial-gradient(ellipse at 50% 0%, black 50%, transparent 85%)',
+            }}
+          />
+
+          {/* 内部高饱和液体流动光晕层 (柔和透亮，保留高清晰内容与通透背景) */}
+          <div
+            className="absolute -top-14 -left-12 -right-12 h-52 blur-3xl pointer-events-none transition-all duration-700"
+            style={{
+              background: atmosphere.glowGradient,
+              opacity: 0.40,
+            }}
           />
 
           {/* 顶部微标签栏（统一文案：场景时间 + 当前氛围描述） */}
           <div className="relative z-10 flex items-center justify-between text-[11px] text-white/50 px-1 pb-1">
-            <span className="tracking-wide font-medium text-[11px] text-white/70">
+            <span className="tracking-wide font-medium text-[11px] text-white/80 drop-shadow-[0_1px_3px_rgba(0,0,0,0.5)]">
               {t('sceneTimeCard.title', '场景时间')}
             </span>
             <span
-              className="font-medium text-xs transition-colors duration-300"
+              className="font-medium text-xs transition-colors duration-300 drop-shadow-[0_1px_3px_rgba(0,0,0,0.5)]"
               style={{ color: atmosphere.accent }}
             >
               {activePresetId === 'auto'
@@ -429,13 +504,13 @@ export const SceneTimeCard: React.FC<SceneTimeCardProps> = () => {
               onPointerDown={handlePointerDown}
             >
               <defs>
-                {/* 昼夜光谱渐变轨道 */}
+                {/* 昼夜光谱渐变轨道 (四象限对称光谱: 00:00 凌晨 -> 06:00 破晓 -> 12:00 正午 -> 18:00 黄昏 -> 24:00 凌晨) */}
                 <linearGradient id="skyGradient" x1="0%" y1="0%" x2="100%" y2="0%">
-                  <stop offset="0%" stopColor="#312e81" />
-                  <stop offset="22%" stopColor="#f472b6" />
-                  <stop offset="50%" stopColor="#38bdf8" />
-                  <stop offset="78%" stopColor="#fb923c" />
-                  <stop offset="100%" stopColor="#312e81" />
+                  <stop offset="0%" stopColor="#4f46e5" />   {/* 00:00 凌晨幽靛 */}
+                  <stop offset="25%" stopColor="#f43f5e" />  {/* 06:00 破晓玫瑰霞 */}
+                  <stop offset="50%" stopColor="#0ea5e9" />  {/* 12:00 正午晴空蓝 */}
+                  <stop offset="75%" stopColor="#f97316" />  {/* 18:00 黄昏炽烈橙 */}
+                  <stop offset="100%" stopColor="#4f46e5" /> {/* 24:00 凌晨幽靛 */}
                 </linearGradient>
                 {/* 天体光球发光滤镜 */}
                 <filter id="celestialGlow" x="-50%" y="-50%" width="200%" height="200%">
@@ -448,7 +523,7 @@ export const SceneTimeCard: React.FC<SceneTimeCardProps> = () => {
               <path
                 d={`M ${cx - r - 10} ${cy} A ${r + 10} ${r + 10} 0 0 1 ${cx + r + 10} ${cy}`}
                 fill="none"
-                stroke="rgba(255,255,255,0.08)"
+                stroke="rgba(255,255,255,0.18)"
                 strokeWidth="1"
                 strokeDasharray="2 6"
               />
@@ -457,8 +532,8 @@ export const SceneTimeCard: React.FC<SceneTimeCardProps> = () => {
               <path
                 d={`M ${cx - r} ${cy} A ${r} ${r} 0 0 1 ${cx + r} ${cy}`}
                 fill="none"
-                stroke="rgba(255,255,255,0.1)"
-                strokeWidth="4"
+                stroke="rgba(255,255,255,0.18)"
+                strokeWidth="4.5"
                 strokeLinecap="round"
               />
 
@@ -467,58 +542,68 @@ export const SceneTimeCard: React.FC<SceneTimeCardProps> = () => {
                 d={`M ${cx - r} ${cy} A ${r} ${r} 0 0 1 ${cx + r} ${cy}`}
                 fill="none"
                 stroke="url(#skyGradient)"
-                strokeWidth="4"
+                strokeWidth="4.5"
                 strokeLinecap="round"
                 strokeDasharray={Math.PI * r}
                 strokeDashoffset={Math.PI * r * (1 - progress)}
               />
 
-              {/* 地面地平线参考基线 */}
+              {/* 地面地平线参考基线与每6小时对称刻度 (增强对比度与阴影，清晰可辨) */}
               <line
                 x1="20"
                 y1={cy}
                 x2="240"
                 y2={cy}
-                stroke="rgba(255,255,255,0.08)"
+                stroke="rgba(255,255,255,0.18)"
                 strokeWidth="1"
               />
-              <text x="24" y={cy + 14} className="fill-white/30 text-[9px] font-mono">00:00</text>
-              <text x="118" y={cy + 14} className="fill-white/30 text-[9px] font-mono">12:00</text>
-              <text x="212" y={cy + 14} className="fill-white/30 text-[9px] font-mono">24:00</text>
+              <text x="24" y={cy + 14} className="fill-white/60 text-[9px] font-mono drop-shadow-[0_1px_2px_rgba(0,0,0,0.6)]">00:00</text>
+              <text x="118" y={cy + 14} className="fill-white/60 text-[9px] font-mono drop-shadow-[0_1px_2px_rgba(0,0,0,0.6)]">12:00</text>
+              <text x="212" y={cy + 14} className="fill-white/60 text-[9px] font-mono drop-shadow-[0_1px_2px_rgba(0,0,0,0.6)]">24:00</text>
 
-              {/* 天体拖拽手柄（太阳 / 月亮发光星体：拖拽时无过渡延迟，绝对 1:1 跟随） */}
+              {/* 天体拖拽手柄（太阳 / 月亮发光星体：高饱和高光） */}
               <g
                 transform={`translate(${thumbX}, ${thumbY})`}
                 className={isDragging ? 'cursor-grabbing' : 'cursor-grab'}
               >
                 <circle
-                  r="13"
+                  r="14"
                   fill={atmosphere.accent}
-                  fillOpacity="0.3"
+                  fillOpacity="0.45"
                   filter="url(#celestialGlow)"
                 />
                 <circle
-                  r="7"
+                  r="7.5"
                   fill="#ffffff"
                   stroke={atmosphere.accent}
-                  strokeWidth="3"
+                  strokeWidth="3.2"
                 />
               </g>
             </svg>
 
-            {/* 星盘中央超大数字主视觉 */}
+            {/* 星盘中央超大数字主视觉 (加大字重与阴影，确保在任何背景下极度清晰) */}
             <div className="absolute bottom-5 flex flex-col items-center pointer-events-none">
-              <div className="font-mono text-3xl font-bold tracking-tight text-white drop-shadow-sm">
+              <div className="font-mono text-3xl font-bold tracking-tight text-white drop-shadow-[0_2px_8px_rgba(0,0,0,0.7)]">
                 {formatMinutesToString(minutes)}
               </div>
-              <span className="text-[10px] text-white/40 tracking-wider mt-0.5 font-medium">
+              <span className="text-[10px] text-white/60 tracking-wider mt-0.5 font-medium drop-shadow-[0_1px_3px_rgba(0,0,0,0.6)]">
                 {t('sceneTimeCard.fineTune', '时间调节')}
               </span>
             </div>
           </div>
 
-          {/* 底部紧凑型 4 宫格分段控制器 Dock (选中项字体、底色与天体色实时联动) */}
-          <div className="relative z-10 grid grid-cols-4 gap-1 mt-2.5 bg-black/40 p-1 rounded-xl border border-white/5">
+          {/* 底部紧凑型 5 宫格分段控制器 Dock (微熏深磨砂槽，保证文字与图标对比度) */}
+          <div
+            className="relative z-10 grid grid-cols-5 gap-1 mt-2.5 p-1 rounded-xl"
+            style={{
+              background: 'rgba(0, 0, 0, 0.16)',
+              backdropFilter: 'blur(16px)',
+              WebkitBackdropFilter: 'blur(16px)',
+              border: '1px solid rgba(255, 255, 255, 0.10)',
+              borderTop: '1px solid rgba(255, 255, 255, 0.20)',
+              boxShadow: 'inset 0 1px 1px 0 rgba(255, 255, 255, 0.10)',
+            }}
+          >
             {PRESETS.map((item) => {
               const isSelected = activePresetId === item.id;
               const Icon = item.icon;
@@ -530,33 +615,34 @@ export const SceneTimeCard: React.FC<SceneTimeCardProps> = () => {
                   style={
                     isSelected
                       ? {
-                        backgroundColor: `${atmosphere.accent}20`,
-                        borderColor: `${atmosphere.accent}50`,
-                        boxShadow: `0 0 16px ${atmosphere.accent}25`,
-                      }
+                          backgroundColor: `${atmosphere.accent}18`,
+                          borderColor: atmosphere.accent,
+                          boxShadow: `0 0 12px ${atmosphere.accent}30`,
+                        }
                       : undefined
                   }
-                  className={`flex flex-col items-center justify-center py-2 px-1 rounded-lg transition-all duration-200 cursor-pointer ${isSelected
-                    ? 'border'
-                    : 'text-white/45 hover:text-white/80 hover:bg-white/5 border border-transparent'
-                    }`}
+                  className={`flex flex-col items-center justify-center py-2 px-0.5 rounded-lg transition-all duration-200 cursor-pointer ${
+                    isSelected
+                      ? 'border'
+                      : 'text-white/65 hover:text-white hover:bg-white/10 border border-transparent'
+                  }`}
                 >
                   <Icon
-                    className="w-4 h-4 mb-1.5 transition-colors"
+                    className="w-3.5 h-3.5 mb-1 transition-colors drop-shadow-sm"
                     style={{ color: isSelected ? atmosphere.accent : undefined }}
                     strokeWidth={isSelected ? 2.2 : 1.8}
                   />
                   <span
-                    className="text-[11px] font-medium leading-tight transition-colors"
+                    className="text-[10.5px] font-medium leading-tight transition-colors tracking-tight drop-shadow-[0_1px_2px_rgba(0,0,0,0.5)]"
                     style={{ color: isSelected ? atmosphere.accent : undefined }}
                   >
                     {t(item.labelKey, item.defaultLabel)}
                   </span>
                   <span
-                    className="text-[9px] font-mono mt-0.5 transition-colors"
+                    className="text-[8.5px] font-mono mt-0.5 transition-colors tabular-nums drop-shadow-[0_1px_2px_rgba(0,0,0,0.4)]"
                     style={{
                       color: isSelected ? atmosphere.accent : undefined,
-                      opacity: isSelected ? 0.8 : 0.45,
+                      opacity: isSelected ? 0.95 : 0.60,
                     }}
                   >
                     {item.sub}

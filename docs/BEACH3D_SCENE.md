@@ -219,10 +219,10 @@ The scene can be lit by the time of day with a continuous **24-hour solar and lu
 
 The beach scene features an interactive glassmorphic HUD (`src/components/SceneTimeCard.tsx`) positioned at the top-right corner of the canvas:
 
-1. **Optical-aligned micro-capsule**:
-   - Fixed `h-8` (32px) glassmorphism capsule button with three geometrically and optically centered elements:
+1. **Liquid Glass styling & optical-aligned micro-capsule**:
+   - Fixed `h-8` (32px) translucent liquid glass (`backdrop-blur-2xl backdrop-saturate-150`) capsule button with three optically centered elements:
      `[CurrentPillIcon (14px)] [HH:MM (SF Mono Tabular)] [ChevronDown (14px)]`
-   - Dynamically tinted by the active period's accent color (`atmosphere.accent`), with redundant outer labels removed for a clean, distraction-free aesthetic.
+   - High-saturation liquid ambient core with crisp top-edge specular rim reflection (`border-t-white/45`, `inset 0 1px 1px rgba(255,255,255,0.4)`), transparently revealing the 3D beach waves and skies behind.
 2. **Polar-angle celestial track (`Math.atan2`)**:
    - A semicircle arc with center $(130, 115)$ and radius $r = 92\text{px}$, spanning from 00:00 (left, $\pi$) through 12:00 (top, $\pi/2$) to 24:00 (right, $0$).
    - Drag coordinates are evaluated using true polar angles `Math.atan2(cy - y, x - cx)`, eliminating the infinite derivative singularities and boundary-speed warping previously caused by $\arccos$ horizontal projections.
@@ -232,8 +232,9 @@ The beach scene features an interactive glassmorphic HUD (`src/components/SceneT
    - Proportional duration scaling:
      $$\text{Duration} = \min(3.8, \max(1.2, 1.2 + \Delta\text{Hours} \times 0.22)) \text{ seconds}$$
      Small adjustments take ~1.4s; long daytime-to-night transitions (10+ hours) take ~3.4s to provide an immersive time-travel sensation.
-4. **Real-time dock preset binding (`activePresetId`)**:
-   - The bottom 4-preset dock (`自动`, `白天`, `黄昏`, `夜晚`) strictly follows the current damped minute during animation and user dragging, eliminating premature preset highlighting.
+4. **Real-time 5-preset dock binding (`activePresetId`)**:
+   - The bottom 5-preset dock (`自动 SYNC`, `凌晨 00:00`, `破晓 06:00`, `正午 12:00`, `黄昏 18:00`) strictly follows every 6-hour symmetrical quadrant (±3h centered window) during animation and user dragging, completely eliminating cross-period misattribution bugs.
+   - Symmetrical 4-quadrant celestial cycle: 幽邃凌晨 (21:00~03:00, center 00:00), 破晓晨曦 (03:00~09:00, center 06:00), 烈日正午 (09:00~15:00, center 12:00), 落日黄昏 (15:00~21:00, center 18:00).
 5. **Full Internationalization (i18n)**:
    - Full translation coverage in Chinese (`zh-CN`), English (`en`), and Japanese (`ja`) for all atmospheric titles, badges, and preset options.
 

@@ -3,13 +3,13 @@ import { useTranslation } from 'react-i18next';
 import {
   X,
   Sparkles,
-  HandMetal,
-  Radio,
   CornerDownLeft,
 } from 'lucide-react';
 import { StoryCinematicOverlay } from './StoryCinematicOverlay';
 import { StoryChoiceGroup } from './StoryChoiceGroup';
+import { StoryChoiceCard } from './StoryChoiceCard';
 import { StoryCameraTaskCard } from './StoryCameraTaskCard';
+import { StoryRecapCard } from './StoryRecapCard';
 import { ProviderConfigDialog } from '@/components/ProviderConfigDialog';
 import { storyDirectorEngine, type StoryState } from '@/story/storyEngine';
 import { storyGenerator } from '@/story/storyGenerator';
@@ -19,13 +19,11 @@ import type { StoryScript, StoryChoice } from '@/story/schema';
 interface StoryPlayerProps {
   script?: StoryScript;
   onComplete?: () => void;
-  allowInterrupt?: boolean;
 }
 
 export const StoryPlayer: React.FC<StoryPlayerProps> = ({
   script = prologueStory,
   onComplete,
-  allowInterrupt = true,
 }) => {
   const { i18n } = useTranslation();
   const [storyState, setStoryState] = useState<StoryState>(() => storyDirectorEngine.getState());
@@ -84,6 +82,12 @@ export const StoryPlayer: React.FC<StoryPlayerProps> = ({
     async (choice: StoryChoice) => {
       if (isGenerating) return;
 
+      // 如果是换装试穿动作，只驱动换装与全身展示，保留在当前拍自由试穿
+      if (choice.actionType === 'swap_outfit') {
+        await storyDirectorEngine.selectChoice(choice);
+        return;
+      }
+
       // 如果是打开 AI 模型配置弹窗
       if (choice.actionType === 'open_provider_config') {
         setIsProviderConfigOpen(true);
@@ -117,17 +121,6 @@ export const StoryPlayer: React.FC<StoryPlayerProps> = ({
     },
     [isGenerating, onComplete],
   );
-
-  // 处理全双工打断 (点击插话打断按钮)
-  const handleInterrupt = useCallback(() => {
-    if (!storyState.isSpeaking) return;
-    const interruptedSpeech = storyState.currentBeat?.actor.speechText || '';
-    storyDirectorEngine.interrupt();
-    storyGenerator.recordInterruption(interruptedSpeech, '（打断了小蠢的发言）');
-    if (inputRef.current) {
-      inputRef.current.focus();
-    }
-  }, [storyState.isSpeaking, storyState.currentBeat]);
 
   // 提交自由文本对话 / 插话
   const handleSendInput = useCallback(
@@ -169,7 +162,6 @@ export const StoryPlayer: React.FC<StoryPlayerProps> = ({
 
   const currentBeat = storyState.currentBeat;
   const speechText = currentBeat?.actor.speechText;
-  const showSubtitles = Boolean(speechText && speechText.trim().length > 0 && !storyState.isIntertitleActive);
   const showInput = Boolean(currentBeat?.allowInput);
 
   // 在视角教学拍中，根据任务完成度动态丰富下一步选项文案
@@ -188,6 +180,17 @@ export const StoryPlayer: React.FC<StoryPlayerProps> = ({
     }
     return storyState.choices;
   }, [currentBeat?.interaction, storyState.choices, cameraTasksDone]);
+
+  // 前情提要严格与选项组/任务交互卡片同步挂载；说话期间由 3D 头顶气泡承载，不在底部提前抢跑
+  const hasInteractiveElement =
+    displayChoices.length > 0 ||
+    currentBeat?.interaction === 'camera_drag' ||
+    (showInput && !storyState.isSpeaking);
+
+  const showRecap =
+    !storyState.isSpeaking &&
+    hasInteractiveElement &&
+    Boolean(speechText || storyState.history.length > 0);
 
   return (
     <div className="fixed inset-0 z-40 pointer-events-none select-none font-sans antialiased">
@@ -227,42 +230,14 @@ export const StoryPlayer: React.FC<StoryPlayerProps> = ({
         </div>
       </div>
 
-      {/* 3. 核心互动区：台词卡片 + 视角探索任务卡片 + 晶体分支卡片 + 可选自由打断条 (单列垂直流式排布) */}
+      {/* 3. 核心互动区：前情提要卡片 + 视角探索任务卡片 + 晶体分支卡片 + 可选自由打断条 (单列垂直流式排布) */}
       <div className="pointer-events-none fixed inset-x-4 sm:inset-x-auto sm:left-1/2 sm:-translate-x-1/2 bottom-5 sm:bottom-7 z-40 max-w-xl sm:max-w-2xl w-full flex flex-col gap-3">
-        {/* 台词字幕卡片 */}
-        {showSubtitles && (
-          <div className="pointer-events-auto p-4 sm:p-5 rounded-2xl bg-black/70 backdrop-blur-xl border border-white/15 shadow-[0_8px_32px_rgba(0,0,0,0.5)] transition-all duration-300 animate-in fade-in slide-in-from-bottom-2">
-            <div className="flex items-center justify-between mb-2">
-              <div className="flex items-center space-x-2">
-                <span className="px-2 py-0.5 text-xs font-semibold rounded-full bg-gradient-to-r from-[#ea8377] to-purple-500 text-white tracking-wider">
-                  小蠢
-                </span>
-                {storyState.isSpeaking && (
-                  <div className="flex items-center space-x-1 text-[#f5aa9c]">
-                    <Radio className="w-3.5 h-3.5 animate-pulse" />
-                    <span className="text-[11px] font-mono opacity-80">说话中...</span>
-                  </div>
-                )}
-              </div>
-
-              {/* 全双工打断按钮：角色说话时呈现 */}
-              {storyState.isSpeaking && allowInterrupt && (
-                <button
-                  type="button"
-                  onClick={handleInterrupt}
-                  className="flex items-center space-x-1 px-2.5 py-1 rounded-lg bg-[#ea8377]/25 hover:bg-[#ea8377]/40 text-[#f5aa9c] hover:text-white border border-[#ea8377]/40 text-xs transition-all duration-150 active:scale-95 cursor-pointer"
-                  title="立即插话打断当前台词"
-                >
-                  <HandMetal className="w-3 h-3" />
-                  <span>插话打断</span>
-                </button>
-              )}
-            </div>
-
-            <p className="text-sm sm:text-base text-white/95 leading-relaxed tracking-wide font-medium drop-shadow-sm">
-              {speechText}
-            </p>
-          </div>
+        {/* 前情提要卡片：严格与选项组/交互任务同步升起；说话期间由 3D 头顶气泡承载，不在底部抢跑 */}
+        {showRecap && (
+          <StoryRecapCard
+            currentSpeechText={speechText}
+            history={storyState.history}
+          />
         )}
 
         {/* 视角探索交互任务卡片 (当当前拍启用 camera_drag 交互时展开) */}
@@ -272,13 +247,27 @@ export const StoryPlayer: React.FC<StoryPlayerProps> = ({
 
         {/* 分支选项组 (根据 choiceLayout 或 image 自动切换图文卡片/纯文字列表) */}
         {displayChoices.length > 0 && (
-          <div className="pointer-events-auto w-full">
+          <div className="pointer-events-auto w-full flex flex-col gap-2.5">
             <StoryChoiceGroup
               choices={displayChoices}
               layout={currentBeat?.choiceLayout || 'auto'}
               onSelect={handleSelectChoice}
               disabled={isGenerating}
             />
+
+            {/* 确认换装/进入下一步专用主选项卡片：使用统一的 StoryChoiceCard (primary 变体)，样式与交互语言严格一致 */}
+            {currentBeat?.confirmChoice && (
+              <div className="w-full animate-in fade-in slide-in-from-bottom-2 duration-300">
+                <StoryChoiceCard
+                  choice={currentBeat.confirmChoice}
+                  index={displayChoices.length}
+                  layout="list"
+                  variant="primary"
+                  onSelect={handleSelectChoice}
+                  disabled={isGenerating}
+                />
+              </div>
+            )}
           </div>
         )}
 

@@ -960,7 +960,14 @@ export class Beach3DWorld implements IEnvironmentTimeAware, IEnvironmentLightPro
     this.isTimeDragging = Boolean(options?.isDragging);
     if (typeof time === 'number') {
       const h = ((time % 24) + 24) % 24;
-      this.timeMode = h >= 6.5 && h < 16.5 ? 'day' : (h >= 16.5 && h < 19.5 ? 'sunset' : 'night');
+      this.timeMode =
+        (h >= 21.0 || h < 3.0)
+          ? 'weeHours'
+          : (h >= 3.0 && h < 9.0)
+            ? 'dawn'
+            : (h >= 9.0 && h < 15.0)
+              ? 'noon'
+              : 'dusk';
       this.manualHour = h;
     } else if (time === 'auto') {
       this.timeMode = 'auto';

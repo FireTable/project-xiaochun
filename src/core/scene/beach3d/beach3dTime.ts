@@ -663,12 +663,20 @@ export function resolveEffectiveHour(mode: EnvironmentTimeMode | number): number
     return ((mode % 24) + 24) % 24;
   }
   switch (mode) {
+    case 'weeHours':
+      return 0.0;   // 00:00 凌晨
+    case 'dawn':
+      return 6.0;   // 06:00 破晓
+    case 'noon':
+      return 12.0;  // 12:00 正午
+    case 'dusk':
+      return 18.0;  // 18:00 黄昏
     case 'day':
       return 12.0;
     case 'sunset':
-      return 17.75; // 17:45 黄金夕阳时分
+      return 17.75; // 17:45 黄金夕阳时分 (legacy)
     case 'night':
-      return 22.0;  // 22:00 深夜月色
+      return 22.0;  // 22:00 深夜月色 (legacy)
     case 'auto':
     default: {
       const now = new Date();

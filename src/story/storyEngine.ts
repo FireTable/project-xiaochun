@@ -10,6 +10,7 @@ import type {
   StoryScript,
   StoryBeat,
   StoryChoice,
+  StoryHistoryEntry,
 } from './schema';
 
 export interface StoryState {
@@ -24,6 +25,7 @@ export interface StoryState {
   isEyeBlinkActive: boolean;
   isSpeaking: boolean;
   choices: StoryChoice[];
+  history: StoryHistoryEntry[];
   progress: {
     current: number;
     total: number;
@@ -52,6 +54,7 @@ export class StoryDirectorEngine {
     isEyeBlinkActive: false,
     isSpeaking: false,
     choices: [],
+    history: [],
     progress: { current: 1, total: 1 },
   };
 
@@ -103,6 +106,7 @@ export class StoryDirectorEngine {
       ...this.state,
       isActive: true,
       scriptId: script.id,
+      history: [],
       progress: {
         current: Math.max(1, beatKeys.indexOf(startId) + 1),
         total: Math.max(1, beatKeys.length),
@@ -129,16 +133,31 @@ export class StoryDirectorEngine {
     const beatKeys = Object.keys(this.currentScript.beats);
     const curIdx = beatKeys.indexOf(beatId);
 
+    const hasSpeech = Boolean(beat.actor.speechText && beat.actor.speechText.trim().length > 0);
     this.state = {
       ...this.state,
       currentBeatId: beatId,
       currentBeat: beat,
       choices: [], // 先清空上一拍的选项
+      isSpeaking: hasSpeech, // 只要本拍有台词，在进入舞台时即标记为说话中，防止前情提要提前抢跑
       progress: {
         current: curIdx >= 0 ? curIdx + 1 : this.state.progress.current,
         total: beatKeys.length,
       },
     };
+
+    // 记录小蠢台词到剧情历史流水线
+    if (beat.actor.speechText && beat.actor.speechText.trim().length > 0) {
+      const speech = beat.actor.speechText.trim();
+      if (!this.state.history.some((h) => h.id === `${beatId}_speech`)) {
+        this.state.history.push({
+          id: `${beatId}_speech`,
+          role: 'xiaochun',
+          text: speech,
+          timestamp: Date.now(),
+        });
+      }
+    }
     this.notify();
 
     // ── 阶段一: 舞台起势 (Pre-Act) ──
@@ -231,8 +250,33 @@ export class StoryDirectorEngine {
 
     if (beatId !== this.currentBeatId) return;
 
-    // ── 阶段三: 余韵收势 (Post-Act) ──
-    this.state.isSpeaking = false;
+    // ── 阶段三 & 四: 余韵收势与递麦挂起 (Post-Act & Yield) ──
+    const applySpeechEnd = () => {
+      this.state.isSpeaking = false;
+      // 递麦：将选项与前情提要合并在同一个微任务/渲染帧中同步发布，杜绝前后错位闪烁
+      if (beat.choices && beat.choices.length > 0) {
+        // 若当前拍为换装拍，同步当前已穿戴服装高亮态 (selected)
+        const currentOutfit = vrmEngine.currentOutfitKey || 'xiaochun_dinner_dress';
+        this.state.choices = beat.choices.map((c) => {
+          if (c.actionType === 'swap_outfit') {
+            const isWorn =
+              c.actionPayload === currentOutfit ||
+              c.id === currentOutfit ||
+              (currentOutfit.includes('dress') && c.id === 'outfit_dress') ||
+              (currentOutfit.includes('maid') && c.id === 'outfit_maid') ||
+              (currentOutfit.includes('cheongsam') && c.id === 'outfit_qipao');
+            return { ...c, selected: Boolean(isWorn) };
+          }
+          return c;
+        });
+      }
+      this.notify();
+    };
+    if (typeof document !== 'undefined' && 'startViewTransition' in document && typeof (document as any).startViewTransition === 'function') {
+      (document as any).startViewTransition(applySpeechEnd);
+    } else {
+      applySpeechEnd();
+    }
     storyAudioDirector.restoreBgmDucking();
 
     // 手势柔和回落，平滑切入真人动捕倾听姿态 (双手后背温婉前倾)
@@ -242,12 +286,9 @@ export class StoryDirectorEngine {
       mask: 'upperBody',
     });
 
-    // ── 阶段四: 递麦挂起 (Yield & Hooks) ──
     if (beat.choices && beat.choices.length > 0) {
       // 升起晶体选项卡片，触发晶体空灵音效
       storyAudioDirector.playSfx('crystal_chime');
-      this.state.choices = beat.choices;
-      this.notify();
     }
   }
 
@@ -283,6 +324,41 @@ export class StoryDirectorEngine {
       this.interrupt();
     }
 
+    const isOutfitSwap = choice.actionType === 'swap_outfit';
+
+    // 推进剧情拍时立即清空选项防止连击；而换装试穿时选项保留在场
+    if (!isOutfitSwap) {
+      this.state.choices = [];
+    }
+
+    if (choice.text && !isOutfitSwap) {
+      let historyText = choice.text;
+      if (choice.id === 'outfit_confirm') {
+        const currentOutfit = vrmEngine.currentOutfitKey || 'xiaochun_dinner_dress';
+        const outfitChoices = this.currentScript?.beats['beat_outfit_choice']?.choices || [];
+        const worn = outfitChoices.find(
+          (c) =>
+            c.actionPayload === currentOutfit ||
+            c.id === currentOutfit ||
+            (currentOutfit.includes('dress') && c.id === 'outfit_dress') ||
+            (currentOutfit.includes('maid') && c.id === 'outfit_maid') ||
+            (currentOutfit.includes('cheongsam') && c.id === 'outfit_qipao')
+        );
+        if (worn?.text) {
+          historyText = `换上「${worn.text}」`;
+        }
+      }
+      this.state.history.push({
+        id: `choice_${Date.now()}`,
+        role: 'user',
+        text: historyText,
+        subText: choice.subText,
+        choiceBadge: choice.badge,
+        timestamp: Date.now(),
+      });
+    }
+    this.notify();
+
     if (choice.actionType === 'change_lang' && choice.actionPayload && this.i18nInstance) {
       changeLang(this.i18nInstance, choice.actionPayload as any);
     } else if (choice.actionType === 'change_scene' && choice.actionPayload) {
@@ -296,6 +372,18 @@ export class StoryDirectorEngine {
       } else if (outfitKey === 'base' || outfitKey === 'default') {
         await vrmEngine.swapOutfit(APP_CONFIG.model.defaultSource, APP_CONFIG.model.defaultName);
       }
+
+      // 换完衣服之后，进行一次 360° 自信全身服装展示动效
+      void vrmEngine.playMotion('showFullBody', { fadeDuration: 0.6, loop: false });
+      storyAudioDirector.playSfx('crystal_chime');
+
+      // 更新高亮态 (当前穿戴的衣服被选定)
+      this.state.choices = this.state.choices.map((c) => ({
+        ...c,
+        selected: c.id === choice.id || c.actionPayload === choice.actionPayload,
+      }));
+      this.notify();
+      return;
     } else if (choice.actionType === 'open_provider_config') {
       if (typeof window !== 'undefined') {
         window.dispatchEvent(new CustomEvent('xc-open-provider-config'));
@@ -325,28 +413,41 @@ export class StoryDirectorEngine {
     vrmEngine.stopSpeaking();
     cameraDirector.stopTransition();
     storyAudioDirector.restoreBgmDucking();
-    this.state.isSpeaking = false;
-    this.state.isIntertitleActive = false;
 
-    // 若当前拍已有选项，打断后立即展开选项
-    if (this.state.currentBeat?.choices && this.state.choices.length === 0) {
-      this.state.choices = this.state.currentBeat.choices;
+    const applyInterruptState = () => {
+      this.state.isSpeaking = false;
+      this.state.isIntertitleActive = false;
+
+      // 若当前拍已有选项，打断后立即展开选项
+      if (this.state.currentBeat?.choices && this.state.choices.length === 0) {
+        this.state.choices = this.state.currentBeat.choices;
+      }
+      this.notify();
+    };
+
+    if (typeof document !== 'undefined' && 'startViewTransition' in document && typeof (document as any).startViewTransition === 'function') {
+      (document as any).startViewTransition(applyInterruptState);
+    } else {
+      applyInterruptState();
     }
-    this.notify();
 
     // 刹车后立即进入倾听态
     void vrmEngine.playMotion('listening', { fadeDuration: 0.6, loop: true, mask: 'upperBody' });
   }
 
   /**
-   * 结束当前剧本
+   * 结束当前剧本并彻底重置舞台、镜头与音画
    */
   public finish(): void {
+    ++this.executionSequence;
+    this.currentBeatId = null;
     this.interrupt();
+    cameraDirector.reset();
     expressionController.setActive(false);
     this.state = {
       ...this.state,
       isActive: false,
+      scriptId: null,
       isLetterboxActive: false,
       choices: [],
       currentBeat: null,

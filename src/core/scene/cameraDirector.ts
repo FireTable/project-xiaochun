@@ -98,7 +98,7 @@ export class CameraDirector {
       this.currentTweenRaf = null;
     }
     const controls = this.getControls();
-    if (controls && this.isTweening) {
+    if (controls) {
       controls.enabled = true;
       controls.update();
     }
@@ -106,6 +106,23 @@ export class CameraDirector {
       this.ctx.setWindMultiplier?.(1.0);
     }
     this.isTweening = false;
+  }
+
+  /**
+   * 退出故事剧场时彻底重置镜头，恢复自由 OrbitControls 与标准 FOV
+   */
+  public reset(): void {
+    this.stopTransition();
+    const camera = this.ctx?.camera;
+    if (camera) {
+      camera.fov = 30;
+      camera.updateProjectionMatrix();
+    }
+    const controls = this.getControls();
+    if (controls) {
+      controls.enabled = true;
+      controls.update();
+    }
   }
 
   /**

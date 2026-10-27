@@ -63,6 +63,7 @@ export const MOTION_CATALOG = {
     nameKey: 'motion.elegantStand.name',
     descriptionKey: 'motion.elegantStand.description',
     name: '亭亭玉立',
+    antiClip: false,
     description: '身体斜侧线条优美的优雅模特立姿',
     url: '/vrm/motion/elegant-stand.vrma',
     loop: true,

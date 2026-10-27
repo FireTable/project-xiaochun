@@ -94,7 +94,7 @@ export class BubbleTracker {
       if (typeof document !== 'undefined') {
         const bubbleEl = document.getElementById('head-bubble');
         if (bubbleEl) {
-          bubbleEl.style.transform = `translate3d(calc(${this.state.x}px - 50%), calc(${this.state.y}px - 100% - 16px), 0)`;
+          bubbleEl.style.transform = `translate3d(clamp(16px, calc(${this.state.x}px - 50%), calc(100vw - 100% - 16px)), max(16px, calc(${this.state.y}px - 100% - 16px)), 0)`;
         }
       }
     }

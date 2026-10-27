@@ -104,6 +104,10 @@ describe('beach3dTime — 太阳轨迹与时段色彩系统', () => {
     expect(resolveEffectiveHour('day')).toBe(12.0);
     expect(resolveEffectiveHour('sunset')).toBe(17.75);
     expect(resolveEffectiveHour('night')).toBe(22.0);
+    expect(resolveEffectiveHour('weeHours')).toBe(0.0);
+    expect(resolveEffectiveHour('dawn')).toBe(6.0);
+    expect(resolveEffectiveHour('noon')).toBe(12.0);
+    expect(resolveEffectiveHour('dusk')).toBe(18.0);
     expect(resolveEffectiveHour(15.2)).toBeCloseTo(15.2, 5);
     expect(resolveEffectiveHour(26)).toBeCloseTo(2.0, 5);
   });

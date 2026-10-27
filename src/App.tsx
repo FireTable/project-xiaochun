@@ -270,6 +270,16 @@ export const App: React.FC = () => {
             setIsStoryActive(false);
             try {
               localStorage.setItem(ONBOARDING_STORAGE_KEY, '1');
+              // 若用户在虚空场景提前跳过，自动回退到默认海滩场景
+              if (sceneManager.getCurrentSceneId() === 'void') {
+                void sceneManager.setScene(APP_CONFIG.scenes.defaultSceneId, true);
+              }
+              // 清除 URL 中的 ?onboarding=1，防止刷新反复进入向导
+              if (typeof window !== 'undefined' && window.location.search.includes('onboarding=')) {
+                const url = new URL(window.location.href);
+                url.searchParams.delete('onboarding');
+                window.history.replaceState({}, '', url.toString());
+              }
             } catch { }
           }}
         />
@@ -291,8 +301,8 @@ export const App: React.FC = () => {
         </div>
       )}
 
-      {/* 场景时间卡片 (独立浮窗，位于 TopHeader 下方，仅在支持时间流转的场景呈现) */}
-      <SceneTimeCard isPetUIVisible={isPetUIVisible} />
+      {/* 场景时间卡片 (独立浮窗，位于 TopHeader 下方，故事/向导期间隐藏避让) */}
+      {!isStoryOrOnboarding && <SceneTimeCard isPetUIVisible={isPetUIVisible} />}
 
       {/* 生产包默认不露抽屉；10 次连击后 hasDevEasterEgg 打开同一套面板。故事与向导期间不遮挡 */}
       <DevDrawerHost

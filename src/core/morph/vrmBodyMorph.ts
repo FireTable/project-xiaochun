@@ -621,12 +621,10 @@ export class VRMBodyMorph {
       // 提臀纵向微调：提臀时骨盆重心微收 (+Y 微升 0.005m)，平缓时自然微落
       pitchLiftY = -buttocksPitch * 0.015;
 
-      // 保持当前骨骼动画的横向 X 位置，仅在 Y 和 Z 轴施加提臀与腹部防凸补偿偏移
-      this.rawHips.position.set(
-        this.rawHips.position.x,
-        this.baseHipsPos.y + pitchLiftY,
-        this.baseHipsPos.z + hipsZOffset
-      );
+      // 保持当前骨骼动画的实时位置 (X, Y, Z)，仅在 Y 和 Z 轴施加提臀与腹部防凸补偿增量偏移，
+      // 杜绝使用静态 baseHipsPos 覆盖破坏动画系统的骨盆前后与垂直重心位移！
+      this.rawHips.position.y += pitchLiftY;
+      this.rawHips.position.z += hipsZOffset;
 
       // 臀部提臀朝向：仅当用户调整 buttocksPitch 时叠加骨盆俯仰增量，绝不破坏动画系统原生姿态
       if (Math.abs(buttocksPitch) > 0.0001) {
