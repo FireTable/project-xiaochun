@@ -110,6 +110,13 @@ export class VRMBodyMorph {
   private readonly _localUpSpine = new THREE.Vector3();
   private readonly _localUpChest = new THREE.Vector3();
 
+  // 股骨大腿世界矩阵剥离父级非等比缩放 (解耦 Hips 缩放导致的旋转剪切与大腿拉伸插地)
+  private readonly _parentPos = new THREE.Vector3();
+  private readonly _parentQuat = new THREE.Quaternion();
+  private readonly _parentScale = new THREE.Vector3();
+  private readonly _parentUnscaledMat = new THREE.Matrix4();
+  private readonly _unitScaleVec = new THREE.Vector3(1, 1, 1);
+
   /**
    * 纯四元数自底向上链式世界旋转提取：
    * 直接相乘父级各骨骼的纯单位四元数，完全避开带剪切矩阵的 decompose() 奇异翻转，在全空间无穷阶光滑连续
@@ -122,6 +129,38 @@ export class VRMBodyMorph {
       curr = curr.parent;
     }
     return target;
+  }
+
+  /**
+   * 股骨（大腿）世界矩阵解耦：
+   * 剥离父节点 Hips 的非等比缩放矩阵（Scale），消除由于 Hips 缩放与旋转不可交换导致的旋转剪切畸变。
+   * 彻底杜绝前倾动作下大腿在世界坐标中被虚假拉长 2cm 导致鞋子插地的历史顽疾！
+   */
+  private setupUnscaledLegMatrixUpdate(leg: THREE.Object3D): void {
+    const pPos = this._parentPos;
+    const pQuat = this._parentQuat;
+    const pScale = this._parentScale;
+    const pUnscaled = this._parentUnscaledMat;
+    const unitScale = this._unitScaleVec;
+
+    leg.updateMatrixWorld = function (force?: boolean): void {
+      if (this.matrixAutoUpdate) this.updateMatrix();
+      if (this.matrixWorldNeedsUpdate || force) {
+        if (this.parent) {
+          // 提取 parent (Hips) 的世界位置与旋转，剥离其非等比缩放
+          this.parent.matrixWorld.decompose(pPos, pQuat, pScale);
+          pUnscaled.compose(pPos, pQuat, unitScale);
+          this.matrixWorld.multiplyMatrices(pUnscaled, this.matrix);
+        } else {
+          this.matrixWorld.copy(this.matrix);
+        }
+        this.matrixWorldNeedsUpdate = false;
+        force = true;
+      }
+      for (let i = 0, l = this.children.length; i < l; i++) {
+        this.children[i].updateMatrixWorld(force);
+      }
+    };
   }
 
   // 100% 纯动态从 VRM 几何体与骨骼测量的原生几何尺寸与身高基准 (零写死魔数，完全自适应任意模型)
@@ -229,10 +268,12 @@ export class VRMBodyMorph {
     if (this.rawLLeg) {
       this.baseLLegPos.copy(this.rawLLeg.position);
       this.baseLLegRot.copy(this.rawLLeg.quaternion);
+      this.setupUnscaledLegMatrixUpdate(this.rawLLeg);
     }
     if (this.rawRLeg) {
       this.baseRLegPos.copy(this.rawRLeg.position);
       this.baseRLegRot.copy(this.rawRLeg.quaternion);
+      this.setupUnscaledLegMatrixUpdate(this.rawRLeg);
     }
     if (this.rawLCalf) {
       this.baseLCalfPos.copy(this.rawLCalf.position);
@@ -636,18 +677,19 @@ export class VRMBodyMorph {
 
     // ── 2. 股骨头位置与大腿角度解耦 (彻底杜绝大腿被扭歪，同时完整保留踱步与动作旋转) ──
     // 伴随胯宽与臀展适度平滑展开股骨头位置，消除腹股沟皮肤挤压锐角尖刺
+    // 由于 setupUnscaledLegMatrixUpdate 剥离了父级非等比缩放，位置无需再除以 (hx, hy, hz)
     const hipSpreadX = (hips - 1.0) * 0.018 + buttocksSpread * 0.035;
     if (this.rawLLeg && this.rawRLeg) {
       // 腿根位置：在大腿根施加对称横向展开，塑造圆润丰盈的沙漏梨形臀部外侧弧线
       this.rawLLeg.position.set(
-        (this.baseLLegPos.x + hipSpreadX) / Math.max(0.01, hx),
-        (this.baseLLegPos.y - pitchLiftY) / Math.max(0.01, hy),
-        (this.baseLLegPos.z - hipsZOffset) / Math.max(0.01, hz)
+        this.baseLLegPos.x + hipSpreadX,
+        this.baseLLegPos.y - pitchLiftY,
+        this.baseLLegPos.z - hipsZOffset
       );
       this.rawRLeg.position.set(
-        (this.baseRLegPos.x - hipSpreadX) / Math.max(0.01, hx),
-        (this.baseRLegPos.y - pitchLiftY) / Math.max(0.01, hy),
-        (this.baseRLegPos.z - hipsZOffset) / Math.max(0.01, hz)
+        this.baseRLegPos.x - hipSpreadX,
+        this.baseRLegPos.y - pitchLiftY,
+        this.baseRLegPos.z - hipsZOffset
       );
 
       // 【核心保障】：仅当用户主动调节 buttocksPitch 时对大腿施加反向逆补偿，
@@ -666,10 +708,9 @@ export class VRMBodyMorph {
     const thighThickX = 1.0 + (thighs - 1.0) * 0.75;
     const thighThickZ = 1.0 + (thighs - 1.0) * 0.70;
     if (this.rawLLeg && this.rawRLeg) {
-      tx = thighThickX / Math.max(0.01, 1.0 + (hx - 1.0) * 0.40);
-      ty = thighLength / Math.max(0.01, hy);
-      // 核心解耦：局部 Z 轴 100% 除以 hz，使大腿在世界空间的前后粗细严格等于 thighThickZ，绝对不受臀部影响！
-      tz = thighThickZ / Math.max(0.01, hz);
+      tx = thighThickX;
+      ty = thighLength;
+      tz = thighThickZ;
       this.rawLLeg.scale.set(tx, ty, tz);
       this.rawRLeg.scale.set(tx, ty, tz);
     }
