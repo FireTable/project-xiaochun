@@ -24,6 +24,7 @@ export const CameraTrajectoryTypeSchema = z.enum([
   'dutch_tilt',              // 荷兰角微倾 (内心犹豫不安)
   'arc_sweep',               // 侧方微弧度横摇
   'orbit_subtle',            // 微妙环绕微动
+  'pedestal_up',             // 垂直升镜打量 (自裙摆腰身自下而上缓缓升至胸前/面部)
 ]);
 export type CameraTrajectoryType = z.infer<typeof CameraTrajectoryTypeSchema>;
 

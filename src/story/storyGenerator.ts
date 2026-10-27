@@ -42,13 +42,13 @@ export const STORY_DIRECTOR_SYSTEM_PROMPT = `你是一个 3D AI 虚拟生命（�
     }
   },
   "camera": {
-    "shot": "close_up" | "medium" | "full" | "extreme_close_up" | "dramatic_low" | "hero_spiral_orbit",
-    "movement": "push_in" | "pull_out" | "pan_left" | "pan_right" | "orbit_subtle" | "static" | "dramatic_spiral",
-    "durationSec": 1.5 // 运镜过渡秒数 (1.0 ~ 3.0)
+    "shot": "extreme_close_up" | "close_up" | "medium" | "full" | "dramatic_low", // 景别选择
+    "movement": "none" | "push_in" | "pull_out" | "pedestal_up" | "orbit_subtle" | "hero_spiral_orbit" | "hero_backlight_reveal", // 运镜轨迹 (pedestal_up 为自裙摆向上升机打量)
+    "durationSec": 1.5 // 运镜过渡秒数 (1.0 ~ 3.5)
   },
   "actor": {
-    "leadInMotion": "touchHair" | "waving" | "shyBehindBack" | "cuteTilt" | "poutTurn" | "flowerChin" | "catCheeks" | "showFullBody", // 说话前 0.4s 起势动作
-    "motion": "listening" | "classicIdle" | "waving" | "bashfulTwist" | "gentleTalk" | "warmDialogue" | "bellyDance" | "rumbaDance", // 说话期间动作
+    "leadInMotion": "touchHair" | "waving" | "shyBehindBack" | "cuteTilt" | "poutTurn" | "flowerChin" | "catCheeks" | "fistCute", // 说话前 0.4s 起势动作 (选填)
+    "motion": "show-full-body" | "rumbaDance" | "bellyDance", // 发音期间全局覆盖动作 (选填，不填则完全由系统思考姿态与语音手势自适应接管)
     "expression": {
       "base": "neutral" | "gentle_smile" | "shy" | "surprised" | "pout" | "smug" | "thinking",
       "intensity": 0.8, // 0.0 ~ 1.0
@@ -239,7 +239,7 @@ export class StoryGenerator {
         camera: json.camera || { shot: 'close_up', movement: 'push_in', durationSec: 1.5 },
         actor: {
           leadInMotion: json.actor?.leadInMotion || 'touchHair',
-          motion: json.actor?.motion || 'listening',
+          motion: json.actor?.motion || undefined,
           expression: json.actor?.expression || {
             base: isInterruption ? 'surprised' : 'gentle_smile',
             intensity: 0.8,
@@ -310,7 +310,7 @@ export class StoryGenerator {
       },
       actor: {
         leadInMotion: 'waving',
-        motion: 'listening',
+        motion: undefined,
         expression: {
           base: 'gentle_smile',
           intensity: 0.75,

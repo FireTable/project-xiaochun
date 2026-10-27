@@ -46,7 +46,7 @@ export const EmbedApp: React.FC = () => {
   const hasChrome = ui.ui || ui.outfit || ui.scene || ui.lang || ui.github;
   const { isPetUIVisible } = usePetUiVisibility(autoHide && hasChrome);
   const [bubble, setBubble] = useState<BubbleState>({
-    visible: false, statusKey: '', speechText: '', isError: false, x: 0, y: 0,
+    visible: false, statusKey: '', speechText: '', isError: false, x: 0, y: 0, placement: 'top',
   });
 
   useEffect(() => {

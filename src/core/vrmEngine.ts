@@ -1119,6 +1119,8 @@ export class VRMEngine {
   public setFacingBackwards(): void {
     if (!this.currentVRM) return;
     this.motionPipeline.setFacingBackwards(this.currentVRM, this.camera);
+    this.currentVRM.scene.updateMatrixWorld(true);
+    this.settleSpringBones(this.currentVRM);
   }
 
   /** 触发角色转身面向镜头 (激活 4-phase stepping FSM 迈步转身) */
@@ -2232,11 +2234,13 @@ export class VRMEngine {
   }
 
   /**
-   * 弹簧骨骼加载瞬间零速预热与碰撞松弛 (方案 B):
-   * 仅在模型上屏前瞬间在后台迭代 16 步小物理步长，解除大腿碰撞体穿透并清零初速度。
-   * 完全不改动任何日常物理参数 (stiffness, dragForce, gravityPower)，确保日常动感 100% 原汁原味。
+   * 弹簧骨骼加载瞬间零速预热与碰撞松弛 (两阶段防炸裙):
+   * 阶段一: 临时分离/清空碰撞体 (colliderGroups = []) 并 reset 骨骼，在重力场中零冲击下垂 8 步，消除初始大穿透与瞬移爆冲；
+   * 阶段二: 恢复碰撞体，迭代 16 步小物理步长，并在每步强制将 _prevTail 对齐 _currentTail，清空碰撞反弹累积动能。
+   * 确保无论是初次加载、换装原子交接、还是从黑幕/隐藏切回显示并 180 度调转朝向时，裙摆与发丝均能 100% 平稳落地，绝不狂甩。
    */
-  public settleSpringBones(vrm: VRM): void {
+  public settleSpringBones(vrm: VRM | null = this.currentVRM, disableCollidersFirst = true): void {
+    if (!vrm) return;
     const mgr = vrm.springBoneManager;
     if (!mgr) return;
 
@@ -2246,7 +2250,39 @@ export class VRMEngine {
       (joint as any).reset?.();
     }
 
+    // 1. 临时保存并断开所有 joint 的碰撞体组，避免瞬间深穿透引发物理爆炸推斥
+    const savedColliderGroups = new Map<any, any[]>();
+    if (disableCollidersFirst) {
+      for (const joint of mgr.joints) {
+        savedColliderGroups.set(joint, joint.colliderGroups);
+        joint.colliderGroups = [];
+      }
+    }
+
     const subDelta = 0.016;
+
+    // 阶段一: 无碰撞重力垂顺迭代 (8 步)，让布料自然沉降
+    const freeSteps = disableCollidersFirst ? 8 : 0;
+    for (let step = 0; step < freeSteps; step++) {
+      mgr.update(subDelta);
+      for (const joint of mgr.joints) {
+        const j = joint as unknown as { _currentTail?: THREE.Vector3; _prevTail?: THREE.Vector3 };
+        if (j._currentTail && j._prevTail) {
+          j._prevTail.copy(j._currentTail);
+        }
+      }
+      vrm.scene.updateMatrixWorld(true);
+    }
+
+    // 恢复碰撞体组
+    if (disableCollidersFirst) {
+      for (const joint of mgr.joints) {
+        const saved = savedColliderGroups.get(joint);
+        if (saved) joint.colliderGroups = saved;
+      }
+    }
+
+    // 阶段二: 开启碰撞体进行松弛贴合迭代 (16 步)，每步清零初速度 (prevTail = currentTail)
     for (let step = 0; step < 16; step++) {
       mgr.update(subDelta);
       for (const joint of mgr.joints) {

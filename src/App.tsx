@@ -59,6 +59,7 @@ export const App: React.FC = () => {
     isError: false,
     x: 0,
     y: 0,
+    placement: 'top',
   });
 
   // ponytail: 抽屉开关状态记到 localStorage,刷新后保持原样,调试不用每次手动打开。

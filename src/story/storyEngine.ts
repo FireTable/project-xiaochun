@@ -185,6 +185,8 @@ export class StoryDirectorEngine {
     if (beat.id === 'beat_greet') {
       if (vrmEngine.currentVRM) {
         vrmEngine.currentVRM.scene.visible = false;
+        // 关键时序优化：在黑幕阶段提前就位 180 度背对朝向并触发两阶段物理碰撞松弛
+        vrmEngine.setFacingBackwards();
       }
     }
 
@@ -223,25 +225,32 @@ export class StoryDirectorEngine {
 
     // 🌟 序章专属电影级运镜与转身演出
     if (beat.id === 'beat_greet') {
-      // 唤醒瞬间：在纯黑转场中恢复模型可见、初始化背对朝向并就位裙摆脚踝低机位
+      // 唤醒瞬间：在纯黑转场中恢复模型可见、执行两阶段碰撞松弛与动能归零，并就位裙摆优雅视高
       if (vrmEngine.currentVRM) {
         vrmEngine.currentVRM.scene.visible = true;
+        vrmEngine.settleSpringBones(vrmEngine.currentVRM);
       }
-      vrmEngine.setFacingBackwards();
       cameraDirector.preparePanUpStart();
 
-      // 需求 3：背对镜头前，自下而上缓缓打量面前少女 (低机位 -> 上半身中景聚焦)
-      await cameraDirector.panUpReveal(2.4);
+      // 电影级自下而上运镜与转身无缝交叠 (总时长约 2.2s，拒绝生硬停顿)
+      const panPromise = cameraDirector.panUpReveal(2.2);
+
+      // 在镜头上升至腰背部时 (约 1.1s 处)，角色自然启动踏步迈步转身
+      // 运镜与转身动作双重流动重合，镜头就位胸前时角色恰好转正、面带初醒微笑，消灭一切死板定格与顿挫
+      await new Promise((r) => setTimeout(r, 1100));
       if (this.executionSequence !== seq) return;
 
-      // 需求 2：打量定格后，触发角色踏步转身 (调用 BodyTurnSystem 4-phase stepping FSM 迈步转身 180 度)
       vrmEngine.triggerBodyTurnToFront();
-
-      // 调度初醒微笑神态，等待踏步转身转正 (约 1.2s 完成)
       if (beat.actor.expression) {
         expressionController.setDirective(beat.actor.expression);
       }
-      await new Promise((r) => setTimeout(r, 1200));
+
+      // 等待运镜平滑就位与踏步收敛
+      await panPromise;
+      if (this.executionSequence !== seq) return;
+
+      // 预留 300ms 步态平息收尾
+      await new Promise((r) => setTimeout(r, 300));
       if (this.executionSequence !== seq) return;
     } else {
       // 2. 常规镜头调度 (防崩保护与异步推演)
@@ -324,15 +333,16 @@ export class StoryDirectorEngine {
       }
       this.notify();
     };
-    if (typeof document !== 'undefined' && 'startViewTransition' in document && typeof (document as any).startViewTransition === 'function') {
-      (document as any).startViewTransition(applySpeechEnd);
-    } else {
-      applySpeechEnd();
-    }
+    // 递麦状态直接通知 React 渲染，绝不使用 document.startViewTransition 截屏，
+    // 彻底杜绝 View Transitions API 栅格化冻结 3D WebGL Canvas 导致的 250ms "抽帧/卡顿"
+    applySpeechEnd();
     storyAudioDirector.restoreBgmDucking();
 
-    // 手势柔和回落，平滑切入自然待机 (NaturalIdle)，呼吸随行，绝不死锁骨骼
-    vrmEngine.stopMotion(0.85);
+    // 手势柔和回落：仅当该拍指定了全程特定动作 (beat.actor.motion) 时才显式收势；
+    // 若为日常台词，vrmEngine.speakText 内部 (ChatDirector.stop) 在音频播毕时已自包含完成平滑淡出至 NaturalIdle。
+    if (beat.actor.motion) {
+      vrmEngine.stopMotion(0.85);
+    }
 
     if (beat.choices && beat.choices.length > 0) {
       // 升起晶体选项卡片，触发晶体空灵音效
@@ -473,11 +483,7 @@ export class StoryDirectorEngine {
       this.notify();
     };
 
-    if (typeof document !== 'undefined' && 'startViewTransition' in document && typeof (document as any).startViewTransition === 'function') {
-      (document as any).startViewTransition(applyInterruptState);
-    } else {
-      applyInterruptState();
-    }
+    applyInterruptState();
 
     // 刹车后立即平滑回落至自然待机，并确保角色可见性恢复
     if (vrmEngine.currentVRM) {

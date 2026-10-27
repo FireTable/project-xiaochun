@@ -181,13 +181,34 @@ export class CameraDirector {
     const endZ = this.tempEndTarget.z + targetDistance * sinPitch * Math.cos(currentAzimuth);
     this.tempEndPos.set(endX, endY, endZ);
 
-    // 4. 起点状态捕获
-    this.tempStartPos.copy(camera.position);
-    if (controls && controls.target) {
-      this.tempStartTarget.copy(controls.target);
-      controls.enabled = false;
+    const trajectory = directive.movement;
+    const isHeroOrbit = trajectory === 'hero_spiral_orbit';
+    const isPedestalUp = trajectory === 'pedestal_up';
+
+    // 4. 起点状态捕获 (支持常规起点捕获与垂直升镜专用起点)
+    if (isPedestalUp) {
+      const startTargetY = this.tempHeadPos.y - 0.70;
+      this.tempStartTarget.set(this.tempHeadPos.x, startTargetY, this.tempHeadPos.z);
+      const startPitch = 1.53;
+      const startDist = targetDistance * 1.08;
+      const startX = this.tempStartTarget.x + startDist * Math.sin(startPitch) * Math.sin(currentAzimuth);
+      const startY = this.tempStartTarget.y + startDist * Math.cos(startPitch);
+      const startZ = this.tempStartTarget.z + startDist * Math.sin(startPitch) * Math.cos(currentAzimuth);
+      this.tempStartPos.set(startX, Math.max(0.50, startY), startZ);
+      camera.position.copy(this.tempStartPos);
+      if (controls && controls.target) {
+        controls.target.copy(this.tempStartTarget);
+        controls.enabled = false;
+      }
+      camera.lookAt(this.tempStartTarget);
     } else {
-      this.tempStartTarget.set(this.tempEndTarget.x, this.tempEndTarget.y, this.tempEndTarget.z);
+      this.tempStartPos.copy(camera.position);
+      if (controls && controls.target) {
+        this.tempStartTarget.copy(controls.target);
+        controls.enabled = false;
+      } else {
+        this.tempStartTarget.set(this.tempEndTarget.x, this.tempEndTarget.y, this.tempEndTarget.z);
+      }
     }
     const startFov = camera.fov;
 
@@ -200,9 +221,6 @@ export class CameraDirector {
     const durationMs = Math.max(200, (directive.durationSec || 1.2) * 1000);
     const startTime = performance.now();
     this.isTweening = true;
-
-    const trajectory = directive.movement;
-    const isHeroOrbit = trajectory === 'hero_spiral_orbit';
 
     const easingFn =
       directive.easing === 'ease_out_dramatic'
@@ -282,6 +300,9 @@ export class CameraDirector {
   /**
    * 预先将摄像机机位与观察目标点对齐至裙摆脚踝低机位 (在黑屏期间调用，避免黑幕揭开时镜头瞬间跳跃)
    */
+  /**
+   * 预先将摄像机机位与观察目标点对齐至裙摆优雅视高 (在黑屏期间调用，避免黑幕揭开时镜头瞬间跳跃)
+   */
   public preparePanUpStart(): void {
     if (!this.ctx) return;
     const { camera, getVRM } = this.ctx;
@@ -295,20 +316,23 @@ export class CameraDirector {
     if (!headNode) return;
     headNode.getWorldPosition(this.tempHeadPos);
 
-    const endTarget = new THREE.Vector3(this.tempHeadPos.x, this.tempHeadPos.y - 0.22, this.tempHeadPos.z);
-    const startTarget = new THREE.Vector3(this.tempHeadPos.x, this.tempHeadPos.y - 1.25, this.tempHeadPos.z);
+    // 终点目标：上半身中景 (胸口高度)
+    const endTarget = new THREE.Vector3(this.tempHeadPos.x, this.tempHeadPos.y - 0.20, this.tempHeadPos.z);
+    // 起点目标：从贴地脚踝(-1.25)上抬至裙摆中下部(-0.70)，构图更加大气典雅
+    const startTarget = new THREE.Vector3(this.tempHeadPos.x, this.tempHeadPos.y - 0.70, this.tempHeadPos.z);
 
     const currentAzimuth = Math.atan2(camera.position.x - endTarget.x, camera.position.z - endTarget.z);
 
-    const startPitch = 1.70;
-    const startDist = 2.40;
+    // 起点机位：上抬至 0.65m 视高 (距离 2.25m, pitch 1.53 rad 接近微仰平视，杜绝贴地扫地面)
+    const startPitch = 1.53;
+    const startDist = 2.25;
     const startX = startTarget.x + startDist * Math.sin(startPitch) * Math.sin(currentAzimuth);
     const startY = startTarget.y + startDist * Math.cos(startPitch);
     const startZ = startTarget.z + startDist * Math.sin(startPitch) * Math.cos(currentAzimuth);
-    const startPos = new THREE.Vector3(startX, Math.max(0.15, startY), startZ);
+    const startPos = new THREE.Vector3(startX, Math.max(0.50, startY), startZ);
 
     camera.position.copy(startPos);
-    camera.fov = 28;
+    camera.fov = 30;
     camera.updateProjectionMatrix();
     if (controls) {
       controls.target.copy(startTarget);
@@ -318,94 +342,15 @@ export class CameraDirector {
   }
 
   /**
-   * 自下而上打量面前少女的电影级升降运镜 (裙摆脚踝 -> 腰身蝴蝶结 -> 上半身中景聚焦)
+   * 自下而上打量面前少女的电影级升降运镜 (裙摆腰身 -> 上半身中景聚焦)
+   * 完全复用通用 transitionTo({ shot: 'medium', movement: 'pedestal_up' })，AI 剧本生成与程序化调用均可无缝驱动
    */
-  public async panUpReveal(durationSec = 2.4): Promise<void> {
-    if (!this.ctx) return;
-    const { camera, getVRM, onApplyGroundClamp } = this.ctx;
-    const controls = this.getControls();
-    const vrm = getVRM();
-    if (!vrm) return;
-
-    this.stopTransition();
-
-    const headNode = vrm.humanoid?.getNormalizedBoneNode('head');
-    if (!headNode) return;
-    headNode.getWorldPosition(this.tempHeadPos);
-
-    // 终点目标：上半身中景 (胸口/后颈)
-    const endTarget = new THREE.Vector3(this.tempHeadPos.x, this.tempHeadPos.y - 0.22, this.tempHeadPos.z);
-    // 起点目标：低机位裙摆与脚踝
-    const startTarget = new THREE.Vector3(this.tempHeadPos.x, this.tempHeadPos.y - 1.25, this.tempHeadPos.z);
-
-    // 计算当前方位角 (相机在角色背后的角度)
-    const currentAzimuth = Math.atan2(camera.position.x - endTarget.x, camera.position.z - endTarget.z);
-
-    // 起点机位：低机位微仰视 (距离 2.40m, pitch 1.70 rad)
-    const startPitch = 1.70;
-    const startDist = 2.40;
-    const startX = startTarget.x + startDist * Math.sin(startPitch) * Math.sin(currentAzimuth);
-    const startY = startTarget.y + startDist * Math.cos(startPitch);
-    const startZ = startTarget.z + startDist * Math.sin(startPitch) * Math.cos(currentAzimuth);
-    const startPos = new THREE.Vector3(startX, Math.max(0.15, startY), startZ);
-
-    // 终点机位：标准半身交流景 (距离 2.10m, pitch Math.PI * 0.49)
-    const endPitch = Math.PI * 0.49;
-    const endDist = 2.10;
-    const endX = endTarget.x + endDist * Math.sin(endPitch) * Math.sin(currentAzimuth);
-    const endY = endTarget.y + endDist * Math.cos(endPitch);
-    const endZ = endTarget.z + endDist * Math.sin(endPitch) * Math.cos(currentAzimuth);
-    const endPos = new THREE.Vector3(endX, endY, endZ);
-
-    // 初始化相机机位
-    camera.position.copy(startPos);
-    camera.fov = 28;
-    camera.updateProjectionMatrix();
-    if (controls) {
-      controls.target.copy(startTarget);
-      controls.enabled = false;
-    }
-    camera.lookAt(startTarget);
-
-    const durationMs = durationSec * 1000;
-    const startTime = performance.now();
-    this.isTweening = true;
-
-    return new Promise<void>((resolve) => {
-      const tick = (now: number) => {
-        this.currentTweenRaf = null;
-        const progress = Math.min(1.0, (now - startTime) / durationMs);
-        const eased = quinticSmootherstep(progress);
-
-        // 目标点从脚部升至上半身
-        this.tempTarget.lerpVectors(startTarget, endTarget, eased);
-        if (controls && controls.target) {
-          controls.target.copy(this.tempTarget);
-        }
-
-        // 相机位置从低机位升至中景
-        camera.position.lerpVectors(startPos, endPos, eased);
-        camera.lookAt(this.tempTarget);
-        onApplyGroundClamp?.();
-
-        if (progress < 1.0) {
-          this.currentTweenRaf = requestAnimationFrame(tick);
-        } else {
-          camera.position.copy(endPos);
-          if (controls && controls.target) {
-            controls.target.copy(endTarget);
-            controls.enabled = true;
-            controls.update();
-          }
-          camera.lookAt(endTarget);
-          camera.fov = 30;
-          camera.updateProjectionMatrix();
-          this.isTweening = false;
-          resolve();
-        }
-      };
-
-      this.currentTweenRaf = requestAnimationFrame(tick);
+  public async panUpReveal(durationSec = 2.2): Promise<void> {
+    return this.transitionTo({
+      shot: 'medium',
+      movement: 'pedestal_up',
+      durationSec,
+      easing: 'quintic_smooth',
     });
   }
 }
