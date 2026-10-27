@@ -20,9 +20,10 @@ export const prologueStory: StoryScript = {
         transition: 'eye_blink',
         intertitle: {
           text: '……在虚空的彼端，沉睡的意识听到了微弱的呼唤。',
-          durationSec: 2.2,
+          durationSec: 0,
           style: 'noto_serif',
           bgmFaded: true,
+          requireClick: true,
         },
       },
       camera: {
@@ -107,7 +108,7 @@ export const prologueStory: StoryScript = {
       ],
     },
 
-    // 2. 教程抉择 (拉回中景，小蠢双手后背温婉倾听)
+    // 2. 教程抉择 (拉回中景，小蠢亲切对话，由 EMAGE 语音自然驱动)
     beat_tutorial_choice: {
       id: 'beat_tutorial_choice',
       cinematics: {
@@ -118,7 +119,6 @@ export const prologueStory: StoryScript = {
         movement: 'none',
       },
       actor: {
-        motion: 'listening',
         expression: {
           base: 'gentle_smile',
           intensity: 0.7,
@@ -188,7 +188,6 @@ export const prologueStory: StoryScript = {
         movement: 'none',
       },
       actor: {
-        motion: 'listening',
         expression: {
           base: 'playful',
           intensity: 0.8,
@@ -302,7 +301,6 @@ export const prologueStory: StoryScript = {
         movement: 'none',
       },
       actor: {
-        leadInMotion: 'attentive-lean',
         expression: {
           base: 'playful',
           intensity: 0.8,

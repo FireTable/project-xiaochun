@@ -39,6 +39,11 @@ export const StoryChoiceGroup: React.FC<StoryChoiceGroupProps> = ({
     return choices.some((c) => Boolean(c.image));
   }, [layout, choices]);
 
+  // 判断是否全为单行短选项（例如字符数 ≤ 16），在手机端优先采用紧凑微流光胶囊并排
+  const isAllShortChoices = useMemo(() => {
+    return !isGrid && choices.every((c) => (c.text?.length || 0) <= 16 && !c.subText);
+  }, [isGrid, choices]);
+
   if (!choices || choices.length === 0) return null;
 
   if (isGrid) {
@@ -58,17 +63,30 @@ export const StoryChoiceGroup: React.FC<StoryChoiceGroupProps> = ({
     );
   }
 
+  // 普通文本选项：
+  // 如果全是短选项：手机端并排横向流微胶囊 (flex flex-row flex-wrap)，PC 端纵向右悬浮 (sm:flex-col)；
+  // 如果含长选项：统一为紧凑流光卡片 (flex flex-col)
   return (
-    <div className="w-full space-y-2 animate-in fade-in slide-in-from-bottom-2 duration-300">
+    <div
+      className={`w-full animate-in fade-in slide-in-from-bottom-2 duration-300 ${
+        isAllShortChoices
+          ? 'flex flex-row flex-wrap sm:flex-col gap-1.5 sm:gap-2'
+          : 'flex flex-col gap-1.5 sm:gap-2'
+      }`}
+    >
       {choices.map((choice, idx) => (
-        <StoryChoiceCard
+        <div
           key={choice.id || idx}
-          choice={choice}
-          index={idx}
-          layout="list"
-          onSelect={onSelect}
-          disabled={disabled}
-        />
+          className={isAllShortChoices ? 'flex-1 min-w-[120px] sm:min-w-0' : 'w-full'}
+        >
+          <StoryChoiceCard
+            choice={choice}
+            index={idx}
+            layout="list"
+            onSelect={onSelect}
+            disabled={disabled}
+          />
+        </div>
       ))}
     </div>
   );

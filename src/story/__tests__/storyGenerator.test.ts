@@ -15,7 +15,7 @@ describe('StoryGenerator (Dynamic AI Director)', () => {
       },
       actor: {
         leadInMotion: 'touchHair',
-        motion: 'attentiveLean',
+        motion: 'listening',
         expression: {
           base: 'gentle_smile',
           intensity: 0.8,

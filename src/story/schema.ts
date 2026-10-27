@@ -108,6 +108,7 @@ export const CinematicsDirectiveSchema = z.object({
     durationSec: z.number().default(2.5),
     style: z.enum(['noto_serif', 'modern_sans', 'typewriter']).default('noto_serif'),
     bgmFaded: z.boolean().default(true),
+    requireClick: z.boolean().optional().default(false),
   }).optional(),
   /** 视觉转场特效 */
   transition: z.enum(['none', 'fade_to_black', 'white_flash', 'eye_blink']).optional().default('none'),

@@ -48,7 +48,7 @@ export const STORY_DIRECTOR_SYSTEM_PROMPT = `你是一个 3D AI 虚拟生命（�
   },
   "actor": {
     "leadInMotion": "touchHair" | "waving" | "shyBehindBack" | "cuteTilt" | "poutTurn" | "flowerChin" | "catCheeks" | "showFullBody", // 说话前 0.4s 起势动作
-    "motion": "attentiveLean" | "classicIdle" | "waving" | "bashfulTwist" | "gentleTalk" | "warmDialogue" | "bellyDance" | "rumbaDance", // 说话期间动作
+    "motion": "listening" | "classicIdle" | "waving" | "bashfulTwist" | "gentleTalk" | "warmDialogue" | "bellyDance" | "rumbaDance", // 说话期间动作
     "expression": {
       "base": "neutral" | "gentle_smile" | "shy" | "surprised" | "pout" | "smug" | "thinking",
       "intensity": 0.8, // 0.0 ~ 1.0
@@ -239,7 +239,7 @@ export class StoryGenerator {
         camera: json.camera || { shot: 'close_up', movement: 'push_in', durationSec: 1.5 },
         actor: {
           leadInMotion: json.actor?.leadInMotion || 'touchHair',
-          motion: json.actor?.motion || 'attentiveLean',
+          motion: json.actor?.motion || 'listening',
           expression: json.actor?.expression || {
             base: isInterruption ? 'surprised' : 'gentle_smile',
             intensity: 0.8,
@@ -310,7 +310,7 @@ export class StoryGenerator {
       },
       actor: {
         leadInMotion: 'waving',
-        motion: 'attentiveLean',
+        motion: 'listening',
         expression: {
           base: 'gentle_smile',
           intensity: 0.75,

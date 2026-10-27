@@ -140,6 +140,7 @@ export class StoryDirectorEngine {
       currentBeat: beat,
       choices: [], // 先清空上一拍的选项
       isSpeaking: hasSpeech, // 只要本拍有台词，在进入舞台时即标记为说话中，防止前情提要提前抢跑
+      isIntertitleActive: Boolean(beat.cinematics?.intertitle),
       progress: {
         current: curIdx >= 0 ? curIdx + 1 : this.state.progress.current,
         total: beatKeys.length,
@@ -177,6 +178,16 @@ export class StoryDirectorEngine {
       }, 1500);
     }
 
+    // 0. 重置上一拍残留的动作，保障本拍骨骼与 EMAGE 管线纯净
+    vrmEngine.stopMotion(0.4);
+
+    // 🌟 序章初见演出准备：黑幕文字界面保持空灵纯黑，角色模型暂隐，镜头保持在常规远景，绝不在未唤醒前过早聚焦
+    if (beat.id === 'beat_greet') {
+      if (vrmEngine.currentVRM) {
+        vrmEngine.currentVRM.scene.visible = false;
+      }
+    }
+
     if (beat.cinematics?.intertitle) {
       this.state.isIntertitleActive = true;
       this.state.intertitleText = beat.cinematics.intertitle.text;
@@ -187,6 +198,8 @@ export class StoryDirectorEngine {
         storyAudioDirector.setMuffle(true);
       }
 
+      // 需求 1：必须主动点击屏幕进入下一步，不设自动超时划过
+      const requireClick = (beat.cinematics.intertitle as any).requireClick ?? (beat.id === 'beat_greet');
       const durationMs = (beat.cinematics.intertitle.durationSec || 2.5) * 1000;
       await new Promise<void>((resolve) => {
         let timer: any = null;
@@ -196,7 +209,10 @@ export class StoryDirectorEngine {
           resolve();
         };
         this.intertitleResolver = finish;
-        timer = setTimeout(finish, durationMs);
+        // 唯有明确不要求点击 (requireClick === false) 时才启动自动超时定时器
+        if (!requireClick && durationMs > 0) {
+          timer = setTimeout(finish, durationMs);
+        }
       });
 
       if (this.executionSequence !== seq) return;
@@ -205,21 +221,49 @@ export class StoryDirectorEngine {
       this.notify();
     }
 
-    // 2. 调度镜头 (防崩保护与异步推演)
-    if (beat.camera) {
-      void cameraDirector.transitionTo(beat.camera).catch((err) => {
-        console.warn('[StoryEngine] cameraDirector error:', err);
-      });
-    }
+    // 🌟 序章专属电影级运镜与转身演出
+    if (beat.id === 'beat_greet') {
+      // 唤醒瞬间：在纯黑转场中恢复模型可见、初始化背对朝向并就位裙摆脚踝低机位
+      if (vrmEngine.currentVRM) {
+        vrmEngine.currentVRM.scene.visible = true;
+      }
+      vrmEngine.setFacingBackwards();
+      cameraDirector.preparePanUpStart();
 
-    // 3. 调度活体表情
-    if (beat.actor.expression) {
-      expressionController.setDirective(beat.actor.expression);
+      // 需求 3：背对镜头前，自下而上缓缓打量面前少女 (低机位 -> 上半身中景聚焦)
+      await cameraDirector.panUpReveal(2.4);
+      if (this.executionSequence !== seq) return;
+
+      // 需求 2：打量定格后，触发角色踏步转身 (调用 BodyTurnSystem 4-phase stepping FSM 迈步转身 180 度)
+      vrmEngine.triggerBodyTurnToFront();
+
+      // 调度初醒微笑神态，等待踏步转身转正 (约 1.2s 完成)
+      if (beat.actor.expression) {
+        expressionController.setDirective(beat.actor.expression);
+      }
+      await new Promise((r) => setTimeout(r, 1200));
+      if (this.executionSequence !== seq) return;
+    } else {
+      // 2. 常规镜头调度 (防崩保护与异步推演)
+      if (beat.camera) {
+        void cameraDirector.transitionTo(beat.camera).catch((err) => {
+          console.warn('[StoryEngine] cameraDirector error:', err);
+        });
+      }
+
+      // 3. 调度活体表情
+      if (beat.actor.expression) {
+        expressionController.setDirective(beat.actor.expression);
+      }
     }
 
     // 4. 起势动作 (0.4s Lead-in)
+    // ⚠️ 规则：起势动作必须是单次非循环 (loop: false)，绝不允许死循环锁定肢体！
     if (beat.actor.leadInMotion) {
-      void vrmEngine.playMotion(beat.actor.leadInMotion, { fadeDuration: 0.6 });
+      void vrmEngine.playMotion(beat.actor.leadInMotion, {
+        fadeDuration: 0.6,
+        loop: false,
+      });
     }
 
     // 5. 调度 BGM 与音效
@@ -233,8 +277,16 @@ export class StoryDirectorEngine {
     // ── 阶段二: 开声发音 (In-Speech) ──
     storyAudioDirector.duckBgm();
 
+    // 如果当前拍明确指定了全程特定动作 (例如 show-full-body 全身旋转展示)
     if (beat.actor.motion) {
-      void vrmEngine.playMotion(beat.actor.motion, { fadeDuration: 0.75 });
+      void vrmEngine.playMotion(beat.actor.motion, {
+        fadeDuration: 0.75,
+        loop: false,
+      });
+    } else {
+      // 🌟 核心突破：若未指定强制全剧动作，主动停止 UniversalMotion (clip)，
+      // 将骨骼写入权完全释放给 EMAGE，让角色在说话期间由真实语音驱动灵动演讲手势！
+      vrmEngine.stopMotion(0.5);
     }
 
     if (!this.isInterrupted && beat.actor.speechText && beat.actor.speechText.trim().length > 0) {
@@ -279,12 +331,8 @@ export class StoryDirectorEngine {
     }
     storyAudioDirector.restoreBgmDucking();
 
-    // 手势柔和回落，平滑切入真人动捕倾听姿态 (双手后背温婉前倾)
-    void vrmEngine.playMotion('listening', {
-      fadeDuration: 0.85,
-      loop: true,
-      mask: 'upperBody',
-    });
+    // 手势柔和回落，平滑切入自然待机 (NaturalIdle)，呼吸随行，绝不死锁骨骼
+    vrmEngine.stopMotion(0.85);
 
     if (beat.choices && beat.choices.length > 0) {
       // 升起晶体选项卡片，触发晶体空灵音效
@@ -431,8 +479,11 @@ export class StoryDirectorEngine {
       applyInterruptState();
     }
 
-    // 刹车后立即进入倾听态
-    void vrmEngine.playMotion('listening', { fadeDuration: 0.6, loop: true, mask: 'upperBody' });
+    // 刹车后立即平滑回落至自然待机，并确保角色可见性恢复
+    if (vrmEngine.currentVRM) {
+      vrmEngine.currentVRM.scene.visible = true;
+    }
+    vrmEngine.stopMotion(0.5);
   }
 
   /**

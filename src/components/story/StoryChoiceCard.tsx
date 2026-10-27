@@ -1,5 +1,4 @@
 import React from 'react';
-import { ChevronRight } from 'lucide-react';
 import type { StoryChoice } from '@/story/schema';
 
 interface StoryChoiceCardProps {
@@ -13,7 +12,7 @@ interface StoryChoiceCardProps {
 
 export const StoryChoiceCard: React.FC<StoryChoiceCardProps> = ({
   choice,
-  index,
+  index: _index,
   onSelect,
   disabled = false,
   layout = 'list',
@@ -22,26 +21,26 @@ export const StoryChoiceCard: React.FC<StoryChoiceCardProps> = ({
   const isSelected = Boolean(choice.selected);
   const isPrimary = variant === 'primary';
 
-  // 1. 图文多媒体卡片 (Media / Grid 视觉展台布局)
+  // 1. 图文多媒体卡片 (Media / Grid 换装视觉展台布局)
   if (layout === 'media' || Boolean(choice.image)) {
     return (
       <button
         type="button"
         disabled={disabled}
         onClick={() => onSelect(choice)}
-        className={`pointer-events-auto w-full group relative flex flex-col p-2.5 sm:p-3 rounded-2xl transition-all duration-200 cursor-pointer text-left overflow-hidden ${
+        className={`pointer-events-auto w-full group relative flex flex-col p-2 sm:p-2.5 rounded-xl sm:rounded-2xl transition-all duration-200 cursor-pointer text-left overflow-hidden ${
           isSelected
-            ? 'bg-slate-900/95 border-2 border-[#ea8377] ring-2 ring-[#ea8377]/40 shadow-[0_0_24px_rgba(234,131,119,0.45)] -translate-y-1'
-            : 'bg-slate-950/65 hover:bg-slate-900/80 border border-white/20 hover:border-[#ea8377]/75 shadow-[inset_0_1px_1px_rgba(255,255,255,0.25),0_4px_16px_rgba(0,0,0,0.4)] hover:shadow-[inset_0_1px_2px_rgba(255,255,255,0.3),0_0_20px_rgba(234,131,119,0.35)] hover:-translate-y-0.5'
+            ? 'bg-slate-900/90 border-2 border-[#ea8377] ring-2 ring-[#ea8377]/40 shadow-[0_0_24px_rgba(234,131,119,0.45)] -translate-y-0.5'
+            : 'bg-black/50 hover:bg-slate-900/70 border border-white/15 hover:border-[#ea8377]/70 shadow-[inset_0_1px_1px_rgba(255,255,255,0.15),0_4px_16px_rgba(0,0,0,0.4)] hover:-translate-y-0.5'
         } active:scale-[0.98]`}
       >
         {/* 顶部 16:9 比例画面预览展台 */}
-        <div className="relative w-full aspect-video rounded-xl overflow-hidden bg-slate-900/60 border border-white/10 shadow-inner">
+        <div className="relative w-full aspect-video rounded-lg sm:rounded-xl overflow-hidden bg-slate-900/60 border border-white/10 shadow-inner">
           {choice.image ? (
             <img
               src={choice.image}
               alt={choice.text}
-              className="w-full h-full object-cover transition-transform duration-500 ease-out group-hover:scale-108"
+              className="w-full h-full object-cover transition-transform duration-500 ease-out group-hover:scale-105"
               loading="eager"
             />
           ) : (
@@ -51,14 +50,9 @@ export const StoryChoiceCard: React.FC<StoryChoiceCardProps> = ({
           )}
 
           {/* 渐变遮罩压暗底部 */}
-          <div className="absolute inset-0 bg-gradient-to-t from-slate-950/85 via-slate-950/15 to-transparent pointer-events-none" />
+          <div className="absolute inset-0 bg-gradient-to-t from-slate-950/80 via-transparent to-transparent pointer-events-none" />
 
-          {/* 左上角序号气泡 */}
-          <div className="absolute top-1.5 left-1.5 px-2 py-0.5 rounded-md bg-black/60 backdrop-blur-md border border-white/20 text-[10px] font-mono text-white/90">
-            {index + 1}
-          </div>
-
-          {/* 右上角角标：仅在明确配置 choice.badge 时展示 */}
+          {/* 右上角业务徽标：仅在明确配置 choice.badge (如“当前在穿”) 时展示，无多余序号干扰 */}
           {choice.badge ? (
             <div className="absolute top-1.5 right-1.5 px-2 py-0.5 rounded-full bg-[#ea8377] text-white text-[10px] font-semibold shadow-md">
               {choice.badge}
@@ -67,9 +61,9 @@ export const StoryChoiceCard: React.FC<StoryChoiceCardProps> = ({
         </div>
 
         {/* 底部文字信息 */}
-        <div className="mt-2.5 flex flex-col gap-0.5 min-w-0">
-          <span className={`text-xs sm:text-sm font-bold truncate transition-colors ${
-            isSelected ? 'text-[#f5aa9c]' : 'text-white group-hover:text-[#f5aa9c]'
+        <div className="mt-2 flex flex-col gap-0.5 min-w-0">
+          <span className={`text-xs sm:text-sm font-semibold truncate transition-colors ${
+            isSelected ? 'text-[#f5aa9c]' : 'text-white/95 group-hover:text-[#f5aa9c]'
           }`}>
             {choice.text}
           </span>
@@ -83,56 +77,51 @@ export const StoryChoiceCard: React.FC<StoryChoiceCardProps> = ({
     );
   }
 
-  // 2. 纯文字/图标列表项卡片 (List 布局)
+  // 2. 纯文字/图标列表项卡片 (PC 方案 6 白霜微晶 + 手机方案 4 紧凑微流光胶囊)
   return (
     <button
       type="button"
       disabled={disabled}
       onClick={() => onSelect(choice)}
-      className={`pointer-events-auto w-full group relative flex items-center justify-between p-3.5 sm:p-4 rounded-2xl transition-all duration-200 cursor-pointer text-left overflow-hidden ${
+      className={`pointer-events-auto w-full group relative flex items-center justify-between px-3 py-2 sm:px-3.5 sm:py-2.5 rounded-xl sm:rounded-2xl transition-all duration-200 cursor-pointer text-left overflow-hidden ${
         isSelected
-          ? 'bg-slate-900/90 border-2 border-[#ea8377] ring-2 ring-[#ea8377]/40 shadow-[0_0_24px_rgba(234,131,119,0.4)]'
+          ? 'bg-white/20 border border-amber-300/80 ring-1 ring-amber-300/40 shadow-[0_0_20px_rgba(251,191,36,0.25)]'
           : isPrimary
-          ? 'bg-gradient-to-r from-slate-950/80 via-slate-900/85 to-[#ea8377]/15 hover:from-slate-900/90 hover:via-slate-800/90 hover:to-[#ea8377]/25 border border-[#ea8377]/50 hover:border-[#ea8377] shadow-[inset_0_1px_1px_rgba(255,255,255,0.25),0_4px_20px_rgba(234,131,119,0.25)] hover:shadow-[inset_0_1px_2px_rgba(255,255,255,0.3),0_0_24px_rgba(234,131,119,0.35)] hover:-translate-y-0.5'
-          : 'bg-slate-950/60 hover:bg-slate-900/75 border border-white/20 hover:border-[#ea8377]/75 shadow-[inset_0_1px_1px_rgba(255,255,255,0.25),0_4px_16px_rgba(0,0,0,0.35)] hover:shadow-[inset_0_1px_2px_rgba(255,255,255,0.3),0_0_20px_rgba(234,131,119,0.35)] hover:-translate-y-0.5'
+          ? 'bg-gradient-to-r from-amber-500/25 via-white/10 to-amber-500/15 hover:from-amber-500/35 hover:via-white/15 hover:to-amber-500/25 border border-amber-300/60 hover:border-amber-300 shadow-[0_4px_20px_rgba(245,158,11,0.2)] hover:-translate-y-0.5'
+          : 'bg-white/[0.08] hover:bg-white/[0.14] border border-white/15 hover:border-white/30 backdrop-blur-md shadow-[0_4px_16px_rgba(0,0,0,0.25)] hover:shadow-[0_4px_20px_rgba(255,255,255,0.1)] hover:-translate-y-0.5'
       } active:scale-[0.98]`}
     >
-      <div className="flex items-center gap-3 sm:gap-4 min-w-0 pr-2">
-        <div className={`shrink-0 w-7 h-7 rounded-xl border flex items-center justify-center text-xs font-mono font-medium transition-colors ${
-          isSelected
-            ? 'bg-[#ea8377]/20 border-[#ea8377] text-[#ea8377]'
-            : isPrimary
-            ? 'bg-[#ea8377]/20 border-[#ea8377]/50 text-[#f5aa9c] group-hover:border-[#ea8377] group-hover:bg-[#ea8377]/30'
-            : 'bg-white/[0.08] border-white/15 text-white/80 group-hover:border-[#ea8377]/60 group-hover:text-[#ea8377]'
+      <div className="flex items-center gap-2 sm:gap-2.5 min-w-0">
+        {/* 左侧微晶菱形或自定义小图标 (无多余大灰框) */}
+        <span className={`shrink-0 transition-transform duration-200 group-hover:scale-110 ${
+          isSelected || isPrimary
+            ? 'text-amber-300 text-xs sm:text-sm drop-shadow-[0_0_8px_rgba(252,211,77,0.7)]'
+            : 'text-amber-200/60 group-hover:text-amber-300 text-xs sm:text-sm'
         }`}>
-          {choice.icon || `${index + 1}`}
-        </div>
+          {choice.icon || '◆'}
+        </span>
 
         <div className="min-w-0">
-          <div className="flex items-center gap-2">
-            <span className={`text-sm sm:text-base font-medium tracking-wide transition-colors truncate ${
-              isSelected || isPrimary ? 'text-[#f5aa9c] group-hover:text-white' : 'text-white/95 group-hover:text-white'
+          <div className="flex items-center gap-1.5">
+            <span className={`text-xs sm:text-[13px] font-medium tracking-wide transition-colors truncate ${
+              isSelected || isPrimary
+                ? 'text-white drop-shadow-sm font-semibold'
+                : 'text-white/90 group-hover:text-white'
             }`}>
               {choice.text}
             </span>
             {choice.badge ? (
-              <span className="shrink-0 px-2 py-0.5 rounded-full text-[10px] font-semibold bg-[#ea8377]/20 border border-[#ea8377]/40 text-[#ea8377]">
+              <span className="shrink-0 px-1.5 py-0.2 rounded-full text-[9px] font-semibold bg-amber-400/20 border border-amber-300/40 text-amber-200">
                 {choice.badge}
               </span>
             ) : null}
           </div>
           {choice.subText && (
-            <p className="text-xs text-white/50 group-hover:text-white/70 transition-colors mt-0.5 line-clamp-1">
+            <p className="text-[10px] sm:text-[11px] text-white/45 group-hover:text-white/65 transition-colors line-clamp-1 font-normal">
               {choice.subText}
             </p>
           )}
         </div>
-      </div>
-
-      <div className={`shrink-0 transition-all ${
-        isPrimary ? 'opacity-80 group-hover:opacity-100 group-hover:translate-x-1' : 'opacity-40 group-hover:opacity-100 group-hover:translate-x-0.5'
-      }`}>
-        <ChevronRight className={`w-4 h-4 ${isPrimary ? 'text-[#ea8377] group-hover:text-white' : 'text-white group-hover:text-[#ea8377]'}`} />
       </div>
     </button>
   );

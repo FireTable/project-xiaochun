@@ -2,7 +2,6 @@ import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react'
 import { useTranslation } from 'react-i18next';
 import {
   X,
-  Sparkles,
   CornerDownLeft,
 } from 'lucide-react';
 import { StoryCinematicOverlay } from './StoryCinematicOverlay';
@@ -181,6 +180,12 @@ export const StoryPlayer: React.FC<StoryPlayerProps> = ({
     return storyState.choices;
   }, [currentBeat?.interaction, storyState.choices, cameraTasksDone]);
 
+  // 判断是否为图文媒体网格展台布局 (如换装教学拍)
+  const isMediaGrid = useMemo(() => {
+    if (currentBeat?.choiceLayout === 'grid') return true;
+    return displayChoices.some((c) => Boolean(c.image));
+  }, [currentBeat?.choiceLayout, displayChoices]);
+
   // 前情提要严格与选项组/任务交互卡片同步挂载；说话期间由 3D 头顶气泡承载，不在底部提前抢跑
   const hasInteractiveElement =
     displayChoices.length > 0 ||
@@ -207,8 +212,7 @@ export const StoryPlayer: React.FC<StoryPlayerProps> = ({
       {/* 2. 顶部微拟态控制面板 (Top HUD, 优雅嵌入顶部遮幅半透明渐变区内) */}
       <div className="pointer-events-auto fixed top-3 inset-x-4 sm:top-3.5 sm:inset-x-8 z-40 flex items-center justify-between">
         {/* 左侧：章节信息与进度胶囊 */}
-        <div className="flex items-center space-x-2.5 px-3 py-1.5 rounded-full bg-black/50 backdrop-blur-md border border-white/10 text-white shadow-lg">
-          <Sparkles className="w-4 h-4 text-amber-300 animate-pulse" />
+        <div className="flex items-center space-x-2 px-3 py-1.5 rounded-full bg-black/50 backdrop-blur-md border border-white/10 text-white shadow-lg">
           <span className="text-xs sm:text-sm font-medium tracking-wide">
             {script.title}
           </span>
@@ -230,34 +234,45 @@ export const StoryPlayer: React.FC<StoryPlayerProps> = ({
         </div>
       </div>
 
-      {/* 3. 核心互动区：前情提要卡片 + 视角探索任务卡片 + 晶体分支卡片 + 可选自由打断条 (单列垂直流式排布) */}
-      <div className="pointer-events-none fixed inset-x-4 sm:inset-x-auto sm:left-1/2 sm:-translate-x-1/2 bottom-5 sm:bottom-7 z-40 max-w-xl sm:max-w-2xl w-full flex flex-col gap-3">
-        {/* 前情提要卡片：严格与选项组/交互任务同步升起；说话期间由 3D 头顶气泡承载，不在底部抢跑 */}
-        {showRecap && (
-          <StoryRecapCard
-            currentSpeechText={speechText}
-            history={storyState.history}
-          />
-        )}
+      {/* 3. 核心交互流分层排布 */}
 
-        {/* 视角探索交互任务卡片 (当当前拍启用 camera_drag 交互时展开) */}
-        {currentBeat?.interaction === 'camera_drag' && (
+      {/* 3A. 视角探索教学拍 (居中引导任务卡片 + 对白自然沉底) */}
+      {currentBeat?.interaction === 'camera_drag' && (
+        <div className="pointer-events-none fixed inset-x-3 sm:inset-x-auto sm:left-1/2 sm:-translate-x-1/2 bottom-3 sm:bottom-6 z-40 max-w-xl sm:max-w-2xl w-full flex flex-col gap-2.5">
           <StoryCameraTaskCard onTasksUpdate={handleCameraTasksUpdate} />
-        )}
+          {displayChoices.length > 0 && (
+            <div className="pointer-events-auto w-full">
+              <StoryChoiceGroup
+                choices={displayChoices}
+                layout="list"
+                onSelect={handleSelectChoice}
+                disabled={isGenerating}
+              />
+            </div>
+          )}
+          {showRecap && (
+            <div className="pointer-events-auto w-full">
+              <StoryRecapCard
+                currentSpeechText={speechText}
+                history={storyState.history}
+              />
+            </div>
+          )}
+        </div>
+      )}
 
-        {/* 分支选项组 (根据 choiceLayout 或 image 自动切换图文卡片/纯文字列表) */}
-        {displayChoices.length > 0 && (
+      {/* 3B. 换装多媒体展台拍 (居中 3 列并排展台 + 统一确认按钮 + 对白沉底，保证新手换装教学流畅完整) */}
+      {isMediaGrid && currentBeat?.interaction !== 'camera_drag' && displayChoices.length > 0 && (
+        <div className="pointer-events-none fixed inset-x-3 sm:inset-x-auto sm:left-1/2 sm:-translate-x-1/2 bottom-3 sm:bottom-6 z-40 max-w-xl sm:max-w-2xl w-full flex flex-col gap-2.5 animate-in fade-in slide-in-from-bottom-2 duration-300">
           <div className="pointer-events-auto w-full flex flex-col gap-2.5">
             <StoryChoiceGroup
               choices={displayChoices}
-              layout={currentBeat?.choiceLayout || 'auto'}
+              layout="grid"
               onSelect={handleSelectChoice}
               disabled={isGenerating}
             />
-
-            {/* 确认换装/进入下一步专用主选项卡片：使用统一的 StoryChoiceCard (primary 变体)，样式与交互语言严格一致 */}
             {currentBeat?.confirmChoice && (
-              <div className="w-full animate-in fade-in slide-in-from-bottom-2 duration-300">
+              <div className="w-full">
                 <StoryChoiceCard
                   choice={currentBeat.confirmChoice}
                   index={displayChoices.length}
@@ -269,46 +284,169 @@ export const StoryPlayer: React.FC<StoryPlayerProps> = ({
               </div>
             )}
           </div>
-        )}
-
-        {/* 自由插话/写回输入条：仅在当前拍明确允许 (allowInput=true) 时作为补充选项呈现 */}
-        {showInput && (
-          <div className="pointer-events-auto w-full animate-in fade-in slide-in-from-bottom-2 duration-300">
-            <form
-              onSubmit={handleSendInput}
-              className="flex items-center space-x-2 px-3.5 py-2 sm:py-2.5 rounded-2xl bg-black/70 backdrop-blur-xl border border-white/20 focus-within:border-[#ea8377]/80 focus-within:ring-2 focus-within:ring-[#ea8377]/25 shadow-2xl transition-all duration-200"
-            >
-              <input
-                ref={inputRef}
-                type="text"
-                value={userInput}
-                onChange={(e) => setUserInput(e.target.value)}
-                disabled={isGenerating}
-                placeholder={
-                  storyState.isSpeaking
-                    ? '小蠢正在说话，输入内容直接抢话打断...'
-                    : currentBeat?.inputPlaceholder || '自由对小蠢说点什么，改变剧情走向...'
-                }
-                className="flex-1 bg-transparent px-2 text-xs sm:text-sm text-white placeholder-white/40 focus:outline-none"
+          {showRecap && (
+            <div className="pointer-events-auto w-full">
+              <StoryRecapCard
+                currentSpeechText={speechText}
+                history={storyState.history}
               />
-              <button
-                type="submit"
-                disabled={!userInput.trim() || isGenerating}
-                className="p-1.5 rounded-xl bg-[#ea8377] hover:bg-[#ea8377]/80 active:scale-90 disabled:opacity-30 disabled:hover:bg-[#ea8377] text-white transition-all duration-150 shadow-md cursor-pointer"
-                title="发送"
-              >
-                {isGenerating ? (
-                  <div className="w-3.5 h-3.5 border-2 border-white border-t-transparent rounded-full animate-spin" />
-                ) : (
-                  <CornerDownLeft className="w-3.5 h-3.5" />
-                )}
-              </button>
-            </form>
-          </div>
-        )}
-      </div>
+            </div>
+          )}
+        </div>
+      )}
 
-      {/* 4. 大语言模型配置面板 (接入自定义 AI 模型时呼出) */}
+      {/* 3C. PC 方案 6：普通文字分支 + 自由输入 右悬浮融合流 (PC 宽屏下：中央沉底对白 + 右侧悬浮选项与输入) */}
+      {!isMediaGrid && currentBeat?.interaction !== 'camera_drag' && (
+        <>
+          {/* PC 宽屏中央沉底对白 */}
+          {showRecap && (
+            <div className="pointer-events-none hidden sm:block fixed bottom-6 left-1/2 -translate-x-1/2 z-40 max-w-xl sm:max-w-2xl w-full px-4">
+              <StoryRecapCard
+                currentSpeechText={speechText}
+                history={storyState.history}
+              />
+            </div>
+          )}
+
+          {/* PC 宽屏右侧悬浮选项群与打字框 */}
+          {(displayChoices.length > 0 || showInput) && (
+            <div className="pointer-events-none hidden sm:flex fixed sm:right-8 sm:bottom-24 md:right-12 md:bottom-28 sm:w-80 md:w-88 z-40 flex-col gap-2.5 animate-in fade-in slide-in-from-right-4 duration-300">
+              {displayChoices.length > 0 && (
+                <div className="pointer-events-auto w-full flex flex-col gap-2">
+                  <StoryChoiceGroup
+                    choices={displayChoices}
+                    layout="list"
+                    onSelect={handleSelectChoice}
+                    disabled={isGenerating}
+                  />
+                  {currentBeat?.confirmChoice && (
+                    <StoryChoiceCard
+                      choice={currentBeat.confirmChoice}
+                      index={displayChoices.length}
+                      layout="list"
+                      variant="primary"
+                      onSelect={handleSelectChoice}
+                      disabled={isGenerating}
+                    />
+                  )}
+                </div>
+              )}
+
+              {/* PC 端融合自由输入条 */}
+              {showInput && (
+                <div className="pointer-events-auto w-full animate-in fade-in slide-in-from-bottom-2 duration-300">
+                  <form
+                    onSubmit={handleSendInput}
+                    className="flex items-center space-x-2 px-3 py-1.5 rounded-xl bg-white/[0.08] hover:bg-white/[0.12] backdrop-blur-xl border border-white/20 focus-within:border-amber-300/80 focus-within:ring-1 focus-within:ring-amber-300/40 shadow-xl transition-all duration-200"
+                  >
+                    <input
+                      ref={inputRef}
+                      type="text"
+                      value={userInput}
+                      onChange={(e) => setUserInput(e.target.value)}
+                      disabled={isGenerating}
+                      placeholder={
+                        storyState.isSpeaking
+                          ? '直接输入打断...'
+                          : currentBeat?.inputPlaceholder || '输入对话或自选动作...'
+                      }
+                      className="flex-1 bg-transparent px-1.5 text-xs text-white placeholder-white/40 focus:outline-none"
+                    />
+                    <button
+                      type="submit"
+                      disabled={!userInput.trim() || isGenerating}
+                      className="p-1.5 rounded-lg bg-amber-400 hover:bg-amber-300 active:scale-90 disabled:opacity-30 disabled:hover:bg-amber-400 text-slate-950 font-bold transition-all shadow-md cursor-pointer"
+                      title="发送"
+                    >
+                      {isGenerating ? (
+                        <div className="w-3.5 h-3.5 border-2 border-slate-900 border-t-transparent rounded-full animate-spin" />
+                      ) : (
+                        <CornerDownLeft className="w-3.5 h-3.5" />
+                      )}
+                    </button>
+                  </form>
+                </div>
+              )}
+            </div>
+          )}
+        </>
+      )}
+
+      {/* 3D. 手机方案 4：移动竖屏专属一体化沉底流 (选项微流光胶囊 + 沉底输入条 + 沉底对白，自适应自然堆叠，0 重叠，全屏 75%+ 露白) */}
+      {!isMediaGrid && currentBeat?.interaction !== 'camera_drag' && (
+        <div className="pointer-events-none flex sm:hidden fixed inset-x-3 bottom-3 z-40 flex-col gap-2 animate-in fade-in slide-in-from-bottom-2 duration-300">
+          {/* 选项微流光胶囊群 */}
+          {displayChoices.length > 0 && (
+            <div className="pointer-events-auto w-full">
+              <StoryChoiceGroup
+                choices={displayChoices}
+                layout="list"
+                onSelect={handleSelectChoice}
+                disabled={isGenerating}
+              />
+              {currentBeat?.confirmChoice && (
+                <div className="mt-1.5 w-full">
+                  <StoryChoiceCard
+                    choice={currentBeat.confirmChoice}
+                    index={displayChoices.length}
+                    layout="list"
+                    variant="primary"
+                    onSelect={handleSelectChoice}
+                    disabled={isGenerating}
+                  />
+                </div>
+              )}
+            </div>
+          )}
+
+          {/* 手机端紧凑输入条 */}
+          {showInput && (
+            <div className="pointer-events-auto w-full animate-in fade-in slide-in-from-bottom-1 duration-200">
+              <form
+                onSubmit={handleSendInput}
+                className="flex items-center space-x-2 px-3 py-1.5 rounded-xl bg-black/70 backdrop-blur-xl border border-white/15 focus-within:border-amber-300/70 shadow-lg"
+              >
+                <input
+                  type="text"
+                  value={userInput}
+                  onChange={(e) => setUserInput(e.target.value)}
+                  disabled={isGenerating}
+                  placeholder={
+                    storyState.isSpeaking
+                      ? '输入抢话打断...'
+                      : currentBeat?.inputPlaceholder || '自由说点什么...'
+                  }
+                  className="flex-1 bg-transparent px-1 text-xs text-white placeholder-white/40 focus:outline-none"
+                />
+                <button
+                  type="submit"
+                  disabled={!userInput.trim() || isGenerating}
+                  className="p-1 rounded-lg bg-amber-400 hover:bg-amber-300 active:scale-90 disabled:opacity-30 disabled:hover:bg-amber-400 text-slate-950 font-bold transition-all shadow cursor-pointer"
+                  title="发送"
+                >
+                  {isGenerating ? (
+                    <div className="w-3 h-3 border-2 border-slate-900 border-t-transparent rounded-full animate-spin" />
+                  ) : (
+                    <CornerDownLeft className="w-3 h-3" />
+                  )}
+                </button>
+              </form>
+            </div>
+          )}
+
+          {/* 手机端沉底对白卡片 */}
+          {showRecap && (
+            <div className="pointer-events-auto w-full">
+              <StoryRecapCard
+                currentSpeechText={speechText}
+                history={storyState.history}
+              />
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* 5. 大语言模型配置面板 (接入自定义 AI 模型时呼出) */}
       <ProviderConfigDialog
         open={isProviderConfigOpen}
         onOpenChange={handleProviderConfigOpenChange}
