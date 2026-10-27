@@ -13,7 +13,11 @@ import { loadingStore } from '@/components/loading/loadingStore';
 const DevDrawerHost = React.memo(DevDrawer);
 import { DevDrawer } from '@/components/dev-drawer';
 import { SceneCanvas } from '@/components/SceneCanvas';
-import { OnboardingTour, ONBOARDING_STORAGE_KEY } from '@/components/onboarding/OnboardingTour';
+import { ONBOARDING_STORAGE_KEY } from '@/components/onboarding/OnboardingTour';
+import { StoryPlayer } from '@/components/story/StoryPlayer';
+import { storyDirectorEngine } from '@/story/storyEngine';
+import { storyGenerator } from '@/story/storyGenerator';
+import { prologueStory } from '@/story/prologueStory';
 
 import { XIAOCHUN_SYSTEM_PROMPT } from '@/llm/prompts';
 import { resolveSystemPrompt, getCachedUserSettings, subscribeUserSettings } from '@/llm/userSettings';
@@ -89,14 +93,27 @@ export const App: React.FC = () => {
     return false;
   });
 
-  // 支持外部事件或菜单随时重温新手引导
+  // 故事导演引擎剧场模式状态
+  const [isStoryActive, setIsStoryActive] = useState(false);
+  const isStoryOrOnboarding = isOnboardingActive || isStoryActive;
+
+  // 支持外部事件或菜单随时重温新手引导或进入故事剧场
   useEffect(() => {
     const handleTrigger = () => {
       setIsOnboardingActive(true);
       void sceneManager.setScene('void', false);
+      void storyDirectorEngine.playScript(prologueStory);
+    };
+    const handleStoryTrigger = () => {
+      setIsStoryActive(true);
+      void storyDirectorEngine.playScript(prologueStory);
     };
     window.addEventListener('xc-trigger-onboarding', handleTrigger);
-    return () => window.removeEventListener('xc-trigger-onboarding', handleTrigger);
+    window.addEventListener('xc-trigger-story', handleStoryTrigger);
+    return () => {
+      window.removeEventListener('xc-trigger-onboarding', handleTrigger);
+      window.removeEventListener('xc-trigger-story', handleStoryTrigger);
+    };
   }, []);
   const showDevUi = isDev() || hasDevEasterEgg;
 
@@ -123,6 +140,9 @@ export const App: React.FC = () => {
       if (typeof window !== 'undefined') {
         (window as any).vrmEngine = mod.vrmEngine;
         (window as any).sceneManager = sceneManager;
+        (window as any).storyDirectorEngine = storyDirectorEngine;
+        (window as any).storyGenerator = storyGenerator;
+        (window as any).triggerStory = () => setIsStoryActive(true);
       }
       // ponytail: 渲染循环不再被 LoadingOverlay suspend —— overlay 只是视觉遮罩,
       // 渲染从 startAnimation 一直跑,fitCamera + cinematicIntro 在 VRM 加载完后直接生效。
@@ -234,26 +254,34 @@ export const App: React.FC = () => {
         <HeadBubble state={bubble} />
       )}
 
-      {/* 底部对话输入条 — 启动 splash 期间及新手向导期间不渲染 */}
-      {!loadingActive && !isOnboardingActive && currentScene.components.chatBar !== false && (
+      {/* 底部对话输入条 — 启动 splash 期间及故事/向导期间不渲染 */}
+      {!loadingActive && !isStoryOrOnboarding && currentScene.components.chatBar !== false && (
         <ChatBar
           isPetUIVisible={isPetUIVisible}
           onShowDevPanel={() => setHasDevEasterEgg(true)}
         />
       )}
 
-      {/* 沉浸式小蠢新手向导：仅在小蠢 3D 模型完全站立就绪且无全屏进度遮罩时呈现 */}
-      {!loadingActive && isVRMReady && isOnboardingActive && (
-        <OnboardingTour onComplete={() => setIsOnboardingActive(false)} />
+      {/* 沉浸式小蠢故事导演引擎 · 试点剧场与序章 */}
+      {!loadingActive && isVRMReady && isStoryOrOnboarding && (
+        <StoryPlayer
+          onComplete={() => {
+            setIsOnboardingActive(false);
+            setIsStoryActive(false);
+            try {
+              localStorage.setItem(ONBOARDING_STORAGE_KEY, '1');
+            } catch { }
+          }}
+        />
       )}
 
       {/* 模型加载进度遮罩由 routes/index.tsx 单实例渲染，App 通过 loadingStore 驱动 */}
 
       <AppUpdateDialog allowPrompt={!loadingActive} />
 
-      {/* 顶部控制栏 — 始终挂载以维持模型冷启与换装，新手向导期间视觉隐藏 */}
-      {(currentScene.components.topHeader !== false || isOnboardingActive) && (
-        <div className={isOnboardingActive ? 'hidden' : undefined}>
+      {/* 顶部控制栏 — 始终挂载以维持模型冷启与换装，故事/向导期间视觉隐藏 */}
+      {(currentScene.components.topHeader !== false || isStoryOrOnboarding) && (
+        <div className={isStoryOrOnboarding ? 'hidden' : undefined}>
           <TopHeader
             isDev={showDevUi}
             isDrawerOpen={isDrawerOpen && showDevUi}
@@ -266,9 +294,9 @@ export const App: React.FC = () => {
       {/* 场景时间卡片 (独立浮窗，位于 TopHeader 下方，仅在支持时间流转的场景呈现) */}
       <SceneTimeCard isPetUIVisible={isPetUIVisible} />
 
-      {/* 生产包默认不露抽屉；10 次连击后 hasDevEasterEgg 打开同一套面板。新手向导期间不遮挡 */}
+      {/* 生产包默认不露抽屉；10 次连击后 hasDevEasterEgg 打开同一套面板。故事与向导期间不遮挡 */}
       <DevDrawerHost
-        isOpen={isDrawerOpen && showDevUi && !isOnboardingActive}
+        isOpen={isDrawerOpen && showDevUi && !isStoryOrOnboarding}
         onClose={closeDrawer}
       />
 

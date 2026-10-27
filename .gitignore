@@ -24,6 +24,7 @@ public/vrm/.vroid
 
 # Local tooling scratch
 .maker-mcp/
+scratch/
 
 # Tauri updater minisign private key (pubkey lives in src-tauri/tauri.conf.json)
 .tauri/

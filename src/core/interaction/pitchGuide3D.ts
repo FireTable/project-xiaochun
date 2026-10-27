@@ -40,6 +40,7 @@ export class PitchGuide3D {
     }
 
     private initGuide(): void {
+        if (typeof document === 'undefined') return;
         // 空间弧度尺寸：半径 0.42m；轨带厚度走共用常量
         const radius = 0.42;
         const bandHeight = INTERACTION_GUIDE_PHOTON.thickness;

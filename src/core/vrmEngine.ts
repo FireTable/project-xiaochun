@@ -21,6 +21,7 @@ import type { HostAudioInput } from '@/director/hostAudio';
 import { MotionPipeline } from '@/motion/pipeline/motionPipeline';
 import type { PlayMotionOptions, UniversalMotionHandle } from '@/motion/sources/clip';
 import { MOTION_CATALOG, type MotionCatalogId, isMotionCatalogId } from '@/motion/catalog';
+import { resolveMotionUrl } from '@/motion/motionResolver';
 import { preloadWebLLM, unloadWebLLM } from '@/llm/webLLMProvider';
 import { isHeavyPreloadAllowed, isLlmPreloadAllowed } from '@/lib/heavyPreload';
 import { APP_CONFIG, type LightConfig, type VocalAudioConfig, type VocalPresetKey } from '@/config';
@@ -54,6 +55,8 @@ import { bindBustArmContact, clearBustArms, updateBustArmContact } from './conta
 import { applyBustClothFit, bustJointHitRadius } from './spring/bustClothFit';
 import { CharacterShadowSystem } from './scene/characterShadow';
 import { adjustZoomInWhileClamped, solveGroundClamp, visibleRatioCap } from './camera/groundClamp';
+import { cameraDirector } from './scene/cameraDirector';
+import { expressionController } from './morph/expressionController';
 import {
   captureExpressions,
   restoreExpressions,
@@ -730,6 +733,16 @@ export class VRMEngine {
         try { cb(state); } catch (e) { console.error(e); }
       });
     };
+
+    // 绑定电影级镜头调度器 (采用 getControls 动态取用，防止 constructor 时期 controls 为 null)
+    cameraDirector.bind({
+      camera: this.camera,
+      getControls: () => this.controls,
+      controls: this.controls,
+      getVRM: () => this.currentVRM,
+      getSunDirection: () => this.lighting.dirLight.position.clone().normalize(),
+      onApplyGroundClamp: () => this.applyGroundClamp(null),
+    });
   }
 
   /**
@@ -2907,10 +2920,14 @@ export class VRMEngine {
     let targetInput: string | ArrayBuffer | THREE.AnimationClip = input;
     let mergedOptions: PlayMotionOptions = { ...options };
 
-    if (typeof input === 'string' && isMotionCatalogId(input)) {
-      const catalogItem = MOTION_CATALOG[input];
-      targetInput = catalogItem.url;
-      mergedOptions = { ...catalogItem, ...options };
+    if (typeof input === 'string') {
+      if (isMotionCatalogId(input)) {
+        const catalogItem = MOTION_CATALOG[input];
+        targetInput = catalogItem.url;
+        mergedOptions = { ...catalogItem, ...options };
+      } else {
+        targetInput = resolveMotionUrl(input);
+      }
     }
 
     const lookAtOffsets = this.gazeController.getLookAtOffsets();
@@ -2920,6 +2937,26 @@ export class VRMEngine {
   public stopMotion(fadeDuration = 0.75): void {
     const lookAtOffsets = this.gazeController.getLookAtOffsets();
     this.motionPipeline.stopMotion(fadeDuration, lookAtOffsets);
+  }
+
+  public pauseMotion(): void {
+    this.motionPipeline.universalMotion.pause();
+  }
+
+  public resumeMotion(): void {
+    this.motionPipeline.universalMotion.resume();
+  }
+
+  public isMotionPaused(): boolean {
+    return this.motionPipeline.universalMotion.isPaused();
+  }
+
+  public setMotionTimeScale(scale: number): void {
+    this.motionPipeline.universalMotion.setTimeScale(scale);
+  }
+
+  public getMotionTimeScale(): number {
+    return this.motionPipeline.universalMotion.getTimeScale();
   }
 
   public isMotionPlaying(): boolean {
@@ -3250,6 +3287,9 @@ export class VRMEngine {
         // The spring hits raw arm colliders. Swing the normalized arm first;
         // vrm.update copies it onto those bones. The shader cannot move them.
         clearBustArms(vrm);
+
+        // 活体动态表情系统逐帧更新 (眉眼与口型解耦、呼吸微波动与眨眼)
+        expressionController.update(delta, vrm, this.chatDirector.speaking);
 
         // ponytail: 注入 wind (ambient + 鼠标冲量) 到 springBone joints 的 gravityDir/Power,
         // 必须在 vrm.update(delta) 之前, 因为 springBoneManager.update() 内部读取这些 settings.

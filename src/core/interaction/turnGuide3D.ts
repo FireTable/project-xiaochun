@@ -41,6 +41,7 @@ export class TurnGuide3D {
   }
 
   private initGuide(): void {
+    if (typeof document === 'undefined') return;
     const radius = 0.36;
     const bandHeight = INTERACTION_GUIDE_PHOTON.thickness;
 
