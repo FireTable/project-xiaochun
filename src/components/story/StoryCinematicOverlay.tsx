@@ -18,16 +18,16 @@ export const StoryCinematicOverlay: React.FC<StoryCinematicOverlayProps> = ({
   onSkipIntertitle,
 }) => {
   return (
-    <div className="pointer-events-none fixed inset-0 z-40 overflow-hidden select-none">
-      {/* 1. 21:9 电影遮幅黑边 (顶部与底部平滑滑出) */}
+    <div className="pointer-events-none fixed inset-0 z-20 overflow-hidden select-none">
+      {/* 1. 电影遮幅：半透明渐变羽化过渡 (营造影院氛围，带透明过渡，绝无生硬切边) */}
       <div
-        className={`absolute top-0 left-0 right-0 bg-black/95 backdrop-blur-[2px] transition-all duration-700 ease-out ${
-          isLetterboxActive ? 'h-[7vh] sm:h-[9vh] opacity-100 shadow-[0_4px_24px_rgba(0,0,0,0.8)]' : 'h-0 opacity-0'
+        className={`absolute top-0 left-0 right-0 bg-gradient-to-b from-black/85 via-black/40 to-transparent pointer-events-none transition-all duration-700 ease-out ${
+          isLetterboxActive ? 'h-16 sm:h-24 opacity-100' : 'h-0 opacity-0'
         }`}
       />
       <div
-        className={`absolute bottom-0 left-0 right-0 bg-black/95 backdrop-blur-[2px] transition-all duration-700 ease-out ${
-          isLetterboxActive ? 'h-[7vh] sm:h-[9vh] opacity-100 shadow-[0_-4px_24px_rgba(0,0,0,0.8)]' : 'h-0 opacity-0'
+        className={`absolute bottom-0 left-0 right-0 bg-gradient-to-t from-black/90 via-black/50 to-transparent pointer-events-none transition-all duration-700 ease-out ${
+          isLetterboxActive ? 'h-24 sm:h-36 opacity-100' : 'h-0 opacity-0'
         }`}
       />
 
@@ -43,7 +43,7 @@ export const StoryCinematicOverlay: React.FC<StoryCinematicOverlayProps> = ({
       <div
         onClick={onSkipIntertitle}
         className={`absolute inset-0 flex items-center justify-center p-6 sm:p-12 bg-black/95 transition-opacity duration-700 ease-out cursor-pointer ${
-          isIntertitleActive ? 'opacity-100 pointer-events-auto' : 'opacity-0 pointer-events-none'
+          isIntertitleActive ? 'opacity-100 pointer-events-auto z-50' : 'opacity-0 pointer-events-none'
         }`}
       >
         <div className="max-w-2xl text-center space-y-4">

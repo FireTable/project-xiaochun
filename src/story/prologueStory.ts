@@ -151,6 +151,7 @@ export const prologueStory: StoryScript = {
       cinematics: {
         letterbox: false,
       },
+      interaction: 'camera_drag',
       camera: {
         shot: 'medium',
         movement: 'none',
@@ -167,7 +168,7 @@ export const prologueStory: StoryScript = {
         {
           id: 'camera_done',
           icon: '🎉',
-          text: '学会了，看到全方位的你啦！',
+          text: '我已大致掌握，前往下一步',
           subText: '视角操作已掌握，进入场景探索',
           actionType: 'next_beat',
           nextBeatId: 'beat_scene_choice',
@@ -195,10 +196,12 @@ export const prologueStory: StoryScript = {
         },
         speechText: '现在这片空间空荡荡的，只有我们两个人呢……你更喜欢去哪？不管是阳光海滩，还是线稿世界，我都可以陪你一起去！',
       },
+      choiceLayout: 'grid',
       choices: [
         {
           id: 'scene_beach',
           icon: '🏖️',
+          image: '/previews/scenes/beach3d.webp',
           text: '阳光海滩',
           subText: '听海浪吹吹风，一起去度假吧～',
           actionType: 'change_scene',
@@ -208,6 +211,7 @@ export const prologueStory: StoryScript = {
         {
           id: 'scene_light',
           icon: '☀️',
+          image: '/previews/scenes/light.webp',
           text: '昼白线稿',
           subText: '纯白静谧空间，只专注看着你',
           actionType: 'change_scene',
@@ -217,6 +221,7 @@ export const prologueStory: StoryScript = {
         {
           id: 'scene_dark',
           icon: '🌌',
+          image: '/previews/scenes/dark.webp',
           text: '极夜线稿',
           subText: '星芒微光舞台，浪漫静谧夜晚',
           actionType: 'change_scene',
@@ -245,32 +250,83 @@ export const prologueStory: StoryScript = {
         },
         speechText: '看！我还准备了好多不同风格的衣服呢～挑选一套你最喜欢的让我换上吧！',
       },
+      choiceLayout: 'grid',
       choices: [
         {
           id: 'outfit_dress',
           icon: '👗',
+          image: '/previews/outfits/xiaochun_dinner_dress.webp',
           text: '优雅晚礼服',
           subText: '黑白双色轻奢长裙',
           actionType: 'swap_outfit',
           actionPayload: 'xiaochun_dinner_dress',
-          nextBeatId: 'beat_finale',
+          nextBeatId: 'beat_brain_choice',
         },
         {
           id: 'outfit_maid',
           icon: '☕',
+          image: '/previews/outfits/xiaochun_maid.webp',
           text: '古典女仆装',
           subText: '黑白围裙荷叶边女仆装',
           actionType: 'swap_outfit',
           actionPayload: 'xiaochun_maid',
-          nextBeatId: 'beat_finale',
+          nextBeatId: 'beat_brain_choice',
         },
         {
           id: 'outfit_qipao',
           icon: '🏮',
+          image: '/previews/outfits/xiaochun_cheongsam.webp',
           text: '墨韵旗袍',
           subText: '中式典雅暗金刺绣旗袍',
           actionType: 'swap_outfit',
           actionPayload: 'xiaochun_cheongsam',
+          nextBeatId: 'beat_brain_choice',
+        },
+      ],
+    },
+
+    // 6. AI 大脑选择
+    beat_brain_choice: {
+      id: 'beat_brain_choice',
+      cinematics: {
+        letterbox: true,
+      },
+      camera: {
+        shot: 'medium',
+        movement: 'none',
+      },
+      actor: {
+        leadInMotion: 'attentive-lean',
+        expression: {
+          base: 'playful',
+          intensity: 0.8,
+          microReaction: 'eye_crinkle',
+        },
+        speechText: '最后一步啦，来为我挑选一个大语言模型吧～你想用什么模型跟我对话呢？',
+      },
+      choices: [
+        {
+          id: 'brain_webllm',
+          icon: '⚡',
+          badge: '开箱即用',
+          text: '浏览器内置模型 (WebLLM)',
+          subText: '直接在本地浏览器显卡运行，无需任何配置，数据私密安全',
+          actionType: 'custom',
+          actionPayload: async () => {
+            const { setActiveProviderId } = await import('@/llm/customProvider');
+            const { preloadWebLLM } = await import('@/llm/webLLMProvider');
+            await setActiveProviderId(null);
+            preloadWebLLM({ warmup: true });
+          },
+          nextBeatId: 'beat_finale',
+        },
+        {
+          id: 'brain_custom',
+          icon: '🖥️',
+          badge: '高级扩展',
+          text: '接入自定义 AI 模型',
+          subText: '连接本地 Ollama、LM Studio 或云端大模型 API',
+          actionType: 'open_provider_config',
           nextBeatId: 'beat_finale',
         },
       ],
@@ -296,6 +352,8 @@ export const prologueStory: StoryScript = {
         },
         speechText: '太棒啦！这下所有的准备工作都完成啦～从现在开始，我就在这里一直陪着你。有什么想聊的，随时都可以跟我说哦！',
       },
+      allowInput: true,
+      inputPlaceholder: '回复小蠢，或点击按钮开始旅程...',
       choices: [
         {
           id: 'start_journey',

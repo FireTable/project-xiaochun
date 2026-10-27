@@ -209,7 +209,7 @@ export class StoryDirectorEngine {
     }
 
     await new Promise((r) => setTimeout(r, 350));
-    if (this.executionSequence !== seq) return;
+    if (beatId !== this.currentBeatId) return;
 
     // ── 阶段二: 开声发音 (In-Speech) ──
     storyAudioDirector.duckBgm();
@@ -218,7 +218,7 @@ export class StoryDirectorEngine {
       void vrmEngine.playMotion(beat.actor.motion, { fadeDuration: 0.75 });
     }
 
-    if (beat.actor.speechText && beat.actor.speechText.trim().length > 0) {
+    if (!this.isInterrupted && beat.actor.speechText && beat.actor.speechText.trim().length > 0) {
       this.state.isSpeaking = true;
       this.notify();
 
@@ -229,7 +229,7 @@ export class StoryDirectorEngine {
       }
     }
 
-    if (this.executionSequence !== seq) return;
+    if (beatId !== this.currentBeatId) return;
 
     // ── 阶段三: 余韵收势 (Post-Act) ──
     this.state.isSpeaking = false;
@@ -296,6 +296,11 @@ export class StoryDirectorEngine {
       } else if (outfitKey === 'base' || outfitKey === 'default') {
         await vrmEngine.swapOutfit(APP_CONFIG.model.defaultSource, APP_CONFIG.model.defaultName);
       }
+    } else if (choice.actionType === 'open_provider_config') {
+      if (typeof window !== 'undefined') {
+        window.dispatchEvent(new CustomEvent('xc-open-provider-config'));
+      }
+      return;
     } else if (choice.actionType === 'custom' && typeof choice.actionPayload === 'function') {
       try {
         await (choice.actionPayload as () => void | Promise<void>)();
@@ -313,16 +318,20 @@ export class StoryDirectorEngine {
   }
 
   /**
-   * 全双工打断：立即叫停当前表演并收敛
+   * 全双工打断：立即叫停当前语音表演并收势递麦
    */
   public interrupt(): void {
-    this.executionSequence++;
     this.isInterrupted = true;
     vrmEngine.stopSpeaking();
     cameraDirector.stopTransition();
     storyAudioDirector.restoreBgmDucking();
     this.state.isSpeaking = false;
     this.state.isIntertitleActive = false;
+
+    // 若当前拍已有选项，打断后立即展开选项
+    if (this.state.currentBeat?.choices && this.state.choices.length === 0) {
+      this.state.choices = this.state.currentBeat.choices;
+    }
     this.notify();
 
     // 刹车后立即进入倾听态

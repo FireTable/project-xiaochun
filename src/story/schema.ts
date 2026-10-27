@@ -145,12 +145,13 @@ export const StoryChoiceSchema = z.object({
   icon: z.string().optional(),
   image: z.string().optional(),
   actionType: z.enum([
-    'next_beat',       // 推进到指定下一拍
-    'change_scene',    // 切换 3D 场景世界 (void / beach3d / light / dark)
-    'swap_outfit',     // 换装 (dress / qipao / maid / school)
-    'change_lang',     // 切换语言 (zh-CN / en / ja)
-    'finish',          // 结束并退出剧情
-    'custom',          // 自定义回调
+    'next_beat',           // 推进到指定下一拍
+    'change_scene',        // 切换 3D 场景世界 (void / beach3d / light / dark)
+    'swap_outfit',         // 换装 (dress / qipao / maid / school)
+    'change_lang',         // 切换语言 (zh-CN / en / ja)
+    'open_provider_config',// 打开自定义大模型服务配置弹窗
+    'finish',              // 结束并退出剧情
+    'custom',              // 自定义回调
   ]).optional().default('next_beat'),
   actionPayload: z.any().optional(),
   nextBeatId: z.string().optional(),
@@ -167,6 +168,10 @@ export const StoryBeatSchema = z.object({
   actor: ActorDirectiveSchema,
   audio: AudioDirectiveSchema.optional(),
   choices: z.array(StoryChoiceSchema).optional(),
+  choiceLayout: z.enum(['list', 'grid', 'auto']).optional().default('auto'),
+  allowInput: z.boolean().optional().default(false),
+  inputPlaceholder: z.string().optional(),
+  interaction: z.enum(['none', 'camera_drag']).optional().default('none'),
 });
 export type StoryBeat = z.input<typeof StoryBeatSchema>;
 
