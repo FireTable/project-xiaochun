@@ -30,7 +30,7 @@ export const MOTION_CATALOG = {
     fadeDuration: 0.95,
     antiClip: false,
     enableFootIK: false,
-    mask: 'upperBody',
+    mask: 'all',
     category: 'posture',
   },
   thinking: {

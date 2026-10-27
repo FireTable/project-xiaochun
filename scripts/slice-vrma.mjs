@@ -10,26 +10,48 @@ function quintic(t) {
 }
 
 /**
- * Slice a .vrma file between startSec and endSec, re-zero timestamps,
- * seamlessly blend loop boundaries with Quintic Smootherstep,
- * stabilize excessive lateral hip sway (filter out violent 26cm swing),
- * preserve natural mocap hips/foot ground clearance, and ensure relaxed thumb channels.
+ * 通用 VRMA 动捕动作切片与时间区间剥离工具 (Universal VRMA Motion Slicer)
+ * 
+ * 核心设计原则：
+ * 1. 纯粹按时间区间 [startSec, endSec] 剥离头尾废帧/标定帧，重新归零时间戳；
+ * 2. 100% 保留动捕原生骨盆（Root/Hips）位移与物理姿态，绝对不人为干预或压缩骨盆平移，杜绝滑步！
+ * 3. 循环动作用 Quintic Smootherstep 对末尾平滑融合回起始帧，消除循环接缝跳变；
+ * 4. 通用适配任意 .vrma 文件输入输出。
+ * 
+ * @param {string} inputPath 原始 .vrma 文件路径
+ * @param {string} outputPath 切片输出 .vrma 文件路径
+ * @param {number} startSec 起始有效时间（秒）
+ * @param {number} endSec 结束有效时间（秒）
+ * @param {object} options 配置选项
+ * @param {boolean} options.seamless 是否执行末尾首帧五次平滑缝合（适合循环待机/站姿）
+ * @param {number} options.seamlessDuration 缝合过渡时长（秒，默认 0.65s）
  */
 export function sliceVrma(
   inputPath,
   outputPath,
-  startSec = 6.6,
-  endSec = 12.4,
-  hipsYOffset = 0.0,
-  stabilizeLateral = true,
-  seamlessDuration = 0.75
+  startSec = 0.0,
+  endSec = Infinity,
+  options = {}
 ) {
+  const {
+    seamless = false,
+    seamlessDuration = 0.65,
+  } = options;
+
+  if (!existsSync(inputPath)) {
+    throw new Error(`[sliceVrma] 输入文件不存在: ${inputPath}`);
+  }
+
   const buf = readFileSync(inputPath);
   const jsonLen = buf.readUInt32LE(12);
   const binHeader = 20 + jsonLen;
   const binLen = buf.readUInt32LE(binHeader);
   const binBuf = buf.subarray(binHeader + 8, binHeader + 8 + binLen);
   const gltf = JSON.parse(buf.toString('utf8', 20, 20 + jsonLen));
+
+  if (!gltf.animations || gltf.animations.length === 0) {
+    throw new Error(`[sliceVrma] 文件中未找到有效的 glTF animation: ${inputPath}`);
+  }
 
   const anim = gltf.animations[0];
   const timeAcc = gltf.accessors[anim.samplers[0].input];
@@ -60,7 +82,7 @@ export function sliceVrma(
   let currentOffset = 0;
   const newGltf = JSON.parse(JSON.stringify(gltf));
 
-  // 1. Time accessor
+  // 1. Time accessor (时间轴重映射与归零)
   const timeBytes = new Uint8Array(newTimes.buffer, newTimes.byteOffset, newTimes.byteLength);
   newBuffers.push(timeBytes);
   newGltf.bufferViews[timeAcc.bufferView] = {
@@ -80,9 +102,12 @@ export function sliceVrma(
     currentOffset++;
   }
 
-  // 2. Existing Sampler outputs (with lateral stabilization & Quintic loop blend)
-  const fps = count / (newTimes[count - 1] - newTimes[0]);
-  const blendFrames = Math.max(4, Math.min(Math.round(seamlessDuration * fps), Math.floor(count * 0.35)));
+  // 2. 动画采样轨道纯净切片（100% 保留动捕原生骨盆与关节数据）
+  const duration = newTimes[count - 1] - newTimes[0];
+  const fps = count / Math.max(0.001, duration);
+  const blendFrames = seamless
+    ? Math.max(4, Math.min(Math.round(seamlessDuration * fps), Math.floor(count * 0.35)))
+    : 0;
   const blendStart = count - blendFrames;
 
   for (let sIdx = 0; sIdx < anim.samplers.length; sIdx++) {
@@ -98,70 +123,42 @@ export function sliceVrma(
     );
     const newVals = new Float32Array(count * stride);
 
-    const isRootTranslation = anim.channels.some(
-      (c) => c.sampler === sIdx && c.target.path === 'translation' && gltf.nodes[c.target.node]?.name === 'Root_M'
-    );
-
-    // Copy sliced frame range
+    // 纯粹复制指定帧区间，绝不擅自篡改任何骨盆位移数值
     for (let i = 0; i < count; i++) {
       for (let j = 0; j < stride; j++) {
-        let val = origVals[(startFrame + i) * stride + j];
-        if (isRootTranslation && j === 1 && hipsYOffset) {
-          val += hipsYOffset;
+        newVals[i * stride + j] = origVals[(startFrame + i) * stride + j];
+      }
+    }
+
+    // 仅在显式声明 seamless 时对末尾进行平滑闭环融合（平滑连接首帧）
+    if (blendFrames > 0) {
+      if (stride === 4) {
+        const q0 = [newVals[0], newVals[1], newVals[2], newVals[3]];
+        const qCur = [0, 0, 0, 0];
+        const qOut = [0, 0, 0, 0];
+        for (let k = 0; k < blendFrames; k++) {
+          const frameIdx = blendStart + k;
+          const alpha = (k + 1) / blendFrames;
+          const w = quintic(alpha);
+          qCur[0] = newVals[frameIdx * 4];
+          qCur[1] = newVals[frameIdx * 4 + 1];
+          qCur[2] = newVals[frameIdx * 4 + 2];
+          qCur[3] = newVals[frameIdx * 4 + 3];
+          THREE.Quaternion.slerpFlat(qOut, 0, qCur, 0, q0, 0, w);
+          newVals[frameIdx * 4] = qOut[0];
+          newVals[frameIdx * 4 + 1] = qOut[1];
+          newVals[frameIdx * 4 + 2] = qOut[2];
+          newVals[frameIdx * 4 + 3] = qOut[3];
         }
-        newVals[i * stride + j] = val;
-      }
-    }
-
-    // 过滤动捕原始数据中骨盆横摆近 30cm 的异常物理位移
-    // 消除大腿骨骼横切导致的下摆/裙摆被大腿碰撞体剧烈推挤外翻（狂甩）的根本原因
-    if (isRootTranslation && stabilizeLateral) {
-      let sumX = 0, sumZ = 0;
-      for (let i = 0; i < count; i++) {
-        sumX += newVals[i * 3];
-        sumZ += newVals[i * 3 + 2];
-      }
-      const meanX = sumX / count;
-      const meanZ = sumZ / count;
-
-      for (let i = 0; i < count; i++) {
-        // X 轴：保留约 12% 自然生理有机微摆（约 ±1.5cm 细微重心起伏，杜绝 26cm 巨大平移滑步）
-        const xOffset = newVals[i * 3] - meanX;
-        newVals[i * 3] = meanX * 0.2 + xOffset * 0.12;
-        // Y 轴：保持动捕原生高度，绝不下压骨盆砸向大腿碰撞体
-        // Z 轴：居中微量呼吸进深
-        const zOffset = newVals[i * 3 + 2] - meanZ;
-        newVals[i * 3 + 2] = meanZ + zOffset * 0.3;
-      }
-    }
-
-    // 五次平滑循环缝合（Quintic Seamless Loop Blend）：末尾 blendFrames 帧平滑重定向回 frame 0
-    if (stride === 4) {
-      const q0 = [newVals[0], newVals[1], newVals[2], newVals[3]];
-      const qCur = [0, 0, 0, 0];
-      const qOut = [0, 0, 0, 0];
-      for (let k = 0; k < blendFrames; k++) {
-        const frameIdx = blendStart + k;
-        const alpha = (k + 1) / blendFrames;
-        const w = quintic(alpha);
-        qCur[0] = newVals[frameIdx * 4];
-        qCur[1] = newVals[frameIdx * 4 + 1];
-        qCur[2] = newVals[frameIdx * 4 + 2];
-        qCur[3] = newVals[frameIdx * 4 + 3];
-        THREE.Quaternion.slerpFlat(qOut, 0, qCur, 0, q0, 0, w);
-        newVals[frameIdx * 4] = qOut[0];
-        newVals[frameIdx * 4 + 1] = qOut[1];
-        newVals[frameIdx * 4 + 2] = qOut[2];
-        newVals[frameIdx * 4 + 3] = qOut[3];
-      }
-    } else if (stride === 3) {
-      const p0 = [newVals[0], newVals[1], newVals[2]];
-      for (let k = 0; k < blendFrames; k++) {
-        const frameIdx = blendStart + k;
-        const alpha = (k + 1) / blendFrames;
-        const w = quintic(alpha);
-        for (let j = 0; j < 3; j++) {
-          newVals[frameIdx * 3 + j] = newVals[frameIdx * 3 + j] * (1 - w) + p0[j] * w;
+      } else if (stride === 3) {
+        const p0 = [newVals[0], newVals[1], newVals[2]];
+        for (let k = 0; k < blendFrames; k++) {
+          const frameIdx = blendStart + k;
+          const alpha = (k + 1) / blendFrames;
+          const w = quintic(alpha);
+          for (let j = 0; j < 3; j++) {
+            newVals[frameIdx * 3 + j] = newVals[frameIdx * 3 + j] * (1 - w) + p0[j] * w;
+          }
         }
       }
     }
@@ -197,7 +194,7 @@ export function sliceVrma(
     }
   }
 
-  // 3. Add explicit thumb tracks if missing so thumbs don't stay curled from idle
+  // 3. 补齐拇指等缺失信道，防止特定软件从待机切入后拇指内扣
   const thumbNodes = [28, 29, 30, 54, 55, 56]; // ThumbFinger1/2/3_R and ThumbFinger1/2/3_L
   const targetTimeInput = anim.samplers[0].input;
 
@@ -260,14 +257,21 @@ export function sliceVrma(
     }
   }
 
-  newGltf.buffers[0].byteLength = currentOffset;
-
-  let newJsonStr = JSON.stringify(newGltf);
-  while (Buffer.byteLength(newJsonStr) % 4 !== 0) {
-    newJsonStr += ' ';
+  // 4. 打包并装配标准二进制 GLB
+  const totalBinLen = newBuffers.reduce((acc, b) => acc + b.byteLength, 0);
+  const totalBin = Buffer.alloc(totalBinLen);
+  let writeOffset = 0;
+  for (const b of newBuffers) {
+    Buffer.from(b.buffer, b.byteOffset, b.byteLength).copy(totalBin, writeOffset);
+    writeOffset += b.byteLength;
   }
-  const newJsonBytes = Buffer.from(newJsonStr, 'utf8');
-  const totalBin = Buffer.concat(newBuffers);
+
+  newGltf.buffers[0] = { byteLength: totalBinLen };
+  let jsonString = JSON.stringify(newGltf);
+  while (Buffer.byteLength(jsonString, 'utf8') % 4 !== 0) {
+    jsonString += ' ';
+  }
+  const newJsonBytes = Buffer.from(jsonString, 'utf8');
 
   const glbLen = 12 + 8 + newJsonBytes.length + 8 + totalBin.length;
   const glb = Buffer.alloc(glbLen);
@@ -287,26 +291,33 @@ export function sliceVrma(
 
   writeFileSync(outputPath, glb);
   console.log(
-    `[sliceVrma] Sliced ${inputPath} [${startSec}s~${endSec}s] → ${outputPath} (${(glb.length / 1024).toFixed(1)}KB, duration: ${newTimes[count - 1].toFixed(2)}s, blendFrames: ${blendFrames}, stabilizeLateral: ${stabilizeLateral})`
+    `[sliceVrma] ✅ 成功切片: ${inputPath} [${startSec}s ~ ${endSec === Infinity ? 'end' : endSec + 's'}] → ${outputPath} (${(glb.length / 1024).toFixed(1)}KB, 时长: ${newTimes[count - 1].toFixed(2)}s, 无缝闭环帧数: ${blendFrames})`
   );
 }
 
-// CLI usage
+// ── 通用 CLI 命令行执行入口 ──
 if (process.argv[1] && process.argv[1].endsWith('slice-vrma.mjs')) {
-  // 智能寻找干净未切片的原始动捕文件作为源（避免在已切片的文件上反复二次切割）
-  let defaultInPath = 'public/vrm/motion/raw/listening.vrma';
-  if (!existsSync(defaultInPath)) {
-    const clawatarPath = '/Users/FireTable/OpenClaw/Code/Clawatar/public/animations/dm_124.vrma';
-    if (existsSync(clawatarPath)) defaultInPath = clawatarPath;
-    else defaultInPath = 'public/vrm/motion/listening.vrma';
+  const args = process.argv.slice(2);
+  if (args.length < 2) {
+    console.log(`
+使用方式:
+  node scripts/slice-vrma.mjs <输入文件> <输出文件> [开始秒数] [结束秒数] [--seamless]
+
+示例:
+  # 1. 通用动捕动作去废帧 (从 3.3s 截取到 12.0s):
+  node scripts/slice-vrma.mjs public/vrm/motion/attentive-lean.vrma public/vrm/motion/listening.vrma 3.3 12.0
+
+  # 2. 循环待机动作 (带尾首平滑循环闭环):
+  node scripts/slice-vrma.mjs public/vrm/motion/attentive-lean.vrma public/vrm/motion/listening.vrma 3.3 12.0 --seamless
+`);
+    process.exit(1);
   }
 
-  const inPath = process.argv[2] || defaultInPath;
-  const outPath = process.argv[3] || 'public/vrm/motion/listening.vrma';
-  const start = parseFloat(process.argv[4] || '6.6');
-  const end = parseFloat(process.argv[5] || '12.4');
-  const hipsYOffset = process.argv[6] !== undefined ? parseFloat(process.argv[6]) : 0.0;
-  const stabilizeLateral = process.argv[7] !== undefined ? process.argv[7] !== 'false' : true;
+  const inPath = args[0];
+  const outPath = args[1];
+  const start = args[2] ? parseFloat(args[2]) : 0.0;
+  const end = args[3] && !args[3].startsWith('--') ? parseFloat(args[3]) : Infinity;
+  const isSeamless = args.includes('--seamless');
 
-  sliceVrma(inPath, outPath, start, end, hipsYOffset, stabilizeLateral);
+  sliceVrma(inPath, outPath, start, end, { seamless: isSeamless });
 }
