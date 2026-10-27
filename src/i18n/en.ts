@@ -94,37 +94,21 @@ export const en: Trans = {
       name: 'Listening',
       description: 'Attentive listening posture with a slight body lean and gentle smile',
     },
-    thinking: {
-      name: 'Thinking',
-      description: 'Pensive posture with hand resting on chin',
+    relaxStretch: {
+      name: 'Relax & Stretch',
+      description: 'Natural one-shot stretch and stance adjustment',
     },
-    classicIdle: {
-      name: 'Classic Idle',
-      description: 'Classic standing idle with natural breathing',
+    shhLean: {
+      name: 'Shh Lean',
+      description: 'Playful leaning gesture with index finger gently on lips',
     },
-    elegantStand: {
-      name: 'Elegant Stand',
-      description: 'Graceful three-quarter standing poise',
+    gazeObserve: {
+      name: 'Gaze & Observe',
+      description: 'Relaxed standing poise gently observing surroundings',
     },
-    maidPoise: {
-      name: 'Maid Poise',
-      description: 'Proper standing posture with hands folded in front',
-    },
-    modelStand: {
-      name: 'Model Stand',
-      description: 'Classic motion-captured fashion stance',
-    },
-    attentiveLean: {
-      name: 'Attentive Lean',
-      description: 'Leaning forward attentively with a joyful smile',
-    },
-    cozyLean: {
-      name: 'Cozy Lean',
-      description: 'Relaxed and cozy stance with eyes gently narrowed',
-    },
-    sleepyLean: {
-      name: 'Sleepy Lean',
-      description: 'Soft and drowsy posture leaning gently',
+    sleepyNod: {
+      name: 'Sleepy Nod',
+      description: 'Adorable drowsy nod with sleepy relaxation',
     },
     waving: {
       name: 'Waving',
@@ -134,57 +118,53 @@ export const en: Trans = {
       name: 'Show Full Body',
       description: 'Confident 360-degree full body showcase',
     },
-    touchHair: {
-      name: 'Touch Hair',
-      description: 'Gentle posture lightly brushing hair with hand',
+    fingerObserve: {
+      name: 'Triangle Frame',
+      description: 'Framing and observing intently through a finger triangle',
     },
-    shyBehindBack: {
-      name: 'Shy Behind Back',
-      description: 'Shy posture with hands clasped behind back',
+    pokeFingers: {
+      name: 'Poke Fingers',
+      description: 'Shy posture playfully poking fingers together in front',
     },
-    poutTurn: {
-      name: 'Pout and Turn',
-      description: 'Cute tsundere pout turning the head away',
+    poutHum: {
+      name: 'Pout & Hum',
+      description: 'Cute tsundere pout and hmph turning the head away',
     },
-    cuteTilt: {
-      name: 'Cute Head Tilt',
-      description: 'Charming head tilt resting cheek on palm',
+    pokeDimple: {
+      name: 'Poke Dimple',
+      description: 'Adorable finger poke to own dimple with a sweet smile',
     },
-    flowerChin: {
-      name: 'Flower Chin',
-      description: 'Hands cupping chin like blooming flower petals',
+    catPaws: {
+      name: 'Cat Paws',
+      description: 'Playful kitty paws resting near cheeks',
     },
-    catCheeks: {
-      name: 'Cat Cheeks',
-      description: 'Playful cat whisker pose with fingers on cheeks',
+    puppyPaws: {
+      name: 'Puppy Paws',
+      description: 'Cute puppy paws playfully gesturing in front',
     },
-    bashfulTwist: {
-      name: 'Bashful Twist',
-      description: 'Playfully twisting with delight when praised',
+    fistCute: {
+      name: 'Fist Cute',
+      description: 'Charming pose with gentle clenched fists and body twist',
     },
     joyfulJump: {
       name: 'Joyful Jump',
       description: 'Excited clap and little hop of delight',
     },
-    gentleTalk: {
-      name: 'Gentle Talk',
-      description: 'Gentle conversational gestures for storytelling',
+    gentleEncourage: {
+      name: 'Gentle Encourage',
+      description: 'Warm chest gestures offering gentle comfort and encouragement',
     },
     explainPoint: {
       name: 'Explain Point',
       description: 'Single hand emphasis gesture explaining key points',
     },
-    warmDialogue: {
-      name: 'Warm Dialogue',
-      description: 'Warm and friendly conversational gestures',
+    detailNarrate: {
+      name: 'Detail Narrate',
+      description: 'Warm, methodical conversational gestures storytelling clearly',
     },
-    blowKiss: {
-      name: 'Blow a Kiss',
-      description: 'Gently blowing a kiss forward from fingertips',
-    },
-    sweetKiss: {
-      name: 'Sweet Kiss',
-      description: 'Sweet romantic flying kiss sent forward',
+    handHeart: {
+      name: 'Hand Heart',
+      description: 'Sweet interactive gesture forming a heart with both hands',
     },
     bellyDance: {
       name: 'Belly Dance',
@@ -198,9 +178,9 @@ export const en: Trans = {
       name: 'Rumba Dance',
       description: 'Romantic Latin rumba steps with sensual hip motion',
     },
-    stretchYawn: {
-      name: 'Stretch and Yawn',
-      description: 'Full-body arm stretch and refreshing sigh',
+    checkTime: {
+      name: 'Check Time',
+      description: 'Casual glance raising the wrist to check the time',
     },
     airplaneGlide: {
       name: 'Airplane Glide',

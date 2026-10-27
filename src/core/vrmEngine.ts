@@ -1115,6 +1115,17 @@ export class VRMEngine {
     persistBodyYaw(this.motionPipeline.targetYawOffset);
   }
 
+  /** 将角色朝向初始化为背对镜头并保持静止 (用于序章电影级初醒演出) */
+  public setFacingBackwards(): void {
+    if (!this.currentVRM) return;
+    this.motionPipeline.setFacingBackwards(this.currentVRM, this.camera);
+  }
+
+  /** 触发角色转身面向镜头 (激活 4-phase stepping FSM 迈步转身) */
+  public triggerBodyTurnToFront(): void {
+    this.motionPipeline.triggerBodyTurnToFront();
+  }
+
   /** 保存当前相机垂直俯仰角与视距 */
   public saveCurrentCameraPitch(): void {
     if (!this.controls) return;
@@ -2369,7 +2380,7 @@ export class VRMEngine {
         await this.chatDirector.warmThinkingClip(vrm, this.vrmaPlayer);
         let buf = state.vrmaBuffer;
         if (!buf) {
-          const res = await fetch('/vrm/motion/thinking.vrma');
+          const res = await fetch('/vrm/motion/listening.vrma?v=11');
           if (res.ok) buf = await res.arrayBuffer();
         }
         if (buf) {

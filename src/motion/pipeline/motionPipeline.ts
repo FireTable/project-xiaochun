@@ -198,6 +198,30 @@ export class MotionPipeline {
   }
 
   /**
+   * 将角色朝向设置为背向相机，并同步 targetYawOffset 保持下半身静止，不触发迈步
+   */
+  public setFacingBackwards(vrm: VRM, camera: THREE.Camera): void {
+    this._btPos.copy(vrm.scene.position);
+    const dx = camera.position.x - this._btPos.x;
+    const dz = camera.position.z - this._btPos.z;
+    const isVrm0 = vrm.meta?.metaVersion === '0';
+    const baseYaw = isVrm0 ? Math.PI : 0;
+    const camAngle = Math.atan2(dx, dz);
+    // 身体旋转设置为背向相机 (camAngle + PI)
+    vrm.scene.rotation.y = baseYaw + camAngle + Math.PI;
+    // 目标偏角设为 PI，使当前差值为 0，保持静止不迈步
+    this.targetYawOffset = Math.PI;
+    this.resetLocomotion();
+  }
+
+  /**
+   * 触发角色转身面向镜头 (激活 4-phase stepping FSM 迈步转身)
+   */
+  public triggerBodyTurnToFront(): void {
+    this.targetYawOffset = 0;
+  }
+
+  /**
    * 复位下半身步态系统与混合权重，立即平息踏步动作
    */
   public resetLocomotion(): void {

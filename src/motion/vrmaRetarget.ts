@@ -127,9 +127,8 @@ function buildNodeToHumanoidMap(vrm: VRM): Map<string, string> {
 export interface RetargetOptions {
   /**
    * 是否开启 AI 动作防穿模限幅（ANTI_CLIP_BONES 上臂 60° 限制与锁骨削减）。
+   * - false (默认): 用于标准真人动捕 VRMA（如 listening.vrma、各类高质量动捕），保留原汁原味的人体关节自由度。
    * - true: 用于 SimpleText2Motion 等 AI 生成的粗糙动作（如老旧 thinking.vrma）；
-   * - false: 用于标准真人动捕 VRMA（如 listening.vrma、各类高质量动捕），保留原汁原味的人体关节自由度。
-   * 默认 true 以保持旧 AI 动作向后兼容。
    */
   antiClip?: boolean;
 }
@@ -140,7 +139,7 @@ export function retargetClip(
   vrm: VRM,
   options: RetargetOptions = {},
 ): THREE.AnimationClip {
-  const antiClip = options.antiClip ?? true;
+  const antiClip = options.antiClip ?? false;
   // ponytail: 库生成的 track 名字用 VRM 实际节点名(例 "J_Bip_L_Shoulder"),
   // 我们 ANTI_CLIP_BONES 用 humanoid 规范名("leftShoulder"),需要个映射表。
   const nodeToHname = buildNodeToHumanoidMap(vrm);

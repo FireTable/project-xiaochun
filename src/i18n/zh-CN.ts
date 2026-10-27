@@ -93,37 +93,21 @@ export const zhCN = {
       name: '纯净倾听',
       description: '身躯微倾、面带微笑的亲切专注倾听姿态',
     },
-    thinking: {
-      name: '托腮沉思',
-      description: '单手托下巴作沉思状',
+    relaxStretch: {
+      name: '放松舒展',
+      description: '全身舒展放松、调整站姿的自然一次性动作',
     },
-    classicIdle: {
-      name: '自然待机',
-      description: '经典自然的呼吸起伏与站姿待机',
+    shhLean: {
+      name: '前倾比嘘',
+      description: '身躯前倾、食指轻抵唇边的俏皮比嘘手势',
     },
-    elegantStand: {
-      name: '亭亭玉立',
-      description: '身体斜侧线条优美的优雅模特立姿',
+    gazeObserve: {
+      name: '观望打量',
+      description: '左右轻轻观望打量周围环境的惬意站姿',
     },
-    maidPoise: {
-      name: '女仆端立',
-      description: '双手交叠于腹前、脚步并拢的端庄女仆站姿',
-    },
-    modelStand: {
-      name: '模特立姿',
-      description: '经典动捕立姿、重心稳固的全身展示',
-    },
-    attentiveLean: {
-      name: '微笑前倾',
-      description: '身躯前倾、面带喜悦的专注陪伴体态',
-    },
-    cozyLean: {
-      name: '惬意眯眼',
-      description: '舒适惬意、享受安静陪伴的放松姿态',
-    },
-    sleepyLean: {
-      name: '困倦微倚',
-      description: '软绵绵快要睡着的轻微倚靠站姿',
+    sleepyNod: {
+      name: '困倦打盹',
+      description: '脑袋轻点打盹、困意朦胧的可爱瞬间',
     },
     waving: {
       name: '热情招手',
@@ -133,57 +117,53 @@ export const zhCN = {
       name: '全身展示',
       description: '自信舒展双手、360度展示全身造型',
     },
-    touchHair: {
-      name: '温柔抚发',
-      description: '单手轻抚发丝、身体自然微晃的温婉姿态',
+    fingerObserve: {
+      name: '三角打量',
+      description: '双手比出三角取景框专注打量的姿态',
     },
-    shyBehindBack: {
-      name: '害羞背手',
-      description: '双手背在身后低头微晃脚步的娇羞态',
+    pokeFingers: {
+      name: '戳小手指',
+      description: '双手在胸前紧张戳着小手指的害羞姿态',
     },
-    poutTurn: {
-      name: '傲娇轻哼',
-      description: '微抬头转开视线的可爱娇嗔姿态',
+    poutHum: {
+      name: '撒娇轻哼',
+      description: '微偏过头轻哼一声的傲娇撒娇小动作',
     },
-    cuteTilt: {
-      name: '单手托脸',
-      description: '单手轻托脸颊微偏头的绝美倾注',
+    pokeDimple: {
+      name: '戳小酒窝',
+      description: '食指轻戳自己小酒窝的可爱卖萌手势',
     },
-    flowerChin: {
-      name: '花朵托下巴',
-      description: '双手如花托般托住下巴露出笑脸',
+    catPaws: {
+      name: '猫咪拳头',
+      description: '双手握成猫咪小拳头放在腮边的萌态',
     },
-    catCheeks: {
-      name: '猫咪胡须',
-      description: '双手手指放于脸颊两侧萌系比划',
+    puppyPaws: {
+      name: '小狗拳头',
+      description: '双手如小狗爪爪般乖巧握拳比划',
     },
-    bashfulTwist: {
-      name: '雀跃撒娇',
-      description: '欣喜被夸奖后轻扭身躯的俏皮撒娇',
+    fistCute: {
+      name: '比拳卖萌',
+      description: '双手握拳轻扭身躯的俏皮卖萌姿态',
     },
     joyfulJump: {
       name: '惊喜轻跳',
       description: '瞬间被好消息点亮的兴奋拍手跳起',
     },
-    gentleTalk: {
-      name: '温和倾诉',
-      description: '柔和胸前手势，适合长句叙述与交谈',
+    gentleEncourage: {
+      name: '温和鼓励',
+      description: '柔和温暖的胸前手势，给予鼓励与支持',
     },
     explainPoint: {
       name: '重点强调',
       description: '单手重点强调与陈述阐释手势',
     },
-    warmDialogue: {
-      name: '亲切讲述',
-      description: '如知己好友般自然亲切的交谈手势',
+    detailNarrate: {
+      name: '仔细讲述',
+      description: '专注且条理清晰地娓娓道来的交谈手势',
     },
-    blowKiss: {
-      name: '指尖飞吻',
-      description: '手指轻触嘴唇向前温柔吹出飞吻',
-    },
-    sweetKiss: {
-      name: '甜蜜飞吻',
-      description: '右手轻触嘴唇向前送出深情飞吻',
+    handHeart: {
+      name: '双手比心',
+      description: '双手在胸前合拢比出爱心的甜蜜互动',
     },
     bellyDance: {
       name: '东方肚皮舞',
@@ -197,9 +177,9 @@ export const zhCN = {
       name: '拉丁伦巴舞',
       description: '优美曼妙的髋部画圆经典伦巴单人步态',
     },
-    stretchYawn: {
-      name: '伸展懒腰',
-      description: '高举双臂伸展懒腰、长舒一口气',
+    checkTime: {
+      name: '核对时间',
+      description: '抬起手腕认真查看手表核对时间的日常动作',
     },
     airplaneGlide: {
       name: '小飞机滑翔',
