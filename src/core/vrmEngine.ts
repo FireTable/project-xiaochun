@@ -58,6 +58,8 @@ import { CharacterShadowSystem } from './scene/characterShadow';
 import { adjustZoomInWhileClamped, solveGroundClamp, visibleRatioCap } from './camera/groundClamp';
 import { cameraDirector } from './scene/cameraDirector';
 import { expressionController } from './morph/expressionController';
+import { VRMTexturePool, extractParserImageHashes } from './texturePool';
+import { StaggeredDisposer } from './staggeredDisposer';
 import {
   captureExpressions,
   restoreExpressions,
@@ -307,6 +309,12 @@ export class VRMEngine {
     });
   }
   private chatDirector = new ChatDirector();
+  private texturePool = new VRMTexturePool();
+  private staggeredDisposer = new StaggeredDisposer();
+
+  public get texturePoolStats() {
+    return this.texturePool.getStats();
+  }
 
   // ── 实体状态 ──
   public currentVRM: VRM | null = null;
@@ -1894,7 +1902,7 @@ export class VRMEngine {
     // ponytail: 非 preserveMotion 时(冷启动/完全重置)，立即清理旧模型并归零动作
     if (this.currentVRM && !preserveMotion) {
       this.scene.remove(this.currentVRM.scene);
-      VRMUtils.deepDispose(this.currentVRM.scene);
+      this.staggeredDisposer.enqueueScene(this.currentVRM.scene, this.texturePool);
       this.currentVRM = null;
       this.notifyReady(false);
       this.vrmaPlayer.stop();
@@ -1931,9 +1939,21 @@ export class VRMEngine {
           }
 
           const asyncInit = !preserveMotion;
-          if (asyncInit) await yieldToMain();
+          await yieldToMain();
           applyVrmUtilsOptimizations(gltf.scene, vrm);
-          if (asyncInit) await yieldToMain();
+          await yieldToMain();
+
+          // 贴图智能共享与去重：重用头部/五官/发丝已驻留显存的纹理 (零冗余上传与显存节省)
+          try {
+            const imageHashes = await extractParserImageHashes(gltf.parser);
+            const dedupStats = this.texturePool.deduplicateModel(vrm, gltf.parser, imageHashes);
+            if (dedupStats.sharedCount > 0) {
+              console.log(`[VRMEngine] 贴图去重命中: 复用 ${dedupStats.sharedCount} 张共享贴图，新增 ${dedupStats.uniqueCount} 张`);
+            }
+          } catch (e) {
+            console.warn('[VRMEngine] 贴图去重异常 (不影响正常加载):', e);
+          }
+          await yieldToMain();
 
           vrm.scene.traverse((obj) => {
             obj.frustumCulled = false;
@@ -1973,9 +1993,9 @@ export class VRMEngine {
           });
 
           // 委托材质管理器进行 MToon 优化与 Shader 注入
-          if (asyncInit) await yieldToMain();
+          await yieldToMain();
           this.materialManager.optimize(vrm);
-          if (asyncInit) await yieldToMain();
+          await yieldToMain();
           VRMUtils.rotateVRM0(vrm);
           vrm.scene.position.set(0, 0, 0);
           if (vrm.meta?.metaVersion !== '0') {
@@ -2039,7 +2059,7 @@ export class VRMEngine {
 
             // 5. 同步原子切换：移除旧模型、挂入已处于正确动作姿势的新模型
             this.scene.remove(previousVrm.scene);
-            VRMUtils.deepDispose(previousVrm.scene);
+            this.staggeredDisposer.enqueueScene(previousVrm.scene, this.texturePool);
             this.currentVRM = vrm;
             this.scene.add(vrm.scene);
             this.notifyReady(true);
@@ -2559,7 +2579,7 @@ export class VRMEngine {
     // ponytail: 非 preserveMotion 时(冷启动/完全重置)，立即清理旧模型并归零动作
     if (this.currentVRM && !preserveMotion) {
       this.scene.remove(this.currentVRM.scene);
-      VRMUtils.deepDispose(this.currentVRM.scene);
+      this.staggeredDisposer.enqueueScene(this.currentVRM.scene, this.texturePool);
       this.currentVRM = null;
       this.notifyReady(false);
       this.vrmaPlayer.stop();
@@ -2581,7 +2601,21 @@ export class VRMEngine {
             return;
           }
 
+          await yieldToMain();
           applyVrmUtilsOptimizations(gltf.scene, vrm);
+          await yieldToMain();
+
+          // 贴图智能共享与去重：重用头部/五官/发丝已驻留显存的纹理 (零冗余上传与显存节省)
+          try {
+            const imageHashes = await extractParserImageHashes(gltf.parser);
+            const dedupStats = this.texturePool.deduplicateModel(vrm, gltf.parser, imageHashes);
+            if (dedupStats.sharedCount > 0) {
+              console.log(`[VRMEngine] 贴图去重命中: 复用 ${dedupStats.sharedCount} 张共享贴图，新增 ${dedupStats.uniqueCount} 张`);
+            }
+          } catch (e) {
+            console.warn('[VRMEngine] 贴图去重异常 (不影响正常加载):', e);
+          }
+          await yieldToMain();
 
           vrm.scene.traverse((obj) => {
             obj.frustumCulled = false;
@@ -2620,7 +2654,9 @@ export class VRMEngine {
             }
           });
 
+          await yieldToMain();
           this.materialManager.optimize(vrm);
+          await yieldToMain();
           VRMUtils.rotateVRM0(vrm);
           vrm.scene.position.set(0, 0, 0);
           if (vrm.meta?.metaVersion !== '0') {
@@ -2684,7 +2720,7 @@ export class VRMEngine {
 
             // 5. 同步原子切换：移除旧模型、挂入已处于正确动作姿势的新模型
             this.scene.remove(previousVrm.scene);
-            VRMUtils.deepDispose(previousVrm.scene);
+            this.staggeredDisposer.enqueueScene(previousVrm.scene, this.texturePool);
             this.currentVRM = vrm;
             this.scene.add(vrm.scene);
             this.notifyReady(true);
@@ -3588,6 +3624,8 @@ export class VRMEngine {
     }
     this.controls?.dispose();
 
+    this.staggeredDisposer.dispose();
+    this.texturePool.clear();
     if (this.currentVRM) {
       this.scene.remove(this.currentVRM.scene);
       VRMUtils.deepDispose(this.currentVRM.scene);

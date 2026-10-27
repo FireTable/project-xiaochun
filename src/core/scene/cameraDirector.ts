@@ -63,6 +63,22 @@ function easeOutDramatic(t: number): number {
   return 1 - Math.pow(1 - t, 4);
 }
 
+/** 兼容 Node/SSR 与浏览器的零崩溃 requestAnimationFrame 封装 */
+function safeRaf(cb: (time: number) => void): number {
+  if (typeof requestAnimationFrame !== 'undefined') {
+    return requestAnimationFrame(cb);
+  }
+  return setTimeout(() => cb(performance.now()), 16) as unknown as number;
+}
+
+function safeCancelRaf(id: number): void {
+  if (typeof cancelAnimationFrame !== 'undefined') {
+    cancelAnimationFrame(id);
+  } else {
+    clearTimeout(id);
+  }
+}
+
 export class CameraDirector {
   private ctx: CameraDirectorContext | null = null;
   private currentTweenRaf: number | null = null;
@@ -94,7 +110,7 @@ export class CameraDirector {
    */
   public stopTransition(): void {
     if (this.currentTweenRaf !== null) {
-      cancelAnimationFrame(this.currentTweenRaf);
+      safeCancelRaf(this.currentTweenRaf);
       this.currentTweenRaf = null;
     }
     const controls = this.getControls();
@@ -148,7 +164,7 @@ export class CameraDirector {
     const targetY = this.tempHeadPos.y + preset.targetYOffset;
     this.tempEndTarget.set(this.tempHeadPos.x, targetY, this.tempHeadPos.z);
 
-    const targetDistance = preset.distance;
+    let targetDistance = preset.distance;
     const targetPitch = preset.pitch;
     const targetFov = directive.targetFov ?? preset.fov;
 
@@ -173,29 +189,61 @@ export class CameraDirector {
       }
     }
 
-    // 球坐标计算终点位置
-    const sinPitch = Math.sin(targetPitch);
-    const cosPitch = Math.cos(targetPitch);
-    const endX = this.tempEndTarget.x + targetDistance * sinPitch * Math.sin(currentAzimuth);
-    const endY = this.tempEndTarget.y + targetDistance * cosPitch;
-    const endZ = this.tempEndTarget.z + targetDistance * sinPitch * Math.cos(currentAzimuth);
-    this.tempEndPos.set(endX, endY, endZ);
-
     const trajectory = directive.movement;
     const isHeroOrbit = trajectory === 'hero_spiral_orbit';
     const isPedestalUp = trajectory === 'pedestal_up';
+    const isArcSweep = trajectory === 'arc_sweep';
+    const isOrbitSubtle = trajectory === 'orbit_subtle';
+    const isPushIn = trajectory === 'push_in';
+    const isPullOut = trajectory === 'pull_out';
+    const hasCustomOrbit = directive.orbitAngleDeg !== undefined && Math.abs(directive.orbitAngleDeg) > 0.01;
+
+    // 解析环绕方位角增量
+    let orbitDeltaRad = 0;
+    if (hasCustomOrbit) {
+      orbitDeltaRad = (directive.orbitAngleDeg! * Math.PI) / 180;
+    } else if (isHeroOrbit) {
+      orbitDeltaRad = Math.PI * 2.0; // 360° 英雄全景环绕
+    } else if (isArcSweep) {
+      orbitDeltaRad = Math.PI * 0.22; // ~40° 侧方弧度横摇
+    } else if (isOrbitSubtle) {
+      orbitDeltaRad = Math.PI * 0.12; // ~21.6° 微妙环绕微动
+    }
+    const hasOrbitalMotion = Math.abs(orbitDeltaRad) > 0.001;
+    const finalAzimuth = currentAzimuth + orbitDeltaRad;
+
+    // 若动作指定推近/后拉，且未跨景别导致距离无差异时，赋予微动景深
+    const currentDistance = camera.position.distanceTo(controls && controls.target ? controls.target : this.tempEndTarget);
+    if (isPushIn && Math.abs(currentDistance - targetDistance) < 0.15) {
+      targetDistance = Math.max(0.9, targetDistance * 0.82);
+    } else if (isPullOut && Math.abs(currentDistance - targetDistance) < 0.15) {
+      targetDistance = Math.min(5.0, targetDistance * 1.25);
+    }
+
+    // 球坐标计算终点位置 (基于 finalAzimuth 与 targetPitch, targetDistance)
+    const sinPitch = Math.sin(targetPitch);
+    const cosPitch = Math.cos(targetPitch);
+    const endX = this.tempEndTarget.x + targetDistance * sinPitch * Math.sin(finalAzimuth);
+    const endY = this.tempEndTarget.y + targetDistance * cosPitch;
+    const endZ = this.tempEndTarget.z + targetDistance * sinPitch * Math.cos(finalAzimuth);
+    this.tempEndPos.set(endX, endY, endZ);
 
     // 4. 起点状态捕获 (支持常规起点捕获与垂直升镜专用起点)
     if (isPedestalUp) {
       const startTargetY = this.tempHeadPos.y - 0.70;
       this.tempStartTarget.set(this.tempHeadPos.x, startTargetY, this.tempHeadPos.z);
-      const startPitch = 1.53;
-      const startDist = targetDistance * 1.08;
-      const startX = this.tempStartTarget.x + startDist * Math.sin(startPitch) * Math.sin(currentAzimuth);
-      const startY = this.tempStartTarget.y + startDist * Math.cos(startPitch);
-      const startZ = this.tempStartTarget.z + startDist * Math.sin(startPitch) * Math.cos(currentAzimuth);
-      this.tempStartPos.set(startX, Math.max(0.50, startY), startZ);
-      camera.position.copy(this.tempStartPos);
+      // 若当前相机已处于裙摆高度 (如黑屏 panUpReveal 准备阶段)，直接复用
+      if (Math.abs(camera.position.y - Math.max(0.50, startTargetY)) > 0.2 && (!controls || !controls.target || Math.abs(controls.target.y - startTargetY) > 0.2)) {
+        const startPitch = 1.53;
+        const startDist = targetDistance * 1.08;
+        const startX = this.tempStartTarget.x + startDist * Math.sin(startPitch) * Math.sin(currentAzimuth);
+        const startY = this.tempStartTarget.y + startDist * Math.cos(startPitch);
+        const startZ = this.tempStartTarget.z + startDist * Math.sin(startPitch) * Math.cos(currentAzimuth);
+        this.tempStartPos.set(startX, Math.max(0.50, startY), startZ);
+        camera.position.copy(this.tempStartPos);
+      } else {
+        this.tempStartPos.copy(camera.position);
+      }
       if (controls && controls.target) {
         controls.target.copy(this.tempStartTarget);
         controls.enabled = false;
@@ -235,9 +283,9 @@ export class CameraDirector {
         const progress = Math.min(1.0, (now - startTime) / durationMs);
         const eased = easingFn(progress);
 
-        if (isHeroOrbit) {
-          // 英雄螺旋升空轨迹：方位角旋转 360 度，半径与俯仰平滑推移
-          const angle = currentAzimuth + eased * Math.PI * 2.0;
+        if (hasOrbitalMotion) {
+          // 环绕轨迹：方位角旋转，半径与俯仰平滑推移
+          const angle = currentAzimuth + eased * orbitDeltaRad;
           const curDist = THREE.MathUtils.lerp(this.tempStartPos.distanceTo(this.tempStartTarget), targetDistance, eased);
           const curPitch = controls && typeof controls.getPolarAngle === 'function'
             ? THREE.MathUtils.lerp(controls.getPolarAngle(), targetPitch, eased)
@@ -274,7 +322,7 @@ export class CameraDirector {
         onApplyGroundClamp?.();
 
         if (progress < 1.0) {
-          this.currentTweenRaf = requestAnimationFrame(tick);
+          this.currentTweenRaf = safeRaf(tick);
         } else {
           // 结束复位与收敛
           camera.position.copy(this.tempEndPos);
@@ -293,7 +341,7 @@ export class CameraDirector {
         }
       };
 
-      this.currentTweenRaf = requestAnimationFrame(tick);
+      this.currentTweenRaf = safeRaf(tick);
     });
   }
 

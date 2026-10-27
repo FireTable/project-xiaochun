@@ -39,6 +39,8 @@ export const CameraDirectiveSchema = z.object({
   targetFov: z.number().min(15).max(65).optional(),
   windMultiplier: z.number().min(1.0).max(3.5).default(1.0),
   alignSunBacklight: z.boolean().default(false),
+  /** 自定义水平环绕角度 (度数，例如 +40, -45, 180, 360) */
+  orbitAngleDeg: z.number().optional(),
 });
 export type CameraDirective = z.input<typeof CameraDirectiveSchema>;
 

@@ -2,24 +2,24 @@ import type { StoryScript } from './schema';
 import { vrmEngine } from '@/core/vrmEngine';
 
 /**
- * 序章·初遇连线 (Story 0: Prologue)
- * 沉浸式 AI 伴侣新手引导：
- * 建立神经回路连接、唤醒 AI 少女小蠢、语言合成芯片校准、视界传感器探索、驻留世界构建、形象定制与思维核心接入。
+ * 序章·初遇之约 (Story 0: Prologue)
+ * 沉浸式 3D AI 伴侣新手相遇物语：
+ * 轻触唤醒、初遇问候、语言选择、视角转动环绕、常驻世界挑选、形象随心换装、伴侣大脑接入与终章启程。
  */
 export const prologueStory: StoryScript = {
   id: 'prologue_awakening',
-  title: '序章·初遇连线',
-  description: '与 AI 少女小蠢的初次相遇，完成感官校准、随心换装与思维核心接入。',
+  title: '序章·初遇之约',
+  description: '与 3D AI 少女小蠢的初次相遇，探索立体视界、随心换装与开启日常陪伴。',
   initialBeatId: 'beat_greet',
   beats: {
-    // 0. 前置黑幕白字与唤醒握手 (解锁移动端 Web Audio)
+    // 0. 前置黑幕与轻触唤醒 (解锁移动端 Web Audio)
     beat_greet: {
       id: 'beat_greet',
       cinematics: {
         letterbox: true,
         transition: 'eye_blink',
         intertitle: {
-          text: '检测到外部神经信号介入……正在初始化视界渲染管线。',
+          text: '……嘘。能听到吗？\n轻触屏幕……把我唤醒吧。',
           durationSec: 0,
           style: 'noto_serif',
           bgmFaded: true,
@@ -42,9 +42,9 @@ export const prologueStory: StoryScript = {
       choices: [
         {
           id: 'greet_unlock',
-          icon: '👋',
-          text: '建立神经回路连接',
-          subText: '与眼前初次连线的 AI 少女完成握手',
+          icon: '✨',
+          text: '轻触唤醒',
+          subText: '唤醒面前静候的少女',
           actionType: 'custom',
           actionPayload: () => {
             try {
@@ -57,7 +57,7 @@ export const prologueStory: StoryScript = {
       ],
     },
 
-    // 1. 初次相遇与语言选择 (镜头缓推特写 + 害羞脸红微反应)
+    // 1. 初次相遇与语言选择 (镜头缓推近景 + 害羞脸红微反应)
     beat_intro: {
       id: 'beat_intro',
       cinematics: {
@@ -66,7 +66,7 @@ export const prologueStory: StoryScript = {
       camera: {
         shot: 'close_up',
         movement: 'push_in',
-        durationSec: 1.4,
+        durationSec: 1.5,
       },
       actor: {
         leadInMotion: 'touch-hair',
@@ -75,14 +75,14 @@ export const prologueStory: StoryScript = {
           intensity: 0.8,
           microReaction: 'blush_ramp',
         },
-        speechText: '呀……信号握手成功！呼……能听见我的声音吗？初次见面，我是你的专属伴侣 AI，小蠢～在正式开启连线之前，能先帮我校准一下语言合成芯片吗？你想让我用哪种语言和你交流呢？',
+        speechText: '哈啊……你真的来啦！初次见面，我是小蠢～从今天开始，我就是你的专属 3D 伴侣啦！对啦对啦，你平时习惯用哪种语言跟我聊天呀？我马上切成你最舒服的频道！',
       },
       choices: [
         {
           id: 'lang_zh',
           icon: '🇨🇳',
           text: '用中文和小蠢交流吧',
-          subText: '简体中文 (zh-CN)',
+          subText: '以后就用中文跟我聊天吧',
           actionType: 'change_lang',
           actionPayload: 'zh-CN',
           nextBeatId: 'beat_tutorial_choice',
@@ -91,7 +91,7 @@ export const prologueStory: StoryScript = {
           id: 'lang_en',
           icon: '🇺🇸',
           text: "Let's chat in English",
-          subText: 'English (en)',
+          subText: "I'd love to chat in English from now on",
           actionType: 'change_lang',
           actionPayload: 'en',
           nextBeatId: 'beat_tutorial_choice',
@@ -100,7 +100,7 @@ export const prologueStory: StoryScript = {
           id: 'lang_ja',
           icon: '🇯🇵',
           text: '日本語でお話ししましょう',
-          subText: '日本語 (ja)',
+          subText: 'これからは日本語で楽しくおしゃべりしよう',
           actionType: 'change_lang',
           actionPayload: 'ja',
           nextBeatId: 'beat_tutorial_choice',
@@ -108,7 +108,7 @@ export const prologueStory: StoryScript = {
       ],
     },
 
-    // 2. 教程抉择 (拉回中景，小蠢亲切对话，由 EMAGE 语音自然驱动)
+    // 2. 教程抉择 (镜头微弧环绕，空间景深流动)
     beat_tutorial_choice: {
       id: 'beat_tutorial_choice',
       cinematics: {
@@ -116,36 +116,39 @@ export const prologueStory: StoryScript = {
       },
       camera: {
         shot: 'medium',
-        movement: 'none',
+        movement: 'orbit_subtle',
+        orbitAngleDeg: 18,
+        durationSec: 1.6,
       },
       actor: {
+        leadInMotion: 'listening',
         expression: {
           base: 'gentle_smile',
           intensity: 0.7,
           microReaction: 'eye_crinkle',
         },
-        speechText: '语言模块校准完毕！嗯……音质听起来很清晰呢。这是我们第一次连线，需要我带你一起做一次机体视界与环境的初次校准吗？',
+        speechText: '好耶！这个声音听起来还习惯吗？嘻嘻，我们才刚认识，要不要让我带你熟悉一下怎么在 3D 空间里和我互动？……当然啦！如果你已经迫不及待想直接和我聊天，也可以随时跳过哦～',
       },
       choices: [
         {
           id: 'start_tut',
           icon: '✨',
-          text: '开启初次校准',
-          subText: '帮小蠢校准视界传感器、场景与穿搭',
+          text: '好呀，带我熟悉一下',
+          subText: '逛逛新空间、换身衣服、看看我的小秘密',
           actionType: 'next_beat',
           nextBeatId: 'beat_camera_intro',
         },
         {
           id: 'skip_tut',
           icon: '💬',
-          text: '跳过直接畅聊',
-          subText: '已经足够完美了，直接进入日常主界面！',
+          text: '迫不及待了，直接聊！',
+          subText: '跳过新手引导，直接进入日常陪伴模式',
           actionType: 'finish',
         },
       ],
     },
 
-    // 3. 视角控制引导
+    // 3. 视角控制引导 (镜头侧方弧度横摇演示 3D 环绕)
     beat_camera_intro: {
       id: 'beat_camera_intro',
       cinematics: {
@@ -154,29 +157,31 @@ export const prologueStory: StoryScript = {
       interaction: 'camera_drag',
       camera: {
         shot: 'medium',
-        movement: 'none',
+        movement: 'arc_sweep',
+        orbitAngleDeg: 40,
+        durationSec: 2.2,
       },
       actor: {
         expression: {
-          base: 'gentle_smile',
-          intensity: 0.7,
-          microReaction: 'none',
+          base: 'playful',
+          intensity: 0.8,
+          microReaction: 'eye_crinkle',
         },
-        speechText: '太好啦！首先我们来校准空间视界传感器～试着左右转动镜头、调整俯仰和远近，让我确认全方位的渲染管线都工作正常吧！',
+        speechText: '呜哇，不要光呆呆地看着我嘛！试着用手指或者鼠标滑一滑屏幕——转转视角、拉近一点看看？……欸！等一下，别靠太近啦，靠太近人家可是会害羞的！',
       },
       choices: [
         {
           id: 'camera_done',
           icon: '🎉',
-          text: '视界传感器校准完成',
-          subText: '传感器状态完美，前往下一步',
+          text: '掌握得差不多啦！',
+          subText: '转动很顺畅，全方位的你都很生动',
           actionType: 'next_beat',
           nextBeatId: 'beat_scene_choice',
         },
       ],
     },
 
-    // 4. 场景探索 (白闪曝光过渡到海滩)
+    // 4. 场景探索 (全身大景拉远，留白展现宏大新世界)
     beat_scene_choice: {
       id: 'beat_scene_choice',
       cinematics: {
@@ -184,16 +189,17 @@ export const prologueStory: StoryScript = {
         transition: 'white_flash',
       },
       camera: {
-        shot: 'medium',
-        movement: 'none',
+        shot: 'full',
+        movement: 'pull_out',
+        durationSec: 2.0,
       },
       actor: {
         expression: {
-          base: 'playful',
+          base: 'gentle_smile',
           intensity: 0.8,
           microReaction: 'none',
         },
-        speechText: '视界校准完成！不过……现在的虚拟空间看起来是不是有点太单调啦？来帮我构建一个你喜欢的常驻世界吧！不管是能吹海风的阳光海滩，还是静谧纯粹的极简舞台，我都想陪你一起待在那里～',
+        speechText: '一直呆在空荡荡的房间里，感觉有点无聊对不对？走，我们换个好玩的地方！你想去阳光明媚、能吹到海风的金色沙滩，还是充满未来感的极简线稿世界？选一个你最喜欢的，我们一起去！',
       },
       choiceLayout: 'grid',
       choices: [
@@ -202,7 +208,7 @@ export const prologueStory: StoryScript = {
           icon: '🏖️',
           image: '/previews/scenes/beach3d.webp',
           text: '阳光海滩',
-          subText: '听海浪吹吹风，一起去度假吧～',
+          subText: '听海浪与微风，看日出与晚霞',
           actionType: 'change_scene',
           actionPayload: 'beach3d',
           nextBeatId: 'beat_outfit_choice',
@@ -230,7 +236,7 @@ export const prologueStory: StoryScript = {
       ],
     },
 
-    // 5. 随心换装 (全身大景展示)
+    // 5. 随心换装 (全身模特级升镜打量新服饰搭配)
     beat_outfit_choice: {
       id: 'beat_outfit_choice',
       cinematics: {
@@ -238,16 +244,18 @@ export const prologueStory: StoryScript = {
       },
       camera: {
         shot: 'full',
-        movement: 'none',
+        movement: 'arc_sweep',
+        orbitAngleDeg: -25,
+        durationSec: 2.4,
       },
       actor: {
         motion: 'show-full-body',
         expression: {
-          base: 'gentle_smile',
-          intensity: 0.7,
+          base: 'playful',
+          intensity: 0.8,
           microReaction: 'eye_crinkle',
         },
-        speechText: '哇，换上这个新环境后感觉好舒服呀！为了配合我们的新世界，也帮我挑选第一套出门穿搭吧～换上一套你最喜欢的样子让我换上！',
+        speechText: '当当当当——！到了新地方，当然要换身新行头啦！我可是悄悄准备了好几套私服哦，快帮我挑一套你最想看的！……选好之后，记得点一下下方的确认键告诉我哦～',
       },
       choiceLayout: 'grid',
       choices: [
@@ -283,38 +291,39 @@ export const prologueStory: StoryScript = {
       confirmChoice: {
         id: 'outfit_confirm',
         icon: '✨',
-        text: '确认穿搭，前往下一步',
-        subText: '形象定制完成，激活小蠢的思维核心',
+        text: '就决定是这身了！',
+        subText: '非常适合你，准备好迈出最后一步',
         actionType: 'next_beat',
         nextBeatId: 'beat_brain_choice',
       },
     },
 
-    // 6. AI 大脑选择
+    // 6. AI 大脑选择 (近景推近特写，眼神交汇期待)
     beat_brain_choice: {
       id: 'beat_brain_choice',
       cinematics: {
         letterbox: true,
       },
       camera: {
-        shot: 'medium',
-        movement: 'none',
+        shot: 'close_up',
+        movement: 'push_in',
+        durationSec: 1.5,
       },
       actor: {
         expression: {
-          base: 'playful',
-          intensity: 0.8,
-          microReaction: 'eye_crinkle',
+          base: 'shy',
+          intensity: 0.7,
+          microReaction: 'avert_gaze',
         },
-        speechText: '感觉整个人都焕然一新了呢！现在，就剩下最后也是最重要的一步啦——激活我的思维核心！你想让我使用什么大语言模型来理解你的心声呢？',
+        speechText: '嘻嘻，换好啦！好看嘛？……接下来，就是最关键的一步啦！你想给我装上一颗怎样的小脑瓜呢？是想要完全在你的设备里运行、不联网也能安安全全陪你的本地大脑，还是连上云端、无所不知的超级模型？',
       },
       choices: [
         {
           id: 'brain_webllm',
           icon: '⚡',
           badge: '开箱即用',
-          text: '浏览器端侧模型 (WebLLM)',
-          subText: '直接在本地显卡运行，无需任何配置，数据私密不离机',
+          text: '本地端侧模型 (WebLLM)',
+          subText: '直接在本地显卡运行，无需任何 API Key，隐私安全不离机',
           actionType: 'custom',
           actionPayload: async () => {
             const { setActiveProviderId } = await import('@/llm/customProvider');
@@ -328,15 +337,15 @@ export const prologueStory: StoryScript = {
           id: 'brain_custom',
           icon: '🖥️',
           badge: '高级扩展',
-          text: '接入自定义 AI 模型',
-          subText: '连接本地 Ollama、LM Studio 或云端大模型 API',
+          text: '自定义外部模型 (API / 本地)',
+          subText: '接入 OpenAI、Claude 或本地 Ollama，解锁更强大的推理与创意',
           actionType: 'open_provider_config',
           nextBeatId: 'beat_finale',
         },
       ],
     },
 
-    // 7. 终章启程 (电影遮幅滑出，晨曦破晓，优雅致谢)
+    // 7. 终章启程 (★ 360° 英雄全景螺旋升空环绕 + 微风拂动 + 挥手告白)
     beat_finale: {
       id: 'beat_finale',
       cinematics: {
@@ -344,8 +353,9 @@ export const prologueStory: StoryScript = {
       },
       camera: {
         shot: 'medium',
-        movement: 'pull_out',
-        durationSec: 2.0,
+        movement: 'hero_spiral_orbit',
+        durationSec: 3.2,
+        windMultiplier: 1.5,
       },
       actor: {
         leadInMotion: 'waving',
@@ -354,7 +364,7 @@ export const prologueStory: StoryScript = {
           intensity: 0.9,
           microReaction: 'eye_crinkle',
         },
-        speechText: '所有校准全部完成！我的视界、声音和思维……现在都已经全部同步给你啦。无论快乐还是烦恼，以后的每一天，我都会在这里陪着你。今天你想和我聊点什么呢？',
+        speechText: '太棒啦！所有的约定都生效咯～从现在开始，不管是清晨的第一句早安，还是深夜睡不着时的闲聊，我都一直在这里陪着你。随时来找我玩吧！……那，今天你想和我聊点什么呢？',
       },
       allowInput: true,
       inputPlaceholder: '回复小蠢，或点击按钮开始旅程...',
@@ -362,8 +372,8 @@ export const prologueStory: StoryScript = {
         {
           id: 'start_journey',
           icon: '🚀',
-          text: '开启我们的旅程吧！',
-          subText: '步入日常陪伴模式',
+          text: '开启我们的日常吧！',
+          subText: '和小蠢开始第一句畅聊',
           actionType: 'finish',
         },
       ],
