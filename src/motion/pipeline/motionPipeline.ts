@@ -246,6 +246,9 @@ export class MotionPipeline {
     fadeDuration = SOURCE_FADE_DURATION,
     mask: 'all' | 'upperBody' = 'upperBody',
   ): void {
+    if (this.universalMotion.isPlaying()) {
+      this.universalMotion.stop(fadeDuration);
+    }
     this.idle.traits.thinkSway = false;
     this.vrma.traits = { allowLocomotion: true, thinkSway: false };
     this.vrma.playLoop(clip, vrm, fadeDuration);
@@ -259,6 +262,9 @@ export class MotionPipeline {
 
   /** Switch Layer-1 to EMAGE speech (planted stance, no think sway). */
   beginEmageSpeech(): void {
+    if (this.universalMotion.isPlaying()) {
+      this.universalMotion.stop(SOURCE_FADE_DURATION);
+    }
     this.idle.traits.thinkSway = false;
     this.vrma.traits = { ...DEFAULT_MOTION_TRAITS };
     this.actionPose.copyFrom(this.finalPose);

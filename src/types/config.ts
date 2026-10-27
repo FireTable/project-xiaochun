@@ -24,6 +24,8 @@ export interface SceneComponentConfig {
   headBubble?: boolean;
   heightRuler?: boolean;
   dropZone?: boolean;
+  /** 场景时间流转控制卡片 (SceneTimeCard) */
+  time?: boolean;
 }
 
 export interface SceneTauriConfig {
@@ -39,6 +41,8 @@ export interface SceneItemConfig {
   lineworkTheme: LineworkTheme;
   isTransparent?: boolean;
   hidden?: boolean;
+  /** 场景世界是否支持环境时间/昼夜流转 (如太阳轨迹、天空色温、动态光照与落影) */
+  supportsTime?: boolean;
   components: SceneComponentConfig;
   tauri: SceneTauriConfig;
 }

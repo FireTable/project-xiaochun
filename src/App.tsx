@@ -302,8 +302,10 @@ export const App: React.FC = () => {
         </div>
       )}
 
-      {/* 场景时间卡片 (独立浮窗，位于 TopHeader 下方，故事/向导期间隐藏避让) */}
-      {!isStoryOrOnboarding && <SceneTimeCard isPetUIVisible={isPetUIVisible} />}
+      {/* 场景时间卡片 (独立浮窗，位于 TopHeader 下方；依据当前场景是否支持时间系统决定是否挂载，故事/向导期间隐藏避让) */}
+      {!isStoryOrOnboarding && Boolean(currentScene.supportsTime || currentScene.components.time) && (
+        <SceneTimeCard isPetUIVisible={isPetUIVisible} />
+      )}
 
       {/* 生产包默认不露抽屉；10 次连击后 hasDevEasterEgg 打开同一套面板。故事与向导期间不遮挡 */}
       <DevDrawerHost

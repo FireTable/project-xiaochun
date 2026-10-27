@@ -223,6 +223,11 @@ function applyVrmUtilsOptimizations(scene: THREE.Object3D, vrm: VRM): void {
   VRMUtils.combineMorphs(vrm);
 }
 
+export interface SwapOutfitOptions {
+  /** 是否在换装成功且非对话时自动播放 showFullBody 展示动作（默认 true，冷启动时自动为 false） */
+  showcase?: boolean;
+}
+
 export class VRMEngine {
   // ── Three.js 核心基础设施 ──
   private canvas: HTMLCanvasElement | null = null;
@@ -2493,7 +2498,11 @@ export class VRMEngine {
    * 冷启动调到这里时 currentVRM 为 null,但 addon 路径仍然要走 (loadVRM 接 .vrmaddon URL 会挂),
    * 所以 addon 检测放在 currentVRM 检查之前。
    */
-  public async swapOutfit(url: string, filename: string): Promise<void> {
+  public async swapOutfit(
+    url: string,
+    filename: string,
+    options?: SwapOutfitOptions,
+  ): Promise<void> {
     // ponytail: addon URL 走 composeOutfit 路径(worker 内 unzip + 合成完整 GLB),
     // 普通 URL (.vrm / blob:) 走 loadVRM 直通。.vrmbase 是 cold-start 的 whole-glb zip,
     // 跟 .vrmaddon 走同一条 worker 通道。
@@ -2543,6 +2552,15 @@ export class VRMEngine {
       } else {
         await this.loadVRM(url, filename, { preserveMotion: true });
         this.notifyOutfitChange('__upload__');
+      }
+
+      // 运行时换衣且当前未在对话/思考，自动做全身服装展示走秀 (showFullBody)
+      const shouldShowcase = preserveMotion && (options?.showcase ?? true);
+      const isSpeakingOrThinking = this.chatDirector.speaking || this.chatDirector.turnState !== 'idle';
+      if (shouldShowcase && !isSpeakingOrThinking) {
+        void this.playMotion('showFullBody', { fadeDuration: 0.6, loop: false }).catch((e) => {
+          console.warn('[vrmEngine] outfit showcase motion notice:', e);
+        });
       }
 
       // 冷启动阶段：等待 EMAGE 动作模型加载就绪，使 LoadingOverlay 的 04 动作管线就绪名副其实

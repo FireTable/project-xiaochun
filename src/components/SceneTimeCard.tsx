@@ -132,7 +132,7 @@ export const SceneTimeCard: React.FC<SceneTimeCardProps> = ({ isPetUIVisible = t
   const { t } = useTranslation();
   const currentScene = useCurrentScene();
   const [engineSupported, setEngineSupported] = useState(() => vrmEngine.isEnvironmentTimeSupported());
-  const isSupported = currentScene.id === 'beach3d' || engineSupported;
+  const isSupported = Boolean(currentScene.supportsTime || currentScene.components?.time || engineSupported);
   const isTransparent = Boolean(currentScene.id === 'transparent' || currentScene.isTransparent);
 
   const [expanded, setExpanded] = useState(false);
@@ -370,14 +370,18 @@ export const SceneTimeCard: React.FC<SceneTimeCardProps> = ({ isPetUIVisible = t
     startTransition(targetMins, preset.id);
   };
 
-  // 桌宠透明模式 或 不支持时间流转的场景（如 void / light / transparent / dark）完全不展示
+  // 不支持时间流转的场景（由 scene.supportsTime / scene.components.time 接口约定）或透明桌宠模式不展示
   if (isTransparent || !isSupported) return null;
+
+  // 常规 3D 场景始终常驻显示 (与 TopHeader 对齐：!isTransparent 始终展示)；
+  // 仅在未来可能支持时间流转的透明桌宠场景下跟随 isPetUIVisible
+  const isVisible = !isTransparent || isPetUIVisible;
 
   return (
     <div
       ref={cardRef}
       className={`fixed top-[72px] right-4 z-20 flex flex-col items-end select-none font-sans transition-opacity duration-300 ${
-        isPetUIVisible ? 'opacity-100 pointer-events-auto' : 'opacity-0 pointer-events-none'
+        isVisible ? 'opacity-100 pointer-events-auto' : 'opacity-0 pointer-events-none'
       }`}
     >
       {/* ── 顶部紧凑星盘微胶囊 (烟熏透光液态玻璃 + 晶莹高光，兼顾通透与高对比度) ── */}

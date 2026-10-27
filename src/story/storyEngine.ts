@@ -425,9 +425,9 @@ export class StoryDirectorEngine {
       const addons = (APP_CONFIG.model.addons || {}) as Record<string, { source: string; name: string }>;
       const addon = addons[outfitKey] || addons[`xiaochun_${outfitKey}`];
       if (addon) {
-        await vrmEngine.swapOutfit(addon.source, addon.name);
+        await vrmEngine.swapOutfit(addon.source, addon.name, { showcase: false });
       } else if (outfitKey === 'base' || outfitKey === 'default') {
-        await vrmEngine.swapOutfit(APP_CONFIG.model.defaultSource, APP_CONFIG.model.defaultName);
+        await vrmEngine.swapOutfit(APP_CONFIG.model.defaultSource, APP_CONFIG.model.defaultName, { showcase: false });
       }
 
       // 换完衣服之后，进行一次 360° 自信全身服装展示动效
