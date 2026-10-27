@@ -258,6 +258,82 @@ html.is-tauri .dialog-overlay {
 .mic-ripple--busy-d2 { animation-delay: 0.35s; }
 .mic-ripple--busy-d3 { animation-delay: 0.525s; }
 
+/* Silero VAD Voice-Locked Halo */
+@keyframes mic-halo-pulse {
+  0%, 100% { transform: scale(1); opacity: 0.75; }
+  50% { transform: scale(1.08); opacity: 0.95; }
+}
+.mic-halo-active {
+  position: absolute;
+  inset: -4px;
+  border-radius: 9999px;
+  background: radial-gradient(circle, rgba(234, 131, 119, 0.35) 0%, rgba(234, 131, 119, 0.05) 70%, transparent 100%);
+  pointer-events: none;
+  animation: mic-halo-pulse 1.2s ease-in-out infinite;
+  box-shadow: 0 0 16px rgba(234, 131, 119, 0.3);
+}
+
+/* Soundwave Equalizer Bars */
+.soundwave-bar {
+  width: 2px;
+  border-radius: 9999px;
+  background-color: #ea8377;
+  transition: height 0.08s ease-out;
+}
+
+/* ── Apple Intelligence Aurora Streamer Glow (Voice Active Aura) ── */
+@keyframes apple-aurora-spin {
+  0% {
+    transform: translate(-50%, -50%) rotate(0deg);
+  }
+  100% {
+    transform: translate(-50%, -50%) rotate(360deg);
+  }
+}
+
+.apple-aurora-conic {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  width: 320%;
+  aspect-ratio: 1 / 1;
+  background: conic-gradient(
+    from 0deg,
+    rgba(234, 131, 119, 0.08) 0deg,
+    #ea8377 40deg,
+    #ff5277 75deg,
+    #ffffff 100deg,
+    #38bdf8 120deg,
+    rgba(56, 189, 248, 0.12) 145deg,
+    rgba(192, 132, 252, 0.08) 180deg,
+    #c084fc 220deg,
+    #ff6b8b 255deg,
+    #ffffff 280deg,
+    #38bdf8 300deg,
+    rgba(234, 131, 119, 0.08) 360deg
+  );
+  transform-origin: center center;
+  will-change: transform;
+}
+
+/* 没说话时流光缓慢流动 (5.5s) */
+.apple-aurora-conic--slow {
+  animation: apple-aurora-spin 5.5s linear infinite;
+  filter: saturate(1.2) brightness(1.1);
+}
+
+/* 说话时流光快速律动 (2.2s) */
+.apple-aurora-conic--active {
+  animation: apple-aurora-spin 2.2s linear infinite;
+  filter: saturate(1.5) brightness(1.3);
+}
+
+/* 识别转译时极速流光 (1.1s) */
+.apple-aurora-conic--busy {
+  animation: apple-aurora-spin 1.1s linear infinite;
+  filter: saturate(1.6) brightness(1.45);
+}
+
 /* ── 新手向导卡片出场/退场动画 ── */
 @keyframes onboarding-card-in {
   0% {

@@ -1,11 +1,14 @@
 /**
- * sttClient.ts — main-thread mic capture + energy VAD + worker bridge for ChatBar.
+ * sttClient.ts — main-thread mic capture + Silero neural VAD + worker bridge for ChatBar.
  *
  * States: idle | loading | listening | recognizing | error
- * Click mic: toggle start/stop. Stop mid-utterance flushes VAD → recognize.
+ * Dual Mode:
+ *  - Click to Toggle continuous dictation
+ *  - Hold to Talk (Push-to-talk)
+ * Stop mid-utterance flushes VAD → recognize.
  */
 import { APP_CONFIG } from '@/config';
-import { EnergyVad } from './energyVad';
+import { SileroVad } from './sileroVad';
 import {
   isFillerOrUnreadable,
   richTranscriptionPostprocess,
@@ -17,6 +20,7 @@ export type SttClientEvent =
   | { type: 'state'; state: SttUiState }
   | { type: 'progress'; phase: 'download' | 'init' | 'ready'; percent: number }
   | { type: 'partial_rms'; rms: number }
+  | { type: 'speech_prob'; prob: number }
   | { type: 'speech_start' }
   | { type: 'text'; text: string }
   | { type: 'error'; message: string };
@@ -68,13 +72,15 @@ export class SttClient {
   private audioCtx: AudioContext | null = null;
   private processor: ScriptProcessorNode | null = null;
   private source: MediaStreamAudioSourceNode | null = null;
-  private vad: EnergyVad | null = null;
+  private vad: SileroVad | null = null;
   private recogId = 0;
   private loadStarted = false;
   /** True while a segment is in-flight; speech_end queues one pending utterance. */
   private recognizingBusy = false;
   private pendingUtterance: Float32Array | null = null;
   private lastProgressPercent = 0;
+  private isModelReady = false;
+  private startSessionId = 0;
 
   on(listener: Listener): () => void {
     this.listeners.add(listener);
@@ -109,18 +115,22 @@ export class SttClient {
         const phase = msg.phase as 'download' | 'init' | 'ready';
         const percent = Number(msg.percent ?? 0);
         this.lastProgressPercent = percent;
-        this.setState('loading');
         this.emit({ type: 'progress', phase, percent });
         if (phase === 'ready') {
-          // stay loading until mic starts, or idle if not listening
-          if (this.state === 'loading' && !this.stream) this.setState('idle');
+          this.isModelReady = true;
+          if (this.stream) this.setState('listening');
+          else if (this.state === 'loading') this.setState('idle');
+        } else if (!this.isModelReady && !this.stream && this.state !== 'listening') {
+          this.setState('loading');
         }
         return;
       }
       if (msg.type === 'ready') {
+        this.isModelReady = true;
         this.lastProgressPercent = 100;
         this.emit({ type: 'progress', phase: 'ready', percent: 100 });
-        if (!this.stream) this.setState('idle');
+        if (this.stream) this.setState('listening');
+        else if (this.state === 'loading') this.setState('idle');
         return;
       }
       if (msg.type === 'result') {
@@ -169,25 +179,38 @@ export class SttClient {
   preload(): void {
     if (this.loadStarted) return;
     this.loadStarted = true;
-    this.setState('loading');
+    if (!this.isModelReady && !this.stream) {
+      this.setState('loading');
+    }
     this.ensureWorker().postMessage({ type: 'load' });
+    if (!this.vad) {
+      this.vad = new SileroVad({
+        sampleRate: APP_CONFIG.stt.sampleRate,
+        silenceMs: APP_CONFIG.stt.vadSilenceMs ?? 450,
+        maxMs: APP_CONFIG.stt.vadMaxMs ?? 20000,
+        startThreshold: 0.50,
+        silenceThreshold: 0.35,
+        prerollMs: APP_CONFIG.stt.vadPrerollMs ?? 300,
+        modelPath: (APP_CONFIG.stt as { sileroModelPath?: string }).sileroModelPath ?? '/models/silero_vad_v5.onnx',
+      });
+    }
+    void this.vad.init().catch(() => {});
   }
 
   /** Toggle listening. */
   async toggle(): Promise<void> {
-    if (this.state === 'listening') {
+    if (this.stream || this.state === 'listening' || this.state === 'recognizing') {
       await this.stop(true);
       return;
-    }
-    if (this.state === 'recognizing' || this.state === 'loading') {
-      // Allow cancel while loading? keep simple: ignore during recognizing
-      if (this.state === 'recognizing') return;
     }
     await this.start();
   }
 
   async start(): Promise<void> {
+    const sessionId = ++this.startSessionId;
     try {
+      // Immediate visual feedback: activate edge glow without hardware wait
+      this.setState('listening');
       this.preload();
       if (typeof window !== 'undefined' && !window.isSecureContext) {
         throw Object.assign(new Error('mic_insecure'), { name: 'SecurityError' });
@@ -204,6 +227,12 @@ export class SttClient {
         },
         video: false,
       });
+
+      // User stopped/cancelled while awaiting getUserMedia
+      if (sessionId !== this.startSessionId || (this.state !== 'listening' && this.state !== 'recognizing')) {
+        for (const t of stream.getTracks()) t.stop();
+        return;
+      }
       this.stream = stream;
 
       const ctx = new AudioContext();
@@ -211,15 +240,18 @@ export class SttClient {
       if (ctx.state === 'suspended') await ctx.resume();
 
       const sr = APP_CONFIG.stt.sampleRate;
-      this.vad = new EnergyVad({
-        sampleRate: sr,
-        silenceMs: APP_CONFIG.stt.vadSilenceMs,
-        maxMs: APP_CONFIG.stt.vadMaxMs,
-        startThreshold: APP_CONFIG.stt.vadStartThreshold,
-        silenceThreshold: APP_CONFIG.stt.vadSilenceThreshold,
-        startMs: APP_CONFIG.stt.vadStartMs,
-        prerollMs: APP_CONFIG.stt.vadPrerollMs,
-      });
+      if (!this.vad) {
+        this.vad = new SileroVad({
+          sampleRate: sr,
+          silenceMs: APP_CONFIG.stt.vadSilenceMs ?? 450,
+          maxMs: APP_CONFIG.stt.vadMaxMs ?? 20000,
+          startThreshold: 0.50,
+          silenceThreshold: 0.35,
+          prerollMs: APP_CONFIG.stt.vadPrerollMs ?? 300,
+          modelPath: (APP_CONFIG.stt as { sileroModelPath?: string }).sileroModelPath ?? '/models/silero_vad_v5.onnx',
+        });
+      }
+      void this.vad.init().catch(() => {});
 
       const source = ctx.createMediaStreamSource(stream);
       this.source = source;
@@ -231,14 +263,15 @@ export class SttClient {
         const copy = new Float32Array(input.length);
         copy.set(input);
         const pcm = resampleTo(sr, copy, ctx.sampleRate);
-        this.vad?.push(pcm, (ev) => {
+        void this.vad?.processChunk(pcm, (ev) => {
           if (ev.type === 'frame') {
             this.emit({ type: 'partial_rms', rms: ev.rms });
+            this.emit({ type: 'speech_prob', prob: ev.prob });
           } else if (ev.type === 'speech_start') {
             this.emit({ type: 'speech_start' });
           } else if (ev.type === 'speech_end') {
             if (this.shouldSkipUtterance(ev.pcm, ev.durationMs)) {
-              return; // stay listening; no decode / no insert
+              return;
             }
             if (this.recognizingBusy) {
               this.pendingUtterance = ev.pcm.slice();
@@ -254,7 +287,9 @@ export class SttClient {
       source.connect(processor);
       processor.connect(mute);
       mute.connect(ctx.destination);
-      this.setState('listening');
+      if (this.state === 'listening') {
+        this.emit({ type: 'state', state: 'listening' });
+      }
     } catch (e) {
       this.teardownAudio();
       const message = classifyMediaError(e);
@@ -265,33 +300,32 @@ export class SttClient {
 
   /** Stop mic; if flushUtterance, send leftover speech to recognizer. */
   async stop(flushUtterance = true): Promise<void> {
+    this.startSessionId++;
     const leftover = flushUtterance ? this.vad?.flush() ?? null : null;
     this.teardownAudio();
     if (leftover) {
       const ms = (leftover.length / APP_CONFIG.stt.sampleRate) * 1000;
-      if (!this.shouldSkipUtterance(leftover, ms)) this.submitUtterance(leftover);
-      else if (this.state === 'listening' || this.state === 'recognizing') this.setState('idle');
-    } else if (this.state === 'listening') {
-      this.setState('idle');
+      if (!this.shouldSkipUtterance(leftover, ms)) {
+        this.submitUtterance(leftover);
+        return;
+      }
     }
+    this.setState('idle');
   }
 
-  /** otoji-style: min duration + short/quiet → skip decode. */
+  /** min duration check (200ms). */
   private shouldSkipUtterance(pcm: Float32Array, durationMs: number): boolean {
     const stt = APP_CONFIG.stt;
     if (pcm.length === 0) return true;
-    // Only skip ultra-short; do not drop quiet short speech.
-    if (durationMs < stt.minUtteranceMs) return true;
+    if (durationMs < (stt.minUtteranceMs ?? 200)) return true;
     return false;
   }
 
   private submitUtterance(pcm: Float32Array): void {
-    // Keep mic/VAD running so dictation continues after this segment.
     this.recognizingBusy = true;
     this.setState('recognizing');
     const id = ++this.recogId;
     const w = this.ensureWorker();
-    // Copy before transfer — VAD buffer may still be referenced.
     const copy = pcm.slice();
     w.postMessage({ type: 'recognize', id, pcm: copy, sampleRate: APP_CONFIG.stt.sampleRate }, [
       copy.buffer,
@@ -308,19 +342,30 @@ export class SttClient {
     this.processor = null;
     this.source = null;
     if (this.audioCtx) {
-      void this.audioCtx.close();
+      try {
+        void this.audioCtx.close();
+      } catch {
+        /* ignore */
+      }
       this.audioCtx = null;
     }
     if (this.stream) {
-      for (const t of this.stream.getTracks()) t.stop();
+      for (const t of this.stream.getTracks()) {
+        try {
+          t.stop();
+        } catch {
+          /* ignore */
+        }
+      }
       this.stream = null;
     }
     this.vad?.reset();
-    this.vad = null;
   }
 
   dispose(): void {
     void this.stop(false);
+    this.vad?.dispose();
+    this.vad = null;
     this.worker?.terminate();
     this.worker = null;
     this.listeners.clear();
@@ -338,17 +383,38 @@ export function insertAtCursor(
   const end = el.selectionEnd ?? el.value.length;
   const before = el.value.slice(0, start);
   const after = el.value.slice(end);
-  // SenseVoice often returns no trailing space; add a space if inserting mid-sentence.
-  const needsLead =
-    before.length > 0 && !/\s$/.test(before) && !/^[\s,.;:!?，。！？、]/.test(text);
+  const isLatinOrDigit = /[a-zA-Z0-9]$/;
+  const startsWithLatinOrDigit = /^[a-zA-Z0-9]/;
+  const needsLead = isLatinOrDigit.test(before) && startsWithLatinOrDigit.test(text);
   const piece = (needsLead ? ' ' : '') + text;
-  el.value = before + piece + after;
+  const newVal = before + piece + after;
+
+  let applied = false;
+  if (typeof window !== 'undefined') {
+    const proto =
+      typeof HTMLTextAreaElement !== 'undefined' && el instanceof HTMLTextAreaElement
+        ? window.HTMLTextAreaElement?.prototype
+        : window.HTMLInputElement?.prototype;
+    const setter = proto ? Object.getOwnPropertyDescriptor(proto, 'value')?.set : null;
+    if (setter) {
+      setter.call(el, newVal);
+      applied = true;
+    }
+  }
+  if (!applied) {
+    el.value = newVal;
+  }
+
   const pos = before.length + piece.length;
-  // Do not focus — continuous dictation must not steal focus from the user.
   try {
     el.setSelectionRange(pos, pos);
   } catch {
     /* unfocused textarea may throw in some WebKits; value still updated */
   }
-  el.dispatchEvent(new Event('input', { bubbles: true }));
+  try {
+    el.dispatchEvent(new Event('input', { bubbles: true }));
+    el.dispatchEvent(new Event('change', { bubbles: true }));
+  } catch {
+    /* ignore in non-DOM environments */
+  }
 }

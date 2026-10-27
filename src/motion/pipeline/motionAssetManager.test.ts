@@ -108,7 +108,7 @@ describe('MotionAssetManager & MOTION_GROUPS Architecture', () => {
       };
 
       const group = MOTION_GROUPS.outfitShowcase;
-      expect(group.find((item) => item.id === 'joyfulJump')).toBeUndefined();
+      expect(group.find((item) => (item.id as string) === 'joyfulJump')).toBeUndefined();
 
       const SAMPLES = 20000;
       for (let i = 0; i < SAMPLES; i++) {

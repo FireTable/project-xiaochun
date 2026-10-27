@@ -95,6 +95,11 @@ export const ChatBar: React.FC<{
   const sttRef = useRef<SttClient | null>(null);
   const [sttState, setSttState] = useState<SttUiState>('idle');
   const [sttPercent, setSttPercent] = useState(0);
+  const [sttProb, setSttProb] = useState(0);
+  const [sttRms, setSttRms] = useState(0);
+  const holdTimerRef = useRef<number | null>(null);
+  const isHoldModeRef = useRef(false);
+  const wasHoldTriggeredRef = useRef(false);
   /** mic_denied | mic_insecure | mic_unsupported | mic_not_found | other */
   const [sttErrorKind, setSttErrorKind] = useState<string | null>(null);
   const [inputRows, setInputRows] = useState(1);
@@ -136,7 +141,16 @@ export const ChatBar: React.FC<{
           vrmEngine.setListening(false);
         }
         if (ev.state !== 'error') setSttErrorKind(null);
+        if (ev.state === 'idle' || ev.state === 'error') {
+          setSttProb(0);
+          setSttRms(0);
+        }
+      } else if (ev.type === 'speech_prob') {
+        setSttProb(ev.prob);
+      } else if (ev.type === 'partial_rms') {
+        setSttRms(ev.rms);
       } else if (ev.type === 'speech_start') {
+        setSttProb(0.9);
         vrmEngine.stopSpeaking();
         vrmEngine.setListening(true);
       } else if (ev.type === 'progress') setSttPercent(ev.percent);
@@ -550,7 +564,46 @@ export const ChatBar: React.FC<{
     }
   };
 
+  const handleMicPointerDown = (_e: React.PointerEvent<HTMLButtonElement>) => {
+    isHoldModeRef.current = false;
+    wasHoldTriggeredRef.current = false;
+    // If held for >= 320ms, enter Hold-to-Talk (Push-to-Talk)
+    holdTimerRef.current = window.setTimeout(() => {
+      isHoldModeRef.current = true;
+      wasHoldTriggeredRef.current = true;
+      if (sttState === 'idle') {
+        void sttRef.current?.start();
+      }
+    }, 320);
+  };
+
+  const handleMicPointerUp = () => {
+    if (holdTimerRef.current) {
+      clearTimeout(holdTimerRef.current);
+      holdTimerRef.current = null;
+    }
+    if (isHoldModeRef.current) {
+      isHoldModeRef.current = false;
+      void sttRef.current?.stop(true);
+    }
+  };
+
+  const handleMicPointerCancel = () => {
+    if (holdTimerRef.current) {
+      clearTimeout(holdTimerRef.current);
+      holdTimerRef.current = null;
+    }
+    if (isHoldModeRef.current) {
+      isHoldModeRef.current = false;
+      void sttRef.current?.stop(true);
+    }
+  };
+
   const handleSttToggle = () => {
+    if (wasHoldTriggeredRef.current) {
+      wasHoldTriggeredRef.current = false;
+      return;
+    }
     void sttRef.current?.toggle();
   };
 
@@ -853,6 +906,14 @@ export const ChatBar: React.FC<{
               ? t('chat.sttError')
               : null;
 
+          const isAuroraActive =
+            sttState === 'listening' || sttState === 'recognizing' || sttState === 'loading';
+          const isSpeechActive = sttState === 'listening' && sttProb >= 0.45;
+          const haloScale = isSpeechActive ? 1 + Math.min(0.28, sttRms * 3.5) : 1;
+          const dynamicAuraScale = isSpeechActive ? 1 + Math.min(0.02, sttRms * 0.3) : 1;
+          const dynamicBlurPx = isSpeechActive ? 14 + Math.min(14, sttRms * 60) : 12;
+          const dynamicAuraOpacity = isSpeechActive ? Math.min(1, 0.85 + sttRms * 1.5) : 0.75;
+
           const micEl = (
             <button
               type="button"
@@ -861,7 +922,9 @@ export const ChatBar: React.FC<{
                 sttState === 'loading'
                   ? t('chat.sttLoading')
                   : sttState === 'listening'
-                  ? t('chat.sttListening')
+                  ? isSpeechActive
+                    ? t('chat.sttSpeechLocked')
+                    : t('chat.sttListening')
                   : sttState === 'recognizing'
                   ? t('chat.sttRecognizing')
                   : sttErrorLabel
@@ -869,7 +932,9 @@ export const ChatBar: React.FC<{
                   : t('chat.sttIdle')
               }
               title={
-                sttState === 'loading'
+                isSpeechActive
+                  ? t('chat.sttSpeechLocked')
+                  : sttState === 'loading'
                   ? t('chat.sttDownload', { percent: sttPercent })
                   : sttState === 'listening'
                   ? t('chat.sttListening')
@@ -880,10 +945,14 @@ export const ChatBar: React.FC<{
                   : t('chat.sttIdle')
               }
               onClick={handleSttToggle}
-              disabled={sttState === 'recognizing'}
-              className={`relative shrink-0 h-9 w-9 rounded-full flex items-center justify-center touch-manipulation active:scale-95 appearance-none outline-none border-none transition-colors overflow-visible ${
+              onPointerDown={handleMicPointerDown}
+              onPointerUp={handleMicPointerUp}
+              onPointerCancel={handleMicPointerCancel}
+              className={`relative shrink-0 h-9 w-9 rounded-full flex items-center justify-center touch-manipulation active:scale-95 appearance-none outline-none border-none transition-all duration-150 overflow-visible select-none ${
                 sttState === 'listening' || sttState === 'recognizing'
-                  ? 'bg-transparent text-[#ea8377]'
+                  ? isSpeechActive
+                    ? 'bg-[#ea8377]/20 text-[#ea8377] shadow-[0_0_16px_rgba(234,131,119,0.35)]'
+                    : 'bg-transparent text-[#ea8377]'
                   : sttState === 'error'
                   ? 'bg-red-500/20 text-red-300'
                   : sttState === 'loading'
@@ -891,7 +960,14 @@ export const ChatBar: React.FC<{
                   : 'bg-transparent text-white/50 hover:text-[#f5aa9c] hover:bg-white/10'
               }`}
             >
-              {sttState === 'listening' && (
+              {isSpeechActive && (
+                <span
+                  className="mic-halo-active"
+                  style={{ transform: `scale(${haloScale})` }}
+                  aria-hidden
+                />
+              )}
+              {sttState === 'listening' && !isSpeechActive && (
                 <>
                   <span className="mic-ripple" aria-hidden />
                   <span className="mic-ripple mic-ripple--d1" aria-hidden />
@@ -925,7 +1001,7 @@ export const ChatBar: React.FC<{
               {sttState === 'loading' ? (
                 <Loader2 className="w-4 h-4 animate-spin relative z-10" />
               ) : (
-                <Mic className="w-4 h-4 relative z-10" />
+                <Mic className={`w-4 h-4 relative z-10 transition-transform ${isSpeechActive ? 'scale-110 text-[#ea8377]' : ''}`} />
               )}
             </button>
           );
@@ -1090,35 +1166,84 @@ export const ChatBar: React.FC<{
 
           // Dual mode: single = one row centered; multi = text top + bottom bar. Hard cut (no FLIP/transition).
           return (
-            <div
-              className={`w-full grid min-h-12 rounded-[1.75rem] bg-[#13111c]/85 border backdrop-blur-2xl ${shellPad} relative overflow-visible ${
-                composerExpanded
-                  ? 'grid-cols-[auto_1fr_auto] grid-rows-[minmax(0,1fr)_auto] gap-y-1'
-                  : 'grid-cols-[auto_minmax(0,1fr)_auto] grid-rows-1 items-center gap-x-2'
-              } ${
-                isQueued
-                  ? 'border-[#ea8377] ring-2 ring-[#ea8377]/40 shadow-[0_0_24px_rgba(234,131,119,0.35)]'
-                  : 'border-white/15 focus-within:border-[#ea8377] focus-within:ring-2 focus-within:ring-[#ea8377]/30 focus-within:shadow-[0_0_24px_rgba(234,131,119,0.3)]'
-              }`}
-            >
+            <div className="relative w-full overflow-visible">
+              {/* Apple Intelligence Aurora Streamer Edge Glow */}
+              {isAuroraActive && (
+                <div
+                  className="apple-aurora-glow-container pointer-events-none absolute -inset-[2.5px] rounded-[1.95rem] z-0 transition-all duration-300"
+                  style={{
+                    transform: `scale(${dynamicAuraScale})`,
+                  }}
+                  aria-hidden
+                >
+                  {/* 1. Diffuse Ambient Bloom Layer (Outer unclipped blur) */}
+                  <div
+                    className="absolute -inset-1 rounded-[2.1rem] pointer-events-none transition-all duration-150"
+                    style={{
+                      filter: `blur(${dynamicBlurPx}px)`,
+                      opacity: dynamicAuraOpacity,
+                    }}
+                  >
+                    <div className="absolute inset-0 rounded-[2.1rem] overflow-hidden">
+                      <div
+                        className={`apple-aurora-conic ${
+                          sttState === 'recognizing'
+                            ? 'apple-aurora-conic--busy'
+                            : isSpeechActive
+                            ? 'apple-aurora-conic--active'
+                            : 'apple-aurora-conic--slow'
+                        }`}
+                      />
+                    </div>
+                  </div>
+
+                  {/* 2. Razor-Sharp Chromatic Perimeter Stroke Layer */}
+                  <div className="absolute inset-0 rounded-[1.95rem] overflow-hidden pointer-events-none opacity-95 shadow-[0_0_14px_rgba(234,131,119,0.35)]">
+                    <div
+                      className={`apple-aurora-conic ${
+                        sttState === 'recognizing'
+                          ? 'apple-aurora-conic--busy'
+                          : isSpeechActive
+                          ? 'apple-aurora-conic--active'
+                          : 'apple-aurora-conic--slow'
+                      }`}
+                    />
+                  </div>
+                </div>
+              )}
+
               <div
-                className={
+                className={`w-full grid min-h-12 rounded-[1.75rem] bg-[#13111c]/90 border backdrop-blur-2xl ${shellPad} relative z-10 overflow-visible ${
                   composerExpanded
-                    ? 'row-start-2 col-start-1 self-center'
-                    : 'row-start-1 col-start-1 self-center'
-                }
+                    ? 'grid-cols-[auto_1fr_auto] grid-rows-[minmax(0,1fr)_auto] gap-y-1'
+                    : 'grid-cols-[auto_minmax(0,1fr)_auto] grid-rows-1 items-center gap-x-2'
+                } ${
+                  isAuroraActive
+                    ? 'border-transparent shadow-[0_0_24px_rgba(234,131,119,0.25)]'
+                    : isQueued
+                    ? 'border-[#ea8377] ring-2 ring-[#ea8377]/40 shadow-[0_0_24px_rgba(234,131,119,0.35)]'
+                    : 'border-white/15 focus-within:border-[#ea8377] focus-within:ring-2 focus-within:ring-[#ea8377]/30 focus-within:shadow-[0_0_24px_rgba(234,131,119,0.3)]'
+                }`}
               >
-                {leftEl}
-              </div>
-              {textareaEl}
-              <div
-                className={
-                  composerExpanded
-                    ? 'row-start-2 col-start-3 self-center justify-self-end'
-                    : 'row-start-1 col-start-3 self-center'
-                }
-              >
-                {actionsEl}
+                <div
+                  className={
+                    composerExpanded
+                      ? 'row-start-2 col-start-1 self-center'
+                      : 'row-start-1 col-start-1 self-center'
+                  }
+                >
+                  {leftEl}
+                </div>
+                {textareaEl}
+                <div
+                  className={
+                    composerExpanded
+                      ? 'row-start-2 col-start-3 self-center justify-self-end'
+                      : 'row-start-1 col-start-3 self-center'
+                  }
+                >
+                  {actionsEl}
+                </div>
               </div>
             </div>
           );
