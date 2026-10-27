@@ -50,7 +50,7 @@ function executeSingleFlight(
   voice: string,
   pitch: string,
   flightSignal: AbortSignal,
-  endpoint: 'v2' | 'legacy' = 'v2',
+  endpoint: 'bing' | 'msedgeservices' = 'bing',
 ): Promise<SingleFlightResult> {
   return new Promise<SingleFlightResult>(async (resolve, reject) => {
     let socket: WebSocket | null = null;
@@ -92,10 +92,11 @@ function executeSingleFlight(
     try {
       const secMsGec = await makeSecMsGec();
       const connId = makeConnectionId();
-      // v2: api.msedgeservices.com + Ocp-Apim-Subscription-Key（同一 token）；legacy: 旧 bing host
-      const url = new URL(endpoint === 'v2' ? EDGE_TTS_CONSTANTS.SYNTHESIS_URL_V2 : EDGE_TTS_CONSTANTS.SYNTHESIS_URL);
+      // 主端点：speech.platform.bing.com + TrustedClientToken（Sec-MS-GEC v2 标准端点）
+      // 备用端点：api.msedgeservices.com + Ocp-Apim-Subscription-Key
+      const url = new URL(endpoint === 'bing' ? EDGE_TTS_CONSTANTS.SYNTHESIS_URL : EDGE_TTS_CONSTANTS.SYNTHESIS_URL_V2);
       url.searchParams.set(
-        endpoint === 'v2' ? 'Ocp-Apim-Subscription-Key' : 'TrustedClientToken',
+        endpoint === 'bing' ? 'TrustedClientToken' : 'Ocp-Apim-Subscription-Key',
         EDGE_TTS_CONSTANTS.TRUSTED_CLIENT_TOKEN,
       );
       url.searchParams.set('Sec-MS-GEC', secMsGec);
@@ -297,8 +298,8 @@ function unwrapAggregateError(err: unknown): Error {
 }
 
 /**
- * 单发一轮：先走新 host（v2）；若握手 403 则同轮回退旧 host 一次。
- * 不再并发双发——新 host 对突发更敏感（429），双发只会放大限流。
+ * 单发一轮：优先走官方主 host（bing，支持 Sec-MS-GEC v2）；若握手失败则同轮回退 msedgeservices 一次。
+ * 不再并发双发——避免放大限流。
  */
 async function singleFlightRound(
   text: string,
@@ -307,16 +308,16 @@ async function singleFlightRound(
   roundSignal: AbortSignal,
 ): Promise<SingleFlightResult> {
   try {
-    return await executeSingleFlight(text, voice, pitch, roundSignal, 'v2');
+    return await executeSingleFlight(text, voice, pitch, roundSignal, 'bing');
   } catch (err) {
     const e = unwrapAggregateError(err);
-    if (/HTTP 403/.test(e.message) && !roundSignal.aborted) {
-      console.warn('[TTS] v2 host 403, falling back to legacy host');
+    if ((/HTTP (403|200)/.test(e.message) || /Handshake failed/.test(e.message)) && !roundSignal.aborted) {
+      console.warn('[TTS] Primary bing host handshake failed, falling back to msedgeservices host:', e.message);
       try {
-        return await executeSingleFlight(text, voice, pitch, roundSignal, 'legacy');
-      } catch (legacyErr) {
-        const le = unwrapAggregateError(legacyErr);
-        throw new Error(`v2: ${e.message}; legacy: ${le.message}`, { cause: legacyErr });
+        return await executeSingleFlight(text, voice, pitch, roundSignal, 'msedgeservices');
+      } catch (fallbackErr) {
+        const fe = unwrapAggregateError(fallbackErr);
+        throw new Error(`bing: ${e.message}; msedgeservices: ${fe.message}`, { cause: fallbackErr });
       }
     }
     throw e;

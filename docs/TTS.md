@@ -26,10 +26,10 @@ Successful audio is cached in the Worker cache keyed by `SHA-256(voice|pitch|tex
 
 | Item | Value |
 | :-- | :-- |
-| Primary endpoint | `wss://api.msedgeservices.com/tts/cognitiveservices/websocket/v1?Ocp-Apim-Subscription-Key=<TRUSTED_CLIENT_TOKEN>` |
-| Fallback (on handshake 403) | legacy `wss://speech.platform.bing.com/consumer/speech/synthesize/readaloud/edge/v1?TrustedClientToken=<…>` |
-| Token | `Sec-MS-GEC` v1 = SHA-256(5-min-rounded Windows ticks + token), `Sec-MS-GEC-Version=1-143.0.3650.75` |
-| Per round | **one** request (no parallel hedging — the new host returns 429 on bursts) |
+| Primary endpoint | `wss://speech.platform.bing.com/consumer/speech/synthesize/readaloud/edge/v1?TrustedClientToken=<TRUSTED_CLIENT_TOKEN>` |
+| Fallback endpoint | `wss://api.msedgeservices.com/tts/cognitiveservices/websocket/v1?Ocp-Apim-Subscription-Key=<TRUSTED_CLIENT_TOKEN>` |
+| Token | `Sec-MS-GEC` v2 = CS64 + SHA-256 (`<16 hex>-<64 hex>`), `Sec-MS-GEC-Version=2-143.0.3650.75` |
+| Per round | **one** request (no parallel hedging) |
 | Rounds | up to 3; 429 → wait 3 s; other errors → 200–400 ms backoff |
 | Budget | ~7 s total (a retry is skipped if wait + 3.5 s would exceed it), so the client's 8 s `withTimeout` still receives the 502 |
 | First-chunk timeout | 3.5 s per flight |
