@@ -1,8 +1,9 @@
+import * as THREE from 'three';
 import { describe, expect, it } from 'vitest';
 import {
   computeAdaptiveFadeDuration,
 } from './adaptiveFade';
-import { PoseBuffer } from './poseBuffer';
+import { PoseBuffer, copyTransitionSnapshot, BONE_INDEX_MAP } from './poseBuffer';
 
 describe('AdaptiveFade', () => {
   it('maps diffScore 0.0, 0.5, 1.0 to 0.75s, 0.875s, 1.00s with 0.75s as absolute floor', () => {
@@ -56,5 +57,44 @@ describe('AdaptiveFade', () => {
     const dur = computeAdaptiveFadeDuration(diff);
     expect(dur).toBeGreaterThanOrEqual(0.75);
     expect(dur).toBeLessThanOrEqual(0.85);
+  });
+
+  it('copyTransitionSnapshot correctly decouples Gaze lookAt offsets from finalPose', () => {
+    const finalPose = new PoseBuffer();
+    const snapPose = new PoseBuffer();
+
+    const neckIdx = BONE_INDEX_MAP.get('neck')!;
+    const headIdx = BONE_INDEX_MAP.get('head')!;
+
+    // Simulate an anatomical neck/head pose
+    const anatomicalNeck = new THREE.Quaternion().setFromEuler(new THREE.Euler(0.1, 0, 0));
+    const anatomicalHead = new THREE.Quaternion().setFromEuler(new THREE.Euler(0.05, 0, 0));
+
+    // Simulate active gaze lookAt offset
+    const gazeNeck = new THREE.Quaternion().setFromEuler(new THREE.Euler(0, 0.2, 0));
+    const gazeHead = new THREE.Quaternion().setFromEuler(new THREE.Euler(0, 0.3, 0));
+
+    // In render loop, finalPose contains anatomical * gaze
+    finalPose.quaternions[neckIdx]!.copy(anatomicalNeck).multiply(gazeNeck);
+    finalPose.quaternions[headIdx]!.copy(anatomicalHead).multiply(gazeHead);
+
+    // Snapshot with gaze removal
+    copyTransitionSnapshot(
+      snapPose,
+      finalPose,
+      { neck: gazeNeck, head: gazeHead },
+      true,
+    );
+
+    // Decoupled snapshot must match anatomical pose (error < 1e-4)
+    expect(snapPose.quaternions[neckIdx]!.x).toBeCloseTo(anatomicalNeck.x, 4);
+    expect(snapPose.quaternions[neckIdx]!.y).toBeCloseTo(anatomicalNeck.y, 4);
+    expect(snapPose.quaternions[neckIdx]!.z).toBeCloseTo(anatomicalNeck.z, 4);
+    expect(snapPose.quaternions[neckIdx]!.w).toBeCloseTo(anatomicalNeck.w, 4);
+
+    expect(snapPose.quaternions[headIdx]!.x).toBeCloseTo(anatomicalHead.x, 4);
+    expect(snapPose.quaternions[headIdx]!.y).toBeCloseTo(anatomicalHead.y, 4);
+    expect(snapPose.quaternions[headIdx]!.z).toBeCloseTo(anatomicalHead.z, 4);
+    expect(snapPose.quaternions[headIdx]!.w).toBeCloseTo(anatomicalHead.w, 4);
   });
 });

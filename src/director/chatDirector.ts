@@ -1450,7 +1450,6 @@ export class ChatDirector {
     if (this.stopped && !this.ctx && !this.currentSource) return;
     this.stopped = true;
     this.pipeline?.resetChatMotion();
-    this.pipeline?.stopMotion(0.75);
     this.setTurnState('idle');
     this.audioDoneTime = 0;
     this.onResumeRendering?.();

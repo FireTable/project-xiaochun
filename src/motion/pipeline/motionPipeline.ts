@@ -174,7 +174,7 @@ export class MotionPipeline {
    */
   stopMotion(
     fadeDuration = SOURCE_FADE_DURATION,
-    lookAtOffsets?: { neck?: THREE.Quaternion; head?: THREE.Quaternion },
+    lookAtOffsets = this.gaze.getLookAtOffsets(),
   ): void {
     if (this.activeSource !== 'idle') {
       this.setMotionSource('idle', fadeDuration, lookAtOffsets);
@@ -286,12 +286,13 @@ export class MotionPipeline {
   setMotionSource(
     source: PipelineMotionSource,
     duration = SOURCE_FADE_DURATION,
-    lookAtOffsets?: { neck?: THREE.Quaternion; head?: THREE.Quaternion },
+    lookAtOffsets = this.gaze.getLookAtOffsets(),
     mask: MotionBoneMask = 'all',
   ): void {
     if (source === this.activeSource && mask === this.activeMask && !this.isCrossfading) return;
 
-    copyTransitionSnapshot(this.transitionFromPose, this.finalPose, lookAtOffsets, true);
+    const gazeOffsets = lookAtOffsets ?? this.gaze.getLookAtOffsets();
+    copyTransitionSnapshot(this.transitionFromPose, this.finalPose, gazeOffsets, true);
 
     // 切源时把脚锚改成上一动作的脚位（idle/think 等），EMAGE 往这对齐而不是 bind 站姿
     this.footIK.recapturePlantFromCurrent();
