@@ -248,6 +248,14 @@ export function retargetClip(
     }
   }
 
+  // 4.5) 躯干曲率生理顺滑分配 (Harmonize Torso Curvature) ——
+  // 消除 AI/动捕动作在腰椎(Spine)与胸椎(Chest)短短 10cm 内出现的反向对折折腰(如 Spine -17° / Chest +31°)，
+  // 保持上半身全局目标倾角不变，但将其顺滑分配给腰和胸，彻底杜绝 LBS 糖果纸拧麻花坍缩与紧身礼服撕裂！
+  const harmonizedFrames = harmonizeTorsoCurvature(clip, nodeToHname);
+  if (harmonizedFrames > 0) {
+    console.log(`[Retarget] harmonized torso curvature on ${harmonizedFrames} frame(s)`);
+  }
+
   // 5) 轨迹 low-pass 四元数平滑滤波 (消除高频抖动，大幅提升动作丝滑度)
   for (const track of clip.tracks) {
     if (track.name.endsWith('.quaternion')) {
@@ -284,6 +292,109 @@ function smoothQuaternionTrack(values: Float32Array) {
       values[idx + 3] = qCur.w;
     }
   }
+}
+
+function isTorsoTrack(trackName: string, bone: 'spine' | 'chest', nodeToHname?: Map<string, string>): boolean {
+  if (!trackName.endsWith('.quaternion')) return false;
+  const dot = trackName.lastIndexOf('.');
+  const nodeName = dot < 0 ? trackName : trackName.slice(0, dot);
+  if (nodeToHname) {
+    const h = nodeToHname.get(nodeName);
+    if (h) return h === bone;
+  }
+  const lower = nodeName.toLowerCase();
+  if (bone === 'spine') return lower.includes('spine') && !lower.includes('chest');
+  if (bone === 'chest') return lower.includes('chest') && !lower.includes('upper');
+  return false;
+}
+
+/**
+ * 躯干曲率生理顺滑分配 (Harmonize Torso Curvature) ——
+ * 针对 AI/动捕动作在腰椎 (Spine) 与胸椎 (Chest) 短短 10cm 内出现的反向对折折腰 (如 Spine Roll -17° / Chest Roll +31°)，
+ * 在保持角色上半身在世界空间整体目标倾角不变的前提下，按照真实人体脊柱生理学曲线自然平滑分配（下腰椎分担 38%，胸椎分担 62%），
+ * 彻底消除 LBS 线性蒙皮糖果纸拧麻花坍缩与一体式紧身礼服大面积斜向撕裂褶皱。
+ * 实施 C1 连续性的平滑过渡门限（Smoothstep Soft-Thresholding），杜绝边界跳帧。
+ */
+export function harmonizeTorsoCurvature(clip: THREE.AnimationClip, nodeToHname?: Map<string, string>): number {
+  const spineTrack = clip.tracks.find((t) => isTorsoTrack(t.name, 'spine', nodeToHname));
+  const chestTrack = clip.tracks.find((t) => isTorsoTrack(t.name, 'chest', nodeToHname));
+  if (!spineTrack || !chestTrack) return 0;
+
+  const spineValues = spineTrack.values as unknown as Float32Array;
+  const chestValues = chestTrack.values as unknown as Float32Array;
+  const count = Math.min(spineValues.length, chestValues.length) / 4;
+  if (count <= 0) return 0;
+
+  const qSpine = new THREE.Quaternion();
+  const qChest = new THREE.Quaternion();
+  const qChestWorld = new THREE.Quaternion();
+  const eSpine = new THREE.Euler(0, 0, 0, 'YXZ');
+  const eChest = new THREE.Euler(0, 0, 0, 'YXZ');
+  const eWorld = new THREE.Euler(0, 0, 0, 'YXZ');
+
+  const ROLL_MIN = 0.30; // ~17.2° 启动软门限
+  const ROLL_MAX = 0.55; // ~31.5° 完全饱和门限
+  const YAW_MIN = 0.35;  // ~20.0° 启动软门限
+  const YAW_MAX = 0.60;  // ~34.4° 完全饱和门限
+
+  let modifiedCount = 0;
+
+  for (let i = 0; i < count; i++) {
+    const idx = i * 4;
+    qSpine.fromArray(spineValues, idx);
+    qChest.fromArray(chestValues, idx);
+
+    eSpine.setFromQuaternion(qSpine, 'YXZ');
+    eChest.setFromQuaternion(qChest, 'YXZ');
+
+    const rollDiff = Math.abs(eChest.z - eSpine.z);
+    const oppositeRoll = (eSpine.z * eChest.z < -0.005) && (rollDiff > ROLL_MIN);
+
+    const yawDiff = Math.abs(eChest.y - eSpine.y);
+    const oppositeYaw = (eSpine.y * eChest.y < -0.01) && (yawDiff > YAW_MIN);
+
+    if (oppositeRoll || oppositeYaw) {
+      modifiedCount++;
+      qChestWorld.multiplyQuaternions(qSpine, qChest);
+      eWorld.setFromQuaternion(qChestWorld, 'YXZ');
+
+      let newSpineRoll = eSpine.z;
+      let newChestRoll = eChest.z;
+      if (oppositeRoll) {
+        const t = Math.max(0, Math.min(1, (rollDiff - ROLL_MIN) / (ROLL_MAX - ROLL_MIN)));
+        const s = t * t * (3 - 2 * t);
+        newSpineRoll = eSpine.z + (eWorld.z * 0.38 - eSpine.z) * s;
+        newChestRoll = eChest.z + (eWorld.z * 0.62 - eChest.z) * s;
+      }
+
+      let newSpineYaw = eSpine.y;
+      let newChestYaw = eChest.y;
+      if (oppositeYaw) {
+        const t = Math.max(0, Math.min(1, (yawDiff - YAW_MIN) / (YAW_MAX - YAW_MIN)));
+        const s = t * t * (3 - 2 * t);
+        newSpineYaw = eSpine.y + (eWorld.y * 0.40 - eSpine.y) * s;
+        newChestYaw = eChest.y + (eWorld.y * 0.60 - eChest.y) * s;
+      }
+
+      eSpine.set(eSpine.x, newSpineYaw, newSpineRoll, 'YXZ');
+      eChest.set(eChest.x, newChestYaw, newChestRoll, 'YXZ');
+
+      qSpine.setFromEuler(eSpine);
+      qChest.setFromEuler(eChest);
+
+      spineValues[idx] = qSpine.x;
+      spineValues[idx + 1] = qSpine.y;
+      spineValues[idx + 2] = qSpine.z;
+      spineValues[idx + 3] = qSpine.w;
+
+      chestValues[idx] = qChest.x;
+      chestValues[idx + 1] = qChest.y;
+      chestValues[idx + 2] = qChest.z;
+      chestValues[idx + 3] = qChest.w;
+    }
+  }
+
+  return modifiedCount;
 }
 
 // 循环首尾无缝缝合：支持复用外部 fadeDuration（或默认 0.75s），基于物理真实时间轴实施 Quintic Smootherstep
