@@ -2416,11 +2416,11 @@ export class VRMEngine {
         await this.chatDirector.warmThinkingClip(vrm, this.vrmaPlayer);
         let buf = state.vrmaBuffer;
         if (!buf) {
-          const res = await fetch('/vrm/motion/listening.vrma?v=11');
+          const res = await fetch('/vrm/motion/thinking.vrma');
           if (res.ok) buf = await res.arrayBuffer();
         }
         if (buf) {
-          const clip = await this.vrmaPlayer.parseBufferToClip(buf, vrm);
+          const clip = await this.vrmaPlayer.parseBufferToClip(buf, vrm, { antiClip: true });
           this.motionPipeline.playThinkingClip(clip, vrm, 0.01);
           this.vrmaPlayer.seek(state.vrmaTime);
         } else {
@@ -2442,7 +2442,7 @@ export class VRMEngine {
           buf = await res.arrayBuffer();
         }
         if (buf) {
-          const clip = await this.vrmaPlayer.parseBufferToClip(buf, vrm);
+          const clip = await this.vrmaPlayer.parseBufferToClip(buf, vrm, { antiClip: true });
           if (state.vrmaLoop) {
             this.vrmaPlayer.playLoop(clip, vrm, 0.01);
           } else {

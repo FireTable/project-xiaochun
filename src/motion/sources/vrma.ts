@@ -2,7 +2,7 @@ import * as THREE from 'three';
 import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
 import { VRMAnimationLoaderPlugin, createVRMAnimationClip } from '@pixiv/three-vrm-animation';
 import type { VRM } from '@pixiv/three-vrm';
-import { retargetClip } from '../vrmaRetarget';
+import { retargetClip, type RetargetOptions } from '../vrmaRetarget';
 import { VRM_ALL_HUMANOID_BONES } from '@/lib/constants';
 import type { MotionTransitionManager } from '../pipeline/transition';
 import { DEFAULT_MOTION_TRAITS, type MotionTraits } from '../pipeline/types';
@@ -46,7 +46,11 @@ export class VRMAMotionPlayer {
     this.transitionManager = tm;
   }
 
-  async parseBufferToClip(buf: ArrayBuffer, vrm: VRM): Promise<THREE.AnimationClip> {
+  async parseBufferToClip(
+    buf: ArrayBuffer,
+    vrm: VRM,
+    options: RetargetOptions = {},
+  ): Promise<THREE.AnimationClip> {
     this.lastBuffer = buf;
     const loader = new GLTFLoader();
     loader.register((p) => new VRMAnimationLoaderPlugin(p));
@@ -73,7 +77,7 @@ export class VRMAMotionPlayer {
         }
       });
     }
-    return retargetClip(clip, vrm);
+    return retargetClip(clip, vrm, options);
   }
 
   public playClipOnMixer(clip: THREE.AnimationClip, vrm: VRM, fadeDur = 0.65): THREE.AnimationAction {

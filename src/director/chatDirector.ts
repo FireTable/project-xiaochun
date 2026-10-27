@@ -26,6 +26,7 @@ interface Plan { speech: string; llm_provider?: string }
 
 import { splitIntoSpeechChunks, stripForTTS } from '@/lib/utils';
 import { VocalAudioProcessor } from './vocalProcessor';
+import { MOTION_CATALOG } from '@/motion/catalog';
 
 
 /** endAudioStream / 生产者收尾的最长等待；超时后不再阻塞发送按钮 */
@@ -447,7 +448,8 @@ export class ChatDirector {
 
   async preloadThinking(): Promise<void> {
     try {
-      const vrmaRes = await fetch('/vrm/motion/listening.vrma?v=11');
+      const url = MOTION_CATALOG.thinking?.url ?? '/vrm/motion/thinking.vrma';
+      const vrmaRes = await fetch(url);
       if (vrmaRes.ok) {
         this.thinkingVRMABuf = await vrmaRes.arrayBuffer();
       }
@@ -460,7 +462,8 @@ export class ChatDirector {
     if (!this.thinkingVRMABuf) await this.preloadThinking();
     if (!this.thinkingVRMABuf) return;
     try {
-      const clip = await player.parseBufferToClip(this.thinkingVRMABuf, vrm);
+      const antiClip = MOTION_CATALOG.thinking?.antiClip ?? true;
+      const clip = await player.parseBufferToClip(this.thinkingVRMABuf, vrm, { antiClip });
       makeClipSeamless(clip);
       this.cachedThinkingClip = clip;
     } catch (e) {
@@ -480,13 +483,16 @@ export class ChatDirector {
     if (this.thinkingVRMABuf) {
       try {
         if (!this.cachedThinkingClip) {
-          const clip = await player.parseBufferToClip(this.thinkingVRMABuf, vrm);
+          const antiClip = MOTION_CATALOG.thinking?.antiClip ?? true;
+          const clip = await player.parseBufferToClip(this.thinkingVRMABuf, vrm, { antiClip });
           if (!this.owns(id)) return;
           makeClipSeamless(clip);
           this.cachedThinkingClip = clip;
         }
         if (!this.owns(id)) return;
-        this.pipeline?.playThinkingClip(this.cachedThinkingClip, vrm, 0.65);
+        const fadeDur = MOTION_CATALOG.thinking?.fadeDuration ?? 0.65;
+        const mask = (MOTION_CATALOG.thinking?.mask as 'all' | 'upperBody') ?? 'upperBody';
+        this.pipeline?.playThinkingClip(this.cachedThinkingClip, vrm, fadeDur, mask);
       } catch (e) {
         console.warn('播放 thinking.vrma 动作失败', e);
         this.pipeline?.setIdleThinkSway(true);

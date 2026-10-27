@@ -1,8 +1,8 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { vrmEngine, type BubbleState } from '@/core/vrmEngine';
-import { getBubbleTransform } from '@/core/ui/bubbleTracker';
-import { Sparkles, Volume2, VolumeX, Activity, AlertCircle } from '@/components/icons';
+import { getBubbleTransform, type BubblePlacement } from '@/core/ui/bubbleTracker';
+import { Sparkles, VolumeX, Activity, AlertCircle } from '@/components/icons';
 import {
   getUserSettings,
   getCachedUserSettings,
@@ -21,10 +21,40 @@ const ICON_BY_KEY: Record<string, 'thinking' | 'speaking' | 'emoting' | 'idle'> 
   emage: 'emoting',
 };
 
+/**
+ * 生成全景无缝矢量气泡闭合路径
+ * 
+ * 彻底消除卡片与独立 SVG 三角之间的拼接缝隙与错位，
+ * 将圆角矩形与对应方位的流体气泡嘴（Speech Beak）熔铸于单一闭合轮廓：
+ * - 'top-right': 气泡嘴位于左下圆角处，圆弧顺滑延伸并斜向左下方指向角色面部
+ * - 'top-left': 气泡嘴位于右下圆角处，镜像对称指向角色面部
+ * - 'top': 正上方居中模式，底部中央优雅向下微光小尖角
+ */
+function getBalloonPath(w: number, h: number, placement: BubblePlacement, r = 16): string {
+  if (w <= 0 || h <= 0) return '';
+  if (placement === 'bottom') {
+    // 移动端底部悬浮对白卡：上边缘居中微尖优雅向上指引角色 (midX - 5, 0) -> (midX, -5) -> (midX + 5, 0)
+    const midX = w / 2;
+    return `M ${r} 0 H ${midX - 5} L ${midX} -5 L ${midX + 5} 0 H ${w - r} A ${r} ${r} 0 0 1 ${w} ${r} V ${h - r} A ${r} ${r} 0 0 1 ${w - r} ${h} H ${r} A ${r} ${r} 0 0 1 0 ${h - r} V ${r} A ${r} ${r} 0 0 1 ${r} 0 Z`.replace(/\s+/g, ' ').trim();
+  }
+  if (placement === 'top-right') {
+    // 精致小巧的左下圆角气泡嘴：微角仅向左下伸出 5px，小巧灵动，绝不喧宾夺主
+    return `M ${r} 0 H ${w - r} A ${r} ${r} 0 0 1 ${w} ${r} V ${h - r} A ${r} ${r} 0 0 1 ${w - r} ${h} H 18 C 12 ${h} 4 ${h + 2} -5 ${h + 5} C -1 ${h + 1} 0 ${h - 4} 0 ${h - 12} V ${r} A ${r} ${r} 0 0 1 ${r} 0 Z`.replace(/\s+/g, ' ').trim();
+  }
+  if (placement === 'top-left') {
+    // 右下圆角对称精致微气泡嘴
+    return `M ${r} 0 H ${w - r} A ${r} ${r} 0 0 1 ${w} ${r} V ${h - 12} C ${w} ${h - 4} ${w + 1} ${h + 1} ${w + 5} ${h + 5} C ${w - 4} ${h + 2} ${w - 12} ${h} ${w - 18} ${h} H ${r} A ${r} ${r} 0 0 1 0 ${h - r} V ${r} A ${r} ${r} 0 0 1 ${r} 0 Z`.replace(/\s+/g, ' ').trim();
+  }
+  // 正上方居中模式：精致小巧的下向微角 (宽 10px, 高 5px)
+  const midX = w / 2;
+  return `M ${r} 0 H ${w - r} A ${r} ${r} 0 0 1 ${w} ${r} V ${h - r} A ${r} ${r} 0 0 1 ${w - r} ${h} H ${midX + 5} L ${midX} ${h + 5} L ${midX - 5} ${h} H ${r} A ${r} ${r} 0 0 1 0 ${h - r} V ${r} A ${r} ${r} 0 0 1 ${r} 0 Z`.replace(/\s+/g, ' ').trim();
+}
+
 export const HeadBubble: React.FC<HeadBubbleProps> = ({ state }) => {
   const { t } = useTranslation();
   const [enabled, setEnabled] = useState(() => resolveShowHeadBubble(getCachedUserSettings()));
   const cardRef = useRef<HTMLDivElement>(null);
+  const [measuredSize, setMeasuredSize] = useState({ width: 280, height: 85 });
 
   useEffect(() => {
     let cancelled = false;
@@ -40,21 +70,34 @@ export const HeadBubble: React.FC<HeadBubbleProps> = ({ state }) => {
     };
   }, []);
 
-  // 动态监听气泡卡片渲染尺寸，使 BubbleTracker 防遮挡判定使用真实 DOM 高度
+  // 动态同步实测尺寸，并驱动 SVG 一体化矢量轮廓重绘
   useEffect(() => {
     if (!cardRef.current) return;
+    const updateSize = () => {
+      if (!cardRef.current) return;
+      const rect = cardRef.current.getBoundingClientRect();
+      const w = Math.round(rect.width);
+      const h = Math.round(rect.height);
+      if (w > 0 && h > 0) {
+        setMeasuredSize((prev) => (prev.width === w && prev.height === h ? prev : { width: w, height: h }));
+        vrmEngine.bubbleTracker.setMeasuredSize(w, h);
+      }
+    };
+    updateSize();
+
     const observer = new ResizeObserver((entries) => {
       for (const entry of entries) {
-        const width = entry.borderBoxSize?.[0]?.inlineSize ?? entry.contentRect.width;
-        const height = entry.borderBoxSize?.[0]?.blockSize ?? entry.contentRect.height;
+        const width = Math.round(entry.borderBoxSize?.[0]?.inlineSize ?? entry.contentRect.width);
+        const height = Math.round(entry.borderBoxSize?.[0]?.blockSize ?? entry.contentRect.height);
         if (width > 0 && height > 0) {
+          setMeasuredSize((prev) => (prev.width === width && prev.height === height ? prev : { width, height }));
           vrmEngine.bubbleTracker.setMeasuredSize(width, height);
         }
       }
     });
     observer.observe(cardRef.current);
     return () => observer.disconnect();
-  }, []);
+  }, [state.speechText, state.statusKey]);
 
   // 对话设置关气泡：组件自己不画，ChatDirector / bubbleTracker 事件照发。
   if (!enabled || !state.visible) return null;
@@ -74,37 +117,74 @@ export const HeadBubble: React.FC<HeadBubbleProps> = ({ state }) => {
         transform: getBubbleTransform(placement, state.x, state.y),
       }}
     >
-      {/* ponytail: 移动端 max-w 收紧到 240px,避免窄屏贴边;sm 起拉到 320px 让长句能展开。 */}
+      {/* 
+        视觉小说高质感气泡容器：
+        放弃生硬的 1px 固体线框，改用【全景无缝矢量气泡 + 微晶极光渐变描边 + 柔光漫反射阴影】
+      */}
       <div
         ref={cardRef}
         style={{
           viewTransitionName: isSpeaking ? 'story-dialog-card' : undefined,
         }}
-        className="relative max-w-[240px] sm:max-w-xs px-3.5 sm:px-4 py-2 sm:py-2.5 rounded-2xl bg-slate-950/90 shadow-2xl backdrop-blur-2xl flex flex-col gap-1 ring-1 ring-brand-400/30 animate-in fade-in zoom-in-95 duration-200 pointer-events-auto"
+        className="relative max-w-[240px] sm:max-w-xs px-4 py-2.5 sm:py-3 flex flex-col gap-1.5 animate-in fade-in zoom-in-95 duration-200 pointer-events-auto filter drop-shadow-[0_12px_32px_rgba(0,0,0,0.50)] drop-shadow-[0_0_16px_rgba(234,131,119,0.18)]"
       >
+        {/* 一体化全景矢量轮廓与高质感渐变光晕 (含左下圆角自然流淌的角尖) */}
+        <svg
+          aria-hidden="true"
+          className="absolute inset-0 w-full h-full pointer-events-none -z-10 overflow-visible"
+          viewBox={`0 0 ${measuredSize.width} ${measuredSize.height}`}
+        >
+          <defs>
+            {/* 深邃星空半透毛玻璃填充渐变 */}
+            <linearGradient id="bubble-bg-grad" x1="0" y1="0" x2="1" y2="1">
+              <stop offset="0%" stopColor="#181a2e" stopOpacity="0.94" />
+              <stop offset="50%" stopColor="#101322" stopOpacity="0.96" />
+              <stop offset="100%" stopColor="#1c152d" stopOpacity="0.97" />
+            </linearGradient>
+            {/* 纯净小蠢主题珊瑚粉描边 (#ea8377) */}
+            <linearGradient id="bubble-border-grad" x1="0" y1="0" x2="0" y2="1">
+              <stop offset="0%" stopColor="rgba(234, 131, 119, 0.55)" />
+              <stop offset="100%" stopColor="rgba(234, 131, 119, 0.35)" />
+            </linearGradient>
+          </defs>
+          <path
+            d={getBalloonPath(measuredSize.width, measuredSize.height, placement)}
+            fill="url(#bubble-bg-grad)"
+            stroke="url(#bubble-border-grad)"
+            strokeWidth="1.25"
+            strokeLinejoin="round"
+          />
+        </svg>
+
+        {/* 顶部状态与律动指示 — 无论在正上方还是侧面均保持居中对齐 */}
         {state.statusKey && (
           <div
-            className={`flex items-center gap-1.5 text-[11px] font-medium tracking-wide shrink-0 ${
-              placement === 'top' ? 'justify-center' : 'justify-start'
-            } ${state.isError ? 'text-rose-400 font-semibold' : 'text-brand-300'}`}
+            className={`flex items-center justify-center gap-1.5 text-[11px] font-medium tracking-wide shrink-0 ${
+              state.isError ? 'text-rose-400 font-semibold' : 'text-brand-300'
+            }`}
           >
             {ttsDown ? (
-              <VolumeX className="w-3 h-3 text-brand-300 shrink-0" />
+              <VolumeX className="w-3.5 h-3.5 text-brand-300 shrink-0" />
             ) : state.isError ? (
-              <AlertCircle className="w-3 h-3 text-rose-400 shrink-0" />
+              <AlertCircle className="w-3.5 h-3.5 text-rose-400 shrink-0" />
             ) : iconKind === 'thinking' ? (
-              <Sparkles className="w-3 h-3 text-brand-300 animate-spin shrink-0" />
+              <Sparkles className="w-3.5 h-3.5 text-brand-300 animate-spin shrink-0" />
             ) : iconKind === 'speaking' ? (
-              <Volume2 className="w-3 h-3 text-brand-300 animate-pulse shrink-0" />
+              // 番剧风格律动音频条 (声波跳跃反馈)
+              <span className="inline-flex items-center gap-0.5 shrink-0 px-0.5">
+                <span className="w-0.5 h-2 bg-brand-300 rounded-full animate-pulse" />
+                <span className="w-0.5 h-3.5 bg-brand-200 rounded-full animate-pulse [animation-delay:150ms]" />
+                <span className="w-0.5 h-2.5 bg-brand-300 rounded-full animate-pulse [animation-delay:300ms]" />
+              </span>
             ) : iconKind === 'emoting' ? (
-              <Activity className="w-3 h-3 text-brand-300 animate-pulse shrink-0" />
+              <Activity className="w-3.5 h-3.5 text-brand-300 animate-pulse shrink-0" />
             ) : (
-              <Sparkles className="w-3 h-3 text-brand-300 shrink-0" />
+              <Sparkles className="w-3.5 h-3.5 text-brand-300 shrink-0" />
             )}
-            <span>
+            <span className="font-semibold text-rose-200/90 tracking-normal">
               {ttsDown ? t('bubble.ttsUnavailable') : t(`bubble.${state.statusKey}`, state.statusVars as Record<string, unknown> | undefined)}
             </span>
-            {/* 多段流式朗读进度指示胶囊 (并排放在 来啦来啦~ 旁边) */}
+            {/* 多段流式朗读进度胶囊 */}
             {isSpeaking && state.totalSegments && state.totalSegments > 1 && state.segmentIndex ? (
               <span className="ml-1 px-1.5 py-0.5 rounded-full bg-white/10 text-[10px] font-medium text-brand-200 tracking-wider inline-flex items-center gap-1 border border-white/10 shadow-sm backdrop-blur-sm">
                 <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
@@ -115,70 +195,16 @@ export const HeadBubble: React.FC<HeadBubbleProps> = ({ state }) => {
             ) : null}
           </div>
         )}
-        {/* 只有在“来啦来啦～” (speaking) 状态时才展示文本，其他时候仅展示状态提示 */}
+
+        {/* 对话正文：视觉小说舒适字距与清晰行高 */}
         {(isSpeaking || ttsDown) && state.speechText && (
           <div
-            className={`text-sm font-medium text-white leading-snug break-words max-h-[calc(5*1.375em)] overflow-y-auto pr-1.5 pl-0.5 select-text custom-bubble-scrollbar pointer-events-auto ${
-              placement !== 'top' || state.speechText.length > 30 ? 'text-left' : 'text-center'
+            className={`text-sm font-medium text-white/95 leading-relaxed break-words max-h-[calc(5*1.45em)] overflow-y-auto pr-1 select-text custom-bubble-scrollbar pointer-events-auto ${
+              state.speechText.length > 30 ? 'text-left' : 'text-center'
             }`}
           >
             {state.speechText}
           </div>
-        )}
-        {/* 对话框微光小尾巴 — 依据避让位置动态切换：右上角模式位于左下侧斜指角色，正上方模式居中指下 */}
-        {placement === 'top-right' ? (
-          <svg
-            key="arrow-top-right"
-            aria-hidden="true"
-            className="absolute top-[calc(100%-1px)] left-5 sm:left-6 w-4 h-2.5 overflow-visible pointer-events-none z-10 animate-in fade-in duration-150"
-            viewBox="-8 0 24 10"
-            fill="none"
-          >
-            {/* 填充：与气泡 bg-slate-950 同色，无缝延伸 */}
-            <path d="M0 0 L14 0 L-6 9 Z" className="fill-slate-950" />
-            {/* 光晕外描边：从卡片底部斜向左下方指向角色面部 */}
-            <path
-              d="M14 0 L-6 9 L0 0"
-              stroke="rgba(234, 131, 119, 0.30)"
-              strokeWidth="2"
-              strokeLinecap="round"
-              strokeLinejoin="round"
-            />
-          </svg>
-        ) : placement === 'top-left' ? (
-          <svg
-            key="arrow-top-left"
-            aria-hidden="true"
-            className="absolute top-[calc(100%-1px)] right-5 sm:right-6 w-4 h-2.5 overflow-visible pointer-events-none z-10 animate-in fade-in duration-150"
-            viewBox="0 0 24 10"
-            fill="none"
-          >
-            <path d="M0 0 L14 0 L20 9 Z" className="fill-slate-950" />
-            <path
-              d="M0 0 L20 9 L14 0"
-              stroke="rgba(234, 131, 119, 0.30)"
-              strokeWidth="2"
-              strokeLinecap="round"
-              strokeLinejoin="round"
-            />
-          </svg>
-        ) : (
-          <svg
-            key="arrow-top"
-            aria-hidden="true"
-            className="absolute top-[calc(100%-1px)] left-1/2 -translate-x-1/2 w-3.5 h-2 overflow-visible pointer-events-none z-10 animate-in fade-in duration-150"
-            viewBox="0 0 14 8"
-            fill="none"
-          >
-            <path d="M0 0 L14 0 L7 7.5 Z" className="fill-slate-950" />
-            <path
-              d="M0 0 L7 7.5 L14 0"
-              stroke="rgba(234, 131, 119, 0.30)"
-              strokeWidth="2"
-              strokeLinecap="round"
-              strokeLinejoin="round"
-            />
-          </svg>
         )}
       </div>
     </div>

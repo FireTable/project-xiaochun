@@ -240,11 +240,16 @@ export class MotionPipeline {
   }
 
   /** Play thinking VRMA as the live pipeline source (thinkSway trait disabled to prevent asynchronous sinusoidal collision with clip). */
-  playThinkingClip(clip: THREE.AnimationClip, vrm: VRM, fadeDuration = SOURCE_FADE_DURATION): void {
+  playThinkingClip(
+    clip: THREE.AnimationClip,
+    vrm: VRM,
+    fadeDuration = SOURCE_FADE_DURATION,
+    mask: 'all' | 'upperBody' = 'upperBody',
+  ): void {
     this.idle.traits.thinkSway = false;
     this.vrma.traits = { allowLocomotion: true, thinkSway: false };
     this.vrma.playLoop(clip, vrm, fadeDuration);
-    this.setMotionSource('vrma', fadeDuration, this.gaze.getLookAtOffsets(), 'upperBody');
+    this.setMotionSource('vrma', fadeDuration, this.gaze.getLookAtOffsets(), mask);
   }
 
   /** Gaze-only think sway when the thinking clip is missing. Idle remains the writer. */

@@ -94,6 +94,10 @@ export const en: Trans = {
       name: 'Listening',
       description: 'Attentive listening posture with a slight body lean and gentle smile',
     },
+    thinking: {
+      name: 'Thinking',
+      description: 'Contemplative posture with hand resting gently under chin',
+    },
     relaxStretch: {
       name: 'Relax & Stretch',
       description: 'Natural one-shot stretch and stance adjustment',

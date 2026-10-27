@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import { useTranslation } from 'react-i18next';
-import { RotateCcw, ArrowUpDown, ZoomIn, Check, Sparkles } from 'lucide-react';
+import { RotateCcw, ArrowUpDown, ZoomIn, Check } from 'lucide-react';
 import { vrmEngine } from '@/core/vrmEngine';
 import { isMobile } from '@/lib/platform';
 
@@ -123,21 +123,19 @@ export const StoryCameraTaskCard: React.FC<StoryCameraTaskCardProps> = ({
   const isAllDone = completedCount === taskList.length;
 
   return (
-    <div className="pointer-events-auto w-full p-4 sm:p-5 rounded-2xl bg-black/75 backdrop-blur-xl border border-white/20 shadow-[0_8px_32px_rgba(0,0,0,0.5)] flex flex-col gap-3 animate-in fade-in slide-in-from-bottom-2 duration-300">
+    <div className="pointer-events-auto w-full p-4 sm:p-5 rounded-2xl bg-[#0b0e1b]/85 backdrop-blur-xl border border-white/15 shadow-[0_12px_36px_rgba(0,0,0,0.6)] flex flex-col gap-3 animate-in fade-in slide-in-from-bottom-2 duration-300">
       {/* 头部标题与完成进度 */}
       <div className="flex items-center justify-between">
-        <div className="flex items-center space-x-2">
-          <Sparkles className="w-4 h-4 text-[#ea8377] animate-pulse" />
-          <span className="text-xs sm:text-sm font-bold text-white tracking-wide">
-            3D 视角探索任务
-          </span>
-        </div>
-        <div className="flex items-center space-x-1 px-2 py-0.5 rounded-full bg-white/10 border border-white/15 text-[11px] font-mono">
-          <span className={isAllDone ? 'text-emerald-400 font-bold' : 'text-[#f5aa9c]'}>
+        <span className="text-xs sm:text-sm font-semibold text-white tracking-wide">
+          3D 视角探索任务
+        </span>
+
+        <div className="px-2.5 py-0.5 rounded-full bg-white/10 border border-white/10 text-xs font-medium">
+          <span className={isAllDone ? 'text-[#f3d09a] font-bold' : 'text-white/90'}>
             {completedCount}
           </span>
-          <span className="text-white/40">/</span>
-          <span className="text-white/70">{taskList.length}</span>
+          <span className="text-white/30"> / </span>
+          <span className="text-white/60">{taskList.length}</span>
         </div>
       </div>
 
@@ -150,29 +148,22 @@ export const StoryCameraTaskCard: React.FC<StoryCameraTaskCardProps> = ({
               key={task.id}
               className={`flex items-center justify-between px-3.5 py-2.5 rounded-xl border transition-all duration-200 ${
                 task.done
-                  ? 'bg-emerald-950/40 border-emerald-500/50 text-emerald-100 shadow-[inset_0_1px_1px_rgba(255,255,255,0.15)]'
-                  : 'bg-slate-950/60 border-white/15 text-white/90'
+                  ? 'bg-white/[0.08] border-[#f3d09a]/40 text-white shadow-sm'
+                  : 'bg-[#101426]/60 border-white/10 text-white/90 hover:border-white/20'
               }`}
             >
               <div className="flex items-center gap-3 min-w-0 pr-2">
-                <span className="text-xs font-mono font-bold text-white/50 w-3 shrink-0">
-                  {task.num}.
-                </span>
                 <div
-                  className={`w-7 h-7 rounded-lg flex items-center justify-center shrink-0 border transition-colors ${
+                  className={`w-7 h-7 rounded-lg flex items-center justify-center shrink-0 border transition-all ${
                     task.done
-                      ? 'bg-emerald-500/25 border-emerald-400/40 text-emerald-300'
-                      : 'bg-white/10 border-white/15 text-white/80'
+                      ? 'bg-[#f3d09a]/20 border-[#f3d09a]/40 text-[#f3d09a]'
+                      : 'bg-white/[0.06] border-white/10 text-white/70'
                   }`}
                 >
                   <Icon className="w-3.5 h-3.5" />
                 </div>
                 <div className="flex flex-col min-w-0">
-                  <span
-                    className={`text-xs sm:text-[13px] font-semibold truncate ${
-                      task.done ? 'text-emerald-200' : 'text-white'
-                    }`}
-                  >
+                  <span className={`text-xs sm:text-[13px] font-medium tracking-wide truncate ${task.done ? 'text-white' : 'text-white/90'}`}>
                     {task.label}
                   </span>
                   <span className="text-[10px] sm:text-[11px] text-white/50 truncate">
@@ -184,19 +175,25 @@ export const StoryCameraTaskCard: React.FC<StoryCameraTaskCardProps> = ({
               {/* 右侧打勾状态 */}
               <div className="shrink-0 pl-2">
                 {task.done ? (
-                  <div className="w-5 h-5 rounded-full bg-emerald-500 text-slate-950 flex items-center justify-center shadow-[0_0_8px_rgba(16,185,129,0.6)] animate-in zoom-in-75 duration-200">
-                    <Check className="w-3.5 h-3.5 stroke-[3]" />
+                  <div className="w-5 h-5 rounded-full bg-[#f3d09a] text-slate-950 flex items-center justify-center shadow-sm">
+                    <Check className="w-3.5 h-3.5 stroke-[2.5]" />
                   </div>
                 ) : (
-                  <div className="w-4 h-4 rounded-full border border-white/30 bg-white/5 flex items-center justify-center">
-                    <div className="w-1.5 h-1.5 rounded-full bg-white/30" />
-                  </div>
+                  <div className="w-4 h-4 rounded-full border border-white/30 bg-white/[0.04]" />
                 )}
               </div>
             </div>
           );
         })}
       </div>
+
+      {/* 达成提示 */}
+      {isAllDone && (
+        <div className="pt-0.5 flex items-center justify-between text-xs text-[#f3d09a] tracking-wide">
+          <span>已完成全部探索</span>
+          <span className="text-white/60">可继续下一步 ➔</span>
+        </div>
+      )}
     </div>
   );
 };

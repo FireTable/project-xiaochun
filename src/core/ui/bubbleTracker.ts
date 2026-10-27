@@ -1,7 +1,15 @@
 import * as THREE from 'three';
 import type { VRM } from '@pixiv/three-vrm';
 
-export type BubblePlacement = 'top' | 'top-right' | 'top-left';
+export type BubblePlacement = 'top' | 'top-right' | 'top-left' | 'bottom';
+
+/**
+ * 气泡对白最大设计高度（对应 HeadBubble.tsx 中对话正文 max-h-[calc(5*1.45em)] 满载 5 行时的整卡高度）
+ * 包括：顶部内边距 + 状态栏高 + 5 行正文字高与行高 + 底部内边距 + 间距 ≈ 156px。
+ * 核心设计规则：空间判定严禁使用当前瞬间的简短高度（如思考状态仅 42px），
+ * 必须以最大设计容量（5 行文本满载）为基准评估空间，确保从思考到多行语音输出全生命周期定位恒定，杜绝反复横跳。
+ */
+export const BUBBLE_MAX_CAPACITY_HEIGHT = 156;
 
 export interface BubbleState {
   visible: boolean;
@@ -20,8 +28,9 @@ export interface BubbleState {
  * 根据定位策略计算气泡 CSS 变换矩阵
  * 
  * - 'top': 正上方居中，底部与 headY 保持 16px 呼吸间距，受顶部 16px 视口拦截
- * - 'top-right': 右上角避让，X 位于头部右侧 (根据视口宽度自适应 50~90px)，Y 贴合头部上方或额头高度，杜绝压制发冠
- * - 'top-left': 左上角避让，X 位于头部左侧，对称处理
+ * - 'top-right': 桌面端右上角避让，X 位于头部右侧 (自适应 50~90px)，Y 贴合头部上方或额头高度，杜绝压制发冠
+ * - 'top-left': 桌面端左上角避让，X 位于头部左侧，对称处理
+ * - 'bottom': 移动端空间受限模式，水平居中悬浮于底部输入条上方 (calc(100dvh - 100% - 84px))，彻底解放面部与发型
  */
 export function getBubbleTransform(
   placement: BubblePlacement,
@@ -29,6 +38,9 @@ export function getBubbleTransform(
   headY: number,
   sideOffset = 80,
 ): string {
+  if (placement === 'bottom') {
+    return `translate3d(clamp(12px, calc(${headX}px - 50%), calc(100vw - 100% - 12px)), calc(100dvh - 100% - 84px), 0)`;
+  }
   if (placement === 'top-right') {
     return `translate3d(clamp(16px, calc(${headX}px + ${sideOffset}px), calc(100vw - 100% - 16px)), max(24px, calc(${headY}px + 10px)), 0)`;
   }
@@ -80,46 +92,70 @@ export class BubbleTracker {
 
   /**
    * 判定气泡避让定位：
-   * 当气泡居中正上方放置时，若角色头部靠近屏幕顶端导致垂直可用空间不足以容纳气泡高度，
-   * 气泡被视口顶端拦截向下挤压就会直接遮挡角色发冠与面部。
-   * 此时自动切换为侧边避让（优先右上角，并在右边缘空间不足时镜像至左上角），
-   * 采用 35px 迟滞 (hysteresis) 彻底杜绝角色呼吸与微动时的边缘反复横跳。
+   * 1. 移动端 (窄屏 w < 640)：
+   *    两侧空间极其狭窄 (仅 ~90px)，根本无法容纳 240px 气泡；强制侧偏必然会导致气泡被屏幕边缘反弹死死压在角色脸上。
+   *    因此移动端严禁侧偏！
+   *    - 若正上方垂直净空充裕，居中悬浮于头顶 ('top')；
+   *    - 若角色头部贴近顶栏 (空间受限)，气泡平滑转移至底部对白区 ('bottom')，悬浮于输入条上方，面部表情与动作 100% 露显。
+   * 2. 桌面端 (宽屏 w >= 640)：
+   *    右侧空间充裕，按正上方净空在 'top' 与视觉小说侧边避让 ('top-right' / 'top-left') 之间无缝切换。
+   * 
+   * 关键设计规则（容量恒定度量）：
+   * 空间判定严禁使用当前瞬间的简短高度（如思考状态仅 42px），必须以气泡设计最大容量（5 行满载文本，BUBBLE_MAX_CAPACITY_HEIGHT = 156px）
+   * 为基准进行空间测试。这样无论是待机思考、单行简答还是 5 行满载流式播报，定位决策均完全恒定，杜绝在顶上与侧边之间反复横跳抖动。
    */
   private evaluatePlacement(w: number): boolean {
     const headX = this.state.x;
     const headY = this.state.y;
-    const minTopPadding = 20;
+    const isMobile = w < 640;
+    const minTopPadding = isMobile ? 56 : 20; // 移动端顶部常驻功能按键群 (约 50px)
     const gapY = 16;
-    const bubbleH = this.bubbleHeight || 85;
+    // 关键设计保证：正上方空间容量必须以最大容量（5 行满载文本）进行评估
+    const capacityHeight = Math.max(BUBBLE_MAX_CAPACITY_HEIGHT, this.bubbleHeight || 0);
     const bubbleW = this.bubbleWidth || 280;
 
-    // 正上方安全所需高度：气泡高 + 视口上安全距 + 头顶与气泡间距
-    const minSpaceNeeded = bubbleH + minTopPadding + gapY;
+    // 正上方安全所需高度：气泡最大容量高 + 视口上安全距 + 头顶与气泡间距
+    const minSpaceNeeded = capacityHeight + minTopPadding + gapY;
 
     let nextPlacement: BubblePlacement = this.state.placement || 'top';
-    const sideOffset = Math.min(90, Math.max(50, Math.round(w * 0.10)));
 
-    if (this.state.placement === 'top') {
-      if (headY < minSpaceNeeded) {
-        // 垂直空间被窗口顶端切入，可能压迫头顶：切换至右上角避让
-        const rightSpace = w - (headX + sideOffset);
-        if (rightSpace >= bubbleW * 0.7 || rightSpace >= 160) {
-          nextPlacement = 'top-right';
+    if (isMobile) {
+      // 移动端：双状态自适应 (正上方 'top' <-> 底部悬浮对白卡 'bottom')
+      if (this.state.placement === 'bottom') {
+        if (headY > minSpaceNeeded + 35) {
+          nextPlacement = 'top';
         } else {
-          nextPlacement = 'top-left';
+          nextPlacement = 'bottom';
+        }
+      } else {
+        if (headY < minSpaceNeeded) {
+          nextPlacement = 'bottom';
+        } else {
+          nextPlacement = 'top';
         }
       }
     } else {
-      // 当前已经在侧边 (top-right 或 top-left)
-      // 迟滞 35px 保证下移回弹时稳定性
-      if (headY > minSpaceNeeded + 35) {
-        nextPlacement = 'top';
+      // 桌面端：三状态自适应 (正上方 'top' <-> 右上角避让 'top-right' / 左上角 'top-left')
+      const sideOffset = Math.min(90, Math.max(50, Math.round(w * 0.10)));
+      if (this.state.placement === 'top') {
+        if (headY < minSpaceNeeded) {
+          const rightSpace = w - (headX + sideOffset);
+          if (rightSpace >= bubbleW * 0.7 || rightSpace >= 160) {
+            nextPlacement = 'top-right';
+          } else {
+            nextPlacement = 'top-left';
+          }
+        }
       } else {
-        const rightSpace = w - (headX + sideOffset);
-        if (rightSpace >= bubbleW * 0.7 || rightSpace >= 160) {
-          nextPlacement = 'top-right';
+        if (headY > minSpaceNeeded + 35) {
+          nextPlacement = 'top';
         } else {
-          nextPlacement = 'top-left';
+          const rightSpace = w - (headX + sideOffset);
+          if (rightSpace >= bubbleW * 0.7 || rightSpace >= 160) {
+            nextPlacement = 'top-right';
+          } else {
+            nextPlacement = 'top-left';
+          }
         }
       }
     }

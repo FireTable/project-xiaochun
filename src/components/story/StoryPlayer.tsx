@@ -55,9 +55,10 @@ export const StoryPlayer: React.FC<StoryPlayerProps> = ({
     };
   }, [i18n, onComplete]);
 
-  // 组件挂载时自动启动指定剧本
+  // 组件挂载时自动启动指定剧本 (严防外部已触发 playScript 时重复拉起导致 executionSequence 竞争)
   useEffect(() => {
-    if (!storyState.isActive || storyState.scriptId !== script.id) {
+    const cur = storyDirectorEngine.getState();
+    if (!cur.isActive || cur.scriptId !== script.id) {
       void storyDirectorEngine.playScript(script);
     }
   }, [script]);
@@ -209,24 +210,24 @@ export const StoryPlayer: React.FC<StoryPlayerProps> = ({
         onSkipIntertitle={() => storyDirectorEngine.skipIntertitle()}
       />
 
-      {/* 2. 顶部微拟态控制面板 (Top HUD, 优雅嵌入顶部遮幅半透明渐变区内) */}
+      {/* 2. 顶部微拟态控制面板 (Top HUD) */}
       <div className="pointer-events-auto fixed top-3 inset-x-4 sm:top-3.5 sm:inset-x-8 z-40 flex items-center justify-between">
         {/* 左侧：章节信息与进度胶囊 */}
-        <div className="flex items-center space-x-2 px-3 py-1.5 rounded-full bg-black/50 backdrop-blur-md border border-white/10 text-white shadow-lg">
+        <div className="flex items-center space-x-2.5 px-3.5 py-1.5 rounded-full bg-[#0b0e1b]/80 backdrop-blur-xl border border-white/15 text-white shadow-lg">
           <span className="text-xs sm:text-sm font-medium tracking-wide">
             {script.title}
           </span>
-          <span className="text-[11px] px-1.5 py-0.5 rounded bg-white/15 text-white/80 font-mono">
-            {storyState.progress.current}/{storyState.progress.total}
+          <span className="text-[11px] px-2 py-0.5 rounded-full bg-white/10 text-white/80 font-mono">
+            {storyState.progress.current} / {storyState.progress.total}
           </span>
         </div>
 
-        {/* 右侧：退出/跳过按钮 */}
+        {/* 右侧：跳过按钮 */}
         <div className="flex items-center space-x-2">
           <button
             type="button"
             onClick={handleSkipOrExit}
-            className="flex items-center space-x-1 px-3 py-1.5 rounded-full bg-black/50 hover:bg-black/70 active:scale-95 backdrop-blur-md border border-white/10 text-white/90 hover:text-white text-xs sm:text-sm transition-all duration-200 shadow-lg cursor-pointer"
+            className="flex items-center space-x-1 px-3 py-1.5 rounded-full bg-[#0b0e1b]/80 hover:bg-[#151b33] active:scale-95 backdrop-blur-xl border border-white/15 text-white/90 hover:text-white text-xs sm:text-sm transition-all duration-200 shadow-lg cursor-pointer"
           >
             <span>跳过</span>
             <X className="w-3.5 h-3.5 ml-0.5 opacity-70" />
@@ -337,7 +338,7 @@ export const StoryPlayer: React.FC<StoryPlayerProps> = ({
                 <div className="pointer-events-auto w-full animate-in fade-in slide-in-from-bottom-2 duration-300">
                   <form
                     onSubmit={handleSendInput}
-                    className="flex items-center space-x-2 px-3 py-1.5 rounded-xl bg-white/[0.08] hover:bg-white/[0.12] backdrop-blur-xl border border-white/20 focus-within:border-amber-300/80 focus-within:ring-1 focus-within:ring-amber-300/40 shadow-xl transition-all duration-200"
+                    className="flex items-center space-x-2 px-3 py-1.5 rounded-xl bg-[#0b0e1b]/85 hover:bg-[#101426]/95 backdrop-blur-xl border border-white/15 focus-within:border-[#f3d09a] focus-within:ring-1 focus-within:ring-[#f3d09a]/40 shadow-[0_8px_32px_rgba(0,0,0,0.6)] transition-all duration-200"
                   >
                     <input
                       ref={inputRef}
@@ -355,7 +356,7 @@ export const StoryPlayer: React.FC<StoryPlayerProps> = ({
                     <button
                       type="submit"
                       disabled={!userInput.trim() || isGenerating}
-                      className="p-1.5 rounded-lg bg-amber-400 hover:bg-amber-300 active:scale-90 disabled:opacity-30 disabled:hover:bg-amber-400 text-slate-950 font-bold transition-all shadow-md cursor-pointer"
+                      className="p-1.5 rounded-lg bg-[#f3d09a] hover:bg-[#fdf2dd] active:scale-90 disabled:opacity-30 disabled:hover:bg-[#f3d09a] text-slate-950 font-bold transition-all shadow-[0_0_12px_rgba(243,208,154,0.4)] cursor-pointer"
                       title="发送"
                     >
                       {isGenerating ? (
@@ -404,7 +405,7 @@ export const StoryPlayer: React.FC<StoryPlayerProps> = ({
             <div className="pointer-events-auto w-full animate-in fade-in slide-in-from-bottom-1 duration-200">
               <form
                 onSubmit={handleSendInput}
-                className="flex items-center space-x-2 px-3 py-1.5 rounded-xl bg-black/70 backdrop-blur-xl border border-white/15 focus-within:border-amber-300/70 shadow-lg"
+                className="flex items-center space-x-2 px-3 py-1.5 rounded-xl bg-[#0b0e1b]/90 backdrop-blur-xl border border-white/15 focus-within:border-[#f3d09a]/70 shadow-lg"
               >
                 <input
                   type="text"
@@ -421,7 +422,7 @@ export const StoryPlayer: React.FC<StoryPlayerProps> = ({
                 <button
                   type="submit"
                   disabled={!userInput.trim() || isGenerating}
-                  className="p-1 rounded-lg bg-amber-400 hover:bg-amber-300 active:scale-90 disabled:opacity-30 disabled:hover:bg-amber-400 text-slate-950 font-bold transition-all shadow cursor-pointer"
+                  className="p-1 rounded-lg bg-[#f3d09a] hover:bg-[#fdf2dd] active:scale-90 disabled:opacity-30 disabled:hover:bg-[#f3d09a] text-slate-950 font-bold transition-all shadow cursor-pointer"
                   title="发送"
                 >
                   {isGenerating ? (

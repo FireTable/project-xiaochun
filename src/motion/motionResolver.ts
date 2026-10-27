@@ -9,7 +9,7 @@
 export const MOTION_FILES: Record<string, string> = {
   // ── 1. 核心待机与倾听姿态 (Core Idle & Listening) ──
   listening: '/vrm/motion/listening.vrma?v=11',
-  thinking: '/vrm/motion/listening.vrma?v=11',
+  thinking: '/vrm/motion/thinking.vrma',
   relaxStretch: '/vrm/motion/relax-stretch.vrma',
   'relax-stretch': '/vrm/motion/relax-stretch.vrma',
   classicIdle: '/vrm/motion/relax-stretch.vrma',

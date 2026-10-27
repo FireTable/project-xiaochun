@@ -292,10 +292,9 @@ export class StoryDirectorEngine {
         fadeDuration: 0.75,
         loop: false,
       });
-    } else {
-      // 🌟 核心突破：若未指定强制全剧动作，主动停止 UniversalMotion (clip)，
-      // 将骨骼写入权完全释放给 EMAGE，让角色在说话期间由真实语音驱动灵动演讲手势！
-      vrmEngine.stopMotion(0.5);
+    } else if (beat.actor.leadInMotion) {
+      // 若当前拍设置了起势动作，平滑淡出，让骨骼写入权自然交由 EMAGE 语音手势驱动
+      vrmEngine.stopMotion(0.75);
     }
 
     if (!this.isInterrupted && beat.actor.speechText && beat.actor.speechText.trim().length > 0) {

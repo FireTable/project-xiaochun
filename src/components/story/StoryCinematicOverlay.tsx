@@ -47,14 +47,14 @@ export const StoryCinematicOverlay: React.FC<StoryCinematicOverlayProps> = ({
             className={`text-lg sm:text-2xl text-white/95 leading-relaxed tracking-widest ${intertitleStyle === 'noto_serif'
               ? 'font-serif drop-shadow-[0_0_16px_rgba(255,255,255,0.45)]'
               : intertitleStyle === 'typewriter'
-                ? 'font-mono text-emerald-300 drop-shadow-[0_0_12px_rgba(52,211,153,0.35)]'
+                ? 'font-mono text-[#f3d09a] drop-shadow-[0_0_14px_rgba(243,208,154,0.45)]'
                 : 'font-sans font-light drop-shadow-[0_0_12px_rgba(255,255,255,0.3)]'
               }`}
           >
             {intertitleText}
           </p>
-          <div className="w-12 h-[1px] bg-white/20 mx-auto animate-pulse" />
-          <p className="text-xs text-neutral-400 tracking-widest font-sans flex items-center justify-center animate-pulse">
+          <div className="w-12 h-[1px] bg-white/20 mx-auto" />
+          <p className="text-xs text-white/50 tracking-widest flex items-center justify-center animate-pulse">
             <span>轻触屏幕唤醒</span>
           </p>
         </div>

@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import * as THREE from 'three';
-import { BubbleTracker, getBubbleTransform } from './bubbleTracker';
+import { BUBBLE_MAX_CAPACITY_HEIGHT, BubbleTracker, getBubbleTransform } from './bubbleTracker';
 
 describe('getBubbleTransform', () => {
   it('生成正上方居中 transform', () => {
@@ -16,6 +16,11 @@ describe('getBubbleTransform', () => {
   it('生成左上角避让 transform', () => {
     const t = getBubbleTransform('top-left', 800, 80, 80);
     expect(t).toBe('translate3d(clamp(16px, calc(800px - 80px - 100%), calc(100vw - 100% - 16px)), max(24px, calc(80px + 10px)), 0)');
+  });
+
+  it('生成移动端底部悬浮对白卡 transform', () => {
+    const t = getBubbleTransform('bottom', 187, 80);
+    expect(t).toBe('translate3d(clamp(12px, calc(187px - 50%), calc(100vw - 100% - 12px)), calc(100dvh - 100% - 84px), 0)');
   });
 });
 
@@ -40,7 +45,7 @@ describe('BubbleTracker 智能防遮挡避让', () => {
     const tracker = new BubbleTracker();
     tracker.state.visible = true;
     tracker.state.x = 450;
-    // headY 为 60px，小于 bubbleHeight(85) + 20 + 16 = 121px
+    // headY 为 60px，小于 5 行满载设计高度(156) + 20 + 16 = 192px
     tracker.state.y = 60;
 
     // @ts-expect-error test private method
@@ -62,6 +67,28 @@ describe('BubbleTracker 智能防遮挡避让', () => {
     expect(tracker.state.placement).toBe('top-left');
   });
 
+  it('以 5 行最大容量(156px)作为空间判定基准，短文本思考状态不会误居顶而在说话时发生跳跃', () => {
+    expect(BUBBLE_MAX_CAPACITY_HEIGHT).toBe(156);
+    const tracker = new BubbleTracker();
+    tracker.state.visible = true;
+    tracker.state.x = 500;
+    // headY 为 150px：如果按 40px 短文本算(40+20+16=76)会误判为空间充足放 top；
+    // 但 150 < 192px (156+20+16)，不足以容纳 5 行对白。
+    tracker.state.y = 150;
+    tracker.setMeasuredSize(280, 42); // 模拟此时仅有单行思考状态文本
+
+    // @ts-expect-error test private method
+    tracker.evaluatePlacement(1024);
+    // 应直接决断为 top-right，绝不放在 top
+    expect(tracker.state.placement).toBe('top-right');
+
+    // 接下来语音文本到达，实测高度扩大到 140px，布局应始终恒定为 top-right，零位置跳动
+    tracker.setMeasuredSize(320, 140);
+    // @ts-expect-error test private method
+    tracker.evaluatePlacement(1024);
+    expect(tracker.state.placement).toBe('top-right');
+  });
+
   it('具备 35px 迟滞 (hysteresis)，微动不会在 top 与 top-right 间频繁抖动', () => {
     const tracker = new BubbleTracker();
     tracker.state.visible = true;
@@ -73,16 +100,64 @@ describe('BubbleTracker 智能防遮挡避让', () => {
     tracker.evaluatePlacement(1024);
     expect(tracker.state.placement).toBe('top-right');
 
-    // headY 稍微下移到 130px (已大于 121px 临界值，但处于 121 ~ 156px 迟滞死区)
-    tracker.state.y = 130;
+    // headY 稍微下移到 200px (已大于 192px 临界值，但处于 192 ~ 227px 迟滞死区)
+    tracker.state.y = 200;
     // @ts-expect-error test private method
     tracker.evaluatePlacement(1024);
     expect(tracker.state.placement).toBe('top-right');
 
-    // headY 进一步下移到 165px (超过 121 + 35 = 156px)，稳定回切到 top
-    tracker.state.y = 165;
+    // headY 进一步下移到 235px (超过 192 + 35 = 227px)，稳定回切到 top
+    tracker.state.y = 235;
     // @ts-expect-error test private method
     tracker.evaluatePlacement(1024);
     expect(tracker.state.placement).toBe('top');
+  });
+
+  describe('移动端窄屏特别优化 (w < 640)', () => {
+    it('移动端头部靠近顶栏且空间受限时，自动平滑转移至底部悬浮区 (bottom)，严禁侧偏挤压面部', () => {
+      const tracker = new BubbleTracker();
+      tracker.state.visible = true;
+      tracker.state.x = 187;
+      tracker.state.y = 80; // iPhone SE 等机型头部在 Y=80px
+
+      // @ts-expect-error test private method
+      const changed = tracker.evaluatePlacement(375);
+      expect(changed).toBe(true);
+      expect(tracker.state.placement).toBe('bottom');
+    });
+
+    it('移动端正上方垂直空间充裕时，保持居中悬浮头顶 (top)', () => {
+      const tracker = new BubbleTracker();
+      tracker.state.visible = true;
+      tracker.state.x = 187;
+      tracker.state.y = 300; // 300 > 228 (156 + 56 + 16)
+
+      // @ts-expect-error test private method
+      tracker.evaluatePlacement(375);
+      expect(tracker.state.placement).toBe('top');
+    });
+
+    it('移动端从 bottom 回弹到 top 具备迟滞防抖', () => {
+      const tracker = new BubbleTracker();
+      tracker.state.visible = true;
+      tracker.state.x = 187;
+      tracker.state.y = 80;
+
+      // @ts-expect-error test private method
+      tracker.evaluatePlacement(375);
+      expect(tracker.state.placement).toBe('bottom');
+
+      // 稍微下移到 240px (虽 > 228px，但未达到 228 + 35 = 263px 迟滞)，仍保持 bottom
+      tracker.state.y = 240;
+      // @ts-expect-error test private method
+      tracker.evaluatePlacement(375);
+      expect(tracker.state.placement).toBe('bottom');
+
+      // 充分下移到 270px 恢复 top
+      tracker.state.y = 270;
+      // @ts-expect-error test private method
+      tracker.evaluatePlacement(375);
+      expect(tracker.state.placement).toBe('top');
+    });
   });
 });

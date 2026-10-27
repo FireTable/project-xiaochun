@@ -94,6 +94,10 @@ export const ja: Trans = {
       name: '傾聴',
       description: '体をわずかに傾け微笑む親しみやすい傾聴ポーズ',
     },
+    thinking: {
+      name: '思案・物思い',
+      description: '顎に手を当てて考え込む思索ポーズ',
+    },
     relaxStretch: {
       name: '伸び伸びストレッチ',
       description: '全身をほぐして立ち姿を整える自然なワンショット動作',

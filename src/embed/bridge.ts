@@ -73,7 +73,7 @@ interface SwapJob { key: string; id: string | null; url: string; name: string }
 interface SwapResult { changed: boolean; id: string | null; name: string; previous: string | null }
 
 const EXPRESSIONS = new Set(['neutral', 'happy', 'angry', 'sad', 'relaxed', 'surprised']);
-const BUILTIN_MOTIONS: Record<string, string> = { thinking: '/vrm/motion/listening.vrma?v=11' };
+const BUILTIN_MOTIONS: Record<string, string> = { thinking: '/vrm/motion/thinking.vrma' };
 
 // ── 极简 UI 状态仓 (给 React useSyncExternalStore) ──
 /** 内置界面部件开关 (对应 ?ui= 的部件名): ui = chat 聊天栏; autoHide = uiAutoHide 显示策略 (见 protocol XcUiAutoHide)。 */

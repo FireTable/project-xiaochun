@@ -138,26 +138,37 @@ export class UniversalMotionController {
       clip = THREE.AnimationUtils.subclip(clip, clip.name || 'subclip', startFrame, endFrame, fps);
     }
 
-    // 仅在显式配置 lockHipsXZ: true 时才纠正/扣减 Hips 水平位置偏移
-    // 默认保持动作原生 Hips 水平位移，让骨盆随生理重心自然摆动，双脚牢牢踩在地面不滑步
-    if (options?.lockHipsXZ) {
-      const hips = vrm.humanoid?.getNormalizedBoneNode('hips');
-      if (hips) {
-        if (!this.hipsRest) {
-          this.hipsRest = { x: hips.position.x, y: hips.position.y, z: hips.position.z };
-        }
-        const { x: restX, z: restZ } = this.hipsRest;
-        clip.tracks.forEach((t) => {
-          if (!t.name.endsWith('.position')) return;
-          const offX = t.values[0] - restX;
-          const offZ = t.values[2] - restZ;
-          for (let i = 0; i < t.values.length; i += 3) {
-            t.values[i]     -= offX;
-            // 保留 Y 轴高度，绝不强制抹平成 T-Pose restY，防止双足被抬离地面悬空
-            t.values[i + 2] -= offZ;
-          }
-        });
+    // 校准 Hips 根骨骼位移轨道
+    const hips = vrm.humanoid?.getNormalizedBoneNode('hips');
+    if (hips) {
+      if (!this.hipsRest) {
+        this.hipsRest = { x: hips.position.x, y: hips.position.y, z: hips.position.z };
       }
+      const { x: restX, y: restY, z: restZ } = this.hipsRest;
+      clip.tracks.forEach((t) => {
+        if (!t.name.endsWith('.position')) return;
+        const offX = t.values[0] - restX;
+        const offY = t.values[1] - restY;
+        const offZ = t.values[2] - restZ;
+
+        // 1. 若显式开启 lockHipsXZ，扣除水平位移保持原地；
+        const fixXZ = !!options?.lockHipsXZ;
+        // 2. 垂直高度保护：若动作起始帧 Y 偏离模型 restY 超过阈值 (如 AI 生成动捕在 Y=2.10m 烘焙导致空中漂浮)，
+        //    自动将起始帧基准高度平移校准至 restY，同时 100% 完整保留起跳/下蹲等相对运动幅度！
+        const fixY = Math.abs(offY) > 0.25;
+
+        if (fixXZ || fixY) {
+          for (let i = 0; i < t.values.length; i += 3) {
+            if (fixXZ) {
+              t.values[i]     -= offX;
+              t.values[i + 2] -= offZ;
+            }
+            if (fixY) {
+              t.values[i + 1] -= offY;
+            }
+          }
+        }
+      });
     }
 
     return retargetClip(clip, vrm, { antiClip });
