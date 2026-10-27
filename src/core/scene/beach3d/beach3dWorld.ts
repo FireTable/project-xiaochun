@@ -162,6 +162,8 @@ export class Beach3DWorld implements IEnvironmentTimeAware, IEnvironmentLightPro
     skySunGlow?: THREE.IUniform<number>;
     skyCirrus?: THREE.IUniform<number>;
     skyHorizonBand?: THREE.IUniform<number>;
+    skySeaHorizon?: THREE.IUniform<THREE.Color>;
+    skySeaDeep?: THREE.IUniform<THREE.Color>;
     sunTint?: THREE.IUniform<THREE.Color>;
 
     cloudsTint?: THREE.IUniform<THREE.Color>;
@@ -445,6 +447,8 @@ export class Beach3DWorld implements IEnvironmentTimeAware, IEnvironmentLightPro
     this.timeUniforms.skySunGlow = this.skyUniforms.uSunGlow;
     this.timeUniforms.skyCirrus = this.skyUniforms.uCirrus;
     this.timeUniforms.skyHorizonBand = this.skyUniforms.uHorizonBand;
+    this.timeUniforms.skySeaHorizon = this.skyUniforms.uSeaHorizon;
+    this.timeUniforms.skySeaDeep = this.skyUniforms.uSeaDeep;
     this.timeUniforms.sunTint = this.skyUniforms.uSunTint;
 
     // 远景层 (云 / 远岛) 共用的混合: 留在不透明队列 (按 renderOrder 紧跟天空), alpha 通道保持天空写的不透明值
@@ -1035,6 +1039,8 @@ export class Beach3DWorld implements IEnvironmentTimeAware, IEnvironmentLightPro
     if (tu.skySunGlow) tu.skySunGlow.value = p.skySunGlow;
     if (tu.skyCirrus) tu.skyCirrus.value = p.skyCirrus;
     if (tu.skyHorizonBand) tu.skyHorizonBand.value = p.skyHorizonBand;
+    if (tu.skySeaHorizon) tu.skySeaHorizon.value.copy(p.seaHorizon);
+    if (tu.skySeaDeep) tu.skySeaDeep.value.copy(p.seaDeep);
     if (tu.sunTint) tu.sunTint.value.copy(p.sunTint);
 
     if (tu.cloudsTint) tu.cloudsTint.value.copy(p.cloudsTint);

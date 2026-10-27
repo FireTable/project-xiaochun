@@ -106,26 +106,28 @@ varying vec3 vDir;
 void main() {
   vec3 d = normalize(vDir);
   float h = d.y + uDipSin;
+  float aa = clamp(fwidth(h) * 1.5, 1e-4, 0.01);
   vec3 col;
-  if (h >= 0.0) {
-    col = mix(uHorizon, uMid, smoothstep(0.0, uHorizonFade, h));
-    col = mix(col, uZenith, smoothstep(0.22, 0.95, h));
+  if (h >= -aa) {
+    float skyH = max(0.0, h);
+    col = mix(uHorizon, uMid, smoothstep(0.0, uHorizonFade, skyH));
+    col = mix(col, uZenith, smoothstep(0.22, 0.95, skyH));
     // 高空卷云: 视线投到天穹平面上 (天顶附近也不变形), 域扭曲 + 拉长的分形噪声 → 细碎、断续的白丝, 乘低频斑块遮罩
-    vec2 sp = d.xz / (h + 0.12);
+    vec2 sp = d.xz / (skyH + 0.12);
     sp = mat2(0.87, -0.5, 0.5, 0.87) * sp + vec2(uTime * 0.004, 0.0);
     vec2 wq = sp + 1.1 * vec2(vnoise(sp * 0.7), vnoise(sp * 0.7 + 5.2)) - 0.55;
     float st = vnoise(wq * vec2(0.8, 4.5)) * 0.5 + vnoise(wq * vec2(1.7, 9.0) + 3.1) * 0.3 + vnoise(wq * vec2(3.4, 17.0) + 8.7) * 0.2;
     float brk = smoothstep(0.35, 0.7, vnoise(wq * vec2(2.2, 3.0) + 11.0));
     float pmask = smoothstep(0.42, 0.72, vnoise(sp * 0.3 + 2.0));
-    float ci = smoothstep(0.55, 0.78, st) * brk * pmask * smoothstep(0.06, 0.3, h) * (1.0 - smoothstep(0.75, 1.0, h));
+    float ci = smoothstep(0.55, 0.78, st) * brk * pmask * smoothstep(0.06, 0.3, skyH) * (1.0 - smoothstep(0.75, 1.0, skyH));
     col = mix(col, mix(uMid, uHighlight, 0.85), ci * uCirrus);
     // 地平线柔光 (平滑淡出, 没有台阶)
-    col = mix(col, uHorizonGlow, (1.0 - smoothstep(0.0, uBandH, h)) * uHorizonBand);
+    col = mix(col, uHorizonGlow, (1.0 - smoothstep(0.0, uBandH, skyH)) * uHorizonBand);
     float s = max(dot(d, uSunDir), 0.0);
     col = mix(col, uSunTint, clamp(uSunGlow * (0.55 * pow(s, 4.0) + 1.2 * pow(s, 40.0)), 0.0, 1.0));
     // 地平线积云带 (最远的一层云, 画在远岛和近处积云后面): 方位用单位圆坐标采样噪声 → 360° 无接缝;
     // 顶边 = 一串大小不一的圆鼓包 (花椰菜轮廓), 只在部分方位出现; 鼓包顶向阳面奶白, 鼓包之间与下半部淡紫, 底部融进地平线亮带
-    if (uBank > 0.0 && h < uBankHeight * 1.6) {
+    if (uBank > 0.0 && skyH < uBankHeight * 1.6) {
       // 方位减去漂移角 (与云同速), 再折回 −π..π; 鼓包每圈恰好 214 个 (34.06 = 214 / 2π), 折回处无接缝
       float az = mod(atan(d.x, -d.z) - uTime * uBankDrift + 3.14159265, 6.2831853) - 3.14159265;
       vec2 hz = vec2(sin(az), -cos(az));
@@ -136,9 +138,8 @@ void main() {
       float bsz = 0.55 + 0.45 * hash12(vec2(floor(u), 3.3));
       float bump = sqrt(max(0.0, sin(3.14159 * fu))) * bsz;
       float top = uBankHeight * present * (0.25 + 0.75 * big) * (0.72 + 0.28 * bump);
-      float aa = fwidth(h) * 1.2 + 1e-5;
-      float inside = smoothstep(-aa, aa, top - h) * step(0.0015, top);
-      float rel = clamp(h / max(top, 1e-4), 0.0, 1.0);
+      float inside = smoothstep(-aa, aa, top - skyH) * step(0.0015, top);
+      float rel = clamp(skyH / max(top, 1e-4), 0.0, 1.0);
       float lit = smoothstep(0.45, 0.95, rel) * (0.55 + 0.45 * bump);
       vec3 bc = mix(mix(uCloudShade, uHorizon, 0.45), uCloudLight, lit);
       bc = mix(bc, mix(uCloudShade, uCloudLight, 0.4), (1.0 - bump) * smoothstep(0.6, 1.0, rel) * 0.4); // 鼓包之间的凹处
@@ -146,11 +147,19 @@ void main() {
       col = mix(col, bc, inside * uBank);
     }
     // 贴海面的薄白雾: 海平线处最浓, 往上按平方很快淡进天色 (薄、软, 不是一堵白墙)
-    float wm = 1.0 - smoothstep(0.0, uWaterMistH, h);
+    float wm = 1.0 - smoothstep(0.0, uWaterMistH, skyH);
     col = mix(col, uWaterMistColor, uWaterMist * wm * wm);
-    // 海天交接处完全由贴海薄雾 (uWaterMist) 与空气透视自然过渡, 杜绝海平线上出现断续亮线
-  } else {
-    col = mix(uSeaHorizon, uSeaDeep, smoothstep(0.0, -0.3, h));
+  }
+  if (h < aa) {
+    float seaH = min(0.0, h);
+    vec3 seaCol = mix(uSeaHorizon, uSeaDeep, smoothstep(0.0, -0.3, seaH));
+    float seaMist = 1.0 - smoothstep(0.0, -uWaterMistH, seaH);
+    seaCol = mix(seaCol, uWaterMistColor, uWaterMist * seaMist * seaMist * 0.5);
+    if (h <= -aa) {
+      col = seaCol;
+    } else {
+      col = mix(seaCol, col, smoothstep(-aa, aa, h));
+    }
   }
   ${OUT}
 }
