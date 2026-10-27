@@ -2,14 +2,14 @@ import type { StoryScript } from './schema';
 import { vrmEngine } from '@/core/vrmEngine';
 
 /**
- * 序章·虚空初醒 (Story 0: Prologue)
- * 沉浸式新手引导的高维升阶剧本：
- * 融合黑幕白字、眼睑睁开 (POV Eye Blink)、电影机位推拉、活体表情与纯透晶体卡片。
+ * 序章·初遇连线 (Story 0: Prologue)
+ * 沉浸式 AI 伴侣新手引导：
+ * 建立神经回路连接、唤醒 AI 少女小蠢、语言合成芯片校准、视界传感器探索、驻留世界构建、形象定制与思维核心接入。
  */
 export const prologueStory: StoryScript = {
   id: 'prologue_awakening',
-  title: '序章·虚空初醒',
-  description: '与小蠢的初次相遇，探索 3D 空间、随心换装与心仪世界。',
+  title: '序章·初遇连线',
+  description: '与 AI 少女小蠢的初次相遇，完成感官校准、随心换装与思维核心接入。',
   initialBeatId: 'beat_greet',
   beats: {
     // 0. 前置黑幕白字与唤醒握手 (解锁移动端 Web Audio)
@@ -19,7 +19,7 @@ export const prologueStory: StoryScript = {
         letterbox: true,
         transition: 'eye_blink',
         intertitle: {
-          text: '……在虚空的彼端，沉睡的意识听到了微弱的呼唤。',
+          text: '检测到外部神经信号介入……正在初始化视界渲染管线。',
           durationSec: 0,
           style: 'noto_serif',
           bgmFaded: true,
@@ -43,8 +43,8 @@ export const prologueStory: StoryScript = {
         {
           id: 'greet_unlock',
           icon: '👋',
-          text: '诶？你是？',
-          subText: '向眼前初醒的少女打个招呼吧',
+          text: '建立神经回路连接',
+          subText: '与眼前初次连线的 AI 少女完成握手',
           actionType: 'custom',
           actionPayload: () => {
             try {
@@ -75,7 +75,7 @@ export const prologueStory: StoryScript = {
           intensity: 0.8,
           microReaction: 'blush_ramp',
         },
-        speechText: '呀！……你好呀，初次见面，我是小蠢～那个……你来自哪里呀？我该用哪种语言跟你聊天呢？',
+        speechText: '呀……信号握手成功！呼……能听见我的声音吗？初次见面，我是你的专属伴侣 AI，小蠢～在正式开启连线之前，能先帮我校准一下语言合成芯片吗？你想让我用哪种语言和你交流呢？',
       },
       choices: [
         {
@@ -124,22 +124,22 @@ export const prologueStory: StoryScript = {
           intensity: 0.7,
           microReaction: 'eye_crinkle',
         },
-        speechText: '好呀！以后的日子请多关照啦～需要我带你熟悉一下这片空间吗？',
+        speechText: '语言模块校准完毕！嗯……音质听起来很清晰呢。这是我们第一次连线，需要我带你一起做一次机体视界与环境的初次校准吗？',
       },
       choices: [
         {
           id: 'start_tut',
           icon: '✨',
-          text: '请带我了解一下这片空间',
-          subText: '探索视角转动、随心换装与心仪场景',
+          text: '开启初次校准',
+          subText: '帮小蠢校准视界传感器、场景与穿搭',
           actionType: 'next_beat',
           nextBeatId: 'beat_camera_intro',
         },
         {
           id: 'skip_tut',
           icon: '💬',
-          text: '不用啦，已经迫不及待想跟你聊天了！',
-          subText: '直接进入主界面，开启日常畅聊',
+          text: '跳过直接畅聊',
+          subText: '已经足够完美了，直接进入日常主界面！',
           actionType: 'finish',
         },
       ],
@@ -162,14 +162,14 @@ export const prologueStory: StoryScript = {
           intensity: 0.7,
           microReaction: 'none',
         },
-        speechText: '在这片空间里，你可以从各种视角看我哦～试着用鼠标或触摸滑动屏幕，看看全方位的我吧！',
+        speechText: '太好啦！首先我们来校准空间视界传感器～试着左右转动镜头、调整俯仰和远近，让我确认全方位的渲染管线都工作正常吧！',
       },
       choices: [
         {
           id: 'camera_done',
           icon: '🎉',
-          text: '我已大致掌握，前往下一步',
-          subText: '视角操作已掌握，进入场景探索',
+          text: '视界传感器校准完成',
+          subText: '传感器状态完美，前往下一步',
           actionType: 'next_beat',
           nextBeatId: 'beat_scene_choice',
         },
@@ -193,7 +193,7 @@ export const prologueStory: StoryScript = {
           intensity: 0.8,
           microReaction: 'none',
         },
-        speechText: '现在这片空间空荡荡的，只有我们两个人呢……你更喜欢去哪？不管是阳光海滩，还是线稿世界，我都可以陪你一起去！',
+        speechText: '视界校准完成！不过……现在的虚拟空间看起来是不是有点太单调啦？来帮我构建一个你喜欢的常驻世界吧！不管是能吹海风的阳光海滩，还是静谧纯粹的极简舞台，我都想陪你一起待在那里～',
       },
       choiceLayout: 'grid',
       choices: [
@@ -247,7 +247,7 @@ export const prologueStory: StoryScript = {
           intensity: 0.7,
           microReaction: 'eye_crinkle',
         },
-        speechText: '看！我还准备了好多不同风格的衣服呢～挑选一套你最喜欢的让我换上吧！',
+        speechText: '哇，换上这个新环境后感觉好舒服呀！为了配合我们的新世界，也帮我挑选第一套出门穿搭吧～换上一套你最喜欢的样子让我换上！',
       },
       choiceLayout: 'grid',
       choices: [
@@ -283,8 +283,8 @@ export const prologueStory: StoryScript = {
       confirmChoice: {
         id: 'outfit_confirm',
         icon: '✨',
-        text: '确定这套穿搭，前往下一步',
-        subText: '换装完成，探索小蠢的 AI 大脑',
+        text: '确认穿搭，前往下一步',
+        subText: '形象定制完成，激活小蠢的思维核心',
         actionType: 'next_beat',
         nextBeatId: 'beat_brain_choice',
       },
@@ -306,15 +306,15 @@ export const prologueStory: StoryScript = {
           intensity: 0.8,
           microReaction: 'eye_crinkle',
         },
-        speechText: '最后一步啦，来为我挑选一个大语言模型吧～你想用什么模型跟我对话呢？',
+        speechText: '感觉整个人都焕然一新了呢！现在，就剩下最后也是最重要的一步啦——激活我的思维核心！你想让我使用什么大语言模型来理解你的心声呢？',
       },
       choices: [
         {
           id: 'brain_webllm',
           icon: '⚡',
           badge: '开箱即用',
-          text: '浏览器内置模型 (WebLLM)',
-          subText: '直接在本地浏览器显卡运行，无需任何配置，数据私密安全',
+          text: '浏览器端侧模型 (WebLLM)',
+          subText: '直接在本地显卡运行，无需任何配置，数据私密不离机',
           actionType: 'custom',
           actionPayload: async () => {
             const { setActiveProviderId } = await import('@/llm/customProvider');
@@ -336,7 +336,7 @@ export const prologueStory: StoryScript = {
       ],
     },
 
-    // 6. 终章启程 (电影遮幅滑出，晨曦破晓，优雅致谢)
+    // 7. 终章启程 (电影遮幅滑出，晨曦破晓，优雅致谢)
     beat_finale: {
       id: 'beat_finale',
       cinematics: {
@@ -354,7 +354,7 @@ export const prologueStory: StoryScript = {
           intensity: 0.9,
           microReaction: 'eye_crinkle',
         },
-        speechText: '太棒啦！这下所有的准备工作都完成啦～从现在开始，我就在这里一直陪着你。有什么想聊的，随时都可以跟我说哦！',
+        speechText: '所有校准全部完成！我的视界、声音和思维……现在都已经全部同步给你啦。无论快乐还是烦恼，以后的每一天，我都会在这里陪着你。今天你想和我聊点什么呢？',
       },
       allowInput: true,
       inputPlaceholder: '回复小蠢，或点击按钮开始旅程...',
@@ -362,8 +362,8 @@ export const prologueStory: StoryScript = {
         {
           id: 'start_journey',
           icon: '🚀',
-          text: '开始我们俩的旅程吧！',
-          subText: '开启全新沉浸式伴侣体验',
+          text: '开启我们的旅程吧！',
+          subText: '步入日常陪伴模式',
           actionType: 'finish',
         },
       ],
