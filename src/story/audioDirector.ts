@@ -183,21 +183,65 @@ export class StoryAudioDirector {
       if (!ctx || ctx.state === 'suspended') return;
 
       if (id === 'crystal_chime') {
-        // 空灵晶体卡片微光音 (正弦双音共鸣)
+        // 清脆通透的星铁质感晶体微光音 (玻璃瞬态击打 + 晶莹三音微琶音 + 空气感高频泛音，告别沉闷)
         const now = ctx.currentTime;
-        const osc = ctx.createOscillator();
-        const gain = ctx.createGain();
-        osc.type = 'sine';
-        osc.frequency.setValueAtTime(1318.5, now); // E6
-        osc.frequency.exponentialRampToValueAtTime(1760.0, now + 0.15); // A6
 
-        gain.gain.setValueAtTime(volume * 0.18, now);
-        gain.gain.exponentialRampToValueAtTime(0.0001, now + 0.6);
+        // 1. 玻璃微瞬态敲击 (Glass Transient Strike: 产生清脆利落的“叮”触感)
+        const clickOsc = ctx.createOscillator();
+        const clickGain = ctx.createGain();
+        clickOsc.type = 'triangle';
+        clickOsc.frequency.setValueAtTime(4186, now); // C8
+        clickOsc.frequency.exponentialRampToValueAtTime(2093, now + 0.025); // C7
+        clickGain.gain.setValueAtTime(volume * 0.20, now);
+        clickGain.gain.exponentialRampToValueAtTime(0.0001, now + 0.035);
+        clickOsc.connect(clickGain);
+        clickGain.connect(ctx.destination);
+        clickOsc.start(now);
+        clickOsc.stop(now + 0.035);
 
-        osc.connect(gain);
-        gain.connect(ctx.destination);
-        osc.start(now);
-        osc.stop(now + 0.6);
+        // 2. 辅助发声函数：生成带有八度微泛音的清脆晶体音符
+        const playCrystalNote = (freq: number, startTime: number, noteGain: number, duration: number) => {
+          // 基频纯净正弦波
+          const osc1 = ctx.createOscillator();
+          const g1 = ctx.createGain();
+          osc1.type = 'sine';
+          osc1.frequency.setValueAtTime(freq, startTime);
+          g1.gain.setValueAtTime(volume * noteGain, startTime);
+          g1.gain.exponentialRampToValueAtTime(0.0001, startTime + duration);
+          osc1.connect(g1);
+          g1.connect(ctx.destination);
+          osc1.start(startTime);
+          osc1.stop(startTime + duration);
+
+          // 高八度晶体泛音 (Shimmer Overtone: 赋予空气感与剔透感，消灭纯正弦的沉闷感)
+          const osc2 = ctx.createOscillator();
+          const g2 = ctx.createGain();
+          osc2.type = 'sine';
+          osc2.frequency.setValueAtTime(freq * 2.0, startTime);
+          g2.gain.setValueAtTime(volume * noteGain * 0.38, startTime);
+          g2.gain.exponentialRampToValueAtTime(0.0001, startTime + duration * 0.65);
+          osc2.connect(g2);
+          g2.connect(ctx.destination);
+          osc2.start(startTime);
+          osc2.stop(startTime + duration * 0.65);
+
+          // 五度泛音微共鸣 (5th harmonic sparkle)
+          const osc3 = ctx.createOscillator();
+          const g3 = ctx.createGain();
+          osc3.type = 'sine';
+          osc3.frequency.setValueAtTime(freq * 1.5, startTime);
+          g3.gain.setValueAtTime(volume * noteGain * 0.22, startTime);
+          g3.gain.exponentialRampToValueAtTime(0.0001, startTime + duration * 0.5);
+          osc3.connect(g3);
+          g3.connect(ctx.destination);
+          osc3.start(startTime);
+          osc3.stop(startTime + duration * 0.5);
+        };
+
+        // 3. 晶莹微琶音 (音符1: A6 1760Hz -> 音符2: E7 2637Hz 通透点亮 -> 音符3: A7 3520Hz 星芒余韵)
+        playCrystalNote(1760.0, now, 0.22, 0.70);         // A6 晶体起音
+        playCrystalNote(2637.0, now + 0.065, 0.26, 0.90); // E7 高音点亮，通透空灵
+        playCrystalNote(3520.0, now + 0.125, 0.14, 0.65); // A7 星芒微光余韵
       } else if (id === 'heartbeat_pulse') {
         // 低频心跳重击 (Sub-bass thud 55Hz)
         const now = ctx.currentTime;
