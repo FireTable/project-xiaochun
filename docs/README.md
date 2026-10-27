@@ -31,7 +31,7 @@ docs/
 ├── PERFORMANCE.md                 # Performance & payload notes: EMAGE slimming (191.35 → 71.59 MB), VRMA optimization (−44.5% payload), parallel download, lazy web-llm, boot/runtime prewarm
 ├── EMAGE_MODEL.md                 # EMAGE tip status + Worker PCM→chunk flowchart; limits (wasm/INT8, no WebGPU-EMAGE)
 │   (pack) ../packages/emage-onnx/  # Offline EMAGE ONNX slim/quantize/optimize toolchain (slim step, INT8 Conv, layer removal, graph optimization, host-side seed): README.md / README-CN.md
-├── OUTFIT_SWAP.md                 # Full-outfit swap (Delta .vrmaddon packages, 2-tier IDB caching, 0-frame pop-in)
+├── OUTFIT_SWAP.md                 # Full-outfit swap (Delta .vrmaddon packages, 2-tier IDB caching, Zero-Drop Triad: texture sharing, staggered disposal, yielded parsing)
 ├── POSTFX.md                      # Anime post-processing pipeline (UnrealBloom background bypass, ToneMapping & ColorGrading)
 ├── VRM_BUILD_WORKFLOW.md          # Offline VRM toolchain (.vrmbase + .vrmaddon extraction, oxipng & deterministic builds)
 ├── VRM_ENGINE_AND_WORKER.md       # Core architecture (Main VRMEngine orchestrator + background vrmWorker WASM synthesis)
@@ -68,7 +68,7 @@ When tasked with modifications or refactoring, consult the dedicated technical g
 | **Camera turning / Stepping legs frozen / Gaze drift** | [`BODY_TURN_AND_GAZE.md`](BODY_TURN_AND_GAZE.md) | Overlay `LEGS_MASK` only (no spine yaw); gaze yaw $\pm 45^\circ$; bubble/ruler share `getHeadTopWorldPosition`. |
 | **Wardrobe items / Clothing clipping / Lighting** | [`ARCHITECTURE_AND_RULES.md`](ARCHITECTURE_AND_RULES.md) | Respect VRoid material semantics; modify `src/config.ts` `wardrobe` as the single source of truth. |
 | **DevDrawer sections / Slider drag perf / Collapse / Reset broadcast** | [`ARCHITECTURE_AND_RULES.md` §3](ARCHITECTURE_AND_RULES.md#3-devdrawer-architecture) | Per-section state isolation; `onTick` for engine, `onChange` for state+storage only; `liveValueRef` for per-frame display without re-render. |
-| **Full-outfit swap / Delta addons / IDB cache / Swap sequence** | [`OUTFIT_SWAP.md`](OUTFIT_SWAP.md) | `.vrmbase` + `.vrmaddon` (Worker bspatch); 2-tier IDB; pre-restore pose in memory before atomic swap; 0-frame pop-in. |
+| **Full-outfit swap / Delta addons / IDB cache / Swap sequence** | [`OUTFIT_SWAP.md`](OUTFIT_SWAP.md) | `.vrmbase` + `.vrmaddon` (Worker bspatch); 2-tier IDB; pre-restore pose in memory before atomic swap; Zero-Drop Triad (texture sharing, staggered disposal, yielded parsing). |
 | **Post-processing / Bloom fog / ToneMapping / Color grading** | [`POSTFX.md`](POSTFX.md) | Filter white background in LuminosityHighPass; use Linear ToneMapping for anime skin; zero-overhead bypass when disabled. |
 | **Offline VRM build / Addon extraction / Model compression** | [`VRM_BUILD_WORKFLOW.md`](VRM_BUILD_WORKFLOW.md) | Run `node scripts/build-vrm/workflow.mjs`; check SHA-256 idempotency; fixed zip mtime UTC. |
 | **MToon material extensions / Shading presets / Skin moisture** | [`MTOON.md`](MTOON.md) | MToon NPR extensions + `materialType: MToonMaterial`; configure via `APP_CONFIG.mtoon.parts`. |

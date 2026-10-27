@@ -163,6 +163,17 @@ The 3D motion pipeline involves complex layered logic. Follow these geometric an
   - `bspatch` differential synthesis, `fflate` decompression, and binary assembly **MUST NEVER run on the main thread**. All heavy binary operations must be offloaded to the Dedicated Web Worker (`src/core/vrmWorker.ts`) and returned via `Transferable ArrayBuffer` zero-copy transfer;
   - `packRawGLB` must strictly enforce glTF 2.0 4-byte boundary alignment (trailing spaces `0x20` for JSON, null bytes `0x00` for BIN);
   - Maintain L1 base and L2 composed (`${baseSha}:${addonSha}`) two-tier IndexedDB caches to achieve 10~30ms repeat swaps.
+- **⚠️ Critical Architecture Rule: Zero-Drop Triad (Texture Sharing, Staggered Disposal & Yielded Parsing)**:
+  - Files: `src/core/texturePool.ts`, `src/core/staggeredDisposer.ts`, `src/core/vrmEngine.ts`
+  1. **Algorithmic Texture Sharing (`VRMTexturePool`)**:
+     - 21 textures (face, hair, eyes, highlights, skin, normal maps, shader utilities — ~60–80 MB VRAM) are 100% bit-for-bit SHA-256 identical across all outfits.
+     - `VRMTexturePool` computes 64-bit content hashes of glTF bufferViews and reuses existing GPU-resident `THREE.Texture` instances directly on incoming materials, disposing duplicate uninitialized textures immediately.
+     - Never calls WebGL texture re-allocation for shared assets. Shared textures use reference counting so active avatars never lose their GPU textures.
+  2. **Staggered WebGL Disposal (`StaggeredDisposer`)**:
+     - **NEVER call synchronous `VRMUtils.deepDispose(previousVrm.scene)` in the atomic swap frame**. Synchronously destroying 50+ WebGL buffers, textures, and programs stalls the GPU driver for 15~35ms, dropping frames right as the new model mounts.
+     - `StaggeredDisposer` enqueues old geometries, materials, skeletons, and unique textures, cleanly releasing them across subsequent idle/animation frames within a strict $\le 2\text{ms}$ budget.
+  3. **Yielded Parsing (`yieldToMain`)**:
+     - `loadVRM` and `loadVRMFromBuffer` must cooperatively yield (`await yieldToMain()`) between heavy setup phases (`applyVrmUtilsOptimizations`, texture deduplication, `materialManager.optimize`). This guarantees the active character continues animating and breathing at full 60 FPS without micro-freezes while the new model prepares in memory.
 
 ### 2.10 Cinematic PostFx Pipeline & Anime Bloom Isolation
 - Files: `src/core/postfx/postFxPipeline.ts`, detailed in [`docs/POSTFX.md`](docs/POSTFX.md).
