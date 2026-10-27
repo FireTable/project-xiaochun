@@ -212,25 +212,25 @@ export const StoryPlayer: React.FC<StoryPlayerProps> = ({
 
       {/* 2. 顶部微拟态控制面板 (Top HUD) */}
       <div className="pointer-events-auto fixed top-3 inset-x-4 sm:top-3.5 sm:inset-x-8 z-40 flex items-center justify-between">
-        {/* 左侧：章节信息与进度胶囊 */}
-        <div className="flex items-center space-x-2.5 px-3.5 py-1.5 rounded-full bg-[#0b0e1b]/80 backdrop-blur-xl border border-white/15 text-white shadow-lg">
+        {/* 左侧：章节标题 */}
+        <div className="flex items-center px-3.5 py-1.5 rounded-full bg-[#0b0e1b]/80 backdrop-blur-xl border border-white/15 text-white shadow-lg">
           <span className="text-xs sm:text-sm font-medium tracking-wide">
             {script.title}
           </span>
-          <span className="text-[11px] px-2 py-0.5 rounded-full bg-white/10 text-white/80 font-mono">
-            {storyState.progress.current} / {storyState.progress.total}
-          </span>
         </div>
 
-        {/* 右侧：跳过按钮 */}
+        {/* 右侧：整合进度指示与跳过动作胶囊 */}
         <div className="flex items-center space-x-2">
           <button
             type="button"
             onClick={handleSkipOrExit}
-            className="flex items-center space-x-1 px-3 py-1.5 rounded-full bg-[#0b0e1b]/80 hover:bg-[#151b33] active:scale-95 backdrop-blur-xl border border-white/15 text-white/90 hover:text-white text-xs sm:text-sm transition-all duration-200 shadow-lg cursor-pointer"
+            className="flex items-center space-x-2 pl-2 pr-3 py-1.5 rounded-full bg-[#0b0e1b]/80 hover:bg-[#151b33] active:scale-95 backdrop-blur-xl border border-white/15 text-white/90 hover:text-white text-xs sm:text-sm transition-all duration-200 shadow-lg cursor-pointer"
           >
+            <span className="text-[11px] px-2 py-0.5 rounded-full bg-white/10 text-white/80 font-mono">
+              {storyState.progress.current} / {storyState.progress.total}
+            </span>
             <span>跳过</span>
-            <X className="w-3.5 h-3.5 ml-0.5 opacity-70" />
+            <X className="w-3.5 h-3.5 opacity-70" />
           </button>
         </div>
       </div>

@@ -196,13 +196,9 @@ export const HeadBubble: React.FC<HeadBubbleProps> = ({ state }) => {
           </div>
         )}
 
-        {/* 对话正文：视觉小说舒适字距与清晰行高 */}
+        {/* 对话正文：视觉小说舒适字距与清晰行高，统一左对齐 */}
         {(isSpeaking || ttsDown) && state.speechText && (
-          <div
-            className={`text-sm font-medium text-white/95 leading-relaxed break-words max-h-[calc(5*1.45em)] overflow-y-auto pr-1 select-text custom-bubble-scrollbar pointer-events-auto ${
-              state.speechText.length > 30 ? 'text-left' : 'text-center'
-            }`}
-          >
+          <div className="text-sm font-medium text-white/95 leading-relaxed break-words text-left max-h-[calc(5*1.45em)] overflow-y-auto pr-1 select-text custom-bubble-scrollbar pointer-events-auto">
             {state.speechText}
           </div>
         )}
