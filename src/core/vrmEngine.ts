@@ -20,7 +20,8 @@ import type { VocalAudioProcessor } from '@/director/vocalProcessor';
 import type { HostAudioInput } from '@/director/hostAudio';
 import { MotionPipeline } from '@/motion/pipeline/motionPipeline';
 import type { PlayMotionOptions, UniversalMotionHandle } from '@/motion/sources/clip';
-import { MOTION_CATALOG, type MotionCatalogId, isMotionCatalogId } from '@/motion/catalog';
+import { MOTION_CATALOG, type MotionCatalogId, isMotionCatalogId, selectMotionFromGroup } from '@/motion/catalog';
+import { motionAssetManager } from '@/motion/pipeline/motionAssetManager';
 import { resolveMotionUrl } from '@/motion/motionResolver';
 import { preloadWebLLM, unloadWebLLM } from '@/llm/webLLMProvider';
 import { isHeavyPreloadAllowed, isLlmPreloadAllowed } from '@/lib/heavyPreload';
@@ -1608,78 +1609,20 @@ export class VRMEngine {
     return this.gazeController.enabled;
   }
 
-  /** 倾听开关与动捕资产驱动 */
-  private listening = false;
-  private listeningMotionHandle: UniversalMotionHandle | null = null;
-  private listeningBuffer: ArrayBuffer | null = null;
-  private cachedListeningClip: THREE.AnimationClip | null = null;
-  private lastListeningUrl: string | null = null;
-
-  public async preloadListening(): Promise<void> {
-    const url = MOTION_CATALOG.listening.url;
-    if (this.listeningBuffer && this.lastListeningUrl === url) return;
-    try {
-      const res = await fetch(url);
-      if (res.ok) {
-        this.listeningBuffer = await res.arrayBuffer();
-        this.cachedListeningClip = null;
-        this.lastListeningUrl = url;
-      }
-    } catch (e) {
-      console.warn('预加载倾听动作失败', e);
-    }
-  }
-
   public setListening(listening: boolean): void {
-    if (this.listening === listening) return;
-    this.listening = listening;
-
     if (listening) {
-      void this.startListeningMotion();
+      if (this.turnState === 'idle') {
+        this.setTurnState('listening');
+      }
     } else {
-      this.stopListeningMotion();
-    }
-  }
-
-  private async startListeningMotion(): Promise<void> {
-    if (!this.listening) return;
-    if (this.chatDirector.speaking || this.chatDirector.turnState !== 'idle') return;
-    if (!this.currentVRM) return;
-
-    try {
-      const url = MOTION_CATALOG.listening.url;
-      if (!this.listeningBuffer || this.lastListeningUrl !== url) {
-        await this.preloadListening();
+      if (this.turnState === 'listening') {
+        this.setTurnState('idle');
       }
-      if (!this.listening) return;
-      if (!this.cachedListeningClip && this.listeningBuffer && this.currentVRM) {
-        this.cachedListeningClip = await this.motionPipeline.universalMotion.parseToClip(
-          this.listeningBuffer,
-          this.currentVRM,
-          MOTION_CATALOG.listening,
-        );
-      }
-      if (!this.listening) return;
-      if (this.cachedListeningClip && this.currentVRM) {
-        this.listeningMotionHandle = await this.playMotion(
-          this.cachedListeningClip,
-          MOTION_CATALOG.listening,
-        );
-      }
-    } catch (e) {
-      console.warn('[Listening] 播放 listening.vrma 失败:', e);
-    }
-  }
-
-  private stopListeningMotion(): void {
-    if (this.listeningMotionHandle) {
-      this.stopMotion(0.75);
-      this.listeningMotionHandle = null;
     }
   }
 
   public isListening(): boolean {
-    return this.listening;
+    return this.turnState === 'listening';
   }
 
   /**
@@ -1974,7 +1917,6 @@ export class VRMEngine {
       if ((m as THREE.Mesh).geometry) (m as THREE.Mesh).geometry.dispose();
     });
     this.chatDirector.resetClipCache();
-    this.cachedListeningClip = null;
 
     return new Promise<VRM>((resolve, reject) => {
       this.loader.load(
@@ -2069,6 +2011,7 @@ export class VRMEngine {
 
             // 3. 将所有控制器重定向绑定到新模型
             this.motionPipeline.bind(vrm);
+            this.chatDirector.bindVRM(vrm);
             this.vrmaPlayer.resetHipsRest();
             this.motionPipeline.finalPose.sampleFromVRM(vrm);
             this.bodyMorph.bind(vrm);
@@ -2127,6 +2070,7 @@ export class VRMEngine {
           this.notifyReady(true);
 
           this.motionPipeline.bind(vrm);
+          this.chatDirector.bindVRM(vrm);
           this.vrmaPlayer.resetHipsRest();
           this.motionPipeline.finalPose.sampleFromVRM(vrm);
           this.bodyMorph.bind(vrm);
@@ -2512,6 +2456,7 @@ export class VRMEngine {
     //   - onLoadingChange — 只在 preserveMotion=false 时发(冷启动),LoadingOverlay 用。
     //   中途换装 (preserveMotion=true) overlay 已被 loadVRM 跳过,只靠按钮反馈。
     const preserveMotion = this.currentVRM !== null;
+    const wasSpeakingOrThinkingAtStart = this.turnState === 'thinking' || this.turnState === 'speaking' || this.chatDirector.speaking;
     const phaseLabel = preserveMotion ? 'swappingOutfit' : 'loadingModel';
     const subtitleVars = { name: filename };
     if (!preserveMotion) {
@@ -2554,11 +2499,12 @@ export class VRMEngine {
         this.notifyOutfitChange('__upload__');
       }
 
-      // 运行时换衣且当前未在对话/思考，自动做全身服装展示走秀 (showFullBody)
-      const shouldShowcase = preserveMotion && (options?.showcase ?? true);
-      const isSpeakingOrThinking = this.chatDirector.speaking || this.chatDirector.turnState !== 'idle';
-      if (shouldShowcase && !isSpeakingOrThinking) {
-        void this.playMotion('showFullBody', { fadeDuration: 0.6, loop: false }).catch((e) => {
+      // 运行时换衣且当前未在对话/思考/倾听（且非会话中换装），自动从走秀动作组按权重随机抽取并展示
+      const isChatActive = this.turnState === 'thinking' || this.turnState === 'speaking' || this.turnState === 'listening' || this.chatDirector.speaking;
+      const shouldShowcase = preserveMotion && !wasSpeakingOrThinkingAtStart && !isChatActive && (options?.showcase ?? true);
+      if (shouldShowcase) {
+        const showcaseMotion = selectMotionFromGroup('outfitShowcase');
+        void this.playMotion(showcaseMotion, { fadeDuration: 0.6, loop: false }).catch((e) => {
           console.warn('[vrmEngine] outfit showcase motion notice:', e);
         });
       }
@@ -2710,6 +2656,7 @@ export class VRMEngine {
 
             // 3. 将所有控制器重定向绑定到新模型
             this.motionPipeline.bind(vrm);
+            this.chatDirector.bindVRM(vrm);
             this.vrmaPlayer.resetHipsRest();
             this.motionPipeline.finalPose.sampleFromVRM(vrm);
             this.bodyMorph.bind(vrm);
@@ -2758,6 +2705,7 @@ export class VRMEngine {
           this.notifyReady(true);
 
           this.motionPipeline.bind(vrm);
+          this.chatDirector.bindVRM(vrm);
           this.vrmaPlayer.resetHipsRest();
           this.motionPipeline.finalPose.sampleFromVRM(vrm);
           this.bodyMorph.bind(vrm);
@@ -3182,9 +3130,13 @@ export class VRMEngine {
     return () => this.speakingListeners.delete(cb);
   }
 
-  /** 当前对话状态 ('idle' | 'thinking' | 'speaking') */
+  /** 当前对话状态 ('idle' | 'listening' | 'thinking' | 'speaking') */
   public get turnState(): TurnState {
     return this.chatDirector.turnState;
+  }
+
+  public setTurnState(state: TurnState): void {
+    this.chatDirector.setTurnState(state);
   }
 
   private turnStateListeners = new Set<(state: TurnState) => void>();
@@ -3208,6 +3160,11 @@ export class VRMEngine {
     if (!force && !isHeavyPreloadAllowed()) return;
     if (!this.emagePlayer.ready) void this.emagePlayer.ensureLoaded();
     if (opts.llm ?? isLlmPreloadAllowed()) preloadWebLLM();
+    if (this.currentVRM) {
+      void motionAssetManager.warmCatalogMotions(this.currentVRM, (input, vrm, options) =>
+        this.motionPipeline.universalMotion.parseToClip(input, vrm, options),
+      );
+    }
     // new AudioContext() is a ~150 ms synchronous main-thread call (macOS CoreAudio); do it now, behind the loading
     // overlay, instead of mid-chat where it froze the VRM for a frame burst right as speech starts.
     setTimeout(() => this.chatDirector.prewarmAudio(), 0); // own task, not stacked on VRM setup
@@ -3343,7 +3300,7 @@ export class VRMEngine {
           time,
           enableBodyTurn: this.enableBodyTurn,
           isSpeaking: this.chatDirector.speaking,
-          isListening: this.listening,
+          isListening: this.turnState === 'listening',
           manualExpression: this.manualExpression,
         });
 

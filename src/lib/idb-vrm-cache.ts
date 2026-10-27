@@ -161,3 +161,53 @@ export async function idbClearAll(): Promise<{ cleared: boolean; reason?: string
     }
   });
 }
+
+function motionKey(url: string, version?: string): string {
+  const cleanUrl = url.split('?')[0];
+  const v = version ?? (url.includes('?') ? url.split('?')[1] : 'v1');
+  return `motion:${cleanUrl}@${v}`;
+}
+
+/**
+ * 获取 IndexedDB 中缓存的动作二进制 ArrayBuffer
+ */
+export async function idbGetMotion(url: string, version?: string): Promise<ArrayBuffer | null> {
+  const db = await openDb();
+  if (!db) return null;
+  return new Promise<ArrayBuffer | null>((resolve) => {
+    try {
+      const tx = db.transaction(RAW_STORE, 'readonly');
+      const req = tx.objectStore(RAW_STORE).get(motionKey(url, version));
+      req.onsuccess = () => resolve((req.result as ArrayBuffer | undefined) ?? null);
+      req.onerror = () => {
+        console.warn('[idb-vrm-cache] idbGetMotion failed:', req.error);
+        resolve(null);
+      };
+    } catch (e) {
+      console.warn('[idb-vrm-cache] idbGetMotion threw:', e);
+      resolve(null);
+    }
+  });
+}
+
+/**
+ * 将动作二进制 ArrayBuffer 写入 IndexedDB 持久化缓存
+ */
+export async function idbPutMotion(url: string, version: string | undefined, buf: ArrayBuffer): Promise<void> {
+  const db = await openDb();
+  if (!db) return;
+  return new Promise<void>((resolve) => {
+    try {
+      const tx = db.transaction(RAW_STORE, 'readwrite');
+      tx.objectStore(RAW_STORE).put(buf, motionKey(url, version));
+      tx.oncomplete = () => resolve();
+      tx.onerror = () => {
+        console.warn('[idb-vrm-cache] idbPutMotion failed:', tx.error);
+        resolve();
+      };
+    } catch (e) {
+      console.warn('[idb-vrm-cache] idbPutMotion threw:', e);
+      resolve();
+    }
+  });
+}

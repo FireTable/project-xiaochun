@@ -81,7 +81,8 @@ The 3D motion pipeline involves complex layered logic. Follow these geometric an
 - **Engineering Standard & Rule**:
   - In `VRMAMotionPlayer.stop()`, **never call `mixer.stopAllAction()` nakedly**.
   - Always snapshot all 52 humanoid bone quaternions (`VRM_ALL_HUMANOID_BONES`) and `hips.position` immediately **before** calling `mixer.stopAllAction()`, and write them back immediately **after** `mixer.stopAllAction()`.
-  - This ensures bone transforms remain continuous in 3D space across action stops, allowing `MotionTransitionManager` to capture the true anatomical pose.
+  - In `UniversalMotionController` (`src/motion/sources/clip.ts`), both `stop()` and `play()` (when replacing an active action) **must wrap action stopping in `preserveHumanoidPose`**. This prevents Three.js's internal `AnimationAction.stop()` from resetting bone bindings to T-pose (0).
+  - This ensures bone transforms remain continuous in 3D space across action stops, allowing `MotionTransitionManager` and `PoseBuffer` to capture the true anatomical pose.
 
 ### 2.4 State Machine Race Conditions & Premature Assignment Pitfall
 - **Pitfall Symptom**: Clicking "Send" caused the character to twitch/flicker back to idle for one frame before resuming `think`.
@@ -97,6 +98,9 @@ The 3D motion pipeline involves complex layered logic. Follow these geometric an
     * `isBusy` is evaluated strictly as `turnState === 'thinking' || turnState === 'speaking'`.
     * `MotionAssetManager` (`src/motion/pipeline/motionAssetManager.ts`) provides L1 memory pool, L2 IndexedDB persistence, L3 bound clip pool, and parallel warmup for `warmup: true` catalog items.
     * `MOTION_GROUPS` (`src/motion/catalog.ts`) guarantees compile-time type safety: deleting an action ID immediately causes a TypeScript compilation error.
+    * **VRM Reference SSOT Across Swaps**: `ChatDirector` and `MotionPipeline` must never retain or pass stale/disposed VRM references across outfit swaps. `chatDirector.bindVRM(vrm)` updates synchronously with `pipeline.bind(vrm)`. `onTurnStateChange` defaults strictly to `pipeline.boundVRM`.
+    * **Consecutive Motion Clip Crossfading**: When switching between two motion clips (e.g. showcase to listening), `MotionPipeline.setMotionSource('motion', ..., forceTransition = true)` forces a Quintic snapshot and crossfade, preventing instant 1-frame snaps.
+    * **Mid-Chat Swap Showcase Suppression**: Swapping outfits during dialogue/thinking (`wasSpeakingOrThinkingAtStart`) or while chat is active (`isChatActive`) strictly suppresses `outfitShowcase`, preventing unexpected motion triggers that conflict with user interaction.
 
 ### 2.5 EMAGE Cross-Segment Streaming Continuity (`switchSegment`)
 - File: `src/motion/sources/emage.ts`
@@ -203,6 +207,12 @@ The 3D motion pipeline involves complex layered logic. Follow these geometric an
   2. **Quintic Seamless Loop Bake on Sliced Assets (`scripts/slice-vrma.mjs`)**: Always apply Quintic Smootherstep ($6t^5 - 15t^4 + 10t^3$) over the tail $0.75\text{s}$ ($\approx 18$ frames) to Slerp/Lerp all bone channels into frame 0. Guarantees $0.00\text{mm}$ position jump, $< 0.04^\circ$ angular delta, and zero acceleration impulse at the seam.
   3. **Center & Damp Lateral Sway for Standing Clips**: Scale down large horizontal sway ($X$) on standing idle/listening clips to subtle organic micro-sway ($\le \pm 1.5\text{cm}$), keeping thighs in the center of the skirt volume.
   4. **Idempotent Mocap Slicing**: Keep pristine raw source files under `public/vrm/motion/raw/` so offline toolchains never repeatedly re-slice or degrade already processed assets.
+  5. **Lossless VRMA Optimization & Cache-Busting Invariant (`scripts/slice-vrma.mjs --optimize-all`)**:
+     - Strips unmapped non-humanoid orphan tracks (hair, bust, eyes) that `@pixiv/three-vrm-animation` ignores, preventing conflicts with `VRMSpringBone` and reclaiming ~40% of buffer memory;
+     - Strips non-standard `translation` tracks on bones other than `hips` (eliminates runtime Three.js console warnings);
+     - Caps FPS at 30 (Three.js Slerp delivers seamless 60/120Hz display refresh with zero visible loss); preserves native $\le 30\text{ FPS}$ untouched;
+     - Collapses exact zero-diff static channels ($\Delta_{\max} \le 10^{-4}$) to 2 constant frames;
+     - **CRITICAL INVARIANT**: Whenever `.vrma` assets are modified or re-optimized, **always bump the cache-busting version query (`?v=...`) in `MOTION_CATALOG` (`src/motion/catalog.ts`)**. `motionResolver.ts` mirrors catalog URLs via SSOT. Otherwise, browsers and IndexedDB cache (`vrm-assets-cache` / `RAW_STORE`) will silently continue serving stale, heavy binaries!
 
 ### 2.13 Performance & Frame-Budget Disciplines (Zero GC & 60 FPS Guarantees)
 - Target: Strictly protect the 16.6ms frame budget, maintaining stable 60 FPS on both mobile and desktop with zero visible frame drops, micro-stutters, or memory leaks.

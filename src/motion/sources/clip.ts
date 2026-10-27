@@ -5,6 +5,7 @@ import type { VRM } from '@pixiv/three-vrm';
 import { retargetClip, makeClipSeamless } from '../vrmaRetarget';
 import { PIPELINE_BONES, type MotionBoneMask } from '../pipeline/poseBuffer';
 import { DEFAULT_MOTION_TRAITS, type MotionTraits } from '../pipeline/types';
+import { motionAssetManager } from '../pipeline/motionAssetManager';
 
 export interface PlayMotionOptions {
   /** 混合过渡时间（秒），默认约 0.98s（P0c.1 +30%） */
@@ -80,8 +81,38 @@ export class UniversalMotionController {
   private lastBuffer: ArrayBuffer | null = null;
 
   bind(vrm: VRM): void {
+    if (this.vrm === vrm && this.mixer) return;
     this.vrm = vrm;
     this.mixer = new THREE.AnimationMixer(vrm.scene);
+    this.currentAction = null;
+    this.active = false;
+  }
+
+  /**
+   * 姿态保护闭包：执行销毁/停止动画动作操作前后，完整快照并还原全部 52 根人形骨骼与 Hips 位置，
+   * 杜绝 Three.js stopAllAction / Action.stop 触发内部 restoreOriginalState 造成的骨骼 T-Pose 闪烁与跳帧。
+   */
+  private preserveHumanoidPose(fn: () => void): void {
+    const boneTransforms: { node: THREE.Object3D; q: THREE.Quaternion; p?: THREE.Vector3 }[] = [];
+    if (this.vrm?.humanoid) {
+      for (const name of PIPELINE_BONES) {
+        const node = this.vrm.humanoid.getNormalizedBoneNode(name);
+        if (node) {
+          boneTransforms.push({
+            node,
+            q: node.quaternion.clone(),
+            p: name === 'hips' ? node.position.clone() : undefined,
+          });
+        }
+      }
+    }
+
+    fn();
+
+    for (const item of boneTransforms) {
+      item.node.quaternion.copy(item.q);
+      if (item.p) item.node.position.copy(item.p);
+    }
   }
 
   /**
@@ -93,6 +124,14 @@ export class UniversalMotionController {
     options?: PlayMotionOptions,
   ): Promise<THREE.AnimationClip> {
     const antiClip = options?.antiClip ?? false;
+    if (typeof input === 'string') {
+      const cachedClip = motionAssetManager.getClip(input);
+      if (cachedClip) {
+        this.lastUrl = input;
+        return cachedClip;
+      }
+    }
+
     if (input instanceof THREE.AnimationClip) {
       let clip = input;
       if (options?.timeRange) {
@@ -108,11 +147,7 @@ export class UniversalMotionController {
     let buffer: ArrayBuffer;
     if (typeof input === 'string') {
       this.lastUrl = input;
-      const resp = await fetch(input);
-      if (!resp.ok) {
-        throw new Error(`[UniversalMotion] 无法加载动作文件: ${input} (HTTP ${resp.status})`);
-      }
-      buffer = await resp.arrayBuffer();
+      buffer = await motionAssetManager.fetchBuffer(input);
     } else {
       this.lastUrl = null;
       buffer = input;
@@ -171,7 +206,14 @@ export class UniversalMotionController {
       });
     }
 
-    return retargetClip(clip, vrm, { antiClip });
+    const finalClip = retargetClip(clip, vrm, { antiClip });
+    if (options?.loop) {
+      makeClipSeamless(finalClip, options.fadeDuration);
+    }
+    if (typeof input === 'string') {
+      motionAssetManager.setClip(input, finalClip);
+    }
+    return finalClip;
   }
 
   /**
@@ -206,7 +248,10 @@ export class UniversalMotionController {
     action.setEffectiveTimeScale(timeScale);
 
     if (this.currentAction && this.currentAction !== action) {
-      this.currentAction.stop();
+      const prevAction = this.currentAction;
+      this.preserveHumanoidPose(() => {
+        prevAction.stop();
+      });
     }
 
     action.play();
@@ -295,28 +340,9 @@ export class UniversalMotionController {
   stop(_fadeDur?: number): void {
     if (!this.active && !this.currentAction) return;
 
-    // 保护当前姿态
-    const boneTransforms: { node: THREE.Object3D; q: THREE.Quaternion; p?: THREE.Vector3 }[] = [];
-    if (this.vrm?.humanoid) {
-      for (const name of PIPELINE_BONES) {
-        const node = this.vrm.humanoid.getNormalizedBoneNode(name);
-        if (node) {
-          boneTransforms.push({
-            node,
-            q: node.quaternion.clone(),
-            p: name === 'hips' ? node.position.clone() : undefined,
-          });
-        }
-      }
-    }
-
-    this.mixer?.stopAllAction();
-
-    // 还原姿态，交由管线平滑过渡接管
-    for (const item of boneTransforms) {
-      item.node.quaternion.copy(item.q);
-      if (item.p) item.node.position.copy(item.p);
-    }
+    this.preserveHumanoidPose(() => {
+      this.mixer?.stopAllAction();
+    });
 
     this.active = false;
     this.isFadingOut = false;
@@ -326,6 +352,10 @@ export class UniversalMotionController {
       this.onEndTriggered = true;
       this.currentOptions.onEnd?.();
     }
+  }
+
+  isLoop(): boolean {
+    return Boolean(this.currentOptions.loop);
   }
 
   isPlaying(): boolean {

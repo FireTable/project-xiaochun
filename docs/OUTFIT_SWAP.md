@@ -86,6 +86,8 @@ Traditional model reloads stop current animations when download begins (causing 
 2. **Deferred State Capture**: At the exact microsecond the new GLB buffer finishes parsing, `captureOutfitSwapState(oldVrm)` snapshots bone quaternions, `hips.position`, expression weights, and LookAt vectors;
 3. **In-Memory Pre-Restoration**: Before adding the new model to the Three.js scene, `preRestoreOutfitSwapState(newVrm, snapshot)` pre-populates all 52 humanoid bone transforms in memory;
 4. **Atomic Scene Swap**: In a single execution microtask, the engine removes the old avatar and adds the pre-posed new avatar (`scene.remove(old) + scene.add(new)`), followed by SpringBone reconnection (`postRestoreOutfitSwapState`).
+5. **Subsystem SSOT Rebinding**: All controllers (`MotionPipeline`, `ChatDirector`, `vrmaPlayer`, `bodyMorph`) synchronously update their VRM instances via `bindVRM(newVrm)`. No subsystem retains references to disposed models, completely preventing ghost bone updates or corrupted gaze transforms upon subsequent state switches.
+6. **Dialogue / Thinking Showcase Suppression**: When an outfit swap begins while the avatar is speaking or thinking (`wasSpeakingOrThinkingAtStart`), or completes while chat is active (`isChatActive`), the default `outfitShowcase` motion group is strictly suppressed to prevent overriding the ongoing conversation.
 
 ### State Restoration Fidelity Matrix:
 | State Dimension | Quality & Implementation Strategy |
@@ -123,3 +125,4 @@ Traditional model reloads stop current animations when download begins (causing 
 | 2026-09-10 | Implemented state migration (Plan A) | Snapshots and restores animations, expressions, and gaze across swaps |
 | 2026-09-11 | Standardized `.vrmbase` + `.vrmaddon` | 65% payload reduction; 2-tier IndexedDB cache eliminates repeat downloads |
 | 2026-09-12 | Eliminated 1-frame T-pose flash | Pre-restores bone transforms in memory prior to scene mounting; offloads diffing to `vrmWorker` |
+| 2026-10-27 | Unified VRM SSOT & Mid-Chat Showcase Suppression | Eliminates dangling disposed VRM pointers across subsystems; suppresses showcase dance if swapped during speech/thinking |

@@ -129,7 +129,7 @@ Details and non-goals (no WebGPU-EMAGE, no P0d): [`EMAGE_MODEL.md`](EMAGE_MODEL.
 
 `xc.say` has no character cap. Empty text is still `bad_request`. Long text is cut only by `splitIntoSpeechChunks` (§2.1) inside `runSpeechPipeline`. Hosts send the full reply in one `say()`.
 
-`resetClipCache()` only drops the cached thinking VRMA so the next think clip rebinds after an outfit swap. It does not stop speech. A wardrobe change does not preempt an utterance.
+`resetClipCache()` only drops the cached thinking VRMA so the next think clip rebinds after an outfit swap. It does not stop speech. A wardrobe change does not preempt an utterance. When a wardrobe change occurs, `VRMEngine` calls `chatDirector.bindVRM(vrm)`, ensuring `ChatDirector` never retains stale references to disposed VRMs when transitioning `TurnState` ('idle' | 'listening' | 'thinking' | 'speaking'). Motion state transitions invoke `pipeline.onTurnStateChange(state)` strictly using the pipeline's active bound VRM.
 
 A text `xc.utterance` `start` is emitted by the protocol handler before `speakText` enters `handoff`, so the host can see that start before the fade ends. An audio `start` waits for the playback clock. When a preempted command returns, the bridge still sends that command's `xc.utterance` `end`.
 

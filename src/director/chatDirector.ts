@@ -7,9 +7,7 @@
  * 思考阶段仍用 thinking.vrma。
  */
 
-import type * as THREE from 'three';
 import type { VRM } from '@pixiv/three-vrm';
-import { makeClipSeamless } from '@/motion/vrmaRetarget';
 import type { VRMAMotionPlayer } from '@/motion/sources/vrma';
 import { type EmagePlayer, type EmageMotionData } from '@/motion/sources/emage';
 import { generateSpeechReply } from '@/llm/chatWorkflow';
@@ -413,7 +411,7 @@ export class ChatDirector {
     this.onTurnStateChange?.(state);
 
     if (this.pipeline) {
-      this.pipeline.onTurnStateChange(state, this.currentVRM);
+      this.pipeline.onTurnStateChange(state);
     }
   }
 
@@ -430,6 +428,9 @@ export class ChatDirector {
   private player: VRMAMotionPlayer | null = null;
   private emage: EmagePlayer | null = null;
   private currentVRM: VRM | null = null;
+  public bindVRM(vrm: VRM | null): void {
+    this.currentVRM = vrm;
+  }
   private pipeline: MotionPipeline | null = null;
   private stopPlaySegment: (() => void) | null = null;
   /**
@@ -1462,11 +1463,10 @@ export class ChatDirector {
       this.stopPlaySegment();
       this.stopPlaySegment = null;
     }
-    if (this.currentVRM) {
-      if (this.currentVRM.expressionManager) {
-        this.currentVRM.expressionManager.setValue('aa', 0);
-        this.currentVRM.expressionManager.setValue('ou', 0);
-      }
+    const activeVrm = this.currentVRM ?? this.pipeline?.boundVRM ?? null;
+    if (activeVrm?.expressionManager) {
+      activeVrm.expressionManager.setValue('aa', 0);
+      activeVrm.expressionManager.setValue('ou', 0);
     }
     try { this.currentSource?.stop(); } catch { }
     this.currentSource = null;

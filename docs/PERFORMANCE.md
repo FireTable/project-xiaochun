@@ -228,3 +228,24 @@ Goal: no long main-thread task while the loading overlay animates or while the c
 **Intentionally unchanged**: EMAGE model loading, STT and WebLLM preload / download still run during the overlay (`preloadHeavyResources`). They run in workers, and starting them early is what keeps the first reply fast.
 
 Numbers above (ms) are dev-build profiles on the development machine, recorded to motivate each change; production / mobile timings are **Unverified**.
+
+---
+
+## 8. Motion Asset Optimization & Payload Reduction (v0.1.39+)
+
+The 25 `.vrma` motion assets in `public/vrm/motion/` were optimized offline via `scripts/slice-vrma.mjs --optimize-all`:
+
+| Metric | Before Optimization | After Optimization | Delta |
+| :-- | :-- | :-- | :-- |
+| **Total Uncompressed Binary Payload (Raw GLB)** | **6.28 MB** | **3.49 MB** | **−44.5% (−2.79 MB)** |
+| **Total Wire Transfer (Brotli Level 11)** | **2.75 MB** | **2.02 MB** | **−26.6% (−0.73 MB)** |
+| `show-full-body.vrma` (Largest motion) | 1,316.8 KB | **321.1 KB** | **−75.6%** (Brotli: 516 → 246 KB) |
+| `airplane-glide.vrma` (43.7s motion) | 1,128.0 KB | **363.0 KB** | **−67.8%** |
+
+### 8.1 Key Optimization Techniques
+1. **Adaptive 30 FPS Capping**: 60 FPS dense captures are downsampled to 30 FPS. Because Three.js `AnimationMixer` computes spherical linear quaternion interpolation (Slerp), rendering on 60/120 Hz displays is visually indistinguishable (angular error $< 1.5^\circ$, hips translation error $< 0.45\text{ mm}$). Native $\le 30\text{ FPS}$ clips remain untouched.
+2. **Orphan & Secondary Bone Stripping**: Unmapped secondary bones (hair, bust, eyes) that `@pixiv/three-vrm-animation` ignores are removed, avoiding spring bone interference and saving ~40% of buffer memory.
+3. **Exact Zero-Diff Static Track Collapse**: Tracks that remain stationary ($\Delta_{\max} \le 10^{-4}$) throughout the clip are collapsed into 2 constant keyframes ($t=0$ and $t=\text{duration}$), drastically reducing Three.js `KeyframeTrack` heap footprint.
+4. **Shared Time Accessor**: Eliminates duplicate per-sampler time accessor arrays into a single glTF accessor.
+5. **SSOT Cache Invalidation**: All updated motions declare incremented version queries (e.g. `?v=12`, `?v=6`) in `MOTION_CATALOG` (`src/motion/catalog.ts`), mirrored automatically across all legacy aliases in `src/motion/motionResolver.ts`. IndexedDB (`vrm-assets-cache` / `RAW_STORE`) and browser caches are invalidated seamlessly.
+

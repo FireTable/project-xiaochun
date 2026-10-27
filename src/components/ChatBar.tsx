@@ -103,7 +103,8 @@ export const ChatBar: React.FC<{
   const restingVvHeightRef = useRef<number>(typeof window !== 'undefined' && window.visualViewport ? window.visualViewport.height : 0);
   const [hasText, setHasText] = useState(false);
   const [turnState, setTurnState] = useState(() => vrmEngine.turnState);
-  const isBusy = turnState !== 'idle';
+  const isBusy = turnState === 'thinking' || turnState === 'speaking';
+  const isListening = turnState === 'listening';
   const [isQueued, setIsQueued] = useState(false);
   const [isInputFocused, setIsInputFocused] = useState(false);
 
@@ -609,7 +610,7 @@ export const ChatBar: React.FC<{
     shudaoSegs: splitIntoSpeechChunks(t('chat.testSpeakShudaoText')).length,
   }), [t]);
 
-  const showChatBar = !autoHideActive || isPetUIVisible || isMenuOpen || isInputFocused || hasText || isBusy || sttState === 'listening' || sttState === 'recognizing' || sttState === 'loading';
+  const showChatBar = !autoHideActive || isPetUIVisible || isMenuOpen || isInputFocused || hasText || isBusy || isListening || sttState === 'listening' || sttState === 'recognizing' || sttState === 'loading';
   const visibilityClass = showChatBar
     ? 'opacity-100 pointer-events-auto'
     : 'opacity-0 pointer-events-none';

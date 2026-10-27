@@ -88,3 +88,13 @@ Generated `.vrmbase` and `.vrmaddon` files are consumed by [`src/core/vrmWorker.
 - Stores composed assets in IndexedDB L2 via [`src/lib/idb-vrm-cache.ts`](../src/lib/idb-vrm-cache.ts);
 - Communicates with the main thread via `Transferable ArrayBuffer` zero-copy IPC;
 - Full lifecycle details and zero-frame T-pose elimination are documented in [`docs/OUTFIT_SWAP.md`](OUTFIT_SWAP.md) and [`docs/VRM_ENGINE_AND_WORKER.md`](VRM_ENGINE_AND_WORKER.md).
+
+---
+
+## 6. Motion Assets Workflow (`scripts/slice-vrma.mjs`)
+
+Complementing the 3D mesh toolchain, motion animations (`.vrma`) are managed through [`scripts/slice-vrma.mjs`](../scripts/slice-vrma.mjs):
+- **Optimization**: `node scripts/slice-vrma.mjs --optimize-all` strips unmapped secondary bones, collapses zero-diff static channels, and caps dense captures to 30 FPS (−44.5% raw payload, −26.6% wire transfer);
+- **Slicing & Seams**: Applies Quintic Smootherstep seams and strips setup/teardown phases;
+- Full architecture and benchmarks are documented in [`docs/MOTION_PIPELINE.md`](MOTION_PIPELINE.md#5-vrma-motion-optimization-toolchain-scripts-slice-vrmamjs) and [`docs/PERFORMANCE.md`](PERFORMANCE.md#8-motion-asset-optimization--payload-reduction-v0139).
+

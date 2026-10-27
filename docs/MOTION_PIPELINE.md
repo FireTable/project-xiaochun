@@ -250,6 +250,23 @@ $$S(t) = 6t^5 - 15t^4 + 10t^3 \quad (t \in [0, 1])$$
 >    - In `NaturalIdleSystem.update`, when `locomotionWeight > 0.05` or stepping is active, damp `currentWeightShift` and `currentTorsoTurnYaw` to $0$ with rate $12.0$.
 >    - In `BodyTurnSystem`, elevate `SP.SETTLE` damping rate to $12.0$ and explicitly align `currentHipsPos` / `currentHipsQ` to `restHipsPos` / `restHipsQ` upon entering `SP.IDLE`.
 
+> [!CAUTION]
+> ### Pitfall 10: VRM Pointer Hijacking & Consecutive Motion Clip Snapping
+> **Symptoms**:
+> 1. After swapping outfits during speech and returning to idle, clicking the chat input bar causes the avatar's head to spin wildly 360° and the body to freeze in a corrupted pose.
+> 2. Switching consecutively between two motion clips (such as showcase $\to$ listening) causes an instant 1-frame snap rather than a smooth Quintic crossfade.
+> 
+> **Root Causes**:
+> 1. **Stale VRM Pointer in `ChatDirector`**: `ChatDirector` previously cached `currentVRM` during speech. When `swapOutfit` destroyed the old model and mounted the new one, `ChatDirector` retained the dangling reference to the disposed VRM. Upon focusing input (`turnState = 'listening'`), it passed the dead pointer to `MotionPipeline.onTurnStateChange()`, rebinding the entire motion pipeline back to the disposed model! GazeController continued targeting the live on-screen model while the pipeline wrote zeros to the dead model, creating extreme head twisting and bone freezing.
+> 2. **Three.js `AnimationAction.stop()` Zero-Reset**: In `UniversalMotionController`, playing a new clip called `prevAction.stop()` directly. Three.js restores property bindings to rest pose (0) when an action stops, wiping bone transforms for 1 frame.
+> 3. **Motion-to-Motion Crossfade Short-Circuit**: In `MotionPipeline.setMotionSource()`, checking `if (source === this.activeSource && mask === this.activeMask && !this.isCrossfading) return;` caused transitions between two clips (both `source === 'motion'`) to abort early without capturing transition snapshots or enabling crossfade.
+> 
+> **Architecture Standards & Rules**:
+> 1. **SSOT VRM Reference**: `MotionPipeline.boundVRM` is the sole source of truth. `ChatDirector` synchronizes via `bindVRM(vrm)`. `onTurnStateChange(state)` takes no required VRM argument and always uses `this.boundVRM`.
+> 2. **Universal 52-Bone Pose Protection (`preserveHumanoidPose`)**: Both `stop()` and `play()` in `UniversalMotionController` wrap action termination in a 52-bone snapshot/restore closure, preventing Three.js bone wiping.
+> 3. **Consecutive Motion Clip Crossfading (`forceTransition = true`)**: `playMotion` invokes `setMotionSource('motion', fadeDur, lookAtOffsets, mask, true)`. With `forceTransition`, `transitionFromPose` is captured and a 0.75s Quintic Smootherstep crossfade is guaranteed between consecutive clips.
+> 4. **Mid-Chat Showcase Suppression**: Outfit swap checks `wasSpeakingOrThinkingAtStart` and `isChatActive`. Swapping outfits during dialogue strictly suppresses `outfitShowcase`, preventing unwanted gestures from clashing with user chat focus.
+
 ---
 
 ## 3. MotionAssetManager & Type-Safe Motion Groups (`MOTION_GROUPS`)

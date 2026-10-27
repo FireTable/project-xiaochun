@@ -20,7 +20,7 @@ docs/
 ├── INTERACTION_AND_3D_GUIDES.md   # 3D holographic guides (Turn, Pitch, CameraY), shared gesture core (src/core/gesture), shared guide style (guideStyle.ts), wind aerodynamics & pure quaternion morph
 ├── BONE_MORPH.md                  # 28-Parameter orthogonal skeletal decoupling & procedural vertex morphing
 ├── FOOT_IK.md                     # Analytical two-bone IK, physical ground anchors & contrapposto weight-shift
-├── MOTION_PIPELINE.md             # Universal motion pipeline (Layered Graph), APIs & Quintic Smootherstep crossfade
+├── MOTION_PIPELINE.md             # Universal motion pipeline (Layered Graph), APIs, Quintic Smootherstep crossfade & VRMA optimization toolchain
 ├── PROCEDURAL_MOTION_GUIDE.md     # Procedural skeletal rig guide: T-pose zero-baseline trap, left/right symmetry, bone rotation cheat sheet & FK validation
 ├── ARCHITECTURE_AND_RULES.md      # Render loop lifecycle sequence, wardrobe system & 5 critical agent rules
 ├── BODY_TURN_AND_GAZE.md          # Critically damped spring yaw, 4-phase stepping state machine & companion gaze
@@ -28,7 +28,7 @@ docs/
 ├── ON_DEVICE_AI.md                # WebLLM (WebGPU) + EMAGE ONNX Worker + Client-side multi-tier IndexedDB memory
 ├── TTS.md                         # Edge TTS proxy (/api/tts) & Tone.js client-side vocal DSP pipeline (EQ3, compressor, reverb, 3D camera distance attenuation & spatial zoning)
 ├── STT.md                         # SenseVoice Small int8 ChatBar dictation (energy VAD + ORT Worker)
-├── PERFORMANCE.md                 # v0.1.14 performance & size notes: EMAGE slimming (191.35 → 71.59 MB), parallel download, lazy web-llm, opt-in crossOriginIsolated, thin WebLLM client, boot/runtime main-thread prewarm (GPU, AudioContext, scene/outfit switch); measured numbers, rejected options, unmeasured items
+├── PERFORMANCE.md                 # Performance & payload notes: EMAGE slimming (191.35 → 71.59 MB), VRMA optimization (−44.5% payload), parallel download, lazy web-llm, boot/runtime prewarm
 ├── EMAGE_MODEL.md                 # EMAGE tip status + Worker PCM→chunk flowchart; limits (wasm/INT8, no WebGPU-EMAGE)
 │   (pack) ../packages/emage-onnx/  # Offline EMAGE ONNX slim/quantize/optimize toolchain (slim step, INT8 Conv, layer removal, graph optimization, host-side seed): README.md / README-CN.md
 ├── OUTFIT_SWAP.md                 # Full-outfit swap (Delta .vrmaddon packages, 2-tier IDB caching, 0-frame pop-in)
@@ -61,7 +61,7 @@ When tasked with modifications or refactoring, consult the dedicated technical g
 | **Autonomous AI Agent Skill / Tool Calling / Automation** | [`AGENT_SKILL.md`](AGENT_SKILL.md) | Tool schema definition; OS detection checks; short vs long text strategy; companion alerts. |
 | **3D Holographic Guides / Camera elevation / Wind dynamics** | [`INTERACTION_AND_3D_GUIDES.md`](INTERACTION_AND_3D_GUIDES.md) | Long-press / modifier arming; shared gesture state machine for Tauri + `/embed` (`src/core/gesture`); TurnGuide3D; PitchGuide3D; CameraYGuide3D; shared white-UI style + soft shadow (`guideStyle.ts`); skirt wind / spring-bone tuning; passthrough capture while guides up. |
 | **VRMEngine facade / vrmWorker IPC / 2-tier IDB / Threading model** | [`VRM_ENGINE_AND_WORKER.md`](VRM_ENGINE_AND_WORKER.md) | Transferable ArrayBuffer zero-copy; 4-byte packRawGLB alignment; L1 base + L2 composed IDB keys; 0-freeze 60 FPS. |
-| **New motions / Motion jitter / Blending artifacts** | [`MOTION_PIPELINE.md`](MOTION_PIPELINE.md) | Always `playMotion`; Quintic 0.75s; FootIK+Gaze on draft then `composeLayeredSmooth`; invert LookAt on `finalPose` snapshots. |
+| **New motions / Motion jitter / Blending artifacts / VRMA optimization** | [`MOTION_PIPELINE.md`](MOTION_PIPELINE.md) | Always `playMotion`; Quintic 0.75s; FootIK+Gaze on draft then `composeLayeredSmooth`; `node scripts/slice-vrma.mjs --optimize-all`; bump `catalog.ts` `?v=`. |
 | **Writing procedural code motions / Bone angles / Sign inversion / T-pose trap** | [`PROCEDURAL_MOTION_GUIDE.md`](PROCEDURAL_MOTION_GUIDE.md) | Standard rest hanging baseline (`leftUpperArm.z = -1.33`, `rightUpperArm.z = +1.33`); opposite signs on roll/pitch; elbow hinge axis; finger curl signs; 1-line FK sanity script. |
 | **Foot floating / Shoe-off height / Ground skating** | [`FOOT_IK.md`](FOOT_IK.md) | Solve on draft VRM; fade `footIkMix`; `anchorToCurrentFeet` on speech start; `levelFeet` yields while stepping. |
 | **Morph sliders / Mesh distortion / Head shearing** | [`BONE_MORPH.md`](BONE_MORPH.md) | Obey "Bone vs. Soft-Tissue Separation" (`belly` is vertex-only); never overwrite `quaternion` in morph updates. |

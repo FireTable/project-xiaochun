@@ -31,6 +31,10 @@ import {
 } from './selectLiveMotionSource';
 import { computeAdaptiveFadeDuration } from './adaptiveFade';
 import { APP_CONFIG } from '../../config';
+import { motionAssetManager } from './motionAssetManager';
+import { MOTION_CATALOG } from '../catalog';
+import { makeClipSeamless } from '../vrmaRetarget';
+import type { TurnState } from '../../director/chatDirector';
 
 export type PipelineMotionSource = 'idle' | 'vrma' | 'emage' | 'motion';
 export type { MotionTraits, MotionSource, MotionConstraint, PlayHandle } from './types';
@@ -121,6 +125,9 @@ export class MotionPipeline {
 
   public targetYawOffset = 0.0;
   private boundVrm: VRM | null = null;
+  public get boundVRM(): VRM | null {
+    return this.boundVrm;
+  }
   private _btPos = new THREE.Vector3();
 
 
@@ -130,6 +137,7 @@ export class MotionPipeline {
     this.universalMotion.bind(vrm);
     this.vrma.bind(vrm);
     if (!same) {
+      motionAssetManager.invalidateBoundClips();
       this.restPose.sampleFromVRM(vrm);
       this.emage.bind(vrm);
       this.idle.bind(vrm);
@@ -162,8 +170,8 @@ export class MotionPipeline {
     const fadeDur = Math.max(0.26, options.fadeDuration ?? SOURCE_FADE_DURATION);
     const mask = options.mask ?? 'all';
 
-    // 启动管线平滑流转到通用动作源
-    this.setMotionSource('motion', fadeDur, lookAtOffsets, mask);
+    // 启动管线平滑流转到通用动作源 (forceTransition=true 保证连续播放动作时必触发 Quintic 补帧)
+    this.setMotionSource('motion', fadeDur, lookAtOffsets, mask, true);
 
     // 启动底层动画动作播放
     return this.universalMotion.play(clip, options);
@@ -279,6 +287,72 @@ export class MotionPipeline {
     this.emage.traits = { allowLocomotion: true, thinkSway: false, glanceChance: 0.40 };
   }
 
+  /**
+   * 对话交互状态机统一动作响应 (SSOT TurnState -> Motion Blending)
+   */
+  onTurnStateChange(state: TurnState, vrm?: VRM | null): void {
+    const targetVrm = vrm ?? this.boundVrm;
+    switch (state) {
+      case 'thinking': {
+        const thinkingClip = motionAssetManager.getClip('thinking') ?? motionAssetManager.getClip(MOTION_CATALOG.thinking.url);
+        if (thinkingClip && targetVrm) {
+          const fadeDur = MOTION_CATALOG.thinking.fadeDuration ?? 0.65;
+          const mask = (MOTION_CATALOG.thinking.mask as 'all' | 'upperBody') ?? 'upperBody';
+          this.playThinkingClip(thinkingClip, targetVrm, fadeDur, mask);
+        } else if (targetVrm) {
+          this.setIdleThinkSway(true);
+          void this.universalMotion.parseToClip(MOTION_CATALOG.thinking.url, targetVrm, MOTION_CATALOG.thinking).then((clip) => {
+            makeClipSeamless(clip, MOTION_CATALOG.thinking.fadeDuration);
+            motionAssetManager.setClip('thinking', clip);
+            motionAssetManager.setClip(MOTION_CATALOG.thinking.url, clip);
+            if (this.activeSource === 'idle' && this.idle.traits.thinkSway) {
+              const fadeDur = MOTION_CATALOG.thinking.fadeDuration ?? 0.65;
+              const mask = (MOTION_CATALOG.thinking.mask as 'all' | 'upperBody') ?? 'upperBody';
+              this.playThinkingClip(clip, targetVrm, fadeDur, mask);
+            }
+          }).catch((err) => {
+            console.warn('[MotionPipeline] 异步预热思考动作失败:', err);
+          });
+        } else {
+          this.setIdleThinkSway(true);
+        }
+        break;
+      }
+      case 'speaking': {
+        this.beginEmageSpeech();
+        break;
+      }
+      case 'listening': {
+        const listeningClip = motionAssetManager.getClip('listening') ?? motionAssetManager.getClip(MOTION_CATALOG.listening.url);
+        if (listeningClip && targetVrm) {
+          const fadeDur = MOTION_CATALOG.listening.fadeDuration ?? 0.75;
+          const mask = MOTION_CATALOG.listening.mask ?? 'all';
+          void this.playMotion(targetVrm, listeningClip, { ...MOTION_CATALOG.listening, fadeDuration: fadeDur, mask });
+        } else if (targetVrm) {
+          void this.universalMotion.parseToClip(MOTION_CATALOG.listening.url, targetVrm, MOTION_CATALOG.listening).then((clip) => {
+            makeClipSeamless(clip, MOTION_CATALOG.listening.fadeDuration);
+            motionAssetManager.setClip('listening', clip);
+            motionAssetManager.setClip(MOTION_CATALOG.listening.url, clip);
+            void this.playMotion(targetVrm, clip, MOTION_CATALOG.listening);
+          }).catch((err) => {
+            console.warn('[MotionPipeline] 异步预热倾听动作失败:', err);
+          });
+        }
+        break;
+      }
+      case 'idle': {
+        if (this.vrma.isPlaying()) {
+          this.vrma.stop();
+        }
+        if (this.universalMotion.isPlaying()) {
+          this.universalMotion.stop(SOURCE_FADE_DURATION);
+        }
+        this.resetChatMotion();
+        break;
+      }
+    }
+  }
+
   traitsForWriter(writer: LiveMotionWriter): MotionTraits {
     if (writer === 'emage') return this.emage.traits;
     if (writer === 'vrma') return this.vrma.traits;
@@ -294,8 +368,9 @@ export class MotionPipeline {
     duration = SOURCE_FADE_DURATION,
     lookAtOffsets = this.gaze.getLookAtOffsets(),
     mask: MotionBoneMask = 'all',
+    forceTransition = false,
   ): void {
-    if (source === this.activeSource && mask === this.activeMask && !this.isCrossfading) return;
+    if (!forceTransition && source === this.activeSource && mask === this.activeMask && !this.isCrossfading) return;
 
     const gazeOffsets = lookAtOffsets ?? this.gaze.getLookAtOffsets();
     copyTransitionSnapshot(this.transitionFromPose, this.finalPose, gazeOffsets, true);
