@@ -22,7 +22,9 @@ const TTS_PROXY_TIMEOUT_MS = 12_000;
 export async function streamNativeEdgeTTSNode(
   text: string,
   voice: string,
-  pitch: string,
+  pitch: string = '+10Hz',
+  rate: string = '+0%',
+  volume: string = '+0%',
   onChunk: (chunk: Uint8Array) => Promise<boolean> | boolean,
   signal: AbortSignal
 ): Promise<void> {
@@ -61,7 +63,7 @@ export async function streamNativeEdgeTTSNode(
     });
 
     socket.addEventListener('open', () => {
-      const { speechConfig, ssmlMessage } = buildEdgeTTSPayloads(text, voice, pitch);
+      const { speechConfig, ssmlMessage } = buildEdgeTTSPayloads(text, voice, pitch, rate, volume);
       try {
         socket.send(speechConfig);
         socket.send(ssmlMessage);
@@ -223,6 +225,8 @@ export function localApiPlugin(ttsProxyUrl: string): Plugin {
             let text = url.searchParams.get('text') || '';
             let voice = url.searchParams.get('voice') || 'zh-CN-XiaoyiNeural';
             let pitch = url.searchParams.get('pitch') || '+10Hz';
+            let rate = url.searchParams.get('rate') || '+0%';
+            let volume = url.searchParams.get('volume') || '+0%';
 
             if (bodyText) {
               try {
@@ -230,6 +234,8 @@ export function localApiPlugin(ttsProxyUrl: string): Plugin {
                 if (parsed.text) text = parsed.text;
                 if (parsed.voice) voice = parsed.voice;
                 if (parsed.pitch) pitch = parsed.pitch;
+                if (parsed.rate) rate = parsed.rate;
+                if (parsed.volume) volume = parsed.volume;
               } catch { }
             }
 
@@ -254,6 +260,8 @@ export function localApiPlugin(ttsProxyUrl: string): Plugin {
               text.trim(),
               voice,
               pitch,
+              rate,
+              volume,
               async (chunk) => {
                 const flushed = res.write(chunk);
                 if (!flushed) {

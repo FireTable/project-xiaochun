@@ -12,15 +12,48 @@
 
 ## 1. Request / Response
 
-`POST /api/tts` (or `GET ?text=&voice=&pitch=`), body `{ text, voice?, pitch? }` (defaults `zh-CN-XiaoyiNeural`, `+10Hz`).
+`POST /api/tts` (or `GET ?text=&voice=&pitch=&rate=&volume=`), body `{ text, voice?, pitch?, rate?, volume? }`:
+- `voice`: 目标发音人（默认 `zh-CN-XiaoyiNeural`）
+- `pitch`: 音调偏移（默认 `+10Hz`）
+- `rate`: 语速变化，支持百分比（默认 `+0%`，如 `+20%`, `-10%`）
+- `volume`: 音量增益（默认 `+0%`，如 `+15%`）
 
 | Result | Status | Body / Headers |
 | :-- | :-- | :-- |
-| Success | 200 | `audio/mpeg` stream (MP3, 24 kHz mono 48 kbps), `X-TTS-Cache: MISS \| HIT` |
+| Success | 200 | `audio/mpeg` stream (MP3, 24 kHz mono 48 kbps), `X-TTS-Cache: MISS \| HIT \| R2-HIT`, `X-TTS-Storage: r2 \| r2+pop \| pop \| none` |
 | Empty text | 400 | `{"error":"text is required"}` |
 | Upstream failure | 502 | `{"error": "<root cause> (after N attempts)", "reasons": [...]}` |
 
-Successful audio is cached in the Worker cache keyed by `SHA-256(voice|pitch|text)`.
+### 1.1 3-Tier Multi-Layer Caching Architecture
+
+为了同时保障低延迟、高并发可用性与持久留存，`/api/tts` 采用三级渐进式缓存设计：
+1. **L1 边缘 PoP 内存缓存 (`caches.default`)**:
+   - 响应延迟: **< 15 ms**
+   - 存储生命周期: 短期热点（受 Cloudflare PoP LRU 内存置换机制管理）
+   - 响应标头: `X-TTS-Cache: HIT`
+2. **L2 R2 对象存储持久化缓存 (`TTS_BUCKET` -> `xiaochun-tts`)**:
+   - 响应延迟: **20 ~ 50 ms**
+   - 存储生命周期: 永久沉淀，跨区域共享，0 Egress 流量费用
+   - 命中时自动异步写回所在 PoP 的 L1 缓存，下一次直接进入 < 15ms 极速通道
+   - 响应标头: `X-TTS-Cache: R2-HIT`
+   - 存储路径: `v1/${voice}/${hashKey}.mp3`
+   - 复合缓存哈希: `hashKey = SHA-256(voice|pitch|rate|volume|text)`，严格隔离不同语速、音高和音量参数，杜绝跨参数音频碰撞
+3. **L3 Edge-TTS 上游实时合成**:
+   - 响应延迟: **~1.0 s** 首包流式下发
+   - 响应标头: `X-TTS-Cache: MISS`
+   - 合成完成后在后台自动双写异步沉淀至 L1 与 L2
+
+### 1.2 开源项目零配置与优雅降级保证
+本项目开源部署对 R2 持久存储完全解耦（Duck-Typed）：
+- **启用 R2 持久缓存（推荐）**：
+  ```bash
+  # 1. 创建 R2 bucket (仅需执行一次)
+  pnpm run setup:tts-cache
+  # 2. wrangler.jsonc 默认已包含 TTS_BUCKET 绑定，直接部署即可
+  pnpm run deploy
+  ```
+- **无需 R2 持久缓存**：
+  若个人用户无 R2 额度，仅需在 `wrangler.jsonc` 中删除或注释 `r2_buckets` 配置。Worker 运行时会自动检测 `env.TTS_BUCKET`，缺失时自动无缝退化为 `L1 PoP 内存缓存 + L3 实时合成`，没有任何运行时报错或部署阻碍。
 
 ## 2. Upstream Connection
 

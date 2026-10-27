@@ -20,13 +20,14 @@ import type { Lang } from '@/i18n';
 import { APP_CONFIG } from '@/config';
 import { StreamResampler16k, PcmSlicer, HOST_AUDIO, clampPlaybackRate, clampVolume, type HostAudioInput } from '@/director/hostAudio';
 
-export type TurnState = 'idle' | 'thinking' | 'speaking';
+export type TurnState = 'idle' | 'listening' | 'thinking' | 'speaking';
 
 interface Plan { speech: string; llm_provider?: string }
 
 import { splitIntoSpeechChunks, stripForTTS } from '@/lib/utils';
 import { VocalAudioProcessor } from './vocalProcessor';
 import { MOTION_CATALOG } from '@/motion/catalog';
+import { motionAssetManager } from '@/motion/pipeline/motionAssetManager';
 
 
 /** endAudioStream / 生产者收尾的最长等待；超时后不再阻塞发送按钮 */
@@ -96,18 +97,46 @@ function getChunkRMS(pcm: Float32Array): number {
  * - 纯英文/拉丁字母文本 → APP_CONFIG.tts.voices.en (zh-CN-XiaoyiNeural)
  * - 中文及其他 → APP_CONFIG.tts.voices['zh-CN'] (zh-CN-XiaoyiNeural)
  */
-export function resolveTTSVoice(text: string, voiceOverride?: string): { voice: string; pitch: string } {
+export function resolveTTSVoice(
+  text: string,
+  voiceOverride?: string,
+): { voice: string; pitch: string; rate: string; volume: string } {
   const ttsConfig = APP_CONFIG.tts;
+  const defaultRate = (ttsConfig as any)?.defaultRate ?? '+0%';
+  const defaultVolume = (ttsConfig as any)?.defaultVolume ?? '+0%';
   if (voiceOverride) {
-    return { voice: voiceOverride, pitch: ttsConfig?.defaultPitch ?? '+10Hz' };
+    return {
+      voice: voiceOverride,
+      pitch: ttsConfig?.defaultPitch ?? '+10Hz',
+      rate: defaultRate,
+      volume: defaultVolume,
+    };
   }
   if (/[\u3040-\u309F\u30A0-\u30FF]/.test(text)) {
-    return ttsConfig?.voices?.ja ?? { voice: 'ja-JP-NanamiNeural', pitch: '+5Hz' };
+    const ja = ttsConfig?.voices?.ja as any;
+    return {
+      voice: ja?.voice ?? 'ja-JP-NanamiNeural',
+      pitch: ja?.pitch ?? '+5Hz',
+      rate: ja?.rate ?? defaultRate,
+      volume: ja?.volume ?? defaultVolume,
+    };
   }
   if (!/[\u4E00-\u9FFF]/.test(text) && /[a-zA-Z]/.test(text)) {
-    return ttsConfig?.voices?.en ?? { voice: 'zh-CN-XiaoyiNeural', pitch: '+10Hz' };
+    const en = ttsConfig?.voices?.en as any;
+    return {
+      voice: en?.voice ?? 'zh-CN-XiaoyiNeural',
+      pitch: en?.pitch ?? '+10Hz',
+      rate: en?.rate ?? defaultRate,
+      volume: en?.volume ?? defaultVolume,
+    };
   }
-  return ttsConfig?.voices?.['zh-CN'] ?? { voice: 'zh-CN-XiaoyiNeural', pitch: '+10Hz' };
+  const zh = ttsConfig?.voices?.['zh-CN'] as any;
+  return {
+    voice: zh?.voice ?? 'zh-CN-XiaoyiNeural',
+    pitch: zh?.pitch ?? '+10Hz',
+    rate: zh?.rate ?? defaultRate,
+    volume: zh?.volume ?? defaultVolume,
+  };
 }
 
 /**
@@ -140,7 +169,7 @@ async function streamChunkAudioToCheckpoint(
     await ctx.resume();
   }
 
-  const { voice, pitch } = resolveTTSVoice(ttsText, voiceOverride);
+  const { voice, pitch, rate, volume } = resolveTTSVoice(ttsText, voiceOverride);
 
   let res: Response | null = null;
   for (let attempt = 1; attempt <= 2; attempt++) {
@@ -152,6 +181,8 @@ async function streamChunkAudioToCheckpoint(
           text: ttsText,
           voice,
           pitch,
+          rate,
+          volume,
         }),
       });
       if (res.ok && res.body) break;
@@ -368,9 +399,22 @@ export class ChatDirector {
   public setTurnState(state: TurnState): void {
     if (this._turnState === state) return;
     this._turnState = state;
-    this.onTurnStateChange?.(state);
     this._speaking = state === 'speaking';
+
+    if (typeof document !== 'undefined') {
+      if (state !== 'idle') {
+        document.body.classList.add('chat-playing');
+      } else {
+        document.body.classList.remove('chat-playing');
+      }
+    }
+
     this.onSpeakingChange?.(this._speaking);
+    this.onTurnStateChange?.(state);
+
+    if (this.pipeline) {
+      this.pipeline.onTurnStateChange(state, this.currentVRM);
+    }
   }
 
   private _speaking = false;
@@ -439,67 +483,30 @@ export class ChatDirector {
   public onSuspendRendering: (() => void) | null = null;
   public onResumeRendering: (() => void) | null = null;
 
-  private thinkingVRMABuf: ArrayBuffer | null = null;
-  private cachedThinkingClip: THREE.AnimationClip | null = null;
-
   resetClipCache(): void {
-    this.cachedThinkingClip = null;
+    motionAssetManager.invalidateBoundClips();
   }
 
   async preloadThinking(): Promise<void> {
     try {
       const url = MOTION_CATALOG.thinking?.url ?? '/vrm/motion/thinking.vrma';
-      const vrmaRes = await fetch(url);
-      if (vrmaRes.ok) {
-        this.thinkingVRMABuf = await vrmaRes.arrayBuffer();
-      }
+      await motionAssetManager.fetchBuffer(url);
     } catch (e) {
       console.warn('预加载思考动作失败', e);
     }
   }
 
-  async warmThinkingClip(vrm: VRM, player: VRMAMotionPlayer): Promise<void> {
-    if (!this.thinkingVRMABuf) await this.preloadThinking();
-    if (!this.thinkingVRMABuf) return;
-    try {
-      const antiClip = MOTION_CATALOG.thinking?.antiClip ?? true;
-      const clip = await player.parseBufferToClip(this.thinkingVRMABuf, vrm, { antiClip });
-      makeClipSeamless(clip);
-      this.cachedThinkingClip = clip;
-    } catch (e) {
-      console.warn('预解析思考动作失败', e);
+  async warmThinkingClip(vrm: VRM, _player?: VRMAMotionPlayer): Promise<void> {
+    if (this.pipeline) {
+      await motionAssetManager.warmCatalogMotions(vrm, (input, targetVrm, opts) =>
+        this.pipeline!.universalMotion.parseToClip(input, targetVrm, opts),
+      );
     }
   }
 
-  private async playThinking(vrm: VRM, player: VRMAMotionPlayer): Promise<void> {
-    const id = this.utterance;
-    document.body.classList.add('chat-playing');
+  private async playThinking(vrm: VRM, _player?: VRMAMotionPlayer): Promise<void> {
     this.currentVRM = vrm;
-
-    if (!this.thinkingVRMABuf) {
-      await this.preloadThinking();
-    }
-    if (!this.owns(id)) return;
-    if (this.thinkingVRMABuf) {
-      try {
-        if (!this.cachedThinkingClip) {
-          const antiClip = MOTION_CATALOG.thinking?.antiClip ?? true;
-          const clip = await player.parseBufferToClip(this.thinkingVRMABuf, vrm, { antiClip });
-          if (!this.owns(id)) return;
-          makeClipSeamless(clip);
-          this.cachedThinkingClip = clip;
-        }
-        if (!this.owns(id)) return;
-        const fadeDur = MOTION_CATALOG.thinking?.fadeDuration ?? 0.65;
-        const mask = (MOTION_CATALOG.thinking?.mask as 'all' | 'upperBody') ?? 'upperBody';
-        this.pipeline?.playThinkingClip(this.cachedThinkingClip, vrm, fadeDur, mask);
-      } catch (e) {
-        console.warn('播放 thinking.vrma 动作失败', e);
-        this.pipeline?.setIdleThinkSway(true);
-      }
-    } else {
-      this.pipeline?.setIdleThinkSway(true);
-    }
+    this.setTurnState('thinking');
   }
 
   /**
@@ -1142,7 +1149,6 @@ export class ChatDirector {
     this.speaking = true;
     this.audioDone = false;
     this.audioDoneTime = 0;
-    document.body.classList.add('chat-playing');
 
     this.analyser = this.ctx.createAnalyser();
     this.analyser.fftSize = 512;
@@ -1306,7 +1312,6 @@ export class ChatDirector {
     this.audioDone = false;
     this.audioDoneTime = 0;
     this.audioBuffer = null;
-    document.body.classList.add('chat-playing');
     if (text) status('speaking', undefined, false, text, 1, 1);
     drain();
     if (!this.hostClockSeen) {
@@ -1468,7 +1473,6 @@ export class ChatDirector {
     this.audioBuffer = null;
     this.plan = null;
     this.audioDone = true;
-    document.body.classList.remove('chat-playing');
     this.emage?.clearExternalClock();
     this.emage?.stop();
     this.player?.stop();

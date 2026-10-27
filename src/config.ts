@@ -196,18 +196,26 @@ export const APP_CONFIG = {
   },
   tts: {
     defaultPitch: '+10Hz',
+    defaultRate: '+0%',
+    defaultVolume: '+0%',
     voices: {
       'zh-CN': {
         voice: 'zh-CN-XiaoyiNeural',
         pitch: '+10Hz',
+        rate: '+0%',
+        volume: '+0%',
       },
       en: {
         voice: 'zh-CN-XiaoyiNeural',
         pitch: '+10Hz',
+        rate: '+0%',
+        volume: '+0%',
       },
       ja: {
         voice: 'ja-JP-NanamiNeural',
         pitch: '+5Hz',
+        rate: '+0%',
+        volume: '+0%',
       },
     },
   },

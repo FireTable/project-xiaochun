@@ -17,6 +17,16 @@ import {
   parseBinaryFrame,
 } from './lib/edge-tts-core';
 import { applySecurityHeaders, type SecurityEnv } from './lib/securityHeaders';
+export interface ServerEnv extends SecurityEnv {
+  ASSETS?: { fetch: typeof fetch };
+  EMAGE_MODELS_BASE?: string;
+  EMBED_FRAME_ANCESTORS?: string;
+  /** 【可选】持久化语音缓存 Bucket (xiaochun-tts)；未绑定时自动优雅降级 */
+  TTS_BUCKET?: {
+    get: (key: string) => Promise<{ arrayBuffer: () => Promise<ArrayBuffer> } | null>;
+    put: (key: string, value: ArrayBuffer | ArrayBufferView | ReadableStream | string | null, options?: Record<string, unknown>) => Promise<unknown>;
+  };
+}
 
 const EDGE_UA_POOL = [
   'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/143.0.0.0 Safari/537.36 Edg/143.0.0.0',
@@ -31,8 +41,14 @@ function getRandomEdgeUA(): string {
   return EDGE_UA_POOL[Math.floor(Math.random() * EDGE_UA_POOL.length)]!;
 }
 
-async function computeTextHash(text: string, voice: string, pitch: string): Promise<string> {
-  const data = new TextEncoder().encode(`${voice}|${pitch}|${text}`);
+async function computeTextHash(
+  text: string,
+  voice: string,
+  pitch: string,
+  rate: string = '+0%',
+  volume: string = '+0%',
+): Promise<string> {
+  const data = new TextEncoder().encode(`${voice}|${pitch}|${rate}|${volume}|${text}`);
   const hashBuf = await crypto.subtle.digest('SHA-256', data);
   return Array.from(new Uint8Array(hashBuf))
     .map((b) => b.toString(16).padStart(2, '0'))
@@ -49,6 +65,8 @@ function executeSingleFlight(
   text: string,
   voice: string,
   pitch: string,
+  rate: string,
+  volume: string,
   flightSignal: AbortSignal,
   endpoint: 'bing' | 'msedgeservices' = 'bing',
 ): Promise<SingleFlightResult> {
@@ -126,7 +144,7 @@ function executeSingleFlight(
         (socket as any).binaryType = 'arraybuffer';
       } catch { }
 
-      const { speechConfig, ssmlMessage } = buildEdgeTTSPayloads(text, voice, pitch);
+      const { speechConfig, ssmlMessage } = buildEdgeTTSPayloads(text, voice, pitch, rate, volume);
 
       const stream = new ReadableStream<Uint8Array>({
         start(controller) {
@@ -305,16 +323,18 @@ async function singleFlightRound(
   text: string,
   voice: string,
   pitch: string,
+  rate: string,
+  volume: string,
   roundSignal: AbortSignal,
 ): Promise<SingleFlightResult> {
   try {
-    return await executeSingleFlight(text, voice, pitch, roundSignal, 'bing');
+    return await executeSingleFlight(text, voice, pitch, rate, volume, roundSignal, 'bing');
   } catch (err) {
     const e = unwrapAggregateError(err);
     if ((/HTTP (403|200)/.test(e.message) || /Handshake failed/.test(e.message)) && !roundSignal.aborted) {
       console.warn('[TTS] Primary bing host handshake failed, falling back to msedgeservices host:', e.message);
       try {
-        return await executeSingleFlight(text, voice, pitch, roundSignal, 'msedgeservices');
+        return await executeSingleFlight(text, voice, pitch, rate, volume, roundSignal, 'msedgeservices');
       } catch (fallbackErr) {
         const fe = unwrapAggregateError(fallbackErr);
         throw new Error(`bing: ${e.message}; msedgeservices: ${fe.message}`, { cause: fallbackErr });
@@ -332,6 +352,8 @@ async function synthesizeWithRetry(
   text: string,
   voice: string,
   pitch: string,
+  rate: string,
+  volume: string,
   clientSignal: AbortSignal,
   maxRounds = 3,
   budgetMs = 7000,
@@ -361,7 +383,7 @@ async function synthesizeWithRetry(
     roundsRun = round;
 
     try {
-      return await singleFlightRound(text, voice, pitch, roundCtrl.signal);
+      return await singleFlightRound(text, voice, pitch, rate, volume, roundCtrl.signal);
     } catch (err) {
       lastError = err instanceof Error ? err : new Error(String(err));
       if (!seenMessages.includes(lastError.message)) {
@@ -379,7 +401,7 @@ async function synthesizeWithRetry(
   throw error;
 }
 
-async function handleTTS(request: Request): Promise<Response> {
+async function handleTTS(request: Request, env?: ServerEnv, ctx?: ExecutionContext): Promise<Response> {
   if (request.method === 'OPTIONS') {
     return new Response(null, { status: 204, headers: EDGE_TTS_CONSTANTS.COMMON_CORS });
   }
@@ -388,17 +410,29 @@ async function handleTTS(request: Request): Promise<Response> {
     let text = '';
     let voice = 'zh-CN-XiaoyiNeural';
     let pitch = '+10Hz';
+    let rate = '+0%';
+    let volume = '+0%';
 
     if (request.method === 'GET') {
       const u = new URL(request.url);
       text = u.searchParams.get('text') ?? '';
       voice = u.searchParams.get('voice') ?? voice;
       pitch = u.searchParams.get('pitch') ?? pitch;
+      rate = u.searchParams.get('rate') ?? rate;
+      volume = u.searchParams.get('volume') ?? volume;
     } else if (request.method === 'POST') {
-      const body = (await request.json()) as { text?: string; voice?: string; pitch?: string };
+      const body = (await request.json()) as {
+        text?: string;
+        voice?: string;
+        pitch?: string;
+        rate?: string;
+        volume?: string;
+      };
       text = body.text ?? '';
       voice = body.voice ?? voice;
       pitch = body.pitch ?? pitch;
+      rate = body.rate ?? rate;
+      volume = body.volume ?? volume;
     }
 
     const cleanText = text.trim();
@@ -409,11 +443,12 @@ async function handleTTS(request: Request): Promise<Response> {
       });
     }
 
-    const hashKey = await computeTextHash(cleanText, voice, pitch);
+    const hashKey = await computeTextHash(cleanText, voice, pitch, rate, volume);
+    const objectKey = `v1/${voice}/${hashKey}.mp3`;
     const cache = (caches as any)?.default;
     const cacheUrl = new Request(`https://internal-cache.xiaochun.local/tts/${hashKey}`);
 
-    // 1. 尝试边缘缓存命中 (极速 <20ms, 100% 可用率)
+    // 1. 尝试 L1 边缘 PoP 缓存命中 (极速 <20ms, 100% 可用率)
     if (cache) {
       try {
         const cachedRes = await cache.match(cacheUrl);
@@ -422,8 +457,9 @@ async function handleTTS(request: Request): Promise<Response> {
             status: 200,
             headers: {
               'Content-Type': 'audio/mpeg',
-              'Cache-Control': 'public, max-age=3600',
+              'Cache-Control': 'public, max-age=86400',
               'X-TTS-Cache': 'HIT',
+              'X-TTS-Storage': env?.TTS_BUCKET ? 'r2+pop' : 'pop',
               ...EDGE_TTS_CONSTANTS.COMMON_CORS,
             },
           });
@@ -431,19 +467,61 @@ async function handleTTS(request: Request): Promise<Response> {
       } catch { }
     }
 
-    // 2. 双通道并发对冲竞速合成
+    // 2. 尝试 L2 R2 持久化 Bucket 缓存命中 (持久存储, 跨区域 20~50ms, 0 Egress 费用)
+    const r2 = env?.TTS_BUCKET;
+    if (r2) {
+      try {
+        const r2Object = await r2.get(objectKey);
+        if (r2Object) {
+          const audioArrayBuffer = await r2Object.arrayBuffer();
+          // 异步回写 L1 PoP 缓存，加速后续同节点快速访问
+          if (cache) {
+            const l1WritePromise = (async () => {
+              try {
+                const cacheItem = new Response(audioArrayBuffer.slice(0), {
+                  status: 200,
+                  headers: {
+                    'Content-Type': 'audio/mpeg',
+                    'Cache-Control': 'public, max-age=86400',
+                  },
+                });
+                await cache.put(cacheUrl, cacheItem);
+              } catch { }
+            })();
+            if (ctx?.waitUntil) ctx.waitUntil(l1WritePromise);
+          }
+
+          return new Response(audioArrayBuffer, {
+            status: 200,
+            headers: {
+              'Content-Type': 'audio/mpeg',
+              'Cache-Control': 'public, max-age=86400',
+              'X-TTS-Cache': 'R2-HIT',
+              'X-TTS-Storage': 'r2',
+              ...EDGE_TTS_CONSTANTS.COMMON_CORS,
+            },
+          });
+        }
+      } catch (r2Err) {
+        console.warn('[TTS] R2 cache read failed, falling back to live synthesis:', r2Err);
+      }
+    }
+
+    // 3. 缓存未命中：上游 Edge-TTS 实时流式合成
     const abortController = new AbortController();
     const { stream, collectedChunks, onFinished } = await synthesizeWithRetry(
       cleanText,
       voice,
       pitch,
+      rate,
+      volume,
       abortController.signal,
       3,
     );
 
-    // 3. 流完成后异步写入边缘缓存，供后续并发高频复用
-    if (cache && cleanText.length <= 150) {
-      onFinished.then(async () => {
+    // 4. 流完成后异步双写：L1 边缘 PoP 缓存 + L2 R2 持久化存储
+    if (cache || r2) {
+      const persistPromise = onFinished.then(async () => {
         try {
           let totalLen = 0;
           for (const c of collectedChunks) totalLen += c.length;
@@ -454,17 +532,49 @@ async function handleTTS(request: Request): Promise<Response> {
             offset += c.length;
           }
           if (merged.length > 0) {
-            const cacheItem = new Response(merged, {
-              status: 200,
-              headers: {
-                'Content-Type': 'audio/mpeg',
-                'Cache-Control': 'public, max-age=3600',
-              },
-            });
-            await cache.put(cacheUrl, cacheItem);
+            // 写入 L1 边缘 PoP 缓存 (短文本或常用短语)
+            if (cache && cleanText.length <= 200) {
+              try {
+                const cacheItem = new Response(merged.buffer.slice(0), {
+                  status: 200,
+                  headers: {
+                    'Content-Type': 'audio/mpeg',
+                    'Cache-Control': 'public, max-age=86400',
+                  },
+                });
+                await cache.put(cacheUrl, cacheItem);
+              } catch { }
+            }
+
+            // 写入 L2 R2 持久化存储 (全量留存，带 prosody 元数据)
+            if (r2) {
+              try {
+                await r2.put(objectKey, merged.buffer, {
+                  httpMetadata: {
+                    contentType: 'audio/mpeg',
+                    cacheControl: 'public, max-age=31536000, immutable',
+                  },
+                  customMetadata: {
+                    voice,
+                    pitch,
+                    rate,
+                    volume,
+                    createdAt: new Date().toISOString(),
+                  },
+                });
+              } catch (r2PutErr) {
+                console.warn('[TTS] R2 cache put failed:', r2PutErr);
+              }
+            }
           }
-        } catch { }
+        } catch (persistErr) {
+          console.warn('[TTS] Cache persist failed:', persistErr);
+        }
       });
+
+      if (ctx?.waitUntil) {
+        ctx.waitUntil(persistPromise);
+      }
     }
 
     return new Response(stream, {
@@ -473,6 +583,7 @@ async function handleTTS(request: Request): Promise<Response> {
         'Content-Type': 'audio/mpeg',
         'Cache-Control': 'no-store',
         'X-TTS-Cache': 'MISS',
+        'X-TTS-Storage': r2 ? 'r2' : 'none',
         ...EDGE_TTS_CONSTANTS.COMMON_CORS,
       },
     });
@@ -512,10 +623,10 @@ function withSecurityHeaders(res: Response, pathname: string, env: SecurityEnv):
 }
 
 export default {
-  async fetch(request: Request, env: unknown) {
+  async fetch(request: Request, env: unknown, ctx?: ExecutionContext) {
     const url = new URL(request.url);
     if (url.pathname === '/api/tts') {
-      return handleTTS(request);
+      return handleTTS(request, env as ServerEnv, ctx);
     }
     const res = await handler.fetch(request, env as Parameters<typeof handler.fetch>[1]);
     return withSecurityHeaders(res, url.pathname, (env ?? {}) as SecurityEnv);

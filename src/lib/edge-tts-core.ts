@@ -427,7 +427,13 @@ export function cleanSSMLText(text: string): string {
         .replace(/'/g, '&apos;');
 }
 
-export function buildEdgeTTSPayloads(text: string, voice: string, pitch: string) {
+export function buildEdgeTTSPayloads(
+    text: string,
+    voice: string,
+    pitch: string = '+10Hz',
+    rate: string = '+0%',
+    volume: string = '+0%',
+) {
     const reqId = makeConnectionId();
     const ts = new Date().toISOString().replace(/[-:.]/g, '').slice(0, -1);
     const formattedVoice = normalizeVoiceName(voice);
@@ -441,7 +447,7 @@ export function buildEdgeTTSPayloads(text: string, voice: string, pitch: string)
 
     const ssml =
         `<speak version='1.0' xmlns='http://www.w3.org/2001/10/synthesis' xml:lang='en-US'>` +
-        `<voice name='${formattedVoice}'><prosody pitch='${pitch}'>${cleanText}</prosody></voice></speak>`;
+        `<voice name='${formattedVoice}'><prosody pitch='${pitch}' rate='${rate}' volume='${volume}'>${cleanText}</prosody></voice></speak>`;
 
     const ssmlMessage =
         `X-RequestId:${reqId}\r\n` +
