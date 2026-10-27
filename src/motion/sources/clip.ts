@@ -40,7 +40,9 @@ export interface UniversalMotionHandle {
   stop: (fadeDuration?: number) => void;
   pause: () => void;
   resume: () => void;
+  setTimeScale: (scale: number) => void;
   isPlaying: () => boolean;
+  isPaused: () => boolean;
 }
 
 /**
@@ -196,7 +198,9 @@ export class UniversalMotionController {
       stop: (dur?: number) => this.stop(dur),
       pause: () => this.pause(),
       resume: () => this.resume(),
+      setTimeScale: (scale: number) => this.setTimeScale(scale),
       isPlaying: () => this.isPlaying(),
+      isPaused: () => this.isPaused(),
     };
   }
 
@@ -247,6 +251,21 @@ export class UniversalMotionController {
     if (this.currentAction) {
       this.currentAction.paused = false;
     }
+  }
+
+  isPaused(): boolean {
+    return !!this.currentAction?.paused;
+  }
+
+  setTimeScale(scale: number): void {
+    this.currentOptions.timeScale = scale;
+    if (this.currentAction) {
+      this.currentAction.setEffectiveTimeScale(scale);
+    }
+  }
+
+  getTimeScale(): number {
+    return this.currentOptions.timeScale ?? 1.0;
   }
 
   /**

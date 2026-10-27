@@ -78,11 +78,119 @@ export const en: Trans = {
   motion: {
     listening: {
       name: 'Listening',
-      description: 'Attentive listening posture with a slight body lean and gentle smile (dm_124)',
+      description: 'Attentive listening posture with a slight body lean and gentle smile',
     },
     thinking: {
       name: 'Thinking',
       description: 'Pensive posture with hand resting on chin',
+    },
+    classicIdle: {
+      name: 'Classic Idle',
+      description: 'Classic standing idle with natural breathing',
+    },
+    elegantStand: {
+      name: 'Elegant Stand',
+      description: 'Graceful three-quarter standing poise',
+    },
+    maidPoise: {
+      name: 'Maid Poise',
+      description: 'Proper standing posture with hands folded in front',
+    },
+    modelStand: {
+      name: 'Model Stand',
+      description: 'Classic motion-captured fashion stance',
+    },
+    attentiveLean: {
+      name: 'Attentive Lean',
+      description: 'Leaning forward attentively with a joyful smile',
+    },
+    cozyLean: {
+      name: 'Cozy Lean',
+      description: 'Relaxed and cozy stance with eyes gently narrowed',
+    },
+    sleepyLean: {
+      name: 'Sleepy Lean',
+      description: 'Soft and drowsy posture leaning gently',
+    },
+    waving: {
+      name: 'Waving',
+      description: 'Enthusiastic high wave greeting with arm raised',
+    },
+    showFullBody: {
+      name: 'Show Full Body',
+      description: 'Confident 360-degree full body showcase',
+    },
+    touchHair: {
+      name: 'Touch Hair',
+      description: 'Gentle posture lightly brushing hair with hand',
+    },
+    shyBehindBack: {
+      name: 'Shy Behind Back',
+      description: 'Shy posture with hands clasped behind back',
+    },
+    poutTurn: {
+      name: 'Pout and Turn',
+      description: 'Cute tsundere pout turning the head away',
+    },
+    cuteTilt: {
+      name: 'Cute Head Tilt',
+      description: 'Charming head tilt resting cheek on palm',
+    },
+    flowerChin: {
+      name: 'Flower Chin',
+      description: 'Hands cupping chin like blooming flower petals',
+    },
+    catCheeks: {
+      name: 'Cat Cheeks',
+      description: 'Playful cat whisker pose with fingers on cheeks',
+    },
+    bashfulTwist: {
+      name: 'Bashful Twist',
+      description: 'Playfully twisting with delight when praised',
+    },
+    joyfulJump: {
+      name: 'Joyful Jump',
+      description: 'Excited clap and little hop of delight',
+    },
+    gentleTalk: {
+      name: 'Gentle Talk',
+      description: 'Gentle conversational gestures for storytelling',
+    },
+    explainPoint: {
+      name: 'Explain Point',
+      description: 'Single hand emphasis gesture explaining key points',
+    },
+    warmDialogue: {
+      name: 'Warm Dialogue',
+      description: 'Warm and friendly conversational gestures',
+    },
+    blowKiss: {
+      name: 'Blow a Kiss',
+      description: 'Gently blowing a kiss forward from fingertips',
+    },
+    sweetKiss: {
+      name: 'Sweet Kiss',
+      description: 'Sweet romantic flying kiss sent forward',
+    },
+    bellyDance: {
+      name: 'Belly Dance',
+      description: 'Graceful oriental belly dance with undulating torso',
+    },
+    bellyDanceWave: {
+      name: 'Belly Dance Wave',
+      description: 'Flowing arm-wave belly dance with rhythmic swaying',
+    },
+    rumbaDance: {
+      name: 'Rumba Dance',
+      description: 'Romantic Latin rumba steps with sensual hip motion',
+    },
+    stretchYawn: {
+      name: 'Stretch and Yawn',
+      description: 'Full-body arm stretch and refreshing sigh',
+    },
+    airplaneGlide: {
+      name: 'Airplane Glide',
+      description: 'Playfully swooping forward with arms spread wide',
     },
   },
   updater: {
@@ -287,6 +395,7 @@ export const en: Trans = {
   },
   panel: {
     expressionsLabel: '🎭 Preset Expressions',
+    motionLabel: '💃 Motion Catalog',
     emagePerfLabel: '⚡ EMAGE Perf / P0b',
     emagePerfClear: 'Clear step log',
     emagePerfToggle: 'Profile next speak',

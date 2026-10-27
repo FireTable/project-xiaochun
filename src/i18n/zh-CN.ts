@@ -77,11 +77,119 @@ export const zhCN = {
   motion: {
     listening: {
       name: '纯净倾听',
-      description: '身躯微倾、面带微笑的亲切倾听姿态 (dm_124)',
+      description: '身躯微倾、面带微笑的亲切专注倾听姿态',
     },
     thinking: {
       name: '托腮沉思',
       description: '单手托下巴作沉思状',
+    },
+    classicIdle: {
+      name: '自然待机',
+      description: '经典自然的呼吸起伏与站姿待机',
+    },
+    elegantStand: {
+      name: '亭亭玉立',
+      description: '身体斜侧线条优美的优雅模特立姿',
+    },
+    maidPoise: {
+      name: '女仆端立',
+      description: '双手交叠于腹前、脚步并拢的端庄女仆站姿',
+    },
+    modelStand: {
+      name: '模特立姿',
+      description: '经典动捕立姿、重心稳固的全身展示',
+    },
+    attentiveLean: {
+      name: '微笑前倾',
+      description: '身躯前倾、面带喜悦的专注陪伴体态',
+    },
+    cozyLean: {
+      name: '惬意眯眼',
+      description: '舒适惬意、享受安静陪伴的放松姿态',
+    },
+    sleepyLean: {
+      name: '困倦微倚',
+      description: '软绵绵快要睡着的轻微倚靠站姿',
+    },
+    waving: {
+      name: '热情招手',
+      description: '高举右臂向远方用力挥手问好',
+    },
+    showFullBody: {
+      name: '全身展示',
+      description: '自信舒展双手、360度展示全身造型',
+    },
+    touchHair: {
+      name: '温柔抚发',
+      description: '单手轻抚发丝、身体自然微晃的温婉姿态',
+    },
+    shyBehindBack: {
+      name: '害羞背手',
+      description: '双手背在身后低头微晃脚步的娇羞态',
+    },
+    poutTurn: {
+      name: '傲娇轻哼',
+      description: '微抬头转开视线的可爱娇嗔姿态',
+    },
+    cuteTilt: {
+      name: '单手托脸',
+      description: '单手轻托脸颊微偏头的绝美倾注',
+    },
+    flowerChin: {
+      name: '花朵托下巴',
+      description: '双手如花托般托住下巴露出笑脸',
+    },
+    catCheeks: {
+      name: '猫咪胡须',
+      description: '双手手指放于脸颊两侧萌系比划',
+    },
+    bashfulTwist: {
+      name: '雀跃撒娇',
+      description: '欣喜被夸奖后轻扭身躯的俏皮撒娇',
+    },
+    joyfulJump: {
+      name: '惊喜轻跳',
+      description: '瞬间被好消息点亮的兴奋拍手跳起',
+    },
+    gentleTalk: {
+      name: '温和倾诉',
+      description: '柔和胸前手势，适合长句叙述与交谈',
+    },
+    explainPoint: {
+      name: '重点强调',
+      description: '单手重点强调与陈述阐释手势',
+    },
+    warmDialogue: {
+      name: '亲切讲述',
+      description: '如知己好友般自然亲切的交谈手势',
+    },
+    blowKiss: {
+      name: '指尖飞吻',
+      description: '手指轻触嘴唇向前温柔吹出飞吻',
+    },
+    sweetKiss: {
+      name: '甜蜜飞吻',
+      description: '右手轻触嘴唇向前送出深情飞吻',
+    },
+    bellyDance: {
+      name: '东方肚皮舞',
+      description: '腹部腰肢柔韧曼妙扭动的东方舞',
+    },
+    bellyDanceWave: {
+      name: '波浪肚皮舞',
+      description: '手臂舒展配合腰部波浪摆动的律动',
+    },
+    rumbaDance: {
+      name: '拉丁伦巴舞',
+      description: '优美曼妙的髋部画圆经典伦巴单人步态',
+    },
+    stretchYawn: {
+      name: '伸展懒腰',
+      description: '高举双臂伸展懒腰、长舒一口气',
+    },
+    airplaneGlide: {
+      name: '小飞机滑翔',
+      description: '展开双臂低空滑行的小飞机搞怪姿势',
     },
   },
   updater: {
@@ -288,6 +396,7 @@ export const zhCN = {
   },
   panel: {
     expressionsLabel: '🎭 预设表情',
+    motionLabel: '💃 动作调试',
     emagePerfLabel: '⚡ EMAGE 性能 / P0b',
     emagePerfClear: '清除 step 记录',
     emagePerfToggle: '下一轮说话记录 step',

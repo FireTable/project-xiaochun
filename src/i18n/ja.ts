@@ -78,11 +78,119 @@ export const ja: Trans = {
   motion: {
     listening: {
       name: '傾聴',
-      description: '体をわずかに傾け微笑む親しみやすい傾聴ポーズ (dm_124)',
+      description: '体をわずかに傾け微笑む親しみやすい傾聴ポーズ',
     },
     thinking: {
       name: '思案',
       description: '片手をあごに添えて考え込むポーズ',
+    },
+    classicIdle: {
+      name: '自然な待機',
+      description: '穏やかな呼吸とわずかな体重移動の標準待機ポーズ',
+    },
+    elegantStand: {
+      name: '優雅な立ち姿',
+      description: '体を斜めに構えた美しいシルエットの立ち姿',
+    },
+    maidPoise: {
+      name: 'メイド立ち',
+      description: 'お腹の前で両手を重ねて脚を揃えた上品なメイド立ち',
+    },
+    modelStand: {
+      name: 'モデル立ち',
+      description: 'プロのモデルのような堂々とした立ち姿',
+    },
+    attentiveLean: {
+      name: '前かがみ笑顔',
+      description: '嬉しそうに体を前に乗り出して見つめるポーズ',
+    },
+    cozyLean: {
+      name: '心地よい寄り添い',
+      description: '目を細めて居心地良さそうに寄り添うリラックスポーズ',
+    },
+    sleepyLean: {
+      name: 'うとうと立ち姿',
+      description: '眠気に身をまかせてふらりと寄りかかる脱力ポーズ',
+    },
+    waving: {
+      name: '手を振る',
+      description: '腕を高く上げて遠くへ元気に手を振る',
+    },
+    showFullBody: {
+      name: '全身のお披露目',
+      description: '自信たっぷりに両手を広げて全身のコーデを見せる',
+    },
+    touchHair: {
+      name: '髪をかきあげる',
+      description: '優しく髪に手を添えて微かに揺れる温もりあるポーズ',
+    },
+    shyBehindBack: {
+      name: '後ろ手で照れる',
+      description: '両手を後ろに組んで俯きながらもじもじする',
+    },
+    poutTurn: {
+      name: 'ツンデレ横向き',
+      description: 'ちょっと拗ねて顔を横に向ける可愛い仕草',
+    },
+    cuteTilt: {
+      name: '首かしげ小顔',
+      description: '片手を頬に添えて小首をかしげる愛らしい仕草',
+    },
+    flowerChin: {
+      name: 'お花あごのせ',
+      description: '両手であごを花のように包み込んで微笑む',
+    },
+    catCheeks: {
+      name: '猫ひげポーズ',
+      description: 'ほっぺたに両手をあてて猫のひげを真似る萌え仕草',
+    },
+    bashfulTwist: {
+      name: 'はにかみ甘え',
+      description: '褒められて嬉しそうに体をくねらせて照れる',
+    },
+    joyfulJump: {
+      name: '歓喜の小ジャンプ',
+      description: '嬉しい知らせに拍手してピョンと跳ねる',
+    },
+    gentleTalk: {
+      name: '穏やかな語り',
+      description: '胸前の柔らかな手振りで穏やかに語りかける',
+    },
+    explainPoint: {
+      name: '要点説明',
+      description: '片手を前に出して要点を強調・説明する仕草',
+    },
+    warmDialogue: {
+      name: '親しい語らい',
+      description: '親しい友人と語り合うような温かみのある手振り',
+    },
+    blowKiss: {
+      name: '指先投げキッス',
+      description: '指先を唇にあててそっと前方に息を吹きかける',
+    },
+    sweetKiss: {
+      name: '甘いキス',
+      description: '右手で唇に触れ甘くロマンチックに届ける投げキッス',
+    },
+    bellyDance: {
+      name: 'ベリーダンス',
+      description: '腹部と腰のしなやかなうねりのオリエンタルダンス',
+    },
+    bellyDanceWave: {
+      name: '波のベリーダンス',
+      description: '腕のウェーブと腰の波打つリズムを合わせたダンス',
+    },
+    rumbaDance: {
+      name: 'ルンバダンス',
+      description: '優美で情緒的なヒップワークのラテンルンバステップ',
+    },
+    stretchYawn: {
+      name: '背伸び深呼吸',
+      description: '両腕をぐっと高く伸ばして伸びをし息を吐く',
+    },
+    airplaneGlide: {
+      name: '飛行機滑空',
+      description: '両手をいっぱいに広げて飛行機ごっこで滑空する',
     },
   },
   updater: {
@@ -287,6 +395,7 @@ export const ja: Trans = {
   },
   panel: {
     expressionsLabel: '🎭 プリセット表情',
+    motionLabel: '💃 モーション調整',
     emagePerfLabel: '⚡ EMAGE 性能 / P0b',
     emagePerfClear: 'step 記録をクリア',
     emagePerfToggle: '次の発話で step 記録',
