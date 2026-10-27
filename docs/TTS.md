@@ -55,6 +55,21 @@
 - **无需 R2 持久缓存**：
   若个人用户无 R2 额度，仅需在 `wrangler.jsonc` 中删除或注释 `r2_buckets` 配置。Worker 运行时会自动检测 `env.TTS_BUCKET`，缺失时自动无缝退化为 `L1 PoP 内存缓存 + L3 实时合成`，没有任何运行时报错或部署阻碍。
 
+### 1.3 独立 TTS 专属微服务 Worker (`xiaochun-tts`)
+
+项目不仅支持在主站内内置 `/api/tts`，还支持将 TTS 提取为纯净的微服务单独部署：
+- **入口代码**: [`src/tts-worker.ts`](../src/tts-worker.ts)（与主站共用 [`src/server/ttsHandler.ts`](../src/server/ttsHandler.ts)）
+- **配置文件**: [`wrangler.tts.jsonc`](../wrangler.tts.jsonc)
+- **极速部署**:
+  ```bash
+  # 单独部署 TTS 微服务（仅 34 KiB，0 前端依赖，秒级上线）
+  pnpm run deploy:tts
+  ```
+- **线上地址**: `https://xiaochun-tts.firetable.workers.dev`
+  - `GET /` 或 `/health`：返回微服务运行状态与 R2 缓存能力检测
+  - `POST /api/tts` 或 `GET /api/tts?text=...`：标准 5 维参数流式语音合成
+  - 可直接填入 `.env.local` 作为 `TTS_PROXY_URL`，供本地开发或 Tauri 桌面客户端直接使用。
+
 ## 2. Upstream Connection
 
 | Item | Value |
