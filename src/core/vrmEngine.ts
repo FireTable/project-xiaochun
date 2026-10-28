@@ -57,6 +57,7 @@ import { applyBustClothFit, bustJointHitRadius } from './spring/bustClothFit';
 import { CharacterShadowSystem } from './scene/characterShadow';
 import { adjustZoomInWhileClamped, solveGroundClamp, visibleRatioCap } from './camera/groundClamp';
 import { cameraDirector } from './scene/cameraDirector';
+import type { CameraDirective } from '@/story/schema';
 import { expressionController, type SupportedExpression } from './morph/expressionController';
 import { VRMTexturePool, extractParserImageHashes } from './texturePool';
 import { StaggeredDisposer } from './staggeredDisposer';
@@ -1966,6 +1967,28 @@ export class VRMEngine {
     if (!this.currentVRM?.expressionManager) return;
     this.manualExpression = name === 'neutral' ? null : name;
     expressionController.setExpression(name, intensity);
+  }
+
+  // ── 电影级运镜调度 ──
+  /**
+   * 电影级运镜调度：平滑过渡至指定景别与轨迹动势
+   */
+  public async transitionCamera(directive: CameraDirective): Promise<void> {
+    await cameraDirector.transitionTo(directive);
+  }
+
+  /**
+   * 重置镜头机位至默认自由机位
+   */
+  public resetCamera(): void {
+    cameraDirector.reset();
+  }
+
+  /**
+   * 裙摆脚踝自下而上缓缓打量人物的电影级升降运镜
+   */
+  public async panUpRevealCamera(durationSec = 2.2): Promise<void> {
+    await cameraDirector.panUpReveal(durationSec);
   }
 
   // ── 模型生命周期加载 ──

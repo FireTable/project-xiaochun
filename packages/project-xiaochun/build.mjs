@@ -16,7 +16,13 @@ const pkg = JSON.parse(readFileSync(path.join(root, 'package.json'), 'utf8'));
 const banner = `/*! ${pkg.name} v${pkg.version} | MIT | https://github.com/FireTable/project-xiaochun */`;
 
 const common = { absWorkingDir: root, bundle: true, target: 'es2020', platform: 'browser', banner: { js: banner }, logLevel: 'info' };
-const entries = { index: 'src/index.ts', element: 'src/element.ts', protocol: 'src/protocol.ts', react: 'src/react.ts' };
+const entries = {
+  index: 'src/index.ts',
+  element: 'src/element.ts',
+  protocol: 'src/protocol.ts',
+  'protocol-url': 'src/protocol-url.ts',
+  react: 'src/react.ts',
+};
 // react 是 optional peerDependency: 绝不打进包里 (否则宿主会有两份 React → hooks 报错)
 const external = ['react'];
 

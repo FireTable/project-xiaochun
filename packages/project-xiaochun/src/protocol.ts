@@ -26,6 +26,7 @@ export const XC_HOST_TO_FRAME = [
   'xc.audio.end',
   'xc.motion',
   'xc.expression',
+  'xc.camera',
   'xc.lookAt',
   'xc.pointer',
   'xc.setModel',
@@ -70,6 +71,7 @@ export const XC_IMPLEMENTED_COMMANDS = [
   'xc.audio.end',
   'xc.motion',
   'xc.expression',
+  'xc.camera',
   'xc.pointer',
   'xc.setModel',
   'xc.setOutfit',
@@ -102,6 +104,10 @@ export const XC_PROTOCOL_MAPPING = [
   { xc: 'xc.audio', note: 'source 为 URL 字符串', action: 'speak', url: 'xiaochun://speak?audioUrl=…[&text=…]' },
   { xc: 'xc.audio', note: 'source 为 ArrayBuffer / Blob', action: 'audio', url: null },
   { xc: 'xc.audio.chunk / xc.audio.end', note: '流式 PCM', action: 'audio', url: null },
+  { xc: 'xc.motion', note: '播放指定动作 (按名称或 URL)', action: 'motion', url: 'xiaochun://motion?name=…[&loop=true][&mask=upperBody]' },
+  { xc: 'xc.motion', note: '从动作组随机抽取播放', action: 'group', url: 'xiaochun://group?name=…' },
+  { xc: 'xc.expression', note: '切换表情', action: 'expression', url: 'xiaochun://expression?name=…[&intensity=0.8]' },
+  { xc: 'xc.camera', note: '运镜调度与景别平滑过渡', action: 'camera', url: 'xiaochun://camera?shot=…[&movement=…][&durationSec=1.2]' },
   { xc: 'xc.transport', note: '改宿主音频倍速 / 音量, 无 deep link', action: null, url: null },
   { xc: 'xc.clock', note: '宿主音频播放位置 (hostClock), 无 deep link', action: null, url: null },
 ] as const;
@@ -444,19 +450,68 @@ export interface XcAudioEndPayload {
 export interface XcMotionPayload {
   /** .vrma URL (https:// 或同源路径)。与 stop 二选一。 */
   url?: string;
-  /** 内置动作名, 目前仅 'thinking'。 */
-  name?: 'thinking';
+  /** 动作名 (如 waving, touchHair, joyfulJump 等) 或动作组名 (如 greeting, praiseCute, dancePerformance)。 */
+  name?: string;
+  /** 动作组名 (若指定则从该组随机抽选) */
+  group?: string;
   stop?: boolean;
   loop?: boolean;
-  /** 淡入淡出秒数, 范围 0.26~3, 调大更柔和但响应更慢。 */
+  /** 淡入淡出秒数, 范围 0.26~3, 调大更柔和但响应更慢。默认 0.75s。 */
   fadeDuration?: number;
-  /** 播放倍速, 范围 0.25~3。 */
+  /** 播放倍速, 范围 0.25~3。默认 1.0。 */
   timeScale?: number;
   mask?: 'all' | 'upperBody';
 }
 
 export interface XcExpressionPayload {
-  name: 'neutral' | 'happy' | 'angry' | 'sad' | 'relaxed' | 'surprised';
+  /** 表情标识符 (支持标准 VRM 预设及小春专属情绪: happy, gentle_smile, playful, surprised, hesitant, shy, sad, angry, relaxed, neutral 等) */
+  name:
+    | 'neutral'
+    | 'happy'
+    | 'gentle_smile'
+    | 'smile'
+    | 'angry'
+    | 'sad'
+    | 'sad_longing'
+    | 'relaxed'
+    | 'surprised'
+    | 'shy'
+    | 'playful'
+    | 'hesitant'
+    | (string & {});
+  /** 表情强度 (0.0 ~ 1.0) */
+  intensity?: number;
+}
+
+export interface XcCameraDirectivePayload {
+  /** 镜头景别 ('extreme_close_up' | 'close_up' | 'medium' | 'full' | 'dramatic_low' 等) */
+  shot?: 'extreme_close_up' | 'close_up' | 'medium' | 'full' | 'dramatic_low' | (string & {});
+  /** 运镜轨迹动势 ('none' | 'push_in' | 'pull_out' | 'hero_spiral_orbit' | 'hero_backlight_reveal' | 'dutch_tilt' | 'arc_sweep' | 'orbit_subtle' | 'pedestal_up' 等) */
+  movement?:
+    | 'none'
+    | 'push_in'
+    | 'pull_out'
+    | 'hero_spiral_orbit'
+    | 'hero_backlight_reveal'
+    | 'dutch_tilt'
+    | 'arc_sweep'
+    | 'orbit_subtle'
+    | 'pedestal_up'
+    | (string & {});
+  /** 运镜持续时间 (秒，默认 1.2s) */
+  durationSec?: number;
+  /** 插值缓动曲线 ('quintic_smooth' | 'ease_out_dramatic' | 'linear') */
+  easing?: 'quintic_smooth' | 'ease_out_dramatic' | 'linear';
+  /** 目标视野角 (15 ~ 65) */
+  targetFov?: number;
+  /** 水平环绕旋转角度 (度数，例如 +45, -90, 180, 360) */
+  orbitAngleDeg?: number;
+  /** 风速配合倍率 */
+  windMultiplier?: number;
+  /** 是否重置为默认自由机位 */
+  reset?: boolean;
+  /** 是否执行自下而上缓缓打量人物的电影级升降运镜 */
+  panUp?: boolean;
 }
 
 /** xc.lookAt — TODO: 暂不支持, 收到会返回 unsupported。 */
@@ -713,6 +768,7 @@ export interface XcHostPayloadMap {
   'xc.audio.end': XcAudioEndPayload;
   'xc.motion': XcMotionPayload;
   'xc.expression': XcExpressionPayload;
+  'xc.camera': XcCameraDirectivePayload;
   'xc.lookAt': XcLookAtPayload;
   'xc.pointer': XcPointerPayload;
   'xc.setModel': XcSetModelPayload;

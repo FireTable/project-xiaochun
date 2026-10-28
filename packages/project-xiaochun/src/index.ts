@@ -18,4 +18,12 @@ export { defineXiaochunElement, XIAOCHUN_ELEMENT_TAG } from './avatar-element';
 export type { XiaochunAvatarElement } from './avatar-element';
 export * from './protocol';
 export { toProtocolUrl, parseProtocolUrl, XIAOCHUN_PROTOCOL_SCHEME } from './protocol-url';
-export type { XiaochunSpeakAction } from './protocol-url';
+export type {
+  XiaochunSpeakAction,
+  XiaochunMotionAction,
+  XiaochunGroupAction,
+  XiaochunExpressionAction,
+  XiaochunCameraAction,
+  XiaochunStopAction,
+  XiaochunProtocolAction,
+} from './protocol-url';

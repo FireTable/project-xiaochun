@@ -12,7 +12,8 @@
     "moduleResolution": "bundler",
     "paths": {
       "@/*": ["./src/*"],
-      "@firetable/project-xiaochun/protocol": ["./packages/project-xiaochun/src/protocol.ts"]
+      "@firetable/project-xiaochun/protocol": ["./packages/project-xiaochun/src/protocol.ts"],
+      "@firetable/project-xiaochun/protocol-url": ["./packages/project-xiaochun/src/protocol-url.ts"]
     },
     "allowImportingTsExtensions": true,
     "verbatimModuleSyntax": true,

@@ -25,6 +25,7 @@ import {
   type XcConfig,
   type XcErrorCode,
   type XcExpressionPayload,
+  type XcCameraDirectivePayload,
   type XcFrameMessage,
   type XcHeavyMode,
   type XcHitRegionPayload,
@@ -291,7 +292,13 @@ export interface XiaochunInstance {
   /** 流式音频 (原始 PCM 分块)。sampleRate 必填; 首个 write 开始这次说话, utterance start 仍等到声音时钟起步。 */
   speakAudioStream(opts: XiaochunAudioOptions & { sampleRate: number }): XiaochunAudioStream;
   motion(m: XcMotionPayload | string): Promise<void>;
-  expression(name: XcExpressionPayload['name']): Promise<void>;
+  /** 平滑淡出并停止当前动作 */
+  stopMotion(fadeDuration?: number): Promise<void>;
+  expression(name: XcExpressionPayload['name'], intensity?: number): Promise<void>;
+  /** 电影级运镜调度 (景别平滑过渡、环绕推拉、仰角或裙摆升降展示) */
+  camera(directive: XcCameraDirectivePayload | string): Promise<void>;
+  /** 重置相机机位并恢复自由控制 */
+  resetCamera(): Promise<void>;
   /** TODO: 协议已预留, /embed 暂未实现 → 会收到 error{code:'unsupported'}。 */
   lookAt(x: number, y: number): Promise<void>;
   /**
@@ -1162,7 +1169,10 @@ export function createXiaochun(options: XiaochunOptions): XiaochunInstance {
     speakAudio,
     speakAudioStream,
     motion: (m) => send('xc.motion', typeof m === 'string' ? (m.startsWith('http') || m.startsWith('/') ? { url: m } : { name: m }) : m),
-    expression: (name) => send('xc.expression', { name }),
+    stopMotion: (fadeDuration) => send('xc.motion', { stop: true, fadeDuration }),
+    expression: (name, intensity) => send('xc.expression', { name, intensity }),
+    camera: (c) => send('xc.camera', typeof c === 'string' ? { shot: c } : c),
+    resetCamera: () => send('xc.camera', { reset: true }),
     lookAt: (x, y) => send('xc.lookAt', { x, y }),
     setOutfit: (id) => {
       if (!isXcId(id)) return Promise.reject(new Error('[bad_request] invalid outfit id'));

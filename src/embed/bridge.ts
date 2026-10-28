@@ -12,6 +12,8 @@
  *      裸模 base 不在服装表里, 不对外开放。
  */
 import { vrmEngine, type LoadingState } from '@/core/vrmEngine';
+import { resolveMotionUrl } from '@/motion/motionResolver';
+import { type MotionGroupName, MOTION_GROUPS } from '@/motion/catalog';
 import { idbGet, idbPut } from '@/lib/idb-vrm-cache';
 import { APP_CONFIG } from '@/config';
 import { sceneManager } from '@/core/scene/sceneManager';
@@ -72,8 +74,20 @@ const TIMESCALE_RANGE: [number, number] = [0.25, 3];
 interface SwapJob { key: string; id: string | null; url: string; name: string }
 interface SwapResult { changed: boolean; id: string | null; name: string; previous: string | null }
 
-const EXPRESSIONS = new Set(['neutral', 'happy', 'angry', 'sad', 'relaxed', 'surprised']);
-const BUILTIN_MOTIONS: Record<string, string> = { thinking: '/vrm/motion/thinking.vrma' };
+const EXPRESSIONS = new Set([
+  'neutral',
+  'happy',
+  'gentle_smile',
+  'smile',
+  'angry',
+  'sad',
+  'sad_longing',
+  'relaxed',
+  'surprised',
+  'shy',
+  'playful',
+  'hesitant',
+]);
 
 // ── 极简 UI 状态仓 (给 React useSyncExternalStore) ──
 /** 内置界面部件开关 (对应 ?ui= 的部件名): ui = chat 聊天栏; autoHide = uiAutoHide 显示策略 (见 protocol XcUiAutoHide)。 */
@@ -742,9 +756,18 @@ export function startEmbedBridge(opts: EmbedBridgeOptions): EmbedBridge {
         case 'xc.motion': {
           await waitModelReady().catch(() => { throw new CmdError('not_ready', 'model not ready'); });
           if (p.stop === true) { vrmEngine.stopMotion(clamp(p.fadeDuration, FADE_RANGE, 0.75)); break; }
-          const url = p.name !== undefined
-            ? safeAssetUrl(BUILTIN_MOTIONS[String(p.name)], ['.vrma'])
-            : safeAssetUrl(p.url, ['.vrma']);
+          const rawGroup = (p.group || (p.name && p.name in MOTION_GROUPS ? p.name : '')) as MotionGroupName;
+          if (rawGroup && rawGroup in MOTION_GROUPS) {
+            await vrmEngine.playMotionGroup(rawGroup, {
+              loop: p.loop === true,
+              fadeDuration: clamp(p.fadeDuration, FADE_RANGE, 0.75),
+              timeScale: clamp(p.timeScale, TIMESCALE_RANGE, 1),
+              mask: p.mask === 'upperBody' ? 'upperBody' : 'all',
+            });
+            break;
+          }
+          const rawUrl = p.name !== undefined ? resolveMotionUrl(String(p.name)) : p.url;
+          const url = safeAssetUrl(rawUrl, ['.vrma']);
           if (!url) throw new CmdError('bad_request', 'motion needs a built-in name or an https/same-origin .vrma url');
           await vrmEngine.playMotion(url, {
             loop: p.loop === true,
@@ -757,7 +780,21 @@ export function startEmbedBridge(opts: EmbedBridgeOptions): EmbedBridge {
         case 'xc.expression': {
           if (typeof p.name !== 'string' || !EXPRESSIONS.has(p.name)) throw new CmdError('bad_request', 'invalid expression name');
           await waitModelReady().catch(() => { throw new CmdError('not_ready', 'model not ready'); });
-          vrmEngine.setExpression(p.name);
+          const intensity = typeof p.intensity === 'number' && Number.isFinite(p.intensity) ? p.intensity : undefined;
+          vrmEngine.setExpression(p.name, intensity);
+          break;
+        }
+        case 'xc.camera': {
+          await waitModelReady().catch(() => { throw new CmdError('not_ready', 'model not ready'); });
+          if (p.reset === true) {
+            vrmEngine.resetCamera();
+            break;
+          }
+          if (p.panUp === true) {
+            await vrmEngine.panUpRevealCamera(typeof p.durationSec === 'number' ? p.durationSec : 2.2);
+            break;
+          }
+          await runProtocolAction({ action: 'camera', payload: p });
           break;
         }
         case 'xc.pointer': {

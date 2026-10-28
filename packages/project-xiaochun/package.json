@@ -36,6 +36,11 @@
       "import": "./dist/protocol.js",
       "require": "./dist/protocol.cjs"
     },
+    "./protocol-url": {
+      "types": "./dist/protocol-url.d.ts",
+      "import": "./dist/protocol-url.js",
+      "require": "./dist/protocol-url.cjs"
+    },
     "./loader": "./dist/loader.global.js",
     "./package.json": "./package.json"
   },
