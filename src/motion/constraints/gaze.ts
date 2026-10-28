@@ -151,7 +151,7 @@ export class GazeController {
     manualExpression: string | null,
     listening = 0,
   ): void {
-    if (!this.enabled) {
+    if (!this.enabled || traits.disableGaze) {
       this.hasLastLookAt = false;
       if (vrm.lookAt) vrm.lookAt.autoUpdate = false;
       return;

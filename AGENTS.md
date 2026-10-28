@@ -225,6 +225,16 @@ The 3D motion pipeline involves complex layered logic. Follow these geometric an
      - Caps FPS at 30 (Three.js Slerp delivers seamless 60/120Hz display refresh with zero visible loss); preserves native $\le 30\text{ FPS}$ untouched;
      - Collapses exact zero-diff static channels ($\Delta_{\max} \le 10^{-4}$) to 2 constant frames;
      - **CRITICAL INVARIANT**: Whenever `.vrma` assets are modified or re-optimized, **always bump the cache-busting version query (`?v=...`) in `MOTION_CATALOG` (`src/motion/catalog.ts`)**. `motionResolver.ts` mirrors catalog URLs via SSOT. Otherwise, browsers and IndexedDB cache (`vrm-assets-cache` / `RAW_STORE`) will silently continue serving stale, heavy binaries!
+  6. **Root Motion Z-Displacement Alignment Standard (`zeroZ: 'firstFrame'` vs `'all'`)**:
+     - **The Problem**: Raw mocap studio recordings arbitrarily place the actor's initial position at $Z_0 \neq 0$ (e.g. $-15\text{cm} \sim -47\text{cm}$). If unadjusted, playing the motion causes the character to instantly leap backwards into the background. But if $Z$ translation is forcibly zeroed across ALL frames ($Z(t) \equiv 0.0$), standing gestures, dances, and bows lose the actor's natural pelvic counterbalance (e.g. during a bow `bowSalute`, the hips must shift backwards by $18.6\text{cm}$ to counterbalance the forward-leaning torso; during dances `modelPose`, shifting weight from heel to toe creates $\pm 2\sim 4\text{cm}$ depth sway).
+     - **The Standard**: **First-Frame Z Relative Displacement (`zeroZ: 'firstFrame'`)**:
+       * Mathematical transform: $Z'(t) = Z(t) - Z(0)$.
+       * Guarantees Frame 0 starts strictly at $Z'(0) = 0.0\text{m}$, eliminating any initial backward leap or position jerk from Idle ($Z=0$).
+       * 100% preserves the actor's anatomical pelvis shift $\Delta Z(t) = Z(t) - Z(0)$ and center-of-mass counterbalance.
+       * In contrast, in-place locomotion cycles (`casualWalk`) use `zeroZ: 'all'` (or `true`) for treadmill execution.
+  7. **Vertical Ground Contact Protection (`hipsYOffset` + `compensateFloorContact`)**:
+     - Mocap assets recorded on custom rigs or high heels (e.g. `model-pose.vrma` baked with Hips Y ~4.5cm too high) float in mid-air.
+     - Slicing tool applies calibrated `hipsYOffset: -0.045m`, followed by automated `compensateFloorContact` which lifts only frames where ankle pitch or crouching dips below floor level (`penetration > 0`). This ensures flat, stable foot grounding throughout the entire animation with zero hovering and zero floor penetration.
 
 ### 2.13 Performance & Frame-Budget Disciplines (Zero GC & 60 FPS Guarantees)
 - Target: Strictly protect the 16.6ms frame budget, maintaining stable 60 FPS on both mobile and desktop with zero visible frame drops, micro-stutters, or memory leaks.

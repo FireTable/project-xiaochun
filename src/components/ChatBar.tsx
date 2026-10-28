@@ -1,7 +1,7 @@
 import { isEmbed } from '@/lib/platform';
 import React, { useState, useEffect, useRef, Fragment, useMemo } from 'react';
 import { useTranslation } from 'react-i18next';
-import { ChevronLeft, ChevronRight, Menu, Mic, Mountain, Server, Sun, Zap } from 'lucide-react';
+import { ChevronLeft, ChevronRight, Menu, Mountain, Server, Sun, Zap } from 'lucide-react';
 import { vrmEngine } from '@/core/vrmEngine';
 import { useCurrentScene } from '@/core/scene/sceneManager';
 import { DeviceStatusDialog } from '@/components/DeviceStatusDialog';
@@ -47,6 +47,8 @@ import { LlmProviderIcon } from '@/components/LlmProviderIcon';
 import { holdPetUi, releasePetUi } from '@/hooks/usePetUiVisibility';
 import { isDev } from '@/lib/utils';
 import { SttClient, insertAtCursor, type SttUiState } from '@/stt/sttClient';
+import { isDevDrawerActive, saveVoiceRecord } from '@/stt/voiceSessionHistory';
+import { VoicePill } from './VoicePill';
 
 function MenuSwitch({ on }: { on: boolean }) {
   return (
@@ -81,14 +83,18 @@ export const ChatBar: React.FC<{
    * /embed 按 uiAutoHide 选项算好后传进来 (见 src/embed/EmbedApp.tsx)。
    */
   autoHide?: boolean;
+  isDevDrawerOpen?: boolean;
   onShowDevPanel?: () => void;
-}> = ({ isPetUIVisible = false, autoHide, onShowDevPanel }) => {
+}> = ({ isPetUIVisible = false, autoHide, isDevDrawerOpen = false, onShowDevPanel }) => {
   const { t } = useTranslation();
   const currentScene = useCurrentScene();
   const isTransparent = Boolean(currentScene.isTransparent);
   const autoHideActive = autoHide ?? isTransparent;
   // ponytail: 不再有 hover-show — 透明桌宠模式只靠点击角色身体 (App.tsx 的 isPetUIVisible) 唤出/收起
   const [isMenuOpen, setIsMenuOpen] = useState(false);
+
+  const isDevDrawerOpenRef = useRef(isDevDrawerOpen);
+  isDevDrawerOpenRef.current = isDevDrawerOpen;
 
   const inputRef = useRef<HTMLTextAreaElement>(null);
 
@@ -97,9 +103,6 @@ export const ChatBar: React.FC<{
   const [sttPercent, setSttPercent] = useState(0);
   const [sttProb, setSttProb] = useState(0);
   const [sttRms, setSttRms] = useState(0);
-  const holdTimerRef = useRef<number | null>(null);
-  const isHoldModeRef = useRef(false);
-  const wasHoldTriggeredRef = useRef(false);
   /** mic_denied | mic_insecure | mic_unsupported | mic_not_found | other */
   const [sttErrorKind, setSttErrorKind] = useState<string | null>(null);
   const [inputRows, setInputRows] = useState(1);
@@ -124,6 +127,38 @@ export const ChatBar: React.FC<{
   const [showProviderDialog, setShowProviderDialog] = useState(false);
   const [showAdvancedDialog, setShowAdvancedDialog] = useState(false);
   const [showSyncDialog, setShowSyncDialog] = useState(false);
+
+  /** Height only grows (cap 4). Shrink back to 1 only when content is cleared. */
+  const syncComposerHeight = () => {
+    const el = inputRef.current;
+    if (!el) return;
+    const MAX = 4;
+    if (el.value.trim().length === 0) {
+      el.style.height = '';
+      el.style.overflowY = 'hidden';
+      setInputRows((prev) => (prev === 1 ? prev : 1));
+      return;
+    }
+
+    el.style.height = '0px';
+    el.style.overflowY = 'hidden';
+    const cs = window.getComputedStyle(el);
+    let lineHeight = parseFloat(cs.lineHeight);
+    if (!Number.isFinite(lineHeight) || lineHeight <= 0) {
+      const fs = parseFloat(cs.fontSize) || 15;
+      lineHeight = fs * 1.5;
+    }
+    const content = el.scrollHeight;
+    const measuredRows = Math.max(1, Math.min(MAX, Math.ceil(content / lineHeight - 0.01)));
+
+    setInputRows((prev) => {
+      const next = Math.max(prev, measuredRows); // unidirectional: never shrink while typing
+      const nextPx = lineHeight * Math.min(MAX, next);
+      el.style.height = `${nextPx}px`;
+      el.style.overflowY = content > lineHeight * MAX + 0.5 ? 'auto' : 'hidden';
+      return next === prev ? prev : next;
+    });
+  };
 
   // STT (SenseVoice) — lazy client; preload on first mic click
   useEffect(() => {
@@ -157,34 +192,22 @@ export const ChatBar: React.FC<{
       else if (ev.type === 'text') {
         const el = inputRef.current;
         if (el) {
+          el.focus({ preventScroll: true });
           insertAtCursor(el, ev.text);
+          el.focus({ preventScroll: true });
           setHasText(el.value.trim().length > 0);
-          requestAnimationFrame(() => {
-            const box = inputRef.current;
-            if (!box) return;
-            const MAX = 4;
-            if (box.value.trim().length === 0) {
-              box.style.height = '';
-              box.style.overflowY = 'hidden';
-              setInputRows(1);
-              return;
-            }
-            box.style.height = '0px';
-            box.style.overflowY = 'hidden';
-            const cs = window.getComputedStyle(box);
-            let lineHeight = parseFloat(cs.lineHeight);
-            if (!Number.isFinite(lineHeight) || lineHeight <= 0) {
-              const fs = parseFloat(cs.fontSize) || 15;
-              lineHeight = fs * 1.5;
-            }
-            const content = box.scrollHeight;
-            const measuredRows = Math.max(1, Math.min(MAX, Math.ceil(content / lineHeight - 0.01)));
-            setInputRows((prev) => {
-              const next = Math.max(prev, measuredRows);
-              box.style.height = `${lineHeight * Math.min(MAX, next)}px`;
-              box.style.overflowY = content > lineHeight * MAX + 0.5 ? 'auto' : 'hidden';
-              return next === prev ? prev : next;
-            });
+          setIsInputFocused(true);
+          syncComposerHeight();
+        }
+      } else if (ev.type === 'utterance_result') {
+        if (isDevDrawerOpenRef.current && isDevDrawerActive()) {
+          saveVoiceRecord({
+            text: ev.text,
+            pcm: ev.pcm,
+            sampleRate: ev.sampleRate,
+            durationMs: ev.durationMs,
+            inferenceMs: ev.inferenceMs,
+            rms: ev.rms,
           });
         }
       } else if (ev.type === 'error') {
@@ -212,6 +235,7 @@ export const ChatBar: React.FC<{
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps -- mount once
   }, []);
+
   // ponytail: 当前激活的自定义 provider(webllm 与 custom 二选一)。用来在模型下拉里
   // 显示真实生效的服务名 / 模型,而不是 webLLM 的兜底。
   const [activeCustom, setActiveCustom] = useState<ProviderProfile | null>(null);
@@ -564,79 +588,10 @@ export const ChatBar: React.FC<{
     }
   };
 
-  const handleMicPointerDown = (_e: React.PointerEvent<HTMLButtonElement>) => {
-    isHoldModeRef.current = false;
-    wasHoldTriggeredRef.current = false;
-    // If held for >= 320ms, enter Hold-to-Talk (Push-to-Talk)
-    holdTimerRef.current = window.setTimeout(() => {
-      isHoldModeRef.current = true;
-      wasHoldTriggeredRef.current = true;
-      if (sttState === 'idle') {
-        void sttRef.current?.start();
-      }
-    }, 320);
-  };
-
-  const handleMicPointerUp = () => {
-    if (holdTimerRef.current) {
-      clearTimeout(holdTimerRef.current);
-      holdTimerRef.current = null;
-    }
-    if (isHoldModeRef.current) {
-      isHoldModeRef.current = false;
-      void sttRef.current?.stop(true);
-    }
-  };
-
-  const handleMicPointerCancel = () => {
-    if (holdTimerRef.current) {
-      clearTimeout(holdTimerRef.current);
-      holdTimerRef.current = null;
-    }
-    if (isHoldModeRef.current) {
-      isHoldModeRef.current = false;
-      void sttRef.current?.stop(true);
-    }
-  };
-
   const handleSttToggle = () => {
-    if (wasHoldTriggeredRef.current) {
-      wasHoldTriggeredRef.current = false;
-      return;
-    }
+    inputRef.current?.focus({ preventScroll: true });
+    setIsInputFocused(true);
     void sttRef.current?.toggle();
-  };
-
-  /** Height only grows (cap 4). Shrink back to 1 only when content is cleared. */
-  const syncComposerHeight = () => {
-    const el = inputRef.current;
-    if (!el) return;
-    const MAX = 4;
-    if (el.value.trim().length === 0) {
-      el.style.height = '';
-      el.style.overflowY = 'hidden';
-      setInputRows((prev) => (prev === 1 ? prev : 1));
-      return;
-    }
-
-    el.style.height = '0px';
-    el.style.overflowY = 'hidden';
-    const cs = window.getComputedStyle(el);
-    let lineHeight = parseFloat(cs.lineHeight);
-    if (!Number.isFinite(lineHeight) || lineHeight <= 0) {
-      const fs = parseFloat(cs.fontSize) || 15;
-      lineHeight = fs * 1.5;
-    }
-    const content = el.scrollHeight;
-    const measuredRows = Math.max(1, Math.min(MAX, Math.ceil(content / lineHeight - 0.01)));
-
-    setInputRows((prev) => {
-      const next = Math.max(prev, measuredRows); // unidirectional: never shrink while typing
-      const nextPx = lineHeight * Math.min(MAX, next);
-      el.style.height = `${nextPx}px`;
-      el.style.overflowY = content > lineHeight * MAX + 0.5 ? 'auto' : 'hidden';
-      return next === prev ? prev : next;
-    });
   };
 
   const handleInput = () => {
@@ -882,7 +837,10 @@ export const ChatBar: React.FC<{
               }}
               onBlur={() => {
                 setIsInputFocused(false);
-                if (!inputRef.current?.value.trim()) vrmEngine.setListening(false);
+                const isMicActive = sttState === 'listening' || sttState === 'recognizing' || sttState === 'loading';
+                if (!isMicActive && !inputRef.current?.value.trim()) {
+                  vrmEngine.setListening(false);
+                }
                 const vv = window.visualViewport;
                 if (vv) {
                   restingVvHeightRef.current = vv.height;
@@ -906,104 +864,30 @@ export const ChatBar: React.FC<{
               ? t('chat.sttError')
               : null;
 
-          const isAuroraActive =
-            sttState === 'listening' || sttState === 'recognizing' || sttState === 'loading';
-          const isSpeechActive = sttState === 'listening' && sttProb >= 0.45;
-          const haloScale = isSpeechActive ? 1 + Math.min(0.28, sttRms * 3.5) : 1;
-          const dynamicAuraScale = isSpeechActive ? 1 + Math.min(0.02, sttRms * 0.3) : 1;
-          const dynamicBlurPx = isSpeechActive ? 14 + Math.min(14, sttRms * 60) : 12;
-          const dynamicAuraOpacity = isSpeechActive ? Math.min(1, 0.85 + sttRms * 1.5) : 0.75;
+          const isVoiceActive =
+            sttState === 'listening' || sttState === 'recognizing';
 
           const micEl = (
-            <button
-              type="button"
-              id="chatSttMic"
-              aria-label={
-                sttState === 'loading'
-                  ? t('chat.sttLoading')
-                  : sttState === 'listening'
-                  ? isSpeechActive
-                    ? t('chat.sttSpeechLocked')
-                    : t('chat.sttListening')
-                  : sttState === 'recognizing'
-                  ? t('chat.sttRecognizing')
-                  : sttErrorLabel
-                  ? sttErrorLabel
-                  : t('chat.sttIdle')
-              }
-              title={
-                isSpeechActive
-                  ? t('chat.sttSpeechLocked')
-                  : sttState === 'loading'
-                  ? t('chat.sttDownload', { percent: sttPercent })
-                  : sttState === 'listening'
-                  ? t('chat.sttListening')
-                  : sttState === 'recognizing'
-                  ? t('chat.sttRecognizing')
-                  : sttErrorLabel
-                  ? sttErrorLabel
-                  : t('chat.sttIdle')
-              }
-              onClick={handleSttToggle}
-              onPointerDown={handleMicPointerDown}
-              onPointerUp={handleMicPointerUp}
-              onPointerCancel={handleMicPointerCancel}
-              className={`relative shrink-0 h-9 w-9 rounded-full flex items-center justify-center touch-manipulation active:scale-95 appearance-none outline-none border-none transition-all duration-150 overflow-visible select-none ${
-                sttState === 'listening' || sttState === 'recognizing'
-                  ? isSpeechActive
-                    ? 'bg-[#ea8377]/20 text-[#ea8377] shadow-[0_0_16px_rgba(234,131,119,0.35)]'
-                    : 'bg-transparent text-[#ea8377]'
-                  : sttState === 'error'
-                  ? 'bg-red-500/20 text-red-300'
-                  : sttState === 'loading'
-                  ? 'bg-white/10 text-white/70'
-                  : 'bg-transparent text-white/50 hover:text-[#f5aa9c] hover:bg-white/10'
-              }`}
-            >
-              {isSpeechActive && (
-                <span
-                  className="mic-halo-active"
-                  style={{ transform: `scale(${haloScale})` }}
-                  aria-hidden
-                />
-              )}
-              {sttState === 'listening' && !isSpeechActive && (
-                <>
-                  <span className="mic-ripple" aria-hidden />
-                  <span className="mic-ripple mic-ripple--d1" aria-hidden />
-                  <span className="mic-ripple mic-ripple--d2" aria-hidden />
-                </>
-              )}
-              {sttState === 'recognizing' && (
-                <>
-                  <span className="mic-ripple mic-ripple--busy" aria-hidden />
-                  <span className="mic-ripple mic-ripple--busy mic-ripple--busy-d1" aria-hidden />
-                  <span className="mic-ripple mic-ripple--busy mic-ripple--busy-d2" aria-hidden />
-                  <span className="mic-ripple mic-ripple--busy mic-ripple--busy-d3" aria-hidden />
-                </>
-              )}
-              {sttState === 'loading' && (
-                <svg className="absolute inset-0 h-9 w-9 -rotate-90" viewBox="0 0 36 36" aria-hidden>
-                  <circle cx="18" cy="18" r="14" fill="none" stroke="rgba(255,255,255,0.15)" strokeWidth="2" />
-                  <circle
-                    cx="18"
-                    cy="18"
-                    r="14"
-                    fill="none"
-                    stroke="#ea8377"
-                    strokeWidth="2"
-                    strokeLinecap="round"
-                    strokeDasharray={`${2 * Math.PI * 14}`}
-                    strokeDashoffset={`${2 * Math.PI * 14 * (1 - sttPercent / 100)}`}
-                  />
-                </svg>
-              )}
-              {sttState === 'loading' ? (
-                <Loader2 className="w-4 h-4 animate-spin relative z-10" />
-              ) : (
-                <Mic className={`w-4 h-4 relative z-10 transition-transform ${isSpeechActive ? 'scale-110 text-[#ea8377]' : ''}`} />
-              )}
-            </button>
+            <VoicePill
+              state={sttState}
+              rms={sttRms}
+              speechProb={sttProb}
+              loadingPercent={sttPercent}
+              errorLabel={sttErrorLabel}
+              getAnalyser={() => sttRef.current?.getAnalyser() ?? null}
+              onToggle={handleSttToggle}
+              onHoldStart={() => {
+                inputRef.current?.focus({ preventScroll: true });
+                setIsInputFocused(true);
+                if (sttState === 'idle') void sttRef.current?.start();
+              }}
+              onHoldEnd={() => {
+                void sttRef.current?.stop(true);
+              }}
+              onCancel={() => {
+                void sttRef.current?.stop(false);
+              }}
+            />
           );
 
           const llmPct = Math.round(Math.min(1, Math.max(0, llmProgress.progress)) * 100);
@@ -1167,59 +1051,14 @@ export const ChatBar: React.FC<{
           // Dual mode: single = one row centered; multi = text top + bottom bar. Hard cut (no FLIP/transition).
           return (
             <div className="relative w-full overflow-visible">
-              {/* Apple Intelligence Aurora Streamer Edge Glow */}
-              {isAuroraActive && (
-                <div
-                  className="apple-aurora-glow-container pointer-events-none absolute -inset-[2.5px] rounded-[1.95rem] z-0 transition-all duration-300"
-                  style={{
-                    transform: `scale(${dynamicAuraScale})`,
-                  }}
-                  aria-hidden
-                >
-                  {/* 1. Diffuse Ambient Bloom Layer (Outer unclipped blur) */}
-                  <div
-                    className="absolute -inset-1 rounded-[2.1rem] pointer-events-none transition-all duration-150"
-                    style={{
-                      filter: `blur(${dynamicBlurPx}px)`,
-                      opacity: dynamicAuraOpacity,
-                    }}
-                  >
-                    <div className="absolute inset-0 rounded-[2.1rem] overflow-hidden">
-                      <div
-                        className={`apple-aurora-conic ${
-                          sttState === 'recognizing'
-                            ? 'apple-aurora-conic--busy'
-                            : isSpeechActive
-                            ? 'apple-aurora-conic--active'
-                            : 'apple-aurora-conic--slow'
-                        }`}
-                      />
-                    </div>
-                  </div>
-
-                  {/* 2. Razor-Sharp Chromatic Perimeter Stroke Layer */}
-                  <div className="absolute inset-0 rounded-[1.95rem] overflow-hidden pointer-events-none opacity-95 shadow-[0_0_14px_rgba(234,131,119,0.35)]">
-                    <div
-                      className={`apple-aurora-conic ${
-                        sttState === 'recognizing'
-                          ? 'apple-aurora-conic--busy'
-                          : isSpeechActive
-                          ? 'apple-aurora-conic--active'
-                          : 'apple-aurora-conic--slow'
-                      }`}
-                    />
-                  </div>
-                </div>
-              )}
-
               <div
-                className={`w-full grid min-h-12 rounded-[1.75rem] bg-[#13111c]/90 border backdrop-blur-2xl ${shellPad} relative z-10 overflow-visible ${
+                className={`w-full grid min-h-12 rounded-[1.75rem] bg-[#13111c]/90 border backdrop-blur-2xl ${shellPad} relative z-10 overflow-visible transition-colors duration-200 ${
                   composerExpanded
                     ? 'grid-cols-[auto_1fr_auto] grid-rows-[minmax(0,1fr)_auto] gap-y-1'
                     : 'grid-cols-[auto_minmax(0,1fr)_auto] grid-rows-1 items-center gap-x-2'
                 } ${
-                  isAuroraActive
-                    ? 'border-transparent shadow-[0_0_24px_rgba(234,131,119,0.25)]'
+                  isVoiceActive
+                    ? 'border-[#ea8377]/40 ring-1 ring-[#ea8377]/25 shadow-[0_0_20px_rgba(234,131,119,0.2)]'
                     : isQueued
                     ? 'border-[#ea8377] ring-2 ring-[#ea8377]/40 shadow-[0_0_24px_rgba(234,131,119,0.35)]'
                     : 'border-white/15 focus-within:border-[#ea8377] focus-within:ring-2 focus-within:ring-[#ea8377]/30 focus-within:shadow-[0_0_24px_rgba(234,131,119,0.3)]'

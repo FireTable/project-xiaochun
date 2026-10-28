@@ -40,6 +40,13 @@ export interface PlayMotionOptions {
    * 由 FootIKSolver 连续平滑解算接地与放平，杜绝骨盆瞬降造成的裙摆物理甩动。
    */
   enableFootIK?: boolean;
+  /**
+   * 是否禁用眼球与头颈视线注视追踪（默认 false）。
+   * 适用于提溜悬空、倒置翻滚等剧烈动作，彻底杜绝逆向欧拉角/四元数极点自旋翻转。
+   */
+  disableGaze?: boolean;
+  /** 内部冷启动迎客动作标识，不触发取消冷启动定时器 */
+  isColdStartGreeting?: boolean;
 }
 
 export interface UniversalMotionHandle {
@@ -229,6 +236,10 @@ export class UniversalMotionController {
     }
 
     this.currentOptions = options;
+    this.traits = {
+      ...DEFAULT_MOTION_TRAITS,
+      ...(options.disableGaze !== undefined ? { disableGaze: options.disableGaze } : {}),
+    };
     const isLoop = !!options.loop;
     if (isLoop) {
       makeClipSeamless(clip, options.fadeDuration);
@@ -347,6 +358,7 @@ export class UniversalMotionController {
     this.active = false;
     this.isFadingOut = false;
     this.currentAction = null;
+    this.traits = { ...DEFAULT_MOTION_TRAITS };
 
     if (!this.onEndTriggered) {
       this.onEndTriggered = true;

@@ -259,6 +259,7 @@ export const App: React.FC = () => {
       {!loadingActive && !isStoryOrOnboarding && currentScene.components.chatBar !== false && (
         <ChatBar
           isPetUIVisible={isPetUIVisible}
+          isDevDrawerOpen={isDrawerOpen && showDevUi && !isStoryOrOnboarding}
           onShowDevPanel={() => setHasDevEasterEgg(true)}
         />
       )}

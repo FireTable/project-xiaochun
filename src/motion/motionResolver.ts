@@ -146,6 +146,57 @@ export const MOTION_FILES: Record<string, string> = {
   'preview/voxavatar/airplane-05': MOTION_CATALOG.airplaneGlide.url,
   'preview/vroid-official/ShowFullBody': MOTION_CATALOG.showFullBody.url,
   ShowFullBody: MOTION_CATALOG.showFullBody.url,
+
+  // ── 9. 新增动作标识符与别名映射 ──
+  fistThinking: MOTION_CATALOG.fistThinking.url,
+  'fist-thinking': MOTION_CATALOG.fistThinking.url,
+  dm_3: MOTION_CATALOG.fistThinking.url,
+  dm3: MOTION_CATALOG.fistThinking.url,
+
+  singleHandWave: MOTION_CATALOG.singleHandWave.url,
+  'single-hand-wave': MOTION_CATALOG.singleHandWave.url,
+  dm_4: MOTION_CATALOG.singleHandWave.url,
+  dm4: MOTION_CATALOG.singleHandWave.url,
+
+  angryJump: MOTION_CATALOG.angryJump.url,
+  'angry-jump': MOTION_CATALOG.angryJump.url,
+  dm_8: MOTION_CATALOG.angryJump.url,
+  dm8: MOTION_CATALOG.angryJump.url,
+
+  bowSalute: MOTION_CATALOG.bowSalute.url,
+  'bow-salute': MOTION_CATALOG.bowSalute.url,
+  dm_10: MOTION_CATALOG.bowSalute.url,
+  dm10: MOTION_CATALOG.bowSalute.url,
+
+  cheerUp: MOTION_CATALOG.cheerUp.url,
+  'cheer-up': MOTION_CATALOG.cheerUp.url,
+  dm_28: MOTION_CATALOG.cheerUp.url,
+  dm28: MOTION_CATALOG.cheerUp.url,
+
+  swayIdle: MOTION_CATALOG.swayIdle.url,
+  'sway-idle': MOTION_CATALOG.swayIdle.url,
+  dm_120: MOTION_CATALOG.swayIdle.url,
+  dm120: MOTION_CATALOG.swayIdle.url,
+
+  impatientWait: MOTION_CATALOG.impatientWait.url,
+  'impatient-wait': MOTION_CATALOG.impatientWait.url,
+  dm_138: MOTION_CATALOG.impatientWait.url,
+  dm138: MOTION_CATALOG.impatientWait.url,
+
+  liftedStruggle: MOTION_CATALOG.liftedStruggle.url,
+  'lifted-struggle': MOTION_CATALOG.liftedStruggle.url,
+  'preview/desktop-homunculus/grabbed': MOTION_CATALOG.liftedStruggle.url,
+  grabbed: MOTION_CATALOG.liftedStruggle.url,
+
+  casualWalk: MOTION_CATALOG.casualWalk.url,
+  'casual-walk': MOTION_CATALOG.casualWalk.url,
+  'preview/flarom/walk': MOTION_CATALOG.casualWalk.url,
+  walk: MOTION_CATALOG.casualWalk.url,
+
+  modelPose: MOTION_CATALOG.modelPose.url,
+  'model-pose': MOTION_CATALOG.modelPose.url,
+  'preview/sillytavern/motion_pose': MOTION_CATALOG.modelPose.url,
+  motion_pose: MOTION_CATALOG.modelPose.url,
 };
 
 /**

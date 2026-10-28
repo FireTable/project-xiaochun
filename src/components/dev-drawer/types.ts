@@ -41,7 +41,8 @@ export type SectionId =
   | 'wardrobe'
   | 'lighting'
   | 'camera'
-  | 'postfx';
+  | 'postfx'
+  | 'voiceAnalysis';
 
 
 /** 历史撤销操作动作 */

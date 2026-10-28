@@ -131,9 +131,10 @@ describe('MotionAssetManager & MOTION_GROUPS Architecture', () => {
       expect(pPokeDimple).toBeLessThan(0.125);
     });
 
-    it('obeys weighted distribution statistics for idleFlavor (50% relaxStretch, 30% checkTime, 20% sleepyNod)', () => {
+    it('obeys weighted distribution statistics for idleFlavor (45% relaxStretch, 25% swayIdle, 20% checkTime, 10% sleepyNod)', () => {
       const counts: Record<string, number> = {
         relaxStretch: 0,
+        swayIdle: 0,
         checkTime: 0,
         sleepyNod: 0,
       };
@@ -145,17 +146,21 @@ describe('MotionAssetManager & MOTION_GROUPS Architecture', () => {
       }
 
       const pRelaxStretch = counts.relaxStretch / SAMPLES;
+      const pSwayIdle = counts.swayIdle / SAMPLES;
       const pCheckTime = counts.checkTime / SAMPLES;
       const pSleepyNod = counts.sleepyNod / SAMPLES;
 
-      expect(pRelaxStretch).toBeGreaterThan(0.465);
-      expect(pRelaxStretch).toBeLessThan(0.535);
+      expect(pRelaxStretch).toBeGreaterThan(0.415);
+      expect(pRelaxStretch).toBeLessThan(0.485);
 
-      expect(pCheckTime).toBeGreaterThan(0.265);
-      expect(pCheckTime).toBeLessThan(0.335);
+      expect(pSwayIdle).toBeGreaterThan(0.215);
+      expect(pSwayIdle).toBeLessThan(0.285);
 
-      expect(pSleepyNod).toBeGreaterThan(0.165);
-      expect(pSleepyNod).toBeLessThan(0.235);
+      expect(pCheckTime).toBeGreaterThan(0.165);
+      expect(pCheckTime).toBeLessThan(0.235);
+
+      expect(pSleepyNod).toBeGreaterThan(0.075);
+      expect(pSleepyNod).toBeLessThan(0.125);
     });
 
     it('obeys weighted distribution statistics for listening (70% listening, 30% gazeObserve)', () => {
@@ -180,11 +185,14 @@ describe('MotionAssetManager & MOTION_GROUPS Architecture', () => {
       expect(pGazeObserve).toBeLessThan(0.335);
     });
 
-    it('obeys weighted distribution statistics for thinking (70% thinking, 30% pokeFingers)', () => {
+    it('obeys weighted distribution statistics for thinking (70% thinking, 30% pokeFingers - no fistThinking)', () => {
       const counts: Record<string, number> = {
         thinking: 0,
         pokeFingers: 0,
       };
+
+      const group = MOTION_GROUPS.thinking;
+      expect(group.find((item) => (item.id as string) === 'fistThinking')).toBeUndefined();
 
       const SAMPLES = 20000;
       for (let i = 0; i < SAMPLES; i++) {
@@ -200,6 +208,28 @@ describe('MotionAssetManager & MOTION_GROUPS Architecture', () => {
 
       expect(pPokeFingers).toBeGreaterThan(0.265);
       expect(pPokeFingers).toBeLessThan(0.335);
+    });
+
+    it('obeys weighted distribution statistics for greeting (60% waving, 40% singleHandWave)', () => {
+      const counts: Record<string, number> = {
+        waving: 0,
+        singleHandWave: 0,
+      };
+
+      const SAMPLES = 20000;
+      for (let i = 0; i < SAMPLES; i++) {
+        const picked = selectMotionFromGroup('greeting');
+        counts[picked] = (counts[picked] || 0) + 1;
+      }
+
+      const pWaving = counts.waving / SAMPLES;
+      const pSingleHandWave = counts.singleHandWave / SAMPLES;
+
+      expect(pWaving).toBeGreaterThan(0.565);
+      expect(pWaving).toBeLessThan(0.635);
+
+      expect(pSingleHandWave).toBeGreaterThan(0.365);
+      expect(pSingleHandWave).toBeLessThan(0.435);
     });
   });
 
@@ -404,8 +434,9 @@ describe('MotionAssetManager & MOTION_GROUPS Architecture', () => {
 
     it('ensures greeting group members are non-looping (loop: false) and pre-warmed', () => {
       const group = MOTION_GROUPS.greeting;
-      expect(group.length).toBe(1);
-      expect(group[0].id).toBe('waving');
+      expect(group.length).toBe(2);
+      expect(group.some((item) => item.id === 'waving')).toBe(true);
+      expect(group.some((item) => item.id === 'singleHandWave')).toBe(true);
 
       for (const item of group) {
         const catalogItem = MOTION_CATALOG[item.id];
@@ -443,11 +474,37 @@ describe('MotionAssetManager & MOTION_GROUPS Architecture', () => {
       expect(MOTION_GROUPS.playfulSulking[0].id).toBe('poutHum');
     });
 
-    it('executes selectMotionFromGroup("greeting") returning waving for greeting group', () => {
+    it('executes selectMotionFromGroup("greeting") returning waving or singleHandWave for greeting group', () => {
       const picked = selectMotionFromGroup('greeting');
-      expect(picked).toBe('waving');
+      expect(['waving', 'singleHandWave']).toContain(picked);
       expect(MOTION_CATALOG[picked].loop).toBe(false);
       expect((MOTION_CATALOG[picked] as { warmup?: boolean }).warmup).toBe(true);
+    });
+
+    it('verifies liftedStruggle has disableGaze: true and propagates into motion traits', () => {
+      const lifted = MOTION_CATALOG.liftedStruggle;
+      expect(lifted.disableGaze).toBe(true);
+
+      const controller = new UniversalMotionController();
+      const mockVRM = {
+        scene: new THREE.Scene(),
+        humanoid: {
+          getNormalizedBoneNode: vi.fn().mockReturnValue(null),
+        },
+      } as any;
+      controller.bind(mockVRM);
+
+      const clip = new THREE.AnimationClip('liftedStruggleClip', 1.0, []);
+      controller.play(clip, { disableGaze: true });
+      expect(controller.traits.disableGaze).toBe(true);
+
+      controller.stop();
+      expect(controller.traits.disableGaze).toBeUndefined();
+    });
+
+    it('verifies singleHandWave is upperBody masked and airplaneGlide locks Hips XZ', () => {
+      expect(MOTION_CATALOG.singleHandWave.mask).toBe('upperBody');
+      expect(MOTION_CATALOG.airplaneGlide.lockHipsXZ).toBe(true);
     });
   });
 });

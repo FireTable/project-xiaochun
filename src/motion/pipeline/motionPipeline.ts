@@ -360,7 +360,13 @@ export class MotionPipeline {
   traitsForWriter(writer: LiveMotionWriter): MotionTraits {
     if (writer === 'emage') return this.emage.traits;
     if (writer === 'vrma') return this.vrma.traits;
-    if (writer === 'clip') return this.universalMotion.traits;
+    if (writer === 'clip') {
+      const opts = this.universalMotion.getCurrentOptions();
+      return {
+        ...this.universalMotion.traits,
+        ...(opts?.disableGaze !== undefined ? { disableGaze: opts.disableGaze } : {}),
+      };
+    }
     return this.idle.traits;
   }
 
@@ -508,15 +514,8 @@ export class MotionPipeline {
       const baseYaw = isVrm0 ? Math.PI : 0;
       const currentFacingYaw = vrm.scene.rotation.y - baseYaw;
       const desiredYaw = Math.atan2(dx, dz) + this.targetYawOffset;
-      let targetYaw = desiredYaw - currentFacingYaw;
-      // 限制前瞻角位移差值在 [-2π, 2π]，避免极速甩动时积压过多圈数
-      if (targetYaw > Math.PI * 2) {
-        this.targetYawOffset = currentFacingYaw - Math.atan2(dx, dz) + Math.PI * 2;
-        targetYaw = Math.PI * 2;
-      } else if (targetYaw < -Math.PI * 2) {
-        this.targetYawOffset = currentFacingYaw - Math.atan2(dx, dz) - Math.PI * 2;
-        targetYaw = -Math.PI * 2;
-      }
+      // 始终走最短角位移路径 ([-π, π])，杜绝多转一整圈 (360°)
+      const targetYaw = THREE.MathUtils.euclideanModulo(desiredYaw - currentFacingYaw + Math.PI, Math.PI * 2) - Math.PI;
       // 保持目标方向单调一致，平滑限幅弹簧加速度上限：
       const normYaw = Math.max(-2.5, Math.min(2.5, targetYaw));
       const absYaw = Math.abs(normYaw);

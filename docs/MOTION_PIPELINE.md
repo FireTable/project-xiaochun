@@ -355,7 +355,36 @@ node scripts/slice-vrma.mjs --optimize-all
 
 # Optimize a single VRMA file (in-place or to target)
 node scripts/slice-vrma.mjs --optimize public/vrm/motion/show-full-body.vrma
+
+# Motion slicing with first-frame Z relative displacement & ground offset:
+node scripts/slice-vrma.mjs raw.vrma out.vrma 0.0 20.0 --seamless --zero-z=firstFrame --hips-y-offset=-0.045
 ```
+
+### 5.3 Root Motion Z-Displacement Standard (`zeroZ: 'firstFrame'` vs `'all'`)
+
+Raw mocap studio captures typically position the performer at an arbitrary origin ($Z_0 = -15\text{cm} \sim -47\text{cm}$).
+1. **The Problem**:
+   - Directly playing raw mocap causes the character to instantly leap backwards into the background away from the idle standing position ($Z=0$).
+   - Forcibly zeroing Z translation across **all frames** ($Z(t) \equiv 0.0$) breaks anatomical counterbalance:
+     * In deep bows (`bowSalute`), the hips naturally slide backwards by $18.6\text{cm}$ to counterbalance the forward-leaning torso; locking $Z \equiv 0$ causes the avatar to pitch unnaturally forward.
+     * In dances and standing fidgets (`modelPose`, `swayIdle`, `cheerUp`), weight transfers from heel to toe generate natural $\Delta Z = \pm 2\sim 4\text{cm}$ depth sway; locking $Z \equiv 0$ renders the pelvis stiff and mechanical.
+2. **First-Frame Z Relative Displacement (`zeroZ: 'firstFrame'`)**:
+   - Mathematical transformation:
+     $$Z'(t) = Z(t) - Z(0)$$
+   - **Guaranteed Frame 0 Origin Alignment**: $Z'(0) \equiv 0.0\text{m}$, ensuring seamless crossfading from `NaturalIdle` with zero backward/forward jumping.
+   - **100% Anatomical Counterbalance Preservation**: Retains all relative pelvic sway $\Delta Z(t) = Z(t) - Z(0)$ throughout the action.
+   - **Treadmill Mode (`zeroZ: 'all'` / `true`)**: Exclusively reserved for locomotion cycles (`casualWalk`) where the actor actually walked through space and must be converted to an in-place loop.
+
+### 5.4 Vertical Ground Contact Protection (`hipsYOffset` + `compensateFloorContact`)
+
+When mocap files authored on different rigs or with high-heeled footwear (e.g. `model-pose.vrma` baked with Hips Y ~4.5cm too high) are retargeted, the avatar floats in mid-air.
+1. **Calibrated Slicing Offset (`hipsYOffset: -0.045m`)**:
+   - Uniformly lowers the Hips Y trajectory so standing foot soles touch the floor plane ($Y=0.00\text{m}$).
+2. **Automated Dynamic Contact Clamping (`compensateFloorContact`)**:
+   - Evaluates world positions of `toesL`, `toesR`, `footL`, and `footR` across all keyframes against `restFloorY`.
+   - Only for frames where ankle pitch or deep squats cause vertices to dip below floor level ($\text{penetration} > 0$), lifts Hips Y just enough to prevent floor penetration (`vals[i * 3 + 1] += penetration`).
+   - Achieves consistent, grounded foot contact across the entire animation ($\text{diff} \in [0.0\text{cm}, 0.1\text{cm}]$) with zero hovering and zero floor penetration.
+
 
 
 

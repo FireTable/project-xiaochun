@@ -9,10 +9,7 @@
  */
 import { APP_CONFIG } from '@/config';
 import { SileroVad } from './sileroVad';
-import {
-  isFillerOrUnreadable,
-  richTranscriptionPostprocess,
-} from './transcriptFilter';
+import { richTranscriptionPostprocess } from './transcriptFilter';
 
 export type SttUiState = 'idle' | 'loading' | 'listening' | 'recognizing' | 'error';
 
@@ -23,6 +20,16 @@ export type SttClientEvent =
   | { type: 'speech_prob'; prob: number }
   | { type: 'speech_start' }
   | { type: 'text'; text: string }
+  | {
+      type: 'utterance_result';
+      id: number;
+      text: string;
+      pcm: Float32Array;
+      sampleRate: number;
+      durationMs: number;
+      inferenceMs: number;
+      rms: number;
+    }
   | { type: 'error'; message: string };
 
 type Listener = (ev: SttClientEvent) => void;
@@ -72,15 +79,33 @@ export class SttClient {
   private audioCtx: AudioContext | null = null;
   private processor: ScriptProcessorNode | null = null;
   private source: MediaStreamAudioSourceNode | null = null;
+  private analyser: AnalyserNode | null = null;
   private vad: SileroVad | null = null;
   private recogId = 0;
   private loadStarted = false;
   /** True while a segment is in-flight; speech_end queues one pending utterance. */
   private recognizingBusy = false;
   private pendingUtterance: Float32Array | null = null;
+  private inFlightUtterance: {
+    id: number;
+    pcm: Float32Array;
+    sampleRate: number;
+    durationMs: number;
+    startTime: number;
+    rms: number;
+  } | null = null;
+  private adhocRequests = new Map<
+    number,
+    {
+      resolve: (res: { text: string; inferenceMs: number }) => void;
+      reject: (err: Error) => void;
+      startTime: number;
+    }
+  >();
   private lastProgressPercent = 0;
   private isModelReady = false;
   private startSessionId = 0;
+  private desiredActive = false;
 
   on(listener: Listener): () => void {
     this.listeners.add(listener);
@@ -93,6 +118,10 @@ export class SttClient {
 
   getProgressPercent(): number {
     return this.lastProgressPercent;
+  }
+
+  getAnalyser(): AnalyserNode | null {
+    return this.analyser;
   }
 
   private emit(ev: SttClientEvent): void {
@@ -118,9 +147,9 @@ export class SttClient {
         this.emit({ type: 'progress', phase, percent });
         if (phase === 'ready') {
           this.isModelReady = true;
-          if (this.stream) this.setState('listening');
+          if (this.desiredActive || this.stream) this.setState('listening');
           else if (this.state === 'loading') this.setState('idle');
-        } else if (!this.isModelReady && !this.stream && this.state !== 'listening') {
+        } else if (!this.isModelReady && !this.stream && !this.desiredActive && this.state !== 'listening') {
           this.setState('loading');
         }
         return;
@@ -129,17 +158,45 @@ export class SttClient {
         this.isModelReady = true;
         this.lastProgressPercent = 100;
         this.emit({ type: 'progress', phase: 'ready', percent: 100 });
-        if (this.stream) this.setState('listening');
+        if (this.desiredActive || this.stream) this.setState('listening');
         else if (this.state === 'loading') this.setState('idle');
         return;
       }
       if (msg.type === 'result') {
         const cleaned = richTranscriptionPostprocess(String(msg.text ?? ''));
+        const reqId = Number(msg.id);
+        const adhoc = this.adhocRequests.get(reqId);
+        if (adhoc) {
+          this.adhocRequests.delete(reqId);
+          const now = typeof performance !== 'undefined' ? performance.now() : Date.now();
+          const inferenceMs = Math.round(now - adhoc.startTime);
+          adhoc.resolve({ text: cleaned, inferenceMs });
+          return;
+        }
+
         this.recognizingBusy = false;
         // Continuous dictation: stay listening if mic still open; user toggles mic to stop.
         if (this.stream) this.setState('listening');
         else this.setState('idle');
-        if (cleaned && !isFillerOrUnreadable(cleaned)) {
+
+        const inFlight = this.inFlightUtterance;
+        this.inFlightUtterance = null;
+        if (inFlight && (msg.id === undefined || inFlight.id === Number(msg.id))) {
+          const now = typeof performance !== 'undefined' ? performance.now() : Date.now();
+          const inferenceMs = Math.round(now - inFlight.startTime);
+          this.emit({
+            type: 'utterance_result',
+            id: inFlight.id,
+            text: cleaned || String(msg.text ?? ''),
+            pcm: inFlight.pcm,
+            sampleRate: inFlight.sampleRate,
+            durationMs: inFlight.durationMs,
+            inferenceMs,
+            rms: inFlight.rms,
+          });
+        }
+
+        if (cleaned) {
           this.emit({ type: 'text', text: cleaned });
         } else {
           this.emit({ type: 'error', message: 'empty_transcript' });
@@ -153,6 +210,15 @@ export class SttClient {
         return;
       }
       if (msg.type === 'error') {
+        const reqId = Number(msg.id);
+        const adhoc = this.adhocRequests.get(reqId);
+        if (adhoc) {
+          this.adhocRequests.delete(reqId);
+          adhoc.reject(new Error(String(msg.message || 'STT recognition error')));
+          return;
+        }
+
+        this.inFlightUtterance = null;
         const message = String(msg.message ?? 'STT error');
         this.recognizingBusy = false;
         this.pendingUtterance = null;
@@ -179,7 +245,7 @@ export class SttClient {
   preload(): void {
     if (this.loadStarted) return;
     this.loadStarted = true;
-    if (!this.isModelReady && !this.stream) {
+    if (!this.isModelReady && !this.stream && !this.desiredActive) {
       this.setState('loading');
     }
     this.ensureWorker().postMessage({ type: 'load' });
@@ -199,7 +265,7 @@ export class SttClient {
 
   /** Toggle listening. */
   async toggle(): Promise<void> {
-    if (this.stream || this.state === 'listening' || this.state === 'recognizing') {
+    if (this.stream || this.desiredActive || this.state === 'listening' || this.state === 'recognizing') {
       await this.stop(true);
       return;
     }
@@ -207,6 +273,7 @@ export class SttClient {
   }
 
   async start(): Promise<void> {
+    this.desiredActive = true;
     const sessionId = ++this.startSessionId;
     try {
       // Immediate visual feedback: activate edge glow without hardware wait
@@ -229,7 +296,7 @@ export class SttClient {
       });
 
       // User stopped/cancelled while awaiting getUserMedia
-      if (sessionId !== this.startSessionId || (this.state !== 'listening' && this.state !== 'recognizing')) {
+      if (sessionId !== this.startSessionId || !this.desiredActive) {
         for (const t of stream.getTracks()) t.stop();
         return;
       }
@@ -255,6 +322,14 @@ export class SttClient {
 
       const source = ctx.createMediaStreamSource(stream);
       this.source = source;
+
+      // Real-time microphone frequency analyser for VoicePill waveform
+      const analyser = ctx.createAnalyser();
+      analyser.fftSize = 256;
+      analyser.smoothingTimeConstant = 0;
+      source.connect(analyser);
+      this.analyser = analyser;
+
       // ScriptProcessor: widely supported in Safari/Chromium/Tauri WKWebView.
       const processor = ctx.createScriptProcessor(4096, 1, 1);
       this.processor = processor;
@@ -300,6 +375,7 @@ export class SttClient {
 
   /** Stop mic; if flushUtterance, send leftover speech to recognizer. */
   async stop(flushUtterance = true): Promise<void> {
+    this.desiredActive = false;
     this.startSessionId++;
     const leftover = flushUtterance ? this.vad?.flush() ?? null : null;
     this.teardownAudio();
@@ -317,7 +393,7 @@ export class SttClient {
   private shouldSkipUtterance(pcm: Float32Array, durationMs: number): boolean {
     const stt = APP_CONFIG.stt;
     if (pcm.length === 0) return true;
-    if (durationMs < (stt.minUtteranceMs ?? 200)) return true;
+    if (durationMs < (stt.minUtteranceMs ?? 160)) return true;
     return false;
   }
 
@@ -325,20 +401,40 @@ export class SttClient {
     this.recognizingBusy = true;
     this.setState('recognizing');
     const id = ++this.recogId;
+    const sr = APP_CONFIG.stt.sampleRate;
+    const durationMs = (pcm.length / sr) * 1000;
+    let sumSq = 0;
+    for (let i = 0; i < pcm.length; i++) {
+      const v = pcm[i]!;
+      sumSq += v * v;
+    }
+    const rms = Math.sqrt(sumSq / Math.max(1, pcm.length));
+
+    this.inFlightUtterance = {
+      id,
+      pcm: pcm.slice(),
+      sampleRate: sr,
+      durationMs,
+      startTime: typeof performance !== 'undefined' ? performance.now() : Date.now(),
+      rms,
+    };
+
     const w = this.ensureWorker();
     const copy = pcm.slice();
-    w.postMessage({ type: 'recognize', id, pcm: copy, sampleRate: APP_CONFIG.stt.sampleRate }, [
+    w.postMessage({ type: 'recognize', id, pcm: copy, sampleRate: sr }, [
       copy.buffer,
     ]);
   }
 
   private teardownAudio(): void {
     try {
+      this.analyser?.disconnect();
       this.processor?.disconnect();
       this.source?.disconnect();
     } catch {
       /* ignore */
     }
+    this.analyser = null;
     this.processor = null;
     this.source = null;
     if (this.audioCtx) {
@@ -362,8 +458,29 @@ export class SttClient {
     this.vad?.reset();
   }
 
+  /**
+   * Ad-hoc ASR inference on a raw PCM Float32Array buffer (e.g. for re-testing/benchmarking in DevDrawer).
+   * Does NOT alter microphone capture, VAD state, or listening turn state.
+   */
+  async recognizePcm(
+    pcm: Float32Array,
+    sampleRate: number = APP_CONFIG.stt.sampleRate,
+  ): Promise<{ text: string; inferenceMs: number }> {
+    this.preload();
+    const w = this.ensureWorker();
+    const id = ++this.recogId;
+    const copy = pcm.slice();
+    const startTime = typeof performance !== 'undefined' ? performance.now() : Date.now();
+    return new Promise((resolve, reject) => {
+      this.adhocRequests.set(id, { resolve, reject, startTime });
+      w.postMessage({ type: 'recognize', id, pcm: copy, sampleRate }, [copy.buffer]);
+    });
+  }
+
   dispose(): void {
     void this.stop(false);
+    this.inFlightUtterance = null;
+    this.adhocRequests.clear();
     this.vad?.dispose();
     this.vad = null;
     this.worker?.terminate();
@@ -374,11 +491,31 @@ export class SttClient {
   }
 }
 
+let sharedSttClient: SttClient | null = null;
+export function getSharedSttClient(): SttClient {
+  if (!sharedSttClient) {
+    sharedSttClient = new SttClient();
+  }
+  return sharedSttClient;
+}
+
 /** Insert text at caret of input/textarea (does not replace whole field). */
 export function insertAtCursor(
   el: HTMLInputElement | HTMLTextAreaElement,
   text: string,
 ): void {
+  try {
+    if (typeof document === 'undefined' || document.activeElement !== el) {
+      el.focus?.({ preventScroll: true });
+    }
+  } catch {
+    try {
+      el.focus?.();
+    } catch {
+      /* ignore */
+    }
+  }
+
   const start = el.selectionStart ?? el.value.length;
   const end = el.selectionEnd ?? el.value.length;
   const before = el.value.slice(0, start);

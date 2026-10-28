@@ -306,7 +306,7 @@ async function recognize(id: number, pcmIn: Float32Array, sampleRate: number): P
       throw new Error('STT session not ready');
     }
     const pcm = resampleLinear(pcmIn, sampleRate, SAMPLE_RATE);
-    const minMs = Number(STT.minUtteranceMs ?? 250);
+    const minMs = Number(STT.minUtteranceMs ?? 160);
     if (pcm.length < SAMPLE_RATE * (minMs / 1000)) {
       throw new Error('Utterance too short');
     }

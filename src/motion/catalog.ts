@@ -7,6 +7,8 @@ export interface MotionCatalogItem extends PlayMotionOptions {
   nameKey: string;
   /** 动作文件路径（或已预加载的 ArrayBuffer） */
   url: string;
+  /** 是否新近引入的动作，用于在 DevDrawer 中做醒目标识 */
+  isNew?: boolean;
   /** 是否在初始化阶段提前拉取并预解析至常驻内存池 (0ms 瞬时起播) */
   warmup?: boolean;
   /** 动作多语言描述说明 i18n Key */
@@ -51,6 +53,22 @@ export const MOTION_CATALOG = {
     mask: 'all',
     category: 'posture',
   },
+  fistThinking: {
+    id: 'fistThinking',
+    nameKey: 'motion.fistThinking.name',
+    descriptionKey: 'motion.fistThinking.description',
+    name: '托拳思考',
+    description: '单手握拳轻抵下巴、专注凝神思考的姿态',
+    url: '/vrm/motion/fist-thinking.vrma?v=5',
+    warmup: false,
+    loop: true,
+    fadeDuration: 0.75,
+    antiClip: false,
+    enableFootIK: false,
+    mask: 'all',
+    category: 'posture',
+    isNew: true,
+  },
   relaxStretch: {
     id: 'relaxStretch',
     nameKey: 'motion.relaxStretch.name',
@@ -85,7 +103,7 @@ export const MOTION_CATALOG = {
     descriptionKey: 'motion.gazeObserve.description',
     name: '观望打量',
     description: '左右轻轻观望打量周围环境的惬意站姿',
-    url: '/vrm/motion/gaze-observe.vrma?v=4',
+    url: '/vrm/motion/gaze-observe.vrma?v=5',
     warmup: true,
     loop: true,
     fadeDuration: 0.85,
@@ -107,6 +125,49 @@ export const MOTION_CATALOG = {
     antiClip: false,
     category: 'posture',
   },
+  swayIdle: {
+    id: 'swayIdle',
+    nameKey: 'motion.swayIdle.name',
+    descriptionKey: 'motion.swayIdle.description',
+    name: '左右摇摆待机',
+    description: '重心在双腿间悠闲左右晃动、轻松自在的待机微动作',
+    url: '/vrm/motion/sway-idle.vrma?v=6',
+    warmup: true,
+    loop: false,
+    fadeDuration: 0.85,
+    mask: 'all',
+    antiClip: false,
+    category: 'posture',
+    isNew: true,
+  },
+  impatientWait: {
+    id: 'impatientWait',
+    nameKey: 'motion.impatientWait.name',
+    descriptionKey: 'motion.impatientWait.description',
+    name: '不耐烦等待',
+    description: '双臂抱胸、小腿轻点地面的不耐烦等待反应',
+    url: '/vrm/motion/impatient-wait.vrma?v=5',
+    loop: false,
+    fadeDuration: 0.85,
+    mask: 'all',
+    antiClip: false,
+    category: 'posture',
+    isNew: true,
+  },
+  casualWalk: {
+    id: 'casualWalk',
+    nameKey: 'motion.casualWalk.name',
+    descriptionKey: 'motion.casualWalk.description',
+    name: '悠闲漫步',
+    description: '步伐轻盈舒缓、在沙滩边漫步前行的自然行进姿态',
+    url: '/vrm/motion/casual-walk.vrma?v=3',
+    loop: true,
+    fadeDuration: 0.75,
+    mask: 'all',
+    antiClip: false,
+    category: 'casual',
+    isNew: true,
+  },
 
   // ── 2. 问候与展示 (Greetings & Showcase) ──
   waving: {
@@ -115,13 +176,42 @@ export const MOTION_CATALOG = {
     descriptionKey: 'motion.waving.description',
     name: '热情招手',
     description: '高举右臂向远方用力挥手问好',
-    url: '/vrm/motion/waving.vrma?v=2',
+    url: '/vrm/motion/waving.vrma?v=3',
     warmup: true,
     loop: false,
     fadeDuration: 0.75,
     mask: 'all',
     antiClip: false,
     category: 'greeting',
+  },
+  singleHandWave: {
+    id: 'singleHandWave',
+    nameKey: 'motion.singleHandWave.name',
+    descriptionKey: 'motion.singleHandWave.description',
+    name: '单手挥手',
+    description: '轻抬单手向近处朋友自然随和地招手致意',
+    url: '/vrm/motion/single-hand-wave.vrma?v=5',
+    warmup: true,
+    loop: false,
+    fadeDuration: 0.75,
+    mask: 'upperBody',
+    antiClip: false,
+    category: 'greeting',
+    isNew: true,
+  },
+  bowSalute: {
+    id: 'bowSalute',
+    nameKey: 'motion.bowSalute.name',
+    descriptionKey: 'motion.bowSalute.description',
+    name: '前倾敬礼',
+    description: '身体前倾、端庄举手敬礼的礼貌问候姿态',
+    url: '/vrm/motion/bow-salute.vrma?v=4',
+    loop: false,
+    fadeDuration: 0.75,
+    mask: 'all',
+    antiClip: false,
+    category: 'posture',
+    isNew: true,
   },
   showFullBody: {
     id: 'showFullBody',
@@ -136,6 +226,20 @@ export const MOTION_CATALOG = {
     mask: 'all',
     antiClip: false,
     category: 'showcase',
+  },
+  modelPose: {
+    id: 'modelPose',
+    nameKey: 'motion.modelPose.name',
+    descriptionKey: 'motion.modelPose.description',
+    name: '节拍律动',
+    description: '随着动感节拍轻盈律动摇摆、随性起舞的活力舞姿',
+    url: '/vrm/motion/model-pose.vrma?v=4',
+    loop: true,
+    fadeDuration: 0.85,
+    mask: 'all',
+    antiClip: false,
+    category: 'dance',
+    isNew: true,
   },
 
   // ── 3. 情绪、娇羞与可爱卖萌 (Cute & Emotional) ──
@@ -248,6 +352,20 @@ export const MOTION_CATALOG = {
     mask: 'all',
     antiClip: false,
     category: 'celebration',
+  },
+  cheerUp: {
+    id: 'cheerUp',
+    nameKey: 'motion.cheerUp.name',
+    descriptionKey: 'motion.cheerUp.description',
+    name: '加油鼓气',
+    description: '双手握拳用力收臂、为彼此打气加油的振奋动作',
+    url: '/vrm/motion/cheer-up.vrma?v=5',
+    loop: false,
+    fadeDuration: 0.65,
+    mask: 'all',
+    antiClip: false,
+    category: 'expression',
+    isNew: true,
   },
 
   // ── 4. 言语叙述与交谈手势 (Speech Gestures) ──
@@ -369,12 +487,42 @@ export const MOTION_CATALOG = {
     descriptionKey: 'motion.airplaneGlide.description',
     name: '小飞机滑翔',
     description: '展开双臂低空滑行的小飞机搞怪姿势',
-    url: '/vrm/motion/airplane-glide.vrma?v=2',
+    url: '/vrm/motion/airplane-glide.vrma?v=5',
     loop: false,
     fadeDuration: 0.75,
     mask: 'all',
     antiClip: false,
+    lockHipsXZ: true,
     category: 'playful',
+  },
+  angryJump: {
+    id: 'angryJump',
+    nameKey: 'motion.angryJump.name',
+    descriptionKey: 'motion.angryJump.description',
+    name: '气的起跳',
+    description: '气鼓鼓地跺脚轻跳、发泄可爱小脾气的俏皮动作',
+    url: '/vrm/motion/angry-jump.vrma?v=3',
+    loop: false,
+    fadeDuration: 0.65,
+    mask: 'all',
+    antiClip: false,
+    category: 'playful',
+    isNew: true,
+  },
+  liftedStruggle: {
+    id: 'liftedStruggle',
+    nameKey: 'motion.liftedStruggle.name',
+    descriptionKey: 'motion.liftedStruggle.description',
+    name: '提溜挣扎',
+    description: '像后颈被拎起般在半空中悬空蹬腿手脚扑腾的逗趣反应',
+    url: '/vrm/motion/lifted-struggle.vrma?v=2',
+    loop: true,
+    fadeDuration: 0.65,
+    mask: 'all',
+    antiClip: false,
+    disableGaze: true,
+    category: 'playful',
+    isNew: true,
   },
 } as const satisfies Record<string, MotionCatalogItem>;
 
@@ -405,11 +553,12 @@ export const MOTION_GROUPS = {
     { id: 'pokeDimple', weight: 10 },
   ],
 
-  /** 待机自发微动作组 (idleFlavor: 50% 放松舒展, 30% 核对时间, 20% 困倦打盹) */
+  /** 待机自发微动作组 (idleFlavor: 45% 放松舒展, 25% 左右摇摆待机, 20% 核对时间, 10% 困倦打盹) */
   idleFlavor: [
-    { id: 'relaxStretch', weight: 50 },
-    { id: 'checkTime', weight: 30 },
-    { id: 'sleepyNod', weight: 20 },
+    { id: 'relaxStretch', weight: 45 },
+    { id: 'swayIdle', weight: 25 },
+    { id: 'checkTime', weight: 20 },
+    { id: 'sleepyNod', weight: 10 },
   ],
 
   /** 专注倾听姿态组 (listening: 70% 纯净倾听, 30% 观望打量) */
@@ -424,9 +573,10 @@ export const MOTION_GROUPS = {
     { id: 'pokeFingers', weight: 30 },
   ],
 
-  /** 热情迎候问候组 (greeting: 100% 热情招手) */
+  /** 热情迎候问候组 (greeting: 60% 热情招手, 40% 单手挥手) */
   greeting: [
-    { id: 'waving', weight: 100 },
+    { id: 'waving', weight: 60 },
+    { id: 'singleHandWave', weight: 40 },
   ],
 
   /** 夸赞心动反应组 (praiseCute: 100% 双手比心) */

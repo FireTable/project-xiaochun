@@ -27,6 +27,16 @@ function quintic(t) {
  * @param {object} options 配置选项
  * @param {boolean} options.seamless 是否执行末尾首帧五次平滑缝合（适合循环待机/站姿）
  * @param {number} options.seamlessDuration 缝合过渡时长（秒，默认 0.65s）
+ * @param {boolean|'firstFrame'|'all'} options.zeroZ Z轴位移归零模式：
+ *   - 'firstFrame': 首帧相对位移归零（Z'(t) = Z(t) - Z(0)）。消除动捕起始点偏离原点的后退/突进，同时 100% 保留动捕演员自然的重心前后摆动与鞠躬/下蹲代偿！推荐用于站姿、手势、舞蹈、鞠躬等所有原地非位移动作。
+ *   - 'all' 或 true: 全帧置零（Z'(t) = 0.0）。完全锁定在 Z 原点平面，适用于行走/跑步等跑步机式原地循环。
+ *   - false: 保持原始 Z 轴位移数据。
+ * @param {boolean|'firstFrame'|'all'} options.zeroX X轴横向位移归零模式：
+ *   - 'firstFrame': 首帧相对横向位移归零（X'(t) = X(t) - X(0)）。消除动捕起始横向偏心，起播时在正面原点居中。
+ *   - 'all' 或 true: 全帧横向置零（X'(t) = 0.0）。彻底锁定横向居中，消除大幅左右跑动。
+ *   - false: 保持原始 X 轴位移数据。
+ * @param {number} options.hipsYOffset Hips 骨盆 Y 轴高度全局微调量（米，如 -0.045 下沉 4.5cm 消除空中悬空漂浮）
+ * @param {number} options.tailHoldDuration 尾帧平定保持时长（秒）
  */
 export function sliceVrma(
   inputPath,
@@ -39,6 +49,9 @@ export function sliceVrma(
     seamless = false,
     seamlessDuration = 0.65,
     zeroZ = false,
+    zeroX = false,
+    hipsYOffset = 0.0,
+    tailHoldDuration = 0.0,
   } = options;
 
   if (!existsSync(inputPath)) {
@@ -74,27 +87,39 @@ export function sliceVrma(
   if (startFrame === -1) startFrame = 0;
   if (endFrame === -1 || endFrame <= startFrame) endFrame = origTimes.length - 1;
 
-  const count = endFrame - startFrame + 1;
+  const baseCount = endFrame - startFrame + 1;
+  const rawDuration = origTimes[endFrame] - origTimes[startFrame];
+  const fps = baseCount / Math.max(0.001, rawDuration);
+  const holdFrames = tailHoldDuration > 0 ? Math.round(tailHoldDuration * fps) : 0;
+  const count = baseCount + holdFrames;
+
   const t0 = origTimes[startFrame];
   const newTimes = new Float32Array(count);
-  for (let i = 0; i < count; i++) {
+  for (let i = 0; i < baseCount; i++) {
     newTimes[i] = origTimes[startFrame + i] - t0;
+  }
+  for (let i = baseCount; i < count; i++) {
+    newTimes[i] = newTimes[baseCount - 1] + (i - baseCount + 1) / fps;
   }
 
   const newBuffers = [];
   let currentOffset = 0;
   const newGltf = JSON.parse(JSON.stringify(gltf));
+  newGltf.bufferViews = [];
 
   // 1. Time accessor (时间轴重映射与归零)
   const timeBytes = new Uint8Array(newTimes.buffer, newTimes.byteOffset, newTimes.byteLength);
   newBuffers.push(timeBytes);
-  newGltf.bufferViews[timeAcc.bufferView] = {
+  const timeBvIdx = newGltf.bufferViews.length;
+  newGltf.bufferViews.push({
     buffer: 0,
     byteOffset: currentOffset,
     byteLength: timeBytes.byteLength,
-  };
+  });
   newGltf.accessors[anim.samplers[0].input] = {
     ...timeAcc,
+    bufferView: timeBvIdx,
+    byteOffset: 0,
     count: count,
     min: [newTimes[0]],
     max: [newTimes[count - 1]],
@@ -107,7 +132,6 @@ export function sliceVrma(
 
   // 2. 动画采样轨道纯净切片（100% 保留动捕原生骨盆与关节数据）
   const duration = newTimes[count - 1] - newTimes[0];
-  const fps = count / Math.max(0.001, duration);
   const blendFrames = seamless
     ? Math.max(4, Math.min(Math.round(seamlessDuration * fps), Math.floor(count * 0.35)))
     : 0;
@@ -130,14 +154,45 @@ export function sliceVrma(
       (c) => c.sampler === sIdx && c.target.path === 'translation'
     );
 
-    // 复制指定帧区间（若开启 zeroZ 则将位移的 Z 轴彻底置零）
-    for (let i = 0; i < count; i++) {
+    const isFirstFrameZ = zeroZ === 'firstFrame';
+    const isAllZ = zeroZ === 'all' || zeroZ === true;
+    const z0 = (isTranslation && stride === 3) ? origVals[startFrame * stride + 2] : 0.0;
+
+    const isFirstFrameX = zeroX === 'firstFrame';
+    const isAllX = zeroX === 'all' || zeroX === true;
+    const x0 = (isTranslation && stride === 3) ? origVals[startFrame * stride] : 0.0;
+
+    // 复制指定帧区间（若开启 zeroZ/zeroX 处理位移轴，若指定 hipsYOffset 则平移 Y 高度）
+    for (let i = 0; i < baseCount; i++) {
       for (let j = 0; j < stride; j++) {
         let val = origVals[(startFrame + i) * stride + j];
-        if (isTranslation && stride === 3 && j === 2 && zeroZ) {
-          val = 0.0;
+        if (isTranslation && stride === 3) {
+          if (j === 0) {
+            if (isAllX) {
+              val = 0.0;
+            } else if (isFirstFrameX) {
+              val = val - x0;
+            }
+          }
+          if (j === 1 && hipsYOffset !== 0.0) {
+            val += hipsYOffset;
+          }
+          if (j === 2) {
+            if (isAllZ) {
+              val = 0.0;
+            } else if (isFirstFrameZ) {
+              val = val - z0;
+            }
+          }
         }
         newVals[i * stride + j] = val;
+      }
+    }
+
+    // 填充尾部平定静止帧 (tailHoldDuration)
+    for (let i = baseCount; i < count; i++) {
+      for (let j = 0; j < stride; j++) {
+        newVals[i * stride + j] = newVals[(baseCount - 1) * stride + j];
       }
     }
 
@@ -187,13 +242,16 @@ export function sliceVrma(
     const valBytes = new Uint8Array(newVals.buffer, newVals.byteOffset, newVals.byteLength);
     newBuffers.push(valBytes);
 
-    newGltf.bufferViews[outAcc.bufferView] = {
+    const outBvIdx = newGltf.bufferViews.length;
+    newGltf.bufferViews.push({
       buffer: 0,
       byteOffset: currentOffset,
       byteLength: valBytes.byteLength,
-    };
+    });
     newGltf.accessors[s.output] = {
       ...outAcc,
+      bufferView: outBvIdx,
+      byteOffset: 0,
       count: count,
       min,
       max,
@@ -416,7 +474,7 @@ export function scanVrma(filePath) {
     if (Math.abs(z0) > 0.03) {
       hasSevereZRetract = true;
       console.log(`    🚨 【高危后撤/突进风险】起始帧偏离原点 ${(Math.abs(z0) * 100).toFixed(1)}cm！从待机(Z=0)切入时会产生瞬间抽动/后退拉扯。`);
-      console.log(`       👉 建议: 切片时务必添加 --zero-z 锁定纵深，或截取 Z 接近 0 的稳定区间。`);
+      console.log(`       👉 建议: 切片时务必添加 --zero-z (首帧相对位移归零，保留动作重心) 或 --zero-z=all (跑步机全帧置零锁定)。`);
     } else {
       console.log(`    🟢 起始帧纵深贴近原点 (Z0 偏移 < 3cm)，过渡平稳。`);
     }
@@ -966,7 +1024,7 @@ if (process.argv[1] && process.argv[1].endsWith('slice-vrma.mjs')) {
   node scripts/slice-vrma.mjs --scan <输入文件>
 
   # 动作切片：
-  node scripts/slice-vrma.mjs <输入文件> <输出文件> [开始秒数] [结束秒数] [--seamless] [--zero-z]
+  node scripts/slice-vrma.mjs <输入文件> <输出文件> [开始秒数] [结束秒数] [--seamless] [--zero-z[=firstFrame|all]] [--hips-y-offset=<meters>]
 
 示例:
   # 1. 批量优化全量动作资产:
@@ -977,6 +1035,9 @@ if (process.argv[1] && process.argv[1].endsWith('slice-vrma.mjs')) {
 
   # 3. 扫描动捕资产潜在问题：
   node scripts/slice-vrma.mjs --scan public/vrm/motion/touch-hair.vrma
+
+  # 4. 动作切片（首帧相对 Z 轴位移归零 + 下沉 4.5cm 消除空中悬浮）：
+  node scripts/slice-vrma.mjs input.vrma output.vrma 0.0 20.0 --seamless --zero-z=firstFrame --hips-y-offset=-0.045
 `);
     process.exit(1);
   }
@@ -986,7 +1047,31 @@ if (process.argv[1] && process.argv[1].endsWith('slice-vrma.mjs')) {
   const start = args[2] ? parseFloat(args[2]) : 0.0;
   const end = args[3] && !args[3].startsWith('--') ? parseFloat(args[3]) : Infinity;
   const isSeamless = args.includes('--seamless');
-  const isZeroZ = args.includes('--zero-z');
 
-  sliceVrma(inPath, outPath, start, end, { seamless: isSeamless, zeroZ: isZeroZ });
+  let zeroZMode = false;
+  if (args.includes('--zero-z=all') || args.includes('--zero-z-all')) {
+    zeroZMode = 'all';
+  } else if (args.includes('--zero-z') || args.includes('--zero-z=firstFrame')) {
+    zeroZMode = 'firstFrame';
+  }
+
+  let zeroXMode = false;
+  if (args.includes('--zero-x=all') || args.includes('--zero-x-all')) {
+    zeroXMode = 'all';
+  } else if (args.includes('--zero-x') || args.includes('--zero-x=firstFrame')) {
+    zeroXMode = 'firstFrame';
+  }
+
+  let hipsYOffset = 0.0;
+  const hipsArg = args.find((a) => a.startsWith('--hips-y-offset='));
+  if (hipsArg) {
+    hipsYOffset = parseFloat(hipsArg.split('=')[1]) || 0.0;
+  }
+
+  sliceVrma(inPath, outPath, start, end, {
+    seamless: isSeamless,
+    zeroZ: zeroZMode,
+    zeroX: zeroXMode,
+    hipsYOffset,
+  });
 }

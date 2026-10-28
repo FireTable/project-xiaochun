@@ -273,6 +273,10 @@ export class VRMEngine {
   private get vrmaPlayer() { return this.motionPipeline.vrma; }
   private get bodyTurn() { return this.motionPipeline.bodyTurn; }
   public readonly bodyMorph = new VRMBodyMorph(APP_CONFIG.bodyMorph.default);
+  /** 冷启动内存登记的历史 bodyYaw 偏角（用于进入时先正脸迎客招手推镜头，结束后自然迈步转身复位） */
+  private _pendingColdStartTargetYaw: number | null = null;
+  private _coldStartIntroTimer: ReturnType<typeof setTimeout> | null = null;
+  private _coldStartTurnTimer: ReturnType<typeof setTimeout> | null = null;
   private rawHitRadiusMap = new WeakMap<object, number>();
   // ponytail: 后期管线单例 — attachCanvas 时 init,render() 走 composer
   public readonly postFx: PostFxPipeline = postFxPipeline;
@@ -413,8 +417,6 @@ export class VRMEngine {
   public hostPaused = false;
   /** document.visibilitychange → 后台 suspend / 前台 resume */
   private visibilityPauseHandler: (() => void) | null = null;
-  /** 页面切出到后台的时间戳，用于重返前台时长计算与迎候判定 */
-  private lastHiddenTime = 0;
   /** 当前 WebGL 上下文属性指纹（antialias / preserveDrawingBuffer / powerPreference） */
   private _rendererContextKey = '';
   /** 电池未充电 → low-power；插电或未知桌面 → high-performance */
@@ -509,24 +511,9 @@ export class VRMEngine {
     if (typeof document === 'undefined' || this.visibilityPauseHandler) return;
     this.visibilityPauseHandler = () => {
       if (document.hidden) {
-        this.lastHiddenTime = Date.now();
         this.suspendRendering();
       } else {
-        const wasAwayLong = this.lastHiddenTime > 0 && Date.now() - this.lastHiddenTime >= 45000;
-        this.lastHiddenTime = 0;
         this.resumeForeground();
-        // 用户离开标签页超过 45s 重返：自发招手迎候 (greeting)
-        if (wasAwayLong) {
-          const isChatActive = this.turnState === 'thinking' || this.turnState === 'speaking' || this.turnState === 'listening' || this.chatDirector.speaking;
-          if (!isChatActive && this.turnState === 'idle' && !this.interaction.getState().isDragging) {
-            setTimeout(() => {
-              const stillClean = this.turnState === 'idle' && !this.chatDirector.speaking && !this.interaction.getState().isDragging;
-              if (stillClean) {
-                void this.playMotionGroup('greeting', { fadeDuration: 0.85, loop: false }).catch(() => {});
-              }
-            }, 300);
-          }
-        }
       }
     };
     document.addEventListener('visibilitychange', this.visibilityPauseHandler);
@@ -610,8 +597,27 @@ export class VRMEngine {
     if (this.cinematicIntroRafId === null) return false;
     cancelAnimationFrame(this.cinematicIntroRafId);
     this.cinematicIntroRafId = null;
-    if (this.controls) this.controls.enabled = true;
+    if (this.controls) {
+      this.controls.enabled = true;
+      this.controls.update();
+    }
     return true;
+  }
+
+  /**
+   * 取消冷启动待机迎客演出（推镜头与延迟迈步复位），将控制权无延迟归还给用户
+   */
+  public cancelColdStartWelcoming(): void {
+    if (this._coldStartIntroTimer !== null) {
+      clearTimeout(this._coldStartIntroTimer);
+      this._coldStartIntroTimer = null;
+    }
+    if (this._coldStartTurnTimer !== null) {
+      clearTimeout(this._coldStartTurnTimer);
+      this._coldStartTurnTimer = null;
+    }
+    this._pendingColdStartTargetYaw = null;
+    this.cancelCinematicIntro();
   }
 
   // ── 宿主相机覆盖 (/embed 的 camera 选项) ──
@@ -1121,6 +1127,16 @@ export class VRMEngine {
     });
     setTimeout(() => { cameraSaveReady = true; }, 2000);
 
+    // 用户主动操作 OrbitControls (滚轮缩放或指针交互) 立即让位
+    this.controls.addEventListener('start', () => {
+      this.cancelColdStartWelcoming();
+    });
+
+    const onCanvasWheel = () => {
+      this.cancelColdStartWelcoming();
+    };
+    canvas.addEventListener('wheel', onCanvasWheel, { passive: true });
+
     window.addEventListener('resize', this.handleResize);
     this.__dev_expose_once();
 
@@ -1135,6 +1151,7 @@ export class VRMEngine {
       onSaveBodyYaw: () => this.saveCurrentBodyYaw(),
       onSaveCameraPitch: () => this.saveCurrentCameraPitch(),
       onSetCameraYOffset: (offset) => this.setCameraYOffset(offset),
+      onUserInteractionStart: () => this.cancelColdStartWelcoming(),
     });
 
     if (this.canvas) {
@@ -1165,7 +1182,14 @@ export class VRMEngine {
 
   /** 保存当前人物 bodyTurn 目标自转偏角 */
   public saveCurrentBodyYaw(): void {
-    persistBodyYaw(this.motionPipeline.targetYawOffset);
+    if (this._coldStartTurnTimer !== null) {
+      clearTimeout(this._coldStartTurnTimer);
+      this._coldStartTurnTimer = null;
+    }
+    this._pendingColdStartTargetYaw = null;
+    const normalizedYaw = THREE.MathUtils.euclideanModulo(this.motionPipeline.targetYawOffset + Math.PI, Math.PI * 2) - Math.PI;
+    this.motionPipeline.targetYawOffset = normalizedYaw;
+    persistBodyYaw(normalizedYaw);
   }
 
   /** 将角色朝向初始化为背对镜头并保持静止 (用于序章电影级初醒演出) */
@@ -1195,12 +1219,31 @@ export class VRMEngine {
 
   /**
    * 将持久化的人物 bodyTurn 目标角度还原至 VRM 实例与动作管线
+   * @param isColdStart 是否为冷启动。仅当历史偏角在背面半球（不在镜头视线范围内，|yaw| > 90°）时，才先正脸迎客招手，结束后自然迈步转回；若本来就在正面视线内，直接保持朝向迎客
    */
-  private applySavedBodyYawToVRM(vrm: VRM): void {
-    const savedYaw = loadSavedBodyYaw();
-    if (savedYaw !== null) {
+  private applySavedBodyYawToVRM(vrm: VRM, isColdStart = false): void {
+    const rawSavedYaw = loadSavedBodyYaw();
+    if (rawSavedYaw !== null) {
       const isVrm0 = vrm.meta?.metaVersion === '0';
       const baseYaw = isVrm0 ? Math.PI : 0;
+      // 规范化到 [-π, π] 最短角空间，杜绝累计圈数导致转一整圈
+      const savedYaw = THREE.MathUtils.euclideanModulo(rawSavedYaw + Math.PI, Math.PI * 2) - Math.PI;
+
+      // 视线范围判定：仅当历史偏角绝对值 > 90° (Math.PI * 0.5 ≈ 1.57 rad) 时，角色才处于背面（背对镜头看不到脸）
+      // 此时才需要在冷启动时先正面迎客招手，待招手完成后由 bodyTurn 迈步转回背面；
+      // 若在正面 180° 视线区内（|savedYaw| <= π/2），角色本来就在正面/侧面视线范围内，头部 Gaze 可自然看向镜头，
+      // 直接在原位迎客，绝不平白无故转圈！
+      const isFacingBackwards = Math.abs(savedYaw) > Math.PI * 0.5;
+
+      if (isColdStart && isFacingBackwards) {
+        this._pendingColdStartTargetYaw = savedYaw;
+        vrm.scene.rotation.y = baseYaw;
+        this.motionPipeline.targetYawOffset = 0;
+        this.motionPipeline.resetLocomotion();
+        return;
+      }
+
+      this._pendingColdStartTargetYaw = null;
       vrm.scene.rotation.y = baseYaw + savedYaw;
       this.motionPipeline.targetYawOffset = savedYaw;
       this.motionPipeline.resetLocomotion();
@@ -2134,7 +2177,7 @@ export class VRMEngine {
           this.motionPipeline.finalPose.sampleFromVRM(vrm);
           this.bodyMorph.bind(vrm);
           this.applySpringBoneTuning(vrm);
-          this.applySavedBodyYawToVRM(vrm);
+          this.applySavedBodyYawToVRM(vrm, !preserveMotion);
           const initialBaseY = this.vrmBaseSceneY - this.footIK.getSinkOffset() + this.bodyMorph.getLegHeightDelta();
           vrm.scene.position.y = initialBaseY;
           this.motionPipeline.tick(vrm, {
@@ -2599,25 +2642,41 @@ export class VRMEngine {
       this.onSwapProgress?.({ active: false, subtitleKey: '', progress: 100 });
       if (!preserveMotion) {
         this.reportLoading({ active: false, subtitleKey: '', progress: 100 });
-        // 冷启动进入 3D 舞台：先播放 greeting (热情招手问候)，在招手展开时平滑推镜头
-        setTimeout(() => {
-          const isChatActive = this.turnState === 'thinking' || this.turnState === 'speaking' || this.turnState === 'listening' || this.chatDirector.speaking;
-          if (!isChatActive && this.turnState === 'idle' && !this.interaction.getState().isDragging && (options?.showcase ?? true)) {
-            // 1. 先播放 greeting 招手
-            void this.playMotionGroup('greeting', { fadeDuration: 0.65, loop: false }).catch((e) => {
-              console.warn('[vrmEngine] cold-start greeting motion notice:', e);
-            });
-            // 2. 然后推镜头 (在小春抬手热情招手展开时，镜头平滑推向角色特写)
-            setTimeout(() => {
+        // 冷启动进入 3D 舞台：遮罩淡出时立即起播 greeting (热情招手问候)，在招手展开时平滑推镜头
+        const isChatActive = this.turnState === 'thinking' || this.turnState === 'speaking' || this.turnState === 'listening' || this.chatDirector.speaking;
+        if (!isChatActive && this.turnState === 'idle' && !this.interaction.getState().isDragging && (options?.showcase ?? true)) {
+          // 1. 立即播放 greeting 招手（遮罩淡出的同时小春已在正向迎客抬手，零等待延迟）
+          void this.playMotionGroup('greeting', { fadeDuration: 0.65, loop: false, isColdStartGreeting: true }).catch((e) => {
+            console.warn('[vrmEngine] cold-start greeting motion notice:', e);
+          });
+          // 2. 然后推镜头 (在小春抬手热情招手展开至高位时，镜头平滑推向角色特写)
+          this._coldStartIntroTimer = setTimeout(() => {
+            this._coldStartIntroTimer = null;
+            const stillClean = this.turnState === 'idle' && !this.chatDirector.speaking && !this.interaction.getState().isDragging;
+            if (stillClean) {
+              this.cinematicIntro(1200);
+            }
+          }, 600);
+          // 3. 招手致意与镜头落定后（约 2.8s）：若有待恢复的历史偏角，启动 bodyTurn 迈步自然转回记录点
+          this._coldStartTurnTimer = setTimeout(() => {
+            this._coldStartTurnTimer = null;
+            if (this._pendingColdStartTargetYaw !== null) {
+              const targetYaw = this._pendingColdStartTargetYaw;
+              this._pendingColdStartTargetYaw = null;
               const stillClean = this.turnState === 'idle' && !this.chatDirector.speaking && !this.interaction.getState().isDragging;
-              if (stillClean) {
-                this.cinematicIntro(1200);
+              if (stillClean && this.currentVRM) {
+                this.motionPipeline.targetYawOffset = targetYaw;
               }
-            }, 600);
-          } else {
-            this.cinematicIntro(1100);
+            }
+          }, 2800);
+        } else {
+          this.cinematicIntro(1100);
+          if (this._pendingColdStartTargetYaw !== null) {
+            const targetYaw = this._pendingColdStartTargetYaw;
+            this._pendingColdStartTargetYaw = null;
+            this.motionPipeline.targetYawOffset = targetYaw;
           }
-        }, 300);
+        }
       }
     }
   }
@@ -2804,7 +2863,7 @@ export class VRMEngine {
           this.motionPipeline.finalPose.sampleFromVRM(vrm);
           this.bodyMorph.bind(vrm);
           this.applySpringBoneTuning(vrm);
-          this.applySavedBodyYawToVRM(vrm);
+          this.applySavedBodyYawToVRM(vrm, !preserveMotion);
           const initialBaseY = this.vrmBaseSceneY - this.footIK.getSinkOffset() + this.bodyMorph.getLegHeightDelta();
           vrm.scene.position.y = initialBaseY;
           this.motionPipeline.tick(vrm, {
@@ -3055,8 +3114,9 @@ export class VRMEngine {
       return;
     }
 
-    // 若用户正在拖拽镜头或与角色进行 3D 交互，重置计时器，绝不打扰用户操作
+    // 若用户正在拖拽镜头或与角色进行 3D 交互，重置计时器并清除冷启动待转角度
     if (this.interaction.getState().isDragging) {
+      this._pendingColdStartTargetYaw = null;
       this.idleFlavorTimer = 0;
       return;
     }
@@ -3080,6 +3140,9 @@ export class VRMEngine {
     options: PlayMotionOptions = {},
   ): Promise<UniversalMotionHandle> {
     this.resetIdleFlavorTimer();
+    if (!options.isColdStartGreeting) {
+      this.cancelColdStartWelcoming();
+    }
     if (!this.currentVRM) {
       throw new Error('[VRMEngine] 模型尚未就绪，无法播放动作');
     }
@@ -3303,6 +3366,9 @@ export class VRMEngine {
 
   public setTurnState(state: TurnState): void {
     this.resetIdleFlavorTimer();
+    if (state !== 'idle') {
+      this.cancelColdStartWelcoming();
+    }
     this.chatDirector.setTurnState(state);
   }
 
@@ -3739,6 +3805,7 @@ export class VRMEngine {
   }
 
   public dispose(): void {
+    this.cancelColdStartWelcoming();
     this.unbindVisibilityPause();
     this._batteryUnsub?.();
     this._batteryUnsub = null;

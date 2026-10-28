@@ -57,6 +57,8 @@ export interface InteractionContext {
   onSaveCameraPitch: () => void;
   /** ponytail: 拖拽 cameraYGuide 时调, 写入新 Y offset (-1 ~ +1) */
   onSetCameraYOffset: (offset: number) => void;
+  /** 用户主动交互开始回调 (指针按下 / 拖拽开始), 用于立即打断系统推镜头与冷启动待转身 */
+  onUserInteractionStart?: () => void;
 }
 
 export class InteractionController {
@@ -294,6 +296,7 @@ export class InteractionController {
         break;
       }
       case 'turn-start':
+        this.context?.onUserInteractionStart?.();
         this.lastDragDx = 0;
         this.lastDragDy = 0;
         break;
@@ -418,6 +421,7 @@ export class InteractionController {
     const toSample = (e: PointerEvent) => fillPointerSample(this.sample, e, hasInteractionModifier(e));
 
     const onPointerDown = (e: PointerEvent) => {
+      this.context?.onUserInteractionStart?.();
       this.applyResponse(e, this.machine.pointerDown(toSample(e)));
     };
 
