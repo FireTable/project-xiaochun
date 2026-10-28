@@ -4,6 +4,7 @@ import {
   parseProtocolUrl,
   type XiaochunSpeakAction,
   type XiaochunMotionAction,
+  type XiaochunMotionGroupAction,
   type XiaochunGroupAction,
   type XiaochunExpressionAction,
   type XiaochunCameraAction,
@@ -57,7 +58,20 @@ describe('protocol-url (toProtocolUrl & parseProtocolUrl)', () => {
     expect(parsed).toEqual(action);
   });
 
-  it('encodes and parses group action', () => {
+  it('encodes and parses motion-group action', () => {
+    const action: XiaochunMotionGroupAction = {
+      action: 'motion-group',
+      name: 'praiseCute',
+      loop: false,
+    };
+    const url = toProtocolUrl(action);
+    expect(url).toBe('xiaochun://motion-group?name=praiseCute&loop=false');
+
+    const parsed = parseProtocolUrl(url);
+    expect(parsed).toEqual(action);
+  });
+
+  it('encodes and parses legacy group action', () => {
     const action: XiaochunGroupAction = {
       action: 'group',
       name: 'praiseCute',
@@ -68,6 +82,17 @@ describe('protocol-url (toProtocolUrl & parseProtocolUrl)', () => {
 
     const parsed = parseProtocolUrl(url);
     expect(parsed).toEqual(action);
+  });
+
+  it('parses kebab, snake and concatenated case aliases for motion-group', () => {
+    expect(parseProtocolUrl('xiaochun://motion_group?name=greeting')).toEqual({
+      action: 'motion-group',
+      name: 'greeting',
+    });
+    expect(parseProtocolUrl('xiaochun://motiongroup?name=greeting')).toEqual({
+      action: 'motion-group',
+      name: 'greeting',
+    });
   });
 
   it('encodes and parses expression action', () => {
@@ -124,6 +149,17 @@ describe('runProtocolAction dispatcher', () => {
     );
   });
 
+  it('dispatches motion-group to vrmEngine.playMotionGroup', async () => {
+    await runProtocolAction({
+      action: 'motion-group',
+      payload: { name: 'praiseCute' },
+    });
+    expect(vrmEngine.playMotionGroup).toHaveBeenCalledWith(
+      'praiseCute',
+      expect.any(Object),
+    );
+  });
+
   it('dispatches group to vrmEngine.playMotionGroup', async () => {
     await runProtocolAction({
       action: 'group',
@@ -132,6 +168,22 @@ describe('runProtocolAction dispatcher', () => {
     expect(vrmEngine.playMotionGroup).toHaveBeenCalledWith(
       'greeting',
       expect.any(Object),
+    );
+  });
+
+  it('dispatches camera with shorthand aliases duration, fov, orbit', async () => {
+    await runProtocolAction({
+      action: 'camera',
+      payload: { shot: 'close_up', movement: 'push_in', duration: 1.6, fov: 40, orbit: 60 },
+    });
+    expect(vrmEngine.transitionCamera).toHaveBeenCalledWith(
+      expect.objectContaining({
+        shot: 'close_up',
+        movement: 'push_in',
+        durationSec: 1.6,
+        targetFov: 40,
+        orbitAngleDeg: 60,
+      }),
     );
   });
 

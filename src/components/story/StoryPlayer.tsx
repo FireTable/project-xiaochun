@@ -422,6 +422,17 @@ export const StoryPlayer: React.FC<StoryPlayerProps> = ({
         </div>
       </div>
 
+      {/* 沉浸式电影底部遮光层：横跨屏幕底部的无截断全局渐变遮罩 (inset-x-0 bottom-0)，消除中间孤立切断，确保台词自然浮现 */}
+      {showDialogue && (
+        <div
+          className={`pointer-events-none fixed bottom-0 inset-x-0 z-30 transition-all duration-500 ease-out animate-in fade-in duration-300 ${
+            isHistoryExpanded
+              ? 'h-80 sm:h-96 bg-gradient-to-t from-black/92 via-black/60 to-transparent'
+              : 'h-36 sm:h-48 bg-gradient-to-t from-black/85 via-black/45 to-transparent'
+          }`}
+        />
+      )}
+
       {/* 3. PC 宽屏专属一体化布局 (纯净电影条居中沉底 + 全部交互卡片统一定位于右侧且高于底部电影条，杜绝遮挡) */}
       <div className="hidden sm:block">
         {/* PC 宽屏中央沉底电影条 (唯一的对白展示，复用 HeadBubble variant="cinematic"，0 重复) */}

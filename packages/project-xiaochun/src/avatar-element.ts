@@ -109,6 +109,7 @@ function parseSize(v: string | null): { width: string | undefined; height: strin
 export interface XiaochunAvatarElement extends HTMLElement {
   client: XiaochunInstance | null;
   say(text: string, opts?: { mode?: 'speak' | 'chat' }): Promise<void>;
+  speak(text: string, opts?: { mode?: 'speak' | 'chat' }): Promise<void>;
   /** 直接播放宿主给的音频 (不走 TTS), 同时由 EMAGE 生成动作 + 口型。 */
   speakAudio(source: XiaochunAudioSource, opts?: XiaochunAudioOptions): Promise<void>;
   speakAudioStream(opts: XiaochunAudioOptions & { sampleRate: number }): XiaochunAudioStream;
@@ -117,7 +118,14 @@ export interface XiaochunAvatarElement extends HTMLElement {
   syncClock(state: { time: number; playing: boolean; playbackRate?: number; seek?: boolean }): boolean;
   supportsHostClock(): boolean;
   motion(m: XcMotionPayload | string): Promise<void>;
+  motionGroup(group: string, opts?: { loop?: boolean; fadeDuration?: number; timeScale?: number }): Promise<void>;
+  playMotionGroup(group: string, opts?: { loop?: boolean; fadeDuration?: number; timeScale?: number }): Promise<void>;
+  group(group: string, opts?: { loop?: boolean; fadeDuration?: number; timeScale?: number }): Promise<void>;
+  stopMotion(fadeDuration?: number): Promise<void>;
+  stop(): Promise<void>;
   expression(name: XcExpressionPayload['name']): Promise<void>;
+  camera(directive: any): Promise<void>;
+  resetCamera(): Promise<void>;
   /** 换内置服装 (串行 + last-wins, 见 XiaochunInstance.setOutfit)。 */
   setOutfit(id: string): Promise<void>;
   setScene(id: string): Promise<void>;
@@ -242,6 +250,9 @@ function createElementClass(): CustomElementConstructor {
     say(text: string, opts?: { mode?: 'speak' | 'chat' }): Promise<void> {
       return this.requireClient().say(text, opts);
     }
+    speak(text: string, opts?: { mode?: 'speak' | 'chat' }): Promise<void> {
+      return this.requireClient().speak(text, opts);
+    }
     speakAudio(source: XiaochunAudioSource, opts?: XiaochunAudioOptions): Promise<void> {
       return this.requireClient().speakAudio(source, opts);
     }
@@ -253,7 +264,20 @@ function createElementClass(): CustomElementConstructor {
     syncClock(state: { time: number; playing: boolean; playbackRate?: number; seek?: boolean }): boolean { return this.client?.syncClock(state) ?? false; }
     supportsHostClock(): boolean { return this.client?.supportsHostClock() ?? false; }
     motion(m: XcMotionPayload | string): Promise<void> { return this.requireClient().motion(m); }
+    motionGroup(group: string, opts?: { loop?: boolean; fadeDuration?: number; timeScale?: number }): Promise<void> {
+      return this.requireClient().motionGroup(group, opts);
+    }
+    playMotionGroup(group: string, opts?: { loop?: boolean; fadeDuration?: number; timeScale?: number }): Promise<void> {
+      return this.requireClient().playMotionGroup(group, opts);
+    }
+    group(group: string, opts?: { loop?: boolean; fadeDuration?: number; timeScale?: number }): Promise<void> {
+      return this.requireClient().group(group, opts);
+    }
+    stopMotion(fadeDuration?: number): Promise<void> { return this.requireClient().stopMotion(fadeDuration); }
+    stop(): Promise<void> { return this.requireClient().stop(); }
     expression(name: XcExpressionPayload['name']): Promise<void> { return this.requireClient().expression(name); }
+    camera(directive: any): Promise<void> { return this.requireClient().camera(directive); }
+    resetCamera(): Promise<void> { return this.requireClient().resetCamera(); }
     setOutfit(id: string): Promise<void> { return this.requireClient().setOutfit(id); }
     setScene(id: string): Promise<void> { return this.requireClient().setScene(id); }
     getOutfits(): Promise<XcOutfitInfo[]> { return this.requireClient().getOutfits(); }

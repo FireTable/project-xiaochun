@@ -35,9 +35,10 @@ if (args.length === 0 || args[0] === '--help' || args[0] === '-h') {
      \x1b[32mpnpm motion --stop\x1b[0m
 
   3. 抽取动作组:
-     \x1b[32mpnpm group greeting\x1b[0m
-     \x1b[32mpnpm group praiseCute\x1b[0m
-     \x1b[32mpnpm group dancePerformance\x1b[0m
+     \x1b[32mpnpm motion-group greeting\x1b[0m
+     \x1b[32mpnpm motion-group praiseCute\x1b[0m
+     \x1b[32mpnpm motion-group dancePerformance\x1b[0m
+     (兼容缩写: pnpm group greeting)
 
   4. 触发面部表情:
      \x1b[32mpnpm expr happy\x1b[0m
@@ -86,17 +87,17 @@ if (cmd === 'speak') {
     if (subArgs.includes('--upper')) params.set('mask', 'upperBody');
     targetUrl = `xiaochun://motion?${params.toString()}`;
   }
-} else if (cmd === 'group') {
+} else if (cmd === 'motion-group' || cmd === 'motionGroup' || cmd === 'group') {
   const groupName = args[1];
   if (!groupName) {
-    console.error('\x1b[31m[Error]\x1b[0m 请指定动作组名称，例如: pnpm group greeting');
+    console.error('\x1b[31m[Error]\x1b[0m 请指定动作组名称，例如: pnpm motion-group greeting');
     console.log('可用组: greeting, idleFlavor, listening, thinking, praiseCute, playfulSulking, dancePerformance, outfitShowcase');
     process.exit(1);
   }
   const params = new URLSearchParams();
   params.set('name', groupName);
   if (args.includes('--loop')) params.set('loop', 'true');
-  targetUrl = `xiaochun://group?${params.toString()}`;
+  targetUrl = `xiaochun://motion-group?${params.toString()}`;
 } else if (cmd === 'expr' || cmd === 'expression') {
   const name = args[1];
   if (!name) {

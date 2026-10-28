@@ -824,6 +824,7 @@ export const zhCN = {
   story: {
     tapToWake: '轻触屏幕唤醒',
     skip: '跳过',
+    historyTitle: '对白回顾',
     historyCollapse: '收起',
     historyOpen: '回顾 · {{count}}',
     you: '你',

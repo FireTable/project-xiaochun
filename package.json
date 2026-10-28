@@ -27,6 +27,7 @@
     "protocol": "node scripts/protocol-call.mjs",
     "speak": "node scripts/protocol-call.mjs speak",
     "motion": "node scripts/protocol-call.mjs motion",
+    "motion-group": "node scripts/protocol-call.mjs motion-group",
     "group": "node scripts/protocol-call.mjs group",
     "expr": "node scripts/protocol-call.mjs expr",
     "camera": "node scripts/protocol-call.mjs camera",

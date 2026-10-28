@@ -40,15 +40,18 @@ export interface XiaochunMotionAction {
   stop?: boolean;
 }
 
-/** `xiaochun://group` 的参数。 */
-export interface XiaochunGroupAction {
-  action: 'group';
+/** `xiaochun://motion-group` (或兼容 `xiaochun://group`) 的参数。 */
+export interface XiaochunMotionGroupAction {
+  action: 'motion-group' | 'group';
   /** 动作组名 (如 greeting, idleFlavor, listening, thinking, praiseCute, playfulSulking, dancePerformance, outfitShowcase) */
   name: string;
   loop?: boolean;
   fadeDuration?: number;
   timeScale?: number;
 }
+
+/** @deprecated 推荐使用 XiaochunMotionGroupAction */
+export type XiaochunGroupAction = XiaochunMotionGroupAction;
 
 /** `xiaochun://expression` 的参数。 */
 export interface XiaochunExpressionAction {
@@ -88,7 +91,7 @@ export interface XiaochunStopAction {
 export type XiaochunProtocolAction =
   | XiaochunSpeakAction
   | XiaochunMotionAction
-  | XiaochunGroupAction
+  | XiaochunMotionGroupAction
   | XiaochunExpressionAction
   | XiaochunCameraAction
   | XiaochunStopAction;
@@ -126,9 +129,10 @@ export function toProtocolUrl(a: XiaochunProtocolAction): string {
       if (a.stop !== undefined) q.set('stop', String(a.stop));
       break;
     }
+    case 'motion-group':
     case 'group': {
       if (!a.name) {
-        throw new Error('[project-xiaochun] group needs name');
+        throw new Error('[project-xiaochun] motion-group needs name');
       }
       q.set('name', a.name);
       if (a.loop !== undefined) q.set('loop', String(a.loop));
@@ -214,10 +218,16 @@ export function parseProtocolUrl(url: string): XiaochunProtocolAction | null {
 
       return out.name || out.url || out.group || out.stop !== undefined ? out : null;
     }
+    case 'motion-group':
+    case 'motion_group':
+    case 'motiongroup':
     case 'group': {
       const gName = u.searchParams.get('name') || u.searchParams.get('group');
       if (!gName) return null;
-      const out: XiaochunGroupAction = { action: 'group', name: gName };
+      const out: XiaochunMotionGroupAction = {
+        action: action === 'group' ? 'group' : 'motion-group',
+        name: gName,
+      };
       const loop = u.searchParams.get('loop');
       const fade = u.searchParams.get('fadeDuration');
       const speed = u.searchParams.get('timeScale');

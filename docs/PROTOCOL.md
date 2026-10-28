@@ -94,12 +94,15 @@ Command XiaoChun to execute a specific 3D animation with Quintic Smootherstep cr
 
 ---
 
-### 2.4 Motion Group Playback (`group`)
+### 2.4 Motion Group Playback (`motion-group`)
 Randomly draws and plays an animation from a curated semantic motion group.
 
 - **URL Pattern**:
   ```
-  xiaochun://group?name=<group_name>[&loop=false][&fadeDuration=0.75]
+  xiaochun://motion-group?name=<group_name>[&loop=false][&fadeDuration=0.75]
+  # Or query parameter on motion:
+  xiaochun://motion?group=<group_name>[&loop=false]
+  # (Backward-compatible alias: xiaochun://group?name=...)
   ```
 
 - **Standard Motion Groups**:
@@ -115,9 +118,9 @@ Randomly draws and plays an animation from a curated semantic motion group.
   | `outfitShowcase` | 360-degree full-body showcase | `showFullBody`, `modelPose` |
 
 - **Examples**:
-  - `xiaochun://group?name=greeting`
-  - `xiaochun://group?name=praiseCute`
-  - `xiaochun://group?name=dancePerformance&loop=true`
+  - `xiaochun://motion-group?name=greeting`
+  - `xiaochun://motion?group=praiseCute`
+  - `xiaochun://motion-group?name=dancePerformance&loop=true`
 
 ---
 
@@ -222,7 +225,7 @@ Immediately cuts any active TTS / audio playback and gracefully crossfades activ
 - **Linux**:
   ```bash
   xdg-open "xiaochun://speak?text=主人，构建成功！"
-  xdg-open "xiaochun://group?name=praiseCute"
+  xdg-open "xiaochun://motion-group?name=praiseCute"
   xdg-open "xiaochun://camera?panUp=true"
   ```
 
@@ -238,8 +241,9 @@ pnpm motion joyfulJump --loop
 pnpm motion --stop
 
 # 3. Trigger motion group
-pnpm group greeting
-pnpm group praiseCute
+pnpm motion-group greeting
+pnpm motion-group praiseCute
+# (or legacy alias: pnpm group greeting)
 
 # 4. Trigger expression
 pnpm expr happy
@@ -275,6 +279,9 @@ xiaochun_call("speak", text="Python agent connected successfully!")
 # Play Motion
 xiaochun_call("motion", name="waving", loop="false")
 
+# Play Motion Group
+xiaochun_call("motion-group", name="praiseCute")
+
 # Set Expression
 xiaochun_call("expression", name="gentle_smile", intensity="0.85")
 
@@ -290,6 +297,7 @@ Any HTML webpage can link to the protocol to wake up the user's desktop companio
 ```html
 <a href="xiaochun://speak?text=Clicked%20from%20webpage!">Wake Up XiaoChun</a>
 <a href="xiaochun://motion?name=waving">Wave Hand</a>
+<a href="xiaochun://motion-group?name=praiseCute">Cute Motion Group</a>
 <a href="xiaochun://expression?name=happy">Smile</a>
 <a href="xiaochun://camera?shot=close_up">Close-Up View</a>
 ```
@@ -300,7 +308,7 @@ In the webview or browser Developer Tools console, control XiaoChun directly via
 // Direct High-Level API (window.xiaochun)
 window.xiaochun.speak("主人，该休息一下啦！");
 window.xiaochun.motion("waving", { loop: false });
-window.xiaochun.group("praiseCute");
+window.xiaochun.motionGroup("praiseCute"); // (alias: window.xiaochun.group("praiseCute"))
 window.xiaochun.expression("gentle_smile", 0.9);
 window.xiaochun.camera("close_up", { movement: "push_in", durationSec: 1.5 });
 window.xiaochun.camera.reset();
@@ -344,15 +352,15 @@ The embed bridge (`src/embed/bridge.ts`) and the deep-link entry (`initProtocolL
 | `xc.audio { source: ArrayBuffer \| Blob }`, `xc.audio.chunk`, `xc.audio.end` | `audio { source \| stream }` | — (binary data cannot fit in a URL) |
 | — | `speak { file }` | `xiaochun://speak?file=…` (desktop shell only) |
 | `xc.motion { name, loop, mask, fadeDuration }` | `motion { name, loop, mask, fadeDuration }` | `xiaochun://motion?name=…[&loop=true][&mask=upperBody]` |
-| `xc.motion { group }` | `group { name }` | `xiaochun://group?name=…` |
+| `xc.motion { group }` | `motion-group { name }` | `xiaochun://motion-group?name=…` (or `xiaochun://motion?group=…`) |
 | `xc.motion { stop: true }` | `motion { stop: true }` | `xiaochun://motion?stop=true` |
 | `xc.expression { name, intensity }` | `expression { name, intensity }` | `xiaochun://expression?name=…[&intensity=0.8]` |
 | `xc.camera { shot, movement, durationSec, ... }` | `camera { shot, movement, ... }` | `xiaochun://camera?shot=…[&movement=…][&durationSec=1.2]` |
-| — | `stop` | `xiaochun://stop` |
+| `xc.stop` | `stop` | `xiaochun://stop` |
 | `xc.transport { playbackRate, volume }` | — (audio rate / gain) | — |
 | `xc.clock { time, playing }` | — (hostClock alignment) | — |
 
 Helpers in `@firetable/project-xiaochun`:
-- `toProtocolUrl(action)`: Builds standard URL from action object (`speak`, `motion`, `group`, `expression`, `camera`, `stop`).
+- `toProtocolUrl(action)`: Builds standard URL from action object (`speak`, `motion`, `motion-group`, `expression`, `camera`, `stop`).
 - `parseProtocolUrl(url)`: Parses deep link URL back into structured action object.
 - `XC_PROTOCOL_MAPPING`: Single source of truth mapping array.

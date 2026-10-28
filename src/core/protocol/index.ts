@@ -54,13 +54,18 @@ export async function initProtocolListener(): Promise<() => void> {
     (window as any).__triggerXiaoChunProtocol = trigger;
     (window as any).vrmEngine = vrmEngine;
 
+    const playGroup = (name: string, opts?: Record<string, any>) => trigger('motion-group', { name, ...opts });
     (window as any).xiaochun = {
       speak: (text: string, audioUrl?: string) => trigger('speak', { text, audioUrl }),
+      say: (text: string, audioUrl?: string) => trigger('speak', { text, audioUrl }),
       motion: (nameOrPayload: string | Record<string, any>, opts?: Record<string, any>) => {
         const payload = typeof nameOrPayload === 'string' ? { name: nameOrPayload, ...opts } : nameOrPayload;
         return trigger('motion', payload);
       },
-      group: (name: string, opts?: Record<string, any>) => trigger('group', { name, ...opts }),
+      motionGroup: playGroup,
+      playMotionGroup: playGroup,
+      group: playGroup,
+      stopMotion: (fadeDuration?: number) => trigger('motion', { stop: true, fadeDuration }),
       expression: (name: string, intensity?: number) => trigger('expression', { name, intensity }),
       camera: Object.assign(
         (shotOrPayload: string | Record<string, any>, opts?: Record<string, any>) => {

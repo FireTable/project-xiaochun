@@ -152,15 +152,20 @@ export const ChatBubble: React.FC<ChatBubbleProps> = ({
 
   if (!isVisible) return null;
 
-  // ── 电影级沉浸纯净对白模式 (纯净字幕，由底层电影渐变遮罩提供自然遮光，0 方框包裹，极致电影感) ──
+  // ── 电影级沉浸纯净对白模式 (展开时带精致毛玻璃底舱；日常字幕态自带局部羽化暗部遮罩，0 生硬边框，极致电影感) ──
   if (variant === 'cinematic') {
+    const isExpanded = Boolean(children);
     const cinematicContent = (
       <div
         ref={cardRef}
         style={{
           viewTransitionName: isSpeaking ? 'story-dialog-card' : undefined,
         }}
-        className={`relative ${maxWidthClass} px-1 sm:px-2 py-1 flex flex-col pointer-events-auto animate-in fade-in duration-200 select-text ${className}`}
+        className={`relative ${maxWidthClass} pointer-events-auto select-text transition-all duration-300 ${
+          isExpanded
+            ? 'p-3.5 sm:p-4.5 rounded-2xl bg-[#0b0e1b]/92 backdrop-blur-2xl border border-white/15 shadow-[0_12px_40px_rgba(0,0,0,0.7)] flex flex-col'
+            : 'px-1 sm:px-2 py-1 flex flex-col'
+        } ${className}`}
       >
         {/* 顶部状态与角色标识行 */}
         {customHeader ? (
@@ -169,46 +174,54 @@ export const ChatBubble: React.FC<ChatBubbleProps> = ({
           </div>
         ) : (
           <div className="flex items-center justify-between w-full max-w-xl px-1 mb-1">
-            <div className="inline-flex items-center gap-2 text-xs select-none">
-              {/* 角色名作为第一锚点固定在最左侧 */}
-              <span
-                className="font-bold text-xs sm:text-sm text-primary-light tracking-wider"
-                style={{
-                  textShadow: '0 0 8px rgba(234,131,119,0.9), 0 1px 3px rgba(0,0,0,0.9)',
-                }}
-              >
-                小蠢
-              </span>
+            {isExpanded ? (
+              <div className="inline-flex items-center gap-1.5 text-xs select-none">
+                <span className="font-semibold text-xs sm:text-sm text-white/90 tracking-wide">
+                  {t('story.historyTitle')}
+                </span>
+              </div>
+            ) : (
+              <div className="inline-flex items-center gap-2 text-xs select-none">
+                {/* 角色名作为第一锚点固定在最左侧 */}
+                <span
+                  className="font-bold text-xs sm:text-sm text-primary-light tracking-wider"
+                  style={{
+                    textShadow: '0 0 8px rgba(234,131,119,0.9), 0 1px 3px rgba(0,0,0,0.9)',
+                  }}
+                >
+                  小蠢
+                </span>
 
-              {/* 发声波形指示器置于名字右侧紧邻位置，发声时柔和渐显，播毕自然隐退 */}
-              {isSpeaking && (
-                <span className="inline-flex items-center gap-0.5 px-0.5 shrink-0 opacity-90 animate-in fade-in duration-150">
-                  <span className="w-0.5 h-2 bg-primary rounded-full animate-pulse" />
-                  <span className="w-0.5 h-3 bg-primary-light rounded-full animate-pulse [animation-delay:150ms]" />
-                  <span className="w-0.5 h-2 bg-primary rounded-full animate-pulse [animation-delay:300ms]" />
-                </span>
-              )}
+                {/* 发声波形指示器置于名字右侧紧邻位置，发声时柔和渐显，播毕自然隐退 */}
+                {isSpeaking && (
+                  <span className="inline-flex items-center gap-0.5 px-0.5 shrink-0 opacity-90 animate-in fade-in duration-150">
+                    <span className="w-0.5 h-2 bg-primary rounded-full animate-pulse" />
+                    <span className="w-0.5 h-3 bg-primary-light rounded-full animate-pulse [animation-delay:150ms]" />
+                    <span className="w-0.5 h-2 bg-primary rounded-full animate-pulse [animation-delay:300ms]" />
+                  </span>
+                )}
 
-              {/* 句段序号徽章：独立半透明胶囊 */}
-              {state?.totalSegments && state.totalSegments > 1 && state.segmentIndex ? (
-                <span className="px-1.5 py-0.5 rounded-full bg-white/10 text-[10px] font-mono text-white/70 tracking-wider leading-none">
-                  {state.segmentIndex}/{state.totalSegments}
-                </span>
-              ) : null}
+                {/* 句段序号徽章：独立半透明胶囊 */}
+                {state?.totalSegments && state.totalSegments > 1 && state.segmentIndex ? (
+                  <span className="px-1.5 py-0.5 rounded-full bg-white/10 text-[10px] font-mono text-white/70 tracking-wider leading-none">
+                    {state.segmentIndex}/{state.totalSegments}
+                  </span>
+                ) : null}
 
-              {iconKind === 'thinking' && (
-                <Sparkles className="w-3.5 h-3.5 text-primary-light animate-spin shrink-0" />
-              )}
-              {ttsDown ? (
-                <span className="text-[10px] text-primary-light font-normal">
-                  ({t('bubble.ttsUnavailable')})
-                </span>
-              ) : statusKey === 'thinking' && !rawSpeechText ? (
-                <span className="text-[10px] text-white/60 font-normal">
-                  {t('bubble.thinking')}
-                </span>
-              ) : null}
-            </div>
+                {iconKind === 'thinking' && (
+                  <Sparkles className="w-3.5 h-3.5 text-primary-light animate-spin shrink-0" />
+                )}
+                {ttsDown ? (
+                  <span className="text-[10px] text-primary-light font-normal">
+                    ({t('bubble.ttsUnavailable')})
+                  </span>
+                ) : statusKey === 'thinking' && !rawSpeechText ? (
+                  <span className="text-[10px] text-white/60 font-normal">
+                    {t('bubble.thinking')}
+                  </span>
+                ) : null}
+              </div>
+            )}
             {extraHeaderAction && (
               <div className="shrink-0 pointer-events-auto">
                 {extraHeaderAction}
@@ -219,12 +232,12 @@ export const ChatBubble: React.FC<ChatBubbleProps> = ({
 
         {/* 展开内容 (如历史回顾) */}
         {Boolean(children) && (
-          <div className="w-full my-2 animate-in fade-in duration-200">
+          <div className="w-full my-1 animate-in fade-in duration-200">
             {children}
           </div>
         )}
 
-        {/* 对白正文：严格左对齐排版，配合底层电影渐变与文字发光投影，呈现极致电影院字幕质感 */}
+        {/* 对白正文：严格左对齐排版，配合底层局部电影渐变与文字发光投影，呈现极致电影院字幕质感 */}
         {rawSpeechText && !children && (
           <div
             key={state?.segmentIndex ?? rawSpeechText}

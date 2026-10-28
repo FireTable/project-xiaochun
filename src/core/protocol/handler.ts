@@ -90,9 +90,12 @@ function normalizeCameraDirective(payload: CameraPayload): CameraDirective {
     movement = 'pedestal_up';
   }
 
-  const durationSec = payload.durationSec ? Number(payload.durationSec) : 1.2;
-  const targetFov = payload.targetFov ? Number(payload.targetFov) : undefined;
-  const orbitAngleDeg = payload.orbitAngleDeg ? Number(payload.orbitAngleDeg) : undefined;
+  const rawDuration = payload.duration !== undefined ? payload.duration : payload.durationSec;
+  const durationSec = rawDuration ? Number(rawDuration) : 1.2;
+  const rawFov = payload.fov !== undefined ? payload.fov : payload.targetFov;
+  const targetFov = rawFov ? Number(rawFov) : undefined;
+  const rawOrbit = payload.orbit !== undefined ? payload.orbit : payload.orbitAngleDeg;
+  const orbitAngleDeg = rawOrbit ? Number(rawOrbit) : undefined;
   const windMultiplier = payload.windMultiplier ? Number(payload.windMultiplier) : 1.0;
 
   return {
@@ -175,6 +178,7 @@ export async function runProtocolAction(message: ProtocolMessage, hooks?: Protoc
       });
       return;
     }
+    case 'motion-group':
     case 'group': {
       await requireVRM();
       const payload = (message.payload || {}) as MotionGroupPayload;
@@ -182,7 +186,7 @@ export async function runProtocolAction(message: ProtocolMessage, hooks?: Protoc
       if (!groupName || !(groupName in MOTION_GROUPS)) {
         throw new ProtocolError(
           'bad_request',
-          `group 指令缺少有效组名，可用组: ${Object.keys(MOTION_GROUPS).join(', ')}`,
+          `motion-group 指令缺少有效组名，可用组: ${Object.keys(MOTION_GROUPS).join(', ')}`,
         );
       }
       await vrmEngine.playMotionGroup(groupName, {
@@ -210,7 +214,8 @@ export async function runProtocolAction(message: ProtocolMessage, hooks?: Protoc
         return;
       }
       if (payload.panUp === true || payload.panUp === 'true') {
-        const dur = payload.durationSec ? Number(payload.durationSec) : 2.2;
+        const rawDur = payload.duration !== undefined ? payload.duration : payload.durationSec;
+        const dur = rawDur ? Number(rawDur) : 2.2;
         await vrmEngine.panUpRevealCamera(Number.isFinite(dur) ? dur : 2.2);
         return;
       }

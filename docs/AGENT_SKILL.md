@@ -96,8 +96,8 @@ When an agent wants XiaoChun to vocalize an update, perform gestures, emote, or 
      ```
 
 3. **Motion / Gesture Trigger**:
-   - Construct a `xiaochun://motion?name=<name>[&loop=true]` or `xiaochun://group?name=<group>` URL.
-   - Inside Repo: `pnpm motion waving` or `pnpm group praiseCute`
+   - Construct a `xiaochun://motion?name=<name>[&loop=true]` or `xiaochun://motion-group?name=<group>` (or `xiaochun://motion?group=<group>`) URL.
+   - Inside Repo: `pnpm motion waving` or `pnpm motion-group praiseCute` (or `pnpm group praiseCute`)
 
 4. **Facial Expression Trigger**:
    - Construct a `xiaochun://expression?name=<name>[&intensity=0.85]` URL.
@@ -279,9 +279,10 @@ export async function xiaochunMotion(opts: { name?: string; group?: string; loop
   return openProtocol(`xiaochun://motion?${q.toString()}`);
 }
 
-export async function xiaochunGroup(groupName: string, loop = false): Promise<void> {
-  return openProtocol(`xiaochun://group?name=${encodeURIComponent(groupName)}&loop=${loop}`);
+export async function xiaochunMotionGroup(groupName: string, loop = false): Promise<void> {
+  return openProtocol(`xiaochun://motion-group?name=${encodeURIComponent(groupName)}&loop=${loop}`);
 }
+export const xiaochunGroup = xiaochunMotionGroup;
 
 export async function xiaochunExpression(name: string, intensity = 0.85): Promise<void> {
   return openProtocol(`xiaochun://expression?name=${encodeURIComponent(name)}&intensity=${intensity}`);

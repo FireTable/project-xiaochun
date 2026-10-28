@@ -192,11 +192,19 @@ export function useXiaochun(options: XiaochunHookOptions = {}): UseXiaochunResul
 /** ref 暴露的命令式句柄 (实例尚未创建 / 已销毁时, 返回 Promise 的方法会 reject)。 */
 export interface XiaochunHandle {
   say(text: string, opts?: { mode?: 'speak' | 'chat' }): Promise<void>;
+  speak(text: string, opts?: { mode?: 'speak' | 'chat' }): Promise<void>;
   /** 直接播放宿主给的音频 (不走 TTS), 同时由 EMAGE 生成动作 + 口型。 */
   speakAudio(source: XiaochunAudioSource, opts?: XiaochunAudioOptions): Promise<void>;
   speakAudioStream(opts: XiaochunAudioOptions & { sampleRate: number }): XiaochunAudioStream;
   motion(m: XcMotionPayload | string): Promise<void>;
+  motionGroup(group: string, opts?: { loop?: boolean; fadeDuration?: number; timeScale?: number }): Promise<void>;
+  playMotionGroup(group: string, opts?: { loop?: boolean; fadeDuration?: number; timeScale?: number }): Promise<void>;
+  group(group: string, opts?: { loop?: boolean; fadeDuration?: number; timeScale?: number }): Promise<void>;
+  stopMotion(fadeDuration?: number): Promise<void>;
+  stop(): Promise<void>;
   expression(name: XcExpressionPayload['name']): Promise<void>;
+  camera(directive: any): Promise<void>;
+  resetCamera(): Promise<void>;
   /** TODO: 协议已预留, /embed 暂未实现 → reject unsupported。 */
   lookAt(x: number, y: number): Promise<void>;
   /** 换内置服装 (串行 + last-wins, 见 XiaochunInstance.setOutfit)。 */
@@ -252,10 +260,18 @@ function XiaochunInner(props: XiaochunProps, ref: ForwardedRef<XiaochunHandle>):
     const reject = <T,>(): Promise<T> => Promise.reject(NOT_MOUNTED());
     return {
       say: (t, o) => c()?.say(t, o) ?? reject(),
+      speak: (t, o) => c()?.speak(t, o) ?? reject(),
       speakAudio: (s, o) => c()?.speakAudio(s, o) ?? reject(),
       speakAudioStream: (o) => { const x = c(); if (!x) throw NOT_MOUNTED(); return x.speakAudioStream(o); },
       motion: (m) => c()?.motion(m) ?? reject(),
+      motionGroup: (g, o) => c()?.motionGroup(g, o) ?? reject(),
+      playMotionGroup: (g, o) => c()?.playMotionGroup(g, o) ?? reject(),
+      group: (g, o) => c()?.group(g, o) ?? reject(),
+      stopMotion: (f) => c()?.stopMotion(f) ?? reject(),
+      stop: () => c()?.stop() ?? reject(),
       expression: (n) => c()?.expression(n) ?? reject(),
+      camera: (d) => c()?.camera(d) ?? reject(),
+      resetCamera: () => c()?.resetCamera() ?? reject(),
       lookAt: (x, y) => c()?.lookAt(x, y) ?? reject(),
       setOutfit: (id) => c()?.setOutfit(id) ?? reject(),
       setScene: (id) => c()?.setScene(id) ?? reject(),

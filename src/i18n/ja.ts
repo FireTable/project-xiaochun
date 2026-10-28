@@ -822,6 +822,7 @@ export const ja: Trans = {
   story: {
     tapToWake: '画面をタップして起こす',
     skip: 'スキップ',
+    historyTitle: '会話履歴',
     historyCollapse: '閉じる',
     historyOpen: 'ふりかえり · {{count}}',
     you: 'あなた',

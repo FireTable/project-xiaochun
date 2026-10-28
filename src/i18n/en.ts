@@ -822,6 +822,7 @@ export const en: Trans = {
   story: {
     tapToWake: 'Tap the screen to wake her',
     skip: 'Skip',
+    historyTitle: 'Dialogue History',
     historyCollapse: 'Hide',
     historyOpen: 'Recap · {{count}}',
     you: 'You',

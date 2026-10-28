@@ -280,6 +280,8 @@ export interface XiaochunInstance {
    * 显式 stop 立刻切断，不淡出。
    */
   say(text: string, opts?: { mode?: 'speak' | 'chat' }): Promise<void>;
+  /** `say` 的同义别名 (朗读文本并驱动嘴型与身体语言) */
+  speak(text: string, opts?: { mode?: 'speak' | 'chat' }): Promise<void>;
   /**
    * 直接播放宿主给的音频 (不经过 TTS): iframe 内解码 → EMAGE 生成动作 + 口型, 念完 (xc.utterance end) 才 resolve。
    * 首次调用才加载 EMAGE 模型 (首次会慢); opts.motion=false 则只播放不加载。
@@ -292,8 +294,16 @@ export interface XiaochunInstance {
   /** 流式音频 (原始 PCM 分块)。sampleRate 必填; 首个 write 开始这次说话, utterance start 仍等到声音时钟起步。 */
   speakAudioStream(opts: XiaochunAudioOptions & { sampleRate: number }): XiaochunAudioStream;
   motion(m: XcMotionPayload | string): Promise<void>;
+  /** 播放指定动作组 (从预设组中随机抽选动作, 带有五次平滑过渡) */
+  motionGroup(group: string, opts?: { loop?: boolean; fadeDuration?: number; timeScale?: number }): Promise<void>;
+  /** 动作组播放别名 (与底层 VRMEngine 对齐) */
+  playMotionGroup(group: string, opts?: { loop?: boolean; fadeDuration?: number; timeScale?: number }): Promise<void>;
+  /** @deprecated 推荐使用 motionGroup 或 playMotionGroup */
+  group(group: string, opts?: { loop?: boolean; fadeDuration?: number; timeScale?: number }): Promise<void>;
   /** 平滑淡出并停止当前动作 */
   stopMotion(fadeDuration?: number): Promise<void>;
+  /** 立即停止当前语音与动作 */
+  stop(): Promise<void>;
   expression(name: XcExpressionPayload['name'], intensity?: number): Promise<void>;
   /** 电影级运镜调度 (景别平滑过渡、环绕推拉、仰角或裙摆升降展示) */
   camera(directive: XcCameraDirectivePayload | string): Promise<void>;
@@ -1166,10 +1176,15 @@ export function createXiaochun(options: XiaochunOptions): XiaochunInstance {
     ready,
     activate,
     say: (text, opts) => send('xc.say', { text, mode: opts?.mode }, true),
+    speak: (text, opts) => send('xc.say', { text, mode: opts?.mode }, true),
     speakAudio,
     speakAudioStream,
     motion: (m) => send('xc.motion', typeof m === 'string' ? (m.startsWith('http') || m.startsWith('/') ? { url: m } : { name: m }) : m),
+    motionGroup: (group, opts) => send('xc.motion', { group, ...opts }),
+    playMotionGroup: (group, opts) => send('xc.motion', { group, ...opts }),
+    group: (group, opts) => send('xc.motion', { group, ...opts }),
     stopMotion: (fadeDuration) => send('xc.motion', { stop: true, fadeDuration }),
+    stop: () => send('xc.stop').catch(() => send('xc.motion', { stop: true })),
     expression: (name, intensity) => send('xc.expression', { name, intensity }),
     camera: (c) => send('xc.camera', typeof c === 'string' ? { shot: c } : c),
     resetCamera: () => send('xc.camera', { reset: true }),

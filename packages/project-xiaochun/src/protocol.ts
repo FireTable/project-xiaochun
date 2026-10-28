@@ -39,6 +39,7 @@ export const XC_HOST_TO_FRAME = [
   'xc.clock',
   'xc.pause',
   'xc.resume',
+  'xc.stop',
   'xc.destroy',
 ] as const;
 
@@ -83,6 +84,7 @@ export const XC_IMPLEMENTED_COMMANDS = [
   'xc.clock',
   'xc.pause',
   'xc.resume',
+  'xc.stop',
   'xc.destroy',
 ] as const satisfies readonly XcHostMessageType[];
 
@@ -105,9 +107,10 @@ export const XC_PROTOCOL_MAPPING = [
   { xc: 'xc.audio', note: 'source 为 ArrayBuffer / Blob', action: 'audio', url: null },
   { xc: 'xc.audio.chunk / xc.audio.end', note: '流式 PCM', action: 'audio', url: null },
   { xc: 'xc.motion', note: '播放指定动作 (按名称或 URL)', action: 'motion', url: 'xiaochun://motion?name=…[&loop=true][&mask=upperBody]' },
-  { xc: 'xc.motion', note: '从动作组随机抽取播放', action: 'group', url: 'xiaochun://group?name=…' },
+  { xc: 'xc.motion', note: '从动作组随机抽取播放', action: 'motion-group', url: 'xiaochun://motion-group?name=… (或 xiaochun://motion?group=…)' },
   { xc: 'xc.expression', note: '切换表情', action: 'expression', url: 'xiaochun://expression?name=…[&intensity=0.8]' },
   { xc: 'xc.camera', note: '运镜调度与景别平滑过渡', action: 'camera', url: 'xiaochun://camera?shot=…[&movement=…][&durationSec=1.2]' },
+  { xc: 'xc.stop', note: '立即停止语音与动作', action: 'stop', url: 'xiaochun://stop' },
   { xc: 'xc.transport', note: '改宿主音频倍速 / 音量, 无 deep link', action: null, url: null },
   { xc: 'xc.clock', note: '宿主音频播放位置 (hostClock), 无 deep link', action: null, url: null },
 ] as const;
@@ -781,6 +784,7 @@ export interface XcHostPayloadMap {
   'xc.clock': XcClockPayload;
   'xc.pause': undefined;
   'xc.resume': undefined;
+  'xc.stop': undefined;
   'xc.destroy': undefined;
 }
 

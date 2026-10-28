@@ -13,12 +13,12 @@ import type { HostAudioInput } from '@/director/hostAudio';
  * speak = 念一段文字 (TTS), 若带 audioUrl 则改为直接播放这段音频 (不走 TTS);
  * audio = 宿主给的音频本体 (ArrayBuffer / Blob / URL / 已解码的流), 只能经 postMessage 传入, 无 URL 形态;
  * motion = 播放指定动作 (按名称或 URL);
- * group = 从指定动作组随机抽取播放 (如 greeting, praiseCute, dancePerformance);
+ * motion-group / group = 从指定动作组随机抽取播放 (如 greeting, praiseCute, dancePerformance);
  * expression = 触发指定面部表情 (如 happy, gentle_smile, playful);
  * camera = 执行电影级镜头调度 (运镜、景别切换、环绕旋转、升降展示等);
  * stop = 立即停止当前语音与动作。
  */
-export type ProtocolAction = 'speak' | 'audio' | 'motion' | 'expression' | 'group' | 'camera' | 'stop';
+export type ProtocolAction = 'speak' | 'audio' | 'motion' | 'expression' | 'group' | 'motion-group' | 'camera' | 'stop';
 
 export interface CameraPayload {
   /** 镜头景别 ('extreme_close_up' | 'close_up' | 'medium' | 'full' | 'dramatic_low' 等) */
@@ -27,12 +27,18 @@ export interface CameraPayload {
   movement?: string;
   /** 运镜持续时间 (秒，默认 1.2s) */
   durationSec?: number | string;
+  /** 运镜持续时间简写别名 (等价于 durationSec) */
+  duration?: number | string;
   /** 插值缓动曲线 ('quintic_smooth' | 'ease_out_dramatic' | 'linear') */
   easing?: 'quintic_smooth' | 'ease_out_dramatic' | 'linear';
   /** 目标视野角 (15 ~ 65) */
   targetFov?: number | string;
+  /** 视野角简写别名 (等价于 targetFov) */
+  fov?: number | string;
   /** 水平环绕旋转角度 (度数，例如 +45, -90, 180, 360) */
   orbitAngleDeg?: number | string;
+  /** 水平旋转角度简写别名 (等价于 orbitAngleDeg) */
+  orbit?: number | string;
   /** 风速配合倍率 */
   windMultiplier?: number | string;
   /** 是否重置为默认自由机位 */

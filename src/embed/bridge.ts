@@ -861,6 +861,10 @@ export function startEmbedBridge(opts: EmbedBridgeOptions): EmbedBridge {
           vrmEngine.resumeRendering();
           publishState();
           break;
+        case 'xc.stop':
+          vrmEngine.stopSpeaking();
+          vrmEngine.stopMotion();
+          break;
         case 'xc.destroy':
           dispose();
           break;
