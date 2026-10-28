@@ -2257,7 +2257,8 @@ export class VRMEngine {
       const name = joint.bone?.name ?? '';
       if (/bust/i.test(name)) {
         const isTip = /bust2/i.test(name);
-        joint.settings.stiffness = isTip ? cfg.stiffness * 0.85 : cfg.stiffness;
+        const tipRatio = cfg.tipStiffnessRatio ?? 0.9;
+        joint.settings.stiffness = isTip ? cfg.stiffness * tipRatio : cfg.stiffness;
         joint.settings.dragForce = cfg.dragForce;
         joint.settings.gravityPower = cfg.gravityPower;
 
@@ -2353,6 +2354,7 @@ export class VRMEngine {
     stiffness?: number;
     dragForce?: number;
     gravityPower?: number;
+    tipStiffnessRatio?: number;
   }): void {
     if (!params) {
       this.applySpringBoneTuning();
@@ -2360,12 +2362,14 @@ export class VRMEngine {
     }
     const mgr = this.currentVRM?.springBoneManager;
     if (!mgr) return;
+    const cfg = APP_CONFIG.springBone.bust;
+    const tipRatio = params.tipStiffnessRatio ?? cfg.tipStiffnessRatio ?? 0.9;
     for (const joint of mgr.joints) {
       const name = joint.bone?.name ?? '';
       if (/bust/i.test(name)) {
         const isTip = /bust2/i.test(name);
         if (params.stiffness !== undefined) {
-          joint.settings.stiffness = isTip ? params.stiffness * 0.85 : params.stiffness;
+          joint.settings.stiffness = isTip ? params.stiffness * tipRatio : params.stiffness;
         }
         if (params.dragForce !== undefined) {
           joint.settings.dragForce = params.dragForce;

@@ -503,6 +503,7 @@ export const APP_CONFIG = {
       dragForce: 0.26,
       gravityPower: 0.005,
       hitRadius: 0.0232,
+      tipStiffnessRatio: 0.9,
       // Extra meters added to the bust collider only after the bust grows past its bind size.
       clothClearance: 0.006,
       // How far an arm vertex may slide out of the bust, in meters. The spring sphere stays small.
