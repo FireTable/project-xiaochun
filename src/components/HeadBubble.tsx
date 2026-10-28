@@ -214,32 +214,32 @@ export const HeadBubble: React.FC<HeadBubbleProps> = ({
       ) : null}
 
       {/* 如果传入了 children (如展开的历史记录)，渲染 children */}
-      {Boolean(children) ? (
+      {Boolean(children) && (
         <div className="w-full animate-in fade-in duration-200">
           {children}
         </div>
-      ) : (
-        /* 对话正文：双轨 CSS Grid 柔顺高度舒展 */
-        <div
-          className={`grid transition-[grid-template-rows,opacity,margin] duration-300 ease-[cubic-bezier(0.16,1,0.3,1)] ${
-            rawSpeechText
-              ? 'grid-rows-[1fr] opacity-100 mt-1'
-              : 'grid-rows-[0fr] opacity-0 mt-0 pointer-events-none'
-          }`}
-        >
-          <div className="overflow-hidden">
-            <div
-              key={state?.segmentIndex ?? rawSpeechText}
-              className="text-xs sm:text-sm font-medium text-white/95 leading-relaxed break-words text-left max-h-[calc(5*1.7em)] overflow-y-auto overflow-x-hidden pr-0.5 select-text custom-bubble-scrollbar pointer-events-auto animate-segment-push"
-            >
-              <TypewriterText
-                resetKey={state?.segmentIndex}
-                text={rawSpeechText}
-              />
-            </div>
+      )}
+
+      {/* 对话正文：双轨 CSS Grid 柔顺高度舒展 (展开历史时通过 0fr 柔和折叠，绝不销毁 DOM 节点) */}
+      <div
+        className={`grid transition-[grid-template-rows,opacity,margin] duration-300 ease-[cubic-bezier(0.16,1,0.3,1)] ${
+          rawSpeechText && !children
+            ? 'grid-rows-[1fr] opacity-100 mt-1'
+            : 'grid-rows-[0fr] opacity-0 mt-0 pointer-events-none'
+        }`}
+      >
+        <div className="overflow-hidden">
+          <div
+            key={state?.segmentIndex ?? rawSpeechText}
+            className="text-xs sm:text-sm font-medium text-white/95 leading-relaxed break-words text-left max-h-[calc(5*1.7em)] overflow-y-auto overflow-x-hidden pr-0.5 select-text custom-bubble-scrollbar pointer-events-auto animate-segment-push"
+          >
+            <TypewriterText
+              resetKey={state?.segmentIndex}
+              text={rawSpeechText}
+            />
           </div>
         </div>
-      )}
+      </div>
     </div>
   );
 

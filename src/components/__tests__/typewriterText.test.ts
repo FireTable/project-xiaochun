@@ -1,5 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import { APP_CONFIG } from '@/config';
+import { COMPLETED_TYPEWRITER_CYCLE_KEYS, markTypewriterCompleted } from '../TypewriterText';
 
 describe('TypewriterText Tokenization & Cascade Timings', () => {
   it('reads default typewriter configuration from APP_CONFIG.chat.typewriter', () => {
@@ -68,5 +69,18 @@ describe('TypewriterText Tokenization & Cascade Timings', () => {
     // 即使两段文本恰好相同，只要 segmentIndex 不同，cycleKey 也完全独立
     const cycleKeyIdenticalTextSeg2 = getCycleKey(2, seg1Text);
     expect(cycleKey1).not.toBe(cycleKeyIdenticalTextSeg2);
+  });
+
+  it('persists completed cycle keys to prevent re-typing on fold/unfold or responsive remount', () => {
+    const testKey = 'seg_1_测试已朗读完成的台词';
+    expect(COMPLETED_TYPEWRITER_CYCLE_KEYS.has(testKey)).toBe(false);
+
+    // 标记完成
+    markTypewriterCompleted(testKey);
+    expect(COMPLETED_TYPEWRITER_CYCLE_KEYS.has(testKey)).toBe(true);
+
+    // 再次调用不会报错或重复添加
+    markTypewriterCompleted(testKey);
+    expect(COMPLETED_TYPEWRITER_CYCLE_KEYS.has(testKey)).toBe(true);
   });
 });

@@ -1,6 +1,23 @@
 import React, { useMemo, useState, useEffect } from 'react';
 import { APP_CONFIG } from '@/config';
 
+/**
+ * 记录已经完整播放完毕或跳过的打字机文本周期 key (LRU Set)，
+ * 保证当组件在对白历史折叠/展开、响应式媒体查询切端 (PC <-> 移动端)、或者父组件局部重渲染挂载时，
+ * 已完成朗读的文字绝对不会从头重新打一遍，瞬间完整呈现。
+ */
+const MAX_COMPLETED_KEYS = 300;
+export const COMPLETED_TYPEWRITER_CYCLE_KEYS = new Set<string>();
+
+export function markTypewriterCompleted(key: string): void {
+  if (!key) return;
+  if (COMPLETED_TYPEWRITER_CYCLE_KEYS.size >= MAX_COMPLETED_KEYS) {
+    const firstKey = COMPLETED_TYPEWRITER_CYCLE_KEYS.values().next().value;
+    if (firstKey) COMPLETED_TYPEWRITER_CYCLE_KEYS.delete(firstKey);
+  }
+  COMPLETED_TYPEWRITER_CYCLE_KEYS.add(key);
+}
+
 export interface TypewriterTextProps {
   /** 待展示的对话文本 */
   text: string;
@@ -50,12 +67,16 @@ export const TypewriterText: React.FC<TypewriterTextProps> = ({
   const effectiveMajorPauseMs = majorPauseMs ?? typewriterCfg.majorPauseMs;
   const effectiveRevealDurationMs = revealDurationMs ?? typewriterCfg.revealDurationMs;
 
-  const [skip, setSkip] = useState(false);
+  // 派生段落周期 key：当切段或更换文本时，用于 DOM 隔离与已播放历史状态记忆
+  const cycleKey = `${resetKey !== undefined ? `seg_${resetKey}_` : ''}${text}`;
+  const alreadyCompleted = Boolean(cycleKey && COMPLETED_TYPEWRITER_CYCLE_KEYS.has(cycleKey));
 
-  // 换文本或切段时重置跳过状态
+  const [skip, setSkip] = useState(() => alreadyCompleted);
+
+  // 换文本或切段时根据记忆状态决定是否直接展开
   useEffect(() => {
-    setSkip(false);
-  }, [text, resetKey]);
+    setSkip(alreadyCompleted);
+  }, [cycleKey, alreadyCompleted]);
 
   // 词组分词算法：保证英文单词整体折行，中日韩单字自然折行，并累积自然标点停顿
   const { tokens, totalDurationMs } = useMemo(() => {
@@ -104,31 +125,30 @@ export const TypewriterText: React.FC<TypewriterTextProps> = ({
 
   const isInstant = skip || !isTypewriterEnabled;
 
-  // 动画完成计时
+  // 动画完成计时与状态持久记忆
   useEffect(() => {
     if (isInstant || tokens.length === 0) {
+      if (cycleKey) markTypewriterCompleted(cycleKey);
       onComplete?.();
       return;
     }
     const timer = setTimeout(() => {
+      if (cycleKey) markTypewriterCompleted(cycleKey);
       onComplete?.();
     }, totalDurationMs);
     return () => clearTimeout(timer);
-  }, [text, resetKey, totalDurationMs, isInstant, onComplete, tokens.length]);
+  }, [cycleKey, totalDurationMs, isInstant, onComplete, tokens.length]);
 
   if (!text) return null;
-
-  // 派生段落周期 key：当切段或更换文本时，强制 React 销毁旧 DOM 节点并重新挂载新 DOM 节点，
-  // 彻底杜绝浏览器复用上一句已结束动画状态的 <span> 元素，确保新文字从首字开始 0ms 重新播放打字机动效
-  const cycleKey = `${resetKey !== undefined ? `seg_${resetKey}_` : ''}${text}`;
 
   return (
     <span
       className={`inline select-text cursor-pointer ${className}`}
       onClick={(e) => {
-        // 点击快速完成打字机跳过
+        // 点击快速完成打字机跳过并永久记住已完成状态
         e.stopPropagation();
         setSkip(true);
+        if (cycleKey) markTypewriterCompleted(cycleKey);
       }}
       title="点击直接完整显示"
     >
