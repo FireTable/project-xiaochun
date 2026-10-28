@@ -976,8 +976,27 @@ export class VRMBodyMorph {
     const thickScaleY = deltaThickness >= 0 ? 1.0 + deltaThickness * 0.28 : 1.0 + deltaThickness * 0.20;
     const thickScaleZ = deltaThickness >= 0 ? 1.0 + deltaThickness * 0.65 : 1.0 + deltaThickness * 0.70;
 
-    const finalBustScaleX = bust * thickScaleX;
-    const finalBustScaleY = bust * thickScaleY;
+    // 解剖学生理曲度软阻尼曲线 (Physiological Asymptotic Diminishing Returns):
+    // 真实解剖学中，乳腺与脂肪充盈主要沿 Z 轴向前挺翘，受胸廓侧壁及锁骨筋膜锚定，横向 X 与纵向上缘 Y 存在生理收敛界限。
+    // 在 deltaB <= 0.20 时保持 100% 灵敏线性缩放；超过 0.20 时通过 tanh 光滑过渡至渐近线，
+    // 防止高胸围时横向撑破肋部、纵向上缘刺穿低胸/抹胸服装领口，同时保留充足的前向深邃度。
+    const deltaB = bust - 1.0;
+    let effBustX = bust;
+    let effBustY = bust;
+    let effBustZ = bust;
+    if (deltaB > 0.20) {
+      const kX = 0.45;
+      effBustX = 1.0 + 0.20 + kX * Math.tanh((deltaB - 0.20) / kX);
+      const kY = 0.40;
+      effBustY = 1.0 + 0.20 + kY * Math.tanh((deltaB - 0.20) / kY);
+    }
+    if (deltaB > 0.35) {
+      const kZ = 0.70;
+      effBustZ = 1.0 + 0.35 + kZ * Math.tanh((deltaB - 0.35) / kZ);
+    }
+
+    const finalBustScaleX = effBustX * thickScaleX;
+    const finalBustScaleY = effBustY * thickScaleY;
 
     if (this.rawLBust) {
       this.rawLBust.position.x = this.baseLBustPos.x + spreadX;
@@ -996,7 +1015,7 @@ export class VRMBodyMorph {
       }
 
       const bustParentScaleZ = (this.rawLBust.parent === this.rawChest) ? targetChestZ : 1.0;
-      const finalBustScaleZ = (bust * thickScaleZ) / Math.max(0.01, bustParentScaleZ);
+      const finalBustScaleZ = (effBustZ * thickScaleZ) / Math.max(0.01, bustParentScaleZ);
       this.rawLBust.scale.set(finalBustScaleX, finalBustScaleY, finalBustScaleZ);
       this.rawLBust.updateMatrixWorld(true);
     }
@@ -1017,7 +1036,7 @@ export class VRMBodyMorph {
       }
 
       const bustParentScaleZ = (this.rawRBust.parent === this.rawChest) ? targetChestZ : 1.0;
-      const finalBustScaleZ = (bust * thickScaleZ) / Math.max(0.01, bustParentScaleZ);
+      const finalBustScaleZ = (effBustZ * thickScaleZ) / Math.max(0.01, bustParentScaleZ);
       this.rawRBust.scale.set(finalBustScaleX, finalBustScaleY, finalBustScaleZ);
       this.rawRBust.updateMatrixWorld(true);
     }
