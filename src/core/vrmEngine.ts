@@ -57,7 +57,7 @@ import { applyBustClothFit, bustJointHitRadius } from './spring/bustClothFit';
 import { CharacterShadowSystem } from './scene/characterShadow';
 import { adjustZoomInWhileClamped, solveGroundClamp, visibleRatioCap } from './camera/groundClamp';
 import { cameraDirector } from './scene/cameraDirector';
-import { expressionController } from './morph/expressionController';
+import { expressionController, type SupportedExpression } from './morph/expressionController';
 import { VRMTexturePool, extractParserImageHashes } from './texturePool';
 import { StaggeredDisposer } from './staggeredDisposer';
 import {
@@ -1956,7 +1956,7 @@ export class VRMEngine {
     }
   }
 
-  public setExpression(name: string, intensity?: number): void {
+  public setExpression(name: SupportedExpression | string, intensity?: number): void {
     if (!this.currentVRM?.expressionManager) return;
     this.manualExpression = name === 'neutral' ? null : name;
     expressionController.setExpression(name, intensity);

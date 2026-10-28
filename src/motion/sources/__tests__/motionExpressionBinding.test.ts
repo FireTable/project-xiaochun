@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from 'vitest';
 import * as THREE from 'three';
 import { UniversalMotionController } from '../clip';
-import { expressionController } from '../../../core/morph/expressionController';
+import { expressionController, PRESET_EMOTION_MAP } from '../../../core/morph/expressionController';
 import { MOTION_CATALOG } from '../../catalog';
 import type { VRM } from '@pixiv/three-vrm';
 
@@ -157,5 +157,16 @@ describe('UniversalMotionController Motion-Native Expression Binding', () => {
     // ShhLean has playful
     expect(MOTION_CATALOG.shhLean.expression).toBe('playful');
     expect(MOTION_CATALOG.shhLean.expressionIntensity).toBe(0.7);
+  });
+
+  it('enforces type safety so all configured motion expressions exist in PRESET_EMOTION_MAP', () => {
+    const validKeys = Object.keys(PRESET_EMOTION_MAP);
+    for (const [id, item] of Object.entries(MOTION_CATALOG)) {
+      if (item.expression) {
+        expect(validKeys, `Motion [${id}] references unregistered expression '${item.expression}'`).toContain(
+          item.expression,
+        );
+      }
+    }
   });
 });

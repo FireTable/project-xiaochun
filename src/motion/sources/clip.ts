@@ -6,7 +6,7 @@ import { retargetClip, makeClipSeamless } from '../vrmaRetarget';
 import { PIPELINE_BONES, BONE_INDEX_MAP, type MotionBoneMask } from '../pipeline/poseBuffer';
 import { DEFAULT_MOTION_TRAITS, type MotionTraits } from '../pipeline/types';
 import { motionAssetManager } from '../pipeline/motionAssetManager';
-import { expressionController } from '../../core/morph/expressionController';
+import { expressionController, type SupportedExpression } from '../../core/morph/expressionController';
 
 export interface PlayMotionOptions {
   /** 混合过渡时间（秒），默认约 0.98s（P0c.1 +30%） */
@@ -51,10 +51,11 @@ export interface PlayMotionOptions {
 
   // ── 动作原生面部表情支持 ──
   /**
-   * 动作绑定的面部表情名
-   * 可选值: 'gentle_smile' | 'happy' | 'angry' | 'sad' | 'sad_longing' | 'relaxed' | 'surprised' | 'shy' | 'playful' | 'hesitant' | 'neutral'
+   * 动作绑定的面部表情语义名（由 TypeScript 强类型约束）
+   * 必须是 SupportedExpression 中定义的安全表情名称之一，
+   * 任何在 PRESET_EMOTION_MAP 中未定义或被删除的表情都会触发编译错误。
    */
-  expression?: string;
+  expression?: SupportedExpression;
   /** 表情强度 (0.0 ~ 1.0，可选；默认采用 0.8 并由 ExpressionController 精准安全限幅) */
   expressionIntensity?: number;
   /** 可选：特定表情维持时间（秒）。若未指定，默认与动作本身时长和生命周期完全对齐 */

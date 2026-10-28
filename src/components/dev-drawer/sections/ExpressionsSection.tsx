@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { APP_CONFIG } from '@/config';
 import { vrmEngine } from '@/core/vrmEngine';
+import type { SupportedExpression } from '@/core/morph/expressionController';
 import { useDevDrawer } from '../context';
 import { SectionCard } from '../components/SectionCard';
 import { SectionHeader } from '../components/SectionHeader';
@@ -8,24 +9,24 @@ import { saveDevDrawerSettings } from '../storage';
 import { DEV_DRAWER_STORAGE_KEY } from '@/lib/constants';
 
 /**
- * ponytail: 这段是 6 个预设表情按钮 + modified 检测 + reset 回 neutral。
+ * ponytail: 预设表情调试面板 + modified 检测 + reset 回 neutral。
  * 自带 state 自带 engine 调用,跟 drawer 壳完全解耦。
  */
 export const ExpressionsSection: React.FC = () => {
   const { t } = useDevDrawer();
   const expressions = APP_CONFIG.expressions;
-  const [activeExpr, setActiveExpr] = useState<string>(() => {
+  const [activeExpr, setActiveExpr] = useState<SupportedExpression>(() => {
     try {
       const raw = localStorage.getItem(DEV_DRAWER_STORAGE_KEY);
       if (raw) {
         const parsed = JSON.parse(raw);
-        return parsed.activeExpr ?? 'neutral';
+        return (parsed.activeExpr as SupportedExpression) ?? 'neutral';
       }
     } catch {}
     return 'neutral';
   });
 
-  const handleClick = (expr: string) => {
+  const handleClick = (expr: SupportedExpression) => {
     setActiveExpr(expr);
     vrmEngine.setExpression(expr);
     saveDevDrawerSettings({ activeExpr: expr });
@@ -49,19 +50,25 @@ export const ExpressionsSection: React.FC = () => {
         showReset={modified}
       />
       <div className="grid grid-cols-3 gap-2">
-        {expressions.map((e) => (
-          <button
-            key={e.key}
-            onClick={() => handleClick(e.key)}
-            className={`py-2 px-1 rounded-xl text-xs font-medium cursor-pointer text-center select-none ${
-              activeExpr === e.key
-                ? 'bg-brand-500/25 border border-brand-400/60 text-brand-100 shadow-sm shadow-brand-500/20'
-                : 'bg-white/5 hover:bg-white/10 border border-white/10 text-white/70 hover:text-white'
-            }`}
-          >
-            {t(`panel.expressionList.${e.key}`)}
-          </button>
-        ))}
+        {expressions.map((e) => {
+          const key = e.key as SupportedExpression;
+          const translated = t(`panel.expressionList.${key}`);
+          const label = translated && translated !== `panel.expressionList.${key}` ? translated : key;
+          return (
+            <button
+              key={key}
+              type="button"
+              onClick={() => handleClick(key)}
+              className={`py-2 px-1 rounded-xl text-xs font-medium cursor-pointer text-center select-none transition-all active:scale-95 ${
+                activeExpr === key
+                  ? 'bg-brand-500/25 border border-brand-400/60 text-brand-100 shadow-sm shadow-brand-500/20'
+                  : 'bg-white/5 hover:bg-white/10 border border-white/10 text-white/70 hover:text-white'
+              }`}
+            >
+              {label}
+            </button>
+          );
+        })}
       </div>
     </SectionCard>
   );

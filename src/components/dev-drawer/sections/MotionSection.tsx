@@ -6,6 +6,7 @@ import {
   Pause,
   RotateCcw,
   Repeat,
+  Smile,
   UserCheck,
   Loader2,
   Layers,
@@ -486,9 +487,12 @@ export const MotionSection: React.FC = () => {
                   const isLoadingThis = loadingMotionId === item.id;
                   const name = getMotionName(item, t);
                   const desc = getMotionDescription(item, t);
+                  const exprText = item.expression && item.expression !== 'neutral'
+                    ? ` [表情: ${t(`panel.expressionList.${item.expression}`) || item.expression}]`
+                    : '';
                   const tooltip = percent !== undefined
-                    ? `${name} (触发权重: ${percent}%)${desc ? `: ${desc}` : ''}`
-                    : desc ? `${name}: ${desc}` : name;
+                    ? `${name}${exprText} (触发权重: ${percent}%)${desc ? `: ${desc}` : ''}`
+                    : desc ? `${name}${exprText}: ${desc}` : `${name}${exprText}`;
 
                   return (
                     <button
@@ -531,6 +535,17 @@ export const MotionSection: React.FC = () => {
                       {/* 加载中状态 */}
                       {isLoadingThis && (
                         <Loader2 className="w-3 h-3 animate-spin text-brand-300 absolute right-1.5 top-1.5" />
+                      )}
+
+                      {/* 绑定原生表情半透明微弱角标 (左下角，与右下角循环 icon 保持对称) */}
+                      {item.expression && item.expression !== 'neutral' && (
+                        <Smile
+                          className={`w-2.5 h-2.5 absolute left-1 bottom-1 pointer-events-none transition-colors ${
+                            isPlayingThis
+                              ? 'text-brand-200/70'
+                              : 'text-white/[0.18] group-hover:text-brand-300/70'
+                          }`}
+                        />
                       )}
 
                       {/* 循环动作半透明微弱角标 (大幅增加透明度，避免干扰文字阅读) */}

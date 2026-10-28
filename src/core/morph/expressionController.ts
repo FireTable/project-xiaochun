@@ -24,7 +24,7 @@ export const EMOTION_KEYS = [
 
 export type EmotionKey = (typeof EMOTION_KEYS)[number];
 
-export const PRESET_EMOTION_MAP: Record<string, string> = {
+export const PRESET_EMOTION_MAP = {
   neutral: 'neutral',
   happy: 'gentle_smile',
   gentle_smile: 'gentle_smile',
@@ -37,7 +37,14 @@ export const PRESET_EMOTION_MAP: Record<string, string> = {
   shy: 'shy',
   playful: 'playful',
   hesitant: 'hesitant',
-};
+} as const satisfies Record<string, EmotionKey>;
+
+/**
+ * 所有合法的表情语义名（强类型编译期约束）
+ * 若在 PRESET_EMOTION_MAP 中删除或重命名某表情，
+ * 任何引用了该表情的 MotionCatalogItem 都会在编译阶段（npx tsc）立即抛出类型错误！
+ */
+export type SupportedExpression = keyof typeof PRESET_EMOTION_MAP;
 
 export class ExpressionController {
   private config: ExpressionControllerConfig = {
@@ -88,8 +95,8 @@ export class ExpressionController {
    * @param name 表情名称 (如 'neutral', 'happy', 'angry', 'sad', 'relaxed', 'surprised', 'shy', 'playful')
    * @param intensity 情绪强度 (0.0 ~ 1.0，默认 0.8)
    */
-  public setExpression(name: string, intensity?: number): void {
-    const raw = (name ?? 'neutral').toLowerCase().trim();
+  public setExpression(name: SupportedExpression | (string & {}), intensity?: number): void {
+    const raw = (name ?? 'neutral').toLowerCase().trim() as SupportedExpression;
     if (!raw || raw === 'neutral') {
       this.targetEmotion = 'neutral';
       this.targetIntensity = 0.0;
@@ -97,7 +104,7 @@ export class ExpressionController {
       return;
     }
 
-    const mapped = PRESET_EMOTION_MAP[raw] || 'gentle_smile';
+    const mapped: EmotionKey = PRESET_EMOTION_MAP[raw] || 'gentle_smile';
     this.isActive = true;
     this.targetEmotion = mapped;
     this.targetIntensity = Math.min(1.0, Math.max(0.1, intensity ?? 0.8));

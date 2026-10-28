@@ -1076,11 +1076,15 @@ export const APP_CONFIG = {
   },
   expressions: [
     { key: 'neutral' },
+    { key: 'gentle_smile' },
     { key: 'happy' },
     { key: 'angry' },
-    { key: 'sad' },
     { key: 'relaxed' },
     { key: 'surprised' },
+    { key: 'shy' },
+    { key: 'playful' },
+    { key: 'hesitant' },
+    { key: 'sad' },
   ],
   dev: {
     disableLoadingOverlayInDev: true,
