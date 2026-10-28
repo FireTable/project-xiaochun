@@ -3094,6 +3094,16 @@ export class VRMEngine {
     return this.enableIdleFlavor;
   }
 
+  /** 是否处于 DevDrawer 打开状态（打开调试抽屉期间彻底静默 idleFlavor 自发小动作，防动作调试串流冲突） */
+  public isDevDrawerOpen = false;
+
+  public setDevDrawerOpen(isOpen: boolean): void {
+    this.isDevDrawerOpen = isOpen;
+    if (isOpen) {
+      this.resetIdleFlavorTimer();
+    }
+  }
+
   /** 重置待机小动作计时器（在用户交互、发消息、换装时调用） */
   public resetIdleFlavorTimer(): void {
     this.idleFlavorTimer = 0;
@@ -3104,7 +3114,7 @@ export class VRMEngine {
 
   /** 待机小动作逐帧心跳（在 render 循环中驱动） */
   private updateIdleFlavor(delta: number): void {
-    if (!this.enableIdleFlavor || !this.currentVRM) return;
+    if (!this.enableIdleFlavor || !this.currentVRM || this.isDevDrawerOpen) return;
 
     // 前置守卫：必须处于纯粹待机（idle），且无对话、无动作播放、无过渡融合
     const isCleanIdle =

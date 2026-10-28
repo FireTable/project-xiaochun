@@ -1,9 +1,9 @@
 import * as THREE from 'three';
 import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
 import { VRMAnimationLoaderPlugin, createVRMAnimationClip } from '@pixiv/three-vrm-animation';
-import type { VRM } from '@pixiv/three-vrm';
+import type { VRM, VRMHumanBoneName } from '@pixiv/three-vrm';
 import { retargetClip, makeClipSeamless } from '../vrmaRetarget';
-import { PIPELINE_BONES, type MotionBoneMask } from '../pipeline/poseBuffer';
+import { PIPELINE_BONES, BONE_INDEX_MAP, type MotionBoneMask } from '../pipeline/poseBuffer';
 import { DEFAULT_MOTION_TRAITS, type MotionTraits } from '../pipeline/types';
 import { motionAssetManager } from '../pipeline/motionAssetManager';
 
@@ -16,12 +16,6 @@ export interface PlayMotionOptions {
   timeScale?: number;
   /** 身体部位遮罩：'all' 全身，'upperBody' 仅上半身手势，'lowerBody' 仅下半身 */
   mask?: MotionBoneMask;
-  /**
-   * 是否显式强制下半身（双腿与骨盆）完全服从该动作剪辑（默认 false）。
-   * 仅在极少数全身体操跳跃、纯舞蹈等必须由动作驱动腿部的场景开启；
-   * 99% 的站姿交互与手势动作默认保持 false，由 BodyTurn 与 NaturalIdle 统辖下半身。
-   */
-  forceFullBody?: boolean;
   /** 动作播放完毕并完成淡出后的回调 */
   onEnd?: () => void;
   /**
@@ -94,6 +88,12 @@ export class UniversalMotionController {
   /** Remember string URL inputs for outfit-swap restore. */
   private lastUrl: string | null = null;
   private lastBuffer: ArrayBuffer | null = null;
+  /** 当前正在播放的 Clip 实际驱动的人体骨骼索引集合 (0~51) */
+  private animatedBoneIndices: Set<number> | null = null;
+  /** 当前 Clip 是否包含 Hips 根骨骼位移轨道 */
+  private hasHipsPosTrack = false;
+  /** 节点名至标准 VRM 人形骨骼名的反向映射表缓存 */
+  private nodeToBoneMap: Map<string, VRMHumanBoneName> | null = null;
 
   nextRequestId(): number {
     return ++this.currentPlayRequestId;
@@ -103,12 +103,37 @@ export class UniversalMotionController {
     return this.currentPlayRequestId;
   }
 
+  getAnimatedBoneIndices(): Set<number> | null {
+    return this.animatedBoneIndices;
+  }
+
+  hasHipsPositionTrack(): boolean {
+    return this.hasHipsPosTrack;
+  }
+
   bind(vrm: VRM): void {
     if (this.vrm === vrm && this.mixer) return;
     this.vrm = vrm;
     this.mixer = new THREE.AnimationMixer(vrm.scene);
     this.currentAction = null;
     this.active = false;
+    this.nodeToBoneMap = null;
+    this.animatedBoneIndices = null;
+    this.hasHipsPosTrack = false;
+  }
+
+  private buildNodeToBoneMap(): Map<string, VRMHumanBoneName> {
+    const map = new Map<string, VRMHumanBoneName>();
+    if (!this.vrm?.humanoid) return map;
+    for (const name of PIPELINE_BONES) {
+      const normNode = this.vrm.humanoid.getNormalizedBoneNode(name);
+      if (normNode) map.set(normNode.name, name);
+      const rawNode = this.vrm.humanoid.getRawBoneNode?.(name);
+      if (rawNode) map.set(rawNode.name, name);
+      map.set(name, name);
+      map.set(`normalized_${name}`, name);
+    }
+    return map;
   }
 
   /**
@@ -281,6 +306,27 @@ export class UniversalMotionController {
       });
     }
 
+    // 分析当前 Clip 实际驱动的人体骨骼集合，杜绝未覆盖骨骼继承上一动作的残留姿态 (防动作串连)
+    if (!this.nodeToBoneMap || this.nodeToBoneMap.size === 0) {
+      this.nodeToBoneMap = this.buildNodeToBoneMap();
+    }
+    const animatedIndices = new Set<number>();
+    let hasHipsPos = false;
+    for (const track of clip.tracks) {
+      const dotIdx = track.name.indexOf('.');
+      const nodeName = dotIdx !== -1 ? track.name.substring(0, dotIdx) : track.name;
+      const boneName = this.nodeToBoneMap.get(nodeName);
+      if (boneName) {
+        const idx = BONE_INDEX_MAP.get(boneName);
+        if (idx !== undefined) animatedIndices.add(idx);
+        if (boneName === 'hips' && track.name.endsWith('.position')) {
+          hasHipsPos = true;
+        }
+      }
+    }
+    this.animatedBoneIndices = animatedIndices;
+    this.hasHipsPosTrack = hasHipsPos;
+
     action.play();
     this.currentAction = action;
     this.active = true;
@@ -388,6 +434,8 @@ export class UniversalMotionController {
     this.active = false;
     this.isFadingOut = false;
     this.currentAction = null;
+    this.animatedBoneIndices = null;
+    this.hasHipsPosTrack = false;
     this.traits = { ...DEFAULT_MOTION_TRAITS };
 
     if (!this.onEndTriggered) {
@@ -401,7 +449,7 @@ export class UniversalMotionController {
   }
 
   isPlaying(): boolean {
-    return this.active && (this.currentAction?.isRunning() ?? false);
+    return this.active && !this.isFadingOut && (this.currentAction?.isRunning() ?? false);
   }
 
   isActive(): boolean {

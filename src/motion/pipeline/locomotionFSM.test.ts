@@ -123,4 +123,26 @@ describe('Universal Lower-Body Locomotion & BodyTurn Authority', () => {
     expect(pipeline.bodyTurn.isTurnActive()).toBe(false);
     expect(pipeline.bodyTurn.isStepping()).toBe(false);
   });
+
+  it('un-animated bones fall back to basePose, preventing cross-contamination across motion switches', () => {
+    // Mock an upper-body only motion: animated indices contain only neck/head/chest (indices not containing legs)
+    const upperOnlyIndices = new Set([0, 1, 2, 3, 4, 5]); // hips, spine, chest, upperChest, neck, head
+    vi.spyOn(pipeline.universalMotion, 'isPlaying').mockReturnValue(true);
+    vi.spyOn(pipeline.universalMotion, 'getCurrentOptions').mockReturnValue({ mask: 'all', fadeDuration: 0.75 });
+    vi.spyOn(pipeline.universalMotion, 'getAnimatedBoneIndices').mockReturnValue(upperOnlyIndices);
+    vi.spyOn(pipeline.universalMotion, 'hasHipsPositionTrack').mockReturnValue(false);
+
+    pipeline.tick(mockVRM, {
+      camera,
+      delta: 0.016,
+      time: 0.016,
+      enableBodyTurn: false,
+      isSpeaking: false,
+      isListening: false,
+      manualExpression: null,
+    });
+
+    // LeftUpperLeg index is 6 in PIPELINE_BONES. Since it is not in upperOnlyIndices, it must match basePose
+    expect(pipeline.actionPose.quaternions[6].equals(pipeline.basePose.quaternions[6])).toBe(true);
+  });
 });

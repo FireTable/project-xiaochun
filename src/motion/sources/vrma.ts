@@ -4,6 +4,7 @@ import { VRMAnimationLoaderPlugin, createVRMAnimationClip } from '@pixiv/three-v
 import type { VRM } from '@pixiv/three-vrm';
 import { retargetClip, type RetargetOptions } from '../vrmaRetarget';
 import { VRM_ALL_HUMANOID_BONES } from '@/lib/constants';
+import { PIPELINE_BONES, BONE_INDEX_MAP } from '../pipeline/poseBuffer';
 import type { MotionTransitionManager } from '../pipeline/transition';
 import { DEFAULT_MOTION_TRAITS, type MotionTraits } from '../pipeline/types';
 
@@ -35,11 +36,64 @@ export class VRMAMotionPlayer {
   private lastUrl: string | null = null;
   private lastBuffer: ArrayBuffer | null = null;
   private lastLoop = false;
+  /** 当前正在播放的 Clip 实际驱动的人体骨骼索引集合 (0~51) */
+  private animatedBoneIndices: Set<number> | null = null;
+  /** 当前 Clip 是否包含 Hips 根骨骼位移轨道 */
+  private hasHipsPosTrack = false;
+  /** 节点名至标准 VRM 人形骨骼名的反向映射表缓存 */
+  private nodeToBoneMap: Map<string, any> | null = null;
 
   public transitionManager: MotionTransitionManager | null = null;
 
   bind(vrm: VRM): void {
     this.vrm = vrm;
+    this.nodeToBoneMap = null;
+    this.animatedBoneIndices = null;
+    this.hasHipsPosTrack = false;
+  }
+
+  private buildNodeToBoneMap(): Map<string, any> {
+    const map = new Map<string, any>();
+    if (!this.vrm?.humanoid) return map;
+    for (const name of PIPELINE_BONES) {
+      const normNode = this.vrm.humanoid.getNormalizedBoneNode(name);
+      if (normNode) map.set(normNode.name, name);
+      const rawNode = this.vrm.humanoid.getRawBoneNode?.(name);
+      if (rawNode) map.set(rawNode.name, name);
+      map.set(name, name);
+      map.set(`normalized_${name}`, name);
+    }
+    return map;
+  }
+
+  private registerClipTracks(clip: THREE.AnimationClip): void {
+    if (!this.nodeToBoneMap || this.nodeToBoneMap.size === 0) {
+      this.nodeToBoneMap = this.buildNodeToBoneMap();
+    }
+    const animatedIndices = new Set<number>();
+    let hasHipsPos = false;
+    for (const track of clip.tracks) {
+      const dotIdx = track.name.indexOf('.');
+      const nodeName = dotIdx !== -1 ? track.name.substring(0, dotIdx) : track.name;
+      const boneName = this.nodeToBoneMap.get(nodeName);
+      if (boneName) {
+        const idx = BONE_INDEX_MAP.get(boneName);
+        if (idx !== undefined) animatedIndices.add(idx);
+        if (boneName === 'hips' && track.name.endsWith('.position')) {
+          hasHipsPos = true;
+        }
+      }
+    }
+    this.animatedBoneIndices = animatedIndices;
+    this.hasHipsPosTrack = hasHipsPos;
+  }
+
+  getAnimatedBoneIndices(): Set<number> | null {
+    return this.animatedBoneIndices;
+  }
+
+  hasHipsPositionTrack(): boolean {
+    return this.hasHipsPosTrack;
   }
 
   bindTransitionManager(tm: MotionTransitionManager): void {
@@ -100,6 +154,7 @@ export class VRMAMotionPlayer {
       this.preserveHumanoidPose(() => oldAction.stop());
     }
 
+    this.registerClipTracks(clip);
     newAction.play();
     this.action = newAction;
     this.idleWeight = 0.0;
@@ -129,6 +184,7 @@ export class VRMAMotionPlayer {
       this.preserveHumanoidPose(() => oldAction.stop());
     }
 
+    this.registerClipTracks(clip);
     newAction.play();
     this.action = newAction;
     this.idleWeight = 0.0;

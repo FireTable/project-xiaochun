@@ -2,6 +2,7 @@ import * as THREE from 'three';
 import type { VRM, VRMHumanBoneName } from '@pixiv/three-vrm';
 import {
   PoseBuffer,
+  PIPELINE_BONES,
   LOWER_BODY_MASK,
   FINGER_BONES,
   BONE_INDEX_MAP,
@@ -251,7 +252,7 @@ export class MotionPipeline {
     clip: THREE.AnimationClip,
     vrm: VRM,
     fadeDuration = SOURCE_FADE_DURATION,
-    mask: 'all' | 'upperBody' = 'upperBody',
+    mask: 'all' | 'upperBody' = 'all',
   ): void {
     if (this.universalMotion.isPlaying()) {
       this.universalMotion.stop(fadeDuration);
@@ -424,7 +425,7 @@ export class MotionPipeline {
   }
 
   isMotionPlaying(): boolean {
-    return this.activeSource === 'motion' && this.universalMotion.isPlaying();
+    return this.activeSource === 'motion' && (this.universalMotion.isActive() || this.isCrossfading);
   }
 
   /**
@@ -486,7 +487,7 @@ export class MotionPipeline {
       : WRITER_FADE_DURATION[writer];
 
     const targetMask: MotionBoneMask = target === 'vrma'
-      ? 'upperBody'
+      ? this.activeMask
       : (writer === 'clip' ? (this.universalMotion.getCurrentOptions().mask ?? 'all') : 'all');
 
     if (target !== this.activeSource || targetMask !== this.activeMask) {
@@ -591,6 +592,17 @@ export class MotionPipeline {
     if (writer === 'clip') {
       const { isFadingOut, justEnded } = this.universalMotion.update(delta);
       this.actionPose.sampleFromVRM(vrm);
+      const animatedIndices = this.universalMotion.getAnimatedBoneIndices();
+      if (animatedIndices && animatedIndices.size > 0) {
+        for (let i = 0; i < PIPELINE_BONES.length; i++) {
+          if (!animatedIndices.has(i)) {
+            this.actionPose.quaternions[i]!.copy(this.basePose.quaternions[i]!);
+          }
+        }
+        if (!this.universalMotion.hasHipsPositionTrack()) {
+          this.actionPose.hipsPosition.copy(this.basePose.hipsPosition);
+        }
+      }
       this.waitingForActionSample = false;
       this.sampledThisFrame = true;
       if (isFadingOut && !this.isCrossfading) {
@@ -613,6 +625,17 @@ export class MotionPipeline {
       } else if (writer === 'vrma') {
         this.vrma.update(delta);
         this.actionPose.sampleFromVRM(vrm);
+        const animatedIndices = this.vrma.getAnimatedBoneIndices();
+        if (animatedIndices && animatedIndices.size > 0) {
+          for (let i = 0; i < PIPELINE_BONES.length; i++) {
+            if (!animatedIndices.has(i)) {
+              this.actionPose.quaternions[i]!.copy(this.basePose.quaternions[i]!);
+            }
+          }
+          if (!this.vrma.hasHipsPositionTrack()) {
+            this.actionPose.hipsPosition.copy(this.basePose.hipsPosition);
+          }
+        }
         this.waitingForActionSample = false;
         this.sampledThisFrame = true;
       } else {

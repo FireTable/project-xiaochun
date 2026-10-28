@@ -71,6 +71,7 @@ export const App: React.FC = () => {
     if (typeof localStorage === 'undefined') return;
     localStorage.setItem(DEV_DRAWER_OPEN_KEY, isDrawerOpen ? '1' : '0');
   }, [isDrawerOpen]);
+
   const closeDrawer = useCallback(() => setIsDrawerOpen(false), []);
   const [isDragOver, setIsDragOver] = useState(false);
   // ponytail: 10 次连击暗号触发后,生产构建也要能看见右上角调试按钮 — 用户已经
@@ -117,6 +118,13 @@ export const App: React.FC = () => {
     };
   }, []);
   const showDevUi = isDev() || hasDevEasterEgg;
+
+  useEffect(() => {
+    const isDevOpen = isDrawerOpen && showDevUi && !isStoryOrOnboarding;
+    if (typeof window !== 'undefined' && (window as any).vrmEngine) {
+      (window as any).vrmEngine.setDevDrawerOpen(isDevOpen);
+    }
+  }, [isDrawerOpen, showDevUi, isStoryOrOnboarding]);
 
   // 外部协议调用 (Deep Link / Single-Instance / 调试桥接) 监听初始化
   useEffect(() => {
