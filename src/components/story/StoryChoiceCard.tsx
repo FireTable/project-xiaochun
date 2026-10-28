@@ -98,8 +98,8 @@ export const StoryChoiceCard: React.FC<StoryChoiceCardProps> = ({
         onClick={() => onSelect(choice)}
         className={`pointer-events-auto w-full group relative flex flex-col p-2 sm:p-2.5 rounded-xl transition-all duration-200 cursor-pointer text-left overflow-hidden ${
           isSelected
-            ? 'bg-[#151b33]/90 border-2 border-[#f3d09a] ring-2 ring-[#f3d09a]/40 shadow-[0_0_24px_rgba(243,208,154,0.3)] -translate-y-0.5'
-            : 'bg-[#0b0e1b]/80 hover:bg-[#101426]/95 border border-white/15 hover:border-[#f3d09a]/50 shadow-[0_8px_24px_rgba(0,0,0,0.5)] hover:-translate-y-0.5'
+            ? 'bg-[#151b33]/90 border-2 border-[#f3d09a] ring-2 ring-[#f3d09a]/40 shadow-[0_0_24px_rgba(243,208,154,0.3)]'
+            : 'bg-[#0b0e1b]/80 hover:bg-[#101426]/95 border border-white/15 hover:border-[#f3d09a]/50 shadow-[0_8px_24px_rgba(0,0,0,0.5)] hover:shadow-[0_8px_28px_rgba(243,208,154,0.2)]'
         } active:scale-[0.98]`}
       >
         {/* 顶部 16:9 比例画面预览展台 */}
@@ -165,8 +165,8 @@ export const StoryChoiceCard: React.FC<StoryChoiceCardProps> = ({
       onClick={() => onSelect(choice)}
       className={`pointer-events-auto w-full group relative flex items-center justify-between px-3 py-1.5 sm:px-3.5 sm:py-2 rounded-xl transition-all duration-200 cursor-pointer text-left overflow-hidden ${
         isSelected || isPrimary
-          ? 'bg-gradient-to-r from-[#f3d09a]/25 via-[#1a2038]/90 to-[#101426]/95 border border-[#f3d09a]/70 shadow-[0_4px_16px_rgba(243,208,154,0.2)] hover:border-[#f3d09a] hover:-translate-y-0.5'
-          : 'bg-[#0b0e1b]/75 hover:bg-[#151b33]/90 border border-white/12 hover:border-[#f3d09a]/50 shadow-[0_4px_14px_rgba(0,0,0,0.35)] hover:-translate-y-0.5'
+          ? 'bg-gradient-to-r from-[#f3d09a]/25 via-[#1a2038]/90 to-[#101426]/95 border border-[#f3d09a]/70 shadow-[0_4px_16px_rgba(243,208,154,0.2)] hover:border-[#f3d09a] hover:shadow-[0_4px_20px_rgba(243,208,154,0.3)]'
+          : 'bg-[#0b0e1b]/75 hover:bg-[#151b33]/90 border border-white/12 hover:border-[#f3d09a]/50 shadow-[0_4px_14px_rgba(0,0,0,0.35)] hover:shadow-[0_4px_20px_rgba(0,0,0,0.55)]'
       } active:scale-[0.98]`}
     >
       <div className="flex items-center gap-2 sm:gap-2.5 min-w-0 z-10 flex-1">

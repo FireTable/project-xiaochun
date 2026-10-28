@@ -180,20 +180,35 @@ export const StoryPlayer: React.FC<StoryPlayerProps> = ({
   // 跟踪当前拍是否已开声发音：严格遵循“有语音才展示”的统一原生逻辑，杜绝发声前提前贴出文字
   const [hasSpokenInBeat, setHasSpokenInBeat] = useState(false);
   const prevBeatIdRef = useRef<string | null>(null);
+  const wasSpeakingInBeatRef = useRef(false);
 
   useEffect(() => {
     const currentBeatId = storyState.currentBeat?.id || null;
     if (currentBeatId !== prevBeatIdRef.current) {
       prevBeatIdRef.current = currentBeatId;
       setHasSpokenInBeat(false);
+      wasSpeakingInBeatRef.current = false;
     }
   }, [storyState.currentBeat?.id]);
 
   useEffect(() => {
-    if ((bubble.visible && Boolean(bubble.speechText)) || storyState.isSpeaking) {
+    // 唯有当底层 ChatDirector 真正开声播报 (statusKey === 'speaking' 且有台词) 或 TTS 降级可用时才激活展示
+    const isAudiblySpeaking =
+      (bubble.statusKey === 'speaking' || bubble.statusKey === 'ttsUnavailable') &&
+      Boolean(bubble.speechText);
+    if (isAudiblySpeaking) {
       setHasSpokenInBeat(true);
     }
-  }, [bubble.visible, bubble.speechText, storyState.isSpeaking]);
+  }, [bubble.statusKey, bubble.speechText]);
+
+  // 状态感知：跟踪本拍是否曾进入说话状态，在说话彻底结束时兜底维持展示，杜绝台词说完全句后突兀消失
+  useEffect(() => {
+    if (storyState.isSpeaking) {
+      wasSpeakingInBeatRef.current = true;
+    } else if (wasSpeakingInBeatRef.current && Boolean(currentBeat?.actor.speechText)) {
+      setHasSpokenInBeat(true);
+    }
+  }, [storyState.isSpeaking, currentBeat?.actor.speechText]);
 
   // 获取当前拍对应的台词文本 (在播放完毕后持续保持，绝不在说完全句后突兀消失，交互完全统一)
   const currentSpeechText = useMemo(() => {
@@ -419,7 +434,7 @@ export const StoryPlayer: React.FC<StoryPlayerProps> = ({
             showDialogue ? 'bottom-28 sm:bottom-32' : 'bottom-8 sm:bottom-10'
           } w-72 sm:w-80 z-50 flex flex-col gap-2 animate-in fade-in slide-in-from-right-4 duration-300 max-h-[calc(100vh-140px)] transition-all`}
         >
-          <div className="pointer-events-auto w-full flex flex-col gap-2 max-h-[calc(100vh-150px)] overflow-y-auto custom-bubble-scrollbar pr-0.5">
+          <div className="pointer-events-auto w-full flex flex-col gap-2 max-h-[calc(100vh-150px)] overflow-y-auto custom-bubble-scrollbar p-1.5 -m-1.5">
             {renderChoices()}
             {showInput && (
               <div className="w-full animate-in fade-in slide-in-from-bottom-2 duration-300">
@@ -441,7 +456,7 @@ export const StoryPlayer: React.FC<StoryPlayerProps> = ({
 
       {/* 4. 移动竖屏专属一体化沉底流 (选项群占满宽度且位于最下方电影条的正上方，层级分明杜绝遮挡) */}
       <div className="pointer-events-none flex sm:hidden fixed inset-x-3 bottom-3 z-50 flex-col gap-2 animate-in fade-in slide-in-from-bottom-2 duration-300 max-h-[85vh]">
-        <div className="pointer-events-auto w-full flex flex-col gap-2 max-h-[55vh] overflow-y-auto custom-bubble-scrollbar pr-0.5">
+        <div className="pointer-events-auto w-full flex flex-col gap-2 max-h-[55vh] overflow-y-auto custom-bubble-scrollbar p-1.5 -m-1.5">
           {renderChoices()}
           {showInput && (
             <div className="w-full animate-in fade-in slide-in-from-bottom-2 duration-300">

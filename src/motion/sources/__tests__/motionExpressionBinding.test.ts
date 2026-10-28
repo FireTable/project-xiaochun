@@ -211,35 +211,26 @@ describe('UniversalMotionController Motion-Native Expression Binding', () => {
     expect(values.blink).toBe(0);
   });
 
-  it('ExpressionController enables expressive lively weights and playful wink', () => {
+  it('ExpressionController enables expressive lively weights and playful smile', () => {
     const vrm = createMockVRM();
     const values: Record<string, number> = {};
     (vrm.expressionManager!.setValue as any).mockImplementation((key: string, val: number) => {
       values[key] = val;
     });
 
-    // Test playful: triggers left-eye wink pulse at peak (around ~0.45s) and reopens, while happy smile holds
+    // Test playful: triggers subtle charming smile with eyes gently squinted 20%
     expressionController.setExpression('playful', 0.85);
-    for (let i = 0; i < 11; i++) {
-      expressionController.update(0.05, vrm); // ~0.55s, peak of wink pulse
-    }
-    expect(values.blinkLeft).toBeGreaterThan(0.65);
-    expect(values.happy).toBeGreaterThan(0.40);
-
-    // After wink pulse finishes (~1.2s), eye reopens to 0 while happy smile continues
     for (let i = 0; i < 15; i++) {
       expressionController.update(0.05, vrm);
     }
-    expect(values.blinkLeft).toBe(0);
-    expect(values.happy).toBeGreaterThan(0.40);
+    expect(values.playful).toBeGreaterThan(0.50);
 
-    // Test happy: triggers full radiant joyful smile
+    // Test happy: triggers full radiant joyful smile (mouth open, eyes 100% open)
     expressionController.setExpression('happy', 0.85);
     for (let i = 0; i < 15; i++) {
       expressionController.update(0.05, vrm);
     }
     expect(values.happy).toBeGreaterThan(0.55);
-    expect(values.blinkLeft).toBe(0);
 
     // Reset back to neutral
     expressionController.setExpression('neutral', 1.0);
@@ -247,6 +238,7 @@ describe('UniversalMotionController Motion-Native Expression Binding', () => {
       expressionController.update(0.1, vrm);
     }
     expect(values.happy).toBe(0);
+    expect(values.playful).toBe(0);
   });
 
   it('supports dynamic MotionExpressionFn with context and Zero-GC buffers', () => {

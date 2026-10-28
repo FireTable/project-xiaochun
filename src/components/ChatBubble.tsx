@@ -136,9 +136,18 @@ export const ChatBubble: React.FC<ChatBubbleProps> = ({
     return () => observer.disconnect();
   }, [rawSpeechText, statusKey, isStatic, variant, children]);
 
-  // 对话设置关气泡：仅对日常悬浮气泡生效；静态/电影模式(isStatic)在存在语音台词、状态或展开回顾时渲染
+  // 对话设置关气泡：仅对日常悬浮气泡生效；
+  // 静态电影字幕条模式 (variant === 'cinematic')：只在存在台词正文、展开回顾、或明确处于思考中(thinking)时展示，杜绝在 TTS/EMAGE 缓冲无声音阶段提前露出空白外壳
+  const isCinematic = variant === 'cinematic';
+  const hasCinematicContent =
+    Boolean(children) ||
+    Boolean(rawSpeechText) ||
+    (statusKey === 'thinking');
+
   const isVisible = isStatic
-    ? Boolean(children) || Boolean(rawSpeechText) || (state ? state.visible && Boolean(statusKey) : Boolean(statusKey))
+    ? isCinematic
+      ? hasCinematicContent
+      : Boolean(children) || Boolean(rawSpeechText) || (state ? state.visible && Boolean(statusKey) : Boolean(statusKey))
     : enabled && Boolean(state?.visible);
 
   if (!isVisible) return null;

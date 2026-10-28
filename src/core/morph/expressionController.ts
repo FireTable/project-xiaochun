@@ -45,6 +45,7 @@ export interface MotionExpressionContext {
 export interface MotionExpressionOutput {
   happy: number;
   gentle_smile: number;
+  playful: number;
   angry: number;
   sad: number;
   surprised: number;
@@ -84,6 +85,7 @@ export type EmotionKey = (typeof EMOTION_KEYS)[number];
 export const MORPH_KEYS = [
   'happy',
   'gentle_smile',
+  'playful',
   'angry',
   'sad',
   'surprised',
@@ -178,6 +180,7 @@ export class ExpressionController {
   private readonly exprOutput: MotionExpressionOutput = {
     happy: 0,
     gentle_smile: 0,
+    playful: 0,
     angry: 0,
     sad: 0,
     surprised: 0,
@@ -190,6 +193,7 @@ export class ExpressionController {
     reset() {
       this.happy = 0;
       this.gentle_smile = 0;
+      this.playful = 0;
       this.angry = 0;
       this.sad = 0;
       this.surprised = 0;
@@ -206,6 +210,7 @@ export class ExpressionController {
   private readonly liveMorphs = {
     happy: 0,
     gentle_smile: 0,
+    playful: 0,
     angry: 0,
     sad: 0,
     surprised: 0,
@@ -221,6 +226,7 @@ export class ExpressionController {
   private readonly targetMorphs = {
     happy: 0,
     gentle_smile: 0,
+    playful: 0,
     angry: 0,
     sad: 0,
     surprised: 0,
@@ -233,6 +239,7 @@ export class ExpressionController {
     reset() {
       this.happy = 0;
       this.gentle_smile = 0;
+      this.playful = 0;
       this.angry = 0;
       this.sad = 0;
       this.surprised = 0;
@@ -388,7 +395,7 @@ export class ExpressionController {
           }
         }
 
-        // 2. 解耦 happy 预设表情 (嘴巴大笑 1.0，眉毛 0.45，眼睛仅极轻微灵动微眯 0.12，杜绝眯成缝)
+        // 2. 解耦 happy 预设表情 (嘴巴大笑 1.0，眉毛 0.45，眼睛完全不眯 0，杜绝眯眼)
         const happyExpr = mgr.getExpression('happy');
         if (happyExpr && dict['Fcl_MTH_Joy'] !== undefined) {
           happyExpr.clearAppliedWeight();
@@ -409,15 +416,7 @@ export class ExpressionController {
               }),
             );
           }
-          if (dict['Fcl_EYE_Joy'] !== undefined) {
-            happyExpr.addBind(
-              new VRMExpressionMorphTargetBind({
-                primitives: [faceMesh],
-                index: dict['Fcl_EYE_Joy'],
-                weight: 0.12, // 开心稍微一点点眯眼即可，主要通过嘴巴表现开心程度
-              }),
-            );
-          }
+          // 开心的眼睛也不需要眯，彻底排除 Fcl_EYE_Joy！
         }
 
         // 3. 解耦 relaxed 预设表情 (放松眼睛不需要任何变化，仅嘴巴自然放松 1.0)
@@ -441,7 +440,43 @@ export class ExpressionController {
               }),
             );
           }
-          // 彻底排除 Fcl_EYE_Fun，眼睛不需要任何变化！
+          // 放松眼睛也不需要眯，彻底排除 Fcl_EYE_Fun！
+        }
+
+        // 4. 注册/重写 playful 预设表情 (甜美微笑 + 眉毛微扬 + 双眼微微眯一点 0.20)
+        if (dict['Fcl_MTH_Joy'] !== undefined) {
+          let playfulExpr = mgr.getExpression('playful');
+          if (!playfulExpr) {
+            playfulExpr = new VRMExpression('playful');
+            mgr.registerExpression(playfulExpr);
+          }
+          playfulExpr.clearAppliedWeight();
+          (playfulExpr as any)._binds.length = 0;
+          playfulExpr.addBind(
+            new VRMExpressionMorphTargetBind({
+              primitives: [faceMesh],
+              index: dict['Fcl_MTH_Joy'],
+              weight: 0.85,
+            }),
+          );
+          if (dict['Fcl_BRW_Joy'] !== undefined) {
+            playfulExpr.addBind(
+              new VRMExpressionMorphTargetBind({
+                primitives: [faceMesh],
+                index: dict['Fcl_BRW_Joy'],
+                weight: 0.35,
+              }),
+            );
+          }
+          if (dict['Fcl_EYE_Joy'] !== undefined) {
+            playfulExpr.addBind(
+              new VRMExpressionMorphTargetBind({
+                primitives: [faceMesh],
+                index: dict['Fcl_EYE_Joy'],
+                weight: 0.20, // 俏皮微微眯一点就好 (20% 弧度，绝不挤压成缝)
+              }),
+            );
+          }
         }
       }
 
@@ -477,6 +512,7 @@ export class ExpressionController {
       try {
         vrm.expressionManager.setValue('happy', 0);
         vrm.expressionManager.setValue('gentle_smile', 0);
+        vrm.expressionManager.setValue('playful', 0);
         vrm.expressionManager.setValue('angry', 0);
         vrm.expressionManager.setValue('sad', 0);
         vrm.expressionManager.setValue('surprised', 0);
@@ -567,6 +603,7 @@ export class ExpressionController {
 
       this.targetMorphs.happy = Math.min(1.0, Math.max(0, this.exprOutput.happy * mouthDuck));
       this.targetMorphs.gentle_smile = Math.min(1.0, Math.max(0, (this.exprOutput.gentle_smile || 0) * mouthDuck));
+      this.targetMorphs.playful = Math.min(1.0, Math.max(0, (this.exprOutput.playful || 0) * mouthDuck));
       this.targetMorphs.angry = Math.min(1.0, Math.max(0, this.exprOutput.angry * (isSpeaking ? mouthDuck : 1.0)));
       this.targetMorphs.sad = Math.min(1.0, Math.max(0, this.exprOutput.sad * mouthDuck));
       this.targetMorphs.surprised = Math.min(1.0, Math.max(0, this.exprOutput.surprised));
@@ -651,25 +688,31 @@ export class ExpressionController {
         ),
       );
 
-      // 2. 开怀喜悦 (happy) 与 俏皮笑容：主要通过嘴巴表现开心程度，眼睛稍微有一点点眯眼 (解耦后 Fcl_EYE_Joy 仅 0.12)
+      // 2. 开怀喜悦 (happy)：主要是通过嘴巴表现开心程度，眼睛完全不需要眯 (解耦后 Fcl_EYE_Joy 为 0，双眼 100% 自然全睁)
       const happyWeight = Math.min(
-        0.85,
+        0.80,
         Math.max(
           0,
-          (this.currentWeights.happy * 0.80 +
-            this.currentWeights.playful * 0.55 +
-            breathOsc) *
-            mouthDuck,
+          (this.currentWeights.happy * 0.75 + breathOsc) * mouthDuck,
         ),
       );
 
-      // 3. 放松 (relaxed)：眼睛不需要任何变化，仅嘴巴自然放松 (解耦后 Fcl_EYE_Fun 为 0)
+      // 3. 俏皮 (playful)：甜美微笑 + 眉毛轻扬 + 双眼微微眯一点就好 (解耦后 Fcl_EYE_Joy 为 0.20)
+      const playfulWeight = Math.min(
+        0.80,
+        Math.max(
+          0,
+          (this.currentWeights.playful * 0.75 + breathOsc) * mouthDuck,
+        ),
+      );
+
+      // 4. 放松 (relaxed)：眼睛不需要任何变化，仅嘴巴自然放松 (解耦后 Fcl_EYE_Fun 为 0，双眼 100% 自然全睁)
       const relaxedWeight = Math.min(
         0.75,
         Math.max(0, (this.currentWeights.relaxed * 0.70 + breathOsc) * mouthDuck),
       );
 
-      // 4. 傲娇微怒 (angry)
+      // 5. 傲娇微怒 (angry)
       const angryWeight = Math.min(
         0.70,
         Math.max(0, this.currentWeights.angry * 0.65 * (isSpeaking ? mouthDuck : 1.0)),
@@ -678,7 +721,7 @@ export class ExpressionController {
       // 困意伴生的眉毛微垂 (睡颜舒缓八字眉)
       const sleepySad = this.currentWeights.relaxed * 0.22 * nodFactor;
 
-      // 5. 忧伤期盼 (sad) 与犹豫疑虑 (hesitant)
+      // 6. 忧伤期盼 (sad) 与犹豫疑虑 (hesitant)
       const sadWeight = Math.min(
         0.65,
         Math.max(
@@ -690,7 +733,7 @@ export class ExpressionController {
         ),
       );
 
-      // 6. 惊讶一怔 (surprised)
+      // 7. 惊讶一怔 (surprised)
       const surprisedWeight = Math.min(
         0.75,
         Math.max(
@@ -699,16 +742,6 @@ export class ExpressionController {
             this.currentWeights.hesitant * 0.15,
         ),
       );
-
-      // 7. 俏皮眨眼 (playful wink)：单侧左眼可爱 Wink 灵动脉冲 (0.05s ~ 0.85s 呈现，达到高潮后平滑睁开)
-      // 右眼 100% 全睁，眼睛绝不需要眯成一半！
-      let playfulWink = 0;
-      if (this.currentWeights.playful > 0.005) {
-        if (this.playfulTimer >= 0.05 && this.playfulTimer <= 0.85) {
-          const winkP = (this.playfulTimer - 0.05) / 0.80;
-          playfulWink = Math.sin(winkP * Math.PI) * Math.min(0.95, this.currentWeights.playful * 0.90);
-        }
-      }
 
       // 动态打瞌睡眼睑闭合：
       // 站立挺直姿态下眼睛必须 100% 睁开 (sleepyBlink = 0，杜绝眯眯眼)；
@@ -728,11 +761,12 @@ export class ExpressionController {
 
       this.targetMorphs.gentle_smile = gentleSmileWeight;
       this.targetMorphs.happy = happyWeight;
+      this.targetMorphs.playful = playfulWeight;
       this.targetMorphs.angry = angryWeight;
       this.targetMorphs.sad = sadWeight;
       this.targetMorphs.surprised = surprisedWeight;
       this.targetMorphs.relaxed = relaxedWeight;
-      this.targetMorphs.blinkLeft = playfulWink;
+      this.targetMorphs.blinkLeft = 0;
       this.targetMorphs.blinkRight = 0;
       this.targetMorphs.blink = sleepyBlink;
       if (!isSpeaking) {
@@ -757,6 +791,7 @@ export class ExpressionController {
     try {
       mgr.setValue('happy', this.liveMorphs.happy);
       mgr.setValue('gentle_smile', this.liveMorphs.gentle_smile);
+      mgr.setValue('playful', this.liveMorphs.playful);
       mgr.setValue('angry', this.liveMorphs.angry);
       mgr.setValue('sad', this.liveMorphs.sad);
       mgr.setValue('surprised', this.liveMorphs.surprised);

@@ -135,3 +135,17 @@
     - Maintained full backward compatibility through re-export alias proxy in `HeadBubble.tsx`;
     - Upgraded all invocation sites (`App.tsx`, `EmbedApp.tsx`, `StoryPlayer.tsx`) and DOM selectors (`bubbleTracker.ts`);
     - Added unit test suite `src/components/__tests__/chatBubbleDialogue.test.ts`. 100% test suites green (47/47 suites, 375/375 tests).
+
+- **2026-10-28 21:40 - Choice Card Hover Boundary De-clipping & Audible Speech Start Gating**
+  - **Choice Card Hover Truncation Fix**:
+    - Root cause: Choice cards utilized `hover:-translate-y-0.5` (-2px translation) and outer box shadows; in scrollable choice containers with `overflow-y-auto` and `p-0`, hovering the top card translated it beyond the top clipping boundary, cutting off its top border and glow;
+    - Solution:
+      1. Eliminated `-translate-y-0.5` in `StoryChoiceCard.tsx` across `list` and `media` variants, replacing vertical displacement with subtle, elegant border illumination and box shadow glows (`hover:border-[#f3d09a]/60 hover:shadow-[0_4px_20px_rgba(243,208,154,0.3)]`);
+      2. In `StoryPlayer.tsx`, added `p-1.5 -m-1.5` padding breathing room to the choices scroll containers on both PC (`max-h-[calc(100vh-150px)]`) and Mobile (`max-h-[55vh]`), guaranteeing zero clipping of card outlines, borders, and rings.
+  - **Audible Speech Start Gating for ChatBubble**:
+    - Root cause: `StoryPlayer.tsx` previously latched `hasSpokenInBeat = true` via `storyState.isSpeaking`. Because `storyEngine.ts` sets `isSpeaking = true` synchronously at the start of TTS network synthesis (before audio chunk download and playback), the subtitle bar popped up prematurely 1~2 seconds before any voice came out of the speakers;
+    - Solution:
+      1. Strictly gated `hasSpokenInBeat` in `StoryPlayer.tsx` to latch only upon actual audio playback start (`bubble.statusKey === 'speaking' && Boolean(bubble.speechText)`) or explicit TTS offline fallback (`statusKey === 'ttsUnavailable'`);
+      2. Refined `ChatBubble.tsx` cinematic mode (`variant === 'cinematic'`) to suppress rendering when text is empty during intermediate pre-audio states (`tts`, `emage`), rendering only when dialogue text is present, history is expanded, or active LLM thinking is underway;
+      3. Preserved subtitle persistence after audio ends, ensuring lines remain readable throughout the beat while choices are pending;
+    - Verified: Added contract tests in `src/components/__tests__/chatBubbleDialogue.test.ts`; 47/47 test suites pass (377/377 tests).

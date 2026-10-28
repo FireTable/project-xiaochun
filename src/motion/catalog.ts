@@ -481,7 +481,7 @@ export const MOTION_CATALOG = {
     descriptionKey: 'motion.joyfulJump.description',
     name: '惊喜轻跳',
     description: '瞬间被好消息点亮的兴奋拍手跳起',
-    url: '/vrm/motion/joyful-jump.vrma?v=8',
+    url: '/vrm/motion/joyful-jump.vrma?v=9',
     warmup: true,
     loop: false,
     fadeDuration: 0.65,

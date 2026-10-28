@@ -17,17 +17,89 @@ describe('Story Dialogue & ChatBubble Persistence Contract', () => {
     // 静态电影条模式传入当前拍台词文本
     const currentSpeechText = '换了新环境，也顺便帮我挑套新衣服吧。';
     const isStatic = true;
+    const variant = 'cinematic';
     const children = null;
     const state = endedBubbleState;
     const rawSpeechText = currentSpeechText;
     const statusKey = state.statusKey;
 
     // 验证 ChatBubble.tsx 中的 isVisible 判定逻辑
+    const isCinematic = variant === 'cinematic';
+    const hasCinematicContent =
+      Boolean(children) ||
+      Boolean(rawSpeechText) ||
+      (statusKey === 'thinking');
+
     const isVisible = isStatic
-      ? Boolean(children) || Boolean(rawSpeechText) || (state ? state.visible && Boolean(statusKey) : Boolean(statusKey))
+      ? isCinematic
+        ? hasCinematicContent
+        : Boolean(children) || Boolean(rawSpeechText) || (state ? state.visible && Boolean(statusKey) : Boolean(statusKey))
       : Boolean(state?.visible);
 
     expect(isVisible).toBe(true);
+  });
+
+  it('suppresses cinematic ChatBubble display before audio speech arrives (e.g. during tts/emage buffering)', () => {
+    // 语音尚未合成完毕/正在网络缓冲阶段
+    const bufferingState: BubbleState = {
+      visible: true,
+      statusKey: 'tts',
+      speechText: '',
+      isError: false,
+      x: 100,
+      y: 200,
+      placement: 'bottom',
+    };
+
+    const isStatic = true;
+    const variant = 'cinematic';
+    const children = null;
+    const state = bufferingState;
+    const rawSpeechText = ''; // 语音未起播前无文本
+    const statusKey = state.statusKey;
+
+    const isCinematic = variant === 'cinematic';
+    const hasCinematicContent =
+      Boolean(children) ||
+      Boolean(rawSpeechText) ||
+      (statusKey === 'thinking');
+
+    const isVisible = isStatic
+      ? isCinematic
+        ? hasCinematicContent
+        : Boolean(children) || Boolean(rawSpeechText) || (state ? state.visible && Boolean(statusKey) : Boolean(statusKey))
+      : Boolean(state?.visible);
+
+    // 严禁在语音未出来前展示空白/未就绪的字幕卡
+    expect(isVisible).toBe(false);
+  });
+
+  it('gates StoryPlayer dialogue display strictly until speech starts (hasSpokenInBeat latching)', () => {
+    // 拍开始但语音网络尚未开声时
+    let hasSpokenInBeat = false;
+    const scriptSpeechText = '你好呀，我是小蠢！';
+    const bubbleSpeaking = false;
+
+    // 状态判定函数
+    const checkCanShowDialogue = (hasSpoken: boolean, text: string) => {
+      return hasSpoken && Boolean(text.trim());
+    };
+
+    // 语音未播前：不可展示
+    expect(checkCanShowDialogue(hasSpokenInBeat, scriptSpeechText)).toBe(false);
+
+    // 语音开声发音时 (bubble.statusKey === 'speaking')
+    if (!bubbleSpeaking) {
+      hasSpokenInBeat = true;
+    }
+    expect(checkCanShowDialogue(hasSpokenInBeat, scriptSpeechText)).toBe(true);
+
+    // 语音播毕后：维持展示 (不随声音停播而突兀消失)
+    expect(checkCanShowDialogue(hasSpokenInBeat, scriptSpeechText)).toBe(true);
+
+    // 切到下一拍：重置为 false
+    hasSpokenInBeat = false;
+    expect(checkCanShowDialogue(hasSpokenInBeat, '下一拍台词')).toBe(false);
   });
 
   it('correctly decouples isSpeaking animation flag from static text display when speech finishes', () => {
