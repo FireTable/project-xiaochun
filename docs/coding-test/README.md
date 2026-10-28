@@ -3,7 +3,7 @@
 > 72 小时实验：实时互动场景产品设计与架构实现交付规范
 
 > 本次交付基于既有开源项目 Project XiaoChun（`main`@`524af1c`，v0.1.39，3D VRM 陪伴角色「小蠢」）迭代：角色、渲染引擎、端侧 AI 链路是已有基础。72 小时内新做的是剧情序章《序章·初遇小蠢》（Act 0，零 Key 的 Mock 演示）、全双工语音打断、镜头与演出、zh / en / ja 三语化，见分支 `feature/interactive-scene-flow` 相对 `main` 的 156 个提交（截至 `2a33aa6`）。
-> 仓库：<https://github.com/FireTable/project-xiaochun> · 小蠢为原创 VRoid 角色（TODO：确认并写明成年设定）。
+> 仓库：<https://github.com/FireTable/project-xiaochun> · 小蠢为原创成年 VRoid 角色。
 
 ---
 
@@ -24,11 +24,11 @@
 - **演示录屏 (3–5 分钟)**：
   - 视频链接 / 录屏文件：[Project XiaoChun Demo 4K](https://t.me/project_xiaochun/3) · [Project XiaoChun Demo 2K](https://t.me/project_xiaochun/4)（Telegram 公开频道）
   - 演示内容涵盖项自查：
-    - [ ] 文字或语音互动
-    - [ ] 角色状态和画面变化
-    - [ ] 角色说话时成功打断
-    - [ ] 所选择的动画、视频或生成媒体能力
-    - [ ] 至少一种失败或降级状态
+    - [x] 文字或语音互动
+    - [x] 角色状态和画面变化
+    - [x] 角色说话时成功打断
+    - [x] 所选择的动画、视频或生成媒体能力
+    - [x] 至少一种失败或降级状态
   - 录屏演播辅助工具：`chalkboard.html`（快捷键：`H` 隐藏界面，`空格` 一键全流程演播）
   - 说明：Act 0 是脚本化引导，不开放打断；自由对话与语音打断在序章结束后的**聊天模式**中演示。
 
@@ -120,7 +120,7 @@ flowchart LR
 - **语音识别方案 (STT)**：Silero VAD v5；在线 Cloudflare Workers AI `whisper-large-v3-turbo`（`/api/stt`）；端侧兜底 SenseVoice Small int8 + CT-Transformer 标点（Web Worker）。
 - **语音合成方案 (TTS)**：Microsoft Edge TTS 神经语音（`zh-CN-XiaoyiNeural`、`ja-JP-NanamiNeural`），经自建 Worker 代理，带 R2 缓存；客户端用 Tone.js 做人声处理。
 - **角色动画 / 视频 / 生成式多模态方案**：VRM 3D 角色 + 35 个 VRMA 动捕动作 + EMAGE（CVPR 2024，ONNX INT8，端侧 Worker）根据语音生成全身手势，配合表情、口型、视线和弹簧骨物理。未使用视频或生成式图片 / 视频。
-- **主要开源库、素材来源与第三方服务声明**：three.js、@pixiv/three-vrm、@mlc-ai/web-llm、onnxruntime-web、Tone.js、React、TanStack Start、Tailwind、Radix、i18next、zod、jsonrepair；Cloudflare Workers / Workers AI / R2、Edge TTS（使用公开的 `TRUSTED_CLIENT_TOKEN`）、Hugging Face、自有 CDN；EMAGE（Apache-2.0，已修改，见 `packages/emage-onnx/NOTICE`）。角色由 VRoid Studio 制作；`beach3d` 场景用程序化几何 + 2 张贴图；BGM / 音效全部程序化合成。VRMA 动作部分来自公开仓库，许可证待逐个补齐。仓库不含任何密钥。
+- **主要开源库、素材来源与第三方服务声明**：three.js、@pixiv/three-vrm、@mlc-ai/web-llm、onnxruntime-web、Tone.js、React、TanStack Start、Tailwind、Radix、i18next、zod、jsonrepair；Cloudflare Workers / Workers AI / R2、Edge TTS（使用公开的 `TRUSTED_CLIENT_TOKEN`）、Hugging Face、自有 CDN；EMAGE（Apache-2.0，已修改，见 `packages/emage-onnx/NOTICE`）。角色由 VRoid Studio 制作；`beach3d` 场景用程序化几何 + 2 张贴图；BGM / 音效全部程序化合成。VRMA 动作大部分转换自 Adobe 开放动作库（Mixamo），少量从公开仓库搜集，均经 `scripts/slice-vrma.mjs` 精修。仓库不含任何密钥。
 
 ---
 
