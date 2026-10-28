@@ -178,6 +178,17 @@ Project XiaoChun 采用 **“选定主线 + 失败直落本地兜底”** 的多
 - 熔断窗口内，后续用户讲话 0ms 直接分发至本地 WebWorker 识别，免除等待超时的不良交互；
 - 5 分钟后进入半开 (Half-open) 状态，放行一次请求探测远端恢复。
 
+### 7.3 端云混合 2-Pass 识别架构 (Client-Cloud 2-Pass Hybrid Mode)
+- **Pass 1 (过程草稿态 · 本地极速跳字)**：
+  用户持续讲话时，Silero VAD 产生的每个停顿切片在主线程标记为 `isFinal = false`，始终分发给**端侧本地 WebWorker (SenseVoice int8)** 处理（~100ms 极低延迟）。由 `replaceOrInsertAtRange` 在输入框内原子化就地替换，实现 0 网络请求、0 延迟的流畅实时打字跳动效果。
+- **Pass 2 (停顿定稿态 · 云端全句重写)**：
+  当用户停止发言且静音满足 1.2 秒 (`commitSilenceMs`) 或主动关闭麦克风时，`commitSession()` 启动：
+  1. 提取该轮次累积的全量 PCM 音频（`combinedPcm`）；
+  2. 若云端服务可用，**整句仅发起 1 次远程请求**给 Cloudflare Whisper Large v3 Turbo（或自定义服务）；
+  3. Whisper Turbo 结合完整声学上下文输出高精度、原生多语种、大小写规范的定稿文本；
+  4. 文本由 `replaceOrInsertAtRange` 无缝替换前面的本地草稿并定稿落锁；
+  5. **0ms 兜底降级**：若云端超时或报错，系统自动保留本地 SenseVoice 草稿并经由本地 CT-Transformer 标点固化，用户体验 0 中断、0 丢失。
+
 ---
 
 ## 8. Agent Engineering Standards & Invariants (红线与守则)
