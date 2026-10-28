@@ -2173,6 +2173,9 @@ export class VRMEngine {
           this.vrmaPlayer.resetHipsRest();
           this.motionPipeline.finalPose.sampleFromVRM(vrm);
           this.bodyMorph.bind(vrm);
+          if (!preserveMotion) {
+            expressionController.reset(vrm);
+          }
           this.applySpringBoneTuning(vrm);
           this.applySavedBodyYawToVRM(vrm, !preserveMotion);
           const initialBaseY = this.vrmBaseSceneY - this.footIK.getSinkOffset() + this.bodyMorph.getLegHeightDelta();
@@ -2873,6 +2876,9 @@ export class VRMEngine {
           this.vrmaPlayer.resetHipsRest();
           this.motionPipeline.finalPose.sampleFromVRM(vrm);
           this.bodyMorph.bind(vrm);
+          if (!preserveMotion) {
+            expressionController.reset(vrm);
+          }
           this.applySpringBoneTuning(vrm);
           this.applySavedBodyYawToVRM(vrm, !preserveMotion);
           const initialBaseY = this.vrmBaseSceneY - this.footIK.getSinkOffset() + this.bodyMorph.getLegHeightDelta();

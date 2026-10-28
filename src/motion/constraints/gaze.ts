@@ -148,7 +148,7 @@ export class GazeController {
     camera: THREE.Camera,
     traits: MotionTraits,
     isSpeaking: boolean,
-    manualExpression: string | null,
+    _manualExpression?: string | null,
     listening = 0,
   ): void {
     if (!this.enabled || traits.disableGaze) {
@@ -164,7 +164,7 @@ export class GazeController {
       this.lookAtInitialized = false;
     }
 
-    // ── 1. 思考表情权重平滑淡入淡出 ──
+    // ── 1. 思考微晃权重平滑淡入淡出 ──
     if (traits.thinkSway) {
       this.thinkingWeight = Math.min(1.0, this.thinkingWeight + delta * 2.5);
     } else {
@@ -172,29 +172,7 @@ export class GazeController {
     }
     const tw = this.thinkingWeight * this.thinkingWeight * (3 - 2 * this.thinkingWeight);
 
-    // ── 2. 表情管理 ──
-    if (vrm.expressionManager) {
-      if (manualExpression && manualExpression !== 'neutral') {
-        // 开发者手动指定表情时保持不变
-      } else if (isSpeaking) {
-        // 朗读说话中：清空思考嘴型 ('ou') 与静态微笑，完全让位给实时语音 LipSync ('aa')
-        vrm.expressionManager.setValue('ou', 0);
-        vrm.expressionManager.setValue('relaxed', 0);
-        vrm.expressionManager.setValue('happy', 0);
-      } else if (listening > 0.01) {
-        // 倾听态：专注安静温和，眉眼舒展放松为主 (relaxed: 0.18)，嘴角平顺微抿 (happy: 0.04)
-        vrm.expressionManager.setValue('ou', 0);
-        vrm.expressionManager.setValue('relaxed', 0.18 * listening);
-        vrm.expressionManager.setValue('happy', 0.04 * listening);
-      } else {
-        // 待机态：思考嘴型随 tw 渐变，保持平淡素雅自然神态
-        vrm.expressionManager.setValue('ou', 0.65 * tw);
-        vrm.expressionManager.setValue('relaxed', 0.15 * tw);
-        vrm.expressionManager.setValue('happy', 0);
-      }
-    }
-
-    // ── 3. 自然生理生命微晃 (Natural Head Vital Sway) 与思考微动 ──
+    // ── 2. 自然生理生命微晃 (Natural Head Vital Sway) 与思考微动 ──
     // 模拟健康人类无意识的极微弱呼吸浮沉与头颈游移 (幅值约 ±0.4°，平滑连续，零机械僵硬感)
     const naturalSwayPitch = Math.sin(time * 1.15) * 0.007; // 约 0.4° 呼吸微俯仰
     const naturalSwayYaw = Math.sin(time * 0.65) * 0.008;   // 约 0.45° 极轻微水平呼吸游移

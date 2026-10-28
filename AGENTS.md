@@ -248,7 +248,26 @@ The 3D motion pipeline involves complex layered logic. Follow these geometric an
   10. **Tail-Hold Keyframe Extension (`tailHoldDuration` / `--tail-hold=<seconds>`)**:
      - For one-shot gestures that play once and crossfade back to `NaturalIdle`, duplicating the final frame for $N$ seconds provides a stable rest pose for the 0.75s Quintic Smootherstep crossfade, preventing premature snapping.
 
-### 2.13 Performance & Frame-Budget Disciplines (Zero GC & 60 FPS Guarantees)
+### 2.13 Motion-Native Expression Binding & Organic Facial Morphing Architecture
+- Files: `src/motion/sources/clip.ts`, `src/core/morph/expressionController.ts`, `src/motion/catalog.ts`, `src/motion/constraints/gaze.ts`
+- **Architecture Principle & Motion-Level SSOT**:
+  1. **Expression as Motion Intrinsic Property**: Facial expressions are bound strictly to individual `MotionCatalogItem` records in `MOTION_CATALOG`, **never to `MOTION_GROUPS`**. Group-level binding inevitably causes semantic mismatch (e.g. angry foot stomping paired with smiling). Each atomic action defines its exact emotional resonance (`gentle_smile`, `happy`, `angry`, `hesitant`, `relaxed`, `playful`, `shy`, `surprised`).
+  2. **Automated Lifecycle & Timing Orchestration**:
+     - `UniversalMotionController.play(clip, options)` automatically extracts `options.expression` and routes it to `expressionController.setExpression(expr, intensity)`.
+     - Smooth continuous-time damping (`emotionDampSpeed: 7.5`, ~0.35s) ensures zero-snap emotional transitions.
+     - Micro-vital breathing oscillation ($\pm 0.015$) maintains continuous organic life during the action hold phase.
+     - Optional `expressionDuration`: Delta-time countdown timer in `update(delta)` smoothly returns the face to `neutral` when expired.
+     - Action Termination & Preemption Safety: When a motion reaches its natural end, is stopped via `stop()`, or is replaced by a motion with no expression specified, it automatically transitions back to `neutral` with Quintic smooth decay, completely preventing sticky residual facial expressions.
+  3. **Decoupled Priority Hierarchy & Speech Mouth Ducking**:
+     - **TTS Mouth Dominance**: Audio-driven lip sync (`aa`, `ou`) possesses absolute priority over mouth deformation.
+     - `ExpressionController` automatically applies `speechMouthDucking` ($0.25$) to `happy`, `sad`, and `angry` mouth-corner pulls when `isSpeaking === true`, guaranteeing clear, natural speech articulation without facial tear.
+     - `reset(vrm, isSpeaking)` strictly protects active `aa` visemes when speaking.
+     - **GazeController Decoupling**: Gaze logic is strictly restricted to eye saccades, lookAt tracking, and physiological blinking (`blink`). All emotion writes (`happy`, `relaxed`, `ou`) are removed from `gaze.ts`, completely eliminating dual-writer contention.
+  4. **Zero-GC & 60 FPS Discipline**:
+     - Uses a static `EMOTION_KEYS` array to iterate emotions per frame, strictly eradicating `Object.keys()` memory allocation inside the render loop.
+     - Eliminates redundant `expressionManager.update()` calls (which are already executed by `vrm.update(delta)`).
+
+### 2.14 Performance & Frame-Budget Disciplines (Zero GC & 60 FPS Guarantees)
 - Target: Strictly protect the 16.6ms frame budget, maintaining stable 60 FPS on both mobile and desktop with zero visible frame drops, micro-stutters, or memory leaks.
 - **Core Engineering Disciplines**:
   1. **Zero Dynamic Allocation in Render Loop (Zero GC in Tick / Update)**:

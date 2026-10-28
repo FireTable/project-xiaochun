@@ -10,6 +10,20 @@ export interface ExpressionControllerConfig {
   speechMouthDucking: number;
 }
 
+export const EMOTION_KEYS = [
+  'neutral',
+  'gentle_smile',
+  'hesitant',
+  'shy',
+  'surprised',
+  'sad_longing',
+  'playful',
+  'angry',
+  'relaxed',
+] as const;
+
+export type EmotionKey = (typeof EMOTION_KEYS)[number];
+
 export const PRESET_EMOTION_MAP: Record<string, string> = {
   neutral: 'neutral',
   happy: 'gentle_smile',
@@ -36,7 +50,7 @@ export class ExpressionController {
   private isActive = false;
 
   // 当前实时计算权重 (0.0 ~ 1.0)
-  private currentWeights: Record<string, number> = {
+  private currentWeights: Record<EmotionKey, number> = {
     neutral: 1.0,
     gentle_smile: 0.0,
     hesitant: 0.0,
@@ -121,16 +135,16 @@ export class ExpressionController {
   /**
    * 重置所有表情权重回归纯净默认面部 (Eyes open, natural lips)
    */
-  public reset(vrm?: VRM | null): void {
+  public reset(vrm?: VRM | null, isSpeaking = false): void {
     this.targetEmotion = 'neutral';
     this.targetIntensity = 0.0;
     this.currentMicroReaction = 'none';
     this.blushIntensity = 0.0;
 
-    const emotions = Object.keys(this.currentWeights);
-    emotions.forEach((e) => {
+    for (let i = 0; i < EMOTION_KEYS.length; i++) {
+      const e = EMOTION_KEYS[i];
       this.currentWeights[e] = e === 'neutral' ? 1.0 : 0.0;
-    });
+    }
 
     if (vrm?.expressionManager) {
       try {
@@ -139,9 +153,10 @@ export class ExpressionController {
         vrm.expressionManager.setValue('sad', 0);
         vrm.expressionManager.setValue('surprised', 0);
         vrm.expressionManager.setValue('relaxed', 0);
-        vrm.expressionManager.setValue('aa', 0);
+        if (!isSpeaking) {
+          vrm.expressionManager.setValue('aa', 0);
+        }
         vrm.expressionManager.setValue('ou', 0);
-        vrm.expressionManager.update();
       } catch { }
     }
   }
@@ -168,23 +183,23 @@ export class ExpressionController {
     // ── 1. 生理自主层 (呼吸微起伏，幅值控制在极细微 ±0.015) ──
     const breathOsc = Math.sin(this.breathClock * 1.85) * this.config.breathOscillationAmp;
 
-    // ── 2. 情绪基调平滑阻尼流动 (连续时间滤波，杜绝 1 帧突变抽动) ──
+    // ── 2. 情绪基调平滑阻尼流动 (连续时间滤波，Zero-GC 循环，杜绝 1 帧突变抽动) ──
     const dampFactor = Math.min(1.0, delta * this.config.emotionDampSpeed);
     let totalNonNeutralWeight = 0;
 
-    const allEmotions = Object.keys(this.currentWeights);
-    for (const emo of allEmotions) {
+    for (let i = 0; i < EMOTION_KEYS.length; i++) {
+      const emo = EMOTION_KEYS[i];
       const target = emo === this.targetEmotion ? this.targetIntensity : (emo === 'neutral' ? (1.0 - this.targetIntensity) : 0.0);
-      this.currentWeights[emo]! += (target - this.currentWeights[emo]!) * dampFactor;
+      this.currentWeights[emo] += (target - this.currentWeights[emo]) * dampFactor;
       if (emo !== 'neutral') {
-        totalNonNeutralWeight += this.currentWeights[emo]!;
+        totalNonNeutralWeight += this.currentWeights[emo];
       }
     }
 
     // 当目标为 neutral 且所有情绪权重均已平滑衰减至极小阈值时，释放接管回归基态素颜
     if (this.targetEmotion === 'neutral' && totalNonNeutralWeight < 0.005) {
       this.isActive = false;
-      this.reset(vrm);
+      this.reset(vrm, isSpeaking);
       return;
     }
 
@@ -215,23 +230,26 @@ export class ExpressionController {
       0.18,
       Math.max(
         0,
-        (this.currentWeights.gentle_smile! * happyScale +
-          this.currentWeights.playful! * 0.12 +
+        (this.currentWeights.gentle_smile * happyScale +
+          this.currentWeights.playful * 0.12 +
           breathOsc) *
           mouthDuck,
       ),
     );
 
-    // 傲娇微怒：限幅 0.30，眉毛微蹙生动傲娇，绝不狰狞失真
-    const angryWeight = Math.min(0.35, Math.max(0, this.currentWeights.angry! * 0.30));
+    // 傲娇微怒：限幅 0.30，眉毛微蹙生动傲娇，绝不狰狞失真。说话发音时避让嘴部形变
+    const angryWeight = Math.min(
+      0.35,
+      Math.max(0, this.currentWeights.angry * 0.30 * (isSpeaking ? mouthDuck : 1.0)),
+    );
 
     // 忧伤期盼：限幅 0.22，温和隐忍
     const sadWeight = Math.min(
       0.25,
       Math.max(
         0,
-        (this.currentWeights.sad_longing! * 0.22 +
-          this.currentWeights.hesitant! * 0.15) *
+        (this.currentWeights.sad_longing * 0.22 +
+          this.currentWeights.hesitant * 0.15) *
           mouthDuck,
       ),
     );
@@ -239,7 +257,7 @@ export class ExpressionController {
     // 惊讶一怔：限幅 0.38，大眼睛灵动张开
     const surprisedWeight = Math.min(
       0.45,
-      Math.max(0, this.currentWeights.surprised! * 0.38),
+      Math.max(0, this.currentWeights.surprised * 0.38),
     );
 
     // 放松从容：限幅 0.16，恬淡平静
@@ -247,8 +265,8 @@ export class ExpressionController {
       0.20,
       Math.max(
         0,
-        this.currentWeights.relaxed! * 0.16 +
-          this.currentWeights.shy! * 0.10,
+        this.currentWeights.relaxed * 0.16 +
+          this.currentWeights.shy * 0.10,
       ),
     );
 
@@ -266,7 +284,7 @@ export class ExpressionController {
         mgr.setValue('aa', 0);
       }
 
-      mgr.update();
+      // 注意：无需在此处重复调用 mgr.update()，vrm.update(delta) 在渲染主循环中会统一调度
     } catch {
       // 忽略部分模型缺失的非标表情
     }

@@ -6,6 +6,7 @@ import { retargetClip, makeClipSeamless } from '../vrmaRetarget';
 import { PIPELINE_BONES, BONE_INDEX_MAP, type MotionBoneMask } from '../pipeline/poseBuffer';
 import { DEFAULT_MOTION_TRAITS, type MotionTraits } from '../pipeline/types';
 import { motionAssetManager } from '../pipeline/motionAssetManager';
+import { expressionController } from '../../core/morph/expressionController';
 
 export interface PlayMotionOptions {
   /** 混合过渡时间（秒），默认约 0.98s（P0c.1 +30%） */
@@ -47,6 +48,17 @@ export interface PlayMotionOptions {
   disableGaze?: boolean;
   /** 内部冷启动迎客动作标识，不触发取消冷启动定时器 */
   isColdStartGreeting?: boolean;
+
+  // ── 动作原生面部表情支持 ──
+  /**
+   * 动作绑定的面部表情名
+   * 可选值: 'gentle_smile' | 'happy' | 'angry' | 'sad' | 'sad_longing' | 'relaxed' | 'surprised' | 'shy' | 'playful' | 'hesitant' | 'neutral'
+   */
+  expression?: string;
+  /** 表情强度 (0.0 ~ 1.0，可选；默认采用 0.8 并由 ExpressionController 精准安全限幅) */
+  expressionIntensity?: number;
+  /** 可选：特定表情维持时间（秒）。若未指定，默认与动作本身时长和生命周期完全对齐 */
+  expressionDuration?: number;
 }
 
 export interface UniversalMotionHandle {
@@ -94,6 +106,8 @@ export class UniversalMotionController {
   private hasHipsPosTrack = false;
   /** 节点名至标准 VRM 人形骨骼名的反向映射表缓存 */
   private nodeToBoneMap: Map<string, VRMHumanBoneName> | null = null;
+  /** 动作绑定表情的倒计时（秒），用于在指定 duration 后提前平滑归于 neutral */
+  private expressionRemainingTimer = 0;
 
   nextRequestId(): number {
     return ++this.currentPlayRequestId;
@@ -120,6 +134,7 @@ export class UniversalMotionController {
     this.nodeToBoneMap = null;
     this.animatedBoneIndices = null;
     this.hasHipsPosTrack = false;
+    this.expressionRemainingTimer = 0;
   }
 
   private buildNodeToBoneMap(): Map<string, VRMHumanBoneName> {
@@ -327,6 +342,19 @@ export class UniversalMotionController {
     this.animatedBoneIndices = animatedIndices;
     this.hasHipsPosTrack = hasHipsPos;
 
+    // 动作原生表情绑定与生命周期接管
+    const expr = options.expression;
+    if (expr && expr !== 'neutral') {
+      expressionController.setExpression(expr, options.expressionIntensity);
+      this.expressionRemainingTimer = (options.expressionDuration && options.expressionDuration > 0)
+        ? options.expressionDuration
+        : 0;
+    } else {
+      // 若当前动作未指定表情或显式指定 neutral，平滑阻尼淡出回基态素颜，杜绝上一动作表情残留
+      expressionController.setExpression('neutral');
+      this.expressionRemainingTimer = 0;
+    }
+
     action.play();
     this.currentAction = action;
     this.active = true;
@@ -371,6 +399,15 @@ export class UniversalMotionController {
     const isLoop = this.currentOptions.loop ?? false;
     let justEnded = false;
 
+    // 动作表情生命周期倒计时 (针对配置了特定表情维持时长的动作)
+    if (this.expressionRemainingTimer > 0) {
+      this.expressionRemainingTimer -= delta;
+      if (this.expressionRemainingTimer <= 0) {
+        this.expressionRemainingTimer = 0;
+        expressionController.setExpression('neutral');
+      }
+    }
+
     if (!isLoop) {
       const curTime = this.currentAction.time;
       const fadeLead = Math.min(this.fadeDuration, this.clipDuration * 0.40);
@@ -386,6 +423,8 @@ export class UniversalMotionController {
           this.onEndTriggered = true;
           justEnded = true;
           this.active = false;
+          expressionController.setExpression('neutral');
+          this.expressionRemainingTimer = 0;
           this.currentOptions.onEnd?.();
         }
       }
@@ -437,6 +476,9 @@ export class UniversalMotionController {
     this.animatedBoneIndices = null;
     this.hasHipsPosTrack = false;
     this.traits = { ...DEFAULT_MOTION_TRAITS };
+
+    expressionController.setExpression('neutral');
+    this.expressionRemainingTimer = 0;
 
     if (!this.onEndTriggered) {
       this.onEndTriggered = true;

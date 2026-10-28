@@ -102,4 +102,75 @@ describe('ExpressionController Organic Facial Morphing', () => {
     const duckedHappy = expressionValues['happy'] ?? 0;
     expect(duckedHappy).toBeLessThan(0.06);
   });
+
+  it('ducks angry expression mouth pull when character is speaking', () => {
+    const controller = new ExpressionController();
+    const { vrm, expressionValues } = createMockVRM();
+
+    controller.setExpression('angry', 1.0);
+    for (let i = 0; i < 30; i++) {
+      controller.update(0.016, vrm, true);
+    }
+
+    // Angry is ducked by mouthDuck (0.25) when speaking
+    const duckedAngry = expressionValues['angry'] ?? 0;
+    expect(duckedAngry).toBeLessThan(0.10);
+  });
+
+  it('reset does not clobber aa viseme when character is speaking', () => {
+    const controller = new ExpressionController();
+    const { vrm, expressionValues } = createMockVRM();
+
+    expressionValues['aa'] = 0.85;
+    expressionValues['ou'] = 0.50;
+
+    controller.reset(vrm, true); // speaking = true
+
+    // 'aa' is preserved for TTS lip sync, 'ou' is cleared
+    expect(expressionValues['aa']).toBe(0.85);
+    expect(expressionValues['ou']).toBe(0);
+
+    controller.reset(vrm, false); // speaking = false
+    expect(expressionValues['aa']).toBe(0);
+  });
+
+  it('does not call expressionManager.update() during update loop (avoids redundant CPU recalculation)', () => {
+    const controller = new ExpressionController();
+    let updateCallCount = 0;
+    const { vrm } = createMockVRM();
+    (vrm.expressionManager as any).update = () => {
+      updateCallCount++;
+    };
+
+    controller.setExpression('happy', 1.0);
+    for (let i = 0; i < 10; i++) {
+      controller.update(0.016, vrm, false);
+    }
+
+    // VRM.update() in vrmEngine.ts is responsible for calling expressionManager.update()
+    expect(updateCallCount).toBe(0);
+  });
+
+  it('executes zero-GC in per-frame update loop without invoking Object.keys()', () => {
+    const controller = new ExpressionController();
+    const { vrm } = createMockVRM();
+
+    controller.setExpression('happy', 1.0);
+
+    const originalKeys = Object.keys;
+    let keysCalled = 0;
+    Object.keys = (obj: any) => {
+      keysCalled++;
+      return originalKeys(obj);
+    };
+
+    try {
+      for (let i = 0; i < 60; i++) {
+        controller.update(0.016, vrm, false);
+      }
+      expect(keysCalled).toBe(0);
+    } finally {
+      Object.keys = originalKeys;
+    }
+  });
 });
