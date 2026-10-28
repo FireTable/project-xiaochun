@@ -156,7 +156,7 @@ describe('prologue story (Act 0 v4 · Backstage Catch)', () => {
     expect(b.beat_5.inputPlaceholder).toBeUndefined();
     expect((b.beat_5.choices ?? []).length).toBeGreaterThanOrEqual(2);
     expect((b.beat_5.choices ?? []).every((c) => c.actionType === 'next_beat' && c.nextBeatId === 'beat_5_reply')).toBe(true);
-    expect(b.beat_5_reply).toMatchObject({ autoNextBeatId: 'beat_brain_choice', camera: { shot: 'close_up', movement: 'arc_sweep', durationSec: 1.5 }, actor: { expression: { base: 'playful' } } });
+    expect(b.beat_5_reply).toMatchObject({ autoNextBeatId: 'beat_brain_choice', camera: { shot: 'medium_close_up', movement: 'arc_sweep', durationSec: 1.5 }, actor: { expression: { base: 'playful' } } });
     expect((b.beat_brain_choice.choices ?? []).map((c) => [c.id, c.actionType, c.nextBeatId])).toEqual([
       ['brain_webllm', 'custom', 'beat_6'],
       ['brain_custom', 'open_provider_config', 'beat_6'],
@@ -279,6 +279,29 @@ describe('prologue story (Act 0 v4 · Backstage Catch)', () => {
     expect(b.beat_2.actor.facing).toBeUndefined(); // she is not told to step around: the orbit brings the camera to her front
     expect(b.beat_4.camera).toMatchObject({ shot: 'full', movement: 'pull_out', durationSec: 2.5 });
     expect(b.beat_5.camera).toMatchObject({ shot: 'wide', movement: 'hero_spiral_orbit', durationSec: 3.0 });
-    expect(b.beat_6.camera).toMatchObject({ shot: 'medium', movement: 'none', durationSec: 2.0 });
+    expect(b.beat_6.camera).toMatchObject({ shot: 'full', movement: 'none', durationSec: 2.0 });
+  });
+
+  it('beat 2 stomps in anger (angryJump, a real catalog motion) instead of the old lean-and-shh', () => {
+    const b = prologueStory.beats;
+    expect(b.beat_2.actor.leadInMotion).toBe('angryJump');
+    expect(isMotionCatalogId('angryJump')).toBe(true);
+    expect(b.beat_2.actor.expression?.base).toBe('angry');
+  });
+
+  it('no shot after beat 2 is closer than beat 2\'s medium_close_up, including variants and push_in side effects', () => {
+    const limit = SHOT_PRESETS.medium_close_up.distance;
+    const check = (cam: { shot?: string; movement?: string } | undefined, tag: string) => {
+      if (!cam) return;
+      const d = SHOT_PRESETS[(cam.shot ?? 'medium') as keyof typeof SHOT_PRESETS].distance;
+      expect(d, `${tag} ${cam.shot}`).toBeGreaterThanOrEqual(limit);
+      // push_in 在已经接近目标景别时会再收 18%，所以 Act 0 里只能用在收完仍 ≥ 限制的景别上
+      if (cam.movement === 'push_in') expect(d * 0.82, `${tag} push_in`).toBeGreaterThanOrEqual(limit);
+    };
+    for (const b of beats) {
+      if (b.id === 'beat_greet') continue;
+      check(b.camera, b.id);
+      for (const v of Object.values(b.variants ?? {})) check((v as { camera?: { shot?: string } }).camera, `${b.id}.variant`);
+    }
   });
 });

@@ -87,8 +87,8 @@ const beats: Record<string, LocalizedStoryBeat> = {
     // 第 1 拍说完才绕：相机沿最短弧环绕到她正面 (她的世界朝向不动，相机绕到她面朝的方向)，收在 medium_close_up；和 whoosh 同步
     camera: { shot: 'medium_close_up', movement: 'orbit_to_front', durationSec: 2.4 },
     actor: {
-      leadInMotion: 'shhLean', // 吓得后退半步捂住嘴
-      expression: { base: 'surprised', intensity: 0.85, microReaction: 'sudden_shock' },
+      leadInMotion: 'angryJump', // 被抓包又羞又恼：气鼓鼓地跺脚轻跳 (MOTION_CATALOG.angryJump，自带 angry 表情曲线)
+      expression: { base: 'angry', intensity: 0.6, microReaction: 'sudden_shock' }, // 惊吓一抖，随即恼羞成怒
       speechText: L(
         '哇啊！你什么时候进来的？！不带这么偷听人彩排的啊……等等，你能听懂我说话吗？',
         'Whoa! How long have you been standing there?! Eavesdropping is foul play... Wait, do you understand me?',
@@ -343,7 +343,7 @@ const beats: Record<string, LocalizedStoryBeat> = {
   beat_5_reply: {
     id: 'beat_5_reply',
     cinematics: { grading: 'default' },
-    camera: { shot: 'close_up', movement: 'arc_sweep', durationSec: 1.5 },
+    camera: { shot: 'medium_close_up', movement: 'arc_sweep', durationSec: 1.5 }, // 最近只到 medium_close_up (第 2 拍的构图)
     actor: {
       motion: 'pokeDimple',
       expression: { base: 'playful', intensity: 0.9 },
@@ -362,7 +362,7 @@ const beats: Record<string, LocalizedStoryBeat> = {
   beat_brain_choice: {
     id: 'beat_brain_choice',
     cinematics: { grading: 'default' },
-    camera: { shot: 'close_up', movement: 'push_in', durationSec: 1.5 },
+    camera: { shot: 'medium', movement: 'orbit_subtle', durationSec: 1.8 }, // 不再推近：medium + 微环绕
     actor: {
       expression: { base: 'shy', intensity: 0.7, microReaction: 'avert_gaze' },
       speechText: L(
@@ -415,7 +415,7 @@ const beats: Record<string, LocalizedStoryBeat> = {
   beat_6: {
     id: 'beat_6',
     cinematics: { transition: 'eye_blink', grading: 'default', wind: 1 },
-    camera: { shot: 'medium', movement: 'none', durationSec: 2.0 },
+    camera: { shot: 'full', movement: 'none', durationSec: 2.0 }, // 全身：看她把台本一丢、蹦起来
     actor: {
       leadInMotion: 'joyfulJump', // 把藏在身后的台本随手一丢，拍拍手
       expression: { base: 'playful', intensity: 0.7 },
