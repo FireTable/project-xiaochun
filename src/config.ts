@@ -499,11 +499,11 @@ export const APP_CONFIG = {
   },
   springBone: {
     bust: {
-      stiffness: 0.22,
-      dragForce: 0.26,
-      gravityPower: 0.005,
-      hitRadius: 0.0232,
-      tipStiffnessRatio: 0.9,
+      stiffness: 0.83, // 刚度 (高韧性强承托，急停时紧实利落复位)
+      dragForce: 0.36, // 阻尼 (适度保留惯性微颤，兼具动感与快速收敛)
+      gravityPower: 0.003, // 重力下垂加速度 (微量自然垂坠感)
+      hitRadius: 0.0232, // 保持原生碰撞球半径
+      tipStiffnessRatio: 0.9, // 尖端末节刚度比例 (0~1，默认 0.9)
       // Extra meters added to the bust collider only after the bust grows past its bind size.
       clothClearance: 0.006,
       // How far an arm vertex may slide out of the bust, in meters. The spring sphere stays small.
