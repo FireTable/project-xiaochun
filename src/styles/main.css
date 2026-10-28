@@ -2,6 +2,14 @@
 @plugin "tailwindcss-animate";
 
 @theme {
+  /* 1. 标准语义主题 Token (Primary) */
+  --color-primary: #ea8377;
+  --color-primary-foreground: #ffffff;
+  --color-primary-light: #f5aa9c;
+  --color-primary-dark: #e06d64;
+  --color-primary-highlight: #fce0d4;
+
+  /* 2. 小蠢品牌色阶 (Brand 50 ~ 700) */
   --color-brand-50: #fef5f3;
   --color-brand-100: #fce0d4;
   --color-brand-200: #f5c0b4;

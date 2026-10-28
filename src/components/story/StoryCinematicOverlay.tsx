@@ -10,6 +10,7 @@ interface StoryCinematicOverlayProps {
 }
 
 export const StoryCinematicOverlay: React.FC<StoryCinematicOverlayProps> = ({
+  isLetterboxActive = false,
   isIntertitleActive,
   intertitleText,
   intertitleStyle = 'noto_serif',
@@ -18,7 +19,27 @@ export const StoryCinematicOverlay: React.FC<StoryCinematicOverlayProps> = ({
 }) => {
   return (
     <div className="pointer-events-none fixed inset-0 z-20 overflow-hidden select-none">
-      {/* 1. 第一人称眨眼睁开蒙版 (POV Eye Blink) */}
+      {/* 1. 电影遮幅与底部沉浸遮光：采用平滑渐变遮罩赋予真正电影感，消除方框 UI，让字幕自然沉浸在暗部中 */}
+      <div
+        className={`absolute top-0 left-0 right-0 pointer-events-none transition-all duration-700 ease-out ${
+          isLetterboxActive ? 'h-16 sm:h-24 opacity-100' : 'h-0 opacity-0'
+        }`}
+        style={{
+          background:
+            'linear-gradient(to bottom, rgba(0,0,0,0.85) 0%, rgba(0,0,0,0.5) 35%, rgba(0,0,0,0.15) 70%, transparent 100%)',
+        }}
+      />
+      <div
+        className={`absolute bottom-0 left-0 right-0 pointer-events-none transition-all duration-700 ease-out ${
+          isLetterboxActive ? 'h-36 sm:h-48 opacity-100' : 'h-0 opacity-0'
+        }`}
+        style={{
+          background:
+            'linear-gradient(to top, rgba(0,0,0,0.92) 0%, rgba(0,0,0,0.78) 35%, rgba(0,0,0,0.45) 65%, rgba(0,0,0,0.12) 85%, transparent 100%)',
+        }}
+      />
+
+      {/* 2. 第一人称眨眼睁开蒙版 (POV Eye Blink) */}
       <div
         className={`absolute inset-0 bg-black transition-all duration-700 ease-in-out ${isEyeBlinkActive ? 'opacity-100 scale-y-100' : 'opacity-0 scale-y-0 pointer-events-none'
           }`}

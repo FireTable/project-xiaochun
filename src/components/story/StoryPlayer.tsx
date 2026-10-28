@@ -347,7 +347,7 @@ export const StoryPlayer: React.FC<StoryPlayerProps> = ({
                 <div key={item.id || idx} className="flex flex-col gap-1">
                   {isUser ? (
                     <div className="flex items-start gap-2 bg-white/[0.04] hover:bg-white/[0.06] px-2.5 py-1.5 rounded-lg border border-white/8 transition-colors">
-                      <span className="shrink-0 text-xs font-semibold text-[#f3d09a] pt-0.5">
+                      <span className="shrink-0 text-xs font-semibold text-sky-300 pt-0.5">
                         你
                       </span>
                       <div className="min-w-0 flex-1">

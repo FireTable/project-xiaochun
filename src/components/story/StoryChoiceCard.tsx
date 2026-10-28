@@ -30,8 +30,8 @@ export const StoryChoiceCard: React.FC<StoryChoiceCardProps> = ({
         onClick={() => onSelect(choice)}
         className={`pointer-events-auto w-full group relative flex items-center justify-between p-1.5 sm:p-2 rounded-xl transition-all duration-200 cursor-pointer text-left overflow-hidden ${
           isSelected
-            ? 'bg-[#151b33]/90 border border-[#f3d09a] ring-1 ring-[#f3d09a]/40 shadow-[0_0_16px_rgba(243,208,154,0.25)]'
-            : 'bg-[#0b0e1b]/80 hover:bg-[#101426]/95 border border-white/12 hover:border-[#f3d09a]/40 shadow-[0_4px_16px_rgba(0,0,0,0.4)]'
+            ? 'bg-[#151b33]/95 border border-primary ring-1 ring-primary/50 shadow-primary/25'
+            : 'bg-[#0b0e1b]/85 hover:bg-[#151b33]/90 border border-white/12 hover:border-primary/40 shadow-[0_4px_16px_rgba(0,0,0,0.4)] backdrop-blur-md'
         } active:scale-[0.98]`}
       >
         <div className="flex items-center gap-2.5 min-w-0 flex-1">
@@ -53,13 +53,13 @@ export const StoryChoiceCard: React.FC<StoryChoiceCardProps> = ({
           <div className="min-w-0 flex-1">
             <span
               className={`text-xs font-semibold truncate block ${
-                isSelected ? 'text-[#fdf2dd]' : 'text-white/95 group-hover:text-[#f3d09a]'
+                isSelected ? 'text-white' : 'text-white/95 group-hover:text-primary-light'
               }`}
             >
               {choice.text}
             </span>
             {choice.subText && (
-              <span className="text-[10px] text-white/45 truncate block">
+              <span className="text-[10px] text-white/50 truncate block">
                 {choice.subText}
               </span>
             )}
@@ -70,17 +70,17 @@ export const StoryChoiceCard: React.FC<StoryChoiceCardProps> = ({
           {choice.badge ? (
             <span
               className={`px-1.5 py-0.5 rounded text-[9px] font-semibold ${
-                isSelected ? 'bg-[#f3d09a] text-slate-950' : 'bg-white/10 text-white/80'
+                isSelected ? 'bg-primary text-slate-950 font-bold' : 'bg-white/10 text-white/80'
               }`}
             >
               {choice.badge}
             </span>
           ) : isSelected ? (
-            <span className="px-1.5 py-0.5 rounded text-[9px] font-semibold bg-[#f3d09a] text-slate-950">
+            <span className="px-1.5 py-0.5 rounded text-[9px] font-bold bg-primary text-slate-950 shadow-sm">
               当前所选
             </span>
           ) : (
-            <span className="px-1.5 py-0.5 rounded text-[9px] font-medium bg-white/8 text-white/60 group-hover:text-white">
+            <span className="px-1.5 py-0.5 rounded text-[9px] font-medium bg-white/8 text-white/60 group-hover:text-primary-light">
               试选
             </span>
           )}
@@ -98,8 +98,8 @@ export const StoryChoiceCard: React.FC<StoryChoiceCardProps> = ({
         onClick={() => onSelect(choice)}
         className={`pointer-events-auto w-full group relative flex flex-col p-2 sm:p-2.5 rounded-xl transition-all duration-200 cursor-pointer text-left overflow-hidden ${
           isSelected
-            ? 'bg-[#151b33]/90 border-2 border-[#f3d09a] ring-2 ring-[#f3d09a]/40 shadow-[0_0_24px_rgba(243,208,154,0.3)]'
-            : 'bg-[#0b0e1b]/80 hover:bg-[#101426]/95 border border-white/15 hover:border-[#f3d09a]/50 shadow-[0_8px_24px_rgba(0,0,0,0.5)] hover:shadow-[0_8px_28px_rgba(243,208,154,0.2)]'
+            ? 'bg-[#151b33]/95 border-2 border-primary ring-2 ring-primary/40 shadow-primary/30'
+            : 'bg-[#0b0e1b]/85 hover:bg-[#101426]/95 border border-white/15 hover:border-primary/50 shadow-[0_8px_24px_rgba(0,0,0,0.5)] hover:shadow-primary/20 backdrop-blur-md'
         } active:scale-[0.98]`}
       >
         {/* 顶部 16:9 比例画面预览展台 */}
@@ -125,14 +125,14 @@ export const StoryChoiceCard: React.FC<StoryChoiceCardProps> = ({
             <div
               className={`absolute top-1 right-1 px-1.5 py-0.2 rounded-[4px] text-[9px] font-semibold shadow-md ${
                 isSelected
-                  ? 'bg-[#f3d09a] text-slate-950 shadow-sm'
+                  ? 'bg-primary text-slate-950 shadow-sm font-bold'
                   : 'bg-black/70 backdrop-blur-sm border border-white/20 text-white/90'
               }`}
             >
               {choice.badge}
             </div>
           ) : isSelected ? (
-            <div className="absolute top-1 right-1 px-1.5 py-0.2 rounded-[4px] text-[9px] font-semibold bg-[#f3d09a] text-slate-950 shadow-sm">
+            <div className="absolute top-1 right-1 px-1.5 py-0.2 rounded-[4px] text-[9px] font-bold bg-primary text-slate-950 shadow-sm">
               当前所选
             </div>
           ) : null}
@@ -142,7 +142,7 @@ export const StoryChoiceCard: React.FC<StoryChoiceCardProps> = ({
         <div className="mt-1.5 flex flex-col gap-0.5 min-w-0">
           <span
             className={`text-xs font-semibold truncate transition-colors tracking-wide ${
-              isSelected ? 'text-[#fdf2dd]' : 'text-white/95 group-hover:text-[#f3d09a]'
+              isSelected ? 'text-white' : 'text-white/95 group-hover:text-primary-light'
             }`}
           >
             {choice.text}
@@ -157,16 +157,18 @@ export const StoryChoiceCard: React.FC<StoryChoiceCardProps> = ({
     );
   }
 
-  // 3. 纯文字/对话分支列表项卡片 (精致轻巧化，杜绝过大占位)
+  // 3. 纯文字/对话分支列表项卡片与确认行动卡片 (语义化 primary 驱动)
   return (
     <button
       type="button"
       disabled={disabled}
       onClick={() => onSelect(choice)}
-      className={`pointer-events-auto w-full group relative flex items-center justify-between px-3 py-1.5 sm:px-3.5 sm:py-2 rounded-xl transition-all duration-200 cursor-pointer text-left overflow-hidden ${
-        isSelected || isPrimary
-          ? 'bg-gradient-to-r from-[#f3d09a]/25 via-[#1a2038]/90 to-[#101426]/95 border border-[#f3d09a]/70 shadow-[0_4px_16px_rgba(243,208,154,0.2)] hover:border-[#f3d09a] hover:shadow-[0_4px_20px_rgba(243,208,154,0.3)]'
-          : 'bg-[#0b0e1b]/75 hover:bg-[#151b33]/90 border border-white/12 hover:border-[#f3d09a]/50 shadow-[0_4px_14px_rgba(0,0,0,0.35)] hover:shadow-[0_4px_20px_rgba(0,0,0,0.55)]'
+      className={`pointer-events-auto w-full group relative flex items-center justify-between px-3 py-2 sm:px-3.5 sm:py-2.5 rounded-xl transition-all duration-200 cursor-pointer text-left overflow-hidden ${
+        isPrimary
+          ? 'bg-gradient-to-r from-primary via-primary to-primary-dark hover:from-primary-dark hover:via-primary hover:to-primary border border-primary-light/40 text-primary-foreground shadow-lg shadow-primary/25 active:scale-[0.98]'
+          : isSelected
+          ? 'bg-[#151b33]/95 border border-primary ring-1 ring-primary/40 shadow-primary/25 hover:border-primary-light'
+          : 'bg-[#0b0e1b]/85 hover:bg-[#151b33]/95 border border-white/12 hover:border-primary/40 shadow-[0_4px_14px_rgba(0,0,0,0.35)] hover:shadow-[0_4px_20px_rgba(0,0,0,0.55)] backdrop-blur-md'
       } active:scale-[0.98]`}
     >
       <div className="flex items-center gap-2 sm:gap-2.5 min-w-0 z-10 flex-1">
@@ -181,7 +183,9 @@ export const StoryChoiceCard: React.FC<StoryChoiceCardProps> = ({
           <div className="flex items-center gap-1.5">
             <span
               className={`text-xs sm:text-[13px] tracking-wide transition-colors truncate ${
-                isSelected || isPrimary
+                isPrimary
+                  ? 'text-white font-bold drop-shadow-sm'
+                  : isSelected
                   ? 'text-white font-semibold drop-shadow-sm'
                   : 'text-white/90 group-hover:text-white font-medium'
               }`}
@@ -189,20 +193,30 @@ export const StoryChoiceCard: React.FC<StoryChoiceCardProps> = ({
               {choice.text}
             </span>
             {choice.badge ? (
-              <span className="shrink-0 px-1 py-0.2 rounded text-[9px] font-semibold bg-[#f3d09a]/15 border border-[#f3d09a]/30 text-[#f3d09a]">
+              <span
+                className={`shrink-0 px-1 py-0.2 rounded text-[9px] font-semibold ${
+                  isPrimary
+                    ? 'bg-white/20 text-white'
+                    : 'bg-primary/20 border border-primary/30 text-primary-light'
+                }`}
+              >
                 {choice.badge}
               </span>
             ) : null}
           </div>
           {choice.subText && (
-            <p className="text-[10px] text-white/45 group-hover:text-white/65 transition-colors line-clamp-1 font-normal mt-0.2">
+            <p
+              className={`text-[10px] transition-colors line-clamp-1 font-normal mt-0.5 ${
+                isPrimary ? 'text-white/85' : 'text-white/50 group-hover:text-white/70'
+              }`}
+            >
               {choice.subText}
             </p>
           )}
         </div>
       </div>
       {isPrimary && (
-        <span className="shrink-0 text-xs font-bold text-[#f3d09a] pl-2 z-10 group-hover:translate-x-0.5 transition-transform">
+        <span className="shrink-0 text-xs font-bold text-white pl-2 z-10 group-hover:translate-x-0.5 transition-transform">
           ➔
         </span>
       )}

@@ -131,7 +131,7 @@ export const StoryCameraTaskCard: React.FC<StoryCameraTaskCardProps> = ({
         </span>
 
         <div className="px-2 py-0.5 rounded-full bg-white/10 border border-white/10 text-[11px] font-medium">
-          <span className={isAllDone ? 'text-[#f3d09a] font-bold' : 'text-white/90'}>
+          <span className={isAllDone ? 'text-brand-300 font-bold' : 'text-white/90'}>
             {completedCount}
           </span>
           <span className="text-white/30"> / </span>
@@ -148,7 +148,7 @@ export const StoryCameraTaskCard: React.FC<StoryCameraTaskCardProps> = ({
               key={task.id}
               className={`flex items-center justify-between px-2.5 py-1.5 rounded-lg border transition-all duration-200 ${
                 task.done
-                  ? 'bg-white/[0.08] border-[#f3d09a]/40 text-white shadow-sm'
+                  ? 'bg-brand-500/10 border-brand-400/40 text-white shadow-sm'
                   : 'bg-[#101426]/60 border-white/10 text-white/90 hover:border-white/20'
               }`}
             >
@@ -156,7 +156,7 @@ export const StoryCameraTaskCard: React.FC<StoryCameraTaskCardProps> = ({
                 <div
                   className={`w-5 h-5 rounded-md flex items-center justify-center shrink-0 border transition-all ${
                     task.done
-                      ? 'bg-[#f3d09a]/20 border-[#f3d09a]/40 text-[#f3d09a]'
+                      ? 'bg-brand-500/20 border-brand-400/40 text-brand-300'
                       : 'bg-white/[0.06] border-white/10 text-white/70'
                   }`}
                 >
@@ -175,7 +175,7 @@ export const StoryCameraTaskCard: React.FC<StoryCameraTaskCardProps> = ({
               {/* 右侧打勾状态 */}
               <div className="shrink-0 pl-1">
                 {task.done ? (
-                  <div className="w-4 h-4 rounded-full bg-[#f3d09a] text-slate-950 flex items-center justify-center shadow-sm">
+                  <div className="w-4 h-4 rounded-full bg-brand-400 text-slate-950 flex items-center justify-center shadow-sm">
                     <Check className="w-3 h-3 stroke-[2.5]" />
                   </div>
                 ) : (

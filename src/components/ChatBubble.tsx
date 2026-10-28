@@ -152,7 +152,7 @@ export const ChatBubble: React.FC<ChatBubbleProps> = ({
 
   if (!isVisible) return null;
 
-  // ── 电影级纯净发光字幕条模式 (0 实底黑盒遮挡，纯净发光投影，100% 复用打字机动效与状态) ──
+  // ── 电影级沉浸纯净对白模式 (纯净字幕，由底层电影渐变遮罩提供自然遮光，0 方框包裹，极致电影感) ──
   if (variant === 'cinematic') {
     const cinematicContent = (
       <div
@@ -160,7 +160,7 @@ export const ChatBubble: React.FC<ChatBubbleProps> = ({
         style={{
           viewTransitionName: isSpeaking ? 'story-dialog-card' : undefined,
         }}
-        className={`relative ${maxWidthClass} px-3 py-1.5 flex flex-col items-center pointer-events-auto animate-in fade-in duration-200 select-text ${className}`}
+        className={`relative ${maxWidthClass} px-1 sm:px-2 py-1 flex flex-col pointer-events-auto animate-in fade-in duration-200 select-text ${className}`}
       >
         {/* 顶部状态与角色标识行 */}
         {customHeader ? (
@@ -169,32 +169,38 @@ export const ChatBubble: React.FC<ChatBubbleProps> = ({
           </div>
         ) : (
           <div className="flex items-center justify-between w-full max-w-xl px-1 mb-1">
-            <div
-              className="inline-flex items-center gap-1.5 text-xs text-rose-300 font-bold tracking-wider"
-              style={{
-                textShadow: '0 0 8px rgba(234,131,119,0.95), 0 2px 4px rgba(0,0,0,0.95)',
-              }}
-            >
-              {/* 角色名作为第一锚点固定在最左侧，绝不受后续图标显隐干扰 */}
-              <span>小蠢</span>
+            <div className="inline-flex items-center gap-2 text-xs select-none">
+              {/* 角色名作为第一锚点固定在最左侧 */}
+              <span
+                className="font-bold text-xs sm:text-sm text-primary-light tracking-wider"
+                style={{
+                  textShadow: '0 0 8px rgba(234,131,119,0.9), 0 1px 3px rgba(0,0,0,0.9)',
+                }}
+              >
+                小蠢
+              </span>
+
+              {/* 发声波形指示器置于名字右侧紧邻位置，发声时柔和渐显，播毕自然隐退 */}
+              {isSpeaking && (
+                <span className="inline-flex items-center gap-0.5 px-0.5 shrink-0 opacity-90 animate-in fade-in duration-150">
+                  <span className="w-0.5 h-2 bg-primary rounded-full animate-pulse" />
+                  <span className="w-0.5 h-3 bg-primary-light rounded-full animate-pulse [animation-delay:150ms]" />
+                  <span className="w-0.5 h-2 bg-primary rounded-full animate-pulse [animation-delay:300ms]" />
+                </span>
+              )}
+
+              {/* 句段序号徽章：独立半透明胶囊 */}
               {state?.totalSegments && state.totalSegments > 1 && state.segmentIndex ? (
-                <span className="text-[10px] font-mono text-white/50 tracking-wider">
-                  ({state.segmentIndex}/{state.totalSegments})
+                <span className="px-1.5 py-0.5 rounded-full bg-white/10 text-[10px] font-mono text-white/70 tracking-wider leading-none">
+                  {state.segmentIndex}/{state.totalSegments}
                 </span>
               ) : null}
-              {/* 发声波形指示器置于名字右侧，发声时柔和渐显，播毕自然隐退，角色名坐标纹丝不动 */}
-              {isSpeaking && (
-                <span className="inline-flex items-center gap-0.5 px-0.5 shrink-0 opacity-80 animate-in fade-in duration-150">
-                  <span className="w-0.5 h-2 bg-rose-400 rounded-full animate-pulse" />
-                  <span className="w-0.5 h-3 bg-rose-300 rounded-full animate-pulse [animation-delay:150ms]" />
-                  <span className="w-0.5 h-2 bg-rose-400 rounded-full animate-pulse [animation-delay:300ms]" />
-                </span>
-              )}
+
               {iconKind === 'thinking' && (
-                <Sparkles className="w-3.5 h-3.5 text-brand-300 animate-spin shrink-0" />
+                <Sparkles className="w-3.5 h-3.5 text-primary-light animate-spin shrink-0" />
               )}
               {ttsDown ? (
-                <span className="text-[10px] text-brand-300 font-normal">
+                <span className="text-[10px] text-primary-light font-normal">
                   ({t('bubble.ttsUnavailable')})
                 </span>
               ) : statusKey === 'thinking' && !rawSpeechText ? (
@@ -218,7 +224,7 @@ export const ChatBubble: React.FC<ChatBubbleProps> = ({
           </div>
         )}
 
-        {/* 纯净发光正文：严格与上方角色名保持完全一致的 max-w-xl px-1 左对齐垂线 */}
+        {/* 对白正文：严格左对齐排版，配合底层电影渐变与文字发光投影，呈现极致电影院字幕质感 */}
         {rawSpeechText && !children && (
           <div
             key={state?.segmentIndex ?? rawSpeechText}
