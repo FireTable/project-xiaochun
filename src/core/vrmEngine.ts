@@ -2474,6 +2474,7 @@ export class VRMEngine {
         if (buf) {
           const clip = await this.vrmaPlayer.parseBufferToClip(buf, vrm, { antiClip: true });
           this.motionPipeline.playThinkingClip(clip, vrm, 0.01);
+          this.motionPipeline.universalMotion.seek(state.vrmaTime);
           this.vrmaPlayer.seek(state.vrmaTime);
         } else {
           this.motionPipeline.setIdleThinkSway(true);

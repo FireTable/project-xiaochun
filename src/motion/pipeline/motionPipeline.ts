@@ -247,20 +247,19 @@ export class MotionPipeline {
     this.wasStepping = false;
   }
 
-  /** Play thinking VRMA as the live pipeline source (thinkSway trait disabled to prevent asynchronous sinusoidal collision with clip). */
+  /** Play thinking VRMA as the live pipeline source (deprecated in favor of unified playMotion). */
   playThinkingClip(
     clip: THREE.AnimationClip,
     vrm: VRM,
     fadeDuration = SOURCE_FADE_DURATION,
     mask: 'all' | 'upperBody' = 'all',
   ): void {
-    if (this.universalMotion.isPlaying()) {
-      this.universalMotion.stop(fadeDuration);
-    }
-    this.idle.traits.thinkSway = false;
-    this.vrma.traits = { allowLocomotion: true, thinkSway: false };
-    this.vrma.playLoop(clip, vrm, fadeDuration);
-    this.setMotionSource('vrma', fadeDuration, this.gaze.getLookAtOffsets(), mask);
+    void this.playMotion(vrm, clip, {
+      loop: true,
+      fadeDuration,
+      mask,
+      antiClip: true,
+    });
   }
 
   /** Gaze-only think sway when the thinking clip is missing. Idle remains the writer. */
@@ -300,7 +299,7 @@ export class MotionPipeline {
         if (thinkingClip && targetVrm) {
           const fadeDur = catalogItem.fadeDuration ?? 0.65;
           const mask = (catalogItem.mask as 'all' | 'upperBody') ?? 'all';
-          this.playThinkingClip(thinkingClip, targetVrm, fadeDur, mask);
+          void this.playMotion(targetVrm, thinkingClip, { ...catalogItem, fadeDuration: fadeDur, mask });
         } else if (targetVrm) {
           this.setIdleThinkSway(true);
           void this.universalMotion.parseToClip(catalogItem.url, targetVrm, catalogItem).then((clip) => {
@@ -310,7 +309,7 @@ export class MotionPipeline {
             if (this.activeSource === 'idle' && this.idle.traits.thinkSway) {
               const fadeDur = catalogItem.fadeDuration ?? 0.65;
               const mask = (catalogItem.mask as 'all' | 'upperBody') ?? 'all';
-              this.playThinkingClip(clip, targetVrm, fadeDur, mask);
+              void this.playMotion(targetVrm, clip, { ...catalogItem, fadeDuration: fadeDur, mask });
             }
           }).catch((err) => {
             console.warn('[MotionPipeline] 异步预热思考动作失败:', err);
