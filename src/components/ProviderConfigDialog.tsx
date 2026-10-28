@@ -354,7 +354,7 @@ export const ProviderConfigDialog: React.FC<ProviderConfigDialogProps> = ({
                 }`}
               >
                 <Sparkles className="h-3.5 w-3.5 text-brand-300" />
-                <span>LLM 大模型</span>
+                <span>{t('providerConfig.tabLlm')}</span>
               </button>
 
               <button
@@ -370,7 +370,7 @@ export const ProviderConfigDialog: React.FC<ProviderConfigDialogProps> = ({
                 }`}
               >
                 <Mic className="h-3.5 w-3.5 text-brand-300" />
-                <span>STT 识别</span>
+                <span>{t('providerConfig.tabStt')}</span>
               </button>
 
               <button
@@ -386,7 +386,7 @@ export const ProviderConfigDialog: React.FC<ProviderConfigDialogProps> = ({
                 }`}
               >
                 <Volume2 className="h-3.5 w-3.5 text-brand-300" />
-                <span>TTS 语音</span>
+                <span>{t('providerConfig.tabTts')}</span>
               </button>
             </div>
           </div>
@@ -407,7 +407,7 @@ export const ProviderConfigDialog: React.FC<ProviderConfigDialogProps> = ({
                   <div className="space-y-1.5">
                     <div className="text-white/60 text-xs font-semibold flex items-center gap-1.5">
                       <Radio className="h-3.5 w-3.5 text-brand-300" />
-                      <span>工作模式</span>
+                      <span>{t('providerConfig.workMode')}</span>
                     </div>
                     <div className="grid grid-cols-1 gap-1.5">
                       {/* 选项 1: 内置智能混合 */}
@@ -422,14 +422,14 @@ export const ProviderConfigDialog: React.FC<ProviderConfigDialogProps> = ({
                         <div className="flex items-center justify-between">
                           <div className="flex items-center gap-2">
                             <ShieldCheck className="h-4 w-4 text-emerald-400 shrink-0" />
-                            <span className="text-white text-xs font-medium">官方内置智能 (推荐)</span>
+                            <span className="text-white text-xs font-medium">{t('providerConfig.sttBuiltin')}</span>
                           </div>
                           {activeSttMode.kind === 'builtin' && (
                             <Check className="w-3.5 h-3.5 text-emerald-400" strokeWidth={3} />
                           )}
                         </div>
                         <div className="text-white/50 text-[11px] mt-1 pl-6">
-                          优先 Cloudflare Whisper Turbo（每日免费额度），断网或超额自动无缝本地兜底
+                          {t('providerConfig.sttBuiltinDesc')}
                         </div>
                       </div>
 
@@ -445,14 +445,14 @@ export const ProviderConfigDialog: React.FC<ProviderConfigDialogProps> = ({
                         <div className="flex items-center justify-between">
                           <div className="flex items-center gap-2">
                             <Cpu className="h-4 w-4 text-brand-300 shrink-0" />
-                            <span className="text-white text-xs font-medium">纯端侧离线 (Local Only)</span>
+                            <span className="text-white text-xs font-medium">{t('providerConfig.sttLocal')}</span>
                           </div>
                           {activeSttMode.kind === 'local' && (
                             <Check className="w-3.5 h-3.5 text-emerald-400" strokeWidth={3} />
                           )}
                         </div>
                         <div className="text-white/50 text-[11px] mt-1 pl-6">
-                          声音不出本机，100% 离线隐私与本地 WebWorker 识别
+                          {t('providerConfig.sttLocalDesc')}
                         </div>
                       </div>
                     </div>
@@ -463,10 +463,10 @@ export const ProviderConfigDialog: React.FC<ProviderConfigDialogProps> = ({
                         <div className="text-white/60 text-xs font-semibold flex items-center justify-between">
                           <div className="flex items-center gap-1.5">
                             <Radio className="h-3.5 w-3.5 text-brand-300" />
-                            <span>云端出字策略</span>
+                            <span>{t('providerConfig.sttStrategyTitle')}</span>
                           </div>
                           <span className="text-[10px] text-brand-300 font-normal">
-                            {sttStrategy === '2pass' ? '2-Pass 实时预览' : '全程纯云端'}
+                            {sttStrategy === '2pass' ? t('providerConfig.sttStrategy2pass') : t('providerConfig.sttStrategyDirect')}
                           </span>
                         </div>
                         <div className="grid grid-cols-2 gap-1.5">
@@ -480,13 +480,13 @@ export const ProviderConfigDialog: React.FC<ProviderConfigDialogProps> = ({
                             }`}
                           >
                             <div className="flex items-center justify-between">
-                              <span className="text-white text-xs font-medium">☁️ 全程纯云端 (推荐)</span>
+                              <span className="text-white text-xs font-medium">{t('providerConfig.sttDirectOption')}</span>
                               {sttStrategy === 'direct' && (
                                 <Check className="w-3.5 h-3.5 text-emerald-400" strokeWidth={3} />
                               )}
                             </div>
                             <div className="text-white/50 text-[10px] mt-1 leading-relaxed">
-                              免下载端侧模型，省内存与算力，停顿后整句定稿
+                              {t('providerConfig.sttDirectDesc')}
                             </div>
                           </div>
 
@@ -500,13 +500,13 @@ export const ProviderConfigDialog: React.FC<ProviderConfigDialogProps> = ({
                             }`}
                           >
                             <div className="flex items-center justify-between">
-                              <span className="text-white text-xs font-medium">⚡ 2-Pass 实时预览</span>
+                              <span className="text-white text-xs font-medium">{t('providerConfig.stt2passOption')}</span>
                               {sttStrategy === '2pass' && (
                                 <Check className="w-3.5 h-3.5 text-emerald-400" strokeWidth={3} />
                               )}
                             </div>
                             <div className="text-white/50 text-[10px] mt-1 leading-relaxed">
-                              端侧边说边出字草稿，停顿后整句云端润色定稿
+                              {t('providerConfig.stt2passDesc')}
                             </div>
                           </div>
                         </div>
@@ -520,7 +520,7 @@ export const ProviderConfigDialog: React.FC<ProviderConfigDialogProps> = ({
                   <div className="space-y-1.5">
                     <div className="text-white/60 text-xs font-semibold flex items-center gap-1.5">
                       <Radio className="h-3.5 w-3.5 text-brand-300" />
-                      <span>工作模式</span>
+                      <span>{t('providerConfig.workMode')}</span>
                     </div>
                     <div className="grid grid-cols-1 gap-1.5">
                       <div
@@ -534,14 +534,14 @@ export const ProviderConfigDialog: React.FC<ProviderConfigDialogProps> = ({
                         <div className="flex items-center justify-between">
                           <div className="flex items-center gap-2">
                             <ShieldCheck className="h-4 w-4 text-emerald-400 shrink-0" />
-                            <span className="text-white text-xs font-medium">官方内置 Edge-TTS (推荐)</span>
+                            <span className="text-white text-xs font-medium">{t('providerConfig.ttsBuiltin')}</span>
                           </div>
                           {activeTtsMode.kind === 'builtin' && (
                             <Check className="w-3.5 h-3.5 text-emerald-400" strokeWidth={3} />
                           )}
                         </div>
                         <div className="text-white/50 text-[11px] mt-1 pl-6">
-                          微软小艺/晓晓自然声线，超低延迟 + R2 双层持久缓存
+                          {t('providerConfig.ttsBuiltinDesc')}
                         </div>
                       </div>
                     </div>
@@ -553,13 +553,13 @@ export const ProviderConfigDialog: React.FC<ProviderConfigDialogProps> = ({
                   <div className="text-white/60 text-xs font-semibold">
                     {activeTab === 'llm'
                       ? t('providerConfig.configured')
-                      : `自定义 ${activeTab.toUpperCase()} 服务`}
+                      : t('providerConfig.customConfigured', { kind: activeTab.toUpperCase() })}
                   </div>
                   {list.length === 0 ? (
                     <div className="rounded-xl border border-dashed border-white/10 bg-white/[0.02] px-3 py-4 text-white/40 text-xs text-center">
                       {activeTab === 'llm'
                         ? t('providerConfig.empty')
-                        : `暂无自定义 ${activeTab.toUpperCase()} 服务，点击下方模板一键添加`}
+                        : t('providerConfig.customEmpty', { kind: activeTab.toUpperCase() })}
                     </div>
                   ) : (
                     list.map((p) => {
@@ -579,7 +579,7 @@ export const ProviderConfigDialog: React.FC<ProviderConfigDialogProps> = ({
                               <div className="text-white text-sm font-medium truncate">{p.name}</div>
                               <div className="text-white/50 text-xs truncate font-mono">
                                 {p.model}
-                                {p.voice ? ` · 音色: ${p.voice}` : ''}
+                                {p.voice ? t('providerConfig.voiceSuffix', { voice: p.voice }) : ''}
                               </div>
                             </div>
                             {active && (
@@ -716,8 +716,8 @@ export const ProviderConfigDialog: React.FC<ProviderConfigDialogProps> = ({
                   <span className="text-white/20">/</span>
                   <span>
                     {form.id
-                      ? `编辑 ${activeTab.toUpperCase()} 服务`
-                      : `添加 ${activeTab.toUpperCase()} 服务`}
+                      ? t('providerConfig.editKind', { kind: activeTab.toUpperCase() })
+                      : t('providerConfig.addKind', { kind: activeTab.toUpperCase() })}
                   </span>
                 </div>
 
@@ -726,7 +726,7 @@ export const ProviderConfigDialog: React.FC<ProviderConfigDialogProps> = ({
                     label={t('providerConfig.fieldBaseURL')}
                     value={form.baseURL}
                     onChange={(v) => setForm((f) => ({ ...f, baseURL: v }))}
-                    placeholder="https://api.openai.com/v1"
+                    placeholder="https://api.openai.com/v1" /* i18n-ok: example URL */
                     mono
                   />
                   <Field
@@ -810,10 +810,10 @@ export const ProviderConfigDialog: React.FC<ProviderConfigDialogProps> = ({
                   {/* 仅 TTS 模态展示音色字段 */}
                   {activeTab === 'tts' && (
                     <Field
-                      label="音色 Voice (如 alloy / alex / female-tianmei)"
+                      label={t('providerConfig.fieldVoice')}
                       value={form.voice ?? ''}
                       onChange={(v) => setForm((f) => ({ ...f, voice: v }))}
-                      placeholder="alloy"
+                      placeholder="alloy" /* i18n-ok: example voice id */
                     />
                   )}
 

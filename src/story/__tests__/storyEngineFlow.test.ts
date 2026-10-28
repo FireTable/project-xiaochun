@@ -759,12 +759,12 @@ describe('StoryDirectorEngine runtime behaviour', () => {
       expect(badges()).toEqual([['scene_beach', false], ['scene_dark', false], ['outfit_maid', false], ['outfit_dress', true]]);
     });
 
-    it('initial badges read the saved scene and saved outfit from localStorage (exact match), whatever the live scene is', async () => {
+    it('initial badges: the saved outfit is read from localStorage, but a saved scene (SCENE_THEME_KEY) is ignored - no scene card is marked', async () => {
       stubStorage({ xiaochun_scene_theme: 'beach3d', xiaochun_wearing_outfit: 'xiaochun_maid' });
       h.currentScene.id = 'void';
       void engine.playScript(withDress() as never);
       await vi.advanceTimersByTimeAsync(500);
-      expect(badges()).toEqual([['scene_beach', true], ['scene_dark', false], ['outfit_maid', true], ['outfit_dress', false]]);
+      expect(badges()).toEqual([['scene_beach', false], ['scene_dark', false], ['outfit_maid', true], ['outfit_dress', false]]);
     });
 
     it('an unknown saved outfit falls back to the dinner dress', async () => {
@@ -774,7 +774,7 @@ describe('StoryDirectorEngine runtime behaviour', () => {
       expect(badges().filter(([, sel]) => sel)).toEqual([['outfit_dress', true]]);
     });
 
-    it('after previewing a card the badge follows the previewed one (not the saved value)', async () => {
+    it('after previewing a card the badge follows the previewed one (outfit: not the saved value)', async () => {
       stubStorage({ xiaochun_scene_theme: 'beach3d', xiaochun_wearing_outfit: 'xiaochun_maid' });
       void engine.playScript(withDress() as never);
       await vi.advanceTimersByTimeAsync(500);

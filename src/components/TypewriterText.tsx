@@ -1,4 +1,5 @@
 import React, { useMemo, useState, useEffect } from 'react';
+import { useTranslation } from 'react-i18next';
 import { APP_CONFIG } from '@/config';
 
 /**
@@ -60,6 +61,7 @@ export const TypewriterText: React.FC<TypewriterTextProps> = ({
   className = '',
   onComplete,
 }) => {
+  const { t } = useTranslation();
   const typewriterCfg = APP_CONFIG.chat.typewriter;
   const isTypewriterEnabled = enabled ?? typewriterCfg.enabled;
   const effectiveSpeedMs = speedMs ?? typewriterCfg.speedMs;
@@ -150,7 +152,7 @@ export const TypewriterText: React.FC<TypewriterTextProps> = ({
         setSkip(true);
         if (cycleKey) markTypewriterCompleted(cycleKey);
       }}
-      title="点击直接完整显示"
+      title={t('chat.typewriterSkipTitle')}
     >
       <span key={cycleKey} className="inline">
         {tokens.map((token, tIdx) => {

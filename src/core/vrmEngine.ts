@@ -2086,7 +2086,7 @@ export class VRMEngine {
    */
   public loadVRM(
     url: string,
-    filename = '小蠢 (xiaochun_v1)',
+    filename = 'XiaoChun (xiaochun_v1)',
     options: LoadVRMOptions = {},
   ): Promise<VRM> {
     const preserveMotion = !!options.preserveMotion;
@@ -2815,7 +2815,7 @@ export class VRMEngine {
   /** ponytail: 直接喂 ArrayBuffer 进 GLTFLoader (合成好的 v1_1 GLB)。options.preserveMotion=true 时内联 capture/restore。 */
   public loadVRMFromBuffer(
     buffer: ArrayBuffer,
-    filename = '小蠢 (xiaochun_v1)',
+    filename = 'XiaoChun (xiaochun_v1)',
     options: LoadVRMOptions = {},
   ): Promise<VRM> {
     this.currentUrl = `data:glb-buffer:${filename}`;

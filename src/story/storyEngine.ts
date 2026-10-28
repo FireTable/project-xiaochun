@@ -4,7 +4,7 @@ import { storyAudioDirector } from './audioDirector';
 import { vrmEngine } from '@/core/vrmEngine';
 import { sceneManager } from '@/core/scene/sceneManager';
 import { APP_CONFIG } from '@/config';
-import { SCENE_THEME_KEY, WEARING_OUTFIT_KEY } from '@/lib/constants';
+import { WEARING_OUTFIT_KEY } from '@/lib/constants';
 import { changeLang, readClientLang } from '@/i18n';
 import type { i18n as I18nInstance } from 'i18next';
 import type {
@@ -707,9 +707,9 @@ export class StoryDirectorEngine {
     }
   }
 
-  /** 场景卡“当前所选”：点过预览 → 点的那张；否则读已保存的场景 (SCENE_THEME_KEY)；什么都没存 → null (没有卡被标当前) */
+  /** 场景卡“当前所选”：只看本次序章里点过的预览那张；没点过 → null (没有卡被标当前)。刻意不读 localStorage (SCENE_THEME_KEY)，老用户 / 新用户一视同仁 */
   private badgeScene(): string | null {
-    return this.previewPick.scene ?? this.readStored(SCENE_THEME_KEY);
+    return this.previewPick.scene;
   }
 
   /** 衣服卡“当前所选”：点过预览 → 点的那件；否则读已保存的 (WEARING_OUTFIT_KEY，须是现有 addon)；什么都没存 → 默认晚礼服 */
@@ -720,7 +720,7 @@ export class StoryDirectorEngine {
     return saved && Object.prototype.hasOwnProperty.call(addons, saved) ? saved : 'xiaochun_dinner_dress';
   }
 
-  /** 给选项加上“当前已选”高亮 (换装 / 场景 / 语言)；换装 / 场景的初始值读 localStorage，精确匹配 */
+  /** 给选项加上“当前已选”高亮 (换装 / 场景 / 语言)；换装的初始值读 localStorage (WEARING_OUTFIT_KEY)，场景卡初始不标、点过预览才标 */
   private decorateChoices(choices: StoryChoice[]): StoryChoice[] {
     const currentOutfit = this.badgeOutfit();
     const currentScene = this.badgeScene();
@@ -746,8 +746,12 @@ export class StoryDirectorEngine {
     if (!this.currentScript) {
       this.currentScript = {
         id: 'dynamic_story',
-        title: '小蠢的剧场',
-        description: 'AI 动态驱动的剧情演出',
+        title: { 'zh-CN': '小蠢的剧场', en: "XiaoChun's Theater", ja: '小蠢の劇場' },
+        description: {
+          'zh-CN': 'AI 动态驱动的剧情演出',
+          en: 'A story performance driven live by AI',
+          ja: 'AI がリアルタイムで紡ぐ物語の演出',
+        },
         initialBeatId: beat.id,
         beats: {},
       };

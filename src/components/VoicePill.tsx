@@ -341,7 +341,7 @@ export const VoicePill: React.FC<VoicePillProps> = ({
             }}
           >
             <ArrowLeft className="w-3.5 h-3.5 shrink-0 animate-pulse" />
-            <span>{t('chat.cancel') || '松开取消'}</span>
+            <span>{t('chat.cancel')}</span>
           </div>
 
           {/* Normal Voice Pill Contents: Timer + Waveform + Stop Button */}

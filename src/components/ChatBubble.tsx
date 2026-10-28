@@ -190,7 +190,7 @@ export const ChatBubble: React.FC<ChatBubbleProps> = ({
                     textShadow: '0 0 8px rgba(234,131,119,0.9), 0 1px 3px rgba(0,0,0,0.9)',
                   }}
                 >
-                  小蠢
+                  {t('chat.characterName')}
                 </span>
 
                 {/* 发声波形指示器置于名字右侧紧邻位置，发声时柔和渐显，播毕自然隐退 */}

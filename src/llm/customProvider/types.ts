@@ -114,21 +114,21 @@ export const KNOWN_STT_TEMPLATES: ProviderTemplate[] = [
   {
     id: 'stt-groq',
     type: 'stt',
-    labelKey: 'Groq (Whisper Turbo 极速识别)',
+    labelKey: 'providerConfig.templates.sttGroq',
     defaultBaseURL: 'https://api.groq.com/openai/v1',
     defaultModel: 'whisper-large-v3-turbo',
   },
   {
     id: 'stt-minimax',
     type: 'stt',
-    labelKey: 'MiniMax (ASR 中日英混语识别)',
+    labelKey: 'providerConfig.templates.sttMiniMax',
     defaultBaseURL: 'https://api.minimax.chat/v1',
     defaultModel: 'asr-1.0',
   },
   {
     id: 'stt-siliconflow',
     type: 'stt',
-    labelKey: 'SiliconFlow (硅基流动 SenseVoice)',
+    labelKey: 'providerConfig.templates.sttSiliconFlow',
     defaultBaseURL: 'https://api.siliconflow.cn/v1',
     defaultModel: 'FunAudioLLM/SenseVoiceSmall',
   },
@@ -162,7 +162,7 @@ export const KNOWN_TTS_TEMPLATES: ProviderTemplate[] = [
   {
     id: 'tts-siliconflow',
     type: 'tts',
-    labelKey: 'SiliconFlow (CosyVoice 自然萌妹)',
+    labelKey: 'providerConfig.templates.ttsSiliconFlow',
     defaultBaseURL: 'https://api.siliconflow.cn/v1',
     defaultModel: 'FunAudioLLM/CosyVoice-300M-25Hz',
     defaultVoice: 'alex',
@@ -170,7 +170,7 @@ export const KNOWN_TTS_TEMPLATES: ProviderTemplate[] = [
   {
     id: 'tts-minimax',
     type: 'tts',
-    labelKey: 'MiniMax (Speech-01-Turbo 甜美音色)',
+    labelKey: 'providerConfig.templates.ttsMiniMax',
     defaultBaseURL: 'https://api.minimax.chat/v1',
     defaultModel: 'speech-01-turbo',
     defaultVoice: 'female-tianmei',

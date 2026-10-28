@@ -33,6 +33,7 @@
     "camera": "node scripts/protocol-call.mjs camera",
     "stop": "node scripts/protocol-call.mjs stop",
     "check:i18n": "npx tsx scripts/check-i18n.ts",
+    "check:cjk": "node scripts/check-cjk-literals.mjs --ui --latin",
     "test": "vitest run",
     "test:embed": "node --test src/embed/__tests__/*.test.mjs",
     "generate:previews": "node scripts/generate-previews.mjs",

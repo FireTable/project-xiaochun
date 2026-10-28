@@ -350,7 +350,7 @@ export const LoadingOverlay: React.FC<LoadingOverlayProps> = ({ state, onBreakSt
             <span className="h-px w-12 md:hidden bg-gradient-to-l from-transparent to-[#d9b56c]" />
           </div>
           <p className="mt-2.5 md:mt-4 font-xc-cjk text-[14px] md:text-[18px] tracking-[0.18em] text-[#efe4ee]/80">
-            小蠢 · 端侧二次元 AI 伴侣
+            {t('loading.tagline')}
           </p>
 
           {/* 进度 */}
@@ -414,6 +414,7 @@ export const LoadingOverlay: React.FC<LoadingOverlayProps> = ({ state, onBreakSt
 
       {/* 底部署名 */}
       <div className="hidden md:flex absolute bottom-4 inset-x-0 justify-center font-xc-sc text-[10px] tracking-[0.4em] text-white/25 pointer-events-none z-20" suppressHydrationWarning>
+        {/* i18n-ok: brand signature */}
         PROJECT XIAOCHUN · {new Date().getFullYear()}
       </div>
     </div>
@@ -425,6 +426,7 @@ export const LoadingOverlay: React.FC<LoadingOverlayProps> = ({ state, onBreakSt
  * re-renders of the overlay never touch it and the warp effect never restarts.
  */
 const HeroKeyvisual = React.memo(function HeroKeyvisual({ paused, exited }: { paused: boolean; exited: boolean }) {
+  const { t } = useTranslation();
   // Key-visual warp (WebGL1, lazy chunk). The <img> is the first paint and the fallback. Once the browser has
   // decoded its chosen srcset candidate, the warp reuses that same element as the texture (no second download) and
   // swaps a canvas in over it (see docs/LOADING_OVERLAY.md §7.1). The warp pauses (freezes its last frame) during the exit zoom and is disposed on exit.
@@ -498,7 +500,7 @@ const HeroKeyvisual = React.memo(function HeroKeyvisual({ paused, exited }: { pa
       src="/materials/xiaochun_keyvisual-1000.webp"
       srcSet="/materials/xiaochun_keyvisual-1000.webp 619w, /materials/xiaochun_keyvisual.webp 991w"
       sizes="(min-width: 768px) 45vw, 92vw"
-      alt="小蠢"
+      alt={t('chat.characterName')}
       draggable={false}
       decoding="async"
       fetchPriority="high"

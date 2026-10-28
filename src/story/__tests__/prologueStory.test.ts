@@ -22,7 +22,13 @@ const KANA = /[\u3040-\u30ff]/;
 /** 台词里不许出现的操作词 / 界面词 / 评审测试词 (操作提示由卡片自己的标题 / 副标题承担) */
 const FORBIDDEN = /点击|点一下|轻触|下面的卡片|右上角|API|评审|测试|麦克风|键盘|tap |click|card below|microphone|keyboard|タップ|クリック/i;
 
-describe('prologue story (Act 0 v4 · Backstage Catch)', () => {
+describe('prologue title', () => {
+  it('is the same "meeting XiaoChun" title in zh / en / ja', () => {
+    expect(prologueStory.title).toEqual({ 'zh-CN': '序章·初遇小蠢', en: 'Prologue: Meeting XiaoChun', ja: '序章・小蠢との出会い' });
+  });
+});
+
+describe('prologue story (Act 0 v4 · Meeting XiaoChun)', () => {
   it('passes the story schema and asks the engine to start in the browser language', () => {
     expect(StoryScriptSchema.safeParse(prologueStory).success).toBe(true);
     expect(prologueStory.startLang).toBe('browser');
@@ -156,7 +162,16 @@ describe('prologue story (Act 0 v4 · Backstage Catch)', () => {
     expect(b.beat_5.inputPlaceholder).toBeUndefined();
     expect((b.beat_5.choices ?? []).length).toBeGreaterThanOrEqual(2);
     expect((b.beat_5.choices ?? []).every((c) => c.actionType === 'next_beat' && c.nextBeatId === 'beat_5_reply')).toBe(true);
-    expect(b.beat_5_reply).toMatchObject({ autoNextBeatId: 'beat_brain_choice', camera: { shot: 'medium_close_up', movement: 'arc_sweep', durationSec: 1.5 }, actor: { expression: { base: 'playful' } } });
+    expect(b.beat_5_reply).toMatchObject({ autoNextBeatId: 'beat_brain_choice', camera: { shot: 'medium', movement: 'orbit_to_front', durationSec: 1.8 }, actor: { expression: { base: 'playful' } } });
+    // camera after the password cards: frontal medium, no side offset, no consecutive push-ins (>= 1.8 m)
+    expect(b.beat_brain_choice.camera).toMatchObject({ shot: 'medium', movement: 'none' });
+    for (const id of ['beat_5_reply', 'beat_brain_choice'] as const) {
+      expect(b[id].camera?.shot).toBe('medium');
+      expect(b[id].camera?.startAzimuthOffsetDeg).toBeUndefined();
+      expect(b[id].camera?.orbitAngleDeg).toBeUndefined();
+      expect(['arc_sweep', 'orbit_subtle', 'push_in', 'slow_push_in']).not.toContain(b[id].camera?.movement);
+      expect(SHOT_PRESETS[b[id].camera!.shot!].distance).toBeGreaterThanOrEqual(1.8);
+    }
     expect((b.beat_brain_choice.choices ?? []).map((c) => [c.id, c.actionType, c.nextBeatId])).toEqual([
       ['brain_webllm', 'custom', 'beat_6'],
       ['brain_custom', 'open_provider_config', 'beat_6'],

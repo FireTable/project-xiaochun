@@ -29,6 +29,9 @@ import {
 import { getActiveProviderId, getProvider, type ProviderProfile, subscribeProvidersChange } from '@/llm/customProvider';
 import { readActiveModel, subscribeActiveModel } from '@/llm/activeModel';
 import { Send, Sparkles, Loader2 } from '@/components/icons';
+import { zhCN } from '@/i18n/zh-CN';
+import { en as enBundle } from '@/i18n/en';
+import { ja as jaBundle } from '@/i18n/ja';
 import { splitIntoSpeechChunks } from '@/director/chatDirector';
 import {
   Tooltip,
@@ -92,6 +95,10 @@ export interface ChatBarProps {
   disabled?: boolean;
   isStatic?: boolean;
 }
+
+/** 加载失败文案的三语前缀 (取自 i18n 包的 error.loadFailed，不在这里写死任何语言) */
+const LOAD_FAILED_PREFIXES = [zhCN.error.loadFailed, enBundle.error.loadFailed, jaBundle.error.loadFailed];
+const isLoadFailedText = (text: string): boolean => LOAD_FAILED_PREFIXES.some((p) => text.startsWith(p));
 
 export const ChatBar: React.FC<ChatBarProps> = ({
   isPetUIVisible = false,
@@ -437,7 +444,7 @@ export const ChatBar: React.FC<ChatBarProps> = ({
       }
 
       // 3) 节流:每 1000ms 推一次 UI state,但如果是终态 (>=100% 或错误) 则立即推更新
-      const isTerminal = p.progress >= 1 || p.text.startsWith('加载失败');
+      const isTerminal = p.progress >= 1 || isLoadFailedText(p.text);
       if (!isTerminal && now - lastUiTsRef.current < 1000) return;
       lastUiTsRef.current = now;
 
@@ -549,8 +556,8 @@ export const ChatBar: React.FC<ChatBarProps> = ({
   }
   function fmtEta(secs: number): string {
     if (!secs || !isFinite(secs) || secs <= 0) return '—';
-    if (secs >= 60) return `${Math.floor(secs / 60)}分${Math.round(secs % 60)}秒`;
-    return `${Math.round(secs)}秒`;
+    if (secs >= 60) return t('chat.etaMinSec', { min: Math.floor(secs / 60), sec: Math.round(secs % 60) });
+    return t('chat.etaSec', { sec: Math.round(secs) });
   }
 
   // ponytail: custom provider 永远 ready(webllm engine 用不上),不显示加载状态。
@@ -989,7 +996,7 @@ export const ChatBar: React.FC<ChatBarProps> = ({
             llmBps > 0 && llmProgress.total > llmProgress.loaded
               ? (llmProgress.total - llmProgress.loaded) / llmBps
               : 0;
-          const isError = !isLLMReady && llmProgress.text.startsWith('加载失败');
+          const isError = !isLLMReady && isLoadFailedText(llmProgress.text);
           const hasBytes = llmProgress.loaded > 0 && llmProgress.total > 0;
           const isDownloading = !isError && /fetch/i.test(llmProgress.text) && hasBytes;
           const stageKey = isError
@@ -1014,7 +1021,7 @@ export const ChatBar: React.FC<ChatBarProps> = ({
                         <span className="text-white/60 tabular-nums">
                           {fmtBytes(llmProgress.loaded)} / {fmtBytes(llmProgress.total)}
                           {' · '}{fmtSpeed(llmBps)}
-                          {llmEta > 0 ? <> · 剩余 {fmtEta(llmEta)}</> : null}
+                          {llmEta > 0 ? <> · {t('chat.etaRemaining', { eta: fmtEta(llmEta) })}</> : null}
                         </span>
                       ) : null}
                       <span className="text-white/50 break-all">{getActiveModelId()}</span>

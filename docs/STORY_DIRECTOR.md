@@ -7,7 +7,7 @@
 > - [`src/story/audioDirector.ts`](../src/story/audioDirector.ts) (procedural BGM, ambience, SFX, ducking)
 > - [`src/core/scene/cameraDirector.ts`](../src/core/scene/cameraDirector.ts) + [`src/core/wind/windForce.ts`](../src/core/wind/windForce.ts) (camera moves, gust wind)
 > - [`src/components/story/`](../src/components/story) (`StoryPlayer`, `StoryCinematicOverlay`, choice cards)
-> - [`src/story/prologueStory.ts`](../src/story/prologueStory.ts) (Act 0 "Backstage Catch": the reference script that uses every feature below)
+> - [`src/story/prologueStory.ts`](../src/story/prologueStory.ts) (Act 0 "Prologue: Meeting XiaoChun": the reference script that uses every feature below)
 
 A **script** is a graph of **beats**. A beat is one staged moment: camera, cinematics (letterbox / transition / grading / intertitle), actor (motion, expression, spoken line), audio, and then either a set of **choices**, free-text input, or an automatic jump to the next beat.
 

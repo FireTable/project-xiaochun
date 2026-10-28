@@ -36,6 +36,7 @@ import {
   decryptSyncPayload,
   serializeForTransfer,
   parseTransferText,
+  SyncFormatError,
   previewImport,
   type SyncSelection,
   type SyncPayload,
@@ -59,6 +60,10 @@ interface SyncDialogProps {
 }
 
 type Tab = 'send' | 'receive';
+
+/** 同步错误文案本地化：格式错误走 chat.sync.errors.*，其它 (解密 / 存储) 保留底层 message */
+const syncErrorText = (e: unknown, t: ReturnType<typeof useTranslation>['t']): string =>
+  e instanceof SyncFormatError ? t(`chat.sync.errors.${e.code}`, e.params) : e instanceof Error ? e.message : String(e);
 
 export const SyncDialog: React.FC<SyncDialogProps> = ({ open, onOpenChange }) => {
   const { t } = useTranslation();
@@ -179,7 +184,7 @@ const SendPanel: React.FC = () => {
       const enc = await encryptSyncPayload(payload);
       setFullText(serializeForTransfer(enc));
     } catch (e) {
-      setError(e instanceof Error ? e.message : String(e));
+      setError(syncErrorText(e, t));
     } finally {
       setGenerating(false);
     }
@@ -344,7 +349,7 @@ const ReceivePanel: React.FC<{ onClose: () => void }> = ({ onClose }) => {
       const imp = previewImport(payload);
       setPreview({ payload, preview: imp });
     } catch (e) {
-      setError(e instanceof Error ? e.message : String(e));
+      setError(syncErrorText(e, t));
     } finally {
       setDecrypting(false);
     }
@@ -400,7 +405,7 @@ const ReceivePanel: React.FC<{ onClose: () => void }> = ({ onClose }) => {
       setApplied(true);
       setTimeout(() => onClose(), 1200);
     } catch (e) {
-      setError(e instanceof Error ? e.message : String(e));
+      setError(syncErrorText(e, t));
     } finally {
       setApplying(false);
     }

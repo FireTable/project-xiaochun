@@ -98,8 +98,8 @@ export const createOnboardingSteps = (t: TFunction, i18n: I18nInstance): Record<
       {
         id: 'zh-CN',
         icon: '🇨🇳',
-        label: '用中文和小蠢交流吧',
-        subLabel: '简体中文 (zh-CN)',
+        label: '用中文和小蠢交流吧', // i18n-ok: language choices are written in their own language
+        subLabel: '简体中文 (zh-CN)', // i18n-ok: language choices are written in their own language
         onSelect: () => {
           changeLang(i18n, 'zh-CN');
           ctx.goToStep('step_tutorial_choice');
@@ -118,8 +118,8 @@ export const createOnboardingSteps = (t: TFunction, i18n: I18nInstance): Record<
       {
         id: 'ja',
         icon: '🇯🇵',
-        label: '日本語でお話ししましょう',
-        subLabel: '日本語 (ja)',
+        label: '日本語でお話ししましょう', // i18n-ok: language choices are written in their own language
+        subLabel: '日本語 (ja)', // i18n-ok: language choices are written in their own language
         onSelect: () => {
           changeLang(i18n, 'ja');
           ctx.goToStep('step_tutorial_choice');

@@ -1,7 +1,7 @@
 import type { StoryScript, LocalizedStoryBeat, LocalizedText, AudioDirective } from './schema';
 
 /**
- * 序章 v4 · 《后台抓包》 (Backstage Catch)  —— Mock 演示版：零 API Key、零外部音频资源，中 / 英 / 日三语
+ * 序章 v4 · 《初遇小蠢》 (Meeting XiaoChun)  —— Mock 演示版：零 API Key、零外部音频资源，中 / 英 / 日三语
  *
  * 一句话：用户提前进场，撞见小蠢正对着空气排练一套做作的“女神欢迎词”。
  * 抓包 → 破功嘴硬 → 让你帮忙检查仪容 → 嫌弃空荡荡的虚空、换场景 → 经费燃烧、让你说句话 → 扔掉台本，进入自由聊天。
@@ -344,7 +344,7 @@ const beats: Record<string, LocalizedStoryBeat> = {
   beat_5_reply: {
     id: 'beat_5_reply',
     cinematics: { grading: 'default' },
-    camera: { shot: 'medium_close_up', movement: 'arc_sweep', durationSec: 1.5 }, // 最近只到 medium_close_up (第 2 拍的构图)
+    camera: { shot: 'medium', movement: 'orbit_to_front', durationSec: 1.8 }, // 正面半身 (不再侧偏、不再连推两次)：从第 5 拍的 wide 平滑收到 medium，并转回她的正前方
     actor: {
       motion: 'pokeDimple',
       expression: { base: 'playful', intensity: 0.9 },
@@ -363,7 +363,7 @@ const beats: Record<string, LocalizedStoryBeat> = {
   beat_brain_choice: {
     id: 'beat_brain_choice',
     cinematics: { grading: 'default' },
-    camera: { shot: 'medium', movement: 'orbit_subtle', durationSec: 1.8 }, // 不再推近：medium + 微环绕
+    camera: { shot: 'medium', movement: 'none', durationSec: 1.2 }, // 与上一拍同景别、同正面机位：不推近、不环绕 (只保持构图)
     actor: {
       expression: { base: 'shy', intensity: 0.7, microReaction: 'avert_gaze' },
       speechText: L(
@@ -434,7 +434,7 @@ const beats: Record<string, LocalizedStoryBeat> = {
 
 export const prologueStory: StoryScript = {
   id: 'prologue_awakening',
-  title: L('序章·后台抓包', 'Prologue · Backstage Catch', 'プロローグ・バックステージ'),
+  title: L('序章·初遇小蠢', 'Prologue: Meeting XiaoChun', '序章・小蠢との出会い'),
   description: L(
     '你提前进了场，撞见小蠢正对着空气排练一套做作的女神欢迎词。',
     'You walk in early and catch XiaoChun rehearsing an absurdly cheesy goddess welcome speech to thin air.',

@@ -155,6 +155,7 @@ export const StoryPlayer: React.FC<StoryPlayerProps> = ({
       try {
         await storyDirectorEngine.selectChoice(choice);
         await storyGenerator.generateAndPlayNextBeat({
+          // i18n-ok: LLM-facing prompt text, never rendered in the UI
           userInput: `用户选择了: "${choice.text}" (${choice.subText || ''})`,
           isInterruption: false,
         });
