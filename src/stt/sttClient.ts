@@ -12,6 +12,7 @@ import { SileroVad } from './sileroVad';
 import { richTranscriptionPostprocess } from './transcriptFilter';
 import { formatDraftPunctuation, finalizePunctuation } from './punctuation';
 import { isRemoteSttAvailable, transcribeRemote } from './sttDispatcher';
+import { readSttStrategy } from '../llm/activeAudioModes';
 
 export type SttUiState = 'idle' | 'loading' | 'listening' | 'recognizing' | 'error';
 
@@ -288,10 +289,13 @@ export class SttClient {
   preload(): void {
     if (this.loadStarted) return;
     this.loadStarted = true;
-    if (!this.isModelReady && !this.stream && !this.desiredActive) {
-      this.setState('loading');
+    const isDirect = isRemoteSttAvailable() && readSttStrategy() === 'direct';
+    if (!isDirect) {
+      if (!this.isModelReady && !this.stream && !this.desiredActive) {
+        this.setState('loading');
+      }
+      this.ensureWorker().postMessage({ type: 'load' });
     }
-    this.ensureWorker().postMessage({ type: 'load' });
     if (!this.vad) {
       this.vad = new SileroVad({
         sampleRate: APP_CONFIG.stt.sampleRate,
@@ -481,6 +485,12 @@ export class SttClient {
       this.commitTimer = setTimeout(() => {
         void this.commitSession();
       }, APP_CONFIG.stt.commitSilenceMs ?? 1200);
+    }
+
+    // 全程纯云端 (direct) 模式下，中间草稿短片段不启动本地模型，静默累积直至长停顿/松开触发单次高精云端定稿
+    const isDirect = isRemoteSttAvailable() && readSttStrategy() === 'direct';
+    if (isDirect && !isOverLimit) {
+      return;
     }
 
     if (this.recognizingBusy) {

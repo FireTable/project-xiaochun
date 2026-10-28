@@ -43,6 +43,9 @@ import {
   getDecryptedApiKey,
   readActiveSttMode,
   writeActiveSttMode,
+  readSttStrategy,
+  writeSttStrategy,
+  type SttStrategy,
   readActiveTtsMode,
   writeActiveTtsMode,
   type ProviderProfile,
@@ -91,6 +94,7 @@ export const ProviderConfigDialog: React.FC<ProviderConfigDialogProps> = ({
   const [activeLlmId, setActiveLlmId] = useState<string | null>(null);
   const [activeSttMode, setActiveSttMode] = useState<ActiveSttMode>({ kind: 'builtin' });
   const [activeTtsMode, setActiveTtsMode] = useState<ActiveTtsMode>({ kind: 'builtin' });
+  const [sttStrategy, setSttStrategy] = useState<SttStrategy>('2pass');
 
   const [form, setForm] = useState<FormState>(EMPTY_FORM);
   const [autoBusy, setAutoBusy] = useState(false);
@@ -125,6 +129,7 @@ export const ProviderConfigDialog: React.FC<ProviderConfigDialogProps> = ({
     setActiveLlmId(activeLlm);
     setActiveSttMode(readActiveSttMode());
     setActiveTtsMode(readActiveTtsMode());
+    setSttStrategy(readSttStrategy());
   };
 
   useEffect(() => {
@@ -284,6 +289,11 @@ export const ProviderConfigDialog: React.FC<ProviderConfigDialogProps> = ({
   const handleActivateStt = (mode: ActiveSttMode) => {
     writeActiveSttMode(mode);
     setActiveSttMode(mode);
+  };
+
+  const handleSetSttStrategy = (strategy: SttStrategy) => {
+    writeSttStrategy(strategy);
+    setSttStrategy(strategy);
   };
 
   const handleActivateTts = (mode: ActiveTtsMode) => {
@@ -446,6 +456,62 @@ export const ProviderConfigDialog: React.FC<ProviderConfigDialogProps> = ({
                         </div>
                       </div>
                     </div>
+
+                    {/* ─────── 识别策略选择 (仅在开启云端识别时展示) ─────── */}
+                    {activeSttMode.kind !== 'local' && (
+                      <div className="mt-2 pt-2 border-t border-white/[0.08] space-y-1.5">
+                        <div className="text-white/60 text-xs font-semibold flex items-center justify-between">
+                          <div className="flex items-center gap-1.5">
+                            <Radio className="h-3.5 w-3.5 text-brand-300" />
+                            <span>云端出字策略</span>
+                          </div>
+                          <span className="text-[10px] text-brand-300 font-normal">
+                            {sttStrategy === '2pass' ? '2-Pass 实时预览' : '全程纯云端'}
+                          </span>
+                        </div>
+                        <div className="grid grid-cols-2 gap-1.5">
+                          {/* 策略 1: 2-Pass 实时预览 */}
+                          <div
+                            onClick={() => handleSetSttStrategy('2pass')}
+                            className={`relative rounded-xl border p-2 cursor-pointer transition-colors ${
+                              sttStrategy === '2pass'
+                                ? 'bg-emerald-500/10 border-emerald-500/30'
+                                : 'bg-white/[0.03] border-white/10 hover:bg-white/[0.06]'
+                            }`}
+                          >
+                            <div className="flex items-center justify-between">
+                              <span className="text-white text-xs font-medium">⚡ 2-Pass 实时预览</span>
+                              {sttStrategy === '2pass' && (
+                                <Check className="w-3.5 h-3.5 text-emerald-400" strokeWidth={3} />
+                              )}
+                            </div>
+                            <div className="text-white/50 text-[10px] mt-1 leading-relaxed">
+                              端侧边说边出字草稿，停顿后整句云端润色定稿
+                            </div>
+                          </div>
+
+                          {/* 策略 2: 全程纯云端 */}
+                          <div
+                            onClick={() => handleSetSttStrategy('direct')}
+                            className={`relative rounded-xl border p-2 cursor-pointer transition-colors ${
+                              sttStrategy === 'direct'
+                                ? 'bg-emerald-500/10 border-emerald-500/30'
+                                : 'bg-white/[0.03] border-white/10 hover:bg-white/[0.06]'
+                            }`}
+                          >
+                            <div className="flex items-center justify-between">
+                              <span className="text-white text-xs font-medium">☁️ 全程纯云端</span>
+                              {sttStrategy === 'direct' && (
+                                <Check className="w-3.5 h-3.5 text-emerald-400" strokeWidth={3} />
+                              )}
+                            </div>
+                            <div className="text-white/50 text-[10px] mt-1 leading-relaxed">
+                              不加载端侧模型省内存，说完一次性单次定稿
+                            </div>
+                          </div>
+                        </div>
+                      </div>
+                    )}
                   </div>
                 )}
 

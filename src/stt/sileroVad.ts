@@ -79,7 +79,7 @@ export class SileroVad {
 
     this.initPromise = (async () => {
       try {
-        if (typeof ort !== 'undefined' && ort.env?.wasm) {
+        if (typeof window !== 'undefined' && typeof ort !== 'undefined' && ort.env?.wasm) {
           ort.env.wasm.wasmPaths = WASM_PATHS;
           ort.env.wasm.numThreads = 1;
         }

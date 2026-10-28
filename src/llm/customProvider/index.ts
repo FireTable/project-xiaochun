@@ -54,6 +54,10 @@ export {
 export {
   type ActiveSttMode,
   type ActiveTtsMode,
+  type SttStrategy,
+  STT_STRATEGY_KEY,
+  readSttStrategy,
+  writeSttStrategy,
   readActiveSttMode,
   writeActiveSttMode,
   subscribeActiveSttMode,

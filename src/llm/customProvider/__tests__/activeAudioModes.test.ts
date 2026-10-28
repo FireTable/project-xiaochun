@@ -8,6 +8,9 @@ import {
   writeActiveTtsMode,
   subscribeActiveSttMode,
   subscribeActiveTtsMode,
+  readSttStrategy,
+  writeSttStrategy,
+  STT_STRATEGY_KEY,
   STT_MODE_KEY,
   TTS_MODE_KEY,
 } from '../../activeAudioModes';
@@ -121,6 +124,18 @@ describe('activeAudioModes suite', () => {
       expect(listener).toHaveBeenCalledWith({ kind: 'custom', providerId: 'tts_siliconflow' });
 
       unsub();
+    });
+
+    it('reads and writes STT strategy (2pass vs direct)', () => {
+      expect(readSttStrategy()).toBe('2pass'); // default
+
+      writeSttStrategy('direct');
+      expect(mockStore[STT_STRATEGY_KEY]).toBe('direct');
+      expect(readSttStrategy()).toBe('direct');
+
+      writeSttStrategy('2pass');
+      expect(mockStore[STT_STRATEGY_KEY]).toBe('2pass');
+      expect(readSttStrategy()).toBe('2pass');
     });
   });
 

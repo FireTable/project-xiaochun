@@ -597,6 +597,71 @@ describe('SttClient state logic', () => {
           (globalThis as any).Worker = originalWorker;
         }
       });
+
+      it('Direct mode (Cloud-Only): skips local interim recognition during speech chunks and commits directly to cloud', async () => {
+        const originalFetch = globalThis.fetch;
+        const originalWindow = (globalThis as any).window;
+        const originalWorker = (globalThis as any).Worker;
+
+        (globalThis as any).window = {
+          localStorage: {
+            getItem: (key: string) => {
+              if (key === 'xiaochun.stt.mode') return 'builtin';
+              if (key === 'xiaochun.stt.strategy') return 'direct';
+              return null;
+            },
+          },
+        };
+
+        let fetchCalledCount = 0;
+        globalThis.fetch = vi.fn().mockImplementation(async (url: string) => {
+          fetchCalledCount++;
+          return {
+            ok: true,
+            status: 200,
+            json: async () => ({ text: '直接云端定稿识别文本' }),
+          };
+        });
+
+        const workerPostMessages: any[] = [];
+        (globalThis as any).Worker = class MockWorker {
+          onmessage: any = null;
+          postMessage(msg: any) {
+            workerPostMessages.push(msg);
+          }
+          terminate() {}
+        };
+
+        try {
+          const client = new SttClient();
+          const emittedEvents: any[] = [];
+          client.on((ev) => emittedEvents.push(ev));
+
+          // Simulate incoming chunk in direct mode
+          const pcmChunk = new Float32Array(8000).fill(0.05);
+          (client as any).handleSpeechChunk(pcmChunk);
+
+          // In direct mode, interim chunk does NOT trigger worker recognize message!
+          const recognizeMsgs = workerPostMessages.filter((m) => m.type === 'recognize');
+          expect(recognizeMsgs.length).toBe(0);
+          expect(fetchCalledCount).toBe(0); // not yet committed
+
+          // Now simulate commit
+          await client.commitSession();
+
+          // Full audio is sent in exactly 1 request to /api/stt
+          expect(fetchCalledCount).toBe(1);
+          const finalEvent = emittedEvents.find((e) => e.type === 'text' && e.isFinal);
+          expect(finalEvent).toBeTruthy();
+          expect(finalEvent.text).toBe('直接云端定稿识别文本。');
+
+          client.dispose();
+        } finally {
+          globalThis.fetch = originalFetch;
+          (globalThis as any).window = originalWindow;
+          (globalThis as any).Worker = originalWorker;
+        }
+      });
     });
   });
 });

@@ -21,8 +21,31 @@ export type ActiveTtsMode =
   | { kind: 'builtin' }
   | { kind: 'custom'; providerId: string };
 
+export type SttStrategy = '2pass' | 'direct';
+
 export const STT_MODE_KEY = 'xiaochun.stt.mode';
 export const TTS_MODE_KEY = 'xiaochun.tts.mode';
+export const STT_STRATEGY_KEY = 'xiaochun.stt.strategy';
+
+export function readSttStrategy(): SttStrategy {
+  if (typeof window === 'undefined') return '2pass';
+  try {
+    const raw = window.localStorage.getItem(STT_STRATEGY_KEY);
+    return raw === 'direct' ? 'direct' : '2pass';
+  } catch {
+    return '2pass';
+  }
+}
+
+export function writeSttStrategy(strategy: SttStrategy): void {
+  if (typeof window === 'undefined') return;
+  try {
+    window.localStorage.setItem(STT_STRATEGY_KEY, strategy);
+  } catch {
+    /* noop */
+  }
+  notifySttListeners();
+}
 
 export function parseActiveSttMode(raw: string | null | undefined): ActiveSttMode {
   if (!raw || raw === 'builtin') return { kind: 'builtin' };
