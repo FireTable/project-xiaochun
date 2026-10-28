@@ -46,7 +46,7 @@ import {
 import { LlmProviderIcon } from '@/components/LlmProviderIcon';
 import { holdPetUi, releasePetUi } from '@/hooks/usePetUiVisibility';
 import { isDev } from '@/lib/utils';
-import { SttClient, insertAtCursor, type SttUiState } from '@/stt/sttClient';
+import { SttClient, replaceOrInsertAtRange, type TextRange, type SttUiState } from '@/stt/sttClient';
 import { isDevDrawerActive, saveVoiceRecord } from '@/stt/voiceSessionHistory';
 import { VoicePill } from './VoicePill';
 
@@ -99,12 +99,17 @@ export const ChatBar: React.FC<{
   const inputRef = useRef<HTMLTextAreaElement>(null);
 
   const sttRef = useRef<SttClient | null>(null);
+  const sttRangeRef = useRef<TextRange | null>(null);
+  const isComposingRef = useRef(false);
+  const isSttInsertingRef = useRef(false);
+  const pendingSttEventRef = useRef<{ text: string; isFinal: boolean } | null>(null);
   const [sttState, setSttState] = useState<SttUiState>('idle');
   const [sttPercent, setSttPercent] = useState(0);
   const [sttProb, setSttProb] = useState(0);
   const [sttRms, setSttRms] = useState(0);
   /** mic_denied | mic_insecure | mic_unsupported | mic_not_found | other */
   const [sttErrorKind, setSttErrorKind] = useState<string | null>(null);
+  const inputRowsRef = useRef(1);
   const [inputRows, setInputRows] = useState(1);
   const composerExpanded = inputRows > 1;
   /** 未聚焦时记录 visualViewport 高度，用来判断 Android 键盘是否挤矮了可视区 */
@@ -136,11 +141,14 @@ export const ChatBar: React.FC<{
     if (el.value.trim().length === 0) {
       el.style.height = '';
       el.style.overflowY = 'hidden';
+      inputRowsRef.current = 1;
       setInputRows((prev) => (prev === 1 ? prev : 1));
       return;
     }
 
-    el.style.height = '0px';
+    // Set height to 'auto' synchronously before measurement to allow scrollHeight to recalculate
+    // without ever collapsing to '0px' (which caused jarring zero-height flash / jump)
+    el.style.height = 'auto';
     el.style.overflowY = 'hidden';
     const cs = window.getComputedStyle(el);
     let lineHeight = parseFloat(cs.lineHeight);
@@ -150,14 +158,16 @@ export const ChatBar: React.FC<{
     }
     const content = el.scrollHeight;
     const measuredRows = Math.max(1, Math.min(MAX, Math.ceil(content / lineHeight - 0.01)));
+    const nextRows = Math.max(inputRowsRef.current, measuredRows); // unidirectional: never shrink while typing
+    inputRowsRef.current = nextRows;
 
-    setInputRows((prev) => {
-      const next = Math.max(prev, measuredRows); // unidirectional: never shrink while typing
-      const nextPx = lineHeight * Math.min(MAX, next);
-      el.style.height = `${nextPx}px`;
-      el.style.overflowY = content > lineHeight * MAX + 0.5 ? 'auto' : 'hidden';
-      return next === prev ? prev : next;
-    });
+    // Immediately restore and set final pixel height synchronously in the same execution turn!
+    const nextPx = lineHeight * Math.min(MAX, nextRows);
+    el.style.height = `${nextPx}px`;
+    el.style.overflowY = content > lineHeight * MAX + 0.5 ? 'auto' : 'hidden';
+
+    // Synchronize React state only if rows actually changed to prevent duplicate re-renders
+    setInputRows((prev) => (prev === nextRows ? prev : nextRows));
   };
 
   // STT (SenseVoice) — lazy client; preload on first mic click
@@ -192,12 +202,29 @@ export const ChatBar: React.FC<{
       else if (ev.type === 'text') {
         const el = inputRef.current;
         if (el) {
-          el.focus({ preventScroll: true });
-          insertAtCursor(el, ev.text);
-          el.focus({ preventScroll: true });
+          // If user is currently composing with IME (e.g. Chinese Pinyin input),
+          // defer updating until composition ends to avoid disrupting candidate selection.
+          if (isComposingRef.current) {
+            pendingSttEventRef.current = { text: ev.text, isFinal: Boolean(ev.isFinal) };
+            return;
+          }
+          if (typeof document !== 'undefined' && document.activeElement !== el) {
+            el.focus({ preventScroll: true });
+          }
+          isSttInsertingRef.current = true;
+          let newRange: TextRange | null = null;
+          try {
+            newRange = replaceOrInsertAtRange(el, ev.text, sttRangeRef.current);
+          } finally {
+            isSttInsertingRef.current = false;
+          }
+          if (ev.isFinal) {
+            sttRangeRef.current = null;
+          } else {
+            sttRangeRef.current = newRange;
+          }
           setHasText(el.value.trim().length > 0);
           setIsInputFocused(true);
-          syncComposerHeight();
         }
       } else if (ev.type === 'utterance_result') {
         if (isDevDrawerOpenRef.current && isDevDrawerActive()) {
@@ -520,6 +547,7 @@ export const ChatBar: React.FC<{
         inputRef.current.style.overflowY = 'hidden';
       }
       setHasText(false);
+      inputRowsRef.current = 1;
       setInputRows(1);
       setIsQueued(false);
 
@@ -541,6 +569,8 @@ export const ChatBar: React.FC<{
     vrmEngine.stopSpeaking();
     vrmEngine.setListening(false);
     inputRef.current?.blur();
+    sttRangeRef.current = null;
+    sttRef.current?.resetSession();
 
     // 模型尚未完全就绪：智能转入排队状态，输入内容安全保留，不吞字
     if (!isModelReady) {
@@ -555,6 +585,7 @@ export const ChatBar: React.FC<{
       inputRef.current.style.overflowY = 'hidden';
     }
     setHasText(false);
+    inputRowsRef.current = 1;
     setInputRows(1);
     setIsQueued(false);
 
@@ -602,6 +633,10 @@ export const ChatBar: React.FC<{
     }
     if (nowHasText) {
       vrmEngine.setListening(true);
+    }
+    if (!isComposingRef.current && !isSttInsertingRef.current) {
+      // If user types manually outside of IME composition and outside of STT, unlink tracked voice range to avoid clobbering edits
+      sttRangeRef.current = null;
     }
     syncComposerHeight();
     if (isQueued) {
@@ -828,6 +863,30 @@ export const ChatBar: React.FC<{
               autoCapitalize="off"
               spellCheck={false}
               placeholder={isModelReady ? t('chat.placeholder') : t('chat.syncingPlaceholder')}
+              onCompositionStart={() => {
+                isComposingRef.current = true;
+              }}
+              onCompositionEnd={() => {
+                isComposingRef.current = false;
+                const pending = pendingSttEventRef.current;
+                if (pending && inputRef.current) {
+                  pendingSttEventRef.current = null;
+                  const el = inputRef.current;
+                  isSttInsertingRef.current = true;
+                  let newRange: TextRange | null = null;
+                  try {
+                    newRange = replaceOrInsertAtRange(el, pending.text, sttRangeRef.current);
+                  } finally {
+                    isSttInsertingRef.current = false;
+                  }
+                  if (pending.isFinal) {
+                    sttRangeRef.current = null;
+                  } else {
+                    sttRangeRef.current = newRange;
+                  }
+                  setHasText(el.value.trim().length > 0);
+                }
+              }}
               onInput={handleInput}
               onKeyDown={handleKeyDown}
               onFocus={() => {
