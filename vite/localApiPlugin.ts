@@ -155,20 +155,28 @@ export function localApiPlugin(ttsProxyUrl?: string, sttProxyUrl?: string): Plug
               const chunks: Buffer[] = [];
               req.on('data', (c) => chunks.push(c));
               req.on('end', async () => {
-                const body = Buffer.concat(chunks);
-                const upstream = await fetch(resolvedSttProxy, {
-                  method: 'POST',
-                  headers: {
-                    'Content-Type': req.headers['content-type'] ?? 'audio/wav',
-                  },
-                  body,
-                  signal: controller.signal,
-                });
-                res.statusCode = upstream.status;
-                res.setHeader('Content-Type', 'application/json; charset=utf-8');
-                res.setHeader('Access-Control-Allow-Origin', '*');
-                const text = await upstream.text();
-                res.end(text);
+                try {
+                  const body = Buffer.concat(chunks);
+                  const upstream = await fetch(resolvedSttProxy, {
+                    method: 'POST',
+                    headers: {
+                      'Content-Type': req.headers['content-type'] ?? 'audio/wav',
+                    },
+                    body,
+                    signal: controller.signal,
+                  });
+                  res.statusCode = upstream.status;
+                  res.setHeader('Content-Type', 'application/json; charset=utf-8');
+                  res.setHeader('Access-Control-Allow-Origin', '*');
+                  const text = await upstream.text();
+                  res.end(text);
+                } catch (fetchErr: any) {
+                  console.warn('[Vite Local STT Proxy Fetch Error]', fetchErr);
+                  res.statusCode = 502;
+                  res.setHeader('Content-Type', 'application/json');
+                  res.setHeader('Access-Control-Allow-Origin', '*');
+                  res.end(JSON.stringify({ error: String(fetchErr?.message || fetchErr), code: 'PROXY_ERROR' }));
+                }
               });
               return;
             } catch (err: any) {

@@ -744,8 +744,8 @@ export class SttClient {
     };
     this.lastSubmittedPcmSamples = pcm.length;
 
-    // 智能调度：若为定稿且远程服务可用（内置 CF 或用户自定义），优先走远程识别；失败自动直落本地 Worker
-    if (isFinal && isRemoteSttAvailable()) {
+    // 智能调度：若远程服务可用（内置 CF 或用户自定义），优先走远程识别；失败自动直落本地 Worker
+    if (isRemoteSttAvailable()) {
       void (async () => {
         try {
           const { text } = await transcribeRemote(pcm, sr);
@@ -760,7 +760,7 @@ export class SttClient {
           if (this.currentTurnId !== this.inFlightUtterance?.turnId) return;
           const w = this.ensureWorker();
           const copy = pcm.slice();
-          w.postMessage({ type: 'recognize', id, pcm: copy, sampleRate: sr, isFinal: true }, [
+          w.postMessage({ type: 'recognize', id, pcm: copy, sampleRate: sr, isFinal }, [
             copy.buffer,
           ]);
         }
