@@ -815,6 +815,7 @@ export class VRMEngine {
       getVRM: () => this.currentVRM,
       getSunDirection: () => this.lighting.dirLight.position.clone().normalize(),
       onApplyGroundClamp: () => this.applyGroundClamp(null),
+      setWindMultiplier: (mult) => this.windForce.setGustMultiplier(mult),
     });
   }
 
@@ -1789,6 +1790,8 @@ export class VRMEngine {
       const zoomBase = this.restoreGroundClamp();
       const changed = update(deltaTime);
       this.applyGroundClamp(zoomBase);
+      // 荷兰角 (dutch_tilt)：lookAt 重算朝向后，把导演指定的滚转叠加回去
+      cameraDirector.applyRoll();
       return changed;
     };
   }

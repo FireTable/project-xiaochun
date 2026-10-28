@@ -538,6 +538,7 @@ export const APP_CONFIG = {
     skirtMultiplier: 0.7, // 裙子风力放大倍数, 合法 >=0, 建议 0.5~1.5; 调大=鼠标一扫裙子更猛, 调小=更温和
     ribbonMultiplier: 1.35,
     idleTimeoutMs: 120,
+    gustStrength: 0.22, // 剧情运镜 windMultiplier 触发的环境阵风基准强度 (m/s²，乘以 倍率-1); 调大=阵风更猛, 0=关闭阵风
     bust: { sensitivity: 0.23, speedExponent: 0.85, impulseBonus: 1.35 },
   },
   renderer: {

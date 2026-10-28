@@ -53,6 +53,17 @@ export const SHOT_PRESETS: Record<CameraShotType, ShotPresetConfig> = {
   },
 };
 
+/** 荷兰角滚转弧度 (约 -9°，画面向右倾斜，传达“迟疑 / 不安”) */
+export const DUTCH_TILT_RAD = (-9 * Math.PI) / 180;
+
+/** 把角度差折到 (-π, π]，保证环绕走最短弧，不穿过角色 */
+function wrapPi(a: number): number {
+  const twoPi = Math.PI * 2;
+  let r = ((a + Math.PI) % twoPi + twoPi) % twoPi - Math.PI;
+  if (r <= -Math.PI) r += twoPi;
+  return r;
+}
+
 /** 五次平滑步阶曲线 (首尾导数严格为 0，杜绝机械顿挫) */
 function quinticSmootherstep(t: number): number {
   return t * t * t * (t * (t * 6 - 15) + 10);
@@ -83,6 +94,8 @@ export class CameraDirector {
   private ctx: CameraDirectorContext | null = null;
   private currentTweenRaf: number | null = null;
   private isTweening = false;
+  /** 当前镜头滚转 (弧度)，由 dutch_tilt 写入，其它运镜会把它缓动回 0 */
+  private rollRad = 0;
 
   // 临时向量复用，零 GC
   private tempHeadPos = new THREE.Vector3();
@@ -98,6 +111,21 @@ export class CameraDirector {
 
   public get active(): boolean {
     return this.isTweening;
+  }
+
+  /** 当前镜头滚转 (弧度) */
+  public getRoll(): number {
+    return this.rollRad;
+  }
+
+  /**
+   * 在相机朝向被重算 (controls.update → lookAt) 之后调用，把当前滚转叠加回去。
+   * vrmEngine 在 controls.update 的包装里调用它，所以任何时刻渲染的画面都带着同一个滚转。
+   */
+  public applyRoll(): void {
+    const camera = this.ctx?.camera;
+    if (!camera || Math.abs(this.rollRad) < 1e-5 || typeof camera.rotateZ !== 'function') return;
+    camera.rotateZ(this.rollRad);
   }
 
   private getControls(): OrbitControls | null {
@@ -129,6 +157,7 @@ export class CameraDirector {
    */
   public reset(): void {
     this.stopTransition();
+    this.rollRad = 0;
     const camera = this.ctx?.camera;
     if (camera) {
       camera.fov = 30;
@@ -165,8 +194,18 @@ export class CameraDirector {
     this.tempEndTarget.set(this.tempHeadPos.x, targetY, this.tempHeadPos.z);
 
     let targetDistance = preset.distance;
-    const targetPitch = preset.pitch;
-    const targetFov = directive.targetFov ?? preset.fov;
+    let targetPitch = preset.pitch;
+    let targetFov = directive.targetFov ?? preset.fov;
+
+    const trajectory = directive.movement;
+    const isBacklightReveal = trajectory === 'hero_backlight_reveal';
+    const wantBacklight = Boolean(directive.alignSunBacklight) || isBacklightReveal;
+
+    // 英雄逆光破晓：压低机位 (略仰拍，让人物压在落日轮廓上) 并收窄视角
+    if (isBacklightReveal) {
+      targetPitch = Math.max(targetPitch, 1.66);
+      targetFov = Math.max(15, targetFov - 3);
+    }
 
     // 3. 计算终点摄像机位置 (在当前方位角或逆光方位角基础上推演)
     let currentAzimuth = 0;
@@ -180,16 +219,17 @@ export class CameraDirector {
       currentAzimuth = Math.atan2(camera.position.x - this.tempEndTarget.x, camera.position.z - this.tempEndTarget.z);
     }
 
-    // 若要求逆光对齐太阳：
-    if (directive.alignSunBacklight && this.ctx.getSunDirection) {
+    // 若要求逆光对齐太阳：摄像机移到太阳的反方向，让小蠢挡在太阳与镜头之间。
+    // 方位角差折成最短弧、按环绕插值 (而不是起终点直线插值——直线会在两侧差近 180° 时穿过角色身体)。
+    const actualAzimuth = currentAzimuth;
+    let backlightDeltaRad = 0;
+    if (wantBacklight && this.ctx.getSunDirection) {
       const sunDir = this.ctx.getSunDirection();
-      if (sunDir) {
-        // 摄像机移到太阳的反方向，让小蠢挡在太阳与镜头之间
-        currentAzimuth = Math.atan2(-sunDir.x, -sunDir.z);
+      if (sunDir && (Math.abs(sunDir.x) > 1e-4 || Math.abs(sunDir.z) > 1e-4)) {
+        backlightDeltaRad = wrapPi(Math.atan2(-sunDir.x, -sunDir.z) - actualAzimuth);
       }
     }
 
-    const trajectory = directive.movement;
     const isHeroOrbit = trajectory === 'hero_spiral_orbit';
     const isPedestalUp = trajectory === 'pedestal_up';
     const isArcSweep = trajectory === 'arc_sweep';
@@ -199,16 +239,17 @@ export class CameraDirector {
     const hasCustomOrbit = directive.orbitAngleDeg !== undefined && Math.abs(directive.orbitAngleDeg) > 0.01;
 
     // 解析环绕方位角增量
-    let orbitDeltaRad = 0;
+    let extraOrbitRad = 0;
     if (hasCustomOrbit) {
-      orbitDeltaRad = (directive.orbitAngleDeg! * Math.PI) / 180;
+      extraOrbitRad = (directive.orbitAngleDeg! * Math.PI) / 180;
     } else if (isHeroOrbit) {
-      orbitDeltaRad = Math.PI * 2.0; // 360° 英雄全景环绕
+      extraOrbitRad = Math.PI * 2.0; // 360° 英雄全景环绕
     } else if (isArcSweep) {
-      orbitDeltaRad = Math.PI * 0.22; // ~40° 侧方弧度横摇
+      extraOrbitRad = Math.PI * 0.22; // ~40° 侧方弧度横摇
     } else if (isOrbitSubtle) {
-      orbitDeltaRad = Math.PI * 0.12; // ~21.6° 微妙环绕微动
+      extraOrbitRad = Math.PI * 0.12; // ~21.6° 微妙环绕微动
     }
+    const orbitDeltaRad = backlightDeltaRad + extraOrbitRad;
     const hasOrbitalMotion = Math.abs(orbitDeltaRad) > 0.001;
     const finalAzimuth = currentAzimuth + orbitDeltaRad;
 
@@ -259,6 +300,9 @@ export class CameraDirector {
       }
     }
     const startFov = camera.fov;
+    // 荷兰角：dutch_tilt 把滚转缓动到 -9°，其它任何运镜把残留滚转缓动回 0
+    const startRoll = this.rollRad;
+    const targetRoll = trajectory === 'dutch_tilt' ? DUTCH_TILT_RAD : 0;
 
     // 5. 风力联动
     if (directive.windMultiplier && directive.windMultiplier > 1.0) {
@@ -320,18 +364,24 @@ export class CameraDirector {
 
         camera.lookAt(controls && controls.target ? controls.target : this.tempTarget);
         onApplyGroundClamp?.();
+        if (startRoll !== targetRoll) {
+          this.rollRad = THREE.MathUtils.lerp(startRoll, targetRoll, eased);
+        }
+        this.applyRoll();
 
         if (progress < 1.0) {
           this.currentTweenRaf = safeRaf(tick);
         } else {
           // 结束复位与收敛
           camera.position.copy(this.tempEndPos);
+          this.rollRad = targetRoll;
           if (controls && controls.target) {
             controls.target.copy(this.tempEndTarget);
             controls.enabled = true;
             controls.update();
           } else {
             camera.lookAt(this.tempEndTarget);
+            this.applyRoll();
           }
           camera.fov = targetFov;
           camera.updateProjectionMatrix();
