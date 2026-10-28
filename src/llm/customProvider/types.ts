@@ -105,6 +105,13 @@ export const KNOWN_STT_TEMPLATES: ProviderTemplate[] = [
     defaultModel: 'whisper-1',
   },
   {
+    id: 'stt-cf',
+    type: 'stt',
+    labelKey: 'Cloudflare Workers AI (Whisper Turbo)',
+    defaultBaseURL: 'https://api.cloudflare.com/client/v4/accounts/<ACCOUNT_ID>/ai/v1',
+    defaultModel: '@cf/openai/whisper-large-v3-turbo',
+  },
+  {
     id: 'stt-groq',
     type: 'stt',
     labelKey: 'Groq (Whisper Turbo 极速识别)',

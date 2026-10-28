@@ -124,7 +124,13 @@ export async function streamNativeEdgeTTSNode(
   });
 }
 
-export function localApiPlugin(ttsProxyUrl: string): Plugin {
+export function localApiPlugin(ttsProxyUrl?: string, sttProxyUrl?: string): Plugin {
+  const resolvedSttProxy =
+    sttProxyUrl ||
+    (ttsProxyUrl && !ttsProxyUrl.includes('/api/tts')
+      ? `${ttsProxyUrl.replace(/\/+$/, '')}/api/stt`
+      : '');
+
   return {
     name: 'local-api-plugin',
     configureServer(server) {
@@ -141,6 +147,35 @@ export function localApiPlugin(ttsProxyUrl: string): Plugin {
             res.end();
             return;
           }
+
+          if (resolvedSttProxy) {
+            try {
+              const controller = new AbortController();
+              req.on('close', () => controller.abort());
+              const chunks: Buffer[] = [];
+              req.on('data', (c) => chunks.push(c));
+              req.on('end', async () => {
+                const body = Buffer.concat(chunks);
+                const upstream = await fetch(resolvedSttProxy, {
+                  method: 'POST',
+                  headers: {
+                    'Content-Type': req.headers['content-type'] ?? 'audio/wav',
+                  },
+                  body,
+                  signal: controller.signal,
+                });
+                res.statusCode = upstream.status;
+                res.setHeader('Content-Type', 'application/json; charset=utf-8');
+                res.setHeader('Access-Control-Allow-Origin', '*');
+                const text = await upstream.text();
+                res.end(text);
+              });
+              return;
+            } catch (err: any) {
+              console.warn('[Vite Local STT Proxy Error]', err);
+            }
+          }
+
           res.statusCode = 503;
           res.setHeader('Content-Type', 'application/json');
           res.setHeader('Access-Control-Allow-Origin', '*');

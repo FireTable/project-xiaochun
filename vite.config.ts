@@ -23,8 +23,11 @@ export default defineConfig(({ command }) => ({
       },
     }),
     react(),
-    // ponytail: TTS_PROXY_URL 走 loadEnv 读 .env.local, EU 出口连不上 Microsoft 时反代到远端。
-    localApiPlugin(loadEnv('development', process.cwd(), '').TTS_PROXY_URL?.trim()),
+    // ponytail: TTS_PROXY_URL / STT_PROXY_URL 读 .env.local，反代到远端 Cloudflare Worker。
+    localApiPlugin(
+      loadEnv('development', process.cwd(), '').TTS_PROXY_URL?.trim(),
+      loadEnv('development', process.cwd(), '').STT_PROXY_URL?.trim(),
+    ),
     dropDockerfatAssets(),
     {
       name: 'glsl-raw-loader',
