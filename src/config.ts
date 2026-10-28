@@ -22,6 +22,7 @@ import type {
   VocalPresetKey,
   VocalAudioConfig,
   SceneThemeId,
+  ChatTypewriterConfig,
 } from './types/config';
 
 /** 3D 场景专属的环境声学特征配置 (开阔度 / 房间材质 / 贴耳度) */
@@ -407,14 +408,14 @@ export const APP_CONFIG = {
     modelFile: 'model.int8.onnx',
     tokensFile: 'tokens.txt',
     useItn: true,
-    vadSilenceMs: 600,
+    vadSilenceMs: 450,
     vadMaxMs: 20_000,
     sampleRate: 16_000,
     vadStartThreshold: 0.014,
     vadSilenceThreshold: 0.008,
     vadStartMs: 80,
     vadPrerollMs: 300,
-    minUtteranceMs: 250,
+    minUtteranceMs: 160,
   },
   llm: {
     model: 'MiniCPM5-2B-q4f16_1-MLC',
@@ -430,6 +431,14 @@ export const APP_CONFIG = {
   },
   chat: {
     showHeadBubble: true as boolean,
+    /** 对话气泡平滑打字机动效配置 (视觉小说级字符渐显与语流停顿) */
+    typewriter: {
+      enabled: true,
+      speedMs: 60,
+      minorPauseMs: 200,
+      majorPauseMs: 420,
+      revealDurationMs: 180,
+    } as ChatTypewriterConfig,
   },
   camera: {
     defaultFov: 30,

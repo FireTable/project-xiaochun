@@ -703,3 +703,23 @@ export interface VocalAudioConfig {
   outputGain: number;
 }
 
+/** 对话气泡平滑打字机动效配置 (视觉小说级字符渐显与语流停顿) */
+export interface ChatTypewriterConfig {
+  /** 是否启用打字机渐显动效 (false 则瞬间呈现完整文本) */
+  enabled: boolean;
+  /** 单字阶梯级联间隔 (毫秒，推荐 50~75ms，默认 60ms，与配音语速自然咬合) */
+  speedMs: number;
+  /** 逗号、顿号、分号轻微呼吸停顿 (毫秒，默认 200ms，带给分句约 260ms 的自然换气感) */
+  minorPauseMs: number;
+  /** 句号、感叹号、问号、换行等主要段落呼吸停顿 (毫秒，默认 420ms，带给句末约 480ms 的舒适沉淀感) */
+  majorPauseMs: number;
+  /** 字符渐现动效时长 (毫秒，默认 180ms，与 CSS keyframe bubble-char-reveal 保持一致) */
+  revealDurationMs: number;
+}
+
+export interface ChatConfig {
+  showHeadBubble: boolean;
+  typewriter: ChatTypewriterConfig;
+}
+
+

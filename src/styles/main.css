@@ -107,7 +107,7 @@
   background: transparent;
 }
 
-/* 气泡专属极细微型滚动条 (3px 精准控制) */
+/* 气泡专属极细微型滚动条 (3px 精准控制，默认静默透明，仅在鼠标悬停时柔和显现，杜绝打字时闪现) */
 .custom-bubble-scrollbar::-webkit-scrollbar {
   width: 3px !important;
   height: 3px !important;
@@ -118,8 +118,13 @@
 }
 
 .custom-bubble-scrollbar::-webkit-scrollbar-thumb {
-  background-color: rgba(255, 255, 255, 0.35) !important;
+  background-color: transparent !important;
   border-radius: 9999px !important;
+  transition: background-color 0.2s ease;
+}
+
+.custom-bubble-scrollbar:hover::-webkit-scrollbar-thumb {
+  background-color: rgba(255, 255, 255, 0.35) !important;
 }
 
 .custom-bubble-scrollbar::-webkit-scrollbar-thumb:hover {
@@ -131,6 +136,13 @@
   * {
     scrollbar-width: thin;
     scrollbar-color: rgba(255, 255, 255, 0.25) transparent;
+  }
+  .custom-bubble-scrollbar {
+    scrollbar-width: thin;
+    scrollbar-color: transparent transparent;
+  }
+  .custom-bubble-scrollbar:hover {
+    scrollbar-color: rgba(255, 255, 255, 0.35) transparent;
   }
 }
 
@@ -494,24 +506,25 @@ html.is-tauri .dialog-overlay {
   mix-blend-mode: normal;
 }
 
-/* ── 头顶对话气泡高质感平滑打字机动效 (方案一：字符微渐显 Cascade Blur & Fade) ── */
+/* ── 头顶对话气泡高质感平滑打字机动效 (方案一：字符微渐显 Cascade Blur & Fade，不改变垂直盒子高度) ── */
 @keyframes bubble-char-reveal {
   0% {
     opacity: 0;
-    transform: translateY(2.5px);
-    filter: blur(1.5px);
+    transform: scale(0.96);
+    filter: blur(2px);
   }
   100% {
     opacity: 1;
-    transform: translateY(0);
+    transform: scale(1);
     filter: blur(0);
   }
 }
 
 .animate-char-reveal {
   display: inline-block;
+  vertical-align: baseline;
   opacity: 0;
-  animation: bubble-char-reveal 140ms cubic-bezier(0.16, 1, 0.3, 1) forwards;
+  animation: bubble-char-reveal 180ms cubic-bezier(0.16, 1, 0.3, 1) forwards;
   will-change: opacity, transform, filter;
 }
 

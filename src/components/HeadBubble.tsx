@@ -199,8 +199,12 @@ export const HeadBubble: React.FC<HeadBubbleProps> = ({ state }) => {
 
         {/* 对话正文：视觉小说舒适字距与清晰行高，方案一平滑打字机，统一左对齐 */}
         {(isSpeaking || ttsDown) && state.speechText && (
-          <div className="text-sm font-medium text-white/95 leading-relaxed break-words text-left max-h-[calc(5*1.45em)] overflow-y-auto pr-1 select-text custom-bubble-scrollbar pointer-events-auto">
-            <TypewriterText text={state.speechText} />
+          <div className="text-sm font-medium text-white/95 leading-relaxed break-words text-left max-h-[calc(5*1.7em)] overflow-y-auto overflow-x-hidden pr-0.5 select-text custom-bubble-scrollbar pointer-events-auto">
+            <TypewriterText
+              key={state.segmentIndex != null ? `seg-${state.segmentIndex}-${state.speechText}` : state.speechText}
+              resetKey={state.segmentIndex}
+              text={state.speechText}
+            />
           </div>
         )}
       </div>
