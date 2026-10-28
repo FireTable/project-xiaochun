@@ -10,6 +10,8 @@ interface StoryCinematicOverlayProps {
   intertitleStyle?: 'noto_serif' | 'modern_sans' | 'typewriter';
   /** 字卡是否需要点击才继续 (需要时才显示“轻触屏幕唤醒”提示) */
   intertitleRequiresClick?: boolean;
+  /** 黑幕字卡下方的小字提示 (剧本给的、按剧情语言)；缺省用 UI 语言的“轻触屏幕唤醒” */
+  intertitleHint?: string;
   isEyeBlinkActive?: boolean;
   /** 转场类型与遮罩状态：covered=true 盖住画面，false 揭开 */
   transitionKind?: TransitionKind;
@@ -91,6 +93,7 @@ export const StoryCinematicOverlay: React.FC<StoryCinematicOverlayProps> = ({
   intertitleText,
   intertitleStyle = 'noto_serif',
   intertitleRequiresClick = true,
+  intertitleHint,
   isEyeBlinkActive = false,
   transitionKind = 'none',
   isTransitionCovered = false,
@@ -144,7 +147,7 @@ export const StoryCinematicOverlay: React.FC<StoryCinematicOverlayProps> = ({
           <div className="w-12 h-[1px] bg-white/20 mx-auto" />
           {intertitleRequiresClick && (
             <p className="text-xs text-white/50 tracking-widest flex items-center justify-center animate-pulse">
-              <span>{t('story.tapToWake', '轻触屏幕唤醒')}</span>
+              <span>{intertitleHint || t('story.tapToWake', '轻触屏幕唤醒')}</span>
             </p>
           )}
         </div>

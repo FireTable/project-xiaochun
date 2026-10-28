@@ -39,10 +39,11 @@ const beats: Record<string, LocalizedStoryBeat> = {
     cinematics: {
       letterbox: true,
       intertitle: {
+        // 旁白 (不是小蠢在说话)：门后有人在自言自语，轻触 = 推门进去
         text: L(
-          '一个很安静的地方。\n轻点屏幕，把她叫醒。',
-          'A very quiet place.\nTap the screen to wake her up.',
-          'とても静かな場所。\n画面をタップして、彼女を起こそう。',
+          '门后有人在小声嘀咕……好像在排练什么。',
+          'Someone behind the door is muttering to herself... rehearsing something?',
+          '扉の向こうで誰かがぶつぶつ……何かの練習？',
         ),
         durationSec: 0,
         style: 'noto_serif',
@@ -50,6 +51,8 @@ const beats: Record<string, LocalizedStoryBeat> = {
         requireClick: true,
       },
     },
+    // 黑幕下方的小字提示 (按剧情语言显示，缺省回退到 UI 语言的“轻触屏幕唤醒”)
+    hint: L('轻触推门进去', 'Tap to step in', 'タップして中へ'),
     actor: { speechText: '', expression: { base: 'neutral', intensity: 0.5 } }, // 叫醒拍不说话
     autoNextBeatId: 'beat_1',
     autoNextDelayMs: 0,

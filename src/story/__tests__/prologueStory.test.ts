@@ -35,6 +35,12 @@ describe('prologue story (Act 0 v4 · Backstage Catch)', () => {
     expect(greet.autoNextBeatId).toBe('beat_1');
     expect(greet.choices ?? []).toEqual([]);
     expect(resolveBeat(greet, 'en').actor.speechText).toBe('');
+    // 叫醒屏是旁白：门后有人在自言自语，轻触 = 推门进去 (不再是“叫醒她”)
+    const wake = (l: StoryLang) => resolveBeat(greet, l);
+    expect(wake('zh-CN').cinematics?.intertitle?.text).toBe('门后有人在小声嘀咕……好像在排练什么。');
+    expect(wake('en').cinematics?.intertitle?.text).toBe('Someone behind the door is muttering to herself... rehearsing something?');
+    expect(wake('ja').cinematics?.intertitle?.text).toBe('扉の向こうで誰かがぶつぶつ……何かの練習？');
+    expect([wake('zh-CN').hint, wake('en').hint, wake('ja').hint]).toEqual(['轻触推门进去', 'Tap to step in', 'タップして中へ']);
     const clickRequired = beats.filter((b) => b.cinematics?.intertitle?.requireClick);
     expect(clickRequired.map((b) => b.id)).toEqual(['beat_greet']);
   });

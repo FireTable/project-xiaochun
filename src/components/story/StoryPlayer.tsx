@@ -424,6 +424,7 @@ export const StoryPlayer: React.FC<StoryPlayerProps> = ({
         intertitleText={storyState.intertitleText}
         intertitleStyle={storyState.intertitleStyle}
         intertitleRequiresClick={storyState.intertitleRequiresClick}
+        intertitleHint={currentBeat?.hint}
         isEyeBlinkActive={storyState.isEyeBlinkActive}
         transitionKind={storyState.transitionKind}
         isTransitionCovered={storyState.isTransitionCovered}
