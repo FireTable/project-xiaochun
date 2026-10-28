@@ -20,8 +20,8 @@ export const CameraTrajectoryTypeSchema = z.enum([
   'push_in',                 // 斯坦尼康平缓推近 (拉近心理距离)
   'pull_out',                // 缓退后拉 (展示环境留白)
   'hero_spiral_orbit',       // 英雄螺旋升空环绕 (360°旋转并升为俯角)
-  'hero_backlight_reveal',   // 英雄逆光破晓 (对齐太阳轮廓爆光)
-  'dutch_tilt',              // 荷兰角微倾 (内心犹豫不安)
+  'hero_backlight_reveal',   // 英雄逆光破晓 (机位绕到太阳对面、压低并收窄视角，人物压在落日轮廓上)
+  'dutch_tilt',              // 荷兰角微倾 (镜头滚转约 -9°，内心犹豫不安；下一个非 dutch 运镜会自动回正)
   'arc_sweep',               // 侧方微弧度横摇
   'orbit_subtle',            // 微妙环绕微动
   'pedestal_up',             // 垂直升镜打量 (自裙摆腰身自下而上缓缓升至胸前/面部)
@@ -37,6 +37,7 @@ export const CameraDirectiveSchema = z.object({
   durationSec: z.number().min(0.2).max(12.0).default(1.2),
   easing: z.enum(['quintic_smooth', 'ease_out_dramatic', 'linear']).default('quintic_smooth'),
   targetFov: z.number().min(15).max(65).optional(),
+  /** 运镜期间的环境风力倍率 (>1 时角色发丝/裙摆被阵风吹动，运镜结束后约 1s 内平滑回落) */
   windMultiplier: z.number().min(1.0).max(3.5).default(1.0),
   alignSunBacklight: z.boolean().default(false),
   /** 自定义水平环绕角度 (度数，例如 +40, -45, 180, 360) */
@@ -80,55 +81,96 @@ export const ExpressionDirectiveSchema = z.object({
 });
 export type ExpressionDirective = z.input<typeof ExpressionDirectiveSchema>;
 
+// ─────────────────────────── 多语言文本 (i18n) ───────────────────────────
+
+/** 剧本支持的语言，与 `@/i18n` 的 Lang 同构 (这里不 import i18n，保持 schema 纯净) */
+export const STORY_LANGS = ['zh-CN', 'en', 'ja'] as const;
+export type StoryLang = (typeof STORY_LANGS)[number];
+
 /**
- * 角色表演调度规范 (Actor Directive: 起势 ➔ 开声 ➔ 余韵)
+ * 可本地化文本：直接写字符串 = 所有语言通用 (向后兼容)；
+ * 写对象 = 按语言取值，`zh-CN` 必填，缺失的语言回退到 zh-CN。
+ * 在每一拍「进入时」按当前语言解析 (见 `localize.ts`)，所以 getter 也可以用来做“按剧情状态变化的台词”。
  */
-export const ActorDirectiveSchema = z.object({
-  /** 开声前 0.4s 的起势特征动作 (VRMA 动作 key) */
-  leadInMotion: z.string().optional(),
-  /** 发音期间的主干动作 (VRMA 动作 key 或空由 EMAGE 接管) */
-  motion: z.string().optional(),
-  /** 面部活体表情 */
-  expression: ExpressionDirectiveSchema.default({
-    base: 'gentle_smile',
-    intensity: 0.7,
-    microReaction: 'none',
+export const LocalizedTextSchema = z.union([
+  z.string(),
+  z.object({
+    'zh-CN': z.string(),
+    en: z.string().optional(),
+    ja: z.string().optional(),
   }),
-  /** 台词文本 (推送到 TTS 发音并驱动口型) */
-  speechText: z.string().describe("角色的说话对白"),
-});
-export type ActorDirective = z.input<typeof ActorDirectiveSchema>;
+]);
+export type LocalizedText = z.input<typeof LocalizedTextSchema>;
 
 /**
  * 舞台画幅与转场规范 (Cinematics Directive)
  */
-export const CinematicsDirectiveSchema = z.object({
-  /** 是否开启 21:9 电影遮幅 */
-  letterbox: z.boolean().optional().default(false),
-  /** 全屏黑幕白字 (用于幕间转场或内心独白) */
-  intertitle: z.object({
-    text: z.string(),
-    durationSec: z.number().default(2.5),
-    style: z.enum(['noto_serif', 'modern_sans', 'typewriter']).default('noto_serif'),
-    bgmFaded: z.boolean().default(true),
-    requireClick: z.boolean().optional().default(false),
-  }).optional(),
-  /** 视觉转场特效 */
-  transition: z.enum(['none', 'fade_to_black', 'white_flash', 'eye_blink']).optional().default('none'),
-  /** 后期调色预设 */
-  grading: z.enum(['default', 'sepia_memory', 'rainy_noir', 'dream_bloom']).optional().default('default'),
-});
+const buildCinematicsSchema = <T extends z.ZodTypeAny>(text: T) =>
+  z.object({
+    /** 是否开启 21:9 电影遮幅 (粘性：未写则沿用上一拍) */
+    letterbox: z.boolean().optional().default(false),
+    /** 全屏黑幕白字 (用于幕间转场或内心独白) */
+    intertitle: z.object({
+      text,
+      durationSec: z.number().default(2.5),
+      style: z.enum(['noto_serif', 'modern_sans', 'typewriter']).default('noto_serif'),
+      bgmFaded: z.boolean().default(true),
+      requireClick: z.boolean().optional().default(false),
+    }).optional(),
+    /**
+     * 视觉转场：
+     * - eye_blink：黑场睁眼；white_flash：强光闪白后缓缓褪去；fade_to_black：淡入黑场再淡出。
+     * 由 change_scene / custom 选项进入的拍，会先“盖住画面”再执行动作，所以场景切换发生在遮罩之下。
+     */
+    transition: z.enum(['none', 'fade_to_black', 'white_flash', 'eye_blink']).optional().default('none'),
+    /** 后期调色预设 (粘性：写了才改变，`default` 复位；剧终自动复位) */
+    grading: z.enum(['default', 'sepia_memory', 'rainy_noir', 'dream_bloom']).optional().default('default'),
+  });
+
+export const CinematicsDirectiveSchema = buildCinematicsSchema(z.string());
 export type CinematicsDirective = z.input<typeof CinematicsDirectiveSchema>;
+export type GradingPreset = z.infer<typeof CinematicsDirectiveSchema>['grading'];
+export type TransitionKind = z.infer<typeof CinematicsDirectiveSchema>['transition'];
+
+/**
+ * 角色表演调度规范 (Actor Directive: 起势 ➔ 开声 ➔ 余韵)
+ */
+const buildActorSchema = <T extends z.ZodTypeAny>(speech: T) =>
+  z.object({
+    /** 起势动作 (VRMA 动作 key，必须是 MOTION_CATALOG 里的 id)：开场即播、单次、自然播完，不会被开声打断 */
+    leadInMotion: z.string().optional(),
+    /** 发音期间的主干动作 (VRMA 动作 key 或空由 EMAGE 接管) */
+    motion: z.string().optional(),
+    /** 面部活体表情 */
+    expression: ExpressionDirectiveSchema.default({
+      base: 'gentle_smile',
+      intensity: 0.7,
+      microReaction: 'none',
+    }),
+    /** 台词文本 (推送到 TTS 发音并驱动口型) */
+    speechText: speech.describe('角色的说话对白'),
+  });
+
+export const ActorDirectiveSchema = buildActorSchema(z.string());
+export type ActorDirective = z.input<typeof ActorDirectiveSchema>;
 
 /**
  * 音乐与音效规范 (Audio Directive)
  */
 export const AudioDirectiveSchema = z.object({
+  /** play/fade_in 播放(或切到)指定 BGM；fade_out 淡出；stop_cut 立停；duck 持续压低；muffle 低通闷住 */
   bgmAction: z.enum(['play', 'fade_in', 'fade_out', 'stop_cut', 'duck', 'muffle']).default('play'),
+  /** 程序化 BGM 预设 id (无需任何音频文件)：void_drone / dusk_warm / longing / lights_on / farewell */
   bgmMood: z.string().optional(),
+  /** BGM 文件 URL (循环播放)；加载失败会回退到 bgmMood，再失败则静音继续 */
   bgmTrack: z.string().optional(),
   bgmVolume: z.number().min(0).max(1).default(0.4),
+  /** BGM 渐入/渐出秒数 */
+  bgmFadeSec: z.number().min(0).max(10).optional(),
+  /** 环境声 (程序化)：sea_waves / wind / none */
   ambience: z.string().optional(),
+  ambienceVolume: z.number().min(0).max(1).optional(),
+  /** 单个内置音效 id */
   playSfx: z.string().optional(),
   sfx: z.array(z.object({
     id: z.string(),
@@ -154,54 +196,72 @@ export type StoryHistoryEntry = z.infer<typeof StoryHistoryEntrySchema>;
 /**
  * 抉择分支与交互引子 (Story Choice)
  */
-export const StoryChoiceSchema = z.object({
-  id: z.string(),
-  text: z.string(),
-  subText: z.string().optional(),
-  badge: z.string().optional(),
-  icon: z.string().optional(),
-  image: z.string().optional(),
-  actionType: z.enum([
-    'next_beat',           // 推进到指定下一拍
-    'change_scene',        // 切换 3D 场景世界 (void / beach3d / light / dark)
-    'swap_outfit',         // 换装 (dress / qipao / maid / school)
-    'change_lang',         // 切换语言 (zh-CN / en / ja)
-    'open_provider_config',// 打开自定义大模型服务配置弹窗
-    'finish',              // 结束并退出剧情
-    'custom',              // 自定义回调
-  ]).optional().default('next_beat'),
-  actionPayload: z.any().optional(),
-  nextBeatId: z.string().optional(),
-  selected: z.boolean().optional(),
-});
+const buildChoiceSchema = <T extends z.ZodTypeAny>(text: T) =>
+  z.object({
+    id: z.string(),
+    text,
+    subText: text.optional(),
+    badge: z.string().optional(),
+    icon: z.string().optional(),
+    image: z.string().optional(),
+    actionType: z.enum([
+      'next_beat',           // 推进到指定下一拍
+      'change_scene',        // 切换 3D 场景世界 (void / beach3d / light / dark)
+      'swap_outfit',         // 换装 (dress / qipao / maid / school)
+      'change_lang',         // 切换语言 (zh-CN / en / ja)，之后的台词按新语言播放
+      'open_provider_config',// 打开自定义大模型服务配置弹窗
+      'finish',              // 结束并退出剧情
+      'custom',              // 自定义回调 (actionPayload 为函数；务必同时给 nextBeatId，否则会进入 LLM 生成通路)
+    ]).optional().default('next_beat'),
+    actionPayload: z.any().optional(),
+    nextBeatId: z.string().optional(),
+    selected: z.boolean().optional(),
+  });
+
+export const StoryChoiceSchema = buildChoiceSchema(z.string());
 export type StoryChoice = z.input<typeof StoryChoiceSchema>;
+export const LocalizedStoryChoiceSchema = buildChoiceSchema(LocalizedTextSchema);
+export type LocalizedStoryChoice = z.input<typeof LocalizedStoryChoiceSchema>;
 
 /**
  * 核心情节点 (Story Beat)
  */
-export const StoryBeatSchema = z.object({
-  id: z.string(),
-  cinematics: CinematicsDirectiveSchema.optional(),
-  camera: CameraDirectiveSchema.optional(),
-  actor: ActorDirectiveSchema,
-  audio: AudioDirectiveSchema.optional(),
-  choices: z.array(StoryChoiceSchema).optional(),
-  confirmChoice: StoryChoiceSchema.optional(),
-  choiceLayout: z.enum(['list', 'grid', 'auto']).optional().default('auto'),
-  allowInput: z.boolean().optional().default(false),
-  inputPlaceholder: z.string().optional(),
-  interaction: z.enum(['none', 'camera_drag']).optional().default('none'),
-});
+const buildBeatSchema = <T extends z.ZodTypeAny>(text: T) => {
+  const choice = buildChoiceSchema(text);
+  return z.object({
+    id: z.string(),
+    cinematics: buildCinematicsSchema(text).optional(),
+    camera: CameraDirectiveSchema.optional(),
+    actor: buildActorSchema(text),
+    audio: AudioDirectiveSchema.optional(),
+    choices: z.array(choice).optional(),
+    confirmChoice: choice.optional(),
+    choiceLayout: z.enum(['list', 'grid', 'auto']).optional().default('auto'),
+    allowInput: z.boolean().optional().default(false),
+    inputPlaceholder: text.optional(),
+    interaction: z.enum(['none', 'camera_drag']).optional().default('none'),
+    /** 台词说完后自动进入的下一拍 (无需点击)；与 choices 互斥使用 */
+    autoNextBeatId: z.string().optional(),
+    /** 说完后的停顿毫秒 (留白 / 呼吸感)，默认 600；TTS 不可用时会按字数补足最短阅读时间 */
+    autoNextDelayMs: z.number().min(0).max(30000).optional(),
+  });
+};
+
+/** 已解析成单一语言的情节点 (引擎状态 / Player / LLM 生成都用这个) */
+export const StoryBeatSchema = buildBeatSchema(z.string());
 export type StoryBeat = z.input<typeof StoryBeatSchema>;
+/** 剧本作者写的情节点：文本字段可以是多语言对象 */
+export const LocalizedStoryBeatSchema = buildBeatSchema(LocalizedTextSchema);
+export type LocalizedStoryBeat = z.input<typeof LocalizedStoryBeatSchema>;
 
 /**
  * 完整故事剧本 (Story Script)
  */
 export const StoryScriptSchema = z.object({
   id: z.string(),
-  title: z.string(),
-  description: z.string().optional(),
+  title: LocalizedTextSchema,
+  description: LocalizedTextSchema.optional(),
   initialBeatId: z.string(),
-  beats: z.record(z.string(), StoryBeatSchema),
+  beats: z.record(z.string(), LocalizedStoryBeatSchema),
 });
 export type StoryScript = z.input<typeof StoryScriptSchema>;
