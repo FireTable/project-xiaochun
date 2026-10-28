@@ -796,6 +796,31 @@ describe('StoryDirectorEngine runtime behaviour', () => {
       expect(h.setScene).not.toHaveBeenCalled();
     });
 
+    it('a second tap while an outfit swap is still loading is ignored (no second swap, cards flagged busy), then works again', async () => {
+      const { vrmEngine } = await import('@/core/vrmEngine');
+      let finish!: () => void;
+      (vrmEngine.swapOutfit as ReturnType<typeof vi.fn>).mockReset();
+      (vrmEngine.swapOutfit as ReturnType<typeof vi.fn>).mockImplementationOnce(
+        () => new Promise<boolean>((r) => { finish = () => r(true); }),
+      );
+      stubStorage({});
+      void engine.playScript(withDress() as never);
+      await vi.advanceTimersByTimeAsync(500);
+      const maid = engine.getState().choices.find((c) => c.id === 'outfit_maid')!;
+      const dress = engine.getState().choices.find((c) => c.id === 'outfit_dress')!;
+      const first = engine.selectChoice(maid);
+      expect(engine.getState().isOutfitSwapping).toBe(true);
+      await engine.selectChoice(dress); // fast second tap: dropped
+      await engine.selectChoice(maid);
+      expect(vrmEngine.swapOutfit).toHaveBeenCalledTimes(1);
+      finish();
+      await first;
+      expect(engine.getState().isOutfitSwapping).toBe(false);
+      expect(engine.getState().choices.find((c) => c.id === 'outfit_maid')?.selected).toBe(true);
+      await engine.selectChoice(dress);
+      expect(vrmEngine.swapOutfit).toHaveBeenCalledTimes(2);
+    });
+
     it('trying an outfit plays the outfit-showcase motion group (like the normal app), not a hard-coded motion', async () => {
       void engine.playScript(script as never);
       await vi.advanceTimersByTimeAsync(500);

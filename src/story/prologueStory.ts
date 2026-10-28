@@ -116,7 +116,9 @@ const beats: Record<string, LocalizedStoryBeat> = {
   beat_3: {
     id: 'beat_3',
     cinematics: { grading: 'default', wind: 0 },
-    camera: { shot: 'medium', movement: 'dutch_tilt', durationSec: 2.0 },
+    // 正面、水平：相机沿最短弧绕到她面朝的方向 (已在正面时只是不动)，并把上一拍可能残留的滚转缓回 0°；
+    // 不用 dutch_tilt (滚转 -9° 会让画面歪) —— 这一拍要用户安心检查发型，不是内心不安
+    camera: { shot: 'medium', movement: 'orbit_to_front', durationSec: 2.0 },
     actor: {
       leadInMotion: 'pokeFingers', // 低头整理裙摆，随后叉腰等待检查
       expression: { base: 'shy', intensity: 0.8, microReaction: 'blush_ramp' },

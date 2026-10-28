@@ -5,6 +5,7 @@ import { vrmEngine } from '@/core/vrmEngine';
 import { sceneManager } from '@/core/scene/sceneManager';
 import { APP_CONFIG } from '@/config';
 import { WEARING_OUTFIT_KEY } from '@/lib/constants';
+import { changeOutfit, resolveOutfit } from '@/lib/outfit';
 import { changeLang, readClientLang } from '@/i18n';
 import type { i18n as I18nInstance } from 'i18next';
 import type {
@@ -44,6 +45,8 @@ export interface StoryState {
   /** 当前后期调色预设 (粘性，剧终复位) */
   grading: GradingPreset;
   isSpeaking: boolean;
+  /** 试衣卡点击后换装进行中 (UI 据此禁用卡片，防止连点) */
+  isOutfitSwapping: boolean;
   choices: StoryChoice[];
   history: StoryHistoryEntry[];
   progress: {
@@ -105,6 +108,7 @@ export class StoryDirectorEngine {
     isTransitionCovered: false,
     grading: 'default',
     isSpeaking: false,
+    isOutfitSwapping: false,
     choices: [],
     history: [],
     progress: { current: 1, total: 1 },
@@ -690,20 +694,6 @@ export class StoryDirectorEngine {
     await sceneManager.setScene(id, persist);
   }
 
-  /**
-   * 剧情里换上的衣服要像普通换装一样记住：普通换装的持久化在 TopHeader 的菜单回调里 (swapOutfit.then → setWearingAddonKey → 写
-   * WEARING_OUTFIT_KEY)，剧情直接调 vrmEngine.swapOutfit 绕过了它，所以这里自己写。只写衣服，不碰场景 (void 不会被存成场景)。
-   */
-  private persistOutfit(addonId: string | null): void {
-    try {
-      if (typeof localStorage === 'undefined') return;
-      if (addonId) localStorage.setItem(WEARING_OUTFIT_KEY, addonId);
-      else localStorage.removeItem(WEARING_OUTFIT_KEY);
-    } catch {
-      /* 存储被拦截：忽略 */
-    }
-  }
-
   private readStored(key: string): string | null {
     try {
       return typeof localStorage === 'undefined' ? null : localStorage.getItem(key);
@@ -776,6 +766,9 @@ export class StoryDirectorEngine {
    * 用户选择分支卡片
    */
   public async selectChoice(choice: StoryChoice): Promise<void> {
+    // 换装还在跑：丢掉重复点击 (卡片本来也被禁用，这里兜底键盘 / 快速连点)；不打断台词、不记录任何东西
+    if (choice.actionType === 'swap_outfit' && this.state.isOutfitSwapping) return;
+
     if (this.state.isSpeaking) {
       this.interrupt();
     }
@@ -857,17 +850,22 @@ export class StoryDirectorEngine {
       }
     } else if (choice.actionType === 'swap_outfit' && choice.actionPayload) {
       const outfitKey = String(choice.actionPayload);
-      this.previewPick.outfit = outfitKey;
-      const addons = (APP_CONFIG.model.addons || {}) as Record<string, { source: string; name: string }>;
-      const addonId = addons[outfitKey] ? outfitKey : addons[`xiaochun_${outfitKey}`] ? `xiaochun_${outfitKey}` : null;
-      const addon = addonId ? addons[addonId] : undefined;
-      if (addon && addonId) {
-        await vrmEngine.swapOutfit(addon.source, addon.name, { showcase: false });
-        this.persistOutfit(addonId);
-      } else if (outfitKey === 'base' || outfitKey === 'default') {
-        await vrmEngine.swapOutfit(APP_CONFIG.model.defaultSource, APP_CONFIG.model.defaultName, { showcase: false });
-        this.persistOutfit(null);
+      // 与 TopHeader 换装按钮共用同一个入口 (src/lib/outfit.ts)：同一件已穿就不重换、串行 + 最新优先、落盘 WEARING_OUTFIT_KEY
+      const target = resolveOutfit(outfitKey);
+      if (target) {
+        this.state.isOutfitSwapping = true;
+        this.notify();
+        try {
+          await changeOutfit(target, { showcase: false });
+        } catch (err) {
+          console.warn('[StoryEngine] outfit swap failed:', err);
+          return; // 没换成：不高亮这张卡、不放走秀动作
+        } finally {
+          this.state.isOutfitSwapping = false;
+          this.notify();
+        }
       }
+      this.previewPick.outfit = outfitKey;
 
       // 换完衣服之后的展示动作：与常规换装一致，走“换装走秀”动作组 (outfitShowcase，按权重随机)，不写死 showFullBody
       void vrmEngine.playMotionGroup('outfitShowcase', { fadeDuration: 0.6, loop: false });

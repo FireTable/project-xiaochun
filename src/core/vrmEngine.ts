@@ -1,4 +1,5 @@
 import * as THREE from 'three';
+import { LatestWinsQueue, SUPERSEDED } from '@/core/latestWinsQueue';
 import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js';
 import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
 import { VRM, VRMLoaderPlugin, VRMUtils } from '@pixiv/three-vrm';
@@ -2248,6 +2249,12 @@ export class VRMEngine {
 
           // ponytail: 无缝换装核心时序 —— 旧模型全速运动直到此时，新模型在内存就绪后原子交接
           if (preserveMotion && previousVrm) {
+            // 兜底：解析期间 currentVRM 已被别的加载换掉 (理论上 swapOutfit 串行后不会发生) → 丢弃这个新模型，绝不再往场景里多挂一个
+            if (this.currentVRM !== previousVrm) {
+              this.staggeredDisposer.enqueueScene(vrm.scene, this.texturePool);
+              reject(new Error('[loadVRMFromBuffer] superseded: current model changed while parsing'));
+              return;
+            }
             // Outfit swap: upload the new model's textures and link its programs (yielding) while the old model keeps
             // animating, instead of inside the first renderSingleFrame after the atomic swap (~400–700 ms freeze).
             await this.prewarmGpu(vrm.scene);
@@ -2710,11 +2717,35 @@ export class VRMEngine {
    * 冷启动调到这里时 currentVRM 为 null,但 addon 路径仍然要走 (loadVRM 接 .vrmaddon URL 会挂),
    * 所以 addon 检测放在 currentVRM 检查之前。
    */
-  public async swapOutfit(
+  public swapOutfit(
     url: string,
     filename: string,
     options?: SwapOutfitOptions,
-  ): Promise<void> {
+  ): Promise<boolean> {
+    // 并发安全：换装请求串行执行 + 最新请求优先 (generation token)。
+    // 之前两次换装可以并发跑：两个都以同一个 currentVRM 作为 previousVrm，各自 scene.add 自己的新模型，
+    // 先落地的那个新模型被后落地的覆盖 (currentVRM 指针丢了) 却仍留在场景里 → 手机连点两下出现多个模型。
+    // 现在：每次调用领一个递增 token；排队等候期间被更新的请求顶掉的 (token 已过期) 直接跳过 (resolve(false))；
+    // 正在跑的不会被打断 (半途取消会留下半截状态)，但 compose 完发现自己已过期会提前放弃，不再解析/上屏。
+    return this.swapQueue
+      .run((token) => this.swapOutfitNow(url, filename, options, token))
+      .then((r) => (r === SUPERSEDED ? false : r));
+  }
+
+  /** 是否有换装在跑或排队 (UI 用来禁用重复点击) */
+  public get isSwappingOutfit(): boolean {
+    return this.swapQueue.busy;
+  }
+
+  private swapQueue = new LatestWinsQueue();
+
+  /** 返回 true = 这次换装已落地；false = 被更新的请求顶掉 (没有改动场景) */
+  private async swapOutfitNow(
+    url: string,
+    filename: string,
+    options: SwapOutfitOptions | undefined,
+    token: number,
+  ): Promise<boolean> {
     // ponytail: addon URL 走 composeOutfit 路径(worker 内 unzip + 合成完整 GLB),
     // 普通 URL (.vrm / blob:) 走 loadVRM 直通。.vrmbase 是 cold-start 的 whole-glb zip,
     // 跟 .vrmaddon 走同一条 worker 通道。
@@ -2745,6 +2776,8 @@ export class VRMEngine {
         ) ?? null;
         const addonSha = addonKey ? APP_CONFIG.model.addons[addonKey].sha : '';
         const composed = await this.composeVRMFromAddon(url, addonSha, { phaseLabel, subtitleVars, preserveMotion });
+        // compose 期间又来了更新的请求：此刻还没动场景，直接放弃这份结果 (省掉解析 + GPU 预热 + 一次多余的换模型)
+        if (preserveMotion && !this.swapQueue.isLatest(token)) return false;
         if (!preserveMotion) {
           this.reportLoading({ active: true, subtitleKey: 'parsingModel', subtitleVars, progress: 45 });
         }
@@ -2802,10 +2835,14 @@ export class VRMEngine {
           console.warn('[vrmEngine] cold-start emage load notice:', e);
         }
       }
+      return true;
     } finally {
       // ponytail: 末尾回调 — 成功 / 失败都发,UI 收起 spinner + overlay。
       // 用 progress:100 而非 0 — 上一版本用 0 让 bar 倒带回 0%,看着像失败。
-      this.onSwapProgress?.({ active: false, subtitleKey: '', progress: 100 });
+      // 后面还有更新的请求在排队：不收起 spinner (避免按钮在两次换装之间闪一下可点)，由最后一个请求收尾
+      if (this.swapQueue.isLatest(token)) {
+        this.onSwapProgress?.({ active: false, subtitleKey: '', progress: 100 });
+      }
       if (!preserveMotion) {
         this.reportLoading({ active: false, subtitleKey: '', progress: 100 });
         // 冷启动进入 3D 舞台：遮罩淡出时立即起播 greeting (热情招手问候)，在招手展开时平滑推镜头
@@ -2878,6 +2915,7 @@ export class VRMEngine {
         buffer,
         '',
         async (gltf) => {
+          try {
           const vrm = gltf.userData.vrm as VRM | undefined;
           if (!vrm) {
             reject(new Error('[loadVRMFromBuffer] gltf.userData.vrm is empty'));
@@ -2961,6 +2999,12 @@ export class VRMEngine {
 
           // ponytail: 无缝换装核心时序 —— 旧模型全速运动直到此时，新模型在内存就绪后原子交接
           if (preserveMotion && previousVrm) {
+            // 兜底：解析期间 currentVRM 已被别的加载换掉 (理论上 swapOutfit 串行后不会发生) → 丢弃这个新模型，绝不再往场景里多挂一个
+            if (this.currentVRM !== previousVrm) {
+              this.staggeredDisposer.enqueueScene(vrm.scene, this.texturePool);
+              reject(new Error('[loadVRMFromBuffer] superseded: current model changed while parsing'));
+              return;
+            }
             // Outfit swap: upload the new model's textures and link its programs (yielding) while the old model keeps
             // animating, instead of inside the first renderSingleFrame after the atomic swap (~400–700 ms freeze).
             await this.prewarmGpu(vrm.scene);
@@ -3067,6 +3111,10 @@ export class VRMEngine {
           }
           void this.chatDirector.warmThinkingClip(vrm, this.vrmaPlayer);
           resolve(vrm);
+          } catch (e) {
+            // async 回调里的异常不会冒泡给 Promise：不收尾的话换装队列会一直卡在这一次上，后面的换装全部排不上
+            reject(e instanceof Error ? e : new Error(String(e)));
+          }
         },
         (err) => reject(err instanceof Error ? err : new Error(String(err))),
       );

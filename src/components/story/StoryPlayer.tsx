@@ -282,7 +282,7 @@ export const StoryPlayer: React.FC<StoryPlayerProps> = ({
               choices={displayChoices}
               layout="list"
               onSelect={handleSelectChoice}
-              disabled={isGenerating}
+              disabled={isGenerating || storyState.isOutfitSwapping}
             />
           )}
         </div>
@@ -296,7 +296,7 @@ export const StoryPlayer: React.FC<StoryPlayerProps> = ({
             choices={displayChoices}
             layout="compact-media"
             onSelect={handleSelectChoice}
-            disabled={isGenerating}
+            disabled={isGenerating || storyState.isOutfitSwapping}
           />
           {currentBeat?.confirmChoice && (
             <StoryChoiceCard
@@ -304,7 +304,7 @@ export const StoryPlayer: React.FC<StoryPlayerProps> = ({
               index={displayChoices.length}
               layout="list"
               onSelect={handleSelectChoice}
-              disabled={isGenerating}
+              disabled={isGenerating || storyState.isOutfitSwapping}
             />
           )}
         </div>
@@ -318,7 +318,7 @@ export const StoryPlayer: React.FC<StoryPlayerProps> = ({
             choices={displayChoices}
             layout="list"
             onSelect={handleSelectChoice}
-            disabled={isGenerating}
+            disabled={isGenerating || storyState.isOutfitSwapping}
           />
           {currentBeat?.confirmChoice && (
             <StoryChoiceCard
@@ -326,7 +326,7 @@ export const StoryPlayer: React.FC<StoryPlayerProps> = ({
               index={displayChoices.length}
               layout="list"
               onSelect={handleSelectChoice}
-              disabled={isGenerating}
+              disabled={isGenerating || storyState.isOutfitSwapping}
             />
           )}
         </div>

@@ -30,7 +30,7 @@ export const StoryChoiceCard: React.FC<StoryChoiceCardProps> = ({
         className={`pointer-events-auto w-full group relative flex items-center justify-between p-1.5 sm:p-2 rounded-xl transition-all duration-200 cursor-pointer text-left overflow-hidden ${
           isSelected
             ? 'bg-[#151b33]/95 border border-primary ring-1 ring-primary/50 shadow-primary/25'
-            : 'bg-[#0b0e1b]/85 hover:bg-[#151b33]/90 border border-white/12 hover:border-primary/40 shadow-[0_4px_16px_rgba(0,0,0,0.4)] backdrop-blur-md'
+            : 'bg-[#0b0e1b]/85 hover:bg-[#151b33]/90 border border-white/12 hover:border-primary/40 backdrop-blur-md'
         } active:scale-[0.98]`}
       >
         <div className="flex items-center gap-2.5 min-w-0 flex-1">
@@ -98,7 +98,7 @@ export const StoryChoiceCard: React.FC<StoryChoiceCardProps> = ({
         className={`pointer-events-auto w-full group relative flex flex-col p-2 sm:p-2.5 rounded-xl transition-all duration-200 cursor-pointer text-left overflow-hidden ${
           isSelected
             ? 'bg-[#151b33]/95 border-2 border-primary ring-2 ring-primary/40 shadow-primary/30'
-            : 'bg-[#0b0e1b]/85 hover:bg-[#101426]/95 border border-white/15 hover:border-primary/50 shadow-[0_8px_24px_rgba(0,0,0,0.5)] hover:shadow-primary/20 backdrop-blur-md'
+            : 'bg-[#0b0e1b]/85 hover:bg-[#101426]/95 border border-white/15 hover:border-primary/50 backdrop-blur-md'
         } active:scale-[0.98]`}
       >
         {/* 顶部 16:9 比例画面预览展台 */}
@@ -165,7 +165,7 @@ export const StoryChoiceCard: React.FC<StoryChoiceCardProps> = ({
       className={`pointer-events-auto w-full group relative flex items-center justify-between px-3 py-2 sm:px-3.5 sm:py-2.5 rounded-xl transition-all duration-200 cursor-pointer text-left overflow-hidden ${
         isSelected
           ? 'bg-[#151b33]/95 border border-primary ring-1 ring-primary/40 shadow-primary/25 hover:border-primary-light'
-          : 'bg-[#0b0e1b]/85 hover:bg-[#151b33]/95 border border-white/12 hover:border-primary/40 shadow-[0_4px_14px_rgba(0,0,0,0.35)] hover:shadow-[0_4px_20px_rgba(0,0,0,0.55)] backdrop-blur-md'
+          : 'bg-[#0b0e1b]/85 hover:bg-[#151b33]/95 border border-white/12 hover:border-primary/40 backdrop-blur-md'
       } active:scale-[0.98]`}
     >
       <div className="flex items-center gap-2 sm:gap-2.5 min-w-0 z-10 flex-1">

@@ -282,7 +282,11 @@ describe('prologue story (Act 0 v4 · Meeting XiaoChun)', () => {
     const b = prologueStory.beats;
     expect(b.beat_1.cinematics).toMatchObject({ letterbox: true, transition: 'fade_to_black', grading: 'dream_bloom', wind: 0 }); // 叫醒后不眨眼
     expect(b.beat_2.cinematics).toMatchObject({ letterbox: false, wind: 0 });
-    expect(b.beat_3.camera?.movement).toBe('dutch_tilt');
+    // beat 3 (camera-task): frontal and level - no roll (dutch_tilt) and no azimuth offset
+    expect(b.beat_3.camera).toMatchObject({ shot: 'medium', movement: 'orbit_to_front' });
+    expect(b.beat_3.camera?.movement).not.toBe('dutch_tilt');
+    expect(b.beat_3.camera?.startAzimuthOffsetDeg).toBeUndefined();
+    expect(b.beat_3.camera?.orbitAngleDeg).toBeUndefined();
     expect(b.beat_outfit_choice.camera).toMatchObject({ shot: 'wide', movement: 'arc_sweep' });
     expect(b.beat_4.cinematics).toMatchObject({ grading: 'default', wind: 1 });
     expect(b.beat_6.cinematics).toMatchObject({ transition: 'eye_blink', grading: 'default', wind: 1 });
