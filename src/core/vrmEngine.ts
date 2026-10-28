@@ -1984,10 +1984,10 @@ export class VRMEngine {
   }
 
   /**
-   * 重置镜头机位至默认自由机位
+   * 重置镜头机位至默认自由机位 (平滑回正至初始取景姿态并恢复自由控制)
    */
-  public resetCamera(): void {
-    cameraDirector.reset();
+  public async resetCamera(durationMs: number = VIEW_RETURN_MS): Promise<void> {
+    await this.returnToDefaultView(durationMs);
   }
 
   // ── 退出故事 / 运镜后回到“刷新页面后的默认视角” ──

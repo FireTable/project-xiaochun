@@ -367,32 +367,33 @@
       await xc.speak('我的镜头还会自裙摆与脚踝自下而上缓缓打量哦，是不是很有电影感？');
       await sleep(2000);
 
-      // 阶段 4: 全景全身展示 + 45 度环绕机位 + 华丽舞蹈组
-      setStatus('阶段 4: 全景全身 (full) + 45° 环绕 + 舞蹈表演组', 'dancePerformance (舞蹈轮播)', 'gentle_smile', 'full (orbit: 45°)');
-      addLog('阶段 4: window.xiaochun.camera("full", { orbitAngleDeg: 45, durationSec: 1.8 })');
-      await xc.camera('full', { orbitAngleDeg: 45, durationSec: 1.8 });
-      await xc.expression('gentle_smile', 0.9);
+      // 阶段 4: 全景全身展示 + 电影级动态环绕横摇 (arc_sweep) + 华丽舞蹈组
+      setStatus('阶段 4: 全景全身 (full) + 动态环绕运镜 + 舞蹈表演组', 'dancePerformance (舞蹈轮播)', 'gentle_smile', 'full (arc_sweep)');
       addLog('阶段 4: window.xiaochun.motionGroup("dancePerformance", { loop: true })');
       await xc.motionGroup('dancePerformance', { loop: true });
+      await xc.expression('gentle_smile', 0.9);
+      addLog('阶段 4: window.xiaochun.camera("full", { movement: "arc_sweep", durationSec: 5.0 })');
+      const sweepPromise = xc.camera('full', { movement: 'arc_sweep', durationSec: 5.0 });
       await xc.speak('现在是全景全身环绕视角，小蠢为你献上一小段舞蹈！');
-      await sleep(6000);
+      await sleep(3500);
+      await sweepPromise;
 
       // 阶段 5: 微距面部特写 + 害羞微表情
       setStatus('阶段 5: 面部微距特写 (extreme_close_up) + 羞怯微表情', 'shyBehindBack', 'shy', 'extreme_close_up');
-      addLog('阶段 5: window.xiaochun.camera("extreme_close_up", { movement: "push_in", durationSec: 1.2 })');
-      await xc.camera('extreme_close_up', { movement: 'push_in', durationSec: 1.2 });
+      addLog('阶段 5: window.xiaochun.camera("extreme_close_up", { movement: "push_in", orbitAngleDeg: 0, durationSec: 1.4 })');
+      await xc.camera('extreme_close_up', { movement: 'push_in', orbitAngleDeg: 0, durationSec: 1.4 });
       await xc.expression('shy', 0.9);
       await xc.motion('shyBehindBack');
       await xc.speak('悄悄靠近一点点……主人辛苦啦，小蠢一直在身边陪着你哦。');
       await sleep(2500);
 
       // 阶段 6: 镜头平滑复位 + 自然归位
-      setStatus('阶段 6: 镜头复位 (reset) + 表情回归自然', 'NaturalIdle', 'neutral', 'medium (free)');
+      setStatus('阶段 6: 镜头平滑复位 (reset) + 表情回归待机', 'NaturalIdle', 'neutral', 'medium (free)');
       addLog('阶段 6: window.xiaochun.camera.reset() & expression("neutral")');
-      await xc.camera.reset();
-      await xc.expression('neutral');
       await xc.stopMotion(0.75);
-      await xc.speak('演示完成！镜头已经交还给你自由旋转与缩放啦。');
+      await xc.expression('neutral');
+      await xc.camera.reset();
+      await xc.speak('演示完成！镜头已经平滑归位，交还给你自由旋转与缩放啦。');
       addLog('🎉 [Tour] 全流程演示圆满结束！', 'success');
       setStatus('全流程演示完成，已交还自由控制权', 'NaturalIdle', 'neutral', 'medium (free)');
     } catch (err) {
@@ -481,9 +482,9 @@
   });
 
   document.getElementById('xc-btn-c-full').addEventListener('click', async () => {
-    addLog('执行 camera("full", { orbitAngleDeg: 45 })');
-    setStatus('运镜过渡: 全身大景 + 侧方 45° 环绕', null, null, 'full (orbit: 45°)');
-    await xc.camera('full', { orbitAngleDeg: 45, durationSec: 1.8 });
+    addLog('执行 camera("full", { movement: "arc_sweep", durationSec: 3.0 })');
+    setStatus('运镜过渡: 全身大景 + 电影级弧度环绕横摇', null, null, 'full (arc_sweep)');
+    await xc.camera('full', { movement: 'arc_sweep', durationSec: 3.0 });
   });
 
   document.getElementById('xc-btn-c-panup').addEventListener('click', async () => {

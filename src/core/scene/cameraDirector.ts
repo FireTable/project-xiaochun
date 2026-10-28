@@ -42,10 +42,10 @@ export const SHOT_PRESETS: Record<CameraShotType, ShotPresetConfig> = {
     fov: 30,
   },
   full: {
-    distance: 3.80,
-    targetYOffset: -0.55, // 聚焦腰腹，全身尽收眼底
-    pitch: Math.PI * 0.48,
-    fov: 35,
+    distance: 2.95,
+    targetYOffset: -0.47, // 聚焦骨盆腰腹中心，使角色从发顶至鞋底占据画面约 88% 黄金视高
+    pitch: Math.PI * 0.49,
+    fov: 30,
   },
   dramatic_low: {
     distance: 1.70,
@@ -252,20 +252,27 @@ export class CameraDirector {
     const isOrbitSubtle = trajectory === 'orbit_subtle';
     const isPushIn = trajectory === 'push_in';
     const isPullOut = trajectory === 'pull_out';
-    const hasCustomOrbit = directive.orbitAngleDeg !== undefined && Math.abs(directive.orbitAngleDeg) > 0.01;
+    const hasCustomOrbit = directive.orbitAngleDeg !== undefined;
 
     // 解析环绕方位角增量
-    let extraOrbitRad = 0;
+    let orbitDeltaRad = backlightDeltaRad;
     if (hasCustomOrbit) {
-      extraOrbitRad = (directive.orbitAngleDeg! * Math.PI) / 180;
+      if (Math.abs(directive.orbitAngleDeg!) >= 360) {
+        // 大于等于 360° 表示显式多圈/整圈大旋转
+        orbitDeltaRad += (directive.orbitAngleDeg! * Math.PI) / 180;
+      } else {
+        // 将 orbitAngleDeg 视为目标机位相对角色正面的水平朝向角 (0° = 正前方，90° = 正侧方)
+        // 通过 wrapPi 计算走最短弧度平滑旋转到指定朝向，避免连续调用导致机位无休止漂移到角色身后
+        const targetAzimuth = (directive.orbitAngleDeg! * Math.PI) / 180;
+        orbitDeltaRad += wrapPi(targetAzimuth - currentAzimuth);
+      }
     } else if (isHeroOrbit) {
-      extraOrbitRad = Math.PI * 2.0; // 360° 英雄全景环绕
+      orbitDeltaRad += Math.PI * 2.0; // 360° 英雄全景环绕
     } else if (isArcSweep) {
-      extraOrbitRad = Math.PI * 0.22; // ~40° 侧方弧度横摇
+      orbitDeltaRad += Math.PI * 0.22; // ~40° 侧方弧度横摇
     } else if (isOrbitSubtle) {
-      extraOrbitRad = Math.PI * 0.12; // ~21.6° 微妙环绕微动
+      orbitDeltaRad += Math.PI * 0.12; // ~21.6° 微妙环绕微动
     }
-    const orbitDeltaRad = backlightDeltaRad + extraOrbitRad;
     const hasOrbitalMotion = Math.abs(orbitDeltaRad) > 0.001;
     const finalAzimuth = currentAzimuth + orbitDeltaRad;
 

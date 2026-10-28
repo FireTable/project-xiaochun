@@ -201,7 +201,7 @@ export async function runProtocolAction(message: ProtocolMessage, hooks?: Protoc
       await requireVRM();
       const payload = (message.payload || {}) as CameraPayload;
       if (payload.reset === true || payload.reset === 'true') {
-        vrmEngine.resetCamera();
+        await vrmEngine.resetCamera();
         return;
       }
       if (payload.panUp === true || payload.panUp === 'true') {
