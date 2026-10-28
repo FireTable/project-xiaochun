@@ -830,7 +830,7 @@ export const zhCN = {
     you: '你',
     xiaochun: '小蠢',
     cameraExplore: '3D 视角探索',
-    cameraAllDone: '🎉 全部视角探索完成，前往下一步！',
+    cameraAllDone: '全部视角探索完成，前往下一步！',
     cameraAllDoneSub: '视角操控已全部解锁掌握',
     interruptPlaceholder: '直接输入打断...',
     inputPlaceholder: '输入对话或自选动作...',

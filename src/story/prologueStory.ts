@@ -5,10 +5,10 @@ import type { StoryScript, LocalizedStoryBeat, LocalizedText, AudioDirective } f
  *
  * 一句话：用户提前进场，撞见小蠢正对着空气排练一套做作的“女神欢迎词”。
  * 抓包 → 破功嘴硬 → 让你帮忙检查仪容 → 嫌弃空荡荡的虚空、换场景 → 经费燃烧、让你说句话 → 扔掉台本，进入自由聊天。
- * 每个操作教学点都有剧情动机，小蠢只说戏里的话；“现在可以做什么”放在屏幕提示 (hint) 里，不朗读。
+ * 每个操作教学点都有剧情动机，小蠢只说戏里的话；操作提示由卡片自己的标题 / 副标题承担。
  *
  * 结构：叫醒拍 (beat_greet，沿用原来的黑幕“轻点屏幕，把她叫醒”，同时解锁浏览器音频) + 6 拍 + 1 拍换装，每拍 1 句台词 = 1 次 TTS：
- *   1 后台抓包 (auto 400ms) → 2 社死破功 (选语言) → 3 检查仪容 (camera_task：转视角 / 缩放)
+ *   1 后台抓包 (auto 400ms) → 2 社死破功 (选语言) → 3 检查仪容 (camera_drag 教学卡：转视角 / 缩放)
  *   → 3.5 帮我挑衣服 (衣服卡：当场换装预览 + 确认) → 4 嫌弃虚空 (场景卡：带预览图，海边 / 昼白线稿 / 极夜线稿)
  *   → 5 经费燃烧 (白闪切场景 + 昼夜光影 + input：说句话) → 6 剧本杀青 (auto 300ms → finish → 自由聊天)。
  * 额外语音只在两种情况：镜头任务 6 秒超时的兜底台词；用户输入后的固定回复。
@@ -45,14 +45,14 @@ const beats: Record<string, LocalizedStoryBeat> = {
           'Someone behind the door is muttering to herself... rehearsing something?',
           '扉の向こうで誰かがぶつぶつ……何かの練習？',
         ),
+        // 黑幕下方的小字 (按剧情语言显示)
+        subtitle: L('轻触推门进去', 'Tap to step in', 'タップして中へ'),
         durationSec: 0,
         style: 'noto_serif',
         bgmFaded: true,
         requireClick: true,
       },
     },
-    // 黑幕下方的小字提示 (按剧情语言显示，缺省回退到 UI 语言的“轻触屏幕唤醒”)
-    hint: L('轻触推门进去', 'Tap to step in', 'タップして中へ'),
     actor: { speechText: '', expression: { base: 'neutral', intensity: 0.5 } }, // 叫醒拍不说话
     autoNextBeatId: 'beat_1',
     autoNextDelayMs: 0,
@@ -102,7 +102,6 @@ const beats: Record<string, LocalizedStoryBeat> = {
         { id: 'heartbeat', delaySec: 1.0, volume: 0.7 },
       ],
     },
-    hint: L('选择语言回应', 'Choose language', '言語を選んで返事'),
     choiceLayout: 'list',
     choices: [
       // 每张卡片只写自己语言的原文 (纯字符串 = 所有语言下都是这句)：选哪张，从下一拍起就用哪种语言说话。
@@ -129,7 +128,6 @@ const beats: Record<string, LocalizedStoryBeat> = {
     audio: { sfx: [{ id: 'shutter', delaySec: 0.5, volume: 0.7 }] },
     // 旧版 camera_drag 教学卡 (StoryCameraTaskCard：拖动 / 缩放手势任务清单，PC + 触屏文案各一套) + 用户口吻的“继续”按钮；
     // 不做自动检测、不做兜底：用户想看多久看多久，自己点按钮进入下一拍 (全部任务完成后按钮文案会变成“前往下一步”)。
-    hint: L('环绕观察并缩放距离', 'Orbit and zoom view', '視点を回して拡大縮小'),
     interaction: 'camera_drag',
     choices: [
       {
@@ -158,7 +156,6 @@ const beats: Record<string, LocalizedStoryBeat> = {
         'ちょっと待って、ぐるっと見られて気づいたけど、この服ちょっと堅すぎない？スタイリスト役、お願い！',
       ),
     },
-    hint: L('选一套衣服', 'Pick an outfit', '服を選ぶ'),
     choiceLayout: 'grid',
     choices: [
       {
@@ -191,8 +188,8 @@ const beats: Record<string, LocalizedStoryBeat> = {
     ],
     confirmChoice: {
       id: 'outfit_confirm',
-      icon: '✨',
       text: L('就这身了', "That's the one", 'それに決まり'),
+      subText: L('穿着它继续', "Keep it on and move on", 'この服で先へ進む'),
       actionType: 'next_beat',
       nextBeatId: 'beat_4',
     },
@@ -201,7 +198,7 @@ const beats: Record<string, LocalizedStoryBeat> = {
   // ═══ 4 · 嫌弃虚空 (教：选场景；选哪个分支决定第 5 拍的场景 / 调色 / 风 / BGM / 音效) ═══
   beat_4: {
     id: 'beat_4',
-    cinematics: { grading: 'sepia_memory', wind: 1 },
+    cinematics: { grading: 'default', wind: 1 }, // 选场景这一拍不加任何滤镜 (显式回到 default，不继承上一拍)
     camera: { shot: 'full', movement: 'pull_out', durationSec: 2.5 },
     actor: {
       leadInMotion: 'gazeObserve', // 双手一摊，嫌弃地打量四周
@@ -213,7 +210,6 @@ const beats: Record<string, LocalizedStoryBeat> = {
       ),
     },
     audio: { sfx: [{ id: 'wind', delaySec: 0.3, volume: 0.6 }] },
-    hint: L('选择想去的地方', 'Pick a destination', '行き先を選ぶ'),
     // 场景卡带预览图：点一张就当场换过去看 (可以来回看)，再点“就这儿了”才进入下一拍；选了哪张决定第 5 拍的分支。
     // 即使没点预览直接确认，第 5 拍自己的 scene 也会保证场景对得上。
     choiceLayout: 'grid',
@@ -252,8 +248,8 @@ const beats: Record<string, LocalizedStoryBeat> = {
     ],
     confirmChoice: {
       id: 'scene_confirm',
-      icon: '✨',
       text: L('就去这儿了', "That's the place", 'ここに決めた'),
+      subText: L('把这里设为常驻世界', 'Make this our home world', 'ここを常駐の世界にする'),
       actionType: 'next_beat',
       nextBeatId: 'beat_5',
     },
@@ -315,7 +311,6 @@ const beats: Record<string, LocalizedStoryBeat> = {
       },
     },
     // 不开输入栏：只有固定“暗号”卡 (用户口吻，点哪张都进入 beat_5_reply 的同一句固定回应)
-    hint: L('选一句暗号', 'Pick a password', '合言葉を選ぶ'),
     choices: [
       {
         id: 'say_open_sesame',
@@ -376,7 +371,6 @@ const beats: Record<string, LocalizedStoryBeat> = {
         '最後にひとつ！台詞は覚えたけど、アドリブのきく頭がまだないの。選んでくれる？',
       ),
     },
-    hint: L('选个大脑', 'Pick a brain', '頭脳を選ぶ'),
     choices: [
       {
         id: 'brain_webllm',
@@ -432,7 +426,6 @@ const beats: Record<string, LocalizedStoryBeat> = {
       ),
     },
     audio: { sfx: [{ id: 'bell', delaySec: 0.2, volume: 0.6 }] },
-    hint: L('开始自由聊天', 'Start free chat', '自由におしゃべり'),
     autoFinish: true,
     autoNextDelayMs: 300,
   },

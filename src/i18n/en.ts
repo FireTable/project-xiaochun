@@ -828,7 +828,7 @@ export const en: Trans = {
     you: 'You',
     xiaochun: 'XiaoChun',
     cameraExplore: '3D camera exploration',
-    cameraAllDone: '🎉 Camera mastered — on to the next!',
+    cameraAllDone: 'Camera mastered — on to the next!',
     cameraAllDoneSub: 'All camera controls unlocked',
     interruptPlaceholder: 'Type to interrupt…',
     inputPlaceholder: 'Say something or pick an action…',

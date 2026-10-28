@@ -122,6 +122,8 @@ const buildCinematicsSchema = <T extends z.ZodTypeAny>(text: T) =>
     /** 全屏黑幕白字 (用于幕间转场或内心独白) */
     intertitle: z.object({
       text,
+      /** 黑幕字卡下方的小字 (如“轻触推门进去”)；缺省回退到 UI 语言的“轻触屏幕唤醒” */
+      subtitle: text.optional(),
       durationSec: z.number().default(2.5),
       style: z.enum(['noto_serif', 'modern_sans', 'typewriter']).default('noto_serif'),
       bgmFaded: z.boolean().default(true),
@@ -278,12 +280,10 @@ const buildBeatSchema = <T extends z.ZodTypeAny>(text: T) => {
     autoNextDelayMs: z.number().min(0).max(30000).optional(),
     /** 台词说完 + autoNextDelayMs 后结束整段剧情 (镜头平滑回到默认视角，交还自由聊天) */
     autoFinish: z.boolean().optional(),
-    /** 屏幕提示 (非角色、不朗读、不进对白回顾)：告诉用户“现在可以做什么” */
-    hint: text.optional(),
     /** 进入本拍时切换到的场景 (剧本别名 lineart_day / lineart_night / beach，或真实场景 id)，在转场遮罩下切换 */
     scene: z.string().optional(),
     /**
-     * 按 choice.branch 改写本拍：`variants[branch]` 是本拍的一个局部覆盖 (cinematics / camera / audio / actor / hint / scene 等逐层合并)。
+     * 按 choice.branch 改写本拍：`variants[branch]` 是本拍的一个局部覆盖 (cinematics / camera / audio / actor / scene 等逐层合并)。
      */
     variants: z.record(z.string(), z.any()).optional(),
   });

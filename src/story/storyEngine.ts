@@ -29,6 +29,7 @@ export interface StoryState {
   isIntertitleActive: boolean;
   intertitleText: string;
   intertitleStyle: 'noto_serif' | 'modern_sans' | 'typewriter';
+  intertitleSubtitle: string;
   /** 当前字卡是否需要点击才继续 */
   intertitleRequiresClick: boolean;
   isLetterboxActive: boolean;
@@ -88,6 +89,7 @@ export class StoryDirectorEngine {
     isIntertitleActive: false,
     intertitleText: '',
     intertitleStyle: 'noto_serif',
+    intertitleSubtitle: '',
     intertitleRequiresClick: true,
     isLetterboxActive: false,
     isEyeBlinkActive: false,
@@ -369,6 +371,7 @@ export class StoryDirectorEngine {
       this.state.isIntertitleActive = true;
       this.state.intertitleText = beat.cinematics.intertitle.text;
       this.state.intertitleStyle = beat.cinematics.intertitle.style || 'noto_serif';
+      this.state.intertitleSubtitle = beat.cinematics.intertitle.subtitle ?? '';
 
       if (beat.cinematics.intertitle.bgmFaded) {
         storyAudioDirector.setMuffle(true);

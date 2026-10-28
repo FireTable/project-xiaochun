@@ -19,7 +19,7 @@ const SCRIPT_BEATS = ['beat_1', 'beat_2', 'beat_3', 'beat_outfit_choice', 'beat_
 const LIMIT: Record<StoryLang, number> = { 'zh-CN': 50, ja: 70, en: 140 };
 const CJK = /[\u3400-\u9fff]/;
 const KANA = /[\u3040-\u30ff]/;
-/** 台词里不许出现的操作词 / 界面词 / 评审测试词 (操作提示只放 hint) */
+/** 台词里不许出现的操作词 / 界面词 / 评审测试词 (操作提示由卡片自己的标题 / 副标题承担) */
 const FORBIDDEN = /点击|点一下|轻触|下面的卡片|右上角|API|评审|测试|麦克风|键盘|tap |click|card below|microphone|keyboard|タップ|クリック/i;
 
 describe('prologue story (Act 0 v4 · Backstage Catch)', () => {
@@ -40,7 +40,7 @@ describe('prologue story (Act 0 v4 · Backstage Catch)', () => {
     expect(wake('zh-CN').cinematics?.intertitle?.text).toBe('门后有人在小声嘀咕……好像在排练什么。');
     expect(wake('en').cinematics?.intertitle?.text).toBe('Someone behind the door is muttering to herself... rehearsing something?');
     expect(wake('ja').cinematics?.intertitle?.text).toBe('扉の向こうで誰かがぶつぶつ……何かの練習？');
-    expect([wake('zh-CN').hint, wake('en').hint, wake('ja').hint]).toEqual(['轻触推门进去', 'Tap to step in', 'タップして中へ']);
+    expect([wake('zh-CN').cinematics?.intertitle?.subtitle, wake('en').cinematics?.intertitle?.subtitle, wake('ja').cinematics?.intertitle?.subtitle]).toEqual(['轻触推门进去', 'Tap to step in', 'タップして中へ']);
     const clickRequired = beats.filter((b) => b.cinematics?.intertitle?.requireClick);
     expect(clickRequired.map((b) => b.id)).toEqual(['beat_greet']);
   });
@@ -52,13 +52,13 @@ describe('prologue story (Act 0 v4 · Backstage Catch)', () => {
     }
   });
 
-  it('every spoken line, hint, reply and choice exists in zh-CN, en and ja (beat 2 cards are own-language plain strings)', () => {
+  it('every spoken line, subtitle, placeholder and choice exists in zh-CN, en and ja (beat 2 cards are own-language plain strings)', () => {
     for (const b of beats) {
       const fields: Array<[string, LocalizedText | undefined]> = [
         [`${b.id}.speech`, b.actor.speechText],
         [`${b.id}.intertitle`, b.cinematics?.intertitle?.text],
         [`${b.id}.placeholder`, b.inputPlaceholder],
-        [`${b.id}.hint`, b.hint],
+        [`${b.id}.subtitle`, b.cinematics?.intertitle?.subtitle],
       ];
       if (b.id !== 'beat_2') {
         for (const c of b.choices ?? []) fields.push([`${b.id}.${c.id}.text`, c.text], [`${b.id}.${c.id}.sub`, c.subText]);
@@ -104,17 +104,31 @@ describe('prologue story (Act 0 v4 · Backstage Catch)', () => {
           if (lang === 'ja') expect(KANA.test(line), `${b.id} ja has kana`).toBe(true);
           if (lang === 'zh-CN') expect(KANA.test(line), `${b.id} zh has no kana`).toBe(false);
         }
-        // 屏幕提示：短、非空 (≤12 字 / ≤4 个英文词)
-        if (beat.hint) {
-          expect(beat.hint.length, `${b.id} ${lang} hint`).toBeLessThanOrEqual(lang === 'en' ? 28 : 12);
-        }
       }
     }
   });
 
-  it('puts a hint on every interactive beat (cards, camera card, input, free-chat handoff)', () => {
-    for (const id of ['beat_2', 'beat_3', 'beat_outfit_choice', 'beat_4', 'beat_5', 'beat_brain_choice', 'beat_6']) {
-      expect(prologueStory.beats[id].hint, id).toBeDefined();
+  it('has no hint chips anywhere (the field no longer exists) and no beat sets a hint', () => {
+    for (const b of beats) expect(Object.keys(b), b.id).not.toContain('hint');
+  });
+
+  it('beat 4 (scene cards) has no colour grading, and nothing leaks into it from earlier beats', () => {
+    const order = ['beat_greet', 'beat_1', 'beat_2', 'beat_3', 'beat_outfit_choice', 'beat_4'];
+    let grading = 'default';
+    for (const id of order) {
+      const g = prologueStory.beats[id].cinematics?.grading;
+      if (g !== undefined) grading = g;
+    }
+    expect(prologueStory.beats.beat_4.cinematics?.grading).toBe('default');
+    expect(grading).toBe('default');
+  });
+
+  it('all confirm cards share the plain card style: no icon, no emoji, a sub-line', () => {
+    for (const b of beats) {
+      const c = b.confirmChoice;
+      if (!c) continue;
+      expect(c.icon, `${b.id} confirm icon`).toBeUndefined();
+      expect(c.subText, `${b.id} confirm subText`).toBeDefined();
     }
   });
 
@@ -255,7 +269,7 @@ describe('prologue story (Act 0 v4 · Backstage Catch)', () => {
     expect(b.beat_2.cinematics).toMatchObject({ letterbox: false, wind: 0 });
     expect(b.beat_3.camera?.movement).toBe('dutch_tilt');
     expect(b.beat_outfit_choice.camera).toMatchObject({ shot: 'full', movement: 'arc_sweep' });
-    expect(b.beat_4.cinematics).toMatchObject({ grading: 'sepia_memory', wind: 1 });
+    expect(b.beat_4.cinematics).toMatchObject({ grading: 'default', wind: 1 });
     expect(b.beat_6.cinematics).toMatchObject({ transition: 'eye_blink', grading: 'default', wind: 1 });
     expect(b.beat_1.scene).toBe('void');
     // 1: far behind her, slow dolly-in over about one line, never cuts to the front; 2: only then orbit round to her front

@@ -3,6 +3,7 @@ import { useTranslation } from 'react-i18next';
 import { RotateCcw, ArrowUpDown, ZoomIn, Check } from 'lucide-react';
 import { vrmEngine } from '@/core/vrmEngine';
 import { isMobile } from '@/lib/platform';
+import { CameraTaskProgress } from './cameraTaskProgress';
 
 interface StoryCameraTaskCardProps {
   onTasksUpdate?: (completedCount: number, totalCount: number) => void;
@@ -21,63 +22,18 @@ export const StoryCameraTaskCard: React.FC<StoryCameraTaskCardProps> = ({
   });
 
   useEffect(() => {
-    let cumTurnDx = 0;
-    let cumTurnDy = 0;
-    let cumWheel = 0;
-
-    // 1. 订阅手势旋转 (水平 turn 与 垂直 pitch)
+    // 只认用户输入：指针拖动 (turn) 和画布上的滚轮 / 双指 / 中键缩放；绝不读相机视距或 OrbitControls 的 change
+    const progress = new CameraTaskProgress();
+    const apply = (changed: boolean) => {
+      if (changed) setTasks({ ...progress.state });
+    };
     const unsubGesture = vrmEngine.interaction.onGesture((ev) => {
-      if (ev.type === 'turn') {
-        cumTurnDx += Math.abs(ev.dx);
-        cumTurnDy += Math.abs(ev.dy);
-
-        // 累计横向拖动 >= 80px 判定完成水平 360° 探索
-        if (cumTurnDx >= 80) {
-          setTasks((prev) => (prev.orbit ? prev : { ...prev, orbit: true }));
-        }
-        // 累计纵向拖动 >= 50px 判定完成俯仰角探索
-        if (cumTurnDy >= 50) {
-          setTasks((prev) => (prev.pitch ? prev : { ...prev, pitch: true }));
-        }
-      }
+      if (ev.type === 'turn') apply(progress.onTurn(ev.dx, ev.dy));
     });
-
-    // 2. 订阅相机缩放 (Controls 视距改变与滚轮)
-    const controls = vrmEngine.getControls();
-    let lastDist = controls ? controls.getDistance() : 0;
-    let cumDistDelta = 0;
-
-    const handleControlsChange = () => {
-      if (!controls) return;
-      const currentDist = controls.getDistance();
-      const delta = Math.abs(currentDist - lastDist);
-      if (delta > 0.005) {
-        cumDistDelta += delta;
-        lastDist = currentDist;
-        if (cumDistDelta >= 0.08) {
-          setTasks((prev) => (prev.zoom ? prev : { ...prev, zoom: true }));
-        }
-      }
-    };
-
-    if (controls) {
-      controls.addEventListener('change', handleControlsChange);
-    }
-
-    const handleWheel = (e: WheelEvent) => {
-      cumWheel += Math.abs(e.deltaY);
-      if (cumWheel >= 50) {
-        setTasks((prev) => (prev.zoom ? prev : { ...prev, zoom: true }));
-      }
-    };
-    window.addEventListener('wheel', handleWheel, { passive: true });
-
+    const unsubZoom = vrmEngine.interaction.onUserZoom((ev) => apply(progress.onZoom(ev.amount)));
     return () => {
       unsubGesture();
-      if (controls) {
-        controls.removeEventListener('change', handleControlsChange);
-      }
-      window.removeEventListener('wheel', handleWheel);
+      unsubZoom();
     };
   }, []);
 

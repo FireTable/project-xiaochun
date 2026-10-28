@@ -828,7 +828,7 @@ export const ja: Trans = {
     you: 'あなた',
     xiaochun: '小蠢',
     cameraExplore: '3D カメラ探索',
-    cameraAllDone: '🎉 カメラ操作マスター！次へ進もう',
+    cameraAllDone: 'カメラ操作マスター！次へ進もう',
     cameraAllDoneSub: 'カメラ操作をすべて習得しました',
     interruptPlaceholder: 'そのまま入力して割り込む…',
     inputPlaceholder: '話しかける、または行動を選ぶ…',

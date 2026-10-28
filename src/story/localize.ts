@@ -74,7 +74,7 @@ export function resolveBeat(beat: LocalizedStoryBeat, lang: StoryLang): StoryBea
     ? {
         ...beat.cinematics,
         intertitle: beat.cinematics.intertitle
-          ? { ...beat.cinematics.intertitle, text: resolveLocalized(beat.cinematics.intertitle.text, lang) }
+          ? { ...beat.cinematics.intertitle, text: resolveLocalized(beat.cinematics.intertitle.text, lang), subtitle: resolveOptional(beat.cinematics.intertitle.subtitle, lang) }
           : undefined,
       }
     : undefined;
@@ -85,6 +85,5 @@ export function resolveBeat(beat: LocalizedStoryBeat, lang: StoryLang): StoryBea
     choices: beat.choices?.map((c) => resolveChoice(c, lang)),
     confirmChoice: beat.confirmChoice ? resolveChoice(beat.confirmChoice, lang) : undefined,
     inputPlaceholder: resolveOptional(beat.inputPlaceholder, lang),
-    hint: resolveOptional(beat.hint, lang),
   };
 }

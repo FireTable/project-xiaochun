@@ -302,7 +302,6 @@ export const StoryPlayer: React.FC<StoryPlayerProps> = ({
               choice={currentBeat.confirmChoice}
               index={displayChoices.length}
               layout="list"
-              variant="primary"
               onSelect={handleSelectChoice}
               disabled={isGenerating}
             />
@@ -325,7 +324,6 @@ export const StoryPlayer: React.FC<StoryPlayerProps> = ({
               choice={currentBeat.confirmChoice}
               index={displayChoices.length}
               layout="list"
-              variant="primary"
               onSelect={handleSelectChoice}
               disabled={isGenerating}
             />
@@ -426,25 +424,13 @@ export const StoryPlayer: React.FC<StoryPlayerProps> = ({
         intertitleText={storyState.intertitleText}
         intertitleStyle={storyState.intertitleStyle}
         intertitleRequiresClick={storyState.intertitleRequiresClick}
-        intertitleHint={currentBeat?.hint}
+        intertitleHint={storyState.intertitleSubtitle}
         isEyeBlinkActive={storyState.isEyeBlinkActive}
         transitionKind={storyState.transitionKind}
         isTransitionCovered={storyState.isTransitionCovered}
         grading={storyState.grading}
         onSkipIntertitle={() => storyDirectorEngine.skipIntertitle()}
       />
-
-      {/* 屏幕提示 (hint)：告诉用户“现在可以做什么”，不朗读、不进对白回顾；黑幕字卡期间由遮罩自己显示 */}
-      {currentBeat?.hint && !storyState.isIntertitleActive && (
-        <div
-          key={currentBeat.id}
-          className="pointer-events-none fixed top-14 sm:top-16 inset-x-0 z-40 flex justify-center px-4 animate-in fade-in slide-in-from-top-1 duration-500"
-        >
-          <span className="px-3.5 py-1.5 rounded-full bg-[#0b0e1b]/70 backdrop-blur-xl border border-white/15 text-white/90 text-xs sm:text-sm tracking-wide shadow-lg">
-            {currentBeat.hint}
-          </span>
-        </div>
-      )}
 
       {/* 2. 顶部微拟态控制面板 (Top HUD) */}
       <div className="pointer-events-auto fixed top-3 inset-x-4 sm:top-3.5 sm:inset-x-8 z-40 flex items-center justify-between">

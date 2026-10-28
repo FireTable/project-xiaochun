@@ -8,7 +8,6 @@ interface StoryChoiceCardProps {
   onSelect: (choice: StoryChoice) => void;
   disabled?: boolean;
   layout?: 'list' | 'media' | 'compact-media';
-  variant?: 'default' | 'primary';
 }
 
 export const StoryChoiceCard: React.FC<StoryChoiceCardProps> = ({
@@ -17,11 +16,9 @@ export const StoryChoiceCard: React.FC<StoryChoiceCardProps> = ({
   onSelect,
   disabled = false,
   layout = 'list',
-  variant = 'default',
 }) => {
   const { t } = useTranslation();
   const isSelected = Boolean(choice.selected);
-  const isPrimary = variant === 'primary';
 
   // 1. 紧凑型媒体卡片 (PC 端右侧列表专用：左侧 16:9 缩略图 + 中间文本 + 右侧状态)
   if (layout === 'compact-media') {
@@ -47,7 +44,7 @@ export const StoryChoiceCard: React.FC<StoryChoiceCardProps> = ({
               />
             ) : (
               <div className="w-full h-full flex items-center justify-center text-sm">
-                {choice.icon || '✨'}
+                {choice.icon || ''}
               </div>
             )}
           </div>
@@ -166,9 +163,7 @@ export const StoryChoiceCard: React.FC<StoryChoiceCardProps> = ({
       disabled={disabled}
       onClick={() => onSelect(choice)}
       className={`pointer-events-auto w-full group relative flex items-center justify-between px-3 py-2 sm:px-3.5 sm:py-2.5 rounded-xl transition-all duration-200 cursor-pointer text-left overflow-hidden ${
-        isPrimary
-          ? 'bg-gradient-to-r from-primary via-primary to-primary-dark hover:from-primary-dark hover:via-primary hover:to-primary border border-primary-light/40 text-primary-foreground shadow-lg shadow-primary/25 active:scale-[0.98]'
-          : isSelected
+        isSelected
           ? 'bg-[#151b33]/95 border border-primary ring-1 ring-primary/40 shadow-primary/25 hover:border-primary-light'
           : 'bg-[#0b0e1b]/85 hover:bg-[#151b33]/95 border border-white/12 hover:border-primary/40 shadow-[0_4px_14px_rgba(0,0,0,0.35)] hover:shadow-[0_4px_20px_rgba(0,0,0,0.55)] backdrop-blur-md'
       } active:scale-[0.98]`}
@@ -185,9 +180,7 @@ export const StoryChoiceCard: React.FC<StoryChoiceCardProps> = ({
           <div className="flex items-center gap-1.5">
             <span
               className={`text-xs sm:text-[13px] tracking-wide transition-colors truncate ${
-                isPrimary
-                  ? 'text-white font-bold drop-shadow-sm'
-                  : isSelected
+                isSelected
                   ? 'text-white font-semibold drop-shadow-sm'
                   : 'text-white/90 group-hover:text-white font-medium'
               }`}
@@ -197,9 +190,7 @@ export const StoryChoiceCard: React.FC<StoryChoiceCardProps> = ({
             {choice.badge ? (
               <span
                 className={`shrink-0 px-1 py-0.2 rounded text-[9px] font-semibold ${
-                  isPrimary
-                    ? 'bg-white/20 text-white'
-                    : 'bg-primary/20 border border-primary/30 text-primary-light'
+                  'bg-primary/20 border border-primary/30 text-primary-light'
                 }`}
               >
                 {choice.badge}
@@ -207,21 +198,12 @@ export const StoryChoiceCard: React.FC<StoryChoiceCardProps> = ({
             ) : null}
           </div>
           {choice.subText && (
-            <p
-              className={`text-[10px] transition-colors line-clamp-1 font-normal mt-0.5 ${
-                isPrimary ? 'text-white/85' : 'text-white/50 group-hover:text-white/70'
-              }`}
-            >
+            <p className="text-[10px] transition-colors line-clamp-1 font-normal mt-0.5 text-white/50 group-hover:text-white/70">
               {choice.subText}
             </p>
           )}
         </div>
       </div>
-      {isPrimary && (
-        <span className="shrink-0 text-xs font-bold text-white pl-2 z-10 group-hover:translate-x-0.5 transition-transform">
-          ➔
-        </span>
-      )}
     </button>
   );
 };

@@ -107,7 +107,8 @@ describe('InteractionController (集成冒烟)', () => {
       onSetCameraYOffset: vi.fn(),
     });
     const down = (e: any) => canvasHandlers.get('pointerdown')!(e);
-    return { ic, canvas, captured, motionPipeline, controls, onSaveBodyYaw, onSaveCameraPitch, down };
+    const wheel = (deltaY: number) => canvasHandlers.get('wheel')!({ deltaY });
+    return { ic, wheel, canvas, captured, motionPipeline, controls, onSaveBodyYaw, onSaveCameraPitch, down };
   }
 
   it('长按 480ms 武装 → 位移 >10px 转身 (yaw + pitch) → 松手保存', async () => {
@@ -180,5 +181,46 @@ describe('InteractionController (集成冒烟)', () => {
     stub.fire('blur', {});
     expect(t.ic.getState()).toMatchObject({ isModifierActive: false, isDragging: false });
     expect(t.captured.size).toBe(0);
+  });
+
+  describe('onUserZoom (user input only)', () => {
+    it('canvas wheel and a real pinch emit; a plain camera change emits nothing', async () => {
+      const t = await boot();
+      const seen: Array<[string, number]> = [];
+      t.ic.onUserZoom((e) => seen.push([e.source, e.amount]));
+      // 程序化的相机变化 (导演运镜 / fitCamera / 回默认视角) 只会动 camera / controls，根本不经过这里的输入监听
+      (t.controls as any).target.y = 2;
+      expect(seen).toEqual([]);
+
+      t.wheel(60);
+      t.down(ptr({ pointerId: 1, clientX: 100, clientY: 100 }));
+      t.down(ptr({ pointerId: 2, clientX: 200, clientY: 100 }));
+      stub.fire('pointermove', ptr({ pointerId: 2, clientX: 230, clientY: 100 }));
+      expect(seen).toEqual([['wheel', 60], ['pinch', 30]]);
+    });
+
+    it('does not emit while the camera director owns the controls (enabled = false) or zoom is locked', async () => {
+      const t = await boot();
+      const seen: number[] = [];
+      t.ic.onUserZoom((e) => seen.push(e.amount));
+      (t.controls as any).enabled = false;
+      t.wheel(100);
+      (t.controls as any).enabled = true;
+      (t.controls as any).enableZoom = false;
+      t.wheel(100);
+      expect(seen).toEqual([]);
+      (t.controls as any).enableZoom = true;
+      t.wheel(100);
+      expect(seen).toEqual([100]);
+    });
+
+    it('unsubscribe stops delivery', async () => {
+      const t = await boot();
+      const seen: number[] = [];
+      const off = t.ic.onUserZoom((e) => seen.push(e.amount));
+      off();
+      t.wheel(10);
+      expect(seen).toEqual([]);
+    });
   });
 });

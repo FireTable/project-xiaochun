@@ -89,14 +89,14 @@ describe('story i18n resolution', () => {
     expect(applyVariant(base, null)).toBe(base);
   });
 
-  it('resolves the hint in the story language', () => {
+  it('resolves the intertitle subtitle in the story language', () => {
     const beat = LocalizedStoryBeatSchema.parse({
       id: 'b',
-      hint: { 'zh-CN': '环绕观察', en: 'Orbit', ja: '回す' },
+      cinematics: { intertitle: { text: 'x', subtitle: { 'zh-CN': '轻触', en: 'Tap', ja: 'タップ' } } },
       actor: { speechText: 'x' },
     });
-    expect(resolveBeat(beat, 'ja').hint).toBe('回す');
-    expect(resolveBeat(beat, 'en').hint).toBe('Orbit');
+    expect(resolveBeat(beat, 'ja').cinematics?.intertitle?.subtitle).toBe('タップ');
+    expect(resolveBeat(beat, 'en').cinematics?.intertitle?.subtitle).toBe('Tap');
   });
 
   it('resolves a choice badge in the story language', () => {
