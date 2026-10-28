@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
-  <title>Project XiaoChun · 3 章节视频演播录制演播台</title>
+  <title>Project XiaoChun · 4 章节视频演播录制演播台</title>
   <link rel="icon" type="image/png" href="/favicon.png">
   <style>
     * {
@@ -47,15 +47,15 @@
       box-shadow: inset 0 0 50px rgba(0, 0, 0, 0.85), 0 20px 60px rgba(0, 0, 0, 0.95);
     }
 
-    /* 黑板画布区 (铺满全屏) */
-    #chalkboard-container {
+    /* 黑板质感全局底板 (最底层 z-index: 1) */
+    #chalkboard-bg {
       position: absolute;
       inset: 0;
       width: 100%;
       height: 100%;
       overflow: hidden;
       z-index: 1;
-      cursor: crosshair;
+      pointer-events: none;
       background: 
         radial-gradient(circle at 45% 35%, rgba(40, 70, 55, 0.25) 0%, transparent 70%),
         radial-gradient(circle at 20% 80%, rgba(30, 50, 40, 0.35) 0%, transparent 60%),
@@ -64,11 +64,27 @@
       box-shadow: inset 0 0 120px rgba(0, 0, 0, 0.7);
     }
 
+    /* ═══════════════════════════════════════════════════════════════
+       全屏透明粉笔画布：覆盖在伴侣人物之上 (z-index: 35 > embed-wrapper 20)
+       确保粉笔手绘笔触可以直接划过并穿透人物 iframe，绝不被人物遮挡截断！
+       支持通过 👆 视角工具切换为 interact-mode (pointer-events: none) 旋转三维视角
+       ═══════════════════════════════════════════════════════════════ */
     #chalk-canvas {
+      position: absolute;
+      inset: 0;
       width: 100%;
       height: 100%;
       display: block;
       touch-action: none;
+      z-index: 35;
+      cursor: crosshair;
+      pointer-events: auto;
+      background: transparent !important;
+    }
+
+    #chalk-canvas.interact-mode {
+      pointer-events: none !important;
+      cursor: default !important;
     }
 
     /* ═══════════════════════════════════════════════════════════════
@@ -102,6 +118,7 @@
       flex-direction: column;
       opacity: 1;
       transform: translate(-50%, -50%) scale(1);
+      z-index: 40;
     }
 
     /* 全屏实机演示模式 (Fullscreen Cinema Mode) */
@@ -290,7 +307,8 @@
 
     /* ═══════════════════════════════════════════════════════════════
        右侧伴侣视窗：无框、无按钮、透明背景融入黑板 (默认大号 44vw x 88vh)
-       层级 z-index: 60，全屏演示时自动隐藏 3s，演示后平滑浮现
+       层级 z-index: 20 (位于粉笔画布 z-index: 35 之下，粉笔画笔可直接划过穿透人物)
+       全屏演示时自动隐藏 3s，演示后平滑浮现
        ═══════════════════════════════════════════════════════════════ */
     #embed-wrapper {
       position: absolute;
@@ -300,7 +318,7 @@
       height: 88vh;
       min-width: 500px;
       min-height: 680px;
-      z-index: 60;
+      z-index: 20;
       display: flex;
       background: transparent !important;
       border: none !important;
@@ -465,7 +483,7 @@
       position: absolute;
       bottom: 12px;
       left: 20px;
-      z-index: 30;
+      z-index: 60;
       display: flex;
       align-items: center;
       gap: 12px;
@@ -595,7 +613,7 @@
       position: absolute;
       top: 14px;
       right: 20px;
-      z-index: 30;
+      z-index: 60;
       background: rgba(0, 0, 0, 0.5);
       border: 1px solid rgba(255, 255, 255, 0.15);
       border-radius: 12px;
@@ -617,10 +635,8 @@
 </head>
 <body>
   <div id="app-container">
-    <!-- 1. 左侧主体与全局底板：黑板画板 -->
-    <div id="chalkboard-container">
-      <canvas id="chalk-canvas"></canvas>
-    </div>
+    <!-- 1. 全局黑板木纹质感底板 (最底层 z-index: 1) -->
+    <div id="chalkboard-bg"></div>
 
     <!-- 2. 章节 2 与章节 3 的 16:9 电影大屏框 (用于实机录屏剪辑占位与视频播放) -->
     <div id="cinematic-screen-container">
@@ -665,7 +681,7 @@
     <!-- 3. 🎬 演播导播总控条 (按 H 键可随时一键隐藏/唤出，录屏无杂质) -->
     <div id="director-hud">
       <div class="hud-title">
-        <span>🎬 3 章节演播总控</span>
+        <span>🎬 4 章节演播总控</span>
       </div>
       <div class="chapter-btn-group">
         <button id="btn-chapter-1" class="chapter-btn" title="演练第 1 章 (15s)">
@@ -677,9 +693,12 @@
         <button id="btn-chapter-3" class="chapter-btn" title="演练第 3 章 (15s)">
           <span>3️⃣ Chat 全双工打断</span>
         </button>
+        <button id="btn-chapter-4" class="chapter-btn" title="演练第 4 章 (15s)">
+          <span>4️⃣ 感谢领导莅临</span>
+        </button>
       </div>
-      <button id="btn-auto-tour" class="auto-tour-btn" title="一键按序连续演播全套 3 个章节">
-        <span>🚀 连续全流程录制 (45s)</span>
+      <button id="btn-auto-tour" class="auto-tour-btn" title="一键按序连续演播全套 4 个章节">
+        <span>🚀 连续全流程录制 (60s)</span>
       </button>
       <div id="hud-timer-badge">15s / 拍</div>
       <button id="btn-stop-speech" class="stop-btn" title="停播台词与动作">⏹️ 停止</button>
@@ -687,12 +706,13 @@
 
     <!-- 快捷按键提示角标 -->
     <div id="rec-hint-badge">
-      按 <kbd>H</kbd> 键隐藏/显示导播条与粉笔槽
+      按 <kbd>H</kbd> 隐藏界面 | <kbd>1</kbd>-<kbd>4</kbd> 章节 | <kbd>P</kbd> 粉笔 | <kbd>V</kbd> 视角 | <kbd>空格</kbd> 连播
     </div>
 
     <!-- 4. 底部粉笔槽工具条 (Chalk Tray) -->
     <div id="chalk-tray">
       <div class="tray-group">
+        <button id="tool-cursor" class="tool-btn" title="视角拖动 / 人物交互 (V)">👆 视角</button>
         <button id="tool-pen" class="tool-btn active" title="粉笔手绘 (P)">✏️ 粉笔</button>
         <button id="tool-arrow" class="tool-btn" title="手绘箭头 (A)">➡️ 箭头</button>
         <button id="tool-line" class="tool-btn" title="直线 (L)">📏 直线</button>
@@ -723,7 +743,7 @@
       </div>
     </div>
 
-    <!-- 5. 右侧伴侣嵌入窗：透明背景、无边框、无按钮、融入黑板 -->
+    <!-- 5. 右侧伴侣嵌入窗：透明背景、无边框、无按钮、融入黑板 (z-index: 20) -->
     <div id="embed-wrapper">
       <iframe 
         id="xiaochun-frame" 
@@ -732,6 +752,9 @@
         allowtransparency="true"
       ></iframe>
     </div>
+
+    <!-- 6. 全屏透明粉笔画布：覆盖在人物之上 (z-index: 35)，画笔手绘与箭头可直接划过穿透人物 -->
+    <canvas id="chalk-canvas"></canvas>
 
     <!-- 提示框 -->
     <div id="chalk-toast"></div>
@@ -864,7 +887,7 @@
     }, { once: true });
 
     // ═══════════════════════════════════════════════════════════════
-    // 3. 3 章节核心文案、动作调度与独立定制大字粉笔板书
+    // 3. 4 章节核心文案、动作调度与独立定制大字粉笔板书
     // ═══════════════════════════════════════════════════════════════
     const CHAPTER_BOARD_DATA = {
       0: {
@@ -902,6 +925,18 @@
         ],
         annotation: '📺 即将切入全屏实机演示 (请看大屏幕) ➔',
         arrowTarget: false,
+      },
+      3: {
+        title: '💐 感谢各位领导与评委莅临指导',
+        subtitle: 'Project XiaoChun · 探索 100% 浏览器纯端侧 AI 伴侣未来',
+        items: [
+          { prefix: '✦', text: '致谢领导关怀 · 感谢各位领导与评委专家的莅临指导与宝贵意见！', color: '#fef08a' },
+          { prefix: '✦', text: '坚守纯端侧体验 · 极致隐私保护，零后端服务器与 GPU 显存成本', color: '#7dd3fc' },
+          { prefix: '✦', text: '持续迭代演进 · 拓展多智能体协同、情境长程记忆与情感共鸣', color: '#86efac' },
+          { prefix: '✦', text: '开发团队敬上 · 感谢大家的观看与支持，期待与大家共见未来！', color: '#fdba74' },
+        ],
+        annotation: '💖 小蠢与开发团队全体成员，向各位领导深表感谢！ ➔',
+        arrowTarget: true,
       }
     };
 
@@ -948,6 +983,17 @@
         screenTitle: 'Chat 模式 · 四大状态与全双工实时语音打断',
         screenDesc: '待机 (Idle) ➔ 倾听 (Listening) ➔ 思考 (Thinking) ➔ 说话 (Speaking)。Silero VAD 毫秒级打断。',
         screenIcon: '🎙️',
+      },
+      {
+        id: 4,
+        title: '章节 4：致谢与展望 · 感谢各位领导莅临指导',
+        durationSec: 15,
+        script: '非常感谢各位领导和评委专家的莅临指导！Project XiaoChun 会继续坚持 100% 浏览器纯端侧运行，保护隐私、探索陪伴的无限可能。小蠢期待与大家再次相遇，谢谢大家！',
+        motion: 'bowSalute', // 前倾敬礼，端庄礼貌
+        subsequentMotion: 'handHeart', // 3.2s 后双手比心致谢
+        subsequentDelay: 3200,
+        expression: 'gentle_smile',
+        screenMode: 'board', // 纯黑板模式 (展示大气致谢板书)
       }
     ];
 
@@ -965,6 +1011,7 @@
       document.getElementById('btn-chapter-1'),
       document.getElementById('btn-chapter-2'),
       document.getElementById('btn-chapter-3'),
+      document.getElementById('btn-chapter-4'),
     ];
 
     let currentPlayingChapter = null;
@@ -1113,15 +1160,20 @@
         shrinkScreenToBoard();
         embedWrapper.classList.remove('pip-hidden');
         timerBadge.innerText = '本章完成';
+        if (chapterIndex === 3) {
+          // 第四章致谢收尾：热情挥手致意
+          sendCommandToXiaoChun('xc.expression', { name: 'smile', intensity: 0.95 });
+          sendCommandToXiaoChun('xc.motion', { name: 'waving', loop: false });
+        }
         await new Promise((r) => setTimeout(r, 1000));
       }
     }
 
-    // 一键全流程连续自动录播 (Chapter 1 ➔ Chapter 2 ➔ Chapter 3)
+    // 一键全流程连续自动录播 (Chapter 1 ➔ Chapter 2 ➔ Chapter 3 ➔ Chapter 4)
     async function runAutoTour() {
       clearTimeout(autoTourTimer);
       clearInterval(countdownInterval);
-      showToast('🚀 启动 3 章节全流程连续录制...');
+      showToast('🚀 启动 4 章节全流程连续录制...');
       
       // 第 1 章 (板书 + 小蠢完整讲述)
       await playChapter(0);
@@ -1131,11 +1183,14 @@
       
       // 第 3 章 (Chat 模式: 小蠢完整说完 ➔ 全屏实机演示 3s + 小蠢隐藏 ➔ 缩回恢复)
       await playChapter(2);
+
+      // 第 4 章 (致谢与展望: 感谢各位领导莅临指导 + 鞠躬敬礼与比心致谢)
+      await playChapter(3);
       
-      showToast('🎉 3 章节全流程演播圆满结束！');
+      showToast('🎉 4 章节全流程演播圆满结束！');
       timerBadge.innerText = '演示完成';
       chapterButtons.forEach(btn => btn.classList.remove('active'));
-      sendCommandToXiaoChun('xc.expression', { name: 'smile', intensity: 0.9 });
+      sendCommandToXiaoChun('xc.expression', { name: 'smile', intensity: 0.95 });
       sendCommandToXiaoChun('xc.motion', { name: 'waving', loop: false });
     }
 
@@ -1160,6 +1215,7 @@
     chapterButtons[0].addEventListener('click', () => playChapter(0));
     chapterButtons[1].addEventListener('click', () => playChapter(1));
     chapterButtons[2].addEventListener('click', () => playChapter(2));
+    chapterButtons[3].addEventListener('click', () => playChapter(3));
     document.getElementById('btn-auto-tour').addEventListener('click', runAutoTour);
     document.getElementById('btn-stop-speech').addEventListener('click', stopAll);
 
@@ -1371,11 +1427,21 @@
     }
 
     window.addEventListener('keydown', (e) => {
-      if (e.key.toLowerCase() === 'h' && !e.ctrlKey && !e.metaKey) {
+      if (e.target && (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA')) return;
+      const key = e.key.toLowerCase();
+      if (key === 'h' && !e.ctrlKey && !e.metaKey) {
         toggleHudVisibility();
-      } else if (e.key === '1') playChapter(0);
-      else if (e.key === '2') playChapter(1);
-      else if (e.key === '3') playChapter(2);
+      } else if (key === '1') playChapter(0);
+      else if (key === '2') playChapter(1);
+      else if (key === '3') playChapter(2);
+      else if (key === '4') playChapter(3);
+      else if (key === 'v') switchTool('cursor');
+      else if (key === 'p') switchTool('pen');
+      else if (key === 'a') switchTool('arrow');
+      else if (key === 'l') switchTool('line');
+      else if (key === 'r') switchTool('rect');
+      else if (key === 'c') switchTool('circle');
+      else if (key === 'e') switchTool('eraser');
       else if (e.key === ' ') {
         e.preventDefault();
         runAutoTour();
@@ -1489,10 +1555,10 @@
     let tempSnapshot = null;
 
     canvas.addEventListener('mousedown', (e) => {
+      if (currentTool === 'cursor') return;
       if (e.button !== 0) return;
       saveUndoSnapshot();
       isDrawing = true;
-      iframe.style.pointerEvents = 'none';
       const rect = canvas.getBoundingClientRect();
       startX = e.clientX - rect.left;
       startY = e.clientY - rect.top;
@@ -1527,7 +1593,51 @@
       if (!isDrawing) return;
       isDrawing = false;
       tempSnapshot = null;
-      iframe.style.pointerEvents = 'auto';
+    });
+
+    // 触摸屏 / iPad / 数位板触控支持
+    canvas.addEventListener('touchstart', (e) => {
+      if (currentTool === 'cursor') return;
+      if (e.touches.length !== 1) return;
+      e.preventDefault();
+      saveUndoSnapshot();
+      isDrawing = true;
+      const rect = canvas.getBoundingClientRect();
+      startX = e.touches[0].clientX - rect.left;
+      startY = e.touches[0].clientY - rect.top;
+      lastX = startX;
+      lastY = startY;
+      if (currentTool !== 'pen' && currentTool !== 'eraser') {
+        tempSnapshot = ctx.getImageData(0, 0, canvas.width, canvas.height);
+      }
+    }, { passive: false });
+
+    window.addEventListener('touchmove', (e) => {
+      if (!isDrawing) return;
+      if (e.touches.length !== 1) return;
+      e.preventDefault();
+      const rect = canvas.getBoundingClientRect();
+      const curX = e.touches[0].clientX - rect.left;
+      const curY = e.touches[0].clientY - rect.top;
+      if (currentTool === 'pen') {
+        drawChalkSegment(lastX, lastY, curX, curY, currentColor, currentSize);
+        lastX = curX; lastY = curY;
+      } else if (currentTool === 'eraser') {
+        drawChalkSegment(lastX, lastY, curX, curY, currentColor, currentSize, true);
+        lastX = curX; lastY = curY;
+      } else if (tempSnapshot) {
+        ctx.putImageData(tempSnapshot, 0, 0);
+        if (currentTool === 'line') drawChalkSegment(startX, startY, curX, curY, currentColor, currentSize);
+        else if (currentTool === 'arrow') drawChalkArrow(startX, startY, curX, curY, currentColor, currentSize);
+        else if (currentTool === 'rect') drawChalkRect(startX, startY, curX, curY, currentColor, currentSize);
+        else if (currentTool === 'circle') drawChalkCircle(startX, startY, curX, curY, currentColor, currentSize);
+      }
+    }, { passive: false });
+
+    window.addEventListener('touchend', () => {
+      if (!isDrawing) return;
+      isDrawing = false;
+      tempSnapshot = null;
     });
 
     function undo() {
@@ -1537,6 +1647,7 @@
     }
 
     const toolButtons = {
+      cursor: document.getElementById('tool-cursor'),
       pen: document.getElementById('tool-pen'),
       arrow: document.getElementById('tool-arrow'),
       line: document.getElementById('tool-line'),
@@ -1545,13 +1656,28 @@
       eraser: document.getElementById('tool-eraser')
     };
 
+    function switchTool(toolKey) {
+      if (!toolButtons[toolKey]) return;
+      Object.values(toolButtons).forEach(b => { if (b) b.classList.remove('active'); });
+      toolButtons[toolKey].classList.add('active');
+      currentTool = toolKey;
+
+      if (toolKey === 'cursor') {
+        canvas.classList.add('interact-mode');
+        showToast('👆 视角交互模式 (可自由旋转拖动伴侣模型)');
+      } else {
+        canvas.classList.remove('interact-mode');
+        if (toolKey === 'pen') {
+          showToast('✏️ 粉笔手绘已就绪 (可穿透伴侣直接在身上作画)');
+        }
+      }
+    }
+
     Object.keys(toolButtons).forEach((key) => {
       const btn = toolButtons[key];
-      btn.addEventListener('click', () => {
-        Object.values(toolButtons).forEach(b => b.classList.remove('active'));
-        btn.classList.add('active');
-        currentTool = key;
-      });
+      if (btn) {
+        btn.addEventListener('click', () => switchTool(key));
+      }
     });
 
     document.querySelectorAll('.chalk-stick').forEach((s) => {
