@@ -3591,6 +3591,7 @@ export class VRMEngine {
           delta,
           time,
           enableBodyTurn: this.enableBodyTurn,
+          holdWorldFacing: cameraDirector.active,
           isSpeaking: this.chatDirector.speaking,
           isListening: this.turnState === 'listening',
           manualExpression: this.manualExpression,

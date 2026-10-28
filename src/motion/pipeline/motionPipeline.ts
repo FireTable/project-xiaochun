@@ -116,6 +116,10 @@ export class MotionPipeline {
   private wasStepping = false;
 
   public targetYawOffset = 0.0;
+  /** 上一帧相机相对角色的方位角 (atan2(dx, dz))，用于在运镜时抵消方位变化 */
+  private lastCameraAzimuth: number | null = null;
+  /** 运镜结束后继续抵消的剩余帧数 (吸收最后一帧的定格跳变) */
+  private holdFacingFramesLeft = 0;
   private boundVrm: VRM | null = null;
   public get boundVRM(): VRM | null {
     return this.boundVrm;
@@ -208,6 +212,25 @@ export class MotionPipeline {
     const currentFacingYaw = vrm.scene.rotation.y - baseYaw;
     this.targetYawOffset = currentFacingYaw - Math.atan2(dx, dz);
     this.resetLocomotion();
+  }
+
+  /**
+   * 角色目标朝向 = 相机方位角 + targetYawOffset，所以相机方位一变，角色就会“跟着转”。
+   * 用户拖拽 (改 targetYawOffset) 是想转身；而导演运镜 (环绕 / 弧摇 / 螺旋) 不该带动身体。
+   * hold 为 true 的帧里，把方位角的变化从 targetYawOffset 里扣掉，世界朝向保持不变。
+   */
+  public trackCameraAzimuth(vrm: VRM, camera: THREE.Camera, hold: boolean): void {
+    const dx = camera.position.x - vrm.scene.position.x;
+    const dz = camera.position.z - vrm.scene.position.z;
+    const az = Math.atan2(dx, dz);
+    if (hold) this.holdFacingFramesLeft = 3;
+    const holding = this.holdFacingFramesLeft > 0;
+    if (!hold && this.holdFacingFramesLeft > 0) this.holdFacingFramesLeft--;
+    if (holding && this.lastCameraAzimuth !== null) {
+      const d = THREE.MathUtils.euclideanModulo(az - this.lastCameraAzimuth + Math.PI, Math.PI * 2) - Math.PI;
+      this.targetYawOffset -= d;
+    }
+    this.lastCameraAzimuth = az;
   }
 
   /**
@@ -463,6 +486,11 @@ export class MotionPipeline {
       delta: number;
       time: number;
       enableBodyTurn: boolean;
+      /**
+       * true 时相机方位角的变化不会让角色转身：运镜 (环绕 / 弧摇 / 螺旋) 期间，
+       * 角色保持世界朝向不变。只有用户的拖拽 (targetYawOffset) 才会转动角色。
+       */
+      holdWorldFacing?: boolean;
       isSpeaking: boolean;
       isListening?: boolean;
       manualExpression: string | null;
@@ -501,6 +529,8 @@ export class MotionPipeline {
     // 2. 物理转向与下半身步态求值 (BodyTurn update & Locomotion)
     // 下半身始终由 BodyTurn 系统统辖，保持标准敏捷 24° 踏步阈值，0 延迟立即响应
     const turnThreshold = APP_CONFIG.bodyTurn.turnStartThreshold;
+
+    this.trackCameraAzimuth(vrm, camera, ctx.holdWorldFacing === true);
 
     if (ctx.enableBodyTurn) {
       // 使用角色世界坐标基准（vrm.scene.position），避免采样随 Gaze 偏转的 headNode 引起步态与头部的交叉耦合震荡
