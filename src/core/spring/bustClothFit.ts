@@ -217,7 +217,11 @@ export function applyBustClothFit(vrm: VRM, visualScale: number, clearance: numb
     const item = state.tracked[i]!;
     item.shape.radius = scaledBustColliderRadius(item.rest, scale, clearance);
   }
-  applyShells(state.shells);
+  // Step 1: Garments rely 100% on GPU skeletal skinning (SkinnedMesh).
+  // CPU-side vertex pushing is detached to preserve author-tailored silhouettes and prevent floating straps.
+  if (state.shells.length > 0) {
+    applyShells(state.shells);
+  }
 }
 
 function prepare(vrm: VRM): BustFitState {
@@ -257,7 +261,9 @@ function prepare(vrm: VRM): BustFitState {
     tracked.push({ shape, rest });
   }
 
-  const shells = centers.length > 0 ? buildShells(vrm, centers) : [];
+  // Garments are driven 100% by GPU skeletal skinning (SkinnedMesh).
+  // Zero geometry duplication; vertex buffers remain 100% pristine for author-crafted fit.
+  const shells: ClothShell[] = [];
 
   let springs = 0;
   if (manager && clothGroup.colliders.length > 0) {
