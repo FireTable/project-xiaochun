@@ -127,7 +127,7 @@ export const StoryCameraTaskCard: React.FC<StoryCameraTaskCardProps> = ({
       {/* 头部标题与完成进度 */}
       <div className="flex items-center justify-between">
         <span className="text-xs font-semibold text-white tracking-wide">
-          3D 视角探索
+          {t('story.cameraExplore')}
         </span>
 
         <div className="px-2 py-0.5 rounded-full bg-white/10 border border-white/10 text-[11px] font-medium">

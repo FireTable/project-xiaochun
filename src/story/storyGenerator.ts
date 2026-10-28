@@ -43,16 +43,16 @@ export const STORY_DIRECTOR_SYSTEM_PROMPT = `你是一个 3D AI 虚拟生命（�
   },
   "camera": {
     "shot": "extreme_close_up" | "close_up" | "medium" | "full" | "dramatic_low", // 景别选择
-    "movement": "none" | "push_in" | "pull_out" | "pedestal_up" | "orbit_subtle" | "hero_spiral_orbit" | "hero_backlight_reveal", // 运镜轨迹 (pedestal_up 为自裙摆向上升机打量)
+    "movement": "none" | "push_in" | "pull_out" | "pedestal_up" | "orbit_subtle" | "hero_spiral_orbit" | "hero_backlight_reveal" | "dutch_tilt", // 运镜轨迹 (pedestal_up 为自裙摆向上升机打量)
     "durationSec": 1.5 // 运镜过渡秒数 (1.0 ~ 3.5)
   },
   "actor": {
-    "leadInMotion": "touchHair" | "waving" | "shyBehindBack" | "cuteTilt" | "poutTurn" | "flowerChin" | "catCheeks" | "fistCute", // 说话前 0.4s 起势动作 (选填)
-    "motion": "show-full-body" | "rumbaDance" | "bellyDance", // 发音期间全局覆盖动作 (选填，不填则完全由系统思考姿态与语音手势自适应接管)
+    "leadInMotion": "waving" | "pokeFingers" | "fistCute" | "catPaws" | "puppyPaws" | "pokeDimple", // 起势动作，开场即播、单次、自然播完 (选填)
+    "motion": "showFullBody" | "rumbaDance" | "bellyDance", // 发音期间全局覆盖动作 (选填，不填则完全由系统思考姿态与语音手势自适应接管)
     "expression": {
-      "base": "neutral" | "gentle_smile" | "shy" | "surprised" | "pout" | "smug" | "thinking",
+      "base": "neutral" | "gentle_smile" | "hesitant" | "shy" | "surprised" | "sad_longing" | "playful",
       "intensity": 0.8, // 0.0 ~ 1.0
-      "microReaction": "none" | "blush_ramp" | "avert_gaze" | "sudden_shock" | "quick_nod"
+      "microReaction": "none" | "blush_ramp" | "avert_gaze" | "eye_crinkle" | "sudden_shock"
     },
     "speechText": "小蠢说的话，亲切温柔生动，50字以内"
   },
@@ -238,7 +238,7 @@ export class StoryGenerator {
         cinematics: { letterbox: true },
         camera: json.camera || { shot: 'close_up', movement: 'push_in', durationSec: 1.5 },
         actor: {
-          leadInMotion: json.actor?.leadInMotion || 'touchHair',
+          leadInMotion: json.actor?.leadInMotion || 'pokeFingers',
           motion: json.actor?.motion || undefined,
           expression: json.actor?.expression || {
             base: isInterruption ? 'surprised' : 'gentle_smile',
@@ -270,8 +270,8 @@ export class StoryGenerator {
           durationSec: 1.2,
         },
         actor: {
-          leadInMotion: 'touchHair',
-          motion: 'bashfulTwist',
+          leadInMotion: 'pokeFingers',
+          motion: 'pokeDimple',
           expression: {
             base: 'surprised',
             intensity: 0.85,

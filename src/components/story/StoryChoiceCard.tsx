@@ -1,4 +1,5 @@
 import React from 'react';
+import { useTranslation } from 'react-i18next';
 import type { StoryChoice } from '@/story/schema';
 
 interface StoryChoiceCardProps {
@@ -18,6 +19,7 @@ export const StoryChoiceCard: React.FC<StoryChoiceCardProps> = ({
   layout = 'list',
   variant = 'default',
 }) => {
+  const { t } = useTranslation();
   const isSelected = Boolean(choice.selected);
   const isPrimary = variant === 'primary';
 
@@ -77,11 +79,11 @@ export const StoryChoiceCard: React.FC<StoryChoiceCardProps> = ({
             </span>
           ) : isSelected ? (
             <span className="px-1.5 py-0.5 rounded text-[9px] font-bold bg-primary text-slate-950 shadow-sm">
-              当前所选
+              {t('story.selectedBadge')}
             </span>
           ) : (
             <span className="px-1.5 py-0.5 rounded text-[9px] font-medium bg-white/8 text-white/60 group-hover:text-primary-light">
-              试选
+              {t('story.tryBadge')}
             </span>
           )}
         </div>
@@ -133,7 +135,7 @@ export const StoryChoiceCard: React.FC<StoryChoiceCardProps> = ({
             </div>
           ) : isSelected ? (
             <div className="absolute top-1 right-1 px-1.5 py-0.2 rounded-[4px] text-[9px] font-bold bg-primary text-slate-950 shadow-sm">
-              当前所选
+              {t('story.selectedBadge')}
             </div>
           ) : null}
         </div>
