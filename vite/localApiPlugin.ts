@@ -132,6 +132,27 @@ export function localApiPlugin(ttsProxyUrl: string): Plugin {
         const host = req.headers.host || 'localhost:5185';
         const url = new URL(req.url || '', `http://${host}`);
 
+        if (url.pathname === '/api/stt') {
+          if (req.method === 'OPTIONS') {
+            res.statusCode = 204;
+            for (const [k, v] of Object.entries(EDGE_TTS_CONSTANTS.COMMON_CORS)) {
+              res.setHeader(k, v);
+            }
+            res.end();
+            return;
+          }
+          res.statusCode = 503;
+          res.setHeader('Content-Type', 'application/json');
+          res.setHeader('Access-Control-Allow-Origin', '*');
+          res.end(
+            JSON.stringify({
+              error: 'Local Vite Dev: Cloudflare Workers AI runs in Cloudflare Workers. Falling back to on-device SenseVoice.',
+              code: 'LOCAL_DEV_FALLBACK',
+            }),
+          );
+          return;
+        }
+
         if (url.pathname !== '/api/tts') {
           next();
           return;

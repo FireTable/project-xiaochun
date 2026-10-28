@@ -240,8 +240,8 @@ export class SttClient {
         void this.handleRecognitionResult({
           id: reqId,
           text: String(msg.text ?? ''),
-          rawText: msg.rawText,
-          isFinal: msg.isFinal,
+          rawText: typeof msg.rawText === 'string' ? msg.rawText : undefined,
+          isFinal: typeof msg.isFinal === 'boolean' ? msg.isFinal : undefined,
         });
         return;
       }

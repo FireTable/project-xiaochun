@@ -178,6 +178,8 @@ async function streamChunkAudioToCheckpoint(
     volume,
   });
 
+  if (!res.body) throw new Error('语音合成响应无 body');
+
   const reader = res.body.getReader();
   const decoder = new MPEGDecoder();
   await decoder.ready;

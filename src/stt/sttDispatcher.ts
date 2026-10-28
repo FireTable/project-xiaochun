@@ -97,6 +97,7 @@ export async function transcribeRemote(
   }
 
   const wavBytes = encodeWav(pcm, sampleRate);
+  const wavBlob = new Blob([wavBytes.buffer as ArrayBuffer], { type: 'audio/wav' });
 
   const abortController = new AbortController();
   const timer = setTimeout(() => abortController.abort(), REMOTE_TIMEOUT_MS);
@@ -115,7 +116,7 @@ export async function transcribeRemote(
       const resp = await fetch('/api/stt', {
         method: 'POST',
         headers: { 'Content-Type': 'audio/wav' },
-        body: wavBytes,
+        body: wavBlob,
         signal: abortController.signal,
       });
 
@@ -144,11 +145,7 @@ export async function transcribeRemote(
 
       const url = `${profile.baseURL.replace(/\/+$/, '')}/audio/transcriptions`;
       const formData = new FormData();
-      formData.append(
-        'file',
-        new Blob([wavBytes], { type: 'audio/wav' }),
-        'audio.wav',
-      );
+      formData.append('file', wavBlob, 'audio.wav');
       formData.append('model', profile.model);
 
       const headers: Record<string, string> = {};
