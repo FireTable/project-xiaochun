@@ -96,8 +96,11 @@ export class SttClient {
   private lastSessionRawText = '';
   /** Total samples of PCM that was sent in the last recognize call. */
   private lastSubmittedPcmSamples = 0;
+  /** Monotonic epoch incremented on resetSession to invalidate in-flight async results and prevent ghost text. */
+  private currentTurnId = 0;
   private inFlightUtterance: {
     id: number;
+    turnId: number;
     pcm: Float32Array;
     sampleRate: number;
     durationMs: number;
@@ -192,14 +195,10 @@ export class SttClient {
         return;
       }
       if (msg.type === 'result') {
-        const inFlight = this.inFlightUtterance;
-        const isFinal = Boolean(msg.isFinal ?? inFlight?.isFinal ?? false);
-        const rawText = String(msg.rawText ?? '');
-        const baseText = richTranscriptionPostprocess(String(msg.text ?? ''));
-
         const reqId = Number(msg.id);
         const adhoc = this.adhocRequests.get(reqId);
         if (adhoc) {
+          const baseText = richTranscriptionPostprocess(String(msg.text ?? ''));
           this.adhocRequests.delete(reqId);
           const now = typeof performance !== 'undefined' ? performance.now() : Date.now();
           const inferenceMs = Math.round(now - adhoc.startTime);
@@ -207,6 +206,19 @@ export class SttClient {
           adhoc.resolve({ text: adhocText, inferenceMs });
           return;
         }
+
+        const inFlight = this.inFlightUtterance;
+        // If session was reset (e.g. user sent message) while this utterance was in flight,
+        // discard this obsolete result to prevent ghost text from resurrecting in the input field!
+        if (!inFlight || (msg.id !== undefined && inFlight.id !== reqId) || inFlight.turnId !== this.currentTurnId) {
+          this.recognizingBusy = false;
+          return;
+        }
+
+        const isFinal = Boolean(msg.isFinal ?? inFlight.isFinal ?? false);
+        const rawText = String(msg.rawText ?? '');
+        const baseText = richTranscriptionPostprocess(String(msg.text ?? ''));
+        const turnId = inFlight.turnId;
 
         void (async () => {
           let cleaned: string;
@@ -216,6 +228,12 @@ export class SttClient {
               : await this.punctuateText(baseText);
           } else {
             cleaned = formatDraftPunctuation(baseText);
+          }
+
+          // Guard again in case resetSession was invoked while punctuateText was awaiting
+          if (this.currentTurnId !== turnId) {
+            this.recognizingBusy = false;
+            return;
           }
 
           if (typeof console !== 'undefined' && typeof console.log === 'function' && cleaned) {
@@ -505,6 +523,7 @@ export class SttClient {
       return;
     }
 
+    const sessionTurnId = this.currentTurnId;
     const textToCommit = this.lastSessionText;
     const rawToCommit = this.lastSessionRawText;
 
@@ -515,6 +534,10 @@ export class SttClient {
 
     if (textToCommit) {
       const finalized = await this.punctuateText(textToCommit);
+      // Guard: if session was reset (e.g. user sent message) while CT-Transformer was punctuating, discard
+      if (this.currentTurnId !== sessionTurnId) {
+        return;
+      }
       if (typeof console !== 'undefined' && typeof console.log === 'function') {
         console.log(
           `%c[STT Client]%c 长停顿定稿固化: "${finalized}"`,
@@ -530,14 +553,21 @@ export class SttClient {
    * Resets active session state and pending chunks without emitting text.
    */
   resetSession(): void {
+    this.currentTurnId++;
     if (this.commitTimer) {
       clearTimeout(this.commitTimer);
       this.commitTimer = null;
     }
+    for (const req of this.punctuateRequests.values()) {
+      clearTimeout(req.timer);
+    }
+    this.punctuateRequests.clear();
+    this.inFlightUtterance = null;
     this.sessionPcmChunks = [];
     this.lastSessionText = '';
     this.lastSessionRawText = '';
     this.lastSubmittedPcmSamples = 0;
+    this.recognizingBusy = false;
   }
 
   /**
@@ -616,6 +646,7 @@ export class SttClient {
 
     this.inFlightUtterance = {
       id,
+      turnId: this.currentTurnId,
       pcm: pcm.slice(),
       sampleRate: sr,
       durationMs,

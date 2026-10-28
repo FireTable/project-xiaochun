@@ -309,4 +309,52 @@ describe('SttClient state logic', () => {
       (globalThis as any).Worker = originalWorker;
     }
   });
+
+  it('resetSession invalidates in-flight utterances and prevents ghost text emission', async () => {
+    const originalWorker = (globalThis as any).Worker;
+    let workerInstance: any = null;
+    (globalThis as any).Worker = class MockWorker {
+      onmessage: any = null;
+      postMessage() {
+        workerInstance = this;
+      }
+      terminate() {}
+    };
+
+    try {
+      const client = new SttClient();
+      (client as any).ensureWorker();
+      (client as any).isModelReady = true;
+
+      // Submit an utterance in-flight
+      (client as any).submitUtterance(new Float32Array(3200), false);
+      const inFlightId = (client as any).inFlightUtterance.id;
+
+      let emittedEvents: any[] = [];
+      client.on((ev) => {
+        if (ev.type === 'text') emittedEvents.push(ev);
+      });
+
+      // User hits send, which calls resetSession()
+      client.resetSession();
+
+      // In-flight worker result arrives late
+      workerInstance.onmessage?.({
+        data: {
+          type: 'result',
+          id: inFlightId,
+          text: '迟到的幽灵文本',
+          isFinal: false,
+        },
+      });
+
+      // Verify no text event was emitted
+      expect(emittedEvents.length).toBe(0);
+      expect((client as any).lastSessionText).toBe('');
+
+      client.dispose();
+    } finally {
+      (globalThis as any).Worker = originalWorker;
+    }
+  });
 });
