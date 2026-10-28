@@ -30,6 +30,18 @@ export default defineConfig(({ command }) => ({
     ),
     dropDockerfatAssets(),
     {
+      name: 'force-exit-after-build',
+      enforce: 'post',
+      buildApp: {
+        order: 'post',
+        async handler() {
+          // TanStack Start prerender and Cloudflare workerd connection can keep the event loop alive.
+          // Cleanly exit the build process once all environments and prerenders have completed.
+          setTimeout(() => process.exit(0), 1500).unref();
+        },
+      },
+    },
+    {
       name: 'glsl-raw-loader',
       transform(code, id) {
         if (id.endsWith('.frag') || id.endsWith('.vert')) {
