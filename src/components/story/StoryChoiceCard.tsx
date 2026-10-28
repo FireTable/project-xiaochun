@@ -169,7 +169,7 @@ export const StoryChoiceCard: React.FC<StoryChoiceCardProps> = ({
           : 'bg-[#0b0e1b]/75 hover:bg-[#151b33]/90 border border-white/12 hover:border-[#f3d09a]/50 shadow-[0_4px_14px_rgba(0,0,0,0.35)] hover:-translate-y-0.5'
       } active:scale-[0.98]`}
     >
-      <div className="flex items-center gap-2 sm:gap-2.5 min-w-0 z-10">
+      <div className="flex items-center gap-2 sm:gap-2.5 min-w-0 z-10 flex-1">
         {/* 左侧图标 */}
         {choice.icon && (
           <span className="shrink-0 text-xs sm:text-sm">
@@ -201,6 +201,11 @@ export const StoryChoiceCard: React.FC<StoryChoiceCardProps> = ({
           )}
         </div>
       </div>
+      {isPrimary && (
+        <span className="shrink-0 text-xs font-bold text-[#f3d09a] pl-2 z-10 group-hover:translate-x-0.5 transition-transform">
+          ➔
+        </span>
+      )}
     </button>
   );
 };

@@ -95,8 +95,11 @@ export const StoryPlayer: React.FC<StoryPlayerProps> = ({
     async (choice: StoryChoice) => {
       if (isGenerating) return;
 
-      // 如果是换装试穿动作，只驱动换装与全身展示，保留在当前拍自由试穿
-      if (choice.actionType === 'swap_outfit') {
+      // 如果是换装试穿或场景试选预览动作，只驱动换装/场景切换预览，保留在当前拍自由试选
+      if (
+        choice.actionType === 'swap_outfit' ||
+        (choice.actionType === 'change_scene' && !choice.nextBeatId)
+      ) {
         await storyDirectorEngine.selectChoice(choice);
         return;
       }
@@ -238,7 +241,7 @@ export const StoryPlayer: React.FC<StoryPlayerProps> = ({
       );
     }
 
-    if (isMediaGrid) {
+    if (isMediaGrid && displayChoices.length > 0) {
       return (
         <div className="w-full flex flex-col gap-1.5">
           <StoryChoiceGroup

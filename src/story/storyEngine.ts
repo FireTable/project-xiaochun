@@ -446,7 +446,11 @@ export class StoryDirectorEngine {
       await sceneManager.setScene(String(choice.actionPayload), true);
       if (isScenePreview) {
         storyAudioDirector.playSfx('crystal_chime');
-        this.state.choices = this.state.choices.map((c) => ({
+        const baseChoices =
+          this.state.choices.length > 0
+            ? this.state.choices
+            : this.state.currentBeat?.choices || [];
+        this.state.choices = baseChoices.map((c) => ({
           ...c,
           selected: c.id === choice.id || c.actionPayload === choice.actionPayload,
         }));
@@ -468,7 +472,11 @@ export class StoryDirectorEngine {
       storyAudioDirector.playSfx('crystal_chime');
 
       // 更新高亮态 (当前穿戴的衣服被选定)
-      this.state.choices = this.state.choices.map((c) => ({
+      const baseChoices =
+        this.state.choices.length > 0
+          ? this.state.choices
+          : this.state.currentBeat?.choices || [];
+      this.state.choices = baseChoices.map((c) => ({
         ...c,
         selected: c.id === choice.id || c.actionPayload === choice.actionPayload,
       }));

@@ -115,4 +115,93 @@ describe('StoryDirectorEngine Architecture & Schemas', () => {
     expect(appliedBlink).toBeDefined();
     expect(mockVRM.expressionManager).toBeDefined();
   });
+
+  it('handles scene preview choices by updating active scene and selected state without leaving beat', async () => {
+    if (typeof window === 'undefined') {
+      (globalThis as any).window = {
+        location: { pathname: '/', search: '' },
+        addEventListener: () => {},
+        removeEventListener: () => {},
+        dispatchEvent: () => {},
+        matchMedia: () => ({ matches: false, addEventListener: () => {} }),
+      };
+      (globalThis as any).document = {
+        documentElement: { classList: { toggle: () => {} } },
+        createElement: () => ({
+          getContext: () =>
+            new Proxy({} as any, {
+              get: () => () => ({ addColorStop: () => {} }),
+            }),
+        }),
+      };
+    }
+    const { storyDirectorEngine } = await import('../storyEngine');
+    const { sceneManager } = await import('@/core/scene/sceneManager');
+
+    const testScript = {
+      id: 'test_script',
+      title: '测试剧本',
+      initialBeatId: 'beat_scene',
+      beats: {
+        beat_scene: {
+          id: 'beat_scene',
+          actor: {
+            expression: { base: 'neutral', intensity: 0.5, microReaction: 'none' as const },
+            speechText: '',
+          },
+          choices: [
+            {
+              id: 'scene_light',
+              text: '昼白线稿',
+              actionType: 'change_scene' as const,
+              actionPayload: 'light',
+            },
+            {
+              id: 'scene_dark',
+              text: '极夜线稿',
+              actionType: 'change_scene' as const,
+              actionPayload: 'dark',
+            },
+          ],
+          confirmChoice: {
+            id: 'scene_confirm',
+            text: '就决定去这里了',
+            actionType: 'next_beat' as const,
+            nextBeatId: 'beat_outfit',
+          },
+        },
+        beat_outfit: {
+          id: 'beat_outfit',
+          actor: {
+            expression: { base: 'neutral', intensity: 0.5, microReaction: 'none' as const },
+            speechText: '',
+          },
+        },
+      },
+    };
+
+    await storyDirectorEngine.playScript(testScript as any);
+    expect(storyDirectorEngine.getState().currentBeat?.id).toBe('beat_scene');
+
+    // Click scene_light (preview)
+    const lightChoice = testScript.beats.beat_scene.choices[0];
+    await storyDirectorEngine.selectChoice(lightChoice as any);
+
+    // Should stay on beat_scene
+    expect(storyDirectorEngine.getState().currentBeat?.id).toBe('beat_scene');
+    expect(sceneManager.getCurrentSceneId()).toBe('light');
+
+    // Click scene_dark (preview again)
+    const darkChoice = testScript.beats.beat_scene.choices[1];
+    await storyDirectorEngine.selectChoice(darkChoice as any);
+
+    expect(storyDirectorEngine.getState().currentBeat?.id).toBe('beat_scene');
+    expect(sceneManager.getCurrentSceneId()).toBe('dark');
+
+    // Click confirm choice (proceeds to beat_outfit)
+    const confirmChoice = testScript.beats.beat_scene.confirmChoice;
+    await storyDirectorEngine.selectChoice(confirmChoice as any);
+
+    expect(storyDirectorEngine.getState().currentBeat?.id).toBe('beat_outfit');
+  });
 });

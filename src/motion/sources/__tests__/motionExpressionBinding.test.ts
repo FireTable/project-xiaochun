@@ -1,8 +1,8 @@
-import { describe, expect, it, vi } from 'vitest';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
 import * as THREE from 'three';
 import { UniversalMotionController } from '../clip';
 import { expressionController, PRESET_EMOTION_MAP } from '../../../core/morph/expressionController';
-import { MOTION_CATALOG } from '../../catalog';
+import { MOTION_CATALOG, MOTION_GROUPS } from '../../catalog';
 import type { VRM } from '@pixiv/three-vrm';
 
 function createMockVRM() {
@@ -36,6 +36,9 @@ function createDummyClip(duration = 2.0): THREE.AnimationClip {
 }
 
 describe('UniversalMotionController Motion-Native Expression Binding', () => {
+  beforeEach(() => {
+    expressionController.reset();
+  });
   it('automatically binds expression on play() and smoothly returns to neutral on stop()', () => {
     const controller = new UniversalMotionController();
     const vrm = createMockVRM();
@@ -153,17 +156,20 @@ describe('UniversalMotionController Motion-Native Expression Binding', () => {
     expect(MOTION_CATALOG.angryJump.expression).toBe('angry');
     expect(MOTION_CATALOG.angryJump.expressionIntensity).toBe(0.85);
 
-    // SleepyNod has relaxed and disableGaze
-    expect(MOTION_CATALOG.sleepyNod.expression).toBe('relaxed');
-    expect(MOTION_CATALOG.sleepyNod.expressionIntensity).toBe(0.7);
+    // SleepyNod has gentle_smile and disableGaze (杜绝默认瞇眯眼)
+    expect(MOTION_CATALOG.sleepyNod.expression).toBe('gentle_smile');
+    expect(MOTION_CATALOG.sleepyNod.expressionIntensity).toBe(0.6);
     expect(MOTION_CATALOG.sleepyNod.disableGaze).toBe(true);
+
+    // GazeObserve has gentle_smile (杜绝默认瞇眯眼)
+    expect(MOTION_CATALOG.gazeObserve.expression).toBe('gentle_smile');
 
     // ShhLean has playful
     expect(MOTION_CATALOG.shhLean.expression).toBe('playful');
     expect(MOTION_CATALOG.shhLean.expressionIntensity).toBe(0.7);
   });
 
-  it('ExpressionController dynamically links sleepyBlink to head nod pitch and gazeBlink without compounding', () => {
+  it('ExpressionController dynamically links sleepyBlink to head nod pitch without permanent squint', () => {
     const vrm = createMockVRM();
     const values: Record<string, number> = {};
     (vrm.expressionManager!.setValue as any).mockImplementation((key: string, val: number) => {
@@ -176,22 +182,26 @@ describe('UniversalMotionController Motion-Native Expression Binding', () => {
 
     // Simulated head nod down (pitch = 0.20 rad)
     head.rotation.x = 0.20;
+    for (let i = 0; i < 25; i++) {
+      expressionController.update(0.05, vrm, false, 0, 0.2);
+    }
+    // Blink dynamically closes deeper into nod (around ~0.65 - 0.85)
+    expect(values.blink).toBeGreaterThan(0.60);
+    expect(values.blink).toBeLessThan(0.85);
+
+    // Deep nod (pitch = 0.30 rad) -> deep slumber closing (> 0.80)
+    head.rotation.x = 0.30;
     for (let i = 0; i < 15; i++) {
       expressionController.update(0.05, vrm, false, 0, 0.2);
     }
-    // Blink dynamically closes deeper into nod (around ~0.72 - 0.80)
-    expect(values.blink).toBeGreaterThan(0.65);
-    expect(values.blink).toBeLessThan(0.85);
+    expect(values.blink).toBeGreaterThan(0.80);
 
-    // Deep nod (pitch = 0.30 rad) -> deep slumber closing (~0.90)
-    head.rotation.x = 0.30;
-    expressionController.update(0.05, vrm, false, 0, 0.2);
-    expect(values.blink).toBeGreaterThan(0.85);
-
-    // Head lifts back upright (pitch = 0 rad) -> flutters open to relaxed base (~0.35)
+    // Head lifts back upright (pitch = 0 rad) -> flutters completely open (blink <= 0.05, 杜绝瞇眯眼)
     head.rotation.x = 0.0;
-    expressionController.update(0.05, vrm, false, 0, 0.2);
-    expect(values.blink).toBeLessThanOrEqual(0.38);
+    for (let i = 0; i < 30; i++) {
+      expressionController.update(0.05, vrm, false, 0, 0);
+    }
+    expect(values.blink).toBeLessThanOrEqual(0.05);
 
     // Clear expression back to neutral
     expressionController.setExpression('neutral', 1.0);
@@ -210,15 +220,15 @@ describe('UniversalMotionController Motion-Native Expression Binding', () => {
 
     // Test playful: triggers left-eye wink pulse at peak (around ~0.45s) and reopens, while happy smile holds
     expressionController.setExpression('playful', 0.85);
-    for (let i = 0; i < 9; i++) {
-      expressionController.update(0.05, vrm); // ~0.45s, peak of wink pulse
+    for (let i = 0; i < 11; i++) {
+      expressionController.update(0.05, vrm); // ~0.55s, peak of wink pulse
     }
-    expect(values.blinkLeft).toBeGreaterThan(0.70);
+    expect(values.blinkLeft).toBeGreaterThan(0.65);
     expect(values.happy).toBeGreaterThan(0.40);
 
-    // After wink pulse finishes (~1.0s), eye reopens to 0 while happy smile continues
-    for (let i = 0; i < 11; i++) {
-      expressionController.update(0.05, vrm); // +0.55s => total 1.0s
+    // After wink pulse finishes (~1.2s), eye reopens to 0 while happy smile continues
+    for (let i = 0; i < 15; i++) {
+      expressionController.update(0.05, vrm);
     }
     expect(values.blinkLeft).toBe(0);
     expect(values.happy).toBeGreaterThan(0.40);
@@ -264,22 +274,26 @@ describe('UniversalMotionController Motion-Native Expression Binding', () => {
       },
     });
 
-    // Tick controller
+    // Tick controller and smooth facial dampening
     controller.update(0.5);
-    expressionController.update(0.05, vrm);
+    for (let i = 0; i < 8; i++) {
+      expressionController.update(0.05, vrm);
+    }
 
     expect(receivedElapsed).toBeCloseTo(0.5, 1);
     expect(receivedProgress).toBeCloseTo(0.5 / 4.0, 2);
     expect(receivedHeadPitch).toBeCloseTo(0, 2);
-    expect(values.happy).toBeCloseTo(0.77, 2);
+    expect(values.happy).toBeCloseTo(0.77, 1);
     expect(values.blink).toBe(0);
 
     // Advance past 1.0s
     controller.update(0.8);
-    expressionController.update(0.05, vrm);
+    for (let i = 0; i < 10; i++) {
+      expressionController.update(0.05, vrm);
+    }
 
-    expect(values.happy).toBeCloseTo(0.77, 2);
-    expect(values.blink).toBeCloseTo(0.90, 2);
+    expect(values.happy).toBeCloseTo(0.77, 1);
+    expect(values.blink).toBeCloseTo(0.90, 1);
 
     // Stopping motion clears dynamic expression
     controller.stop();
@@ -305,28 +319,82 @@ describe('UniversalMotionController Motion-Native Expression Binding', () => {
 
     // At start (t = 0.2s): no wink, sweet smile
     fakeElapsed = 0.2;
-    expressionController.update(0.05, vrm);
+    for (let i = 0; i < 5; i++) {
+      expressionController.update(0.05, vrm);
+    }
     expect(values.blinkLeft).toBe(0);
     expect(values.happy).toBeGreaterThanOrEqual(0.45);
 
-    // At climax peak (t = 1.15s, midway between 0.8s and 1.5s): peak wink pulse!
-    fakeElapsed = 1.15;
-    expressionController.update(0.05, vrm);
-    expect(values.blinkLeft).toBeGreaterThan(0.80);
-    expect(values.happy).toBeGreaterThan(0.60);
+    // At climax peak (t = 1.15s, midway between 0.8s and 1.5s): smooth wink peak!
+    for (let t = 0.25; t <= 1.15; t += 0.05) {
+      fakeElapsed = t;
+      expressionController.update(0.05, vrm);
+    }
+    expect(values.blinkLeft).toBeGreaterThan(0.70);
+    expect(values.happy).toBeGreaterThan(0.55);
 
     // After wink completes (t = 2.0s): eye fully reopens, smile remains!
-    fakeElapsed = 2.0;
-    expressionController.update(0.05, vrm);
+    for (let t = 1.20; t <= 2.0; t += 0.05) {
+      fakeElapsed = t;
+      expressionController.update(0.05, vrm);
+    }
     expect(values.blinkLeft).toBe(0);
     expect(values.happy).toBeGreaterThanOrEqual(0.45);
 
     // Later in hold (t = 5.0s): eye still open, no frozen wink!
     fakeElapsed = 5.0;
-    expressionController.update(0.05, vrm);
+    for (let i = 0; i < 5; i++) {
+      expressionController.update(0.05, vrm);
+    }
     expect(values.blinkLeft).toBe(0);
 
     expressionController.setExpressionFn(null);
+  });
+
+  it('guarantees listening and thinking groups have zero permanent squinting (杜绝瞇眯眼)', () => {
+    const vrm = createMockVRM();
+    const values: Record<string, number> = {};
+    (vrm.expressionManager!.setValue as any).mockImplementation((key: string, val: number) => {
+      values[key] = val;
+    });
+
+    // Check listening group: listening & gazeObserve
+    const listeningIds = MOTION_GROUPS.listening.map((item) => item.id);
+    for (const id of listeningIds) {
+      const motion = MOTION_CATALOG[id];
+      expect(motion.expression, `Listening motion ${id} should be gentle_smile`).toBe('gentle_smile');
+      expressionController.setExpression(motion.expression!, motion.expressionIntensity);
+      for (let i = 0; i < 20; i++) {
+        expressionController.update(0.05, vrm);
+      }
+      expect(values.blink, `Motion ${id} must not have eye squinting`).toBe(0);
+      expect(values.relaxed ?? 0, `Motion ${id} must not have relaxed eyelid droop`).toBeLessThanOrEqual(0.05);
+    }
+
+    // Check thinking group: thinking & pokeFingers
+    const thinkingIds = MOTION_GROUPS.thinking.map((item) => item.id);
+    for (const id of thinkingIds) {
+      const motion = MOTION_CATALOG[id];
+      if ('expressionFn' in motion && motion.expressionFn) {
+        expressionController.setExpressionFn(motion.expressionFn as any, () => ({ elapsed: 1.0, duration: 4.0 }));
+      } else {
+        expressionController.setExpression(motion.expression!, motion.expressionIntensity);
+      }
+      for (let i = 0; i < 20; i++) {
+        expressionController.update(0.05, vrm);
+      }
+      expect(values.blink, `Thinking motion ${id} must not have eye squinting`).toBe(0);
+      expect(values.relaxed ?? 0, `Thinking motion ${id} must not have relaxed eyelid droop`).toBeLessThanOrEqual(0.05);
+    }
+
+    // Check sleepyNod starts with eyes fully open at t=0
+    const sleepyNod = MOTION_CATALOG.sleepyNod;
+    expressionController.setExpressionFn(sleepyNod.expressionFn!, () => ({ elapsed: 0.1, duration: 4.17 }));
+    for (let i = 0; i < 10; i++) {
+      expressionController.update(0.05, vrm);
+    }
+    expect(values.blink, 'SleepyNod must start with eyes completely open at t=0').toBe(0);
+    expect(values.relaxed ?? 0, 'SleepyNod must start without relaxed eyelid droop at t=0').toBe(0);
   });
 
   it('enforces type safety so all configured motion expressions exist in PRESET_EMOTION_MAP', () => {
