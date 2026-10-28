@@ -3,16 +3,12 @@ import {
   getVoiceHistory,
   clearVoiceHistory,
   VOICE_HISTORY_UPDATE_EVENT,
-  wavDataUrlToPcm,
-  isSpeechRecognitionSupported,
-  testWithSpeechRecognition,
   type VoiceAnalysisRecord,
 } from '@/stt/voiceSessionHistory';
-import { getSharedSttClient } from '@/stt/sttClient';
 import { useDevDrawer } from '../context';
 import { SectionCard } from '../components/SectionCard';
 import { SectionHeader } from '../components/SectionHeader';
-import { Play, Pause, Trash2, Copy, Check, Mic, Zap, Globe, Loader2 } from '@/components/icons';
+import { Play, Pause, Trash2, Copy, Check, Mic } from '@/components/icons';
 
 function formatTime(timestamp: number): string {
   try {
@@ -31,21 +27,6 @@ function formatSeconds(sec: number): string {
   return `${m}:${String(s).padStart(2, '0')}`;
 }
 
-interface TestResultState {
-  senseVoice?: {
-    text: string;
-    inferenceMs: number;
-    loading?: boolean;
-    error?: string;
-  };
-  webSpeech?: {
-    text: string;
-    durationMs: number;
-    loading?: boolean;
-    error?: string;
-  };
-}
-
 export const VoiceAnalysisSection: React.FC = () => {
   const { t, isOpen } = useDevDrawer();
   const [records, setRecords] = useState<VoiceAnalysisRecord[]>(() => getVoiceHistory());
@@ -53,7 +34,6 @@ export const VoiceAnalysisSection: React.FC = () => {
   const [playbackTime, setPlaybackTime] = useState<number>(0);
   const [playbackDuration, setPlaybackDuration] = useState<number>(0);
   const [copiedId, setCopiedId] = useState<string | null>(null);
-  const [testResults, setTestResults] = useState<Record<string, TestResultState>>({});
 
   const audioRef = useRef<HTMLAudioElement | null>(null);
 
@@ -160,80 +140,6 @@ export const VoiceAnalysisSection: React.FC = () => {
     setPlayingId(null);
     clearVoiceHistory();
     setRecords([]);
-    setTestResults({});
-  };
-
-  const handleTestAsr = async (record: VoiceAnalysisRecord) => {
-    setTestResults((prev) => ({
-      ...prev,
-      [record.id]: {
-        ...prev[record.id],
-        senseVoice: { text: '', inferenceMs: 0, loading: true },
-      },
-    }));
-
-    try {
-      const { pcm, sampleRate } = wavDataUrlToPcm(record.audioDataUrl);
-      const res = await getSharedSttClient().recognizePcm(pcm, sampleRate);
-      setTestResults((prev) => ({
-        ...prev,
-        [record.id]: {
-          ...prev[record.id],
-          senseVoice: { text: res.text, inferenceMs: res.inferenceMs, loading: false },
-        },
-      }));
-    } catch (err) {
-      console.error('[VoiceAnalysis] SenseVoice retest failed:', err);
-      setTestResults((prev) => ({
-        ...prev,
-        [record.id]: {
-          ...prev[record.id],
-          senseVoice: {
-            text: '',
-            inferenceMs: 0,
-            loading: false,
-            error: err instanceof Error ? err.message : String(err),
-          },
-        },
-      }));
-    }
-  };
-
-  const handleTestWebSpeech = async (record: VoiceAnalysisRecord) => {
-    if (!isSpeechRecognitionSupported) return;
-
-    setTestResults((prev) => ({
-      ...prev,
-      [record.id]: {
-        ...prev[record.id],
-        webSpeech: { text: '', durationMs: 0, loading: true },
-      },
-    }));
-
-    try {
-      const res = await testWithSpeechRecognition(record.audioDataUrl);
-      setTestResults((prev) => ({
-        ...prev,
-        [record.id]: {
-          ...prev[record.id],
-          webSpeech: { text: res.text, durationMs: res.durationMs, loading: false },
-        },
-      }));
-    } catch (err) {
-      console.warn('[VoiceAnalysis] WebSpeech test failed:', err);
-      setTestResults((prev) => ({
-        ...prev,
-        [record.id]: {
-          ...prev[record.id],
-          webSpeech: {
-            text: '',
-            durationMs: 0,
-            loading: false,
-            error: err instanceof Error ? err.message : String(err),
-          },
-        },
-      }));
-    }
   };
 
   return (
@@ -277,7 +183,6 @@ export const VoiceAnalysisSection: React.FC = () => {
               isPlaying && playbackDuration > 0
                 ? Math.min(100, Math.max(0, (playbackTime / playbackDuration) * 100))
                 : 0;
-            const resultState = testResults[rec.id];
 
             return (
               <div
@@ -376,108 +281,6 @@ export const VoiceAnalysisSection: React.FC = () => {
                     </div>
                   </div>
                 </div>
-
-                {/* A/B Benchmark & Retest Buttons */}
-                <div className="flex items-center gap-2 pt-2 border-t border-white/5">
-                  <button
-                    type="button"
-                    disabled={resultState?.senseVoice?.loading}
-                    onClick={() => handleTestAsr(rec)}
-                    className="flex-1 py-1 px-2 rounded-lg bg-amber-500/10 hover:bg-amber-500/20 active:scale-95 text-amber-300 border border-amber-400/25 flex items-center justify-center gap-1.5 text-[10px] font-medium transition-all cursor-pointer disabled:opacity-50 disabled:pointer-events-none"
-                    title={t('panel.voiceAnalysisTestAsrTooltip')}
-                  >
-                    {resultState?.senseVoice?.loading ? (
-                      <>
-                        <Loader2 className="w-3 h-3 animate-spin" />
-                        <span>{t('panel.voiceAnalysisTesting')}</span>
-                      </>
-                    ) : (
-                      <>
-                        <Zap className="w-3 h-3" />
-                        <span>{t('panel.voiceAnalysisTestAsrBtn')}</span>
-                      </>
-                    )}
-                  </button>
-
-                  <button
-                    type="button"
-                    disabled={!isSpeechRecognitionSupported || resultState?.webSpeech?.loading}
-                    onClick={() => handleTestWebSpeech(rec)}
-                    className={`flex-1 py-1 px-2 rounded-lg flex items-center justify-center gap-1.5 text-[10px] font-medium transition-all ${
-                      isSpeechRecognitionSupported
-                        ? 'bg-sky-500/10 hover:bg-sky-500/20 active:scale-95 text-sky-300 border border-sky-400/25 cursor-pointer disabled:opacity-50 disabled:pointer-events-none'
-                        : 'bg-white/5 text-white/30 border border-white/5 cursor-not-allowed opacity-40'
-                    }`}
-                    title={
-                      isSpeechRecognitionSupported
-                        ? t('panel.voiceAnalysisTestWebSpeechTooltip')
-                        : t('panel.voiceAnalysisWebSpeechUnsupported')
-                    }
-                  >
-                    {resultState?.webSpeech?.loading ? (
-                      <>
-                        <Loader2 className="w-3 h-3 animate-spin" />
-                        <span>{t('panel.voiceAnalysisTesting')}</span>
-                      </>
-                    ) : (
-                      <>
-                        <Globe className="w-3 h-3" />
-                        <span>{t('panel.voiceAnalysisTestWebSpeechBtn')}</span>
-                      </>
-                    )}
-                  </button>
-                </div>
-
-                {/* Comparison Results Card */}
-                {(resultState?.senseVoice?.text !== undefined ||
-                  resultState?.webSpeech?.text !== undefined ||
-                  resultState?.senseVoice?.error ||
-                  resultState?.webSpeech?.error) && (
-                  <div className="flex flex-col gap-1.5 p-2 rounded-lg bg-black/50 border border-white/10 text-[11px] font-sans">
-                    {(resultState.senseVoice?.text !== undefined || resultState.senseVoice?.error) && (
-                      <div className="flex items-start justify-between gap-2">
-                        <span className="text-amber-400 font-semibold text-[10px] shrink-0 font-mono">
-                          {t('panel.voiceAnalysisSenseVoiceLabel')}:
-                        </span>
-                        <span className="flex-1 text-white/95 select-text break-words">
-                          {resultState.senseVoice.error ? (
-                            <span className="text-rose-400/80">{resultState.senseVoice.error}</span>
-                          ) : resultState.senseVoice.text ? (
-                            resultState.senseVoice.text
-                          ) : (
-                            <span className="text-white/35 italic">(未识别出有效文本)</span>
-                          )}
-                        </span>
-                        {resultState.senseVoice.inferenceMs > 0 && (
-                          <span className="text-[10px] text-amber-300/80 font-mono shrink-0">
-                            ⚡ {resultState.senseVoice.inferenceMs}ms
-                          </span>
-                        )}
-                      </div>
-                    )}
-                    {(resultState.webSpeech?.text !== undefined || resultState.webSpeech?.error) && (
-                      <div className="flex items-start justify-between gap-2 border-t border-white/5 pt-1">
-                        <span className="text-sky-400 font-semibold text-[10px] shrink-0 font-mono">
-                          {t('panel.voiceAnalysisWebSpeechLabel')}:
-                        </span>
-                        <span className="flex-1 text-white/95 select-text break-words">
-                          {resultState.webSpeech.error ? (
-                            <span className="text-rose-400/80">{resultState.webSpeech.error}</span>
-                          ) : resultState.webSpeech.text ? (
-                            resultState.webSpeech.text
-                          ) : (
-                            <span className="text-white/35 italic">{t('panel.voiceAnalysisNoWebSpeechResult')}</span>
-                          )}
-                        </span>
-                        {resultState.webSpeech.durationMs > 0 && (
-                          <span className="text-[10px] text-sky-300/80 font-mono shrink-0">
-                            ⏱️ {resultState.webSpeech.durationMs}ms
-                          </span>
-                        )}
-                      </div>
-                    )}
-                  </div>
-                )}
               </div>
             );
           })}

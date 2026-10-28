@@ -3,7 +3,6 @@ import {
   pcmToWavDataUrl,
   wavDataUrlToPcm,
   isDevDrawerActive,
-  isSpeechRecognitionSupported,
   getVoiceHistory,
   saveVoiceRecord,
   clearVoiceHistory,
@@ -82,10 +81,6 @@ describe('voiceSessionHistory', () => {
       for (let i = 0; i < origPcm.length; i++) {
         expect(pcm[i]).toBeCloseTo(origPcm[i]!, 3);
       }
-    });
-
-    it('evaluates isSpeechRecognitionSupported as boolean', () => {
-      expect(typeof isSpeechRecognitionSupported).toBe('boolean');
     });
   });
 
