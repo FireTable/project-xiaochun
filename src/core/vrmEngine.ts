@@ -28,6 +28,8 @@ import { isHeavyPreloadAllowed, isLlmPreloadAllowed } from '@/lib/heavyPreload';
 import { APP_CONFIG, type LightConfig, type VocalAudioConfig, type VocalPresetKey } from '@/config';
 import { loadPostFxEnabledFromStorage, getRenderPixelRatio, resolveInitialSceneTheme } from '@/lib/utils';
 import { isMobile, isTauri } from '@/lib/platform';
+import { registerGpuReleaser, releaseRendererGpu } from './gpuRelease';
+import { PREWARM_BUDGET_MS, PREWARM_EXTENSIONS, runTimeSliced, warmExtensions } from './gpuPrewarm';
 import type { Lang } from '@/i18n';
 import { langFromSystemPrompt } from '@/llm/prompts';
 
@@ -570,6 +572,18 @@ export class VRMEngine {
     this.resumeForeground();
   };
 
+  /**
+   * Hard-release the engine's GL context (renderer.dispose + WEBGL_lose_context). Idempotent. Called from the
+   * non-bfcache `pagehide` (see gpuRelease.ts) and from dispose(). The render loop is stopped first so nothing draws
+   * on the lost context; resumeRendering() refuses to restart afterwards.
+   */
+  public releaseGpu(): void {
+    if (this._gpuReleased) return;
+    this._gpuReleased = true;
+    this.suspendRendering();
+    if (this.renderer) releaseRendererGpu(this.renderer, { loseContext: true });
+  }
+
   /** 仅当前台可见时恢复；后台 pageshow/resume 不把 GPU 叫醒。 */
   private resumeForeground(): void {
     if (typeof document !== 'undefined' && document.hidden) return;
@@ -591,6 +605,7 @@ export class VRMEngine {
   }
 
   public resumeRendering(): void {
+    if (this._gpuReleased) return;
     // /embed: 宿主 xc.pause 期间, 前台恢复/pageshow 也不唤醒渲染 (宿主 xc.resume 才放行)
     if (this.hostPaused) return;
     if (!this.isRenderingSuspended && this.animFrameId !== null) {
@@ -1043,7 +1058,9 @@ export class VRMEngine {
       this.controls = null;
     }
     if (this.renderer) {
-      this.renderer.dispose();
+      // A different canvas means the old context is orphaned: lose it now instead of waiting for GC. Never lose it
+      // when the SAME canvas is re-attached, the new renderer would get that dead context back.
+      releaseRendererGpu(this.renderer, { loseContext: !!this.canvas && this.canvas !== canvas });
       this.renderer = null;
     }
     if (this.canvas && this.canvas !== canvas) {
@@ -1068,6 +1085,9 @@ export class VRMEngine {
 
     this.bindBatteryPowerPreference();
     this.renderer = new THREE.WebGLRenderer(this.getRendererContextAttributes());
+    this._gpuReleased = false;
+    this._unregisterGpuRelease?.();
+    this._unregisterGpuRelease = registerGpuReleaser(() => this.releaseGpu());
     this._rendererContextKey = this.rendererContextKey();
     this.renderer.setClearColor(0x000000, 0);
 
@@ -1296,12 +1316,24 @@ export class VRMEngine {
         if (u) for (const uk in u) { const v = u[uk]?.value; if (v && (v as THREE.Texture).isTexture) textures.add(v); }
       }
     });
-    let since = performance.now();
-    for (const t of textures) {
-      if ((t as any).isRenderTargetTexture) continue;
-      try { renderer.initTexture(t); } catch { /* first render uploads it instead */ }
-      if (performance.now() - since > 12) { await yieldToMain(); since = performance.now(); }
+    const aborted = () => this._gpuReleased || this.renderer !== renderer;
+    const onSlow = (label: string, ms: number) => {
+      if (import.meta.env?.DEV) console.debug(`[VRMEngine] prewarm: ${label} took ${Math.round(ms)}ms (sync GPU call)`);
+    };
+    // gl.getExtension is a synchronous round trip to the GPU process and, right after a reload, can queue behind the
+    // previous document's teardown (seen: ~11 s inside the first initTexture). Touch the lazily-queried extensions
+    // one per task, once per renderer, so a stall is isolated to one step and never gates the whole texture upload.
+    if (!this._extWarmed.has(renderer)) {
+      this._extWarmed.add(renderer);
+      await warmExtensions(renderer.extensions, PREWARM_EXTENSIONS, { yieldFn: yieldToMain, aborted, onSlow });
     }
+    // Texture uploads in ~PREWARM_BUDGET_MS slices, yielding to the loop between slices.
+    await runTimeSliced(
+      Array.from(textures).filter((t) => !(t as any).isRenderTargetTexture),
+      (t) => renderer.initTexture(t),
+      { budgetMs: PREWARM_BUDGET_MS, yieldFn: yieldToMain, aborted, onSlow },
+    );
+    if (aborted()) return;
     await yieldToMain();
     // three r18x silently downgrades PCFSoftShadowMap to PCFShadowMap inside the first shadow render; apply the same
     // downgrade up front, otherwise every precompiled program's cache key (shadowMapType) misses and relinks.
@@ -1450,6 +1482,11 @@ export class VRMEngine {
   }
 
   private _beachPrewarmed = false;
+  /** True once the GL context was explicitly released (page unload / dispose). The renderer is unusable afterwards. */
+  private _gpuReleased = false;
+  private _unregisterGpuRelease: (() => void) | null = null;
+  /** Renderers whose lazily-queried GL extensions were already touched by prewarmGpu. */
+  private _extWarmed = new WeakSet<object>();
   private _pendingScene: SceneThemeId | null = null;
 
   public setScene(theme: SceneThemeId, persist: boolean = true): void {
@@ -3989,7 +4026,9 @@ export class VRMEngine {
       this.currentVRM = null;
     }
 
-    this.renderer?.dispose();
+    this.releaseGpu();
+    this._unregisterGpuRelease?.();
+    this._unregisterGpuRelease = null;
     this.lineworkWorld.dispose(this.scene);
     this.voidWorld.dispose(this.scene);
     this.beach3d.dispose(this.scene);

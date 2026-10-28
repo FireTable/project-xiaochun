@@ -7,6 +7,7 @@
 
 import { canvasSizeFor, placeCanvas, snapToPixel } from './pixelSnap';
 import { createWarpGL } from './warpGL';
+import { loseGlContext, registerGpuReleaser } from '@/core/gpuRelease';
 import { APP_CONFIG } from '@/config';
 import type { FromWorker, ToWorker } from './keyvisualWarp.worker';
 
@@ -31,6 +32,13 @@ export function isWarpWarm(): boolean {
 }
 const restoreTimers = new WeakMap<HTMLCanvasElement, number>();
 const maskCache = new Map<string, Promise<HTMLImageElement>>();
+// Per-canvas pagehide releaser (see core/gpuRelease.ts): the warp's GL context (main thread or worker) is lost when
+// the document unloads for real, so a reload does not start while the old context still occupies the GPU process.
+const gpuUnregister = new WeakMap<HTMLCanvasElement, () => void>();
+function registerWarpRelease(canvas: HTMLCanvasElement, fn: () => void): void {
+  gpuUnregister.get(canvas)?.();
+  gpuUnregister.set(canvas, registerGpuReleaser(fn));
+}
 
 function loadImage(src: string): Promise<HTMLImageElement> {
   const hit = maskCache.get(src);
@@ -74,6 +82,7 @@ export async function startKeyvisualWarp(
   const gl = canvas.getContext('webgl', { premultipliedAlpha: true, alpha: true, antialias: false, powerPreference: 'low-power' });
   if (!gl) return NOOP;
   canvas.dataset.xcGl = '1';
+  registerWarpRelease(canvas, () => loseGlContext(gl));
 
   let disposed = false;
   let paused = false;
@@ -307,6 +316,7 @@ async function startInWorker(
       const worker = new Worker(new URL('./keyvisualWarp.worker.ts', import.meta.url), { type: 'module' });
       const off = canvas.transferControlToOffscreen();
       canvas.dataset.xcOffscreen = '1';
+      registerWarpRelease(canvas, () => { try { worker.postMessage({ type: 'release' } satisfies ToWorker); } catch { /* worker gone */ } });
       s = { worker, ready: false, shown: false, failed: false, onReady: null, killTimer: 0 };
       workerSessions.set(canvas, s);
       const sess = s;

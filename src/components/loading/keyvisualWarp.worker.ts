@@ -9,11 +9,14 @@ export type ToWorker =
   | { type: 'resize'; w: number; h: number; pad: number; img: ImageBitmap }
   | { type: 'fade'; fade: [number, number] }
   | { type: 'shown' }
-  | { type: 'run'; run: boolean };
+  | { type: 'run'; run: boolean }
+  /** Page is unloading: stop drawing and lose the GL context so the GPU process can reclaim it early. Idempotent. */
+  | { type: 'release' };
 export type FromWorker = { type: 'ready' } | { type: 'error'; message: string } | { type: 'gap'; ms: number };
 
 let rampMs = 1200; // replaced by init.warp.rampMs (APP_CONFIG.loading.warp)
 let canvas: OffscreenCanvas | null = null;
+let glCtx: WebGLRenderingContext | null = null;
 let W: WarpGL | null = null;
 let fade: [number, number] = [0.8, 0.99];
 let startEpoch = 0;
@@ -54,6 +57,7 @@ self.onmessage = (e: MessageEvent<ToWorker>) => {
         canvas.height = m.h;
         const gl = canvas.getContext('webgl', { premultipliedAlpha: true, alpha: true, antialias: false, powerPreference: 'low-power' }) as WebGLRenderingContext | null;
         if (!gl) throw new Error('no webgl in worker');
+        glCtx = gl;
         rampMs = m.warp.rampMs;
         W = createWarpGL(gl, m.img, m.mask, m.warp);
         m.img.close();
@@ -89,6 +93,15 @@ self.onmessage = (e: MessageEvent<ToWorker>) => {
       case 'run':
         run = m.run;
         if (run) kick();
+        break;
+      case 'release':
+        run = false;
+        W = null; // frame()/kick() treat a missing W as stopped
+        if (raf) { cancelAnimationFrame(raf); raf = 0; }
+        if (glCtx) {
+          try { if (!glCtx.isContextLost()) glCtx.getExtension('WEBGL_lose_context')?.loseContext(); } catch { /* ignore */ }
+          glCtx = null;
+        }
         break;
     }
   } catch (err) {
