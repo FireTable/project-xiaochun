@@ -18,6 +18,7 @@ import * as ort from 'onnxruntime-web';
 import { APP_CONFIG } from '@/config';
 import { applyCmvn, applyLfr, computeLogMelFbank } from './fbank';
 import { extractOnnxMetadataProps } from './onnxMeta';
+import { punctuationPipeline } from './punctuation';
 
 const STT = APP_CONFIG.stt;
 const ONNX_BASE = STT.base.replace(/\/$/, '');
@@ -31,7 +32,8 @@ const WASM_PATHS =
 
 type WorkerIn =
   | { type: 'load' }
-  | { type: 'recognize'; id: number; pcm: Float32Array; sampleRate?: number };
+  | { type: 'recognize'; id: number; pcm: Float32Array; sampleRate?: number }
+  | { type: 'configure_punctuation'; enableModel?: boolean };
 
 type ProgressPhase = 'download' | 'init' | 'ready';
 
@@ -348,13 +350,14 @@ async function recognize(id: number, pcmIn: Float32Array, sampleRate: number): P
     const dims = anyLogits.dims;
     const T = Number(dims?.[1] ?? frames);
     const V = Number(dims?.[2] ?? tokens.length);
-    const text = ctcGreedyDecode(logits, T, V);
-    if (!text) {
+    const rawText = ctcGreedyDecode(logits, T, V);
+    if (!rawText) {
       // Real empty decode — not fake filler
       post({ type: 'result', id, text: '', empty: true });
       return;
     }
-    post({ type: 'result', id, text });
+    const text = await punctuationPipeline.restore(rawText);
+    post({ type: 'result', id, text, rawText });
   } catch (e) {
     const message = e instanceof Error ? e.message : String(e);
     post({ type: 'error', id, message });
@@ -372,6 +375,11 @@ self.onmessage = (ev: MessageEvent<WorkerIn>) => {
   }
   if (msg.type === 'recognize') {
     void recognize(msg.id, msg.pcm, msg.sampleRate ?? SAMPLE_RATE);
+    return;
+  }
+  if (msg.type === 'configure_punctuation') {
+    // Stage 2 model configuration hook
+    return;
   }
 };
 

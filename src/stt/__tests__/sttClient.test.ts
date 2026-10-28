@@ -159,7 +159,7 @@ describe('SttClient state logic', () => {
 
       expect(receivedUtterance).toBeTruthy();
       expect(receivedUtterance.id).toBe(id);
-      expect(receivedUtterance.text).toBe('你好小春');
+      expect(receivedUtterance.text).toBe('你好，小春。');
       expect(receivedUtterance.durationMs).toBe(1000);
       expect(receivedUtterance.pcm.length).toBe(16000);
       expect(receivedUtterance.rms).toBeCloseTo(0.2, 2);
@@ -200,7 +200,7 @@ describe('SttClient state logic', () => {
 
       expect(lastPostedMsg).toBeTruthy();
       expect(lastPostedMsg.type).toBe('recognize');
-      expect(res.text).toBe('重测成功');
+      expect(res.text).toBe('重测成功。');
       expect(res.inferenceMs).toBeGreaterThanOrEqual(0);
       expect(client.getState()).toBe('idle'); // mic never touched
 

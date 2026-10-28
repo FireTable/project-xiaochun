@@ -10,6 +10,7 @@
 import { APP_CONFIG } from '@/config';
 import { SileroVad } from './sileroVad';
 import { richTranscriptionPostprocess } from './transcriptFilter';
+import { applyHeuristicPunctuation } from './punctuation';
 
 export type SttUiState = 'idle' | 'loading' | 'listening' | 'recognizing' | 'error';
 
@@ -163,7 +164,14 @@ export class SttClient {
         return;
       }
       if (msg.type === 'result') {
-        const cleaned = richTranscriptionPostprocess(String(msg.text ?? ''));
+        const cleaned = applyHeuristicPunctuation(richTranscriptionPostprocess(String(msg.text ?? '')));
+        if (typeof console !== 'undefined' && typeof console.log === 'function' && cleaned) {
+          console.log(
+            `%c[STT Client]%c 识别文本就绪: "${cleaned}"${msg.rawText ? ` (原始音素字流: "${msg.rawText}")` : ''}`,
+            'color: #10b981; font-weight: bold;',
+            'color: inherit;',
+          );
+        }
         const reqId = Number(msg.id);
         const adhoc = this.adhocRequests.get(reqId);
         if (adhoc) {

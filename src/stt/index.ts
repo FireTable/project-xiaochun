@@ -6,3 +6,10 @@ export {
   isFillerOrUnreadable,
   meanRms,
 } from './transcriptFilter';
+export {
+  applyHeuristicPunctuation,
+  normalizePunctuationSpacing,
+  punctuationPipeline,
+  PunctuationPipeline,
+  type PunctuationRestorer,
+} from './punctuation';

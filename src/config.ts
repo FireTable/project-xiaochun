@@ -408,7 +408,7 @@ export const APP_CONFIG = {
     modelFile: 'model.int8.onnx',
     tokensFile: 'tokens.txt',
     useItn: true,
-    vadSilenceMs: 450,
+    vadSilenceMs: 650,
     vadMaxMs: 20_000,
     sampleRate: 16_000,
     vadStartThreshold: 0.014,
