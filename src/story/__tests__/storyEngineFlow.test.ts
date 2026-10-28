@@ -17,6 +17,12 @@ const h = vi.hoisted(() => ({
     cancelPendingSfx: vi.fn(),
     stopAll: vi.fn(),
   },
+  view: {
+    captureViewPrefs: vi.fn(),
+    restoreViewPrefs: vi.fn(),
+    returnToDefaultView: vi.fn(),
+    cancelViewReturn: vi.fn(),
+  },
   camera: {
     transitionTo: vi.fn(),
     stopTransition: vi.fn(),
@@ -39,6 +45,7 @@ vi.mock('@/core/vrmEngine', () => ({
     setFacingBackwards: vi.fn(),
     settleSpringBones: vi.fn(),
     triggerBodyTurnToFront: vi.fn(),
+    ...h.view,
   },
 }));
 vi.mock('@/core/scene/sceneManager', () => ({
@@ -76,6 +83,10 @@ describe('StoryDirectorEngine runtime behaviour', () => {
     h.setScene.mockReset().mockResolvedValue(undefined);
     h.camera.transitionTo.mockReset().mockResolvedValue(undefined);
     h.camera.stopTransition.mockReset();
+    h.view.captureViewPrefs.mockReset().mockReturnValue({ snap: 'before-story' });
+    h.view.restoreViewPrefs.mockReset();
+    h.view.returnToDefaultView.mockReset().mockResolvedValue(undefined);
+    h.view.cancelViewReturn.mockReset();
     engine = new StoryDirectorEngine();
   });
 
@@ -321,6 +332,59 @@ describe('StoryDirectorEngine runtime behaviour', () => {
     it('stops all sound when the story finishes', () => {
       engine.finish();
       expect(h.audio.stopAll).toHaveBeenCalled();
+    });
+  });
+
+  describe('leaving the story returns to the refreshed default view', () => {
+    const script = {
+      id: 'exit',
+      title: 't',
+      initialBeatId: 'a',
+      beats: {
+        a: {
+          id: 'a',
+          actor: actor(''),
+          cinematics: { letterbox: true, grading: 'dream_bloom', transition: 'white_flash' },
+          camera: { shot: 'medium', movement: 'dutch_tilt', durationSec: 1, windMultiplier: 2 },
+          autoNextBeatId: 'a',
+        },
+      },
+    };
+
+    it('finish restores the saved view prefs first, then eases back, and clears every cinematic effect', async () => {
+      void engine.playScript(script as never);
+      await vi.advanceTimersByTimeAsync(1500);
+      expect(h.view.cancelViewReturn).toHaveBeenCalled();
+      expect(engine.getState().isLetterboxActive).toBe(true);
+      expect(engine.getState().grading).toBe('dream_bloom');
+
+      engine.finish();
+      expect(h.view.restoreViewPrefs).toHaveBeenCalledWith({ snap: 'before-story' });
+      expect(h.view.returnToDefaultView).toHaveBeenCalledTimes(1);
+      expect(h.view.restoreViewPrefs.mock.invocationCallOrder[0]).toBeLessThan(h.view.returnToDefaultView.mock.invocationCallOrder[0]);
+      const s = engine.getState();
+      expect(s.isActive).toBe(false);
+      expect(s.isLetterboxActive).toBe(false);
+      expect(s.grading).toBe('default');
+      expect(s.transitionKind).toBe('none');
+      expect(s.isTransitionCovered).toBe(false);
+      expect(h.camera.stopTransition).toHaveBeenCalled();
+    });
+
+    it('snapshots the prefs once per story even if the script is started twice, and a second finish does not restore again', async () => {
+      void engine.playScript(script as never);
+      await vi.advanceTimersByTimeAsync(100);
+      void engine.playScript(script as never);
+      await vi.advanceTimersByTimeAsync(100);
+      expect(h.view.captureViewPrefs).toHaveBeenCalledTimes(1);
+      engine.finish();
+      engine.finish();
+      expect(h.view.restoreViewPrefs).toHaveBeenCalledTimes(1);
+    });
+
+    it('also returns the view when the player skips or exits (same finish path)', () => {
+      engine.finish();
+      expect(h.view.returnToDefaultView).toHaveBeenCalledTimes(1);
     });
   });
 });

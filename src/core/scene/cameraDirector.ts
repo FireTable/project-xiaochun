@@ -11,6 +11,8 @@ export interface CameraDirectorContext {
   getSunDirection?: () => THREE.Vector3 | null;
   onApplyGroundClamp?: () => void;
   setWindMultiplier?: (mult: number) => void;
+  /** 页面刷新后的默认 FOV (宿主可覆盖)；缺省 30 */
+  getDefaultFov?: () => number;
 }
 
 export interface ShotPresetConfig {
@@ -118,6 +120,20 @@ export class CameraDirector {
     return this.rollRad;
   }
 
+  /** 直接设置镜头滚转 (rad)；退出故事时的回正缓动用 */
+  public setRoll(rad: number): void {
+    this.rollRad = rad;
+  }
+
+  /**
+   * 放开导演控制：停掉进行中的运镜、释放阵风倍率。不动相机位置 / 滚转 / FOV，
+   * 留给调用方做平滑回正 (见 vrmEngine.returnToDefaultView)。
+   */
+  public release(): void {
+    this.stopTransition();
+    this.ctx?.setWindMultiplier?.(1.0);
+  }
+
   /**
    * 在相机朝向被重算 (controls.update → lookAt) 之后调用，把当前滚转叠加回去。
    * vrmEngine 在 controls.update 的包装里调用它，所以任何时刻渲染的画面都带着同一个滚转。
@@ -156,11 +172,11 @@ export class CameraDirector {
    * 退出故事剧场时彻底重置镜头，恢复自由 OrbitControls 与标准 FOV
    */
   public reset(): void {
-    this.stopTransition();
+    this.release();
     this.rollRad = 0;
     const camera = this.ctx?.camera;
     if (camera) {
-      camera.fov = 30;
+      camera.fov = this.ctx?.getDefaultFov?.() ?? 30;
       camera.updateProjectionMatrix();
     }
     const controls = this.getControls();

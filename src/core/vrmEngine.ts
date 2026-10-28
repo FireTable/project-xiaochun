@@ -57,6 +57,8 @@ import { applyBustClothFit, bustJointHitRadius } from './spring/bustClothFit';
 import { CharacterShadowSystem } from './scene/characterShadow';
 import { adjustZoomInWhileClamped, solveGroundClamp, visibleRatioCap } from './camera/groundClamp';
 import { cameraDirector } from './scene/cameraDirector';
+import { ViewReturner, VIEW_RETURN_MS, type ViewPose } from './scene/viewReturn';
+import { captureViewPrefs, restoreViewPrefs, type ViewPrefsSnapshot } from './viewPrefs';
 import type { CameraDirective } from '@/story/schema';
 import { expressionController, type SupportedExpression } from './morph/expressionController';
 import { VRMTexturePool, extractParserImageHashes } from './texturePool';
@@ -816,6 +818,7 @@ export class VRMEngine {
       getSunDirection: () => this.lighting.dirLight.position.clone().normalize(),
       onApplyGroundClamp: () => this.applyGroundClamp(null),
       setWindMultiplier: (mult) => this.windForce.setGustMultiplier(mult),
+      getDefaultFov: () => this.cameraOverride.fov ?? APP_CONFIG.camera.defaultFov,
     });
   }
 
@@ -1985,6 +1988,81 @@ export class VRMEngine {
    */
   public resetCamera(): void {
     cameraDirector.reset();
+  }
+
+  // ── 退出故事 / 运镜后回到“刷新页面后的默认视角” ──
+  private readonly _viewReturner = new ViewReturner(() => ({
+    camera: this.camera,
+    controls: this.controls,
+    director: cameraDirector,
+    computeView: () => this.computeRefreshView(),
+    settle: () => {
+      this.fitCamera(true);
+      this.renderSingleFrame();
+    },
+    restoreFacing: () => this.restoreDefaultFacing(),
+    setHoldFacing: (hold) => {
+      this._holdFacingForViewReturn = hold;
+    },
+    cancelIntro: () => void this.cancelCinematicIntro(),
+  }));
+  private _holdFacingForViewReturn = false;
+
+  /** 记录用户的视角偏好 (角色偏角 / 镜头俯仰视距 / 相机 Y 偏移)，故事结束时用 restoreViewPrefs 还原 */
+  public captureViewPrefs(): ViewPrefsSnapshot {
+    return captureViewPrefs();
+  }
+
+  public restoreViewPrefs(snap: ViewPrefsSnapshot): void {
+    restoreViewPrefs(snap);
+  }
+
+  /**
+   * 刷新页面后 fitCamera(true) 会落到的机位 (不改动任何状态)：
+   * target = 头骨下 0.25m；俯仰 / 视距 = 保存值或默认取景；再叠加相机 Y 偏移；FOV = 宿主覆盖或默认。
+   */
+  private computeRefreshView(): Omit<ViewPose, 'roll'> | null {
+    const head = this.currentVRM?.humanoid?.getNormalizedBoneNode('head');
+    if (!head || !this.controls) return null;
+    const p = new THREE.Vector3();
+    head.getWorldPosition(p);
+    const target = new THREE.Vector3(p.x, p.y - 0.25, p.z);
+    const { pitch, distance } = this.resolveShot(true);
+    const position = new THREE.Vector3(...computeCameraPositionFromPitch(pitch, distance, target));
+    let yOffset = this.cameraOverride.height ?? 0;
+    if (this.cameraOverride.height === undefined && typeof window !== 'undefined') {
+      try {
+        const raw = window.localStorage.getItem(CAMERA_Y_OFFSET_KEY);
+        const v = raw === null ? 0 : Number(raw);
+        if (Number.isFinite(v)) yOffset = v;
+      } catch { /* ignore */ }
+    }
+    target.y += yOffset;
+    position.y += yOffset;
+    return { position, target, fov: this.cameraOverride.fov ?? APP_CONFIG.camera.defaultFov };
+  }
+
+  /** 角色朝向回到默认：保存的自转偏角，没有则正对镜头 (与刷新后一致)。bodyTurn 会自然迈步转回去。 */
+  private restoreDefaultFacing(): void {
+    const saved = loadSavedBodyYaw();
+    this.motionPipeline.targetYawOffset = saved === null
+      ? 0
+      : THREE.MathUtils.euclideanModulo(saved + Math.PI, Math.PI * 2) - Math.PI;
+  }
+
+  /** 中止进行中的回正 (新故事开始时调用，避免与导演运镜抢相机) */
+  public cancelViewReturn(): void {
+    this._viewReturner.cancel();
+  }
+
+  /**
+   * 平滑回到刷新页面后的默认视角 (默认 ~1s)：位置 / 目标点 / FOV / 视距 / 荷兰角滚转一起缓动，
+   * 导演放手 (运镜、阵风倍率、滚转、FOV 覆盖全部清掉)，最后用 fitCamera(true) 落到与刷新完全一致的机位，
+   * 并把角色朝向 (targetYawOffset) 还原为默认。回正期间相机方位的变化不会带动 bodyTurn。
+   * 环境时间 / 场景不动。
+   */
+  public returnToDefaultView(durationMs: number = VIEW_RETURN_MS): Promise<void> {
+    return this._viewReturner.run(durationMs);
   }
 
   /**
@@ -3591,7 +3669,7 @@ export class VRMEngine {
           delta,
           time,
           enableBodyTurn: this.enableBodyTurn,
-          holdWorldFacing: cameraDirector.active,
+          holdWorldFacing: cameraDirector.active || this._holdFacingForViewReturn,
           isSpeaking: this.chatDirector.speaking,
           isListening: this.turnState === 'listening',
           manualExpression: this.manualExpression,

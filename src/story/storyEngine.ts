@@ -18,6 +18,7 @@ import type {
 } from './schema';
 import { normalizeStoryLang, resolveBeat, resolveLocalized } from './localize';
 import { TRANSITION_SPECS } from './transitions';
+import type { ViewPrefsSnapshot } from '@/core/viewPrefs';
 
 export interface StoryState {
   isActive: boolean;
@@ -64,6 +65,8 @@ export class StoryDirectorEngine {
   private currentScript: StoryScript | null = null;
   private currentBeatId: string | null = null;
   private isInterrupted = false;
+  /** 进入故事前的用户视角偏好；finish 时还原 */
+  private viewPrefs: ViewPrefsSnapshot | null = null;
   private executionSequence = 0;
   private i18nInstance: I18nInstance | null = null;
   private storyLang: StoryLang | null = null;
@@ -213,6 +216,9 @@ export class StoryDirectorEngine {
   public async playScript(script: StoryScript, initialBeatId?: string): Promise<void> {
     this.currentScript = script;
     const startId = initialBeatId || script.initialBeatId;
+    // 退出时要回到进入前的视角：记下用户的视角偏好 (重复 playScript 时保留第一份)，并停掉上一次未走完的回正
+    vrmEngine.cancelViewReturn();
+    if (!this.state.isActive || !this.viewPrefs) this.viewPrefs = vrmEngine.captureViewPrefs();
     this.isInterrupted = false;
     this.storyLang = null;
     this.clearRevealTimer();
@@ -749,7 +755,13 @@ export class StoryDirectorEngine {
     this.currentBeatId = null;
     this.interrupt();
     this.clearRevealTimer();
-    cameraDirector.reset();
+    // 导演放手 + 平滑回到刷新页面后的默认视角 (镜头 / 视距 / FOV / 滚转 / 阵风 / 角色朝向)；场景与环境时间保持不变。
+    // 遮幅 / 调色 / 转场在下面的 state 里清零。先还原故事期间被教学拖拽改写的视角偏好，回正才会落到同一个视角。
+    if (this.viewPrefs) {
+      vrmEngine.restoreViewPrefs(this.viewPrefs);
+      this.viewPrefs = null;
+    }
+    void vrmEngine.returnToDefaultView();
     expressionController.setActive(false);
     this.state = {
       ...this.state,

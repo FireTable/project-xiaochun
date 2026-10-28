@@ -108,4 +108,45 @@ describe('CameraDirector cinematic movements (wind, dutch_tilt, hero_backlight_r
     await p;
     expect(camera.position.z).toBeLessThan(controls.target.z - 1.5);
   });
+
+  describe('release / reset when the story ends', () => {
+    it('release() frees the wind and any running move but leaves the camera and roll for the return tween', async () => {
+      const p = director.transitionTo({ shot: 'close_up', movement: 'dutch_tilt', durationSec: 1, easing: 'linear', windMultiplier: 2 });
+      vi.advanceTimersByTime(1100);
+      await p;
+      const roll = director.getRoll();
+      expect(roll).toBeLessThan(0);
+      const q = director.transitionTo({ shot: 'medium', movement: 'push_in', durationSec: 5, windMultiplier: 2.4 });
+      expect(director.active).toBe(true);
+      setWind.mockClear();
+      director.release();
+      expect(director.active).toBe(false);
+      expect(setWind).toHaveBeenLastCalledWith(1);
+      expect(controls.enabled).toBe(true);
+      void q;
+    });
+
+    it('reset() levels the roll, restores the default FOV (host override aware) and releases the wind even when idle', () => {
+      director.bind({
+        camera,
+        getControls: () => controls,
+        getVRM: () => null,
+        setWindMultiplier: setWind,
+        getDefaultFov: () => 38,
+      });
+      director.setRoll(-0.15);
+      camera.fov = 22;
+      setWind.mockClear();
+      director.reset();
+      expect(director.getRoll()).toBe(0);
+      expect(camera.fov).toBe(38);
+      expect(setWind).toHaveBeenCalledWith(1);
+    });
+
+    it('reset() falls back to FOV 30 when the host gives no default', () => {
+      camera.fov = 22;
+      director.reset();
+      expect(camera.fov).toBe(30);
+    });
+  });
 });
