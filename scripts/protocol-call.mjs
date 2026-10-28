@@ -23,7 +23,7 @@ const args = process.argv.slice(2);
 
 if (args.length === 0 || args[0] === '--help' || args[0] === '-h') {
   console.log(`
-\x1b[36m=== 小春协议快速调用工具 (xiaochun:// Protocol CLI) ===\x1b[0m
+\x1b[36m=== 小蠢协议快速调用工具 (xiaochun:// Protocol CLI) ===\x1b[0m
 
 用法示例:
   1. 朗读台词:

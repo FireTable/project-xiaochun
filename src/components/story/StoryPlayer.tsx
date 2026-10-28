@@ -37,6 +37,26 @@ export const StoryPlayer: React.FC<StoryPlayerProps> = ({
   const [isHistoryExpanded, setIsHistoryExpanded] = useState(false);
   const [bubble, setBubble] = useState<BubbleState>(() => vrmEngine.bubbleTracker.state);
   const hasStartedRef = useRef(false);
+  const historyEndRef = useRef<HTMLDivElement>(null);
+
+  // 对白回顾展开时，自动平滑滚动到底部最新台词
+  useEffect(() => {
+    if (isHistoryExpanded) {
+      historyEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+    }
+  }, [isHistoryExpanded, storyState.history.length]);
+
+  // 支持键盘 Esc 键退出回顾
+  useEffect(() => {
+    if (!isHistoryExpanded) return;
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') {
+        setIsHistoryExpanded(false);
+      }
+    };
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [isHistoryExpanded]);
 
   // 订阅 BubbleTracker 气泡状态 (完全复用原生状态，与日常模式保持 100% 同构)
   useEffect(() => {
@@ -329,32 +349,39 @@ export const StoryPlayer: React.FC<StoryPlayerProps> = ({
             <button
               type="button"
               onClick={() => setIsHistoryExpanded((prev) => !prev)}
-              className="flex items-center space-x-1 px-2.5 py-0.5 rounded-full bg-white/10 hover:bg-white/15 active:scale-95 text-white/80 hover:text-white border border-white/10 text-[11px] transition-all duration-150 cursor-pointer shadow-sm backdrop-blur-md"
+              className={`flex items-center gap-1.5 px-3 py-1 rounded-full transition-all duration-200 cursor-pointer shadow-sm backdrop-blur-md active:scale-95 text-xs ${
+                isHistoryExpanded
+                  ? 'bg-white/15 hover:bg-white/20 text-white border border-white/15'
+                  : 'bg-white/10 hover:bg-white/15 text-white/80 hover:text-white border border-white/10 text-[11px]'
+              }`}
             >
               <span>{isHistoryExpanded ? t('story.historyCollapse') : t('story.historyOpen', { count: storyState.history.length })}</span>
               {isHistoryExpanded ? (
-                <ChevronUp className="w-3 h-3 opacity-70" />
+                <ChevronUp className="w-3.5 h-3.5 opacity-80" />
               ) : (
-                <ChevronDown className="w-3 h-3 opacity-70" />
+                <ChevronDown className="w-3.5 h-3.5 opacity-80" />
               )}
             </button>
           ) : undefined
         }
       >
         {isHistoryExpanded && (
-          <div className="max-h-56 sm:max-h-64 overflow-y-auto space-y-3 pr-1.5 custom-bubble-scrollbar pt-2 pb-1 animate-in fade-in duration-200">
+          <div className="max-h-[38vh] sm:max-h-[48vh] overflow-y-auto space-y-3 sm:space-y-3.5 pr-1.5 custom-bubble-scrollbar pt-2 pb-1 animate-in fade-in duration-200">
             {storyState.history.map((item, idx) => {
               const isUser = item.role === 'user';
               if (isUser) {
                 return (
-                  <div key={item.id || idx} className="flex flex-col items-end gap-1 w-full pl-8">
-                    <span className="text-[10px] font-semibold text-sky-300 pr-1 select-none">
-                      {t('story.you')}
-                    </span>
-                    <div className="max-w-[85%] rounded-2xl rounded-tr-sm bg-primary/20 border border-primary/35 px-3 py-2 text-xs text-white leading-relaxed shadow-sm">
+                  <div key={item.id || idx} className="flex flex-col items-end gap-1 w-full pl-6 sm:pl-12">
+                    <div className="flex items-center gap-1.5 pr-1 select-none">
+                      <span className="text-[11px] font-bold text-white/85 tracking-wide">
+                        {t('story.you')}
+                      </span>
+                      <span className="w-1.5 h-1.5 rounded-full bg-primary/80 ring-2 ring-primary/20" />
+                    </div>
+                    <div className="max-w-[90%] sm:max-w-[85%] rounded-2xl bg-primary/15 hover:bg-primary/20 border border-primary/25 px-3.5 sm:px-4 py-2 sm:py-2.5 text-xs sm:text-sm text-white leading-relaxed shadow-sm backdrop-blur-sm transition-colors">
                       <p className="break-words select-text">{item.text}</p>
                       {item.subText && (
-                        <p className="text-[10px] text-white/50 mt-1 border-t border-white/10 pt-1">
+                        <p className="text-[11px] text-white/60 mt-1.5 pt-1.5 border-t border-white/10">
                           {item.subText}
                         </p>
                       )}
@@ -365,16 +392,20 @@ export const StoryPlayer: React.FC<StoryPlayerProps> = ({
 
               // 小蠢对话 (居左展示)
               return (
-                <div key={item.id || idx} className="flex flex-col items-start gap-1 w-full pr-8">
-                  <span className="text-[10px] font-semibold text-primary-light pl-1 select-none">
-                    {t('story.xiaochun')}
-                  </span>
-                  <div className="max-w-[85%] rounded-2xl rounded-tl-sm bg-white/[0.07] border border-white/10 px-3 py-2 text-xs text-white/95 leading-relaxed shadow-sm">
+                <div key={item.id || idx} className="flex flex-col items-start gap-1 w-full pr-6 sm:pr-12">
+                  <div className="flex items-center gap-1.5 pl-1 select-none">
+                    <span className="w-1.5 h-1.5 rounded-full bg-primary ring-2 ring-primary/30" />
+                    <span className="text-[11px] font-bold text-primary-light tracking-wide">
+                      {t('story.xiaochun')}
+                    </span>
+                  </div>
+                  <div className="max-w-[90%] sm:max-w-[85%] rounded-2xl bg-white/[0.06] hover:bg-white/[0.09] border border-white/10 px-3.5 sm:px-4 py-2 sm:py-2.5 text-xs sm:text-sm text-white/95 leading-relaxed shadow-sm backdrop-blur-sm transition-colors">
                     <p className="break-words select-text">{item.text}</p>
                   </div>
                 </div>
               );
             })}
+            <div ref={historyEndRef} />
           </div>
         )}
       </ChatBubble>
@@ -425,10 +456,11 @@ export const StoryPlayer: React.FC<StoryPlayerProps> = ({
       {/* 沉浸式电影底部遮光层：横跨屏幕底部的无截断全局渐变遮罩 (inset-x-0 bottom-0)，消除中间孤立切断，确保台词自然浮现 */}
       {showDialogue && (
         <div
-          className={`pointer-events-none fixed bottom-0 inset-x-0 z-30 transition-all duration-500 ease-out animate-in fade-in duration-300 ${
+          onClick={isHistoryExpanded ? () => setIsHistoryExpanded(false) : undefined}
+          className={`fixed bottom-0 inset-x-0 z-30 transition-all duration-500 ease-out animate-in fade-in duration-300 ${
             isHistoryExpanded
-              ? 'h-80 sm:h-96 bg-gradient-to-t from-black/92 via-black/60 to-transparent'
-              : 'h-36 sm:h-48 bg-gradient-to-t from-black/85 via-black/45 to-transparent'
+              ? 'pointer-events-auto h-[60vh] sm:h-[65vh] bg-gradient-to-t from-black/95 via-black/75 via-50% to-transparent cursor-pointer'
+              : 'pointer-events-none h-36 sm:h-48 bg-gradient-to-t from-black/85 via-black/45 to-transparent'
           }`}
         />
       )}
@@ -437,9 +469,13 @@ export const StoryPlayer: React.FC<StoryPlayerProps> = ({
       <div className="hidden sm:block">
         {/* PC 宽屏中央沉底电影条 (唯一的对白展示，复用 HeadBubble variant="cinematic"，0 重复) */}
         {showDialogue && (
-          <div className="pointer-events-none fixed bottom-4 sm:bottom-6 left-1/2 -translate-x-1/2 z-40 max-w-lg md:max-w-xl w-full px-4 flex justify-center animate-in fade-in slide-in-from-bottom-2 duration-300">
+          <div
+            className={`pointer-events-none fixed bottom-4 sm:bottom-6 left-1/2 -translate-x-1/2 z-40 w-full px-4 flex justify-center transition-all duration-300 ease-out animate-in fade-in slide-in-from-bottom-2 ${
+              isHistoryExpanded ? 'max-w-xl md:max-w-2xl lg:max-w-3xl' : 'max-w-lg md:max-w-xl'
+            }`}
+          >
             <div className="pointer-events-auto w-full">
-              {renderDialogueBubble()}
+              {renderDialogueBubble(isHistoryExpanded ? 'w-full' : 'max-w-lg sm:max-w-xl w-full')}
             </div>
           </div>
         )}

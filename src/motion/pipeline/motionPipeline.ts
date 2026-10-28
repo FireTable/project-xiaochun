@@ -293,7 +293,9 @@ export class MotionPipeline {
   /** Switch Layer-1 to EMAGE speech (planted stance, no think sway). */
   beginEmageSpeech(): void {
     if (this.universalMotion.isPlaying()) {
-      this.universalMotion.stop(SOURCE_FADE_DURATION);
+      // 当前已有自定义/独立动作在播（如舞蹈、比心等），保持通用动作驱动骨骼，不强行中断为默认说话手势
+      this.idle.traits.thinkSway = false;
+      return;
     }
     this.idle.traits.thinkSway = false;
     this.vrma.traits = { ...DEFAULT_MOTION_TRAITS };
@@ -316,6 +318,10 @@ export class MotionPipeline {
     const targetVrm = vrm ?? this.boundVrm;
     switch (state) {
       case 'thinking': {
+        if (this.universalMotion.isPlaying()) {
+          // 当前已有万能动作在播，不打断为思考姿态
+          break;
+        }
         const motionId = selectMotionFromGroup('thinking');
         const catalogItem = MOTION_CATALOG[motionId];
         const thinkingClip = motionAssetManager.getClip(motionId) ?? motionAssetManager.getClip(catalogItem.url);

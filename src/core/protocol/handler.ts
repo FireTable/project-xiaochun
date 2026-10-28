@@ -146,14 +146,15 @@ export async function runProtocolAction(message: ProtocolMessage, hooks?: Protoc
         vrmEngine.stopMotion(Number.isFinite(fade) ? fade : 0.75);
         return;
       }
+      const opts: import('@/motion/sources/clip').PlayMotionOptions = {};
+      if (payload.loop !== undefined) opts.loop = payload.loop === true || payload.loop === 'true';
+      if (payload.fadeDuration !== undefined && Number.isFinite(Number(payload.fadeDuration))) opts.fadeDuration = Number(payload.fadeDuration);
+      if (payload.timeScale !== undefined && Number.isFinite(Number(payload.timeScale))) opts.timeScale = Number(payload.timeScale);
+      if (payload.mask === 'upperBody' || payload.mask === 'all') opts.mask = payload.mask;
+
       const rawGroup = (payload.group || '') as MotionGroupName;
       if (rawGroup && rawGroup in MOTION_GROUPS) {
-        await vrmEngine.playMotionGroup(rawGroup, {
-          loop: payload.loop === true || payload.loop === 'true',
-          fadeDuration: payload.fadeDuration ? Number(payload.fadeDuration) : 0.75,
-          timeScale: payload.timeScale ? Number(payload.timeScale) : 1.0,
-          mask: payload.mask === 'upperBody' ? 'upperBody' : 'all',
-        });
+        await vrmEngine.playMotionGroup(rawGroup, opts);
         return;
       }
       const target = payload.url || payload.name;
@@ -162,20 +163,10 @@ export async function runProtocolAction(message: ProtocolMessage, hooks?: Protoc
       }
       // 若 name 实为动作组名，自动智能分发至动作组抽取
       if (payload.name && payload.name in MOTION_GROUPS) {
-        await vrmEngine.playMotionGroup(payload.name as MotionGroupName, {
-          loop: payload.loop === true || payload.loop === 'true',
-          fadeDuration: payload.fadeDuration ? Number(payload.fadeDuration) : 0.75,
-          timeScale: payload.timeScale ? Number(payload.timeScale) : 1.0,
-          mask: payload.mask === 'upperBody' ? 'upperBody' : 'all',
-        });
+        await vrmEngine.playMotionGroup(payload.name as MotionGroupName, opts);
         return;
       }
-      await vrmEngine.playMotion(target, {
-        loop: payload.loop === true || payload.loop === 'true',
-        fadeDuration: payload.fadeDuration ? Number(payload.fadeDuration) : 0.75,
-        timeScale: payload.timeScale ? Number(payload.timeScale) : 1.0,
-        mask: payload.mask === 'upperBody' ? 'upperBody' : 'all',
-      });
+      await vrmEngine.playMotion(target, opts);
       return;
     }
     case 'motion-group':
@@ -189,11 +180,11 @@ export async function runProtocolAction(message: ProtocolMessage, hooks?: Protoc
           `motion-group 指令缺少有效组名，可用组: ${Object.keys(MOTION_GROUPS).join(', ')}`,
         );
       }
-      await vrmEngine.playMotionGroup(groupName, {
-        loop: payload.loop === true || payload.loop === 'true',
-        fadeDuration: payload.fadeDuration ? Number(payload.fadeDuration) : 0.75,
-        timeScale: payload.timeScale ? Number(payload.timeScale) : 1.0,
-      });
+      const opts: import('@/motion/sources/clip').PlayMotionOptions = {};
+      if (payload.loop !== undefined) opts.loop = payload.loop === true || payload.loop === 'true';
+      if (payload.fadeDuration !== undefined && Number.isFinite(Number(payload.fadeDuration))) opts.fadeDuration = Number(payload.fadeDuration);
+      if (payload.timeScale !== undefined && Number.isFinite(Number(payload.timeScale))) opts.timeScale = Number(payload.timeScale);
+      await vrmEngine.playMotionGroup(groupName, opts);
       return;
     }
     case 'expression': {

@@ -163,7 +163,7 @@ export const ChatBubble: React.FC<ChatBubbleProps> = ({
         }}
         className={`relative ${maxWidthClass} pointer-events-auto select-text transition-all duration-300 ${
           isExpanded
-            ? 'p-3.5 sm:p-4.5 rounded-2xl bg-[#0b0e1b]/92 backdrop-blur-2xl border border-white/15 shadow-[0_12px_40px_rgba(0,0,0,0.7)] flex flex-col'
+            ? 'p-4 sm:p-5 rounded-3xl bg-black/40 backdrop-blur-2xl border border-white/10 ring-1 ring-white/5 shadow-[0_12px_48px_rgba(0,0,0,0.5)] flex flex-col'
             : 'px-1 sm:px-2 py-1 flex flex-col'
         } ${className}`}
       >
@@ -173,10 +173,11 @@ export const ChatBubble: React.FC<ChatBubbleProps> = ({
             {customHeader}
           </div>
         ) : (
-          <div className="flex items-center justify-between w-full max-w-xl px-1 mb-1">
+          <div className="flex items-center justify-between w-full px-1 mb-1.5">
             {isExpanded ? (
-              <div className="inline-flex items-center gap-1.5 text-xs select-none">
-                <span className="font-semibold text-xs sm:text-sm text-white/90 tracking-wide">
+              <div className="inline-flex items-center gap-2 text-xs select-none">
+                <span className="w-1.5 h-3.5 rounded-full bg-primary shadow-sm" />
+                <span className="font-bold text-xs sm:text-sm text-white/95 tracking-wider">
                   {t('story.historyTitle')}
                 </span>
               </div>
@@ -228,6 +229,11 @@ export const ChatBubble: React.FC<ChatBubbleProps> = ({
               </div>
             )}
           </div>
+        )}
+
+        {/* 展开时轻柔分割线 */}
+        {isExpanded && (
+          <div className="w-full h-px bg-gradient-to-r from-transparent via-white/15 to-transparent my-1 sm:my-1.5" />
         )}
 
         {/* 展开内容 (如历史回顾) */}

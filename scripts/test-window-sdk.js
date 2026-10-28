@@ -90,7 +90,7 @@
     ">
       <div style="display: flex; align-items: center; gap: 8px;">
         <span id="xc-live-dot" style="width: 8px; height: 8px; border-radius: 50%; background: #10b981; box-shadow: 0 0 8px #10b981;"></span>
-        <span style="font-weight: 700; font-size: 13px; letter-spacing: 0.5px; background: linear-gradient(135deg, #f87171, #fb923c); -webkit-background-clip: text; -webkit-text-fill-color: transparent;">XiaoChun SDK Tester</span>
+        <span style="font-weight: 700; font-size: 13px; letter-spacing: 0.5px; background: linear-gradient(135deg, #f87171, #fb923c); -webkit-background-clip: text; -webkit-text-fill-color: transparent;">XiaoChun (小蠢) SDK Tester</span>
       </div>
       <div style="display: flex; gap: 6px;">
         <button id="xc-btn-min" style="background: rgba(255,255,255,0.08); border: none; border-radius: 6px; width: 22px; height: 22px; color: #94a3b8; cursor: pointer; display: flex; align-items: center; justify-content: center; font-size: 12px;">_</button>
@@ -347,17 +347,17 @@
       await xc.expression('gentle_smile', 0.9);
       await xc.motion('waving');
       addLog('阶段 1: window.xiaochun.speak(...)');
-      await xc.speak('主人好呀！小春的动作组、表情和电影级镜头调度已经全部就绪啦！');
-      await sleep(1000);
+      await xc.speak('主人好呀！小蠢的动作组、表情和电影级镜头调度已经全部就绪啦！');
+      await sleep(1500);
 
       // 阶段 2: 娇羞卖萌动作组 + 俏皮表情
-      setStatus('阶段 2: 娇羞卖萌动作组 (praiseCute) + 俏皮表情', 'praiseCute (random)', 'playful', 'close_up');
+      setStatus('阶段 2: 娇羞卖萌动作组 (praiseCute) + 俏皮表情', 'praiseCute (手势抽取)', 'playful', 'close_up');
       addLog('阶段 2: window.xiaochun.expression("playful", 0.95)');
       await xc.expression('playful', 0.95);
       addLog('阶段 2: window.xiaochun.motionGroup("praiseCute")');
       await xc.motionGroup('praiseCute');
       await xc.speak('看我给你比个可爱的卖萌动作组！');
-      await sleep(2500);
+      await sleep(3500);
 
       // 阶段 3: 电影级自下而上打量升降运镜 (panUp)
       setStatus('阶段 3: 电影级裙摆升降打量 (panUp 2.2s)', 'elegantStand', 'happy', 'panUp (pedestal)');
@@ -365,30 +365,33 @@
       await xc.expression('happy', 0.85);
       await xc.camera.panUp(2.2);
       await xc.speak('我的镜头还会自裙摆与脚踝自下而上缓缓打量哦，是不是很有电影感？');
-      await sleep(1500);
+      await sleep(2000);
 
       // 阶段 4: 全景全身展示 + 45 度环绕机位 + 华丽舞蹈组
-      setStatus('阶段 4: 全景全身 (full) + 45° 环绕 + 舞蹈表演组', 'dancePerformance', 'gentle_smile', 'full (orbit: 45°)');
+      setStatus('阶段 4: 全景全身 (full) + 45° 环绕 + 舞蹈表演组', 'dancePerformance (舞蹈轮播)', 'gentle_smile', 'full (orbit: 45°)');
       addLog('阶段 4: window.xiaochun.camera("full", { orbitAngleDeg: 45, durationSec: 1.8 })');
       await xc.camera('full', { orbitAngleDeg: 45, durationSec: 1.8 });
-      addLog('阶段 4: window.xiaochun.motionGroup("dancePerformance")');
-      await xc.motionGroup('dancePerformance');
-      await xc.speak('现在是全景全身环绕视角，小春为你献上一小段舞蹈！');
-      await sleep(3500);
+      await xc.expression('gentle_smile', 0.9);
+      addLog('阶段 4: window.xiaochun.motionGroup("dancePerformance", { loop: true })');
+      await xc.motionGroup('dancePerformance', { loop: true });
+      await xc.speak('现在是全景全身环绕视角，小蠢为你献上一小段舞蹈！');
+      await sleep(6000);
 
       // 阶段 5: 微距面部特写 + 害羞微表情
       setStatus('阶段 5: 面部微距特写 (extreme_close_up) + 羞怯微表情', 'shyBehindBack', 'shy', 'extreme_close_up');
       addLog('阶段 5: window.xiaochun.camera("extreme_close_up", { movement: "push_in", durationSec: 1.2 })');
       await xc.camera('extreme_close_up', { movement: 'push_in', durationSec: 1.2 });
       await xc.expression('shy', 0.9);
-      await xc.speak('悄悄靠近一点点……主人辛苦啦，小春一直在身边陪着你哦。');
-      await sleep(2000);
+      await xc.motion('shyBehindBack');
+      await xc.speak('悄悄靠近一点点……主人辛苦啦，小蠢一直在身边陪着你哦。');
+      await sleep(2500);
 
       // 阶段 6: 镜头平滑复位 + 自然归位
       setStatus('阶段 6: 镜头复位 (reset) + 表情回归自然', 'NaturalIdle', 'neutral', 'medium (free)');
       addLog('阶段 6: window.xiaochun.camera.reset() & expression("neutral")');
       await xc.camera.reset();
       await xc.expression('neutral');
+      await xc.stopMotion(0.75);
       await xc.speak('演示完成！镜头已经交还给你自由旋转与缩放啦。');
       addLog('🎉 [Tour] 全流程演示圆满结束！', 'success');
       setStatus('全流程演示完成，已交还自由控制权', 'NaturalIdle', 'neutral', 'medium (free)');
@@ -495,6 +498,6 @@
     await xc.camera.reset();
   });
 
-  addLog('✨ XiaoChun SDK 测试控制台已成功加载并挂载到页面右上角！', 'success');
+  addLog('✨ XiaoChun (小蠢) SDK 测试控制台已成功加载并挂载到页面右上角！', 'success');
   addLog('支持直接点击按钮或在控制台调用 window.xiaochun.*');
 })();

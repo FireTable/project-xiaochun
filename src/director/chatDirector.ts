@@ -537,9 +537,14 @@ export class ChatDirector {
     this.audioDone = false;
     this.player = player;
     this.emage = emage;
-    this.setTurnState('thinking');
-    await this.playThinking(vrm, player);
-    if (!this.owns(id)) return;
+    const hasActiveMotion = this.pipeline?.universalMotion.isPlaying() ?? false;
+    if (!hasActiveMotion) {
+      this.setTurnState('thinking');
+      await this.playThinking(vrm, player);
+      if (!this.owns(id)) return;
+    } else {
+      this.currentVRM = vrm;
+    }
 
     const isMobile = typeof navigator !== 'undefined' && /Mobi|Android|iPhone|iPad/i.test(navigator.userAgent);
     const staggerDelay = isMobile ? 380 : 50;
@@ -603,9 +608,14 @@ export class ChatDirector {
     this.audioDone = false;
     this.player = player;
     this.emage = emage;
-    this.setTurnState('thinking');
-    await this.playThinking(vrm, player);
-    if (!this.owns(id)) return;
+    const hasActiveMotion = this.pipeline?.universalMotion.isPlaying() ?? false;
+    if (!hasActiveMotion) {
+      this.setTurnState('thinking');
+      await this.playThinking(vrm, player);
+      if (!this.owns(id)) return;
+    } else {
+      this.currentVRM = vrm;
+    }
 
     const isMobile = typeof navigator !== 'undefined' && /Mobi|Android|iPhone|iPad/i.test(navigator.userAgent);
     const staggerDelay = isMobile ? 380 : 50;
