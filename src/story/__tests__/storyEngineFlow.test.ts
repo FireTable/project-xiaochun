@@ -8,6 +8,8 @@ const h = vi.hoisted(() => ({
   changeLang: vi.fn(),
   setScene: vi.fn(),
   currentScene: { id: 'void' },
+  outfit: { key: null as string | null },
+  playMotionGroup: vi.fn(),
   setStoryWind: vi.fn(),
   setEnvironmentTime: vi.fn(),
   visibility: { visible: true },
@@ -48,7 +50,8 @@ vi.mock('@/core/vrmEngine', () => ({
     currentVRM: { scene: h.visibility },
     setStoryWind: h.setStoryWind,
     setEnvironmentTime: h.setEnvironmentTime,
-    currentOutfitKey: 'xiaochun_dinner_dress',
+    get currentOutfitKey() { return h.outfit.key; },
+    playMotionGroup: h.playMotionGroup,
     swapOutfit: vi.fn(),
     setFacingBackwards: h.setFacingBackwards,
     settleSpringBones: vi.fn(),
@@ -91,6 +94,8 @@ describe('StoryDirectorEngine runtime behaviour', () => {
     h.changeLang.mockReset();
     h.setScene.mockReset().mockResolvedValue(undefined);
     h.currentScene.id = 'void';
+    h.outfit.key = null;
+    h.playMotionGroup.mockReset();
     h.setStoryWind.mockReset();
     h.setEnvironmentTime.mockReset();
     h.visibility.visible = true;
@@ -737,6 +742,31 @@ describe('StoryDirectorEngine runtime behaviour', () => {
         out: { id: 'out', actor: actor('after'), variants: { night: { actor: actor('night after') } } },
       },
     };
+
+    it('no card is marked current while the live scene is the void and no outfit addon is worn (badge follows the real state, not a default)', async () => {
+      void engine.playScript(script as never);
+      await vi.advanceTimersByTimeAsync(500);
+      expect(engine.getState().choices.map((c) => c.selected)).toEqual([false, false, false]);
+    });
+
+    it('the current badge follows the real scene and the real worn outfit', async () => {
+      h.currentScene.id = 'beach3d';
+      h.outfit.key = 'xiaochun_maid';
+      void engine.playScript(script as never);
+      await vi.advanceTimersByTimeAsync(500);
+      expect(engine.getState().choices.map((c) => [c.id, c.selected])).toEqual([
+        ['scene_beach', true], ['scene_dark', false], ['outfit_maid', true],
+      ]);
+    });
+
+    it('trying an outfit plays the outfit-showcase motion group (like the normal app), not a hard-coded motion', async () => {
+      void engine.playScript(script as never);
+      await vi.advanceTimersByTimeAsync(500);
+      const maid = engine.getState().choices.find((c) => c.id === 'outfit_maid')!;
+      await engine.selectChoice(maid);
+      expect(h.playMotionGroup).toHaveBeenCalledWith('outfitShowcase', expect.objectContaining({ loop: false }));
+      expect(h.playMotion).not.toHaveBeenCalledWith('showFullBody', expect.anything());
+    });
 
     it('a scene preview swaps in place (hour first, branch remembered) and keeps the cards on screen; confirm then advances on that branch', async () => {
       void engine.playScript(script as never);

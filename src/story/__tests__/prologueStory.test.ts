@@ -268,7 +268,7 @@ describe('prologue story (Act 0 v4 · Backstage Catch)', () => {
     expect(b.beat_1.cinematics).toMatchObject({ letterbox: true, transition: 'fade_to_black', grading: 'dream_bloom', wind: 0 }); // 叫醒后不眨眼
     expect(b.beat_2.cinematics).toMatchObject({ letterbox: false, wind: 0 });
     expect(b.beat_3.camera?.movement).toBe('dutch_tilt');
-    expect(b.beat_outfit_choice.camera).toMatchObject({ shot: 'full', movement: 'arc_sweep' });
+    expect(b.beat_outfit_choice.camera).toMatchObject({ shot: 'wide', movement: 'arc_sweep' });
     expect(b.beat_4.cinematics).toMatchObject({ grading: 'default', wind: 1 });
     expect(b.beat_6.cinematics).toMatchObject({ transition: 'eye_blink', grading: 'default', wind: 1 });
     expect(b.beat_1.scene).toBe('void');

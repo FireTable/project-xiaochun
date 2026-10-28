@@ -70,9 +70,9 @@ const beats: Record<string, LocalizedStoryBeat> = {
       motion: 'singleHandWave', // 单手抚胸，对着空气深情款款地挥手排练
       expression: { base: 'gentle_smile', intensity: 0.8 },
       speechText: L(
-        '……咳，命运指引的旅人啊，欢迎来到我的领域……不对，这句太肉麻了，重来重来！',
-        '...Ahem! O traveler guided by fate, welcome to my realm... Ugh, way too cheesy. Take two!',
-        '……コホン。運命に導かれし旅人よ、我が領域へようこそ……って、さすがにイタすぎるわね。もう一回！',
+        '……咳，命运指引的旅人啊，欢迎来到我的领域……不对，这句太中二了，重来重来！',
+        '...Ahem! O traveler guided by fate, welcome to my realm... Ugh, way too edgy. Take two!',
+        '……コホン。運命に導かれし旅人よ、我が領域へようこそ……って、さすがに中二すぎるわね。もう一回！',
       ),
     },
     audio: { bgmAction: 'fade_out', bgmFadeSec: 0.6, sfx: [{ id: 'crystal', delaySec: 0.2, volume: 0.7 }] },
@@ -147,7 +147,7 @@ const beats: Record<string, LocalizedStoryBeat> = {
   beat_outfit_choice: {
     id: 'beat_outfit_choice',
     cinematics: { grading: 'default', wind: 0 },
-    camera: { shot: 'full', movement: 'arc_sweep', durationSec: 2.4 },
+    camera: { shot: 'wide', movement: 'arc_sweep', durationSec: 2.4 }, // 全身入镜且以身体为中心 (full 的取景底边会切到脚)；仍远大于 1.8 m
     actor: {
       leadInMotion: 'fingerObserve', // 比出取景框打量自己
       expression: { base: 'playful', intensity: 0.8, microReaction: 'eye_crinkle' },
@@ -205,9 +205,9 @@ const beats: Record<string, LocalizedStoryBeat> = {
       leadInMotion: 'gazeObserve', // 双手一摊，嫌弃地打量四周
       expression: { base: 'angry', intensity: 0.7 },
       speechText: L(
-        '行啦，检查合格！不过这儿除了黑就是黑，什么都没有，太寒酸了。走，带你换个地方待会儿！',
-        'Alright, inspection passed! But there\'s nothing here except dark, empty void. Way too cheap. Come on, let\'s go somewhere nice!',
-        'よし、チェック合格！でもここ、真っ暗で何もないじゃない。味気なさすぎるわよね。どっかいい場所に行こっか！',
+        '行啦，检查合格！不过这个场景除了黑就是紫，什么都没有，太寒酸了。走，带你换个地方待会儿！',
+        'Alright, inspection passed! But there\'s nothing here but black and purple. Way too cheap. Come on, let\'s go somewhere nice!',
+        'よし、チェック合格！でもここ、黒と紫しかなくて何もないじゃない。味気なさすぎるわよね。どっかいい場所に行こっか！',
       ),
     },
     audio: { sfx: [{ id: 'wind', delaySec: 0.3, volume: 0.6 }] },

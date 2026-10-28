@@ -622,25 +622,20 @@ export class StoryDirectorEngine {
 
   /** 给选项加上“当前已选”高亮 (换装 / 场景 / 语言) */
   private decorateChoices(choices: StoryChoice[]): StoryChoice[] {
-    const currentOutfit = vrmEngine.currentOutfitKey || 'xiaochun_dinner_dress';
+    // 真实穿着的那件 (null = 裸 base / 上传模型 → 没有任何卡标“当前所选”)；不再假设默认就是晚礼服
+    const currentOutfit = vrmEngine.currentOutfitKey ?? '';
     const currentScene = sceneManager.getCurrentSceneId();
     const lang = this.getLang();
     return choices.map((c) => {
       if (c.actionType === 'swap_outfit') {
-        const isWorn =
-          c.actionPayload === currentOutfit ||
-          c.id === currentOutfit ||
-          (currentOutfit.includes('dress') && c.id === 'outfit_dress') ||
-          (currentOutfit.includes('maid') && c.id === 'outfit_maid') ||
-          (currentOutfit.includes('cheongsam') && c.id === 'outfit_qipao');
+        const isWorn = currentOutfit !== '' && c.actionPayload === currentOutfit;
         return { ...c, selected: Boolean(isWorn) };
       }
       if (c.actionType === 'change_scene') {
         const isSelected =
           c.actionPayload === currentScene ||
           c.id === `scene_${currentScene}` ||
-          (currentScene === 'beach3d' && c.id === 'scene_beach') ||
-          (currentScene === 'void' && c.id === 'scene_beach');
+          (currentScene === 'beach3d' && c.id === 'scene_beach');
         return { ...c, selected: Boolean(isSelected) };
       }
       if (c.actionType === 'change_lang') {
@@ -694,16 +689,9 @@ export class StoryDirectorEngine {
     if (choice.text && !isPreviewAction) {
       let historyText = choice.text;
       if (choice.id === 'outfit_confirm') {
-        const currentOutfit = vrmEngine.currentOutfitKey || 'xiaochun_dinner_dress';
+        const currentOutfit = vrmEngine.currentOutfitKey ?? '';
         const outfitChoices = this.resolvedChoicesOf('beat_outfit_choice');
-        const worn = outfitChoices.find(
-          (c) =>
-            c.actionPayload === currentOutfit ||
-            c.id === currentOutfit ||
-            (currentOutfit.includes('dress') && c.id === 'outfit_dress') ||
-            (currentOutfit.includes('maid') && c.id === 'outfit_maid') ||
-            (currentOutfit.includes('cheongsam') && c.id === 'outfit_qipao')
-        );
+        const worn = currentOutfit ? outfitChoices.find((c) => c.actionPayload === currentOutfit) : undefined;
         if (worn?.text) {
           historyText = HISTORY_TEXT[this.getLang()].outfit(worn.text);
         }
@@ -778,8 +766,8 @@ export class StoryDirectorEngine {
         await vrmEngine.swapOutfit(APP_CONFIG.model.defaultSource, APP_CONFIG.model.defaultName, { showcase: false });
       }
 
-      // 换完衣服之后，进行一次 360° 自信全身服装展示动效
-      void vrmEngine.playMotion('showFullBody', { fadeDuration: 0.6, loop: false });
+      // 换完衣服之后的展示动作：与常规换装一致，走“换装走秀”动作组 (outfitShowcase，按权重随机)，不写死 showFullBody
+      void vrmEngine.playMotionGroup('outfitShowcase', { fadeDuration: 0.6, loop: false });
       storyAudioDirector.playSfx('crystal_chime');
 
       // 更新高亮态 (当前穿戴的衣服被选定)
