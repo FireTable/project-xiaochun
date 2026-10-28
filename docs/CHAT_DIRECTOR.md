@@ -190,3 +190,15 @@ flowchart TD
 Bubble status roughly tracks: `thinking` → early `emage` (first window ready) → `speaking` → inter-segment wait → idle.
 
 A newer `say` / `speakText` / `speakAudio` calls `handoff()` first (§2.6). The previous pipeline exits on its utterance id and does not run the idle cleanup for the line that replaced it.
+
+---
+
+## 3. Multi-Modal TTS Client & Error Degradation
+
+- 文件：[`src/director/ttsClient.ts`](../src/director/ttsClient.ts)
+- 支持两种工作模式：
+  1. **官方内置 Edge-TTS (推荐)**：经由 Cloudflare Worker `/api/tts` 执行实时流式合成并接入 R2 双层持久缓存；
+  2. **用户自定义服务**：以标准 OpenAI `/v1/audio/speech` 格式 `POST ${baseURL}/audio/speech` 发送 `{ model, input, voice, response_format: 'mp3' }`，兼容 MiniMax、硅基流动 CosyVoice、OpenAI、ElevenLabs 等各大云端提供商。
+- **优雅降级容错**：
+  - 当语音合成异常（网络断开、鉴权失效、配额不足）时，**绝不崩溃中断主流程**；
+  - 触发 `status('ttsUnavailable')`，气泡下方挂低调的“语音暂时不可用”胶囊，LLM 文字照常完整呈现，动作调度平滑退化为纯文本节奏。

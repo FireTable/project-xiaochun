@@ -158,7 +158,29 @@ export const APP_CONFIG = {
 
 ---
 
-## 7. Agent Engineering Standards & Invariants (红线与守则)
+## 7. Multi-Modal STT Dispatcher & Remote Fallback (远程识别与智能熔断)
+
+Project XiaoChun 采用 **“选定主线 + 失败直落本地兜底”** 的多模态语音识别架构，支持三种运行模式（由 `src/llm/activeAudioModes.ts` 管理）：
+
+| 工作模式 | 核心服务与模型 | 失败/异常处理路径 |
+| :--- | :--- | :--- |
+| **官方内置智能 (推荐)** | 优先 Cloudflare Workers AI (`@cf/openai/whisper-large-v3-turbo`，通过 `/api/stt`) | 遇 429 额度耗尽或超时断网，断路器熔断 5 分钟，0ms 无缝降级到本地 SenseVoice |
+| **用户自定义服务** | 用户自备 OpenAI 兼容接口 (`POST /v1/audio/transcriptions`，如 MiniMax ASR / Groq Whisper) | 遇 401 鉴权失败或连续超时，断路器熔断 5 分钟，0ms 无缝降级到本地 SenseVoice |
+| **纯端侧离线 (Local Only)** | 100% 本地 WebWorker (SenseVoice int8 + CT-Transformer) | 声音不出本机，0 网络请求，极致离线隐私保护 |
+
+### 7.1 轻量无损音频传输协议
+- 文件：[`src/stt/wavEncoder.ts`](../src/stt/wavEncoder.ts)
+- 麦克风录音采集的原始 16kHz Float32Array PCM 直接包裹标准 44 字节 WAV 头部打包为二进制流，零三方依赖，性能 < 1ms，杜绝浏览器端进行高 CPU 开销的有损重编码，与 OpenAI 及 Cloudflare 原生无缝对齐。
+
+### 7.2 断路器与自愈机制 (Circuit Breaker)
+- 文件：[`src/stt/sttDispatcher.ts`](../src/stt/sttDispatcher.ts)
+- 连续 2 次请求超时或收到 HTTP 429 (配额用尽)，状态机标记该目标源熔断 5 分钟；
+- 熔断窗口内，后续用户讲话 0ms 直接分发至本地 WebWorker 识别，免除等待超时的不良交互；
+- 5 分钟后进入半开 (Half-open) 状态，放行一次请求探测远端恢复。
+
+---
+
+## 8. Agent Engineering Standards & Invariants (红线与守则)
 
 1. ❌ **严禁在主线程导入重型 ML 模型**：
    SenseVoice 与 CT-Transformer 必须留在 `sttWorker.ts` 中执行，主线程只通过轻量 Transferable RPC 交互；
@@ -168,10 +190,14 @@ export const APP_CONFIG = {
    高度测量必须使用 `auto` 并在同帧写回像素值，防止 1 帧高度塌陷引发 UI 抽搐；
 4. ❌ **严禁在小春说话时无门控转发麦克风语音**：
    必须通过 `bargeInRms` 与 `ttsCooldownMs` 双门限过滤扬声器回音，仅在确认用户主动发声打断时调用 `stopSpeaking()`；
-5. ⚠️ **单测回归基准**：
-   涉及 STT 模块的代码修改，必须确保 `pnpm vitest run src/stt/` 5 个测试文件、50 个用例全部 100% 通过：
+5. ❌ **严禁对已熔断的远程源进行同步网络阻塞**：
+   `isRemoteSttAvailable()` 返回 `false` 时必须 0ms 瞬间分发本地 Worker，绝不挂起主线程或超时卡顿；
+6. ⚠️ **单测回归基准**：
+   涉及 STT 模块的代码修改，必须确保 `pnpm vitest run src/stt/` 全部测试 100% 通过：
    - `ctTransformerPunct.test.ts`
    - `punctuation.test.ts`
    - `sileroVad.test.ts`
    - `sttClient.test.ts`
+   - `sttDispatcher.test.ts`
    - `voiceSessionHistory.test.ts`
+   - `wavEncoder.test.ts`

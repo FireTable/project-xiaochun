@@ -11,6 +11,7 @@ import { APP_CONFIG } from '@/config';
 import { SileroVad } from './sileroVad';
 import { richTranscriptionPostprocess } from './transcriptFilter';
 import { formatDraftPunctuation, finalizePunctuation } from './punctuation';
+import { isRemoteSttAvailable, transcribeRemote } from './sttDispatcher';
 
 export type SttUiState = 'idle' | 'loading' | 'listening' | 'recognizing' | 'error';
 
@@ -236,88 +237,12 @@ export class SttClient {
           return;
         }
 
-        const inFlight = this.inFlightUtterance;
-        // If session was reset (e.g. user sent message) while this utterance was in flight,
-        // discard this obsolete result to prevent ghost text from resurrecting in the input field!
-        if (!inFlight || (msg.id !== undefined && inFlight.id !== reqId) || inFlight.turnId !== this.currentTurnId) {
-          this.recognizingBusy = false;
-          return;
-        }
-
-        const isFinal = Boolean(msg.isFinal ?? inFlight.isFinal ?? false);
-        const rawText = String(msg.rawText ?? '');
-        const baseText = richTranscriptionPostprocess(String(msg.text ?? ''));
-        const turnId = inFlight.turnId;
-
-        void (async () => {
-          let cleaned: string;
-          if (isFinal) {
-            cleaned = msg.isFinal
-              ? finalizePunctuation(baseText)
-              : await this.punctuateText(baseText);
-          } else {
-            cleaned = formatDraftPunctuation(baseText);
-          }
-
-          // Guard again in case resetSession was invoked while punctuateText was awaiting
-          if (this.currentTurnId !== turnId) {
-            this.recognizingBusy = false;
-            return;
-          }
-
-          if (typeof console !== 'undefined' && typeof console.log === 'function' && cleaned) {
-            console.log(
-              `%c[STT Client]%c 识别文本就绪 [${isFinal ? '定稿' : '草稿'}]: "${cleaned}"${rawText ? ` (原始音素字流: "${rawText}")` : ''}`,
-              isFinal ? 'color: #10b981; font-weight: bold;' : 'color: #94a3b8; font-weight: bold;',
-              'color: inherit;',
-            );
-          }
-
-          this.recognizingBusy = false;
-          // Continuous dictation: stay listening if mic still open; user toggles mic to stop.
-          if (this.stream) this.setState('listening');
-          else this.setState('idle');
-
-          this.inFlightUtterance = null;
-          if (inFlight && (msg.id === undefined || inFlight.id === Number(msg.id))) {
-            const now = typeof performance !== 'undefined' ? performance.now() : Date.now();
-            const inferenceMs = Math.round(now - inFlight.startTime);
-            this.emit({
-              type: 'utterance_result',
-              id: inFlight.id,
-              text: cleaned || String(msg.text ?? ''),
-              pcm: inFlight.pcm,
-              sampleRate: inFlight.sampleRate,
-              durationMs: inFlight.durationMs,
-              inferenceMs,
-              rms: inFlight.rms,
-              isFinal,
-            });
-          }
-
-          if (cleaned) {
-            this.lastSessionText = cleaned;
-            this.lastSessionRawText = rawText;
-            this.emit({ type: 'text', text: cleaned, isFinal, rawText });
-          } else if (isFinal && !this.lastSessionText) {
-            this.emit({ type: 'error', message: 'empty_transcript' });
-          }
-
-          if (isFinal) {
-            this.sessionPcmChunks = [];
-            this.lastSessionText = '';
-            this.lastSessionRawText = '';
-            this.lastSubmittedPcmSamples = 0;
-          } else {
-            // Check if more chunks arrived while in flight
-            let currentTotal = 0;
-            for (const c of this.sessionPcmChunks) currentTotal += c.length;
-            if (currentTotal > this.lastSubmittedPcmSamples && this.stream) {
-              const combined = this.concatSessionPcm();
-              this.submitUtterance(combined, false);
-            }
-          }
-        })();
+        void this.handleRecognitionResult({
+          id: reqId,
+          text: String(msg.text ?? ''),
+          rawText: msg.rawText,
+          isFinal: msg.isFinal,
+        });
         return;
       }
       if (msg.type === 'error') {
@@ -707,6 +632,93 @@ export class SttClient {
     return false;
   }
 
+  private async handleRecognitionResult(msg: {
+    id: number;
+    text: string;
+    rawText?: string;
+    isFinal?: boolean;
+  }): Promise<void> {
+    const inFlight = this.inFlightUtterance;
+    const reqId = Number(msg.id);
+    if (!inFlight || inFlight.id !== reqId || inFlight.turnId !== this.currentTurnId) {
+      this.recognizingBusy = false;
+      return;
+    }
+
+    const isFinal = Boolean(msg.isFinal ?? inFlight.isFinal ?? false);
+    const rawText = String(msg.rawText ?? '');
+    const baseText = richTranscriptionPostprocess(String(msg.text ?? ''));
+    const turnId = inFlight.turnId;
+
+    let cleaned: string;
+    if (isFinal) {
+      cleaned = msg.isFinal
+        ? finalizePunctuation(baseText)
+        : await this.punctuateText(baseText);
+    } else {
+      cleaned = formatDraftPunctuation(baseText);
+    }
+
+    // Guard again in case resetSession was invoked while punctuateText was awaiting
+    if (this.currentTurnId !== turnId) {
+      this.recognizingBusy = false;
+      return;
+    }
+
+    if (typeof console !== 'undefined' && typeof console.log === 'function' && cleaned) {
+      console.log(
+        `%c[STT Client]%c 识别文本就绪 [${isFinal ? '定稿' : '草稿'}]: "${cleaned}"${rawText ? ` (原始音素字流: "${rawText}")` : ''}`,
+        isFinal ? 'color: #10b981; font-weight: bold;' : 'color: #94a3b8; font-weight: bold;',
+        'color: inherit;',
+      );
+    }
+
+    this.recognizingBusy = false;
+    // Continuous dictation: stay listening if mic still open; user toggles mic to stop.
+    if (this.stream) this.setState('listening');
+    else this.setState('idle');
+
+    this.inFlightUtterance = null;
+    if (inFlight && inFlight.id === reqId) {
+      const now = typeof performance !== 'undefined' ? performance.now() : Date.now();
+      const inferenceMs = Math.round(now - inFlight.startTime);
+      this.emit({
+        type: 'utterance_result',
+        id: inFlight.id,
+        text: cleaned || String(msg.text ?? ''),
+        pcm: inFlight.pcm,
+        sampleRate: inFlight.sampleRate,
+        durationMs: inFlight.durationMs,
+        inferenceMs,
+        rms: inFlight.rms,
+        isFinal,
+      });
+    }
+
+    if (cleaned) {
+      this.lastSessionText = cleaned;
+      this.lastSessionRawText = rawText;
+      this.emit({ type: 'text', text: cleaned, isFinal, rawText });
+    } else if (isFinal && !this.lastSessionText) {
+      this.emit({ type: 'error', message: 'empty_transcript' });
+    }
+
+    if (isFinal) {
+      this.sessionPcmChunks = [];
+      this.lastSessionText = '';
+      this.lastSessionRawText = '';
+      this.lastSubmittedPcmSamples = 0;
+    } else {
+      // Check if more chunks arrived while in flight
+      let currentTotal = 0;
+      for (const c of this.sessionPcmChunks) currentTotal += c.length;
+      if (currentTotal > this.lastSubmittedPcmSamples && this.stream) {
+        const combined = this.concatSessionPcm();
+        this.submitUtterance(combined, false);
+      }
+    }
+  }
+
   private submitUtterance(pcm: Float32Array, isFinal = false): void {
     this.recognizingBusy = true;
     this.setState('recognizing');
@@ -731,6 +743,30 @@ export class SttClient {
       isFinal,
     };
     this.lastSubmittedPcmSamples = pcm.length;
+
+    // 智能调度：若为定稿且远程服务可用（内置 CF 或用户自定义），优先走远程识别；失败自动直落本地 Worker
+    if (isFinal && isRemoteSttAvailable()) {
+      void (async () => {
+        try {
+          const { text } = await transcribeRemote(pcm, sr);
+          if (this.currentTurnId !== this.inFlightUtterance?.turnId) return;
+          await this.handleRecognitionResult({
+            id,
+            text,
+            isFinal: true,
+          });
+        } catch (remoteErr) {
+          console.warn('[STT Client] 远程识别异常，无缝降级到本地模型兜底:', remoteErr);
+          if (this.currentTurnId !== this.inFlightUtterance?.turnId) return;
+          const w = this.ensureWorker();
+          const copy = pcm.slice();
+          w.postMessage({ type: 'recognize', id, pcm: copy, sampleRate: sr, isFinal: true }, [
+            copy.buffer,
+          ]);
+        }
+      })();
+      return;
+    }
 
     const w = this.ensureWorker();
     const copy = pcm.slice();

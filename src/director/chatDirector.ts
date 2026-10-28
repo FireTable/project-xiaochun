@@ -23,6 +23,7 @@ export type TurnState = 'idle' | 'listening' | 'thinking' | 'speaking';
 interface Plan { speech: string; llm_provider?: string }
 
 import { splitIntoSpeechChunks, stripForTTS } from '@/lib/utils';
+import { requestTTSAudio } from './ttsClient';
 import { VocalAudioProcessor } from './vocalProcessor';
 import { MOTION_CATALOG } from '@/motion/catalog';
 import { motionAssetManager } from '@/motion/pipeline/motionAssetManager';
@@ -169,31 +170,13 @@ async function streamChunkAudioToCheckpoint(
 
   const { voice, pitch, rate, volume } = resolveTTSVoice(ttsText, voiceOverride);
 
-  let res: Response | null = null;
-  for (let attempt = 1; attempt <= 2; attempt++) {
-    try {
-      res = await fetch('/api/tts', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          text: ttsText,
-          voice,
-          pitch,
-          rate,
-          volume,
-        }),
-      });
-      if (res.ok && res.body) break;
-    } catch (fetchErr) {
-      if (attempt === 2) throw fetchErr;
-    }
-    if (attempt < 2) {
-      await new Promise((r) => setTimeout(r, 300));
-    }
-  }
-
-  if (!res || !res.ok) throw new Error(`语音合成服务异常: HTTP ${res?.status ?? 'Unknown'}`);
-  if (!res.body) throw new Error('语音合成响应无 body');
+  const res = await requestTTSAudio({
+    text: ttsText,
+    voice,
+    pitch,
+    rate,
+    volume,
+  });
 
   const reader = res.body.getReader();
   const decoder = new MPEGDecoder();
