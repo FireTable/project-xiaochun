@@ -16,6 +16,7 @@ export interface HeadBubbleProps {
   customHeader?: React.ReactNode;
   extraHeaderAction?: React.ReactNode;
   speechText?: string;
+  isSpeaking?: boolean;
   placement?: BubblePlacement;
   isStatic?: boolean;
   className?: string;
@@ -65,6 +66,7 @@ export const HeadBubble: React.FC<HeadBubbleProps> = ({
   customHeader,
   extraHeaderAction,
   speechText: speechTextProp,
+  isSpeaking: isSpeakingProp,
   placement: placementProp,
   isStatic = false,
   className = '',
@@ -95,7 +97,7 @@ export const HeadBubble: React.FC<HeadBubbleProps> = ({
   const placement = placementProp ?? state?.placement ?? (isStatic ? 'bottom' : 'top');
   const statusKey = state?.statusKey ?? '';
   const iconKind = state?.isError ? 'idle' : ICON_BY_KEY[statusKey] ?? 'idle';
-  const isSpeaking = statusKey === 'speaking' || Boolean(speechTextProp);
+  const isSpeaking = isSpeakingProp !== undefined ? isSpeakingProp : (statusKey === 'speaking' || Boolean(speechTextProp));
   const ttsDown = statusKey === 'ttsUnavailable';
 
   // 动态同步实测尺寸，并驱动 SVG 一体化矢量轮廓重绘
@@ -133,7 +135,7 @@ export const HeadBubble: React.FC<HeadBubbleProps> = ({
 
   // 对话设置关气泡：仅对日常悬浮气泡生效；静态/电影模式(isStatic)在存在语音台词、状态或展开回顾时渲染
   const isVisible = isStatic
-    ? Boolean(children) || (state ? state.visible && Boolean(rawSpeechText || statusKey) : Boolean(rawSpeechText || statusKey))
+    ? Boolean(children) || Boolean(rawSpeechText) || (state ? state.visible && Boolean(statusKey) : Boolean(statusKey))
     : enabled && Boolean(state?.visible);
 
   if (!isVisible) return null;

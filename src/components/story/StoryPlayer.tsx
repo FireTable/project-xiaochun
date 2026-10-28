@@ -190,10 +190,15 @@ export const StoryPlayer: React.FC<StoryPlayerProps> = ({
   }, [storyState.currentBeat?.id]);
 
   useEffect(() => {
-    if (bubble.visible && bubble.speechText) {
+    if ((bubble.visible && Boolean(bubble.speechText)) || storyState.isSpeaking) {
       setHasSpokenInBeat(true);
     }
-  }, [bubble.visible, bubble.speechText]);
+  }, [bubble.visible, bubble.speechText, storyState.isSpeaking]);
+
+  // 获取当前拍对应的台词文本 (在播放完毕后持续保持，绝不在说完全句后突兀消失，交互完全统一)
+  const currentSpeechText = useMemo(() => {
+    return bubble.speechText || currentBeat?.actor.speechText || '';
+  }, [bubble.speechText, currentBeat?.actor.speechText]);
 
   // 在视角教学拍中，根据任务完成度动态丰富下一步选项文案
   const displayChoices = useMemo(() => {
@@ -218,9 +223,9 @@ export const StoryPlayer: React.FC<StoryPlayerProps> = ({
     return displayChoices.some((c) => Boolean(c.image));
   }, [currentBeat?.choiceLayout, displayChoices]);
 
-  // 对白卡展示逻辑：仅在当前拍已开声发音且有台词，或展开了对白回顾时挂载
+  // 对白卡展示逻辑：当前拍已开声发音且有台词（播毕后持续保持），或展开了对白回顾时挂载
   const showDialogue =
-    ((hasSpokenInBeat && Boolean(bubble.speechText)) || isHistoryExpanded) &&
+    ((hasSpokenInBeat && Boolean(currentSpeechText.trim())) || isHistoryExpanded) &&
     !storyState.isIntertitleActive;
 
   // 统一交互分支卡片群渲染 (PC 侧栏与 Mobile 底部共用单一 SSOT，消除 60+ 行重复代码)
@@ -300,6 +305,8 @@ export const StoryPlayer: React.FC<StoryPlayerProps> = ({
         placement="bottom"
         maxWidthClass={maxWidthClass}
         state={bubble}
+        speechText={currentSpeechText}
+        isSpeaking={storyState.isSpeaking}
         extraHeaderAction={
           storyState.history.length > 0 ? (
             <button
@@ -395,20 +402,24 @@ export const StoryPlayer: React.FC<StoryPlayerProps> = ({
         </div>
       </div>
 
-      {/* 3. PC 宽屏专属一体化布局 (纯净电影条居中沉底 + 全部交互卡片统一定位于右侧，中央角色 100% 毫无遮挡) */}
+      {/* 3. PC 宽屏专属一体化布局 (纯净电影条居中沉底 + 全部交互卡片统一定位于右侧且高于底部电影条，杜绝遮挡) */}
       <div className="hidden sm:block">
         {/* PC 宽屏中央沉底电影条 (唯一的对白展示，复用 HeadBubble variant="cinematic"，0 重复) */}
         {showDialogue && (
-          <div className="pointer-events-none fixed bottom-4 sm:bottom-6 left-1/2 -translate-x-1/2 z-40 max-w-lg sm:max-w-xl w-full px-4 text-center animate-in fade-in slide-in-from-bottom-2 duration-300">
+          <div className="pointer-events-none fixed bottom-4 sm:bottom-6 left-1/2 -translate-x-1/2 z-40 max-w-lg md:max-w-xl w-full px-4 text-center animate-in fade-in slide-in-from-bottom-2 duration-300">
             <div className="pointer-events-auto w-full">
               {renderDialogueBubble()}
             </div>
           </div>
         )}
 
-        {/* PC 宽屏右侧统一交互列 (全部卡片：选项 / 视角任务 / 换装 / 场景 统一定位于右侧，若仅有选项则 ChatBar 不渲染) */}
-        <div className="pointer-events-none fixed right-6 bottom-8 sm:right-8 sm:bottom-10 w-72 sm:w-80 z-40 flex flex-col gap-2 animate-in fade-in slide-in-from-right-4 duration-300">
-          <div className="pointer-events-auto w-full flex flex-col gap-2">
+        {/* PC 宽屏右侧统一交互列 (全部卡片：选项 / 视角任务 / 换装 / 场景 统一定位于右侧，高度抬升避让底部电影条，z-50 防遮挡) */}
+        <div
+          className={`pointer-events-none fixed right-6 sm:right-8 ${
+            showDialogue ? 'bottom-28 sm:bottom-32' : 'bottom-8 sm:bottom-10'
+          } w-72 sm:w-80 z-50 flex flex-col gap-2 animate-in fade-in slide-in-from-right-4 duration-300 max-h-[calc(100vh-140px)] transition-all`}
+        >
+          <div className="pointer-events-auto w-full flex flex-col gap-2 max-h-[calc(100vh-150px)] overflow-y-auto custom-bubble-scrollbar pr-0.5">
             {renderChoices()}
             {showInput && (
               <div className="w-full animate-in fade-in slide-in-from-bottom-2 duration-300">
@@ -428,9 +439,9 @@ export const StoryPlayer: React.FC<StoryPlayerProps> = ({
         </div>
       </div>
 
-      {/* 4. 移动竖屏专属一体化沉底流 (选项在 ChatBar 上方，最下方是电影条；若仅有选项则 ChatBar 不渲染) */}
-      <div className="pointer-events-none flex sm:hidden fixed inset-x-3 bottom-3 z-40 flex-col gap-2 animate-in fade-in slide-in-from-bottom-2 duration-300">
-        <div className="pointer-events-auto w-full flex flex-col gap-2">
+      {/* 4. 移动竖屏专属一体化沉底流 (选项群占满宽度且位于最下方电影条的正上方，层级分明杜绝遮挡) */}
+      <div className="pointer-events-none flex sm:hidden fixed inset-x-3 bottom-3 z-50 flex-col gap-2 animate-in fade-in slide-in-from-bottom-2 duration-300 max-h-[85vh]">
+        <div className="pointer-events-auto w-full flex flex-col gap-2 max-h-[55vh] overflow-y-auto custom-bubble-scrollbar pr-0.5">
           {renderChoices()}
           {showInput && (
             <div className="w-full animate-in fade-in slide-in-from-bottom-2 duration-300">

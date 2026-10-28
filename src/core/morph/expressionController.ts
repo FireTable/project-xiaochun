@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import type { VRM } from '@pixiv/three-vrm';
+import { VRM } from '@pixiv/three-vrm';
 import type { ExpressionDirective, EmotionMicroReaction } from '@/story/schema';
 
 export interface ExpressionControllerConfig {
@@ -79,6 +79,22 @@ export const EMOTION_KEYS = [
 ] as const;
 
 export type EmotionKey = (typeof EMOTION_KEYS)[number];
+
+export const MORPH_KEYS = [
+  'happy',
+  'gentle_smile',
+  'angry',
+  'sad',
+  'surprised',
+  'relaxed',
+  'blink',
+  'blinkLeft',
+  'blinkRight',
+  'aa',
+  'ou',
+] as const;
+
+export type ExpressionMorphKey = (typeof MORPH_KEYS)[number];
 
 export const PRESET_EMOTION_MAP = {
   neutral: 'neutral',
@@ -171,6 +187,49 @@ export class ExpressionController {
     ou: 0,
     reset() {
       this.happy = 0;
+      this.angry = 0;
+      this.sad = 0;
+      this.surprised = 0;
+      this.relaxed = 0;
+      this.blink = 0;
+      this.blinkLeft = 0;
+      this.blinkRight = 0;
+      this.aa = 0;
+      this.ou = 0;
+    },
+  };
+
+  /** 实时平滑应用到 VRM 的 Morph 缓冲池 (Zero-GC, 指数阻尼滤波，杜绝 1 帧瞬切) */
+  private readonly liveMorphs = {
+    happy: 0,
+    gentle_smile: 0,
+    angry: 0,
+    sad: 0,
+    surprised: 0,
+    relaxed: 0,
+    blink: 0,
+    blinkLeft: 0,
+    blinkRight: 0,
+    aa: 0,
+    ou: 0,
+  };
+
+  /** 当前帧计算的目标 Morph 权值暂存器 (Zero-GC) */
+  private readonly targetMorphs = {
+    happy: 0,
+    gentle_smile: 0,
+    angry: 0,
+    sad: 0,
+    surprised: 0,
+    relaxed: 0,
+    blink: 0,
+    blinkLeft: 0,
+    blinkRight: 0,
+    aa: 0,
+    ou: 0,
+    reset() {
+      this.happy = 0;
+      this.gentle_smile = 0;
       this.angry = 0;
       this.sad = 0;
       this.surprised = 0;
@@ -281,10 +340,15 @@ export class ExpressionController {
     this.playfulTimer = 0;
     this.customExpressionFn = null;
     this.customTimingGetter = null;
+    this.targetMorphs.reset();
 
     for (let i = 0; i < EMOTION_KEYS.length; i++) {
       const e = EMOTION_KEYS[i];
       this.currentWeights[e] = e === 'neutral' ? 1.0 : 0.0;
+    }
+
+    for (let i = 0; i < MORPH_KEYS.length; i++) {
+      this.liveMorphs[MORPH_KEYS[i]] = 0;
     }
 
     if (vrm?.expressionManager) {
@@ -317,15 +381,27 @@ export class ExpressionController {
   ): void {
     if (!vrm?.expressionManager) return;
 
-    // 非接管模式且没有正在衰减的情绪时，放行给 GazeController
-    if (!this.isActive) {
+    // 检查是否有仍在平滑衰减的残余权重
+    let hasLiveRemnant = false;
+    for (let i = 0; i < MORPH_KEYS.length; i++) {
+      if (this.liveMorphs[MORPH_KEYS[i]] > 0.001) {
+        hasLiveRemnant = true;
+        break;
+      }
+    }
+
+    // 非接管模式且没有正在平滑衰减的残余权重时，放行给 GazeController
+    if (!this.isActive && !hasLiveRemnant) {
       return;
     }
 
     const mgr = vrm.expressionManager;
     this.breathClock += delta;
+    this.targetMorphs.reset();
 
-    // ── 0. 优先执行动作原生动态表情函数 (Motion Expression Function) ──
+    const mouthDuck = isSpeaking || activeVisemeMouth > 0.05 ? this.config.speechMouthDucking : 1.0;
+
+    // ── 0. 目标值求值：动作动态函数优先 (Motion Expression Function) ──
     if (this.customExpressionFn) {
       const timing = this.customTimingGetter ? this.customTimingGetter() : { elapsed: 0, duration: 1 };
       const dur = Math.max(0.001, timing.duration);
@@ -359,204 +435,212 @@ export class ExpressionController {
       this.exprOutput.reset();
       this.customExpressionFn(this.exprContext, this.exprOutput);
 
-      const mouthDuck = isSpeaking || activeVisemeMouth > 0.05 ? this.config.speechMouthDucking : 1.0;
-
-      try {
-        mgr.setValue('happy', Math.min(1.0, Math.max(0, this.exprOutput.happy * mouthDuck)));
-        mgr.setValue('angry', Math.min(1.0, Math.max(0, this.exprOutput.angry * (isSpeaking ? mouthDuck : 1.0))));
-        mgr.setValue('sad', Math.min(1.0, Math.max(0, this.exprOutput.sad * mouthDuck)));
-        mgr.setValue('surprised', Math.min(1.0, Math.max(0, this.exprOutput.surprised)));
-        mgr.setValue('relaxed', Math.min(1.0, Math.max(0, this.exprOutput.relaxed)));
-
-        mgr.setValue('blinkLeft', Math.min(1.0, Math.max(0, this.exprOutput.blinkLeft)));
-        mgr.setValue('blinkRight', Math.min(1.0, Math.max(0, this.exprOutput.blinkRight)));
-
-        const combinedBlink = Math.min(1.0, Math.max(gazeBlink, this.exprOutput.blink));
-        mgr.setValue('blink', combinedBlink);
-
-        if (activeVisemeMouth > 0.01) {
-          mgr.setValue('aa', activeVisemeMouth);
-          mgr.setValue('ou', 0);
-        } else if (!isSpeaking) {
-          mgr.setValue('aa', Math.min(1.0, Math.max(0, this.exprOutput.aa * mouthDuck)));
-          mgr.setValue('ou', Math.min(1.0, Math.max(0, this.exprOutput.ou * mouthDuck)));
-        }
-      } catch { }
-      return;
-    }
-
-    // ── 1. 生理自主层 (呼吸微起伏，幅值控制在极细微 ±0.015) ──
-    const breathOsc = Math.sin(this.breathClock * 1.85) * this.config.breathOscillationAmp;
-
-    // 预设表情计时演化
-    if (this.targetEmotion === 'playful') {
-      this.playfulTimer += delta;
-    } else {
-      this.playfulTimer = 0;
-    }
-
-    // ── 2. 情绪基调平滑阻尼流动 (连续时间滤波，Zero-GC 循环，杜绝 1 帧突变抽动) ──
-    const dampFactor = Math.min(1.0, delta * this.config.emotionDampSpeed);
-    let totalNonNeutralWeight = 0;
-
-    for (let i = 0; i < EMOTION_KEYS.length; i++) {
-      const emo = EMOTION_KEYS[i];
-      const target = emo === this.targetEmotion ? this.targetIntensity : (emo === 'neutral' ? (1.0 - this.targetIntensity) : 0.0);
-      this.currentWeights[emo] += (target - this.currentWeights[emo]) * dampFactor;
-      if (emo !== 'neutral') {
-        totalNonNeutralWeight += this.currentWeights[emo];
+      this.targetMorphs.happy = Math.min(1.0, Math.max(0, this.exprOutput.happy * mouthDuck));
+      this.targetMorphs.angry = Math.min(1.0, Math.max(0, this.exprOutput.angry * (isSpeaking ? mouthDuck : 1.0)));
+      this.targetMorphs.sad = Math.min(1.0, Math.max(0, this.exprOutput.sad * mouthDuck));
+      this.targetMorphs.surprised = Math.min(1.0, Math.max(0, this.exprOutput.surprised));
+      this.targetMorphs.relaxed = Math.min(1.0, Math.max(0, this.exprOutput.relaxed));
+      this.targetMorphs.blinkLeft = Math.min(1.0, Math.max(0, this.exprOutput.blinkLeft));
+      this.targetMorphs.blinkRight = Math.min(1.0, Math.max(0, this.exprOutput.blinkRight));
+      this.targetMorphs.blink = Math.min(1.0, Math.max(0, this.exprOutput.blink));
+      if (!isSpeaking) {
+        this.targetMorphs.aa = Math.min(1.0, Math.max(0, this.exprOutput.aa * mouthDuck));
+        this.targetMorphs.ou = Math.min(1.0, Math.max(0, this.exprOutput.ou * mouthDuck));
       }
-    }
+    } else if (this.isActive) {
+      // ── 1. 生理自主层 (呼吸微起伏，幅值控制在极细微 ±0.015) ──
+      const breathOsc = Math.sin(this.breathClock * 1.85) * this.config.breathOscillationAmp;
 
-    // 当目标为 neutral 且所有情绪权重均已平滑衰减至极小阈值时，释放接管回归基态素颜
-    if (this.targetEmotion === 'neutral' && totalNonNeutralWeight < 0.005) {
-      this.isActive = false;
-      this.reset(vrm, isSpeaking);
-      return;
-    }
+      // 预设表情计时演化
+      if (this.targetEmotion === 'playful') {
+        this.playfulTimer += delta;
+      } else {
+        this.playfulTimer = 0;
+      }
 
-    // ── 3. 戏剧微事件脉冲演化 ──
-    if (this.currentMicroReaction !== 'none') {
-      this.microReactionTimer += delta;
+      // ── 2. 情绪基调平滑阻尼流动 (连续时间滤波，Zero-GC 循环，杜绝 1 帧突变抽动) ──
+      const dampFactor = Math.min(1.0, delta * this.config.emotionDampSpeed);
+      let totalNonNeutralWeight = 0;
 
-      if (this.currentMicroReaction === 'blush_ramp') {
-        if (this.microReactionTimer < 1.2) {
-          this.blushIntensity += (0.85 - this.blushIntensity) * Math.min(1.0, delta * 3.0);
-        } else {
-          this.blushIntensity += (0.0 - this.blushIntensity) * Math.min(1.0, delta * 0.4);
-          if (this.blushIntensity < 0.02) {
-            this.currentMicroReaction = 'none';
+      for (let i = 0; i < EMOTION_KEYS.length; i++) {
+        const emo = EMOTION_KEYS[i];
+        const target = emo === this.targetEmotion ? this.targetIntensity : (emo === 'neutral' ? (1.0 - this.targetIntensity) : 0.0);
+        this.currentWeights[emo] += (target - this.currentWeights[emo]) * dampFactor;
+        if (emo !== 'neutral') {
+          totalNonNeutralWeight += this.currentWeights[emo];
+        }
+      }
+
+      // 当目标为 neutral 且所有情绪权重均已平滑衰减至极小阈值时，释放接管标记（由 liveMorphs 丝滑渐变归零）
+      if (this.targetEmotion === 'neutral' && totalNonNeutralWeight < 0.005) {
+        this.isActive = false;
+      }
+
+      // ── 3. 戏剧微事件脉冲演化 ──
+      if (this.currentMicroReaction !== 'none') {
+        this.microReactionTimer += delta;
+
+        if (this.currentMicroReaction === 'blush_ramp') {
+          if (this.microReactionTimer < 1.2) {
+            this.blushIntensity += (0.85 - this.blushIntensity) * Math.min(1.0, delta * 3.0);
+          } else {
+            this.blushIntensity += (0.0 - this.blushIntensity) * Math.min(1.0, delta * 0.4);
+            if (this.blushIntensity < 0.02) {
+              this.currentMicroReaction = 'none';
+            }
           }
+        } else if (this.microReactionTimer > 2.0) {
+          this.currentMicroReaction = 'none';
         }
-      } else if (this.microReactionTimer > 2.0) {
-        this.currentMicroReaction = 'none';
+      }
+
+      // 获取当前头部俯仰角 (Head Pitch)，实现困倦点头/打瞌睡时眼睑与沉睡深度的生理动态联动
+      const headNode = vrm.humanoid?.getNormalizedBoneNode('head');
+      let headPitch = 0;
+      if (headNode) {
+        this.tempEuler.setFromQuaternion(headNode.quaternion, 'YXZ');
+        headPitch = this.tempEuler.x;
+      }
+      // 点头深度系数 (0 ~ 1.0，0.25 rad 约为低头打瞌睡极值)
+      const nodFactor = Math.min(1.0, Math.max(0, headPitch / 0.25));
+
+      // 开怀喜悦 (happy) 与温婉微笑 (gentle_smile)
+      // 放松 (relaxed) 转化为温和从容的微笑嘴角，眼睛自然全睁
+      const happyWeight = Math.min(
+        0.80,
+        Math.max(
+          0,
+          (this.currentWeights.happy * 0.70 +
+            this.currentWeights.gentle_smile * 0.38 +
+            this.currentWeights.playful * 0.52 +
+            this.currentWeights.relaxed * 0.35 +
+            this.currentWeights.shy * 0.28 +
+            breathOsc) *
+            mouthDuck,
+        ),
+      );
+
+      // 傲娇微怒 (angry)
+      const angryWeight = Math.min(
+        0.70,
+        Math.max(0, this.currentWeights.angry * 0.65 * (isSpeaking ? mouthDuck : 1.0)),
+      );
+
+      // 困意/放松伴生的眉毛微垂 (睡颜舒缓八字眉)
+      const sleepySad = this.currentWeights.relaxed * 0.22 * nodFactor;
+
+      // 忧伤期盼 (sad) 与犹豫疑虑 (hesitant)
+      const sadWeight = Math.min(
+        0.65,
+        Math.max(
+          0,
+          (this.currentWeights.sad_longing * 0.60 +
+            this.currentWeights.hesitant * 0.38 +
+            sleepySad) *
+            mouthDuck,
+        ),
+      );
+
+      // 惊讶一怔 (surprised)
+      const surprisedWeight = Math.min(
+        0.75,
+        Math.max(
+          0,
+          this.currentWeights.surprised * 0.70 +
+            this.currentWeights.hesitant * 0.15,
+        ),
+      );
+
+      // VRoid 模型的 relaxed 表情对应 Fcl_EYE_Relaxed (半眯眼/じと目)
+      // 为杜绝常态眯眯眼，挺胸立姿时严格限制为 0，仅在低头打瞌睡沉睡时微量呈现
+      const relaxedWeight = Math.min(0.20, this.currentWeights.relaxed * 0.20 * nodFactor);
+
+      // 俏皮眨眼 (playful wink)：单侧左眼可爱 Wink 灵动脉冲 (0.05s ~ 0.85s 呈现，达到高潮后平滑睁开)
+      let playfulWink = 0;
+      if (this.currentWeights.playful > 0.005) {
+        if (this.playfulTimer >= 0.05 && this.playfulTimer <= 0.85) {
+          const winkP = (this.playfulTimer - 0.05) / 0.80;
+          playfulWink = Math.sin(winkP * Math.PI) * Math.min(0.95, this.currentWeights.playful * 0.90);
+        }
+      }
+
+      // 动态打瞌睡眼睑闭合：
+      // 站立挺直姿态下眼睛必须 100% 睁开 (sleepyBlink = 0，杜绝眯眯眼)；
+      // 仅在真实垂首点头打瞌睡时 (nodFactor > 0.05)，眼睑随重力平滑闭合至 0.88 ~ 0.92
+      let sleepyBlink = 0;
+      if (this.currentWeights.relaxed > 0.01 && nodFactor > 0.05) {
+        const normRelaxed = Math.min(1.0, this.currentWeights.relaxed / 0.70);
+        sleepyBlink = normRelaxed * nodFactor * 0.90;
+      }
+
+      // 犹豫疑惑时的微张口型
+      const hesitantMouth = this.currentWeights.hesitant * 0.20 * mouthDuck;
+      // 惊讶时的张口吸气
+      const surprisedMouth = this.currentWeights.surprised * 0.18 * mouthDuck;
+      // 困倦深睡时的微弱口呼吸
+      const sleepyMouth = this.currentWeights.relaxed * 0.08 * nodFactor * mouthDuck;
+
+      this.targetMorphs.happy = happyWeight;
+      this.targetMorphs.angry = angryWeight;
+      this.targetMorphs.sad = sadWeight;
+      this.targetMorphs.surprised = surprisedWeight;
+      this.targetMorphs.relaxed = relaxedWeight;
+      this.targetMorphs.blinkLeft = playfulWink;
+      this.targetMorphs.blink = sleepyBlink;
+      if (!isSpeaking) {
+        this.targetMorphs.aa = Math.max(surprisedMouth, sleepyMouth);
+        this.targetMorphs.ou = hesitantMouth;
       }
     }
 
-    // ── 4. 区域解耦与自然生动表情映射 (Zero-GC 算法) ──
-    const mouthDuck = isSpeaking || activeVisemeMouth > 0.05 ? this.config.speechMouthDucking : 1.0;
-
-    // 获取当前头部俯仰角 (Head Pitch)，实现困倦点头/打瞌睡时眼睑与沉睡深度的生理动态联动
-    const headNode = vrm.humanoid?.getNormalizedBoneNode('head');
-    let headPitch = 0;
-    if (headNode) {
-      this.tempEuler.setFromQuaternion(headNode.quaternion, 'YXZ');
-      headPitch = this.tempEuler.x;
-    }
-    // 点头深度系数 (0 ~ 1.0，0.25 rad 约为低头打瞌睡极值)
-    const nodFactor = Math.min(1.0, Math.max(0, headPitch / 0.25));
-
-    // 开怀喜悦 (happy) 与温婉微笑 (gentle_smile)
-    const happyWeight = Math.min(
-      0.80,
-      Math.max(
-        0,
-        (this.currentWeights.happy * 0.70 +
-          this.currentWeights.gentle_smile * 0.38 +
-          this.currentWeights.playful * 0.52 +
-          this.currentWeights.shy * 0.28 +
-          breathOsc) *
-          mouthDuck,
-      ),
-    );
-
-    // 傲娇微怒 (angry)
-    const angryWeight = Math.min(
-      0.70,
-      Math.max(0, this.currentWeights.angry * 0.65 * (isSpeaking ? mouthDuck : 1.0)),
-    );
-
-    // 困意/放松伴生的眉毛微垂 (睡颜舒缓八字眉)
-    const sleepySad = this.currentWeights.relaxed * 0.22 * nodFactor;
-
-    // 忧伤期盼 (sad) 与犹豫疑虑 (hesitant)
-    const sadWeight = Math.min(
-      0.65,
-      Math.max(
-        0,
-        (this.currentWeights.sad_longing * 0.60 +
-          this.currentWeights.hesitant * 0.38 +
-          sleepySad) *
-          mouthDuck,
-      ),
-    );
-
-    // 惊讶一怔 (surprised)
-    const surprisedWeight = Math.min(
-      0.75,
-      Math.max(
-        0,
-        this.currentWeights.surprised * 0.70 +
-          this.currentWeights.hesitant * 0.15,
-      ),
-    );
-
-    // 放松从容 (relaxed)：随点头垂首自然舒展嘴角
-    const relaxedWeight = Math.min(
-      0.65,
-      Math.max(
-        0,
-        this.currentWeights.relaxed * (0.45 + 0.15 * nodFactor) +
-          this.currentWeights.shy * 0.25,
-      ),
-    );
-
-    // 俏皮眨眼 (playful wink)：单侧左眼可爱 Wink 灵动脉冲 (0.05s ~ 0.85s 呈现，达到高潮后平滑睁开)
-    let playfulWink = 0;
-    if (this.currentWeights.playful > 0.005) {
-      if (this.playfulTimer >= 0.05 && this.playfulTimer <= 0.85) {
-        const winkP = (this.playfulTimer - 0.05) / 0.80;
-        playfulWink = Math.sin(winkP * Math.PI) * Math.min(0.95, this.currentWeights.playful * 0.90);
+    // ── 4. 全局形态连续指数滤波 (Zero-Snap Continuous Damping) ──
+    // 无论是动作函数还是预设切换，所有形态变化均从当前瞬时状态出发，平滑过渡至目标状态 (~0.12s 达 80%)，杜绝 1 帧跳跃
+    const morphDamp = 1.0 - Math.exp(-this.config.emotionDampSpeed * delta * 1.8);
+    for (let i = 0; i < MORPH_KEYS.length; i++) {
+      const k = MORPH_KEYS[i];
+      const target = this.targetMorphs[k];
+      this.liveMorphs[k] += (target - this.liveMorphs[k]) * morphDamp;
+      if (Math.abs(this.liveMorphs[k]) < 0.002 && target === 0) {
+        this.liveMorphs[k] = 0;
       }
     }
 
-    // 困倦打盹动态眼睑闭合 (Sleepy Eyelid Lifecycle):
-    // - 抬头/初始微困时：眼皮自然下垂至约 0.35 (朦胧睡意半目)
-    // - 点头垂首时 (nodFactor 升高)：眼睑随重力与沉睡深度平滑闭合至 0.88 ~ 0.92 (深沉酣睡闭眼)
-    // - 猛然抬起或惊醒微动时：眼皮随 headPitch 下降瞬间睁开至 0.45 ~ 0.55
-    // - 动作结束时：随 currentWeights 平滑淡出完全睁开 (0.0)
-    let sleepyBlink = 0;
-    if (this.currentWeights.relaxed > 0.01) {
-      const normRelaxed = Math.min(1.0, this.currentWeights.relaxed / 0.70);
-      sleepyBlink = normRelaxed * (0.35 + nodFactor * 0.55);
-    } else if (this.currentWeights.shy > 0.01) {
-      sleepyBlink = this.currentWeights.shy * 0.25; // 害羞时眼帘微垂
-    }
-
-    // 犹豫疑惑时的微张口型
-    const hesitantMouth = this.currentWeights.hesitant * 0.20 * mouthDuck;
-    // 惊讶时的张口吸气
-    const surprisedMouth = this.currentWeights.surprised * 0.18 * mouthDuck;
-    // 困倦深睡时的微弱口呼吸
-    const sleepyMouth = this.currentWeights.relaxed * 0.08 * nodFactor * mouthDuck;
-
+    // ── 5. 提交至 VRM ExpressionManager ──
     try {
-      mgr.setValue('happy', happyWeight);
-      mgr.setValue('angry', angryWeight);
-      mgr.setValue('sad', sadWeight);
-      mgr.setValue('surprised', surprisedWeight);
-      mgr.setValue('relaxed', relaxedWeight);
+      mgr.setValue('happy', this.liveMorphs.happy);
+      mgr.setValue('angry', this.liveMorphs.angry);
+      mgr.setValue('sad', this.liveMorphs.sad);
+      mgr.setValue('surprised', this.liveMorphs.surprised);
+      mgr.setValue('relaxed', this.liveMorphs.relaxed);
+      mgr.setValue('blinkLeft', this.liveMorphs.blinkLeft);
+      mgr.setValue('blinkRight', this.liveMorphs.blinkRight);
 
-      // 单眼俏皮眨眼 (Wink)
-      mgr.setValue('blinkLeft', playfulWink);
-
-      // 叠加双眼闭合度 (生理眨眼与困意眼睑取最大值，零回读零累加)
-      const finalBlink = Math.min(1.0, Math.max(gazeBlink, sleepyBlink));
+      // 叠加双眼闭合度：生理眨眼与平滑表情眨眼取最大值
+      const finalBlink = Math.min(1.0, Math.max(gazeBlink, this.liveMorphs.blink));
       mgr.setValue('blink', finalBlink);
 
-      // 口型音素合成 (语音、惊讶张嘴、困意呼吸、犹豫微张)
+      // 口型音素合成
       if (activeVisemeMouth > 0.01) {
         mgr.setValue('aa', activeVisemeMouth);
         mgr.setValue('ou', 0);
       } else if (!isSpeaking) {
-        const combinedAa = Math.max(surprisedMouth, sleepyMouth);
-        mgr.setValue('aa', combinedAa);
-        mgr.setValue('ou', hesitantMouth);
+        mgr.setValue('aa', this.liveMorphs.aa);
+        mgr.setValue('ou', this.liveMorphs.ou);
       }
+    } catch { }
 
-      // 注意：无需在此处重复调用 mgr.update()，vrm.update(delta) 在渲染主循环中会统一调度
-    } catch {
-      // 忽略部分模型缺失的非标表情
+    // ── 6. 若处于非激活注销状态且所有 Morph 已平滑衰减至 0，完成物理重置 ──
+    if (!this.isActive && !this.customExpressionFn && this.targetEmotion === 'neutral') {
+      let stillActive = false;
+      for (let i = 0; i < MORPH_KEYS.length; i++) {
+        if (this.liveMorphs[MORPH_KEYS[i]] > 0.002) {
+          stillActive = true;
+          break;
+        }
+      }
+      if (!stillActive) {
+        this.reset(vrm, isSpeaking);
+      }
     }
   }
 
