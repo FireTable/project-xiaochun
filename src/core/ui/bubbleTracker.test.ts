@@ -160,4 +160,66 @@ describe('BubbleTracker 智能防遮挡避让', () => {
       expect(tracker.state.placement).toBe('top');
     });
   });
+
+  describe('BubbleTracker 多订阅者机制 (Pub/Sub)', () => {
+    it('首次订阅立即分发当前状态快照', () => {
+      const tracker = new BubbleTracker();
+      tracker.state.speechText = '初始文本';
+      tracker.state.segmentIndex = 1;
+
+      let receivedText = '';
+      const unsub = tracker.subscribe((state) => {
+        receivedText = state.speechText;
+      });
+
+      expect(receivedText).toBe('初始文本');
+      unsub();
+    });
+
+    it('setStatus 派发时，所有订阅者均能同步收到分段切片与进度', () => {
+      const tracker = new BubbleTracker();
+      const mockCamera = new THREE.PerspectiveCamera();
+
+      const received1: string[] = [];
+      const segments1: number[] = [];
+      const received2: string[] = [];
+
+      const unsub1 = tracker.subscribe((state) => {
+        if (state.speechText) received1.push(state.speechText);
+        if (state.segmentIndex) segments1.push(state.segmentIndex);
+      });
+      const unsub2 = tracker.subscribe((state) => {
+        if (state.speechText) received2.push(state.speechText);
+      });
+
+      // 模拟第一段播放
+      tracker.setStatus('speaking', null, mockCamera, undefined, false, '第一段切片', 1, 2);
+      // 模拟第二段播放
+      tracker.setStatus('speaking', null, mockCamera, undefined, false, '第二段切片', 2, 2);
+
+      expect(received1).toEqual(['第一段切片', '第二段切片']);
+      expect(segments1).toEqual([1, 2]);
+      expect(received2).toEqual(['第一段切片', '第二段切片']);
+
+      // 验证取消订阅生效
+      unsub1();
+      tracker.setStatus('speaking', null, mockCamera, undefined, false, '第三段切片', 3, 3);
+      expect(received1).toEqual(['第一段切片', '第二段切片']); // unsub1 不再增加
+      expect(received2).toEqual(['第一段切片', '第二段切片', '第三段切片']); // unsub2 照常接收
+
+      unsub2();
+    });
+
+    it('hide() 派发时通知订阅者 visible 变为 false', () => {
+      const tracker = new BubbleTracker();
+      let lastVisible = true;
+      const unsub = tracker.subscribe((s) => {
+        lastVisible = s.visible;
+      });
+
+      tracker.hide();
+      expect(lastVisible).toBe(false);
+      unsub();
+    });
+  });
 });

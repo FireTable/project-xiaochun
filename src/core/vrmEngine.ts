@@ -460,6 +460,13 @@ export class VRMEngine {
     this.bubbleTracker.onBubbleChange = cb;
   }
 
+  /**
+   * 订阅 3D 头部/状态气泡变更 (支持多组件并行监听)
+   */
+  public subscribeBubbleChange(cb: (state: BubbleState) => void): () => void {
+    return this.bubbleTracker.subscribe(cb);
+  }
+
   public getCurrentUrl(): string {
     return this.currentUrl;
   }

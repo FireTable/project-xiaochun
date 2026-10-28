@@ -15,6 +15,8 @@ export interface HeadBubbleProps {
   state?: BubbleState;
   customHeader?: React.ReactNode;
   speechText?: string;
+  resetKey?: string | number;
+  typewriterEnabled?: boolean;
   placement?: BubblePlacement;
   isStatic?: boolean;
   className?: string;
@@ -62,6 +64,8 @@ export const HeadBubble: React.FC<HeadBubbleProps> = ({
   state,
   customHeader,
   speechText: speechTextProp,
+  resetKey: resetKeyProp,
+  typewriterEnabled,
   placement: placementProp,
   isStatic = false,
   className = '',
@@ -214,7 +218,7 @@ export const HeadBubble: React.FC<HeadBubbleProps> = ({
       ) : null}
 
       {/* 如果传入了 children (如展开的历史记录)，渲染 children */}
-      {children ? (
+      {Boolean(children) ? (
         <div className="w-full animate-in fade-in duration-200">
           {children}
         </div>
@@ -229,17 +233,14 @@ export const HeadBubble: React.FC<HeadBubbleProps> = ({
         >
           <div className="overflow-hidden">
             <div
-              key={rawSpeechText}
+              key={resetKeyProp ?? state?.segmentIndex ?? rawSpeechText}
               className="text-xs sm:text-sm font-medium text-white/95 leading-relaxed break-words text-left max-h-[calc(5*1.7em)] overflow-y-auto overflow-x-hidden pr-0.5 select-text custom-bubble-scrollbar pointer-events-auto animate-segment-push"
             >
-              {isStatic ? (
-                <span>{rawSpeechText}</span>
-              ) : (
-                <TypewriterText
-                  resetKey={state?.segmentIndex}
-                  text={rawSpeechText}
-                />
-              )}
+              <TypewriterText
+                resetKey={resetKeyProp ?? state?.segmentIndex}
+                text={rawSpeechText}
+                enabled={typewriterEnabled}
+              />
             </div>
           </div>
         </div>

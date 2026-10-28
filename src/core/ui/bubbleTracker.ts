@@ -77,6 +77,35 @@ export class BubbleTracker {
   private bubbleHeight = 85;
 
   public onBubbleChange?: (state: BubbleState) => void;
+  private listeners: Set<(state: BubbleState) => void> = new Set();
+
+  /**
+   * 订阅气泡状态变更 (支持多组件并行监听与自动注销)
+   */
+  public subscribe(listener: (state: BubbleState) => void): () => void {
+    this.listeners.add(listener);
+    // 首次订阅立即分发当前快照
+    try {
+      listener({ ...this.state });
+    } catch (e) {
+      console.error('[BubbleTracker] initial subscriber callback error:', e);
+    }
+    return () => {
+      this.listeners.delete(listener);
+    };
+  }
+
+  private notify(): void {
+    const snapshot = { ...this.state };
+    this.onBubbleChange?.(snapshot);
+    for (const listener of this.listeners) {
+      try {
+        listener(snapshot);
+      } catch (e) {
+        console.error('[BubbleTracker] subscriber callback error:', e);
+      }
+    }
+  }
 
   /**
    * 外部或 ResizeObserver 动态同步气泡实测尺寸（用于精准防遮挡判定，避免主循环内 layout thrashing）
@@ -206,12 +235,12 @@ export class BubbleTracker {
         this.evaluatePlacement(w);
       }
     }
-    this.onBubbleChange?.({ ...this.state });
+    this.notify();
   }
 
   hide(): void {
     this.state.visible = false;
-    this.onBubbleChange?.({ ...this.state });
+    this.notify();
   }
 
   /**
@@ -247,7 +276,7 @@ export class BubbleTracker {
         }
       }
       if (placementChanged) {
-        this.onBubbleChange?.({ ...this.state });
+        this.notify();
       }
     }
   }

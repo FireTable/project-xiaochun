@@ -12,6 +12,8 @@ import { StoryChoiceCard } from './StoryChoiceCard';
 import { StoryCameraTaskCard } from './StoryCameraTaskCard';
 import { HeadBubble } from '@/components/HeadBubble';
 import { ProviderConfigDialog } from '@/components/ProviderConfigDialog';
+import { vrmEngine, type BubbleState } from '@/core/vrmEngine';
+import { splitIntoSpeechChunks } from '@/lib/utils';
 import { storyDirectorEngine, type StoryState } from '@/story/storyEngine';
 import { storyGenerator } from '@/story/storyGenerator';
 import { prologueStory } from '@/story/prologueStory';
@@ -33,8 +35,19 @@ export const StoryPlayer: React.FC<StoryPlayerProps> = ({
   const [isProviderConfigOpen, setIsProviderConfigOpen] = useState(false);
   const [cameraTasksDone, setCameraTasksDone] = useState(false);
   const [isHistoryExpanded, setIsHistoryExpanded] = useState(false);
+  const [liveBubble, setLiveBubble] = useState<BubbleState>(() => vrmEngine.bubbleTracker.state);
   const inputRef = useRef<HTMLInputElement>(null);
   const hasStartedRef = useRef(false);
+
+  // 订阅 BubbleTracker 实时流式切片与切段进度
+  useEffect(() => {
+    const unsub = vrmEngine.subscribeBubbleChange((state) => {
+      setLiveBubble({ ...state });
+    });
+    return () => {
+      unsub();
+    };
+  }, []);
 
   // 初始化 i18n 引用与状态订阅 (带 hasStarted 防御，严防挂载期未启动即误触 onComplete)
   useEffect(() => {
@@ -164,8 +177,55 @@ export const StoryPlayer: React.FC<StoryPlayerProps> = ({
   }, [onComplete]);
 
   const currentBeat = storyState.currentBeat;
-  const speechText = currentBeat?.actor.speechText;
+  const fullSpeechText = currentBeat?.actor.speechText || '';
   const showInput = Boolean(currentBeat?.allowInput);
+
+  // 预先静态分析当前拍长台词的段落切片
+  const speechChunks = useMemo(() => {
+    return fullSpeechText ? splitIntoSpeechChunks(fullSpeechText) : [];
+  }, [fullSpeechText]);
+
+  // 判断是否处于发音期且 BubbleTracker 存在正在流式朗读的分段文本
+  const isSpeaking = storyState.isSpeaking;
+  const hasLiveSpeakingText =
+    isSpeaking &&
+    liveBubble.visible &&
+    liveBubble.statusKey === 'speaking' &&
+    Boolean(liveBubble.speechText);
+
+  // 动态选择当前展示文本：
+  // 1. 发音进行中且 BubbleTracker 存在切片 -> 实时展示当前切片 seg.text (流式打字机打字)
+  // 2. 发音进行中但首块 TTS 尚未派发 status -> 优先使用首段切片占位，杜绝全文跳闪
+  // 3. 发音已结束 -> 展示当前拍完整台词，供用户从容细读并进行分支决策
+  const activeSpeechText = useMemo(() => {
+    if (hasLiveSpeakingText) {
+      return liveBubble.speechText;
+    }
+    if (isSpeaking && speechChunks.length > 0) {
+      return speechChunks[0];
+    }
+    return fullSpeechText;
+  }, [hasLiveSpeakingText, liveBubble.speechText, isSpeaking, speechChunks, fullSpeechText]);
+
+  const activeSegmentIndex = useMemo(() => {
+    if (hasLiveSpeakingText && liveBubble.segmentIndex) {
+      return liveBubble.segmentIndex;
+    }
+    if (isSpeaking && speechChunks.length > 1) {
+      return 1;
+    }
+    return undefined;
+  }, [hasLiveSpeakingText, liveBubble.segmentIndex, isSpeaking, speechChunks.length]);
+
+  const activeTotalSegments = useMemo(() => {
+    if (hasLiveSpeakingText && liveBubble.totalSegments) {
+      return liveBubble.totalSegments;
+    }
+    if (isSpeaking && speechChunks.length > 1) {
+      return speechChunks.length;
+    }
+    return undefined;
+  }, [hasLiveSpeakingText, liveBubble.totalSegments, isSpeaking, speechChunks.length]);
 
   // 在视角教学拍中，根据任务完成度动态丰富下一步选项文案
   const displayChoices = useMemo(() => {
@@ -191,7 +251,7 @@ export const StoryPlayer: React.FC<StoryPlayerProps> = ({
   }, [currentBeat?.choiceLayout, displayChoices]);
 
   // 对白卡展示逻辑：仅在有台词或历史记录且非全黑幕白字阶段挂载
-  const showDialogue = Boolean(speechText || storyState.history.length > 0) && !storyState.isIntertitleActive;
+  const showDialogue = Boolean(activeSpeechText || storyState.history.length > 0) && !storyState.isIntertitleActive;
 
   // 渲染高质感一体化沉底对白卡 (复用 HeadBubble，彻底消灭双重对白框重复)
   const renderDialogueBubble = (maxWidthClass = 'max-w-lg sm:max-w-xl w-full') => {
@@ -201,12 +261,27 @@ export const StoryPlayer: React.FC<StoryPlayerProps> = ({
         isStatic
         placement="bottom"
         maxWidthClass={maxWidthClass}
-        speechText={speechText}
+        speechText={activeSpeechText}
+        resetKey={activeSegmentIndex}
+        typewriterEnabled={isSpeaking}
         customHeader={
           <div className="flex items-center justify-between w-full">
-            <span className="text-xs sm:text-sm font-semibold tracking-wide text-white">
-              小蠢
-            </span>
+            <div className="flex items-center space-x-2">
+              <span className="text-xs sm:text-sm font-semibold tracking-wide text-white">
+                小蠢
+              </span>
+              {activeTotalSegments && activeTotalSegments > 1 && activeSegmentIndex ? (
+                <span
+                  key={activeSegmentIndex}
+                  className="px-1.5 py-0.5 rounded-full bg-white/10 text-[10px] font-medium text-brand-200 tracking-wider inline-flex items-center gap-1 border border-white/10 shadow-sm backdrop-blur-sm animate-status-push"
+                >
+                  <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
+                  <span className="text-white font-bold">{activeSegmentIndex}</span>
+                  <span className="opacity-40 text-[9px]">/</span>
+                  <span className="text-slate-300">{activeTotalSegments}</span>
+                </span>
+              ) : null}
+            </div>
             {storyState.history.length > 0 && (
               <button
                 type="button"
