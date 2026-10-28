@@ -294,14 +294,24 @@ Any HTML webpage can link to the protocol to wake up the user's desktop companio
 <a href="xiaochun://camera?shot=close_up">Close-Up View</a>
 ```
 
-### 4.5 Developer Console Bridge
-In the webview or browser Developer Tools console, simulate a protocol trigger directly:
+### 4.5 Developer Console Bridge (`window.xiaochun`)
+In the webview or browser Developer Tools console, control XiaoChun directly via the first-class `window.xiaochun` interface or the low-level `window.__triggerXiaoChunProtocol` bridge:
 ```javascript
-window.__triggerXiaoChunProtocol('speak', { text: 'Console test message' });
-window.__triggerXiaoChunProtocol('motion', { name: 'waving', loop: true });
-window.__triggerXiaoChunProtocol('expression', { name: 'playful', intensity: 0.9 });
-window.__triggerXiaoChunProtocol('camera', { shot: 'close_up', movement: 'push_in' });
-window.__triggerXiaoChunProtocol('stop');
+// Direct High-Level API (window.xiaochun)
+window.xiaochun.speak("主人，该休息一下啦！");
+window.xiaochun.motion("waving", { loop: false });
+window.xiaochun.group("praiseCute");
+window.xiaochun.expression("gentle_smile", 0.9);
+window.xiaochun.camera("close_up", { movement: "push_in", durationSec: 1.5 });
+window.xiaochun.camera.reset();
+window.xiaochun.camera.panUp(2.2);
+window.xiaochun.stop();
+
+// Raw Protocol URL String
+window.xiaochun.protocol("xiaochun://camera?shot=extreme_close_up&movement=push_in");
+
+// Low-Level Protocol Bridge
+window.__triggerXiaoChunProtocol('motion', { name: 'handHeart' });
 ```
 
 ---
