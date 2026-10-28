@@ -1,7 +1,7 @@
 /**
  * Unit tests for sttClient.ts and insertAtCursor.
  */
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, vi } from 'vitest';
 import { SttClient, insertAtCursor, replaceOrInsertAtRange } from '../sttClient';
 
 describe('replaceOrInsertAtRange', () => {
@@ -460,6 +460,143 @@ describe('SttClient state logic', () => {
       expect(client.isAcousticGuardActive()).toBe(false);
 
       client.dispose();
+    });
+
+    describe('Client-Cloud 2-Pass Hybrid Mode', () => {
+      it('Pass 1: keeps interim draft recognition purely on local WebWorker without calling remote ASR', () => {
+        let lastWorkerMsg: any = null;
+        const originalWorker = (globalThis as any).Worker;
+        (globalThis as any).Worker = class MockWorker {
+          onmessage: any = null;
+          postMessage(msg: any) {
+            lastWorkerMsg = msg;
+          }
+          terminate() {}
+        };
+
+        try {
+          const client = new SttClient();
+          const pcm = new Float32Array(8000).fill(0.1);
+          // Draft submission (isFinal = false)
+          (client as any).submitUtterance(pcm, false);
+
+          // Should go directly to local worker
+          expect(lastWorkerMsg).toBeTruthy();
+          expect(lastWorkerMsg.type).toBe('recognize');
+          expect(lastWorkerMsg.isFinal).toBe(false);
+
+          client.dispose();
+        } finally {
+          (globalThis as any).Worker = originalWorker;
+        }
+      });
+
+      it('Pass 2: commitSession triggers transcribeRemote for full accumulated audio and emits finalized text', async () => {
+        const originalFetch = globalThis.fetch;
+        const originalWindow = (globalThis as any).window;
+
+        // Mock window.localStorage to return 'builtin'
+        (globalThis as any).window = {
+          localStorage: {
+            getItem: (key: string) => (key === 'xiaochun.stt.mode' ? 'builtin' : null),
+          },
+        };
+
+        let fetchCalledWith: any = null;
+        globalThis.fetch = vi.fn().mockImplementation(async (url: string, opts: any) => {
+          fetchCalledWith = { url, opts };
+          return {
+            ok: true,
+            status: 200,
+            json: async () => ({
+              text: '今天天气真好，我们一起去海边吧。',
+            }),
+          };
+        });
+
+        try {
+          const client = new SttClient();
+          (client as any).sessionPcmChunks = [
+            new Float32Array(8000).fill(0.1),
+            new Float32Array(8000).fill(0.1),
+          ];
+          (client as any).lastSessionText = '今天天气真好我们一起去海边吧';
+
+          let emittedFinal: any = null;
+          client.on((ev) => {
+            if (ev.type === 'text' && ev.isFinal) {
+              emittedFinal = ev;
+            }
+          });
+
+          await client.commitSession();
+
+          // Verify fetch was called with /api/stt
+          expect(fetchCalledWith).toBeTruthy();
+          expect(fetchCalledWith.url).toBe('/api/stt');
+
+          // Verify emitted text from Whisper
+          expect(emittedFinal).toBeTruthy();
+          expect(emittedFinal.isFinal).toBe(true);
+          expect(emittedFinal.text).toBe('今天天气真好，我们一起去海边吧。');
+
+          client.dispose();
+        } finally {
+          globalThis.fetch = originalFetch;
+          (globalThis as any).window = originalWindow;
+        }
+      });
+
+      it('Pass 2 fallback: gracefully falls back to local draft text when transcribeRemote fails on commit', async () => {
+        const originalFetch = globalThis.fetch;
+        const originalWindow = (globalThis as any).window;
+        const originalWorker = (globalThis as any).Worker;
+
+        (globalThis as any).window = {
+          localStorage: {
+            getItem: (key: string) => (key === 'xiaochun.stt.mode' ? 'builtin' : null),
+          },
+        };
+
+        // Simulate remote failure (e.g. 502)
+        globalThis.fetch = vi.fn().mockResolvedValue({
+          ok: false,
+          status: 502,
+          text: async () => 'Inference error',
+        });
+
+        (globalThis as any).Worker = class MockWorker {
+          onmessage: any = null;
+          postMessage() {}
+          terminate() {}
+        };
+
+        try {
+          const client = new SttClient();
+          (client as any).sessionPcmChunks = [new Float32Array(8000).fill(0.1)];
+          (client as any).lastSessionText = '今天天气真好';
+
+          let emittedFinal: any = null;
+          client.on((ev) => {
+            if (ev.type === 'text' && ev.isFinal) {
+              emittedFinal = ev;
+            }
+          });
+
+          await client.commitSession();
+
+          // Should fall back to local draft text with Stage 1 punctuation
+          expect(emittedFinal).toBeTruthy();
+          expect(emittedFinal.isFinal).toBe(true);
+          expect(emittedFinal.text).toBe('今天天气真好。');
+
+          client.dispose();
+        } finally {
+          globalThis.fetch = originalFetch;
+          (globalThis as any).window = originalWindow;
+          (globalThis as any).Worker = originalWorker;
+        }
+      });
     });
   });
 });

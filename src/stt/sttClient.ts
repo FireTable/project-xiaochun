@@ -505,7 +505,8 @@ export class SttClient {
 
   /**
    * Commits and finalizes the active continuous speech session.
-   * Clears the audio accumulator and delegates to CT-Transformer for final punctuation.
+   * Pass 2: 若远程服务可用且有累积语音，整句只发 1 次云端 Whisper 大模型进行高精重写与定稿；
+   * 兜底模式 / 离线模式：使用本地 SenseVoice 草稿并由 CT-Transformer 固化标点。
    */
   async commitSession(): Promise<void> {
     if (this.commitTimer) {
@@ -522,6 +523,7 @@ export class SttClient {
       return;
     }
 
+    const combinedPcm = this.concatSessionPcm();
     const sessionTurnId = this.currentTurnId;
     const textToCommit = this.lastSessionText;
     const rawToCommit = this.lastSessionRawText;
@@ -531,6 +533,52 @@ export class SttClient {
     this.lastSessionRawText = '';
     this.lastSubmittedPcmSamples = 0;
 
+    // Pass 2: 若远程服务可用 (内置 CF / 用户自定义) 且存在有效音频，调用云端 Whisper 进行整句高精定稿
+    if (combinedPcm.length > 0 && isRemoteSttAvailable()) {
+      try {
+        const sr = APP_CONFIG.stt.sampleRate;
+        const startTime = typeof performance !== 'undefined' ? performance.now() : Date.now();
+        const { text } = await transcribeRemote(combinedPcm, sr);
+        if (this.currentTurnId !== sessionTurnId) {
+          return;
+        }
+        const now = typeof performance !== 'undefined' ? performance.now() : Date.now();
+        const inferenceMs = Math.round(now - startTime);
+        const durationMs = (combinedPcm.length / sr) * 1000;
+        let sumSq = 0;
+        for (let i = 0; i < combinedPcm.length; i++) sumSq += combinedPcm[i]! * combinedPcm[i]!;
+        const rms = Math.sqrt(sumSq / Math.max(1, combinedPcm.length));
+
+        const baseText = richTranscriptionPostprocess(String(text ?? ''));
+        const cleaned = finalizePunctuation(baseText);
+        if (cleaned) {
+          if (typeof console !== 'undefined' && typeof console.log === 'function') {
+            console.log(
+              `%c[STT Client]%c 云端二阶段定稿固化 (Whisper Turbo): "${cleaned}"`,
+              'color: #10b981; font-weight: bold;',
+              'color: inherit;',
+            );
+          }
+          this.emit({
+            type: 'utterance_result',
+            id: ++this.recogId,
+            text: cleaned,
+            pcm: combinedPcm,
+            sampleRate: sr,
+            durationMs,
+            inferenceMs,
+            rms,
+            isFinal: true,
+          });
+          this.emit({ type: 'text', text: cleaned, isFinal: true, rawText: '' });
+          return;
+        }
+      } catch (remoteErr) {
+        console.warn('[STT Client] 云端二阶段定稿异常，0ms 降级为端侧本地草稿固化:', remoteErr);
+      }
+    }
+
+    // 兜底路径 (纯端侧离线模式 / 远端熔断 / 远端识别异常)：使用本地 SenseVoice 草稿经 CT-Transformer 标点固化
     if (textToCommit) {
       const finalized = await this.punctuateText(textToCommit);
       // Guard: if session was reset (e.g. user sent message) while CT-Transformer was punctuating, discard
@@ -539,12 +587,15 @@ export class SttClient {
       }
       if (typeof console !== 'undefined' && typeof console.log === 'function') {
         console.log(
-          `%c[STT Client]%c 长停顿定稿固化: "${finalized}"`,
+          `%c[STT Client]%c 长停顿定稿固化 (本地 SenseVoice): "${finalized}"`,
           'color: #0ea5e9; font-weight: bold;',
           'color: inherit;',
         );
       }
       this.emit({ type: 'text', text: finalized, isFinal: true, rawText: rawToCommit });
+    } else if (combinedPcm.length > 0) {
+      // 尚无草稿文字但有未识别的音频 (如用户刚说完立即点击结束麦克风)，由本地 Worker 进行兜底识别
+      this.submitUtterance(combinedPcm, true);
     }
   }
 
@@ -615,12 +666,7 @@ export class SttClient {
       }
     }
 
-    if (this.sessionPcmChunks.length > 0) {
-      const combined = this.concatSessionPcm();
-      this.submitUtterance(combined, true);
-    } else {
-      await this.commitSession();
-    }
+    await this.commitSession();
     this.setState('idle');
   }
 
@@ -744,8 +790,10 @@ export class SttClient {
     };
     this.lastSubmittedPcmSamples = pcm.length;
 
-    // 智能调度：若远程服务可用（内置 CF 或用户自定义），优先走远程识别；失败自动直落本地 Worker
-    if (isRemoteSttAvailable()) {
+    // Pass 1 vs Pass 2 调度机制：
+    // 若为定稿 (isFinal) 且远程服务可用，走远程 Whisper Turbo (Pass 2)；
+    // 若为过程草稿 (isFinal=false)，始终由端侧本地 WebWorker (SenseVoice int8) 极速跳字预览 (Pass 1)
+    if (isFinal && isRemoteSttAvailable()) {
       void (async () => {
         try {
           const { text } = await transcribeRemote(pcm, sr);
@@ -756,11 +804,11 @@ export class SttClient {
             isFinal: true,
           });
         } catch (remoteErr) {
-          console.warn('[STT Client] 远程识别异常，无缝降级到本地模型兜底:', remoteErr);
+          console.warn('[STT Client] 远程定稿异常，无缝降级到本地模型兜底:', remoteErr);
           if (this.currentTurnId !== this.inFlightUtterance?.turnId) return;
           const w = this.ensureWorker();
           const copy = pcm.slice();
-          w.postMessage({ type: 'recognize', id, pcm: copy, sampleRate: sr, isFinal }, [
+          w.postMessage({ type: 'recognize', id, pcm: copy, sampleRate: sr, isFinal: true }, [
             copy.buffer,
           ]);
         }
