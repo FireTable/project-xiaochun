@@ -34,6 +34,8 @@ export type SileroVadEvent =
 const DEFAULT_MODEL_PATH = '/models/silero_vad_v5.onnx';
 const FALLBACK_MODEL_URL =
   'https://cdn.jsdelivr.net/npm/@ricky0123/vad-web@0.0.31/dist/silero_vad_v5.onnx';
+const WASM_PATHS =
+  'https://cdn.jsdelivr.net/npm/onnxruntime-web@1.22.0-dev.20250409-89f8206ba4/dist/';
 
 export class SileroVad {
   private session: ort.InferenceSession | null = null;
@@ -77,6 +79,11 @@ export class SileroVad {
 
     this.initPromise = (async () => {
       try {
+        if (typeof ort !== 'undefined' && ort.env?.wasm) {
+          ort.env.wasm.wasmPaths = WASM_PATHS;
+          ort.env.wasm.numThreads = 1;
+        }
+
         // Try local model first, fallback to CDN if needed
         let session: ort.InferenceSession;
         try {
