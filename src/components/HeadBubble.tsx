@@ -55,7 +55,7 @@ export const HeadBubble: React.FC<HeadBubbleProps> = ({ state }) => {
   const { t } = useTranslation();
   const [enabled, setEnabled] = useState(() => resolveShowHeadBubble(getCachedUserSettings()));
   const cardRef = useRef<HTMLDivElement>(null);
-  const [measuredSize, setMeasuredSize] = useState({ width: 280, height: 85 });
+  const [measuredSize, setMeasuredSize] = useState({ width: 240, height: 44 });
 
   useEffect(() => {
     let cancelled = false;
@@ -127,7 +127,7 @@ export const HeadBubble: React.FC<HeadBubbleProps> = ({ state }) => {
         style={{
           viewTransitionName: isSpeaking ? 'story-dialog-card' : undefined,
         }}
-        className="relative max-w-[240px] sm:max-w-xs px-4 py-2.5 sm:py-3 flex flex-col gap-1.5 animate-in fade-in zoom-in-95 duration-200 pointer-events-auto filter drop-shadow-[0_12px_32px_rgba(0,0,0,0.50)] drop-shadow-[0_0_16px_rgba(234,131,119,0.18)]"
+        className="relative max-w-[240px] sm:max-w-xs px-4 py-2.5 sm:py-3 flex flex-col animate-in fade-in zoom-in-95 duration-200 pointer-events-auto filter drop-shadow-[0_12px_32px_rgba(0,0,0,0.50)] drop-shadow-[0_0_16px_rgba(234,131,119,0.18)]"
       >
         {/* 一体化全景矢量轮廓与高质感渐变光晕 (含左下圆角自然流淌的角尖) */}
         <svg
@@ -157,10 +157,11 @@ export const HeadBubble: React.FC<HeadBubbleProps> = ({ state }) => {
           />
         </svg>
 
-        {/* 顶部状态与律动指示 — 无论在正上方还是侧面均保持居中对齐 */}
+        {/* 顶部状态与律动指示 — 无论在正上方还是侧面均保持居中对齐，切状态带有轻微推拉淡入 */}
         {state.statusKey && (
           <div
-            className={`flex items-center justify-center gap-1.5 text-[11px] font-medium tracking-wide shrink-0 ${
+            key={state.statusKey}
+            className={`flex items-center justify-center gap-1.5 text-[11px] font-medium tracking-wide shrink-0 animate-status-push ${
               state.isError ? 'text-rose-400 font-semibold' : 'text-brand-300'
             }`}
           >
@@ -187,7 +188,10 @@ export const HeadBubble: React.FC<HeadBubbleProps> = ({ state }) => {
             </span>
             {/* 多段流式朗读进度胶囊 */}
             {isSpeaking && state.totalSegments && state.totalSegments > 1 && state.segmentIndex ? (
-              <span className="ml-1 px-1.5 py-0.5 rounded-full bg-white/10 text-[10px] font-medium text-brand-200 tracking-wider inline-flex items-center gap-1 border border-white/10 shadow-sm backdrop-blur-sm">
+              <span
+                key={state.segmentIndex}
+                className="ml-1 px-1.5 py-0.5 rounded-full bg-white/10 text-[10px] font-medium text-brand-200 tracking-wider inline-flex items-center gap-1 border border-white/10 shadow-sm backdrop-blur-sm animate-status-push"
+              >
                 <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
                 <span className="text-white font-bold">{state.segmentIndex}</span>
                 <span className="opacity-40 text-[9px]">/</span>
@@ -197,16 +201,26 @@ export const HeadBubble: React.FC<HeadBubbleProps> = ({ state }) => {
           </div>
         )}
 
-        {/* 对话正文：视觉小说舒适字距与清晰行高，方案一平滑打字机，统一左对齐 */}
-        {(isSpeaking || ttsDown) && state.speechText && (
-          <div className="text-sm font-medium text-white/95 leading-relaxed break-words text-left max-h-[calc(5*1.7em)] overflow-y-auto overflow-x-hidden pr-0.5 select-text custom-bubble-scrollbar pointer-events-auto">
-            <TypewriterText
+        {/* 对话正文：双轨 CSS Grid 柔顺高度舒展 (Smooth Morph) + 切段推挤 (Segment Push-In) */}
+        <div
+          className={`grid transition-[grid-template-rows,opacity,margin] duration-300 ease-[cubic-bezier(0.16,1,0.3,1)] ${
+            (isSpeaking || ttsDown) && state.speechText
+              ? 'grid-rows-[1fr] opacity-100 mt-1.5'
+              : 'grid-rows-[0fr] opacity-0 mt-0 pointer-events-none'
+          }`}
+        >
+          <div className="overflow-hidden">
+            <div
               key={state.segmentIndex != null ? `seg-${state.segmentIndex}-${state.speechText}` : state.speechText}
-              resetKey={state.segmentIndex}
-              text={state.speechText}
-            />
+              className="text-sm font-medium text-white/95 leading-relaxed break-words text-left max-h-[calc(5*1.7em)] overflow-y-auto overflow-x-hidden pr-0.5 select-text custom-bubble-scrollbar pointer-events-auto animate-segment-push"
+            >
+              <TypewriterText
+                resetKey={state.segmentIndex}
+                text={state.speechText}
+              />
+            </div>
           </div>
-        )}
+        </div>
       </div>
     </div>
   );
