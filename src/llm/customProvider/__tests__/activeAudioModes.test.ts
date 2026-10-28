@@ -126,16 +126,16 @@ describe('activeAudioModes suite', () => {
       unsub();
     });
 
-    it('reads and writes STT strategy (2pass vs direct)', () => {
-      expect(readSttStrategy()).toBe('2pass'); // default
-
-      writeSttStrategy('direct');
-      expect(mockStore[STT_STRATEGY_KEY]).toBe('direct');
-      expect(readSttStrategy()).toBe('direct');
+    it('reads and writes STT strategy (direct vs 2pass)', () => {
+      expect(readSttStrategy()).toBe('direct'); // default direct
 
       writeSttStrategy('2pass');
       expect(mockStore[STT_STRATEGY_KEY]).toBe('2pass');
       expect(readSttStrategy()).toBe('2pass');
+
+      writeSttStrategy('direct');
+      expect(mockStore[STT_STRATEGY_KEY]).toBe('direct');
+      expect(readSttStrategy()).toBe('direct');
     });
   });
 

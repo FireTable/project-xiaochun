@@ -94,7 +94,7 @@ export const ProviderConfigDialog: React.FC<ProviderConfigDialogProps> = ({
   const [activeLlmId, setActiveLlmId] = useState<string | null>(null);
   const [activeSttMode, setActiveSttMode] = useState<ActiveSttMode>({ kind: 'builtin' });
   const [activeTtsMode, setActiveTtsMode] = useState<ActiveTtsMode>({ kind: 'builtin' });
-  const [sttStrategy, setSttStrategy] = useState<SttStrategy>('2pass');
+  const [sttStrategy, setSttStrategy] = useState<SttStrategy>('direct');
 
   const [form, setForm] = useState<FormState>(EMPTY_FORM);
   const [autoBusy, setAutoBusy] = useState(false);
@@ -470,7 +470,27 @@ export const ProviderConfigDialog: React.FC<ProviderConfigDialogProps> = ({
                           </span>
                         </div>
                         <div className="grid grid-cols-2 gap-1.5">
-                          {/* 策略 1: 2-Pass 实时预览 */}
+                          {/* 策略 1: 全程纯云端 (默认推荐) */}
+                          <div
+                            onClick={() => handleSetSttStrategy('direct')}
+                            className={`relative rounded-xl border p-2 cursor-pointer transition-colors ${
+                              sttStrategy === 'direct'
+                                ? 'bg-emerald-500/10 border-emerald-500/30'
+                                : 'bg-white/[0.03] border-white/10 hover:bg-white/[0.06]'
+                            }`}
+                          >
+                            <div className="flex items-center justify-between">
+                              <span className="text-white text-xs font-medium">☁️ 全程纯云端 (推荐)</span>
+                              {sttStrategy === 'direct' && (
+                                <Check className="w-3.5 h-3.5 text-emerald-400" strokeWidth={3} />
+                              )}
+                            </div>
+                            <div className="text-white/50 text-[10px] mt-1 leading-relaxed">
+                              免下载端侧模型，省内存与算力，停顿后整句定稿
+                            </div>
+                          </div>
+
+                          {/* 策略 2: 2-Pass 实时预览 */}
                           <div
                             onClick={() => handleSetSttStrategy('2pass')}
                             className={`relative rounded-xl border p-2 cursor-pointer transition-colors ${
@@ -487,26 +507,6 @@ export const ProviderConfigDialog: React.FC<ProviderConfigDialogProps> = ({
                             </div>
                             <div className="text-white/50 text-[10px] mt-1 leading-relaxed">
                               端侧边说边出字草稿，停顿后整句云端润色定稿
-                            </div>
-                          </div>
-
-                          {/* 策略 2: 全程纯云端 */}
-                          <div
-                            onClick={() => handleSetSttStrategy('direct')}
-                            className={`relative rounded-xl border p-2 cursor-pointer transition-colors ${
-                              sttStrategy === 'direct'
-                                ? 'bg-emerald-500/10 border-emerald-500/30'
-                                : 'bg-white/[0.03] border-white/10 hover:bg-white/[0.06]'
-                            }`}
-                          >
-                            <div className="flex items-center justify-between">
-                              <span className="text-white text-xs font-medium">☁️ 全程纯云端</span>
-                              {sttStrategy === 'direct' && (
-                                <Check className="w-3.5 h-3.5 text-emerald-400" strokeWidth={3} />
-                              )}
-                            </div>
-                            <div className="text-white/50 text-[10px] mt-1 leading-relaxed">
-                              不加载端侧模型省内存，说完一次性单次定稿
                             </div>
                           </div>
                         </div>

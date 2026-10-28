@@ -89,6 +89,20 @@ export const MOTION_CATALOG = {
     antiClip: false,
     expression: 'relaxed',
     expressionIntensity: 0.5,
+    expressionFn: (ctx, out) => {
+      // 1.0s ~ 4.5s 双臂高举深呼吸舒展全身，双眼舒适微闭享受
+      if (ctx.elapsed >= 1.0 && ctx.elapsed <= 4.5) {
+        const stretchP = Math.sin(((ctx.elapsed - 1.0) / 3.5) * Math.PI);
+        out.relaxed = 0.65;
+        out.happy = 0.25;
+        out.blink = stretchP * 0.70;
+        out.aa = stretchP * 0.15; // 舒展深呼吸
+      } else {
+        // 放下双手神清气爽
+        out.relaxed = 0.50;
+        out.happy = 0.35;
+      }
+    },
     category: 'posture',
   },
   shhLean: {
@@ -105,6 +119,18 @@ export const MOTION_CATALOG = {
     mask: 'all',
     expression: 'playful',
     expressionIntensity: 0.7,
+    expressionFn: (ctx, out) => {
+      // 0.8s ~ 1.5s 身体前倾靠近并食指抵唇瞬间，触发一记灵动的俏皮眨眼 (Wink Pulse)
+      if (ctx.elapsed >= 0.8 && ctx.elapsed <= 1.5) {
+        const p = (ctx.elapsed - 0.8) / 0.7;
+        out.blinkLeft = Math.sin(p * Math.PI) * 0.90;
+        out.happy = 0.65;
+      } else {
+        // 眨眼结束后双眼完全自然睁开，保持神秘轻柔的微笑
+        out.happy = 0.50;
+        out.relaxed = 0.25;
+      }
+    },
     category: 'posture',
   },
   gazeObserve: {
@@ -138,6 +164,17 @@ export const MOTION_CATALOG = {
     disableGaze: true,
     expression: 'relaxed',
     expressionIntensity: 0.7,
+    expressionFn: (ctx, out) => {
+      // 点头打瞌睡时深度联动头部俯仰 (headPitch) 与动作阶段
+      const nodFactor = Math.min(1.0, Math.max(0, ctx.headPitch / 0.28));
+      // 眉毛舒缓放松微八字
+      out.relaxed = 0.55 + 0.15 * nodFactor;
+      out.sad = 0.20 * nodFactor;
+      // 头部下垂沉睡时双眼深沉闭合 (0.90 ~ 0.95)，猛然回弹或抬起时眼帘微开 (0.35)
+      out.blink = Math.min(0.95, 0.35 + nodFactor * 0.60);
+      // 深睡时微弱口呼吸
+      out.aa = 0.08 * nodFactor;
+    },
     category: 'posture',
   },
   swayIdle: {
@@ -266,8 +303,8 @@ export const MOTION_CATALOG = {
     fadeDuration: 0.85,
     mask: 'all',
     antiClip: false,
-    expression: 'playful',
-    expressionIntensity: 0.7,
+    expression: 'gentle_smile',
+    expressionIntensity: 0.6,
     category: 'dance',
     isNew: true,
   },
@@ -302,6 +339,14 @@ export const MOTION_CATALOG = {
     antiClip: false,
     expression: 'shy',
     expressionIntensity: 0.75,
+    expressionFn: (ctx, out) => {
+      // 害羞低头戳手指：微抿嘴与含蓄微笑，眼神因紧张微颤
+      const shyFlutter = Math.sin(ctx.time * 3.5) * 0.08;
+      out.happy = 0.30;
+      out.sad = 0.20; // 眉心微敛惹人怜爱
+      out.blink = Math.max(0, 0.20 + shyFlutter); // 视线下敛羞赧半目
+      out.ou = 0.12; // 嘴唇紧张微张
+    },
     category: 'expression',
   },
   poutHum: {
@@ -318,6 +363,16 @@ export const MOTION_CATALOG = {
     antiClip: false,
     expression: 'angry',
     expressionIntensity: 0.75,
+    expressionFn: (ctx, out) => {
+      // 扭头轻哼撒娇：傲娇微嗔鼓嘴
+      if (ctx.elapsed <= 2.0) {
+        out.angry = 0.70;
+        out.ou = 0.28; // 噘嘴
+      } else {
+        out.angry = 0.35;
+        out.happy = 0.25; // 傲娇破防微抿嘴
+      }
+    },
     category: 'expression',
   },
   pokeDimple: {
@@ -334,6 +389,17 @@ export const MOTION_CATALOG = {
     antiClip: false,
     expression: 'happy',
     expressionIntensity: 0.8,
+    expressionFn: (ctx, out) => {
+      // 0.6s ~ 1.4s 手指轻戳腮帮酒窝瞬间，伴随一记可爱的右眼 Wink 灵动脉冲
+      if (ctx.elapsed >= 0.6 && ctx.elapsed <= 1.4) {
+        const p = (ctx.elapsed - 0.6) / 0.8;
+        out.blinkRight = Math.sin(p * Math.PI) * 0.90;
+        out.happy = 0.80;
+      } else {
+        // 戳酒窝后双眼完全自然睁开，展现灿烂笑容
+        out.happy = 0.65;
+      }
+    },
     category: 'cute',
   },
   catPaws: {
@@ -348,8 +414,8 @@ export const MOTION_CATALOG = {
     fadeDuration: 0.65,
     mask: 'all',
     antiClip: false,
-    expression: 'playful',
-    expressionIntensity: 0.8,
+    expression: 'happy',
+    expressionIntensity: 0.75,
     category: 'cute',
   },
   puppyPaws: {
@@ -364,8 +430,8 @@ export const MOTION_CATALOG = {
     fadeDuration: 0.65,
     mask: 'all',
     antiClip: false,
-    expression: 'playful',
-    expressionIntensity: 0.8,
+    expression: 'happy',
+    expressionIntensity: 0.75,
     category: 'cute',
   },
   fistCute: {
@@ -379,8 +445,8 @@ export const MOTION_CATALOG = {
     fadeDuration: 0.85,
     mask: 'all',
     antiClip: false,
-    expression: 'playful',
-    expressionIntensity: 0.75,
+    expression: 'happy',
+    expressionIntensity: 0.70,
     category: 'cute',
   },
   joyfulJump: {
@@ -397,6 +463,17 @@ export const MOTION_CATALOG = {
     antiClip: false,
     expression: 'happy',
     expressionIntensity: 0.9,
+    expressionFn: (ctx, out) => {
+      // 0.2s ~ 2.2s 惊喜雀跃起跳拍手：灿烂开怀大笑并兴奋张嘴呼喊
+      if (ctx.elapsed <= 2.2) {
+        out.happy = 0.85;
+        out.aa = 0.30;
+      } else {
+        // 落地后欣喜余韵
+        out.happy = 0.70;
+        out.relaxed = 0.20;
+      }
+    },
     category: 'celebration',
   },
   cheerUp: {
@@ -493,7 +570,7 @@ export const MOTION_CATALOG = {
     fadeDuration: 0.85,
     mask: 'all',
     antiClip: false,
-    expression: 'playful',
+    expression: 'gentle_smile',
     expressionIntensity: 0.6,
     category: 'dance',
   },
@@ -508,7 +585,7 @@ export const MOTION_CATALOG = {
     fadeDuration: 0.85,
     mask: 'all',
     antiClip: false,
-    expression: 'playful',
+    expression: 'gentle_smile',
     expressionIntensity: 0.6,
     category: 'dance',
   },
@@ -556,8 +633,8 @@ export const MOTION_CATALOG = {
     mask: 'all',
     antiClip: false,
     lockHipsXZ: true,
-    expression: 'playful',
-    expressionIntensity: 0.8,
+    expression: 'happy',
+    expressionIntensity: 0.75,
     category: 'playful',
   },
   angryJump: {
@@ -573,6 +650,17 @@ export const MOTION_CATALOG = {
     antiClip: false,
     expression: 'angry',
     expressionIntensity: 0.85,
+    expressionFn: (ctx, out) => {
+      // 0.2s ~ 1.8s 起跳跺脚发泄可爱小脾气：鼓嘴微怒
+      if (ctx.elapsed <= 1.8) {
+        out.angry = 0.75;
+        out.ou = 0.25; // 鼓腮噘嘴
+      } else {
+        // 落地后抱胸娇嗔
+        out.angry = 0.45;
+        out.ou = 0.10;
+      }
+    },
     category: 'playful',
     isNew: true,
   },
@@ -590,6 +678,13 @@ export const MOTION_CATALOG = {
     disableGaze: true,
     expression: 'surprised',
     expressionIntensity: 0.8,
+    expressionFn: (ctx, out) => {
+      // 悬空提溜扑腾：惊慌失措瞪大双眼，急促呼救微张嘴
+      const struggleGasp = Math.sin(ctx.time * 7.0) * 0.12;
+      out.surprised = 0.80;
+      out.sad = 0.35;
+      out.aa = Math.max(0.10, 0.25 + struggleGasp);
+    },
     category: 'playful',
     isNew: true,
   },

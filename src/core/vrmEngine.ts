@@ -441,6 +441,9 @@ export class VRMEngine {
       return new VRMLoaderPlugin(parser, { mtoonMaterialPlugin: mtoonPlugin });
     });
     this.initScene();
+    if (typeof window !== 'undefined') {
+      (window as any).__VRM_ENGINE__ = this;
+    }
   }
 
   // ── Facade 门面属性代理 (保障外部 100% 零破坏兼容) ──

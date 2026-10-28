@@ -614,7 +614,7 @@ describe('SttClient state logic', () => {
         };
 
         let fetchCalledCount = 0;
-        globalThis.fetch = vi.fn().mockImplementation(async (url: string) => {
+        globalThis.fetch = vi.fn().mockImplementation(async (_url: string) => {
           fetchCalledCount++;
           return {
             ok: true,

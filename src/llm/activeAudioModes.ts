@@ -28,12 +28,12 @@ export const TTS_MODE_KEY = 'xiaochun.tts.mode';
 export const STT_STRATEGY_KEY = 'xiaochun.stt.strategy';
 
 export function readSttStrategy(): SttStrategy {
-  if (typeof window === 'undefined') return '2pass';
+  if (typeof window === 'undefined') return 'direct';
   try {
     const raw = window.localStorage.getItem(STT_STRATEGY_KEY);
-    return raw === 'direct' ? 'direct' : '2pass';
+    return raw === '2pass' ? '2pass' : 'direct';
   } catch {
-    return '2pass';
+    return 'direct';
   }
 }
 

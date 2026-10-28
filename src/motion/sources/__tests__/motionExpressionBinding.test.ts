@@ -179,9 +179,9 @@ describe('UniversalMotionController Motion-Native Expression Binding', () => {
     for (let i = 0; i < 15; i++) {
       expressionController.update(0.05, vrm, false, 0, 0.2);
     }
-    // Blink dynamically closes deeper into nod (around ~0.72)
+    // Blink dynamically closes deeper into nod (around ~0.72 - 0.80)
     expect(values.blink).toBeGreaterThan(0.65);
-    expect(values.blink).toBeLessThan(0.78);
+    expect(values.blink).toBeLessThan(0.85);
 
     // Deep nod (pitch = 0.30 rad) -> deep slumber closing (~0.90)
     head.rotation.x = 0.30;
@@ -208,12 +208,19 @@ describe('UniversalMotionController Motion-Native Expression Binding', () => {
       values[key] = val;
     });
 
-    // Test playful: triggers left-eye wink and happy smile
+    // Test playful: triggers left-eye wink pulse at peak (around ~0.45s) and reopens, while happy smile holds
     expressionController.setExpression('playful', 0.85);
-    for (let i = 0; i < 15; i++) {
-      expressionController.update(0.05, vrm);
+    for (let i = 0; i < 9; i++) {
+      expressionController.update(0.05, vrm); // ~0.45s, peak of wink pulse
     }
     expect(values.blinkLeft).toBeGreaterThan(0.70);
+    expect(values.happy).toBeGreaterThan(0.40);
+
+    // After wink pulse finishes (~1.0s), eye reopens to 0 while happy smile continues
+    for (let i = 0; i < 11; i++) {
+      expressionController.update(0.05, vrm); // +0.55s => total 1.0s
+    }
+    expect(values.blinkLeft).toBe(0);
     expect(values.happy).toBeGreaterThan(0.40);
 
     // Test happy: triggers full radiant joyful smile
@@ -230,6 +237,96 @@ describe('UniversalMotionController Motion-Native Expression Binding', () => {
       expressionController.update(0.1, vrm);
     }
     expect(values.happy).toBe(0);
+  });
+
+  it('supports dynamic MotionExpressionFn with context and Zero-GC buffers', () => {
+    const controller = new UniversalMotionController();
+    const vrm = createMockVRM();
+    controller.bind(vrm);
+
+    const values: Record<string, number> = {};
+    (vrm.expressionManager!.setValue as any).mockImplementation((key: string, val: number) => {
+      values[key] = val;
+    });
+
+    let receivedElapsed = -1;
+    let receivedProgress = -1;
+    let receivedHeadPitch = -1;
+
+    const clip = createDummyClip(4.0);
+    controller.play(clip, {
+      expressionFn: (ctx, out) => {
+        receivedElapsed = ctx.elapsed;
+        receivedProgress = ctx.progress;
+        receivedHeadPitch = ctx.headPitch;
+        out.happy = 0.77;
+        out.blink = ctx.elapsed > 1.0 ? 0.90 : 0.0;
+      },
+    });
+
+    // Tick controller
+    controller.update(0.5);
+    expressionController.update(0.05, vrm);
+
+    expect(receivedElapsed).toBeCloseTo(0.5, 1);
+    expect(receivedProgress).toBeCloseTo(0.5 / 4.0, 2);
+    expect(receivedHeadPitch).toBeCloseTo(0, 2);
+    expect(values.happy).toBeCloseTo(0.77, 2);
+    expect(values.blink).toBe(0);
+
+    // Advance past 1.0s
+    controller.update(0.8);
+    expressionController.update(0.05, vrm);
+
+    expect(values.happy).toBeCloseTo(0.77, 2);
+    expect(values.blink).toBeCloseTo(0.90, 2);
+
+    // Stopping motion clears dynamic expression
+    controller.stop();
+    expressionController.update(0.05, vrm);
+    expect(expressionController.getExpressionFn()).toBeNull();
+  });
+
+  it('shhLean executes a temporary wink pulse at 0.8s~1.5s and reopens eye for rest of motion', () => {
+    const vrm = createMockVRM();
+    const values: Record<string, number> = {};
+    (vrm.expressionManager!.setValue as any).mockImplementation((key: string, val: number) => {
+      values[key] = val;
+    });
+
+    const shhItem = MOTION_CATALOG.shhLean;
+    expect(shhItem.expressionFn).toBeDefined();
+
+    let fakeElapsed = 0;
+    expressionController.setExpressionFn(shhItem.expressionFn!, () => ({
+      elapsed: fakeElapsed,
+      duration: 8.08,
+    }));
+
+    // At start (t = 0.2s): no wink, sweet smile
+    fakeElapsed = 0.2;
+    expressionController.update(0.05, vrm);
+    expect(values.blinkLeft).toBe(0);
+    expect(values.happy).toBeGreaterThanOrEqual(0.45);
+
+    // At climax peak (t = 1.15s, midway between 0.8s and 1.5s): peak wink pulse!
+    fakeElapsed = 1.15;
+    expressionController.update(0.05, vrm);
+    expect(values.blinkLeft).toBeGreaterThan(0.80);
+    expect(values.happy).toBeGreaterThan(0.60);
+
+    // After wink completes (t = 2.0s): eye fully reopens, smile remains!
+    fakeElapsed = 2.0;
+    expressionController.update(0.05, vrm);
+    expect(values.blinkLeft).toBe(0);
+    expect(values.happy).toBeGreaterThanOrEqual(0.45);
+
+    // Later in hold (t = 5.0s): eye still open, no frozen wink!
+    fakeElapsed = 5.0;
+    expressionController.update(0.05, vrm);
+    expect(values.blinkLeft).toBe(0);
+
+    expressionController.setExpressionFn(null);
   });
 
   it('enforces type safety so all configured motion expressions exist in PRESET_EMOTION_MAP', () => {

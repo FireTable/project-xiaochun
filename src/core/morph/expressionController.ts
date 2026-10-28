@@ -1,3 +1,4 @@
+import * as THREE from 'three';
 import type { VRM } from '@pixiv/three-vrm';
 import type { ExpressionDirective, EmotionMicroReaction } from '@/story/schema';
 
@@ -9,6 +10,60 @@ export interface ExpressionControllerConfig {
   /** 说话时唇部表情的闪避系数 (0.25 即说话时嘴角表情只保留 25%，防止嘴部撕裂) */
   speechMouthDucking: number;
 }
+
+/**
+ * 动作动态表情上下文 (每帧计算并注入到 MotionExpressionFn 中，Zero-GC 循环复用对象)
+ */
+export interface MotionExpressionContext {
+  /** 动作已播放时间 (秒) */
+  elapsed: number;
+  /** 动作总时长 (秒)，循环动作一般为单个周期的时长 */
+  duration: number;
+  /** 动作归一化播放进度 [0.0, 1.0] */
+  progress: number;
+  /** 当前帧时间间隔 delta (秒) */
+  delta: number;
+  /** 全局运行时间戳 (秒) */
+  time: number;
+  /** 当前被驱动的 VRM 人偶实例 */
+  vrm: VRM;
+  /** 当前头部实时俯仰角 Pitch (rad, >0 为低头/垂首, <0 为仰头) */
+  headPitch: number;
+  /** 当前头部实时偏航角 Yaw (rad, >0 为左转, <0 为右转) */
+  headYaw: number;
+  /** 当前头部实时翻滚角 Roll (rad) */
+  headRoll: number;
+  /** 当前角色是否正在发声说话 (TTS 或语音流) */
+  isSpeaking: boolean;
+  /** 当前自主注视系统的生理眨眼度 (0.0 ~ 1.0) */
+  gazeBlink: number;
+}
+
+/**
+ * 动作动态表情输出通道 (由 MotionExpressionFn 写入，直接映射至标准 VRM ExpressionManager)
+ */
+export interface MotionExpressionOutput {
+  happy: number;
+  angry: number;
+  sad: number;
+  surprised: number;
+  relaxed: number;
+  blink: number;
+  blinkLeft: number;
+  blinkRight: number;
+  aa: number;
+  ou: number;
+  /** 快速重置所有通道为 0 (Zero-GC) */
+  reset: () => void;
+}
+
+/**
+ * 动作原生动态表情回调函数签名
+ */
+export type MotionExpressionFn = (
+  ctx: MotionExpressionContext,
+  out: MotionExpressionOutput,
+) => void;
 
 export const EMOTION_KEYS = [
   'neutral',
@@ -81,6 +136,56 @@ export class ExpressionController {
   private blushIntensity = 0.0;
   private breathClock = 0;
 
+  // 俏皮表情眨眼脉冲计时器 (秒)
+  private playfulTimer = 0;
+
+  // 动作原生动态表情回调与时间提取器
+  private customExpressionFn: MotionExpressionFn | null = null;
+  private customTimingGetter: (() => { elapsed: number; duration: number }) | null = null;
+
+  // Zero-GC 预分配复用上下文与输出缓冲池
+  private readonly exprContext: MotionExpressionContext = {
+    elapsed: 0,
+    duration: 1,
+    progress: 0,
+    delta: 0,
+    time: 0,
+    vrm: null as any,
+    headPitch: 0,
+    headYaw: 0,
+    headRoll: 0,
+    isSpeaking: false,
+    gazeBlink: 0,
+  };
+
+  private readonly exprOutput: MotionExpressionOutput = {
+    happy: 0,
+    angry: 0,
+    sad: 0,
+    surprised: 0,
+    relaxed: 0,
+    blink: 0,
+    blinkLeft: 0,
+    blinkRight: 0,
+    aa: 0,
+    ou: 0,
+    reset() {
+      this.happy = 0;
+      this.angry = 0;
+      this.sad = 0;
+      this.surprised = 0;
+      this.relaxed = 0;
+      this.blink = 0;
+      this.blinkLeft = 0;
+      this.blinkRight = 0;
+      this.aa = 0;
+      this.ou = 0;
+    },
+  };
+
+  // Zero-GC 欧拉角转换暂存器
+  private readonly tempEuler = new THREE.Euler(0, 0, 0, 'YXZ');
+
   public setActive(active: boolean): void {
     this.isActive = active;
     if (!active) {
@@ -98,11 +203,15 @@ export class ExpressionController {
    * @param intensity 情绪强度 (0.0 ~ 1.0，默认 0.8)
    */
   public setExpression(name: SupportedExpression | (string & {}), intensity?: number): void {
+    this.customExpressionFn = null;
+    this.customTimingGetter = null;
+
     const raw = (name ?? 'neutral').toLowerCase().trim() as SupportedExpression;
     if (!raw || raw === 'neutral') {
       this.targetEmotion = 'neutral';
       this.targetIntensity = 0.0;
       this.currentMicroReaction = 'none';
+      this.playfulTimer = 0;
       return;
     }
 
@@ -142,6 +251,26 @@ export class ExpressionController {
   }
 
   /**
+   * 注册动作级动态表情回调函数（每帧调用，由动作上下文实时计算动态表情）
+   * @param fn 动态表情计算函数。传入 null 则注销并恢复预设表情模式
+   * @param timingGetter 获取动作实时时间轴进度（elapsed, duration）的回调
+   */
+  public setExpressionFn(
+    fn: MotionExpressionFn | null,
+    timingGetter?: () => { elapsed: number; duration: number },
+  ): void {
+    this.customExpressionFn = fn;
+    this.customTimingGetter = timingGetter ?? null;
+    if (fn) {
+      this.isActive = true;
+    }
+  }
+
+  public getExpressionFn(): MotionExpressionFn | null {
+    return this.customExpressionFn;
+  }
+
+  /**
    * 重置所有表情权重回归纯净默认面部 (Eyes open, natural lips)
    */
   public reset(vrm?: VRM | null, isSpeaking = false): void {
@@ -149,6 +278,9 @@ export class ExpressionController {
     this.targetIntensity = 0.0;
     this.currentMicroReaction = 'none';
     this.blushIntensity = 0.0;
+    this.playfulTimer = 0;
+    this.customExpressionFn = null;
+    this.customTimingGetter = null;
 
     for (let i = 0; i < EMOTION_KEYS.length; i++) {
       const e = EMOTION_KEYS[i];
@@ -193,8 +325,75 @@ export class ExpressionController {
     const mgr = vrm.expressionManager;
     this.breathClock += delta;
 
+    // ── 0. 优先执行动作原生动态表情函数 (Motion Expression Function) ──
+    if (this.customExpressionFn) {
+      const timing = this.customTimingGetter ? this.customTimingGetter() : { elapsed: 0, duration: 1 };
+      const dur = Math.max(0.001, timing.duration);
+      const elapsed = Math.max(0, timing.elapsed);
+
+      // 读取头部骨骼姿态 (Pitch, Yaw, Roll)
+      // 注意：Three.js 动作管线直接写入 bone.quaternion，必须通过四元数转换提取真实欧拉角
+      const headNode = vrm.humanoid?.getNormalizedBoneNode('head');
+      let headPitch = 0;
+      let headYaw = 0;
+      let headRoll = 0;
+      if (headNode) {
+        this.tempEuler.setFromQuaternion(headNode.quaternion, 'YXZ');
+        headPitch = this.tempEuler.x;
+        headYaw = this.tempEuler.y;
+        headRoll = this.tempEuler.z;
+      }
+
+      this.exprContext.elapsed = elapsed;
+      this.exprContext.duration = dur;
+      this.exprContext.progress = Math.min(1.0, elapsed / dur);
+      this.exprContext.delta = delta;
+      this.exprContext.time = this.breathClock;
+      this.exprContext.vrm = vrm;
+      this.exprContext.headPitch = headPitch;
+      this.exprContext.headYaw = headYaw;
+      this.exprContext.headRoll = headRoll;
+      this.exprContext.isSpeaking = isSpeaking;
+      this.exprContext.gazeBlink = gazeBlink;
+
+      this.exprOutput.reset();
+      this.customExpressionFn(this.exprContext, this.exprOutput);
+
+      const mouthDuck = isSpeaking || activeVisemeMouth > 0.05 ? this.config.speechMouthDucking : 1.0;
+
+      try {
+        mgr.setValue('happy', Math.min(1.0, Math.max(0, this.exprOutput.happy * mouthDuck)));
+        mgr.setValue('angry', Math.min(1.0, Math.max(0, this.exprOutput.angry * (isSpeaking ? mouthDuck : 1.0))));
+        mgr.setValue('sad', Math.min(1.0, Math.max(0, this.exprOutput.sad * mouthDuck)));
+        mgr.setValue('surprised', Math.min(1.0, Math.max(0, this.exprOutput.surprised)));
+        mgr.setValue('relaxed', Math.min(1.0, Math.max(0, this.exprOutput.relaxed)));
+
+        mgr.setValue('blinkLeft', Math.min(1.0, Math.max(0, this.exprOutput.blinkLeft)));
+        mgr.setValue('blinkRight', Math.min(1.0, Math.max(0, this.exprOutput.blinkRight)));
+
+        const combinedBlink = Math.min(1.0, Math.max(gazeBlink, this.exprOutput.blink));
+        mgr.setValue('blink', combinedBlink);
+
+        if (activeVisemeMouth > 0.01) {
+          mgr.setValue('aa', activeVisemeMouth);
+          mgr.setValue('ou', 0);
+        } else if (!isSpeaking) {
+          mgr.setValue('aa', Math.min(1.0, Math.max(0, this.exprOutput.aa * mouthDuck)));
+          mgr.setValue('ou', Math.min(1.0, Math.max(0, this.exprOutput.ou * mouthDuck)));
+        }
+      } catch { }
+      return;
+    }
+
     // ── 1. 生理自主层 (呼吸微起伏，幅值控制在极细微 ±0.015) ──
     const breathOsc = Math.sin(this.breathClock * 1.85) * this.config.breathOscillationAmp;
+
+    // 预设表情计时演化
+    if (this.targetEmotion === 'playful') {
+      this.playfulTimer += delta;
+    } else {
+      this.playfulTimer = 0;
+    }
 
     // ── 2. 情绪基调平滑阻尼流动 (连续时间滤波，Zero-GC 循环，杜绝 1 帧突变抽动) ──
     const dampFactor = Math.min(1.0, delta * this.config.emotionDampSpeed);
@@ -239,9 +438,13 @@ export class ExpressionController {
 
     // 获取当前头部俯仰角 (Head Pitch)，实现困倦点头/打瞌睡时眼睑与沉睡深度的生理动态联动
     const headNode = vrm.humanoid?.getNormalizedBoneNode('head');
-    const headPitch = headNode ? Math.max(0, headNode.rotation.x) : 0;
-    // 点头深度系数 (0 ~ 1.0，0.30 rad 约为低头打瞌睡极值)
-    const nodFactor = Math.min(1.0, Math.max(0, headPitch / 0.30));
+    let headPitch = 0;
+    if (headNode) {
+      this.tempEuler.setFromQuaternion(headNode.quaternion, 'YXZ');
+      headPitch = this.tempEuler.x;
+    }
+    // 点头深度系数 (0 ~ 1.0，0.25 rad 约为低头打瞌睡极值)
+    const nodFactor = Math.min(1.0, Math.max(0, headPitch / 0.25));
 
     // 开怀喜悦 (happy) 与温婉微笑 (gentle_smile)
     const happyWeight = Math.min(
@@ -298,10 +501,14 @@ export class ExpressionController {
       ),
     );
 
-    // 俏皮眨眼 (playful wink)：单侧左眼可爱 Wink 灵动眨眼
-    const playfulWink = this.currentWeights.playful > 0.005
-      ? Math.min(0.95, Math.max(0, this.currentWeights.playful * 0.88))
-      : 0;
+    // 俏皮眨眼 (playful wink)：单侧左眼可爱 Wink 灵动脉冲 (0.05s ~ 0.85s 呈现，达到高潮后平滑睁开)
+    let playfulWink = 0;
+    if (this.currentWeights.playful > 0.005) {
+      if (this.playfulTimer >= 0.05 && this.playfulTimer <= 0.85) {
+        const winkP = (this.playfulTimer - 0.05) / 0.80;
+        playfulWink = Math.sin(winkP * Math.PI) * Math.min(0.95, this.currentWeights.playful * 0.90);
+      }
+    }
 
     // 困倦打盹动态眼睑闭合 (Sleepy Eyelid Lifecycle):
     // - 抬头/初始微困时：眼皮自然下垂至约 0.35 (朦胧睡意半目)
