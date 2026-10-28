@@ -41,10 +41,12 @@ export interface ViewReturnHandle {
 
 /**
  * 在 durationMs 内把视角从 from 缓动到 to，每帧调用 apply。终点帧一定会精确写入 `to`。
+ * `to` 可以是函数：每帧重新求值，终点跟着“此刻”的默认视角走 (头骨会在回正的这一秒里被 stopMotion 淡出 / 待机带着移动，
+ * 若终点在起步时就冻结，落点后的 fitCamera 重新取景会把相机再硬挪一下 = 顿一下)。
  */
 export function runViewReturn(
   from: ViewPose,
-  to: ViewPose,
+  to: ViewPose | (() => ViewPose),
   durationMs: number,
   apply: (pose: ViewPose) => void,
   env: ViewReturnEnv = defaultEnv(),
@@ -64,8 +66,10 @@ export function runViewReturn(
     resolveDone(ok);
   };
 
+  const resolveTo = typeof to === 'function' ? to : () => to;
+
   if (durationMs <= 0) {
-    apply(to);
+    apply(resolveTo());
     finish(true);
     return { done, cancel: () => {} };
   }
@@ -75,12 +79,13 @@ export function runViewReturn(
     rafId = null;
     if (finished) return;
     const p = Math.min(1, (env.now() - t0) / durationMs);
+    const end = resolveTo();
     if (p >= 1) {
-      apply(to);
+      apply(end);
       finish(true);
       return;
     }
-    apply(lerpViewPose(from, to, easeInOutCubic(p), frame));
+    apply(lerpViewPose(from, end, easeInOutCubic(p), frame));
     rafId = env.raf(step);
   };
   rafId = env.raf(step);
@@ -147,7 +152,12 @@ export class ViewReturner {
       fov: camera.fov,
       roll: d.director.getRoll(),
     };
-    const to: ViewPose = { ...view, roll: 0 };
+    // 终点每帧重算 (与刷新后 fitCamera(true) 同一套解算)：最后一帧写入的就是落点后重新取景的那个机位，settle 不会再挪相机
+    let lastView = view;
+    const to = (): ViewPose => {
+      lastView = d.computeView() ?? lastView;
+      return { ...lastView, roll: 0 };
+    };
     d.setHoldFacing(true);
     controls.enabled = false;
     const handle = runViewReturn(

@@ -60,6 +60,23 @@ describe('runViewReturn (smooth return to the default view)', () => {
     expect(last.roll).toBe(0); // 荷兰角滚转回正
   });
 
+  it('a live target is re-read every frame so the last frame is exactly where the head is at the end (no snap afterwards)', async () => {
+    const { env, advance } = fakeEnv();
+    let headY = 1.0;
+    const live = (): ViewPose => ({ position: new THREE.Vector3(0, headY, 2), target: new THREE.Vector3(0, headY, 0), fov: 30, roll: 0 });
+    const seen: ViewPose[] = [];
+    const h = runViewReturn(pose(1, 1.5, 1, 22), live, 1000, (p) => seen.push({ ...p, position: p.position.clone(), target: p.target.clone() }), env);
+    advance(500);
+    headY = 0.9; // 头骨在回正过程中下沉
+    advance(300);
+    headY = 0.85;
+    advance(300);
+    await expect(h.done).resolves.toBe(true);
+    const last = seen.at(-1)!;
+    expect(last.target.y).toBe(0.85);
+    expect(last.position.y).toBe(0.85);
+  });
+
   it('cancel stops the tween and reports false', async () => {
     const { env, advance } = fakeEnv();
     let frames = 0;
@@ -152,6 +169,23 @@ describe('ViewReturner (what leaving the story resets)', () => {
     expect(s.hold).toEqual([true, false]);
     expect(s.calls.slice(-3)).toEqual(['reset', 'settle', 'facing']); // 落点后才还原朝向
     expect(s.returner.active).toBe(false);
+  });
+
+  it('settle does not move the camera again: the last eased frame is already the refreshed view, even when the head drifted during the move', async () => {
+    const s = setup();
+    let headY = 1.2;
+    s.deps.computeView = () => ({ position: new THREE.Vector3(0, headY, 2.2), target: new THREE.Vector3(0, headY, 0), fov: 30 });
+    let atSettle: number[] = [];
+    s.deps.settle = () => {
+      atSettle = s.camera.position.toArray();
+    };
+    const p = s.returner.run(1000);
+    s.advance(400);
+    headY = 1.12;
+    s.advance(700);
+    await p;
+    expect(atSettle).toEqual([0, 1.12, 2.2]);
+    expect(s.controls.target.toArray()).toEqual([0, 1.12, 0]);
   });
 
   it('cancel() gives the camera back and the aborted run does not settle', async () => {
