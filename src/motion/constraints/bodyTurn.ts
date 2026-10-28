@@ -54,15 +54,7 @@ export class BodyTurnSystem {
 
   // ─── VRM 骨骼引用 ────────────────────────────────────────────────────────────
   private vrm: VRM | null = null;
-
   private hips: THREE.Object3D | null = null;
-
-  private leftUpperLeg: THREE.Object3D | null = null;
-  private rightUpperLeg: THREE.Object3D | null = null;
-  private leftLowerLeg: THREE.Object3D | null = null;
-  private rightLowerLeg: THREE.Object3D | null = null;
-  private leftFoot: THREE.Object3D | null = null;
-  private rightFoot: THREE.Object3D | null = null;
 
   // ─── 静息四元数（bind 时快照）────────────────────────────────────────────────
   private restHipsPos = new THREE.Vector3();
@@ -109,26 +101,20 @@ export class BodyTurnSystem {
     const h = vrm.humanoid;
     if (!h) return;
 
-    const get = (n: VRMHumanBoneName) => h.getNormalizedBoneNode(n) ?? h.getRawBoneNode(n);
-
-    this.hips = get('hips');
-    this.leftUpperLeg = get('leftUpperLeg');
-    this.rightUpperLeg = get('rightUpperLeg');
-    this.leftLowerLeg = get('leftLowerLeg');
-    this.rightLowerLeg = get('rightLowerLeg');
-    this.leftFoot = get('leftFoot');
-    this.rightFoot = get('rightFoot');
+    this.hips = h.getNormalizedBoneNode('hips') ?? h.getRawBoneNode('hips');
 
     if (this.hips) {
       this.restHipsPos.copy(this.hips.position);
-      this.restHipsQ.copy(this.hips.quaternion);
     }
-    if (this.leftUpperLeg) this.restLeftUpperLegQ.copy(this.leftUpperLeg.quaternion);
-    if (this.rightUpperLeg) this.restRightUpperLegQ.copy(this.rightUpperLeg.quaternion);
-    if (this.leftLowerLeg) this.restLeftLowerLegQ.copy(this.leftLowerLeg.quaternion);
-    if (this.rightLowerLeg) this.restRightLowerLegQ.copy(this.rightLowerLeg.quaternion);
-    if (this.leftFoot) this.restLeftFootQ.copy(this.leftFoot.quaternion);
-    if (this.rightFoot) this.restRightFootQ.copy(this.rightFoot.quaternion);
+    // VRM 标准下肢 normalized 骨骼中立静息四元数权威保证为单位四元数 Identity (0, 0, 0, 1)
+    // 杜绝在中途重绑或动作执行中采样被动画/待机旋转污染的大腿四元数作为静息态
+    this.restHipsQ.identity();
+    this.restLeftUpperLegQ.identity();
+    this.restRightUpperLegQ.identity();
+    this.restLeftLowerLegQ.identity();
+    this.restRightLowerLegQ.identity();
+    this.restLeftFootQ.identity();
+    this.restRightFootQ.identity();
 
     this.reset();
   }
@@ -479,6 +465,12 @@ export class BodyTurnSystem {
               this.phase = SP.IDLE;
               this.currentHipsPos.copy(this.restHipsPos);
               this.currentHipsQ.copy(this.restHipsQ);
+              this.currentLeftUpperLegQ.copy(this.restLeftUpperLegQ);
+              this.currentRightUpperLegQ.copy(this.restRightUpperLegQ);
+              this.currentLeftLowerLegQ.copy(this.restLeftLowerLegQ);
+              this.currentRightLowerLegQ.copy(this.restRightLowerLegQ);
+              this.currentLeftFootQ.copy(this.restLeftFootQ);
+              this.currentRightFootQ.copy(this.restRightFootQ);
             }
             break;
         }

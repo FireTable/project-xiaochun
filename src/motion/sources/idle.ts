@@ -117,25 +117,27 @@ export class NaturalIdleSystem {
     this.hips = getBone('hips');
     if (this.hips) {
       this.restHipsPos.copy(this.hips.position);
-      this.restHipsQ.copy(this.hips.quaternion);
     }
+    this.restHipsQ.identity();
 
     this.leftUpperLeg = getBone('leftUpperLeg');
-    if (this.leftUpperLeg) this.restLeftUpperLegQ.copy(this.leftUpperLeg.quaternion);
     this.rightUpperLeg = getBone('rightUpperLeg');
-    if (this.rightUpperLeg) this.restRightUpperLegQ.copy(this.rightUpperLeg.quaternion);
     this.leftLowerLeg = getBone('leftLowerLeg');
-    if (this.leftLowerLeg) this.restLeftLowerLegQ.copy(this.leftLowerLeg.quaternion);
     this.rightLowerLeg = getBone('rightLowerLeg');
-    if (this.rightLowerLeg) this.restRightLowerLegQ.copy(this.rightLowerLeg.quaternion);
     this.leftFoot = getBone('leftFoot');
-    if (this.leftFoot) this.restLeftFootQ.copy(this.leftFoot.quaternion);
     this.rightFoot = getBone('rightFoot');
-    if (this.rightFoot) this.restRightFootQ.copy(this.rightFoot.quaternion);
     this.leftToes = getBone('leftToes');
-    if (this.leftToes) this.restLeftToesQ.copy(this.leftToes.quaternion);
     this.rightToes = getBone('rightToes');
-    if (this.rightToes) this.restRightToesQ.copy(this.rightToes.quaternion);
+
+    // VRM 标准下肢 normalized 骨骼中立静息四元数权威保证为单位四元数 Identity (0, 0, 0, 1)
+    this.restLeftUpperLegQ.identity();
+    this.restRightUpperLegQ.identity();
+    this.restLeftLowerLegQ.identity();
+    this.restRightLowerLegQ.identity();
+    this.restLeftFootQ.identity();
+    this.restRightFootQ.identity();
+    this.restLeftToesQ.identity();
+    this.restRightToesQ.identity();
     this.leftUpperArm = getBone('leftUpperArm');
     this.rightUpperArm = getBone('rightUpperArm');
     this.leftLowerArm = getBone('leftLowerArm');

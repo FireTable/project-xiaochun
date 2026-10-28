@@ -125,15 +125,15 @@ export class MotionPipeline {
 
 
   bind(vrm: VRM): void {
-    const same = this.boundVrm === vrm;
+    if (this.boundVrm === vrm) {
+      return;
+    }
     this.universalMotion.bind(vrm);
     this.vrma.bind(vrm);
-    if (!same) {
-      motionAssetManager.invalidateBoundClips();
-      this.restPose.sampleFromVRM(vrm);
-      this.emage.bind(vrm);
-      this.idle.bind(vrm);
-    }
+    motionAssetManager.invalidateBoundClips();
+    this.restPose.sampleFromVRM(vrm);
+    this.emage.bind(vrm);
+    this.idle.bind(vrm);
     this.footIK.bind(vrm);
     this.bodyTurn.bind(vrm);
     this.boundVrm = vrm;

@@ -145,4 +145,32 @@ describe('Universal Lower-Body Locomotion & BodyTurn Authority', () => {
     // LeftUpperLeg index is 6 in PIPELINE_BONES. Since it is not in upperOnlyIndices, it must match basePose
     expect(pipeline.actionPose.quaternions[6].equals(pipeline.basePose.quaternions[6])).toBe(true);
   });
+
+  it('guarantees identity rest pose in BodyTurn and prevents rest contamination when bound with posed bones', () => {
+    // Rotate bones on the VRM humanoid as if an animation or splay is active
+    const leftUpperLegNode = mockVRM.humanoid.getNormalizedBoneNode('leftUpperLeg');
+    leftUpperLegNode.quaternion.set(0.2, 0.1, 0.3, 0.9).normalize();
+
+    // Re-bind BodyTurn directly with rotated bone
+    pipeline.bodyTurn.bind(mockVRM);
+
+    // Copy to locomotion pose buffer and verify rest leg is strictly Identity (0, 0, 0, 1)
+    const testPose = new (pipeline.finalPose.constructor as any)();
+    pipeline.bodyTurn.copyToLowerBodyBuffer(testPose);
+    const legIdx = 6; // leftUpperLeg
+    expect(testPose.quaternions[legIdx].x).toBeCloseTo(0, 5);
+    expect(testPose.quaternions[legIdx].y).toBeCloseTo(0, 5);
+    expect(testPose.quaternions[legIdx].z).toBeCloseTo(0, 5);
+    expect(testPose.quaternions[legIdx].w).toBeCloseTo(1, 5);
+  });
+
+  it('bind on MotionPipeline is a safe no-op when VRM reference has not changed', () => {
+    const origFinalPose = pipeline.finalPose;
+    // Modify one buffer property to test whether bind overwrites it
+    origFinalPose.quaternions[0].set(0.1, 0.2, 0.3, 0.9);
+
+    pipeline.bind(mockVRM);
+    // Since mockVRM === boundVrm, it must not sampleFromVRM or wipe buffers
+    expect(pipeline.finalPose.quaternions[0].x).toBeCloseTo(0.1, 5);
+  });
 });
