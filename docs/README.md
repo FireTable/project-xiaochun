@@ -37,6 +37,7 @@ docs/
 ├── VRM_ENGINE_AND_WORKER.md       # Core architecture (Main VRMEngine orchestrator + background vrmWorker WASM synthesis)
 ├── LOADING_OVERLAY.md             # Startup loading screen: single-mount overlay + loadingStore, logic contract, layout (text panel avoids the figure), night-sky layers, system-font title, transform/opacity-only motion, i18n tips, OffscreenCanvas worker hero warp (swap, bleed, shader fade, master breath, APP_CONFIG.loading.warp), key-visual regeneration
 ├── ONBOARDING.md                  # Galgame-style immersive onboarding system: schema steps, void stage, liquid glass cards, and voice flow
+├── STORY_DIRECTOR.md              # Story mode scripts: beat lifecycle, autoNext & interruption, trilingual text (change_lang), transitions, grading, camera (backlight reveal, dutch tilt, gust wind), procedural BGM / ambience / SFX, Act 0 tests
 └── MTOON.md                       # MToon NPR material extensions, uniforms & part presets
 ```
 
@@ -48,6 +49,7 @@ When tasked with modifications or refactoring, consult the dedicated technical g
 
 | Task Objective | Primary Guide | Core Invariants & Rules |
 | :--- | :--- | :--- |
+| **Story mode scripts / Act 0 / cinematics (transitions, grading, camera, wind) / story audio / story i18n** | [`STORY_DIRECTOR.md`](STORY_DIRECTOR.md) | Text fields are `string` or `{ 'zh-CN', en, ja }` resolved at beat entry; `custom` choices need `nextBeatId`; `autoNextBeatId` xor `choices`; interruption stops auto-advance; transitions cover before the choice action runs; grading and letterbox are sticky; BGM/ambience are procedural (no audio assets) with graceful failure; run `src/story/__tests__/prologueStory.test.ts`-style checks on any new script. |
 | **Immersive Galgame Onboarding / First-time user tour / Void stage** | [`ONBOARDING.md`](ONBOARDING.md) | Schema-driven onboarding (`onboardingSchema.ts`), Void stage (`voidWorld.ts`), liquid glass cards, full voice & EMAGE synchronization, persistent `xiaochun_onboarded` flag. |
 | **Startup loading screen / splash visuals / loading copy** | [`LOADING_OVERLAY.md`](LOADING_OVERLAY.md) | Logic contract (monotonic progress, thresholds, 1.5 s minimum, break callbacks) must not change; no layout-triggering animation (transform/opacity, `scaleX` progress); system fonts only; stars stay in the background layer; counts interpolated from `APP_CONFIG`; deterministic SSR/first render. |
 | :--- | :--- | :--- |
