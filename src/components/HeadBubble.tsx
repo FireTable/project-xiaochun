@@ -15,8 +15,6 @@ export interface HeadBubbleProps {
   state?: BubbleState;
   customHeader?: React.ReactNode;
   speechText?: string;
-  resetKey?: string | number;
-  typewriterEnabled?: boolean;
   placement?: BubblePlacement;
   isStatic?: boolean;
   className?: string;
@@ -64,8 +62,6 @@ export const HeadBubble: React.FC<HeadBubbleProps> = ({
   state,
   customHeader,
   speechText: speechTextProp,
-  resetKey: resetKeyProp,
-  typewriterEnabled,
   placement: placementProp,
   isStatic = false,
   className = '',
@@ -131,9 +127,9 @@ export const HeadBubble: React.FC<HeadBubbleProps> = ({
     return () => observer.disconnect();
   }, [rawSpeechText, statusKey, isStatic, children]);
 
-  // 对话设置关气泡：仅对日常悬浮气泡生效；故事引导模式(isStatic)始终按导演编排渲染
+  // 对话设置关气泡：仅对日常悬浮气泡生效；故事引导模式(isStatic)仅在存在语音台词或展开回顾时渲染，杜绝发声前提前露文字
   if (!isStatic && (!enabled || !state?.visible)) return null;
-  if (isStatic && !rawSpeechText && !customHeader && !children) return null;
+  if (isStatic && !rawSpeechText && !children) return null;
 
   const cardContent = (
     <div
@@ -233,13 +229,12 @@ export const HeadBubble: React.FC<HeadBubbleProps> = ({
         >
           <div className="overflow-hidden">
             <div
-              key={resetKeyProp ?? state?.segmentIndex ?? rawSpeechText}
+              key={state?.segmentIndex ?? rawSpeechText}
               className="text-xs sm:text-sm font-medium text-white/95 leading-relaxed break-words text-left max-h-[calc(5*1.7em)] overflow-y-auto overflow-x-hidden pr-0.5 select-text custom-bubble-scrollbar pointer-events-auto animate-segment-push"
             >
               <TypewriterText
-                resetKey={resetKeyProp ?? state?.segmentIndex}
+                resetKey={state?.segmentIndex}
                 text={rawSpeechText}
-                enabled={typewriterEnabled}
               />
             </div>
           </div>

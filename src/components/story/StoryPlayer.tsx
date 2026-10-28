@@ -13,7 +13,6 @@ import { StoryCameraTaskCard } from './StoryCameraTaskCard';
 import { HeadBubble } from '@/components/HeadBubble';
 import { ProviderConfigDialog } from '@/components/ProviderConfigDialog';
 import { vrmEngine, type BubbleState } from '@/core/vrmEngine';
-import { splitIntoSpeechChunks } from '@/lib/utils';
 import { storyDirectorEngine, type StoryState } from '@/story/storyEngine';
 import { storyGenerator } from '@/story/storyGenerator';
 import { prologueStory } from '@/story/prologueStory';
@@ -35,14 +34,14 @@ export const StoryPlayer: React.FC<StoryPlayerProps> = ({
   const [isProviderConfigOpen, setIsProviderConfigOpen] = useState(false);
   const [cameraTasksDone, setCameraTasksDone] = useState(false);
   const [isHistoryExpanded, setIsHistoryExpanded] = useState(false);
-  const [liveBubble, setLiveBubble] = useState<BubbleState>(() => vrmEngine.bubbleTracker.state);
+  const [bubble, setBubble] = useState<BubbleState>(() => vrmEngine.bubbleTracker.state);
   const inputRef = useRef<HTMLInputElement>(null);
   const hasStartedRef = useRef(false);
 
-  // 订阅 BubbleTracker 实时流式切片与切段进度
+  // 订阅 BubbleTracker 气泡状态 (完全复用原生状态，与日常模式保持 100% 同构)
   useEffect(() => {
     const unsub = vrmEngine.subscribeBubbleChange((state) => {
-      setLiveBubble({ ...state });
+      setBubble({ ...state });
     });
     return () => {
       unsub();
@@ -177,55 +176,25 @@ export const StoryPlayer: React.FC<StoryPlayerProps> = ({
   }, [onComplete]);
 
   const currentBeat = storyState.currentBeat;
-  const fullSpeechText = currentBeat?.actor.speechText || '';
   const showInput = Boolean(currentBeat?.allowInput);
 
-  // 预先静态分析当前拍长台词的段落切片
-  const speechChunks = useMemo(() => {
-    return fullSpeechText ? splitIntoSpeechChunks(fullSpeechText) : [];
-  }, [fullSpeechText]);
+  // 跟踪当前拍是否已开声发音：严格遵循“有语音才展示”的统一原生逻辑，杜绝发声前提前贴出文字
+  const [hasSpokenInBeat, setHasSpokenInBeat] = useState(false);
+  const prevBeatIdRef = useRef<string | null>(null);
 
-  // 判断是否处于发音期且 BubbleTracker 存在正在流式朗读的分段文本
-  const isSpeaking = storyState.isSpeaking;
-  const hasLiveSpeakingText =
-    isSpeaking &&
-    liveBubble.visible &&
-    liveBubble.statusKey === 'speaking' &&
-    Boolean(liveBubble.speechText);
+  useEffect(() => {
+    const currentBeatId = storyState.currentBeat?.id || null;
+    if (currentBeatId !== prevBeatIdRef.current) {
+      prevBeatIdRef.current = currentBeatId;
+      setHasSpokenInBeat(false);
+    }
+  }, [storyState.currentBeat?.id]);
 
-  // 动态选择当前展示文本：
-  // 1. 发音进行中且 BubbleTracker 存在切片 -> 实时展示当前切片 seg.text (流式打字机打字)
-  // 2. 发音进行中但首块 TTS 尚未派发 status -> 优先使用首段切片占位，杜绝全文跳闪
-  // 3. 发音已结束 -> 展示当前拍完整台词，供用户从容细读并进行分支决策
-  const activeSpeechText = useMemo(() => {
-    if (hasLiveSpeakingText) {
-      return liveBubble.speechText;
+  useEffect(() => {
+    if (bubble.visible && bubble.speechText) {
+      setHasSpokenInBeat(true);
     }
-    if (isSpeaking && speechChunks.length > 0) {
-      return speechChunks[0];
-    }
-    return fullSpeechText;
-  }, [hasLiveSpeakingText, liveBubble.speechText, isSpeaking, speechChunks, fullSpeechText]);
-
-  const activeSegmentIndex = useMemo(() => {
-    if (hasLiveSpeakingText && liveBubble.segmentIndex) {
-      return liveBubble.segmentIndex;
-    }
-    if (isSpeaking && speechChunks.length > 1) {
-      return 1;
-    }
-    return undefined;
-  }, [hasLiveSpeakingText, liveBubble.segmentIndex, isSpeaking, speechChunks.length]);
-
-  const activeTotalSegments = useMemo(() => {
-    if (hasLiveSpeakingText && liveBubble.totalSegments) {
-      return liveBubble.totalSegments;
-    }
-    if (isSpeaking && speechChunks.length > 1) {
-      return speechChunks.length;
-    }
-    return undefined;
-  }, [hasLiveSpeakingText, liveBubble.totalSegments, isSpeaking, speechChunks.length]);
+  }, [bubble.visible, bubble.speechText]);
 
   // 在视角教学拍中，根据任务完成度动态丰富下一步选项文案
   const displayChoices = useMemo(() => {
@@ -250,10 +219,12 @@ export const StoryPlayer: React.FC<StoryPlayerProps> = ({
     return displayChoices.some((c) => Boolean(c.image));
   }, [currentBeat?.choiceLayout, displayChoices]);
 
-  // 对白卡展示逻辑：仅在有台词或历史记录且非全黑幕白字阶段挂载
-  const showDialogue = Boolean(activeSpeechText || storyState.history.length > 0) && !storyState.isIntertitleActive;
+  // 对白卡展示逻辑：仅在当前拍已开声发音且有台词，或展开了对白回顾时挂载
+  const showDialogue =
+    ((hasSpokenInBeat && Boolean(bubble.speechText)) || isHistoryExpanded) &&
+    !storyState.isIntertitleActive;
 
-  // 渲染高质感一体化沉底对白卡 (复用 HeadBubble，彻底消灭双重对白框重复)
+  // 渲染高质感一体化沉底对白卡 (直接复用 HeadBubble 与 bubble 原生状态，0 额外逻辑)
   const renderDialogueBubble = (maxWidthClass = 'max-w-lg sm:max-w-xl w-full') => {
     if (!showDialogue) return null;
     return (
@@ -261,24 +232,22 @@ export const StoryPlayer: React.FC<StoryPlayerProps> = ({
         isStatic
         placement="bottom"
         maxWidthClass={maxWidthClass}
-        speechText={activeSpeechText}
-        resetKey={activeSegmentIndex}
-        typewriterEnabled={isSpeaking}
+        state={bubble}
         customHeader={
           <div className="flex items-center justify-between w-full">
             <div className="flex items-center space-x-2">
               <span className="text-xs sm:text-sm font-semibold tracking-wide text-white">
                 小蠢
               </span>
-              {activeTotalSegments && activeTotalSegments > 1 && activeSegmentIndex ? (
+              {bubble.totalSegments && bubble.totalSegments > 1 && bubble.segmentIndex ? (
                 <span
-                  key={activeSegmentIndex}
+                  key={bubble.segmentIndex}
                   className="px-1.5 py-0.5 rounded-full bg-white/10 text-[10px] font-medium text-brand-200 tracking-wider inline-flex items-center gap-1 border border-white/10 shadow-sm backdrop-blur-sm animate-status-push"
                 >
                   <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
-                  <span className="text-white font-bold">{activeSegmentIndex}</span>
+                  <span className="text-white font-bold">{bubble.segmentIndex}</span>
                   <span className="opacity-40 text-[9px]">/</span>
-                  <span className="text-slate-300">{activeTotalSegments}</span>
+                  <span className="text-slate-300">{bubble.totalSegments}</span>
                 </span>
               ) : null}
             </div>

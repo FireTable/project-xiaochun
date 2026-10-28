@@ -178,8 +178,9 @@ export class StoryDirectorEngine {
       }, 1500);
     }
 
-    // 0. 重置上一拍残留的动作，保障本拍骨骼与 EMAGE 管线纯净
+    // 0. 重置上一拍残留的动作与对白气泡，保障本拍骨骼与对白管线纯净
     vrmEngine.stopMotion(0.4);
+    vrmEngine.bubbleTracker.hide();
 
     // 🌟 序章初见演出准备：黑幕文字界面保持空灵纯黑，角色模型暂隐，镜头保持在常规远景，绝不在未唤醒前过早聚焦
     if (beat.id === 'beat_greet') {
