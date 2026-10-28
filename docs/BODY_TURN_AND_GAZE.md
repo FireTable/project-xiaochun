@@ -118,3 +118,7 @@ Natural human gaze continuously shifts with subtle subconscious dynamics:
 > - **Idle & Clip Bypass**: FootIK does not `solve` outside EMAGE.
 > - **Locomotion Yield**: While BodyTurn owns the legs, skip `solve` and `levelFeet` so stride ankles are not flattened or yanked to the speech plant.
 > - **Step-End Plant**: After `locomotionWeight` settles, recapture plants from the new stance, then fade FootIK back. Do not recapture on the `isStepping` falling edge while mix is still 1.
+
+## Camera director moves must not trigger BodyTurn
+
+The facing target is `atan2(camera.x - hero.x, camera.z - hero.z) + targetYawOffset`, so it follows the camera's azimuth. User drags change `targetYawOffset` (intended). Story camera moves (orbit, arc sweep, spiral, backlight reveal) change the azimuth and used to make her step around. `MotionPipeline.trackCameraAzimuth` subtracts the per-frame azimuth change from `targetYawOffset` while `cameraDirector.active` (plus 3 grace frames), so her world facing stays put during a director move. Covered by `src/motion/pipeline/cameraYawHold.test.ts`.
