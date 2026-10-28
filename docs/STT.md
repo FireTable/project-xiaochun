@@ -189,6 +189,18 @@ Project XiaoChun 采用 **“选定主线 + 失败直落本地兜底”** 的多
   4. 文本由 `replaceOrInsertAtRange` 无缝替换前面的本地草稿并定稿落锁；
   5. **0ms 兜底降级**：若云端超时或报错，系统自动保留本地 SenseVoice 草稿并经由本地 CT-Transformer 标点固化，用户体验 0 中断、0 丢失。
 
+### 7.4 用户自主策略选择：2-Pass 实时预览 vs 全程纯云端 (User-Configurable Strategy)
+在「服务提供商配置 -> STT 识别」面板中，当用户启用云端服务（官方内置智能 / 自定义 Provider）时，可在 UI 上自由切换出字策略：
+- **⚡ 2-Pass 实时预览 (`2pass`, 默认推荐)**：
+  - 说话过程中：端侧本地 WebWorker (SenseVoice int8) ~100ms 极速逐字跳字上屏；
+  - 停顿/松开后：整句合并发 1 次 Cloudflare Whisper Turbo / 自定义云端，进行高精度修句和标点定稿。
+- **☁️ 全程纯云端 (`direct`)**：
+  - 说话过程中：**完全不启动、不加载端侧 40MB 的 SenseVoice 模型**，节省设备内存与推理算力；
+  - 麦克风仅做轻量 Silero VAD 静音切分与音频累积；
+  - 停顿/松开后：一次性上送云端 Whisper Turbo 单次出定稿结果；若云端发生故障，自动无缝启动本地 Worker 兜底。
+- **📱 纯端侧离线 (`local`)**：
+  - 100% 本地运行，声音不出设备，零网络开销。
+
 ---
 
 ## 8. Agent Engineering Standards & Invariants (红线与守则)
