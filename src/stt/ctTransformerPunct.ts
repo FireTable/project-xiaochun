@@ -163,11 +163,8 @@ export class CtTransformerPunct {
     }
 
     let punctuated = result.join('');
-    // Terminal punctuation guarantee
-    punctuated = punctuated.replace(/[，、]\s*$/, '。');
-    if (!/[。？！?!.]$/.test(punctuated)) {
-      punctuated += '。';
-    }
+    // Strip trailing commas/pause marks so downstream Stage 1 boundary sanitation can arbitrate properly (e.g. question vs period)
+    punctuated = punctuated.replace(/[，、]\s*$/, '');
 
     return punctuated;
   }

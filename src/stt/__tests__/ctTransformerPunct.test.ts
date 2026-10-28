@@ -84,4 +84,31 @@ describe('CtTransformerPunct Tokenization & Pipeline', () => {
     const res = await punct.punctuate('你好，小春。');
     expect(res).toBe('你好，小春。');
   });
+
+  it('leaves open tail when model predicts no terminal mark, allowing Stage 1 question arbitration', async () => {
+    const punct = new CtTransformerPunct();
+    const mockMap = new Map<string, number>([
+      ['小', 1],
+      ['春', 2],
+      ['冷', 3],
+      ['吗', 4],
+    ]);
+    (punct as any).token2id = mockMap;
+    (punct as any).unkId = 0;
+    (punct as any).isLoaded = true;
+
+    (punct as any).session = {
+      run: async () => {
+        const data = new Float32Array(4 * 6);
+        data[0 * 6 + 1] = 5.0; // 小: _
+        data[1 * 6 + 2] = 5.0; // 春: ，
+        data[2 * 6 + 1] = 5.0; // 冷: _
+        data[3 * 6 + 1] = 5.0; // 吗: _ (model predicted no terminal punctuation)
+        return { logits: { data } };
+      },
+    };
+
+    const res = await punct.punctuate('小春冷吗');
+    expect(res).toBe('小春，冷吗'); // open tail preserved
+  });
 });
