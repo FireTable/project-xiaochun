@@ -361,7 +361,7 @@ function applyShells(shells: ClothShell[]): void {
   }
 }
 
-function buildShells(vrm: VRM, centers: BustCenter[]): ClothShell[] {
+export function _buildShells(vrm: VRM, centers: BustCenter[]): ClothShell[] {
   const meshes: THREE.SkinnedMesh[] = [];
   vrm.scene.traverse((node) => {
     const mesh = node as THREE.SkinnedMesh;

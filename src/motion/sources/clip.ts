@@ -16,6 +16,12 @@ export interface PlayMotionOptions {
   timeScale?: number;
   /** 身体部位遮罩：'all' 全身，'upperBody' 仅上半身手势，'lowerBody' 仅下半身 */
   mask?: MotionBoneMask;
+  /**
+   * 是否显式强制下半身（双腿与骨盆）完全服从该动作剪辑（默认 false）。
+   * 仅在极少数全身体操跳跃、纯舞蹈等必须由动作驱动腿部的场景开启；
+   * 99% 的站姿交互与手势动作默认保持 false，由 BodyTurn 与 NaturalIdle 统辖下半身。
+   */
+  forceFullBody?: boolean;
   /** 动作播放完毕并完成淡出后的回调 */
   onEnd?: () => void;
   /**
@@ -83,9 +89,19 @@ export class UniversalMotionController {
   private fadeDuration = 0.75;
   private clipDuration = 0;
   private onEndTriggered = false;
+  /** 异步播放世代令牌，用于杜绝快速连续点击切换时的乱序抢占竞态 */
+  private currentPlayRequestId = 0;
   /** Remember string URL inputs for outfit-swap restore. */
   private lastUrl: string | null = null;
   private lastBuffer: ArrayBuffer | null = null;
+
+  nextRequestId(): number {
+    return ++this.currentPlayRequestId;
+  }
+
+  getCurrentRequestId(): number {
+    return this.currentPlayRequestId;
+  }
 
   bind(vrm: VRM): void {
     if (this.vrm === vrm && this.mixer) return;
@@ -290,6 +306,20 @@ export class UniversalMotionController {
       return { isFadingOut: false, justEnded: false };
     }
 
+    // 强制刷新 PropertyMixer 缓存脏检测：
+    // Three.js PropertyMixer 在连续两帧采样值完全相同时会跳过 binding.setValue()。
+    // 这会导致处于尾部静止帧（Tail Hold）的骨骼未被覆写，残留上一帧带有 Gaze LookAt 的四元数，
+    // 形成每帧乘以 LookAt 的正反馈恶性循环（如 360° 自旋）以及动作间姿态串联污染。
+    const bindings = (this.currentAction as any)?._propertyBindings;
+    if (bindings) {
+      for (let i = 0; i < bindings.length; i++) {
+        const pb = bindings[i];
+        if (pb?.buffer && pb.valueSize !== undefined) {
+          pb.buffer[pb.valueSize] = NaN;
+        }
+      }
+    }
+
     this.mixer.update(delta);
 
     const isLoop = this.currentOptions.loop ?? false;
@@ -371,7 +401,7 @@ export class UniversalMotionController {
   }
 
   isPlaying(): boolean {
-    return this.active && !this.isFadingOut && (this.currentAction?.isRunning() ?? false);
+    return this.active && (this.currentAction?.isRunning() ?? false);
   }
 
   isActive(): boolean {

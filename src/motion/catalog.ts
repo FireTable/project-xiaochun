@@ -419,7 +419,7 @@ export const MOTION_CATALOG = {
     url: '/vrm/motion/hand-heart.vrma?v=3',
     warmup: true,
     loop: false,
-    fadeDuration: 0.65,
+    fadeDuration: 0.75,
     mask: 'all',
     antiClip: false,
     category: 'romance',

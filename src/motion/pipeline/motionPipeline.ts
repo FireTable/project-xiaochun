@@ -2,7 +2,7 @@ import * as THREE from 'three';
 import type { VRM, VRMHumanBoneName } from '@pixiv/three-vrm';
 import {
   PoseBuffer,
-  LEGS_MASK,
+  LOWER_BODY_MASK,
   FINGER_BONES,
   BONE_INDEX_MAP,
   copyTransitionSnapshot,
@@ -114,15 +114,6 @@ export class MotionPipeline {
   private locomotionTransitionTargetWeight = 0;
   private wasStepping = false;
 
-  // 下半身步态与动作姿态通用时序状态机 (Lower-Body Locomotion FSM)
-  // 负责在全身动作(Action)与步态(BodyTurn)之间通过中立位(Idle)执行物理自洽的移心与恢复
-  private lowerLocomotionState: 'stance' | 'pre_turn' | 'stepping' | 'settle' | 'post_turn' = 'stance';
-  private preTurnElapsed = 0;
-  private settleElapsed = 0;
-  private postTurnElapsed = 0;
-  private postTurnDuration = 0.65;
-  private actionLegsWeight = 1.0; // 1.0 = 100% 动作腿姿, 0.0 = 100% 中立待机腿姿
-
   public targetYawOffset = 0.0;
   private boundVrm: VRM | null = null;
   public get boundVRM(): VRM | null {
@@ -165,7 +156,20 @@ export class MotionPipeline {
     lookAtOffsets?: { neck?: THREE.Quaternion; head?: THREE.Quaternion },
   ): Promise<UniversalMotionHandle> {
     this.bind(vrm);
+    const reqId = this.universalMotion.nextRequestId();
     const clip = await this.universalMotion.parseToClip(input, vrm, options);
+    if (reqId !== this.universalMotion.getCurrentRequestId()) {
+      return {
+        name: clip.name || 'UniversalMotion',
+        duration: clip.duration,
+        stop: () => {},
+        pause: () => {},
+        resume: () => {},
+        setTimeScale: () => {},
+        isPlaying: () => false,
+        isPaused: () => false,
+      };
+    }
 
     const fadeDur = Math.max(0.26, options.fadeDuration ?? SOURCE_FADE_DURATION);
     const mask = options.mask ?? 'all';
@@ -240,11 +244,6 @@ export class MotionPipeline {
     this.locomotionTransitionFromWeight = 0;
     this.locomotionTransitionTargetWeight = 0;
     this.wasStepping = false;
-    this.lowerLocomotionState = 'stance';
-    this.actionLegsWeight = 1.0;
-    this.preTurnElapsed = 0;
-    this.settleElapsed = 0;
-    this.postTurnElapsed = 0;
   }
 
   /** Play thinking VRMA as the live pipeline source (thinkSway trait disabled to prevent asynchronous sinusoidal collision with clip). */
@@ -299,7 +298,7 @@ export class MotionPipeline {
         const thinkingClip = motionAssetManager.getClip(motionId) ?? motionAssetManager.getClip(catalogItem.url);
         if (thinkingClip && targetVrm) {
           const fadeDur = catalogItem.fadeDuration ?? 0.65;
-          const mask = (catalogItem.mask as 'all' | 'upperBody') ?? 'upperBody';
+          const mask = (catalogItem.mask as 'all' | 'upperBody') ?? 'all';
           this.playThinkingClip(thinkingClip, targetVrm, fadeDur, mask);
         } else if (targetVrm) {
           this.setIdleThinkSway(true);
@@ -309,7 +308,7 @@ export class MotionPipeline {
             motionAssetManager.setClip(catalogItem.url, clip);
             if (this.activeSource === 'idle' && this.idle.traits.thinkSway) {
               const fadeDur = catalogItem.fadeDuration ?? 0.65;
-              const mask = (catalogItem.mask as 'all' | 'upperBody') ?? 'upperBody';
+              const mask = (catalogItem.mask as 'all' | 'upperBody') ?? 'all';
               this.playThinkingClip(clip, targetVrm, fadeDur, mask);
             }
           }).catch((err) => {
@@ -499,11 +498,9 @@ export class MotionPipeline {
       }
     }
 
-    // 2. 物理转向与下半身步态求值 (BodyTurn update & Lower-Body Locomotion FSM)
-    const hasFullBodyAction = this.activeSource !== 'idle' && this.activeMask === 'all';
-    const turnThreshold = hasFullBodyAction
-      ? (APP_CONFIG.bodyTurn.actionTurnStartThreshold ?? 0.66)
-      : APP_CONFIG.bodyTurn.turnStartThreshold;
+    // 2. 物理转向与下半身步态求值 (BodyTurn update & Locomotion)
+    // 下半身始终由 BodyTurn 系统统辖，保持标准敏捷 24° 踏步阈值，0 延迟立即响应
+    const turnThreshold = APP_CONFIG.bodyTurn.turnStartThreshold;
 
     if (ctx.enableBodyTurn) {
       // 使用角色世界坐标基准（vrm.scene.position），避免采样随 Gaze 偏转的 headNode 引起步态与头部的交叉耦合震荡
@@ -518,94 +515,9 @@ export class MotionPipeline {
       const targetYaw = THREE.MathUtils.euclideanModulo(desiredYaw - currentFacingYaw + Math.PI, Math.PI * 2) - Math.PI;
       // 保持目标方向单调一致，平滑限幅弹簧加速度上限：
       const normYaw = Math.max(-2.5, Math.min(2.5, targetYaw));
-      const absYaw = Math.abs(normYaw);
 
-      // ── 通用下半身步态状态流 (Action Legs <-> Idle Stand <-> BodyTurn Stepping) ──
-      if (this.lowerLocomotionState === 'stance') {
-        this.actionLegsWeight = 1.0;
-        if (absYaw > turnThreshold) {
-          if (!hasFullBodyAction) {
-            // 待机或仅上半身遮罩：下半身已在中立位，直接进入迈步
-            this.lowerLocomotionState = 'stepping';
-          } else {
-            // 全身动作：先执行下半身移心归中（前置过渡）
-            this.lowerLocomotionState = 'pre_turn';
-            this.preTurnElapsed = 0;
-          }
-        }
-      }
-
-      if (this.lowerLocomotionState === 'pre_turn') {
-        if (!hasFullBodyAction) {
-          this.lowerLocomotionState = 'stepping';
-          this.actionLegsWeight = 0.0;
-        } else {
-          this.preTurnElapsed += delta;
-          const shiftDur = APP_CONFIG.bodyTurn.preTurnShiftDuration ?? 0.25;
-          const p = Math.min(1.0, this.preTurnElapsed / Math.max(0.001, shiftDur));
-          const t = p * p * p * (p * (p * 6 - 15) + 10);
-          this.actionLegsWeight = Math.max(0.0, 1.0 - t);
-          if (p >= 1.0) {
-            this.actionLegsWeight = 0.0;
-            this.lowerLocomotionState = 'stepping';
-          }
-        }
-      }
-
-      if (this.lowerLocomotionState === 'settle') {
-        this.actionLegsWeight = 0.0;
-        this.settleElapsed += delta;
-        const settleDur = APP_CONFIG.bodyTurn.postTurnSettleDuration ?? 0.18;
-        if (absYaw > turnThreshold) {
-          // 防抖驻留期间用户继续大角度拖动，平滑连步
-          this.lowerLocomotionState = 'stepping';
-        } else if (this.settleElapsed >= settleDur) {
-          if (!hasFullBodyAction) {
-            this.lowerLocomotionState = 'stance';
-            this.actionLegsWeight = 1.0;
-          } else {
-            this.lowerLocomotionState = 'post_turn';
-            this.postTurnElapsed = 0;
-            this.postTurnDuration = Math.min(0.85, Math.max(0.48, targetDuration * 0.70));
-          }
-        }
-      }
-
-      if (this.lowerLocomotionState === 'post_turn') {
-        if (!hasFullBodyAction) {
-          // 若动作已切为上半身或待机，立即完成下半身恢复
-          this.lowerLocomotionState = 'stance';
-          this.actionLegsWeight = 1.0;
-        } else if (absYaw > turnThreshold) {
-          // 正在恢复动作腿姿时用户再次转动视角，平滑回退移心
-          this.lowerLocomotionState = 'pre_turn';
-          const shiftDur = APP_CONFIG.bodyTurn.preTurnShiftDuration ?? 0.25;
-          this.preTurnElapsed = Math.max(0, this.actionLegsWeight * shiftDur);
-        } else {
-          this.postTurnElapsed += delta;
-          const p = Math.min(1.0, this.postTurnElapsed / Math.max(0.001, this.postTurnDuration));
-          const t = p * p * p * (p * (p * 6 - 15) + 10);
-          this.actionLegsWeight = Math.min(1.0, t);
-          if (p >= 1.0) {
-            this.actionLegsWeight = 1.0;
-            this.lowerLocomotionState = 'stance';
-          }
-        }
-      }
-
-      // 仅在 stepping 状态允许 bodyTurn 真正触发抬腿；在 pre_turn 移心期间保持 allowLocomotion=false 稳固双脚
-      const allowLocomotion = (this.lowerLocomotionState === 'stepping');
-      vrm.scene.rotation.y += this.bodyTurn.update(delta, normYaw, allowLocomotion, turnThreshold);
+      vrm.scene.rotation.y += this.bodyTurn.update(delta, normYaw, true, turnThreshold);
       this.bodyTurn.copyToLowerBodyBuffer(this.locomotionPose);
-
-      // 迈步结束检测：在 BodyTurn update 执行之后判定，确保步态已真正启动过且已完全回落 IDLE
-      if (this.lowerLocomotionState === 'stepping') {
-        this.actionLegsWeight = 0.0;
-        if (!this.bodyTurn.isTurnActive() && !this.bodyTurn.isStepping()) {
-          this.lowerLocomotionState = 'settle';
-          this.settleElapsed = 0;
-        }
-      }
     }
 
     const isStepping = ctx.enableBodyTurn && this.bodyTurn.isStepping();
@@ -785,17 +697,10 @@ export class MotionPipeline {
       this.lowerPose.copyFrom(targetLowerBase);
     }
 
-    // ── 下半身移心到中立位平滑过渡 (Action Legs <-> Idle Legs) ──
-    const hasFullBodyAction = this.activeSource !== 'idle' && this.activeMask === 'all';
-    if (hasFullBodyAction && this.actionLegsWeight < 0.9999) {
-      const idleWeight = 1.0 - this.actionLegsWeight;
-      this.lowerPose.blendMasked(this.basePose, idleWeight, LEGS_MASK);
-      this.lowerPose.hipsPosition.lerp(this.basePose.hipsPosition, idleWeight);
-    }
-
+    // 步态绝对接管：当 BodyTurn 处于迈步状态或步态权重 > 0 时，下半身直接与 locomotionPose 融合
+    // 包含 LOWER_BODY_MASK 全部下肢以及 hips 骨盆旋转与位移，消除骨盆残留动作歪斜
     if (this.locomotionWeight > 0.0001) {
-      this.lowerPose.blendMasked(this.locomotionPose, this.locomotionWeight, LEGS_MASK);
-      this.lowerPose.hipsPosition.lerp(this.locomotionPose.hipsPosition, this.locomotionWeight);
+      this.lowerPose.blendMasked(this.locomotionPose, this.locomotionWeight, LOWER_BODY_MASK);
     }
 
     this.draftPose.composeLayered(this.lowerPose, this.upperPose);
@@ -803,7 +708,7 @@ export class MotionPipeline {
     this.draftPose.commitToVRM(vrm);
 
     const grounding = this.bodyTurn.getFootGroundedAlpha();
-    const locomotionBusy = ctx.isStepping || this.locomotionWeight > 0.08 || (hasFullBodyAction && this.actionLegsWeight < 0.99);
+    const locomotionBusy = ctx.isStepping || this.locomotionWeight > 0.08;
     const clipWantsFootIk = writer === 'clip' && Boolean(this.universalMotion.getCurrentOptions()?.enableFootIK);
     const wantFootIk = this.footIK.enabled && (writer === 'emage' ? this.emage.enableFootIK : clipWantsFootIk) && !locomotionBusy;
     if (wantFootIk && !this.footIkWanted) {

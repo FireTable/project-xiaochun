@@ -213,6 +213,7 @@ export const MotionSection: React.FC = () => {
 
     const isLoop = loopMode === 'default' ? (item.loop ?? false) : loopMode === 'loop';
     const mask = maskMode === 'default' ? (item.mask ?? 'all') : maskMode;
+    const forceFullBody = maskMode === 'all' || Boolean((item as any).forceFullBody);
 
     setLoadingMotionId(item.id);
     setActiveMotionId(item.id);
@@ -223,6 +224,7 @@ export const MotionSection: React.FC = () => {
         loop: isLoop,
         timeScale: speed,
         mask,
+        forceFullBody,
         fadeDuration: 0.75,
         onEnd: () => {
           if (activeMotionRef.current === item.id) {
