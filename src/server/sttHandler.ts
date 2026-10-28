@@ -6,6 +6,7 @@
  * 协议兼容：支持标准 multipart/form-data (file/audio) 与 raw audio/wav 二进制流。
  */
 
+import { Buffer } from 'node:buffer';
 import { COMMON_CORS } from '../lib/edge-tts-core';
 import type { ExecutionContext } from '@cloudflare/workers-types';
 
@@ -76,10 +77,25 @@ export async function handleSTT(
       });
     }
 
+    // 转换为 base64 字符串供 Workers AI Whisper 模型调用
+    const base64Audio = Buffer.from(
+      audioBytes.buffer,
+      audioBytes.byteOffset,
+      audioBytes.byteLength,
+    ).toString('base64');
+
     // 调用 Cloudflare Workers AI Whisper Large v3 Turbo
-    const result = await env.AI.run('@cf/openai/whisper-large-v3-turbo', {
-      audio: [...audioBytes],
-    });
+    let result: any;
+    try {
+      result = await env.AI.run('@cf/openai/whisper-large-v3-turbo', {
+        audio: base64Audio,
+      });
+    } catch (err1) {
+      console.warn('[STT] whisper-large-v3-turbo base64 failed, trying @cf/openai/whisper:', err1);
+      result = await env.AI.run('@cf/openai/whisper', {
+        audio: base64Audio,
+      });
+    }
 
     const text = typeof result?.text === 'string' ? result.text.trim() : '';
 
