@@ -124,7 +124,7 @@ const buildCinematicsSchema = <T extends z.ZodTypeAny>(text: T) =>
       text,
       /** 黑幕字卡下方的小字 (如“轻触推门进去”)；缺省回退到 UI 语言的“轻触屏幕唤醒” */
       subtitle: text.optional(),
-      durationSec: z.number().default(2.5),
+      durationSec: z.number().min(0).max(60).default(2.5),
       style: z.enum(['noto_serif', 'modern_sans', 'typewriter']).default('noto_serif'),
       bgmFaded: z.boolean().default(true),
       requireClick: z.boolean().optional().default(false),
@@ -208,8 +208,8 @@ export const AudioDirectiveSchema = z.object({
   playSfx: z.string().optional(),
   sfx: z.array(z.object({
     id: z.string(),
-    delaySec: z.number().default(0),
-    volume: z.number().default(0.8),
+    delaySec: z.number().min(0).max(60).default(0),
+    volume: z.number().min(0).max(1).default(0.8),
     /** 等本拍的镜头运动完整走完之后再开始计 delaySec (需要同拍 waitForCamera: true，否则立即触发) */
     afterCamera: z.boolean().optional(),
   })).optional(),

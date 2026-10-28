@@ -11,6 +11,14 @@ import { ChatDirector } from '../../director/chatDirector';
 import { MotionPipeline } from './motionPipeline';
 import { UniversalMotionController } from '../sources/clip';
 
+/** 合法 GLB 头 ('glTF' + version 2 + length) 的测试缓冲 */
+function glbBuffer(size = 64): ArrayBuffer {
+  const buf = new ArrayBuffer(size);
+  const u8 = new Uint8Array(buf);
+  u8.set([0x67, 0x6c, 0x54, 0x46, 2, 0, 0, 0], 0);
+  return buf;
+}
+
 describe('MotionAssetManager & MOTION_GROUPS Architecture', () => {
   let manager: MotionAssetManager;
 
@@ -21,7 +29,7 @@ describe('MotionAssetManager & MOTION_GROUPS Architecture', () => {
 
   describe('MotionAssetManager (Two-Tier Buffer Cache & L3 Clip Pool)', () => {
     it('caches fetched ArrayBuffer in L1 memory pool for 0ms second hit', async () => {
-      const mockBuf = new ArrayBuffer(64);
+      const mockBuf = glbBuffer(64);
       const fetchSpy = vi.spyOn(globalThis, 'fetch').mockImplementation(async () => {
         return new Response(mockBuf.slice(0), { status: 200 });
       });
@@ -35,6 +43,28 @@ describe('MotionAssetManager & MOTION_GROUPS Architecture', () => {
       const buf2 = await manager.fetchBuffer(url);
       expect(buf2).toBe(buf1);
       expect(fetchSpy).toHaveBeenCalledTimes(1);
+    });
+
+    it('does not cache buffers without glTF magic bytes in L1', async () => {
+      const fetchSpy = vi.spyOn(globalThis, 'fetch').mockImplementation(async () => {
+        return new Response('<!doctype html><html></html>', { status: 200 });
+      });
+      const url = '/vrm/motion/not-a-glb.vrma';
+      await manager.fetchBuffer(url);
+      expect(manager.getBufferSync(url)).toBeNull();
+      await manager.fetchBuffer(url);
+      expect(fetchSpy).toHaveBeenCalledTimes(2);
+    });
+
+    it('drops warmup parse results when the bound VRM generation changed mid-flight', async () => {
+      vi.spyOn(globalThis, 'fetch').mockImplementation(async () => new Response(glbBuffer(128), { status: 200 }));
+      const fakeVrm = { scene: new THREE.Group() } as any;
+      const parseSpy = vi.fn().mockImplementation(async () => {
+        manager.invalidateBoundClips(); // 解析途中换模型
+        return new THREE.AnimationClip('stale', 1.0, []);
+      });
+      await manager.warmCatalogMotions(fakeVrm, parseSpy);
+      expect(manager.hasClip('thinking')).toBe(false);
     });
 
     it('clears L3 bound clips on invalidateBoundClips() while preserving L1 memory buffers', () => {
@@ -57,7 +87,7 @@ describe('MotionAssetManager & MOTION_GROUPS Architecture', () => {
 
     it('pre-warms catalog motions marked with warmup: true', async () => {
       vi.spyOn(globalThis, 'fetch').mockImplementation(async () => {
-        return new Response(new ArrayBuffer(128), { status: 200 });
+        return new Response(glbBuffer(128), { status: 200 });
       });
 
       const fakeVrm = { scene: new THREE.Group() } as any;

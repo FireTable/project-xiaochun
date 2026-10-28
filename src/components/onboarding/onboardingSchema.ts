@@ -5,7 +5,7 @@ import { changeLang } from '@/i18n';
 import { isTauri } from '@/lib/platform';
 import { setActiveProviderId } from '@/llm/customProvider';
 import { preloadWebLLM } from '@/llm/webLLMProvider';
-import { WEARING_OUTFIT_KEY } from '@/lib/constants';
+import { changeOutfit, persistWearingOutfit, resolveOutfit } from '@/lib/outfit';
 import { createElement, type ReactNode } from 'react';
 import { Ghost } from 'lucide-react';
 import type { TFunction, i18n as I18nInstance } from 'i18next';
@@ -280,15 +280,15 @@ export const createOnboardingSteps = (t: TFunction, i18n: I18nInstance): Record<
     getChoices: (ctx) => {
       const handleSelectOutfit = async (outfitKey: string) => {
         try {
-          localStorage.setItem(WEARING_OUTFIT_KEY, outfitKey);
           // 当前穿戴的服装 (默认为 xiaochun_dinner_dress)
           const currentOutfit = vrmEngine.currentOutfitKey || 'xiaochun_dinner_dress';
-          // 本质上已经是同一套就没必要重新触发换装
-          if (currentOutfit !== outfitKey) {
-            const addon = APP_CONFIG.model.addons[outfitKey];
-            if (addon) {
-              await vrmEngine.swapOutfit(addon.source, addon.name);
-            }
+          if (currentOutfit === outfitKey) {
+            // 本质上已经是同一套就没必要重新触发换装
+            persistWearingOutfit(outfitKey);
+          } else {
+            // 与 TopHeader / 剧情试衣卡共用 changeOutfit: 换装真正落地后才落盘; 被更新请求顶掉 / 失败都不写偏好
+            const target = resolveOutfit(outfitKey);
+            if (target) await changeOutfit(target);
           }
         } catch (e) {
           console.warn('[OnboardingTour] swap outfit error:', e);

@@ -402,6 +402,22 @@ export async function makeSecMsGec(unixTimestamp?: number): Promise<string> {
     return generateSecMsGecV2(unixTimestamp);
 }
 
+/** 单次合成文本长度上限 (客户端已按句切片, 正常请求远低于此值)。 */
+export const TTS_MAX_TEXT_LENGTH = 2000;
+
+/** Edge 神经语音名白名单: zh-CN-XiaoyiNeural / zh-CN-liaoning-XiaobeiNeural / en-US-Ava:DragonHDLatestNeural。 */
+const TTS_VOICE_RE = /^[a-z]{2,3}-[A-Z]{2}(?:-[A-Za-z]+)?-[A-Za-z0-9:]+Neural$/;
+/** prosody 数值 (pitch / rate / volume): +10Hz / +0% / -2st / 5。 */
+const TTS_PROSODY_RE = /^[+-]?\d{1,3}(\.\d+)?(%|Hz|st)?$/;
+
+export function isValidTTSVoice(voice: unknown): voice is string {
+    return typeof voice === 'string' && voice.length <= 80 && TTS_VOICE_RE.test(voice);
+}
+
+export function isValidTTSProsody(value: unknown): value is string {
+    return typeof value === 'string' && value.length <= 12 && TTS_PROSODY_RE.test(value);
+}
+
 export function normalizeVoiceName(voice: string): string {
     const match = /^([a-z]{2,})-([A-Z]{2,})-(.+Neural)$/.exec(voice.trim());
     if (match) {
@@ -434,6 +450,10 @@ export function buildEdgeTTSPayloads(
     rate: string = '+0%',
     volume: string = '+0%',
 ) {
+    // 纵深防御: 这些值会被拼进 SSML 属性, 非白名单格式一律拒绝 (防 SSML 注入)
+    if (!isValidTTSVoice(voice) || !isValidTTSProsody(pitch) || !isValidTTSProsody(rate) || !isValidTTSProsody(volume)) {
+        throw new Error('invalid tts parameter');
+    }
     const reqId = makeConnectionId();
     const ts = new Date().toISOString().replace(/[-:.]/g, '').slice(0, -1);
     const formattedVoice = normalizeVoiceName(voice);

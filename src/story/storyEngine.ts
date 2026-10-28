@@ -75,6 +75,11 @@ export class StoryDirectorEngine {
   /** 进入故事前的用户视角偏好；finish 时还原 */
   private viewPrefs: ViewPrefsSnapshot | null = null;
   private executionSequence = 0;
+  /** finish() 的次数: 异步生成下一拍期间如果剧情被结束 / 跳过, 调用方据此丢弃迟到的结果。 */
+  private finishCount = 0;
+  public get finishEpoch(): number {
+    return this.finishCount;
+  }
   private i18nInstance: I18nInstance | null = null;
   private storyLang: StoryLang | null = null;
   /** 最近一次带 branch 的选项 (本剧本内粘性)，决定后续拍用哪份 variants */
@@ -168,6 +173,15 @@ export class StoryDirectorEngine {
 
   private notify(): void {
     this.listeners.forEach((fn) => fn(this.state));
+  }
+
+  /** 起势 / 主干动作是 fire-and-forget: 失败 (动作文件缺失 / 模型未就绪) 只记日志, 不产生 unhandled rejection。 */
+  private async playMotionQuiet(motionId: string, fadeDuration: number): Promise<void> {
+    try {
+      await vrmEngine.playMotion(motionId, { fadeDuration, loop: false });
+    } catch (e) {
+      console.warn('[StoryEngine] playMotion failed:', motionId, e);
+    }
   }
 
   private sleep(ms: number): Promise<void> {
@@ -496,10 +510,7 @@ export class StoryDirectorEngine {
     // 4. 起势动作 (0.4s Lead-in)
     // ⚠️ 规则：起势动作必须是单次非循环 (loop: false)，绝不允许死循环锁定肢体！它会自然播完，不会被开声打断。
     if (beat.actor.leadInMotion) {
-      void vrmEngine.playMotion(beat.actor.leadInMotion, {
-        fadeDuration: 0.6,
-        loop: false,
-      });
+      void this.playMotionQuiet(beat.actor.leadInMotion, 0.6);
     }
 
     // 5. 调度 BGM / 环境声 / 音效 (镜头先行的拍已经在上面开始了)
@@ -519,10 +530,7 @@ export class StoryDirectorEngine {
 
     // 如果当前拍明确指定了全程特定动作 (例如 show-full-body 全身旋转展示)
     if (beat.actor.motion) {
-      void vrmEngine.playMotion(beat.actor.motion, {
-        fadeDuration: 0.75,
-        loop: false,
-      });
+      void this.playMotionQuiet(beat.actor.motion, 0.75);
     }
 
     const speechStartedAt = Date.now();
@@ -856,7 +864,9 @@ export class StoryDirectorEngine {
         this.state.isOutfitSwapping = true;
         this.notify();
         try {
-          await changeOutfit(target, { showcase: false });
+          const applied = await changeOutfit(target, { showcase: false });
+          // false = 被更新的换装请求顶掉, 这次什么都没换: 不高亮这张卡、不放走秀动作 (由顶掉它的那次负责)
+          if (applied === false) return;
         } catch (err) {
           console.warn('[StoryEngine] outfit swap failed:', err);
           return; // 没换成：不高亮这张卡、不放走秀动作
@@ -949,6 +959,7 @@ export class StoryDirectorEngine {
    * 结束当前剧本并彻底重置舞台、镜头与音画
    */
   public finish(): void {
+    ++this.finishCount;
     ++this.executionSequence;
     this.currentBeatId = null;
     this.interrupt();

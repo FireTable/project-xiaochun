@@ -13,6 +13,7 @@
  */
 import { vrmEngine, type LoadingState } from '@/core/vrmEngine';
 import { resolveMotionUrl } from '@/motion/motionResolver';
+import { safeAssetUrl } from '@/core/protocol/assetUrl';
 import { type MotionGroupName, MOTION_GROUPS } from '@/motion/catalog';
 import { idbGet, idbPut } from '@/lib/idb-vrm-cache';
 import { APP_CONFIG } from '@/config';
@@ -157,17 +158,6 @@ const clamp = (v: unknown, [lo, hi]: [number, number], fallback: number): number
   return Math.min(hi, Math.max(lo, n));
 };
 
-/** 只放行 https:// 或同源地址, 且扩展名在白名单内; 否则返回 null。 */
-function safeAssetUrl(raw: unknown, exts: string[]): string | null {
-  if (typeof raw !== 'string' || !raw) return null;
-  let u: URL;
-  try { u = new URL(raw, window.location.origin); } catch { return null; }
-  const sameOrigin = u.origin === window.location.origin;
-  if (!sameOrigin && u.protocol !== 'https:') return null;
-  if (!exts.some((e) => u.pathname.toLowerCase().endsWith(e))) return null;
-  return u.href;
-}
-
 function waitModelReady(): Promise<void> {
   if (vrmEngine.isReady()) return Promise.resolve();
   return new Promise((resolve, reject) => {
@@ -215,7 +205,12 @@ export function startEmbedBridge(opts: EmbedBridgeOptions): EmbedBridge {
       const e = ownEntry(APP_CONFIG.model.addons as Record<string, { source: string; name: string }>, id);
       if (!e) return;
       setPickerState({ loading: id });
-      try { await vrmEngine.swapOutfit(e.source, e.name); writeOutfitPref(safeLocalStorage(), WEARING_OUTFIT_KEY, id); setPickerState({ outfit: id }); } catch { pickerNotice('failed'); } finally { setPickerState({ loading: null }); }
+      let superseded = false;
+      try {
+        // false = 被更新的换装请求顶掉: 不写偏好 / 不标记已穿; loading 也留给顶掉它的那次去清, 否则 spinner 提前消失
+        if ((await vrmEngine.swapOutfit(e.source, e.name)) === false) { superseded = true; return; }
+        writeOutfitPref(safeLocalStorage(), WEARING_OUTFIT_KEY, id); setPickerState({ outfit: id });
+      } catch { pickerNotice('failed'); } finally { if (!superseded) setPickerState({ loading: null }); }
     },
     async pickScene(id) { if (ownEntry(APP_CONFIG.scenes.items, id)) await sceneManager.setScene(id, true); },
     pickLang(lang) { opts.onLang(lang); writeLangPref(safeLocalStorage(), EMBED_LANG_KEY, lang); },
@@ -454,7 +449,10 @@ export function startEmbedBridge(opts: EmbedBridgeOptions): EmbedBridge {
     }
     swapTarget = job.id;
     setPickerState({ loading: job.id });
-    try { await vrmEngine.swapOutfit(job.url, job.name); } finally { swapTarget = null; setPickerState({ loading: null }); }
+    let applied: boolean;
+    try { applied = await vrmEngine.swapOutfit(job.url, job.name); } finally { swapTarget = null; setPickerState({ loading: null }); }
+    // false = 被队列外更新的换装请求顶掉, 这次什么都没换: 不写偏好 / 不标记已穿, 按 noop 回报
+    if (applied === false) return { changed: false, id: previous, name: loadedModel ?? job.name, previous };
     currentOutfit = job.id;
     if (job.id !== null) writeOutfitPref(safeLocalStorage(), WEARING_OUTFIT_KEY, job.id); // 按钮 / xc.setOutfit / xc.setModel{outfit} 都走这里: 写回 iframe 自己的存储
     setPickerState({ outfit: job.id });
@@ -891,6 +889,8 @@ export function startEmbedBridge(opts: EmbedBridgeOptions): EmbedBridge {
     prefetcher.close();
     window.removeEventListener('message', onWindowMessage);
     if (readyTimer) clearInterval(readyTimer);
+    hitGate.dispose();
+    readyOff();
     gestures.dispose();
     sttOff?.();
     void stt?.stop(false).catch(() => {});

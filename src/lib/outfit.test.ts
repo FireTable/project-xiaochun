@@ -36,6 +36,10 @@ describe('outfit (single entry for header menu + story try-on cards)', () => {
     expect(resolveOutfit('maid')?.key).toBe('xiaochun_maid');
     expect(resolveOutfit('base')?.key).toBeNull();
     expect(resolveOutfit('nope')).toBeNull();
+    // 原型链上的键不是衣服
+    expect(resolveOutfit('constructor')).toBeNull();
+    expect(resolveOutfit('__proto__')).toBeNull();
+    expect(resolveOutfit('toString')).toBeNull();
   });
 
   it('swaps and persists WEARING_OUTFIT_KEY after the swap lands', async () => {

@@ -94,4 +94,28 @@ describe('StoryGenerator (Dynamic AI Director)', () => {
     generator.reset();
     expect((generator as any).history.length).toBe(0);
   });
+
+  it('when the whole beat fails the schema, each sub-object is validated on its own and bad ones fall back to defaults', () => {
+    const generator = new StoryGenerator();
+    const raw = JSON.stringify({
+      camera: { shot: 'not-a-shot', durationSec: 999 }, // 坏镜头 -> 默认镜头
+      actor: {
+        leadInMotion: 'definitelyNotAMotion', // 不在 MOTION_CATALOG -> pokeFingers
+        motion: 'listening', // 合法 -> 保留
+        expression: { base: 'gentle_smile', intensity: 0.5 }, // 合法 -> 保留
+        speechText: '这句台词保留',
+      },
+      audio: { bgmVolume: 7 }, // 坏音频 -> 默认
+      choices: [{ id: 'ok', text: '好的' }, { id: 5, text: null }],
+    });
+    // 让整体校验必然失败, 走逐块回落路径
+    const beat = (generator as any).parseAndValidateBeat(JSON.stringify({ ...JSON.parse(raw), cinematics: 'bad' }), 'b1', '', false);
+    expect(beat.camera).toEqual({ shot: 'close_up', movement: 'push_in', durationSec: 1.5 });
+    expect(beat.actor.leadInMotion).toBe('pokeFingers');
+    expect(beat.actor.motion).toBe('listening');
+    expect(beat.actor.expression.intensity).toBe(0.5);
+    expect(beat.actor.speechText).toBe('这句台词保留');
+    expect(beat.audio).toEqual({ bgmMood: 'gentle_daily' });
+    expect(beat.choices.some((c: { id: string }) => c.id === 'ok')).toBe(true);
+  });
 });

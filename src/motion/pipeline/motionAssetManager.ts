@@ -5,6 +5,13 @@ import { MOTION_CATALOG } from '../catalog';
 import { makeClipSeamless } from '../vrmaRetarget';
 import type { PlayMotionOptions } from '../sources/clip';
 
+/** .vrma 是 glTF 二进制容器 (GLB), 头 4 字节固定为 'glTF'。HTML 错误页 / 空体 / 旧格式一律不入缓存。 */
+export function hasGlbMagic(buf: ArrayBuffer): boolean {
+  if (buf.byteLength < 12) return false;
+  const head = new Uint8Array(buf, 0, 4);
+  return head[0] === 0x67 && head[1] === 0x6c && head[2] === 0x54 && head[3] === 0x46;
+}
+
 /**
  * MotionAssetManager — 全局动作资产两级缓存与预热管理中心
  * 
@@ -26,6 +33,9 @@ export class MotionAssetManager {
   /** 正在进行的网络拉取 Promise，防止高并发下重复 fetch 相同 URL */
   private inflightFetches = new Map<string, Promise<ArrayBuffer>>();
 
+  /** L3 代次: 每次换模型 / 清池递增, 预热中的解析结果若跨代则丢弃 (clip 绑定的是旧 VRM 骨骼树) */
+  private boundGeneration = 0;
+
   /**
    * 获取或拉取动作二进制 ArrayBuffer (L1 内存 -> L2 IndexedDB -> Network)
    */
@@ -42,7 +52,7 @@ export class MotionAssetManager {
       // 3. L2 IndexedDB 持久化查询
       try {
         const idbHit = await idbGetMotion(url, version);
-        if (idbHit) {
+        if (idbHit && hasGlbMagic(idbHit)) {
           this.l1BufferPool.set(url, idbHit);
           return idbHit;
         }
@@ -57,7 +67,8 @@ export class MotionAssetManager {
       }
       const buffer = await resp.arrayBuffer();
 
-      // 5. 写入 L1 & L2
+      // 5. 写入 L1 & L2 (仅 glTF 魔数合法的缓冲, 避免把 HTML 错误页之类缓存成动作)
+      if (!hasGlbMagic(buffer)) return buffer;
       this.l1BufferPool.set(url, buffer);
       void idbPutMotion(url, version, buffer).catch((err) => {
         console.warn('[MotionAssetManager] L2 IndexedDB 写入失败:', err);
@@ -86,7 +97,7 @@ export class MotionAssetManager {
    */
   setBuffer(url: string, buffer: ArrayBuffer, persistToIdb = true): void {
     this.l1BufferPool.set(url, buffer);
-    if (persistToIdb) {
+    if (persistToIdb && hasGlbMagic(buffer)) {
       void idbPutMotion(url, undefined, buffer).catch(() => {});
     }
   }
@@ -118,6 +129,7 @@ export class MotionAssetManager {
    * 同时保留 L1/L2 二进制池以实现毫秒级快速重建。
    */
   invalidateBoundClips(): void {
+    this.boundGeneration++;
     this.l3ClipPool.clear();
   }
 
@@ -131,6 +143,7 @@ export class MotionAssetManager {
     clipParser: (input: string | ArrayBuffer, vrm: VRM, options?: PlayMotionOptions) => Promise<THREE.AnimationClip>,
   ): Promise<void> {
     const warmupTasks: Promise<void>[] = [];
+    const generation = this.boundGeneration;
 
     for (const rawItem of Object.values(MOTION_CATALOG)) {
       const item = rawItem as any;
@@ -146,6 +159,9 @@ export class MotionAssetManager {
           if (item.loop) {
             makeClipSeamless(clip, item.fadeDuration);
           }
+
+          // 解析期间若已换模型 / 清池, 这个 clip 绑的是旧骨骼树, 丢弃
+          if (generation !== this.boundGeneration) return;
 
           // 注册两个键：一个使用 catalog ID，一个使用 URL，确保无论调用方传 ID 还是 URL 都能命中 L3
           this.l3ClipPool.set(item.id, clip);
@@ -165,6 +181,7 @@ export class MotionAssetManager {
    * 清空所有内存缓存（L1 和 L3）
    */
   clearMemoryPool(): void {
+    this.boundGeneration++;
     this.l1BufferPool.clear();
     this.l3ClipPool.clear();
     this.inflightFetches.clear();

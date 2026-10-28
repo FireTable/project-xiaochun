@@ -8,7 +8,16 @@
  */
 
 import { jsonrepair } from 'jsonrepair';
-import { StoryBeatSchema, type StoryBeat, type StoryChoice } from './schema';
+import {
+  AudioDirectiveSchema,
+  CameraDirectiveSchema,
+  ExpressionDirectiveSchema,
+  StoryBeatSchema,
+  StoryChoiceSchema,
+  type StoryBeat,
+  type StoryChoice,
+} from './schema';
+import { isMotionCatalogId } from '@/motion/catalog';
 import { getActiveChatRunner } from '@/llm/chatWorkflow';
 import type { ChatMessage } from '@/llm/chatTypes';
 
@@ -233,22 +242,41 @@ export class StoryGenerator {
         return result.data as StoryBeat;
       }
       console.warn('[StoryGenerator] Schema safeParse warning, fields adapted:', result.error.format());
+      // 整体校验失败时逐个子对象单独校验, 坏的那块回落到默认值, 其余字段保留
+      const camera = CameraDirectiveSchema.safeParse(json.camera);
+      const expression = ExpressionDirectiveSchema.safeParse(json.actor?.expression);
+      const audio = AudioDirectiveSchema.safeParse(json.audio);
+      const rawSpeech = typeof json.actor?.speechText === 'string' ? json.actor.speechText.trim() : '';
+      const motionOrUndefined = (v: unknown): string | undefined =>
+        typeof v === 'string' && isMotionCatalogId(v) ? v : undefined;
+      const choices = Array.isArray(json.choices)
+        ? json.choices.flatMap((c: unknown) => {
+            const parsed = StoryChoiceSchema.safeParse(c);
+            return parsed.success ? [parsed.data as StoryChoice] : [];
+          })
+        : [];
       return {
         id: beatId,
         cinematics: { letterbox: true },
-        camera: json.camera || { shot: 'close_up', movement: 'push_in', durationSec: 1.5 },
+        camera: camera.success ? camera.data : { shot: 'close_up', movement: 'push_in', durationSec: 1.5 },
         actor: {
-          leadInMotion: json.actor?.leadInMotion || 'pokeFingers',
-          motion: json.actor?.motion || undefined,
-          expression: json.actor?.expression || {
-            base: isInterruption ? 'surprised' : 'gentle_smile',
-            intensity: 0.8,
-            microReaction: isInterruption ? 'sudden_shock' : 'blush_ramp',
-          },
-          speechText: json.actor?.speechText || (isInterruption ? '诶……！？你突然打断我，吓我一跳～' : '呼……既然你这么说，那我们就继续吧！'),
+          leadInMotion: motionOrUndefined(json.actor?.leadInMotion) ?? 'pokeFingers',
+          motion: motionOrUndefined(json.actor?.motion),
+          expression: expression.success
+            ? expression.data
+            : {
+                base: isInterruption ? 'surprised' : 'gentle_smile',
+                intensity: 0.8,
+                microReaction: isInterruption ? 'sudden_shock' : 'blush_ramp',
+              },
+          speechText: rawSpeech
+            ? rawSpeech.slice(0, 600)
+            : isInterruption
+              ? '诶……！？你突然打断我，吓我一跳～'
+              : '呼……既然你这么说，那我们就继续吧！',
         },
-        audio: json.audio || { bgmMood: 'gentle_daily' },
-        choices: (json.choices as StoryChoice[]) || this.getDefaultChoices(),
+        audio: audio.success ? audio.data : { bgmMood: 'gentle_daily' },
+        choices: choices.length > 0 ? choices : this.getDefaultChoices(),
       };
     } catch (e) {
       console.warn('[StoryGenerator] JSON 解析修复失败，回退到兜底剧本:', e, 'Raw output:', rawText);
@@ -359,8 +387,11 @@ export class StoryGenerator {
     isInterruption?: boolean;
     interruptedSpeech?: string;
   }): Promise<StoryBeat> {
-    const beat = await this.generateNextBeat(params);
     const { storyDirectorEngine } = await import('./storyEngine');
+    const epoch = storyDirectorEngine.finishEpoch;
+    const beat = await this.generateNextBeat(params);
+    // 生成 (最长 ~6.5s) 期间用户已跳过 / 退出剧情: 迟到的这一拍不再演出, 免得退出后角色又开始念台词
+    if (storyDirectorEngine.finishEpoch !== epoch) return beat;
     await storyDirectorEngine.executeBeat(beat);
     return beat;
   }

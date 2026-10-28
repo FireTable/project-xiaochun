@@ -1,7 +1,10 @@
 import { vrmEngine } from '@/core/vrmEngine';
 import { type MotionGroupName, MOTION_GROUPS } from '@/motion/catalog';
 import type { CameraDirective, CameraShotType, CameraTrajectoryType } from '@/story/schema';
+import { MOTION_FILES, resolveMotionUrl } from '@/motion/motionResolver';
+import { isMotionCatalogId } from '@/motion/catalog';
 import { resolveWholeAudio } from './audio';
+import { safeAssetUrl } from './assetUrl';
 import {
   ProtocolError,
   type AudioPayload,
@@ -55,6 +58,28 @@ async function runAudio(payload: AudioPayload, hooks?: ProtocolRunHooks): Promis
   });
 }
 
+/** 数值入参: 缺省 / 空串 / 纯空白当作缺失 (Number('') 会悄悄变成 0); 其余转 Number, 非有限数也当缺失。 */
+function optionalNumber(v: unknown): number | undefined {
+  if (!v) return undefined;
+  if (typeof v === 'string' && v.trim() === '') return undefined;
+  const n = Number(v);
+  return Number.isFinite(n) ? n : undefined;
+}
+
+/**
+ * motion 指令的 url / name 能不能放行: 内置 id / 别名直接过; 带协议 (含 javascript: / data: / http:) 或 // 开头的按原样过 safeAssetUrl
+ * (必须 https 或同源, 且 .vrma); 其余相对名字由 resolveMotionUrl 落到同源 /vrm/motion/ 下。
+ * 注意不能先 resolveMotionUrl 再校验: 它会把 'javascript:x' 之类拼成 /vrm/motion/javascript:x.vrma 而蒙混过关。
+ */
+function isSafeMotionTarget(target: string): boolean {
+  if (isMotionCatalogId(target) || Object.hasOwn(MOTION_FILES, target)) return true;
+  if (/^([a-z][a-z0-9+.-]*:|\/\/)/i.test(target)) return safeAssetUrl(target, ['.vrma']) !== null;
+  return safeAssetUrl(resolveMotionUrl(target), ['.vrma']) !== null;
+}
+
+const clampRange = (n: number, lo: number, hi: number): number => Math.min(hi, Math.max(lo, n));
+const EASINGS: readonly string[] = ['quintic_smooth', 'ease_out_dramatic', 'linear'];
+
 function normalizeCameraDirective(payload: CameraPayload): CameraDirective {
   const rawShot = (payload.shot || '').toLowerCase().trim();
   let shot: CameraShotType = 'medium';
@@ -91,21 +116,22 @@ function normalizeCameraDirective(payload: CameraPayload): CameraDirective {
   }
 
   const rawDuration = payload.duration !== undefined ? payload.duration : payload.durationSec;
-  const durationSec = rawDuration ? Number(rawDuration) : 1.2;
+  const durationSec = optionalNumber(rawDuration) ?? 1.2;
   const rawFov = payload.fov !== undefined ? payload.fov : payload.targetFov;
-  const targetFov = rawFov ? Number(rawFov) : undefined;
+  const targetFov = optionalNumber(rawFov);
   const rawOrbit = payload.orbit !== undefined ? payload.orbit : payload.orbitAngleDeg;
-  const orbitAngleDeg = rawOrbit ? Number(rawOrbit) : undefined;
-  const windMultiplier = payload.windMultiplier ? Number(payload.windMultiplier) : 1.0;
+  const orbitAngleDeg = optionalNumber(rawOrbit);
+  const windMultiplier = optionalNumber(payload.windMultiplier) ?? 1.0;
 
   return {
     shot,
     movement,
-    durationSec: Number.isFinite(durationSec) ? Math.min(12, Math.max(0.2, durationSec)) : 1.2,
-    easing: payload.easing || 'quintic_smooth',
-    targetFov: Number.isFinite(targetFov) ? targetFov : undefined,
-    orbitAngleDeg: Number.isFinite(orbitAngleDeg) ? orbitAngleDeg : undefined,
-    windMultiplier: Number.isFinite(windMultiplier) ? windMultiplier : 1.0,
+    durationSec: clampRange(durationSec, 0.2, 12),
+    easing: EASINGS.includes(payload.easing as string) ? payload.easing : 'quintic_smooth',
+    // 范围与 story/schema 的 CameraDirectiveSchema 一致
+    targetFov: targetFov === undefined ? undefined : clampRange(targetFov, 15, 65),
+    orbitAngleDeg: orbitAngleDeg === undefined ? undefined : clampRange(orbitAngleDeg, -720, 720),
+    windMultiplier: clampRange(windMultiplier, 1, 3.5),
   };
 }
 
@@ -130,7 +156,7 @@ export async function runProtocolAction(message: ProtocolMessage, hooks?: Protoc
       }
       await requireVRM();
       hooks?.onStart?.({ kind: 'text', text: payload.text });
-      console.log(`[Protocol] 执行 speakText (字数: ${payload.text.length}):`, payload.text);
+      console.log(`[Protocol] 执行 speakText (字数: ${payload.text.length}):`, payload.text.slice(0, 40));
       const preserveMotion = payload.preserveMotion === true || payload.preserveMotion === 'true';
       await vrmEngine.speakText(payload.text, undefined, { preserveMotion });
       return;
@@ -166,6 +192,10 @@ export async function runProtocolAction(message: ProtocolMessage, hooks?: Protoc
       if (payload.name && payload.name in MOTION_GROUPS) {
         await vrmEngine.playMotionGroup(payload.name as MotionGroupName, opts);
         return;
+      }
+      // 外部来源的 url / name 一律过白名单 (https 或同源, .vrma); 内置名称经 resolveMotionUrl 解析后天然通过
+      if (!isSafeMotionTarget(String(target))) {
+        throw new ProtocolError('bad_request', 'motion needs a built-in name or an https/same-origin .vrma url');
       }
       await vrmEngine.playMotion(target, opts);
       return;

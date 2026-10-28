@@ -7,7 +7,10 @@ import {
     buildEdgeTTSPayloads,
     parseHeaders,
     parseBinaryFrame,
+    isValidTTSVoice,
+    isValidTTSProsody,
 } from './edge-tts-core';
+import { APP_CONFIG } from '../config';
 
 describe('edge-tts-core v2 DRM and SSML suite', () => {
     it('generates the exact reference v2 Sec-MS-GEC token for fixed timestamp', async () => {
@@ -60,5 +63,30 @@ describe('edge-tts-core v2 DRM and SSML suite', () => {
         const parsedFrame = parseBinaryFrame(frame);
         expect(parsedFrame.headers.Path).toBe('audio');
         expect(parsedFrame.body).toEqual(new Uint8Array([1, 2, 3, 4]));
+    });
+
+    it('accepts every voice / prosody value the app config actually sends', () => {
+        const { voices, defaultPitch, defaultRate, defaultVolume } = APP_CONFIG.tts;
+        for (const v of [defaultPitch, defaultRate, defaultVolume]) expect(isValidTTSProsody(v)).toBe(true);
+        for (const cfg of Object.values(voices)) {
+            expect(isValidTTSVoice(cfg.voice)).toBe(true);
+            expect(isValidTTSProsody(cfg.pitch)).toBe(true);
+            expect(isValidTTSProsody(cfg.rate)).toBe(true);
+            expect(isValidTTSProsody(cfg.volume)).toBe(true);
+        }
+        expect(isValidTTSVoice('zh-CN-liaoning-XiaobeiNeural')).toBe(true);
+        expect(isValidTTSVoice('en-US-AvaMultilingualNeural')).toBe(true);
+    });
+
+    it('rejects SSML-injection style voice / prosody values and refuses to build a payload from them', () => {
+        expect(isValidTTSVoice("x'><break/><voice name='y")).toBe(false);
+        expect(isValidTTSVoice('zh-CN-XiaoyiNeural\r\nPath:evil')).toBe(false);
+        expect(isValidTTSVoice('../../etc/passwdNeural')).toBe(false);
+        expect(isValidTTSVoice(undefined)).toBe(false);
+        expect(isValidTTSProsody("+10Hz' volume='x")).toBe(false);
+        expect(isValidTTSProsody('loud')).toBe(false);
+        expect(isValidTTSProsody('+10000%')).toBe(false);
+        expect(() => buildEdgeTTSPayloads('hi', "x'><s/>", '+10Hz')).toThrow('invalid tts parameter');
+        expect(() => buildEdgeTTSPayloads('hi', 'zh-CN-XiaoyiNeural', "+1Hz' x='")).toThrow('invalid tts parameter');
     });
 });

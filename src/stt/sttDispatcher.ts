@@ -101,11 +101,13 @@ export async function transcribeRemote(
 
   const abortController = new AbortController();
   const timer = setTimeout(() => abortController.abort(), REMOTE_TIMEOUT_MS);
+  const onExternalAbort = () => {
+    clearTimeout(timer);
+    abortController.abort();
+  };
   if (signal) {
-    signal.addEventListener('abort', () => {
-      clearTimeout(timer);
-      abortController.abort();
-    });
+    if (signal.aborted) onExternalAbort();
+    else signal.addEventListener('abort', onExternalAbort, { once: true });
   }
 
   try {
@@ -186,5 +188,6 @@ export async function transcribeRemote(
     throw err;
   } finally {
     clearTimeout(timer);
+    signal?.removeEventListener('abort', onExternalAbort); // 长寿命 signal 上不累积已结束请求的监听
   }
 }

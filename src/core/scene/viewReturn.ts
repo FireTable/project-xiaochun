@@ -21,6 +21,12 @@ export function lerpViewPose(from: ViewPose, to: ViewPose, t: number, out: ViewP
   return out;
 }
 
+const isFinitePose = (p: ViewPose): boolean =>
+  Number.isFinite(p.position.x + p.position.y + p.position.z) &&
+  Number.isFinite(p.target.x + p.target.y + p.target.z) &&
+  Number.isFinite(p.fov) &&
+  Number.isFinite(p.roll);
+
 export interface ViewReturnEnv {
   now: () => number;
   raf: (cb: () => void) => number;
@@ -68,9 +74,20 @@ export function runViewReturn(
 
   const resolveTo = typeof to === 'function' ? to : () => to;
 
+  // apply 抛错 (相机 / controls 在回正途中被销毁等) 时当作失败收尾: done 以 false 兑现, 调用方据此把 controls 交还给用户
+  const safeApply = (pose: ViewPose): boolean => {
+    try {
+      apply(pose);
+      return true;
+    } catch (e) {
+      console.warn('[viewReturn] apply failed, aborting return:', e);
+      finish(false);
+      return false;
+    }
+  };
+
   if (durationMs <= 0) {
-    apply(resolveTo());
-    finish(true);
+    if (safeApply(resolveTo())) finish(true);
     return { done, cancel: () => {} };
   }
 
@@ -81,11 +98,10 @@ export function runViewReturn(
     const p = Math.min(1, (env.now() - t0) / durationMs);
     const end = resolveTo();
     if (p >= 1) {
-      apply(end);
-      finish(true);
+      if (safeApply(end)) finish(true);
       return;
     }
-    apply(lerpViewPose(from, end, easeInOutCubic(p), frame));
+    if (!safeApply(lerpViewPose(from, end, easeInOutCubic(p), frame))) return;
     rafId = env.raf(step);
   };
   rafId = env.raf(step);
@@ -122,19 +138,25 @@ export class ViewReturner {
     return this.handle !== null;
   }
 
-  /** 中止进行中的回正，把相机控制权还给用户 */
+  /** 中止进行中的回正，把相机控制权还给用户 (滚转一并回正, 否则会把半截荷兰角留在相机上) */
   cancel(): void {
+    if (this.stopCurrent()) this.deps().director.setRoll(0);
+  }
+
+  /** 停掉进行中的回正并交还 controls; 返回是否真的有一次在跑。不动滚转 (run 重启时要从当前滚转接着走)。 */
+  private stopCurrent(): boolean {
     const handle = this.handle;
     this.handle = null;
-    if (!handle) return;
+    if (!handle) return false;
     const d = this.deps();
     d.setHoldFacing(false);
     handle.cancel();
     if (d.controls) d.controls.enabled = true;
+    return true;
   }
 
   async run(durationMs: number = VIEW_RETURN_MS): Promise<void> {
-    this.cancel();
+    this.stopCurrent();
     const d = this.deps();
     d.director.release();
     d.cancelIntro?.();
@@ -165,6 +187,8 @@ export class ViewReturner {
       to,
       durationMs,
       (pose) => {
+        // 终点解算偶发 NaN (模型刚销毁等): 跳过这一帧, 别把 NaN 写进相机
+        if (!isFinitePose(pose)) return;
         camera.position.copy(pose.position);
         controls.target.copy(pose.target);
         if (camera.fov !== pose.fov) {
@@ -185,6 +209,8 @@ export class ViewReturner {
     if (completed) {
       d.director.reset();
       d.settle();
+    } else {
+      d.director.setRoll(0); // 回正中途失败 (apply 抛错): 不把半截滚转留在相机上
     }
     d.restoreFacing();
   }

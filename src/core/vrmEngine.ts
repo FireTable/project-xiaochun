@@ -987,6 +987,8 @@ export class VRMEngine {
   }
 
   private handleContextLost = (event: Event): void => {
+    // GPU 已被主动释放 (releaseGpu): 丢上下文是预期内的, 不要去动渲染循环状态
+    if (this._gpuReleased) return;
     event.preventDefault();
     console.warn('[VRMEngine] WebGL context lost. Suspending rendering loop...');
     this.isRenderingSuspended = true;
@@ -997,6 +999,8 @@ export class VRMEngine {
   };
 
   private handleContextRestored = (): void => {
+    // GPU 已被主动释放: 不能在这里把渲染器又建回来 (会白占显存, 还会把渲染循环重新拉起)
+    if (this._gpuReleased) return;
     console.info('[VRMEngine] WebGL context restored. Recreating renderer context...');
     try {
       this.recreateRendererContext();

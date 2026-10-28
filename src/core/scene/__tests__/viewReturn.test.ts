@@ -201,6 +201,45 @@ describe('ViewReturner (what leaving the story resets)', () => {
     expect(s.calls).not.toContain('facing');
   });
 
+  it('cancel() also levels the roll so a half-finished dutch tilt is not left on the camera', async () => {
+    const s = setup();
+    const p = s.returner.run(1000);
+    s.advance(200);
+    expect(s.getRoll()).not.toBe(0);
+    s.returner.cancel();
+    expect(s.getRoll()).toBe(0);
+    s.advance(2000);
+    await p;
+  });
+
+  it('when apply throws, the return is aborted and the controls are handed back (not left disabled)', async () => {
+    const s = setup();
+    s.controls.update.mockImplementation(() => {
+      throw new Error('controls disposed');
+    });
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    const p = s.returner.run(1000);
+    s.advance(100);
+    await p;
+    expect(s.controls.enabled).toBe(true);
+    expect(s.hold.at(-1)).toBe(false);
+    expect(s.calls).not.toContain('settle');
+    expect(s.returner.active).toBe(false);
+    warn.mockRestore();
+  });
+
+  it('skips frames whose pose is NaN instead of writing NaN into the camera', async () => {
+    const s = setup();
+    s.deps.computeView = () => ({ position: new THREE.Vector3(NaN, 1.2, 2.2), target: new THREE.Vector3(0, 1.2, 0), fov: 30 });
+    const before = s.camera.position.toArray();
+    const p = s.returner.run(1000);
+    s.advance(500);
+    expect(s.camera.position.toArray()).toEqual(before);
+    s.advance(600);
+    await p;
+    expect(Number.isNaN(s.camera.position.x)).toBe(false);
+  });
+
   it('a new run supersedes one in flight', async () => {
     const s = setup();
     const first = s.returner.run(1000);

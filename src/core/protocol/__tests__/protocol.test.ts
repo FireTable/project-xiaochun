@@ -1,4 +1,4 @@
-import { describe, it, expect, vi } from 'vitest';
+import { describe, it, expect, vi, beforeAll, afterAll } from 'vitest';
 import {
   toProtocolUrl,
   parseProtocolUrl,
@@ -137,6 +137,14 @@ describe('protocol-url (toProtocolUrl & parseProtocolUrl)', () => {
   });
 });
 
+// handler 里的 safeAssetUrl 读 window.location.origin; node 测试环境没有 window
+beforeAll(() => {
+  vi.stubGlobal('window', { location: { origin: 'https://app.test' } });
+});
+afterAll(() => {
+  vi.unstubAllGlobals();
+});
+
 describe('runProtocolAction dispatcher', () => {
   it('dispatches motion to vrmEngine.playMotion', async () => {
     await runProtocolAction({
@@ -230,4 +238,40 @@ describe('runProtocolAction dispatcher', () => {
     expect(vrmEngine.stopSpeaking).toHaveBeenCalled();
     expect(vrmEngine.stopMotion).toHaveBeenCalled();
   });
+
+  it('rejects a motion url that is not https/same-origin .vrma, and still passes safe urls through', async () => {
+    const playMotion = vrmEngine.playMotion as unknown as ReturnType<typeof vi.fn>;
+    playMotion.mockClear();
+    for (const url of ['javascript:alert(1)', 'http://evil.test/a.vrma', 'https://evil.test/a.glb', 'data:text/plain,hi']) {
+      await expect(runProtocolAction({ action: 'motion', payload: { url } })).rejects.toMatchObject({ code: 'bad_request' });
+    }
+    expect(playMotion).not.toHaveBeenCalled();
+    await runProtocolAction({ action: 'motion', payload: { url: 'https://cdn.test/dance.vrma' } });
+    await runProtocolAction({ action: 'motion', payload: { url: '/vrm/motion/waving.vrma?v=2' } });
+    expect(playMotion).toHaveBeenCalledTimes(2);
+  });
+
+  it('clamps camera fov / orbit / duration / wind and falls back for bad easing and empty numeric strings', async () => {
+    const transition = vrmEngine.transitionCamera as unknown as ReturnType<typeof vi.fn>;
+    transition.mockClear();
+    await runProtocolAction({
+      action: 'camera',
+      payload: { shot: 'close_up', fov: 9999, orbit: -99999, duration: 500, windMultiplier: 50, easing: 'bogus' as never },
+    });
+    expect(transition.mock.calls[0][0]).toMatchObject({
+      targetFov: 65,
+      orbitAngleDeg: -720,
+      durationSec: 12,
+      windMultiplier: 3.5,
+      easing: 'quintic_smooth',
+    });
+    transition.mockClear();
+    await runProtocolAction({ action: 'camera', payload: { fov: '', orbit: '  ', duration: '', easing: 'linear' } });
+    const d = transition.mock.calls[0][0];
+    expect(d.targetFov).toBeUndefined();
+    expect(d.orbitAngleDeg).toBeUndefined();
+    expect(d.durationSec).toBe(1.2);
+    expect(d.easing).toBe('linear');
+  });
 });
+

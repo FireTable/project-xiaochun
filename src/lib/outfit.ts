@@ -24,7 +24,12 @@ export function resolveOutfit(keyOrAlias: string): OutfitTarget | null {
   if (keyOrAlias === 'base' || keyOrAlias === 'default') {
     return { key: null, source: APP_CONFIG.model.defaultSource, name: APP_CONFIG.model.defaultName };
   }
-  const key = addons[keyOrAlias] ? keyOrAlias : addons[`xiaochun_${keyOrAlias}`] ? `xiaochun_${keyOrAlias}` : null;
+  // hasOwn: 防 'constructor' / '__proto__' 之类原型链上的键被当成衣服
+  const key = Object.hasOwn(addons, keyOrAlias)
+    ? keyOrAlias
+    : Object.hasOwn(addons, `xiaochun_${keyOrAlias}`)
+      ? `xiaochun_${keyOrAlias}`
+      : null;
   return key ? { key, source: addons[key].source, name: addons[key].name } : null;
 }
 

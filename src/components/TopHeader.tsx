@@ -140,10 +140,11 @@ export const TopHeader: React.FC<TopHeaderProps> = ({
       }
       const targetUrl = addon ? addon.source : APP_CONFIG.model.defaultSource;
       const targetName = addon ? addon.name : APP_CONFIG.model.defaultName;
-      vrmEngine.swapOutfit(targetUrl, targetName).then(() => {
+      vrmEngine.swapOutfit(targetUrl, targetName).then((applied) => {
+        // applied === false: 被更新的换装请求顶掉, 这次什么都没换, 不写 key (由顶掉它的那次负责)
         // ponytail: 命中 default addon 时把 key 写回 state,菜单 ✓ 才亮,
         // 下次 refresh 直接走持久化路径,不再走 default 查找。
-        if (resolvedKey && resolvedKey !== savedKey) setWearingAddonKey(resolvedKey);
+        if (applied !== false && resolvedKey && resolvedKey !== savedKey) setWearingAddonKey(resolvedKey);
       }).catch((e) => {
         console.error('[TopHeader] cold-start swap failed:', e);
       });
@@ -162,8 +163,8 @@ export const TopHeader: React.FC<TopHeaderProps> = ({
       // loadVRM(url, name, { preserveMotion: true }) 路径。
       // 成功后 setWearingAddonKey('__upload__') — 上传菜单项显示 ✓,
       // 但 __upload__ 不写 localStorage (blob URL 临时)。
-      vrmEngine.swapOutfit(url, file.name).then(() => {
-        setWearingAddonKey(UPLOAD_KEY);
+      vrmEngine.swapOutfit(url, file.name).then((applied) => {
+        if (applied !== false) setWearingAddonKey(UPLOAD_KEY); // false = 被更新的换装顶掉, 不标记成功
       }).catch((e) => {
         console.error('[TopHeader] upload swap failed:', e);
       });

@@ -6,6 +6,9 @@ import {
   buildEdgeTTSPayloads,
   parseHeaders,
   parseBinaryFrame,
+  isValidTTSVoice,
+  isValidTTSProsody,
+  TTS_MAX_TEXT_LENGTH,
 } from '../lib/edge-tts-core';
 
 export interface TTSHandlerEnv {
@@ -412,12 +415,19 @@ export async function handleTTS(
       volume = body.volume ?? volume;
     }
 
-    const cleanText = text.trim();
-    if (!cleanText) {
-      return new Response(JSON.stringify({ error: 'text is required' }), {
+    const badRequest = (message: string) =>
+      new Response(JSON.stringify({ error: message }), {
         status: 400,
         headers: { 'Content-Type': 'application/json', ...EDGE_TTS_CONSTANTS.COMMON_CORS },
       });
+
+    const cleanText = typeof text === 'string' ? text.trim() : '';
+    if (!cleanText) return badRequest('text is required');
+    if (cleanText.length > TTS_MAX_TEXT_LENGTH) return badRequest('text too long');
+    // 白名单校验: 通过后 voice 才会进入 R2 key / SSML, 非法值既不合成也不落缓存
+    if (!isValidTTSVoice(voice)) return badRequest('invalid voice');
+    if (!isValidTTSProsody(pitch) || !isValidTTSProsody(rate) || !isValidTTSProsody(volume)) {
+      return badRequest('invalid prosody parameter');
     }
 
     const hashKey = await computeTextHash(cleanText, voice, pitch, rate, volume);
@@ -569,13 +579,10 @@ export async function handleTTS(
     const reasons = e instanceof Error ? (e as Error & { reasons?: string[] }).reasons : undefined;
     console.error('[TTS Handle Error]:', msg, reasons ? { reasons } : '');
 
-    const body: Record<string, unknown> = { error: msg };
-    if (reasons && reasons.length > 0) {
-      body.reasons = reasons;
-    }
-
-    return new Response(JSON.stringify(body), {
-      status: 502,
+    // 上游细节只进服务端日志, 对客户端返回通用文案
+    const isBadBody = e instanceof SyntaxError;
+    return new Response(JSON.stringify({ error: isBadBody ? 'invalid request body' : 'TTS synthesis failed' }), {
+      status: isBadBody ? 400 : 502,
       headers: { 'Content-Type': 'application/json', ...EDGE_TTS_CONSTANTS.COMMON_CORS },
     });
   }

@@ -159,6 +159,8 @@ export const StoryPlayer: React.FC<StoryPlayerProps> = ({
           userInput: `用户选择了: "${choice.text}" (${choice.subText || ''})`,
           isInterruption: false,
         });
+      } catch (e) {
+        console.warn('[StoryPlayer] generate/play next beat failed:', e);
       } finally {
         setIsGenerating(false);
       }
@@ -189,6 +191,8 @@ export const StoryPlayer: React.FC<StoryPlayerProps> = ({
           isInterruption: wasSpeaking,
           interruptedSpeech,
         });
+      } catch (e) {
+        console.warn('[StoryPlayer] generate/play next beat failed:', e);
       } finally {
         setIsGenerating(false);
       }
