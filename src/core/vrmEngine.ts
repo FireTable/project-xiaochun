@@ -1,7 +1,7 @@
 import * as THREE from 'three';
 import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js';
 import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
-import { VRM, VRMLoaderPlugin, VRMUtils, type VRMExpressionPresetName } from '@pixiv/three-vrm';
+import { VRM, VRMLoaderPlugin, VRMUtils } from '@pixiv/three-vrm';
 // @pixiv/three-vrm inlines stock MToon in its bundle — load fork explicitly (pnpm override → packages/...)
 import { MToonMaterial, MToonMaterialLoaderPlugin } from '@pixiv/three-vrm-materials-mtoon';
 
@@ -1956,20 +1956,10 @@ export class VRMEngine {
     }
   }
 
-  public setExpression(name: string): void {
+  public setExpression(name: string, intensity?: number): void {
     if (!this.currentVRM?.expressionManager) return;
     this.manualExpression = name === 'neutral' ? null : name;
-    const mgr = this.currentVRM.expressionManager;
-    const presets: VRMExpressionPresetName[] = [
-      'happy', 'angry', 'sad', 'relaxed', 'surprised', 'neutral', 'aa', 'ih', 'ou', 'ee', 'oh'
-    ];
-    presets.forEach((p) => {
-      try { mgr.setValue(p, 0); } catch { }
-    });
-    if (name !== 'neutral') {
-      try { mgr.setValue(name as VRMExpressionPresetName, 1); } catch { }
-    }
-    mgr.update();
+    expressionController.setExpression(name, intensity);
   }
 
   // ── 模型生命周期加载 ──

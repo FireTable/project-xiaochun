@@ -1,5 +1,5 @@
 import type { VRM } from '@pixiv/three-vrm';
-import type { ExpressionDirective, EmotionBase, EmotionMicroReaction } from '@/story/schema';
+import type { ExpressionDirective, EmotionMicroReaction } from '@/story/schema';
 
 export interface ExpressionControllerConfig {
   /** 基础情绪过渡阻尼速度 (越大过渡越快，默认 7.5，约 0.35s 完成) */
@@ -10,18 +10,33 @@ export interface ExpressionControllerConfig {
   speechMouthDucking: number;
 }
 
+export const PRESET_EMOTION_MAP: Record<string, string> = {
+  neutral: 'neutral',
+  happy: 'gentle_smile',
+  gentle_smile: 'gentle_smile',
+  smile: 'gentle_smile',
+  angry: 'angry',
+  sad: 'sad_longing',
+  sad_longing: 'sad_longing',
+  relaxed: 'relaxed',
+  surprised: 'surprised',
+  shy: 'shy',
+  playful: 'playful',
+  hesitant: 'hesitant',
+};
+
 export class ExpressionController {
   private config: ExpressionControllerConfig = {
     emotionDampSpeed: 7.5,
-    breathOscillationAmp: 0.02,
+    breathOscillationAmp: 0.015,
     speechMouthDucking: 0.25,
   };
 
-  /** 是否处于故事剧场接管状态。非故事模式下保持 false，完全由 GazeController 维持自然纯净素颜 */
+  /** 是否处于表情接管状态 (故事剧场或 DevDrawer 手动表情)。若非激活且已平滑衰减至 neutral，放行让 Gaze 接管 */
   private isActive = false;
 
   // 当前实时计算权重 (0.0 ~ 1.0)
-  private currentWeights: Record<EmotionBase, number> = {
+  private currentWeights: Record<string, number> = {
     neutral: 1.0,
     gentle_smile: 0.0,
     hesitant: 0.0,
@@ -29,10 +44,12 @@ export class ExpressionController {
     surprised: 0.0,
     sad_longing: 0.0,
     playful: 0.0,
+    angry: 0.0,
+    relaxed: 0.0,
   };
 
   // 目标情绪与强度 (默认纯净 neutral，强度 0)
-  private targetEmotion: EmotionBase = 'neutral';
+  private targetEmotion: string = 'neutral';
   private targetIntensity = 0.0;
 
   // 戏剧微反应事件状态
@@ -40,9 +57,6 @@ export class ExpressionController {
   private microReactionTimer = 0;
   private blushIntensity = 0.0;
   private breathClock = 0;
-
-  // 外部强制覆盖 (支持 devDrawer 或调试)
-  private manualOverride: string | null = null;
 
   public setActive(active: boolean): void {
     this.isActive = active;
@@ -53,6 +67,32 @@ export class ExpressionController {
 
   public getIsActive(): boolean {
     return this.isActive;
+  }
+
+  /**
+   * 外部或 DevDrawer 设置预设表情 / 情绪名
+   * @param name 表情名称 (如 'neutral', 'happy', 'angry', 'sad', 'relaxed', 'surprised', 'shy', 'playful')
+   * @param intensity 情绪强度 (0.0 ~ 1.0，默认 0.8)
+   */
+  public setExpression(name: string, intensity?: number): void {
+    const raw = (name ?? 'neutral').toLowerCase().trim();
+    if (!raw || raw === 'neutral') {
+      this.targetEmotion = 'neutral';
+      this.targetIntensity = 0.0;
+      this.currentMicroReaction = 'none';
+      return;
+    }
+
+    const mapped = PRESET_EMOTION_MAP[raw] || 'gentle_smile';
+    this.isActive = true;
+    this.targetEmotion = mapped;
+    this.targetIntensity = Math.min(1.0, Math.max(0.1, intensity ?? 0.8));
+
+    if (raw === 'shy') {
+      this.triggerMicroReaction('blush_ramp');
+    } else {
+      this.currentMicroReaction = 'none';
+    }
   }
 
   public setDirective(directive: ExpressionDirective): void {
@@ -74,8 +114,8 @@ export class ExpressionController {
     }
   }
 
-  public setManualOverride(name: string | null): void {
-    this.manualOverride = name;
+  public setManualOverride(_name: string | null): void {
+    // 兼容历史接口
   }
 
   /**
@@ -87,9 +127,7 @@ export class ExpressionController {
     this.currentMicroReaction = 'none';
     this.blushIntensity = 0.0;
 
-    const emotions: EmotionBase[] = [
-      'neutral', 'gentle_smile', 'hesitant', 'shy', 'surprised', 'sad_longing', 'playful'
-    ];
+    const emotions = Object.keys(this.currentWeights);
     emotions.forEach((e) => {
       this.currentWeights[e] = e === 'neutral' ? 1.0 : 0.0;
     });
@@ -97,6 +135,7 @@ export class ExpressionController {
     if (vrm?.expressionManager) {
       try {
         vrm.expressionManager.setValue('happy', 0);
+        vrm.expressionManager.setValue('angry', 0);
         vrm.expressionManager.setValue('sad', 0);
         vrm.expressionManager.setValue('surprised', 0);
         vrm.expressionManager.setValue('relaxed', 0);
@@ -117,9 +156,8 @@ export class ExpressionController {
     activeVisemeMouth: number = 0
   ): void {
     if (!vrm?.expressionManager) return;
-    if (this.manualOverride) return;
 
-    // 非故事剧场接管模式下，直接放行，完全交由 GazeController 驱动自然原生表情与眨眼
+    // 非接管模式且没有正在衰减的情绪时，放行给 GazeController
     if (!this.isActive) {
       return;
     }
@@ -127,19 +165,28 @@ export class ExpressionController {
     const mgr = vrm.expressionManager;
     this.breathClock += delta;
 
-    // ── 1. 生理自主层 (呼吸微起伏，幅值控制在极细微 ±0.02) ──
+    // ── 1. 生理自主层 (呼吸微起伏，幅值控制在极细微 ±0.015) ──
     const breathOsc = Math.sin(this.breathClock * 1.85) * this.config.breathOscillationAmp;
 
-    // ── 2. 情绪基调平滑阻尼流动 ──
+    // ── 2. 情绪基调平滑阻尼流动 (连续时间滤波，杜绝 1 帧突变抽动) ──
     const dampFactor = Math.min(1.0, delta * this.config.emotionDampSpeed);
-    const emotions: EmotionBase[] = [
-      'neutral', 'gentle_smile', 'hesitant', 'shy', 'surprised', 'sad_longing', 'playful'
-    ];
+    let totalNonNeutralWeight = 0;
 
-    emotions.forEach((emo) => {
+    const allEmotions = Object.keys(this.currentWeights);
+    for (const emo of allEmotions) {
       const target = emo === this.targetEmotion ? this.targetIntensity : (emo === 'neutral' ? (1.0 - this.targetIntensity) : 0.0);
-      this.currentWeights[emo] += (target - this.currentWeights[emo]) * dampFactor;
-    });
+      this.currentWeights[emo]! += (target - this.currentWeights[emo]!) * dampFactor;
+      if (emo !== 'neutral') {
+        totalNonNeutralWeight += this.currentWeights[emo]!;
+      }
+    }
+
+    // 当目标为 neutral 且所有情绪权重均已平滑衰减至极小阈值时，释放接管回归基态素颜
+    if (this.targetEmotion === 'neutral' && totalNonNeutralWeight < 0.005) {
+      this.isActive = false;
+      this.reset(vrm);
+      return;
+    }
 
     // ── 3. 戏剧微事件脉冲演化 ──
     if (this.currentMicroReaction !== 'none') {
@@ -160,19 +207,54 @@ export class ExpressionController {
     }
 
     // ── 4. 区域解耦与 VRoid 专属比例微调 (严防眯眼与强行扯嘴) ──
-    // VRoid 1.0 的 happy 预设自带眼睛眯成弯月和大幅张嘴。
-    // 在温柔微笑 (gentle_smile) 下，happy 权重严格限制在 0.12 以内，仅令嘴角自然上扬，确保大眼睛清澈睁开！
     const mouthDuck = isSpeaking || activeVisemeMouth > 0.05 ? this.config.speechMouthDucking : 1.0;
 
-    const happyScale = 0.12; // 0.12 即可实现柔美抿嘴微甜笑容，绝不眯眼变形
-    const happyWeight = Math.min(0.18, Math.max(0, (this.currentWeights.gentle_smile * happyScale + this.currentWeights.playful * 0.15 + breathOsc) * mouthDuck));
-    const sadWeight = Math.min(0.25, Math.max(0, (this.currentWeights.sad_longing + this.currentWeights.hesitant) * 0.25 * mouthDuck));
-    const surprisedWeight = Math.min(0.45, Math.max(0, this.currentWeights.surprised * 0.45));
-    // relaxed 会使上眼皮下耷，只有在明确害羞时微赋 0.1，neutral 绝不参与
-    const relaxedWeight = Math.min(0.15, Math.max(0, this.currentWeights.shy * 0.15));
+    // 柔美微笑：限幅 0.14，确保大眼睛清澈睁开，嘴角微翘自然甜美
+    const happyScale = 0.14;
+    const happyWeight = Math.min(
+      0.18,
+      Math.max(
+        0,
+        (this.currentWeights.gentle_smile! * happyScale +
+          this.currentWeights.playful! * 0.12 +
+          breathOsc) *
+          mouthDuck,
+      ),
+    );
+
+    // 傲娇微怒：限幅 0.30，眉毛微蹙生动傲娇，绝不狰狞失真
+    const angryWeight = Math.min(0.35, Math.max(0, this.currentWeights.angry! * 0.30));
+
+    // 忧伤期盼：限幅 0.22，温和隐忍
+    const sadWeight = Math.min(
+      0.25,
+      Math.max(
+        0,
+        (this.currentWeights.sad_longing! * 0.22 +
+          this.currentWeights.hesitant! * 0.15) *
+          mouthDuck,
+      ),
+    );
+
+    // 惊讶一怔：限幅 0.38，大眼睛灵动张开
+    const surprisedWeight = Math.min(
+      0.45,
+      Math.max(0, this.currentWeights.surprised! * 0.38),
+    );
+
+    // 放松从容：限幅 0.16，恬淡平静
+    const relaxedWeight = Math.min(
+      0.20,
+      Math.max(
+        0,
+        this.currentWeights.relaxed! * 0.16 +
+          this.currentWeights.shy! * 0.10,
+      ),
+    );
 
     try {
       mgr.setValue('happy', happyWeight);
+      mgr.setValue('angry', angryWeight);
       mgr.setValue('sad', sadWeight);
       mgr.setValue('surprised', surprisedWeight);
       mgr.setValue('relaxed', relaxedWeight);
