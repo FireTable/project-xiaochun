@@ -23,6 +23,7 @@ import type {
   VocalAudioConfig,
   SceneThemeId,
   ChatTypewriterConfig,
+  MotionPipelineConfig,
 } from './types/config';
 
 /** 3D 场景专属的环境声学特征配置 (开阔度 / 房间材质 / 贴耳度) */
@@ -510,6 +511,10 @@ export const APP_CONFIG = {
     minIntervalSec: 14, // 待机小动作随机最小冷却时间 (秒)
     maxIntervalSec: 24, // 待机小动作随机最大冷却时间 (秒)
   },
+  motionPipeline: {
+    sourceFadeDuration: 0.75, // 全身动作基准过渡时长 (秒)，默认 0.75s 黄金底线
+    fingerFadeDuration: 0.34, // 切入动作时手指独立微平滑时长 (秒)，消除抽搐与慢速蠕动
+  } as MotionPipelineConfig,
   springBone: {
     bust: {
       stiffness: 0.83, // 刚度 (高韧性强承托，急停时紧实利落复位)

@@ -1,3 +1,5 @@
+import { APP_CONFIG } from '../../config';
+
 /**
  * Live Layer-1 writer selection. Priority: clip > emage > vrma > idle.
  * Tick and outfit-swap both call this so a new motion cannot add a director flag.
@@ -17,7 +19,8 @@ export function selectLiveMotionSource(live: LiveMotionFlags): LiveMotionWriter 
   return 'idle';
 }
 
-export const SOURCE_FADE_DURATION = 0.75;
+export const SOURCE_FADE_DURATION = APP_CONFIG?.motionPipeline?.sourceFadeDuration ?? 0.75;
+export const FINGER_MICRO_FADE_DURATION = APP_CONFIG?.motionPipeline?.fingerFadeDuration ?? 0.34;
 
 export const WRITER_FADE_DURATION: Record<LiveMotionWriter, number> = {
   clip: SOURCE_FADE_DURATION,

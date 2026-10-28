@@ -722,4 +722,13 @@ export interface ChatConfig {
   typewriter: ChatTypewriterConfig;
 }
 
+/** 统一动作融合管线配置 (MotionPipeline) */
+export interface MotionPipelineConfig {
+  /** 全身动作基准过渡时长 (秒)，默认 0.75s 黄金底线 */
+  sourceFadeDuration: number;
+  /** 切入动作时手指独立微平滑时长 (秒)，消除抽搐与慢速蠕动 */
+  fingerFadeDuration: number;
+}
+
+
 

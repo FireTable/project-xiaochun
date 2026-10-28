@@ -27,6 +27,7 @@ import {
   selectLiveMotionSource,
   writerToPipelineSource,
   SOURCE_FADE_DURATION,
+  FINGER_MICRO_FADE_DURATION,
   WRITER_FADE_DURATION,
   type LiveMotionWriter,
 } from './selectLiveMotionSource';
@@ -39,7 +40,7 @@ import type { TurnState } from '../../director/chatDirector';
 
 export type PipelineMotionSource = 'idle' | 'vrma' | 'emage' | 'motion';
 export type { MotionTraits, MotionSource, MotionConstraint, PlayHandle } from './types';
-export { selectLiveMotionSource, writerToPipelineSource } from './selectLiveMotionSource';
+export { selectLiveMotionSource, writerToPipelineSource, FINGER_MICRO_FADE_DURATION } from './selectLiveMotionSource';
 export type { LiveMotionWriter, LiveMotionFlags } from './selectLiveMotionSource';
 
 /**
@@ -748,12 +749,23 @@ export class MotionPipeline {
     if (this.isCrossfading) {
       this.upperPose.copyFrom(this.transitionFromPose).slerp(targetUpper, t);
       this.lowerPose.copyFrom(this.transitionFromPose).slerp(targetLowerBase, t);
-      // 结束待机切入动作时，手指立即取目标动作的手势形态，去掉弯曲平滑与滞后过渡
-      if (this.previousSource === 'idle' && this.activeSource !== 'idle') {
+      // 切入动作时，手指独立执行 0.34s 快速微平滑 (Fast Finger Micro-Fade)
+      // 既消灭第 0 帧瞬间变脸/手型突变的抽搐感，又避免跟随全身 0.75s 慢速蠕动的诡异悬空感
+      if (this.activeSource !== 'idle') {
+        const fingerFadeConfig = APP_CONFIG.motionPipeline?.fingerFadeDuration ?? FINGER_MICRO_FADE_DURATION;
+        const fingerDuration = Math.min(this.crossfadeDuration, fingerFadeConfig);
+        const fingerAlpha = this.waitingForActionSample
+          ? 0
+          : Math.min(1.0, this.crossfadeElapsed / Math.max(0.001, fingerDuration));
+        const fingerT = fingerAlpha * fingerAlpha * fingerAlpha * (fingerAlpha * (fingerAlpha * 6 - 15) + 10);
         for (const fingerName of FINGER_BONES) {
           const idx = BONE_INDEX_MAP.get(fingerName);
           if (idx !== undefined) {
-            this.upperPose.quaternions[idx]!.copy(targetUpper.quaternions[idx]!);
+            if (fingerAlpha >= 1.0) {
+              this.upperPose.quaternions[idx]!.copy(targetUpper.quaternions[idx]!);
+            } else {
+              this.upperPose.quaternions[idx]!.copy(this.transitionFromPose.quaternions[idx]!).slerp(targetUpper.quaternions[idx]!, fingerT);
+            }
           }
         }
       }
