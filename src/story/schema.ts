@@ -148,8 +148,14 @@ const buildCinematicsSchema = <T extends z.ZodTypeAny>(text: T) =>
      */
     timeOfDay: z.object({
       from: z.number().min(0).max(24).optional(),
-      to: z.number().min(0).max(24),
+      to: z.number().min(0).max(24).optional(),
       durationSec: z.number().min(0).max(120).default(8),
+      /**
+       * 推到“现在”：忽略 from / to，起点 = 浏览器本地时间 − STORY_TIME_START_OFFSET_HOURS (跨零点回绕)，
+       * 沿时间正方向走满这几个小时，落在当前真实时间，然后切到引擎的 'auto' 档位 (跟随真实时间，和设置里的自动档同一个，同样落盘)。
+       * 中途跳过 / 剧终会直接跳到 'auto'。
+       */
+      toNow: z.boolean().optional(),
     }).optional(),
   });
 
@@ -252,6 +258,8 @@ const buildChoiceSchema = <T extends z.ZodTypeAny>(text: T) =>
     scene: z.string().optional(),
     /** 切到支持时间的场景 (如 beach) 之前先把环境时间设到这个小时 (scene 与 change_scene 预览都适用) */
     sceneHour: z.number().min(0).max(24).optional(),
+    /** 切到支持时间的场景之前，把环境时间放到“toNow 补间的起点” (现在 − 偏移小时)，让预览与随后的推到现在衔接；预览期间不落盘 */
+    sceneHourFromNow: z.boolean().optional(),
   });
 
 export const StoryChoiceSchema = buildChoiceSchema(z.string());

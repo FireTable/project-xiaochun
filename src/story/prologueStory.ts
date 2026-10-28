@@ -223,7 +223,7 @@ const beats: Record<string, LocalizedStoryBeat> = {
         subText: L('听海浪，吹海风', 'Waves and sea breeze', '波の音と潮風'),
         actionType: 'change_scene',
         actionPayload: 'beach3d',
-        sceneHour: 14.5, // 大太阳底下的海边
+        sceneHourFromNow: true, // 不写死钟点：预览用“现在 − 12 小时”的起点，和第 5 拍的推到现在衔接
         branch: 'beach',
       },
       {
@@ -264,7 +264,7 @@ const beats: Record<string, LocalizedStoryBeat> = {
       transition: 'white_flash',
       grading: 'default',
       wind: 3,
-      timeOfDay: { from: 14.5, to: 17.6, durationSec: 12 }, // 阳光慢慢变金：昼夜光影
+      timeOfDay: { toNow: true, durationSec: 12 }, // 从“现在 − 12 小时”的光影一路走到此刻，再切 auto 跟随真实时间
     },
     camera: { shot: 'wide', movement: 'hero_spiral_orbit', durationSec: 3.0 },
     actor: {

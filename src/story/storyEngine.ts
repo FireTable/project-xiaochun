@@ -20,6 +20,7 @@ import type {
 import { applyVariant, detectBrowserStoryLang, normalizeStoryLang, resolveBeat, resolveChoice } from './localize';
 import { resolveStoryScene } from './scenes';
 import { TRANSITION_SPECS } from './transitions';
+import { forwardHour, offsetStartHour } from './timeOfDay';
 import type { ViewPrefsSnapshot } from '@/core/viewPrefs';
 
 export interface StoryState {
@@ -78,6 +79,10 @@ export class StoryDirectorEngine {
   /** 本次剧情里用户点过的预览卡 (场景 id / 衣服 key)：点过之后“当前所选”跟着它走，没点过才读 localStorage 里存的 */
   private previewPick: { scene: string | null; outfit: string | null } = { scene: null, outfit: null };
   private hourTimer: ReturnType<typeof setTimeout> | null = null;
+  /** 正在跑“推到现在”：中途被跳过 / 剧终时要补一个 'auto' */
+  private pendingAutoTime = false;
+  /** 场景预览把环境时间放到了偏移起点 (没落盘)；之后点了别的场景要还原成 'auto' */
+  private previewedOffsetTime = false;
   /** 叫醒拍把模型藏起来了：由紧接着的下一拍在遮罩下露出 */
   private modelHiddenForWake = false;
   private listeners = new Set<StoryStateListener>();
@@ -346,7 +351,11 @@ export class StoryDirectorEngine {
       // 补间可以跨拍继续跑；只有下一段补间 / 剧终才会停掉它
       const t = beat.cinematics.timeOfDay;
       this.stopTimeOfDay();
-      this.runTimeOfDay(t.from, t.to, t.durationSec ?? 8);
+      if (t.toNow) {
+        this.runTimeOfDayToNow(t.durationSec ?? 8);
+      } else if (t.to !== undefined) {
+        this.runTimeOfDay(t.from, t.to, t.durationSec ?? 8);
+      }
     }
     // 序章“叫醒”拍之后的第一拍：模型在黑幕 / 遮罩下才露出来 (叫醒拍里模型一直是隐藏的)
     if (this.modelHiddenForWake && vrmEngine.currentVRM) {
@@ -612,9 +621,61 @@ export class StoryDirectorEngine {
     this.hourTimer = setTimeout(step, 40);
   }
 
-  private stopTimeOfDay(): void {
+  /**
+   * 推到“现在”：从 (浏览器本地时间 − 偏移) 沿时间正方向走到现在，过程中不落盘，走完切 'auto' (落盘，和设置里的自动档一样)。
+   * 起点 / 终点都在补间开始那一刻按浏览器时钟算一次。
+   */
+  private runTimeOfDayToNow(durationSec: number): void {
+    this.pendingAutoTime = true;
+    const start = offsetStartHour(new Date());
+    if (durationSec <= 0) {
+      this.settleTimeOfDay();
+      return;
+    }
+    const t0 = Date.now();
+    const ms = durationSec * 1000;
+    vrmEngine.setEnvironmentTime(start, { isDragging: true });
+    const step = () => {
+      const p = Math.min(1, (Date.now() - t0) / ms);
+      if (p >= 1) {
+        this.hourTimer = null;
+        this.settleTimeOfDay();
+        return;
+      }
+      const e = p * p * (3 - 2 * p);
+      vrmEngine.setEnvironmentTime(forwardHour(start, e), { isDragging: true });
+      this.hourTimer = setTimeout(step, 40);
+    };
+    this.hourTimer = setTimeout(step, 40);
+  }
+
+  /** “推到现在”收尾：切回引擎的 'auto' 档位 (跟随真实时间，并落盘) */
+  private settleTimeOfDay(): void {
+    if (!this.pendingAutoTime) return;
+    this.pendingAutoTime = false;
+    vrmEngine.setEnvironmentTime('auto');
+  }
+
+  /** 停掉补间；settle=true (跳过 / 剧终) 时若是“推到现在”则直接跳到 'auto' */
+  private stopTimeOfDay(settle = false): void {
     if (this.hourTimer) clearTimeout(this.hourTimer);
     this.hourTimer = null;
+    if (settle) this.settleTimeOfDay();
+    else this.pendingAutoTime = false;
+  }
+
+  /** 场景选项带的环境时间：固定小时 / 偏移起点 (现在 − 偏移，预览期间不落盘)；预览过偏移起点后改选没带时间的场景 → 还原 'auto' */
+  private applyChoiceHour(choice: StoryChoice): void {
+    if (choice.sceneHourFromNow) {
+      vrmEngine.setEnvironmentTime(offsetStartHour(new Date()), { isDragging: true });
+      this.previewedOffsetTime = true;
+    } else if (choice.sceneHour !== undefined) {
+      vrmEngine.setEnvironmentTime(choice.sceneHour);
+      this.previewedOffsetTime = false;
+    } else if (this.previewedOffsetTime) {
+      vrmEngine.setEnvironmentTime('auto');
+      this.previewedOffsetTime = false;
+    }
   }
 
   /** 切到剧本场景 (别名或真实 id)，已经在该场景就什么也不做 */
@@ -758,7 +819,7 @@ export class StoryDirectorEngine {
 
     if (choice.branch) this.branch = choice.branch;
     if (choice.scene && advances) {
-      if (choice.sceneHour !== undefined) vrmEngine.setEnvironmentTime(choice.sceneHour);
+      this.applyChoiceHour(choice);
       await this.applyScene(choice.scene, true);
     }
 
@@ -769,7 +830,7 @@ export class StoryDirectorEngine {
         changeLang(this.i18nInstance, this.storyLang);
       }
     } else if (choice.actionType === 'change_scene' && choice.actionPayload) {
-      if (choice.sceneHour !== undefined) vrmEngine.setEnvironmentTime(choice.sceneHour);
+      this.applyChoiceHour(choice);
       await sceneManager.setScene(String(choice.actionPayload), true);
       if (isScenePreview) {
         this.previewPick.scene = String(choice.actionPayload);
@@ -894,7 +955,9 @@ export class StoryDirectorEngine {
     void vrmEngine.returnToDefaultView();
     vrmEngine.setStoryWind(0);
     this.branch = null;
-    this.stopTimeOfDay();
+    this.stopTimeOfDay(true);
+    if (this.previewedOffsetTime) vrmEngine.setEnvironmentTime('auto'); // 预览过偏移起点但没走到推到现在就离场
+    this.previewedOffsetTime = false;
     this.modelHiddenForWake = false;
     expressionController.setActive(false);
     this.state = {

@@ -194,7 +194,7 @@ describe('prologue story (Act 0 v4 · Backstage Catch)', () => {
     expect(beach.audio?.bgmMood).toBe('bright');
     expect(beach.audio?.ambience).toBe('sea_waves');
     expect(beach.scene).toBe('beach');
-    expect(beach.cinematics?.timeOfDay).toMatchObject({ from: 14.5, to: 17.6 });
+    expect(beach.cinematics?.timeOfDay).toMatchObject({ toNow: true, durationSec: 12 }); // 不写死钟点：从现在 − 12h 推到现在再 auto
     expect(beach.audio?.sfx?.map((s) => [s.id, s.delaySec])).toEqual([['waves', 0.1], ['wind', 1.2]]);
     expect(night.cinematics).toMatchObject({ transition: 'white_flash', grading: 'rainy_noir', wind: 2 });
     expect(night.audio?.bgmMood).toBe('mystic');

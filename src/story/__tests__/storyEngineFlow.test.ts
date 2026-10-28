@@ -733,7 +733,7 @@ describe('StoryDirectorEngine runtime behaviour', () => {
           id: 'pick',
           actor: actor('choose'),
           choices: [
-            { id: 'scene_beach', text: 'Beach', actionType: 'change_scene', actionPayload: 'beach3d', sceneHour: 14.5, branch: 'beach' },
+            { id: 'scene_beach', text: 'Beach', actionType: 'change_scene', actionPayload: 'beach3d', sceneHourFromNow: true, branch: 'beach' },
             { id: 'scene_dark', text: 'Night', actionType: 'change_scene', actionPayload: 'dark', branch: 'night' },
             { id: 'outfit_maid', text: 'Maid', actionType: 'swap_outfit', actionPayload: 'xiaochun_maid' },
           ],
@@ -806,12 +806,14 @@ describe('StoryDirectorEngine runtime behaviour', () => {
     });
 
     it('a scene preview swaps in place (hour first, branch remembered) and keeps the cards on screen; confirm then advances on that branch', async () => {
+      vi.setSystemTime(new Date(2026, 9, 29, 17, 36, 0));
       void engine.playScript(script as never);
       await vi.advanceTimersByTimeAsync(500);
       const dark = engine.getState().choices.find((c) => c.id === 'scene_dark')!;
       const beach = engine.getState().choices.find((c) => c.id === 'scene_beach')!;
       await engine.selectChoice(beach);
-      expect(h.setEnvironmentTime).toHaveBeenCalledWith(14.5);
+      // 预览：没有写死的钟点，用 (现在 − 12h) 的起点且不落盘 (测试里 Date 固定在 17:36 → 5.6)
+      expect(h.setEnvironmentTime).toHaveBeenCalledWith(expect.closeTo(5.6, 5), { isDragging: true });
       expect(h.setScene).toHaveBeenLastCalledWith('beach3d', true);
       expect(engine.getCurrentBeatId()).toBe('pick');
       expect(engine.getState().choices.find((c) => c.id === 'scene_beach')?.selected).toBe(true);
@@ -855,6 +857,50 @@ describe('StoryDirectorEngine runtime behaviour', () => {
       const last = h.setEnvironmentTime.mock.calls.at(-1)!;
       expect(last[0]).toBeCloseTo(18, 5);
       expect(last[1]).toMatchObject({ isDragging: false });
+    });
+
+    describe('toNow (from browser time − 12h, forward to now, then auto)', () => {
+      const toNow = () => script({ toNow: true, durationSec: 12 });
+      const hours = () => h.setEnvironmentTime.mock.calls.filter(([x]) => typeof x === 'number').map(([x]) => x as number);
+
+      it.each([
+        ['17:36', new Date(2026, 9, 29, 17, 36, 0), 5.6],
+        ['02:00 (wraps back over midnight)', new Date(2026, 9, 29, 2, 0, 0), 14],
+      ])('at %s it starts %s hours back, sweeps forward 12h, then switches to auto (persisted)', async (_n, now, startHour) => {
+        vi.setSystemTime(now);
+        void engine.playScript(toNow() as never);
+        await vi.advanceTimersByTimeAsync(100);
+        expect(h.setEnvironmentTime.mock.calls[0]).toEqual([expect.closeTo(startHour, 5), { isDragging: true }]);
+        await vi.advanceTimersByTimeAsync(6000);
+        const mid = hours().at(-1)!;
+        expect(mid).toBeCloseTo((startHour + 6) % 24, 0); // 半程 ≈ 走了一半 (平滑曲线中点)
+        expect(h.setEnvironmentTime).not.toHaveBeenCalledWith('auto');
+        await vi.advanceTimersByTimeAsync(7000);
+        expect(h.setEnvironmentTime.mock.calls.at(-1)).toEqual(['auto']); // 无选项对象 = 落盘
+        // 沿时间正方向走：每一帧都比上一帧晚 (允许跨零点回绕)
+        const hs = hours();
+        for (let i = 1; i < hs.length; i++) expect((hs[i]! - hs[i - 1]! + 24) % 24).toBeLessThan(1);
+      });
+
+      it('finish() mid-tween jumps straight to auto and stops the tween', async () => {
+        vi.setSystemTime(new Date(2026, 9, 29, 17, 36, 0));
+        void engine.playScript(toNow() as never);
+        await vi.advanceTimersByTimeAsync(3000);
+        engine.finish();
+        expect(h.setEnvironmentTime.mock.calls.at(-1)).toEqual(['auto']);
+        const n = h.setEnvironmentTime.mock.calls.length;
+        await vi.advanceTimersByTimeAsync(15000);
+        expect(h.setEnvironmentTime.mock.calls.length).toBe(n);
+      });
+
+      it('finish() after the tween completed does not send a second auto', async () => {
+        vi.setSystemTime(new Date(2026, 9, 29, 17, 36, 0));
+        void engine.playScript(toNow() as never);
+        await vi.advanceTimersByTimeAsync(13000);
+        h.setEnvironmentTime.mockClear();
+        engine.finish();
+        expect(h.setEnvironmentTime).not.toHaveBeenCalled();
+      });
     });
 
     it('without a from-hour it snaps, and finish() stops a running tween', async () => {
