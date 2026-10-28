@@ -2,7 +2,6 @@ import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react'
 import { useTranslation } from 'react-i18next';
 import {
   X,
-  CornerDownLeft,
   ChevronDown,
   ChevronUp,
 } from 'lucide-react';
@@ -11,6 +10,7 @@ import { StoryChoiceGroup } from './StoryChoiceGroup';
 import { StoryChoiceCard } from './StoryChoiceCard';
 import { StoryCameraTaskCard } from './StoryCameraTaskCard';
 import { HeadBubble } from '@/components/HeadBubble';
+import { ChatBar } from '@/components/ChatBar';
 import { ProviderConfigDialog } from '@/components/ProviderConfigDialog';
 import { vrmEngine, type BubbleState } from '@/core/vrmEngine';
 import { storyDirectorEngine, type StoryState } from '@/story/storyEngine';
@@ -29,13 +29,11 @@ export const StoryPlayer: React.FC<StoryPlayerProps> = ({
 }) => {
   const { i18n } = useTranslation();
   const [storyState, setStoryState] = useState<StoryState>(() => storyDirectorEngine.getState());
-  const [userInput, setUserInput] = useState('');
   const [isGenerating, setIsGenerating] = useState(false);
   const [isProviderConfigOpen, setIsProviderConfigOpen] = useState(false);
   const [cameraTasksDone, setCameraTasksDone] = useState(false);
   const [isHistoryExpanded, setIsHistoryExpanded] = useState(false);
   const [bubble, setBubble] = useState<BubbleState>(() => vrmEngine.bubbleTracker.state);
-  const inputRef = useRef<HTMLInputElement>(null);
   const hasStartedRef = useRef(false);
 
   // 订阅 BubbleTracker 气泡状态 (完全复用原生状态，与日常模式保持 100% 同构)
@@ -137,14 +135,12 @@ export const StoryPlayer: React.FC<StoryPlayerProps> = ({
     [isGenerating, onComplete],
   );
 
-  // 提交自由文本对话 / 插话
+  // 提交自由文本对话 / 插话 (复用 ChatBar onSend)
   const handleSendInput = useCallback(
-    async (e?: React.FormEvent) => {
-      if (e) e.preventDefault();
-      const text = userInput.trim();
-      if (!text || isGenerating) return;
+    async (text: string) => {
+      const trimmed = text.trim();
+      if (!trimmed || isGenerating) return;
 
-      setUserInput('');
       setIsGenerating(true);
 
       const wasSpeaking = storyState.isSpeaking;
@@ -153,12 +149,12 @@ export const StoryPlayer: React.FC<StoryPlayerProps> = ({
       if (wasSpeaking) {
         // 全双工打断：立刻截停
         storyDirectorEngine.interrupt();
-        storyGenerator.recordInterruption(interruptedSpeech, text);
+        storyGenerator.recordInterruption(interruptedSpeech, trimmed);
       }
 
       try {
         await storyGenerator.generateAndPlayNextBeat({
-          userInput: text,
+          userInput: trimmed,
           isInterruption: wasSpeaking,
           interruptedSpeech,
         });
@@ -166,7 +162,7 @@ export const StoryPlayer: React.FC<StoryPlayerProps> = ({
         setIsGenerating(false);
       }
     },
-    [userInput, isGenerating, storyState.isSpeaking, storyState.currentBeat],
+    [isGenerating, storyState.isSpeaking, storyState.currentBeat],
   );
 
   // 跳过或退出故事模式
@@ -224,48 +220,98 @@ export const StoryPlayer: React.FC<StoryPlayerProps> = ({
     ((hasSpokenInBeat && Boolean(bubble.speechText)) || isHistoryExpanded) &&
     !storyState.isIntertitleActive;
 
-  // 渲染高质感一体化沉底对白卡 (直接复用 HeadBubble 与 bubble 原生状态，0 额外逻辑)
+  // 统一交互分支卡片群渲染 (PC 侧栏与 Mobile 底部共用单一 SSOT，消除 60+ 行重复代码)
+  const renderChoices = () => {
+    if (currentBeat?.interaction === 'camera_drag') {
+      return (
+        <div className="w-full flex flex-col gap-2">
+          <StoryCameraTaskCard onTasksUpdate={handleCameraTasksUpdate} />
+          {displayChoices.length > 0 && (
+            <StoryChoiceGroup
+              choices={displayChoices}
+              layout="list"
+              onSelect={handleSelectChoice}
+              disabled={isGenerating}
+            />
+          )}
+        </div>
+      );
+    }
+
+    if (isMediaGrid) {
+      return (
+        <div className="w-full flex flex-col gap-1.5">
+          <StoryChoiceGroup
+            choices={displayChoices}
+            layout="compact-media"
+            onSelect={handleSelectChoice}
+            disabled={isGenerating}
+          />
+          {currentBeat?.confirmChoice && (
+            <StoryChoiceCard
+              choice={currentBeat.confirmChoice}
+              index={displayChoices.length}
+              layout="list"
+              variant="primary"
+              onSelect={handleSelectChoice}
+              disabled={isGenerating}
+            />
+          )}
+        </div>
+      );
+    }
+
+    if (displayChoices.length > 0) {
+      return (
+        <div className="w-full flex flex-col gap-1.5">
+          <StoryChoiceGroup
+            choices={displayChoices}
+            layout="list"
+            onSelect={handleSelectChoice}
+            disabled={isGenerating}
+          />
+          {currentBeat?.confirmChoice && (
+            <StoryChoiceCard
+              choice={currentBeat.confirmChoice}
+              index={displayChoices.length}
+              layout="list"
+              variant="primary"
+              onSelect={handleSelectChoice}
+              disabled={isGenerating}
+            />
+          )}
+        </div>
+      );
+    }
+
+    return null;
+  };
+
+  // 渲染高质感纯净电影条 (直接复用 HeadBubble variant="cinematic"，0 冗余)
   const renderDialogueBubble = (maxWidthClass = 'max-w-lg sm:max-w-xl w-full') => {
     if (!showDialogue) return null;
     return (
       <HeadBubble
         isStatic
+        variant="cinematic"
         placement="bottom"
         maxWidthClass={maxWidthClass}
         state={bubble}
-        customHeader={
-          <div className="flex items-center justify-between w-full">
-            <div className="flex items-center space-x-2">
-              <span className="text-xs sm:text-sm font-semibold tracking-wide text-white">
-                小蠢
-              </span>
-              {bubble.totalSegments && bubble.totalSegments > 1 && bubble.segmentIndex ? (
-                <span
-                  key={bubble.segmentIndex}
-                  className="px-1.5 py-0.5 rounded-full bg-white/10 text-[10px] font-medium text-brand-200 tracking-wider inline-flex items-center gap-1 border border-white/10 shadow-sm backdrop-blur-sm animate-status-push"
-                >
-                  <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
-                  <span className="text-white font-bold">{bubble.segmentIndex}</span>
-                  <span className="opacity-40 text-[9px]">/</span>
-                  <span className="text-slate-300">{bubble.totalSegments}</span>
-                </span>
-              ) : null}
-            </div>
-            {storyState.history.length > 0 && (
-              <button
-                type="button"
-                onClick={() => setIsHistoryExpanded((prev) => !prev)}
-                className="flex items-center space-x-1 px-2 py-0.5 rounded-full bg-white/10 hover:bg-white/15 active:scale-95 text-white/80 hover:text-white border border-white/10 text-[11px] transition-all duration-150 cursor-pointer shadow-sm"
-              >
-                <span>{isHistoryExpanded ? '收起' : `回顾 · ${storyState.history.length}`}</span>
-                {isHistoryExpanded ? (
-                  <ChevronUp className="w-3 h-3 opacity-70" />
-                ) : (
-                  <ChevronDown className="w-3 h-3 opacity-70" />
-                )}
-              </button>
-            )}
-          </div>
+        extraHeaderAction={
+          storyState.history.length > 0 ? (
+            <button
+              type="button"
+              onClick={() => setIsHistoryExpanded((prev) => !prev)}
+              className="flex items-center space-x-1 px-2.5 py-0.5 rounded-full bg-white/10 hover:bg-white/15 active:scale-95 text-white/80 hover:text-white border border-white/10 text-[11px] transition-all duration-150 cursor-pointer shadow-sm backdrop-blur-md"
+            >
+              <span>{isHistoryExpanded ? '收起' : `回顾 · ${storyState.history.length}`}</span>
+              {isHistoryExpanded ? (
+                <ChevronUp className="w-3 h-3 opacity-70" />
+              ) : (
+                <ChevronDown className="w-3 h-3 opacity-70" />
+              )}
+            </button>
+          ) : undefined
         }
       >
         {isHistoryExpanded && (
@@ -346,178 +392,60 @@ export const StoryPlayer: React.FC<StoryPlayerProps> = ({
         </div>
       </div>
 
-      {/* 3. PC 宽屏专属一体化布局 (对白气泡居中沉底 + 全部交互卡片统一定位于右侧，中央角色 100% 毫无遮挡) */}
+      {/* 3. PC 宽屏专属一体化布局 (纯净电影条居中沉底 + 全部交互卡片统一定位于右侧，中央角色 100% 毫无遮挡) */}
       <div className="hidden sm:block">
-        {/* PC 宽屏中央沉底对白卡 (唯一的对白展示，复用 HeadBubble，0 重复) */}
+        {/* PC 宽屏中央沉底电影条 (唯一的对白展示，复用 HeadBubble variant="cinematic"，0 重复) */}
         {showDialogue && (
-          <div className="pointer-events-none fixed bottom-5 left-1/2 -translate-x-1/2 z-40 max-w-lg sm:max-w-xl w-full px-4 animate-in fade-in slide-in-from-bottom-2 duration-300">
+          <div className="pointer-events-none fixed bottom-4 sm:bottom-6 left-1/2 -translate-x-1/2 z-40 max-w-lg sm:max-w-xl w-full px-4 text-center animate-in fade-in slide-in-from-bottom-2 duration-300">
             <div className="pointer-events-auto w-full">
               {renderDialogueBubble()}
             </div>
           </div>
         )}
 
-        {/* PC 宽屏右侧统一交互列 (全部卡片：选项 / 视角任务 / 换装 / 场景 统一定位于右侧，彻底消灭与中央对白的打架) */}
-        <div className="pointer-events-none fixed right-6 bottom-6 sm:right-8 sm:bottom-6 w-72 sm:w-80 z-40 flex flex-col gap-2 animate-in fade-in slide-in-from-right-4 duration-300">
-          {/* 3A. 视角探索任务卡片 */}
-          {currentBeat?.interaction === 'camera_drag' && (
-            <div className="pointer-events-auto w-full flex flex-col gap-2">
-              <StoryCameraTaskCard onTasksUpdate={handleCameraTasksUpdate} />
-              {displayChoices.length > 0 && (
-                <StoryChoiceGroup
-                  choices={displayChoices}
-                  layout="list"
-                  onSelect={handleSelectChoice}
-                  disabled={isGenerating}
-                />
-              )}
-            </div>
-          )}
-
-          {/* 3B. 换装 / 场景多媒体展台 (媒体模式：右侧紧凑列表) */}
-          {isMediaGrid && currentBeat?.interaction !== 'camera_drag' && (
-            <div className="pointer-events-auto w-full flex flex-col gap-1.5">
-              <StoryChoiceGroup
-                choices={displayChoices}
-                layout="compact-media"
-                onSelect={handleSelectChoice}
-                disabled={isGenerating}
-              />
-              {currentBeat?.confirmChoice && (
-                <StoryChoiceCard
-                  choice={currentBeat.confirmChoice}
-                  index={displayChoices.length}
-                  layout="list"
-                  variant="primary"
-                  onSelect={handleSelectChoice}
-                  disabled={isGenerating}
-                />
-              )}
-            </div>
-          )}
-
-          {/* 3C. 普通文字分支 */}
-          {!isMediaGrid && currentBeat?.interaction !== 'camera_drag' && displayChoices.length > 0 && (
-            <div className="pointer-events-auto w-full flex flex-col gap-1.5">
-              <StoryChoiceGroup
-                choices={displayChoices}
-                layout="list"
-                onSelect={handleSelectChoice}
-                disabled={isGenerating}
-              />
-              {currentBeat?.confirmChoice && (
-                <StoryChoiceCard
-                  choice={currentBeat.confirmChoice}
-                  index={displayChoices.length}
-                  layout="list"
-                  variant="primary"
-                  onSelect={handleSelectChoice}
-                  disabled={isGenerating}
-                />
-              )}
-            </div>
-          )}
-
-          {/* 仅在非引导模式且允许自定义输入时渲染输入条 */}
-          {showInput && (
-            <div className="pointer-events-auto w-full animate-in fade-in slide-in-from-bottom-2 duration-300">
-              <form
-                onSubmit={handleSendInput}
-                className="flex items-center space-x-2 px-3 py-1.5 rounded-xl bg-[#0b0e1b]/85 hover:bg-[#101426]/95 backdrop-blur-xl border border-white/15 focus-within:border-[#f3d09a] focus-within:ring-1 focus-within:ring-[#f3d09a]/40 shadow-[0_8px_32px_rgba(0,0,0,0.6)] transition-all duration-200"
-              >
-                <input
-                  ref={inputRef}
-                  type="text"
-                  value={userInput}
-                  onChange={(e) => setUserInput(e.target.value)}
+        {/* PC 宽屏右侧统一交互列 (全部卡片：选项 / 视角任务 / 换装 / 场景 统一定位于右侧，若仅有选项则 ChatBar 不渲染) */}
+        <div className="pointer-events-none fixed right-6 bottom-8 sm:right-8 sm:bottom-10 w-72 sm:w-80 z-40 flex flex-col gap-2 animate-in fade-in slide-in-from-right-4 duration-300">
+          <div className="pointer-events-auto w-full flex flex-col gap-2">
+            {renderChoices()}
+            {showInput && (
+              <div className="w-full animate-in fade-in slide-in-from-bottom-2 duration-300">
+                <ChatBar
+                  isStatic
+                  onSend={handleSendInput}
                   disabled={isGenerating}
                   placeholder={
                     storyState.isSpeaking
                       ? '直接输入打断...'
                       : currentBeat?.inputPlaceholder || '输入对话或自选动作...'
                   }
-                  className="flex-1 bg-transparent px-1.5 text-xs text-white placeholder-white/40 focus:outline-none"
                 />
-                <button
-                  type="submit"
-                  disabled={!userInput.trim() || isGenerating}
-                  className="p-1.5 rounded-lg bg-[#f3d09a] hover:bg-[#fdf2dd] active:scale-90 disabled:opacity-30 disabled:hover:bg-[#f3d09a] text-slate-950 font-bold transition-all shadow-[0_0_12px_rgba(243,208,154,0.4)] cursor-pointer"
-                  title="发送"
-                >
-                  {isGenerating ? (
-                    <div className="w-3.5 h-3.5 border-2 border-slate-900 border-t-transparent rounded-full animate-spin" />
-                  ) : (
-                    <CornerDownLeft className="w-3.5 h-3.5" />
-                  )}
-                </button>
-              </form>
-            </div>
-          )}
+              </div>
+            )}
+          </div>
         </div>
       </div>
 
-      {/* 4. 移动竖屏专属一体化沉底流 (自适应自然堆叠，0 重叠，全屏 75%+ 留白) */}
+      {/* 4. 移动竖屏专属一体化沉底流 (选项在 ChatBar 上方，最下方是电影条；若仅有选项则 ChatBar 不渲染) */}
       <div className="pointer-events-none flex sm:hidden fixed inset-x-3 bottom-3 z-40 flex-col gap-2 animate-in fade-in slide-in-from-bottom-2 duration-300">
-        {/* 4A. 视角探索卡片 */}
-        {currentBeat?.interaction === 'camera_drag' && (
-          <div className="pointer-events-auto w-full flex flex-col gap-1.5">
-            <StoryCameraTaskCard onTasksUpdate={handleCameraTasksUpdate} />
-            {displayChoices.length > 0 && (
-              <StoryChoiceGroup
-                choices={displayChoices}
-                layout="list"
-                onSelect={handleSelectChoice}
+        <div className="pointer-events-auto w-full flex flex-col gap-2">
+          {renderChoices()}
+          {showInput && (
+            <div className="w-full animate-in fade-in slide-in-from-bottom-2 duration-300">
+              <ChatBar
+                isStatic
+                onSend={handleSendInput}
                 disabled={isGenerating}
+                placeholder={
+                  storyState.isSpeaking
+                    ? '直接输入打断...'
+                    : currentBeat?.inputPlaceholder || '输入对话或自选动作...'
+                }
               />
-            )}
-          </div>
-        )}
+            </div>
+          )}
+        </div>
 
-        {/* 4B. 换装 / 场景网格展台 */}
-        {isMediaGrid && currentBeat?.interaction !== 'camera_drag' && (
-          <div className="pointer-events-auto w-full flex flex-col gap-1.5">
-            <StoryChoiceGroup
-              choices={displayChoices}
-              layout="compact-media"
-              onSelect={handleSelectChoice}
-              disabled={isGenerating}
-            />
-            {currentBeat?.confirmChoice && (
-              <StoryChoiceCard
-                choice={currentBeat.confirmChoice}
-                index={displayChoices.length}
-                layout="list"
-                variant="primary"
-                onSelect={handleSelectChoice}
-                disabled={isGenerating}
-              />
-            )}
-          </div>
-        )}
-
-        {/* 4C. 普通文字选项 */}
-        {!isMediaGrid && currentBeat?.interaction !== 'camera_drag' && displayChoices.length > 0 && (
-          <div className="pointer-events-auto w-full flex flex-col gap-1.5">
-            <StoryChoiceGroup
-              choices={displayChoices}
-              layout="list"
-              onSelect={handleSelectChoice}
-              disabled={isGenerating}
-            />
-            {currentBeat?.confirmChoice && (
-              <StoryChoiceCard
-                choice={currentBeat.confirmChoice}
-                index={displayChoices.length}
-                layout="list"
-                variant="primary"
-                onSelect={handleSelectChoice}
-                disabled={isGenerating}
-              />
-            )}
-          </div>
-        )}
-
-        {/* 4D. 移动端沉底 HeadBubble (唯一对白卡，0 重叠) */}
+        {/* 移动端最下方沉底纯净电影条 */}
         {showDialogue && (
           <div className="pointer-events-auto w-full">
             {renderDialogueBubble('w-full')}

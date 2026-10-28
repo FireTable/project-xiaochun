@@ -258,17 +258,30 @@ export const App: React.FC = () => {
 
 
 
-      {/* 3D 角色头顶悬浮对话框：引导与故事模式下由 StoryPlayer 统一于底部渲染对白，日常聊天使用头顶气泡 */}
+      {/* 3D 角色头顶悬浮对话框：PC 维持头顶跟随气泡；移动端隐藏头顶气泡转由 ChatBar 顶部电影条承接 */}
       {currentScene.components.headBubble !== false && !isStoryOrOnboarding && (
-        <HeadBubble state={bubble} />
+        <div className="hidden sm:block">
+          <HeadBubble state={bubble} variant="bubble" />
+        </div>
       )}
 
-      {/* 底部对话输入条 — 启动 splash 期间及故事/向导期间不渲染 */}
+      {/* 底部对话输入条 — 启动 splash 期间及故事/向导期间不渲染；Mobile Chat 模式下在顶部槽位渲染电影条 */}
       {!loadingActive && !isStoryOrOnboarding && currentScene.components.chatBar !== false && (
         <ChatBar
           isPetUIVisible={isPetUIVisible}
           isDevDrawerOpen={isDrawerOpen && showDevUi && !isStoryOrOnboarding}
           onShowDevPanel={() => setHasDevEasterEgg(true)}
+          topSlot={
+            <div className="block sm:hidden w-full pb-1.5 pointer-events-auto">
+              <HeadBubble
+                state={bubble}
+                variant="cinematic"
+                isStatic
+                placement="bottom"
+                maxWidthClass="max-w-full"
+              />
+            </div>
+          }
         />
       )}
 

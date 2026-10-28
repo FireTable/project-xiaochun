@@ -14,12 +14,14 @@ import {
 export interface HeadBubbleProps {
   state?: BubbleState;
   customHeader?: React.ReactNode;
+  extraHeaderAction?: React.ReactNode;
   speechText?: string;
   placement?: BubblePlacement;
   isStatic?: boolean;
   className?: string;
   maxWidthClass?: string;
   children?: React.ReactNode;
+  variant?: 'bubble' | 'cinematic';
 }
 
 const ICON_BY_KEY: Record<string, 'thinking' | 'speaking' | 'emoting' | 'idle'> = {
@@ -61,12 +63,14 @@ function getBalloonPath(w: number, h: number, placement: BubblePlacement, r = 16
 export const HeadBubble: React.FC<HeadBubbleProps> = ({
   state,
   customHeader,
+  extraHeaderAction,
   speechText: speechTextProp,
   placement: placementProp,
   isStatic = false,
   className = '',
   maxWidthClass = 'max-w-[240px] sm:max-w-xs',
   children,
+  variant = 'bubble',
 }) => {
   const { t } = useTranslation();
   const [enabled, setEnabled] = useState(() => resolveShowHeadBubble(getCachedUserSettings()));
@@ -104,7 +108,7 @@ export const HeadBubble: React.FC<HeadBubbleProps> = ({
       const h = Math.round(rect.height);
       if (w > 0 && h > 0) {
         setMeasuredSize((prev) => (prev.width === w && prev.height === h ? prev : { width: w, height: h }));
-        if (!isStatic) {
+        if (!isStatic && variant === 'bubble') {
           vrmEngine.bubbleTracker.setMeasuredSize(w, h);
         }
       }
@@ -117,7 +121,7 @@ export const HeadBubble: React.FC<HeadBubbleProps> = ({
         const height = Math.round(entry.borderBoxSize?.[0]?.blockSize ?? entry.contentRect.height);
         if (width > 0 && height > 0) {
           setMeasuredSize((prev) => (prev.width === width && prev.height === height ? prev : { width, height }));
-          if (!isStatic) {
+          if (!isStatic && variant === 'bubble') {
             vrmEngine.bubbleTracker.setMeasuredSize(width, height);
           }
         }
@@ -125,11 +129,115 @@ export const HeadBubble: React.FC<HeadBubbleProps> = ({
     });
     observer.observe(cardRef.current);
     return () => observer.disconnect();
-  }, [rawSpeechText, statusKey, isStatic, children]);
+  }, [rawSpeechText, statusKey, isStatic, variant, children]);
 
-  // 对话设置关气泡：仅对日常悬浮气泡生效；故事引导模式(isStatic)仅在存在语音台词或展开回顾时渲染，杜绝发声前提前露文字
-  if (!isStatic && (!enabled || !state?.visible)) return null;
-  if (isStatic && !rawSpeechText && !children) return null;
+  // 对话设置关气泡：仅对日常悬浮气泡生效；静态/电影模式(isStatic)在存在语音台词、状态或展开回顾时渲染
+  const isVisible = isStatic
+    ? Boolean(children) || (state ? state.visible && Boolean(rawSpeechText || statusKey) : Boolean(rawSpeechText || statusKey))
+    : enabled && Boolean(state?.visible);
+
+  if (!isVisible) return null;
+
+  // ── 电影级纯净发光字幕条模式 (0 实底黑盒遮挡，纯净发光投影，100% 复用打字机动效与状态) ──
+  if (variant === 'cinematic') {
+    const cinematicContent = (
+      <div
+        ref={cardRef}
+        style={{
+          viewTransitionName: isSpeaking ? 'story-dialog-card' : undefined,
+        }}
+        className={`relative ${maxWidthClass} px-3 py-1.5 flex flex-col items-center pointer-events-auto animate-in fade-in duration-200 select-text ${className}`}
+      >
+        {/* 顶部状态与角色标识行 */}
+        {customHeader ? (
+          <div className="w-full mb-1">
+            {customHeader}
+          </div>
+        ) : (
+          <div className="flex items-center justify-between w-full max-w-xl px-1 mb-1">
+            <div
+              className="inline-flex items-center gap-1.5 text-xs text-rose-300 font-bold tracking-wider"
+              style={{
+                textShadow: '0 0 8px rgba(234,131,119,0.95), 0 2px 4px rgba(0,0,0,0.95)',
+              }}
+            >
+              {isSpeaking && (
+                <span className="inline-flex items-center gap-0.5 px-0.5 shrink-0">
+                  <span className="w-0.5 h-2 bg-rose-400 rounded-full animate-pulse" />
+                  <span className="w-0.5 h-3 bg-rose-300 rounded-full animate-pulse [animation-delay:150ms]" />
+                  <span className="w-0.5 h-2 bg-rose-400 rounded-full animate-pulse [animation-delay:300ms]" />
+                </span>
+              )}
+              {iconKind === 'thinking' && (
+                <Sparkles className="w-3.5 h-3.5 text-brand-300 animate-spin shrink-0" />
+              )}
+              <span>小蠢</span>
+              {ttsDown ? (
+                <span className="text-[10px] text-brand-300 font-normal">
+                  ({t('bubble.ttsUnavailable')})
+                </span>
+              ) : statusKey === 'thinking' && !rawSpeechText ? (
+                <span className="text-[10px] text-white/60 font-normal">
+                  {t('bubble.thinking')}
+                </span>
+              ) : null}
+              {state?.totalSegments && state.totalSegments > 1 && state.segmentIndex ? (
+                <span className="text-[10px] font-mono text-white/50 tracking-wider">
+                  ({state.segmentIndex}/{state.totalSegments})
+                </span>
+              ) : null}
+            </div>
+            {extraHeaderAction && (
+              <div className="shrink-0 pointer-events-auto">
+                {extraHeaderAction}
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* 展开内容 (如历史回顾) */}
+        {Boolean(children) && (
+          <div className="w-full my-2 animate-in fade-in duration-200">
+            {children}
+          </div>
+        )}
+
+        {/* 纯净发光正文 */}
+        {rawSpeechText && !children && (
+          <div
+            key={state?.segmentIndex ?? rawSpeechText}
+            className="text-xs sm:text-base font-medium text-white/95 leading-relaxed break-words text-center max-h-[calc(4*1.7em)] overflow-y-auto overflow-x-hidden px-2 select-text custom-bubble-scrollbar pointer-events-auto animate-in fade-in duration-150"
+            style={{
+              textShadow:
+                '0 2px 4px rgba(0,0,0,0.95), 0 0 12px rgba(0,0,0,0.75), 0 1px 2px rgba(0,0,0,0.95)',
+            }}
+          >
+            <TypewriterText
+              resetKey={state?.segmentIndex}
+              text={rawSpeechText}
+            />
+          </div>
+        )}
+      </div>
+    );
+
+    if (isStatic) {
+      return cinematicContent;
+    }
+
+    return (
+      <div
+        id="head-bubble"
+        data-placement={placement}
+        className="pointer-events-none fixed top-0 left-0 z-35 will-change-transform transition-transform duration-150 ease-out"
+        style={{
+          transform: state ? getBubbleTransform(placement, state.x, state.y) : undefined,
+        }}
+      >
+        {cinematicContent}
+      </div>
+    );
+  }
 
   const cardContent = (
     <div

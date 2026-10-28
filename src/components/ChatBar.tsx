@@ -76,7 +76,7 @@ function AccentFill({ on }: { on: boolean }) {
   );
 }
 
-export const ChatBar: React.FC<{
+export interface ChatBarProps {
   isPetUIVisible?: boolean;
   /**
    * 是否启用"点击角色才出现"。缺省 = 当前是透明场景 (Tauri 桌宠的原规则);
@@ -85,7 +85,26 @@ export const ChatBar: React.FC<{
   autoHide?: boolean;
   isDevDrawerOpen?: boolean;
   onShowDevPanel?: () => void;
-}> = ({ isPetUIVisible = false, autoHide, isDevDrawerOpen = false, onShowDevPanel }) => {
+  className?: string;
+  topSlot?: React.ReactNode;
+  placeholder?: string;
+  onSend?: (text: string) => Promise<void> | void;
+  disabled?: boolean;
+  isStatic?: boolean;
+}
+
+export const ChatBar: React.FC<ChatBarProps> = ({
+  isPetUIVisible = false,
+  autoHide,
+  isDevDrawerOpen = false,
+  onShowDevPanel,
+  className = '',
+  topSlot,
+  placeholder: placeholderProp,
+  onSend,
+  disabled: disabledProp = false,
+  isStatic = false,
+}) => {
   const { t } = useTranslation();
   const currentScene = useCurrentScene();
   const isTransparent = Boolean(currentScene.isTransparent);
@@ -552,11 +571,15 @@ export const ChatBar: React.FC<{
       setInputRows(1);
       setIsQueued(false);
 
-      void vrmEngine
-        .sendMessage(toSend)
-        .catch((e) => console.error('[ChatBar Queue] Send failed:', e));
+      if (onSend) {
+        void Promise.resolve(onSend(toSend)).catch((e: unknown) => console.error('[ChatBar Queue] Send failed:', e));
+      } else {
+        void vrmEngine
+          .sendMessage(toSend)
+          .catch((e) => console.error('[ChatBar Queue] Send failed:', e));
+      }
     }
-  }, [isModelReady, isQueued]);
+  }, [isModelReady, isQueued, onSend]);
 
   const handleStop = () => {
     vrmEngine.stopSpeaking();
@@ -564,6 +587,7 @@ export const ChatBar: React.FC<{
   };
 
   const handleSend = async () => {
+    if (disabledProp) return;
     const text = inputRef.current?.value.trim() ?? '';
     if (!text) return;
 
@@ -591,7 +615,11 @@ export const ChatBar: React.FC<{
     setIsQueued(false);
 
     try {
-      await vrmEngine.sendMessage(text);
+      if (onSend) {
+        await onSend(text);
+      } else {
+        await vrmEngine.sendMessage(text);
+      }
     } catch (e) {
       console.error(e);
     }
@@ -659,13 +687,18 @@ export const ChatBar: React.FC<{
     ? 'opacity-100 pointer-events-auto'
     : 'opacity-0 pointer-events-none';
 
+  const containerClasses = isStatic
+    ? `w-full select-none ${className}`
+    : `fixed bottom-[calc(0.75rem+var(--kb-safe,env(safe-area-inset-bottom,0px))+var(--kb,0px))] sm:bottom-8 left-1/2 -translate-x-1/2 z-30 w-full max-w-xl px-3 sm:px-4 select-none transition-opacity duration-300 ease-out ${visibilityClass} ${className}`;
+
   return (
     <div
       data-xc-ui="" // /embed 透明场景: 聊天栏可见时算"命中", 否则宿主会把指针穿透过去点不到
       onPointerEnter={() => holdPetUi('chatbar')}
       onPointerLeave={() => releasePetUi('chatbar')}
-      className={`fixed bottom-[calc(0.75rem+var(--kb-safe,env(safe-area-inset-bottom,0px))+var(--kb,0px))] sm:bottom-8 left-1/2 -translate-x-1/2 z-30 w-full max-w-xl px-3 sm:px-4 select-none transition-opacity duration-300 ease-out ${visibilityClass}`}
+      className={containerClasses}
     >
+      {topSlot}
       <div id="xiaochun-chatbar" className="flex items-end gap-2 sm:gap-2.5 w-full">
         {/* Unified composer: ONE permanent textarea; single↔multi via CSS grid only (no remount). */}
         {(() => {
@@ -863,7 +896,8 @@ export const ChatBar: React.FC<{
               autoCorrect="off"
               autoCapitalize="off"
               spellCheck={false}
-              placeholder={isModelReady ? t('chat.placeholder') : t('chat.syncingPlaceholder')}
+              disabled={disabledProp}
+              placeholder={placeholderProp ?? (isModelReady ? t('chat.placeholder') : t('chat.syncingPlaceholder'))}
               onCompositionStart={() => {
                 isComposingRef.current = true;
               }}
@@ -993,7 +1027,7 @@ export const ChatBar: React.FC<{
           );
 
           const canStop = !hasText && isBusy;
-          const isButtonActive = canStop || isQueued || hasText;
+          const isButtonActive = (canStop || isQueued || hasText) && !disabledProp;
 
           const sendBtn = (
             <button
