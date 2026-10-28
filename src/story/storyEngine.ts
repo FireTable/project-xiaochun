@@ -527,8 +527,13 @@ export class StoryDirectorEngine {
       this.state.isSpeaking = true;
       this.notify();
 
+      const preserveMotion = Boolean(beat.actor.leadInMotion || beat.actor.motion);
       try {
-        await vrmEngine.speakText(beat.actor.speechText);
+        if (preserveMotion) {
+          await vrmEngine.speakText(beat.actor.speechText, undefined, { preserveMotion: true });
+        } else {
+          await vrmEngine.speakText(beat.actor.speechText);
+        }
         heardSpeech = true;
       } catch (e) {
         console.warn('[StoryEngine] speakText error:', e);

@@ -679,7 +679,7 @@ describe('StoryDirectorEngine runtime behaviour', () => {
       expect(sfxIds()).toEqual(['whoosh', 'heartbeat']);
       expect(expressionController.setDirective).toHaveBeenCalledWith(expect.objectContaining({ base: 'angry' }));
       expect(h.playMotion).toHaveBeenCalledWith('angryJump', expect.anything());
-      expect(h.speakText).toHaveBeenCalledWith('caught!');
+      expect(h.speakText).toHaveBeenCalledWith('caught!', undefined, { preserveMotion: true });
       // 表情 / 起势动作先于开口
       expect(h.playMotion.mock.invocationCallOrder[0]).toBeLessThan(h.speakText.mock.invocationCallOrder[0]);
     });
@@ -699,7 +699,7 @@ describe('StoryDirectorEngine runtime behaviour', () => {
       const plain = { ...script, beats: { a: { ...script.beats.a, waitForCamera: undefined, audio: { sfx: [{ id: 'whoosh', delaySec: 0.1 }] } } } };
       void engine.playScript(plain as never);
       await vi.advanceTimersByTimeAsync(600);
-      expect(h.speakText).toHaveBeenCalledWith('caught!');
+      expect(h.speakText).toHaveBeenCalledWith('caught!', undefined, { preserveMotion: true });
       expect(h.playMotion).toHaveBeenCalledWith('angryJump', expect.anything());
     });
   });
