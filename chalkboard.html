@@ -16,11 +16,9 @@
 
     :root {
       --board-bg: #18261e;
-      --board-dust: #1e3026;
       --wood-dark: #3a2215;
       --wood-mid: #543420;
       --wood-light: #73482d;
-      --wood-border: #29170d;
       --chalk-white: #f8fafc;
       --chalk-yellow: #fef08a;
       --chalk-pink: #fca5a5;
@@ -37,19 +35,19 @@
       font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", sans-serif;
     }
 
-    /* 整体木质外框 */
+    /* 整体黑板外框 */
     #app-container {
       position: relative;
       width: 100vw;
       height: 100vh;
       display: flex;
       background: var(--wood-dark);
-      border: 14px solid var(--wood-mid);
-      border-image: linear-gradient(135deg, var(--wood-light) 0%, var(--wood-mid) 50%, var(--wood-dark) 100%) 14;
+      border: 12px solid var(--wood-mid);
+      border-image: linear-gradient(135deg, var(--wood-light) 0%, var(--wood-mid) 50%, var(--wood-dark) 100%) 12;
       box-shadow: inset 0 0 40px rgba(0, 0, 0, 0.8), 0 20px 60px rgba(0, 0, 0, 0.9);
     }
 
-    /* 左侧主体：黑板画布区 (占据右侧 1/3 以外的全部左侧空间) */
+    /* 黑板画布区 (铺满全屏) */
     #chalkboard-container {
       position: absolute;
       top: 0;
@@ -73,98 +71,35 @@
       touch-action: none;
     }
 
-    /* 右侧伴侣嵌入窗 (严格宽高各占 1/3：width: 33.333vw, height: 33.333vh) */
+    /* 右侧伴侣嵌入窗：透明背景、无边框、无多余按钮 */
     #embed-wrapper {
       position: absolute;
-      right: 12px;
-      bottom: 12px;
+      right: 0;
+      bottom: 0;
       width: 33.333vw;
-      height: 33.333vh;
-      min-width: 320px;
-      min-height: 220px;
+      height: 66.666vh;
+      min-width: 300px;
+      min-height: 400px;
       z-index: 20;
       display: flex;
-      flex-direction: column;
-      border-radius: 12px;
-      overflow: hidden;
-      background: rgba(20, 26, 23, 0.95);
-      border: 3px solid rgba(243, 208, 154, 0.45);
-      box-shadow: 
-        0 14px 40px rgba(0, 0, 0, 0.75),
-        0 0 0 1px rgba(0, 0, 0, 0.9),
-        0 0 20px rgba(234, 131, 119, 0.25);
-      transition: box-shadow 0.2s, border-color 0.2s, transform 0.2s;
+      background: transparent !important;
+      border: none !important;
+      box-shadow: none !important;
+      border-radius: 0 !important;
+      overflow: visible;
+      pointer-events: auto;
     }
 
-    #embed-wrapper:hover {
-      border-color: rgba(243, 208, 154, 0.8);
-      box-shadow: 
-        0 18px 50px rgba(0, 0, 0, 0.85),
-        0 0 30px rgba(234, 131, 119, 0.4);
-    }
-
-    /* 伴侣窗标题栏 */
-    #embed-header {
-      height: 28px;
-      background: linear-gradient(90deg, #2b1f1a, #1b2620);
-      display: flex;
-      align-items: center;
-      justify-content: space-between;
-      padding: 0 10px;
-      border-bottom: 1px solid rgba(255, 255, 255, 0.1);
-      cursor: grab;
-    }
-
-    #embed-title {
-      font-size: 11px;
-      font-weight: 700;
-      color: #f3d09a;
-      letter-spacing: 0.5px;
-      display: flex;
-      align-items: center;
-      gap: 6px;
-    }
-
-    #embed-title-indicator {
-      width: 7px;
-      height: 7px;
-      border-radius: 50%;
-      background: #34d399;
-      box-shadow: 0 0 6px #34d399;
-    }
-
-    #embed-tools {
-      display: flex;
-      align-items: center;
-      gap: 6px;
-    }
-
-    .embed-tool-btn {
-      background: transparent;
-      border: none;
-      color: #94a3b8;
-      font-size: 11px;
-      cursor: pointer;
-      padding: 2px 4px;
-      border-radius: 4px;
-      transition: color 0.15s, background 0.15s;
-    }
-
-    .embed-tool-btn:hover {
-      color: #ffffff;
-      background: rgba(255, 255, 255, 0.1);
-    }
-
-    /* iframe 主视口 */
+    /* iframe 主视口：纯透明、无框、无背景 */
     #xiaochun-frame {
-      flex: 1;
       width: 100%;
       height: 100%;
-      border: none;
-      background: #000000;
+      border: none !important;
+      background: transparent !important;
+      pointer-events: auto;
     }
 
-    /* 顶部黑板标题与演示辅助条 */
+    /* 顶部极简粉笔标题 (低调精致，不喧宾夺主) */
     #top-bar {
       position: absolute;
       top: 14px;
@@ -172,30 +107,17 @@
       z-index: 10;
       display: flex;
       align-items: center;
-      gap: 14px;
+      gap: 12px;
       pointer-events: auto;
     }
 
     .chalk-title {
       font-family: "Bradley Hand", "Comic Sans MS", "Chalkboard", "PingFang SC", sans-serif;
-      font-size: 20px;
+      font-size: 18px;
       font-weight: 800;
       color: var(--chalk-yellow);
-      text-shadow: 0 0 3px rgba(254, 240, 138, 0.4), 1px 1px 1px rgba(0,0,0,0.8);
+      text-shadow: 0 0 3px rgba(254, 240, 138, 0.3), 1px 1px 1px rgba(0,0,0,0.8);
       letter-spacing: 1px;
-      display: flex;
-      align-items: center;
-      gap: 8px;
-    }
-
-    .chalk-badge {
-      background: rgba(255, 255, 255, 0.08);
-      border: 1px dashed rgba(255, 255, 255, 0.3);
-      color: var(--chalk-white);
-      padding: 3px 8px;
-      border-radius: 6px;
-      font-size: 11px;
-      font-weight: 600;
     }
 
     /* 底部粉笔槽工具条 (Chalk Tray) */
@@ -206,11 +128,11 @@
       z-index: 10;
       display: flex;
       align-items: center;
-      gap: 12px;
+      gap: 10px;
       background: linear-gradient(180deg, rgba(45, 28, 17, 0.95), rgba(28, 17, 10, 0.98));
       border: 2px solid var(--wood-light);
       border-radius: 12px;
-      padding: 6px 14px;
+      padding: 6px 12px;
       box-shadow: 0 10px 25px rgba(0, 0, 0, 0.7), inset 0 2px 4px rgba(255, 255, 255, 0.15);
     }
 
@@ -219,7 +141,7 @@
       align-items: center;
       gap: 6px;
       border-right: 1px solid rgba(255, 255, 255, 0.12);
-      padding-right: 10px;
+      padding-right: 8px;
     }
 
     .tray-group:last-child {
@@ -231,7 +153,7 @@
       background: rgba(255, 255, 255, 0.06);
       border: 1px solid rgba(255, 255, 255, 0.15);
       color: #e2e8f0;
-      padding: 6px 10px;
+      padding: 5px 9px;
       border-radius: 8px;
       font-size: 12px;
       font-weight: 600;
@@ -256,15 +178,14 @@
       box-shadow: 0 0 10px rgba(243, 208, 154, 0.35);
     }
 
-    /* 粉笔颜色块 (真粉笔棒质感) */
+    /* 粉笔颜色块 */
     .chalk-stick {
-      width: 22px;
-      height: 22px;
+      width: 20px;
+      height: 20px;
       border-radius: 50%;
       cursor: pointer;
       border: 2px solid rgba(0, 0, 0, 0.4);
       transition: transform 0.15s, box-shadow 0.15s;
-      position: relative;
     }
 
     .chalk-stick:hover {
@@ -274,13 +195,13 @@
     .chalk-stick.active {
       transform: scale(1.25);
       border-color: #ffffff;
-      box-shadow: 0 0 10px rgba(255, 255, 255, 0.8);
+      box-shadow: 0 0 8px rgba(255, 255, 255, 0.8);
     }
 
     /* 粗细选择器 */
     .brush-size-btn {
-      width: 26px;
-      height: 26px;
+      width: 24px;
+      height: 24px;
       border-radius: 6px;
       background: rgba(255, 255, 255, 0.06);
       border: 1px solid rgba(255, 255, 255, 0.12);
@@ -305,91 +226,10 @@
       border-radius: 50%;
     }
 
-    /* 伴侣快捷交互条 (悬浮在伴侣窗上方或右侧，方便录像时一键调度) */
-    #quick-director-bar {
-      position: absolute;
-      right: 12px;
-      bottom: calc(33.333vh + 22px);
-      z-index: 15;
-      display: flex;
-      flex-direction: column;
-      gap: 6px;
-      max-width: 33.333vw;
-    }
-
-    .director-row {
-      display: flex;
-      align-items: center;
-      gap: 6px;
-      flex-wrap: wrap;
-      justify-content: flex-end;
-    }
-
-    .director-btn {
-      background: rgba(20, 26, 23, 0.88);
-      border: 1px solid rgba(243, 208, 154, 0.3);
-      color: #f1f5f9;
-      font-size: 11px;
-      font-weight: 600;
-      padding: 4px 8px;
-      border-radius: 6px;
-      cursor: pointer;
-      backdrop-filter: blur(8px);
-      box-shadow: 0 4px 12px rgba(0,0,0,0.4);
-      transition: all 0.15s;
-      display: flex;
-      align-items: center;
-      gap: 4px;
-    }
-
-    .director-btn:hover {
-      background: rgba(234, 131, 119, 0.35);
-      border-color: #ea8377;
-      color: #ffffff;
-      transform: translateY(-1px);
-    }
-
-    /* 快速演讲台词输入框 */
-    .speech-box {
-      display: flex;
-      gap: 4px;
-      background: rgba(20, 26, 23, 0.92);
-      border: 1px solid rgba(243, 208, 154, 0.4);
-      border-radius: 6px;
-      padding: 2px 4px;
-      backdrop-filter: blur(8px);
-      width: 100%;
-    }
-
-    .speech-input {
-      flex: 1;
-      background: transparent;
-      border: none;
-      color: #fef08a;
-      font-size: 11px;
-      padding: 2px 6px;
-      outline: none;
-    }
-
-    .speech-input::placeholder {
-      color: #94a3b8;
-    }
-
-    .speech-send-btn {
-      background: linear-gradient(135deg, #ea8377, #f97316);
-      border: none;
-      color: #ffffff;
-      font-size: 10px;
-      font-weight: 700;
-      padding: 2px 8px;
-      border-radius: 4px;
-      cursor: pointer;
-    }
-
     /* 提示 Toast */
     #chalk-toast {
       position: absolute;
-      top: 60px;
+      top: 50px;
       left: 50%;
       transform: translateX(-50%);
       z-index: 50;
@@ -397,7 +237,7 @@
       border: 1px solid rgba(243, 208, 154, 0.4);
       color: #fef08a;
       font-size: 12px;
-      padding: 6px 16px;
+      padding: 5px 14px;
       border-radius: 20px;
       pointer-events: none;
       opacity: 0;
@@ -413,7 +253,7 @@
 </head>
 <body>
   <div id="app-container">
-    <!-- 1. 左侧主体：黑板画板 -->
+    <!-- 1. 左侧及全局底板：黑板画板 -->
     <div id="chalkboard-container">
       <canvas id="chalk-canvas"></canvas>
     </div>
@@ -423,10 +263,6 @@
       <div class="chalk-title">
         <span>✏️ 72h 架构讲演手绘黑板</span>
       </div>
-      <div class="chalk-badge">Project XiaoChun 实时互动场景</div>
-      <div class="chalk-badge" style="color: #6ee7b7; border-color: rgba(110, 231, 183, 0.4);">
-        <span>右侧伴侣视窗：1/3 宽高 (33.3% 视口)</span>
-      </div>
     </div>
 
     <!-- 2. 底部粉笔槽 (Chalk Tray) -->
@@ -434,10 +270,10 @@
       <!-- 笔刷模式 -->
       <div class="tray-group">
         <button id="tool-pen" class="tool-btn active" title="粉笔手绘 (P)">✏️ 粉笔</button>
-        <button id="tool-arrow" class="tool-btn" title="箭头指向伴侣 (A)">➡️ 箭头</button>
+        <button id="tool-arrow" class="tool-btn" title="手绘箭头 (A)">➡️ 箭头</button>
         <button id="tool-line" class="tool-btn" title="直线 (L)">📏 直线</button>
         <button id="tool-rect" class="tool-btn" title="流程方框 (R)">⬜ 方框</button>
-        <button id="tool-circle" class="tool-btn" title="圆圈标注 (C)">⭕ 重点圈</button>
+        <button id="tool-circle" class="tool-btn" title="重点圈 (C)">⭕ 重点圈</button>
         <button id="tool-eraser" class="tool-btn" title="粉笔擦 (E)">🧽 板擦</button>
       </div>
 
@@ -466,51 +302,13 @@
       </div>
     </div>
 
-    <!-- 3. 伴侣快捷调度控制板 (悬浮在右侧伴侣框上方) -->
-    <div id="quick-director-bar">
-      <!-- 语音台词演播 -->
-      <div class="speech-box">
-        <input id="speech-input" class="speech-input" type="text" placeholder="给小蠢打字说话 (回车触发)..." value="大家好！欢迎观看小蠢的 72 小时实时互动架构演示！" />
-        <button id="speech-btn" class="speech-send-btn">🗣️ 说话</button>
-      </div>
-
-      <!-- 动作组与表情快捷键 -->
-      <div class="director-row">
-        <button class="director-btn" data-action="motion" data-val="waving">👋 挥手</button>
-        <button class="director-btn" data-action="motion" data-val="handHeart">💖 比心</button>
-        <button class="director-btn" data-action="motion" data-val="joyfulJump">✨ 雀跃</button>
-        <button class="director-btn" data-action="group" data-val="dancePerformance">💃 舞蹈轮播</button>
-        <button class="director-btn" data-action="expr" data-val="playful">😜 俏皮</button>
-        <button class="director-btn" data-action="expr" data-val="gentle_smile">😊 微笑</button>
-      </div>
-
-      <!-- 运镜快捷键 -->
-      <div class="director-row">
-        <button class="director-btn" data-action="camera" data-shot="close_up" data-move="push_in">🔍 特写推近</button>
-        <button class="director-btn" data-action="camera" data-shot="full" data-move="arc_sweep">🎥 全景横摇</button>
-        <button class="director-btn" data-action="camera-reset">🔄 镜头回正</button>
-        <button class="director-btn" data-action="stop" style="color: #fca5a5; border-color: rgba(239, 68, 68, 0.4);">⏹️ 停止</button>
-      </div>
-    </div>
-
-    <!-- 4. 右侧伴侣嵌入窗 (严格宽高各占 1/3) -->
+    <!-- 3. 右侧伴侣嵌入窗：透明背景、无边框、无按钮、融入黑板 -->
     <div id="embed-wrapper">
-      <div id="embed-header">
-        <div id="embed-title">
-          <div id="embed-title-indicator"></div>
-          <span>小蠢 3D 伴侣 · 嵌入视窗 (1/3 宽高)</span>
-        </div>
-        <div id="embed-tools">
-          <button id="btn-dock-pos" class="embed-tool-btn" title="切换停靠位置 (右下 / 右居中 / 右上)">📍 停靠位置</button>
-          <button id="btn-reload-frame" class="embed-tool-btn" title="刷新嵌入页面">🔄 刷新</button>
-          <button id="btn-switch-url" class="embed-tool-btn" title="切换环境 (线上 / 本地)">🌐 切换源</button>
-        </div>
-      </div>
-      <!-- 官方 /embed/ 视窗 -->
       <iframe 
         id="xiaochun-frame" 
-        src="https://xiaochun-dev.firetable.tech/embed/" 
+        src=""
         allow="microphone; camera; display-capture; autoplay; clipboard-write;"
+        allowtransparency="true"
       ></iframe>
     </div>
 
@@ -520,7 +318,24 @@
 
   <script>
     // ═══════════════════════════════════════════════════════════════
-    // 1. 黑板画布绘制引擎 (真实粉笔颗粒质感 + 矢量图元 + 撤销历史)
+    // 1. 动态确定嵌入源：优先使用本地源，支持 transparent 透明场景
+    // ═══════════════════════════════════════════════════════════════
+    const iframe = document.getElementById('xiaochun-frame');
+    const isLocal = window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1';
+    
+    // 优先加载本地透明源 (/embed?scene=transparent&transparent=1)
+    if (isLocal) {
+      iframe.src = '/embed?scene=transparent&transparent=1';
+    } else if (window.location.protocol === 'file:') {
+      // 本地 file:// 打开时尝试直连本地 https://localhost:5185 服务
+      iframe.src = 'https://localhost:5185/embed?scene=transparent&transparent=1';
+    } else {
+      // 线上环境访问线上透明源
+      iframe.src = 'https://xiaochun-dev.firetable.tech/embed?scene=transparent&transparent=1';
+    }
+
+    // ═══════════════════════════════════════════════════════════════
+    // 2. 黑板画布绘制引擎 (粉笔微颗粒感 + 矢量图元 + 撤销历史)
     // ═══════════════════════════════════════════════════════════════
     const canvas = document.getElementById('chalk-canvas');
     const ctx = canvas.getContext('2d');
@@ -554,7 +369,6 @@
       const rect = canvas.getBoundingClientRect();
       const dpr = window.devicePixelRatio || 1;
       
-      // 保存现有内容
       let temp = null;
       if (canvas.width > 0 && canvas.height > 0) {
         temp = document.createElement('canvas');
@@ -574,7 +388,7 @@
       }
     }
 
-    // 绘制粉笔颗粒线段 (模拟真实粉笔在石板上的摩擦断续质感)
+    // 绘制真实粉笔摩擦颗粒
     function drawChalkSegment(x1, y1, x2, y2, color, size, isEraser = false) {
       if (isEraser) {
         ctx.save();
@@ -595,7 +409,6 @@
         const cx = x1 + (x2 - x1) * t;
         const cy = y1 + (y2 - y1) * t;
         
-        // 核心粉笔微粒子喷射
         const density = Math.max(3, Math.floor(size * 1.5));
         for (let j = 0; j < density; j++) {
           const angle = Math.random() * Math.PI * 2;
@@ -613,17 +426,15 @@
       ctx.restore();
     }
 
-    // 箭头绘制函数
+    // 绘制手绘箭头
     function drawChalkArrow(x1, y1, x2, y2, color, size) {
       const headLength = Math.max(16, size * 3.5);
       const dx = x2 - x1;
       const dy = y2 - y1;
       const angle = Math.atan2(dy, dx);
       
-      // 主干
       drawChalkSegment(x1, y1, x2, y2, color, size);
       
-      // 左右翼羽
       const leftX = x2 - headLength * Math.cos(angle - Math.PI / 6);
       const leftY = y2 - headLength * Math.sin(angle - Math.PI / 6);
       const rightX = x2 - headLength * Math.cos(angle + Math.PI / 6);
@@ -633,7 +444,7 @@
       drawChalkSegment(x2, y2, rightX, rightY, color, size);
     }
 
-    // 绘制矩形方框
+    // 绘制方框
     function drawChalkRect(x1, y1, x2, y2, color, size) {
       drawChalkSegment(x1, y1, x2, y1, color, size);
       drawChalkSegment(x2, y1, x2, y2, color, size);
@@ -661,31 +472,27 @@
       }
     }
 
-    // 初始化时在黑板上写一行清爽的粉笔迎宾语与演示提纲
+    // 预置黑板板书提示
     function drawInitialChalkboardArt() {
       saveUndoSnapshot();
-      // 预置黑板板书标题与架构提示
       ctx.save();
       ctx.fillStyle = '#fef08a';
-      ctx.font = 'bold 24px "Chalkboard", "Bradley Hand", -apple-system, sans-serif';
-      ctx.fillText('📋 72h 实时互动架构演进 · 讲演黑板', 40, 90);
+      ctx.font = 'bold 22px "Chalkboard", "Bradley Hand", -apple-system, sans-serif';
+      ctx.fillText('📋 72h 实时互动架构演进 · 讲演黑板', 36, 80);
       
       ctx.fillStyle = '#f8fafc';
       ctx.font = '15px -apple-system, sans-serif';
-      ctx.fillText('1. 全双工 VAD 实时打断机制 (Silero VAD + Barge-in 防回声门控)', 40, 130);
-      ctx.fillText('2. 独立倾听状态机 (Single Bone Writer 单骨骼写锁 + 0.75s 五次步阶平滑)', 40, 160);
-      ctx.fillText('3. 电影级结构化导演协议 (Shot, Movement, Expression, Camera, Grading)', 40, 190);
-      ctx.fillText('4. 纯端侧零依赖推理 (WebLLM + SenseVoice 本地 STT + EMAGE 身体动作)', 40, 220);
+      ctx.fillText('1. 全双工 VAD 实时打断机制 (Silero VAD + Barge-in 声学门控)', 36, 120);
+      ctx.fillText('2. 独立倾听状态机 (Single Bone Writer 单骨骼写锁 + 0.75s 平滑)', 36, 150);
+      ctx.fillText('3. 电影级结构化导演协议 (Shot, Movement, Expression, Camera, Grading)', 36, 180);
+      ctx.fillText('4. 纯端侧零依赖推理 (WebLLM + SenseVoice 本地 STT + EMAGE)', 36, 210);
 
-      // 画一个手绘箭头指向右下角的小蠢
       ctx.fillStyle = '#fdba74';
-      ctx.fillText('👉 演示伴侣在右下角 (33.3% 视口)', 40, 270);
+      ctx.fillText('👉 右侧小蠢为透明伴侣 (无边框·直接融入黑板)', 36, 260);
       ctx.restore();
     }
 
-    // 画布鼠标与触控事件
-    let tempSnapshot = null;
-
+    // 画布坐标转换
     function getCanvasCoords(e) {
       const rect = canvas.getBoundingClientRect();
       const clientX = e.touches ? e.touches[0].clientX : e.clientX;
@@ -696,10 +503,15 @@
       };
     }
 
+    let tempSnapshot = null;
+
     function onPointerDown(e) {
       if (e.button !== 0 && !e.touches) return;
       saveUndoSnapshot();
       isDrawing = true;
+      // 绘图时让 iframe 不捕获鼠标，允许用户手绘线条或箭头跨入右侧区域
+      iframe.style.pointerEvents = 'none';
+
       const pos = getCanvasCoords(e);
       startX = pos.x;
       startY = pos.y;
@@ -707,7 +519,6 @@
       lastY = pos.y;
 
       if (currentTool !== 'pen' && currentTool !== 'eraser') {
-        const dpr = window.devicePixelRatio || 1;
         tempSnapshot = ctx.getImageData(0, 0, canvas.width, canvas.height);
       }
     }
@@ -725,7 +536,6 @@
         lastX = pos.x;
         lastY = pos.y;
       } else if (tempSnapshot) {
-        // 矩形 / 箭头 / 直线 / 圆圈的实时预览
         ctx.putImageData(tempSnapshot, 0, 0);
         if (currentTool === 'line') {
           drawChalkSegment(startX, startY, pos.x, pos.y, currentColor, currentSize);
@@ -743,6 +553,8 @@
       if (!isDrawing) return;
       isDrawing = false;
       tempSnapshot = null;
+      // 释放绘图后恢复 iframe 互动响应
+      iframe.style.pointerEvents = 'auto';
     }
 
     canvas.addEventListener('mousedown', onPointerDown);
@@ -753,7 +565,7 @@
     window.addEventListener('touchmove', onPointerMove, { passive: false });
     window.addEventListener('touchend', onPointerUp);
 
-    // 撤销动作
+    // 撤销
     function undo() {
       if (undoStack.length === 0) {
         showToast('已经是最初状态啦');
@@ -780,7 +592,7 @@
         Object.values(toolButtons).forEach(b => b.classList.remove('active'));
         btn.classList.add('active');
         currentTool = toolKey;
-        showToast(`已切换为: ${btn.innerText}`);
+        showToast(`切换为: ${btn.innerText}`);
       });
     });
 
@@ -805,13 +617,12 @@
       });
     });
 
-    // 按钮动作
     document.getElementById('btn-undo').addEventListener('click', undo);
     
     document.getElementById('btn-clear').addEventListener('click', () => {
       saveUndoSnapshot();
       ctx.clearRect(0, 0, canvas.width, canvas.height);
-      showToast('黑板已全擦净');
+      showToast('黑板已擦净');
     });
 
     document.getElementById('btn-save').addEventListener('click', () => {
@@ -819,7 +630,7 @@
       link.download = `xiaochun-chalkboard-${Date.now()}.png`;
       link.href = canvas.toDataURL('image/png');
       link.click();
-      showToast('黑板画板截图已保存！');
+      showToast('黑板画板截图已导出');
     });
 
     // 快捷键支持
@@ -834,141 +645,6 @@
 
     window.addEventListener('resize', resizeCanvas);
     resizeCanvas();
-
-
-    // ═══════════════════════════════════════════════════════════════
-    // 2. 右侧 1/3 伴侣嵌入框控制 & 通信桥梁 (MessageChannel Protocol)
-    // ═══════════════════════════════════════════════════════════════
-    const embedWrapper = document.getElementById('embed-wrapper');
-    const iframe = document.getElementById('xiaochun-frame');
-    let messagePort = null;
-
-    // 建立双向安全通信
-    const channel = new MessageChannel();
-
-    window.addEventListener('message', (ev) => {
-      if (ev.data && ev.data.type === 'xc.ready') {
-        console.log('[Chalkboard] 接收到小蠢 embed 的 xc.ready 握手信号');
-        iframe.contentWindow.postMessage(
-          {
-            type: 'xc.init',
-            payload: { hostOrigin: window.location.origin }
-          },
-          '*',
-          [channel.port2]
-        );
-        messagePort = channel.port1;
-        messagePort.onmessage = (msgEvent) => {
-          // 接收来自小蠢的事件 (例如状态变更、口型、动作结束)
-          const data = msgEvent.data;
-          console.log('[XiaoChun Iframe Event]', data);
-        };
-        showToast('✨ 小蠢 3D 伴侣已成功就绪并握手！');
-      }
-    });
-
-    // 发送指令到小蠢
-    function sendCommandToXiaoChun(type, payload = {}) {
-      if (!messagePort) {
-        // 若握手尚未完成，尝试通过通用 postMessage 兜底广播
-        iframe.contentWindow.postMessage({ type, payload }, '*');
-        return;
-      }
-      messagePort.postMessage({
-        type,
-        payload,
-        id: 'chalk_' + Math.random().toString(36).slice(2, 9)
-      });
-    }
-
-    // 快捷调度动作绑定
-    document.querySelectorAll('.director-btn').forEach((btn) => {
-      btn.addEventListener('click', () => {
-        const action = btn.dataset.action;
-        if (action === 'motion') {
-          const val = btn.dataset.val;
-          sendCommandToXiaoChun('xc.motion', { name: val, loop: false });
-          showToast(`动作调度: ${btn.innerText}`);
-        } else if (action === 'group') {
-          const val = btn.dataset.val;
-          sendCommandToXiaoChun('xc.motion', { name: val, loop: true });
-          showToast(`舞蹈循环: ${btn.innerText}`);
-        } else if (action === 'expr') {
-          const val = btn.dataset.val;
-          sendCommandToXiaoChun('xc.expression', { name: val, intensity: 0.95 });
-          showToast(`表情调度: ${btn.innerText}`);
-        } else if (action === 'camera') {
-          const shot = btn.dataset.shot;
-          const movement = btn.dataset.move;
-          sendCommandToXiaoChun('xc.camera', { shot, movement, durationSec: 2.2 });
-          showToast(`镜头调度: ${btn.innerText}`);
-        } else if (action === 'camera-reset') {
-          sendCommandToXiaoChun('xc.camera', { reset: true });
-          showToast(`镜头已平滑复位`);
-        } else if (action === 'stop') {
-          sendCommandToXiaoChun('xc.stop', {});
-          showToast(`已停止动作与说话`);
-        }
-      });
-    });
-
-    // 发送演讲台词
-    const speechInput = document.getElementById('speech-input');
-    const speechBtn = document.getElementById('speech-btn');
-
-    function triggerSpeech() {
-      const text = speechInput.value.trim();
-      if (!text) return;
-      sendCommandToXiaoChun('xc.say', { text });
-      showToast(`🗣️ 小蠢开始讲演: "${text.slice(0, 15)}..."`);
-    }
-
-    speechBtn.addEventListener('click', triggerSpeech);
-    speechInput.addEventListener('keydown', (e) => {
-      if (e.key === 'Enter') {
-        e.preventDefault();
-        triggerSpeech();
-      }
-    });
-
-    // 伴侣窗位置切换 (右下 -> 右居中 -> 右上 循环切换)
-    const dockPositions = ['bottom', 'center', 'top'];
-    let currentDockIndex = 0;
-
-    document.getElementById('btn-dock-pos').addEventListener('click', () => {
-      currentDockIndex = (currentDockIndex + 1) % dockPositions.length;
-      const pos = dockPositions[currentDockIndex];
-      if (pos === 'bottom') {
-        embedWrapper.style.top = 'auto';
-        embedWrapper.style.bottom = '12px';
-      } else if (pos === 'center') {
-        embedWrapper.style.top = 'calc(50% - 16.666vh)';
-        embedWrapper.style.bottom = 'auto';
-      } else if (pos === 'top') {
-        embedWrapper.style.top = '12px';
-        embedWrapper.style.bottom = 'auto';
-      }
-      showToast(`伴侣框已停靠在: ${pos === 'bottom' ? '右下方' : pos === 'center' ? '右居中' : '右上方'}`);
-    });
-
-    // 刷新伴侣 iframe
-    document.getElementById('btn-reload-frame').addEventListener('click', () => {
-      iframe.src = iframe.src;
-      showToast('正在重新加载伴侣视窗...');
-    });
-
-    // 切换线上 / 本地环境源
-    let isLocalSource = false;
-    document.getElementById('btn-switch-url').addEventListener('click', () => {
-      isLocalSource = !isLocalSource;
-      if (isLocalSource) {
-        iframe.src = 'http://localhost:5185/embed/';
-        showToast('已切换至本地开发源 (localhost:5185)');
-      } else {
-        iframe.src = 'https://xiaochun-dev.firetable.tech/embed/';
-        showToast('已切换至线上测试源 (xiaochun-dev)');
-      }
-    });
   </script>
 </body>
 </html>
