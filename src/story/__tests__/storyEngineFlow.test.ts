@@ -743,26 +743,45 @@ describe('StoryDirectorEngine runtime behaviour', () => {
       },
     };
 
-    it('no scene card is marked current while the live scene is the void; with no outfit key the default dinner dress counts as worn', async () => {
-      const withDress = { ...script, beats: { ...script.beats, pick: { ...script.beats.pick, choices: [
-        ...script.beats.pick.choices,
-        { id: 'outfit_dress', text: 'Dress', actionType: 'swap_outfit', actionPayload: 'xiaochun_dinner_dress' },
-      ] } } };
-      void engine.playScript(withDress as never);
+    const withDress = () => ({ ...script, beats: { ...script.beats, pick: { ...script.beats.pick, choices: [
+      ...script.beats.pick.choices,
+      { id: 'outfit_dress', text: 'Dress', actionType: 'swap_outfit', actionPayload: 'xiaochun_dinner_dress' },
+    ] } } });
+    const badges = () => engine.getState().choices.map((c) => [c.id, c.selected]);
+    const stubStorage = (items: Record<string, string>) =>
+      vi.stubGlobal('localStorage', { getItem: (k: string) => items[k] ?? null, setItem: vi.fn(), removeItem: vi.fn() });
+    afterEach(() => { vi.unstubAllGlobals(); });
+
+    it('nothing saved: no scene card is current (even though the live scene is void) and the default dinner dress is current', async () => {
+      stubStorage({});
+      void engine.playScript(withDress() as never);
       await vi.advanceTimersByTimeAsync(500);
-      expect(engine.getState().choices.map((c) => [c.id, c.selected])).toEqual([
-        ['scene_beach', false], ['scene_dark', false], ['outfit_maid', false], ['outfit_dress', true],
-      ]);
+      expect(badges()).toEqual([['scene_beach', false], ['scene_dark', false], ['outfit_maid', false], ['outfit_dress', true]]);
     });
 
-    it('the current badge follows the real scene and the worn outfit', async () => {
-      h.currentScene.id = 'beach3d';
-      h.outfit.key = 'xiaochun_maid';
-      void engine.playScript(script as never);
+    it('initial badges read the saved scene and saved outfit from localStorage (exact match), whatever the live scene is', async () => {
+      stubStorage({ xiaochun_scene_theme: 'beach3d', xiaochun_wearing_outfit: 'xiaochun_maid' });
+      h.currentScene.id = 'void';
+      void engine.playScript(withDress() as never);
       await vi.advanceTimersByTimeAsync(500);
-      expect(engine.getState().choices.map((c) => [c.id, c.selected])).toEqual([
-        ['scene_beach', true], ['scene_dark', false], ['outfit_maid', true],
-      ]);
+      expect(badges()).toEqual([['scene_beach', true], ['scene_dark', false], ['outfit_maid', true], ['outfit_dress', false]]);
+    });
+
+    it('an unknown saved outfit falls back to the dinner dress', async () => {
+      stubStorage({ xiaochun_wearing_outfit: 'gone_from_config' });
+      void engine.playScript(withDress() as never);
+      await vi.advanceTimersByTimeAsync(500);
+      expect(badges().filter(([, sel]) => sel)).toEqual([['outfit_dress', true]]);
+    });
+
+    it('after previewing a card the badge follows the previewed one (not the saved value)', async () => {
+      stubStorage({ xiaochun_scene_theme: 'beach3d', xiaochun_wearing_outfit: 'xiaochun_maid' });
+      void engine.playScript(withDress() as never);
+      await vi.advanceTimersByTimeAsync(500);
+      const find = (id: string) => engine.getState().choices.find((c) => c.id === id)!;
+      await engine.selectChoice(find('scene_dark'));
+      await engine.selectChoice(find('outfit_dress'));
+      expect(badges()).toEqual([['scene_beach', false], ['scene_dark', true], ['outfit_maid', false], ['outfit_dress', true]]);
     });
 
     it('trying an outfit plays the outfit-showcase motion group (like the normal app), not a hard-coded motion', async () => {

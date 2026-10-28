@@ -4,6 +4,7 @@ import { storyAudioDirector } from './audioDirector';
 import { vrmEngine } from '@/core/vrmEngine';
 import { sceneManager } from '@/core/scene/sceneManager';
 import { APP_CONFIG } from '@/config';
+import { SCENE_THEME_KEY, WEARING_OUTFIT_KEY } from '@/lib/constants';
 import { changeLang, readClientLang } from '@/i18n';
 import type { i18n as I18nInstance } from 'i18next';
 import type {
@@ -74,6 +75,8 @@ export class StoryDirectorEngine {
   private storyLang: StoryLang | null = null;
   /** 最近一次带 branch 的选项 (本剧本内粘性)，决定后续拍用哪份 variants */
   private branch: string | null = null;
+  /** 本次剧情里用户点过的预览卡 (场景 id / 衣服 key)：点过之后“当前所选”跟着它走，没点过才读 localStorage 里存的 */
+  private previewPick: { scene: string | null; outfit: string | null } = { scene: null, outfit: null };
   private hourTimer: ReturnType<typeof setTimeout> | null = null;
   /** 叫醒拍把模型藏起来了：由紧接着的下一拍在遮罩下露出 */
   private modelHiddenForWake = false;
@@ -230,6 +233,7 @@ export class StoryDirectorEngine {
     this.isInterrupted = false;
     this.storyLang = script.startLang === 'browser' ? detectBrowserStoryLang() : null;
     this.branch = null;
+    this.previewPick = { scene: null, outfit: null };
     this.clearRevealTimer();
 
     const beatKeys = Object.keys(script.beats);
@@ -620,27 +624,38 @@ export class StoryDirectorEngine {
     await sceneManager.setScene(id, persist);
   }
 
-  /** 给选项加上“当前已选”高亮 (换装 / 场景 / 语言) */
+  private readStored(key: string): string | null {
+    try {
+      return typeof localStorage === 'undefined' ? null : localStorage.getItem(key);
+    } catch {
+      return null;
+    }
+  }
+
+  /** 场景卡“当前所选”：点过预览 → 点的那张；否则读已保存的场景 (SCENE_THEME_KEY)；什么都没存 → null (没有卡被标当前) */
+  private badgeScene(): string | null {
+    return this.previewPick.scene ?? this.readStored(SCENE_THEME_KEY);
+  }
+
+  /** 衣服卡“当前所选”：点过预览 → 点的那件；否则读已保存的 (WEARING_OUTFIT_KEY，须是现有 addon)；什么都没存 → 默认晚礼服 */
+  private badgeOutfit(): string {
+    if (this.previewPick.outfit) return this.previewPick.outfit;
+    const saved = this.readStored(WEARING_OUTFIT_KEY);
+    const addons = (APP_CONFIG.model.addons || {}) as Record<string, unknown>;
+    return saved && Object.prototype.hasOwnProperty.call(addons, saved) ? saved : 'xiaochun_dinner_dress';
+  }
+
+  /** 给选项加上“当前已选”高亮 (换装 / 场景 / 语言)；换装 / 场景的初始值读 localStorage，精确匹配 */
   private decorateChoices(choices: StoryChoice[]): StoryChoice[] {
-    const currentOutfit = vrmEngine.currentOutfitKey || 'xiaochun_dinner_dress';
-    const currentScene = sceneManager.getCurrentSceneId();
+    const currentOutfit = this.badgeOutfit();
+    const currentScene = this.badgeScene();
     const lang = this.getLang();
     return choices.map((c) => {
       if (c.actionType === 'swap_outfit') {
-        const isWorn =
-          c.actionPayload === currentOutfit ||
-          c.id === currentOutfit ||
-          (currentOutfit.includes('dress') && c.id === 'outfit_dress') ||
-          (currentOutfit.includes('maid') && c.id === 'outfit_maid') ||
-          (currentOutfit.includes('cheongsam') && c.id === 'outfit_qipao');
-        return { ...c, selected: Boolean(isWorn) };
+        return { ...c, selected: c.actionPayload === currentOutfit };
       }
       if (c.actionType === 'change_scene') {
-        const isSelected =
-          c.actionPayload === currentScene ||
-          c.id === `scene_${currentScene}` ||
-          (currentScene === 'beach3d' && c.id === 'scene_beach');
-        return { ...c, selected: Boolean(isSelected) };
+        return { ...c, selected: currentScene !== null && c.actionPayload === currentScene };
       }
       if (c.actionType === 'change_lang') {
         return { ...c, selected: c.actionPayload === lang };
@@ -693,28 +708,16 @@ export class StoryDirectorEngine {
     if (choice.text && !isPreviewAction) {
       let historyText = choice.text;
       if (choice.id === 'outfit_confirm') {
-        const currentOutfit = vrmEngine.currentOutfitKey || 'xiaochun_dinner_dress';
+        const currentOutfit = this.badgeOutfit();
         const outfitChoices = this.resolvedChoicesOf('beat_outfit_choice');
-        const worn = outfitChoices.find(
-          (c) =>
-            c.actionPayload === currentOutfit ||
-            c.id === currentOutfit ||
-            (currentOutfit.includes('dress') && c.id === 'outfit_dress') ||
-            (currentOutfit.includes('maid') && c.id === 'outfit_maid') ||
-            (currentOutfit.includes('cheongsam') && c.id === 'outfit_qipao')
-        );
+        const worn = outfitChoices.find((c) => c.actionPayload === currentOutfit);
         if (worn?.text) {
           historyText = HISTORY_TEXT[this.getLang()].outfit(worn.text);
         }
       } else if (choice.id === 'scene_confirm') {
-        const currentScene = sceneManager.getCurrentSceneId();
+        const currentScene = this.badgeScene();
         const sceneChoices = this.resolvedChoicesOf('beat_scene_choice');
-        const picked = sceneChoices.find(
-          (c) =>
-            c.actionPayload === currentScene ||
-            c.id === `scene_${currentScene}` ||
-            (currentScene === 'beach3d' && c.id === 'scene_beach')
-        );
+        const picked = currentScene ? sceneChoices.find((c) => c.actionPayload === currentScene) : undefined;
         if (picked?.text) {
           historyText = HISTORY_TEXT[this.getLang()].scene(picked.text);
         }
@@ -755,6 +758,7 @@ export class StoryDirectorEngine {
       if (choice.sceneHour !== undefined) vrmEngine.setEnvironmentTime(choice.sceneHour);
       await sceneManager.setScene(String(choice.actionPayload), true);
       if (isScenePreview) {
+        this.previewPick.scene = String(choice.actionPayload);
         storyAudioDirector.playSfx('crystal_chime');
         const baseChoices =
           this.state.choices.length > 0
@@ -762,13 +766,14 @@ export class StoryDirectorEngine {
             : this.state.currentBeat?.choices || [];
         this.state.choices = baseChoices.map((c) => ({
           ...c,
-          selected: c.id === choice.id || c.actionPayload === choice.actionPayload,
+          selected: c.actionType === choice.actionType ? c.id === choice.id || c.actionPayload === choice.actionPayload : c.selected,
         }));
         this.notify();
         return;
       }
     } else if (choice.actionType === 'swap_outfit' && choice.actionPayload) {
       const outfitKey = String(choice.actionPayload);
+      this.previewPick.outfit = outfitKey;
       const addons = (APP_CONFIG.model.addons || {}) as Record<string, { source: string; name: string }>;
       const addon = addons[outfitKey] || addons[`xiaochun_${outfitKey}`];
       if (addon) {
@@ -788,7 +793,7 @@ export class StoryDirectorEngine {
           : this.state.currentBeat?.choices || [];
       this.state.choices = baseChoices.map((c) => ({
         ...c,
-        selected: c.id === choice.id || c.actionPayload === choice.actionPayload,
+        selected: c.actionType === choice.actionType ? c.id === choice.id || c.actionPayload === choice.actionPayload : c.selected,
       }));
       this.notify();
       return;
