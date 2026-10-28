@@ -53,7 +53,7 @@ import { BubbleTracker, type BubbleState } from './ui/bubbleTracker';
 import { InteractionController } from './interaction/interactionController';
 import { WindForceController } from './wind/windForce';
 import { bindBustArmContact, clearBustArms, updateBustArmContact } from './contact/bustArmContact';
-import { bustJointHitRadius } from './spring/bustClothFit';
+import { applyBustClothFit, bustJointHitRadius } from './spring/bustClothFit';
 import { CharacterShadowSystem } from './scene/characterShadow';
 import { adjustZoomInWhileClamped, solveGroundClamp, visibleRatioCap } from './camera/groundClamp';
 import { cameraDirector } from './scene/cameraDirector';
@@ -2279,7 +2279,7 @@ export class VRMEngine {
       }
     }
 
-    // applyBustClothFit(vrm, visualScale, cfg.clothClearance);
+    applyBustClothFit(vrm, visualScale, cfg.clothClearance);
     bindBustArmContact(vrm);
     this.windForce.resetGravityCache();
   }
@@ -3559,7 +3559,6 @@ export class VRMEngine {
           this.bodyMorph.update(vrm);
         }
         updateBustArmContact(vrm);
-        // updateBustClothFit(vrm);
 
         // 7. 实体脚下影子平面中心与地面高度贴合 — ponytail: 全部交给 CharacterShadowSystem
         if (vrm.humanoid) {

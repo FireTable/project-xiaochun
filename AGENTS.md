@@ -247,44 +247,7 @@ The 3D motion pipeline involves complex layered logic. Follow these geometric an
   10. **Tail-Hold Keyframe Extension (`tailHoldDuration` / `--tail-hold=<seconds>`)**:
      - For one-shot gestures that play once and crossfade back to `NaturalIdle`, duplicating the final frame for $N$ seconds provides a stable rest pose for the 0.75s Quintic Smootherstep crossfade, preventing premature snapping.
 
-### 2.13 Bust Cloth Fit & Three.js Attached SkinnedMesh Inversion Trap
-- Files: `src/core/spring/bustClothFit.ts`, `src/core/spring/bustClothFit.test.ts`, `src/core/vrmEngine.ts`
-- **Pitfall Symptom**: When morph sliders or addon presets scale bust size (`bustSize`), breast geometry penetrates through dress/bodice fabric, and `[bustCloth]` logs `cloth verts 0` in production console despite unit tests passing.
-- **Root Cause & Mathematical Trap**:
-  1. **Three.js `bindMode === 'attached'` Dynamic Inversion**:
-     - In Three.js `SkinnedMesh.updateMatrixWorld()`, when `bindMode === AttachedBindMode` (default for GLTF/VRM), Three.js dynamically writes:
-       `this.bindMatrixInverse.copy( this.matrixWorld ).invert();`
-     - When the VRM model is placed in the scene (e.g. Beach scene at $(0, -0.0012, -4)$ with rotation $Y = -56^\circ$), `mesh.bindMatrixInverse` is **NOT** the mathematical inverse of `mesh.bindMatrix` (which is Identity); it is the inverse of the **scene placement world matrix**: translation $(3.318, 0.0012, 2.234)$ and rotation $+56^\circ$!
-  2. **World Matrix Contamination in Local Bind Space**:
-     - Upstream `buildShell` calculated:
-       `const at = center.localOffset.clone().applyMatrix4(bind).applyMatrix4(mesh.bindMatrixInverse);`
-       `const rootPos = new THREE.Vector3().setFromMatrixPosition(bind).applyMatrix4(mesh.bindMatrixInverse);`
-     - Because `bind` was already in model bind space, multiplying by `bindMatrixInverse` flung `bindCenters` and `rootPositions` $3.4\text{m}$ away into outer space!
-     - Raw geometry vertices (`position.array`) are in model geometry space $(\approx 0.04, 1.36, -0.04)$. The distance to $3.4\text{m}$ exceeded the fade threshold ($> 3.5\text{m} \gg 0.154\text{m}$), causing 100% of vertices to be rejected (`cloth verts 0`).
-  3. **Double Inversion in `composeClothFollowMatrix`**:
-     - In Three.js skinning shaders, the carrier bone transformation is applied in world space, and then multiplied by `bindMatrixInverse` to return to mesh space.
-     - Passing `mesh.bindMatrixInverse` into `composeClothFollowMatrix` multiplied the vertex by the scene inverse a second time, corrupting geometry whenever vertices were influenced.
-- **Engineering Standard & Rule**:
-  - In `bustClothFit.ts`, **never read or use `mesh.bindMatrixInverse`**.
-  - Always compute the true mathematical inverse of the geometry bind matrix:
-    `const bindInverse = mesh.bindMatrix.clone().invert();`
-  - In `composeClothFollowMatrix`, use `bindInverse` instead of `mesh.bindMatrixInverse`.
-  - In `buildShell`, map `center` and `rootPos` to mesh geometry space using `bindInverse` (which is Identity for GLTF/VRM standard).
-  - Guarantees 100% immunity to arbitrary scene translations, camera rotations, and world coordinates.
-- **Biomechanical Cloth Fit & Anti-Bloat Architecture (Anti-Bloat, Cleavage Bridge & 60 FPS Dynamic Follow)**:
-  1. **Anisotropic Silhouette Tailoring (Anti-Bloat Standard)**:
-     - Pure isotropic radial expansion balloons the dress like an inflated sphere, widening the torso from the front view ($\Delta X$) and sagging the bodice down into the waist ($\Delta Y < 0$).
-     - **The Standard**: Damp lateral expansion $\Delta X' = \Delta X \times 0.25$ to preserve the slender feminine hourglass silhouette; heavily damp downward sagging $\Delta Y' = \Delta Y \times 0.15$ while keeping upward lift $\Delta Y \times 0.70$ to maintain a snatched underbust waistline; enforce strictly non-negative forward projection $\Delta Z = \max(0, \Delta Z)$ so fabric is never pulled into the body.
-  2. **Cleavage Tension Bridge (Intermammary Suspension Physics)**:
-     - In real garments, fabric spanning between two breast mounds forms a taut suspension bridge / convex hull rather than dipping into the sternum depression.
-     - **The Standard**: For vertices in the central cleavage zone ($|X| < d_{\text{bridge}} = 0.045\text{m}$), compute smooth bridge elevation: $\Delta Z_{\text{bridge}} = \Delta Z_{\text{peak}} \times \left(1 - \frac{|X|}{d_{\text{bridge}}}\right)^2 \times 0.90 \times \text{best}$. Cloth height is clamped: $Z_{\text{cloth}} \ge Z_{\text{bridge}}$, completely eliminating artificial cleavage caving and valley clefting.
-  3. **Per-Frame 60 FPS Dynamic Cloth Follow (`updateBustClothFit`)**:
-     - VRM SpringBone solves `J_Sec_L/R_Bust1` dynamics every frame, but the dress is skinned to `upperChest`. Calling cloth fit only on slider change leaves the dress completely frozen while breasts bounce underneath, causing severe sloshing and clipping in motion.
-     - **The Standard**: `updateBustClothFit(vrm)` runs inside `vrmEngine.ts:3554` immediately after `vrm.update(delta)`. Uses 100% pre-allocated scratch objects (Zero GC) to update $\sim 188$ cloth vertices in $< 0.01\text{ms}$, achieving 100% synchronized dynamic sway, breath, and movement with the breasts.
-  4. **Critically Damped SpringBone Dynamics**:
-     - `APP_CONFIG.springBone.bust`: `stiffness: 0.38`, `dragForce: 0.52`. Eliminates loose gelatin flopping while maintaining elegant, supple, high-end anime cloth-body elasticity.
-
-### 2.14 Performance & Frame-Budget Disciplines (Zero GC & 60 FPS Guarantees)
+### 2.13 Performance & Frame-Budget Disciplines (Zero GC & 60 FPS Guarantees)
 - Target: Strictly protect the 16.6ms frame budget, maintaining stable 60 FPS on both mobile and desktop with zero visible frame drops, micro-stutters, or memory leaks.
 - **Core Engineering Disciplines**:
   1. **Zero Dynamic Allocation in Render Loop (Zero GC in Tick / Update)**:
