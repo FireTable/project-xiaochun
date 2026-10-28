@@ -97,7 +97,7 @@ export function springStableWorldMatrix(out: THREE.Matrix4, bone: THREE.Object3D
 export function composeClothFollowMatrix(
   out: THREE.Matrix4,
   bindMatrix: THREE.Matrix4,
-  bindMatrixInverse: THREE.Matrix4,
+  bindInverse: THREE.Matrix4,
   bustWorld: THREE.Matrix4,
   bustInverse: THREE.Matrix4,
   carrierWorld: THREE.Matrix4 | null,
@@ -112,7 +112,7 @@ export function composeClothFollowMatrix(
     _relative.copy(_bustDelta);
   }
   _followTmp.multiplyMatrices(_relative, bindMatrix);
-  return out.multiplyMatrices(bindMatrixInverse, _followTmp);
+  return out.multiplyMatrices(bindInverse, _followTmp);
 }
 
 /**
@@ -126,9 +126,11 @@ export function blendClothRestInto(
   targets: readonly THREE.Vector3[],
   influences: ArrayLike<number>,
   count: number,
+  bridgeWidth = 0.045,
 ): void {
   let weightSum = 0;
   let best = 0;
+  let maxDz = 0;
   out.set(0, 0, 0);
   for (let i = 0; i < count; i++) {
     const amount = influences[i] ?? 0;
@@ -136,6 +138,8 @@ export function blendClothRestInto(
     if (amount > best) best = amount;
     weightSum += amount;
     const target = targets[i]!;
+    const dz = Math.max(0, target.z - base.z);
+    if (dz > maxDz) maxDz = dz;
     out.x += target.x * amount;
     out.y += target.y * amount;
     out.z += target.z * amount;
@@ -148,6 +152,19 @@ export function blendClothRestInto(
   out.x = base.x + (out.x * inv - base.x) * best;
   out.y = base.y + (out.y * inv - base.y) * best;
   out.z = base.z + (out.z * inv - base.z) * best;
+
+  // Cleavage tension bridging across the two breasts:
+  // When a vertex is in the central valley (|base.x| < bridgeWidth) and the breasts project forward (maxDz > 0),
+  // fabric tension keeps it taut between the peaks instead of dipping down into the sternum cavity.
+  const absX = Math.abs(base.x);
+  if (absX < bridgeWidth && maxDz > 0 && count >= 2) {
+    const t = 1 - absX / bridgeWidth;
+    const smoothT = t * t * (3 - 2 * t);
+    const bridgeZ = base.z + maxDz * smoothT * 0.90 * best;
+    if (out.z < bridgeZ) {
+      out.z = bridgeZ;
+    }
+  }
 }
 
 export function shouldConsiderCloth(meshName: string, materialName: string): boolean {
@@ -184,7 +201,7 @@ interface ClothShell {
   influence: Float32Array;
   rootCount: number;
   bindMatrix: THREE.Matrix4;
-  bindMatrixInverse: THREE.Matrix4;
+  bindInverse: THREE.Matrix4;
   bones: ClothBone[];
   follow: THREE.Matrix4[];
 }
@@ -217,6 +234,17 @@ export function applyBustClothFit(vrm: VRM, visualScale: number, clearance: numb
     const item = state.tracked[i]!;
     item.shape.radius = scaledBustColliderRadius(item.rest, scale, clearance);
   }
+  applyShells(state.shells);
+}
+
+/**
+ * Per-frame 60 FPS zero-allocation update:
+ * Synchronously follows live spring-bone rotations and breast movements so the clothing
+ * sways, breathes, and bounces in lockstep with the breasts instead of lagging or freezing.
+ */
+export function updateBustClothFit(vrm: VRM): void {
+  const state = states.get(vrm);
+  if (!state || state.shells.length === 0) return;
   applyShells(state.shells);
 }
 
@@ -317,7 +345,7 @@ function applyShells(shells: ClothShell[]): void {
       composeClothFollowMatrix(
         follow,
         shell.bindMatrix,
-        shell.bindMatrixInverse,
+        shell.bindInverse,
         _bustWorld,
         bone.boneInverse,
         bone.parent ? bone.parent.matrixWorld : null,
@@ -338,6 +366,23 @@ function applyShells(shells: ClothShell[]): void {
         if (amount > 0) {
           any = true;
           _targets[r]!.copy(_base).applyMatrix4(shell.follow[r]!);
+
+          // Anisotropic silhouette tailoring:
+          // Prevent ballooning outwards laterally (X) and sagging into the waist (-Y)
+          const rawDx = _targets[r]!.x - _base.x;
+          const rawDy = _targets[r]!.y - _base.y;
+          const rawDz = _targets[r]!.z - _base.z;
+
+          // 1. Z forward: cloth cannot be sucked backwards into the chest cavity (ΔZ >= 0)
+          const dz = Math.max(0, rawDz);
+
+          // 2. X lateral: damp lateral blowout by 0.25 to maintain slim feminine silhouette and avoid ballooning
+          const dx = rawDx * 0.25;
+
+          // 3. Y vertical: upward lift is natural (0.7), but downward sagging into waist is heavily damped (0.15) to keep waistline snatched
+          const dy = rawDy >= 0 ? rawDy * 0.70 : rawDy * 0.15;
+
+          _targets[r]!.set(_base.x + dx, _base.y + dy, _base.z + dz);
         }
       }
       if (!any) {
@@ -401,7 +446,7 @@ function buildShell(mesh: THREE.SkinnedMesh, centers: BustCenter[]): ClothShell 
   const rootPositions: THREE.Vector3[] = [];
   const forwards: THREE.Vector3[] = [];
   const bind = new THREE.Matrix4();
-  const invBind = mesh.bindMatrixInverse;
+  const bindInverse = mesh.bindMatrix.clone().invert();
 
   for (let c = 0; c < centers.length; c++) {
     const center = centers[c]!;
@@ -423,8 +468,8 @@ function buildShell(mesh: THREE.SkinnedMesh, centers: BustCenter[]): ClothShell 
       continue;
     }
     bind.copy(inverse).invert();
-    const at = center.localOffset.clone().applyMatrix4(bind).applyMatrix4(invBind);
-    const rootPos = new THREE.Vector3().setFromMatrixPosition(bind).applyMatrix4(invBind);
+    const at = center.localOffset.clone().applyMatrix4(bind).applyMatrix4(bindInverse);
+    const rootPos = new THREE.Vector3().setFromMatrixPosition(bind).applyMatrix4(bindInverse);
     const forward = at.clone().sub(rootPos);
     if (forward.lengthSq() < 1e-8) forward.set(0, 0, 1);
     else forward.normalize();
@@ -464,7 +509,7 @@ function buildShell(mesh: THREE.SkinnedMesh, centers: BustCenter[]): ClothShell 
     influence,
     rootCount,
     bindMatrix: mesh.bindMatrix.clone(),
-    bindMatrixInverse: mesh.bindMatrixInverse.clone(),
+    bindInverse,
     bones,
     follow: bones.map(() => new THREE.Matrix4()),
   };

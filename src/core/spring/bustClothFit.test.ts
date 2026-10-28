@@ -23,6 +23,7 @@ import {
   scaledBustColliderRadius,
   shouldConsiderCloth,
   springStableWorldMatrix,
+  updateBustClothFit,
 } from './bustClothFit';
 
 describe('bust cloth fit', () => {
@@ -169,5 +170,91 @@ describe('bust cloth fit', () => {
 
     blendClothRestInto(out, base, [left, right], [0, 0], 2);
     expect(out.distanceTo(base)).toBeLessThan(1e-8);
+  });
+
+  it('is immune to scene placement and Three.js attached bindMode (matrixWorld.invert())', () => {
+    // When VRM is placed in the beach scene at (0, -0.0012, -4) with rotation -56 deg,
+    // Three.js SkinnedMesh (bindMode='attached') updates bindMatrixInverse to mesh.matrixWorld.invert().
+    const sceneTransform = new THREE.Matrix4().compose(
+      new THREE.Vector3(0, -0.0012, -4),
+      new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0, 1, 0), -0.9782),
+      new THREE.Vector3(1, 1, 1),
+    );
+    const sceneInverse = sceneTransform.clone().invert();
+
+    // Identity bindMatrix on mesh
+    const bindMatrix = new THREE.Matrix4();
+    const bindInverse = bindMatrix.clone().invert(); // Must use mathematical inverse, NOT mesh.bindMatrixInverse!
+
+    // Carrier (chest) and bust world matrices inherit scene placement
+    const carrierModel = new THREE.Matrix4().makeTranslation(0, 1.2, 0);
+    const carrierInverse = carrierModel.clone().invert();
+    const carrierWorld = new THREE.Matrix4().multiplyMatrices(sceneTransform, carrierModel);
+
+    // Bust has scaled 1.5x relative to carrier
+    const bustLocal = new THREE.Matrix4().compose(
+      new THREE.Vector3(0.05, 0.02, 0.05),
+      new THREE.Quaternion(),
+      new THREE.Vector3(1.5, 1.5, 1.5),
+    );
+    const bustModel = new THREE.Matrix4().multiplyMatrices(carrierModel, bustLocal);
+    const bustInverse = new THREE.Matrix4().compose(
+      new THREE.Vector3(0.05, 1.22, 0.05),
+      new THREE.Quaternion(),
+      new THREE.Vector3(1, 1, 1),
+    ).invert();
+    const bustWorld = new THREE.Matrix4().multiplyMatrices(sceneTransform, bustModel);
+
+    const follow = new THREE.Matrix4();
+    composeClothFollowMatrix(follow, bindMatrix, bindInverse, bustWorld, bustInverse, carrierWorld, carrierInverse);
+
+    const vertex = new THREE.Vector3(0.05, 1.22, 0.07); // Front bodice cloth vertex in geometry space
+    const target = vertex.clone().applyMatrix4(follow);
+
+    // Vertex target must remain in mesh geometry space (~1.2m height, not shifted by 4m scene translation)
+    expect(target.y).toBeCloseTo(1.22, 1);
+    expect(target.z).toBeGreaterThan(0.07); // Expanded outward with bust
+
+    // Verify Three.js vertex shader pipeline:
+    // skinMatrix = carrierWorld * carrierInverse
+    // skinned = skinMatrix * (bindMatrix * target)
+    // transformed = sceneInverse * skinned (where sceneInverse is mesh.bindMatrixInverse in attached mode)
+    // renderedWorld = sceneTransform * transformed
+    const skinMatrix = new THREE.Matrix4().multiplyMatrices(carrierWorld, carrierInverse);
+    const skinned = target.clone().applyMatrix4(bindMatrix).applyMatrix4(skinMatrix);
+    const transformed = skinned.clone().applyMatrix4(sceneInverse);
+    const renderedWorld = transformed.clone().applyMatrix4(sceneTransform);
+
+    // Desired world position is vertex skinned by bust bone in world space
+    const bustSkinMatrix = new THREE.Matrix4().multiplyMatrices(bustWorld, bustInverse);
+    const desiredWorld = vertex.clone().applyMatrix4(bindMatrix).applyMatrix4(bustSkinMatrix);
+
+    expect(renderedWorld.distanceTo(desiredWorld)).toBeLessThan(1e-5);
+  });
+
+  it('bridges cleavage across the intermammary valley to prevent caving into the sternum', () => {
+    const out = new THREE.Vector3();
+    // Center cleavage vertex between both breasts (x = 0, y = 1.15, z = 0.05)
+    const base = new THREE.Vector3(0, 1.15, 0.05);
+
+    // Scenario: Individual breast target projections at center sternum cave backwards (z = 0.055),
+    // but the breast peaks reached maxDz = 0.03 (z = 0.08)
+    const cavingLeft = new THREE.Vector3(0.01, 1.15, 0.055);
+    const cavingRight = new THREE.Vector3(-0.01, 1.15, 0.08); // peak reaches dz = 0.03
+
+    blendClothRestInto(out, base, [cavingLeft, cavingRight], [0.8, 0.8], 2, 0.045);
+
+    // X stays balanced in the center
+    expect(out.x).toBeCloseTo(0);
+    // Without bridge, out.z would be 0.05 + ((0.055 - 0.05) + (0.08 - 0.05))/2 * 0.8 = 0.064
+    // With bridge: base.z + 0.03 * 1.0 * 0.90 * 0.8 = 0.0716!
+    expect(out.z).toBeGreaterThanOrEqual(0.071);
+    expect(out.z).toBeCloseTo(0.0716, 3);
+  });
+
+  it('safely handles updateBustClothFit on arbitrary VRMs', () => {
+    // Calling updateBustClothFit on a VRM with no state should exit safely with no errors
+    const fakeVrm = { scene: new THREE.Group() } as any;
+    expect(() => updateBustClothFit(fakeVrm)).not.toThrow();
   });
 });

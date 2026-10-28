@@ -499,8 +499,8 @@ export const APP_CONFIG = {
   },
   springBone: {
     bust: {
-      stiffness: 0.22,
-      dragForce: 0.26,
+      stiffness: 0.38,
+      dragForce: 0.52,
       gravityPower: 0.005,
       hitRadius: 0.0232,
       // Extra meters added to the bust collider only after the bust grows past its bind size.
