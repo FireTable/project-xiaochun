@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import type { BubbleState } from '@/core/ui/bubbleTracker';
 
-describe('Story Dialogue & HeadBubble Persistence Contract', () => {
+describe('Story Dialogue & ChatBubble Persistence Contract', () => {
   it('keeps static dialogue visible even when bubble state.visible becomes false upon speech end', () => {
     // 模拟语音播放结束时 BubbleTracker.hide() 产生的状态
     const endedBubbleState: BubbleState = {
@@ -22,7 +22,7 @@ describe('Story Dialogue & HeadBubble Persistence Contract', () => {
     const rawSpeechText = currentSpeechText;
     const statusKey = state.statusKey;
 
-    // 验证 HeadBubble.tsx 中的 isVisible 判定逻辑
+    // 验证 ChatBubble.tsx 中的 isVisible 判定逻辑
     const isVisible = isStatic
       ? Boolean(children) || Boolean(rawSpeechText) || (state ? state.visible && Boolean(statusKey) : Boolean(statusKey))
       : Boolean(state?.visible);

@@ -8,7 +8,7 @@ import React, { lazy, startTransition, Suspense, useEffect, useMemo, useState, u
 import { useTranslation } from 'react-i18next';
 import { vrmEngine, type BubbleState } from '@/core/vrmEngine';
 import { SceneCanvas } from '@/components/SceneCanvas';
-import { HeadBubble } from '@/components/HeadBubble';
+import { ChatBubble } from '@/components/ChatBubble';
 import { ChatBar } from '@/components/ChatBar';
 import { APP_CONFIG } from '@/config';
 import { XIAOCHUN_SYSTEM_PROMPT } from '@/llm/prompts';
@@ -119,7 +119,7 @@ export const EmbedApp: React.FC = () => {
   return (
     <div id="app" className="relative w-full h-screen h-[100dvh] overflow-hidden">
       <SceneCanvas />
-      {ui.bubble && <HeadBubble state={bubble} />}
+      {ui.bubble && <ChatBubble state={bubble} />}
       {ui.ui && <ChatBar isPetUIVisible={isPetUIVisible} autoHide={autoHide} onShowDevPanel={() => {}} />}
       {bridgeRef && (
         // 四角弧线: 只有宿主开了 resizable 才渲染 (组件内部按手势状态仓决定; 默认关闭时什么都不画)

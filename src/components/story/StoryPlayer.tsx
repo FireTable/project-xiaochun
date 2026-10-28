@@ -9,7 +9,7 @@ import { StoryCinematicOverlay } from './StoryCinematicOverlay';
 import { StoryChoiceGroup } from './StoryChoiceGroup';
 import { StoryChoiceCard } from './StoryChoiceCard';
 import { StoryCameraTaskCard } from './StoryCameraTaskCard';
-import { HeadBubble } from '@/components/HeadBubble';
+import { ChatBubble } from '@/components/ChatBubble';
 import { ChatBar } from '@/components/ChatBar';
 import { ProviderConfigDialog } from '@/components/ProviderConfigDialog';
 import { vrmEngine, type BubbleState } from '@/core/vrmEngine';
@@ -295,11 +295,11 @@ export const StoryPlayer: React.FC<StoryPlayerProps> = ({
     return null;
   };
 
-  // 渲染高质感纯净电影条 (直接复用 HeadBubble variant="cinematic"，0 冗余)
+  // 渲染高质感纯净电影条 (直接复用 ChatBubble variant="cinematic"，0 冗余)
   const renderDialogueBubble = (maxWidthClass = 'max-w-lg sm:max-w-xl w-full') => {
     if (!showDialogue) return null;
     return (
-      <HeadBubble
+      <ChatBubble
         isStatic
         variant="cinematic"
         placement="bottom"
@@ -361,7 +361,7 @@ export const StoryPlayer: React.FC<StoryPlayerProps> = ({
             })}
           </div>
         )}
-      </HeadBubble>
+      </ChatBubble>
     );
   };
 

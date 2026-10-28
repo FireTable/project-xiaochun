@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import { VRM } from '@pixiv/three-vrm';
+import { VRM, VRMExpression, VRMExpressionMorphTargetBind } from '@pixiv/three-vrm';
 import type { ExpressionDirective, EmotionMicroReaction } from '@/story/schema';
 
 export interface ExpressionControllerConfig {
@@ -44,6 +44,7 @@ export interface MotionExpressionContext {
  */
 export interface MotionExpressionOutput {
   happy: number;
+  gentle_smile: number;
   angry: number;
   sad: number;
   surprised: number;
@@ -176,6 +177,7 @@ export class ExpressionController {
 
   private readonly exprOutput: MotionExpressionOutput = {
     happy: 0,
+    gentle_smile: 0,
     angry: 0,
     sad: 0,
     surprised: 0,
@@ -187,6 +189,7 @@ export class ExpressionController {
     ou: 0,
     reset() {
       this.happy = 0;
+      this.gentle_smile = 0;
       this.angry = 0;
       this.sad = 0;
       this.surprised = 0;

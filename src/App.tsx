@@ -4,7 +4,7 @@ import type { LoadingState, BubbleState } from '@/core/vrmEngine';
 import { TopHeader } from '@/components/TopHeader';
 import { SceneTimeCard } from '@/components/SceneTimeCard';
 import { AppUpdateDialog } from '@/components/AppUpdateDialog';
-import { HeadBubble } from '@/components/HeadBubble';
+import { ChatBubble } from '@/components/ChatBubble';
 import { ChatBar } from '@/components/ChatBar';
 import { loadingStore } from '@/components/loading/loadingStore';
 
@@ -261,7 +261,7 @@ export const App: React.FC = () => {
       {/* 3D 角色头顶悬浮对话框：PC 维持头顶跟随气泡；移动端隐藏头顶气泡转由 ChatBar 顶部电影条承接 */}
       {currentScene.components.headBubble !== false && !isStoryOrOnboarding && (
         <div className="hidden sm:block">
-          <HeadBubble state={bubble} variant="bubble" />
+          <ChatBubble state={bubble} variant="bubble" />
         </div>
       )}
 
@@ -273,7 +273,7 @@ export const App: React.FC = () => {
           onShowDevPanel={() => setHasDevEasterEgg(true)}
           topSlot={
             <div className="block sm:hidden w-full pb-1.5 pointer-events-auto">
-              <HeadBubble
+              <ChatBubble
                 state={bubble}
                 variant="cinematic"
                 isStatic

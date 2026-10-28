@@ -263,7 +263,7 @@ export class BubbleTracker {
       this.lastBubbleX = this.state.x;
       this.lastBubbleY = this.state.y;
       if (typeof document !== 'undefined') {
-        const bubbleEl = document.getElementById('head-bubble');
+        const bubbleEl = document.getElementById('chat-bubble') || document.getElementById('head-bubble');
         if (bubbleEl) {
           const sideOffset = Math.min(90, Math.max(50, Math.round(w * 0.10)));
           bubbleEl.style.transform = getBubbleTransform(
