@@ -1,7 +1,7 @@
 import React from 'react';
 
 interface StoryCinematicOverlayProps {
-  isLetterboxActive: boolean;
+  isLetterboxActive?: boolean;
   isIntertitleActive: boolean;
   intertitleText: string;
   intertitleStyle?: 'noto_serif' | 'modern_sans' | 'typewriter';
@@ -10,7 +10,6 @@ interface StoryCinematicOverlayProps {
 }
 
 export const StoryCinematicOverlay: React.FC<StoryCinematicOverlayProps> = ({
-  isLetterboxActive,
   isIntertitleActive,
   intertitleText,
   intertitleStyle = 'noto_serif',
@@ -19,25 +18,7 @@ export const StoryCinematicOverlay: React.FC<StoryCinematicOverlayProps> = ({
 }) => {
   return (
     <div className="pointer-events-none fixed inset-0 z-20 overflow-hidden select-none">
-      {/* 1. 电影遮幅：采用多阶平滑 Ease-Out 曲线过渡，边缘沉浸遮光，到达阈值平滑归零 */}
-      <div
-        className={`absolute top-0 left-0 right-0 pointer-events-none transition-all duration-700 ease-out ${isLetterboxActive ? 'h-20 sm:h-28 opacity-100' : 'h-0 opacity-0'
-          }`}
-        style={{
-          background:
-            'linear-gradient(to bottom, rgba(0,0,0,0.92) 0%, rgba(0,0,0,0.82) 20%, rgba(0,0,0,0.52) 50%, rgba(0,0,0,0.20) 75%, rgba(0,0,0,0.04) 90%, rgba(0,0,0,0) 100%)',
-        }}
-      />
-      <div
-        className={`absolute bottom-0 left-0 right-0 pointer-events-none transition-all duration-700 ease-out ${isLetterboxActive ? 'h-20 sm:h-28 opacity-100' : 'h-0 opacity-0'
-          }`}
-        style={{
-          background:
-            'linear-gradient(to top, rgba(0,0,0,0.92) 0%, rgba(0,0,0,0.82) 20%, rgba(0,0,0,0.52) 50%, rgba(0,0,0,0.20) 75%, rgba(0,0,0,0.04) 90%, rgba(0,0,0,0) 100%)',
-        }}
-      />
-
-      {/* 2. 第一人称眨眼睁开蒙版 (POV Eye Blink) */}
+      {/* 1. 第一人称眨眼睁开蒙版 (POV Eye Blink) */}
       <div
         className={`absolute inset-0 bg-black transition-all duration-700 ease-in-out ${isEyeBlinkActive ? 'opacity-100 scale-y-100' : 'opacity-0 scale-y-0 pointer-events-none'
           }`}

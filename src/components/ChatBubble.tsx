@@ -175,8 +175,16 @@ export const ChatBubble: React.FC<ChatBubbleProps> = ({
                 textShadow: '0 0 8px rgba(234,131,119,0.95), 0 2px 4px rgba(0,0,0,0.95)',
               }}
             >
+              {/* 角色名作为第一锚点固定在最左侧，绝不受后续图标显隐干扰 */}
+              <span>小蠢</span>
+              {state?.totalSegments && state.totalSegments > 1 && state.segmentIndex ? (
+                <span className="text-[10px] font-mono text-white/50 tracking-wider">
+                  ({state.segmentIndex}/{state.totalSegments})
+                </span>
+              ) : null}
+              {/* 发声波形指示器置于名字右侧，发声时柔和渐显，播毕自然隐退，角色名坐标纹丝不动 */}
               {isSpeaking && (
-                <span className="inline-flex items-center gap-0.5 px-0.5 shrink-0">
+                <span className="inline-flex items-center gap-0.5 px-0.5 shrink-0 opacity-80 animate-in fade-in duration-150">
                   <span className="w-0.5 h-2 bg-rose-400 rounded-full animate-pulse" />
                   <span className="w-0.5 h-3 bg-rose-300 rounded-full animate-pulse [animation-delay:150ms]" />
                   <span className="w-0.5 h-2 bg-rose-400 rounded-full animate-pulse [animation-delay:300ms]" />
@@ -185,7 +193,6 @@ export const ChatBubble: React.FC<ChatBubbleProps> = ({
               {iconKind === 'thinking' && (
                 <Sparkles className="w-3.5 h-3.5 text-brand-300 animate-spin shrink-0" />
               )}
-              <span>小蠢</span>
               {ttsDown ? (
                 <span className="text-[10px] text-brand-300 font-normal">
                   ({t('bubble.ttsUnavailable')})
@@ -193,11 +200,6 @@ export const ChatBubble: React.FC<ChatBubbleProps> = ({
               ) : statusKey === 'thinking' && !rawSpeechText ? (
                 <span className="text-[10px] text-white/60 font-normal">
                   {t('bubble.thinking')}
-                </span>
-              ) : null}
-              {state?.totalSegments && state.totalSegments > 1 && state.segmentIndex ? (
-                <span className="text-[10px] font-mono text-white/50 tracking-wider">
-                  ({state.segmentIndex}/{state.totalSegments})
                 </span>
               ) : null}
             </div>
@@ -216,11 +218,11 @@ export const ChatBubble: React.FC<ChatBubbleProps> = ({
           </div>
         )}
 
-        {/* 纯净发光正文 */}
+        {/* 纯净发光正文：严格与上方角色名保持完全一致的 max-w-xl px-1 左对齐垂线 */}
         {rawSpeechText && !children && (
           <div
             key={state?.segmentIndex ?? rawSpeechText}
-            className="text-xs sm:text-base font-medium text-white/95 leading-relaxed break-words text-center max-h-[calc(4*1.7em)] overflow-y-auto overflow-x-hidden px-2 select-text custom-bubble-scrollbar pointer-events-auto animate-in fade-in duration-150"
+            className="w-full text-left max-w-xl px-1 text-xs sm:text-base font-medium text-white/95 leading-relaxed break-words max-h-[calc(4*1.7em)] overflow-y-auto overflow-x-hidden select-text custom-bubble-scrollbar pointer-events-auto animate-in fade-in duration-150"
             style={{
               textShadow:
                 '0 2px 4px rgba(0,0,0,0.95), 0 0 12px rgba(0,0,0,0.75), 0 1px 2px rgba(0,0,0,0.95)',

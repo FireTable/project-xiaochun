@@ -421,7 +421,7 @@ export const StoryPlayer: React.FC<StoryPlayerProps> = ({
       <div className="hidden sm:block">
         {/* PC 宽屏中央沉底电影条 (唯一的对白展示，复用 HeadBubble variant="cinematic"，0 重复) */}
         {showDialogue && (
-          <div className="pointer-events-none fixed bottom-4 sm:bottom-6 left-1/2 -translate-x-1/2 z-40 max-w-lg md:max-w-xl w-full px-4 text-center animate-in fade-in slide-in-from-bottom-2 duration-300">
+          <div className="pointer-events-none fixed bottom-4 sm:bottom-6 left-1/2 -translate-x-1/2 z-40 max-w-lg md:max-w-xl w-full px-4 flex justify-center animate-in fade-in slide-in-from-bottom-2 duration-300">
             <div className="pointer-events-auto w-full">
               {renderDialogueBubble()}
             </div>
