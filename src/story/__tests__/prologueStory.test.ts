@@ -1,4 +1,6 @@
 import { describe, it, expect } from 'vitest';
+import { existsSync } from 'node:fs';
+import { resolve } from 'node:path';
 
 import { prologueStory } from '../prologueStory';
 import { StoryScriptSchema, STORY_LANGS, type LocalizedText, type StoryLang } from '../schema';
@@ -11,7 +13,7 @@ import { APP_CONFIG } from '@/config';
 import { TRANSITION_SPECS } from '../transitions';
 
 const beats = Object.values(prologueStory.beats);
-const SCRIPT_BEATS = ['beat_1', 'beat_2', 'beat_3', 'beat_4', 'beat_5', 'beat_6'];
+const SCRIPT_BEATS = ['beat_1', 'beat_2', 'beat_3', 'beat_outfit_choice', 'beat_4', 'beat_5', 'beat_6'];
 
 /** 每拍一句台词：中文 ≤50 字，日文相当，英文相当 */
 const LIMIT: Record<StoryLang, number> = { 'zh-CN': 50, ja: 70, en: 140 };
@@ -37,7 +39,7 @@ describe('prologue story (Act 0 v4 · Backstage Catch)', () => {
     expect(clickRequired.map((b) => b.id)).toEqual(['beat_greet']);
   });
 
-  it('has the 6 script beats, each with exactly one spoken line, plus the wake step', () => {
+  it('has the 6 script beats + the outfit beat, each with exactly one spoken line, plus the wake step', () => {
     expect(Object.keys(prologueStory.beats)).toEqual(['beat_greet', ...SCRIPT_BEATS]);
     for (const id of SCRIPT_BEATS) {
       expect(resolveBeat(prologueStory.beats[id], 'en').actor.speechText.trim().length, id).toBeGreaterThan(0);
@@ -107,7 +109,7 @@ describe('prologue story (Act 0 v4 · Backstage Catch)', () => {
   });
 
   it('puts a hint on every interactive beat (cards, camera task, input, free-chat handoff)', () => {
-    for (const id of ['beat_2', 'beat_3', 'beat_4', 'beat_5', 'beat_6']) {
+    for (const id of ['beat_2', 'beat_3', 'beat_outfit_choice', 'beat_4', 'beat_5', 'beat_6']) {
       expect(prologueStory.beats[id].hint, id).toBeDefined();
     }
   });
@@ -120,14 +122,17 @@ describe('prologue story (Act 0 v4 · Backstage Catch)', () => {
     // 2 choice → 3
     expect((b.beat_2.choices ?? []).every((c) => c.nextBeatId === 'beat_3')).toBe(true);
     // 3 camera_task: ≥35° or 20% zoom, 6000ms timeout, fallback speaks then → 4
-    expect(b.beat_3.cameraTask).toMatchObject({ orbitDeg: 35, zoomRatio: 0.2, timeoutMs: 6000, nextBeatId: 'beat_4' });
+    expect(b.beat_3.cameraTask).toMatchObject({ orbitDeg: 35, zoomRatio: 0.2, timeoutMs: 6000, nextBeatId: 'beat_outfit_choice' });
     expect(b.beat_3.cameraTask?.fallback.camera).toMatchObject({ movement: 'orbit_subtle', durationSec: 2.0 });
     expect(b.beat_3.cameraTask?.fallback.expression?.base).toBe('playful');
-    // 4 choice → 5 with two scene branches
-    expect((b.beat_4.choices ?? []).map((c) => [c.branch, c.scene, c.nextBeatId])).toEqual([
-      ['beach', 'beach', 'beat_5'],
-      ['night', 'lineart_night', 'beat_5'],
+    // 3.5 outfit cards (preview in place) + confirm → 4
+    expect(b.beat_outfit_choice.confirmChoice?.nextBeatId).toBe('beat_4');
+    // 4 scene cards (preview in place, each sets the branch) + confirm → 5
+    expect((b.beat_4.choices ?? []).map((c) => [c.actionType, c.actionPayload, c.branch, c.nextBeatId])).toEqual([
+      ['change_scene', 'beach3d', 'beach', undefined],
+      ['change_scene', 'dark', 'night', undefined],
     ]);
+    expect(b.beat_4.confirmChoice?.nextBeatId).toBe('beat_5');
     // 5 input → canned reply (playful, close_up + arc pan 1.5s) → 6
     expect(b.beat_5.allowInput).toBe(true);
     expect(b.beat_5.inputReply).toMatchObject({ nextBeatId: 'beat_6', expression: { base: 'playful' }, camera: { shot: 'close_up', movement: 'arc_sweep', durationSec: 1.5 } });
@@ -142,9 +147,15 @@ describe('prologue story (Act 0 v4 · Backstage Catch)', () => {
     const beach = applyVariant(base, 'beach');
     expect(beach.cinematics).toMatchObject({ transition: 'white_flash', grading: 'default', wind: 3 });
     expect(beach.audio?.bgmMood).toBe('bright');
+    expect(beach.audio?.ambience).toBe('sea_waves');
+    expect(beach.scene).toBe('beach');
+    expect(beach.cinematics?.timeOfDay).toMatchObject({ from: 14.5, to: 17.6 });
     expect(beach.audio?.sfx?.map((s) => [s.id, s.delaySec])).toEqual([['waves', 0.1], ['wind', 1.2]]);
     expect(night.cinematics).toMatchObject({ transition: 'white_flash', grading: 'rainy_noir', wind: 2 });
     expect(night.audio?.bgmMood).toBe('mystic');
+    expect(night.audio?.ambience).toBe('none');
+    expect(night.scene).toBe('lineart_night');
+    expect(night.cinematics?.timeOfDay).toBeUndefined();
     expect(night.audio?.sfx?.map((s) => [s.id, s.delaySec])).toEqual([['bell', 0.1], ['wind', 1.2]]);
     // 台词、镜头、动作两个分支一致
     expect(night.actor).toEqual(base.actor);
@@ -180,6 +191,26 @@ describe('prologue story (Act 0 v4 · Backstage Catch)', () => {
     }
   });
 
+  it('brings back the old showcase: outfit cards with previews + confirm, scene cards with previews + confirm, in the user\'s voice', () => {
+    const outfit = prologueStory.beats.beat_outfit_choice;
+    expect((outfit.choices ?? []).map((c) => [c.id, c.actionType, c.actionPayload])).toEqual([
+      ['outfit_dress', 'swap_outfit', 'xiaochun_dinner_dress'],
+      ['outfit_maid', 'swap_outfit', 'xiaochun_maid'],
+      ['outfit_qipao', 'swap_outfit', 'xiaochun_cheongsam'],
+    ]);
+    const addons = Object.keys(APP_CONFIG.model.addons ?? {});
+    for (const c of outfit.choices ?? []) expect(addons, `${c.id} outfit exists`).toContain(c.actionPayload);
+    expect(outfit.confirmChoice?.id).toBe('outfit_confirm');
+    const sceneCards = prologueStory.beats.beat_4.choices ?? [];
+    expect(prologueStory.beats.beat_4.confirmChoice?.id).toBe('scene_confirm');
+    for (const c of [...(outfit.choices ?? []), ...sceneCards]) {
+      expect(c.image, `${c.id} has a preview`).toBeTruthy();
+      expect(existsSync(resolve(__dirname, '../../../public', String(c.image).replace(/^\//, ''))), `${c.id} preview file`).toBe(true);
+      expect(c.subText, `${c.id} has a sub line`).toBeDefined();
+    }
+    for (const c of sceneCards) expect(Object.keys(APP_CONFIG.scenes.items)).toContain(c.actionPayload);
+  });
+
   it('maps the script scene names to real scene ids', () => {
     expect(resolveStoryScene('lineart_day')).toBe('light');
     expect(resolveStoryScene('lineart_night')).toBe('dark');
@@ -192,6 +223,7 @@ describe('prologue story (Act 0 v4 · Backstage Catch)', () => {
     expect(b.beat_1.cinematics).toMatchObject({ letterbox: true, transition: 'eye_blink', grading: 'dream_bloom', wind: 0 });
     expect(b.beat_2.cinematics).toMatchObject({ letterbox: false, wind: 0 });
     expect(b.beat_3.camera?.movement).toBe('dutch_tilt');
+    expect(b.beat_outfit_choice.camera).toMatchObject({ shot: 'full', movement: 'arc_sweep' });
     expect(b.beat_4.cinematics).toMatchObject({ grading: 'sepia_memory', wind: 1 });
     expect(b.beat_6.cinematics).toMatchObject({ transition: 'eye_blink', grading: 'default', wind: 1 });
     expect(b.beat_1.scene).toBe('lineart_day');

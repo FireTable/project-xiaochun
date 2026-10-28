@@ -7,9 +7,10 @@ import type { StoryScript, LocalizedStoryBeat, LocalizedText, AudioDirective } f
  * 抓包 → 破功嘴硬 → 让你帮忙检查仪容 → 嫌弃线稿草稿箱、换场景 → 经费燃烧、让你说句话 → 扔掉台本，进入自由聊天。
  * 每个操作教学点都有剧情动机，小蠢只说戏里的话；“现在可以做什么”放在屏幕提示 (hint) 里，不朗读。
  *
- * 结构：叫醒拍 (beat_greet，沿用原来的黑幕“轻点屏幕，把她叫醒”，同时解锁浏览器音频) + 6 拍，每拍 1 句台词 = 1 次 TTS：
+ * 结构：叫醒拍 (beat_greet，沿用原来的黑幕“轻点屏幕，把她叫醒”，同时解锁浏览器音频) + 6 拍 + 1 拍换装，每拍 1 句台词 = 1 次 TTS：
  *   1 后台抓包 (auto 400ms) → 2 社死破功 (选语言) → 3 检查仪容 (camera_task：转视角 / 缩放)
- *   → 4 嫌弃草稿箱 (选场景：海边 / 极夜) → 5 经费燃烧 (input：说句话) → 6 剧本杀青 (auto 300ms → finish → 自由聊天)。
+ *   → 3.5 帮我挑衣服 (衣服卡：当场换装预览 + 确认) → 4 嫌弃草稿箱 (场景卡：带预览图，海边 / 极夜)
+ *   → 5 经费燃烧 (白闪切场景 + 昼夜光影 + input：说句话) → 6 剧本杀青 (auto 300ms → finish → 自由聊天)。
  * 额外语音只在两种情况：镜头任务 6 秒超时的兜底台词；用户输入后的固定回复。
  *
  * 参数名与引擎 id 的对应 (剧本策划稿 → 代码)：
@@ -127,7 +128,7 @@ const beats: Record<string, LocalizedStoryBeat> = {
       orbitDeg: 35,
       zoomRatio: 0.2,
       timeoutMs: 6000,
-      nextBeatId: 'beat_4',
+      nextBeatId: 'beat_outfit_choice',
       fallback: {
         camera: { shot: 'full', movement: 'orbit_subtle', durationSec: 2.0 },
         motion: 'showFullBody', // 她自己原地转一圈展示
@@ -139,6 +140,61 @@ const beats: Record<string, LocalizedStoryBeat> = {
         ),
         afterMs: 500,
       },
+    },
+  },
+
+  // ═══ 3.5 · 帮我挑衣服 (教：换装。接在“检查仪容”之后：被你绕着看了一圈，她才发现这身太正式) ═══
+  // 点一张衣服卡 = 当场换上并转一圈展示 (可以来回试)，点“就这身了”才进入下一拍；ids 与引擎的历史记录文案对应，别改。
+  beat_outfit_choice: {
+    id: 'beat_outfit_choice',
+    cinematics: { grading: 'default', wind: 0 },
+    camera: { shot: 'full', movement: 'arc_sweep', durationSec: 2.4 },
+    actor: {
+      leadInMotion: 'fingerObserve', // 比出取景框打量自己
+      expression: { base: 'playful', intensity: 0.8, microReaction: 'eye_crinkle' },
+      speechText: L(
+        '等等，被你绕着看了一圈我才发现，这身是不是太正式了？你来当造型师，帮我挑一套！',
+        "Wait, now that you've circled me, this outfit is way too stiff, isn't it? You're my stylist now. Pick me something!",
+        'ちょっと待って、ぐるっと見られて気づいたけど、この服ちょっと堅すぎない？スタイリスト役、お願い！',
+      ),
+    },
+    hint: L('选一套衣服', 'Pick an outfit', '服を選ぶ'),
+    choiceLayout: 'grid',
+    choices: [
+      {
+        id: 'outfit_dress',
+        icon: '👗',
+        image: '/previews/outfits/xiaochun_dinner_dress.webp',
+        text: L('晚礼服最衬你', 'The evening dress suits you', 'ドレスが似合うよ'),
+        subText: L('优雅晚礼服', 'Evening dress', 'エレガントなドレス'),
+        actionType: 'swap_outfit',
+        actionPayload: 'xiaochun_dinner_dress',
+      },
+      {
+        id: 'outfit_maid',
+        icon: '☕',
+        image: '/previews/outfits/xiaochun_maid.webp',
+        text: L('来套女仆装吧', 'Go with the maid outfit', 'メイド服でいこう'),
+        subText: L('古典女仆装', 'Classic maid outfit', 'クラシックなメイド服'),
+        actionType: 'swap_outfit',
+        actionPayload: 'xiaochun_maid',
+      },
+      {
+        id: 'outfit_qipao',
+        icon: '🏮',
+        image: '/previews/outfits/xiaochun_cheongsam.webp',
+        text: L('旗袍，肯定好看', 'Cheongsam, no question', 'チャイナドレスがいい'),
+        subText: L('墨韵旗袍', 'Ink cheongsam', '墨色のチャイナドレス'),
+        actionType: 'swap_outfit',
+        actionPayload: 'xiaochun_cheongsam',
+      },
+    ],
+    confirmChoice: {
+      id: 'outfit_confirm',
+      icon: '✨',
+      text: L('就这身了', "That's the one", 'それに決まり'),
+      actionType: 'next_beat',
+      nextBeatId: 'beat_4',
     },
   },
 
@@ -158,35 +214,51 @@ const beats: Record<string, LocalizedStoryBeat> = {
     },
     audio: { sfx: [{ id: 'wind', delaySec: 0.3, volume: 0.6 }] },
     hint: L('选择想去的地方', 'Pick a destination', '行き先を選ぶ'),
-    choiceLayout: 'list',
+    // 场景卡带预览图：点一张就当场换过去看 (可以来回看)，再点“就这儿了”才进入下一拍；选了哪张决定第 5 拍的分支。
+    // 即使没点预览直接确认，第 5 拍自己的 scene 也会保证场景对得上。
+    choiceLayout: 'grid',
     choices: [
       {
-        id: 'dest_beach',
+        id: 'scene_beach',
         icon: '🏖️',
         image: '/previews/scenes/beach3d.webp',
         text: L('去海边吹吹风', 'Hit the sunny beach', '海辺で風にあたりたい'),
-        actionType: 'next_beat',
-        branch: 'beach',
-        scene: 'beach',
+        subText: L('听海浪，吹海风', 'Waves and sea breeze', '波の音と潮風'),
+        actionType: 'change_scene',
+        actionPayload: 'beach3d',
         sceneHour: 14.5, // 大太阳底下的海边
-        nextBeatId: 'beat_5',
+        branch: 'beach',
       },
       {
-        id: 'dest_night',
+        id: 'scene_dark',
         icon: '🌌',
+        image: '/previews/scenes/dark.webp',
         text: L('换个酷点的夜色', 'Somewhere cool & dark', 'クールな夜がいい'),
-        actionType: 'next_beat',
+        subText: L('星光与冷色夜景', 'Starlight and a cool night', '星明かりのクールな夜'),
+        actionType: 'change_scene',
+        actionPayload: 'dark',
         branch: 'night',
-        scene: 'lineart_night',
-        nextBeatId: 'beat_5',
       },
     ],
+    confirmChoice: {
+      id: 'scene_confirm',
+      icon: '✨',
+      text: L('就去这儿了', "That's the place", 'ここに決めた'),
+      actionType: 'next_beat',
+      nextBeatId: 'beat_5',
+    },
   },
 
   // ═══ 5 · 经费燃烧 (白闪切到所选场景；教：打字 / 语音输入。默认 = 海边，variants.night = 极夜线稿) ═══
   beat_5: {
     id: 'beat_5',
-    cinematics: { transition: 'white_flash', grading: 'default', wind: 3 },
+    scene: 'beach', // 兜底：没点过预览卡也保证场景对得上 (已经在这个场景就什么也不做)
+    cinematics: {
+      transition: 'white_flash',
+      grading: 'default',
+      wind: 3,
+      timeOfDay: { from: 14.5, to: 17.6, durationSec: 12 }, // 阳光慢慢变金：昼夜光影
+    },
     camera: { shot: 'wide', movement: 'hero_spiral_orbit', durationSec: 3.0 },
     actor: {
       leadInMotion: 'relaxStretch', // 张开双臂深呼吸，随后俏皮地歪头看向正前方
@@ -199,6 +271,8 @@ const beats: Record<string, LocalizedStoryBeat> = {
     },
     audio: {
       ...music('bright', 0.3, 2.5),
+      ambience: 'sea_waves',
+      ambienceVolume: 0.2,
       sfx: [
         { id: 'waves', delaySec: 0.1, volume: 0.6 },
         { id: 'wind', delaySec: 1.2, volume: 0.6 },
@@ -206,9 +280,11 @@ const beats: Record<string, LocalizedStoryBeat> = {
     },
     variants: {
       night: {
-        cinematics: { grading: 'rainy_noir', wind: 2 },
+        scene: 'lineart_night',
+        cinematics: { grading: 'rainy_noir', wind: 2, timeOfDay: undefined },
         audio: {
           ...music('mystic', 0.3, 2.5),
+          ambience: 'none',
           sfx: [
             { id: 'bell', delaySec: 0.1, volume: 0.6 },
             { id: 'wind', delaySec: 1.2, volume: 0.6 },

@@ -79,6 +79,7 @@ export class StoryDirectorEngine {
   private branch: string | null = null;
   /** 本拍的 inputReply 已经被用掉 (一次输入只推进一次) */
   private inputReplyConsumed = false;
+  private hourTimer: ReturnType<typeof setTimeout> | null = null;
   /** 叫醒拍把模型藏起来了：由紧接着的下一拍在遮罩下露出 */
   private modelHiddenForWake = false;
   private listeners = new Set<StoryStateListener>();
@@ -343,6 +344,12 @@ export class StoryDirectorEngine {
     if (beat.cinematics?.wind !== undefined) {
       vrmEngine.setStoryWind(beat.cinematics.wind);
     }
+    if (beat.cinematics?.timeOfDay) {
+      // 补间可以跨拍继续跑；只有下一段补间 / 剧终才会停掉它
+      const t = beat.cinematics.timeOfDay;
+      this.stopTimeOfDay();
+      this.runTimeOfDay(t.from, t.to, t.durationSec ?? 8);
+    }
     // 序章“叫醒”拍之后的第一拍：模型在黑幕 / 遮罩下才露出来 (叫醒拍里模型一直是隐藏的)
     if (this.modelHiddenForWake && vrmEngine.currentVRM) {
       vrmEngine.currentVRM.scene.visible = true;
@@ -578,6 +585,30 @@ export class StoryDirectorEngine {
   }
 
   // ───────────────────────── 场景 / 镜头任务 / 输入推进 ─────────────────────────
+
+  /** 环境时间平滑补间 (引擎的 setEnvironmentTime 本身是瞬切，这里用定时器逐帧推；终帧才落盘，过程中不写存档) */
+  private runTimeOfDay(from: number | undefined, to: number, durationSec: number): void {
+    const start = from ?? to;
+    if (from === undefined || durationSec <= 0) {
+      vrmEngine.setEnvironmentTime(to);
+      return;
+    }
+    const t0 = Date.now();
+    const ms = durationSec * 1000;
+    vrmEngine.setEnvironmentTime(start, { isDragging: true });
+    const step = () => {
+      const p = Math.min(1, (Date.now() - t0) / ms);
+      const e = p * p * (3 - 2 * p);
+      vrmEngine.setEnvironmentTime(start + (to - start) * e, { isDragging: p < 1 });
+      this.hourTimer = p < 1 ? setTimeout(step, 40) : null;
+    };
+    this.hourTimer = setTimeout(step, 40);
+  }
+
+  private stopTimeOfDay(): void {
+    if (this.hourTimer) clearTimeout(this.hourTimer);
+    this.hourTimer = null;
+  }
 
   /** 切到剧本场景 (别名或真实 id)，已经在该场景就什么也不做 */
   private async applyScene(name: string, persist = false): Promise<void> {
@@ -831,6 +862,7 @@ export class StoryDirectorEngine {
         changeLang(this.i18nInstance, this.storyLang);
       }
     } else if (choice.actionType === 'change_scene' && choice.actionPayload) {
+      if (choice.sceneHour !== undefined) vrmEngine.setEnvironmentTime(choice.sceneHour);
       await sceneManager.setScene(String(choice.actionPayload), true);
       if (isScenePreview) {
         storyAudioDirector.playSfx('crystal_chime');
@@ -950,6 +982,7 @@ export class StoryDirectorEngine {
     void vrmEngine.returnToDefaultView();
     vrmEngine.setStoryWind(0);
     this.branch = null;
+    this.stopTimeOfDay();
     this.modelHiddenForWake = false;
     expressionController.setActive(false);
     this.state = {

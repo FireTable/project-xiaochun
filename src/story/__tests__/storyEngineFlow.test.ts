@@ -765,4 +765,93 @@ describe('StoryDirectorEngine runtime behaviour', () => {
       expect(h.setStoryWind).toHaveBeenLastCalledWith(0);
     });
   });
+
+  describe('preview cards (scene / outfit) with confirm', () => {
+    const script = {
+      id: 'pv',
+      title: 't',
+      initialBeatId: 'pick',
+      beats: {
+        pick: {
+          id: 'pick',
+          actor: actor('choose'),
+          choices: [
+            { id: 'scene_beach', text: 'Beach', actionType: 'change_scene', actionPayload: 'beach3d', sceneHour: 14.5, branch: 'beach' },
+            { id: 'scene_dark', text: 'Night', actionType: 'change_scene', actionPayload: 'dark', branch: 'night' },
+            { id: 'outfit_maid', text: 'Maid', actionType: 'swap_outfit', actionPayload: 'xiaochun_maid' },
+          ],
+          confirmChoice: { id: 'scene_confirm', text: 'Go', actionType: 'next_beat', nextBeatId: 'out' },
+        },
+        out: { id: 'out', actor: actor('after'), variants: { night: { actor: actor('night after') } } },
+      },
+    };
+
+    it('a scene preview swaps in place (hour first, branch remembered) and keeps the cards on screen; confirm then advances on that branch', async () => {
+      void engine.playScript(script as never);
+      await vi.advanceTimersByTimeAsync(500);
+      const dark = engine.getState().choices.find((c) => c.id === 'scene_dark')!;
+      const beach = engine.getState().choices.find((c) => c.id === 'scene_beach')!;
+      await engine.selectChoice(beach);
+      expect(h.setEnvironmentTime).toHaveBeenCalledWith(14.5);
+      expect(h.setScene).toHaveBeenLastCalledWith('beach3d', true);
+      expect(engine.getCurrentBeatId()).toBe('pick');
+      expect(engine.getState().choices.find((c) => c.id === 'scene_beach')?.selected).toBe(true);
+
+      await engine.selectChoice(dark); // 改主意：最后点的分支算数
+      expect(h.setScene).toHaveBeenLastCalledWith('dark', true);
+      expect(engine.getState().choices.length).toBe(3);
+
+      void engine.selectChoice(script.beats.pick.confirmChoice as never);
+      await vi.advanceTimersByTimeAsync(800);
+      expect(engine.getCurrentBeatId()).toBe('out');
+      expect(engine.getState().currentBeat?.actor.speechText).toBe('night after');
+    });
+
+    it('an outfit preview does not advance the story', async () => {
+      void engine.playScript(script as never);
+      await vi.advanceTimersByTimeAsync(500);
+      await engine.selectChoice(engine.getState().choices.find((c) => c.id === 'outfit_maid')!);
+      expect(engine.getCurrentBeatId()).toBe('pick');
+      expect(h.audio.playSfx).toHaveBeenCalledWith('crystal_chime');
+    });
+  });
+
+  describe('time of day', () => {
+    const script = (tod: unknown, extra: unknown = {}) => ({
+      id: 'tod',
+      title: 't',
+      initialBeatId: 'a',
+      beats: { a: { id: 'a', cinematics: { timeOfDay: tod }, actor: actor(''), ...(extra as object) }, b: { id: 'b', actor: actor('') } },
+    });
+
+    it('tweens the environment hour from → to, committing only the final frame, and keeps going across beats', async () => {
+      void engine.playScript(script({ from: 14, to: 18, durationSec: 4 }) as never);
+      await vi.advanceTimersByTimeAsync(2000);
+      const mid = h.setEnvironmentTime.mock.calls.at(-1)!;
+      expect(mid[0]).toBeGreaterThan(14.5);
+      expect(mid[0]).toBeLessThan(17.5);
+      expect(mid[1]).toMatchObject({ isDragging: true });
+      void engine.goToBeat('b'); // 下一拍没写补间：继续跑完
+      await vi.advanceTimersByTimeAsync(3000);
+      const last = h.setEnvironmentTime.mock.calls.at(-1)!;
+      expect(last[0]).toBeCloseTo(18, 5);
+      expect(last[1]).toMatchObject({ isDragging: false });
+    });
+
+    it('without a from-hour it snaps, and finish() stops a running tween', async () => {
+      void engine.playScript(script({ to: 20 }) as never);
+      await vi.advanceTimersByTimeAsync(500);
+      expect(h.setEnvironmentTime).toHaveBeenCalledWith(20);
+
+      h.setEnvironmentTime.mockClear();
+      void engine.goToBeat('a');
+      engine.finish();
+      void engine.playScript(script({ from: 10, to: 12, durationSec: 10 }) as never);
+      await vi.advanceTimersByTimeAsync(1000);
+      engine.finish();
+      const calls = h.setEnvironmentTime.mock.calls.length;
+      await vi.advanceTimersByTimeAsync(5000);
+      expect(h.setEnvironmentTime.mock.calls.length).toBe(calls);
+    });
+  });
 });

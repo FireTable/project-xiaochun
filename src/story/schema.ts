@@ -134,6 +134,15 @@ const buildCinematicsSchema = <T extends z.ZodTypeAny>(text: T) =>
      * 与镜头的 windMultiplier (运镜期间的阵风) 叠加，取两者较大值。
      */
     wind: z.number().min(0).max(3).optional(),
+    /**
+     * 环境时间补间 (小时，仅 beach3d 这类带昼夜的场景有效)：从 `from` (缺省 = 直接用 `to`) 平滑推到 `to`，用时 `durationSec`。
+     * 例：下午 14:30 → 傍晚 17:30，光线慢慢变金。离开本拍 / 剧终会停掉补间。
+     */
+    timeOfDay: z.object({
+      from: z.number().min(0).max(24).optional(),
+      to: z.number().min(0).max(24),
+      durationSec: z.number().min(0).max(120).default(8),
+    }).optional(),
   });
 
 export const CinematicsDirectiveSchema = buildCinematicsSchema(z.string());
@@ -231,7 +240,7 @@ const buildChoiceSchema = <T extends z.ZodTypeAny>(text: T) =>
     branch: z.string().optional(),
     /** 剧本场景别名 (lineart_day / lineart_night / beach)；在下一拍的转场遮罩下切换 */
     scene: z.string().optional(),
-    /** 切到支持时间的场景 (如 beach) 之前先把环境时间设到这个小时 */
+    /** 切到支持时间的场景 (如 beach) 之前先把环境时间设到这个小时 (scene 与 change_scene 预览都适用) */
     sceneHour: z.number().min(0).max(24).optional(),
   });
 
