@@ -577,6 +577,7 @@ export function startEmbedBridge(opts: EmbedBridgeOptions): EmbedBridge {
     if (stt) return stt;
     const { SttClient } = await import('@/stt/sttClient'); // 懒加载: 不开麦就不下载 STT 代码
     stt = new SttClient();
+    stt.setTtsSpeakingProvider(() => vrmEngine.isSpeaking);
     sttOff = stt.on((e) => {
       if (e.type === 'state') {
         sttState = e.state;

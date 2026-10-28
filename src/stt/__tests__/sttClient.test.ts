@@ -357,4 +357,109 @@ describe('SttClient state logic', () => {
       (globalThis as any).Worker = originalWorker;
     }
   });
+
+  describe('acoustic bleed gating (Self-Listening Guard)', () => {
+    it('suppresses acoustic bleed when TTS is speaking and audio RMS is below barge-in threshold', () => {
+      let isTtsSpeaking = true;
+      const client = new SttClient({ isTtsSpeaking: () => isTtsSpeaking });
+
+      let vadResetCount = 0;
+      let vadProcessCount = 0;
+      const mockVad = {
+        reset: () => {
+          vadResetCount++;
+        },
+        dispose: () => {},
+        isInSpeech: () => false,
+        isSpeechCandidate: () => false,
+        processChunk: () => {
+          vadProcessCount++;
+          return Promise.resolve();
+        },
+      };
+      (client as any).vad = mockVad;
+
+      const events: any[] = [];
+      client.on((ev) => events.push(ev));
+
+      // Create a low-volume audio chunk (speaker bleed RMS ~ 0.03 < 0.08)
+      const bleedPcm = new Float32Array(512).fill(0.03);
+      (client as any).processPcmChunk(bleedPcm);
+
+      // Verify VAD was reset and not fed the bleed chunk
+      expect(vadResetCount).toBe(1);
+      expect(vadProcessCount).toBe(0);
+
+      // Verify partial_rms was emitted with prob: 0, and no speech_start was emitted
+      const rmsEv = events.find((e) => e.type === 'partial_rms');
+      const probEv = events.find((e) => e.type === 'speech_prob');
+      const startEv = events.find((e) => e.type === 'speech_start');
+
+      expect(rmsEv).toBeTruthy();
+      expect(rmsEv.rms).toBeCloseTo(0.03, 3);
+      expect(probEv).toBeTruthy();
+      expect(probEv.prob).toBe(0);
+      expect(startEv).toBeUndefined();
+
+      client.dispose();
+    });
+
+    it('permits user barge-in when TTS is speaking and audio RMS exceeds barge-in threshold', () => {
+      let isTtsSpeaking = true;
+      const client = new SttClient({ isTtsSpeaking: () => isTtsSpeaking });
+
+      let vadProcessCount = 0;
+      let onVadEventCb: any = null;
+      const mockVad = {
+        reset: () => {},
+        dispose: () => {},
+        isInSpeech: () => false,
+        isSpeechCandidate: () => false,
+        processChunk: (_chunk: Float32Array, onEvent: (ev: any) => void) => {
+          vadProcessCount++;
+          onVadEventCb = onEvent;
+          return Promise.resolve();
+        },
+      };
+      (client as any).vad = mockVad;
+
+      const events: any[] = [];
+      client.on((ev) => events.push(ev));
+
+      // Create a loud chunk (user directly speaking into mic RMS ~ 0.15 >= 0.08)
+      const userPcm = new Float32Array(512).fill(0.15);
+      (client as any).processPcmChunk(userPcm);
+
+      // Verify chunk passed through to VAD
+      expect(vadProcessCount).toBe(1);
+
+      // When VAD confirms speech start from user, client forwards speech_start
+      onVadEventCb?.({ type: 'speech_start' });
+      const startEv = events.find((e) => e.type === 'speech_start');
+      expect(startEv).toBeTruthy();
+
+      client.dispose();
+    });
+
+    it('maintains acoustic guard during post-TTS room reverberation cooldown window', () => {
+      let isTtsSpeaking = true;
+      const client = new SttClient({ isTtsSpeaking: () => isTtsSpeaking });
+
+      expect(client.isAcousticGuardActive()).toBe(true);
+
+      // TTS finishes speaking
+      isTtsSpeaking = false;
+      // Mark last speaking time to now
+      (client as any).lastTtsSpeakingTime = performance.now();
+
+      // Guard is still active during the 250ms cooldown window
+      expect(client.isAcousticGuardActive()).toBe(true);
+
+      // Simulate passage of 300ms (> 250ms cooldown)
+      (client as any).lastTtsSpeakingTime = performance.now() - 350;
+      expect(client.isAcousticGuardActive()).toBe(false);
+
+      client.dispose();
+    });
+  });
 });

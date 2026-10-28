@@ -418,6 +418,10 @@ export const APP_CONFIG = {
     vadStartMs: 80,
     vadPrerollMs: 300,
     minUtteranceMs: 160,
+    /** TTS 播放期扬声器防自听打断 (Self-Listening Guard) 门限：低于此 RMS 视为扬声器回音过滤，高于此 RMS 判定为用户主动打断 (Barge-in) */
+    bargeInRms: 0.08,
+    /** TTS 播报结束后的房间残响与声学回声吸收冷却窗 (ms) */
+    ttsCooldownMs: 250,
     punctuation: {
       enabled: true,
       base: 'https://cdn.firetable.tech/xiaochun/stt/punct-ct-transformer-zh-en-vocab272727-int8-2024-04-12',

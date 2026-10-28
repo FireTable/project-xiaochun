@@ -173,6 +173,7 @@ export const ChatBar: React.FC<{
   // STT (SenseVoice) — lazy client; preload on first mic click
   useEffect(() => {
     const client = new SttClient();
+    client.setTtsSpeakingProvider(() => vrmEngine.isSpeaking);
     sttRef.current = client;
     const off = client.on((ev) => {
       if (ev.type === 'state') {

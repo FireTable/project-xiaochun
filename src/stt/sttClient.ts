@@ -128,6 +128,35 @@ export class SttClient {
   private isModelReady = false;
   private startSessionId = 0;
   private desiredActive = false;
+  /** Provider indicating whether XiaoChun is actively speaking via TTS. */
+  private isTtsSpeakingProvider: (() => boolean) | null = null;
+  /** Timestamp when TTS was last speaking, used to absorb room reverb tail during ttsCooldownMs. */
+  private lastTtsSpeakingTime = 0;
+
+  constructor(options?: { isTtsSpeaking?: () => boolean }) {
+    if (options?.isTtsSpeaking) {
+      this.isTtsSpeakingProvider = options.isTtsSpeaking;
+    }
+  }
+
+  /**
+   * Configures a provider callback that returns true if XiaoChun is currently speaking via TTS.
+   * Used for acoustic bleed gating to prevent speaker audio from triggering self-interruption.
+   */
+  setTtsSpeakingProvider(provider: (() => boolean) | null): void {
+    this.isTtsSpeakingProvider = provider;
+  }
+
+  /** Checks whether the acoustic bleed guard (TTS speaking or post-speech reverb absorption) is active. */
+  isAcousticGuardActive(): boolean {
+    const now = performance.now();
+    const isCurrentlySpeaking = this.isTtsSpeakingProvider ? this.isTtsSpeakingProvider() : false;
+    const ttsCooldownMs = APP_CONFIG.stt.ttsCooldownMs ?? 250;
+    return (
+      isCurrentlySpeaking ||
+      (this.lastTtsSpeakingTime > 0 && now - this.lastTtsSpeakingTime < ttsCooldownMs)
+    );
+  }
 
   on(listener: Listener): () => void {
     this.listeners.add(listener);
@@ -427,23 +456,7 @@ export class SttClient {
         const copy = new Float32Array(input.length);
         copy.set(input);
         const pcm = resampleTo(sr, copy, ctx.sampleRate);
-        void this.vad?.processChunk(pcm, (ev) => {
-          if (ev.type === 'frame') {
-            this.emit({ type: 'partial_rms', rms: ev.rms });
-            this.emit({ type: 'speech_prob', prob: ev.prob });
-          } else if (ev.type === 'speech_start') {
-            if (this.commitTimer) {
-              clearTimeout(this.commitTimer);
-              this.commitTimer = null;
-            }
-            this.emit({ type: 'speech_start' });
-          } else if (ev.type === 'speech_end') {
-            if (this.shouldSkipUtterance(ev.pcm, ev.durationMs)) {
-              return;
-            }
-            this.handleSpeechChunk(ev.pcm);
-          }
-        });
+        this.processPcmChunk(pcm);
       };
       // Must be in the graph to fire; mute so we do not echo mic to speakers.
       const mute = ctx.createGain();
@@ -460,6 +473,67 @@ export class SttClient {
       this.setState('error');
       this.emit({ type: 'error', message });
     }
+  }
+
+  /**
+   * Processes a resampled 16kHz PCM chunk with acoustic bleed gating (TTS Self-Listening Guard)
+   * and dispatches to Silero VAD.
+   */
+  private processPcmChunk(pcm: Float32Array): void {
+    if (pcm.length === 0) return;
+
+    // 1. Calculate RMS of the incoming 16kHz PCM chunk
+    let sumSq = 0;
+    for (let i = 0; i < pcm.length; i++) {
+      const sample = pcm[i]!;
+      sumSq += sample * sample;
+    }
+    const chunkRms = Math.sqrt(sumSq / pcm.length);
+
+    // 2. Evaluate acoustic bleed gating (TTS Self-Listening Guard)
+    const now = performance.now();
+    const isCurrentlySpeaking = this.isTtsSpeakingProvider ? this.isTtsSpeakingProvider() : false;
+    if (isCurrentlySpeaking) {
+      this.lastTtsSpeakingTime = now;
+    }
+    const ttsCooldownMs = APP_CONFIG.stt.ttsCooldownMs ?? 250;
+    const isGuardActive =
+      isCurrentlySpeaking ||
+      (this.lastTtsSpeakingTime > 0 && now - this.lastTtsSpeakingTime < ttsCooldownMs);
+
+    const bargeInRms = APP_CONFIG.stt.bargeInRms ?? 0.08;
+    const isCandidate = this.vad?.isSpeechCandidate() ?? false;
+
+    // If TTS is actively speaking (or in room reverb cooldown) and audio does not meet barge-in threshold:
+    if (isGuardActive && !isCandidate && chunkRms < bargeInRms) {
+      // Acoustic bleed from speaker: suppress VAD trigger and discard chunk
+      if (this.vad) {
+        this.vad.reset();
+      }
+      this.emit({ type: 'partial_rms', rms: chunkRms });
+      this.emit({ type: 'speech_prob', prob: 0 });
+      return;
+    }
+
+    // 3. Normal / Barge-in path: feed to Silero VAD
+    void this.vad?.processChunk(pcm, (ev) => {
+      if (ev.type === 'frame') {
+        this.emit({ type: 'partial_rms', rms: ev.rms });
+        this.emit({ type: 'speech_prob', prob: ev.prob });
+      } else if (ev.type === 'speech_start') {
+        this.lastTtsSpeakingTime = 0; // Clear cooldown immediately on confirmed user barge-in
+        if (this.commitTimer) {
+          clearTimeout(this.commitTimer);
+          this.commitTimer = null;
+        }
+        this.emit({ type: 'speech_start' });
+      } else if (ev.type === 'speech_end') {
+        if (this.shouldSkipUtterance(ev.pcm, ev.durationMs)) {
+          return;
+        }
+        this.handleSpeechChunk(ev.pcm);
+      }
+    });
   }
 
   private handleSpeechChunk(chunkPcm: Float32Array): void {
@@ -568,6 +642,7 @@ export class SttClient {
     this.lastSessionRawText = '';
     this.lastSubmittedPcmSamples = 0;
     this.recognizingBusy = false;
+    this.lastTtsSpeakingTime = 0;
   }
 
   /**
@@ -601,6 +676,7 @@ export class SttClient {
   async stop(flushUtterance = true): Promise<void> {
     this.desiredActive = false;
     this.startSessionId++;
+    this.lastTtsSpeakingTime = 0;
     if (this.commitTimer) {
       clearTimeout(this.commitTimer);
       this.commitTimer = null;

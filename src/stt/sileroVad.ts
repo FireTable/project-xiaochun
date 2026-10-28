@@ -124,6 +124,16 @@ export class SileroVad {
     this.resetState();
   }
 
+  /** Whether the VAD has locked speech start and is actively tracking an utterance. */
+  isInSpeech(): boolean {
+    return this.inSpeech;
+  }
+
+  /** Whether speech is either locked or currently accumulating initial onset candidate frames. */
+  isSpeechCandidate(): boolean {
+    return this.inSpeech || this.consecutiveSpeechFrames > 0;
+  }
+
   private pushPreroll(frame: number[]): void {
     this.prerollRing.push(...frame);
     if (this.prerollRing.length > this.prerollMaxSamples) {
