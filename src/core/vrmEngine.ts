@@ -3382,7 +3382,11 @@ export class VRMEngine {
    * ponytail: 跳过 LLM,直接跑 TTS → EMAGE → 播放流水线。
    * 当前仅 dev 测试按钮调用;函数本身通用,后续其他 "直接念" 场景也可复用。
    */
-  public async speakText(text: string, voiceOverride?: string): Promise<void> {
+  public async speakText(
+    text: string,
+    voiceOverride?: string,
+    opts?: { preserveMotion?: boolean },
+  ): Promise<void> {
     if (!this.currentVRM) return;
 
     const setStatus = (
@@ -3409,7 +3413,7 @@ export class VRMEngine {
       );
     };
 
-    await this.chatDirector.speakText(text, this.currentVRM, this.vrmaPlayer, this.emagePlayer, setStatus, voiceOverride);
+    await this.chatDirector.speakText(text, this.currentVRM, this.vrmaPlayer, this.emagePlayer, setStatus, voiceOverride, opts);
   }
 
   /**

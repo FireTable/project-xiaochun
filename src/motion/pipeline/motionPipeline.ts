@@ -291,11 +291,17 @@ export class MotionPipeline {
   }
 
   /** Switch Layer-1 to EMAGE speech (planted stance, no think sway). */
-  beginEmageSpeech(): void {
+  beginEmageSpeech(preserveMotion = false): void {
     if (this.universalMotion.isPlaying()) {
-      // 当前已有自定义/独立动作在播（如舞蹈、比心等），保持通用动作驱动骨骼，不强行中断为默认说话手势
-      this.idle.traits.thinkSway = false;
-      return;
+      if (preserveMotion) {
+        // preserveMotion: 当前已有自定义动作在播，不强行中断；
+        // 让 universalMotion 继续驱动骨骼，等它自然播完后，selectLiveMotionSource 会无缝自动切到 EMAGE 接力
+        this.idle.traits.thinkSway = false;
+        this.vrma.traits = { ...DEFAULT_MOTION_TRAITS };
+        this.emage.traits = { allowLocomotion: true, thinkSway: false, glanceChance: 0.40 };
+        return;
+      }
+      this.universalMotion.stop(SOURCE_FADE_DURATION);
     }
     this.idle.traits.thinkSway = false;
     this.vrma.traits = { ...DEFAULT_MOTION_TRAITS };
@@ -314,12 +320,11 @@ export class MotionPipeline {
   /**
    * 对话交互状态机统一动作响应 (SSOT TurnState -> Motion Blending)
    */
-  onTurnStateChange(state: TurnState, vrm?: VRM | null): void {
+  onTurnStateChange(state: TurnState, vrm?: VRM | null, preserveMotion = false): void {
     const targetVrm = vrm ?? this.boundVrm;
     switch (state) {
       case 'thinking': {
-        if (this.universalMotion.isPlaying()) {
-          // 当前已有万能动作在播，不打断为思考姿态
+        if (preserveMotion && this.universalMotion.isPlaying()) {
           break;
         }
         const motionId = selectMotionFromGroup('thinking');
@@ -349,7 +354,7 @@ export class MotionPipeline {
         break;
       }
       case 'speaking': {
-        this.beginEmageSpeech();
+        this.beginEmageSpeech(preserveMotion);
         break;
       }
       case 'listening': {
@@ -377,7 +382,9 @@ export class MotionPipeline {
           this.vrma.stop();
         }
         if (this.universalMotion.isPlaying()) {
-          this.universalMotion.stop(SOURCE_FADE_DURATION);
+          if (!preserveMotion) {
+            this.universalMotion.stop(SOURCE_FADE_DURATION);
+          }
         }
         this.resetChatMotion();
         break;

@@ -101,6 +101,11 @@ export interface SpeakPayload {
    * (与 xc.audio 的 URL 形式完全等价, 走同一条 speakAudio 链路)。
    */
   audioUrl?: string;
+  /**
+   * 是否保持当前正在播放的肢体骨骼动作（默认 false）。
+   * 若为 true，不切思考托下巴姿态，也不加载 EMAGE 说话手势，仅同步播放音频并驱动嘴唇张合口型（Lipsync）。
+   */
+  preserveMotion?: boolean | string;
 }
 
 /** action = 'audio' 的 payload (xc.audio / xc.audio.chunk 转换而来)。选项字段与 npm 包协议同源。 */

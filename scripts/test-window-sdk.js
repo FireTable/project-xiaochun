@@ -347,7 +347,7 @@
       await xc.expression('gentle_smile', 0.9);
       await xc.motion('waving');
       addLog('阶段 1: window.xiaochun.speak(...)');
-      await xc.speak('主人好呀！小蠢的动作组、表情和电影级镜头调度已经全部就绪啦！');
+      await xc.speak('主人好呀！小蠢的动作组、表情和电影级镜头调度已经全部就绪啦！', { preserveMotion: true });
       await sleep(1500);
 
       // 阶段 2: 娇羞卖萌动作组 + 俏皮表情
@@ -356,7 +356,7 @@
       await xc.expression('playful', 0.95);
       addLog('阶段 2: window.xiaochun.motionGroup("praiseCute")');
       await xc.motionGroup('praiseCute');
-      await xc.speak('看我给你比个可爱的卖萌动作组！');
+      await xc.speak('看我给你比个可爱的卖萌动作组！', { preserveMotion: true });
       await sleep(3500);
 
       // 阶段 3: 电影级自下而上打量升降运镜 (panUp)
@@ -374,7 +374,7 @@
       await xc.expression('gentle_smile', 0.9);
       addLog('阶段 4: window.xiaochun.camera("full", { movement: "arc_sweep", durationSec: 5.0 })');
       const sweepPromise = xc.camera('full', { movement: 'arc_sweep', durationSec: 5.0 });
-      await xc.speak('现在是全景全身环绕视角，小蠢为你献上一小段舞蹈！');
+      await xc.speak('现在是全景全身环绕视角，小蠢为你献上一小段舞蹈！', { preserveMotion: true });
       await sleep(3500);
       await sweepPromise;
 
@@ -384,7 +384,7 @@
       await xc.camera('extreme_close_up', { movement: 'push_in', orbitAngleDeg: 0, durationSec: 1.4 });
       await xc.expression('shy', 0.9);
       await xc.motion('shyBehindBack');
-      await xc.speak('悄悄靠近一点点……主人辛苦啦，小蠢一直在身边陪着你哦。');
+      await xc.speak('悄悄靠近一点点……主人辛苦啦，小蠢一直在身边陪着你哦。', { preserveMotion: true });
       await sleep(2500);
 
       // 阶段 6: 镜头平滑复位 + 自然归位

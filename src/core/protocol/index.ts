@@ -55,9 +55,18 @@ export async function initProtocolListener(): Promise<() => void> {
     (window as any).vrmEngine = vrmEngine;
 
     const playGroup = (name: string, opts?: Record<string, any>) => trigger('motion-group', { name, ...opts });
+    const triggerSpeak = (text: string, optsOrAudioUrl?: string | { audioUrl?: string; preserveMotion?: boolean }) => {
+      const payload: Record<string, any> = { text };
+      if (typeof optsOrAudioUrl === 'string') {
+        payload.audioUrl = optsOrAudioUrl;
+      } else if (optsOrAudioUrl && typeof optsOrAudioUrl === 'object') {
+        Object.assign(payload, optsOrAudioUrl);
+      }
+      return trigger('speak', payload);
+    };
     (window as any).xiaochun = {
-      speak: (text: string, audioUrl?: string) => trigger('speak', { text, audioUrl }),
-      say: (text: string, audioUrl?: string) => trigger('speak', { text, audioUrl }),
+      speak: triggerSpeak,
+      say: triggerSpeak,
       motion: (nameOrPayload: string | Record<string, any>, opts?: Record<string, any>) => {
         const payload = typeof nameOrPayload === 'string' ? { name: nameOrPayload, ...opts } : nameOrPayload;
         return trigger('motion', payload);

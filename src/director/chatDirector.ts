@@ -378,6 +378,7 @@ export class ChatDirector {
     return this._turnState;
   }
   public onTurnStateChange: ((state: TurnState) => void) | null = null;
+  private preserveMotionCurrent = false;
 
   public setTurnState(state: TurnState): void {
     if (this._turnState === state) return;
@@ -396,7 +397,11 @@ export class ChatDirector {
     this.onTurnStateChange?.(state);
 
     if (this.pipeline) {
-      this.pipeline.onTurnStateChange(state);
+      if (this.preserveMotionCurrent) {
+        this.pipeline.onTurnStateChange(state, undefined, true);
+      } else {
+        this.pipeline.onTurnStateChange(state);
+      }
     }
   }
 
@@ -527,6 +532,7 @@ export class ChatDirector {
       segmentIndex?: number,
       totalSegments?: number,
     ) => void,
+    opts?: { preserveMotion?: boolean },
   ): Promise<void> {
     if (await this.audioBlocked()) {
       console.info('[ChatDirector] 自动播放被拦截 (页面尚未被用户激活), 跳过这一句:', text);
@@ -537,8 +543,9 @@ export class ChatDirector {
     this.audioDone = false;
     this.player = player;
     this.emage = emage;
-    const hasActiveMotion = this.pipeline?.universalMotion.isPlaying() ?? false;
-    if (!hasActiveMotion) {
+    const preserveMotion = opts?.preserveMotion === true;
+    this.preserveMotionCurrent = preserveMotion;
+    if (!preserveMotion) {
       this.setTurnState('thinking');
       await this.playThinking(vrm, player);
       if (!this.owns(id)) return;
@@ -581,7 +588,7 @@ export class ChatDirector {
       if (!speechText.trim()) return;
     }
     this.plan = { speech: speechText.trim(), llm_provider: 'WebLLM (q4f16_1)' };
-    await this.runSpeechPipeline(text, player, emage, status, id);
+    await this.runSpeechPipeline(text, player, emage, status, id, undefined, opts);
   }
 
   async speakText(
@@ -598,6 +605,7 @@ export class ChatDirector {
       totalSegments?: number,
     ) => void,
     voiceOverride?: string,
+    opts?: { preserveMotion?: boolean },
   ): Promise<void> {
     if (await this.audioBlocked()) {
       console.info('[ChatDirector] 自动播放被拦截 (页面尚未被用户激活), 跳过这一句:', text);
@@ -608,8 +616,9 @@ export class ChatDirector {
     this.audioDone = false;
     this.player = player;
     this.emage = emage;
-    const hasActiveMotion = this.pipeline?.universalMotion.isPlaying() ?? false;
-    if (!hasActiveMotion) {
+    const preserveMotion = opts?.preserveMotion === true;
+    this.preserveMotionCurrent = preserveMotion;
+    if (!preserveMotion) {
       this.setTurnState('thinking');
       await this.playThinking(vrm, player);
       if (!this.owns(id)) return;
@@ -626,7 +635,7 @@ export class ChatDirector {
     if (!this.owns(id)) return;
 
     this.plan = { speech: text, llm_provider: 'DEV_BYPASS' };
-    await this.runSpeechPipeline(text, player, emage, status, id, voiceOverride);
+    await this.runSpeechPipeline(text, player, emage, status, id, voiceOverride, opts);
   }
 
   /**
@@ -888,9 +897,11 @@ export class ChatDirector {
     ) => void,
     utteranceId: number,
     voiceOverride?: string,
+    opts?: { preserveMotion?: boolean },
   ): Promise<void> {
     const live = () => this.owns(utteranceId);
-    console.log('[ChatDirector] speech:', this.plan!.speech, 'llm:', this.plan!.llm_provider);
+    const useMotion = true;
+    console.log('[ChatDirector] speech:', this.plan!.speech, 'llm:', this.plan!.llm_provider, 'preserveMotion:', opts?.preserveMotion);
     void rememberTurn(userText, this.plan!.speech);
 
     this.ctx = this.ctx ?? new AudioContext();
@@ -1039,12 +1050,12 @@ export class ChatDirector {
           }
           audioTimelineOffsetSec = offset + buf.duration;
           // E1: freeze streaming clock between TTS segments (avoid playhead rewind yank)
-          if (emage.streamingMotionActive) {
+          if (useMotion && emage.streamingMotionActive) {
             const frozen = audioTimelineOffsetSec;
             emage.setExternalClock(() => frozen);
           }
           resolve();
-        }, emage, player, isInitial, offset);
+        }, emage, player, isInitial, offset, useMotion);
       });
     };
 
@@ -1054,7 +1065,7 @@ export class ChatDirector {
 
       if (readyQueue.length === 0 && !producerFinished && live()) {
         // P0c: streaming 路径勿 SpeakIdle、勿清 clock；段间空隙由 playhead 停帧 + catch-up 吸收
-        if (!emage.streamingMotionActive) {
+        if (useMotion && !emage.streamingMotionActive) {
           emage.clearExternalClock();
           emage.enterSpeakIdle();
         }
@@ -1066,7 +1077,7 @@ export class ChatDirector {
         while (readyQueue.length === 0 && !producerFinished && live()) {
           await new Promise<void>((resolve) => notifyReady.push(resolve));
         }
-        if (!emage.streamingMotionActive) {
+        if (useMotion && !emage.streamingMotionActive) {
           emage.exitSpeakIdle();
         }
       }
@@ -1081,18 +1092,22 @@ export class ChatDirector {
 
       // P0a: 若已在 motion_chunk 流式播，勿 applyMotionData/switchSegment（会重置 playhead）
       // checkpoint 若仍带回未交付尾巴（frameCount>0），追加即可
-      if (emage.streamingMotionActive) {
-        if (seg.motion.frameCount > 0) {
-          emage.appendMotionChunk(seg.motion);
+      if (useMotion) {
+        if (emage.streamingMotionActive) {
+          if (seg.motion.frameCount > 0) {
+            emage.appendMotionChunk(seg.motion);
+          }
+          await playSegmentAudio(seg.audioBuffer, i === 0);
+        } else if (i === 0) {
+          emage.applyMotionData(seg.motion, APP_CONFIG.emage.motion.fadeInDuration);
+          await playSegmentAudio(seg.audioBuffer, true);
+        } else {
+          // 后续段切段：P0c.1 时长自适应 Slerp（默认 ~0.24s）
+          emage.switchSegment(seg.motion, APP_CONFIG.emage.motion.switchSegmentCrossFade);
+          await playSegmentAudio(seg.audioBuffer, false);
         }
-        await playSegmentAudio(seg.audioBuffer, i === 0);
-      } else if (i === 0) {
-        emage.applyMotionData(seg.motion, APP_CONFIG.emage.motion.fadeInDuration);
-        await playSegmentAudio(seg.audioBuffer, true);
       } else {
-        // 后续段切段：P0c.1 时长自适应 Slerp（默认 ~0.24s）
-        emage.switchSegment(seg.motion, APP_CONFIG.emage.motion.switchSegmentCrossFade);
-        await playSegmentAudio(seg.audioBuffer, false);
+        await playSegmentAudio(seg.audioBuffer, i === 0);
       }
       tracker.update(i, { 'Playback': '🏁 播放完成' });
     }
@@ -1141,7 +1156,13 @@ export class ChatDirector {
       return;
     }
 
-    if (isInitial && useMotion) this.pipeline?.beginEmageSpeech();
+    if (isInitial && useMotion) {
+      if (this.preserveMotionCurrent) {
+        this.pipeline?.beginEmageSpeech(true);
+      } else {
+        this.pipeline?.beginEmageSpeech();
+      }
+    }
     this.speaking = true;
     this.audioDone = false;
     this.audioDoneTime = 0;
@@ -1452,6 +1473,7 @@ export class ChatDirector {
     this.stopped = true;
     this.pipeline?.resetChatMotion();
     this.setTurnState('idle');
+    this.preserveMotionCurrent = false;
     this.audioDoneTime = 0;
     this.onResumeRendering?.();
     if (this.stopPlaySegment) {

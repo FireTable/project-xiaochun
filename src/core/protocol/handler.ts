@@ -131,7 +131,8 @@ export async function runProtocolAction(message: ProtocolMessage, hooks?: Protoc
       await requireVRM();
       hooks?.onStart?.({ kind: 'text', text: payload.text });
       console.log(`[Protocol] 执行 speakText (字数: ${payload.text.length}):`, payload.text);
-      await vrmEngine.speakText(payload.text);
+      const preserveMotion = payload.preserveMotion === true || payload.preserveMotion === 'true';
+      await vrmEngine.speakText(payload.text, undefined, { preserveMotion });
       return;
     }
     case 'audio': {

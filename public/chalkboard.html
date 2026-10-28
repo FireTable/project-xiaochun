@@ -1072,7 +1072,7 @@
         };
 
         pendingSpeechResolvers.set(speechId, finish);
-        sendCommandToXiaoChun('xc.say', { text }, speechId);
+        sendCommandToXiaoChun('xc.say', { text, preserveMotion: true }, speechId);
 
         const fallbackTimer = setTimeout(() => {
           console.warn('[Chalkboard] Speech wait fallback reached after 35s');

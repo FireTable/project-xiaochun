@@ -658,7 +658,7 @@ export function startEmbedBridge(opts: EmbedBridgeOptions): EmbedBridge {
           const mode = p.mode === 'chat' ? 'chat' : 'speak';
           if (mode === 'speak') {
             // 与 xiaochun://speak?text=… 同一个 action / handler (core/protocol/handler.ts)
-            await dispatchSpeech(id, { action: 'speak', payload: { text } }, text, 'xc.say');
+            await dispatchSpeech(id, { action: 'speak', payload: { text, preserveMotion: p.preserveMotion } }, text, 'xc.say');
             break;
           }
           await waitModelReady().catch(() => { throw new CmdError('not_ready', 'model not ready'); });
