@@ -743,13 +743,19 @@ describe('StoryDirectorEngine runtime behaviour', () => {
       },
     };
 
-    it('no card is marked current while the live scene is the void and no outfit addon is worn (badge follows the real state, not a default)', async () => {
-      void engine.playScript(script as never);
+    it('no scene card is marked current while the live scene is the void; with no outfit key the default dinner dress counts as worn', async () => {
+      const withDress = { ...script, beats: { ...script.beats, pick: { ...script.beats.pick, choices: [
+        ...script.beats.pick.choices,
+        { id: 'outfit_dress', text: 'Dress', actionType: 'swap_outfit', actionPayload: 'xiaochun_dinner_dress' },
+      ] } } };
+      void engine.playScript(withDress as never);
       await vi.advanceTimersByTimeAsync(500);
-      expect(engine.getState().choices.map((c) => c.selected)).toEqual([false, false, false]);
+      expect(engine.getState().choices.map((c) => [c.id, c.selected])).toEqual([
+        ['scene_beach', false], ['scene_dark', false], ['outfit_maid', false], ['outfit_dress', true],
+      ]);
     });
 
-    it('the current badge follows the real scene and the real worn outfit', async () => {
+    it('the current badge follows the real scene and the worn outfit', async () => {
       h.currentScene.id = 'beach3d';
       h.outfit.key = 'xiaochun_maid';
       void engine.playScript(script as never);

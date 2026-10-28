@@ -622,13 +622,17 @@ export class StoryDirectorEngine {
 
   /** 给选项加上“当前已选”高亮 (换装 / 场景 / 语言) */
   private decorateChoices(choices: StoryChoice[]): StoryChoice[] {
-    // 真实穿着的那件 (null = 裸 base / 上传模型 → 没有任何卡标“当前所选”)；不再假设默认就是晚礼服
-    const currentOutfit = vrmEngine.currentOutfitKey ?? '';
+    const currentOutfit = vrmEngine.currentOutfitKey || 'xiaochun_dinner_dress';
     const currentScene = sceneManager.getCurrentSceneId();
     const lang = this.getLang();
     return choices.map((c) => {
       if (c.actionType === 'swap_outfit') {
-        const isWorn = currentOutfit !== '' && c.actionPayload === currentOutfit;
+        const isWorn =
+          c.actionPayload === currentOutfit ||
+          c.id === currentOutfit ||
+          (currentOutfit.includes('dress') && c.id === 'outfit_dress') ||
+          (currentOutfit.includes('maid') && c.id === 'outfit_maid') ||
+          (currentOutfit.includes('cheongsam') && c.id === 'outfit_qipao');
         return { ...c, selected: Boolean(isWorn) };
       }
       if (c.actionType === 'change_scene') {
@@ -689,9 +693,16 @@ export class StoryDirectorEngine {
     if (choice.text && !isPreviewAction) {
       let historyText = choice.text;
       if (choice.id === 'outfit_confirm') {
-        const currentOutfit = vrmEngine.currentOutfitKey ?? '';
+        const currentOutfit = vrmEngine.currentOutfitKey || 'xiaochun_dinner_dress';
         const outfitChoices = this.resolvedChoicesOf('beat_outfit_choice');
-        const worn = currentOutfit ? outfitChoices.find((c) => c.actionPayload === currentOutfit) : undefined;
+        const worn = outfitChoices.find(
+          (c) =>
+            c.actionPayload === currentOutfit ||
+            c.id === currentOutfit ||
+            (currentOutfit.includes('dress') && c.id === 'outfit_dress') ||
+            (currentOutfit.includes('maid') && c.id === 'outfit_maid') ||
+            (currentOutfit.includes('cheongsam') && c.id === 'outfit_qipao')
+        );
         if (worn?.text) {
           historyText = HISTORY_TEXT[this.getLang()].outfit(worn.text);
         }
