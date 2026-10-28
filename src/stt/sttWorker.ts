@@ -18,7 +18,8 @@ import * as ort from 'onnxruntime-web';
 import { APP_CONFIG } from '@/config';
 import { applyCmvn, applyLfr, computeLogMelFbank } from './fbank';
 import { extractOnnxMetadataProps } from './onnxMeta';
-import { punctuationPipeline } from './punctuation';
+import { punctuationPipeline, finalizePunctuation } from './punctuation';
+import { ctTransformerPunct } from './ctTransformerPunct';
 
 const STT = APP_CONFIG.stt;
 const ONNX_BASE = STT.base.replace(/\/$/, '');
@@ -32,7 +33,8 @@ const WASM_PATHS =
 
 type WorkerIn =
   | { type: 'load' }
-  | { type: 'recognize'; id: number; pcm: Float32Array; sampleRate?: number }
+  | { type: 'recognize'; id: number; pcm: Float32Array; sampleRate?: number; isFinal?: boolean }
+  | { type: 'punctuate'; id: number; text: string }
   | { type: 'configure_punctuation'; enableModel?: boolean };
 
 type ProgressPhase = 'download' | 'init' | 'ready';
@@ -276,6 +278,18 @@ async function ensureLoaded(): Promise<void> {
     ready = true;
     post({ type: 'progress', phase: 'ready' as ProgressPhase, percent: 100 });
     post({ type: 'ready' });
+
+    // Background load CT-Transformer punctuation model without blocking SenseVoice
+    if (APP_CONFIG.stt.punctuation?.enabled) {
+      void ctTransformerPunct
+        .load()
+        .then(() => {
+          punctuationPipeline.setModelInference((rawText) => ctTransformerPunct.punctuate(rawText));
+        })
+        .catch((e) => {
+          console.warn('[STT Worker] CT-Transformer load failed, fallback to Phase 1:', e);
+        });
+    }
   })().catch((e) => {
     loadPromise = null;
     ready = false;
@@ -301,7 +315,12 @@ function resampleLinear(input: Float32Array, fromRate: number, toRate: number): 
   return out;
 }
 
-async function recognize(id: number, pcmIn: Float32Array, sampleRate: number): Promise<void> {
+async function recognize(
+  id: number,
+  pcmIn: Float32Array,
+  sampleRate: number,
+  isFinal = true,
+): Promise<void> {
   try {
     await ensureLoaded();
     if (!session || !negMean || !invStddev) {
@@ -353,14 +372,14 @@ async function recognize(id: number, pcmIn: Float32Array, sampleRate: number): P
     const rawText = ctcGreedyDecode(logits, T, V);
     if (!rawText) {
       // Real empty decode — not fake filler
-      post({ type: 'result', id, text: '', empty: true });
+      post({ type: 'result', id, text: '', empty: true, isFinal });
       return;
     }
-    const text = await punctuationPipeline.restore(rawText);
-    post({ type: 'result', id, text, rawText });
+    const text = await punctuationPipeline.restore(rawText, { isFinal });
+    post({ type: 'result', id, text, rawText, isFinal });
   } catch (e) {
     const message = e instanceof Error ? e.message : String(e);
-    post({ type: 'error', id, message });
+    post({ type: 'error', id, message, isFinal });
   }
 }
 
@@ -374,7 +393,31 @@ self.onmessage = (ev: MessageEvent<WorkerIn>) => {
     return;
   }
   if (msg.type === 'recognize') {
-    void recognize(msg.id, msg.pcm, msg.sampleRate ?? SAMPLE_RATE);
+    void recognize(msg.id, msg.pcm, msg.sampleRate ?? SAMPLE_RATE, msg.isFinal ?? true);
+    return;
+  }
+  if (msg.type === 'punctuate') {
+    void (async () => {
+      try {
+        if (APP_CONFIG.stt.punctuation?.enabled && !punctuationPipeline.hasModel()) {
+          try {
+            await ctTransformerPunct.load();
+            punctuationPipeline.setModelInference((rawText) => ctTransformerPunct.punctuate(rawText));
+          } catch (e) {
+            console.warn('[STT Worker] Punctuate on-demand load failed:', e);
+          }
+        }
+        const text = await punctuationPipeline.restore(msg.text, { isFinal: true });
+        post({ type: 'punctuate_result', id: msg.id, text, rawText: msg.text });
+      } catch {
+        post({
+          type: 'punctuate_result',
+          id: msg.id,
+          text: finalizePunctuation(msg.text),
+          rawText: msg.text,
+        });
+      }
+    })();
     return;
   }
   if (msg.type === 'configure_punctuation') {

@@ -10,7 +10,7 @@
 import { APP_CONFIG } from '@/config';
 import { SileroVad } from './sileroVad';
 import { richTranscriptionPostprocess } from './transcriptFilter';
-import { applyHeuristicPunctuation } from './punctuation';
+import { formatDraftPunctuation, finalizePunctuation } from './punctuation';
 
 export type SttUiState = 'idle' | 'loading' | 'listening' | 'recognizing' | 'error';
 
@@ -20,7 +20,7 @@ export type SttClientEvent =
   | { type: 'partial_rms'; rms: number }
   | { type: 'speech_prob'; prob: number }
   | { type: 'speech_start' }
-  | { type: 'text'; text: string }
+  | { type: 'text'; text: string; isFinal: boolean; rawText?: string }
   | {
       type: 'utterance_result';
       id: number;
@@ -30,6 +30,7 @@ export type SttClientEvent =
       durationMs: number;
       inferenceMs: number;
       rms: number;
+      isFinal?: boolean;
     }
   | { type: 'error'; message: string };
 
@@ -84,9 +85,17 @@ export class SttClient {
   private vad: SileroVad | null = null;
   private recogId = 0;
   private loadStarted = false;
-  /** True while a segment is in-flight; speech_end queues one pending utterance. */
+  /** True while a segment is in-flight. */
   private recognizingBusy = false;
-  private pendingUtterance: Float32Array | null = null;
+  /** Session audio accumulator: chunks of Float32Array for the current continuous turn. */
+  private sessionPcmChunks: Float32Array[] = [];
+  /** Timer to finalize (commit) the current session after a long silence. */
+  private commitTimer: ReturnType<typeof setTimeout> | null = null;
+  /** Cached latest text and rawText from the session for finalize without re-inference. */
+  private lastSessionText = '';
+  private lastSessionRawText = '';
+  /** Total samples of PCM that was sent in the last recognize call. */
+  private lastSubmittedPcmSamples = 0;
   private inFlightUtterance: {
     id: number;
     pcm: Float32Array;
@@ -94,6 +103,7 @@ export class SttClient {
     durationMs: number;
     startTime: number;
     rms: number;
+    isFinal: boolean;
   } | null = null;
   private adhocRequests = new Map<
     number,
@@ -101,6 +111,14 @@ export class SttClient {
       resolve: (res: { text: string; inferenceMs: number }) => void;
       reject: (err: Error) => void;
       startTime: number;
+    }
+  >();
+  private punctuateRequests = new Map<
+    number,
+    {
+      resolve: (text: string) => void;
+      reject: (err: Error) => void;
+      timer: ReturnType<typeof setTimeout>;
     }
   >();
   private lastProgressPercent = 0;
@@ -163,62 +181,108 @@ export class SttClient {
         else if (this.state === 'loading') this.setState('idle');
         return;
       }
-      if (msg.type === 'result') {
-        const cleaned = applyHeuristicPunctuation(richTranscriptionPostprocess(String(msg.text ?? '')));
-        if (typeof console !== 'undefined' && typeof console.log === 'function' && cleaned) {
-          console.log(
-            `%c[STT Client]%c 识别文本就绪: "${cleaned}"${msg.rawText ? ` (原始音素字流: "${msg.rawText}")` : ''}`,
-            'color: #10b981; font-weight: bold;',
-            'color: inherit;',
-          );
+      if (msg.type === 'punctuate_result') {
+        const reqId = Number(msg.id);
+        const req = this.punctuateRequests.get(reqId);
+        if (req) {
+          this.punctuateRequests.delete(reqId);
+          clearTimeout(req.timer);
+          req.resolve(String(msg.text ?? ''));
         }
+        return;
+      }
+      if (msg.type === 'result') {
+        const inFlight = this.inFlightUtterance;
+        const isFinal = Boolean(msg.isFinal ?? inFlight?.isFinal ?? false);
+        const rawText = String(msg.rawText ?? '');
+        const baseText = richTranscriptionPostprocess(String(msg.text ?? ''));
+
         const reqId = Number(msg.id);
         const adhoc = this.adhocRequests.get(reqId);
         if (adhoc) {
           this.adhocRequests.delete(reqId);
           const now = typeof performance !== 'undefined' ? performance.now() : Date.now();
           const inferenceMs = Math.round(now - adhoc.startTime);
-          adhoc.resolve({ text: cleaned, inferenceMs });
+          const adhocText = finalizePunctuation(baseText);
+          adhoc.resolve({ text: adhocText, inferenceMs });
           return;
         }
 
-        this.recognizingBusy = false;
-        // Continuous dictation: stay listening if mic still open; user toggles mic to stop.
-        if (this.stream) this.setState('listening');
-        else this.setState('idle');
+        void (async () => {
+          let cleaned: string;
+          if (isFinal) {
+            cleaned = msg.isFinal
+              ? finalizePunctuation(baseText)
+              : await this.punctuateText(baseText);
+          } else {
+            cleaned = formatDraftPunctuation(baseText);
+          }
 
-        const inFlight = this.inFlightUtterance;
-        this.inFlightUtterance = null;
-        if (inFlight && (msg.id === undefined || inFlight.id === Number(msg.id))) {
-          const now = typeof performance !== 'undefined' ? performance.now() : Date.now();
-          const inferenceMs = Math.round(now - inFlight.startTime);
-          this.emit({
-            type: 'utterance_result',
-            id: inFlight.id,
-            text: cleaned || String(msg.text ?? ''),
-            pcm: inFlight.pcm,
-            sampleRate: inFlight.sampleRate,
-            durationMs: inFlight.durationMs,
-            inferenceMs,
-            rms: inFlight.rms,
-          });
-        }
+          if (typeof console !== 'undefined' && typeof console.log === 'function' && cleaned) {
+            console.log(
+              `%c[STT Client]%c 识别文本就绪 [${isFinal ? '定稿' : '草稿'}]: "${cleaned}"${rawText ? ` (原始音素字流: "${rawText}")` : ''}`,
+              isFinal ? 'color: #10b981; font-weight: bold;' : 'color: #94a3b8; font-weight: bold;',
+              'color: inherit;',
+            );
+          }
 
-        if (cleaned) {
-          this.emit({ type: 'text', text: cleaned });
-        } else {
-          this.emit({ type: 'error', message: 'empty_transcript' });
-        }
-        const pending = this.pendingUtterance;
-        this.pendingUtterance = null;
-        if (pending && this.stream) {
-          const ms = (pending.length / APP_CONFIG.stt.sampleRate) * 1000;
-          if (!this.shouldSkipUtterance(pending, ms)) this.submitUtterance(pending);
-        }
+          this.recognizingBusy = false;
+          // Continuous dictation: stay listening if mic still open; user toggles mic to stop.
+          if (this.stream) this.setState('listening');
+          else this.setState('idle');
+
+          this.inFlightUtterance = null;
+          if (inFlight && (msg.id === undefined || inFlight.id === Number(msg.id))) {
+            const now = typeof performance !== 'undefined' ? performance.now() : Date.now();
+            const inferenceMs = Math.round(now - inFlight.startTime);
+            this.emit({
+              type: 'utterance_result',
+              id: inFlight.id,
+              text: cleaned || String(msg.text ?? ''),
+              pcm: inFlight.pcm,
+              sampleRate: inFlight.sampleRate,
+              durationMs: inFlight.durationMs,
+              inferenceMs,
+              rms: inFlight.rms,
+              isFinal,
+            });
+          }
+
+          if (cleaned) {
+            this.lastSessionText = cleaned;
+            this.lastSessionRawText = rawText;
+            this.emit({ type: 'text', text: cleaned, isFinal, rawText });
+          } else if (isFinal && !this.lastSessionText) {
+            this.emit({ type: 'error', message: 'empty_transcript' });
+          }
+
+          if (isFinal) {
+            this.sessionPcmChunks = [];
+            this.lastSessionText = '';
+            this.lastSessionRawText = '';
+            this.lastSubmittedPcmSamples = 0;
+          } else {
+            // Check if more chunks arrived while in flight
+            let currentTotal = 0;
+            for (const c of this.sessionPcmChunks) currentTotal += c.length;
+            if (currentTotal > this.lastSubmittedPcmSamples && this.stream) {
+              const combined = this.concatSessionPcm();
+              this.submitUtterance(combined, false);
+            }
+          }
+        })();
         return;
       }
       if (msg.type === 'error') {
         const reqId = Number(msg.id);
+        const puncReq = this.punctuateRequests.get(reqId);
+        if (puncReq) {
+          this.punctuateRequests.delete(reqId);
+          clearTimeout(puncReq.timer);
+          puncReq.reject(new Error(String(msg.message || 'Punctuation error')));
+          return;
+        }
+
         const adhoc = this.adhocRequests.get(reqId);
         if (adhoc) {
           this.adhocRequests.delete(reqId);
@@ -229,7 +293,6 @@ export class SttClient {
         this.inFlightUtterance = null;
         const message = String(msg.message ?? 'STT error');
         this.recognizingBusy = false;
-        this.pendingUtterance = null;
         // Soft: too-short / empty decode should not kill the listening session.
         if (/too short|Not enough frames/i.test(message)) {
           if (this.stream) this.setState('listening');
@@ -351,16 +414,16 @@ export class SttClient {
             this.emit({ type: 'partial_rms', rms: ev.rms });
             this.emit({ type: 'speech_prob', prob: ev.prob });
           } else if (ev.type === 'speech_start') {
+            if (this.commitTimer) {
+              clearTimeout(this.commitTimer);
+              this.commitTimer = null;
+            }
             this.emit({ type: 'speech_start' });
           } else if (ev.type === 'speech_end') {
             if (this.shouldSkipUtterance(ev.pcm, ev.durationMs)) {
               return;
             }
-            if (this.recognizingBusy) {
-              this.pendingUtterance = ev.pcm.slice();
-            } else {
-              this.submitUtterance(ev.pcm);
-            }
+            this.handleSpeechChunk(ev.pcm);
           }
         });
       };
@@ -381,18 +444,151 @@ export class SttClient {
     }
   }
 
-  /** Stop mic; if flushUtterance, send leftover speech to recognizer. */
+  private handleSpeechChunk(chunkPcm: Float32Array): void {
+    this.sessionPcmChunks.push(chunkPcm);
+
+    const sr = APP_CONFIG.stt.sampleRate;
+    let totalSamples = 0;
+    for (const c of this.sessionPcmChunks) totalSamples += c.length;
+    const totalMs = (totalSamples / sr) * 1000;
+
+    const maxMs = APP_CONFIG.stt.maxAccumulateMs ?? 15_000;
+    const isOverLimit = totalMs >= maxMs;
+
+    if (this.commitTimer) {
+      clearTimeout(this.commitTimer);
+      this.commitTimer = null;
+    }
+
+    if (!isOverLimit) {
+      this.commitTimer = setTimeout(() => {
+        void this.commitSession();
+      }, APP_CONFIG.stt.commitSilenceMs ?? 1200);
+    }
+
+    if (this.recognizingBusy) {
+      return;
+    }
+
+    const combined = this.concatSessionPcm();
+    this.submitUtterance(combined, isOverLimit);
+  }
+
+  private concatSessionPcm(): Float32Array {
+    let total = 0;
+    for (const c of this.sessionPcmChunks) total += c.length;
+    const combined = new Float32Array(total);
+    let offset = 0;
+    for (const c of this.sessionPcmChunks) {
+      combined.set(c, offset);
+      offset += c.length;
+    }
+    return combined;
+  }
+
+  /**
+   * Commits and finalizes the active continuous speech session.
+   * Clears the audio accumulator and delegates to CT-Transformer for final punctuation.
+   */
+  async commitSession(): Promise<void> {
+    if (this.commitTimer) {
+      clearTimeout(this.commitTimer);
+      this.commitTimer = null;
+    }
+
+    if (this.sessionPcmChunks.length === 0 && !this.inFlightUtterance && !this.lastSessionText) {
+      return;
+    }
+
+    if (this.inFlightUtterance) {
+      this.inFlightUtterance.isFinal = true;
+      return;
+    }
+
+    const textToCommit = this.lastSessionText;
+    const rawToCommit = this.lastSessionRawText;
+
+    this.sessionPcmChunks = [];
+    this.lastSessionText = '';
+    this.lastSessionRawText = '';
+    this.lastSubmittedPcmSamples = 0;
+
+    if (textToCommit) {
+      const finalized = await this.punctuateText(textToCommit);
+      if (typeof console !== 'undefined' && typeof console.log === 'function') {
+        console.log(
+          `%c[STT Client]%c 长停顿定稿固化: "${finalized}"`,
+          'color: #0ea5e9; font-weight: bold;',
+          'color: inherit;',
+        );
+      }
+      this.emit({ type: 'text', text: finalized, isFinal: true, rawText: rawToCommit });
+    }
+  }
+
+  /**
+   * Resets active session state and pending chunks without emitting text.
+   */
+  resetSession(): void {
+    if (this.commitTimer) {
+      clearTimeout(this.commitTimer);
+      this.commitTimer = null;
+    }
+    this.sessionPcmChunks = [];
+    this.lastSessionText = '';
+    this.lastSessionRawText = '';
+    this.lastSubmittedPcmSamples = 0;
+  }
+
+  /**
+   * Delegates final punctuation to CT-Transformer running in the STT Web Worker.
+   * If the worker is unavailable or times out (>800ms), gracefully falls back to Stage 1 regex rules.
+   */
+  async punctuateText(text: string): Promise<string> {
+    if (!text || !text.trim()) return '';
+    const trimmed = text.trim();
+    if (!this.worker || !this.isModelReady) {
+      return finalizePunctuation(trimmed);
+    }
+    const id = ++this.recogId;
+    return new Promise<string>((resolve) => {
+      const timer = setTimeout(() => {
+        this.punctuateRequests.delete(id);
+        resolve(finalizePunctuation(trimmed));
+      }, 800);
+
+      this.punctuateRequests.set(id, {
+        resolve,
+        reject: () => resolve(finalizePunctuation(trimmed)),
+        timer,
+      });
+
+      this.worker!.postMessage({ type: 'punctuate', id, text: trimmed });
+    });
+  }
+
+  /** Stop mic; if flushUtterance, send leftover speech to recognizer and commit. */
   async stop(flushUtterance = true): Promise<void> {
     this.desiredActive = false;
     this.startSessionId++;
+    if (this.commitTimer) {
+      clearTimeout(this.commitTimer);
+      this.commitTimer = null;
+    }
     const leftover = flushUtterance ? this.vad?.flush() ?? null : null;
     this.teardownAudio();
     if (leftover) {
       const ms = (leftover.length / APP_CONFIG.stt.sampleRate) * 1000;
       if (!this.shouldSkipUtterance(leftover, ms)) {
-        this.submitUtterance(leftover);
-        return;
+        this.sessionPcmChunks.push(leftover);
       }
+    }
+
+    if (this.sessionPcmChunks.length > 0) {
+      const combined = this.concatSessionPcm();
+      this.submitUtterance(combined, true);
+    } else {
+      await this.commitSession();
     }
     this.setState('idle');
   }
@@ -405,7 +601,7 @@ export class SttClient {
     return false;
   }
 
-  private submitUtterance(pcm: Float32Array): void {
+  private submitUtterance(pcm: Float32Array, isFinal = false): void {
     this.recognizingBusy = true;
     this.setState('recognizing');
     const id = ++this.recogId;
@@ -425,11 +621,13 @@ export class SttClient {
       durationMs,
       startTime: typeof performance !== 'undefined' ? performance.now() : Date.now(),
       rms,
+      isFinal,
     };
+    this.lastSubmittedPcmSamples = pcm.length;
 
     const w = this.ensureWorker();
     const copy = pcm.slice();
-    w.postMessage({ type: 'recognize', id, pcm: copy, sampleRate: sr }, [
+    w.postMessage({ type: 'recognize', id, pcm: copy, sampleRate: sr, isFinal }, [
       copy.buffer,
     ]);
   }
@@ -484,11 +682,23 @@ export class SttClient {
     const startTime = typeof performance !== 'undefined' ? performance.now() : Date.now();
     return new Promise((resolve, reject) => {
       this.adhocRequests.set(id, { resolve, reject, startTime });
-      w.postMessage({ type: 'recognize', id, pcm: copy, sampleRate }, [copy.buffer]);
+      w.postMessage({ type: 'recognize', id, pcm: copy, sampleRate, isFinal: true }, [copy.buffer]);
     });
   }
 
   dispose(): void {
+    if (this.commitTimer) {
+      clearTimeout(this.commitTimer);
+      this.commitTimer = null;
+    }
+    for (const req of this.punctuateRequests.values()) {
+      clearTimeout(req.timer);
+    }
+    this.punctuateRequests.clear();
+    this.sessionPcmChunks = [];
+    this.lastSessionText = '';
+    this.lastSessionRawText = '';
+    this.lastSubmittedPcmSamples = 0;
     void this.stop(false);
     this.inFlightUtterance = null;
     this.adhocRequests.clear();
@@ -510,11 +720,21 @@ export function getSharedSttClient(): SttClient {
   return sharedSttClient;
 }
 
-/** Insert text at caret of input/textarea (does not replace whole field). */
-export function insertAtCursor(
+export interface TextRange {
+  start: number;
+  end: number;
+}
+
+/**
+ * Replaces or inserts text within a designated range of an input/textarea.
+ * If range is null, inserts at caret (like insertAtCursor) and returns the new range.
+ * If range is provided, replaces text within [range.start, range.end] and returns updated range.
+ */
+export function replaceOrInsertAtRange(
   el: HTMLInputElement | HTMLTextAreaElement,
   text: string,
-): void {
+  range: TextRange | null,
+): TextRange {
   try {
     if (typeof document === 'undefined' || document.activeElement !== el) {
       el.focus?.({ preventScroll: true });
@@ -527,16 +747,28 @@ export function insertAtCursor(
     }
   }
 
-  const start = el.selectionStart ?? el.value.length;
-  const end = el.selectionEnd ?? el.value.length;
-  const before = el.value.slice(0, start);
-  const after = el.value.slice(end);
-  const isLatinOrDigit = /[a-zA-Z0-9]$/;
-  const startsWithLatinOrDigit = /^[a-zA-Z0-9]/;
-  const needsLead = isLatinOrDigit.test(before) && startsWithLatinOrDigit.test(text);
-  const piece = (needsLead ? ' ' : '') + text;
-  const newVal = before + piece + after;
+  const val = el.value;
+  let start = range ? Math.min(range.start, val.length) : (el.selectionStart ?? val.length);
+  let end = range ? Math.min(range.end, val.length) : (el.selectionEnd ?? val.length);
+  if (start > end) {
+    const tmp = start;
+    start = end;
+    end = tmp;
+  }
 
+  const before = val.slice(0, start);
+  const after = val.slice(end);
+
+  let piece = text;
+  if (!range) {
+    const isLatinOrDigit = /[a-zA-Z0-9]$/;
+    const startsWithLatinOrDigit = /^[a-zA-Z0-9]/;
+    if (isLatinOrDigit.test(before) && startsWithLatinOrDigit.test(text)) {
+      piece = ' ' + text;
+    }
+  }
+
+  const newVal = before + piece + after;
   let applied = false;
   if (typeof window !== 'undefined') {
     const proto =
@@ -553,9 +785,9 @@ export function insertAtCursor(
     el.value = newVal;
   }
 
-  const pos = before.length + piece.length;
+  const newEnd = start + piece.length;
   try {
-    el.setSelectionRange(pos, pos);
+    el.setSelectionRange(newEnd, newEnd);
   } catch {
     /* unfocused textarea may throw in some WebKits; value still updated */
   }
@@ -565,4 +797,14 @@ export function insertAtCursor(
   } catch {
     /* ignore in non-DOM environments */
   }
+
+  return { start, end: newEnd };
+}
+
+/** Insert text at caret of input/textarea (does not replace whole field). */
+export function insertAtCursor(
+  el: HTMLInputElement | HTMLTextAreaElement,
+  text: string,
+): void {
+  replaceOrInsertAtRange(el, text, null);
 }

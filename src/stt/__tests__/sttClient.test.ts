@@ -2,7 +2,58 @@
  * Unit tests for sttClient.ts and insertAtCursor.
  */
 import { describe, it, expect } from 'vitest';
-import { SttClient, insertAtCursor } from '../sttClient';
+import { SttClient, insertAtCursor, replaceOrInsertAtRange } from '../sttClient';
+
+describe('replaceOrInsertAtRange', () => {
+  function createMockInput(initial = '') {
+    const el = {
+      value: initial,
+      selectionStart: initial.length,
+      selectionEnd: initial.length,
+      dispatched: [] as string[],
+      setSelectionRange(start: number, end: number) {
+        this.selectionStart = start;
+        this.selectionEnd = end;
+      },
+      dispatchEvent(ev: { type: string }) {
+        this.dispatched.push(ev.type);
+        return true;
+      },
+    };
+    return el as unknown as HTMLTextAreaElement;
+  }
+
+  it('inserts text when range is null and returns tracked range', () => {
+    const textarea = createMockInput('你好');
+    textarea.selectionStart = 2;
+    textarea.selectionEnd = 2;
+
+    const range = replaceOrInsertAtRange(textarea, '小春', null);
+    expect(textarea.value).toBe('你好小春');
+    expect(range).toEqual({ start: 2, end: 4 });
+  });
+
+  it('atomically replaces the designated range on subsequent streaming re-inference', () => {
+    const textarea = createMockInput('请问：');
+    textarea.selectionStart = 3;
+    textarea.selectionEnd = 3;
+
+    // 1st chunk interim: "今天晚上"
+    const range1 = replaceOrInsertAtRange(textarea, '今天晚上', null);
+    expect(textarea.value).toBe('请问：今天晚上');
+    expect(range1).toEqual({ start: 3, end: 7 });
+
+    // 2nd chunk re-inference: "今天晚上我们去吃火锅" replaces range1
+    const range2 = replaceOrInsertAtRange(textarea, '今天晚上我们去吃火锅', range1);
+    expect(textarea.value).toBe('请问：今天晚上我们去吃火锅');
+    expect(range2).toEqual({ start: 3, end: 13 });
+
+    // Final commit: "今天晚上我们去吃火锅好不好？"
+    const range3 = replaceOrInsertAtRange(textarea, '今天晚上我们去吃火锅好不好？', range2);
+    expect(textarea.value).toBe('请问：今天晚上我们去吃火锅好不好？');
+    expect(range3).toEqual({ start: 3, end: 17 });
+  });
+});
 
 describe('insertAtCursor', () => {
   function createMockInput(initial = '') {
@@ -141,7 +192,7 @@ describe('SttClient state logic', () => {
 
       // Submit an utterance of 16000 samples (1 second at 16kHz)
       const pcm = new Float32Array(16000).fill(0.2);
-      (client as any).submitUtterance(pcm);
+      (client as any).submitUtterance(pcm, true);
 
       expect(lastPostedMsg).toBeTruthy();
       expect(lastPostedMsg.type).toBe('recognize');
@@ -154,6 +205,7 @@ describe('SttClient state logic', () => {
           type: 'result',
           id,
           text: '你好小春',
+          isFinal: true,
         },
       });
 
@@ -203,6 +255,54 @@ describe('SttClient state logic', () => {
       expect(res.text).toBe('重测成功。');
       expect(res.inferenceMs).toBeGreaterThanOrEqual(0);
       expect(client.getState()).toBe('idle'); // mic never touched
+
+      client.dispose();
+    } finally {
+      (globalThis as any).Worker = originalWorker;
+    }
+  });
+
+  it('commitSession delegates to worker punctuate RPC and emits finalized text', async () => {
+    let punctuateMsg: any = null;
+    const originalWorker = (globalThis as any).Worker;
+    (globalThis as any).Worker = class MockWorker {
+      onmessage: any = null;
+      postMessage(msg: any) {
+        if (msg.type === 'punctuate') {
+          punctuateMsg = msg;
+          setTimeout(() => {
+            this.onmessage?.({
+              data: {
+                type: 'punctuate_result',
+                id: msg.id,
+                text: '简单说两句，我们这个项目其实移动的比较晚，在市场上并没有特别大的份额。',
+              },
+            });
+          }, 5);
+        }
+      }
+      terminate() {}
+    };
+
+    try {
+      const client = new SttClient();
+      (client as any).ensureWorker();
+      (client as any).isModelReady = true;
+      (client as any).lastSessionText = '简单说两句我们这个项目其实移动的比较晚在市场上并没有特别大的份额';
+
+      let emittedTextEvent: any = null;
+      client.on((ev) => {
+        if (ev.type === 'text') emittedTextEvent = ev;
+      });
+
+      await client.commitSession();
+
+      expect(punctuateMsg).toBeTruthy();
+      expect(punctuateMsg.type).toBe('punctuate');
+      expect(punctuateMsg.text).toBe('简单说两句我们这个项目其实移动的比较晚在市场上并没有特别大的份额');
+      expect(emittedTextEvent).toBeTruthy();
+      expect(emittedTextEvent.isFinal).toBe(true);
+      expect(emittedTextEvent.text).toBe('简单说两句，我们这个项目其实移动的比较晚，在市场上并没有特别大的份额。');
 
       client.dispose();
     } finally {
