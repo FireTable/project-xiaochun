@@ -4,17 +4,17 @@ import type { StoryScript, LocalizedStoryBeat, LocalizedText, AudioDirective } f
  * 序章 v4 · 《后台抓包》 (Backstage Catch)  —— Mock 演示版：零 API Key、零外部音频资源，中 / 英 / 日三语
  *
  * 一句话：用户提前进场，撞见小蠢正对着空气排练一套做作的“女神欢迎词”。
- * 抓包 → 破功嘴硬 → 让你帮忙检查仪容 → 嫌弃线稿草稿箱、换场景 → 经费燃烧、让你说句话 → 扔掉台本，进入自由聊天。
+ * 抓包 → 破功嘴硬 → 让你帮忙检查仪容 → 嫌弃空荡荡的虚空、换场景 → 经费燃烧、让你说句话 → 扔掉台本，进入自由聊天。
  * 每个操作教学点都有剧情动机，小蠢只说戏里的话；“现在可以做什么”放在屏幕提示 (hint) 里，不朗读。
  *
  * 结构：叫醒拍 (beat_greet，沿用原来的黑幕“轻点屏幕，把她叫醒”，同时解锁浏览器音频) + 6 拍 + 1 拍换装，每拍 1 句台词 = 1 次 TTS：
  *   1 后台抓包 (auto 400ms) → 2 社死破功 (选语言) → 3 检查仪容 (camera_task：转视角 / 缩放)
- *   → 3.5 帮我挑衣服 (衣服卡：当场换装预览 + 确认) → 4 嫌弃草稿箱 (场景卡：带预览图，海边 / 极夜)
+ *   → 3.5 帮我挑衣服 (衣服卡：当场换装预览 + 确认) → 4 嫌弃虚空 (场景卡：带预览图，海边 / 昼白线稿 / 极夜线稿)
  *   → 5 经费燃烧 (白闪切场景 + 昼夜光影 + input：说句话) → 6 剧本杀青 (auto 300ms → finish → 自由聊天)。
  * 额外语音只在两种情况：镜头任务 6 秒超时的兜底台词；用户输入后的固定回复。
  *
  * 参数名与引擎 id 的对应 (剧本策划稿 → 代码)：
- *   场景 lineart_day / lineart_night / beach → light / dark / beach3d (见 scenes.ts)
+ *   场景 void (开场，叫醒 + 前几拍都在虚空里) ；lineart_day / lineart_night / beach → light / dark / beach3d (见 scenes.ts)
  *   调色 dreamy_soft → dream_bloom，memory_sepia → sepia_memory，none → default
  *   运镜 spiral_rise → hero_spiral_orbit，arc_pan → arc_sweep，static → none，orbit → orbit_subtle (配合 showFullBody 原地转圈)
  *   转场 letterbox_on/off → cinematics.letterbox；eye_blink / white_flash 同名
@@ -58,7 +58,7 @@ const beats: Record<string, LocalizedStoryBeat> = {
   // ═══ 1 · 后台抓包 (偷窥感：遮幅 + 逆光远景；小蠢背对镜头排练) ═══
   beat_1: {
     id: 'beat_1',
-    scene: 'lineart_day',
+    scene: 'void', // 开场：虚空场景 (叫醒拍结束后才露出来)
     cinematics: { letterbox: true, transition: 'eye_blink', grading: 'dream_bloom', wind: 0 },
     camera: { shot: 'wide', movement: 'hero_backlight_reveal', durationSec: 3.5 },
     actor: {
@@ -198,7 +198,7 @@ const beats: Record<string, LocalizedStoryBeat> = {
     },
   },
 
-  // ═══ 4 · 嫌弃草稿箱 (教：选场景；选哪个分支决定第 5 拍的场景 / 调色 / 风 / BGM / 音效) ═══
+  // ═══ 4 · 嫌弃虚空 (教：选场景；选哪个分支决定第 5 拍的场景 / 调色 / 风 / BGM / 音效) ═══
   beat_4: {
     id: 'beat_4',
     cinematics: { grading: 'sepia_memory', wind: 1 },
@@ -207,9 +207,9 @@ const beats: Record<string, LocalizedStoryBeat> = {
       leadInMotion: 'gazeObserve', // 双手一摊，嫌弃地打量四周
       expression: { base: 'angry', intensity: 0.7 },
       speechText: L(
-        '行啦，检查合格！不过这破地方连颜色都没涂完，太寒酸了。走，带你换个地方待会儿！',
-        'Alright, inspection passed! But this unpainted draft room is way too cheap. Come on, let\'s go somewhere nice!',
-        'よし、チェック合格！でもこの色も塗ってない部屋、味気なさすぎるわよね。どっかいい場所に行こっか！',
+        '行啦，检查合格！不过这儿除了黑就是黑，什么都没有，太寒酸了。走，带你换个地方待会儿！',
+        'Alright, inspection passed! But there\'s nothing here except dark, empty void. Way too cheap. Come on, let\'s go somewhere nice!',
+        'よし、チェック合格！でもここ、真っ暗で何もないじゃない。味気なさすぎるわよね。どっかいい場所に行こっか！',
       ),
     },
     audio: { sfx: [{ id: 'wind', delaySec: 0.3, volume: 0.6 }] },
@@ -228,6 +228,16 @@ const beats: Record<string, LocalizedStoryBeat> = {
         actionPayload: 'beach3d',
         sceneHour: 14.5, // 大太阳底下的海边
         branch: 'beach',
+      },
+      {
+        id: 'scene_light',
+        icon: '☀️',
+        image: '/previews/scenes/light.webp',
+        text: L('要个亮堂的白天', 'Somewhere clean and bright', '明るい昼がいい'),
+        subText: L('纯白线稿，安静专注', 'Pure line art, calm and quiet', '真っ白な線画で静かに'),
+        actionType: 'change_scene',
+        actionPayload: 'light',
+        branch: 'day',
       },
       {
         id: 'scene_dark',
@@ -249,7 +259,7 @@ const beats: Record<string, LocalizedStoryBeat> = {
     },
   },
 
-  // ═══ 5 · 经费燃烧 (白闪切到所选场景；教：打字 / 语音输入。默认 = 海边，variants.night = 极夜线稿) ═══
+  // ═══ 5 · 经费燃烧 (白闪切到所选场景；教：打字 / 语音输入。默认 = 海边，variants.day = 昼白线稿，variants.night = 极夜线稿) ═══
   beat_5: {
     id: 'beat_5',
     scene: 'beach', // 兜底：没点过预览卡也保证场景对得上 (已经在这个场景就什么也不做)
@@ -279,6 +289,18 @@ const beats: Record<string, LocalizedStoryBeat> = {
       ],
     },
     variants: {
+      day: {
+        scene: 'lineart_day',
+        cinematics: { grading: 'dream_bloom', wind: 1, timeOfDay: undefined },
+        audio: {
+          ...music('calm', 0.3, 2.5),
+          ambience: 'none',
+          sfx: [
+            { id: 'crystal', delaySec: 0.1, volume: 0.6 },
+            { id: 'wind', delaySec: 1.2, volume: 0.5 },
+          ],
+        },
+      },
       night: {
         scene: 'lineart_night',
         cinematics: { grading: 'rainy_noir', wind: 2, timeOfDay: undefined },

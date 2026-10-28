@@ -130,6 +130,7 @@ describe('prologue story (Act 0 v4 · Backstage Catch)', () => {
     // 4 scene cards (preview in place, each sets the branch) + confirm → 5
     expect((b.beat_4.choices ?? []).map((c) => [c.actionType, c.actionPayload, c.branch, c.nextBeatId])).toEqual([
       ['change_scene', 'beach3d', 'beach', undefined],
+      ['change_scene', 'light', 'day', undefined],
       ['change_scene', 'dark', 'night', undefined],
     ]);
     expect(b.beat_4.confirmChoice?.nextBeatId).toBe('beat_5');
@@ -139,6 +140,24 @@ describe('prologue story (Act 0 v4 · Backstage Catch)', () => {
     // 6 auto 300ms → finish
     expect(b.beat_6.autoFinish).toBe(true);
     expect(b.beat_6.autoNextDelayMs).toBe(300);
+  });
+
+  it('starts in the void scene and offers three distinct destinations, each with its own look and sound', () => {
+    expect(prologueStory.beats.beat_1.scene).toBe('void');
+    expect(Object.keys(APP_CONFIG.scenes.items)).toContain('void');
+    const day = applyVariant(prologueStory.beats.beat_5, 'day');
+    expect(day.scene).toBe('lineart_day');
+    expect(day.cinematics).toMatchObject({ grading: 'dream_bloom', wind: 1 });
+    expect(day.cinematics?.timeOfDay).toBeUndefined();
+    expect(day.audio?.bgmMood).toBe('calm');
+    expect(day.audio?.sfx?.map((s) => s.id)).toEqual(['crystal', 'wind']);
+    const looks = ['beach', 'day', 'night'].map((v) => {
+      const b = applyVariant(prologueStory.beats.beat_5, v);
+      return JSON.stringify([b.scene, b.cinematics?.grading, b.cinematics?.wind, b.audio?.bgmMood]);
+    });
+    expect(new Set(looks).size).toBe(3);
+    expect(prologueStory.beats.beat_4.choices?.length).toBe(3);
+    expect(prologueStory.beats.beat_outfit_choice.choices?.length).toBe(3);
   });
 
   it('beat 5 differs per branch: scene-matched grading, wind, BGM and SFX', () => {
@@ -226,7 +245,7 @@ describe('prologue story (Act 0 v4 · Backstage Catch)', () => {
     expect(b.beat_outfit_choice.camera).toMatchObject({ shot: 'full', movement: 'arc_sweep' });
     expect(b.beat_4.cinematics).toMatchObject({ grading: 'sepia_memory', wind: 1 });
     expect(b.beat_6.cinematics).toMatchObject({ transition: 'eye_blink', grading: 'default', wind: 1 });
-    expect(b.beat_1.scene).toBe('lineart_day');
+    expect(b.beat_1.scene).toBe('void');
     expect(b.beat_1.camera).toMatchObject({ shot: 'wide', movement: 'hero_backlight_reveal', durationSec: 3.5 });
     expect(b.beat_2.camera).toMatchObject({ shot: 'medium_close_up', movement: 'push_in', durationSec: 1.5 });
     expect(b.beat_4.camera).toMatchObject({ shot: 'full', movement: 'pull_out', durationSec: 2.5 });
