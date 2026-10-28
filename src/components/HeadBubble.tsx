@@ -3,6 +3,7 @@ import { useTranslation } from 'react-i18next';
 import { vrmEngine, type BubbleState } from '@/core/vrmEngine';
 import { getBubbleTransform, type BubblePlacement } from '@/core/ui/bubbleTracker';
 import { Sparkles, VolumeX, Activity, AlertCircle } from '@/components/icons';
+import { TypewriterText } from '@/components/TypewriterText';
 import {
   getUserSettings,
   getCachedUserSettings,
@@ -196,10 +197,10 @@ export const HeadBubble: React.FC<HeadBubbleProps> = ({ state }) => {
           </div>
         )}
 
-        {/* 对话正文：视觉小说舒适字距与清晰行高，统一左对齐 */}
+        {/* 对话正文：视觉小说舒适字距与清晰行高，方案一平滑打字机，统一左对齐 */}
         {(isSpeaking || ttsDown) && state.speechText && (
           <div className="text-sm font-medium text-white/95 leading-relaxed break-words text-left max-h-[calc(5*1.45em)] overflow-y-auto pr-1 select-text custom-bubble-scrollbar pointer-events-auto">
-            {state.speechText}
+            <TypewriterText text={state.speechText} />
           </div>
         )}
       </div>
