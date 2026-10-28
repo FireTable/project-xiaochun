@@ -408,6 +408,10 @@ export class StoryDirectorEngine {
       this.notify();
     }
 
+    // 镜头先行 (waitForCamera)：镜头运动完整走完之后才开始表演；没有镜头的拍不受影响
+    const holdForCamera = Boolean(beat.waitForCamera && beat.camera && beat.id !== 'beat_greet');
+    let cameraDone: Promise<void> = Promise.resolve();
+
     // 🌟 序章专属电影级运镜与转身演出 (叫醒拍带 autoNextBeatId 时不做：镜头与转身由后续拍自己编排)
     if (beat.id === 'beat_greet' && !beat.autoNextBeatId) {
       // 唤醒瞬间：在纯黑转场中恢复模型可见、执行两阶段碰撞松弛与动能归零，并就位裙摆优雅视高
@@ -440,13 +444,13 @@ export class StoryDirectorEngine {
     } else {
       // 2. 常规镜头调度 (防崩保护与异步推演)
       if (beat.camera) {
-        void cameraDirector.transitionTo(beat.camera).catch((err) => {
+        cameraDone = cameraDirector.transitionTo(beat.camera).catch((err) => {
           console.warn('[StoryEngine] cameraDirector error:', err);
         });
       }
 
-      // 3. 调度活体表情
-      if (beat.actor.expression) {
+      // 3. 调度活体表情 (镜头先行的拍：等镜头走完再演，见下面的 waitForCamera)
+      if (beat.actor.expression && !holdForCamera) {
         expressionController.setDirective(beat.actor.expression);
       }
     }
@@ -454,6 +458,22 @@ export class StoryDirectorEngine {
     // 画面与镜头已就位 → 停留片刻后揭开转场遮罩 (从黑 / 白里“睁眼”)
     if (transition !== 'none') {
       this.scheduleReveal(transition, seq);
+    }
+
+    // 镜头先行的拍：BGM / 环境声 / 没标 afterCamera 的音效与镜头同时开始；等镜头完整走完，再演表情 / 起势动作 / afterCamera 音效 / 台词
+    const audioAfterCamera = holdForCamera ? (beat.audio?.sfx ?? []).filter((x) => x.afterCamera) : [];
+    if (holdForCamera) {
+      if (beat.audio) {
+        void storyAudioDirector.executeDirective({ ...beat.audio, sfx: (beat.audio.sfx ?? []).filter((x) => !x.afterCamera) });
+      }
+      await cameraDone; // 自然走完或被 stopTransition 打断都会兑现，不会悬空
+      if (this.executionSequence !== seq) return;
+      if (beat.actor.expression) {
+        expressionController.setDirective(beat.actor.expression);
+      }
+      if (audioAfterCamera.length > 0) {
+        void storyAudioDirector.executeDirective({ sfx: audioAfterCamera });
+      }
     }
 
     // 4. 起势动作 (0.4s Lead-in)
@@ -465,8 +485,8 @@ export class StoryDirectorEngine {
       });
     }
 
-    // 5. 调度 BGM / 环境声 / 音效
-    if (beat.audio) {
+    // 5. 调度 BGM / 环境声 / 音效 (镜头先行的拍已经在上面开始了)
+    if (beat.audio && !holdForCamera) {
       void storyAudioDirector.executeDirective(beat.audio);
     }
 

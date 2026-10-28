@@ -263,9 +263,9 @@ describe('prologue story (Act 0 v4 · Backstage Catch)', () => {
     expect(resolveStoryScene('void')).toBe('void');
   });
 
-  it('shows the cinematic rhythm: letterbox on → off, eye_blink in/out, white_flash to the new set, grading/wind per beat', () => {
+  it('shows the cinematic rhythm: letterbox on → off, fade_to_black after the wake tap, eye_blink at the end, white_flash to the new set, grading/wind per beat', () => {
     const b = prologueStory.beats;
-    expect(b.beat_1.cinematics).toMatchObject({ letterbox: true, transition: 'eye_blink', grading: 'dream_bloom', wind: 0 });
+    expect(b.beat_1.cinematics).toMatchObject({ letterbox: true, transition: 'fade_to_black', grading: 'dream_bloom', wind: 0 }); // 叫醒后不眨眼
     expect(b.beat_2.cinematics).toMatchObject({ letterbox: false, wind: 0 });
     expect(b.beat_3.camera?.movement).toBe('dutch_tilt');
     expect(b.beat_outfit_choice.camera).toMatchObject({ shot: 'full', movement: 'arc_sweep' });
@@ -303,5 +303,15 @@ describe('prologue story (Act 0 v4 · Backstage Catch)', () => {
       check(b.camera, b.id);
       for (const v of Object.values(b.variants ?? {})) check((v as { camera?: { shot?: string } }).camera, `${b.id}.variant`);
     }
+  });
+
+  it('beat 2 waits for the orbit to finish: whoosh with the camera, heartbeat after it, then stomp + line', () => {
+    const b2 = prologueStory.beats.beat_2;
+    expect(b2.waitForCamera).toBe(true);
+    const sfx = b2.audio?.sfx ?? [];
+    expect(sfx.find((x) => x.id === 'whoosh')?.afterCamera).toBeUndefined();
+    expect(sfx.find((x) => x.id === 'heartbeat')?.afterCamera).toBe(true);
+    // 没有别的拍用 eye_blink 进场 beat_1：叫醒后只有淡黑
+    expect(prologueStory.beats.beat_1.cinematics?.transition).not.toBe('eye_blink');
   });
 });

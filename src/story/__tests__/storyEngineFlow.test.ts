@@ -66,6 +66,7 @@ vi.mock('@/core/morph/expressionController', () => ({
 vi.mock('@/story/audioDirector', () => ({ storyAudioDirector: h.audio }));
 vi.mock('@/i18n', () => ({ changeLang: h.changeLang, readClientLang: () => 'zh-CN' }));
 
+import { expressionController } from '@/core/morph/expressionController';
 import { StoryDirectorEngine } from '../storyEngine';
 import { TRANSITION_SPECS } from '../transitions';
 
@@ -636,6 +637,65 @@ describe('StoryDirectorEngine runtime behaviour', () => {
       void engine.goToBeat('out');
       await vi.advanceTimersByTimeAsync(2000);
       expect(engine.getState().grading).toBe('default');
+    });
+  });
+
+  describe('waitForCamera (performance starts after the camera move completes)', () => {
+    const script = {
+      id: 'wfc',
+      title: 't',
+      initialBeatId: 'a',
+      beats: {
+        a: {
+          id: 'a',
+          camera: { shot: 'medium_close_up', movement: 'orbit_to_front', durationSec: 2.4 },
+          waitForCamera: true,
+          actor: { ...actor('caught!'), leadInMotion: 'angryJump', expression: { base: 'angry' as const, intensity: 0.6, microReaction: 'sudden_shock' as const } },
+          audio: { sfx: [{ id: 'whoosh', delaySec: 0.1 }, { id: 'heartbeat', delaySec: 0.1, afterCamera: true }] },
+        },
+      },
+    };
+    const sfxIds = () => h.audio.executeDirective.mock.calls.flatMap((c) => ((c[0] as { sfx?: Array<{ id: string }> }).sfx ?? []).map((x) => x.id));
+
+    it('whoosh starts with the camera; expression, lead-in, heartbeat and the voice wait until it resolves', async () => {
+      let finishCamera!: () => void;
+      h.camera.transitionTo.mockImplementation(() => new Promise<void>((r) => { finishCamera = r; }));
+      (expressionController.setDirective as ReturnType<typeof vi.fn>).mockClear();
+      void engine.playScript(script as never);
+      await vi.advanceTimersByTimeAsync(3000); // 比镜头时长还久：镜头没走完就一直等
+      expect(h.camera.transitionTo).toHaveBeenCalledTimes(1);
+      expect(sfxIds()).toEqual(['whoosh']);
+      expect(expressionController.setDirective).not.toHaveBeenCalled();
+      expect(h.playMotion).not.toHaveBeenCalled();
+      expect(h.speakText).not.toHaveBeenCalled();
+
+      finishCamera();
+      await vi.advanceTimersByTimeAsync(500);
+      expect(sfxIds()).toEqual(['whoosh', 'heartbeat']);
+      expect(expressionController.setDirective).toHaveBeenCalledWith(expect.objectContaining({ base: 'angry' }));
+      expect(h.playMotion).toHaveBeenCalledWith('angryJump', expect.anything());
+      expect(h.speakText).toHaveBeenCalledWith('caught!');
+      // 表情 / 起势动作先于开口
+      expect(h.playMotion.mock.invocationCallOrder[0]).toBeLessThan(h.speakText.mock.invocationCallOrder[0]);
+    });
+
+    it('a camera that is stopped (skip / interrupt) releases the beat instead of hanging it', async () => {
+      let finishCamera!: () => void;
+      h.camera.transitionTo.mockImplementation(() => new Promise<void>((r) => { finishCamera = r; }));
+      void engine.playScript(script as never);
+      await vi.advanceTimersByTimeAsync(500);
+      finishCamera(); // CameraDirector.stopTransition 会兑现同一个 promise
+      await vi.advanceTimersByTimeAsync(500);
+      expect(h.speakText).toHaveBeenCalledTimes(1);
+    });
+
+    it('a beat without waitForCamera still performs immediately (no regression)', async () => {
+      h.camera.transitionTo.mockImplementation(() => new Promise<void>(() => {}));
+      const plain = { ...script, beats: { a: { ...script.beats.a, waitForCamera: undefined, audio: { sfx: [{ id: 'whoosh', delaySec: 0.1 }] } } } };
+      void engine.playScript(plain as never);
+      await vi.advanceTimersByTimeAsync(600);
+      expect(h.speakText).toHaveBeenCalledWith('caught!');
+      expect(h.playMotion).toHaveBeenCalledWith('angryJump', expect.anything());
     });
   });
 

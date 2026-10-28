@@ -17,7 +17,7 @@ import type { StoryScript, LocalizedStoryBeat, LocalizedText, AudioDirective } f
  *   场景 void (开场，叫醒 + 前几拍都在虚空里) ；lineart_day / lineart_night / beach → light / dark / beach3d (见 scenes.ts)
  *   调色 dreamy_soft → dream_bloom，memory_sepia → sepia_memory，none → default
  *   运镜 spiral_rise → hero_spiral_orbit，arc_pan → arc_sweep，static → none，orbit → orbit_subtle (配合 showFullBody 原地转圈)
- *   转场 letterbox_on/off → cinematics.letterbox；eye_blink / white_flash 同名
+ *   转场 letterbox_on/off → cinematics.letterbox；eye_blink / white_flash 同名 (叫醒后的第 1 拍改用 fade_to_black，不眨眼)
  *   BGM calm / bright / mystic → dusk_warm / lights_on / void_drone (audioDirector 别名)；none → fade_out
  *   音效 crystal / shutter / heartbeat / wind / waves 同名别名 (audioDirector SFX_ALIASES)；whoosh / bell 同名
  *   风力 0~3：环境阵风倍率 1 + 0.5 × 等级 (与运镜阵风取较大者)
@@ -62,7 +62,7 @@ const beats: Record<string, LocalizedStoryBeat> = {
   beat_1: {
     id: 'beat_1',
     scene: 'void', // 开场：虚空场景 (叫醒拍结束后才露出来)
-    cinematics: { letterbox: true, transition: 'eye_blink', grading: 'dream_bloom', wind: 0 },
+    cinematics: { letterbox: true, transition: 'fade_to_black', grading: 'dream_bloom', wind: 0 }, // 黑幕淡出 (不眨眼)：盖住镜头跳到远处斜后方的那一下
     // 不绕到她前面：远处 (6.5m) 斜后方 25° 就位，约一句台词的时间缓推到全身景别并转正到正后方
     camera: { shot: 'full', movement: 'slow_push_in', startDistance: 6.5, startAzimuthOffsetDeg: 25, durationSec: 9 },
     actor: {
@@ -86,6 +86,7 @@ const beats: Record<string, LocalizedStoryBeat> = {
     cinematics: { letterbox: false, grading: 'default', wind: 0 },
     // 第 1 拍说完才绕：相机沿最短弧环绕到她正面 (她的世界朝向不动，相机绕到她面朝的方向)，收在 medium_close_up；和 whoosh 同步
     camera: { shot: 'medium_close_up', movement: 'orbit_to_front', durationSec: 2.4 },
+    waitForCamera: true, // 镜头完整转到她面前之后，才跺脚 / 变脸 / 心跳 / 开口 (whoosh 仍与镜头同时)
     actor: {
       leadInMotion: 'angryJump', // 被抓包又羞又恼：气鼓鼓地跺脚轻跳 (MOTION_CATALOG.angryJump，自带 angry 表情曲线)
       expression: { base: 'angry', intensity: 0.6, microReaction: 'sudden_shock' }, // 惊吓一抖，随即恼羞成怒
@@ -99,7 +100,7 @@ const beats: Record<string, LocalizedStoryBeat> = {
       ...music('calm', 0.3, 2),
       sfx: [
         { id: 'whoosh', delaySec: 0.1, volume: 0.6 },
-        { id: 'heartbeat', delaySec: 1.0, volume: 0.7 },
+        { id: 'heartbeat', delaySec: 0.1, volume: 0.7, afterCamera: true },
       ],
     },
     choiceLayout: 'list',

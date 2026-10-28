@@ -108,6 +108,8 @@ export class CameraDirector {
   private ctx: CameraDirectorContext | null = null;
   private currentTweenRaf: number | null = null;
   private isTweening = false;
+  /** 进行中的 transitionTo 的 resolve：自然走完或被 stopTransition 打断时都会兑现，等镜头的一方 (剧情引擎) 不会被悬空 */
+  private resolveTween: (() => void) | null = null;
   /** 当前镜头滚转 (弧度)，由 dutch_tilt 写入，其它运镜会把它缓动回 0 */
   private rollRad = 0;
 
@@ -178,6 +180,9 @@ export class CameraDirector {
       this.ctx.setWindMultiplier?.(1.0);
     }
     this.isTweening = false;
+    const done = this.resolveTween;
+    this.resolveTween = null;
+    done?.();
   }
 
   /**
@@ -392,6 +397,7 @@ export class CameraDirector {
         : quinticSmootherstep;
 
     return new Promise<void>((resolve) => {
+      this.resolveTween = resolve;
       const tick = (now: number) => {
         this.currentTweenRaf = null;
         const progress = Math.min(1.0, (now - startTime) / durationMs);
@@ -455,6 +461,7 @@ export class CameraDirector {
           camera.updateProjectionMatrix();
           this.isTweening = false;
           setWindMultiplier?.(1.0);
+          this.resolveTween = null;
           resolve();
         }
       };

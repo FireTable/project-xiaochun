@@ -204,6 +204,8 @@ export const AudioDirectiveSchema = z.object({
     id: z.string(),
     delaySec: z.number().default(0),
     volume: z.number().default(0.8),
+    /** 等本拍的镜头运动完整走完之后再开始计 delaySec (需要同拍 waitForCamera: true，否则立即触发) */
+    afterCamera: z.boolean().optional(),
   })).optional(),
 });
 export type AudioDirective = z.input<typeof AudioDirectiveSchema>;
@@ -266,6 +268,11 @@ const buildBeatSchema = <T extends z.ZodTypeAny>(text: T) => {
     id: z.string(),
     cinematics: buildCinematicsSchema(text).optional(),
     camera: CameraDirectiveSchema.optional(),
+    /**
+     * 镜头先行：本拍的镜头运动完整走完之后，才开始表演 (表情 / 起势动作 / afterCamera 音效 / 台词 TTS)。
+     * 镜头自己的音效 (没标 afterCamera 的) 和 BGM 仍与镜头同时开始。镜头被打断 (跳过 / 下一拍) 时立即放行。
+     */
+    waitForCamera: z.boolean().optional(),
     actor: buildActorSchema(text),
     audio: AudioDirectiveSchema.optional(),
     choices: z.array(choice).optional(),

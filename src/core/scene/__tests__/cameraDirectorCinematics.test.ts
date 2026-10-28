@@ -225,4 +225,23 @@ describe('CameraDirector cinematic movements (wind, dutch_tilt, hero_backlight_r
       await p;
     });
   });
+
+  it('stopTransition settles the pending transitionTo promise (callers waiting on the camera are never left hanging)', async () => {
+    let settled = false;
+    const p = director.transitionTo({ shot: 'medium_close_up', movement: 'orbit_to_front', durationSec: 5 }).then(() => { settled = true; });
+    vi.advanceTimersByTime(500);
+    await Promise.resolve();
+    expect(settled).toBe(false);
+    director.stopTransition();
+    await p;
+    expect(settled).toBe(true);
+  });
+
+  it('a new move settles the previous one and a natural finish settles exactly once', async () => {
+    const first = director.transitionTo({ shot: 'medium', movement: 'none', durationSec: 5 });
+    const second = director.transitionTo({ shot: 'full', movement: 'none', durationSec: 0.5 });
+    await first; // 被第二个运镜顶掉
+    vi.advanceTimersByTime(700);
+    await second;
+  });
 });
