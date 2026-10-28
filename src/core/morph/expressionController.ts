@@ -333,6 +333,125 @@ export class ExpressionController {
   }
 
   /**
+   * 解耦 VRoid 模型复合表情绑定 (Fcl_ALL_Joy -> Fcl_MTH_Joy, Fcl_ALL_Fun -> Fcl_MTH_Fun)
+   * 1. 微笑与开心解耦：微笑 (gentle_smile) 纯嘴部微笑，眼睛完全不眯 (eyeJoy = 0)；
+   *    开心 (happy) 主要通过嘴巴大笑表现，眼睛稍微有一点点眯眼即可 (eyeJoy <= 0.12)；
+   * 2. 放松 (relaxed) 眼睛不需要任何变化，仅嘴巴自然放松 (eyeFun = 0)；
+   * 3. 俏皮 (playful) 眼睛绝不维持半眯，右眼 100% 全睁，左眼仅单次 Wink 脉冲；
+   * 4. 彻底杜绝常态眯眯眼。
+   */
+  public ensureDecoupledExpressions(vrm: VRM): void {
+    if (!vrm?.expressionManager || (vrm as any)._expressionsDecoupled || !vrm.scene?.traverse) {
+      return;
+    }
+
+    try {
+      let faceMesh: THREE.Mesh | null = null;
+      vrm.scene.traverse((node: any) => {
+        if (
+          !faceMesh &&
+          node.isMesh &&
+          node.morphTargetDictionary &&
+          (node.morphTargetDictionary['Fcl_MTH_Joy'] !== undefined ||
+            node.morphTargetDictionary['Fcl_ALL_Joy'] !== undefined)
+        ) {
+          faceMesh = node as THREE.Mesh;
+        }
+      });
+
+      if (faceMesh && (faceMesh as THREE.Mesh).morphTargetDictionary) {
+        const dict = (faceMesh as THREE.Mesh).morphTargetDictionary!;
+        const mgr = vrm.expressionManager;
+
+        // 1. 注册/重写 gentle_smile 表情 (纯嘴部微笑 + 微弱提眉，眼睛 100% 睁开，0 眯眼)
+        if (dict['Fcl_MTH_Joy'] !== undefined) {
+          const gentleSmileExpr = mgr.getExpression('gentle_smile');
+          if (!gentleSmileExpr) {
+            const newExpr = new VRMExpression('gentle_smile');
+            newExpr.addBind(
+              new VRMExpressionMorphTargetBind({
+                primitives: [faceMesh],
+                index: dict['Fcl_MTH_Joy'],
+                weight: 1.0,
+              }),
+            );
+            if (dict['Fcl_BRW_Joy'] !== undefined) {
+              newExpr.addBind(
+                new VRMExpressionMorphTargetBind({
+                  primitives: [faceMesh],
+                  index: dict['Fcl_BRW_Joy'],
+                  weight: 0.35,
+                }),
+              );
+            }
+            mgr.registerExpression(newExpr);
+          }
+        }
+
+        // 2. 解耦 happy 预设表情 (嘴巴大笑 1.0，眉毛 0.45，眼睛仅极轻微灵动微眯 0.12，杜绝眯成缝)
+        const happyExpr = mgr.getExpression('happy');
+        if (happyExpr && dict['Fcl_MTH_Joy'] !== undefined) {
+          happyExpr.clearAppliedWeight();
+          (happyExpr as any)._binds.length = 0;
+          happyExpr.addBind(
+            new VRMExpressionMorphTargetBind({
+              primitives: [faceMesh],
+              index: dict['Fcl_MTH_Joy'],
+              weight: 1.0,
+            }),
+          );
+          if (dict['Fcl_BRW_Joy'] !== undefined) {
+            happyExpr.addBind(
+              new VRMExpressionMorphTargetBind({
+                primitives: [faceMesh],
+                index: dict['Fcl_BRW_Joy'],
+                weight: 0.45,
+              }),
+            );
+          }
+          if (dict['Fcl_EYE_Joy'] !== undefined) {
+            happyExpr.addBind(
+              new VRMExpressionMorphTargetBind({
+                primitives: [faceMesh],
+                index: dict['Fcl_EYE_Joy'],
+                weight: 0.12, // 开心稍微一点点眯眼即可，主要通过嘴巴表现开心程度
+              }),
+            );
+          }
+        }
+
+        // 3. 解耦 relaxed 预设表情 (放松眼睛不需要任何变化，仅嘴巴自然放松 1.0)
+        const relaxedExpr = mgr.getExpression('relaxed');
+        if (relaxedExpr && dict['Fcl_MTH_Fun'] !== undefined) {
+          relaxedExpr.clearAppliedWeight();
+          (relaxedExpr as any)._binds.length = 0;
+          relaxedExpr.addBind(
+            new VRMExpressionMorphTargetBind({
+              primitives: [faceMesh],
+              index: dict['Fcl_MTH_Fun'],
+              weight: 1.0,
+            }),
+          );
+          if (dict['Fcl_BRW_Fun'] !== undefined) {
+            relaxedExpr.addBind(
+              new VRMExpressionMorphTargetBind({
+                primitives: [faceMesh],
+                index: dict['Fcl_BRW_Fun'],
+                weight: 0.25,
+              }),
+            );
+          }
+          // 彻底排除 Fcl_EYE_Fun，眼睛不需要任何变化！
+        }
+      }
+
+      (vrm as any)._expressionsDecoupled = true;
+    } catch (e) {
+      console.warn('[ExpressionController] Failed to decouple VRM expressions:', e);
+    }
+  }
+
+  /**
    * 重置所有表情权重回归纯净默认面部 (Eyes open, natural lips)
    */
   public reset(vrm?: VRM | null, isSpeaking = false): void {
@@ -357,6 +476,7 @@ export class ExpressionController {
     if (vrm?.expressionManager) {
       try {
         vrm.expressionManager.setValue('happy', 0);
+        vrm.expressionManager.setValue('gentle_smile', 0);
         vrm.expressionManager.setValue('angry', 0);
         vrm.expressionManager.setValue('sad', 0);
         vrm.expressionManager.setValue('surprised', 0);
@@ -383,6 +503,7 @@ export class ExpressionController {
     gazeBlink: number = 0,
   ): void {
     if (!vrm?.expressionManager) return;
+    this.ensureDecoupledExpressions(vrm);
 
     // 检查是否有仍在平滑衰减的残余权重
     let hasLiveRemnant = false;
@@ -417,10 +538,16 @@ export class ExpressionController {
       let headYaw = 0;
       let headRoll = 0;
       if (headNode) {
-        this.tempEuler.setFromQuaternion(headNode.quaternion, 'YXZ');
-        headPitch = this.tempEuler.x;
-        headYaw = this.tempEuler.y;
-        headRoll = this.tempEuler.z;
+        if (Math.abs(headNode.rotation.x) > 0.001) {
+          headPitch = headNode.rotation.x;
+          headYaw = headNode.rotation.y;
+          headRoll = headNode.rotation.z;
+        } else {
+          this.tempEuler.setFromQuaternion(headNode.quaternion, 'YXZ');
+          headPitch = this.tempEuler.x;
+          headYaw = this.tempEuler.y;
+          headRoll = this.tempEuler.z;
+        }
       }
 
       this.exprContext.elapsed = elapsed;
@@ -439,6 +566,7 @@ export class ExpressionController {
       this.customExpressionFn(this.exprContext, this.exprOutput);
 
       this.targetMorphs.happy = Math.min(1.0, Math.max(0, this.exprOutput.happy * mouthDuck));
+      this.targetMorphs.gentle_smile = Math.min(1.0, Math.max(0, (this.exprOutput.gentle_smile || 0) * mouthDuck));
       this.targetMorphs.angry = Math.min(1.0, Math.max(0, this.exprOutput.angry * (isSpeaking ? mouthDuck : 1.0)));
       this.targetMorphs.sad = Math.min(1.0, Math.max(0, this.exprOutput.sad * mouthDuck));
       this.targetMorphs.surprised = Math.min(1.0, Math.max(0, this.exprOutput.surprised));
@@ -501,38 +629,56 @@ export class ExpressionController {
       const headNode = vrm.humanoid?.getNormalizedBoneNode('head');
       let headPitch = 0;
       if (headNode) {
-        this.tempEuler.setFromQuaternion(headNode.quaternion, 'YXZ');
-        headPitch = this.tempEuler.x;
+        if (Math.abs(headNode.rotation.x) > 0.001) {
+          headPitch = headNode.rotation.x;
+        } else {
+          this.tempEuler.setFromQuaternion(headNode.quaternion, 'YXZ');
+          headPitch = this.tempEuler.x;
+        }
       }
       // 点头深度系数 (0 ~ 1.0，0.25 rad 约为低头打瞌睡极值)
       const nodFactor = Math.min(1.0, Math.max(0, headPitch / 0.25));
 
-      // 开怀喜悦 (happy) 与温婉微笑 (gentle_smile)
-      // 放松 (relaxed) 转化为温和从容的微笑嘴角，眼睛自然全睁
-      const happyWeight = Math.min(
-        0.80,
+      // 1. 微笑 (gentle_smile) 与 娇羞嘴部 (纯嘴部微笑，眼睛 100% 睁开，0 眯眼)
+      const gentleSmileWeight = Math.min(
+        0.85,
         Math.max(
           0,
-          (this.currentWeights.happy * 0.70 +
-            this.currentWeights.gentle_smile * 0.38 +
-            this.currentWeights.playful * 0.52 +
-            this.currentWeights.relaxed * 0.35 +
-            this.currentWeights.shy * 0.28 +
+          (this.currentWeights.gentle_smile * 0.75 +
+            this.currentWeights.shy * 0.35 +
             breathOsc) *
             mouthDuck,
         ),
       );
 
-      // 傲娇微怒 (angry)
+      // 2. 开怀喜悦 (happy) 与 俏皮笑容：主要通过嘴巴表现开心程度，眼睛稍微有一点点眯眼 (解耦后 Fcl_EYE_Joy 仅 0.12)
+      const happyWeight = Math.min(
+        0.85,
+        Math.max(
+          0,
+          (this.currentWeights.happy * 0.80 +
+            this.currentWeights.playful * 0.55 +
+            breathOsc) *
+            mouthDuck,
+        ),
+      );
+
+      // 3. 放松 (relaxed)：眼睛不需要任何变化，仅嘴巴自然放松 (解耦后 Fcl_EYE_Fun 为 0)
+      const relaxedWeight = Math.min(
+        0.75,
+        Math.max(0, (this.currentWeights.relaxed * 0.70 + breathOsc) * mouthDuck),
+      );
+
+      // 4. 傲娇微怒 (angry)
       const angryWeight = Math.min(
         0.70,
         Math.max(0, this.currentWeights.angry * 0.65 * (isSpeaking ? mouthDuck : 1.0)),
       );
 
-      // 困意/放松伴生的眉毛微垂 (睡颜舒缓八字眉)
+      // 困意伴生的眉毛微垂 (睡颜舒缓八字眉)
       const sleepySad = this.currentWeights.relaxed * 0.22 * nodFactor;
 
-      // 忧伤期盼 (sad) 与犹豫疑虑 (hesitant)
+      // 5. 忧伤期盼 (sad) 与犹豫疑虑 (hesitant)
       const sadWeight = Math.min(
         0.65,
         Math.max(
@@ -544,7 +690,7 @@ export class ExpressionController {
         ),
       );
 
-      // 惊讶一怔 (surprised)
+      // 6. 惊讶一怔 (surprised)
       const surprisedWeight = Math.min(
         0.75,
         Math.max(
@@ -554,11 +700,8 @@ export class ExpressionController {
         ),
       );
 
-      // VRoid 模型的 relaxed 表情对应 Fcl_EYE_Relaxed (半眯眼/じと目)
-      // 为杜绝常态眯眯眼，挺胸立姿时严格限制为 0，仅在低头打瞌睡沉睡时微量呈现
-      const relaxedWeight = Math.min(0.20, this.currentWeights.relaxed * 0.20 * nodFactor);
-
-      // 俏皮眨眼 (playful wink)：单侧左眼可爱 Wink 灵动脉冲 (0.05s ~ 0.85s 呈现，达到高潮后平滑睁开)
+      // 7. 俏皮眨眼 (playful wink)：单侧左眼可爱 Wink 灵动脉冲 (0.05s ~ 0.85s 呈现，达到高潮后平滑睁开)
+      // 右眼 100% 全睁，眼睛绝不需要眯成一半！
       let playfulWink = 0;
       if (this.currentWeights.playful > 0.005) {
         if (this.playfulTimer >= 0.05 && this.playfulTimer <= 0.85) {
@@ -569,7 +712,7 @@ export class ExpressionController {
 
       // 动态打瞌睡眼睑闭合：
       // 站立挺直姿态下眼睛必须 100% 睁开 (sleepyBlink = 0，杜绝眯眯眼)；
-      // 仅在真实垂首点头打瞌睡时 (nodFactor > 0.05)，眼睑随重力平滑闭合至 0.88 ~ 0.92
+      // 仅在真实垂首点头打瞌睡时 (nodFactor > 0.05)，眼睑随低头重力平滑闭合至 0.88 ~ 0.92
       let sleepyBlink = 0;
       if (this.currentWeights.relaxed > 0.01 && nodFactor > 0.05) {
         const normRelaxed = Math.min(1.0, this.currentWeights.relaxed / 0.70);
@@ -583,12 +726,14 @@ export class ExpressionController {
       // 困倦深睡时的微弱口呼吸
       const sleepyMouth = this.currentWeights.relaxed * 0.08 * nodFactor * mouthDuck;
 
+      this.targetMorphs.gentle_smile = gentleSmileWeight;
       this.targetMorphs.happy = happyWeight;
       this.targetMorphs.angry = angryWeight;
       this.targetMorphs.sad = sadWeight;
       this.targetMorphs.surprised = surprisedWeight;
       this.targetMorphs.relaxed = relaxedWeight;
       this.targetMorphs.blinkLeft = playfulWink;
+      this.targetMorphs.blinkRight = 0;
       this.targetMorphs.blink = sleepyBlink;
       if (!isSpeaking) {
         this.targetMorphs.aa = Math.max(surprisedMouth, sleepyMouth);
@@ -611,6 +756,7 @@ export class ExpressionController {
     // ── 5. 提交至 VRM ExpressionManager ──
     try {
       mgr.setValue('happy', this.liveMorphs.happy);
+      mgr.setValue('gentle_smile', this.liveMorphs.gentle_smile);
       mgr.setValue('angry', this.liveMorphs.angry);
       mgr.setValue('sad', this.liveMorphs.sad);
       mgr.setValue('surprised', this.liveMorphs.surprised);

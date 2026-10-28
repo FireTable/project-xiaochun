@@ -12,7 +12,7 @@ Welcome to **Project XiaoChun** (100% browser-native anime companion with WebGPU
 2. **EMAGE Streaming Segments (`src/motion/sources/emage.ts`)**: Continuous latent seed inheritance (`continueFromPrevious`) and physiological angular velocity clamping; pose goes to the pipeline via `copyToPoseBuffer`, not a second bone write.
 3. **End-of-Speech Cleanup**: Zero-snap return to `NaturalIdle` via Quintic Smootherstep.
 4. **Streaming Speech Pipeline (`src/director/chatDirector.ts`)**: 30~60 character clause chunking, concurrent TTS prefetching, dual-condition pre-buffering. A newer utterance fades the previous one (~0.4s; skipped when gain is already 0). `xc.say` has no length cap. `stop()` still cuts immediately.
-5. **HeadBubble Display Logic (`src/components/HeadBubble.tsx`)**: Text revealed only when `speaking` ("来啦来啦～"). `APP_CONFIG.chat.showHeadBubble` (userSettings override) hides the component; do not gate ChatDirector events.
+5. **ChatBubble Display Logic (`src/components/ChatBubble.tsx` / `HeadBubble.tsx`)**: Text revealed when `speaking` ("来啦来啦～") and persists throughout story beats. `APP_CONFIG.chat.showHeadBubble` (userSettings override) hides the component in floating mode; do not gate ChatDirector events.
 6. **Single Source of Truth (`src/config.ts`)**: Centralized motion, memory, lighting, chat UI, and model configurations.
 
 ---

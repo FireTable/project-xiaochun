@@ -87,20 +87,20 @@ export const MOTION_CATALOG = {
     fadeDuration: 0.85,
     mask: 'all',
     antiClip: false,
-    expression: 'relaxed',
+    expression: 'gentle_smile',
     expressionIntensity: 0.5,
     expressionFn: (ctx, out) => {
-      // 1.0s ~ 4.5s 双臂高举深呼吸舒展全身，双眼舒适微闭享受
-      if (ctx.elapsed >= 1.0 && ctx.elapsed <= 4.5) {
-        const stretchP = Math.sin(((ctx.elapsed - 1.0) / 3.5) * Math.PI);
-        out.relaxed = 0.65;
-        out.happy = 0.25;
-        out.blink = stretchP * 0.70;
-        out.aa = stretchP * 0.15; // 舒展深呼吸
+      // 1.5s ~ 3.8s 双臂高举深呼吸舒展全身，双眼舒适闭目享受 (0 -> 0.95 -> 0 柔和呼吸，绝非维持半眯)
+      if (ctx.elapsed >= 1.5 && ctx.elapsed <= 3.8) {
+        const stretchP = Math.sin(((ctx.elapsed - 1.5) / 2.3) * Math.PI);
+        out.gentle_smile = 0.40;
+        out.blink = stretchP * 0.95; // 舒展深呼吸时舒适安详闭目
+        out.aa = stretchP * 0.12; // 舒展深呼吸
       } else {
-        // 放下双手神清气爽
-        out.relaxed = 0.50;
-        out.happy = 0.35;
+        // 舒展前后双眼 100% 自然全睁，神清气爽笑容灿烂 (杜绝眯眯眼)
+        out.gentle_smile = 0.50;
+        out.blink = 0;
+        out.relaxed = 0;
       }
     },
     category: 'posture',
@@ -121,14 +121,16 @@ export const MOTION_CATALOG = {
     expressionIntensity: 0.7,
     expressionFn: (ctx, out) => {
       // 0.8s ~ 1.5s 身体前倾靠近并食指抵唇瞬间，触发一记灵动的俏皮眨眼 (Wink Pulse)
+      // 右眼 100% 全睁，左眼单次眨眼后平滑睁开，绝不维持半眯
       if (ctx.elapsed >= 0.8 && ctx.elapsed <= 1.5) {
         const p = (ctx.elapsed - 0.8) / 0.7;
         out.blinkLeft = Math.sin(p * Math.PI) * 0.90;
         out.happy = 0.65;
       } else {
-        // 眨眼结束后双眼完全自然睁开，保持神秘轻柔的微笑
-        out.happy = 0.50;
-        out.relaxed = 0.25;
+        // 眨眼结束后双眼 100% 完全自然睁开，保持神秘轻柔的微笑 (杜绝眯眯眼)
+        out.happy = 0.55;
+        out.blink = 0;
+        out.relaxed = 0;
       }
     },
     category: 'posture',
@@ -145,8 +147,8 @@ export const MOTION_CATALOG = {
     fadeDuration: 0.85,
     mask: 'all',
     antiClip: false,
-    expression: 'relaxed',
-    expressionIntensity: 0.5,
+    expression: 'gentle_smile',
+    expressionIntensity: 0.55,
     category: 'posture',
   },
   sleepyNod: {
@@ -162,18 +164,42 @@ export const MOTION_CATALOG = {
     mask: 'all',
     antiClip: false,
     disableGaze: true,
-    expression: 'relaxed',
-    expressionIntensity: 0.7,
+    expression: 'gentle_smile',
+    expressionIntensity: 0.6,
     expressionFn: (ctx, out) => {
-      // 点头打瞌睡时深度联动头部俯仰 (headPitch) 与动作阶段
-      const nodFactor = Math.min(1.0, Math.max(0, ctx.headPitch / 0.28));
-      // 眉毛舒缓放松微八字
-      out.relaxed = 0.55 + 0.15 * nodFactor;
-      out.sad = 0.20 * nodFactor;
-      // 头部下垂沉睡时双眼深沉闭合 (0.90 ~ 0.95)，猛然回弹或抬起时眼帘微开 (0.35)
-      out.blink = Math.min(0.95, 0.35 + nodFactor * 0.60);
-      // 深睡时微弱口呼吸
-      out.aa = 0.08 * nodFactor;
+      // 困倦打盹生理生命周期 (从初始清醒全睁 -> 困意垂首沉睡 -> 惊醒回弹 -> 释然恢复)：
+      // 0.0s ~ 0.6s: 初始清醒待机 (双眼 100% 自然全睁，从容舒适，杜绝瞬切眯眼)
+      // 0.6s ~ 1.8s: 困意袭来，头逐渐垂落，眼睑由清醒自然平滑垂落
+      // 1.8s ~ 2.4s: 深度打盹沉睡峰值 (低头酣睡，双眼完全闭合，安稳微呼吸)
+      // 2.4s ~ 3.0s: 猛然惊醒回弹 (脑袋扬起瞬间双眼微睁微怔，困意顿消)
+      // 3.0s ~ 4.2s: 清醒释然微笑，双眼完全恢复自然睁开
+      if (ctx.elapsed <= 0.6) {
+        out.happy = 0.20;
+        out.blink = 0;
+        out.relaxed = 0;
+      } else if (ctx.elapsed <= 1.8) {
+        const p = (ctx.elapsed - 0.6) / 1.2;
+        const smoothP = p * p * (3 - 2 * p); // smoothstep 柔和渐进
+        out.blink = smoothP * 0.95;
+        out.sad = smoothP * 0.15;
+        out.aa = smoothP * 0.08;
+      } else if (ctx.elapsed <= 2.4) {
+        // 深度低头沉睡峰值
+        out.blink = 0.95;
+        out.sad = 0.15;
+        out.aa = 0.08;
+      } else if (ctx.elapsed <= 3.0) {
+        // 惊醒抬首瞬间
+        const p = (ctx.elapsed - 2.4) / 0.6;
+        const smoothP = 1.0 - p * p * (3 - 2 * p);
+        out.blink = smoothP * 0.95;
+        out.surprised = (1.0 - smoothP) * 0.25;
+      } else {
+        // 彻底清醒，舒缓微笑
+        out.happy = 0.35;
+        out.blink = 0;
+        out.relaxed = 0;
+      }
     },
     category: 'posture',
   },
@@ -339,13 +365,13 @@ export const MOTION_CATALOG = {
     antiClip: false,
     expression: 'shy',
     expressionIntensity: 0.75,
-    expressionFn: (ctx, out) => {
-      // 害羞低头戳手指：微抿嘴与含蓄微笑，眼神因紧张微颤
-      const shyFlutter = Math.sin(ctx.time * 3.5) * 0.08;
-      out.happy = 0.30;
-      out.sad = 0.20; // 眉心微敛惹人怜爱
-      out.blink = Math.max(0, 0.20 + shyFlutter); // 视线下敛羞赧半目
-      out.ou = 0.12; // 嘴唇紧张微张
+    expressionFn: (_ctx, out) => {
+      // 害羞思索 (thinking组动作)：双眼自然全睁，柔和微蹙小八字眉与微抿嘴角体现娇羞少女感 (杜绝眯眯眼)
+      out.happy = 0.28;
+      out.sad = 0.15; // 柔和微蹙
+      out.ou = 0.08; // 唇边微抿犹豫
+      out.blink = 0; // 双眼完全自然睁开
+      out.relaxed = 0;
     },
     category: 'expression',
   },
@@ -469,9 +495,10 @@ export const MOTION_CATALOG = {
         out.happy = 0.85;
         out.aa = 0.30;
       } else {
-        // 落地后欣喜余韵
+        // 落地后欣喜余韵 (双眼全睁)
         out.happy = 0.70;
-        out.relaxed = 0.20;
+        out.blink = 0;
+        out.relaxed = 0;
       }
     },
     category: 'celebration',

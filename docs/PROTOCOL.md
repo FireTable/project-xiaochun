@@ -26,7 +26,7 @@ Project XiaoChun provides an operating-system-level Inter-Process Communication 
      ├── Edge-TTS Audio Generation
      ├── EMAGE Real-Time Gesture Streaming
      ├── Dynamic LipSync Viseme Interpolation
-     └── 3D HeadBubble Status Rendering
+     └── 3D ChatBubble Status Rendering
 ```
 
 ---

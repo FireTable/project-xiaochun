@@ -301,10 +301,12 @@ The 3D motion pipeline involves complex layered logic. Follow these geometric an
   $$\text{targetPreload} = \min\big(2, \min(N, \max(1, \lceil N/3 \rceil))\big)$$
   Short sentences start in 1~2 segments instantly; long texts buffer 2 segments (~8~12s audio) before playback begins, while remaining segments are generated in the background.
 - **Inter-segment Idle Takeover**: If the next playback chunk hasn't finished inference, immediately enter `emage.enterSpeakIdle()`; when the new segment is ready, call `emage.exitSpeakIdle()` and begin playback.
-- **Chat Bubble Text Display Rules (`HeadBubble.tsx`)**:
-  - Only render the dialogue text when `state.statusKey === 'speaking'` (i.e., when speech and motion are actively playing).
-  - During `thinking`, `tts`, `emage` preparation/buffering phases, only show the corresponding micro status icon/capsule — never spoil the dialogue text early.
-  - User pref `APP_CONFIG.chat.showHeadBubble` (override in `userSettings`): when off, `HeadBubble` returns null. Do **not** stop ChatDirector / `bubbleTracker` events.
+- **Chat Bubble Text Display Rules (`ChatBubble.tsx` / `HeadBubble.tsx`)**:
+  - `ChatBubble` supports dual variants: `variant="bubble"` (3D projected floating bubble with head-top tracking and dead-zone filtering) and `variant="cinematic"` (translucent glowing cinematic subtitle bar).
+  - In everyday chat mode: Only render the dialogue text when `state.statusKey === 'speaking'` (anti-spoil rule).
+  - In story / prologue mode: Character dialogue stays persistently displayed throughout the beat (even after speech ends), with `isSpeaking` decoupled from text persistence so options, scene preview, outfit swap, and camera interaction never cause the dialogue to flash away.
+  - Layout & anti-occlusion: On mobile, options are full-width (`w-full`) stacked directly above the bottom cinematic bar; on PC, options reside on the right side and are elevated (`bottom-28 sm:bottom-32`), strictly higher than the bottom dialogue bar (`bottom-6`).
+  - User pref `APP_CONFIG.chat.showHeadBubble` (override in `userSettings`): when off, `ChatBubble` in floating mode returns null. Do **not** stop ChatDirector / `bubbleTracker` events.
 
 ---
 
@@ -318,7 +320,7 @@ When modifying any system-level configuration or parameter, follow the **central
 - **Post-processing**: `APP_CONFIG.postfx` (UnrealBloom strength/radius/threshold, toneMapping exposure, color grading matrix, plus `bloomInputScaleMobile|Desktop` and `composerMSAASamplesMobile|Desktop`).
 - **Lighting & Saturation**: `APP_CONFIG.lights` (3-channel studio lighting: dir 1.00, hemi 0.95, fill 1.40) and `APP_CONFIG.saturation`.
 - **Memory capacity**: `APP_CONFIG.memory` (`shortTermTurns`, `turnMaxChars`, `longTermKeep`, `longTermTopK`).
-- **Chat UI**: `APP_CONFIG.chat.showHeadBubble` (default `true`). User override lives in `userSettings`; `HeadBubble` returns null when off — do not gate ChatDirector / `bubbleTracker` events.
+- **Chat UI**: `APP_CONFIG.chat.showHeadBubble` (default `true`). User override lives in `userSettings`; `ChatBubble` (floating mode) returns null when off — do not gate ChatDirector / `bubbleTracker` events.
 
 ---
 

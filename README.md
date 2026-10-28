@@ -452,7 +452,7 @@ Project-XiaoChun/
 │   │   ├── TauriTopHeader.tsx     # Desktop ⋯ menu (updates / reload / quit)
 │   │   ├── TopHeader.tsx          # Responsive top navigation (scene / wardrobe / lang / settings)
 │   │   ├── ChatBar.tsx            # Streaming chat interface & model switcher
-│   │   ├── HeadBubble.tsx         # 3D projected speech dialogue bubbles
+│   │   ├── ChatBubble.tsx         # 3D projected speech dialogue bubbles & cinematic subtitle bar
 │   │   ├── dev-drawer/            # Schema-driven 8-section debug drawer (localhost only)
 │   │   ├── SliderWithAnchors.tsx  # Optimized slider with onTick / onCommit split
 │   │   └── ui/                    # Radix UI primitives

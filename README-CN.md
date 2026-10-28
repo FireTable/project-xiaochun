@@ -416,7 +416,7 @@ Project-XiaoChun/
 │   ├── routes/                # TanStack Start 文件路由
 │   │   ├── __root.tsx         # 根布局 (i18n SSR 水合、GEO JSON-LD 与元信息)
 │   │   └── index.tsx          # 首页主路由
-│   ├── components/            # React UI 组件 (TopHeader, ChatBar, HeadBubble, DevDrawer…)
+│   ├── components/            # React UI 组件 (TopHeader, ChatBar, ChatBubble, DevDrawer…)
 │   │   ├── dev-drawer/         # 调试抽屉 — schema 驱动的 8 段(仅 localhost)
 │   │   │   ├── DevDrawer.tsx          # 壳 (头部 + SectionRenderer 列表)
 │   │   │   ├── schema.ts              # SECTIONS[] (id + 顺序) — 加新段 = 1 行

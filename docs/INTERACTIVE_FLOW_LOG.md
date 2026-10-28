@@ -117,3 +117,21 @@
     3. **Center & Damp Lateral Sway**: Damped 26cm lateral translation down to natural $\pm 1.5\text{cm}$ micro-sway;
     4. **Idempotent Asset Toolchain**: Preserved pristine raw assets in `public/vrm/motion/raw/listening.vrma`, rebaked sliced assets, and bumped catalog cache query to `?v=10`;
   - **Verification**: Under collision simulation, peak skirt velocity dropped from $> 2150\text{ cm/s}$ to $0.21\text{ cm/s}$, completely eradicating skirt flailing; all 178/178 unit tests pass green.
+
+- **2026-10-28 21:15 - Story Mode Interactive Scene Flow, Dialogue Persistence & ChatBubble Modernization**
+  - **Interactive Scene Preview & Confirmation Flow**:
+    - Guarded `change_scene` without `nextBeatId` in `StoryPlayer.tsx` (`handleSelectChoice`) as an in-beat preview (matching `swap_outfit`);
+    - Eliminated accidental triggers of dynamic AI speech generators during scene exploration, keeping users within the beat and preserving the primary confirmation button ("就决定去这里了");
+    - Reinforced `selected: true` active highlight state across consecutive previews in `storyEngine.ts`.
+  - **Story Dialogue Persistence (Post-Speech Subtitle Stability)**:
+    - Root cause: speech termination called `bubbleTracker.hide()`, setting `state.visible = false` and prematurely unmounting static dialogue bars;
+    - Decoupled `isSpeaking` (driving pulsating audio bars) from text visibility in `ChatBubble.tsx` (formerly `HeadBubble.tsx`);
+    - Character lines persist stably throughout the beat (`currentSpeechText = bubble.speechText || currentBeat?.actor.speechText`), allowing users to freely adjust camera angles, preview scenes, and try on outfits without dialogue flashing away.
+  - **Non-Occluding Responsive Layout**:
+    - Mobile: Choices group occupies full width (`w-full`), strictly stacked on top of the bottom cinematic bar within a flex container (`max-h-[55vh]`), ensuring 0 overlap;
+    - PC: Choices column is positioned on the right and elevated (`bottom-28 sm:bottom-32`), strictly higher than the centered bottom dialogue bar (`bottom-6`), with `z-50` preventing collision and click blocking.
+  - **Component Renaming & Modernization (`HeadBubble` ➔ `ChatBubble`)**:
+    - Refactored `src/components/HeadBubble.tsx` to `src/components/ChatBubble.tsx` with `ChatBubble` and `ChatBubbleProps`;
+    - Maintained full backward compatibility through re-export alias proxy in `HeadBubble.tsx`;
+    - Upgraded all invocation sites (`App.tsx`, `EmbedApp.tsx`, `StoryPlayer.tsx`) and DOM selectors (`bubbleTracker.ts`);
+    - Added unit test suite `src/components/__tests__/chatBubbleDialogue.test.ts`. 100% test suites green (47/47 suites, 375/375 tests).
