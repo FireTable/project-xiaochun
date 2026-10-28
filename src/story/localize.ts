@@ -50,6 +50,7 @@ export function resolveChoice(choice: LocalizedStoryChoice, lang: StoryLang): St
     ...choice,
     text: resolveLocalized(choice.text, lang),
     subText: resolveOptional(choice.subText, lang),
+    badge: resolveOptional(choice.badge, lang),
   };
 }
 

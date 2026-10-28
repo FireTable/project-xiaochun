@@ -16,7 +16,7 @@ import type {
   GradingPreset,
   TransitionKind,
 } from './schema';
-import { applyVariant, detectBrowserStoryLang, normalizeStoryLang, resolveBeat, resolveLocalized } from './localize';
+import { applyVariant, detectBrowserStoryLang, normalizeStoryLang, resolveBeat, resolveChoice } from './localize';
 import { resolveStoryScene } from './scenes';
 import { TRANSITION_SPECS } from './transitions';
 import type { ViewPrefsSnapshot } from '@/core/viewPrefs';
@@ -798,7 +798,7 @@ export class StoryDirectorEngine {
     const raw = this.currentScript?.beats[beatId];
     if (!raw?.choices) return [];
     const lang = this.getLang();
-    return raw.choices.map((c) => ({ ...c, text: resolveLocalized(c.text, lang), subText: c.subText === undefined ? undefined : resolveLocalized(c.subText, lang) }));
+    return raw.choices.map((c) => resolveChoice(c, lang));
   }
 
   /**

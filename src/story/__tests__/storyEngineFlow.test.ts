@@ -523,6 +523,57 @@ describe('StoryDirectorEngine runtime behaviour', () => {
     });
   });
 
+  describe('brain cards (custom callback / provider config)', () => {
+    const script = {
+      id: 'brain',
+      title: 't',
+      initialBeatId: 'pick',
+      beats: {
+        pick: { id: 'pick', actor: actor('pick one'), choices: [] as unknown[] },
+        out: { id: 'out', actor: actor('on we go') },
+      },
+    };
+
+    it('a custom card runs its callback and then advances to its next beat', async () => {
+      const cb = vi.fn().mockResolvedValue(undefined);
+      script.beats.pick.choices = [{ id: 'local', text: 'Local', actionType: 'custom', actionPayload: cb, nextBeatId: 'out' }];
+      void engine.playScript(script as never);
+      await vi.advanceTimersByTimeAsync(500);
+      void engine.selectChoice(engine.getState().choices[0]);
+      await vi.advanceTimersByTimeAsync(500);
+      expect(cb).toHaveBeenCalledTimes(1);
+      expect(engine.getState().currentBeatId).toBe('out');
+    });
+
+    it('the provider-config card fires the dialog event and waits for the player to advance', async () => {
+      script.beats.pick.choices = [
+        { id: 'api', text: 'API', actionType: 'open_provider_config', nextBeatId: 'out' },
+      ];
+      void engine.playScript(script as never);
+      await vi.advanceTimersByTimeAsync(500);
+      const fakeWindow = new EventTarget();
+      vi.stubGlobal('window', fakeWindow);
+      const opened = vi.fn();
+      fakeWindow.addEventListener('xc-open-provider-config', opened);
+      void engine.selectChoice(engine.getState().choices.find((c) => c.id === 'api')!);
+      await vi.advanceTimersByTimeAsync(500);
+      vi.unstubAllGlobals();
+      expect(opened).toHaveBeenCalledTimes(1);
+      expect(engine.getState().currentBeatId).toBe('pick'); // 弹窗关闭后才由 StoryPlayer 推进
+    });
+
+    it('a failing callback does not block the story', async () => {
+      script.beats.pick.choices = [
+        { id: 'local', text: 'Local', actionType: 'custom', actionPayload: () => Promise.reject(new Error('no gpu')), nextBeatId: 'out' },
+      ];
+      void engine.playScript(script as never);
+      await vi.advanceTimersByTimeAsync(500);
+      void engine.selectChoice(engine.getState().choices[0]);
+      await vi.advanceTimersByTimeAsync(500);
+      expect(engine.getState().currentBeatId).toBe('out');
+    });
+  });
+
   describe('per-choice scene branch', () => {
     const script = {
       id: 'br',

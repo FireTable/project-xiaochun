@@ -258,7 +258,7 @@ const beats: Record<string, LocalizedStoryBeat> = {
     },
   },
 
-  // ═══ 5 · 经费燃烧 (白闪切到所选场景；教：打字 / 语音输入，旧版输入栏。默认 = 海边，variants.day = 昼白线稿，variants.night = 极夜线稿) ═══
+  // ═══ 5 · 经费燃烧 (白闪切到所选场景；教：固定回复的“暗号”选项卡，无输入栏。默认 = 海边，variants.day = 昼白线稿，variants.night = 极夜线稿) ═══
   beat_5: {
     id: 'beat_5',
     scene: 'beach', // 兜底：没点过预览卡也保证场景对得上 (已经在这个场景就什么也不做)
@@ -273,9 +273,9 @@ const beats: Record<string, LocalizedStoryBeat> = {
       leadInMotion: 'relaxStretch', // 张开双臂深呼吸，随后俏皮地歪头看向正前方
       expression: { base: 'happy', intensity: 0.9 },
       speechText: L(
-        '呼——这还差不多，总算有点经费燃烧的味道了！好了，轮到你了，随便跟我说句暗号听听？',
-        'Phew—now we\'re talking! Finally feels like we have a real budget! Your turn now, tell me anything!',
-        'ふぅー、こうでなくっちゃ！やっと予算の匂いがしてきたわね。さあ次はあなたの番、何かひとこと言ってみて！',
+        '呼——这还差不多，总算有点经费燃烧的味道了！好了，轮到你了，来，对个暗号！',
+        'Phew—now we\'re talking! Finally feels like we have a real budget! Your turn now, give me the password!',
+        'ふぅー、こうでなくっちゃ！やっと予算の匂いがしてきたわね。さあ次はあなたの番、合言葉をどうぞ！',
       ),
     },
     audio: {
@@ -313,24 +313,37 @@ const beats: Record<string, LocalizedStoryBeat> = {
         },
       },
     },
-    // 旧版输入引导：allowInput 输入栏 + 麦克风 + 旧占位文案；用户自己说的话交给 AI 导演 (离线有兜底)。
-    // 不想打字的人可以点下面这张“暗号”卡：等同于说了一句，由 beat_5_reply 接话后进入杀青。
-    hint: L('打字、语音，或点暗号', 'Type, speak, or tap', '文字・声・タップ'),
-    allowInput: true,
-    inputPlaceholder: L('想说什么，写下来，或点麦克风对她说', 'Type something, or tap the mic to speak', '書いてもいいし、マイクで話してもいいよ'),
+    // 不开输入栏：只有固定“暗号”卡 (用户口吻，点哪张都进入 beat_5_reply 的同一句固定回应)
+    hint: L('选一句暗号', 'Pick a password', '合言葉を選ぶ'),
     choices: [
       {
         id: 'say_open_sesame',
         icon: '🗝️',
         text: L('芝麻开门！', 'Open sesame!', '開けゴマ！'),
-        subText: L('不想打字？就说这句', "Don't feel like typing? Say this", '打つのが面倒ならこれ'),
+        subText: L('最经典的暗号', 'The classic password', '定番の合言葉'),
+        actionType: 'next_beat',
+        nextBeatId: 'beat_5_reply',
+      },
+      {
+        id: 'say_budget',
+        icon: '💰',
+        text: L('经费请批准！', 'Budget approved!', '予算、承認！'),
+        subText: L('财大气粗型暗号', 'The deep-pockets password', '財布が重い人の合言葉'),
+        actionType: 'next_beat',
+        nextBeatId: 'beat_5_reply',
+      },
+      {
+        id: 'say_best',
+        icon: '🌟',
+        text: L('小蠢天下第一！', 'XiaoChun is the best!', '小蠢が世界一！'),
+        subText: L('拍马屁型暗号', 'The flattery password', 'ごますり合言葉'),
         actionType: 'next_beat',
         nextBeatId: 'beat_5_reply',
       },
     ],
   },
 
-  // ═══ 5.5 · 暗号回应 (点“暗号”卡之后她的固定回应；原“输入回复”那句台词，说完自动进入杀青) ═══
+  // ═══ 5.5 · 暗号回应 (点任意“暗号”卡之后她的固定回应，说完自动进入选大脑) ═══
   beat_5_reply: {
     id: 'beat_5_reply',
     cinematics: { grading: 'default' },
@@ -339,13 +352,68 @@ const beats: Record<string, LocalizedStoryBeat> = {
       motion: 'pokeDimple',
       expression: { base: 'playful', intensity: 0.9 },
       speechText: L(
-        '噗，收到！这声音听着还挺顺耳的嘛，算你通过本小姐的默契认证啦！',
-        'Pfft, copy that! You sound pretty good, actually. Consider yourself officially approved by me!',
-        'ぷっ、受信完了！なかなかいい声してるじゃない。私の相棒テスト、合格にしてあげる！',
+        '噗，收到！这暗号听着还挺顺耳的嘛，算你通过本小姐的默契认证啦！',
+        'Pfft, copy that! Not a bad password, actually. Consider yourself officially approved by me!',
+        'ぷっ、受信完了！なかなかいい合言葉じゃない。私の相棒テスト、合格にしてあげる！',
       ),
     },
-    autoNextBeatId: 'beat_6',
+    autoNextBeatId: 'beat_brain_choice',
     autoNextDelayMs: 500,
+  },
+
+  // ═══ 5.8 · 选大脑 (旧版 beat_brain_choice：本地 WebLLM 开箱即用 / 自定义外部模型 → 打开服务配置弹窗；无 key 也能走完) ═══
+  // 两张卡都进入第 6 拍；选自定义时由 StoryPlayer 打开配置弹窗，弹窗关闭 (配没配都行) 后进入第 6 拍。
+  beat_brain_choice: {
+    id: 'beat_brain_choice',
+    cinematics: { grading: 'default' },
+    camera: { shot: 'close_up', movement: 'push_in', durationSec: 1.5 },
+    actor: {
+      expression: { base: 'shy', intensity: 0.7, microReaction: 'avert_gaze' },
+      speechText: L(
+        '最后一件事！台词都背熟了，可我还缺个会即兴发挥的脑袋，你帮我挑一个？',
+        'One last thing! The lines are memorized, but I still need a brain that can ad-lib. Pick one for me?',
+        '最後にひとつ！台詞は覚えたけど、アドリブのきく頭がまだないの。選んでくれる？',
+      ),
+    },
+    hint: L('选个大脑', 'Pick a brain', '頭脳を選ぶ'),
+    choices: [
+      {
+        id: 'brain_webllm',
+        icon: '⚡',
+        badge: L('开箱即用', 'Ready to go', 'すぐ使える'),
+        text: L('本地端侧大脑 (WebLLM)', 'On-device brain (WebLLM)', 'ローカル脳 (WebLLM)'),
+        subText: L(
+          '在本机显卡运行，无需 API Key，隐私不离机；以后可在右上角更换',
+          'Runs on this device, no API key, nothing leaves your machine; change it later at the top right',
+          '端末内で動作、APIキー不要、データは外に出ない。あとで右上から変更できる',
+        ),
+        actionType: 'custom',
+        actionPayload: async () => {
+          try {
+            const { setActiveProviderId } = await import('@/llm/customProvider');
+            const { preloadWebLLM } = await import('@/llm/webLLMProvider');
+            await setActiveProviderId(null);
+            preloadWebLLM({ warmup: true });
+          } catch (err) {
+            console.warn('[Prologue] on-device brain setup skipped:', err);
+          }
+        },
+        nextBeatId: 'beat_6',
+      },
+      {
+        id: 'brain_custom',
+        icon: '🖥️',
+        badge: L('高级扩展', 'Advanced', '上級'),
+        text: L('自定义外部模型 (API / 本地)', 'Custom model (API / local)', 'カスタムモデル (API / ローカル)'),
+        subText: L(
+          '接入 OpenAI、Claude 或本地 Ollama，解锁更强的推理与创意',
+          'Plug in OpenAI, Claude or a local Ollama for stronger reasoning and creativity',
+          'OpenAI・Claude・ローカルOllamaにつないで、より強力な推論と創造性を',
+        ),
+        actionType: 'open_provider_config',
+        nextBeatId: 'beat_6',
+      },
+    ],
   },
 
   // ═══ 6 · 剧本杀青 (沿用第 5 拍的场景 / BGM；说完 300ms 后结束序章 → 镜头回到默认视角 → 自由聊天) ═══

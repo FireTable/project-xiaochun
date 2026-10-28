@@ -98,4 +98,14 @@ describe('story i18n resolution', () => {
     expect(resolveBeat(beat, 'ja').hint).toBe('回す');
     expect(resolveBeat(beat, 'en').hint).toBe('Orbit');
   });
+
+  it('resolves a choice badge in the story language', () => {
+    const beat = LocalizedStoryBeatSchema.parse({
+      id: 'b',
+      actor: { speechText: 'x' },
+      choices: [{ id: 'c', text: 'x', badge: { 'zh-CN': '开箱即用', en: 'Ready to go', ja: 'すぐ使える' } }],
+    });
+    expect(resolveBeat(beat, 'en').choices?.[0].badge).toBe('Ready to go');
+    expect(resolveBeat(beat, 'ja').choices?.[0].badge).toBe('すぐ使える');
+  });
 });

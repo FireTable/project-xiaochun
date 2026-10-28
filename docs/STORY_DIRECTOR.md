@@ -134,4 +134,5 @@ pnpm exec tsc --noEmit
 - Environment time (`vrmEngine.setEnvironmentTime`) is an instant snap that also writes `localStorage`; The `beach3d` scene is the only one with a real sun, so `hero_backlight_reveal` is best there; Act 0 beat 1 uses it in the `void` scene (its opening stage), where it is only a low, narrow angle.
 - The grading layer uses `backdrop-filter` over the WebGL canvas; very low-end GPUs may prefer `default`.
 - Procedural BGM and ambience have not been auditioned by a sound designer; levels (`bgmVolume`, `ambienceVolume`) are the knobs.
-- Act 0 does not teach barge-in. Typing on its input beat (beat 5) hands the story to the LLM generator (with its offline fallback beats); the scripted ending is not resumed.
+- Act 0 has no free typing or barge-in: beat 5 uses fixed "password" cards that all lead to the same reply beat. Typing on a beat with `allowInput` in other scripts hands the story to the LLM generator (with its offline fallback beats); the scripted ending is not resumed.
+- `open_provider_config` choices are handled by `StoryPlayer`, not the engine: it opens the provider dialog and, when the dialog closes (configured or not), goes to that choice's `nextBeatId`. Act 0's `beat_brain_choice` uses it next to a `custom` card (on-device WebLLM). Choice `badge` is localized like `text`.

@@ -221,7 +221,7 @@ const buildChoiceSchema = <T extends z.ZodTypeAny>(text: T) =>
     id: z.string(),
     text,
     subText: text.optional(),
-    badge: z.string().optional(),
+    badge: text.optional(),
     icon: z.string().optional(),
     image: z.string().optional(),
     actionType: z.enum([

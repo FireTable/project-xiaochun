@@ -13,7 +13,7 @@ import { APP_CONFIG } from '@/config';
 import { TRANSITION_SPECS } from '../transitions';
 
 const beats = Object.values(prologueStory.beats);
-const SCRIPT_BEATS = ['beat_1', 'beat_2', 'beat_3', 'beat_outfit_choice', 'beat_4', 'beat_5', 'beat_5_reply', 'beat_6'];
+const SCRIPT_BEATS = ['beat_1', 'beat_2', 'beat_3', 'beat_outfit_choice', 'beat_4', 'beat_5', 'beat_5_reply', 'beat_brain_choice', 'beat_6'];
 
 /** 每拍一句台词：中文 ≤50 字，日文相当，英文相当 */
 const LIMIT: Record<StoryLang, number> = { 'zh-CN': 50, ja: 70, en: 140 };
@@ -113,7 +113,7 @@ describe('prologue story (Act 0 v4 · Backstage Catch)', () => {
   });
 
   it('puts a hint on every interactive beat (cards, camera card, input, free-chat handoff)', () => {
-    for (const id of ['beat_2', 'beat_3', 'beat_outfit_choice', 'beat_4', 'beat_5', 'beat_6']) {
+    for (const id of ['beat_2', 'beat_3', 'beat_outfit_choice', 'beat_4', 'beat_5', 'beat_brain_choice', 'beat_6']) {
       expect(prologueStory.beats[id].hint, id).toBeDefined();
     }
   });
@@ -137,10 +137,18 @@ describe('prologue story (Act 0 v4 · Backstage Catch)', () => {
       ['change_scene', 'dark', 'night', undefined],
     ]);
     expect(b.beat_4.confirmChoice?.nextBeatId).toBe('beat_5');
-    // 5 old input bar (allowInput + placeholder, typed text goes to the AI director) + one quick-reply card → 5.5 reply → 6
-    expect(b.beat_5.allowInput).toBe(true);
-    expect((b.beat_5.choices ?? []).map((c) => [c.id, c.nextBeatId])).toEqual([['say_open_sesame', 'beat_5_reply']]);
-    expect(b.beat_5_reply).toMatchObject({ autoNextBeatId: 'beat_6', camera: { shot: 'close_up', movement: 'arc_sweep', durationSec: 1.5 }, actor: { expression: { base: 'playful' } } });
+    // 5 fixed-reply password cards only (no input bar) → 5.5 reply → 5.8 brain cards → 6
+    expect(b.beat_5.allowInput).toBeUndefined();
+    expect(b.beat_5.inputPlaceholder).toBeUndefined();
+    expect((b.beat_5.choices ?? []).length).toBeGreaterThanOrEqual(2);
+    expect((b.beat_5.choices ?? []).every((c) => c.actionType === 'next_beat' && c.nextBeatId === 'beat_5_reply')).toBe(true);
+    expect(b.beat_5_reply).toMatchObject({ autoNextBeatId: 'beat_brain_choice', camera: { shot: 'close_up', movement: 'arc_sweep', durationSec: 1.5 }, actor: { expression: { base: 'playful' } } });
+    expect((b.beat_brain_choice.choices ?? []).map((c) => [c.id, c.actionType, c.nextBeatId])).toEqual([
+      ['brain_webllm', 'custom', 'beat_6'],
+      ['brain_custom', 'open_provider_config', 'beat_6'],
+    ]);
+    expect(typeof b.beat_brain_choice.choices?.[0].actionPayload).toBe('function');
+    expect(b.beat_brain_choice.allowInput).toBeUndefined();
     // 6 auto 300ms → finish
     expect(b.beat_6.autoFinish).toBe(true);
     expect(b.beat_6.autoNextDelayMs).toBe(300);

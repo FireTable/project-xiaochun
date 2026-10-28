@@ -33,6 +33,8 @@ export const StoryPlayer: React.FC<StoryPlayerProps> = ({
   const [storyState, setStoryState] = useState<StoryState>(() => storyDirectorEngine.getState());
   const [isGenerating, setIsGenerating] = useState(false);
   const [isProviderConfigOpen, setIsProviderConfigOpen] = useState(false);
+  // “选大脑”选了自定义模型时，配置弹窗关闭后要去的下一拍
+  const pendingProviderNextBeatRef = useRef<string | null>(null);
   const [cameraTasksDone, setCameraTasksDone] = useState(false);
   const [isHistoryExpanded, setIsHistoryExpanded] = useState(false);
   const [bubble, setBubble] = useState<BubbleState>(() => vrmEngine.bubbleTracker.state);
@@ -102,8 +104,10 @@ export const StoryPlayer: React.FC<StoryPlayerProps> = ({
   const handleProviderConfigOpenChange = useCallback((open: boolean) => {
     setIsProviderConfigOpen(open);
     if (!open) {
-      // 用户完成/关闭自定义模型配置后，自动推进至终章
-      void storyDirectorEngine.goToBeat('beat_finale');
+      // 用户完成/关闭自定义模型配置后，自动推进到“选大脑”卡片指定的下一拍 (没有待推进的就什么也不做)
+      const next = pendingProviderNextBeatRef.current;
+      pendingProviderNextBeatRef.current = null;
+      if (next) void storyDirectorEngine.goToBeat(next);
     }
   }, []);
 
@@ -128,6 +132,7 @@ export const StoryPlayer: React.FC<StoryPlayerProps> = ({
 
       // 如果是打开 AI 模型配置弹窗
       if (choice.actionType === 'open_provider_config') {
+        pendingProviderNextBeatRef.current = choice.nextBeatId ?? null;
         setIsProviderConfigOpen(true);
         return;
       }
