@@ -353,56 +353,70 @@ export class ExpressionController {
     }
 
     try {
-      let faceMesh: THREE.Mesh | null = null;
+      const faceMeshes: THREE.Mesh[] = [];
+      let dict: Record<string, number> | null = null;
       vrm.scene.traverse((node: any) => {
         if (
-          !faceMesh &&
           node.isMesh &&
           node.morphTargetDictionary &&
           (node.morphTargetDictionary['Fcl_MTH_Joy'] !== undefined ||
             node.morphTargetDictionary['Fcl_ALL_Joy'] !== undefined)
         ) {
-          faceMesh = node as THREE.Mesh;
+          faceMeshes.push(node as THREE.Mesh);
+          if (!dict) {
+            dict = node.morphTargetDictionary;
+          }
         }
       });
 
-      if (faceMesh && (faceMesh as THREE.Mesh).morphTargetDictionary) {
-        const dict = (faceMesh as THREE.Mesh).morphTargetDictionary!;
+      if (faceMeshes.length > 0 && dict) {
         const mgr = vrm.expressionManager;
 
-        // 1. 注册/重写 gentle_smile 表情 (纯嘴部微笑 + 微弱提眉，眼睛 100% 睁开，0 眯眼)
-        if (dict['Fcl_MTH_Joy'] !== undefined) {
-          const gentleSmileExpr = mgr.getExpression('gentle_smile');
+        // 1. 注册/重写 gentle_smile 表情 (闭口嘴角自然上扬甜美浅笑，眼睛 100% 睁开，0 眯眼，不张大口露齿)
+        if (dict['Fcl_MTH_Fun'] !== undefined || dict['Fcl_MTH_Joy'] !== undefined) {
+          let gentleSmileExpr = mgr.getExpression('gentle_smile');
           if (!gentleSmileExpr) {
-            const newExpr = new VRMExpression('gentle_smile');
-            newExpr.addBind(
+            gentleSmileExpr = new VRMExpression('gentle_smile');
+            mgr.registerExpression(gentleSmileExpr);
+          }
+          gentleSmileExpr.clearAppliedWeight();
+          (gentleSmileExpr as any)._binds.length = 0;
+          // 微笑：嘴角自然上扬甜美微笑 (Fcl_MTH_Fun 闭口微笑，区别于 happy 开怀大笑的 Fcl_MTH_Joy 张口露齿)
+          const mouthSmileIdx = dict['Fcl_MTH_Fun'] !== undefined ? dict['Fcl_MTH_Fun'] : dict['Fcl_MTH_Joy'];
+          gentleSmileExpr.addBind(
+            new VRMExpressionMorphTargetBind({
+              primitives: faceMeshes,
+              index: mouthSmileIdx,
+              weight: 0.85,
+            }),
+          );
+          if (dict['Fcl_BRW_Fun'] !== undefined) {
+            gentleSmileExpr.addBind(
               new VRMExpressionMorphTargetBind({
-                primitives: [faceMesh],
-                index: dict['Fcl_MTH_Joy'],
-                weight: 1.0,
+                primitives: faceMeshes,
+                index: dict['Fcl_BRW_Fun'],
+                weight: 0.25,
               }),
             );
-            if (dict['Fcl_BRW_Joy'] !== undefined) {
-              newExpr.addBind(
-                new VRMExpressionMorphTargetBind({
-                  primitives: [faceMesh],
-                  index: dict['Fcl_BRW_Joy'],
-                  weight: 0.35,
-                }),
-              );
-            }
-            mgr.registerExpression(newExpr);
+          } else if (dict['Fcl_BRW_Joy'] !== undefined) {
+            gentleSmileExpr.addBind(
+              new VRMExpressionMorphTargetBind({
+                primitives: faceMeshes,
+                index: dict['Fcl_BRW_Joy'],
+                weight: 0.20,
+              }),
+            );
           }
         }
 
-        // 2. 解耦 happy 预设表情 (嘴巴大笑 1.0，眉毛 0.45，眼睛完全不眯 0，杜绝眯眼)
+        // 2. 解耦 happy 预设表情 (开怀露齿大笑 1.0，眉毛欢快扬起 0.45，眼睛完全不眯 0，杜绝眯眼)
         const happyExpr = mgr.getExpression('happy');
         if (happyExpr && dict['Fcl_MTH_Joy'] !== undefined) {
           happyExpr.clearAppliedWeight();
           (happyExpr as any)._binds.length = 0;
           happyExpr.addBind(
             new VRMExpressionMorphTargetBind({
-              primitives: [faceMesh],
+              primitives: faceMeshes,
               index: dict['Fcl_MTH_Joy'],
               weight: 1.0,
             }),
@@ -410,37 +424,37 @@ export class ExpressionController {
           if (dict['Fcl_BRW_Joy'] !== undefined) {
             happyExpr.addBind(
               new VRMExpressionMorphTargetBind({
-                primitives: [faceMesh],
+                primitives: faceMeshes,
                 index: dict['Fcl_BRW_Joy'],
                 weight: 0.45,
               }),
             );
           }
-          // 开心的眼睛也不需要眯，彻底排除 Fcl_EYE_Joy！
+          // 开心的眼睛也不需要眯，彻底排除 Fcl_EYE_Joy / Fcl_ALL_Joy！
         }
 
-        // 3. 解耦 relaxed 预设表情 (放松眼睛不需要任何变化，仅嘴巴自然放松 1.0)
+        // 3. 解耦 relaxed 预设表情 (自然微抿放松 0.45，眼睛完全不眯 0，仅嘴巴舒缓自然)
         const relaxedExpr = mgr.getExpression('relaxed');
         if (relaxedExpr && dict['Fcl_MTH_Fun'] !== undefined) {
           relaxedExpr.clearAppliedWeight();
           (relaxedExpr as any)._binds.length = 0;
           relaxedExpr.addBind(
             new VRMExpressionMorphTargetBind({
-              primitives: [faceMesh],
+              primitives: faceMeshes,
               index: dict['Fcl_MTH_Fun'],
-              weight: 1.0,
+              weight: 0.45,
             }),
           );
           if (dict['Fcl_BRW_Fun'] !== undefined) {
             relaxedExpr.addBind(
               new VRMExpressionMorphTargetBind({
-                primitives: [faceMesh],
+                primitives: faceMeshes,
                 index: dict['Fcl_BRW_Fun'],
-                weight: 0.25,
+                weight: 0.15,
               }),
             );
           }
-          // 放松眼睛也不需要眯，彻底排除 Fcl_EYE_Fun！
+          // 放松眼睛也不需要眯，彻底排除 Fcl_EYE_Fun / Fcl_ALL_Fun！
         }
 
         // 4. 注册/重写 playful 预设表情 (甜美微笑 + 眉毛微扬 + 双眼微微眯一点 0.20)
@@ -454,7 +468,7 @@ export class ExpressionController {
           (playfulExpr as any)._binds.length = 0;
           playfulExpr.addBind(
             new VRMExpressionMorphTargetBind({
-              primitives: [faceMesh],
+              primitives: faceMeshes,
               index: dict['Fcl_MTH_Joy'],
               weight: 0.85,
             }),
@@ -462,7 +476,7 @@ export class ExpressionController {
           if (dict['Fcl_BRW_Joy'] !== undefined) {
             playfulExpr.addBind(
               new VRMExpressionMorphTargetBind({
-                primitives: [faceMesh],
+                primitives: faceMeshes,
                 index: dict['Fcl_BRW_Joy'],
                 weight: 0.35,
               }),
@@ -471,7 +485,7 @@ export class ExpressionController {
           if (dict['Fcl_EYE_Joy'] !== undefined) {
             playfulExpr.addBind(
               new VRMExpressionMorphTargetBind({
-                primitives: [faceMesh],
+                primitives: faceMeshes,
                 index: dict['Fcl_EYE_Joy'],
                 weight: 0.20, // 俏皮微微眯一点就好 (20% 弧度，绝不挤压成缝)
               }),
@@ -796,12 +810,29 @@ export class ExpressionController {
       mgr.setValue('sad', this.liveMorphs.sad);
       mgr.setValue('surprised', this.liveMorphs.surprised);
       mgr.setValue('relaxed', this.liveMorphs.relaxed);
-      mgr.setValue('blinkLeft', this.liveMorphs.blinkLeft);
-      mgr.setValue('blinkRight', this.liveMorphs.blinkRight);
+      // 单眼眨眼/Wink 互斥安全网 (Wink Mutex)：
+      // 当任意一只眼睛处于单眼 Wink 状态 (blinkLeft 或 blinkRight > 0.005) 时：
+      // 1. 彻底清零双眼通用 blink (Fcl_EYE_Close = 0)，杜绝通用眨眼与单眼眨眼叠加导致闭眼超载 (> 1.0) 使得眼皮嵌入下眼睑；
+      // 2. 抑制外部生理眨眼 gazeBlink，防止在俏皮单眼 Wink 瞬间遭遇随机生理眨眼将另一侧眼睛也闭上一半；
+      // 3. 将单眼闭合度严格限制在安全物理极限 (Math.min(0.80, ...))，确保睫毛与下眼睑自然触碰闭合，绝不穿透眼睑组织；
+      // 4. 非眨眼侧眼睛强制设为 0，确保 100% 自然全睁。
+      const isWinking =
+        this.liveMorphs.blinkLeft > 0.005 ||
+        this.liveMorphs.blinkRight > 0.005 ||
+        this.targetMorphs.blinkLeft > 0.005 ||
+        this.targetMorphs.blinkRight > 0.005;
 
-      // 叠加双眼闭合度：生理眨眼与平滑表情眨眼取最大值
-      const finalBlink = Math.min(1.0, Math.max(gazeBlink, this.liveMorphs.blink));
-      mgr.setValue('blink', finalBlink);
+      if (isWinking) {
+        mgr.setValue('blink', 0);
+        mgr.setValue('blinkLeft', Math.min(0.80, Math.max(0, this.liveMorphs.blinkLeft)));
+        mgr.setValue('blinkRight', Math.min(0.80, Math.max(0, this.liveMorphs.blinkRight)));
+      } else {
+        mgr.setValue('blinkLeft', 0);
+        mgr.setValue('blinkRight', 0);
+        // 双眼常态闭合度：生理眨眼与表情眨眼取最大值
+        const finalBlink = Math.min(1.0, Math.max(gazeBlink, this.liveMorphs.blink));
+        mgr.setValue('blink', finalBlink);
+      }
 
       // 口型音素合成
       if (activeVisemeMouth > 0.01) {
@@ -826,6 +857,18 @@ export class ExpressionController {
         this.reset(vrm, isSpeaking);
       }
     }
+  }
+
+  /**
+   * 判断当前是否正在执行单眼 Wink 眨眼 (用于通知注视系统暂缓生理双眼眨眼)
+   */
+  public isWinking(): boolean {
+    return (
+      this.liveMorphs.blinkLeft > 0.005 ||
+      this.liveMorphs.blinkRight > 0.005 ||
+      this.targetMorphs.blinkLeft > 0.005 ||
+      this.targetMorphs.blinkRight > 0.005
+    );
   }
 
   public getBlushIntensity(): number {

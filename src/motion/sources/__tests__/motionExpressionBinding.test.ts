@@ -293,7 +293,7 @@ describe('UniversalMotionController Motion-Native Expression Binding', () => {
     expect(expressionController.getExpressionFn()).toBeNull();
   });
 
-  it('shhLean executes a temporary wink pulse at 0.8s~1.5s and reopens eye for rest of motion', () => {
+  it('shhLean executes wink pulse after bending and completing shh gesture (4.2s~5.0s) and reopens eye', () => {
     const vrm = createMockVRM();
     const values: Record<string, number> = {};
     (vrm.expressionManager!.setValue as any).mockImplementation((key: string, val: number) => {
@@ -309,32 +309,36 @@ describe('UniversalMotionController Motion-Native Expression Binding', () => {
       duration: 8.08,
     }));
 
-    // At start (t = 0.2s): no wink, sweet smile
-    fakeElapsed = 0.2;
+    // 1. 在弯腰前倾与手指抬起就位阶段 (t = 2.5s)：双眼 100% 自然全睁，绝不提前眨眼/眯眼
+    fakeElapsed = 2.5;
     for (let i = 0; i < 5; i++) {
       expressionController.update(0.05, vrm);
     }
     expect(values.blinkLeft).toBe(0);
     expect(values.happy).toBeGreaterThanOrEqual(0.45);
 
-    // At climax peak (t = 1.15s, midway between 0.8s and 1.5s): smooth wink peak!
-    for (let t = 0.25; t <= 1.15; t += 0.05) {
+    // 2. 弯腰比完嘘定型后 (t = 4.6s，处于 4.2s ~ 5.0s 峰值)：触发灵动的单眼 Wink！
+    // 即使同时传入 gazeBlink = 0.8 生理眨眼，单眼 Wink 互斥机制也严格保证通用 blink 为 0，右眼 100% 全睁
+    for (let t = 2.6; t <= 4.6; t += 0.05) {
       fakeElapsed = t;
-      expressionController.update(0.05, vrm);
+      expressionController.update(0.05, vrm, false, 0, 0.8);
     }
     expect(values.blinkLeft).toBeGreaterThan(0.70);
-    expect(values.happy).toBeGreaterThan(0.55);
+    expect(values.blinkLeft).toBeLessThanOrEqual(0.80); // 安全物理极值，绝不穿透眼睑组织
+    expect(values.blink).toBe(0); // Wink Mutex 互斥机制彻底清零通用双眼 blink
+    expect(values.blinkRight).toBe(0); // 右眼 100% 自然全睁
+    expect(values.happy).toBeGreaterThan(0.50);
 
-    // After wink completes (t = 2.0s): eye fully reopens, smile remains!
-    for (let t = 1.20; t <= 2.0; t += 0.05) {
+    // 3. 眨眼迅速完成并完全睁开 (t = 5.4s)：双眼重新 100% 完全睁开，维持比嘘微笑
+    for (let t = 4.65; t <= 5.4; t += 0.05) {
       fakeElapsed = t;
       expressionController.update(0.05, vrm);
     }
     expect(values.blinkLeft).toBe(0);
     expect(values.happy).toBeGreaterThanOrEqual(0.45);
 
-    // Later in hold (t = 5.0s): eye still open, no frozen wink!
-    fakeElapsed = 5.0;
+    // 4. 后续保持期与起身 (t = 6.5s)：双眼始终自然全睁，无残留冻结眨眼
+    fakeElapsed = 6.5;
     for (let i = 0; i < 5; i++) {
       expressionController.update(0.05, vrm);
     }

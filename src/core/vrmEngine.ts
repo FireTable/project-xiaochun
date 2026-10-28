@@ -221,6 +221,9 @@ function computeDefaultCameraPosition(fovDeg: number): [number, number, number] 
  * `removeUnnecessaryJoints` is deprecated; `combineSkeletons` replaced it.
  */
 function applyVrmUtilsOptimizations(scene: THREE.Object3D, vrm: VRM): void {
+  // 在 combineMorphs 烘焙合并形态前，先完成预设表情解耦 (嘴巴大笑与眯眼剥离)，
+  // 确保 combineMorphs 烘焙出的 'happy' / 'relaxed' 形态中眼睛 100% 睁开、0 眯眼！
+  expressionController.ensureDecoupledExpressions(vrm);
   VRMUtils.removeUnnecessaryVertices(scene);
   VRMUtils.combineSkeletons(scene);
   VRMUtils.combineMorphs(vrm);
@@ -3573,6 +3576,11 @@ export class VRMEngine {
         // The spring hits raw arm colliders. Swing the normalized arm first;
         // vrm.update copies it onto those bones. The shader cannot move them.
         clearBustArms(vrm);
+
+        // 若当前正处于单眼 Wink 眨眼或动作眨眼状态，重置生理双眼眨眼避免干扰
+        if (expressionController.isWinking()) {
+          this.gazeController.resetBlink();
+        }
 
         // 活体动态表情系统逐帧更新 (眉眼与口型解耦、呼吸微波动与眨眼)
         expressionController.update(

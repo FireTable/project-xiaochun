@@ -90,12 +90,12 @@ export const MOTION_CATALOG = {
     expression: 'gentle_smile',
     expressionIntensity: 0.5,
     expressionFn: (ctx, out) => {
-      // 1.5s ~ 3.8s 双臂高举深呼吸舒展全身，双眼舒适闭目享受 (0 -> 0.95 -> 0 柔和呼吸，绝非维持半眯)
+      // 1.5s ~ 3.8s 双臂高举深呼吸舒展全身：惬意微舒缓 (闭合至多 0.20，严格保证保留 80% 灵动大眼，绝不长时间闭眼或眯缝)
       if (ctx.elapsed >= 1.5 && ctx.elapsed <= 3.8) {
         const stretchP = Math.sin(((ctx.elapsed - 1.5) / 2.3) * Math.PI);
-        out.gentle_smile = 0.40;
-        out.blink = stretchP * 0.95; // 舒展深呼吸时舒适安详闭目
-        out.aa = stretchP * 0.12; // 舒展深呼吸
+        out.gentle_smile = 0.45;
+        out.blink = stretchP * 0.20; // 舒展深呼吸时双眼惬意微放松 (10 留 8)，杜绝长时间紧闭眯眼
+        out.aa = stretchP * 0.10; // 舒展深呼吸微张口
       } else {
         // 舒展前后双眼 100% 自然全睁，神清气爽笑容灿烂 (杜绝眯眯眼)
         out.gentle_smile = 0.50;
@@ -120,16 +120,23 @@ export const MOTION_CATALOG = {
     expression: 'playful',
     expressionIntensity: 0.7,
     expressionFn: (ctx, out) => {
-      // 0.8s ~ 1.5s 身体前倾靠近并食指抵唇瞬间，触发一记灵动的俏皮眨眼 (Wink Pulse)
-      // 右眼 100% 全睁，左眼单次眨眼后平滑睁开，绝不维持半眯
-      if (ctx.elapsed >= 0.8 && ctx.elapsed <= 1.5) {
-        const p = (ctx.elapsed - 0.8) / 0.7;
-        out.blinkLeft = Math.sin(p * Math.PI) * 0.90;
+      // 弯腰比完嘘再眨眼：
+      // 0.0s ~ 4.2s: 身躯前倾弯腰靠近，右手抬起并将食指放于唇前（期间双眼 100% 清澈睁开注视，杜绝提前眯眼）
+      // 4.2s ~ 5.0s: 弯腰比嘘动作完全到位定型后，送上一记灵动的俏皮眨眼 (Wink Pulse，持续仅 0.8s)
+      // 5.0s ~ 8.08s: 眨完眼立即平滑完全睁开，在比嘘保持期与起身还原时双眼自然全睁，甜美微笑 (杜绝持续维持眯眼)
+      if (ctx.elapsed >= 4.2 && ctx.elapsed <= 5.0) {
+        const p = (ctx.elapsed - 4.2) / 0.8;
+        out.blinkLeft = Math.sin(p * Math.PI) * 0.82;
         out.happy = 0.65;
+        out.blink = 0;
+        out.blinkRight = 0;
+        out.relaxed = 0;
       } else {
-        // 眨眼结束后双眼 100% 完全自然睁开，保持神秘轻柔的微笑 (杜绝眯眯眼)
+        // 弯腰中以及眨眼完毕后：双眼 100% 自然全睁
         out.happy = 0.55;
         out.blink = 0;
+        out.blinkLeft = 0;
+        out.blinkRight = 0;
         out.relaxed = 0;
       }
     },
@@ -417,13 +424,21 @@ export const MOTION_CATALOG = {
     expressionIntensity: 0.8,
     expressionFn: (ctx, out) => {
       // 0.6s ~ 1.4s 手指轻戳腮帮酒窝瞬间，伴随一记可爱的右眼 Wink 灵动脉冲
+      // 左眼 100% 全睁，右眼单次眨眼后平滑睁开，闭合度上限 0.78 杜绝嵌入下眼睑
       if (ctx.elapsed >= 0.6 && ctx.elapsed <= 1.4) {
         const p = (ctx.elapsed - 0.6) / 0.8;
-        out.blinkRight = Math.sin(p * Math.PI) * 0.90;
-        out.happy = 0.80;
+        out.blinkRight = Math.sin(p * Math.PI) * 0.85;
+        out.happy = 0.75;
+        out.blink = 0;
+        out.blinkLeft = 0;
+        out.relaxed = 0;
       } else {
         // 戳酒窝后双眼完全自然睁开，展现灿烂笑容
         out.happy = 0.65;
+        out.blink = 0;
+        out.blinkLeft = 0;
+        out.blinkRight = 0;
+        out.relaxed = 0;
       }
     },
     category: 'cute',
@@ -481,7 +496,7 @@ export const MOTION_CATALOG = {
     descriptionKey: 'motion.joyfulJump.description',
     name: '惊喜轻跳',
     description: '瞬间被好消息点亮的兴奋拍手跳起',
-    url: '/vrm/motion/joyful-jump.vrma?v=9',
+    url: '/vrm/motion/joyful-jump.vrma?v=10',
     warmup: true,
     loop: false,
     fadeDuration: 0.65,

@@ -75,6 +75,16 @@ export class GazeController {
   public isLookAtHead = true;
   public isLockHead = false;
 
+  /**
+   * 重置生理眨眼状态 (当动作执行单眼 Wink 或特殊表情时调用，避免双眼眨眼冲突)
+   */
+  public resetBlink(): void {
+    this.isBlinking = false;
+    this.blinkTimer = 0;
+    this.blinkProgress = 0;
+    this._currentBlink = 0;
+  }
+
   init(scene: THREE.Scene): void {
     scene.add(this.gazeTarget);
   }
@@ -168,9 +178,9 @@ export class GazeController {
       if (this.isBlinking) {
         this.blinkProgress += delta / this.blinkDuration;
         if (this.blinkProgress <= 0.5) {
-          this._currentBlink = this.blinkProgress / 0.5;
+          this._currentBlink = Math.min(0.85, (this.blinkProgress / 0.5) * 0.85);
         } else if (this.blinkProgress <= 1.0) {
-          this._currentBlink = (1.0 - this.blinkProgress) / 0.5;
+          this._currentBlink = Math.min(0.85, ((1.0 - this.blinkProgress) / 0.5) * 0.85);
         } else {
           this.isBlinking = false;
           this._currentBlink = 0;
