@@ -466,8 +466,11 @@ export class SttClient {
     pcm: Float32Array,
     sampleRate: number = APP_CONFIG.stt.sampleRate,
   ): Promise<{ text: string; inferenceMs: number }> {
-    this.preload();
     const w = this.ensureWorker();
+    if (!this.loadStarted) {
+      this.loadStarted = true;
+      w.postMessage({ type: 'load' });
+    }
     const id = ++this.recogId;
     const copy = pcm.slice();
     const startTime = typeof performance !== 'undefined' ? performance.now() : Date.now();

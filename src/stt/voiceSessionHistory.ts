@@ -94,6 +94,158 @@ export function pcmToWavDataUrl(pcm: Float32Array, sampleRate: number): string {
   return `data:audio/wav;base64,${btoa(binary)}`;
 }
 
+/** Decodes a RIFF WAV Base64 Data URL back into mono Float32Array PCM. */
+export function wavDataUrlToPcm(dataUrl: string): { pcm: Float32Array; sampleRate: number } {
+  const commaIdx = dataUrl.indexOf(',');
+  const base64 = commaIdx >= 0 ? dataUrl.slice(commaIdx + 1) : dataUrl;
+  const binary =
+    typeof atob !== 'undefined'
+      ? atob(base64)
+      : typeof (globalThis as unknown as { Buffer?: { from: (s: string, e: string) => { toString: (e: string) => string } } }).Buffer !== 'undefined'
+        ? (globalThis as unknown as { Buffer: { from: (s: string, e: string) => { toString: (e: string) => string } } }).Buffer.from(base64, 'base64').toString('binary')
+        : '';
+  const bytes = new Uint8Array(binary.length);
+  for (let i = 0; i < binary.length; i++) {
+    bytes[i] = binary.charCodeAt(i);
+  }
+  const view = new DataView(bytes.buffer);
+  const sampleRate = view.getUint32(24, true);
+
+  // Search for "data" chunk offset
+  let dataOffset = 44;
+  for (let i = 36; i < bytes.length - 8; i++) {
+    if (
+      bytes[i] === 0x64 && // 'd'
+      bytes[i + 1] === 0x61 && // 'a'
+      bytes[i + 2] === 0x74 && // 't'
+      bytes[i + 3] === 0x61    // 'a'
+    ) {
+      dataOffset = i + 8;
+      break;
+    }
+  }
+
+  const numSamples = Math.floor((bytes.length - dataOffset) / 2);
+  const pcm = new Float32Array(numSamples);
+  let src = dataOffset;
+  for (let i = 0; i < numSamples; i++) {
+    const s16 = view.getInt16(src, true);
+    pcm[i] = s16 < 0 ? s16 / 0x8000 : s16 / 0x7fff;
+    src += 2;
+  }
+  return { pcm, sampleRate: sampleRate || 16000 };
+}
+
+/** Check if the browser supports standard Web Speech API SpeechRecognition (once). */
+export const isSpeechRecognitionSupported =
+  typeof window !== 'undefined' &&
+  Boolean(
+    (window as unknown as { SpeechRecognition?: unknown; webkitSpeechRecognition?: unknown })
+      .SpeechRecognition ||
+      (window as unknown as { SpeechRecognition?: unknown; webkitSpeechRecognition?: unknown })
+        .webkitSpeechRecognition,
+  );
+
+/**
+ * Feeds a recorded audio WAV Data URL to browser native SpeechRecognition.
+ * Plays the audio so the microphone can capture and recognize it, returning the recognized text.
+ */
+export function testWithSpeechRecognition(
+  audioDataUrl: string,
+  options: {
+    lang?: string;
+    onStart?: () => void;
+  } = {},
+): Promise<{ text: string; durationMs: number }> {
+  return new Promise((resolve, reject) => {
+    if (typeof window === 'undefined') {
+      reject(new Error('Window is not defined'));
+      return;
+    }
+    const SR =
+      (window as unknown as { SpeechRecognition?: any; webkitSpeechRecognition?: any })
+        .SpeechRecognition ||
+      (window as unknown as { SpeechRecognition?: any; webkitSpeechRecognition?: any })
+        .webkitSpeechRecognition;
+
+    if (!SR) {
+      reject(new Error('SpeechRecognition is not supported in this browser'));
+      return;
+    }
+
+    try {
+      const recognition = new SR();
+      recognition.lang = options.lang || 'zh-CN';
+      recognition.continuous = false;
+      recognition.interimResults = false;
+      recognition.maxAlternatives = 1;
+
+      const audio = new Audio(audioDataUrl);
+      const startTime = typeof performance !== 'undefined' ? performance.now() : Date.now();
+      let recognizedText = '';
+      let isSettled = false;
+
+      const finish = (text: string, err?: Error) => {
+        if (isSettled) return;
+        isSettled = true;
+        try {
+          audio.pause();
+          audio.currentTime = 0;
+        } catch {}
+        try {
+          recognition.abort();
+        } catch {}
+        if (err) {
+          reject(err);
+        } else {
+          const now = typeof performance !== 'undefined' ? performance.now() : Date.now();
+          const durationMs = Math.round(now - startTime);
+          resolve({ text, durationMs });
+        }
+      };
+
+      recognition.onstart = () => {
+        options.onStart?.();
+        // Play the recorded speech so microphone captures the sound
+        audio.play().catch((e) => {
+          console.warn('[SpeechRecognition] Audio play warning:', e);
+        });
+      };
+
+      recognition.onresult = (event: any) => {
+        const transcript = event.results?.[0]?.[0]?.transcript || '';
+        recognizedText = transcript;
+      };
+
+      recognition.onerror = (event: any) => {
+        const errType = String(event.error || '');
+        if (errType === 'no-speech') {
+          // Soft: finish with empty recognized text rather than fatal reject
+          finish(recognizedText || '');
+        } else {
+          finish(recognizedText, new Error(`SpeechRecognition error: ${errType}`));
+        }
+      };
+
+      recognition.onend = () => {
+        finish(recognizedText);
+      };
+
+      audio.onended = () => {
+        setTimeout(() => {
+          try {
+            recognition.stop();
+          } catch {}
+        }, 300);
+      };
+
+      recognition.start();
+    } catch (err) {
+      reject(err instanceof Error ? err : new Error(String(err)));
+    }
+  });
+}
+
 /** Retrieve current list of voice analysis records from sessionStorage. */
 export function getVoiceHistory(): VoiceAnalysisRecord[] {
   if (typeof window === 'undefined') return [];

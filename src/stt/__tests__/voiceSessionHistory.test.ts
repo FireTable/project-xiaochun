@@ -1,7 +1,9 @@
 import { describe, it, expect, beforeEach, beforeAll, afterAll } from 'vitest';
 import {
   pcmToWavDataUrl,
+  wavDataUrlToPcm,
   isDevDrawerActive,
+  isSpeechRecognitionSupported,
   getVoiceHistory,
   saveVoiceRecord,
   clearVoiceHistory,
@@ -68,6 +70,22 @@ describe('voiceSessionHistory', () => {
       expect(binary.slice(8, 12)).toBe('WAVE');
       expect(binary.slice(12, 16)).toBe('fmt ');
       expect(binary.slice(36, 40)).toBe('data');
+    });
+
+    it('accurately decodes WAV Data URL back to Float32Array PCM', () => {
+      const origPcm = new Float32Array([0.1, -0.5, 0.75, -0.2, 0.0]);
+      const dataUrl = pcmToWavDataUrl(origPcm, 16000);
+      const { pcm, sampleRate } = wavDataUrlToPcm(dataUrl);
+
+      expect(sampleRate).toBe(16000);
+      expect(pcm.length).toBe(origPcm.length);
+      for (let i = 0; i < origPcm.length; i++) {
+        expect(pcm[i]).toBeCloseTo(origPcm[i]!, 3);
+      }
+    });
+
+    it('evaluates isSpeechRecognitionSupported as boolean', () => {
+      expect(typeof isSpeechRecognitionSupported).toBe('boolean');
     });
   });
 

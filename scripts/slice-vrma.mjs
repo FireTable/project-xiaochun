@@ -1024,7 +1024,7 @@ if (process.argv[1] && process.argv[1].endsWith('slice-vrma.mjs')) {
   node scripts/slice-vrma.mjs --scan <输入文件>
 
   # 动作切片：
-  node scripts/slice-vrma.mjs <输入文件> <输出文件> [开始秒数] [结束秒数] [--seamless] [--zero-z[=firstFrame|all]] [--hips-y-offset=<meters>]
+  node scripts/slice-vrma.mjs <输入文件> <输出文件> [开始秒数] [结束秒数] [--seamless] [--zero-x[=firstFrame|all]] [--zero-z[=firstFrame|all]] [--hips-y-offset=<meters>] [--tail-hold=<seconds>]
 
 示例:
   # 1. 批量优化全量动作资产:
@@ -1036,8 +1036,11 @@ if (process.argv[1] && process.argv[1].endsWith('slice-vrma.mjs')) {
   # 3. 扫描动捕资产潜在问题：
   node scripts/slice-vrma.mjs --scan public/vrm/motion/touch-hair.vrma
 
-  # 4. 动作切片（首帧相对 Z 轴位移归零 + 下沉 4.5cm 消除空中悬浮）：
-  node scripts/slice-vrma.mjs input.vrma output.vrma 0.0 20.0 --seamless --zero-z=firstFrame --hips-y-offset=-0.045
+  # 4. 原地站姿/手势切片（首帧 X/Z 相对归零 + 盆骨下沉 4.5cm 消除空中浮空）：
+  node scripts/slice-vrma.mjs input.vrma output.vrma 0.0 20.0 --seamless --zero-x=firstFrame --zero-z=firstFrame --hips-y-offset=-0.045
+
+  # 5. 原地跑步机行走切片（X 与 Z 全程置零锁定中轴）：
+  node scripts/slice-vrma.mjs walk_raw.vrma walk_out.vrma 0.0 1.333 --seamless --zero-x=all --zero-z=all
 `);
     process.exit(1);
   }
@@ -1068,10 +1071,17 @@ if (process.argv[1] && process.argv[1].endsWith('slice-vrma.mjs')) {
     hipsYOffset = parseFloat(hipsArg.split('=')[1]) || 0.0;
   }
 
+  let tailHoldDuration = 0.0;
+  const tailArg = args.find((a) => a.startsWith('--tail-hold='));
+  if (tailArg) {
+    tailHoldDuration = parseFloat(tailArg.split('=')[1]) || 0.0;
+  }
+
   sliceVrma(inPath, outPath, start, end, {
     seamless: isSeamless,
     zeroZ: zeroZMode,
     zeroX: zeroXMode,
     hipsYOffset,
+    tailHoldDuration,
   });
 }

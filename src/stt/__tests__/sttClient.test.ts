@@ -170,4 +170,43 @@ describe('SttClient state logic', () => {
       (globalThis as any).Worker = originalWorker;
     }
   });
+
+  it('recognizePcm performs ad-hoc recognition without opening mic stream', async () => {
+    let lastPostedMsg: any = null;
+    const originalWorker = (globalThis as any).Worker;
+    (globalThis as any).Worker = class MockWorker {
+      onmessage: any = null;
+      postMessage(msg: any) {
+        lastPostedMsg = msg;
+        if (msg.type === 'recognize') {
+          setTimeout(() => {
+            this.onmessage?.({
+              data: {
+                type: 'result',
+                id: msg.id,
+                text: '重测成功',
+              },
+            });
+          }, 5);
+        }
+      }
+      terminate() {}
+    };
+
+    try {
+      const client = new SttClient();
+      const pcm = new Float32Array(8000).fill(0.1);
+      const res = await client.recognizePcm(pcm, 16000);
+
+      expect(lastPostedMsg).toBeTruthy();
+      expect(lastPostedMsg.type).toBe('recognize');
+      expect(res.text).toBe('重测成功');
+      expect(res.inferenceMs).toBeGreaterThanOrEqual(0);
+      expect(client.getState()).toBe('idle'); // mic never touched
+
+      client.dispose();
+    } finally {
+      (globalThis as any).Worker = originalWorker;
+    }
+  });
 });

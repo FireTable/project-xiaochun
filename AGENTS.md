@@ -235,6 +235,17 @@ The 3D motion pipeline involves complex layered logic. Follow these geometric an
   7. **Vertical Ground Contact Protection (`hipsYOffset` + `compensateFloorContact`)**:
      - Mocap assets recorded on custom rigs or high heels (e.g. `model-pose.vrma` baked with Hips Y ~4.5cm too high) float in mid-air.
      - Slicing tool applies calibrated `hipsYOffset: -0.045m`, followed by automated `compensateFloorContact` which lifts only frames where ankle pitch or crouching dips below floor level (`penetration > 0`). This ensures flat, stable foot grounding throughout the entire animation with zero hovering and zero floor penetration.
+  8. **Root Motion Lateral X-Displacement Alignment Standard (`zeroX: 'firstFrame'` vs `'all'`)**:
+     - **The Problem**: Raw mocap actors often begin recording offset laterally from the center of the volume ($X_0 \neq 0$, e.g. $+29.4\text{cm}$ or $-6.6\text{cm}$). Directly playing these causes the avatar to abruptly pop sideways or misalign with ground shadows and camera framing. Conversely, locking $X(t) \equiv 0.0$ removes all natural weight shifting.
+     - **The Standard**: **First-Frame X Relative Displacement (`zeroX: 'firstFrame'`)**:
+       * Mathematical transform: $X'(t) = X(t) - X(0)$.
+       * Guarantees Frame 0 starts strictly at $X'(0) = 0.0\text{m}$ (aligned with Idle), while 100% preserving organic lateral swaying, dancing, and weight transfers.
+       * In contrast, in-place locomotion cycles (`casualWalk`) use `zeroX: 'all'` (or `true`) to lock the center axis.
+  9. **Symmetrical Zero-Crossing Periodic Slicing (Sway & Stand Fidget Standard)**:
+     - **The Apex Slicing Trap**: When slicing cyclical idle/sway motions (such as `swayIdle`), NEVER slice starting from a sway apex/turning point (e.g. maximum left lean). Doing so causes relative translation $X'(t) = X(t) - X(0)$ to hover near $0.0\text{m}$ for $> 1\text{s}$ while leg rotations are already tilted, producing a severe artifact: **"hips frozen, legs drift sideways, and only after 1.5s does the motion begin"**.
+     - **The Standard**: Always slice from the symmetrical center zero-crossing ($X \approx \text{midpoint}$, equal 50/50 leg weight distribution) and end at the matching zero-crossing one full period later ($t_{\text{end}} = t_{\text{start}} + T$). Hips begin swinging smoothly and immediately from Frame 1 ($t=0.5\text{s} \rightarrow X=+6\text{cm}$), lateral foot drift is $< 7\text{mm}$, and foot sliding is completely eliminated.
+  10. **Tail-Hold Keyframe Extension (`tailHoldDuration` / `--tail-hold=<seconds>`)**:
+     - For one-shot gestures that play once and crossfade back to `NaturalIdle`, duplicating the final frame for $N$ seconds provides a stable rest pose for the 0.75s Quintic Smootherstep crossfade, preventing premature snapping.
 
 ### 2.13 Performance & Frame-Budget Disciplines (Zero GC & 60 FPS Guarantees)
 - Target: Strictly protect the 16.6ms frame budget, maintaining stable 60 FPS on both mobile and desktop with zero visible frame drops, micro-stutters, or memory leaks.

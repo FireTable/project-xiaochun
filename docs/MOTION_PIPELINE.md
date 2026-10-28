@@ -350,14 +350,22 @@ Mocap files direct from DCC tools often contain dense sampling (60 FPS), unmappe
 
 ### 5.2 CLI Usage
 ```bash
-# Batch optimize all VRMA files in public/vrm/motion/
+# 1. Batch optimize all VRMA files in public/vrm/motion/
 node scripts/slice-vrma.mjs --optimize-all
 
-# Optimize a single VRMA file (in-place or to target)
+# 2. Optimize a single VRMA file (in-place or to target)
 node scripts/slice-vrma.mjs --optimize public/vrm/motion/show-full-body.vrma
 
-# Motion slicing with first-frame Z relative displacement & ground offset:
-node scripts/slice-vrma.mjs raw.vrma out.vrma 0.0 20.0 --seamless --zero-z=firstFrame --hips-y-offset=-0.045
+# 3. Diagnostic inspection of a VRMA file:
+node scripts/slice-vrma.mjs --scan public/vrm/motion/touch-hair.vrma
+
+# 4. Standard in-place standing/dance slicing:
+# (First-frame X/Z relative zeroing, Quintic seamless loop, pelvis lowered by 4.5cm)
+node scripts/slice-vrma.mjs raw.vrma out.vrma 0.0 20.0 --seamless --zero-x=firstFrame --zero-z=firstFrame --hips-y-offset=-0.045
+
+# 5. Treadmill in-place locomotion slicing:
+# (Locks X and Z translation to 0.0 for walking/running loops)
+node scripts/slice-vrma.mjs walk_raw.vrma walk_out.vrma 0.0 1.333 --seamless --zero-x=all --zero-z=all
 ```
 
 ### 5.3 Root Motion Z-Displacement Standard (`zeroZ: 'firstFrame'` vs `'all'`)
@@ -375,7 +383,36 @@ Raw mocap studio captures typically position the performer at an arbitrary origi
    - **100% Anatomical Counterbalance Preservation**: Retains all relative pelvic sway $\Delta Z(t) = Z(t) - Z(0)$ throughout the action.
    - **Treadmill Mode (`zeroZ: 'all'` / `true`)**: Exclusively reserved for locomotion cycles (`casualWalk`) where the actor actually walked through space and must be converted to an in-place loop.
 
-### 5.4 Vertical Ground Contact Protection (`hipsYOffset` + `compensateFloorContact`)
+### 5.4 Root Motion Lateral X-Displacement Standard (`zeroX: 'firstFrame'` vs `'all'`)
+
+Performers in motion capture volumes rarely start exactly at center $X=0.0$.
+1. **The Problem**:
+   - Raw recordings often have lateral off-centering (e.g. `model-pose` $X_0 = +29.4\text{cm}$, `impatient-wait` $X_0 = +5.3\text{cm}$, `sway-idle` $X_0 = -6.6\text{cm}$).
+   - Starting a motion directly without $X$-normalization causes the avatar to immediately snap horizontally or stand off-center, misaligning with ground shadows and camera framing.
+   - Conversely, locking $X(t) \equiv 0.0$ destroys natural lateral hip swaying, weight shifting, and rhythmic body sways.
+2. **First-Frame X Relative Displacement (`zeroX: 'firstFrame'`)**:
+   - Mathematical transformation:
+     $$X'(t) = X(t) - X(0)$$
+   - **Guaranteed Frame 0 Origin Alignment**: $X'(0) \equiv 0.0\text{m}$, guaranteeing that the avatar enters the motion strictly at the camera center origin with zero lateral jump.
+   - **100% Lateral Rhythm & Weight Shift Preservation**: Preserves the actor's natural left/right weight shifting and rhythmic dance movements.
+   - **Treadmill In-Place Locomotion (`zeroX: 'all'` / `true`)**: Locks $X(t) \equiv 0.0$ for walk/run cycles to eliminate directional steering drifts.
+
+### 5.5 Symmetrical Zero-Crossing Periodic Slicing (Sway & Idle Standard)
+
+When slicing rhythmic swaying or cyclical standing fidgets (e.g. `swayIdle`):
+1. **⚠️ The Apex-Slicing Trap (Pelvis Freeze & Foot Drift)**:
+   - If a clip is sliced from an extreme lean apex (e.g. at the turning point where the hips are swung all the way to the left at $t=3.0\text{s}$), the first $1\sim 1.5$ seconds of relative displacement $X'(t) = X(t) - X(0)$ remains flat near $0.0\text{m}$ while the hips decelerate and change direction.
+   - Meanwhile, the leg and foot rotations are posed for an extreme asymmetrical lean. During crossfade from `NaturalIdle`, the hips stay fixed at $(0,0,0)$ while the legs rotate, producing an unnatural visual artifact: **"hips don't move, feet drift sideways, and only after 1.5s does the motion start"**.
+2. **Symmetrical Zero-Crossing Solution**:
+   - Always find the true sinusoidal center zero-crossing ($X \approx \text{midpoint}$, equal 50/50 leg weight distribution);
+   - Start the slice at the zero-crossing traveling in the cycle's primary direction, and end at the matching zero-crossing one full period later ($t_{\text{end}} = t_{\text{start}} + T$);
+   - Result:
+     * Frame 0 starts in an upright, centered stance ($X=0.00\text{m}$, balanced feet);
+     * Hips begin swinging smoothly and immediately from Frame 1 ($t=0.5\text{s} \rightarrow X=+6\text{cm}$);
+     * Complete symmetry: $+10\text{cm}$ right sway $\leftrightarrow$ $-10\text{cm}$ left sway;
+     * Foot lateral drift is $< 7\text{mm}$, achieving zero foot slip and zero delay.
+
+### 5.6 Vertical Ground Contact Protection (`hipsYOffset` + `compensateFloorContact`)
 
 When mocap files authored on different rigs or with high-heeled footwear (e.g. `model-pose.vrma` baked with Hips Y ~4.5cm too high) are retargeted, the avatar floats in mid-air.
 1. **Calibrated Slicing Offset (`hipsYOffset: -0.045m`)**:
@@ -384,6 +421,27 @@ When mocap files authored on different rigs or with high-heeled footwear (e.g. `
    - Evaluates world positions of `toesL`, `toesR`, `footL`, and `footR` across all keyframes against `restFloorY`.
    - Only for frames where ankle pitch or deep squats cause vertices to dip below floor level ($\text{penetration} > 0$), lifts Hips Y just enough to prevent floor penetration (`vals[i * 3 + 1] += penetration`).
    - Achieves consistent, grounded foot contact across the entire animation ($\text{diff} \in [0.0\text{cm}, 0.1\text{cm}]$) with zero hovering and zero floor penetration.
+
+### 5.7 Tail-Hold Keyframe Extension (`--tail-hold=<seconds>`)
+
+For non-looping one-shot expressions or gestures (such as `cheerUp` or `shhLean`) that play once and smoothly crossfade back to `NaturalIdle`:
+- Extending the tail frame by $N$ seconds (e.g. `--tail-hold=0.5`) duplicates the final anatomical pose into static hold frames.
+- This gives the pipeline's 0.75s Quintic Smootherstep crossfade a stable, stationary starting point, preventing premature recoil snapping before the transition completes.
+
+### 5.8 Complete CLI Options Reference
+
+| CLI Option | Type / Values | Default | Purpose & Recommended Usage |
+| :--- | :--- | :--- | :--- |
+| `input.vrma output.vrma start end` | Path & Floats | `0.0 Infinity` | Core slicing range in seconds. Drops setup/teardown T-poses. |
+| `--seamless` | Flag | `false` | Bakes Quintic Smootherstep circular loop between end and start frames. Recommended for idle and dance loops. |
+| `--seamless-duration=<sec>` | Float | `0.65` | Duration of the crossfade window for seamless loop baking. |
+| `--zero-x[=firstFrame\|all]` | Enum / Bool | `false` | `firstFrame`: $X'(t) = X(t) - X(0)$ (center origin, preserves lateral rhythm).<br/>`all`: $X'(t) \equiv 0.0$ (treadmill in-place locomotion). |
+| `--zero-z[=firstFrame\|all]` | Enum / Bool | `false` | `firstFrame`: $Z'(t) = Z(t) - Z(0)$ (center origin, preserves bow/squat counterbalance).<br/>`all`: $Z'(t) \equiv 0.0$ (treadmill in-place locomotion). |
+| `--hips-y-offset=<meters>` | Float | `0.0` | Global vertical translation offset for pelvis (e.g. `-0.045` lowers character by 4.5cm to eliminate foot floating). |
+| `--tail-hold=<seconds>` | Float | `0.0` | Extends final frame pose statically for $N$ seconds before motion completion. |
+| `--optimize` | Flag | `false` | Optimizes target VRMA (strips secondary channels, collapses static tracks, caps at 30 FPS). |
+| `--optimize-all [dir]` | Flag & Path | `public/vrm/motion` | Batch optimizes all `.vrma` files in the target directory. |
+| `--scan <file>` | Flag & Path | `none` | Performs non-destructive diagnostic analysis on animation tracks and bone channels. |
 
 
 
