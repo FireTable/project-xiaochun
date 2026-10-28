@@ -36,7 +36,7 @@ The 3D motion pipeline involves complex layered logic. Follow these geometric an
 - Files: `src/motion/pipeline/motionPipeline.ts`, `src/motion/pipeline/selectLiveMotionSource.ts`, `src/motion/pipeline/poseBuffer.ts`, `src/motion/sources/`, `src/motion/constraints/`, `src/core/vrmEngine.ts`
 - **Architecture Principle**:
   1. **Single Bone Writer**: `MotionPipeline.tick()` is the only per-frame driver. `selectLiveMotionSource({ clip, emage, vrma })` picks exactly one Layer-1 writer (`clip > emage > vrma > idle`). Idle rest is **never** applied to the live skeleton while another source is active (idle+EMAGE arm mix / crossed hands).
-  2. **No motion flags**: The engine loop and Gaze/BodyTurn must not consult `isThinking` / `emageLive` / `activePlayer`. Thinking VRMA and EMAGE are `pipeline.playThinkingClip` / `beginEmageSpeech`. Gaze think-sway and “no stepping while speaking” come from the live source’s `MotionTraits` (`thinkSway`, `allowLocomotion`).
+  2. **No motion flags**: The engine loop and Gaze/BodyTurn must not consult `isThinking` / `emageLive` / `activePlayer`. Thinking posture and EMAGE are driven through unified `pipeline.playMotion` / `beginEmageSpeech`. Gaze think-sway and “no stepping while speaking” come from the live source’s `MotionTraits` (`thinkSway`, `allowLocomotion`).
   3. **Layered Blend Graph**:
      - **Layer 0 (Base)**: `NaturalIdle` procedural breathing and standby poise (only when idle is the selected writer, or as `basePose` for upper-body masks).
      - **Layer 1 (Main Action)**: Exclusive `idle` | `vrma` | `emage` | `clip`, Quintic Smootherstep crossfade on `PoseBuffer`, then `commitToVRM`.
@@ -90,7 +90,7 @@ The 3D motion pipeline involves complex layered logic. Follow these geometric an
 - **Root Cause**: Historically, `activePlayer = 'vrma'` was written before the clip actually played. The next frame saw `vrmaPlayer.isPlaying() === false` and demoted the writer to idle.
 - **Engineering Standard & Rule**:
   - There is no engine-level `activePlayer` / `isThinking` motion flag. `MotionPipeline.tick()` calls `selectLiveMotionSource` from live `isPlaying()` only.
-  - ChatDirector starts thinking with `pipeline.playThinkingClip` **after** `playLoop`, never by setting a flag the render loop consults.
+  - ChatDirector starts thinking via unified `setTurnState('thinking')` (`pipeline.playMotion`) **after** `playLoop`, never by setting a flag the render loop consults.
   - `beginEmageSpeech` does not `vrma.stop()` immediately. Think keeps playing until EMAGE writes a pose; then stop the mixer so speech-end goes to idle.
   - Never invent a new motion flag in `sendMessage()` / `say()` for the engine loop to read.
   - **SSOT Interaction State Machine (`TurnState = 'idle' | 'listening' | 'thinking' | 'speaking'`)**:

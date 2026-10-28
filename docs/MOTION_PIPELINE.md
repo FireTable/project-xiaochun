@@ -109,7 +109,7 @@ graph TD
 
 When `motion_chunk` streaming is active, the Director must **not** reset playhead via `applyMotionData` / `switchSegment` on each window. See [`EMAGE_MODEL.md`](EMAGE_MODEL.md) and [`CHAT_DIRECTOR.md`](CHAT_DIRECTOR.md).
 
-**Source priority** (`selectLiveMotionSource`): `clip` > `emage` > `vrma` > `idle`. Exactly one writer per frame. ChatDirector starts thinking via `playThinkingClip` and speech via `beginEmageSpeech`; it does not set a motion flag the render loop reads. Gaze/BodyTurn use the live source’s `MotionTraits` (`thinkSway`, `allowLocomotion`). Full speak orchestration: [`CHAT_DIRECTOR.md`](CHAT_DIRECTOR.md#orchestration-flowchart-tip). Per-window Worker: [`EMAGE_MODEL.md`](EMAGE_MODEL.md#31-single-window-worker-path-pcm--step--decode--chunk--seam).
+**Source priority** (`selectLiveMotionSource`): `clip` > `emage` > `vrma` > `idle`. Exactly one writer per frame. ChatDirector starts thinking via unified `setTurnState('thinking')` (`pipeline.playMotion`) and speech via `beginEmageSpeech`; it does not set a motion flag the render loop reads. Gaze/BodyTurn use the live source’s `MotionTraits` (`thinkSway`, `allowLocomotion`). Full speak orchestration: [`CHAT_DIRECTOR.md`](CHAT_DIRECTOR.md#orchestration-flowchart-tip). Per-window Worker: [`EMAGE_MODEL.md`](EMAGE_MODEL.md#31-single-window-worker-path-pcm--step--decode--chunk--seam).
 
 ## 3. Quintic Smootherstep Transition Algorithm
 

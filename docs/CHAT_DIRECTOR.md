@@ -7,7 +7,7 @@
 > - [`src/motion/sources/speakIdle.ts`](../src/motion/sources/speakIdle.ts) (Speech-gap biomechanical micro-motion)  
 > - [`src/server.ts`](../src/server.ts) (Edge-TTS proxy + COOP/COEP document isolation)
 > - [`src/motion/sources/emageWorker.ts`](../src/motion/sources/emageWorker.ts) / [`emage.ts`](../src/motion/sources/emage.ts) (streaming `motion_chunk`; `copyToPoseBuffer`)
-> - [`src/motion/pipeline/motionPipeline.ts`](../src/motion/pipeline/motionPipeline.ts) (`playThinkingClip` / `beginEmageSpeech`)
+> - [`src/motion/pipeline/motionPipeline.ts`](../src/motion/pipeline/motionPipeline.ts) (`playMotion` / `beginEmageSpeech`)
 > - [`EMAGE_MODEL.md`](EMAGE_MODEL.md) (EP / INT8 / limits)
 
 ---

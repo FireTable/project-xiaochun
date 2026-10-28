@@ -193,7 +193,7 @@ Any AI Coding Agent working on this repository **must strictly obey these 5 rule
 ### ❌ Rule 3: Never Invent Motion Flags for the Render Loop
 - **Reason**: Writer selection is `selectLiveMotionSource({ clip, emage, vrma })` inside `MotionPipeline.tick()` — not `isThinking` / `emageLive` / `activePlayer`;
 - **Past Pitfall**: Setting `activePlayer = 'vrma'` upon clicking send caused a 1-frame visual flicker back to idle before thinking began;
-- **Rule**: ChatDirector only `playThinkingClip` / `beginEmageSpeech` / `resetChatMotion`. Gaze and BodyTurn read `MotionTraits`.
+- **Rule**: ChatDirector drives motion strictly through SSOT `setTurnState('thinking')` (`playMotion`) / `beginEmageSpeech` / `resetChatMotion`. Gaze and BodyTurn read `MotionTraits`.
 
 ### ❌ Rule 4: Never Hardcode Avatar Heights or World Positions
 - **Reason**: World coordinates shift dynamically with heel height, FootIK sink, and bone length sliders;
