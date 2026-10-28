@@ -89,18 +89,13 @@ describe('story i18n resolution', () => {
     expect(applyVariant(base, null)).toBe(base);
   });
 
-  it('resolves hint, camera-task fallback and input reply text in the story language', () => {
+  it('resolves the hint in the story language', () => {
     const beat = LocalizedStoryBeatSchema.parse({
       id: 'b',
       hint: { 'zh-CN': '环绕观察', en: 'Orbit', ja: '回す' },
       actor: { speechText: 'x' },
-      cameraTask: { nextBeatId: 'n', fallback: { speechText: { 'zh-CN': '兜底', en: 'fallback', ja: 'フォールバック' } } },
-      inputReply: { nextBeatId: 'n', speechText: { 'zh-CN': '回复', en: 'reply', ja: '返事' } },
     });
-    const ja = resolveBeat(beat, 'ja');
-    expect(ja.hint).toBe('回す');
-    expect(ja.cameraTask?.fallback.speechText).toBe('フォールバック');
-    expect(ja.cameraTask).toMatchObject({ orbitDeg: 35, zoomRatio: 0.2, timeoutMs: 6000 });
-    expect(resolveBeat(beat, 'en').inputReply?.speechText).toBe('reply');
+    expect(resolveBeat(beat, 'ja').hint).toBe('回す');
+    expect(resolveBeat(beat, 'en').hint).toBe('Orbit');
   });
 });

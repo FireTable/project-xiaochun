@@ -166,9 +166,6 @@ export const StoryPlayer: React.FC<StoryPlayerProps> = ({
       const trimmed = text.trim();
       if (!trimmed || isGenerating) return;
 
-      // 剧本里带 inputReply 的拍：任意一句话 (文字 / 语音转写) 都得到固定回复再进下一拍，不走 LLM
-      if (await storyDirectorEngine.submitScriptedInput(trimmed)) return;
-
       setIsGenerating(true);
 
       const wasSpeaking = storyState.isSpeaking;

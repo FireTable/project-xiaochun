@@ -111,7 +111,7 @@ const beats: Record<string, LocalizedStoryBeat> = {
     ],
   },
 
-  // ═══ 3 · 检查仪容 (教：拖动视角 + 缩放；转够 35° 或缩放 20% 即进入下一拍，6 秒没动就她自己转一圈) ═══
+  // ═══ 3 · 检查仪容 (教：拖动视角 + 缩放，旧版 camera_drag 教学卡 + 按钮进入下一拍) ═══
   beat_3: {
     id: 'beat_3',
     cinematics: { grading: 'default', wind: 0 },
@@ -126,24 +126,20 @@ const beats: Record<string, LocalizedStoryBeat> = {
       ),
     },
     audio: { sfx: [{ id: 'shutter', delaySec: 0.5, volume: 0.7 }] },
+    // 旧版 camera_drag 教学卡 (StoryCameraTaskCard：拖动 / 缩放手势任务清单，PC + 触屏文案各一套) + 用户口吻的“继续”按钮；
+    // 不做自动检测、不做兜底：用户想看多久看多久，自己点按钮进入下一拍 (全部任务完成后按钮文案会变成“前往下一步”)。
     hint: L('环绕观察并缩放距离', 'Orbit and zoom view', '視点を回して拡大縮小'),
-    cameraTask: {
-      orbitDeg: 35,
-      zoomRatio: 0.2,
-      timeoutMs: 6000,
-      nextBeatId: 'beat_outfit_choice',
-      fallback: {
-        camera: { shot: 'full', movement: 'orbit_subtle', durationSec: 2.0 },
-        motion: 'showFullBody', // 她自己原地转一圈展示
-        expression: { base: 'playful', intensity: 0.85 },
-        speechText: L(
-          '算了算了，看你呆乎乎站着不动，本小姐自己转一圈给你检查行了吧！',
-          "Forget it! Since you're just standing there frozen, I'll spin around for you myself. Happy now?",
-          'もう、ぼーっと突っ立ってるんだから！私が自分で回って見せてあげるわよ、ほら！',
-        ),
-        afterMs: 500,
+    interaction: 'camera_drag',
+    choices: [
+      {
+        id: 'look_done',
+        icon: '👀',
+        text: L('看好了，没乱', "Looks good, nothing's messy", '大丈夫、乱れてないよ'),
+        subText: L('绕着你转了一圈', 'I walked all the way around', 'ぐるっと一周して見たよ'),
+        actionType: 'next_beat',
+        nextBeatId: 'beat_outfit_choice',
       },
-    },
+    ],
   },
 
   // ═══ 3.5 · 帮我挑衣服 (教：换装。接在“检查仪容”之后：被你绕着看了一圈，她才发现这身太正式) ═══
@@ -262,7 +258,7 @@ const beats: Record<string, LocalizedStoryBeat> = {
     },
   },
 
-  // ═══ 5 · 经费燃烧 (白闪切到所选场景；教：打字 / 语音输入。默认 = 海边，variants.day = 昼白线稿，variants.night = 极夜线稿) ═══
+  // ═══ 5 · 经费燃烧 (白闪切到所选场景；教：打字 / 语音输入，旧版输入栏。默认 = 海边，variants.day = 昼白线稿，variants.night = 极夜线稿) ═══
   beat_5: {
     id: 'beat_5',
     scene: 'beach', // 兜底：没点过预览卡也保证场景对得上 (已经在这个场景就什么也不做)
@@ -317,21 +313,39 @@ const beats: Record<string, LocalizedStoryBeat> = {
         },
       },
     },
-    hint: L('打字或语音跟她说话', 'Type or speak to her', '文字か声で話しかける'),
+    // 旧版输入引导：allowInput 输入栏 + 麦克风 + 旧占位文案；用户自己说的话交给 AI 导演 (离线有兜底)。
+    // 不想打字的人可以点下面这张“暗号”卡：等同于说了一句，由 beat_5_reply 接话后进入杀青。
+    hint: L('打字、语音，或点暗号', 'Type, speak, or tap', '文字・声・タップ'),
     allowInput: true,
-    inputPlaceholder: L('随便说点什么…', 'Say anything…', '何でもひとこと…'),
-    inputReply: {
+    inputPlaceholder: L('想说什么，写下来，或点麦克风对她说', 'Type something, or tap the mic to speak', '書いてもいいし、マイクで話してもいいよ'),
+    choices: [
+      {
+        id: 'say_open_sesame',
+        icon: '🗝️',
+        text: L('芝麻开门！', 'Open sesame!', '開けゴマ！'),
+        subText: L('不想打字？就说这句', "Don't feel like typing? Say this", '打つのが面倒ならこれ'),
+        actionType: 'next_beat',
+        nextBeatId: 'beat_5_reply',
+      },
+    ],
+  },
+
+  // ═══ 5.5 · 暗号回应 (点“暗号”卡之后她的固定回应；原“输入回复”那句台词，说完自动进入杀青) ═══
+  beat_5_reply: {
+    id: 'beat_5_reply',
+    cinematics: { grading: 'default' },
+    camera: { shot: 'close_up', movement: 'arc_sweep', durationSec: 1.5 },
+    actor: {
+      motion: 'pokeDimple',
+      expression: { base: 'playful', intensity: 0.9 },
       speechText: L(
         '噗，收到！这声音听着还挺顺耳的嘛，算你通过本小姐的默契认证啦！',
         'Pfft, copy that! You sound pretty good, actually. Consider yourself officially approved by me!',
         'ぷっ、受信完了！なかなかいい声してるじゃない。私の相棒テスト、合格にしてあげる！',
       ),
-      expression: { base: 'playful', intensity: 0.9 },
-      camera: { shot: 'close_up', movement: 'arc_sweep', durationSec: 1.5 },
-      motion: 'pokeDimple',
-      nextBeatId: 'beat_6',
-      afterMs: 500,
     },
+    autoNextBeatId: 'beat_6',
+    autoNextDelayMs: 500,
   },
 
   // ═══ 6 · 剧本杀青 (沿用第 5 拍的场景 / BGM；说完 300ms 后结束序章 → 镜头回到默认视角 → 自由聊天) ═══

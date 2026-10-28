@@ -38,12 +38,10 @@ Per-beat extras applied in step 2 (under the transition cover): `scene` (switch 
 | `allowInput` / `inputPlaceholder` | Shows the chat input. Typing while she speaks is a full-duplex **interruption**. |
 | `autoFinish` | Like `autoNextBeatId`, but ends the whole story after the line + `autoNextDelayMs`: `finish()` restores the view prefs and eases the camera back to the default view, then `StoryPlayer` calls `onComplete` (free chat). |
 | `hint` | Localized on-screen prompt chip ("what can I do now"); not spoken, not in the recap. The script's lines stay in-story. |
-| `cameraTask` | Advance when the user has rotated the view by `orbitDeg` (default 35°, accumulated) **or** zoomed by `zoomRatio` (default 20 % of the start distance); measured by `ViewTaskTracker` from `vrmEngine.getViewSample()` (camera azimuth + polar + character turn, since horizontal drag turns the character). Measuring starts after the line and the beat's own camera move. After `timeoutMs` (6000) with no input, the `fallback` plays (camera / motion / expression + one line), then the story goes to `nextBeatId` either way. |
-| `inputReply` | With `allowInput`: the first text / voice transcript the user sends gets this canned reply (camera / expression / motion + one line), then `nextBeatId`. No LLM involved (`engine.submitScriptedInput`, called by `StoryPlayer` before the generator). |
 | `choices[].branch` / `variants` | A choice with `branch: 'x'` makes later beats use `variants.x` (a partial beat, merged one level deep: `cinematics`, `audio`, `camera`, `actor`...). Cleared on replay. |
 | `choices[].scene` / `sceneHour` | Switches scene (persisted) under the next beat's transition cover; `sceneHour` sets the environment time first (time-aware scenes such as `beach3d`). |
 | `startLang: 'browser'` (script) | Start in the browser language (zh / en / ja, anything else en) instead of the UI language; the UI language is untouched until a `change_lang` choice. |
-| `interaction: 'camera_drag'` | Shows the camera task card (orbit / pitch / zoom). `StoryPlayer` localizes the choice with id `camera_done` or `look_done` once all tasks are done. |
+| `interaction: 'camera_drag'` | Shows the camera task card (orbit / pitch / zoom). `StoryPlayer` localizes the choice with id `camera_done` or `look_done` once all tasks are done. Nothing is auto-detected: the beat waits for the user to press that button (Act 0 beat 3 uses it, with a `look_done` card). |
 
 **Interruption** (`engine.interrupt()`): stops TTS, camera tween, and any delayed SFX, restores BGM, publishes the beat's choices, and **stops auto-advance**: the user has taken over, and the next beat comes from their choice or from the AI generator. The "interrupted" flag is reset at the start of every beat, so the lines after an interruption are spoken normally (previously they stayed silent).
 
@@ -57,7 +55,7 @@ Every text field accepts a plain string (same in all languages) or an object:
 speechText: { 'zh-CN': '你好', en: 'Hello', ja: 'こんにちは' }
 ```
 
-Resolved fields: `actor.speechText`, `choices[].text/subText`, `confirmChoice`, `cinematics.intertitle.text`, `inputPlaceholder`, `hint`, `cameraTask.fallback.speechText`, `inputReply.speechText`, script `title/description`. A plain string is the same text in every language: Act 0 uses that for its language cards, each showing only its own language. `zh-CN` is required; a missing language falls back to it.
+Resolved fields: `actor.speechText`, `choices[].text/subText`, `confirmChoice`, `cinematics.intertitle.text`, `inputPlaceholder`, `hint`, script `title/description`. A plain string is the same text in every language: Act 0 uses that for its language cards, each showing only its own language. `zh-CN` is required; a missing language falls back to it.
 
 - Resolution happens **when the beat is entered** (`resolveBeat`), producing a plain-string beat. `StoryPlayer`, the history log and the LLM generator only ever see single-language strings.
 - Because it is lazy, an object may use **getters** to vary text with story state (Act 0 does this for the ending line).
@@ -65,7 +63,7 @@ Resolved fields: `actor.speechText`, `choices[].text/subText`, `confirmChoice`, 
 - Fixed UI strings of the player (skip, recap, camera card, placeholders, "tap to wake", badges) live under the `story.*` keys of `src/i18n/*.ts`.
 - **TTS voice follows the text script**, not the UI language: kana → Japanese voice, Latin-only text → `voices.en`, otherwise Chinese (see [`TTS.md`](TTS.md)). English lines therefore use the configured English voice; check it if the accent matters.
 
-Authoring limits used by the Act 0 tests: one beat speaks its whole thought in a single `speechText` (≤ 50 characters zh-CN, ≤ 70 ja, ≤ 140 en) because every spoken beat is one TTS request; only the camera-task fallback and the input reply add one more. Lines contain no UI words (those belong in `hint`). `en` text contains no CJK; `ja` text contains kana.
+Authoring limits used by the Act 0 tests: one beat speaks its whole thought in a single `speechText` (≤ 50 characters zh-CN, ≤ 70 ja, ≤ 140 en) because every spoken beat is one TTS request. Lines contain no UI words (those belong in `hint`). `en` text contains no CJK; `ja` text contains kana.
 
 ## 4. Transitions
 
@@ -136,4 +134,4 @@ pnpm exec tsc --noEmit
 - Environment time (`vrmEngine.setEnvironmentTime`) is an instant snap that also writes `localStorage`; The `beach3d` scene is the only one with a real sun, so `hero_backlight_reveal` is best there; Act 0 beat 1 uses it in the `void` scene (its opening stage), where it is only a low, narrow angle.
 - The grading layer uses `backdrop-filter` over the WebGL canvas; very low-end GPUs may prefer `default`.
 - Procedural BGM and ambience have not been auditioned by a sound designer; levels (`bgmVolume`, `ambienceVolume`) are the knobs.
-- Act 0 has no barge-in: `inputReply` / `cameraTask` beats are the only input handling. On other beats, an interruption by typing hands the story to the LLM generator (with its offline fallback beats); the scripted ending is not resumed.
+- Act 0 does not teach barge-in. Typing on its input beat (beat 5) hands the story to the LLM generator (with its offline fallback beats); the scripted ending is not resumed.

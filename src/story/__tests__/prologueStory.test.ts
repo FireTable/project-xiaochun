@@ -13,7 +13,7 @@ import { APP_CONFIG } from '@/config';
 import { TRANSITION_SPECS } from '../transitions';
 
 const beats = Object.values(prologueStory.beats);
-const SCRIPT_BEATS = ['beat_1', 'beat_2', 'beat_3', 'beat_outfit_choice', 'beat_4', 'beat_5', 'beat_6'];
+const SCRIPT_BEATS = ['beat_1', 'beat_2', 'beat_3', 'beat_outfit_choice', 'beat_4', 'beat_5', 'beat_5_reply', 'beat_6'];
 
 /** 每拍一句台词：中文 ≤50 字，日文相当，英文相当 */
 const LIMIT: Record<StoryLang, number> = { 'zh-CN': 50, ja: 70, en: 140 };
@@ -59,8 +59,6 @@ describe('prologue story (Act 0 v4 · Backstage Catch)', () => {
         [`${b.id}.intertitle`, b.cinematics?.intertitle?.text],
         [`${b.id}.placeholder`, b.inputPlaceholder],
         [`${b.id}.hint`, b.hint],
-        [`${b.id}.reply`, b.inputReply?.speechText],
-        [`${b.id}.fallback`, b.cameraTask?.fallback.speechText],
       ];
       if (b.id !== 'beat_2') {
         for (const c of b.choices ?? []) fields.push([`${b.id}.${c.id}.text`, c.text], [`${b.id}.${c.id}.sub`, c.subText]);
@@ -96,7 +94,7 @@ describe('prologue story (Act 0 v4 · Backstage Catch)', () => {
     for (const b of beats) {
       for (const lang of STORY_LANGS) {
         const beat = resolveBeat(b, lang);
-        const lines = [beat.actor.speechText, beat.cameraTask?.fallback.speechText ?? '', beat.inputReply?.speechText ?? ''];
+        const lines = [beat.actor.speechText];
         for (const line of lines) {
           if (line.trim() === '') continue;
           expect(line.length, `${b.id} ${lang}: "${line}"`).toBeLessThanOrEqual(LIMIT[lang]);
@@ -114,7 +112,7 @@ describe('prologue story (Act 0 v4 · Backstage Catch)', () => {
     }
   });
 
-  it('puts a hint on every interactive beat (cards, camera task, input, free-chat handoff)', () => {
+  it('puts a hint on every interactive beat (cards, camera card, input, free-chat handoff)', () => {
     for (const id of ['beat_2', 'beat_3', 'beat_outfit_choice', 'beat_4', 'beat_5', 'beat_6']) {
       expect(prologueStory.beats[id].hint, id).toBeDefined();
     }
@@ -127,10 +125,9 @@ describe('prologue story (Act 0 v4 · Backstage Catch)', () => {
     expect(b.beat_1.autoNextDelayMs).toBe(400);
     // 2 choice → 3
     expect((b.beat_2.choices ?? []).every((c) => c.nextBeatId === 'beat_3')).toBe(true);
-    // 3 camera_task: ≥35° or 20% zoom, 6000ms timeout, fallback speaks then → 4
-    expect(b.beat_3.cameraTask).toMatchObject({ orbitDeg: 35, zoomRatio: 0.2, timeoutMs: 6000, nextBeatId: 'beat_outfit_choice' });
-    expect(b.beat_3.cameraTask?.fallback.camera).toMatchObject({ movement: 'orbit_subtle', durationSec: 2.0 });
-    expect(b.beat_3.cameraTask?.fallback.expression?.base).toBe('playful');
+    // 3 camera_drag tutorial card + the user's button → 3.5 (no auto-detection, no fallback)
+    expect(b.beat_3.interaction).toBe('camera_drag');
+    expect((b.beat_3.choices ?? []).map((c) => [c.id, c.nextBeatId])).toEqual([['look_done', 'beat_outfit_choice']]);
     // 3.5 outfit cards (preview in place) + confirm → 4
     expect(b.beat_outfit_choice.confirmChoice?.nextBeatId).toBe('beat_4');
     // 4 scene cards (preview in place, each sets the branch) + confirm → 5
@@ -140,9 +137,10 @@ describe('prologue story (Act 0 v4 · Backstage Catch)', () => {
       ['change_scene', 'dark', 'night', undefined],
     ]);
     expect(b.beat_4.confirmChoice?.nextBeatId).toBe('beat_5');
-    // 5 input → canned reply (playful, close_up + arc pan 1.5s) → 6
+    // 5 old input bar (allowInput + placeholder, typed text goes to the AI director) + one quick-reply card → 5.5 reply → 6
     expect(b.beat_5.allowInput).toBe(true);
-    expect(b.beat_5.inputReply).toMatchObject({ nextBeatId: 'beat_6', expression: { base: 'playful' }, camera: { shot: 'close_up', movement: 'arc_sweep', durationSec: 1.5 } });
+    expect((b.beat_5.choices ?? []).map((c) => [c.id, c.nextBeatId])).toEqual([['say_open_sesame', 'beat_5_reply']]);
+    expect(b.beat_5_reply).toMatchObject({ autoNextBeatId: 'beat_6', camera: { shot: 'close_up', movement: 'arc_sweep', durationSec: 1.5 }, actor: { expression: { base: 'playful' } } });
     // 6 auto 300ms → finish
     expect(b.beat_6.autoFinish).toBe(true);
     expect(b.beat_6.autoNextDelayMs).toBe(300);
@@ -191,10 +189,10 @@ describe('prologue story (Act 0 v4 · Backstage Catch)', () => {
     const shots = new Set(Object.keys(SHOT_PRESETS));
     const scenes = new Set(Object.keys(APP_CONFIG.scenes.items));
     const check = (b: (typeof beats)[number], tag: string) => {
-      for (const m of [b.actor.motion, b.actor.leadInMotion, b.cameraTask?.fallback.motion, b.inputReply?.motion]) {
+      for (const m of [b.actor.motion, b.actor.leadInMotion]) {
         if (m) expect(isMotionCatalogId(m), `${tag} motion ${m}`).toBe(true);
       }
-      for (const cam of [b.camera, b.cameraTask?.fallback.camera, b.inputReply?.camera]) {
+      for (const cam of [b.camera]) {
         if (cam?.shot) expect(shots.has(cam.shot), `${tag} shot ${cam.shot}`).toBe(true);
       }
       const t = b.cinematics?.transition;

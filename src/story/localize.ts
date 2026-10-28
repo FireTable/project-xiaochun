@@ -85,9 +85,5 @@ export function resolveBeat(beat: LocalizedStoryBeat, lang: StoryLang): StoryBea
     confirmChoice: beat.confirmChoice ? resolveChoice(beat.confirmChoice, lang) : undefined,
     inputPlaceholder: resolveOptional(beat.inputPlaceholder, lang),
     hint: resolveOptional(beat.hint, lang),
-    cameraTask: beat.cameraTask
-      ? { ...beat.cameraTask, fallback: { ...beat.cameraTask.fallback, speechText: resolveLocalized(beat.cameraTask.fallback.speechText, lang) } }
-      : undefined,
-    inputReply: beat.inputReply ? { ...beat.inputReply, speechText: resolveLocalized(beat.inputReply.speechText, lang) } : undefined,
   };
 }

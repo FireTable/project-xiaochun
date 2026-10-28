@@ -277,35 +277,6 @@ const buildBeatSchema = <T extends z.ZodTypeAny>(text: T) => {
     /** 进入本拍时切换到的场景 (剧本别名 lineart_day / lineart_night / beach，或真实场景 id)，在转场遮罩下切换 */
     scene: z.string().optional(),
     /**
-     * 镜头任务推进：台词说完后检测用户把视角旋转累计 ≥ orbitDeg 度，或缩放变化 ≥ zoomRatio (比例)，达成即进入 nextBeatId；
-     * 超过 timeoutMs 仍未完成 → 兜底：镜头 / 表情 / 动作 + 一句兜底台词，说完自动进入 nextBeatId。
-     */
-    cameraTask: z.object({
-      orbitDeg: z.number().min(1).default(35),
-      zoomRatio: z.number().min(0.01).default(0.2),
-      timeoutMs: z.number().min(500).default(6000),
-      nextBeatId: z.string(),
-      fallback: z.object({
-        camera: CameraDirectiveSchema.optional(),
-        motion: z.string().optional(),
-        expression: ExpressionDirectiveSchema.optional(),
-        speechText: text,
-        /** 兜底台词说完后的停顿 (ms) */
-        afterMs: z.number().min(0).default(600),
-      }),
-    }).optional(),
-    /**
-     * 输入推进：用户发送任意文字 / 语音后，播放固定回复 (无需 LLM)，再进入 nextBeatId。需同时 allowInput。
-     */
-    inputReply: z.object({
-      speechText: text,
-      expression: ExpressionDirectiveSchema.optional(),
-      camera: CameraDirectiveSchema.optional(),
-      motion: z.string().optional(),
-      nextBeatId: z.string(),
-      afterMs: z.number().min(0).default(500),
-    }).optional(),
-    /**
      * 按 choice.branch 改写本拍：`variants[branch]` 是本拍的一个局部覆盖 (cinematics / camera / audio / actor / hint / scene 等逐层合并)。
      */
     variants: z.record(z.string(), z.any()).optional(),
