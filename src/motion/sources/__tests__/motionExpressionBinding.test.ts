@@ -10,11 +10,14 @@ function createMockVRM() {
   const mockHips = new THREE.Object3D();
   mockHips.name = 'hips';
   scene.add(mockHips);
+  const mockHead = new THREE.Object3D();
+  mockHead.name = 'head';
+  scene.add(mockHead);
 
   const mockVrm = {
     scene,
     humanoid: {
-      getNormalizedBoneNode: (name: string) => (name === 'hips' ? mockHips : null),
+      getNormalizedBoneNode: (name: string) => (name === 'hips' ? mockHips : name === 'head' ? mockHead : null),
       getRawBoneNode: () => null,
     },
     expressionManager: {
@@ -160,23 +163,35 @@ describe('UniversalMotionController Motion-Native Expression Binding', () => {
     expect(MOTION_CATALOG.shhLean.expressionIntensity).toBe(0.7);
   });
 
-  it('ExpressionController combines sleepyBlink and gazeBlink without compounding', () => {
+  it('ExpressionController dynamically links sleepyBlink to head nod pitch and gazeBlink without compounding', () => {
     const vrm = createMockVRM();
     const values: Record<string, number> = {};
     (vrm.expressionManager!.setValue as any).mockImplementation((key: string, val: number) => {
       values[key] = val;
     });
 
+    const head = vrm.humanoid!.getNormalizedBoneNode('head')!;
+
     expressionController.setExpression('relaxed', 0.7);
 
-    // Run 15 consecutive frames with delta = 0.05
+    // Simulated head nod down (pitch = 0.20 rad)
+    head.rotation.x = 0.20;
     for (let i = 0; i < 15; i++) {
       expressionController.update(0.05, vrm, false, 0, 0.2);
     }
+    // Blink dynamically closes deeper into nod (around ~0.72)
+    expect(values.blink).toBeGreaterThan(0.65);
+    expect(values.blink).toBeLessThan(0.78);
 
-    // Blink should be clamped and bounded around Math.max(0.2, 0.7 * 0.65) ~ 0.45
-    expect(values.blink).toBeGreaterThan(0.35);
-    expect(values.blink).toBeLessThan(0.55);
+    // Deep nod (pitch = 0.30 rad) -> deep slumber closing (~0.90)
+    head.rotation.x = 0.30;
+    expressionController.update(0.05, vrm, false, 0, 0.2);
+    expect(values.blink).toBeGreaterThan(0.85);
+
+    // Head lifts back upright (pitch = 0 rad) -> flutters open to relaxed base (~0.35)
+    head.rotation.x = 0.0;
+    expressionController.update(0.05, vrm, false, 0, 0.2);
+    expect(values.blink).toBeLessThanOrEqual(0.38);
 
     // Clear expression back to neutral
     expressionController.setExpression('neutral', 1.0);
@@ -184,6 +199,37 @@ describe('UniversalMotionController Motion-Native Expression Binding', () => {
       expressionController.update(0.1, vrm, false, 0, 0);
     }
     expect(values.blink).toBe(0);
+  });
+
+  it('ExpressionController enables expressive lively weights and playful wink', () => {
+    const vrm = createMockVRM();
+    const values: Record<string, number> = {};
+    (vrm.expressionManager!.setValue as any).mockImplementation((key: string, val: number) => {
+      values[key] = val;
+    });
+
+    // Test playful: triggers left-eye wink and happy smile
+    expressionController.setExpression('playful', 0.85);
+    for (let i = 0; i < 15; i++) {
+      expressionController.update(0.05, vrm);
+    }
+    expect(values.blinkLeft).toBeGreaterThan(0.70);
+    expect(values.happy).toBeGreaterThan(0.40);
+
+    // Test happy: triggers full radiant joyful smile
+    expressionController.setExpression('happy', 0.85);
+    for (let i = 0; i < 15; i++) {
+      expressionController.update(0.05, vrm);
+    }
+    expect(values.happy).toBeGreaterThan(0.55);
+    expect(values.blinkLeft).toBe(0);
+
+    // Reset back to neutral
+    expressionController.setExpression('neutral', 1.0);
+    for (let i = 0; i < 20; i++) {
+      expressionController.update(0.1, vrm);
+    }
+    expect(values.happy).toBe(0);
   });
 
   it('enforces type safety so all configured motion expressions exist in PRESET_EMOTION_MAP', () => {

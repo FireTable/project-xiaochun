@@ -12,6 +12,7 @@ export interface ExpressionControllerConfig {
 
 export const EMOTION_KEYS = [
   'neutral',
+  'happy',
   'gentle_smile',
   'hesitant',
   'shy',
@@ -26,7 +27,7 @@ export type EmotionKey = (typeof EMOTION_KEYS)[number];
 
 export const PRESET_EMOTION_MAP = {
   neutral: 'neutral',
-  happy: 'gentle_smile',
+  happy: 'happy',
   gentle_smile: 'gentle_smile',
   smile: 'gentle_smile',
   angry: 'angry',
@@ -59,6 +60,7 @@ export class ExpressionController {
   // 当前实时计算权重 (0.0 ~ 1.0)
   private currentWeights: Record<EmotionKey, number> = {
     neutral: 1.0,
+    happy: 0.0,
     gentle_smile: 0.0,
     hesitant: 0.0,
     shy: 0.0,
@@ -161,6 +163,8 @@ export class ExpressionController {
         vrm.expressionManager.setValue('surprised', 0);
         vrm.expressionManager.setValue('relaxed', 0);
         vrm.expressionManager.setValue('blink', 0);
+        vrm.expressionManager.setValue('blinkLeft', 0);
+        vrm.expressionManager.setValue('blinkRight', 0);
         if (!isSpeaking) {
           vrm.expressionManager.setValue('aa', 0);
         }
@@ -230,57 +234,94 @@ export class ExpressionController {
       }
     }
 
-    // ── 4. 区域解耦与 VRoid 专属比例微调 (严防眯眼与强行扯嘴) ──
+    // ── 4. 区域解耦与自然生动表情映射 (Zero-GC 算法) ──
     const mouthDuck = isSpeaking || activeVisemeMouth > 0.05 ? this.config.speechMouthDucking : 1.0;
 
-    // 柔美微笑：限幅 0.14，确保大眼睛清澈睁开，嘴角微翘自然甜美
-    const happyScale = 0.14;
+    // 获取当前头部俯仰角 (Head Pitch)，实现困倦点头/打瞌睡时眼睑与沉睡深度的生理动态联动
+    const headNode = vrm.humanoid?.getNormalizedBoneNode('head');
+    const headPitch = headNode ? Math.max(0, headNode.rotation.x) : 0;
+    // 点头深度系数 (0 ~ 1.0，0.30 rad 约为低头打瞌睡极值)
+    const nodFactor = Math.min(1.0, Math.max(0, headPitch / 0.30));
+
+    // 开怀喜悦 (happy) 与温婉微笑 (gentle_smile)
     const happyWeight = Math.min(
-      0.18,
+      0.80,
       Math.max(
         0,
-        (this.currentWeights.gentle_smile * happyScale +
-          this.currentWeights.playful * 0.12 +
+        (this.currentWeights.happy * 0.70 +
+          this.currentWeights.gentle_smile * 0.38 +
+          this.currentWeights.playful * 0.52 +
+          this.currentWeights.shy * 0.28 +
           breathOsc) *
           mouthDuck,
       ),
     );
 
-    // 傲娇微怒：限幅 0.30，眉毛微蹙生动傲娇，绝不狰狞失真。说话发音时避让嘴部形变
+    // 傲娇微怒 (angry)
     const angryWeight = Math.min(
-      0.35,
-      Math.max(0, this.currentWeights.angry * 0.30 * (isSpeaking ? mouthDuck : 1.0)),
+      0.70,
+      Math.max(0, this.currentWeights.angry * 0.65 * (isSpeaking ? mouthDuck : 1.0)),
     );
 
-    // 忧伤期盼：限幅 0.22，温和隐忍
+    // 困意/放松伴生的眉毛微垂 (睡颜舒缓八字眉)
+    const sleepySad = this.currentWeights.relaxed * 0.22 * nodFactor;
+
+    // 忧伤期盼 (sad) 与犹豫疑虑 (hesitant)
     const sadWeight = Math.min(
-      0.25,
+      0.65,
       Math.max(
         0,
-        (this.currentWeights.sad_longing * 0.22 +
-          this.currentWeights.hesitant * 0.15) *
+        (this.currentWeights.sad_longing * 0.60 +
+          this.currentWeights.hesitant * 0.38 +
+          sleepySad) *
           mouthDuck,
       ),
     );
 
-    // 惊讶一怔：限幅 0.38，大眼睛灵动张开
+    // 惊讶一怔 (surprised)
     const surprisedWeight = Math.min(
-      0.45,
-      Math.max(0, this.currentWeights.surprised * 0.38),
-    );
-
-    // 放松从容：限幅 0.16，恬淡平静
-    const relaxedWeight = Math.min(
-      0.20,
+      0.75,
       Math.max(
         0,
-        this.currentWeights.relaxed * 0.16 +
-          this.currentWeights.shy * 0.10,
+        this.currentWeights.surprised * 0.70 +
+          this.currentWeights.hesitant * 0.15,
       ),
     );
 
-    // 困倦/舒缓眼睑微垂：当处于 relaxed 状态时，使眼皮自然下垂微阖（0.35 ~ 0.50，呈现朦胧困倦感）
-    const sleepyBlink = Math.min(0.55, Math.max(0, this.currentWeights.relaxed * 0.65));
+    // 放松从容 (relaxed)：随点头垂首自然舒展嘴角
+    const relaxedWeight = Math.min(
+      0.65,
+      Math.max(
+        0,
+        this.currentWeights.relaxed * (0.45 + 0.15 * nodFactor) +
+          this.currentWeights.shy * 0.25,
+      ),
+    );
+
+    // 俏皮眨眼 (playful wink)：单侧左眼可爱 Wink 灵动眨眼
+    const playfulWink = this.currentWeights.playful > 0.005
+      ? Math.min(0.95, Math.max(0, this.currentWeights.playful * 0.88))
+      : 0;
+
+    // 困倦打盹动态眼睑闭合 (Sleepy Eyelid Lifecycle):
+    // - 抬头/初始微困时：眼皮自然下垂至约 0.35 (朦胧睡意半目)
+    // - 点头垂首时 (nodFactor 升高)：眼睑随重力与沉睡深度平滑闭合至 0.88 ~ 0.92 (深沉酣睡闭眼)
+    // - 猛然抬起或惊醒微动时：眼皮随 headPitch 下降瞬间睁开至 0.45 ~ 0.55
+    // - 动作结束时：随 currentWeights 平滑淡出完全睁开 (0.0)
+    let sleepyBlink = 0;
+    if (this.currentWeights.relaxed > 0.01) {
+      const normRelaxed = Math.min(1.0, this.currentWeights.relaxed / 0.70);
+      sleepyBlink = normRelaxed * (0.35 + nodFactor * 0.55);
+    } else if (this.currentWeights.shy > 0.01) {
+      sleepyBlink = this.currentWeights.shy * 0.25; // 害羞时眼帘微垂
+    }
+
+    // 犹豫疑惑时的微张口型
+    const hesitantMouth = this.currentWeights.hesitant * 0.20 * mouthDuck;
+    // 惊讶时的张口吸气
+    const surprisedMouth = this.currentWeights.surprised * 0.18 * mouthDuck;
+    // 困倦深睡时的微弱口呼吸
+    const sleepyMouth = this.currentWeights.relaxed * 0.08 * nodFactor * mouthDuck;
 
     try {
       mgr.setValue('happy', happyWeight);
@@ -289,15 +330,21 @@ export class ExpressionController {
       mgr.setValue('surprised', surprisedWeight);
       mgr.setValue('relaxed', relaxedWeight);
 
-      // 叠加困意眼睑微阖 (与 GazeController 的生理眨眼瞬时值平滑合并，取最大值，零回读零复合累加)
+      // 单眼俏皮眨眼 (Wink)
+      mgr.setValue('blinkLeft', playfulWink);
+
+      // 叠加双眼闭合度 (生理眨眼与困意眼睑取最大值，零回读零累加)
       const finalBlink = Math.min(1.0, Math.max(gazeBlink, sleepyBlink));
       mgr.setValue('blink', finalBlink);
 
-      // 如果有口型输入，写入标准音素
+      // 口型音素合成 (语音、惊讶张嘴、困意呼吸、犹豫微张)
       if (activeVisemeMouth > 0.01) {
         mgr.setValue('aa', activeVisemeMouth);
+        mgr.setValue('ou', 0);
       } else if (!isSpeaking) {
-        mgr.setValue('aa', 0);
+        const combinedAa = Math.max(surprisedMouth, sleepyMouth);
+        mgr.setValue('aa', combinedAa);
+        mgr.setValue('ou', hesitantMouth);
       }
 
       // 注意：无需在此处重复调用 mgr.update()，vrm.update(delta) 在渲染主循环中会统一调度

@@ -29,7 +29,7 @@ describe('ExpressionController Organic Facial Morphing', () => {
     expect(controller.getIsActive()).toBe(false);
   });
 
-  it('smoothly ramps happy (gentle_smile) with organic ceiling avoiding deformed eyes', () => {
+  it('smoothly ramps happy with lively radiant ceiling avoiding deformed eyes', () => {
     const controller = new ExpressionController();
     const { vrm, expressionValues } = createMockVRM();
 
@@ -41,13 +41,13 @@ describe('ExpressionController Organic Facial Morphing', () => {
       controller.update(0.016, vrm, false);
     }
 
-    // Happy value should be gently smiling (~0.14) and strictly <= 0.18 (prevent squinting slits)
+    // Happy value should be expressively radiant (~0.70) and bounded <= 0.80
     const happyVal = expressionValues['happy'] ?? 0;
-    expect(happyVal).toBeGreaterThan(0.10);
-    expect(happyVal).toBeLessThanOrEqual(0.18);
+    expect(happyVal).toBeGreaterThan(0.50);
+    expect(happyVal).toBeLessThanOrEqual(0.80);
   });
 
-  it('smoothly ramps angry with tsundere micro-pout ceiling avoiding demonic distortion', () => {
+  it('smoothly ramps angry with tsundere pout ceiling avoiding demonic distortion', () => {
     const controller = new ExpressionController();
     const { vrm, expressionValues } = createMockVRM();
 
@@ -60,8 +60,8 @@ describe('ExpressionController Organic Facial Morphing', () => {
     }
 
     const angryVal = expressionValues['angry'] ?? 0;
-    expect(angryVal).toBeGreaterThan(0.20);
-    expect(angryVal).toBeLessThanOrEqual(0.35);
+    expect(angryVal).toBeGreaterThan(0.50);
+    expect(angryVal).toBeLessThanOrEqual(0.70);
   });
 
   it('smoothly transitions back to neutral and gracefully deactivates', () => {
@@ -100,7 +100,7 @@ describe('ExpressionController Organic Facial Morphing', () => {
 
     // Mouth is ducked by speechMouthDucking (0.25)
     const duckedHappy = expressionValues['happy'] ?? 0;
-    expect(duckedHappy).toBeLessThan(0.06);
+    expect(duckedHappy).toBeLessThan(0.25);
   });
 
   it('ducks angry expression mouth pull when character is speaking', () => {
@@ -114,7 +114,7 @@ describe('ExpressionController Organic Facial Morphing', () => {
 
     // Angry is ducked by mouthDuck (0.25) when speaking
     const duckedAngry = expressionValues['angry'] ?? 0;
-    expect(duckedAngry).toBeLessThan(0.10);
+    expect(duckedAngry).toBeLessThan(0.20);
   });
 
   it('reset does not clobber aa viseme when character is speaking', () => {
