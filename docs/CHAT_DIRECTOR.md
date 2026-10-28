@@ -100,7 +100,7 @@ In daily chat mode, dialogue bubbles strictly follow the **Anti-Spoil Principle*
 | **TTS Synthesis** | `'tts'` | Blue capsule: `🎙️ Preparing voice...` | Maintains conversational pacing |
 | **EMAGE Synthesis** | `'emage'` | Amber capsule: `✨ Rehearsing gestures...` | Displays pipeline state only |
 | **Active Speech** | `'speaking'` | **Expands full speech bubble with text** | **Reveals dialogue text exclusively when audio & motion play!** |
-| **TTS Unavailable** | `'ttsUnavailable'` | Header row with a `VolumeX` icon + `bubble.ttsUnavailable` (语音暂时不可用 / Voice unavailable), **plus the reply text** | Not an error state; no technical detail in the UI (§2.7) |
+| **TTS Unavailable** | `'ttsUnavailable'` | Header row with a `VolumeX` icon + `bubble.ttsUnavailable` ("Voice unavailable"), **plus the reply text** | Not an error state; no technical detail in the UI (§2.7) |
 
 In story / prologue mode, `isSpeaking` is decoupled from static dialogue text visibility: character lines persist stably post-speech so users can freely explore camera perspectives, try on outfits, and switch scenes without dialogue flashing away.
 
@@ -201,10 +201,10 @@ A newer `say` / `speakText` / `speakAudio` calls `handoff()` first (§2.6). The 
 
 ## 3. Multi-Modal TTS Client & Error Degradation
 
-- 文件：[`src/director/ttsClient.ts`](../src/director/ttsClient.ts)
-- 支持两种工作模式：
-  1. **官方内置 Edge-TTS (推荐)**：经由 Cloudflare Worker `/api/tts` 执行实时流式合成并接入 R2 双层持久缓存；
-  2. **用户自定义服务**：以标准 OpenAI `/v1/audio/speech` 格式 `POST ${baseURL}/audio/speech` 发送 `{ model, input, voice, response_format: 'mp3' }`，兼容 MiniMax、硅基流动 CosyVoice、OpenAI、ElevenLabs 等各大云端提供商。
-- **优雅降级容错**：
-  - 当语音合成异常（网络断开、鉴权失效、配额不足）时，**绝不崩溃中断主流程**；
-  - 触发 `status('ttsUnavailable')`，气泡下方挂低调的“语音暂时不可用”胶囊，LLM 文字照常完整呈现，动作调度平滑退化为纯文本节奏。
+- Core file: [`src/director/ttsClient.ts`](../src/director/ttsClient.ts)
+- Supports two operating modes:
+  1. **Official Built-in Edge-TTS (Recommended)**: Synthesizes real-time audio streams via Cloudflare Worker `/api/tts` backed by dual-tier L1 PoP and L2 R2 persistent caching;
+  2. **Custom User Provider**: Dispatches standard OpenAI `/v1/audio/speech` format `POST ${baseURL}/audio/speech` with `{ model, input, voice, response_format: 'mp3' }`, compatible with MiniMax, SiliconFlow CosyVoice, OpenAI, ElevenLabs, and other cloud providers.
+- **Graceful Degradation & Fault Tolerance**:
+  - When speech synthesis encounters errors (network disconnection, authentication failure, quota exhaustion), it **never crashes or interrupts the main interaction pipeline**;
+  - Triggers `status('ttsUnavailable')`, displaying an unobtrusive "Voice unavailable" capsule below the chat bubble; LLM dialogue text continues to render smoothly, and motion orchestration gracefully degrades to a text-paced rhythm.

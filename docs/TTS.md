@@ -160,7 +160,7 @@ sed "s#^import handler from '@tanstack/react-start/server-entry';#const handler 
 echo '{"name":"tts-harness","main":"entry.ts","compatibility_date":"2026-01-01","compatibility_flags":["nodejs_compat"]}' > grok/ttsharness/wrangler.json
 npx wrangler dev -c grok/ttsharness/wrangler.json --local --port 8799 --ip 127.0.0.1
 curl -s -o /tmp/t.mp3 -D - -X POST http://127.0.0.1:8799/api/tts \
-  -H 'Content-Type: application/json' -d '{"text":"你好，小蠢正在说话。"}'
+  -H 'Content-Type: application/json' -d '{"text":"Hello, XiaoChun is speaking."}'
 afinfo /tmp/t.mp3   # macOS: duration
 ```
 
@@ -171,7 +171,7 @@ Result (workerd, 5 sequential distinct texts): all **200** `audio/mpeg`, 24.6–
 ### 3.6 Next Time
 ```bash
 # 1. real cause from production (502 body carries reasons)
-curl -sS -X POST https://xiaochun.firetable.tech/api/tts -H 'Content-Type: application/json' -d '{"text":"你好"}'
+curl -sS -X POST https://xiaochun.firetable.tech/api/tts -H 'Content-Type: application/json' -d '{"text":"Hello"}'
 # 2. live logs
 npx wrangler tail project-xiaochun --format json
 # 3. raw handshake (expect 101); swap host / version to compare
@@ -213,7 +213,7 @@ To guarantee that post-processing never degrades motion fidelity or introduces v
    - The lip-sync analyzer (`AnalyserNode`) and EMAGE co-speech gesture engine receive the **raw, unadulterated audio stream** before any DSP coloration.
    - Reverb tails, dynamic compression, and EQ boosts never leak into viseme energy calculation or body gesture prediction.
 2. **Bit-Exact Pure Bypass Branch**:
-   - When the user selects the default `bypass` (原声直通) preset or disables vocal enhancement, audio travels exclusively through a dedicated `dryGain` bypass node (`inputNode -> dryGain -> outputNode`).
+   - When the user selects the default `bypass` (Pure Bypass) preset or disables vocal enhancement, audio travels exclusively through a dedicated `dryGain` bypass node (`inputNode -> dryGain -> outputNode`).
    - The signal completely skips the filter, EQ, compressor, and reverb nodes, ensuring zero phase shift, zero harmonic distortion, and 100% digital parity with raw Edge-TTS.
 3. **Decoupled Control State**:
    - Switching acoustic presets modulates **only** DSP slider parameters (low cut, EQ gains, compressor threshold/ratio, reverb wet/size). It **never** mutates the user's top-level switches (`enabled`, `sceneLinkage`, `distanceAttenuation`).
@@ -322,11 +322,11 @@ The application provides 5 curated acoustic presets configured in `src/config.ts
 
 | Preset | Key | Low-Cut | Chest EQ (350Hz) | Mid EQ | Air EQ (3.5kHz) | Compressor | Reverb Wet / Room | Character |
 | :--- | :--- | :--- | :--- | :--- | :--- | :--- | :--- | :--- |
-| **原声直通 (Default)** | `bypass` | *Bypassed* | *Bypassed* | *Bypassed* | *Bypassed* | *Off (0 dB / 1:1)* | *0%* | 100% digital bit-exact Edge-TTS dry signal; distance attenuation active |
-| **甜美软萌** | `sweet` | 85 Hz | -0.5 dB | +0.5 dB | +3.0 dB | -16 dB (3.0:1) | 6% wet (0.20 room) | Transparent highs, crisp presence, sweet anime idol timbre |
-| **温柔御姐** | `oneesan` | 75 Hz | +3.5 dB | +1.0 dB | +1.5 dB | -22 dB (4.5:1) | 10% wet (0.30 room) | Deep chest resonance, warm mid-body, mature and calming presence |
-| **复古电台** | `radio` | 300 Hz | -6.0 dB | +4.5 dB | -4.0 dB | -28 dB (8.0:1) | 4% wet (0.15 room) | Bandpass lo-fi, focused mid-range, telephone/radio broadcast character |
-| **贴耳耳语** | `whisper` | 100 Hz | +1.0 dB | -1.5 dB | +5.0 dB | -26 dB (5.0:1) | 15% wet (0.45 room) | Enhanced air harmonics, intimate compression, ASMR room space |
+| **Pure Bypass (Default)** | `bypass` | *Bypassed* | *Bypassed* | *Bypassed* | *Bypassed* | *Off (0 dB / 1:1)* | *0%* | 100% digital bit-exact Edge-TTS dry signal; distance attenuation active |
+| **Sweet & Kawaii** | `sweet` | 85 Hz | -0.5 dB | +0.5 dB | +3.0 dB | -16 dB (3.0:1) | 6% wet (0.20 room) | Transparent highs, crisp presence, sweet anime idol timbre |
+| **Mature & Gentle** | `oneesan` | 75 Hz | +3.5 dB | +1.0 dB | +1.5 dB | -22 dB (4.5:1) | 10% wet (0.30 room) | Deep chest resonance, warm mid-body, mature and calming presence |
+| **Vintage Radio** | `radio` | 300 Hz | -6.0 dB | +4.5 dB | -4.0 dB | -28 dB (8.0:1) | 4% wet (0.15 room) | Bandpass lo-fi, focused mid-range, telephone/radio broadcast character |
+| **Intimate Whisper** | `whisper` | 100 Hz | +1.0 dB | -1.5 dB | +5.0 dB | -26 dB (5.0:1) | 15% wet (0.45 room) | Enhanced air harmonics, intimate compression, ASMR room space |
 
 ### 4.5 Critical Web Audio & Tone.js Engineering Standards
 

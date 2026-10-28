@@ -34,4 +34,27 @@ describe('SileroVad unit test', () => {
     vad.dispose();
     expect(vad.isReady()).toBe(false);
   });
+
+  it('skips heavy ONNX inference and sets prob=0 during absolute silence (rms < 0.003)', async () => {
+    const vad = new SileroVad({
+      modelPath: 'public/models/silero_vad_v5.onnx',
+    });
+    await vad.init();
+
+    const events: any[] = [];
+    const deadSilence = new Float32Array(16000); // all zeros, rms = 0 < 0.003
+    await vad.processChunk(deadSilence, (ev) => {
+      events.push(ev);
+    });
+
+    const frames = events.filter((e) => e.type === 'frame');
+    expect(frames.length).toBeGreaterThan(0);
+    for (const f of frames) {
+      expect(f.prob).toBe(0);
+      expect(f.rms).toBe(0);
+      expect(f.inSpeech).toBe(false);
+    }
+
+    vad.dispose();
+  });
 });

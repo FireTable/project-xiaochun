@@ -201,7 +201,7 @@ Immediately cuts any active TTS / audio playback and gracefully crossfades activ
 - **macOS**:
   ```bash
   # Speech
-  open "xiaochun://speak?text=主人，构建成功！"
+  open "xiaochun://speak?text=Master,%20build%20succeeded!"
 
   # Motion
   open "xiaochun://motion?name=waving"
@@ -217,14 +217,14 @@ Immediately cuts any active TTS / audio playback and gracefully crossfades activ
   ```
 - **Windows (Command Prompt / PowerShell)**:
   ```cmd
-  start "" "xiaochun://speak?text=主人，构建成功！"
+  start "" "xiaochun://speak?text=Master,%20build%20succeeded!"
   start "" "xiaochun://motion?name=handHeart"
   start "" "xiaochun://camera?shot=full"
   start "" "xiaochun://stop"
   ```
 - **Linux**:
   ```bash
-  xdg-open "xiaochun://speak?text=主人，构建成功！"
+  xdg-open "xiaochun://speak?text=Master,%20build%20succeeded!"
   xdg-open "xiaochun://motion-group?name=praiseCute"
   xdg-open "xiaochun://camera?panUp=true"
   ```
@@ -306,7 +306,7 @@ Any HTML webpage can link to the protocol to wake up the user's desktop companio
 In the webview or browser Developer Tools console, control XiaoChun directly via the first-class `window.xiaochun` interface or the low-level `window.__triggerXiaoChunProtocol` bridge:
 ```javascript
 // Direct High-Level API (window.xiaochun)
-window.xiaochun.speak("主人，该休息一下啦！");
+window.xiaochun.speak("Master, time to take a break!");
 window.xiaochun.motion("waving", { loop: false });
 window.xiaochun.motionGroup("praiseCute"); // (alias: window.xiaochun.group("praiseCute"))
 window.xiaochun.expression("gentle_smile", 0.9);

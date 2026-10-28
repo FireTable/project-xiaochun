@@ -17,30 +17,30 @@ Project XiaoChun features a **100% browser-native, zero-backend, multi-modal spe
 
 ```mermaid
 flowchart TD
-    subgraph AudioEngine["主线程: Web Audio & VAD 声学门控"]
-        Mic["麦克风 PCM 输入 (16kHz)"] --> BleedGate{"小春正在说话 (TTS Speaking)<br/>且 RMS < 0.08？"}
-        BleedGate -- "是 (扬声器自听回音)" --> Discard["重置 VAD & 丢弃 (防止打断小春)"]
-        BleedGate -- "否 (用户主动发声/普通模式)" --> Silero["Silero VAD v5 (32ms 帧分析)"]
-        Silero -- "检测到人声起始" --> BargeIn["立即调用 vrmEngine.stopSpeaking()<br/>打断小春播报 (Barge-in)"]
-        Silero -- "400ms 短切片 (isFinal: false)" --> PcmAcc["2-Pass 缓冲区累积 (sessionPcmChunks)"]
-        Silero -- "1200ms 长停顿" --> CommitTimer["长停顿计时器 (commitTimer)"]
+    subgraph AudioEngine["Main Thread: Web Audio & VAD Gating"]
+        Mic["Microphone PCM Input (16kHz)"] --> BleedGate{"XiaoChun Speaking (TTS Active)<br/>& RMS < 0.08?"}
+        BleedGate -- "Yes (Speaker Bleed/Echo)" --> Discard["Reset VAD & Discard (Prevent Self-Interruption)"]
+        BleedGate -- "No (User Utterance / Normal Mode)" --> Silero["Silero VAD v5 (32ms Frame Analysis)"]
+        Silero -- "Voice Onset Detected" --> BargeIn["Invoke vrmEngine.stopSpeaking()<br/>Immediately Interrupt TTS (Barge-in)"]
+        Silero -- "400ms Slice (isFinal: false)" --> PcmAcc["2-Pass Buffer Accumulation (sessionPcmChunks)"]
+        Silero -- "1200ms Long Pause" --> CommitTimer["Long Pause Timer (commitTimer)"]
     end
 
-    subgraph WorkerThread["独立线程: STT Web Worker (Zero-GC 保护主线程 60FPS)"]
-        PcmAcc -- "全量累积 PCM (Transferable)" --> SenseVoice["SenseVoice Small int8 (CTC 解码)"]
-        SenseVoice -- "原始字流 (草稿态)" --> Stage1Draft["阶段一: formatDraftPunctuation (逗号/顿号断句)"]
+    subgraph WorkerThread["Dedicated Thread: STT Web Worker (Zero-GC, Protects 60 FPS)"]
+        PcmAcc -- "Accumulated Full PCM (Transferable)" --> SenseVoice["SenseVoice Small int8 (CTC Decode)"]
+        SenseVoice -- "Raw Phoneme Stream (Draft)" --> Stage1Draft["Stage 1: formatDraftPunctuation (Comma Segmentation)"]
         
-        CommitTimer -- "轻量 RPC { type: 'punctuate' }" --> CTTransformer["阶段二: CT-Transformer int8 (序列标注)"]
-        CTTransformer -- "ML 标点预测" --> Stage1Final["阶段一: finalizePunctuation (句末终结符仲裁)"]
+        CommitTimer -- "Lightweight RPC { type: 'punctuate' }" --> CTTransformer["Stage 2: CT-Transformer int8 (Sequence Tagging)"]
+        CTTransformer -- "ML Punctuation Prediction" --> Stage1Final["Stage 1: finalizePunctuation (Terminal Boundary Guard)"]
     end
 
-    subgraph UIThread["UI 线程: ChatBar 视图与受控替换"]
-        Stage1Draft -- "isFinal: false" --> RangeReplace["replaceOrInsertAtRange (原子化就地替换)"]
-        Stage1Final -- "isFinal: true" --> FinalCommit["定稿落锁 & 清空轮次缓存"]
-        IMEGuard{"用户正在拼音选词<br/>(isComposingRef)？"}
+    subgraph UIThread["UI Thread: ChatBar Composer & Controlled Replacement"]
+        Stage1Draft -- "isFinal: false" --> RangeReplace["replaceOrInsertAtRange (Atomic In-Place Replacement)"]
+        Stage1Final -- "isFinal: true" --> FinalCommit["Final Commit Lock & Epoch Flush"]
+        IMEGuard{"User Composing IME<br/>(isComposingRef)?"}
         RangeReplace --> IMEGuard
-        IMEGuard -- "是" --> PendingQueue["暂挂事件，compositionend 后批量回填"]
-        IMEGuard -- "否" --> UpdateDOM["同步更新 DOM value & 派发 input 事件"]
+        IMEGuard -- "Yes" --> PendingQueue["Hold in Queue, Flush on compositionend"]
+        IMEGuard -- "No" --> UpdateDOM["Sync DOM value & Dispatch input Event"]
     end
 ```
 
@@ -48,84 +48,84 @@ flowchart TD
 
 ## 2. Models, Formats & CDN Persistence
 
-| 模型组件 | 模型架构与规格 | 权重尺寸 | 默认 CDN 路径与持久化 Cache 桶 |
+| Component | Architecture & Specifications | Weight Size | Default CDN Path & Cache Storage Bucket |
 | :--- | :--- | :--- | :--- |
-| **SenseVoice Small** | Multilingual CTC int8 (`zh/en/ja/ko/yue`) | ~228 MB (`model.int8.onnx` + `tokens.txt`) | `https://cdn.firetable.tech/xiaochun/stt/sensevoice-zh-en-ja-ko-yue-int8-2024-07-17/`<br/>CacheStorage 桶：`xiaochun-stt-v2024-07-17` |
-| **Silero VAD v5** | Lightweight Neural VAD (`32ms @ 16kHz`) | ~2.1 MB (`silero_vad_v5.onnx`) | 本地静态路由 `/models/silero_vad_v5.onnx`<br/>CDN 兜底：`cdn.jsdelivr.net/.../silero_vad_v5.onnx` |
-| **CT-Transformer** | Controllable Time-delay Transformer int8 | ~72 MB (`model.int8.onnx` + 4MB `tokens.json`) | `https://cdn.firetable.tech/xiaochun/stt/punct-ct-transformer-zh-en-vocab272727-int8-2024-04-12/`<br/>CacheStorage 桶：`xiaochun-punct-v2024-04-12` |
+| **SenseVoice Small** | Multilingual CTC int8 (`zh/en/ja/ko/yue`) | ~228 MB (`model.int8.onnx` + `tokens.txt`) | `https://cdn.firetable.tech/xiaochun/stt/sensevoice-zh-en-ja-ko-yue-int8-2024-07-17/`<br/>CacheStorage bucket: `xiaochun-stt-v2024-07-17` |
+| **Silero VAD v5** | Lightweight Neural VAD (`32ms @ 16kHz`) | ~2.1 MB (`silero_vad_v5.onnx`) | Local static path: `/models/silero_vad_v5.onnx`<br/>CDN fallback: `cdn.jsdelivr.net/.../silero_vad_v5.onnx` |
+| **CT-Transformer** | Controllable Time-delay Transformer int8 | ~72 MB (`model.int8.onnx` + 4MB `tokens.json`) | `https://cdn.firetable.tech/xiaochun/stt/punct-ct-transformer-zh-en-vocab272727-int8-2024-04-12/`<br/>CacheStorage bucket: `xiaochun-punct-v2024-04-12` |
 
 > [!NOTE]
-> 首次开麦时按需懒加载下载模型，后续访问由浏览器标准 `CacheStorage` 离线接管，实现 **0 网络开销秒开**。全量推理均运行在 Web Worker 内部，主线程仅收发结构化消息，绝不挤占 Three.js 60 FPS 渲染主循环。
+> Models are downloaded on-demand lazily upon first microphone activation. Subsequent visits are handled 100% offline via browser standard `CacheStorage` for **0 network latency instant launch**. All neural inference runs inside a Dedicated Web Worker; the main thread only exchanges structured Transferable messages, preventing any frame drops in the Three.js 60 FPS render loop.
 
 ---
 
-## 3. Dual-Stage Punctuation Pipeline (两阶段标点恢复管线)
+## 3. Dual-Stage Punctuation Pipeline
 
-针对长篇语音识别“字串连成一片、缺乏停顿与逻辑标点”的痛点，系统构建了**启发式规则（阶段一）与深度模型（阶段二）协同的流水线**：
+To solve the classic problem of continuous ASR output lacking grammatical punctuation, the system employs a **cooperative pipeline combining heuristic regex rules (Stage 1) and deep neural models (Stage 2)**:
 
-### 3.1 阶段一：轻量启发式正则规范与断句
-- **草稿态规范 (`formatDraftPunctuation`)**：
-  - 用户仍在说话时，根据常见连词（如“但是”、“如果”、“因为”、“而且”等）和语气助词在句中插入逗号 `，`，**严禁添加句末终结符（`。`、`？`、`！`）**，为用户呈现连贯流动的“草稿态”交互；
-- **定稿态终结符仲裁 (`finalizePunctuation`)**：
-  - 严格仲裁句末语气：若句子末尾包含疑问词（“吗”、“呢”、“吧”、“好不好”、“行不行”等），强制收敛为问号 `？`；感叹词收敛为 `！`；陈述句收敛为 `。`。
+### 3.1 Stage 1: Lightweight Heuristic Regex Formatting & Segmentation
+- **Draft Mode Formatting (`formatDraftPunctuation`)**:
+  - While the user is speaking, commas `，` are inserted between clauses based on conjunctions and discourse markers. **Terminal punctuation (`。`, `？`, `！`) is strictly prohibited in draft mode**, ensuring a flowing, continuous interim typing experience.
+- **Finalized Terminal Punctuation Arbitration (`finalizePunctuation`)**:
+  - Intonation and mood particles at the sentence tail are strictly arbitrated: interrogative suffixes ("吗", "呢", "吧", "好不好", etc.) converge to `？`; exclamatory suffixes converge to `！`; declarative sentences converge to `。`.
 
-### 3.2 阶段二：CT-Transformer 序列标注
-- **分词器（Tokenizer）预清洗防护**：
-  - 在词表编码前执行 `text.replace(/[\p{P}\p{S}]+/gu, ' ')`，剥离既有符号，防止中文全角标点混入被编码为 `<unk>`，消除 `，，` 或 `，。` 双重叠印缺陷；
-- **轻量 RPC `{ type: 'punctuate' }`**：
-  - 1200ms 长停顿定稿时，无需重新执行耗时的 SenseVoice ASR 全量特征提取，直接通过独立 RPC 发送文本至 Worker 内部的 CT-Transformer，~15ms 即可输出高精度的句中逗号与话题切分；
-- **超时与降级容错（800ms Timeout Fallback）**：
-  - 若模型下载中、离线或因 Web Worker 繁忙，800ms 超时后自动平滑降级至阶段一规则，保证输入框永远不卡死。
-
----
-
-## 4. Multi-Modal Acoustic Bleed Gating & Barge-in Guard (扬声器防自听与主动打断)
-
-### 4.1 声学漏音（Acoustic Bleed）痛点
-在桌面宠物模式或笔记本外放扬声器环境下，小春播报的声音会从扬声器漏入麦克风。由于 Silero VAD 对高保真声音极其敏感，会将小春自己的声音判定为人声并触发 `speech_start`，造成**小春刚说话就被自己打断、输入框开始转录小春自己说的话**。
-
-### 4.2 联动门控与主动插话机制
-- **状态注入**：
-  `sttClient.setTtsSpeakingProvider(() => vrmEngine.isSpeaking)` 将 TTS 播放状态注入到音频处理管道；
-- **声学门限判断**：
-  当处于 TTS 播放状态或 250ms 房间残响冷却窗内（`isGuardActive`）时：
-  1. 计算当前 16kHz PCM 的 RMS 能量；
-  2. 若 `rms < bargeInRms`（默认 `0.08`），判定为扬声器外放回音：
-     - 调用 `this.vad.reset()` 冲刷预滚缓冲，防止小春声音渗入前置音频；
-     - 派发 `partial_rms` 保证 VoicePill 波形动画实时跟随，但将 `prob` 设为 `0`；
-     - 直接 `return` 丢弃切片，**不触发 `speech_start`，不累积语音片段**；
-  3. 若 `rms >= bargeInRms`（默认 `0.08`），判定为用户主动凑近对麦克风发声（Barge-in）：
-     - 放行音频进入 Silero VAD 进行神经网络置信度校验；
-     - 校验通过后触发 `speech_start`，在 `ChatBar.tsx` 中立即调用 `vrmEngine.stopSpeaking()` 打断小春播报；
-     - 清除残响冷却窗，无缝衔接用户发言。
+### 3.2 Stage 2: CT-Transformer Sequence Tagging
+- **Tokenizer Pre-Sanitation**:
+  - Runs `text.replace(/[\p{P}\p{S}]+/gu, ' ')` before subword encoding to strip pre-existing punctuation. This prevents full-width Chinese punctuation from being tokenized as `<unk>` and eliminates duplicate punctuation marks like `，，` or `，。`.
+- **Lightweight RPC `{ type: 'punctuate' }`**:
+  - Upon a 1200ms pause finalization, the system avoids re-running the costly full-sequence SenseVoice acoustic feature extraction. Instead, it dispatches a lightweight text RPC to CT-Transformer in the Worker, generating accurate inter-clause commas and topical splits in ~15ms.
+- **Timeout & Graceful Degradation (800ms Fallback)**:
+  - If the model is downloading, offline, or the Web Worker is saturated, an 800ms timeout automatically falls back to Stage 1 heuristic rules, ensuring the text composer never hangs.
 
 ---
 
-## 5. UI Integration & Composer Invariants (输入框受控防护)
+## 4. Multi-Modal Acoustic Bleed Gating & Barge-in Guard
 
-### 5.1 原子化区间替换 (`replaceOrInsertAtRange`)
-- 在长段语音连续输入时，每次识别产生的草稿不是追加（append），而是**在原光标选区范围内进行就地原子替换**；
-- 兼容 React 受控组件：通过 `HTMLTextAreaElement.prototype.value` setter 与 `setRangeText` 同步写入，并主动触发原生的 `input` 与 `change` 事件；
-- 始终保持光标稳定停留在当前插入语音的最末端，彻底消除光标跳到文本首位或末尾乱跳的现象。
+### 4.1 Acoustic Bleed Challenge
+In desktop pet mode or laptop speaker environments, XiaoChun's speech output echoes back into the microphone. Because Silero VAD is highly sensitive to voice harmonics, it detects the character's own speech as user input, triggering false `speech_start` events and causing **XiaoChun to interrupt herself and transcribe her own words into the chat box**.
 
-### 5.2 输入法（IME）合成态保护
-- 在拼音选词阶段（`compositionstart` 到 `compositionend`），`isComposingRef.current` 置为 `true`；
-- 语音识别结果暂存在 `pendingSttEventRef` 中，选词结束后在 `handleCompositionEnd` 中统一 flush 回写，杜绝语音打字冲掉用户候选词浮层；
-- 区分用户物理键盘输入与语音脚本写入（`isSttInsertingRef`）：用户一旦手动打字，立即注销 `sttRangeRef`，绝不覆写用户手打文字。
+### 4.2 Gating Linkage & Active Barge-in Mechanism
+- **State Injection**:
+  `sttClient.setTtsSpeakingProvider(() => vrmEngine.isSpeaking)` injects real-time TTS playback state into the audio processing pipeline.
+- **Acoustic Energy Gating**:
+  When TTS is actively playing or during the 250ms room reverberation cooldown window (`isGuardActive`):
+  1. Computes the RMS energy of the incoming 16kHz PCM audio;
+  2. If `rms < bargeInRms` (default `0.08`), the audio is classified as speaker echo/bleed:
+     - Calls `this.vad.reset()` to flush preroll buffers, preventing residual audio from leaking into subsequent speech;
+     - Dispatches `partial_rms` to keep VoicePill waveform animations responsive while forcing `prob = 0`;
+     - Immediately returns and discards the slice: **does not trigger `speech_start`, does not accumulate audio segments**;
+  3. If `rms >= bargeInRms` (default `0.08`), the audio is classified as deliberate user speech (Barge-in):
+     - Passes audio through to Silero VAD for neural confidence validation;
+     - Upon confirmation, triggers `speech_start`, immediately invoking `vrmEngine.stopSpeaking()` in `ChatBar.tsx` to stop XiaoChun's speech;
+     - Clears the reverberation cooldown window and transitions seamlessly into user dictation.
 
-### 5.3 消除输入框高度塌陷闪烁（Zero-Collapse Fix）
-- 在自动高度计算函数 `syncComposerHeight` 中，严禁使用 `el.style.height = '0px'` 进行脏测量；
-- 改用 `el.style.height = 'auto'`，并在当前微任务中同步写回计算出的最终像素高度 `${nextPx}px`，消除异步 React `setState` 引发的 1 帧高度塌陷黑闪。
+---
 
-### 5.4 轮次纪元与防幽灵文本（`currentTurnId` Epoch Guard）
-- 用户点击发送消息或重置会话时，`sttClient.resetSession()` 自增 `currentTurnId`；
-- 晚于发送时刻到达的在途识别结果与标点 RPC 会因为 `turnId !== currentTurnId` 被直接丢弃，彻底根绝发送后旧文本“幽灵复活”回填到空白输入框的严重 Bug。
+## 5. UI Integration & Composer Invariants
+
+### 5.1 Atomic Range Replacement (`replaceOrInsertAtRange`)
+- During continuous speech recognition, interim drafts do not append to the textarea. Instead, they **atomically replace the text within the original cursor selection range in-place**;
+- Full compatibility with React controlled components: writes synchronously via `HTMLTextAreaElement.prototype.value` setter and `setRangeText`, dispatching native `input` and `change` events;
+- Keeps the caret firmly anchored at the end of the newly inserted dictation segment, eliminating cursor jumps to the start or end of the document.
+
+### 5.2 IME Composition State Protection
+- While the user is typing with an IME (from `compositionstart` to `compositionend`), `isComposingRef.current` is set to `true`;
+- Incoming STT results are held in `pendingSttEventRef` and flushed in batch inside `handleCompositionEnd`, preventing voice recognition from stomping over active IME candidate popups;
+- Differentiates physical keyboard input from voice script insertions (`isSttInsertingRef`): if the user types manually, `sttRangeRef` is deregistered immediately, preserving handwritten text.
+
+### 5.3 Zero-Collapse Height Autoresize
+- In `syncComposerHeight`, measuring with `el.style.height = '0px'` is strictly forbidden;
+- Uses `el.style.height = 'auto'` and synchronously writes back the computed `${nextPx}px` in the same microtask, eliminating 1-frame height collapse flicker caused by asynchronous React `setState` cycles.
+
+### 5.4 Epoch Guard Against Ghost Text (`currentTurnId`)
+- When the user sends a message or resets the conversation, `sttClient.resetSession()` increments `currentTurnId`;
+- In-flight ASR transcripts or punctuation RPCs arriving after submission are discarded if `turnId !== currentTurnId`, completely eradicating the bug where previous voice text mysteriously reappears in an emptied composer.
 
 ---
 
 ## 6. Configuration Knobs (`src/config.ts`)
 
-所有参数集中收敛在 `APP_CONFIG.stt`：
+All parameters are centralized under `APP_CONFIG.stt`:
 
 ```ts
 export const APP_CONFIG = {
@@ -137,14 +137,14 @@ export const APP_CONFIG = {
     tokensFile: 'tokens.txt',
     useItn: true,
     sampleRate: 16_000,
-    vadSilenceMs: 400,        // 短切片草稿停顿门限 (ms)
-    commitSilenceMs: 1200,    // 长停顿自然定稿落锁门限 (ms)
-    maxAccumulateMs: 15_000,  // 单轮最长录音切片累积上限 (ms)
-    vadMaxMs: 20_000,         // Silero VAD 最大连续语音窗口
-    vadPrerollMs: 300,        // 预滚缓冲 (ms)，防止首字爆破音丢失
-    minUtteranceMs: 160,      // 超短语音噪声过滤门限 (ms)
-    bargeInRms: 0.08,         // 扬声器防自听与用户主动插话打断能量门限 (RMS)
-    ttsCooldownMs: 250,       // TTS 播报结束后的房间残响与声学回声吸收冷却窗 (ms)
+    vadSilenceMs: 400,        // Short-slice draft pause threshold (ms)
+    commitSilenceMs: 1200,    // Long pause natural finalization threshold (ms)
+    maxAccumulateMs: 15_000,  // Single-session max accumulated PCM slice ceiling (ms)
+    vadMaxMs: 20_000,         // Silero VAD max continuous utterance window
+    vadPrerollMs: 300,        // Preroll buffer (ms) to preserve onset plosives
+    minUtteranceMs: 160,      // Transient noise rejection threshold (ms)
+    bargeInRms: 0.08,         // Acoustic bleed gate & user barge-in energy threshold (RMS)
+    ttsCooldownMs: 250,       // Post-TTS reverberation and echo absorption cooldown window (ms)
     punctuation: {
       enabled: true,
       base: 'https://cdn.firetable.tech/xiaochun/stt/punct-ct-transformer-zh-en-vocab272727-int8-2024-04-12',
@@ -158,65 +158,65 @@ export const APP_CONFIG = {
 
 ---
 
-## 7. Multi-Modal STT Dispatcher & Remote Fallback (远程识别与智能熔断)
+## 7. Multi-Modal STT Dispatcher & Remote Fallback
 
-Project XiaoChun 采用 **“选定主线 + 失败直落本地兜底”** 的多模态语音识别架构，支持三种运行模式（由 `src/llm/activeAudioModes.ts` 管理）：
+Project XiaoChun adopts a **"Preferred Remote Primary + Zero-Latency Local Fallback"** multi-modal STT architecture, supporting three operating modes (managed by `src/llm/activeAudioModes.ts`):
 
-| 工作模式 | 核心服务与模型 | 失败/异常处理路径 |
+| Operating Mode | Primary Service & Model | Failure / Exception Fallback Path |
 | :--- | :--- | :--- |
-| **官方内置智能 (推荐)** | 优先 Cloudflare Workers AI (`@cf/openai/whisper-large-v3-turbo`，通过 `/api/stt`) | 遇 429 额度耗尽或超时断网，断路器熔断 5 分钟，0ms 无缝降级到本地 SenseVoice |
-| **用户自定义服务** | 用户自备 OpenAI 兼容接口 (`POST /v1/audio/transcriptions`，如 MiniMax ASR / Groq Whisper) | 遇 401 鉴权失败或连续超时，断路器熔断 5 分钟，0ms 无缝降级到本地 SenseVoice |
-| **纯端侧离线 (Local Only)** | 100% 本地 WebWorker (SenseVoice int8 + CT-Transformer) | 声音不出本机，0 网络请求，极致离线隐私保护 |
+| **Official Built-in AI (Recommended)** | Cloudflare Workers AI (`@cf/openai/whisper-large-v3-turbo` via `/api/stt`) | Upon 429 quota exhaustion or network timeout, the circuit breaker trips for 5 minutes with seamless 0ms fallback to local SenseVoice |
+| **Custom User Provider** | User-configured OpenAI-compatible endpoint (`POST /v1/audio/transcriptions`, e.g., MiniMax ASR / Groq Whisper) | Upon 401 auth error or consecutive timeouts, the circuit breaker trips for 5 minutes with seamless 0ms fallback to local SenseVoice |
+| **Pure On-Device (Local Only)** | 100% local Web Worker (SenseVoice int8 + CT-Transformer) | Audio never leaves the client device, 0 network requests, maximum offline privacy protection |
 
-### 7.1 轻量无损音频传输协议
-- 文件：[`src/stt/wavEncoder.ts`](../src/stt/wavEncoder.ts)
-- 麦克风录音采集的原始 16kHz Float32Array PCM 直接包裹标准 44 字节 WAV 头部打包为二进制流，零三方依赖，性能 < 1ms，杜绝浏览器端进行高 CPU 开销的有损重编码，与 OpenAI 及 Cloudflare 原生无缝对齐。
+### 7.1 Lightweight Lossless Audio Transmission
+- File: [`src/stt/wavEncoder.ts`](../src/stt/wavEncoder.ts)
+- Raw 16kHz Float32Array PCM captured from the microphone is wrapped in a standard 44-byte WAV header and serialized into a binary stream. With zero third-party dependencies and < 1ms execution time, it avoids high-CPU lossy client-side re-encoding and natively matches OpenAI and Cloudflare audio endpoints.
 
-### 7.2 断路器与自愈机制 (Circuit Breaker)
-- 文件：[`src/stt/sttDispatcher.ts`](../src/stt/sttDispatcher.ts)
-- 连续 2 次请求超时或收到 HTTP 429 (配额用尽)，状态机标记该目标源熔断 5 分钟；
-- 熔断窗口内，后续用户讲话 0ms 直接分发至本地 WebWorker 识别，免除等待超时的不良交互；
-- 5 分钟后进入半开 (Half-open) 状态，放行一次请求探测远端恢复。
+### 7.2 Circuit Breaker & Self-Healing
+- File: [`src/stt/sttDispatcher.ts`](../src/stt/sttDispatcher.ts)
+- Upon 2 consecutive request timeouts or HTTP 429 (rate limit / quota exceeded), the state machine marks the remote target as tripped for 5 minutes;
+- During the cooldown window, subsequent user utterances are dispatched to the local Web Worker with 0ms latency, avoiding sluggish timeouts;
+- After 5 minutes, the circuit breaker enters the Half-Open state, allowing a single probe request to check for remote service recovery.
 
-### 7.3 端云混合 2-Pass 识别架构 (Client-Cloud 2-Pass Hybrid Mode)
-- **Pass 1 (过程草稿态 · 本地极速跳字)**：
-  用户持续讲话时，Silero VAD 产生的每个停顿切片在主线程标记为 `isFinal = false`，始终分发给**端侧本地 WebWorker (SenseVoice int8)** 处理（~100ms 极低延迟）。由 `replaceOrInsertAtRange` 在输入框内原子化就地替换，实现 0 网络请求、0 延迟的流畅实时打字跳动效果。
-- **Pass 2 (停顿定稿态 · 云端全句重写)**：
-  当用户停止发言且静音满足 1.2 秒 (`commitSilenceMs`) 或主动关闭麦克风时，`commitSession()` 启动：
-  1. 提取该轮次累积的全量 PCM 音频（`combinedPcm`）；
-  2. 若云端服务可用，**整句仅发起 1 次远程请求**给 Cloudflare Whisper Large v3 Turbo（或自定义服务）；
-  3. Whisper Turbo 结合完整声学上下文输出高精度、原生多语种、大小写规范的定稿文本；
-  4. 文本由 `replaceOrInsertAtRange` 无缝替换前面的本地草稿并定稿落锁；
-  5. **0ms 兜底降级**：若云端超时或报错，系统自动保留本地 SenseVoice 草稿并经由本地 CT-Transformer 标点固化，用户体验 0 中断、0 丢失。
+### 7.3 Client-Cloud 2-Pass Hybrid Mode
+- **Pass 1 (Interim Draft · Instant Local Streaming)**:
+  While the user speaks, each audio slice emitted by Silero VAD is marked on the main thread as `isFinal = false` and continuously dispatched to the **local on-device Web Worker (SenseVoice int8)** (~100ms ultra-low latency). `replaceOrInsertAtRange` updates the input composer atomically in-place, achieving real-time typewriter visual feedback with 0 network requests and 0 latency.
+- **Pass 2 (Finalized Commit · Cloud Sentence Rewrite)**:
+  When the user pauses for 1.2 seconds (`commitSilenceMs`) or turns off the microphone, `commitSession()` is invoked:
+  1. Extracts the full accumulated PCM audio from the session (`combinedPcm`);
+  2. If the remote service is healthy, **only 1 remote request for the entire sentence** is dispatched to Cloudflare Whisper Large v3 Turbo (or custom provider);
+  3. Whisper Turbo leverages full acoustic context to produce a high-precision, multilingual, correctly capitalized final transcript;
+  4. The transcript seamlessly replaces the earlier local draft via `replaceOrInsertAtRange` and locks the final state;
+  5. **0ms Fallback**: If the cloud request times out or errors, the system automatically preserves the local SenseVoice draft and finalizes punctuation via local CT-Transformer, providing an uninterrupted user experience.
 
-### 7.4 用户自主策略选择：2-Pass 实时预览 vs 全程纯云端 (User-Configurable Strategy)
-在「服务提供商配置 -> STT 识别」面板中，当用户启用云端服务（官方内置智能 / 自定义 Provider）时，可在 UI 上自由切换出字策略：
-- **☁️ 全程纯云端 (`direct`, 默认推荐)**：
-  - 说话过程中：**完全不启动、不加载端侧 40MB 的 SenseVoice 模型**，零下载、省内存与推理算力；
-  - 麦克风仅做轻量 Silero VAD 静音切分与音频累积；
-  - 停顿/松开后：一次性上送云端 Whisper Turbo 单次出定稿结果；若云端发生故障，自动无缝启动本地 Worker 兜底。
-- **⚡ 2-Pass 实时预览 (`2pass`)**：
-  - 说话过程中：端侧本地 WebWorker (SenseVoice int8) ~100ms 极速逐字跳字上屏；
-  - 停顿/松开后：整句合并发 1 次 Cloudflare Whisper Turbo / 自定义云端，进行高精度修句和标点定稿。
-- **📱 纯端侧离线 (`local`)**：
-  - 100% 本地运行，声音不出设备，零网络开销。
+### 7.4 User-Configurable Strategy: Direct Cloud vs. 2-Pass Hybrid
+In the "Provider Settings -> STT Recognition" panel, when cloud services (Official Built-in AI / Custom Provider) are enabled, users can freely toggle the dictation strategy:
+- **☁️ Direct Cloud (`direct`, Default Recommended)**:
+  - While speaking: **completely avoids loading the 40MB local SenseVoice model**, saving memory, bandwidth, and inference compute;
+  - The microphone only runs lightweight Silero VAD slicing and audio accumulation;
+  - Upon release/pause: dispatches a single request to cloud Whisper Turbo for the final result. If the cloud fails, it seamlessly spins up the local Worker as a fallback.
+- **⚡ 2-Pass Real-Time Preview (`2pass`)**:
+  - While speaking: local Web Worker (SenseVoice int8) streams draft words with ~100ms instant feedback;
+  - Upon release/pause: sends the merged sentence once to Cloudflare Whisper Turbo / Custom Cloud for high-fidelity rewriting and final punctuation.
+- **📱 Pure On-Device Local (`local`)**:
+  - 100% runs locally on-device. Audio never leaves the machine with zero network traffic.
 
 ---
 
-## 8. Agent Engineering Standards & Invariants (红线与守则)
+## 8. Agent Engineering Standards & Invariants
 
-1. ❌ **严禁在主线程导入重型 ML 模型**：
-   SenseVoice 与 CT-Transformer 必须留在 `sttWorker.ts` 中执行，主线程只通过轻量 Transferable RPC 交互；
-2. ❌ **严禁裸写 `commitSession()` 跳过 CT-Transformer**：
-   自然定稿必须调用 `punctuateText()` RPC 经由 Worker 内部的 CT-Transformer 模型恢复标点并带 800ms 超时回退；
-3. ❌ **严禁在输入框更新时使用 `el.style.height = '0px'`**：
-   高度测量必须使用 `auto` 并在同帧写回像素值，防止 1 帧高度塌陷引发 UI 抽搐；
-4. ❌ **严禁在小春说话时无门控转发麦克风语音**：
-   必须通过 `bargeInRms` 与 `ttsCooldownMs` 双门限过滤扬声器回音，仅在确认用户主动发声打断时调用 `stopSpeaking()`；
-5. ❌ **严禁对已熔断的远程源进行同步网络阻塞**：
-   `isRemoteSttAvailable()` 返回 `false` 时必须 0ms 瞬间分发本地 Worker，绝不挂起主线程或超时卡顿；
-6. ⚠️ **单测回归基准**：
-   涉及 STT 模块的代码修改，必须确保 `pnpm vitest run src/stt/` 全部测试 100% 通过：
+1. ❌ **Never import heavy ML models on the main thread**:
+   SenseVoice and CT-Transformer must stay strictly inside `sttWorker.ts`; the main thread communicates exclusively via lightweight Transferable RPCs;
+2. ❌ **Never write naked `commitSession()` calls that bypass CT-Transformer**:
+   Natural finalization must invoke the `punctuateText()` RPC through the Worker's CT-Transformer model with an 800ms timeout fallback;
+3. ❌ **Never use `el.style.height = '0px'` when resizing the textarea**:
+   Height measurement must use `'auto'` and write back the computed pixel height within the same frame to prevent 1-frame height collapse flicker;
+4. ❌ **Never forward raw microphone audio without gating while XiaoChun is speaking**:
+   Must enforce `bargeInRms` and `ttsCooldownMs` dual thresholds to filter out speaker feedback, only invoking `stopSpeaking()` when the user deliberately interrupts;
+5. ❌ **Never synchronously block on a tripped remote endpoint**:
+   When `isRemoteSttAvailable()` returns `false`, audio must instantly dispatch to the local Worker with 0ms delay, never hanging the main thread;
+6. ⚠️ **Regression Testing Discipline**:
+   Any code changes involving the STT module must verify that all unit tests under `pnpm vitest run src/stt/` pass 100%:
    - `ctTransformerPunct.test.ts`
    - `punctuation.test.ts`
    - `sileroVad.test.ts`

@@ -121,7 +121,7 @@
 - **2026-10-28 21:15 - Story Mode Interactive Scene Flow, Dialogue Persistence & ChatBubble Modernization**
   - **Interactive Scene Preview & Confirmation Flow**:
     - Guarded `change_scene` without `nextBeatId` in `StoryPlayer.tsx` (`handleSelectChoice`) as an in-beat preview (matching `swap_outfit`);
-    - Eliminated accidental triggers of dynamic AI speech generators during scene exploration, keeping users within the beat and preserving the primary confirmation button ("就决定去这里了");
+    - Eliminated accidental triggers of dynamic AI speech generators during scene exploration, keeping users within the beat and preserving the primary confirmation button ("Confirm destination");
     - Reinforced `selected: true` active highlight state across consecutive previews in `storyEngine.ts`.
   - **Story Dialogue Persistence (Post-Speech Subtitle Stability)**:
     - Root cause: speech termination called `bubbleTracker.hide()`, setting `state.visible = false` and prematurely unmounting static dialogue bars;

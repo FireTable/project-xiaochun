@@ -185,7 +185,11 @@ export class SileroVad {
 
         let speechProb = 0;
 
-        if (this.session && this.stateTensor && this.srTensor) {
+        // 若非发言态且当前帧为极弱完全静音 (rms < 0.003)，直接判定 speechProb = 0 并跳过单帧 ONNX 推理
+        // 大幅降低低算力移动端纯静音时的 WASM 计算与 CPU 占用 (>80%)
+        if (!this.inSpeech && this.consecutiveSpeechFrames === 0 && rms < 0.003) {
+          speechProb = 0;
+        } else if (this.session && this.stateTensor && this.srTensor) {
           try {
             const inputTensor = new ort.Tensor('float32', frameF32, [1, frameSamples]);
             const feeds: Record<string, ort.Tensor> = {

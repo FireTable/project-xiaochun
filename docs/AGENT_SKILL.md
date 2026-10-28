@@ -337,32 +337,32 @@ def xiaochun_call(action: str, **kwargs):
   await xiaochunCamera({ shot: 'close_up', movement: 'push_in' });
   await xiaochunExpression('happy', 0.9);
   await xiaochunGroup('praiseCute');
-  await xiaochunSpeak("主人！全部单元测试均已通过，项目成功打包交付！");
+  await xiaochunSpeak("Master! All unit tests have passed and the project has been built successfully!");
   ```
 - **Error / Merge Conflict Alert**:
   ```typescript
   await xiaochunCamera({ shot: 'dramatic_low', movement: 'dutch_tilt' });
   await xiaochunExpression('surprised', 1.0);
   await xiaochunMotion({ name: 'angryJump' });
-  await xiaochunSpeak("主人快看！Git 合并产生了代码冲突，请尽快确认！");
+  await xiaochunSpeak("Master, look! Git merge conflicts detected, please review immediately!");
   ```
 - **Long Thought / Analyzing**:
   ```typescript
   await xiaochunCamera({ shot: 'medium', orbitAngleDeg: 35 });
   await xiaochunExpression('hesitant', 0.7);
   await xiaochunMotion({ name: 'fistThinking', loop: true });
-  await xiaochunSpeak("小春正在深度检索知识库并分析架构方案，稍等一下下哦……");
+  await xiaochunSpeak("XiaoChun is searching the knowledge base and analyzing the architecture, one moment please...");
   ```
 - **Full Outfit & Elegance Showcase**:
   ```typescript
   await xiaochunCamera({ panUp: true });
   await xiaochunGroup('outfitShowcase');
-  await xiaochunSpeak("新换上的这套衣服好看吗？小春特意转了一圈给你看呢！");
+  await xiaochunSpeak("Do you like this new outfit? XiaoChun took a twirl just for you!");
   ```
 - **Health / Rest Reminder**:
   ```typescript
   await xiaochunCamera({ shot: 'medium' });
   await xiaochunExpression('gentle_smile', 0.8);
   await xiaochunMotion({ name: 'relaxStretch' });
-  await xiaochunSpeak("主人已经连续专注两小时啦，站起来伸个懒腰，喝口水休息一下吧！");
+  await xiaochunSpeak("Master, you've been coding for two hours straight. Time to stretch and grab some water!");
   ```
