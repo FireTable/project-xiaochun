@@ -1093,7 +1093,7 @@ export const APP_CONFIG = {
     { key: 'sad' },
   ],
   dev: {
-    disableLoadingOverlayInDev: true,
+    disableLoadingOverlayInDev: false,
   },
 } as const;
 
