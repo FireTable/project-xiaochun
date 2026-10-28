@@ -811,6 +811,16 @@
               showToast('🗣️ 小蠢开始讲演...');
             } else if (u && u.phase === 'end') {
               showToast('✅ 小蠢本段讲演完毕');
+              // 触发等待台词讲完的 Promise
+              if (msg.id && pendingSpeechResolvers.has(msg.id)) {
+                const finish = pendingSpeechResolvers.get(msg.id);
+                finish();
+              } else {
+                for (const finish of pendingSpeechResolvers.values()) {
+                  finish();
+                }
+                pendingSpeechResolvers.clear();
+              }
               if (onSpeechEndCallback) {
                 const cb = onSpeechEndCallback;
                 onSpeechEndCallback = null;
@@ -970,8 +980,8 @@
       });
     }
 
-    // 展开实机演示为全屏 (并在指定秒数后缩回)
-    function expandScreenFullscreen(title, desc, icon, holdSec = 3) {
+    // 展开实机演示为全屏
+    function expandScreenFullscreen(title, desc, icon) {
       clearTimeout(fullscreenTimer);
       screenContainer.classList.add('active', 'fullscreen');
       screenTitle.innerHTML = `<span>📺 ${title} · 全屏实机演示中</span>`;
@@ -989,12 +999,7 @@
         screenPlaceholder.style.display = 'flex';
       }
 
-      showToast(`📺 进入全屏实机演示 (${holdSec}s 后缩回黑板)...`);
-
-      // 过 holdSec (默认 3s) 自动缩回黑板
-      fullscreenTimer = setTimeout(() => {
-        shrinkScreenToBoard();
-      }, holdSec * 1000);
+      showToast(`📺 进入全屏实机演示 (3s 后缩回黑板)...`);
     }
 
     // 缩回黑板模式
@@ -1005,28 +1010,36 @@
       showToast('📺 实机演示完成，已平滑缩回黑板');
     }
 
-    let onSpeechEndCallback = null;
+    const pendingSpeechResolvers = new Map();
 
-    function waitForSpeechEnd(timeoutMs = 12000) {
+    function speakTextAndWait(text, maxTimeoutMs = 35000) {
       return new Promise((resolve) => {
-        let finished = false;
-        const done = () => {
-          if (finished) return;
-          finished = true;
+        const speechId = 'spk_' + Math.random().toString(36).slice(2, 9);
+        let resolved = false;
+
+        const finish = () => {
+          if (resolved) return;
+          resolved = true;
           if (fallbackTimer) clearTimeout(fallbackTimer);
-          onSpeechEndCallback = null;
+          pendingSpeechResolvers.delete(speechId);
           resolve();
         };
-        onSpeechEndCallback = done;
+
+        pendingSpeechResolvers.set(speechId, finish);
+        sendCommandToXiaoChun('xc.say', { text }, speechId);
+
         const fallbackTimer = setTimeout(() => {
-          console.log('[Chalkboard] Speech wait fallback reached');
-          done();
-        }, timeoutMs);
+          console.warn('[Chalkboard] Speech wait fallback reached after 35s');
+          finish();
+        }, maxTimeoutMs);
       });
     }
 
+    let currentChapterSession = 0;
+
     // 播放指定章节
     async function playChapter(chapterIndex) {
+      const thisSession = ++currentChapterSession;
       const chapter = CHAPTERS[chapterIndex];
       if (!chapter) return;
       currentPlayingChapter = chapterIndex;
@@ -1048,52 +1061,59 @@
       // 动作连招调度：中途转入深度讲解动作 (如 detailNarrate / handHeart)
       if (chapter.subsequentMotion) {
         setTimeout(() => {
-          if (currentPlayingChapter === chapterIndex) {
+          if (currentChapterSession === thisSession) {
             sendCommandToXiaoChun('xc.motion', { name: chapter.subsequentMotion, loop: false });
           }
         }, chapter.subsequentDelay || 3000);
       }
 
-      // 3. 倒计时指示
-      let remaining = chapter.durationSec;
-      clearInterval(countdownInterval);
-      timerBadge.innerText = `${remaining}s 倒计时`;
-      countdownInterval = setInterval(() => {
-        remaining--;
-        if (remaining <= 0) {
-          clearInterval(countdownInterval);
-          timerBadge.innerText = '本章结束';
-        } else {
-          timerBadge.innerText = `${remaining}s / ${chapter.durationSec}s`;
-        }
-      }, 1000);
+      // 3. 伴侣张嘴朗读台词，并严格等待全部说完！
+      timerBadge.innerText = '小蠢讲演中...';
+      await speakTextAndWait(chapter.script);
 
-      // 4. 伴侣张嘴朗读台词
-      sendCommandToXiaoChun('xc.say', { text: chapter.script });
+      if (currentChapterSession !== thisSession) return;
 
-      // 5. 核心要求：等说完话，再打开全屏演示，此时小蠢隐藏 3s
+      // 4. 核心要求：等说完话之后，再打开全屏演示 3s，此时小蠢隐藏 3s
       if (chapter.screenMode === 'fullscreen') {
-        // 先等小蠢全部说完话 (通过 xc.utterance phase: 'end' 确认)
-        await waitForSpeechEnd(11000);
+        showToast('🎬 台词说完，立即全屏实机演示 3 秒！');
 
-        if (currentPlayingChapter === chapterIndex) {
-          // 此时小蠢隐藏 3s
-          embedWrapper.classList.add('pip-hidden');
-          // 打开全屏实机演示
-          expandScreenFullscreen(chapter.screenTitle, chapter.screenDesc, chapter.screenIcon, 3);
+        // 此时小蠢隐藏 3s
+        embedWrapper.classList.add('pip-hidden');
 
-          // 3s 之后，全屏演示缩回黑板，小蠢恢复显现
-          setTimeout(() => {
-            if (currentPlayingChapter === chapterIndex) {
-              shrinkScreenToBoard();
-              embedWrapper.classList.remove('pip-hidden');
-              sendCommandToXiaoChun('xc.expression', { name: 'gentle_smile', intensity: 0.9 });
-            }
-          }, 3000);
-        }
+        // 打开全屏实机演示
+        expandScreenFullscreen(chapter.screenTitle, chapter.screenDesc, chapter.screenIcon);
+
+        // 动态展示 3s 倒计时
+        let sec = 3;
+        timerBadge.innerText = `全屏演示 ${sec}s`;
+        const countInt = setInterval(() => {
+          sec--;
+          if (sec > 0) {
+            timerBadge.innerText = `全屏演示 ${sec}s`;
+          } else {
+            clearInterval(countInt);
+          }
+        }, 1000);
+
+        // 严格全屏展示 3 秒
+        await new Promise((r) => setTimeout(r, 3000));
+        clearInterval(countInt);
+
+        if (currentChapterSession !== thisSession) return;
+
+        // 3 秒过后，实机演示缩回黑板，小蠢恢复显现
+        shrinkScreenToBoard();
+        embedWrapper.classList.remove('pip-hidden');
+        sendCommandToXiaoChun('xc.expression', { name: 'gentle_smile', intensity: 0.9 });
+        timerBadge.innerText = '本章完成';
+        
+        // 留 1 秒余韵缓冲
+        await new Promise((r) => setTimeout(r, 1000));
       } else {
         shrinkScreenToBoard();
         embedWrapper.classList.remove('pip-hidden');
+        timerBadge.innerText = '本章完成';
+        await new Promise((r) => setTimeout(r, 1000));
       }
     }
 
@@ -1101,33 +1121,35 @@
     async function runAutoTour() {
       clearTimeout(autoTourTimer);
       clearInterval(countdownInterval);
-      showToast('🚀 启动 3 章节全流程连续录制 (45s)...');
+      showToast('🚀 启动 3 章节全流程连续录制...');
       
-      // 第 1 章 (15s)
+      // 第 1 章 (板书 + 小蠢完整讲述)
       await playChapter(0);
-      autoTourTimer = setTimeout(async () => {
-        // 第 2 章 (16s: 板书+台词 ➔ 全屏 ➔ 3s缩回)
-        await playChapter(1);
-        autoTourTimer = setTimeout(async () => {
-          // 第 3 章 (16s: 板书+台词 ➔ 全屏 ➔ 3s缩回)
-          await playChapter(2);
-          autoTourTimer = setTimeout(() => {
-            showToast('🎉 3 章节全流程演播圆满结束！');
-            timerBadge.innerText = '演示完成';
-            chapterButtons.forEach(btn => btn.classList.remove('active'));
-            sendCommandToXiaoChun('xc.expression', { name: 'smile', intensity: 0.9 });
-            sendCommandToXiaoChun('xc.motion', { name: 'waving', loop: false });
-          }, 16000);
-        }, 16000);
-      }, 15000);
+      
+      // 第 2 章 (StoryEngine: 小蠢完整说完 ➔ 全屏实机演示 3s + 小蠢隐藏 ➔ 缩回恢复)
+      await playChapter(1);
+      
+      // 第 3 章 (Chat 模式: 小蠢完整说完 ➔ 全屏实机演示 3s + 小蠢隐藏 ➔ 缩回恢复)
+      await playChapter(2);
+      
+      showToast('🎉 3 章节全流程演播圆满结束！');
+      timerBadge.innerText = '演示完成';
+      chapterButtons.forEach(btn => btn.classList.remove('active'));
+      sendCommandToXiaoChun('xc.expression', { name: 'smile', intensity: 0.9 });
+      sendCommandToXiaoChun('xc.motion', { name: 'waving', loop: false });
     }
 
     function stopAll() {
+      currentChapterSession++;
       clearTimeout(autoTourTimer);
       clearTimeout(fullscreenTimer);
       clearInterval(countdownInterval);
       clearBoardHandwriting();
       shrinkScreenToBoard();
+      embedWrapper.classList.remove('pip-hidden');
+      for (const finish of pendingSpeechResolvers.values()) finish();
+      pendingSpeechResolvers.clear();
+      onSpeechEndCallback = null;
       sendCommandToXiaoChun('xc.stop', {});
       chapterButtons.forEach(btn => btn.classList.remove('active'));
       timerBadge.innerText = '已停止';
