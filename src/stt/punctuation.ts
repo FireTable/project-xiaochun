@@ -43,11 +43,15 @@ const CHINESE_EXCLAMATIONS =
 
 // Pre-conjunction comma insertion: requires at least 2 Chinese characters prior without existing punctuation
 const CONJUNCTION_COMMA_REGEX =
-  /(?<=[\u4e00-\u9fa5]{2,})(?<![，。？！,.?!])(但是|不过|可是|然而|所以|因此|而且|然后|另外|此外|只是)(?=[^，。？！\s])/g;
+  /(?<=[\u4e00-\u9fa5]{2,})(?<![，。？！,.?!])(但是|不过|可是|然而|所以|因此|而且|然后|另外|此外|只是|其实|目前|同时|也就是说|可以说)(?=[^，。？！\s])/g;
 
-// Conversational head particles/interjections: e.g. "是吗", "对了", "你好", "等等"
+// Conversational head particles/interjections: e.g. "是吗", "对了", "你好", "简单说两句"
 const CHINESE_HEAD_PARTICLES_REGEX =
-  /^(是吗|对吧|对了|你好|小春|等等|喂|哈喽|话说|我说|那啥)(?=[^，。？！\s])/;
+  /^(是吗|对吧|对了|你好|小春|等等|喂|哈喽|话说|我说|那啥|简单说两句|简单来说|简单说|简单讲|说实话|实际上|坦白讲|客观来说)(?=[^，。？！\s])/;
+
+// Subjective transitions / opinion markers: e.g. "我想", "我觉得", "我认为"
+const CHINESE_SUBJECTIVE_TRANSITION_REGEX =
+  /(?<=[\u4e00-\u9fa5]{2,})(?<![，。？！,.?!])(我想|我觉得|我认为|我感觉|在我看来)(?=[^，。？！\s])/g;
 
 // Topic/conditional markers: e.g. "的话", "一般来说", "基本上"
 const CHINESE_TOPIC_MARKERS_REGEX =
@@ -71,10 +75,10 @@ export function normalizePunctuationSpacing(raw: string): string {
 }
 
 /**
- * Stage 1: Heuristic punctuation restoration based on VAD boundaries and linguistic particles.
- * Idempotent: If text already has terminal punctuation, preserves it and avoids duplication.
+ * Stage 1 Draft: Formats spacing, head particles, topic markers, and pre-conjunction commas,
+ * but NEVER appends terminal punctuation marks (.?!。？！). Leaves sentence tail open for streaming.
  */
-export function applyHeuristicPunctuation(raw: string): string {
+export function formatDraftPunctuation(raw: string): string {
   if (!raw || typeof raw !== 'string') return '';
   let text = normalizePunctuationSpacing(raw);
   if (!text) return '';
@@ -88,12 +92,28 @@ export function applyHeuristicPunctuation(raw: string): string {
   // 3. Insert commas before conjunctions in compound phrases (e.g. "很好但是" -> "很好，但是")
   text = text.replace(CONJUNCTION_COMMA_REGEX, '，$1');
 
-  // 4. Idempotency guard: If already ends with terminal punctuation, keep clean
+  // 4. Insert commas before subjective opinion markers (e.g. "份额我想" -> "份额，我想")
+  text = text.replace(CHINESE_SUBJECTIVE_TRANSITION_REGEX, '，$1');
+
+  return text;
+}
+
+/**
+ * Stage 1 Finalize: Applies draft formatting, then detects and applies terminal punctuation
+ * (question marks, exclamation marks, or periods) based on syntax and particles.
+ * Idempotent: If text already ends with terminal punctuation, preserves it and avoids duplication.
+ */
+export function finalizePunctuation(raw: string): string {
+  if (!raw || typeof raw !== 'string') return '';
+  let text = formatDraftPunctuation(raw);
+  if (!text) return '';
+
+  // Idempotency guard: If already ends with terminal punctuation, keep clean
   if (/[。？！?!.]$/.test(text)) {
     return text;
   }
 
-  // 3. Pure English / Latin text handling
+  // Pure English / Latin text handling
   const hasChinese = /[\u4e00-\u9fa5]/.test(text);
   if (!hasChinese) {
     const isEnQuestion =
@@ -101,7 +121,7 @@ export function applyHeuristicPunctuation(raw: string): string {
     return isEnQuestion ? `${text}?` : `${text}.`;
   }
 
-  // 4. Chinese question detection
+  // Chinese question detection
   const isQuestion =
     CHINESE_QUESTION_PARTICLES.test(text) ||
     CHINESE_QUESTION_WORDS.test(text) ||
@@ -116,18 +136,27 @@ export function applyHeuristicPunctuation(raw: string): string {
     return `${text}？`;
   }
 
-  // 5. Chinese exclamation detection
+  // Chinese exclamation detection
   if (CHINESE_EXCLAMATIONS.test(text)) {
     return `${text}！`;
   }
 
-  // 6. Default declarative statement -> period
+  // Default declarative statement -> period
   return `${text}。`;
 }
+
+/**
+ * Backward-compatible alias for finalizePunctuation.
+ */
+export const applyHeuristicPunctuation = finalizePunctuation;
 
 // ---------------------------------------------------------------------------
 // Stage 2: Pluggable ML Model Restorer & Dual-Stage Pipeline
 // ---------------------------------------------------------------------------
+
+export interface PunctuationRestoreOptions {
+  isFinal?: boolean;
+}
 
 export type ModelInferenceFn = (rawText: string) => Promise<string> | string;
 
@@ -152,17 +181,33 @@ export class PunctuationPipeline implements PunctuationRestorer {
 
   /**
    * Executes the dual-stage punctuation pipeline:
-   * 1. Stage 2 (ML Model): If available, infers complex intra-sentence punctuation.
-   * 2. Stage 1 (Heuristic / VAD-Boundary): Always runs as the terminal sanitizer,
-   *    guaranteeing terminal punctuation, question/exclamation matching, and proper spacing.
+   * - isFinal = false (Interim draft):
+   *   Formats draft spacing, topic commas, and conjunctions without appending terminal periods.
+   * - isFinal = true (Final commit):
+   *   Attempts Stage 2 ML model inference if available, then executes terminal boundary sanitation
+   *   to guarantee question/exclamation marks and proper terminal punctuation.
    */
-  public async restore(rawText: string): Promise<string> {
+  public async restore(rawText: string, options?: PunctuationRestoreOptions): Promise<string> {
     if (!rawText || !rawText.trim()) return '';
 
+    const isFinal = options?.isFinal ?? true;
     let text = rawText.trim();
+
+    if (!isFinal) {
+      const draftResult = formatDraftPunctuation(text);
+      if (typeof console !== 'undefined' && typeof console.log === 'function') {
+        console.log(
+          `%c[STT 标点引擎]%c [草稿态 (Interim)] "${rawText}" ➔ "${draftResult}"`,
+          'color: #94a3b8; font-weight: bold;',
+          'color: inherit;',
+        );
+      }
+      return draftResult;
+    }
+
     let stageUsed = '阶段一 (启发式规则)';
 
-    // Stage 2: Attempt ML model inference if ready
+    // Stage 2: Attempt ML model inference if ready on finalization
     if (this.isModelReady && this.modelInference) {
       try {
         const modelOutput = await this.modelInference(text);
@@ -176,11 +221,11 @@ export class PunctuationPipeline implements PunctuationRestorer {
     }
 
     // Stage 1: Terminal boundary sanitizer & heuristic completion
-    const result = applyHeuristicPunctuation(text);
+    const result = finalizePunctuation(text);
 
     if (typeof console !== 'undefined' && typeof console.log === 'function') {
       console.log(
-        `%c[STT 标点引擎]%c [${stageUsed}] "${rawText}" ➔ "${result}"`,
+        `%c[STT 标点引擎]%c [定稿态 · ${stageUsed}] "${rawText}" ➔ "${result}"`,
         'color: #38bdf8; font-weight: bold;',
         'color: inherit;',
       );

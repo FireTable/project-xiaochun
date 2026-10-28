@@ -1,11 +1,30 @@
 import { describe, it, expect } from 'vitest';
 import {
   applyHeuristicPunctuation,
+  formatDraftPunctuation,
+  finalizePunctuation,
   normalizePunctuationSpacing,
   PunctuationPipeline,
 } from '../punctuation';
 
 describe('Punctuation Engine & Pipeline', () => {
+  describe('Draft vs Finalize Punctuation', () => {
+    it('formatDraftPunctuation inserts topic and conjunction commas but NEVER adds terminal periods or questions', () => {
+      expect(formatDraftPunctuation('今天晚上我们')).toBe('今天晚上我们');
+      expect(formatDraftPunctuation('今天天气很好但是风有点大')).toBe('今天天气很好，但是风有点大');
+      expect(formatDraftPunctuation('小春你今天冷吗')).toBe('小春，你今天冷吗');
+      expect(formatDraftPunctuation('对了今天晚上吃什么')).toBe('对了，今天晚上吃什么');
+      // Notice: NO trailing period, question, or exclamation marks
+      expect(formatDraftPunctuation('我们去吃火锅好不好')).toBe('我们去吃火锅好不好');
+    });
+
+    it('finalizePunctuation applies terminal marks appropriately', () => {
+      expect(finalizePunctuation('今天晚上我们')).toBe('今天晚上我们。');
+      expect(finalizePunctuation('我们去吃火锅好不好')).toBe('我们去吃火锅好不好？');
+      expect(finalizePunctuation('哇好漂亮')).toBe('哇好漂亮！');
+    });
+  });
+
   describe('normalizePunctuationSpacing', () => {
     it('removes spaces before and after Chinese/ASCII punctuation', () => {
       expect(normalizePunctuationSpacing('好的 ， 知道了 。')).toBe('好的，知道了。');
@@ -117,6 +136,15 @@ describe('Punctuation Engine & Pipeline', () => {
   });
 
   describe('Stage 2: PunctuationPipeline Integration', () => {
+    it('supports interim draft mode ({ isFinal: false }) without appending terminal punctuation', async () => {
+      const pipeline = new PunctuationPipeline();
+      const draft = await pipeline.restore('今天天气真好但是有点热', { isFinal: false });
+      expect(draft).toBe('今天天气真好，但是有点热');
+
+      const finalized = await pipeline.restore('今天天气真好但是有点热', { isFinal: true });
+      expect(finalized).toBe('今天天气真好，但是有点热。');
+    });
+
     it('executes Stage 1 heuristic fallback when no Stage 2 model is registered', async () => {
       const pipeline = new PunctuationPipeline();
       expect(pipeline.hasModel()).toBe(false);
