@@ -289,17 +289,17 @@
     }
 
     /* ═══════════════════════════════════════════════════════════════
-       右侧伴侣视窗：无框、无按钮、透明背景融入黑板 (占右 1/3)
-       层级 z-index: 60，在全屏演示时作为画中画伴侣立于右下角
+       右侧伴侣视窗：无框、无按钮、透明背景融入黑板 (默认大号 44vw x 88vh)
+       层级 z-index: 60，全屏演示时自动隐藏 3s，演示后平滑浮现
        ═══════════════════════════════════════════════════════════════ */
     #embed-wrapper {
       position: absolute;
       right: 0;
       bottom: 0;
-      width: 33.333vw;
-      height: 66.666vh;
-      min-width: 300px;
-      min-height: 400px;
+      width: 44vw;
+      height: 88vh;
+      min-width: 500px;
+      min-height: 680px;
       z-index: 60;
       display: flex;
       background: transparent !important;
@@ -308,12 +308,24 @@
       border-radius: 0 !important;
       overflow: visible;
       pointer-events: auto;
-      transition: opacity 0.3s ease;
+      transition: opacity 0.45s cubic-bezier(0.16, 1, 0.3, 1), transform 0.45s cubic-bezier(0.16, 1, 0.3, 1), width 0.3s ease, height 0.3s ease;
+    }
+
+    #embed-wrapper.size-xl {
+      width: 52vw;
+      height: 94vh;
+      min-width: 620px;
+    }
+
+    #embed-wrapper.size-standard {
+      width: 36vw;
+      height: 72vh;
     }
 
     #embed-wrapper.pip-hidden {
       opacity: 0 !important;
       pointer-events: none !important;
+      transform: translateY(24px) scale(0.95) !important;
     }
 
     #xiaochun-frame {
@@ -618,6 +630,7 @@
         </div>
         <div style="display: flex; align-items: center; gap: 8px;">
           <button id="btn-toggle-fullscreen" class="screen-ctrl-btn" title="全屏实机演示 / 缩回黑板">⛶ 全屏演示 (3s)</button>
+          <button id="btn-toggle-size" class="screen-ctrl-btn" title="切换小蠢尺寸">🔍 尺寸: 大 (44vw)</button>
           <button id="btn-toggle-pip" class="screen-ctrl-btn" title="伴侣画中画浮层开关">👤 伴侣浮层: 开</button>
           <div id="screen-aspect-badge">16:9 CINEMA</div>
         </div>
@@ -798,6 +811,11 @@
               showToast('🗣️ 小蠢开始讲演...');
             } else if (u && u.phase === 'end') {
               showToast('✅ 小蠢本段讲演完毕');
+              if (onSpeechEndCallback) {
+                const cb = onSpeechEndCallback;
+                onSpeechEndCallback = null;
+                cb();
+              }
             }
           } else if (msg.type === 'xc.loaded') {
             showToast('✨ 小蠢 3D 模型已就绪！');
@@ -987,6 +1005,26 @@
       showToast('📺 实机演示完成，已平滑缩回黑板');
     }
 
+    let onSpeechEndCallback = null;
+
+    function waitForSpeechEnd(timeoutMs = 12000) {
+      return new Promise((resolve) => {
+        let finished = false;
+        const done = () => {
+          if (finished) return;
+          finished = true;
+          if (fallbackTimer) clearTimeout(fallbackTimer);
+          onSpeechEndCallback = null;
+          resolve();
+        };
+        onSpeechEndCallback = done;
+        const fallbackTimer = setTimeout(() => {
+          console.log('[Chalkboard] Speech wait fallback reached');
+          done();
+        }, timeoutMs);
+      });
+    }
+
     // 播放指定章节
     async function playChapter(chapterIndex) {
       const chapter = CHAPTERS[chapterIndex];
@@ -998,6 +1036,10 @@
       
       // 1. 黑板清晰大字板书 (每个章节独立绘制)
       renderChapterBoard(chapterIndex);
+
+      // 确保小蠢恢复显示并缩回可能展开的屏幕
+      embedWrapper.classList.remove('pip-hidden');
+      shrinkScreenToBoard();
 
       // 2. 伴侣交互动作与表情
       sendCommandToXiaoChun('xc.expression', { name: chapter.expression, intensity: 0.95 });
@@ -1012,21 +1054,7 @@
         }, chapter.subsequentDelay || 3000);
       }
 
-      // 3. 伴侣张嘴朗读台词
-      sendCommandToXiaoChun('xc.say', { text: chapter.script });
-
-      // 4. 屏幕调度：章节 2 与 3 在讲到演示时放大全屏，3s 后缩回黑板
-      if (chapter.screenMode === 'fullscreen') {
-        setTimeout(() => {
-          if (currentPlayingChapter === chapterIndex) {
-            expandScreenFullscreen(chapter.screenTitle, chapter.screenDesc, chapter.screenIcon, chapter.fullscreenHoldSec || 3);
-          }
-        }, chapter.fullscreenDelay || 4500);
-      } else {
-        shrinkScreenToBoard();
-      }
-
-      // 5. 倒计时指示
+      // 3. 倒计时指示
       let remaining = chapter.durationSec;
       clearInterval(countdownInterval);
       timerBadge.innerText = `${remaining}s 倒计时`;
@@ -1039,6 +1067,34 @@
           timerBadge.innerText = `${remaining}s / ${chapter.durationSec}s`;
         }
       }, 1000);
+
+      // 4. 伴侣张嘴朗读台词
+      sendCommandToXiaoChun('xc.say', { text: chapter.script });
+
+      // 5. 核心要求：等说完话，再打开全屏演示，此时小蠢隐藏 3s
+      if (chapter.screenMode === 'fullscreen') {
+        // 先等小蠢全部说完话 (通过 xc.utterance phase: 'end' 确认)
+        await waitForSpeechEnd(11000);
+
+        if (currentPlayingChapter === chapterIndex) {
+          // 此时小蠢隐藏 3s
+          embedWrapper.classList.add('pip-hidden');
+          // 打开全屏实机演示
+          expandScreenFullscreen(chapter.screenTitle, chapter.screenDesc, chapter.screenIcon, 3);
+
+          // 3s 之后，全屏演示缩回黑板，小蠢恢复显现
+          setTimeout(() => {
+            if (currentPlayingChapter === chapterIndex) {
+              shrinkScreenToBoard();
+              embedWrapper.classList.remove('pip-hidden');
+              sendCommandToXiaoChun('xc.expression', { name: 'gentle_smile', intensity: 0.9 });
+            }
+          }, 3000);
+        }
+      } else {
+        shrinkScreenToBoard();
+        embedWrapper.classList.remove('pip-hidden');
+      }
     }
 
     // 一键全流程连续自动录播 (Chapter 1 ➔ Chapter 2 ➔ Chapter 3)
@@ -1107,6 +1163,30 @@
         embedWrapper.classList.remove('pip-hidden');
         btnTogglePip.innerText = '👤 伴侣浮层: 开';
         showToast('已恢复右下角伴侣画中画浮层');
+      }
+    });
+
+    // 伴侣尺寸切换 (大 44vw ➔ 特大 52vw ➔ 标准 36vw)
+    const btnToggleSize = document.getElementById('btn-toggle-size');
+    let currentSizeTier = 'large';
+    btnToggleSize.addEventListener('click', () => {
+      if (currentSizeTier === 'large') {
+        currentSizeTier = 'xl';
+        embedWrapper.classList.remove('size-standard');
+        embedWrapper.classList.add('size-xl');
+        btnToggleSize.innerText = '🔍 尺寸: 特大 (52vw)';
+        showToast('伴侣已设为特大尺寸 (52vw)');
+      } else if (currentSizeTier === 'xl') {
+        currentSizeTier = 'standard';
+        embedWrapper.classList.remove('size-xl');
+        embedWrapper.classList.add('size-standard');
+        btnToggleSize.innerText = '🔍 尺寸: 标准 (36vw)';
+        showToast('伴侣已设为标准尺寸 (36vw)');
+      } else {
+        currentSizeTier = 'large';
+        embedWrapper.classList.remove('size-standard', 'size-xl');
+        btnToggleSize.innerText = '🔍 尺寸: 大 (44vw)';
+        showToast('伴侣已设为大号尺寸 (44vw)');
       }
     });
 
@@ -1189,12 +1269,17 @@
         ctx.restore();
 
         if (data.arrowTarget) {
-          // 画一条醒目的粉笔箭头指向右下角的小蠢
-          const arrowStartX = startX + 460;
+          // 准确指向右侧小蠢身体中心 (胸口/肩颈区域，与用户手绘红线完全对齐)
+          const arrowStartX = startX + 470;
           const arrowStartY = annoY - 8;
-          const arrowEndX = Math.min(window.innerWidth - 380, startX + 820);
-          const arrowEndY = Math.min(window.innerHeight - 240, annoY + 120);
-          drawChalkArrow(arrowStartX, arrowStartY, arrowEndX, arrowEndY, '#fca5a5', 5);
+          const embedRect = embedWrapper ? embedWrapper.getBoundingClientRect() : null;
+          let arrowEndX = window.innerWidth * 0.77;
+          let arrowEndY = window.innerHeight * 0.52;
+          if (embedRect) {
+            arrowEndX = embedRect.left + embedRect.width * 0.40;
+            arrowEndY = embedRect.top + embedRect.height * 0.44;
+          }
+          drawChalkArrow(arrowStartX, arrowStartY, arrowEndX, arrowEndY, '#fca5a5', 6);
         }
       }, 800 + data.items.length * 450 + 400);
       handwritingTimers.push(tAnno);
