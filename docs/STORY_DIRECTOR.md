@@ -56,7 +56,7 @@ Resolved fields: `actor.speechText`, `choices[].text/subText`, `confirmChoice`, 
 - Fixed UI strings of the player (skip, recap, camera card, placeholders, "tap to wake", badges) live under the `story.*` keys of `src/i18n/*.ts`.
 - **TTS voice follows the text script**, not the UI language: kana → Japanese voice, Latin-only text → `voices.en`, otherwise Chinese (see [`TTS.md`](TTS.md)). English lines therefore use the configured English voice; check it if the accent matters.
 
-Authoring limits used by the Act 0 tests: a spoken line ≤ 26 CJK characters (zh-CN), ≤ 30 (ja), ≤ 58 characters (en); `en` text contains no CJK; `ja` text contains kana.
+Authoring limits used by the Act 0 tests: one beat speaks its whole thought in a single `speechText` (≤ 100 characters zh-CN, ≤ 125 ja, ≤ 250 en) because every spoken beat is one TTS request; prefer merging consecutive lines over chaining short beats, and use silent beats (`speechText: ''`) for camera / sound moments. `en` text contains no CJK; `ja` text contains kana. The tests also cap the script at 14 beats and the typical path at 10 beats / 9 spoken.
 
 ## 4. Transitions
 
@@ -116,7 +116,7 @@ pnpm exec vitest run src/story src/core/scene src/core/wind   # engine flow, aud
 pnpm exec tsc --noEmit
 ```
 
-`src/story/__tests__/prologueStory.test.ts` is the script linter: zod validity, no dead ends / dangling ids / unreachable beats, `autoNext` xor `choices`, `custom` choices need `nextBeatId` + function payload, all three languages present, line lengths per language, motion / SFX / mood / ambience ids exist, and the required feature coverage. Copy it when you add a script.
+`src/story/__tests__/prologueStory.test.ts` is the script linter: zod validity, no dead ends / dangling ids / unreachable beats, `autoNext` xor `choices`, `custom` choices need `nextBeatId` + function payload, all three languages present, line lengths per language, the beat / TTS budget, motion / SFX / mood / ambience ids exist, and the required feature coverage. Copy it when you add a script.
 
 ## 10. Known limits
 

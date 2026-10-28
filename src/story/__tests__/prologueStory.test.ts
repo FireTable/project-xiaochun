@@ -11,12 +11,24 @@ import { BGM_MOODS, BGM_MOOD_ALIASES, AMBIENCE_IDS, SFX_IDS } from '../audioDire
 
 const beats = Object.values(prologueStory.beats);
 
-/** 汉字个数 / 总字符：长度上限按语言放宽 */
-const LIMIT: Record<StoryLang, number> = { 'zh-CN': 26, ja: 30, en: 58 };
+/** 每拍台词的长度上限：一拍说完 (不再拆短句)，但也不能长到 TTS 首包等太久 */
+const LIMIT: Record<StoryLang, number> = { 'zh-CN': 100, ja: 125, en: 250 };
+/** 走一遍典型路径：自动推进就跟着走，要选择时选第一张卡 */
+function typicalPath(): string[] {
+  const path: string[] = [];
+  let id: string | undefined = prologueStory.initialBeatId;
+  while (id && path.length < 50) {
+    path.push(id);
+    const b: (typeof prologueStory.beats)[string] = prologueStory.beats[id];
+    id = b.autoNextBeatId ?? b.choices?.find((c) => c.nextBeatId)?.nextBeatId;
+  }
+  return path;
+}
+const isSpoken = (id: string) => resolveBeat(prologueStory.beats[id], 'en').actor.speechText.trim() !== '';
 const CJK = /[\u3400-\u9fff]/;
 const KANA = /[\u3040-\u30ff]/;
 
-describe('prologue story (Act 0 v2)', () => {
+describe('prologue story (Act 0 v3)', () => {
   it('passes the story schema', () => {
     const r = StoryScriptSchema.safeParse(prologueStory);
     expect(r.success).toBe(true);
@@ -85,10 +97,9 @@ describe('prologue story (Act 0 v2)', () => {
         const beat = resolveBeat(b, lang);
         const line = beat.actor.speechText;
         if (line.trim() === '') continue;
-        const perLine = line.split('\n');
-        for (const s of perLine) {
-          expect(s.length, `${b.id} ${lang}: "${s}"`).toBeLessThanOrEqual(LIMIT[lang]);
-        }
+        expect(line.length, `${b.id} ${lang}: "${line}"`).toBeLessThanOrEqual(LIMIT[lang]);
+        // 语气克制：省略号不堆叠
+        expect((line.match(/…/g) ?? []).length, `${b.id} ${lang} ellipses`).toBeLessThanOrEqual(4);
         if (lang === 'en') expect(CJK.test(line), `${b.id} en has no CJK`).toBe(false);
         if (lang === 'ja') expect(KANA.test(line), `${b.id} ja has kana`).toBe(true);
         if (lang === 'zh-CN') expect(KANA.test(line), `${b.id} zh has no kana`).toBe(false);
@@ -99,22 +110,48 @@ describe('prologue story (Act 0 v2)', () => {
     }
   });
 
-  it('the mood-dependent ending line is localized for all three moods', () => {
-    const x5 = prologueStory.beats.beat_x5;
-    const seen = new Set<string>();
-    for (const l of STORY_LANGS) seen.add(resolveBeat(x5, l).actor.speechText);
-    expect(seen.size).toBe(3);
+  it('the look and wrap beats answer the first choice differently, in every language', () => {
+    const ask = prologueStory.beats.beat_ask;
+    for (const id of ['beat_look', 'beat_wrap']) {
+      for (const l of STORY_LANGS) {
+        const seen = new Set<string>();
+        for (const c of ask.choices ?? []) {
+          (c.actionPayload as () => void)();
+          seen.add(resolveBeat(prologueStory.beats[id], l).actor.speechText);
+        }
+        expect(seen.size, `${id} ${l} differs per answer`).toBe(3);
+      }
+    }
+    (ask.choices![0].actionPayload as () => void)();
   });
 
-  it('has a language-selection beat that switches every supported language and then continues', () => {
-    const lang = prologueStory.beats.beat_lang;
-    const payloads = (lang.choices ?? []).map((c) => c.actionPayload);
+  it('asks for the language on the very first card (greet) and switches every supported language', () => {
+    const greet = prologueStory.beats.beat_greet;
+    const payloads = (greet.choices ?? []).map((c) => c.actionPayload);
     expect(payloads).toEqual([...STORY_LANGS]);
-    for (const c of lang.choices ?? []) {
+    for (const c of greet.choices ?? []) {
       expect(c.actionType).toBe('change_lang');
       expect(c.nextBeatId).toBe('beat_ask');
     }
-    expect(prologueStory.beats.beat_intro.autoNextBeatId).toBe('beat_lang');
+  });
+
+  it('is short: few beats, few TTS requests, no chains of spoken auto-beats', () => {
+    expect(beats.length).toBeLessThanOrEqual(14);
+    const path = typicalPath();
+    expect(path.at(-1), 'typical path ends in a finish card').toBe('beat_ramble');
+    expect(path.length).toBeGreaterThanOrEqual(8);
+    expect(path.length).toBeLessThanOrEqual(10);
+    const spoken = path.filter(isSpoken);
+    expect(spoken.length).toBeLessThanOrEqual(9);
+    expect(spoken.length).toBeLessThan(path.length); // 至少一拍无台词 (镜头 / 环境声)
+    // 连续两拍以上的“自动连播台词”会让人觉得在不停等语音
+    let run = 0;
+    let maxRun = 0;
+    for (const id of path) {
+      run = isSpoken(id) && prologueStory.beats[id].autoNextBeatId ? run + 1 : 0;
+      maxRun = Math.max(maxRun, run);
+    }
+    expect(maxRun).toBeLessThanOrEqual(2);
   });
 
   it('uses only motions, sfx, moods and ambience the engine really implements', () => {
@@ -133,9 +170,9 @@ describe('prologue story (Act 0 v2)', () => {
 
   it('showcases the real cinematic features (and the single required tap)', () => {
     const transitions = new Set(beats.map((b) => b.cinematics?.transition).filter(Boolean));
-    expect(transitions).toEqual(new Set(['fade_to_black', 'white_flash', 'eye_blink']));
+    expect(transitions).toEqual(new Set(['fade_to_black', 'white_flash']));
     const gradings = new Set(beats.map((b) => b.cinematics?.grading).filter((g) => g && g !== 'default'));
-    expect(gradings).toEqual(new Set(['sepia_memory', 'rainy_noir', 'dream_bloom']));
+    expect(gradings).toEqual(new Set(['sepia_memory', 'dream_bloom']));
     const moves = new Set(beats.map((b) => b.camera?.movement));
     expect(moves.has('hero_backlight_reveal')).toBe(true);
     expect(moves.has('dutch_tilt')).toBe(true);
