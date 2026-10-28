@@ -624,6 +624,20 @@ export class StoryDirectorEngine {
     await sceneManager.setScene(id, persist);
   }
 
+  /**
+   * 剧情里换上的衣服要像普通换装一样记住：普通换装的持久化在 TopHeader 的菜单回调里 (swapOutfit.then → setWearingAddonKey → 写
+   * WEARING_OUTFIT_KEY)，剧情直接调 vrmEngine.swapOutfit 绕过了它，所以这里自己写。只写衣服，不碰场景 (void 不会被存成场景)。
+   */
+  private persistOutfit(addonId: string | null): void {
+    try {
+      if (typeof localStorage === 'undefined') return;
+      if (addonId) localStorage.setItem(WEARING_OUTFIT_KEY, addonId);
+      else localStorage.removeItem(WEARING_OUTFIT_KEY);
+    } catch {
+      /* 存储被拦截：忽略 */
+    }
+  }
+
   private readStored(key: string): string | null {
     try {
       return typeof localStorage === 'undefined' ? null : localStorage.getItem(key);
@@ -775,11 +789,14 @@ export class StoryDirectorEngine {
       const outfitKey = String(choice.actionPayload);
       this.previewPick.outfit = outfitKey;
       const addons = (APP_CONFIG.model.addons || {}) as Record<string, { source: string; name: string }>;
-      const addon = addons[outfitKey] || addons[`xiaochun_${outfitKey}`];
-      if (addon) {
+      const addonId = addons[outfitKey] ? outfitKey : addons[`xiaochun_${outfitKey}`] ? `xiaochun_${outfitKey}` : null;
+      const addon = addonId ? addons[addonId] : undefined;
+      if (addon && addonId) {
         await vrmEngine.swapOutfit(addon.source, addon.name, { showcase: false });
+        this.persistOutfit(addonId);
       } else if (outfitKey === 'base' || outfitKey === 'default') {
         await vrmEngine.swapOutfit(APP_CONFIG.model.defaultSource, APP_CONFIG.model.defaultName, { showcase: false });
+        this.persistOutfit(null);
       }
 
       // 换完衣服之后的展示动作：与常规换装一致，走“换装走秀”动作组 (outfitShowcase，按权重随机)，不写死 showFullBody

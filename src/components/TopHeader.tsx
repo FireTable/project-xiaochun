@@ -59,6 +59,15 @@ export const TopHeader: React.FC<TopHeaderProps> = ({
   const [isSwapping, setIsSwapping] = useState(false);
   const headerRef = useRef<HTMLElement>(null);
 
+  // 菜单之外换上的衣服 (比如开场剧情里点的试衣卡) 也要同步菜单的 ✓：引擎每次换装完成都会广播当前的 addon key
+  useEffect(
+    () =>
+      vrmEngine.onOutfitChange((key) => {
+        if (key && key in APP_CONFIG.model.addons) setWearingAddonKey(key);
+      }),
+    [],
+  );
+
   useEffect(() => {
     vrmEngine.onSwapProgress = (state) => setIsSwapping(state.active);
     return () => { vrmEngine.onSwapProgress = undefined; };

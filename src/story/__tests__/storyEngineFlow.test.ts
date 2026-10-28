@@ -784,6 +784,18 @@ describe('StoryDirectorEngine runtime behaviour', () => {
       expect(badges()).toEqual([['scene_beach', false], ['scene_dark', true], ['outfit_maid', false], ['outfit_dress', true]]);
     });
 
+    it('every outfit try-on is saved to WEARING_OUTFIT_KEY (like a normal swap), even while the live scene is void; the scene is not saved', async () => {
+      const setItem = vi.fn();
+      vi.stubGlobal('localStorage', { getItem: () => null, setItem, removeItem: vi.fn() });
+      h.currentScene.id = 'void';
+      void engine.playScript(script as never);
+      await vi.advanceTimersByTimeAsync(500);
+      await engine.selectChoice(engine.getState().choices.find((c) => c.id === 'outfit_maid')!);
+      expect(setItem).toHaveBeenCalledWith('xiaochun_wearing_outfit', 'xiaochun_maid');
+      expect(setItem.mock.calls.some(([k]) => k === 'xiaochun_scene_theme')).toBe(false);
+      expect(h.setScene).not.toHaveBeenCalled();
+    });
+
     it('trying an outfit plays the outfit-showcase motion group (like the normal app), not a hard-coded motion', async () => {
       void engine.playScript(script as never);
       await vi.advanceTimersByTimeAsync(500);
