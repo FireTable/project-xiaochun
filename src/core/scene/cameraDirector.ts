@@ -47,6 +47,18 @@ export const SHOT_PRESETS: Record<CameraShotType, ShotPresetConfig> = {
     pitch: Math.PI * 0.49,
     fov: 30,
   },
+  medium_close_up: {
+    distance: 1.80,
+    targetYOffset: -0.20, // 胸口以上，比 medium 更紧、比 close_up 更松 (抓拍反应镜头)
+    pitch: Math.PI * 0.495,
+    fov: 28,
+  },
+  wide: {
+    distance: 4.10,
+    targetYOffset: -0.50, // 全身 + 大量环境留白 (开场 / 空间展示)
+    pitch: Math.PI * 0.49,
+    fov: 32,
+  },
   dramatic_low: {
     distance: 1.70,
     targetYOffset: -0.32,

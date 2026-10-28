@@ -7,7 +7,7 @@
 > - [`src/story/audioDirector.ts`](../src/story/audioDirector.ts) (procedural BGM, ambience, SFX, ducking)
 > - [`src/core/scene/cameraDirector.ts`](../src/core/scene/cameraDirector.ts) + [`src/core/wind/windForce.ts`](../src/core/wind/windForce.ts) (camera moves, gust wind)
 > - [`src/components/story/`](../src/components/story) (`StoryPlayer`, `StoryCinematicOverlay`, choice cards)
-> - [`src/story/prologueStory.ts`](../src/story/prologueStory.ts) (Act 0 "The Letter at Dusk": the reference script that uses every feature below)
+> - [`src/story/prologueStory.ts`](../src/story/prologueStory.ts) (Act 0 "Backstage Catch": the reference script that uses every feature below)
 
 A **script** is a graph of **beats**. A beat is one staged moment: camera, cinematics (letterbox / transition / grading / intertitle), actor (motion, expression, spoken line), audio, and then either a set of **choices**, free-text input, or an automatic jump to the next beat.
 
@@ -24,7 +24,9 @@ A **script** is a graph of **beats**. A beat is one staged moment: camera, cinem
 5. **Hand-over**: choices are published, the crystal chime plays if there are choices.
 6. **Auto-advance** if `autoNextBeatId` is set ([§2](#2-flow-control-and-interruption)).
 
-`beat_greet` is special: the engine hides the model behind the black intertitle, waits for the tap, then runs the pan-up reveal and body turn. Do not rename that id.
+`beat_greet` is special: the engine hides the model behind the black intertitle and waits for the tap. Do not rename that id. With `autoNextBeatId` set (Act 0) it is a **wake-only** step: after the tap the engine covers the screen with the *next* beat's transition, removes the intertitle, and the next beat reveals the model under the cover. Without `autoNextBeatId` the legacy pan-up reveal + body turn runs.
+
+Per-beat extras applied in step 2 (under the transition cover): `scene` (switch scene, not persisted), `cinematics.wind` (sticky ambient wind level 0 to 3, reset by `finish()`), `actor.facing` (`back` = instantly turned away, `front` = steps around via bodyTurn).
 
 ## 2. Flow control and interruption
 
@@ -34,6 +36,13 @@ A **script** is a graph of **beats**. A beat is one staged moment: camera, cinem
 | `autoNextBeatId` | Go to this beat when the line has finished (or, for a silent beat, when its pause has elapsed) without any click. Mutually exclusive with `choices`. |
 | `autoNextDelayMs` | Pause after the line before moving on (default 600). Use it for breathing room; a 1.4 s pause after a sad line lets it land. If TTS is unavailable or fails instantly the engine still waits long enough to read the subtitle (`1200 ms + 75 ms/char`, max 7 s). |
 | `allowInput` / `inputPlaceholder` | Shows the chat input. Typing while she speaks is a full-duplex **interruption**. |
+| `autoFinish` | Like `autoNextBeatId`, but ends the whole story after the line + `autoNextDelayMs`: `finish()` restores the view prefs and eases the camera back to the default view, then `StoryPlayer` calls `onComplete` (free chat). |
+| `hint` | Localized on-screen prompt chip ("what can I do now"); not spoken, not in the recap. The script's lines stay in-story. |
+| `cameraTask` | Advance when the user has rotated the view by `orbitDeg` (default 35°, accumulated) **or** zoomed by `zoomRatio` (default 20 % of the start distance); measured by `ViewTaskTracker` from `vrmEngine.getViewSample()` (camera azimuth + polar + character turn, since horizontal drag turns the character). Measuring starts after the line and the beat's own camera move. After `timeoutMs` (6000) with no input, the `fallback` plays (camera / motion / expression + one line), then the story goes to `nextBeatId` either way. |
+| `inputReply` | With `allowInput`: the first text / voice transcript the user sends gets this canned reply (camera / expression / motion + one line), then `nextBeatId`. No LLM involved (`engine.submitScriptedInput`, called by `StoryPlayer` before the generator). |
+| `choices[].branch` / `variants` | A choice with `branch: 'x'` makes later beats use `variants.x` (a partial beat, merged one level deep: `cinematics`, `audio`, `camera`, `actor`...). Cleared on replay. |
+| `choices[].scene` / `sceneHour` | Switches scene (persisted) under the next beat's transition cover; `sceneHour` sets the environment time first (time-aware scenes such as `beach3d`). |
+| `startLang: 'browser'` (script) | Start in the browser language (zh / en / ja, anything else en) instead of the UI language; the UI language is untouched until a `change_lang` choice. |
 | `interaction: 'camera_drag'` | Shows the camera task card (orbit / pitch / zoom). `StoryPlayer` localizes the choice with id `camera_done` or `look_done` once all tasks are done. |
 
 **Interruption** (`engine.interrupt()`): stops TTS, camera tween, and any delayed SFX, restores BGM, publishes the beat's choices, and **stops auto-advance**: the user has taken over, and the next beat comes from their choice or from the AI generator. The "interrupted" flag is reset at the start of every beat, so the lines after an interruption are spoken normally (previously they stayed silent).
@@ -48,7 +57,7 @@ Every text field accepts a plain string (same in all languages) or an object:
 speechText: { 'zh-CN': '你好', en: 'Hello', ja: 'こんにちは' }
 ```
 
-Resolved fields: `actor.speechText`, `choices[].text/subText`, `confirmChoice`, `cinematics.intertitle.text`, `inputPlaceholder`, script `title/description`. `zh-CN` is required; a missing language falls back to it.
+Resolved fields: `actor.speechText`, `choices[].text/subText`, `confirmChoice`, `cinematics.intertitle.text`, `inputPlaceholder`, `hint`, `cameraTask.fallback.speechText`, `inputReply.speechText`, script `title/description`. A plain string is the same text in every language: Act 0 uses that for its language cards, each showing only its own language. `zh-CN` is required; a missing language falls back to it.
 
 - Resolution happens **when the beat is entered** (`resolveBeat`), producing a plain-string beat. `StoryPlayer`, the history log and the LLM generator only ever see single-language strings.
 - Because it is lazy, an object may use **getters** to vary text with story state (Act 0 does this for the ending line).
@@ -56,7 +65,7 @@ Resolved fields: `actor.speechText`, `choices[].text/subText`, `confirmChoice`, 
 - Fixed UI strings of the player (skip, recap, camera card, placeholders, "tap to wake", badges) live under the `story.*` keys of `src/i18n/*.ts`.
 - **TTS voice follows the text script**, not the UI language: kana → Japanese voice, Latin-only text → `voices.en`, otherwise Chinese (see [`TTS.md`](TTS.md)). English lines therefore use the configured English voice; check it if the accent matters.
 
-Authoring limits used by the Act 0 tests: one beat speaks its whole thought in a single `speechText` (≤ 100 characters zh-CN, ≤ 125 ja, ≤ 250 en) because every spoken beat is one TTS request; prefer merging consecutive lines over chaining short beats, and use silent beats (`speechText: ''`) for camera / sound moments. `en` text contains no CJK; `ja` text contains kana. The tests also cap the script at 14 beats and the typical path at 10 beats / 9 spoken.
+Authoring limits used by the Act 0 tests: one beat speaks its whole thought in a single `speechText` (≤ 50 characters zh-CN, ≤ 70 ja, ≤ 140 en) because every spoken beat is one TTS request; only the camera-task fallback and the input reply add one more. Lines contain no UI words (those belong in `hint`). `en` text contains no CJK; `ja` text contains kana.
 
 ## 4. Transitions
 
@@ -86,10 +95,12 @@ When a **choice** leads to a beat that has a transition, `selectChoice` first co
 
 `camera: { shot, movement, durationSec, easing, targetFov, windMultiplier, alignSunBacklight, orbitAngleDeg }`
 
-Shots: `extreme_close_up`, `close_up`, `medium`, `full`, `dramatic_low`. Movements: `none`, `push_in`, `pull_out`, `pedestal_up`, `arc_sweep`, `orbit_subtle`, `hero_spiral_orbit` and:
+Shots: `extreme_close_up`, `close_up`, `medium_close_up`, `medium`, `full`, `wide`, `dramatic_low`. Movements: `none`, `push_in`, `pull_out`, `pedestal_up`, `arc_sweep`, `orbit_subtle`, `hero_spiral_orbit` and:
 
 - **`hero_backlight_reveal`**: the camera orbits (the short way, never through the character) to the side opposite the sun, drops to a slightly low angle and narrows the FOV by 3°. The character is a silhouette against the sun. Works best in `beach3d` at golden hour. `alignSunBacklight: true` on any other move uses the same short-way orbit.
 - **`dutch_tilt`**: rolls the camera −9° (`DUTCH_TILT_RAD`). The roll is applied after `controls.update()` in the engine's controls wrapper (`cameraDirector.applyRoll()`), so it survives the render loop. **Any later camera directive levels it again** (and `reset()` clears it); a beat without a `camera` keeps the tilt.
+- Script-name mapping used by Act 0: `spiral_rise` = `hero_spiral_orbit`, `arc_pan` = `arc_sweep`, `static` = `none`, `orbit` = `orbit_subtle`; scenes `lineart_day` / `lineart_night` / `beach` = `light` / `dark` / `beach3d` (`src/story/scenes.ts`); gradings `dreamy_soft` = `dream_bloom`, `memory_sepia` = `sepia_memory`.
+- **`cinematics.wind`** (0 to 3): sticky *ambient* wind, gust multiplier `1 + 0.5 × level`, via `WindForceController.setAmbientWindLevel`. It coexists with the camera `windMultiplier` below (the larger wins), so a move ending does not drop the beach breeze.
 - **`windMultiplier`** (1.0 to 3.5): raised while the move runs; calls `WindForceController.setGustMultiplier`. Ambient gusts push hair, skirt and ribbons sideways relative to the camera (bust only slightly), pulsing between 35 % and 100 %. The effect fades back about a second after the move ends or is interrupted. Strength: `APP_CONFIG.wind.gustStrength` (0 disables gusts). Gusts stack with the mouse wind.
 
 ## 7. Actor motions
@@ -102,11 +113,11 @@ Shots: `extreme_close_up`, `close_up`, `medium`, `full`, `dramatic_low`. Movemen
 
 `audio: { bgmAction, bgmMood, bgmTrack, bgmVolume, bgmFadeSec, ambience, ambienceVolume, playSfx, sfx[] }`
 
-- **`bgmMood`** (procedural, no files, no licensing): `void_drone`, `dusk_warm`, `longing`, `lights_on`, `farewell`. Pad chords plus a sparse bell melody synthesised with WebAudio. The LLM generator names `gentle_daily`, `cinematic_epic`, `melancholy_piano`, `mysterious_ambient` are aliases. The synthesised sound is not a substitute for composed music; it is a licence-free placeholder.
+- **`bgmMood`** (procedural, no files, no licensing): `void_drone`, `dusk_warm`, `longing`, `lights_on`, `farewell`; script names `calm` / `bright` / `mystic` are aliases of `dusk_warm` / `lights_on` / `void_drone`. `bgmAction: 'fade_out'` is the "no BGM" beat. Pad chords plus a sparse bell melody synthesised with WebAudio. The LLM generator names `gentle_daily`, `cinematic_epic`, `melancholy_piano`, `mysterious_ambient` are aliases. The synthesised sound is not a substitute for composed music; it is a licence-free placeholder.
 - **`bgmTrack`**: URL of a looping audio file (for example `/audio/dusk.mp3`). If it fails to load the director falls back to `bgmMood`, or stays silent, and does not retry the same URL. No audio files ship with the repository; `BGM_URL` in `prologueStory.ts` is the single switch.
 - `bgmAction`: `play` (cross-fade to the new music, un-muffle), `fade_in` (default 3 s), `fade_out`, `stop_cut`, `duck`, `muffle`. Starting the same mood/track again only updates the volume.
 - **`ambience`**: `sea_waves`, `wind` (filtered noise with slow LFOs), or `none`. Ducks to 60 % while she speaks.
-- **`playSfx`** (single id) and `sfx[]` (with `delaySec`): `crystal_chime`, `heartbeat_pulse`, `camera_shutter`, `whoosh`, `bell`, `soft_tap`. Delayed SFX are cancelled when the next beat starts, on interruption and on finish.
+- **`playSfx`** (single id) and `sfx[]` (with `delaySec`): `crystal_chime`, `heartbeat_pulse`, `camera_shutter`, `whoosh`, `bell`, `soft_tap`, `wind_gust`, `wave_wash`; short aliases `crystal`, `heartbeat`, `shutter`, `wind`, `waves`. Delayed SFX are cancelled when the next beat starts, on interruption and on finish.
 - **Ducking**: BGM drops to 25 % while a beat with a line speaks and returns afterwards; during an auto-advancing chain with short pauses it stays ducked. `finish()` fades everything out (`stopAll`).
 
 ## 9. Verifying a script
@@ -116,11 +127,11 @@ pnpm exec vitest run src/story src/core/scene src/core/wind   # engine flow, aud
 pnpm exec tsc --noEmit
 ```
 
-`src/story/__tests__/prologueStory.test.ts` is the script linter: zod validity, no dead ends / dangling ids / unreachable beats, `autoNext` xor `choices`, `custom` choices need `nextBeatId` + function payload, all three languages present, line lengths per language, the beat / TTS budget, motion / SFX / mood / ambience ids exist, and the required feature coverage. Copy it when you add a script.
+`src/story/__tests__/prologueStory.test.ts` is the script linter: zod validity, no dead ends / dangling ids / unreachable beats, `autoNext` xor `choices`, `custom` choices need `nextBeatId` + function payload, all three languages present, line lengths per language, the four advance modes, per-branch beat 5, and that motion / SFX / mood / ambience / scene / shot / transition ids exist. Copy it when you add a script.
 
 ## 10. Known limits
 
-- Environment time (`vrmEngine.setEnvironmentTime`) is an instant snap that also writes `localStorage`; Act 0 tweens it frame by frame. The `beach3d` scene is the only one with a sun, so `hero_backlight_reveal` / `alignSunBacklight` only make sense there.
+- Environment time (`vrmEngine.setEnvironmentTime`) is an instant snap that also writes `localStorage`; The `beach3d` scene is the only one with a real sun, so `hero_backlight_reveal` is best there; Act 0 beat 1 uses it on the line-art scene, where it is only a low, narrow back-lit angle.
 - The grading layer uses `backdrop-filter` over the WebGL canvas; very low-end GPUs may prefer `default`.
 - Procedural BGM and ambience have not been auditioned by a sound designer; levels (`bgmVolume`, `ambienceVolume`) are the knobs.
-- An interruption by typing hands the story to the LLM generator (with its offline fallback beats); the scripted ending is not resumed.
+- Act 0 has no barge-in: `inputReply` / `cameraTask` beats are the only input handling. On other beats, an interruption by typing hands the story to the LLM generator (with its offline fallback beats); the scripted ending is not resumed.

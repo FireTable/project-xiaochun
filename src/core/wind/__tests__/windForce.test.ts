@@ -57,4 +57,32 @@ describe('WindForceController ambient gusts (camera windMultiplier)', () => {
     expect(wind.getGustMultiplier()).toBeLessThanOrEqual(4);
     wind.dispose();
   });
+
+  it('story ambient wind level 0..3 maps to a gust multiplier and coexists with camera gusts (the larger wins)', () => {
+    const wind = new WindForceController();
+    const { vrm } = makeVrm();
+    const settle = () => { for (let i = 0; i < 400; i++) wind.applyTo(vrm, 0.05, camera); return wind.getGustMultiplier(); };
+
+    wind.setAmbientWindLevel(0);
+    expect(settle()).toBeCloseTo(1, 3);
+    wind.setAmbientWindLevel(1);
+    expect(settle()).toBeCloseTo(1.5, 3);
+    wind.setAmbientWindLevel(3);
+    expect(settle()).toBeCloseTo(2.5, 3);
+
+    // 运镜阵风比环境风小：环境风保持；运镜结束复位为 1：环境风也保持
+    wind.setGustMultiplier(2);
+    expect(settle()).toBeCloseTo(2.5, 3);
+    wind.setGustMultiplier(1);
+    expect(settle()).toBeCloseTo(2.5, 3);
+    // 运镜阵风更大时取运镜的
+    wind.setGustMultiplier(3.5);
+    expect(settle()).toBeCloseTo(3.5, 3);
+    wind.setGustMultiplier(1);
+    wind.setAmbientWindLevel(Number.NaN);
+    expect(settle()).toBeCloseTo(1, 3);
+    wind.setAmbientWindLevel(99);
+    expect(settle()).toBeCloseTo(2.5, 3);
+    wind.dispose();
+  });
 });

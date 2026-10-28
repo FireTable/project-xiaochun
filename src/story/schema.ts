@@ -6,8 +6,10 @@ import { z } from 'zod';
 export const CameraShotTypeSchema = z.enum([
   'extreme_close_up', // 面部微距特写 (眼眸、微表情)
   'close_up',         // 半身特写 (肩膀以上，标准独白机位)
+  'medium_close_up',  // 中近景 (胸口以上、比 medium 更紧，抓拍反应镜头)
   'medium',           // 中景 (胸部以上，默认交互交流景)
   'full',             // 全身大景 (展示服饰、步态与环境)
+  'wide',             // 远景 (全身 + 大量环境留白，开场 / 空间展示)
   'dramatic_low',     // 仰角低机位 (地平线压低，庄严或向阳感)
 ]);
 export type CameraShotType = z.infer<typeof CameraShotTypeSchema>;
@@ -56,6 +58,8 @@ export const EmotionBaseSchema = z.enum([
   'surprised',   // 惊讶一怔
   'sad_longing', // 忧伤期盼
   'playful',     // 俏皮灵动
+  'happy',       // 开心舒畅
+  'angry',       // 生气 / 嫌弃 (傲娇的可爱小脾气)
 ]);
 export type EmotionBase = z.infer<typeof EmotionBaseSchema>;
 
@@ -125,6 +129,11 @@ const buildCinematicsSchema = <T extends z.ZodTypeAny>(text: T) =>
     transition: z.enum(['none', 'fade_to_black', 'white_flash', 'eye_blink']).optional().default('none'),
     /** 后期调色预设 (粘性：写了才改变，`default` 复位；剧终自动复位) */
     grading: z.enum(['default', 'sepia_memory', 'rainy_noir', 'dream_bloom']).optional().default('default'),
+    /**
+     * 环境风力 0~3 (粘性：写了才改变；剧终复位)。0 = 无风，1 = 微风，2 = 清风，3 = 海风。
+     * 与镜头的 windMultiplier (运镜期间的阵风) 叠加，取两者较大值。
+     */
+    wind: z.number().min(0).max(3).optional(),
   });
 
 export const CinematicsDirectiveSchema = buildCinematicsSchema(z.string());
@@ -141,6 +150,8 @@ const buildActorSchema = <T extends z.ZodTypeAny>(speech: T) =>
     leadInMotion: z.string().optional(),
     /** 发音期间的主干动作 (VRMA 动作 key 或空由 EMAGE 接管) */
     motion: z.string().optional(),
+    /** 朝向：back = 背对镜头 (瞬间就位)，front = 迈步转身面向镜头 (bodyTurn 踏步) */
+    facing: z.enum(['front', 'back']).optional(),
     /** 面部活体表情 */
     expression: ExpressionDirectiveSchema.default({
       base: 'gentle_smile',
@@ -216,6 +227,12 @@ const buildChoiceSchema = <T extends z.ZodTypeAny>(text: T) =>
     actionPayload: z.any().optional(),
     nextBeatId: z.string().optional(),
     selected: z.boolean().optional(),
+    /** 选了这张卡之后，本拍的后续拍可按 `variants[branch]` 改写 (场景 / 调色 / 风力 / BGM / 音效等) */
+    branch: z.string().optional(),
+    /** 剧本场景别名 (lineart_day / lineart_night / beach)；在下一拍的转场遮罩下切换 */
+    scene: z.string().optional(),
+    /** 切到支持时间的场景 (如 beach) 之前先把环境时间设到这个小时 */
+    sceneHour: z.number().min(0).max(24).optional(),
   });
 
 export const StoryChoiceSchema = buildChoiceSchema(z.string());
@@ -244,6 +261,45 @@ const buildBeatSchema = <T extends z.ZodTypeAny>(text: T) => {
     autoNextBeatId: z.string().optional(),
     /** 说完后的停顿毫秒 (留白 / 呼吸感)，默认 600；TTS 不可用时会按字数补足最短阅读时间 */
     autoNextDelayMs: z.number().min(0).max(30000).optional(),
+    /** 台词说完 + autoNextDelayMs 后结束整段剧情 (镜头平滑回到默认视角，交还自由聊天) */
+    autoFinish: z.boolean().optional(),
+    /** 屏幕提示 (非角色、不朗读、不进对白回顾)：告诉用户“现在可以做什么” */
+    hint: text.optional(),
+    /** 进入本拍时切换到的场景 (剧本别名 lineart_day / lineart_night / beach，或真实场景 id)，在转场遮罩下切换 */
+    scene: z.string().optional(),
+    /**
+     * 镜头任务推进：台词说完后检测用户把视角旋转累计 ≥ orbitDeg 度，或缩放变化 ≥ zoomRatio (比例)，达成即进入 nextBeatId；
+     * 超过 timeoutMs 仍未完成 → 兜底：镜头 / 表情 / 动作 + 一句兜底台词，说完自动进入 nextBeatId。
+     */
+    cameraTask: z.object({
+      orbitDeg: z.number().min(1).default(35),
+      zoomRatio: z.number().min(0.01).default(0.2),
+      timeoutMs: z.number().min(500).default(6000),
+      nextBeatId: z.string(),
+      fallback: z.object({
+        camera: CameraDirectiveSchema.optional(),
+        motion: z.string().optional(),
+        expression: ExpressionDirectiveSchema.optional(),
+        speechText: text,
+        /** 兜底台词说完后的停顿 (ms) */
+        afterMs: z.number().min(0).default(600),
+      }),
+    }).optional(),
+    /**
+     * 输入推进：用户发送任意文字 / 语音后，播放固定回复 (无需 LLM)，再进入 nextBeatId。需同时 allowInput。
+     */
+    inputReply: z.object({
+      speechText: text,
+      expression: ExpressionDirectiveSchema.optional(),
+      camera: CameraDirectiveSchema.optional(),
+      motion: z.string().optional(),
+      nextBeatId: z.string(),
+      afterMs: z.number().min(0).default(500),
+    }).optional(),
+    /**
+     * 按 choice.branch 改写本拍：`variants[branch]` 是本拍的一个局部覆盖 (cinematics / camera / audio / actor / hint / scene 等逐层合并)。
+     */
+    variants: z.record(z.string(), z.any()).optional(),
   });
 };
 
@@ -262,6 +318,8 @@ export const StoryScriptSchema = z.object({
   title: LocalizedTextSchema,
   description: LocalizedTextSchema.optional(),
   initialBeatId: z.string(),
+  /** 'browser'：开场语言取浏览器语言 (zh / en / ja，其余回退 en)；缺省沿用 UI 语言 */
+  startLang: z.enum(['browser']).optional(),
   beats: z.record(z.string(), LocalizedStoryBeatSchema),
 });
 export type StoryScript = z.input<typeof StoryScriptSchema>;

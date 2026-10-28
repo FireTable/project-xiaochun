@@ -110,6 +110,9 @@ export class WindForceController {
   // 环境阵风：目标倍率 (1 = 无风) 与平滑后的当前倍率；阵风相位计时
   private _gustTarget = 1;
   private _gustCurrent = 1;
+  // 镜头阵风 / 剧情环境风分别记录，目标倍率取较大者
+  private _directorGust = 1;
+  private _ambientGust = 1;
   private _gustPhase = 0;
   private readonly _gustDir = new THREE.Vector3();
 
@@ -131,7 +134,18 @@ export class WindForceController {
    * 由 CameraDirector 在 windMultiplier 运镜期间设置，运镜结束 / 被打断时复位为 1，当前值约 1 秒内平滑回落。
    */
   public setGustMultiplier(mult: number): void {
-    this._gustTarget = Number.isFinite(mult) ? Math.max(1, Math.min(4, mult)) : 1;
+    this._directorGust = Number.isFinite(mult) ? Math.max(1, Math.min(4, mult)) : 1;
+    this._gustTarget = Math.max(this._directorGust, this._ambientGust);
+  }
+
+  /**
+   * 剧情环境风力等级 0~3 (0 = 无风, 1 = 微风, 2 = 清风, 3 = 海风) → 阵风倍率 1 + 0.5 × 等级。
+   * 和运镜 windMultiplier 互不覆盖 (取较大者)，运镜结束复位为 1 时环境风仍保持。
+   */
+  public setAmbientWindLevel(level: number): void {
+    const l = Number.isFinite(level) ? Math.max(0, Math.min(3, level)) : 0;
+    this._ambientGust = 1 + 0.5 * l;
+    this._gustTarget = Math.max(this._directorGust, this._ambientGust);
   }
 
   /** 当前 (平滑后的) 阵风倍率，仅供测试与调试 */

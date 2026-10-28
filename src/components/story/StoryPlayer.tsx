@@ -166,6 +166,9 @@ export const StoryPlayer: React.FC<StoryPlayerProps> = ({
       const trimmed = text.trim();
       if (!trimmed || isGenerating) return;
 
+      // 剧本里带 inputReply 的拍：任意一句话 (文字 / 语音转写) 都得到固定回复再进下一拍，不走 LLM
+      if (await storyDirectorEngine.submitScriptedInput(trimmed)) return;
+
       setIsGenerating(true);
 
       const wasSpeaking = storyState.isSpeaking;
@@ -427,6 +430,18 @@ export const StoryPlayer: React.FC<StoryPlayerProps> = ({
         grading={storyState.grading}
         onSkipIntertitle={() => storyDirectorEngine.skipIntertitle()}
       />
+
+      {/* 屏幕提示 (hint)：告诉用户“现在可以做什么”，不朗读、不进对白回顾；黑幕字卡期间由遮罩自己显示 */}
+      {currentBeat?.hint && !storyState.isIntertitleActive && (
+        <div
+          key={currentBeat.id}
+          className="pointer-events-none fixed top-14 sm:top-16 inset-x-0 z-40 flex justify-center px-4 animate-in fade-in slide-in-from-top-1 duration-500"
+        >
+          <span className="px-3.5 py-1.5 rounded-full bg-[#0b0e1b]/70 backdrop-blur-xl border border-white/15 text-white/90 text-xs sm:text-sm tracking-wide shadow-lg">
+            {currentBeat.hint}
+          </span>
+        </div>
+      )}
 
       {/* 2. 顶部微拟态控制面板 (Top HUD) */}
       <div className="pointer-events-auto fixed top-3 inset-x-4 sm:top-3.5 sm:inset-x-8 z-40 flex items-center justify-between">

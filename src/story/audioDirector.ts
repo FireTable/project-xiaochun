@@ -58,10 +58,23 @@ export const BGM_MOOD_ALIASES: Record<string, string> = {
   cinematic_epic: 'lights_on',
   melancholy_piano: 'longing',
   mysterious_ambient: 'void_drone',
+  // 剧本里的情绪名: calm 平静 / bright 明亮 / mystic 神秘
+  calm: 'dusk_warm',
+  bright: 'lights_on',
+  mystic: 'void_drone',
 };
 
 export const AMBIENCE_IDS = ['sea_waves', 'wind'] as const;
-export const SFX_IDS = ['crystal_chime', 'heartbeat_pulse', 'camera_shutter', 'whoosh', 'bell', 'soft_tap'] as const;
+export const SFX_IDS = ['crystal_chime', 'heartbeat_pulse', 'camera_shutter', 'whoosh', 'bell', 'soft_tap', 'wind_gust', 'wave_wash'] as const;
+
+/** 剧本里的短名 → 程序化音效 id */
+export const SFX_ALIASES: Record<string, string> = {
+  crystal: 'crystal_chime',
+  heartbeat: 'heartbeat_pulse',
+  shutter: 'camera_shutter',
+  wind: 'wind_gust',
+  waves: 'wave_wash',
+};
 
 const midiToFreq = (m: number): number => 440 * Math.pow(2, (m - 69) / 12);
 
@@ -638,7 +651,8 @@ export class StoryAudioDirector {
   /**
    * 播放拟音 (原生高保真合成与回退，保证零网络也能发出纯净音效)
    */
-  public playSfx(id: string, volume = 0.8): void {
+  public playSfx(rawId: string, volume = 0.8): void {
+    const id = SFX_ALIASES[rawId] ?? rawId;
     this.init();
     if (typeof window === 'undefined') return;
 
@@ -775,6 +789,45 @@ export class StoryAudioDirector {
           osc.start(now);
           osc.stop(now + 3.3);
         });
+      } else if (id === 'wind_gust') {
+        // 一阵风：带通噪声缓慢起伏 (慢起 → 缓落，约 1.8 秒)
+        const now = ctx.currentTime;
+        const src = ctx.createBufferSource();
+        src.buffer = this.getNoiseBuffer(ctx);
+        const filter = ctx.createBiquadFilter();
+        filter.type = 'bandpass';
+        filter.Q.value = 0.8;
+        filter.frequency.setValueAtTime(420, now);
+        filter.frequency.linearRampToValueAtTime(900, now + 0.9);
+        filter.frequency.linearRampToValueAtTime(380, now + 1.9);
+        const gain = ctx.createGain();
+        gain.gain.setValueAtTime(0.0001, now);
+        gain.gain.linearRampToValueAtTime(volume * 0.45, now + 0.8);
+        gain.gain.exponentialRampToValueAtTime(0.0001, now + 1.9);
+        src.connect(filter);
+        filter.connect(gain);
+        gain.connect(ctx.destination);
+        src.start(now);
+        src.stop(now + 2.0);
+      } else if (id === 'wave_wash') {
+        // 一道浪：低通噪声涨潮 → 退去 (约 2.6 秒)
+        const now = ctx.currentTime;
+        const src = ctx.createBufferSource();
+        src.buffer = this.getNoiseBuffer(ctx);
+        const filter = ctx.createBiquadFilter();
+        filter.type = 'lowpass';
+        filter.frequency.setValueAtTime(500, now);
+        filter.frequency.linearRampToValueAtTime(1500, now + 1.2);
+        filter.frequency.linearRampToValueAtTime(300, now + 2.6);
+        const gain = ctx.createGain();
+        gain.gain.setValueAtTime(0.0001, now);
+        gain.gain.linearRampToValueAtTime(volume * 0.5, now + 1.1);
+        gain.gain.exponentialRampToValueAtTime(0.0001, now + 2.6);
+        src.connect(filter);
+        filter.connect(gain);
+        gain.connect(ctx.destination);
+        src.start(now);
+        src.stop(now + 2.7);
       } else if (id === 'soft_tap') {
         // 轻点：短促的木质“嗒”，给“你点了一下”的即时反馈
         const now = ctx.currentTime;

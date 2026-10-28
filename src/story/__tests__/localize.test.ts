@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { normalizeStoryLang, resolveBeat, resolveLocalized } from '../localize';
+import { applyVariant, detectBrowserStoryLang, normalizeStoryLang, resolveBeat, resolveLocalized } from '../localize';
 import { LocalizedStoryBeatSchema, StoryBeatSchema } from '../schema';
 
 describe('story i18n resolution', () => {
@@ -61,5 +61,46 @@ describe('story i18n resolution', () => {
       'ja',
     );
     expect(beat.choices?.[0].actionPayload).toBe(fn);
+  });
+
+  it('detects the browser language (zh / en / ja), falling back to en — unlike normalizeStoryLang, which falls back to zh', () => {
+    expect(detectBrowserStoryLang(['ja-JP', 'en-US'])).toBe('ja');
+    expect(detectBrowserStoryLang(['zh-TW'])).toBe('zh-CN');
+    expect(detectBrowserStoryLang(['en-GB'])).toBe('en');
+    expect(detectBrowserStoryLang(['fr-FR', 'de'])).toBe('en');
+    expect(detectBrowserStoryLang(['fr-FR', 'ja'])).toBe('ja'); // 取偏好列表里第一个支持的
+    expect(detectBrowserStoryLang([])).toBe('en');
+  });
+
+  it('merges a branch variant over the base beat without mutating it', () => {
+    const base = LocalizedStoryBeatSchema.parse({
+      id: 'b',
+      cinematics: { transition: 'white_flash', grading: 'default', wind: 3 },
+      audio: { bgmMood: 'bright', sfx: [{ id: 'waves' }] },
+      actor: { speechText: 'line' },
+      variants: { night: { cinematics: { grading: 'rainy_noir', wind: 2 }, audio: { bgmMood: 'mystic', sfx: [{ id: 'bell' }] } } },
+    });
+    const night = applyVariant(base, 'night');
+    expect(night.cinematics).toMatchObject({ transition: 'white_flash', grading: 'rainy_noir', wind: 2 });
+    expect(night.audio).toMatchObject({ bgmMood: 'mystic', sfx: [{ id: 'bell' }] });
+    expect(night.actor).toEqual(base.actor);
+    expect(base.cinematics).toMatchObject({ grading: 'default', wind: 3 });
+    expect(applyVariant(base, 'beach')).toBe(base);
+    expect(applyVariant(base, null)).toBe(base);
+  });
+
+  it('resolves hint, camera-task fallback and input reply text in the story language', () => {
+    const beat = LocalizedStoryBeatSchema.parse({
+      id: 'b',
+      hint: { 'zh-CN': '环绕观察', en: 'Orbit', ja: '回す' },
+      actor: { speechText: 'x' },
+      cameraTask: { nextBeatId: 'n', fallback: { speechText: { 'zh-CN': '兜底', en: 'fallback', ja: 'フォールバック' } } },
+      inputReply: { nextBeatId: 'n', speechText: { 'zh-CN': '回复', en: 'reply', ja: '返事' } },
+    });
+    const ja = resolveBeat(beat, 'ja');
+    expect(ja.hint).toBe('回す');
+    expect(ja.cameraTask?.fallback.speechText).toBe('フォールバック');
+    expect(ja.cameraTask).toMatchObject({ orbitDeg: 35, zoomRatio: 0.2, timeoutMs: 6000 });
+    expect(resolveBeat(beat, 'en').inputReply?.speechText).toBe('reply');
   });
 });

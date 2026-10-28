@@ -46,7 +46,7 @@ function makeCtx() {
   };
 }
 
-import { StoryAudioDirector, BGM_MOODS, SFX_IDS } from '../audioDirector';
+import { StoryAudioDirector, BGM_MOODS, BGM_MOOD_ALIASES, SFX_IDS, SFX_ALIASES } from '../audioDirector';
 
 describe('StoryAudioDirector (procedural BGM, ambience, ducking)', () => {
   let d: StoryAudioDirector;
@@ -160,5 +160,15 @@ describe('StoryAudioDirector (procedural BGM, ambience, ducking)', () => {
     d.stopAll(0);
     expect(d.getState().bgm).toBeNull();
     expect(d.getState().ambience).toBeNull();
+  });
+
+  it('accepts the script short names for sfx and moods (aliases)', async () => {
+    const spy = vi.spyOn(d, 'playSfx');
+    for (const [alias, id] of Object.entries(SFX_ALIASES)) {
+      expect(SFX_IDS as readonly string[]).toContain(id);
+      expect(() => d.playSfx(alias)).not.toThrow();
+    }
+    expect(spy).toHaveBeenCalledWith('wind');
+    for (const mood of ['calm', 'bright', 'mystic']) expect(Object.keys(BGM_MOODS)).toContain(BGM_MOOD_ALIASES[mood]);
   });
 });

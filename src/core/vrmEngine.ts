@@ -302,6 +302,25 @@ export class VRMEngine {
     return this.controls;
   }
 
+  /**
+   * 剧情镜头任务用的视角采样: 相机方位角 / 俯仰角 (rad)、角色朝向偏移 (bodyTurn, rad)、视距 (m)。
+   * 水平拖拽在本应用里是转动角色 (targetYawOffset)，所以“视角旋转”要把它和相机方位一起算。
+   */
+  public getViewSample(): { azimuth: number; polar: number; yaw: number; distance: number } | null {
+    if (!this.controls) return null;
+    return {
+      azimuth: this.controls.getAzimuthalAngle(),
+      polar: this.controls.getPolarAngle(),
+      yaw: this.motionPipeline.targetYawOffset,
+      distance: this.getDesiredCameraDistance(),
+    };
+  }
+
+  /** 剧情环境风力 0~3 (0 = 无风)，叠加在运镜阵风之上 (取较大者)。剧终传 0 复位。 */
+  public setStoryWind(level: number): void {
+    this.windForce.setAmbientWindLevel(level);
+  }
+
   public getCamera(): THREE.PerspectiveCamera | null {
     return this.camera;
   }

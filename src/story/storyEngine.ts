@@ -16,7 +16,9 @@ import type {
   GradingPreset,
   TransitionKind,
 } from './schema';
-import { normalizeStoryLang, resolveBeat, resolveLocalized } from './localize';
+import { applyVariant, detectBrowserStoryLang, normalizeStoryLang, resolveBeat, resolveLocalized } from './localize';
+import { resolveStoryScene } from './scenes';
+import { ViewTaskTracker } from './viewTask';
 import { TRANSITION_SPECS } from './transitions';
 import type { ViewPrefsSnapshot } from '@/core/viewPrefs';
 
@@ -50,6 +52,9 @@ export interface StoryState {
 
 export type StoryStateListener = (state: StoryState) => void;
 
+/** 镜头任务的视角采样间隔 (ms) */
+const CAMERA_TASK_POLL_MS = 100;
+
 const HISTORY_TEXT: Record<StoryLang, { outfit: (name: string) => string; scene: (name: string) => string }> = {
   'zh-CN': { outfit: (n) => `换上「${n}」`, scene: (n) => `前往「${n}」` },
   en: { outfit: (n) => `Put on "${n}"`, scene: (n) => `Go to "${n}"` },
@@ -70,6 +75,12 @@ export class StoryDirectorEngine {
   private executionSequence = 0;
   private i18nInstance: I18nInstance | null = null;
   private storyLang: StoryLang | null = null;
+  /** 最近一次带 branch 的选项 (本剧本内粘性)，决定后续拍用哪份 variants */
+  private branch: string | null = null;
+  /** 本拍的 inputReply 已经被用掉 (一次输入只推进一次) */
+  private inputReplyConsumed = false;
+  /** 叫醒拍把模型藏起来了：由紧接着的下一拍在遮罩下露出 */
+  private modelHiddenForWake = false;
   private listeners = new Set<StoryStateListener>();
   private revealTimer: ReturnType<typeof setTimeout> | null = null;
   private wakeAutoNext: (() => void) | null = null;
@@ -220,7 +231,9 @@ export class StoryDirectorEngine {
     vrmEngine.cancelViewReturn();
     if (!this.state.isActive || !this.viewPrefs) this.viewPrefs = vrmEngine.captureViewPrefs();
     this.isInterrupted = false;
-    this.storyLang = null;
+    this.storyLang = script.startLang === 'browser' ? detectBrowserStoryLang() : null;
+    this.branch = null;
+    this.inputReplyConsumed = false;
     this.clearRevealTimer();
 
     const beatKeys = Object.keys(script.beats);
@@ -247,7 +260,8 @@ export class StoryDirectorEngine {
    * 跳转并执行指定的情节点 (Beat)
    */
   public async goToBeat(beatId: string): Promise<void> {
-    const rawBeat: LocalizedStoryBeat | undefined = this.currentScript?.beats[beatId];
+    const baseBeat: LocalizedStoryBeat | undefined = this.currentScript?.beats[beatId];
+    const rawBeat: LocalizedStoryBeat | undefined = baseBeat ? applyVariant(baseBeat, this.branch) : undefined;
     if (!this.currentScript || !rawBeat) {
       console.warn(`[StoryEngine] Beat not found: ${beatId}`);
       this.revealNow();
@@ -260,6 +274,7 @@ export class StoryDirectorEngine {
     this.isInterrupted = false;
     this.wakeAutoNext?.();
     storyAudioDirector.cancelPendingSfx();
+    this.inputReplyConsumed = false;
 
     // 按当前语言解析本拍所有文本 (getter 在这里求值)
     const lang = this.getLang();
@@ -320,12 +335,34 @@ export class StoryDirectorEngine {
     vrmEngine.stopMotion(0.4);
     vrmEngine.bubbleTracker.hide();
 
+    // 本拍的场景 / 环境风：和转场遮罩同步，场景切换发生在遮罩之下
+    if (beat.scene) {
+      await this.applyScene(beat.scene);
+      if (this.executionSequence !== seq) return;
+    }
+    if (beat.cinematics?.wind !== undefined) {
+      vrmEngine.setStoryWind(beat.cinematics.wind);
+    }
+    // 序章“叫醒”拍之后的第一拍：模型在黑幕 / 遮罩下才露出来 (叫醒拍里模型一直是隐藏的)
+    if (this.modelHiddenForWake && vrmEngine.currentVRM) {
+      vrmEngine.currentVRM.scene.visible = true;
+      vrmEngine.settleSpringBones(vrmEngine.currentVRM);
+      this.modelHiddenForWake = false;
+    }
+    if (beat.actor.facing === 'back') {
+      vrmEngine.setFacingBackwards();
+    } else if (beat.actor.facing === 'front') {
+      vrmEngine.triggerBodyTurnToFront();
+    }
+
     // 🌟 序章初见演出准备：黑幕文字界面保持空灵纯黑，角色模型暂隐，镜头保持在常规远景，绝不在未唤醒前过早聚焦
     if (beat.id === 'beat_greet') {
       if (vrmEngine.currentVRM) {
         vrmEngine.currentVRM.scene.visible = false;
         // 关键时序优化：在黑幕阶段提前就位 180 度背对朝向并触发两阶段物理碰撞松弛
         vrmEngine.setFacingBackwards();
+        // 叫醒拍如果带 autoNextBeatId (只是“点一下唤醒”)：模型留到下一拍的转场遮罩下再露出
+        this.modelHiddenForWake = Boolean(beat.autoNextBeatId);
       }
     }
 
@@ -358,13 +395,20 @@ export class StoryDirectorEngine {
       });
 
       if (this.executionSequence !== seq) return;
+      // 只是“点一下唤醒”的叫醒拍：先用下一拍的转场把画面盖住 (黑幕 → 睁眼遮罩无缝衔接)，再撤掉黑幕字卡
+      if (beat.id === 'beat_greet' && beat.autoNextBeatId) {
+        const nextTransition: TransitionKind = this.currentScript.beats[beat.autoNextBeatId]?.cinematics?.transition ?? 'none';
+        await this.coverFor(nextTransition);
+        if (this.executionSequence !== seq) return;
+      }
       this.state.isIntertitleActive = false;
       storyAudioDirector.setMuffle(false);
       this.notify();
     }
 
-    // 🌟 序章专属电影级运镜与转身演出
-    if (beat.id === 'beat_greet') {
+    // 🌟 序章专属电影级运镜与转身演出 (叫醒拍带 autoNextBeatId 时不做：镜头与转身由后续拍自己编排)
+    let cameraDone: Promise<void> = Promise.resolve();
+    if (beat.id === 'beat_greet' && !beat.autoNextBeatId) {
       // 唤醒瞬间：在纯黑转场中恢复模型可见、执行两阶段碰撞松弛与动能归零，并就位裙摆优雅视高
       if (vrmEngine.currentVRM) {
         vrmEngine.currentVRM.scene.visible = true;
@@ -395,7 +439,7 @@ export class StoryDirectorEngine {
     } else {
       // 2. 常规镜头调度 (防崩保护与异步推演)
       if (beat.camera) {
-        void cameraDirector.transitionTo(beat.camera).catch((err) => {
+        cameraDone = cameraDirector.transitionTo(beat.camera).catch((err) => {
           console.warn('[StoryEngine] cameraDirector error:', err);
         });
       }
@@ -484,9 +528,20 @@ export class StoryDirectorEngine {
       storyAudioDirector.playSfx('crystal_chime');
     }
 
+    // ── 阶段五 (a): 镜头任务 / 输入推进 ──
+    if (beat.cameraTask) {
+      await this.runCameraTask(beat, seq, cameraDone);
+      return;
+    }
+    if (beat.inputReply) {
+      // 等用户说 / 打一句话：submitScriptedInput 接手后面的一切
+      storyAudioDirector.restoreBgmDucking();
+      return;
+    }
+
     // ── 阶段五: 自动推进 (autoNext) ──
-    // 一拍说完 (或无台词的纯演出拍演完) 后，不需要点击就进入下一拍。
-    if (beat.autoNextBeatId && !(beat.choices && beat.choices.length > 0)) {
+    // 一拍说完 (或无台词的纯演出拍演完) 后，不需要点击就进入下一拍 (autoFinish = 说完就结束整段剧情)。
+    if ((beat.autoNextBeatId || beat.autoFinish) && !(beat.choices && beat.choices.length > 0)) {
       const nextId = beat.autoNextBeatId;
       const pause = beat.autoNextDelayMs ?? 600;
       // TTS 不可用 / 失败 / 静音时，说话几乎瞬间返回：按字数补足最短阅读时间，字幕不会一闪而过
@@ -505,7 +560,11 @@ export class StoryDirectorEngine {
       if (pause >= 1500) storyAudioDirector.restoreBgmDucking();
       if (wait > 0) await this.waitInterruptible(wait);
       if (this.executionSequence !== seq || this.isInterrupted) return;
-      if (!this.currentScript?.beats[nextId]) {
+      if (beat.autoFinish) {
+        this.finish();
+        return;
+      }
+      if (!nextId || !this.currentScript?.beats[nextId]) {
         console.warn(`[StoryEngine] autoNextBeatId not found: ${nextId}`);
         storyAudioDirector.restoreBgmDucking();
         return;
@@ -516,6 +575,127 @@ export class StoryDirectorEngine {
     }
 
     storyAudioDirector.restoreBgmDucking();
+  }
+
+  // ───────────────────────── 场景 / 镜头任务 / 输入推进 ─────────────────────────
+
+  /** 切到剧本场景 (别名或真实 id)，已经在该场景就什么也不做 */
+  private async applyScene(name: string, persist = false): Promise<void> {
+    const id = resolveStoryScene(name);
+    if (sceneManager.getCurrentSceneId() === id) return;
+    await sceneManager.setScene(id, persist);
+  }
+
+  /**
+   * 演一句即兴台词 (镜头任务兜底 / 输入回复)：镜头 + 表情 + 动作 + 一次 TTS，说完 (或补足最短阅读时间) 才返回。
+   * 返回 false = 中途被新的一拍 / 结束打断。
+   */
+  private async performLine(
+    line: { speechText: string; camera?: StoryBeat['camera']; expression?: StoryBeat['actor']['expression']; motion?: string },
+    historyId: string,
+    seq: number,
+  ): Promise<boolean> {
+    const text = line.speechText.trim();
+    this.state.isSpeaking = text.length > 0;
+    if (text) {
+      this.state.history.push({ id: historyId, role: 'xiaochun', text, timestamp: Date.now() });
+    }
+    this.notify();
+    if (line.camera) {
+      void cameraDirector.transitionTo(line.camera).catch((err) => console.warn('[StoryEngine] cameraDirector error:', err));
+    }
+    if (line.expression) expressionController.setDirective(line.expression);
+    if (line.motion) {
+      void vrmEngine.playMotion(line.motion, { fadeDuration: 0.6, loop: false });
+    }
+    if (text) {
+      storyAudioDirector.duckBgm();
+      const startedAt = Date.now();
+      let heard = false;
+      try {
+        await vrmEngine.speakText(text);
+        heard = true;
+      } catch (e) {
+        console.warn('[StoryEngine] speakText error:', e);
+      }
+      if (this.executionSequence !== seq) return false;
+      const spoken = Date.now() - startedAt;
+      const need = heard && spoken > 800 ? 0 : minReadMs(text) - spoken;
+      if (need > 0) await this.sleep(need);
+    }
+    if (this.executionSequence !== seq) return false;
+    this.state.isSpeaking = false;
+    this.notify();
+    storyAudioDirector.restoreBgmDucking();
+    return true;
+  }
+
+  /** 镜头任务：等用户把视角转够 / 缩放够就进下一拍；超时则演兜底台词再自动进下一拍 */
+  private async runCameraTask(beat: StoryBeat, seq: number, cameraDone: Promise<void>): Promise<void> {
+    const task = beat.cameraTask;
+    if (!task) return;
+    storyAudioDirector.restoreBgmDucking();
+    // 导演自己的运镜 (含荷兰角) 结束之后才开始计量，免得把它算成用户的操作
+    await cameraDone;
+    if (this.executionSequence !== seq) return;
+
+    const tracker = new ViewTaskTracker(task.orbitDeg ?? 35, task.zoomRatio ?? 0.2);
+    const first = vrmEngine.getViewSample();
+    if (first) tracker.begin(first);
+    const startedAt = Date.now();
+    let completed = false;
+    for (;;) {
+      await this.sleep(CAMERA_TASK_POLL_MS);
+      if (this.executionSequence !== seq) return;
+      const sample = vrmEngine.getViewSample();
+      if (sample && tracker.update(sample).done) {
+        completed = true;
+        break;
+      }
+      if (Date.now() - startedAt >= (task.timeoutMs ?? 6000)) break;
+    }
+
+    if (!completed) {
+      const fb = task.fallback;
+      const ok = await this.performLine(
+        { speechText: fb.speechText, camera: fb.camera, expression: fb.expression, motion: fb.motion },
+        `${beat.id}_fallback`,
+        seq,
+      );
+      if (!ok) return;
+      await this.sleep(fb.afterMs ?? 600);
+      if (this.executionSequence !== seq) return;
+    }
+    void this.goToBeat(task.nextBeatId).catch((err) => console.warn('[StoryEngine] cameraTask next error:', err));
+  }
+
+  /**
+   * 输入推进：当前拍带 inputReply 时，用户发的任意文字 / 语音转写直接得到那句固定回复 (不走 LLM)，然后进入下一拍。
+   * 返回 true = 已接管这次输入，调用方不要再交给 LLM。
+   */
+  public async submitScriptedInput(text: string): Promise<boolean> {
+    const beat = this.state.currentBeat;
+    const reply = beat?.inputReply;
+    const trimmed = text.trim();
+    if (!this.state.isActive || !beat || !reply || !trimmed || this.inputReplyConsumed) return false;
+    this.inputReplyConsumed = true;
+
+    if (this.state.isSpeaking) this.interrupt();
+    const seq = ++this.executionSequence;
+    this.isInterrupted = false;
+    this.state.history.push({ id: `${beat.id}_user_${Date.now()}`, role: 'user', text: trimmed, timestamp: Date.now() });
+    this.notify();
+
+    const ok = await this.performLine(
+      { speechText: reply.speechText, camera: reply.camera, expression: reply.expression, motion: reply.motion },
+      `${beat.id}_reply`,
+      seq,
+    );
+    if (!ok) return true;
+    await this.sleep(reply.afterMs ?? 500);
+    if (this.executionSequence !== seq) return true;
+    void this.goToBeat(reply.nextBeatId).catch((err) => console.warn('[StoryEngine] inputReply next error:', err));
+    return true;
   }
 
   /** 给选项加上“当前已选”高亮 (换装 / 场景 / 语言) */
@@ -636,6 +816,12 @@ export class StoryDirectorEngine {
     const advances = choice.actionType !== 'finish' && choice.actionType !== 'open_provider_config' && !isPreviewAction;
     if (advances && nextTransition !== 'none') {
       await this.coverFor(nextTransition);
+    }
+
+    if (choice.branch) this.branch = choice.branch;
+    if (choice.scene && advances) {
+      if (choice.sceneHour !== undefined) vrmEngine.setEnvironmentTime(choice.sceneHour);
+      await this.applyScene(choice.scene, true);
     }
 
     if (choice.actionType === 'change_lang' && choice.actionPayload) {
@@ -762,6 +948,9 @@ export class StoryDirectorEngine {
       this.viewPrefs = null;
     }
     void vrmEngine.returnToDefaultView();
+    vrmEngine.setStoryWind(0);
+    this.branch = null;
+    this.modelHiddenForWake = false;
     expressionController.setActive(false);
     this.state = {
       ...this.state,

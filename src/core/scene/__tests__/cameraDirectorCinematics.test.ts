@@ -149,4 +149,17 @@ describe('CameraDirector cinematic movements (wind, dutch_tilt, hero_backlight_r
       expect(camera.fov).toBe(30);
     });
   });
+
+  it('has presets for the new wide and medium_close_up shots, ordered by how tight they are', async () => {
+    const { SHOT_PRESETS } = await import('../cameraDirector');
+    expect(SHOT_PRESETS.wide.distance).toBeGreaterThan(SHOT_PRESETS.full.distance);
+    expect(SHOT_PRESETS.medium_close_up.distance).toBeGreaterThan(SHOT_PRESETS.close_up.distance);
+    expect(SHOT_PRESETS.medium_close_up.distance).toBeLessThan(SHOT_PRESETS.medium.distance);
+    for (const shot of ['wide', 'medium_close_up'] as const) {
+      const p = director.transitionTo({ shot, movement: 'none', durationSec: 0.3, easing: 'linear' });
+      vi.advanceTimersByTime(500);
+      await p;
+      expect(camera.position.distanceTo(controls.target)).toBeCloseTo(SHOT_PRESETS[shot].distance, 1);
+    }
+  });
 });
