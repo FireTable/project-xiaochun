@@ -66,6 +66,7 @@ export class InteractionController {
   private context: InteractionContext | null = null;
 
   // 3D 空间导引
+  public guidesEnabled = true;
   private turnGuide3D = new TurnGuide3D();
   private pitchGuide3D = new PitchGuide3D();
   private cameraYGuide3D = new CameraYGuide3D();
@@ -192,6 +193,15 @@ export class InteractionController {
     cameraYOffset: number,
     _camera?: Camera,
   ): void {
+    if (!this.guidesEnabled) {
+      this.turnGuide3D.group.visible = false;
+      this.pitchGuide3D.group.visible = false;
+      this.cameraYGuide3D.group.visible = false;
+      this.lastDragDx = 0;
+      this.lastDragDy = 0;
+      return;
+    }
+
     // 1. 腰间转身光环
     const turnAngle = this.context?.motionPipeline.targetYawOffset ?? 0;
     this.turnGuide3D.update(

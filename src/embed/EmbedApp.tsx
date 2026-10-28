@@ -60,6 +60,7 @@ export const EmbedApp: React.FC = () => {
     for (const w of params.cameraWarnings) console.warn(`[xiaochun] ${w}`);
     vrmEngine.setCameraConfig(params.camera); // 相机选项 (?cameraFov= 等): 模型加载前设置, 首次取景 / 推镜头直接按它来
     document.documentElement.classList.add('xc-embed');
+    vrmEngine.interaction.guidesEnabled = false; // /embed 环境隐藏腰部转身光环与相机高度尺导轨
 
     // ── 引擎绑定 (与 App.tsx 同款: i18n / system prompt) ──
     vrmEngine.resumeRendering();
@@ -106,6 +107,7 @@ export const EmbedApp: React.FC = () => {
     }, 120);
 
     return () => {
+      vrmEngine.interaction.guidesEnabled = true;
       clearTimeout(timer);
       unsubSettings();
       vrmEngine.onLoadingChange = undefined;
