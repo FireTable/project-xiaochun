@@ -3,12 +3,14 @@ import { useTranslation } from 'react-i18next';
 import {
   X,
   CornerDownLeft,
+  ChevronDown,
+  ChevronUp,
 } from 'lucide-react';
 import { StoryCinematicOverlay } from './StoryCinematicOverlay';
 import { StoryChoiceGroup } from './StoryChoiceGroup';
 import { StoryChoiceCard } from './StoryChoiceCard';
 import { StoryCameraTaskCard } from './StoryCameraTaskCard';
-import { StoryRecapCard } from './StoryRecapCard';
+import { HeadBubble } from '@/components/HeadBubble';
 import { ProviderConfigDialog } from '@/components/ProviderConfigDialog';
 import { storyDirectorEngine, type StoryState } from '@/story/storyEngine';
 import { storyGenerator } from '@/story/storyGenerator';
@@ -30,6 +32,7 @@ export const StoryPlayer: React.FC<StoryPlayerProps> = ({
   const [isGenerating, setIsGenerating] = useState(false);
   const [isProviderConfigOpen, setIsProviderConfigOpen] = useState(false);
   const [cameraTasksDone, setCameraTasksDone] = useState(false);
+  const [isHistoryExpanded, setIsHistoryExpanded] = useState(false);
   const inputRef = useRef<HTMLInputElement>(null);
   const hasStartedRef = useRef(false);
 
@@ -187,20 +190,84 @@ export const StoryPlayer: React.FC<StoryPlayerProps> = ({
     return displayChoices.some((c) => Boolean(c.image));
   }, [currentBeat?.choiceLayout, displayChoices]);
 
-  // 前情提要严格与选项组/任务交互卡片同步挂载；说话期间由 3D 头顶气泡承载，不在底部提前抢跑
-  const hasInteractiveElement =
-    displayChoices.length > 0 ||
-    currentBeat?.interaction === 'camera_drag' ||
-    (showInput && !storyState.isSpeaking);
+  // 对白卡展示逻辑：仅在有台词或历史记录且非全黑幕白字阶段挂载
+  const showDialogue = Boolean(speechText || storyState.history.length > 0) && !storyState.isIntertitleActive;
 
-  const showRecap =
-    !storyState.isSpeaking &&
-    hasInteractiveElement &&
-    Boolean(speechText || storyState.history.length > 0);
+  // 渲染高质感一体化沉底对白卡 (复用 HeadBubble，彻底消灭双重对白框重复)
+  const renderDialogueBubble = (maxWidthClass = 'max-w-lg sm:max-w-xl w-full') => {
+    if (!showDialogue) return null;
+    return (
+      <HeadBubble
+        isStatic
+        placement="bottom"
+        maxWidthClass={maxWidthClass}
+        speechText={speechText}
+        customHeader={
+          <div className="flex items-center justify-between w-full">
+            <span className="text-xs sm:text-sm font-semibold tracking-wide text-white">
+              小蠢
+            </span>
+            {storyState.history.length > 0 && (
+              <button
+                type="button"
+                onClick={() => setIsHistoryExpanded((prev) => !prev)}
+                className="flex items-center space-x-1 px-2 py-0.5 rounded-full bg-white/10 hover:bg-white/15 active:scale-95 text-white/80 hover:text-white border border-white/10 text-[11px] transition-all duration-150 cursor-pointer shadow-sm"
+              >
+                <span>{isHistoryExpanded ? '收起' : `回顾 · ${storyState.history.length}`}</span>
+                {isHistoryExpanded ? (
+                  <ChevronUp className="w-3 h-3 opacity-70" />
+                ) : (
+                  <ChevronDown className="w-3 h-3 opacity-70" />
+                )}
+              </button>
+            )}
+          </div>
+        }
+      >
+        {isHistoryExpanded && (
+          <div className="max-h-44 sm:max-h-52 overflow-y-auto space-y-2 pr-1 custom-bubble-scrollbar pt-1 animate-in fade-in duration-200">
+            {storyState.history.map((item, idx) => {
+              const isUser = item.role === 'user';
+              return (
+                <div key={item.id || idx} className="flex flex-col gap-1">
+                  {isUser ? (
+                    <div className="flex items-start gap-2 bg-white/[0.04] hover:bg-white/[0.06] px-2.5 py-1.5 rounded-lg border border-white/8 transition-colors">
+                      <span className="shrink-0 text-xs font-semibold text-[#f3d09a] pt-0.5">
+                        你
+                      </span>
+                      <div className="min-w-0 flex-1">
+                        <p className="text-xs text-white/95 leading-relaxed">
+                          {item.text}
+                        </p>
+                        {item.subText && (
+                          <p className="text-[10px] text-white/45 mt-0.5">
+                            {item.subText}
+                          </p>
+                        )}
+                      </div>
+                    </div>
+                  ) : (
+                    <div className="flex items-start gap-2 px-1 py-1">
+                      <span className="shrink-0 text-xs font-semibold text-[#f5aa9c] pt-0.5">
+                        小蠢
+                      </span>
+                      <p className="text-xs text-white/90 leading-relaxed font-normal">
+                        {item.text}
+                      </p>
+                    </div>
+                  )}
+                </div>
+              );
+            })}
+          </div>
+        )}
+      </HeadBubble>
+    );
+  };
 
   return (
     <div className="fixed inset-0 z-40 pointer-events-none select-none font-sans antialiased">
-      {/* 1. 21:9 电影遮幅、黑幕白字与第一人称睁眼蒙版 (半透明渐变过渡，绝不生硬裁切) */}
+      {/* 1. 21:9 电影遮幅、黑幕白字与第一人称睁眼蒙版 */}
       <StoryCinematicOverlay
         isLetterboxActive={storyState.isLetterboxActive}
         isIntertitleActive={storyState.isIntertitleActive}
@@ -235,45 +302,44 @@ export const StoryPlayer: React.FC<StoryPlayerProps> = ({
         </div>
       </div>
 
-      {/* 3. 核心交互流分层排布 */}
-
-      {/* 3A. 视角探索教学拍 (居中引导任务卡片 + 对白自然沉底) */}
-      {currentBeat?.interaction === 'camera_drag' && (
-        <div className="pointer-events-none fixed inset-x-3 sm:inset-x-auto sm:left-1/2 sm:-translate-x-1/2 bottom-3 sm:bottom-6 z-40 max-w-xl sm:max-w-2xl w-full flex flex-col gap-2.5">
-          <StoryCameraTaskCard onTasksUpdate={handleCameraTasksUpdate} />
-          {displayChoices.length > 0 && (
+      {/* 3. PC 宽屏专属一体化布局 (对白气泡居中沉底 + 全部交互卡片统一定位于右侧，中央角色 100% 毫无遮挡) */}
+      <div className="hidden sm:block">
+        {/* PC 宽屏中央沉底对白卡 (唯一的对白展示，复用 HeadBubble，0 重复) */}
+        {showDialogue && (
+          <div className="pointer-events-none fixed bottom-5 left-1/2 -translate-x-1/2 z-40 max-w-lg sm:max-w-xl w-full px-4 animate-in fade-in slide-in-from-bottom-2 duration-300">
             <div className="pointer-events-auto w-full">
+              {renderDialogueBubble()}
+            </div>
+          </div>
+        )}
+
+        {/* PC 宽屏右侧统一交互列 (全部卡片：选项 / 视角任务 / 换装 / 场景 统一定位于右侧，彻底消灭与中央对白的打架) */}
+        <div className="pointer-events-none fixed right-6 bottom-6 sm:right-8 sm:bottom-6 w-72 sm:w-80 z-40 flex flex-col gap-2 animate-in fade-in slide-in-from-right-4 duration-300">
+          {/* 3A. 视角探索任务卡片 */}
+          {currentBeat?.interaction === 'camera_drag' && (
+            <div className="pointer-events-auto w-full flex flex-col gap-2">
+              <StoryCameraTaskCard onTasksUpdate={handleCameraTasksUpdate} />
+              {displayChoices.length > 0 && (
+                <StoryChoiceGroup
+                  choices={displayChoices}
+                  layout="list"
+                  onSelect={handleSelectChoice}
+                  disabled={isGenerating}
+                />
+              )}
+            </div>
+          )}
+
+          {/* 3B. 换装 / 场景多媒体展台 (媒体模式：右侧紧凑列表) */}
+          {isMediaGrid && currentBeat?.interaction !== 'camera_drag' && (
+            <div className="pointer-events-auto w-full flex flex-col gap-1.5">
               <StoryChoiceGroup
                 choices={displayChoices}
-                layout="list"
+                layout="compact-media"
                 onSelect={handleSelectChoice}
                 disabled={isGenerating}
               />
-            </div>
-          )}
-          {showRecap && (
-            <div className="pointer-events-auto w-full">
-              <StoryRecapCard
-                currentSpeechText={speechText}
-                history={storyState.history}
-              />
-            </div>
-          )}
-        </div>
-      )}
-
-      {/* 3B. 换装多媒体展台拍 (居中 3 列并排展台 + 统一确认按钮 + 对白沉底，保证新手换装教学流畅完整) */}
-      {isMediaGrid && currentBeat?.interaction !== 'camera_drag' && displayChoices.length > 0 && (
-        <div className="pointer-events-none fixed inset-x-3 sm:inset-x-auto sm:left-1/2 sm:-translate-x-1/2 bottom-3 sm:bottom-6 z-40 max-w-xl sm:max-w-2xl w-full flex flex-col gap-2.5 animate-in fade-in slide-in-from-bottom-2 duration-300">
-          <div className="pointer-events-auto w-full flex flex-col gap-2.5">
-            <StoryChoiceGroup
-              choices={displayChoices}
-              layout="grid"
-              onSelect={handleSelectChoice}
-              disabled={isGenerating}
-            />
-            {currentBeat?.confirmChoice && (
-              <div className="w-full">
+              {currentBeat?.confirmChoice && (
                 <StoryChoiceCard
                   choice={currentBeat.confirmChoice}
                   index={displayChoices.length}
@@ -282,103 +348,13 @@ export const StoryPlayer: React.FC<StoryPlayerProps> = ({
                   onSelect={handleSelectChoice}
                   disabled={isGenerating}
                 />
-              </div>
-            )}
-          </div>
-          {showRecap && (
-            <div className="pointer-events-auto w-full">
-              <StoryRecapCard
-                currentSpeechText={speechText}
-                history={storyState.history}
-              />
-            </div>
-          )}
-        </div>
-      )}
-
-      {/* 3C. PC 方案 6：普通文字分支 + 自由输入 右悬浮融合流 (PC 宽屏下：中央沉底对白 + 右侧悬浮选项与输入) */}
-      {!isMediaGrid && currentBeat?.interaction !== 'camera_drag' && (
-        <>
-          {/* PC 宽屏中央沉底对白 */}
-          {showRecap && (
-            <div className="pointer-events-none hidden sm:block fixed bottom-6 left-1/2 -translate-x-1/2 z-40 max-w-xl sm:max-w-2xl w-full px-4">
-              <StoryRecapCard
-                currentSpeechText={speechText}
-                history={storyState.history}
-              />
-            </div>
-          )}
-
-          {/* PC 宽屏右侧悬浮选项群与打字框 */}
-          {(displayChoices.length > 0 || showInput) && (
-            <div className="pointer-events-none hidden sm:flex fixed sm:right-8 sm:bottom-24 md:right-12 md:bottom-28 sm:w-80 md:w-88 z-40 flex-col gap-2.5 animate-in fade-in slide-in-from-right-4 duration-300">
-              {displayChoices.length > 0 && (
-                <div className="pointer-events-auto w-full flex flex-col gap-2">
-                  <StoryChoiceGroup
-                    choices={displayChoices}
-                    layout="list"
-                    onSelect={handleSelectChoice}
-                    disabled={isGenerating}
-                  />
-                  {currentBeat?.confirmChoice && (
-                    <StoryChoiceCard
-                      choice={currentBeat.confirmChoice}
-                      index={displayChoices.length}
-                      layout="list"
-                      variant="primary"
-                      onSelect={handleSelectChoice}
-                      disabled={isGenerating}
-                    />
-                  )}
-                </div>
-              )}
-
-              {/* PC 端融合自由输入条 */}
-              {showInput && (
-                <div className="pointer-events-auto w-full animate-in fade-in slide-in-from-bottom-2 duration-300">
-                  <form
-                    onSubmit={handleSendInput}
-                    className="flex items-center space-x-2 px-3 py-1.5 rounded-xl bg-[#0b0e1b]/85 hover:bg-[#101426]/95 backdrop-blur-xl border border-white/15 focus-within:border-[#f3d09a] focus-within:ring-1 focus-within:ring-[#f3d09a]/40 shadow-[0_8px_32px_rgba(0,0,0,0.6)] transition-all duration-200"
-                  >
-                    <input
-                      ref={inputRef}
-                      type="text"
-                      value={userInput}
-                      onChange={(e) => setUserInput(e.target.value)}
-                      disabled={isGenerating}
-                      placeholder={
-                        storyState.isSpeaking
-                          ? '直接输入打断...'
-                          : currentBeat?.inputPlaceholder || '输入对话或自选动作...'
-                      }
-                      className="flex-1 bg-transparent px-1.5 text-xs text-white placeholder-white/40 focus:outline-none"
-                    />
-                    <button
-                      type="submit"
-                      disabled={!userInput.trim() || isGenerating}
-                      className="p-1.5 rounded-lg bg-[#f3d09a] hover:bg-[#fdf2dd] active:scale-90 disabled:opacity-30 disabled:hover:bg-[#f3d09a] text-slate-950 font-bold transition-all shadow-[0_0_12px_rgba(243,208,154,0.4)] cursor-pointer"
-                      title="发送"
-                    >
-                      {isGenerating ? (
-                        <div className="w-3.5 h-3.5 border-2 border-slate-900 border-t-transparent rounded-full animate-spin" />
-                      ) : (
-                        <CornerDownLeft className="w-3.5 h-3.5" />
-                      )}
-                    </button>
-                  </form>
-                </div>
               )}
             </div>
           )}
-        </>
-      )}
 
-      {/* 3D. 手机方案 4：移动竖屏专属一体化沉底流 (选项微流光胶囊 + 沉底输入条 + 沉底对白，自适应自然堆叠，0 重叠，全屏 75%+ 露白) */}
-      {!isMediaGrid && currentBeat?.interaction !== 'camera_drag' && (
-        <div className="pointer-events-none flex sm:hidden fixed inset-x-3 bottom-3 z-40 flex-col gap-2 animate-in fade-in slide-in-from-bottom-2 duration-300">
-          {/* 选项微流光胶囊群 */}
-          {displayChoices.length > 0 && (
-            <div className="pointer-events-auto w-full">
+          {/* 3C. 普通文字分支 */}
+          {!isMediaGrid && currentBeat?.interaction !== 'camera_drag' && displayChoices.length > 0 && (
+            <div className="pointer-events-auto w-full flex flex-col gap-1.5">
               <StoryChoiceGroup
                 choices={displayChoices}
                 layout="list"
@@ -386,66 +362,124 @@ export const StoryPlayer: React.FC<StoryPlayerProps> = ({
                 disabled={isGenerating}
               />
               {currentBeat?.confirmChoice && (
-                <div className="mt-1.5 w-full">
-                  <StoryChoiceCard
-                    choice={currentBeat.confirmChoice}
-                    index={displayChoices.length}
-                    layout="list"
-                    variant="primary"
-                    onSelect={handleSelectChoice}
-                    disabled={isGenerating}
-                  />
-                </div>
+                <StoryChoiceCard
+                  choice={currentBeat.confirmChoice}
+                  index={displayChoices.length}
+                  layout="list"
+                  variant="primary"
+                  onSelect={handleSelectChoice}
+                  disabled={isGenerating}
+                />
               )}
             </div>
           )}
 
-          {/* 手机端紧凑输入条 */}
+          {/* 仅在非引导模式且允许自定义输入时渲染输入条 */}
           {showInput && (
-            <div className="pointer-events-auto w-full animate-in fade-in slide-in-from-bottom-1 duration-200">
+            <div className="pointer-events-auto w-full animate-in fade-in slide-in-from-bottom-2 duration-300">
               <form
                 onSubmit={handleSendInput}
-                className="flex items-center space-x-2 px-3 py-1.5 rounded-xl bg-[#0b0e1b]/90 backdrop-blur-xl border border-white/15 focus-within:border-[#f3d09a]/70 shadow-lg"
+                className="flex items-center space-x-2 px-3 py-1.5 rounded-xl bg-[#0b0e1b]/85 hover:bg-[#101426]/95 backdrop-blur-xl border border-white/15 focus-within:border-[#f3d09a] focus-within:ring-1 focus-within:ring-[#f3d09a]/40 shadow-[0_8px_32px_rgba(0,0,0,0.6)] transition-all duration-200"
               >
                 <input
+                  ref={inputRef}
                   type="text"
                   value={userInput}
                   onChange={(e) => setUserInput(e.target.value)}
                   disabled={isGenerating}
                   placeholder={
                     storyState.isSpeaking
-                      ? '输入抢话打断...'
-                      : currentBeat?.inputPlaceholder || '自由说点什么...'
+                      ? '直接输入打断...'
+                      : currentBeat?.inputPlaceholder || '输入对话或自选动作...'
                   }
-                  className="flex-1 bg-transparent px-1 text-xs text-white placeholder-white/40 focus:outline-none"
+                  className="flex-1 bg-transparent px-1.5 text-xs text-white placeholder-white/40 focus:outline-none"
                 />
                 <button
                   type="submit"
                   disabled={!userInput.trim() || isGenerating}
-                  className="p-1 rounded-lg bg-[#f3d09a] hover:bg-[#fdf2dd] active:scale-90 disabled:opacity-30 disabled:hover:bg-[#f3d09a] text-slate-950 font-bold transition-all shadow cursor-pointer"
+                  className="p-1.5 rounded-lg bg-[#f3d09a] hover:bg-[#fdf2dd] active:scale-90 disabled:opacity-30 disabled:hover:bg-[#f3d09a] text-slate-950 font-bold transition-all shadow-[0_0_12px_rgba(243,208,154,0.4)] cursor-pointer"
                   title="发送"
                 >
                   {isGenerating ? (
-                    <div className="w-3 h-3 border-2 border-slate-900 border-t-transparent rounded-full animate-spin" />
+                    <div className="w-3.5 h-3.5 border-2 border-slate-900 border-t-transparent rounded-full animate-spin" />
                   ) : (
-                    <CornerDownLeft className="w-3 h-3" />
+                    <CornerDownLeft className="w-3.5 h-3.5" />
                   )}
                 </button>
               </form>
             </div>
           )}
-
-          {/* 手机端沉底对白卡片 */}
-          {showRecap && (
-            <div className="pointer-events-auto w-full">
-              <StoryRecapCard
-                currentSpeechText={speechText}
-                history={storyState.history}
-              />
-            </div>
-          )}
         </div>
-      )}
+      </div>
+
+      {/* 4. 移动竖屏专属一体化沉底流 (自适应自然堆叠，0 重叠，全屏 75%+ 留白) */}
+      <div className="pointer-events-none flex sm:hidden fixed inset-x-3 bottom-3 z-40 flex-col gap-2 animate-in fade-in slide-in-from-bottom-2 duration-300">
+        {/* 4A. 视角探索卡片 */}
+        {currentBeat?.interaction === 'camera_drag' && (
+          <div className="pointer-events-auto w-full flex flex-col gap-1.5">
+            <StoryCameraTaskCard onTasksUpdate={handleCameraTasksUpdate} />
+            {displayChoices.length > 0 && (
+              <StoryChoiceGroup
+                choices={displayChoices}
+                layout="list"
+                onSelect={handleSelectChoice}
+                disabled={isGenerating}
+              />
+            )}
+          </div>
+        )}
+
+        {/* 4B. 换装 / 场景网格展台 */}
+        {isMediaGrid && currentBeat?.interaction !== 'camera_drag' && (
+          <div className="pointer-events-auto w-full flex flex-col gap-1.5">
+            <StoryChoiceGroup
+              choices={displayChoices}
+              layout="compact-media"
+              onSelect={handleSelectChoice}
+              disabled={isGenerating}
+            />
+            {currentBeat?.confirmChoice && (
+              <StoryChoiceCard
+                choice={currentBeat.confirmChoice}
+                index={displayChoices.length}
+                layout="list"
+                variant="primary"
+                onSelect={handleSelectChoice}
+                disabled={isGenerating}
+              />
+            )}
+          </div>
+        )}
+
+        {/* 4C. 普通文字选项 */}
+        {!isMediaGrid && currentBeat?.interaction !== 'camera_drag' && displayChoices.length > 0 && (
+          <div className="pointer-events-auto w-full flex flex-col gap-1.5">
+            <StoryChoiceGroup
+              choices={displayChoices}
+              layout="list"
+              onSelect={handleSelectChoice}
+              disabled={isGenerating}
+            />
+            {currentBeat?.confirmChoice && (
+              <StoryChoiceCard
+                choice={currentBeat.confirmChoice}
+                index={displayChoices.length}
+                layout="list"
+                variant="primary"
+                onSelect={handleSelectChoice}
+                disabled={isGenerating}
+              />
+            )}
+          </div>
+        )}
+
+        {/* 4D. 移动端沉底 HeadBubble (唯一对白卡，0 重叠) */}
+        {showDialogue && (
+          <div className="pointer-events-auto w-full">
+            {renderDialogueBubble('w-full')}
+          </div>
+        )}
+      </div>
 
       {/* 5. 大语言模型配置面板 (接入自定义 AI 模型时呼出) */}
       <ProviderConfigDialog

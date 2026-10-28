@@ -250,8 +250,8 @@ export const App: React.FC = () => {
 
 
 
-      {/* 3D 角色头顶悬浮对话框：引导与日常统一使用头顶气泡 */}
-      {currentScene.components.headBubble !== false && (
+      {/* 3D 角色头顶悬浮对话框：引导与故事模式下由 StoryPlayer 统一于底部渲染对白，日常聊天使用头顶气泡 */}
+      {currentScene.components.headBubble !== false && !isStoryOrOnboarding && (
         <HeadBubble state={bubble} />
       )}
 

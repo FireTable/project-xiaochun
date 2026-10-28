@@ -317,6 +317,7 @@ export class StoryDirectorEngine {
       if (beat.choices && beat.choices.length > 0) {
         // 若当前拍为换装拍，同步当前已穿戴服装高亮态 (selected)
         const currentOutfit = vrmEngine.currentOutfitKey || 'xiaochun_dinner_dress';
+        const currentScene = sceneManager.getCurrentSceneId();
         this.state.choices = beat.choices.map((c) => {
           if (c.actionType === 'swap_outfit') {
             const isWorn =
@@ -326,6 +327,14 @@ export class StoryDirectorEngine {
               (currentOutfit.includes('maid') && c.id === 'outfit_maid') ||
               (currentOutfit.includes('cheongsam') && c.id === 'outfit_qipao');
             return { ...c, selected: Boolean(isWorn) };
+          }
+          if (c.actionType === 'change_scene') {
+            const isSelected =
+              c.actionPayload === currentScene ||
+              c.id === `scene_${currentScene}` ||
+              (currentScene === 'beach3d' && c.id === 'scene_beach') ||
+              (currentScene === 'void' && c.id === 'scene_beach');
+            return { ...c, selected: Boolean(isSelected) };
           }
           return c;
         });
@@ -382,13 +391,15 @@ export class StoryDirectorEngine {
     }
 
     const isOutfitSwap = choice.actionType === 'swap_outfit';
+    const isScenePreview = choice.actionType === 'change_scene' && !choice.nextBeatId;
+    const isPreviewAction = isOutfitSwap || isScenePreview;
 
-    // 推进剧情拍时立即清空选项防止连击；而换装试穿时选项保留在场
-    if (!isOutfitSwap) {
+    // 推进剧情拍时立即清空选项防止连击；而换装/场景试选时选项保留在场
+    if (!isPreviewAction) {
       this.state.choices = [];
     }
 
-    if (choice.text && !isOutfitSwap) {
+    if (choice.text && !isPreviewAction) {
       let historyText = choice.text;
       if (choice.id === 'outfit_confirm') {
         const currentOutfit = vrmEngine.currentOutfitKey || 'xiaochun_dinner_dress';
@@ -403,6 +414,18 @@ export class StoryDirectorEngine {
         );
         if (worn?.text) {
           historyText = `换上「${worn.text}」`;
+        }
+      } else if (choice.id === 'scene_confirm') {
+        const currentScene = sceneManager.getCurrentSceneId();
+        const sceneChoices = this.currentScript?.beats['beat_scene_choice']?.choices || [];
+        const picked = sceneChoices.find(
+          (c) =>
+            c.actionPayload === currentScene ||
+            c.id === `scene_${currentScene}` ||
+            (currentScene === 'beach3d' && c.id === 'scene_beach')
+        );
+        if (picked?.text) {
+          historyText = `前往「${picked.text}」`;
         }
       }
       this.state.history.push({
@@ -420,6 +443,15 @@ export class StoryDirectorEngine {
       changeLang(this.i18nInstance, choice.actionPayload as any);
     } else if (choice.actionType === 'change_scene' && choice.actionPayload) {
       await sceneManager.setScene(String(choice.actionPayload), true);
+      if (isScenePreview) {
+        storyAudioDirector.playSfx('crystal_chime');
+        this.state.choices = this.state.choices.map((c) => ({
+          ...c,
+          selected: c.id === choice.id || c.actionPayload === choice.actionPayload,
+        }));
+        this.notify();
+        return;
+      }
     } else if (choice.actionType === 'swap_outfit' && choice.actionPayload) {
       const outfitKey = String(choice.actionPayload);
       const addons = (APP_CONFIG.model.addons || {}) as Record<string, { source: string; name: string }>;

@@ -123,14 +123,14 @@ export const StoryCameraTaskCard: React.FC<StoryCameraTaskCardProps> = ({
   const isAllDone = completedCount === taskList.length;
 
   return (
-    <div className="pointer-events-auto w-full p-4 sm:p-5 rounded-2xl bg-[#0b0e1b]/85 backdrop-blur-xl border border-white/15 shadow-[0_12px_36px_rgba(0,0,0,0.6)] flex flex-col gap-3 animate-in fade-in slide-in-from-bottom-2 duration-300">
+    <div className="pointer-events-auto w-full p-2.5 sm:p-3 rounded-xl bg-[#0b0e1b]/85 backdrop-blur-xl border border-white/14 shadow-[0_8px_24px_rgba(0,0,0,0.5)] flex flex-col gap-2 animate-in fade-in slide-in-from-bottom-2 duration-300">
       {/* 头部标题与完成进度 */}
       <div className="flex items-center justify-between">
-        <span className="text-xs sm:text-sm font-semibold text-white tracking-wide">
-          3D 视角探索任务
+        <span className="text-xs font-semibold text-white tracking-wide">
+          3D 视角探索
         </span>
 
-        <div className="px-2.5 py-0.5 rounded-full bg-white/10 border border-white/10 text-xs font-medium">
+        <div className="px-2 py-0.5 rounded-full bg-white/10 border border-white/10 text-[11px] font-medium">
           <span className={isAllDone ? 'text-[#f3d09a] font-bold' : 'text-white/90'}>
             {completedCount}
           </span>
@@ -139,61 +139,53 @@ export const StoryCameraTaskCard: React.FC<StoryCameraTaskCardProps> = ({
         </div>
       </div>
 
-      {/* 任务列表条目 */}
-      <div className="flex flex-col gap-2">
+      {/* 任务列表条目 (紧凑细长排列) */}
+      <div className="flex flex-col gap-1.5">
         {taskList.map((task) => {
           const Icon = task.icon;
           return (
             <div
               key={task.id}
-              className={`flex items-center justify-between px-3.5 py-2.5 rounded-xl border transition-all duration-200 ${
+              className={`flex items-center justify-between px-2.5 py-1.5 rounded-lg border transition-all duration-200 ${
                 task.done
                   ? 'bg-white/[0.08] border-[#f3d09a]/40 text-white shadow-sm'
                   : 'bg-[#101426]/60 border-white/10 text-white/90 hover:border-white/20'
               }`}
             >
-              <div className="flex items-center gap-3 min-w-0 pr-2">
+              <div className="flex items-center gap-2 min-w-0 pr-1.5">
                 <div
-                  className={`w-7 h-7 rounded-lg flex items-center justify-center shrink-0 border transition-all ${
+                  className={`w-5 h-5 rounded-md flex items-center justify-center shrink-0 border transition-all ${
                     task.done
                       ? 'bg-[#f3d09a]/20 border-[#f3d09a]/40 text-[#f3d09a]'
                       : 'bg-white/[0.06] border-white/10 text-white/70'
                   }`}
                 >
-                  <Icon className="w-3.5 h-3.5" />
+                  <Icon className="w-3 h-3" />
                 </div>
-                <div className="flex flex-col min-w-0">
-                  <span className={`text-xs sm:text-[13px] font-medium tracking-wide truncate ${task.done ? 'text-white' : 'text-white/90'}`}>
+                <div className="flex items-center gap-1.5 min-w-0">
+                  <span className={`text-[11px] sm:text-xs font-medium tracking-wide truncate ${task.done ? 'text-white' : 'text-white/90'}`}>
                     {task.label}
                   </span>
-                  <span className="text-[10px] sm:text-[11px] text-white/50 truncate">
-                    {task.subLabel}
+                  <span className="text-[10px] text-white/40 truncate hidden xs:inline">
+                    · {task.subLabel}
                   </span>
                 </div>
               </div>
 
               {/* 右侧打勾状态 */}
-              <div className="shrink-0 pl-2">
+              <div className="shrink-0 pl-1">
                 {task.done ? (
-                  <div className="w-5 h-5 rounded-full bg-[#f3d09a] text-slate-950 flex items-center justify-center shadow-sm">
-                    <Check className="w-3.5 h-3.5 stroke-[2.5]" />
+                  <div className="w-4 h-4 rounded-full bg-[#f3d09a] text-slate-950 flex items-center justify-center shadow-sm">
+                    <Check className="w-3 h-3 stroke-[2.5]" />
                   </div>
                 ) : (
-                  <div className="w-4 h-4 rounded-full border border-white/30 bg-white/[0.04]" />
+                  <div className="w-3.5 h-3.5 rounded-full border border-white/30 bg-white/[0.04]" />
                 )}
               </div>
             </div>
           );
         })}
       </div>
-
-      {/* 达成提示 */}
-      {isAllDone && (
-        <div className="pt-0.5 flex items-center justify-between text-xs text-[#f3d09a] tracking-wide">
-          <span>已完成全部探索</span>
-          <span className="text-white/60">可继续下一步 ➔</span>
-        </div>
-      )}
     </div>
   );
 };

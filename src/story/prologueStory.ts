@@ -211,7 +211,7 @@ export const prologueStory: StoryScript = {
           subText: '听海浪与微风，看日出与晚霞',
           actionType: 'change_scene',
           actionPayload: 'beach3d',
-          nextBeatId: 'beat_outfit_choice',
+          selected: true,
         },
         {
           id: 'scene_light',
@@ -221,7 +221,6 @@ export const prologueStory: StoryScript = {
           subText: '纯白静谧空间，只专注看着你',
           actionType: 'change_scene',
           actionPayload: 'light',
-          nextBeatId: 'beat_outfit_choice',
         },
         {
           id: 'scene_dark',
@@ -231,9 +230,16 @@ export const prologueStory: StoryScript = {
           subText: '星芒微光舞台，浪漫静谧夜晚',
           actionType: 'change_scene',
           actionPayload: 'dark',
-          nextBeatId: 'beat_outfit_choice',
         },
       ],
+      confirmChoice: {
+        id: 'scene_confirm',
+        icon: '✨',
+        text: '就决定去这里了',
+        subText: '确定常驻世界并挑选衣服',
+        actionType: 'next_beat',
+        nextBeatId: 'beat_outfit_choice',
+      },
     },
 
     // 5. 随心换装 (全身模特级升镜打量新服饰搭配)
@@ -366,14 +372,19 @@ export const prologueStory: StoryScript = {
         },
         speechText: '这就全部准备好了。从现在开始，不管是清晨的一句早安，还是深夜睡不着时的闲聊，我都会在这里陪着你。……今天，想先和我聊点什么？',
       },
-      allowInput: true,
-      inputPlaceholder: '和小蠢说点什么，或点击下方按钮开启旅程...',
       choices: [
         {
           id: 'start_journey',
           icon: '🚀',
           text: '开启我们的日常吧',
           subText: '和小蠢开始第一句畅聊',
+          actionType: 'finish',
+        },
+        {
+          id: 'chat_first',
+          icon: '💬',
+          text: '今天心情特别好，来跟你打个招呼！',
+          subText: '进入日常陪伴闲聊',
           actionType: 'finish',
         },
       ],
