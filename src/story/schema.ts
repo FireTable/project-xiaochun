@@ -27,6 +27,8 @@ export const CameraTrajectoryTypeSchema = z.enum([
   'arc_sweep',               // 侧方微弧度横摇
   'orbit_subtle',            // 微妙环绕微动
   'pedestal_up',             // 垂直升镜打量 (自裙摆腰身自下而上缓缓升至胸前/面部)
+  'slow_push_in',            // 远处缓慢推近：先在 startDistance (可带 startAzimuthOffsetDeg 的斜后方) 就位，再沿视线推到景别距离
+  'orbit_to_front',          // 环绕到角色正面：相机沿最短弧 (近 180° 时由 orbitAngleDeg 的正负选边) 绕到她面朝的方向，世界朝向不变
 ]);
 export type CameraTrajectoryType = z.infer<typeof CameraTrajectoryTypeSchema>;
 
@@ -44,6 +46,10 @@ export const CameraDirectiveSchema = z.object({
   alignSunBacklight: z.boolean().default(false),
   /** 自定义水平环绕角度 (度数，例如 +40, -45, 180, 360) */
   orbitAngleDeg: z.number().optional(),
+  /** slow_push_in：起始距离 (米)，缺省为景别距离的 1.7 倍；起点在运镜开始时直接就位 (放在转场遮罩下不会被看到) */
+  startDistance: z.number().min(0.5).max(14).optional(),
+  /** slow_push_in：起点相对当前方位角的水平偏角 (度)，推进过程中平滑回到当前方位角 (例如 25 = 斜后方，慢慢转正) */
+  startAzimuthOffsetDeg: z.number().min(-90).max(90).optional(),
 });
 export type CameraDirective = z.input<typeof CameraDirectiveSchema>;
 

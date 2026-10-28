@@ -258,8 +258,11 @@ describe('prologue story (Act 0 v4 · Backstage Catch)', () => {
     expect(b.beat_4.cinematics).toMatchObject({ grading: 'sepia_memory', wind: 1 });
     expect(b.beat_6.cinematics).toMatchObject({ transition: 'eye_blink', grading: 'default', wind: 1 });
     expect(b.beat_1.scene).toBe('void');
-    expect(b.beat_1.camera).toMatchObject({ shot: 'wide', movement: 'hero_backlight_reveal', durationSec: 3.5 });
-    expect(b.beat_2.camera).toMatchObject({ shot: 'medium_close_up', movement: 'push_in', durationSec: 1.5 });
+    // 1: far behind her, slow dolly-in over about one line, never cuts to the front; 2: only then orbit round to her front
+    expect(b.beat_1.camera).toMatchObject({ shot: 'full', movement: 'slow_push_in', startDistance: 6.5, startAzimuthOffsetDeg: 25, durationSec: 9 });
+    expect(b.beat_1.actor.facing).toBe('back');
+    expect(b.beat_2.camera).toMatchObject({ shot: 'medium_close_up', movement: 'orbit_to_front', durationSec: 2.4 });
+    expect(b.beat_2.actor.facing).toBeUndefined(); // she is not told to step around: the orbit brings the camera to her front
     expect(b.beat_4.camera).toMatchObject({ shot: 'full', movement: 'pull_out', durationSec: 2.5 });
     expect(b.beat_5.camera).toMatchObject({ shot: 'wide', movement: 'hero_spiral_orbit', durationSec: 3.0 });
     expect(b.beat_6.camera).toMatchObject({ shot: 'medium', movement: 'none', durationSec: 2.0 });

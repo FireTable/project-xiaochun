@@ -162,4 +162,67 @@ describe('CameraDirector cinematic movements (wind, dutch_tilt, hero_backlight_r
       expect(camera.position.distanceTo(controls.target)).toBeCloseTo(SHOT_PRESETS[shot].distance, 1);
     }
   });
+
+  describe('slow_push_in / orbit_to_front', () => {
+    const azimuthOf = () => Math.atan2(camera.position.x - controls.target.x, camera.position.z - controls.target.z);
+    const distOf = () => camera.position.distanceTo(controls.target);
+
+    it('slow_push_in starts far away at the offset azimuth and glides in, never closer than the shot until the end', async () => {
+      const p = director.transitionTo({ shot: 'full', movement: 'slow_push_in', startDistance: 6.5, startAzimuthOffsetDeg: 25, durationSec: 4, easing: 'linear' });
+      // 起点在同步段内就位：远、斜后方
+      expect(distOf()).toBeCloseTo(6.5, 1);
+      expect(azimuthOf()).toBeCloseTo((25 * Math.PI) / 180, 2);
+      vi.advanceTimersByTime(2000);
+      const mid = distOf();
+      expect(mid).toBeLessThan(6.5);
+      expect(mid).toBeGreaterThan(2.95);
+      expect(Math.abs(azimuthOf())).toBeLessThan((25 * Math.PI) / 180);
+      vi.advanceTimersByTime(2200);
+      await p;
+      expect(distOf()).toBeCloseTo(2.95, 1);
+      expect(azimuthOf()).toBeCloseTo(0, 2);
+    });
+
+    it('slow_push_in without an azimuth offset is a straight dolly along the line of sight', async () => {
+      const p = director.transitionTo({ shot: 'full', movement: 'slow_push_in', startDistance: 5, durationSec: 2, easing: 'linear' });
+      expect(azimuthOf()).toBeCloseTo(0, 3);
+      vi.advanceTimersByTime(1000);
+      expect(azimuthOf()).toBeCloseTo(0, 3);
+      vi.advanceTimersByTime(1200);
+      await p;
+      expect(distOf()).toBeCloseTo(2.95, 1);
+    });
+
+    it('orbit_to_front sweeps to the direction she faces without ever passing through her, ending in the shot', async () => {
+      // 她背对相机：相机在 +Z (方位 0)，她面朝 -Z → 正面方位 = π
+      (director as any).ctx.getVRM().scene.rotation.y = Math.PI;
+      camera.position.set(0, 1.2, 2.95);
+      const p = director.transitionTo({ shot: 'medium_close_up', movement: 'orbit_to_front', durationSec: 2, easing: 'linear' });
+      vi.advanceTimersByTime(1000);
+      const mid = camera.position.clone().sub(controls.target);
+      expect(Math.hypot(mid.x, mid.z)).toBeGreaterThan(1.2); // 走的是环绕弧，没穿过角色
+      expect(Math.abs(mid.x)).toBeGreaterThan(1.0); // 中点在她侧面
+      vi.advanceTimersByTime(1200);
+      await p;
+      expect(Math.abs(Math.abs(azimuthOf()) - Math.PI)).toBeLessThan(0.05);
+      expect(distOf()).toBeCloseTo(1.8, 1);
+    });
+
+    it('orbit_to_front takes the short way when she is already half turned, and orbitAngleDeg < 0 picks the other side at 180°', async () => {
+      controls.getAzimuthalAngle = azimuthOf; // 相机会移动，方位角要跟着实际位置走
+      (director as any).ctx.getVRM().scene.rotation.y = Math.PI / 2; // 正面在 +X
+      camera.position.set(0, 1.2, 2.95);
+      let p = director.transitionTo({ shot: 'medium_close_up', movement: 'orbit_to_front', durationSec: 1, easing: 'linear' });
+      vi.advanceTimersByTime(1200);
+      await p;
+      expect(azimuthOf()).toBeCloseTo(Math.PI / 2, 1);
+
+      (director as any).ctx.getVRM().scene.rotation.y = -Math.PI / 2; // 此刻相机在 +X、正面在 -X：恰好 180°
+      p = director.transitionTo({ shot: 'medium_close_up', movement: 'orbit_to_front', orbitAngleDeg: -1, durationSec: 1, easing: 'linear' });
+      vi.advanceTimersByTime(500);
+      expect(camera.position.z).toBeGreaterThan(0.5); // 负向 (方位角递减 π/2 → 0 → -π/2) = 经由 +Z 侧
+      vi.advanceTimersByTime(700);
+      await p;
+    });
+  });
 });

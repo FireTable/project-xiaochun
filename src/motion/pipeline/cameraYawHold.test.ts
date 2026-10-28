@@ -92,4 +92,29 @@ describe('camera azimuth vs character facing (bodyTurn)', () => {
     tick(true);
     expect(Math.abs(pipeline.targetYawOffset - before)).toBeLessThan(0.3);
   });
+
+  it('Act 0 beats 1 → 2: she stays turned away during the push-in, and after the orbit to her front she faces the camera with no step', () => {
+    // 第 1 拍：背对相机，相机在斜后方缓推 (导演运镜 = hold)
+    pipeline.setFacingBackwards(vrm, camera);
+    const facingAway = vrm.scene.rotation.y;
+    for (let k = 0; k <= 20; k++) {
+      orbitTo(0.4 * (1 - k / 20));
+      tick(true);
+    }
+    tick(false, 30);
+    expect(vrm.scene.rotation.y).toBeCloseTo(facingAway, 2);
+    expect(pipeline.bodyTurn.isTurnActive()).toBe(false);
+    // 第 2 拍：相机绕 180° 到她的正面，没有任何 triggerBodyTurnToFront
+    for (let k = 1; k <= 60; k++) {
+      orbitTo(Math.PI * (k / 60));
+      tick(true);
+    }
+    tick(false, 30);
+    expect(pipeline.bodyTurn.isTurnActive()).toBe(false);
+    expect(vrm.scene.rotation.y).toBeCloseTo(facingAway, 2);
+    // 她面朝的方向就是相机所在方位：与相机方位角的差为 0 (mod 2π)
+    const camAz = Math.atan2(camera.position.x, camera.position.z);
+    const diff = THREE.MathUtils.euclideanModulo(vrm.scene.rotation.y - camAz + Math.PI, Math.PI * 2) - Math.PI;
+    expect(Math.abs(diff)).toBeLessThan(0.05);
+  });
 });

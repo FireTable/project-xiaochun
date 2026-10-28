@@ -91,11 +91,13 @@ When a **choice** leads to a beat that has a transition, `selectChoice` first co
 
 ## 6. Camera
 
-`camera: { shot, movement, durationSec, easing, targetFov, windMultiplier, alignSunBacklight, orbitAngleDeg }`
+`camera: { shot, movement, durationSec, easing, targetFov, windMultiplier, alignSunBacklight, orbitAngleDeg, startDistance, startAzimuthOffsetDeg }`
 
 Shots: `extreme_close_up`, `close_up`, `medium_close_up`, `medium`, `full`, `wide`, `dramatic_low`. Movements: `none`, `push_in`, `pull_out`, `pedestal_up`, `arc_sweep`, `orbit_subtle`, `hero_spiral_orbit` and:
 
 - **`hero_backlight_reveal`**: the camera orbits (the short way, never through the character) to the side opposite the sun, drops to a slightly low angle and narrows the FOV by 3°. The character is a silhouette against the sun. Works best in `beach3d` at golden hour. `alignSunBacklight: true` on any other move uses the same short-way orbit.
+- **`slow_push_in`**: a long dolly. At the start of the move (under the transition cover) the camera is placed `startDistance` metres away (default 1.7 × the shot distance) at `startAzimuthOffsetDeg` from where it already is, then glides along the line of sight to the shot distance while the azimuth eases back. The character's world facing is held (director moves never drive bodyTurn), so a `facing: 'back'` actor stays turned away while the camera approaches from behind. Act 0 beat 1: `full`, 6.5 m, 25°, 9 s (about one spoken line).
+- **`orbit_to_front`**: the camera orbits the short way to the direction the character is *facing* (her world yaw), radius and pitch easing to the shot. At exactly 180° the sign of `orbitAngleDeg` picks the side (default positive). Because the world facing is held during the move, a character who faced away from the camera ends up facing it with no body turn; combine with `leadInMotion` and expression for the "caught" reaction. Do not set `facing: 'front'` on the same beat: that would first make her step around to where the camera used to be. Act 0 beat 2: `medium_close_up`, 2.4 s, with the whoosh SFX.
 - **`dutch_tilt`**: rolls the camera −9° (`DUTCH_TILT_RAD`). The roll is applied after `controls.update()` in the engine's controls wrapper (`cameraDirector.applyRoll()`), so it survives the render loop. **Any later camera directive levels it again** (and `reset()` clears it); a beat without a `camera` keeps the tilt.
 - Act 0 opens in the hidden `void` scene (beat 1 `scene: 'void'`) and offers three destinations in beat 4 (beach, line-art day, line-art night), each with its own beat 5 `variants` (scene, grading, wind, BGM, ambience, SFX). Script-name mapping used by Act 0: `spiral_rise` = `hero_spiral_orbit`, `arc_pan` = `arc_sweep`, `static` = `none`, `orbit` = `orbit_subtle`; scenes `lineart_day` / `lineart_night` / `beach` = `light` / `dark` / `beach3d` (`src/story/scenes.ts`); gradings `dreamy_soft` = `dream_bloom`, `memory_sepia` = `sepia_memory`.
 - **`cinematics.wind`** (0 to 3): sticky *ambient* wind, gust multiplier `1 + 0.5 × level`, via `WindForceController.setAmbientWindLevel`. It coexists with the camera `windMultiplier` below (the larger wins), so a move ending does not drop the beach breeze.
@@ -131,7 +133,7 @@ pnpm exec tsc --noEmit
 
 ## 10. Known limits
 
-- Environment time (`vrmEngine.setEnvironmentTime`) is an instant snap that also writes `localStorage`; The `beach3d` scene is the only one with a real sun, so `hero_backlight_reveal` is best there; Act 0 beat 1 uses it in the `void` scene (its opening stage), where it is only a low, narrow angle.
+- Environment time (`vrmEngine.setEnvironmentTime`) is an instant snap that also writes `localStorage`; The `beach3d` scene is the only one with a real sun, so `hero_backlight_reveal` is best there; Act 0 no longer uses it (beat 1 is a slow push-in from behind).
 - The grading layer uses `backdrop-filter` over the WebGL canvas; very low-end GPUs may prefer `default`.
 - Procedural BGM and ambience have not been auditioned by a sound designer; levels (`bgmVolume`, `ambienceVolume`) are the knobs.
 - Act 0 has no free typing or barge-in: beat 5 uses fixed "password" cards that all lead to the same reply beat. Typing on a beat with `allowInput` in other scripts hands the story to the LLM generator (with its offline fallback beats); the scripted ending is not resumed.

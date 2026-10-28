@@ -264,7 +264,15 @@ export class CameraDirector {
     const isOrbitSubtle = trajectory === 'orbit_subtle';
     const isPushIn = trajectory === 'push_in';
     const isPullOut = trajectory === 'pull_out';
-    const hasCustomOrbit = directive.orbitAngleDeg !== undefined;
+    const isSlowPushIn = trajectory === 'slow_push_in';
+    const isOrbitToFront = trajectory === 'orbit_to_front';
+    const hasCustomOrbit = directive.orbitAngleDeg !== undefined && !isOrbitToFront;
+
+    // slow_push_in：起点方位 = 当前方位 + 偏角；起点距离默认是景别距离的 1.7 倍
+    const startAzimuth = isSlowPushIn
+      ? currentAzimuth + ((directive.startAzimuthOffsetDeg ?? 0) * Math.PI) / 180
+      : currentAzimuth;
+    const startPolar = controls && typeof controls.getPolarAngle === 'function' ? controls.getPolarAngle() : targetPitch;
 
     // 解析环绕方位角增量
     let orbitDeltaRad = backlightDeltaRad;
@@ -284,9 +292,20 @@ export class CameraDirector {
       orbitDeltaRad += Math.PI * 0.22; // ~40° 侧方弧度横摇
     } else if (isOrbitSubtle) {
       orbitDeltaRad += Math.PI * 0.12; // ~21.6° 微妙环绕微动
+    } else if (isOrbitToFront) {
+      // 她面朝的方向 (角色朝向偏角 = 相机方位角时她正对镜头)；走最短弧，恰好在 180° 时由 orbitAngleDeg 的符号选边 (默认正向)
+      const baseYaw = vrm.meta?.metaVersion === '0' ? Math.PI : 0;
+      const frontAzimuth = vrm.scene.rotation.y - baseYaw;
+      let delta = wrapPi(frontAzimuth - currentAzimuth);
+      if (Math.abs(Math.abs(delta) - Math.PI) < 0.05) {
+        delta = (directive.orbitAngleDeg ?? 1) < 0 ? -Math.PI : Math.PI;
+      }
+      orbitDeltaRad += delta;
+    } else if (isSlowPushIn) {
+      orbitDeltaRad += currentAzimuth - startAzimuth; // 从斜后方平滑转回当前方位
     }
     const hasOrbitalMotion = Math.abs(orbitDeltaRad) > 0.001;
-    const finalAzimuth = currentAzimuth + orbitDeltaRad;
+    const finalAzimuth = startAzimuth + orbitDeltaRad;
 
     // 若动作指定推近/后拉，且未跨景别导致距离无差异时，赋予微动景深
     const currentDistance = camera.position.distanceTo(controls && controls.target ? controls.target : this.tempEndTarget);
@@ -320,6 +339,22 @@ export class CameraDirector {
       } else {
         this.tempStartPos.copy(camera.position);
       }
+      if (controls && controls.target) {
+        controls.target.copy(this.tempStartTarget);
+        controls.enabled = false;
+      }
+      camera.lookAt(this.tempStartTarget);
+    } else if (isSlowPushIn) {
+      // 远处就位：目标点已是终点构图的目标，起点机位按 startDistance / startAzimuth 放在同一条俯仰上；
+      // 这一步和 isTweening = true 在同一个同步段里完成，渲染循环看到的第一帧已经带着“角色世界朝向不变”的保护。
+      const startDist = directive.startDistance ?? targetDistance * 1.7;
+      this.tempStartTarget.copy(this.tempEndTarget);
+      this.tempStartPos.set(
+        this.tempEndTarget.x + startDist * sinPitch * Math.sin(startAzimuth),
+        this.tempEndTarget.y + startDist * cosPitch,
+        this.tempEndTarget.z + startDist * sinPitch * Math.cos(startAzimuth),
+      );
+      camera.position.copy(this.tempStartPos);
       if (controls && controls.target) {
         controls.target.copy(this.tempStartTarget);
         controls.enabled = false;
@@ -364,11 +399,9 @@ export class CameraDirector {
 
         if (hasOrbitalMotion) {
           // 环绕轨迹：方位角旋转，半径与俯仰平滑推移
-          const angle = currentAzimuth + eased * orbitDeltaRad;
+          const angle = startAzimuth + eased * orbitDeltaRad;
           const curDist = THREE.MathUtils.lerp(this.tempStartPos.distanceTo(this.tempStartTarget), targetDistance, eased);
-          const curPitch = controls && typeof controls.getPolarAngle === 'function'
-            ? THREE.MathUtils.lerp(controls.getPolarAngle(), targetPitch, eased)
-            : targetPitch;
+          const curPitch = THREE.MathUtils.lerp(isSlowPushIn ? targetPitch : startPolar, targetPitch, eased);
 
           this.tempTarget.lerpVectors(this.tempStartTarget, this.tempEndTarget, eased);
           if (controls && controls.target) {

@@ -58,12 +58,13 @@ const beats: Record<string, LocalizedStoryBeat> = {
     autoNextDelayMs: 0,
   },
 
-  // ═══ 1 · 后台抓包 (偷窥感：遮幅 + 逆光远景；小蠢背对镜头排练) ═══
+  // ═══ 1 · 后台抓包 (偷窥感：遮幅；镜头在远处斜后方就位，随她的台词缓缓推近；小蠢背对镜头排练) ═══
   beat_1: {
     id: 'beat_1',
     scene: 'void', // 开场：虚空场景 (叫醒拍结束后才露出来)
     cinematics: { letterbox: true, transition: 'eye_blink', grading: 'dream_bloom', wind: 0 },
-    camera: { shot: 'wide', movement: 'hero_backlight_reveal', durationSec: 3.5 },
+    // 不绕到她前面：远处 (6.5m) 斜后方 25° 就位，约一句台词的时间缓推到全身景别并转正到正后方
+    camera: { shot: 'full', movement: 'slow_push_in', startDistance: 6.5, startAzimuthOffsetDeg: 25, durationSec: 9 },
     actor: {
       facing: 'back', // 背对画面
       motion: 'singleHandWave', // 单手抚胸，对着空气深情款款地挥手排练
@@ -83,9 +84,9 @@ const beats: Record<string, LocalizedStoryBeat> = {
   beat_2: {
     id: 'beat_2',
     cinematics: { letterbox: false, grading: 'default', wind: 0 },
-    camera: { shot: 'medium_close_up', movement: 'push_in', durationSec: 1.5 },
+    // 第 1 拍说完才绕：相机沿最短弧环绕到她正面 (她的世界朝向不动，相机绕到她面朝的方向)，收在 medium_close_up；和 whoosh 同步
+    camera: { shot: 'medium_close_up', movement: 'orbit_to_front', durationSec: 2.4 },
     actor: {
-      facing: 'front', // 猛地转身
       leadInMotion: 'shhLean', // 吓得后退半步捂住嘴
       expression: { base: 'surprised', intensity: 0.85, microReaction: 'sudden_shock' },
       speechText: L(
