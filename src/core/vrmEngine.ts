@@ -3572,7 +3572,13 @@ export class VRMEngine {
         clearBustArms(vrm);
 
         // 活体动态表情系统逐帧更新 (眉眼与口型解耦、呼吸微波动与眨眼)
-        expressionController.update(delta, vrm, this.chatDirector.speaking);
+        expressionController.update(
+          delta,
+          vrm,
+          this.chatDirector.speaking,
+          0,
+          this.gazeController.currentBlink,
+        );
 
         // ponytail: 注入 wind (ambient + 鼠标冲量) 到 springBone joints 的 gravityDir/Power,
         // 必须在 vrm.update(delta) 之前, 因为 springBoneManager.update() 内部读取这些 settings.

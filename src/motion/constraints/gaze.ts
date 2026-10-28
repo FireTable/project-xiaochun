@@ -29,6 +29,11 @@ export class GazeController {
   private blinkDuration = 0.15;
   private isBlinking = false;
   private blinkProgress = 0;
+  private _currentBlink = 0;
+
+  public get currentBlink(): number {
+    return this._currentBlink;
+  }
 
   // 思考权重
   public thinkingWeight = 0.0;
@@ -151,6 +156,36 @@ export class GazeController {
     _manualExpression?: string | null,
     listening = 0,
   ): void {
+    // ── 1. 自然生理眨眼 (即使动作禁用头部注视，眨眼仍正常计算瞬时值并保持生命感) ──
+    if (this.isAutoBlink) {
+      this.blinkTimer += delta;
+      if (!this.isBlinking && this.blinkTimer >= this.blinkInterval) {
+        this.isBlinking = true;
+        this.blinkTimer = 0;
+        this.blinkProgress = 0;
+        this.blinkInterval = 2.0 + Math.random() * 3.0;
+      }
+      if (this.isBlinking) {
+        this.blinkProgress += delta / this.blinkDuration;
+        if (this.blinkProgress <= 0.5) {
+          this._currentBlink = this.blinkProgress / 0.5;
+        } else if (this.blinkProgress <= 1.0) {
+          this._currentBlink = (1.0 - this.blinkProgress) / 0.5;
+        } else {
+          this.isBlinking = false;
+          this._currentBlink = 0;
+        }
+      } else {
+        this._currentBlink = 0;
+      }
+    } else {
+      this._currentBlink = 0;
+    }
+
+    if (vrm.expressionManager) {
+      vrm.expressionManager.setValue('blink', this._currentBlink);
+    }
+
     if (!this.enabled || traits.disableGaze) {
       this.hasLastLookAt = false;
       if (vrm.lookAt) vrm.lookAt.autoUpdate = false;
@@ -164,7 +199,7 @@ export class GazeController {
       this.lookAtInitialized = false;
     }
 
-    // ── 1. 思考微晃权重平滑淡入淡出 ──
+    // ── 2. 思考微晃权重平滑淡入淡出 ──
     if (traits.thinkSway) {
       this.thinkingWeight = Math.min(1.0, this.thinkingWeight + delta * 2.5);
     } else {
@@ -172,7 +207,7 @@ export class GazeController {
     }
     const tw = this.thinkingWeight * this.thinkingWeight * (3 - 2 * this.thinkingWeight);
 
-    // ── 2. 自然生理生命微晃 (Natural Head Vital Sway) 与思考微动 ──
+    // ── 3. 自然生理生命微晃 (Natural Head Vital Sway) 与思考微动 ──
     // 模拟健康人类无意识的极微弱呼吸浮沉与头颈游移 (幅值约 ±0.4°，平滑连续，零机械僵硬感)
     const naturalSwayPitch = Math.sin(time * 1.15) * 0.007; // 约 0.4° 呼吸微俯仰
     const naturalSwayYaw = Math.sin(time * 0.65) * 0.008;   // 约 0.45° 极轻微水平呼吸游移
@@ -190,29 +225,7 @@ export class GazeController {
     );
     this._thinkSwayQ.setFromEuler(this._eulerLookAt);
 
-    // ── 4. 自然生理眨眼 ──
-    if (this.isAutoBlink && vrm.expressionManager) {
-      this.blinkTimer += delta;
-      if (!this.isBlinking && this.blinkTimer >= this.blinkInterval) {
-        this.isBlinking = true;
-        this.blinkTimer = 0;
-        this.blinkProgress = 0;
-        this.blinkInterval = 2.0 + Math.random() * 3.0;
-      }
-      if (this.isBlinking) {
-        this.blinkProgress += delta / this.blinkDuration;
-        if (this.blinkProgress <= 0.5) {
-          vrm.expressionManager.setValue('blink', this.blinkProgress / 0.5);
-        } else if (this.blinkProgress <= 1.0) {
-          vrm.expressionManager.setValue('blink', (1.0 - this.blinkProgress) / 0.5);
-        } else {
-          this.isBlinking = false;
-          vrm.expressionManager.setValue('blink', 0);
-        }
-      }
-    }
-
-    // ── 5. 自然视线微颤 (Micro-Saccade) 与注视目标定位 ──
+    // ── 4. 自然视线微颤 (Micro-Saccade) 与注视目标定位 ──
     const headNode = vrm.humanoid?.getNormalizedBoneNode('head');
     const neckNode = vrm.humanoid?.getNormalizedBoneNode('neck');
 

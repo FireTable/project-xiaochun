@@ -150,13 +150,40 @@ describe('UniversalMotionController Motion-Native Expression Binding', () => {
     expect(MOTION_CATALOG.angryJump.expression).toBe('angry');
     expect(MOTION_CATALOG.angryJump.expressionIntensity).toBe(0.85);
 
-    // SleepyNod has relaxed
+    // SleepyNod has relaxed and disableGaze
     expect(MOTION_CATALOG.sleepyNod.expression).toBe('relaxed');
     expect(MOTION_CATALOG.sleepyNod.expressionIntensity).toBe(0.7);
+    expect(MOTION_CATALOG.sleepyNod.disableGaze).toBe(true);
 
     // ShhLean has playful
     expect(MOTION_CATALOG.shhLean.expression).toBe('playful');
     expect(MOTION_CATALOG.shhLean.expressionIntensity).toBe(0.7);
+  });
+
+  it('ExpressionController combines sleepyBlink and gazeBlink without compounding', () => {
+    const vrm = createMockVRM();
+    const values: Record<string, number> = {};
+    (vrm.expressionManager!.setValue as any).mockImplementation((key: string, val: number) => {
+      values[key] = val;
+    });
+
+    expressionController.setExpression('relaxed', 0.7);
+
+    // Run 15 consecutive frames with delta = 0.05
+    for (let i = 0; i < 15; i++) {
+      expressionController.update(0.05, vrm, false, 0, 0.2);
+    }
+
+    // Blink should be clamped and bounded around Math.max(0.2, 0.7 * 0.65) ~ 0.45
+    expect(values.blink).toBeGreaterThan(0.35);
+    expect(values.blink).toBeLessThan(0.55);
+
+    // Clear expression back to neutral
+    expressionController.setExpression('neutral', 1.0);
+    for (let i = 0; i < 20; i++) {
+      expressionController.update(0.1, vrm, false, 0, 0);
+    }
+    expect(values.blink).toBe(0);
   });
 
   it('enforces type safety so all configured motion expressions exist in PRESET_EMOTION_MAP', () => {

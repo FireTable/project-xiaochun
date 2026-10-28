@@ -135,6 +135,7 @@ export const MOTION_CATALOG = {
     fadeDuration: 0.85,
     mask: 'all',
     antiClip: false,
+    disableGaze: true,
     expression: 'relaxed',
     expressionIntensity: 0.7,
     category: 'posture',

@@ -160,6 +160,7 @@ export class ExpressionController {
         vrm.expressionManager.setValue('sad', 0);
         vrm.expressionManager.setValue('surprised', 0);
         vrm.expressionManager.setValue('relaxed', 0);
+        vrm.expressionManager.setValue('blink', 0);
         if (!isSpeaking) {
           vrm.expressionManager.setValue('aa', 0);
         }
@@ -175,7 +176,8 @@ export class ExpressionController {
     delta: number,
     vrm: VRM | null,
     isSpeaking: boolean = false,
-    activeVisemeMouth: number = 0
+    activeVisemeMouth: number = 0,
+    gazeBlink: number = 0,
   ): void {
     if (!vrm?.expressionManager) return;
 
@@ -277,12 +279,19 @@ export class ExpressionController {
       ),
     );
 
+    // 困倦/舒缓眼睑微垂：当处于 relaxed 状态时，使眼皮自然下垂微阖（0.35 ~ 0.50，呈现朦胧困倦感）
+    const sleepyBlink = Math.min(0.55, Math.max(0, this.currentWeights.relaxed * 0.65));
+
     try {
       mgr.setValue('happy', happyWeight);
       mgr.setValue('angry', angryWeight);
       mgr.setValue('sad', sadWeight);
       mgr.setValue('surprised', surprisedWeight);
       mgr.setValue('relaxed', relaxedWeight);
+
+      // 叠加困意眼睑微阖 (与 GazeController 的生理眨眼瞬时值平滑合并，取最大值，零回读零复合累加)
+      const finalBlink = Math.min(1.0, Math.max(gazeBlink, sleepyBlink));
+      mgr.setValue('blink', finalBlink);
 
       // 如果有口型输入，写入标准音素
       if (activeVisemeMouth > 0.01) {
