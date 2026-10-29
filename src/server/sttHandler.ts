@@ -35,6 +35,39 @@ function isClientError(err: unknown): boolean {
   return /\b4\d\d\b/.test(msg) && !/\b5\d\d\b/.test(msg);
 }
 
+/**
+ * 以流方式读取请求体, 累计超过上限就立刻 cancel 并返回 null (调用方回 tooLarge)。
+ * 没有 Content-Length 的 chunked 请求也不会被整个读进内存后才检查大小。
+ */
+async function readBodyCapped(request: Request): Promise<Uint8Array<ArrayBuffer> | null> {
+  if (!request.body) return new Uint8Array(0);
+  const reader = request.body.getReader();
+  const chunks: Uint8Array[] = [];
+  let total = 0;
+  for (;;) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    if (!value) continue;
+    total += value.byteLength;
+    if (total > STT_MAX_BODY_BYTES) {
+      try {
+        await reader.cancel();
+      } catch {
+        /* 取消失败: 忽略 */
+      }
+      return null;
+    }
+    chunks.push(value);
+  }
+  const out = new Uint8Array(total);
+  let offset = 0;
+  for (const c of chunks) {
+    out.set(c, offset);
+    offset += c.byteLength;
+  }
+  return out;
+}
+
 export async function handleSTT(
   request: Request,
   env?: STTHandlerEnv,
@@ -79,7 +112,9 @@ export async function handleSTT(
     const contentType = request.headers.get('content-type') || '';
 
     if (contentType.includes('multipart/form-data')) {
-      const formData = await request.formData();
+      const raw = await readBodyCapped(request);
+      if (!raw) return tooLarge();
+      const formData = await new Response(raw, { headers: { 'Content-Type': contentType } }).formData();
       const file = formData.get('file') ?? formData.get('audio');
       if (file && typeof (file as Blob).arrayBuffer === 'function') {
         if ((file as Blob).size > STT_MAX_BODY_BYTES) return tooLarge();
@@ -87,10 +122,10 @@ export async function handleSTT(
         audioBytes = new Uint8Array(buf);
       }
     } else {
-      const buf = await request.arrayBuffer();
-      if (buf.byteLength > STT_MAX_BODY_BYTES) return tooLarge();
-      if (buf.byteLength > 0) {
-        audioBytes = new Uint8Array(buf);
+      const raw = await readBodyCapped(request);
+      if (!raw) return tooLarge();
+      if (raw.byteLength > 0) {
+        audioBytes = raw;
       }
     }
 

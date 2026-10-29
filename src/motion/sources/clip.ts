@@ -218,6 +218,7 @@ export class UniversalMotionController {
       return retargetClip(clip, vrm, { antiClip });
     }
 
+    const generation = motionAssetManager.generation;
     let buffer: ArrayBuffer;
     if (typeof input === 'string') {
       this.lastUrl = input;
@@ -285,7 +286,7 @@ export class UniversalMotionController {
       makeClipSeamless(finalClip, options.fadeDuration);
     }
     if (typeof input === 'string') {
-      motionAssetManager.setClip(input, finalClip);
+      motionAssetManager.setClip(input, finalClip, generation);
     }
     return finalClip;
   }

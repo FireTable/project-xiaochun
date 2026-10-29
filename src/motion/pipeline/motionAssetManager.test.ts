@@ -67,6 +67,15 @@ describe('MotionAssetManager & MOTION_GROUPS Architecture', () => {
       expect(manager.hasClip('thinking')).toBe(false);
     });
 
+    it('setClip drops a clip whose generation went stale during parsing', () => {
+      const gen = manager.generation;
+      manager.invalidateBoundClips(); // 解析途中换模型
+      manager.setClip('stale_key', new THREE.AnimationClip('stale', 1.0, []), gen);
+      expect(manager.hasClip('stale_key')).toBe(false);
+      manager.setClip('fresh_key', new THREE.AnimationClip('fresh', 1.0, []), manager.generation);
+      expect(manager.hasClip('fresh_key')).toBe(true);
+    });
+
     it('clears L3 bound clips on invalidateBoundClips() while preserving L1 memory buffers', () => {
       const mockBuf = new ArrayBuffer(32);
       manager.setBuffer('test_key', mockBuf, false);

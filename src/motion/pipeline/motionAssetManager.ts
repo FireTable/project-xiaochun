@@ -112,8 +112,15 @@ export class MotionAssetManager {
   /**
    * 设置已解析好的 AnimationClip 到 L3
    */
-  setClip(keyOrUrl: string, clip: THREE.AnimationClip): void {
+  setClip(keyOrUrl: string, clip: THREE.AnimationClip, generation?: number): void {
+    // 调用方传入解析开始时记下的代次: 解析期间若已换模型 / 清池, 这个 clip 绑的是旧骨骼树, 丢弃
+    if (generation !== undefined && generation !== this.boundGeneration) return;
     this.l3ClipPool.set(keyOrUrl, clip);
+  }
+
+  /** 当前 L3 代次 (解析前记下, 写回 setClip 时用来判断是否跨代) */
+  get generation(): number {
+    return this.boundGeneration;
   }
 
   /**

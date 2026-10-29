@@ -28,6 +28,8 @@ export async function streamNativeEdgeTTSNode(
   onChunk: (chunk: Uint8Array) => Promise<boolean> | boolean,
   signal: AbortSignal
 ): Promise<void> {
+  // 先校验 / 构造 payload: 非法参数在这里抛出 (async 函数 → reject), 由调用方转成错误响应; 不能等到 socket 'open' 监听器里再抛 (那里没有 try/catch, 会变成未捕获异常)
+  const { speechConfig, ssmlMessage } = buildEdgeTTSPayloads(text, voice, pitch, rate, volume);
   const secMsGec = await makeSecMsGec();
   const connId = makeConnectionId();
   // 采用 Sec-MS-GEC v2 签名直连主端点 speech.platform.bing.com
@@ -63,7 +65,6 @@ export async function streamNativeEdgeTTSNode(
     });
 
     socket.addEventListener('open', () => {
-      const { speechConfig, ssmlMessage } = buildEdgeTTSPayloads(text, voice, pitch, rate, volume);
       try {
         socket.send(speechConfig);
         socket.send(ssmlMessage);
@@ -307,6 +308,17 @@ export function localApiPlugin(ttsProxyUrl?: string, sttProxyUrl?: string): Plug
               res.statusCode = 400;
               res.setHeader('Content-Type', 'application/json');
               res.end(JSON.stringify({ error: 'text is required' }));
+              return;
+            }
+
+            // 非法 voice / pitch / rate / volume: 在写 200 头、打开上游 socket 之前就返回 400
+            try {
+              buildEdgeTTSPayloads(text.trim(), voice, pitch, rate, volume);
+            } catch {
+              res.statusCode = 400;
+              res.setHeader('Content-Type', 'application/json');
+              res.setHeader('Access-Control-Allow-Origin', '*');
+              res.end(JSON.stringify({ error: 'invalid tts parameter' }));
               return;
             }
 

@@ -102,7 +102,10 @@ export const EmbedApp: React.FC = () => {
     const name = initial ? initial.entry.name : APP_CONFIG.model.defaultName;
     const timer = setTimeout(() => {
       vrmEngine.swapOutfit(url, name)
-        .then(() => bridge.reportLoaded(name, initial?.id ?? null))
+        .then((applied) => {
+          // applied === false: 被更新的换装请求顶掉, 这次什么都没换: 不上报已加载 / 不标记已穿 (由顶掉它的那次负责), 也不算错误
+          if (applied !== false) bridge.reportLoaded(name, initial?.id ?? null);
+        })
         .catch((e) => console.error('[embed] initial model load failed:', e));
     }, 120);
 

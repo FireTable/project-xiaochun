@@ -200,17 +200,23 @@ export interface EmbedBridge {
 export function startEmbedBridge(opts: EmbedBridgeOptions): EmbedBridge {
   const { params } = opts;
   // 直接打开 /embed (没有宿主): 按钮仍可用, 直接驱动引擎 (没有消息可发)
+  let pendingPicks = 0; // 进行中的内置按钮换装数 (noop 模式), 用于判断被顶掉时 loading 该由谁清
   const noop: EmbedBridge = {
     async pickOutfit(id) {
       const e = ownEntry(APP_CONFIG.model.addons as Record<string, { source: string; name: string }>, id);
       if (!e) return;
       setPickerState({ loading: id });
+      pendingPicks++;
       let superseded = false;
       try {
-        // false = 被更新的换装请求顶掉: 不写偏好 / 不标记已穿; loading 也留给顶掉它的那次去清, 否则 spinner 提前消失
+        // false = 被更新的换装请求顶掉: 不写偏好 / 不标记已穿
         if ((await vrmEngine.swapOutfit(e.source, e.name)) === false) { superseded = true; return; }
         writeOutfitPref(safeLocalStorage(), WEARING_OUTFIT_KEY, id); setPickerState({ outfit: id });
-      } catch { pickerNotice('failed'); } finally { if (!superseded) setPickerState({ loading: null }); }
+      } catch { pickerNotice('failed'); } finally {
+        pendingPicks--;
+        // 被顶掉时, 只有还有别的按钮点选在跑 (它会去清 loading) 才留着; 被非 bridge 的换装顶掉就没人清了, 这里必须清, 否则 spinner 卡住
+        if (!superseded || pendingPicks === 0) setPickerState({ loading: null });
+      }
     },
     async pickScene(id) { if (ownEntry(APP_CONFIG.scenes.items, id)) await sceneManager.setScene(id, true); },
     pickLang(lang) { opts.onLang(lang); writeLangPref(safeLocalStorage(), EMBED_LANG_KEY, lang); },
