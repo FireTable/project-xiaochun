@@ -124,38 +124,69 @@ flowchart LR
 
 ## 4. 角色和场景指令的设计
 
-- **指令协议格式设计**（JSON / DSL / 结构体定义）：
-  - 采用 zod 定义的 JSON 拍子图（`src/story/schema.ts`）。
-  - 每一拍包含镜头、演出效果、演员（动作 / 表情 / 三语台词）和音频，并以选项、自由输入或自动跳转结束。
-  - 手写剧本和 LLM 生成的拍子共用这套协议。
-  - 剧本 linter（`prologueStory.test.ts`）负责校验可达性、三语齐全以及各类 id 是否存在。
-  ```ts
-  { id: 'beat_2',
-    camera: { shot: 'medium_close_up', movement: 'orbit_to_front', durationSec: 2.4 }, waitForCamera: true,
-    actor: { leadInMotion: 'angryJump', expression: { base: 'angry', intensity: 0.6, microReaction: 'sudden_shock' },
-             speechText: { 'zh-CN': '哇啊！你什么时候进来的？！…', en: 'Whoa! …', ja: 'わあっ！…' } },
-    audio: { bgmMood: 'dusk_warm', sfx: [{ id: 'whoosh' }, { id: 'heartbeat', afterCamera: true }] },
-    choices: [{ id: 'lang_en', text: 'Loud and clear!', actionType: 'change_lang', actionPayload: 'en', nextBeatId: 'beat_3' }] }
-  ```
-- **具体指令实现与映射清单**：
-  - **情绪与表情**（至少 3 种）：共 9 种基础情绪 + 4 种微反应，阻尼平滑过渡。
-    1. `angry` + `sudden_shock`：被抓包时恼羞成怒（第 2 拍）
-    2. `shy` + `blush_ramp`：请你帮她检查头发（第 3 拍）
-    3. `playful` + `eye_crinkle` / `happy`：换装、到达新场景
-  - **非说话动作或视觉状态**（至少 2 种）：
-    1. 倾听姿态（`listening.vrma` 动捕）、思考姿态、待机时的随机小动作
-    2. 剧情动作（`angryJump`、`relaxStretch`、`joyfulJump` 等）
-    3. 换装后播放展示动作
-  - **背景、镜头或环境变化**（至少 1 次）：
-    1. 从虚空 `void` 用白闪转场切到所选场景
-    2. 海边的光影从"当前时间 − 12 h"扫到此刻，再跟随真实时间
-    3. 运镜包括 `slow_push_in` / `orbit_to_front` / `dutch_tilt`，另有调色和 0–3 档风力
-  - **当前对话触发的明显视觉事件**（至少 1 个，非固定定时器触发）：
-    1. 用户的选择直接触发：
-       - 选语言后台词和语音随之切换
-       - 选衣服后当场换装并播放展示动作
-       - 选场景后先预览，确认后白闪切换
-    2. 剧情中的自由输入由 LLM 生成新的一拍。
+- **第一部分：角色「小蠢」**
+  - **角色来源**：原创成年角色，由 VRoid Studio 制作。
+  - **模型与换装**：
+    - VRM 3D 模型（`public/vrm/xiaochun_base.vrmbase`）
+    - 9 套换装增量包（`public/vrm/addons/*.vrmaddon`）：`dinner_dress`、`techwear`、`cheongsam`、`bikini`、`maid`、`swimsuit`、`shroud`、`office_lady`、`wedding`
+    - 换装入口统一为 `src/lib/outfit.ts`，连点时最新请求优先
+  - **表情**：9 种基础情绪（`neutral` / `gentle_smile` / `hesitant` / `shy` / `surprised` / `sad_longing` / `playful` / `happy` / `angry`）+ 4 种微反应（`blush_ramp` / `avert_gaze` / `eye_crinkle` / `sudden_shock`）
+  - **动作**：
+    - 35 个 VRMA 动捕动作，登记在 `MOTION_CATALOG`
+    - 8 个语义动作组：`greeting`、`idleFlavor`、`listening`、`thinking`、`praiseCute`、`playfulSulking`、`dancePerformance`、`outfitShowcase`
+    - EMAGE 根据语音生成全身手势
+  - **其他表现**：口型、视线、弹簧骨物理；场景有 `void` / `light` / `dark` / `beach3d`；界面与台词支持 zh / en / ja 三语
+- **第二部分：指令**
+  - **指令协议与实现**（以下为原有内容）：
+    - **指令协议格式设计**（JSON / DSL / 结构体定义）：
+      - 采用 zod 定义的 JSON 拍子图（`src/story/schema.ts`）。
+      - 每一拍包含镜头、演出效果、演员（动作 / 表情 / 三语台词）和音频，并以选项、自由输入或自动跳转结束。
+      - 手写剧本和 LLM 生成的拍子共用这套协议。
+      - 剧本 linter（`prologueStory.test.ts`）负责校验可达性、三语齐全以及各类 id 是否存在。
+      ```ts
+      { id: 'beat_2',
+        camera: { shot: 'medium_close_up', movement: 'orbit_to_front', durationSec: 2.4 }, waitForCamera: true,
+        actor: { leadInMotion: 'angryJump', expression: { base: 'angry', intensity: 0.6, microReaction: 'sudden_shock' },
+                 speechText: { 'zh-CN': '哇啊！你什么时候进来的？！…', en: 'Whoa! …', ja: 'わあっ！…' } },
+        audio: { bgmMood: 'dusk_warm', sfx: [{ id: 'whoosh' }, { id: 'heartbeat', afterCamera: true }] },
+        choices: [{ id: 'lang_en', text: 'Loud and clear!', actionType: 'change_lang', actionPayload: 'en', nextBeatId: 'beat_3' }] }
+      ```
+    - **具体指令实现与映射清单**：
+      - **情绪与表情**（至少 3 种）：共 9 种基础情绪 + 4 种微反应，阻尼平滑过渡。
+        1. `angry` + `sudden_shock`：被抓包时恼羞成怒（第 2 拍）
+        2. `shy` + `blush_ramp`：请你帮她检查头发（第 3 拍）
+        3. `playful` + `eye_crinkle` / `happy`：换装、到达新场景
+      - **非说话动作或视觉状态**（至少 2 种）：
+        1. 倾听姿态（`listening.vrma` 动捕）、思考姿态、待机时的随机小动作
+        2. 剧情动作（`angryJump`、`relaxStretch`、`joyfulJump` 等）
+        3. 换装后播放展示动作
+      - **背景、镜头或环境变化**（至少 1 次）：
+        1. 从虚空 `void` 用白闪转场切到所选场景
+        2. 海边的光影从"当前时间 − 12 h"扫到此刻，再跟随真实时间
+        3. 运镜包括 `slow_push_in` / `orbit_to_front` / `dutch_tilt`，另有调色和 0–3 档风力
+      - **当前对话触发的明显视觉事件**（至少 1 个，非固定定时器触发）：
+        1. 用户的选择直接触发：
+           - 选语言后台词和语音随之切换
+           - 选衣服后当场换装并播放展示动作
+           - 选场景后先预览，确认后白闪切换
+        2. 剧情中的自由输入由 LLM 生成新的一拍。
+  - **SDK（嵌入包 `@firetable/project-xiaochun`）**：
+    - 位置：`packages/project-xiaochun/`，说明见 `docs/EMBED.md`
+    - 接入方式：无框架 JS SDK `createXiaochun()`、Web Component `<xiaochun-avatar>`、React 的 `<Xiaochun />` / `useXiaochun`、一行 `<script>` loader
+    - 通信：宿主页通过懒加载的 `/embed` iframe 与角色通信，使用 `xc.*` postMessage 消息；握手时严格校验 origin，握手后改走 `MessageChannel`
+    - 可用指令：`say`、`speakAudio`、`motion`、`expression`、`setOutfit`、`setScene`、`prefetch`、`pause` / `resume` 等
+    - 与协议的关系：`xc.say` / `xc.audio` 等消息由 `src/embed/bridge.ts` 转成同一套 action，交给同一个 handler（`src/core/protocol/handler.ts`）
+  - **`xiaochun://` 协议**：
+    - 作用：系统级 deep link，外部程序、脚本、命令行和 AI agent 可以唤起桌面端小蠢并下达指令；由 Tauri 桌面壳（`src-tauri/src/lib.rs`）解析，再以 `protocol:action` 事件交给 WebView
+    - 支持的 action：
+      - `speak`：念一段文字（`text`），或播放预合成音频（`audioUrl`），或读取本地文本文件（`file`）
+      - `motion`：播放单个动作（`name` 或 `url`，可选 `loop` / `fadeDuration` / `timeScale` / `mask` / `stop`）
+      - `motion-group`（别名 `group`）：从动作组里随机播放一个动作
+      - `expression`：触发表情（`name`，可选 `intensity`）
+      - `camera`：镜头调度（`shot` / `movement` / `durationSec` / `orbitAngleDeg` / `targetFov` / `reset` / `panUp` 等）
+      - `stop`：立即停止语音和动作
+    - 示例：`xiaochun://speak?text=...`、`xiaochun://motion?name=waving`、`xiaochun://stop`
+    - 调用方式：系统命令（`open` / `start` / `xdg-open`）或仓库内置命令（`pnpm speak` / `pnpm motion` / `pnpm expr` / `pnpm camera` / `pnpm stop`），详见 `docs/PROTOCOL.md`
 
 ---
 
@@ -222,11 +253,24 @@ flowchart LR
 
 - **当前尚未完成的能力及当前状态**：
   - 未做视频 / 生成式媒体
+    - 已有的替代方案：多模态表现选择了 3D 角色动画（VRM + 35 个 VRMA + EMAGE 手势 + 表情口型）
+    - 剧情拍用遮幅（letterbox）电影模式驱动同一个常驻 3D 角色，结束后镜头平滑回到默认视角
+    - 同一个 VRM 模型保持外观一致，换装会持久化，海滩光影随时间连续变化
+    - 聊天中 LLM 生成回复期间播放思考动作；剧情生成新拍时禁用输入，生成出的剧情拍经 jsonrepair + zod 校验，解析失败或超时改用兜底拍
   - 聊天模式的回复不走导演协议
+    - 已有的替代方案：剧情中的自由输入由 `storyGenerator` 让 LLM 输出符合导演协议的拍子（zod 校验）
+    - 普通聊天仍是文本 + EMAGE 手势
   - 语音转写后需手动发送
-  - Act 0 不开放打断
+    - 已有：VAD 自动分句，云端 Whisper（熔断后本地 SenseVoice）转写，并自动填入输入框
+  - 剧情引导（第 0 幕）没有开放打断
+    - 这是端侧项目：第 0 幕播放时 WebLLM 还未就绪，为了用户体验特意不开启
+    - 打断能力在聊天模式中已实现，演示录屏在序章结束后的聊天模式中展示
   - 附和语音（"嗯""对"）没有语义级判断
+    - 已有：TTS 播放期间用 RMS 门限（`bargeInRms` 0.08）加 Silero VAD 置信度过滤回声，只有越过门限的人声才算打断
+    - 转写结果中只有语气词的会被过滤掉
   - 没有录制回放和面向用户的延迟观测页（只有开发抽屉）
+    - 已有（仅开发抽屉）：语音分析卡片显示识别耗时 / 时长 / RMS，并保留最近 10 条语音的 WAV 与识别结果，另有动作面板
+    - 已有：`ChatDirector` 的 `TurnState` 变更事件和剧情 history 可用于排查问题
 - **遇到的主要问题与技术挑战**：
   - 扬声器回声导致角色打断自己（`d8079e4`）
   - 迟到的异步结果造成僵尸气泡、幽灵文本、按钮状态错乱（`e05dd36`、`ac5493a`、`8de22d7`）
