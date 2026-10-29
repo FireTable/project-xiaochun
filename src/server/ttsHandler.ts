@@ -10,6 +10,7 @@ import {
   isValidTTSProsody,
   TTS_MAX_TEXT_LENGTH,
 } from '../lib/edge-tts-core';
+import { corsHeadersFor, forbiddenResponse } from './originGuard';
 
 export interface TTSHandlerEnv {
   /** 【可选】持久化语音缓存 Bucket (xiaochun-tts)；未绑定时自动优雅降级 */
@@ -382,8 +383,11 @@ export async function handleTTS(
   env?: TTSHandlerEnv,
   ctx?: { waitUntil?: (promise: Promise<unknown>) => void },
 ): Promise<Response> {
+  const cors = corsHeadersFor(request);
+  if (!cors) return forbiddenResponse();
+
   if (request.method === 'OPTIONS') {
-    return new Response(null, { status: 204, headers: EDGE_TTS_CONSTANTS.COMMON_CORS });
+    return new Response(null, { status: 204, headers: cors });
   }
 
   try {
@@ -418,7 +422,7 @@ export async function handleTTS(
     const badRequest = (message: string) =>
       new Response(JSON.stringify({ error: message }), {
         status: 400,
-        headers: { 'Content-Type': 'application/json', ...EDGE_TTS_CONSTANTS.COMMON_CORS },
+        headers: { 'Content-Type': 'application/json', ...cors },
       });
 
     const cleanText = typeof text === 'string' ? text.trim() : '';
@@ -447,7 +451,7 @@ export async function handleTTS(
               'Cache-Control': 'public, max-age=86400',
               'X-TTS-Cache': 'HIT',
               'X-TTS-Storage': env?.TTS_BUCKET ? 'r2+pop' : 'pop',
-              ...EDGE_TTS_CONSTANTS.COMMON_CORS,
+              ...cors,
             },
           });
         }
@@ -485,7 +489,7 @@ export async function handleTTS(
               'Cache-Control': 'public, max-age=86400',
               'X-TTS-Cache': 'R2-HIT',
               'X-TTS-Storage': 'r2',
-              ...EDGE_TTS_CONSTANTS.COMMON_CORS,
+              ...cors,
             },
           });
         }
@@ -571,7 +575,7 @@ export async function handleTTS(
         'Cache-Control': 'no-store',
         'X-TTS-Cache': 'MISS',
         'X-TTS-Storage': r2 ? 'r2' : 'none',
-        ...EDGE_TTS_CONSTANTS.COMMON_CORS,
+        ...cors,
       },
     });
   } catch (e: unknown) {
@@ -583,7 +587,7 @@ export async function handleTTS(
     const isBadBody = e instanceof SyntaxError;
     return new Response(JSON.stringify({ error: isBadBody ? 'invalid request body' : 'TTS synthesis failed' }), {
       status: isBadBody ? 400 : 502,
-      headers: { 'Content-Type': 'application/json', ...EDGE_TTS_CONSTANTS.COMMON_CORS },
+      headers: { 'Content-Type': 'application/json', ...cors },
     });
   }
 }

@@ -7,7 +7,7 @@
  */
 
 import { Buffer } from 'node:buffer';
-import { COMMON_CORS } from '../lib/edge-tts-core';
+import { corsHeadersFor, forbiddenResponse } from './originGuard';
 import type { ExecutionContext } from '@cloudflare/workers-types';
 
 export interface STTHandlerEnv {
@@ -19,10 +19,10 @@ export interface STTHandlerEnv {
 /** 单次请求音频体积上限 (16kHz/16bit 单声道约 5 分钟, 远大于客户端单段上限)。 */
 const STT_MAX_BODY_BYTES = 10 * 1024 * 1024;
 
-function tooLarge(): Response {
+function tooLarge(cors: Record<string, string>): Response {
   return new Response(JSON.stringify({ error: 'Audio too large', code: 'PAYLOAD_TOO_LARGE' }), {
     status: 413,
-    headers: { 'Content-Type': 'application/json', ...COMMON_CORS },
+    headers: { 'Content-Type': 'application/json', ...cors },
   });
 }
 
@@ -73,21 +73,18 @@ export async function handleSTT(
   env?: STTHandlerEnv,
   _ctx?: ExecutionContext,
 ): Promise<Response> {
+  const cors = corsHeadersFor(request);
+  if (!cors) return forbiddenResponse();
+
   // 处理 OPTIONS 跨域探测
   if (request.method === 'OPTIONS') {
-    return new Response(null, {
-      status: 204,
-      headers: {
-        ...COMMON_CORS,
-        'Access-Control-Allow-Headers': 'Content-Type, Authorization',
-      },
-    });
+    return new Response(null, { status: 204, headers: cors });
   }
 
   if (request.method !== 'POST') {
     return new Response(JSON.stringify({ error: 'Method not allowed' }), {
       status: 405,
-      headers: { 'Content-Type': 'application/json', ...COMMON_CORS },
+      headers: { 'Content-Type': 'application/json', ...cors },
     });
   }
 
@@ -99,13 +96,13 @@ export async function handleSTT(
       }),
       {
         status: 503,
-        headers: { 'Content-Type': 'application/json', ...COMMON_CORS },
+        headers: { 'Content-Type': 'application/json', ...cors },
       },
     );
   }
 
   const declaredLength = Number(request.headers.get('content-length'));
-  if (Number.isFinite(declaredLength) && declaredLength > STT_MAX_BODY_BYTES) return tooLarge();
+  if (Number.isFinite(declaredLength) && declaredLength > STT_MAX_BODY_BYTES) return tooLarge(cors);
 
   try {
     let audioBytes: Uint8Array | null = null;
@@ -113,17 +110,17 @@ export async function handleSTT(
 
     if (contentType.includes('multipart/form-data')) {
       const raw = await readBodyCapped(request);
-      if (!raw) return tooLarge();
+      if (!raw) return tooLarge(cors);
       const formData = await new Response(raw, { headers: { 'Content-Type': contentType } }).formData();
       const file = formData.get('file') ?? formData.get('audio');
       if (file && typeof (file as Blob).arrayBuffer === 'function') {
-        if ((file as Blob).size > STT_MAX_BODY_BYTES) return tooLarge();
+        if ((file as Blob).size > STT_MAX_BODY_BYTES) return tooLarge(cors);
         const buf = await (file as Blob).arrayBuffer();
         audioBytes = new Uint8Array(buf);
       }
     } else {
       const raw = await readBodyCapped(request);
-      if (!raw) return tooLarge();
+      if (!raw) return tooLarge(cors);
       if (raw.byteLength > 0) {
         audioBytes = raw;
       }
@@ -132,7 +129,7 @@ export async function handleSTT(
     if (!audioBytes || audioBytes.byteLength === 0) {
       return new Response(JSON.stringify({ error: 'No audio data provided' }), {
         status: 400,
-        headers: { 'Content-Type': 'application/json', ...COMMON_CORS },
+        headers: { 'Content-Type': 'application/json', ...cors },
       });
     }
 
@@ -170,7 +167,7 @@ export async function handleSTT(
         headers: {
           'Content-Type': 'application/json; charset=utf-8',
           'Cache-Control': 'no-store',
-          ...COMMON_CORS,
+          ...cors,
         },
       },
     );
@@ -188,7 +185,7 @@ export async function handleSTT(
       }),
       {
         status,
-        headers: { 'Content-Type': 'application/json', ...COMMON_CORS },
+        headers: { 'Content-Type': 'application/json', ...cors },
       },
     );
   }

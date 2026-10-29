@@ -1,10 +1,12 @@
 import { describe, it, expect, vi } from 'vitest';
 import { handleSTT } from '../sttHandler';
 
+const ORIGIN = 'https://xiaochun.firetable.tech';
+
 const wav = (bytes: number) =>
   new Request('https://x.test/api/stt', {
     method: 'POST',
-    headers: { 'Content-Type': 'audio/wav' },
+    headers: { 'Content-Type': 'audio/wav', Origin: ORIGIN },
     body: new Uint8Array(bytes),
   });
 
@@ -13,7 +15,7 @@ describe('handleSTT hardening', () => {
     const run = vi.fn();
     const req = new Request('https://x.test/api/stt', {
       method: 'POST',
-      headers: { 'Content-Type': 'audio/wav', 'Content-Length': String(11 * 1024 * 1024) },
+      headers: { 'Content-Type': 'audio/wav', Origin: ORIGIN, 'Content-Length': String(11 * 1024 * 1024) },
       body: new Uint8Array(8),
     });
     const res = await handleSTT(req, { AI: { run } });
@@ -45,7 +47,7 @@ describe('handleSTT hardening', () => {
     });
     const req = new Request('https://x.test/api/stt', {
       method: 'POST',
-      headers: { 'Content-Type': 'audio/wav' },
+      headers: { 'Content-Type': 'audio/wav', Origin: ORIGIN },
       body,
       duplex: 'half',
     } as RequestInit);

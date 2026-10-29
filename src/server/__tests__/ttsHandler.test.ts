@@ -1,10 +1,12 @@
 import { describe, it, expect, vi } from 'vitest';
 import { handleTTS } from '../ttsHandler';
 
+const ORIGIN = 'https://xiaochun.firetable.tech';
+
 const post = (body: unknown) =>
   new Request('https://x.test/api/tts', {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
+    headers: { 'Content-Type': 'application/json', Origin: ORIGIN },
     body: JSON.stringify(body),
   });
 
@@ -27,7 +29,7 @@ describe('handleTTS input validation (rejects before any synthesis or cache writ
 
   it('malformed JSON body is a generic 400 (no parser message echoed)', async () => {
     const res = await handleTTS(
-      new Request('https://x.test/api/tts', { method: 'POST', body: '{not json' }),
+      new Request('https://x.test/api/tts', { method: 'POST', headers: { Origin: ORIGIN }, body: '{not json' }),
       env,
     );
     expect(res.status).toBe(400);
