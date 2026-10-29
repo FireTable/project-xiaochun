@@ -126,6 +126,10 @@ While Plan A eliminated the visual 1-frame T-pose flash, empirical frame profili
 - During outfit swaps (`preserveMotion === true`), the user is watching the active character animate on screen. Running synchronous GLTF optimization (`applyVrmUtilsOptimizations`), mesh shadow configuration, and material shader injection without yielding can block the main thread for 60~120ms, causing the old character to freeze before switching.
 - Cooperative yielding (`await yieldToMain()`) between each major CPU processing stage allows the browser event loop to interleave animation frames, ensuring the active model breathes, glances, and speaks smoothly at full 60 FPS while the new model is prepared in memory.
 
+### 5.4 Latest-Wins Request Queue Serialization (`LatestWinsQueue`)
+- **The Problem**: Rapidly clicking different outfits in the UI could trigger overlapping swap requests. If multiple swaps executed concurrently, earlier models could resolve after later ones or attach duplicate "ghost" models to the scene graph.
+- **The Solution**: All swap requests route through `LatestWinsQueue` (`src/core/latestWinsQueue.ts`). Each request receives an incrementing generation token. While in-flight tasks cannot be violently aborted mid-parse without leaking memory, tasks check `isLatest(token)` at safe suspension points. When an incoming swap supersedes pending tasks, the older tasks are marked as `SUPERSEDED` and safely discarded, guaranteeing strictly serialized, latest-wins avatar mounting.
+
 ---
 
 ## 6. Official Outfits Roster

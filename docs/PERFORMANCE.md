@@ -269,4 +269,32 @@ A bit-for-bit SHA-256 analysis of embedded glTF images across `xiaochun_base.vrm
 | **Old Avatar Freeze During Parse** | 60 ~ 120 ms continuous main-thread block | **0 ms freeze** (cooperative `yieldToMain` slices) | **Active avatar animates at solid 60 FPS** |
 | **WebGL Resource Disposal** | Synchronous driver blocking | Background time-sliced ($\le 2\text{ ms}$ per frame) | Smooth deallocation over 3~5 subsequent frames |
 
+---
+
+## 10. STT Zero-Silence Gating, Mobile GPU Lifecycle & Pipeline Polish (v0.1.40+)
+
+### 10.1 Silero VAD Zero-Silence Gating Bypass (`src/stt/sileroVad.ts`)
+- **Problem**: When voice recording is active, Silero VAD evaluates 512-sample PCM chunks (~32ms per window at 16 kHz) via `ort-web` ONNX WASM inference (~31 calls/sec). While acoustic bleed gating prevents XiaoChun from transcribing her own voice, prolonged standby silence on low-end mobile devices and laptops generated continuous background CPU consumption.
+- **Solution**: Before invoking `session.run()`, a fast amplitude gate inspects the root-mean-square (`rms`) energy of the current PCM frame. When the character is not currently in a speech state (`!this.inSpeech && this.consecutiveSpeechFrames === 0`) and the frame amplitude is below the ambient noise floor (`rms < 0.003`):
+  - Model inference is completely bypassed;
+  - `speechProb` is immediately assigned to `0`;
+  - Reduces ONNX WASM neural network executions by **>80%** during silent intervals, dramatically lowering CPU utilization and thermal throttling.
+
+### 10.2 Mobile GPU Context Release on Page Hide (`src/core/gpuRelease.ts`)
+- **Problem**: Mobile operating systems (iOS Safari, Android Chrome) aggressively kill background web tabs that retain large WebGL/WebGPU framebuffers and VRAM allocations when switching apps or locking the screen.
+- **Solution**: Configured via `APP_CONFIG.scene.mobileGpuReleaseOnHide`:
+  - Listens to `visibilitychange` and `pagehide` events;
+  - Automatically disposes render targets and sheds heavy GPU buffers when the tab transitions into the background;
+  - Safely re-allocates and rebinds renderer buffers when returning to the foreground, defending against unexpected OS tab terminations.
+
+### 10.3 Time-Sliced Shader Compilation & Prewarming (`src/core/gpuPrewarm.ts`)
+- Material and shader prewarming routines execute cooperative yielding across animation frames (`requestAnimationFrame` / `yieldToMain`), ensuring that scene switching (`beach3d`) and complex shader compilation never introduce frame drops or block the user interface.
+
+### 10.4 Concurrency Serialization for Outfit Swapping (`src/core/latestWinsQueue.ts`)
+- Rapid user clicks across wardrobe presets are serialized through a single-flight `LatestWinsQueue`. Intermediate superseded swap requests are tagged with a stale generation token and discarded before heavy glTF/WASM synthesis begins, preventing pipeline thrashing and wasted GPU upload bandwidth.
+
+### 10.5 Finger Micro-Fade Smoothing (`src/motion/pipeline/fingerFade.ts`)
+- Implements a dedicated 0.34s micro-transition window specifically tailored for the 30 finger phalange joints during transitions between procedural idle fidgets and motion capture clips, eliminating micro-jitter in delicate hand poses.
+
+
 

@@ -4,7 +4,7 @@
 > - [`src/motion/pipeline/motionPipeline.ts`](../src/motion/pipeline/motionPipeline.ts) (`tick()` orchestration, exclusive writer, Quintic blend, commit)  
 > - [`src/motion/pipeline/selectLiveMotionSource.ts`](../src/motion/pipeline/selectLiveMotionSource.ts) (clip > emage > vrma > idle; no director flags)  
 > - [`src/motion/pipeline/poseBuffer.ts`](../src/motion/pipeline/poseBuffer.ts) (52-bone zero-GC pose buffer & masks)  
-> - [`src/motion/sources/`](../src/motion/sources/) (idle, vrma, emage, clip)  
+> - [`src/motion/sources/`](../src/motion/sources/) (idle, vrma, emage, clip, listening)  
 > - [`src/motion/constraints/`](../src/motion/constraints/) (footIK, bodyTurn, gaze)  
 > - [`src/motion/pipeline/transition.ts`](../src/motion/pipeline/transition.ts) (leg-only BodyTurn handoff Slerp)
 
@@ -14,6 +14,7 @@
 
 Project XiaoChun integrates diverse, heterogeneous motion sources:
 - Standby breathing and biomechanical micro-motion (`NaturalIdleSystem`)
+- Conversational listening and chin-resting attentive gaze (`ListeningMotionSystem`)
 - Thinking loops and contemplative chin-resting (`VRMAMotionPlayer`)
 - Neural network-driven conversational gestures (`EmagePlayer`)
 - Procedural camera-tracking locomotion footsteps (`BodyTurnSystem`)

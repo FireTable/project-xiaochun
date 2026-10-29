@@ -120,7 +120,7 @@ The percentage text next to a slider (e.g. `90%`) lives in the section as a `<sp
 1. Resets every engine subsystem and writes defaults to `localStorage`.
 2. Bumps `resetSignal`, which becomes part of `<SectionRenderer key={`${s.id}-${resetSignal}`}>`.
 
-React unmounts and remounts every section on bump. Each section's `useState` initializer re-runs against the now-defaulted engine, so all 8 sections show their default state without per-section imperative sync.
+React unmounts and remounts every section on bump. Each section's `useState` initializer re-runs against the now-defaulted engine, so all 11 sections show their default state without per-section imperative sync.
 
 ### 3.7 Schema-Driven Render Order
 
@@ -128,18 +128,21 @@ React unmounts and remounts every section on bump. Each section's `useState` ini
 
 ```ts
 export const SECTIONS: SectionConfig[] = [
-  { id: 'expressions', defaultCollapsed: false },
-  { id: 'camera',      defaultCollapsed: false },
-  { id: 'saturation',  defaultCollapsed: false },
-  { id: 'bodyMorph',   defaultCollapsed: false },
-  { id: 'wardrobe',    defaultCollapsed: false },
-  { id: 'lighting',    defaultCollapsed: false },
-  { id: 'postfx',      defaultCollapsed: false },
-  { id: 'emagePerf',   defaultCollapsed: false },
+  { id: 'expressions',   defaultCollapsed: false },
+  { id: 'motion',        defaultCollapsed: false },
+  { id: 'vocal',         defaultCollapsed: false },
+  { id: 'camera',        defaultCollapsed: false },
+  { id: 'saturation',    defaultCollapsed: false },
+  { id: 'bodyMorph',     defaultCollapsed: false },
+  { id: 'wardrobe',      defaultCollapsed: false },
+  { id: 'lighting',      defaultCollapsed: false },
+  { id: 'postfx',        defaultCollapsed: false },
+  { id: 'emagePerf',     defaultCollapsed: false },
+  { id: 'voiceAnalysis', defaultCollapsed: false },
 ];
 ```
 
-Current order: Expressions → 🎥 Camera Settings → 🎨 Color Saturation → ✨ Body Morph → 🧩 Model Wardrobe → 💡 Studio Lighting → 🔮 PostFx Pipeline → ⚡ EMAGE Perf. Reordering = swapping entries in this array; no other file changes.
+Current order: Expressions → 💃 Motion Control → 🎙️ Vocal Acoustics → 🎥 Camera Settings → 🎨 Color Saturation → ✨ Body Morph → 🧩 Model Wardrobe → 💡 Studio Lighting → 🔮 PostFx Pipeline → ⚡ EMAGE Perf → 📊 Voice Analysis. Reordering = swapping entries in this array; no other file changes.
 
 ### 3.8 Section-Specific Patterns
 
