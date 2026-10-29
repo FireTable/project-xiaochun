@@ -44,7 +44,7 @@
     - 当前 `pnpm vitest run`：63 个文件 / 549 项全过。
     - 剧本 linter 校验剧情图可达性与三语齐全。
   - 样式与交互原型排版：
-    - 剧场 UI、字幕打字机、黑板演播台 `chalkboard.html`
+    - 剧场 UI、字幕打字机
     - 交付 README / AI_USAGE 初稿由 Grok Bot 整理，人工审阅
   - 素材：
     - `.vrma` 动作：大部分转换自 Adobe 开放动作库（Mixamo），少量由 MiniMax 协助从公开仓库搜集，均经 `scripts/slice-vrma.mjs` 精修入库
