@@ -5,7 +5,8 @@
  * 字段:
  * - 系统提示词:textarea,留空 = 用默认人设
  * - 记忆轮数:slider,1-50,有 override 时显示 override,否则显示设备推荐
- * - 头顶气泡:switch,默认 APP_CONFIG.chat.showHeadBubble;关了只藏 HeadBubble,不拦 ChatDirector
+ * - 对话字幕:switch,默认 APP_CONFIG.chat.showChatDialogue;关了只藏 chat 模式的 PC 头顶气泡 + 移动端电影字幕栏
+ *   (ChatBubble),不拦 ChatDirector / bubbleTracker 事件;故事模式台词不受影响
  *
  * 写入 userSettings IDB;App.tsx 订阅变化 → 重新 bindSystemContext,下次 send 自动生效。
  */
@@ -37,8 +38,8 @@ import {
   getUserSettings,
   setSystemPromptOverride,
   setMemoryTurnsOverride,
-  setShowHeadBubbleOverride,
-  resolveShowHeadBubble,
+  setShowChatDialogueOverride,
+  resolveShowChatDialogue,
   type UserSettings,
 } from '@/llm/userSettings';
 import { XIAOCHUN_SYSTEM_PROMPT } from '@/llm/prompts';
@@ -52,7 +53,7 @@ interface AdvancedSettingsDialogProps {
 
 const TURNS_MIN = APP_CONFIG.memory.userTurnsMin;
 const TURNS_MAX = APP_CONFIG.memory.userTurnsMax;
-const DEFAULT_SHOW_HEAD_BUBBLE = APP_CONFIG.chat.showHeadBubble;
+const DEFAULT_SHOW_CHAT_DIALOGUE = APP_CONFIG.chat.showChatDialogue;
 
 export const AdvancedSettingsDialog: React.FC<AdvancedSettingsDialogProps> = ({
   open,
@@ -63,7 +64,7 @@ export const AdvancedSettingsDialog: React.FC<AdvancedSettingsDialogProps> = ({
   const [settings, setSettings] = useState<UserSettings>({});
   const [draftPrompt, setDraftPrompt] = useState('');
   const [draftTurns, setDraftTurns] = useState<number>(0);
-  const [draftShowBubble, setDraftShowBubble] = useState(DEFAULT_SHOW_HEAD_BUBBLE);
+  const [draftShowDialogue, setDraftShowDialogue] = useState(DEFAULT_SHOW_CHAT_DIALOGUE);
   const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -79,7 +80,7 @@ export const AdvancedSettingsDialog: React.FC<AdvancedSettingsDialogProps> = ({
   // 表单是否被用户改过 — 用来显示「使用默认」按钮
   const promptOverridden = (settings.systemPromptOverride?.trim() ?? '') !== '';
   const turnsOverridden = typeof settings.memoryTurnsOverride === 'number' && settings.memoryTurnsOverride > 0;
-  const bubbleOverridden = typeof settings.showHeadBubble === 'boolean';
+  const dialogueOverridden = typeof settings.showChatDialogue === 'boolean';
 
   useEffect(() => {
     if (!open) return;
@@ -89,7 +90,7 @@ export const AdvancedSettingsDialog: React.FC<AdvancedSettingsDialogProps> = ({
       // 表单初值:override 有就用,否则预填默认人设(让用户看到「当前是什么」,方便微调)
       setDraftPrompt(s.systemPromptOverride ?? defaultPrompt);
       setDraftTurns(s.memoryTurnsOverride ?? deviceRecommended);
-      setDraftShowBubble(resolveShowHeadBubble(s));
+      setDraftShowDialogue(resolveShowChatDialogue(s));
       setError(null);
       setSaved(false);
     })();
@@ -103,8 +104,8 @@ export const AdvancedSettingsDialog: React.FC<AdvancedSettingsDialogProps> = ({
     setDraftTurns(deviceRecommended);
   };
 
-  const handleResetBubble = () => {
-    setDraftShowBubble(DEFAULT_SHOW_HEAD_BUBBLE);
+  const handleResetDialogue = () => {
+    setDraftShowDialogue(DEFAULT_SHOW_CHAT_DIALOGUE);
   };
 
   const handleSave = async () => {
@@ -115,15 +116,15 @@ export const AdvancedSettingsDialog: React.FC<AdvancedSettingsDialogProps> = ({
       const trimmed = draftPrompt.trim();
       const promptChanged = trimmed && trimmed !== defaultPrompt;
       const turnsChanged = draftTurns !== deviceRecommended;
-      const bubbleChanged = draftShowBubble !== DEFAULT_SHOW_HEAD_BUBBLE;
+      const dialogueChanged = draftShowDialogue !== DEFAULT_SHOW_CHAT_DIALOGUE;
       await setSystemPromptOverride(promptChanged ? trimmed : null);
       await setMemoryTurnsOverride(turnsChanged ? draftTurns : null);
-      await setShowHeadBubbleOverride(bubbleChanged ? draftShowBubble : null);
+      await setShowChatDialogueOverride(dialogueChanged ? draftShowDialogue : null);
       // 同步本地 settings,让 "已使用 override" 提示立刻更新
       const next: UserSettings = {};
       if (promptChanged) next.systemPromptOverride = trimmed;
       if (turnsChanged) next.memoryTurnsOverride = draftTurns;
-      if (bubbleChanged) next.showHeadBubble = draftShowBubble;
+      if (dialogueChanged) next.showChatDialogue = draftShowDialogue;
       setSettings(next);
       setSaved(true);
       setTimeout(() => setSaved(false), 2200);
@@ -238,18 +239,18 @@ export const AdvancedSettingsDialog: React.FC<AdvancedSettingsDialogProps> = ({
             </p>
           </div>
 
-          {/* 头顶对话气泡 */}
+          {/* 对话字幕 (chat 模式 PC 气泡 + 移动端电影字幕栏; 故事模式不受影响) */}
           <div className="rounded-xl bg-white/[0.04] border border-white/10 p-2.5 sm:p-3 space-y-2">
             <div className="flex items-center justify-between gap-3">
               <span className="text-white/40 text-[11px] font-medium flex items-center gap-1.5 min-w-0">
                 <MessageCircle className="h-3.5 w-3.5 text-white/40 shrink-0" />
-                {t('chat.advancedDialog.showHeadBubbleLabel')}
+                {t('chat.advancedDialog.showChatDialogueLabel')}
               </span>
               <div className="flex items-center gap-2 shrink-0">
                 <button
                   type="button"
-                  onClick={handleResetBubble}
-                  disabled={!bubbleOverridden}
+                  onClick={handleResetDialogue}
+                  disabled={!dialogueOverridden}
                   className="inline-flex items-center gap-1 px-2 py-1 rounded-md text-[10px] text-white/60 hover:text-white border border-white/10 hover:border-white/20 focus:outline-none focus-visible:ring-1 focus-visible:ring-white/30 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
                 >
                   <RotateCcw className="h-3 w-3" />
@@ -258,23 +259,23 @@ export const AdvancedSettingsDialog: React.FC<AdvancedSettingsDialogProps> = ({
                 <button
                   type="button"
                   role="switch"
-                  aria-checked={draftShowBubble}
-                  aria-label={t('chat.advancedDialog.showHeadBubbleLabel')}
-                  onClick={() => setDraftShowBubble((v) => !v)}
+                  aria-checked={draftShowDialogue}
+                  aria-label={t('chat.advancedDialog.showChatDialogueLabel')}
+                  onClick={() => setDraftShowDialogue((v) => !v)}
                   className={`flex h-5 w-9 items-center rounded-full p-0.5 transition-colors focus:outline-none focus-visible:ring-1 focus-visible:ring-white/30 ${
-                    draftShowBubble ? 'bg-[#ea8377]' : 'bg-white/20'
+                    draftShowDialogue ? 'bg-[#ea8377]' : 'bg-white/20'
                   }`}
                 >
                   <span
                     className={`h-4 w-4 rounded-full bg-white shadow transition-transform ${
-                      draftShowBubble ? 'translate-x-4' : 'translate-x-0'
+                      draftShowDialogue ? 'translate-x-4' : 'translate-x-0'
                     }`}
                   />
                 </button>
               </div>
             </div>
             <p className="text-[10px] sm:text-[11px] text-white/50 leading-relaxed">
-              {t('chat.advancedDialog.showHeadBubbleHint')}
+              {t('chat.advancedDialog.showChatDialogueHint')}
             </p>
           </div>
 

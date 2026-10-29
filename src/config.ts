@@ -444,7 +444,8 @@ export const APP_CONFIG = {
     userTurnsMax: 50,
   },
   chat: {
-    showHeadBubble: true as boolean,
+    /** 日常 chat 模式对话字幕总开关 (PC 头顶气泡 + 移动端电影字幕栏); 故事 / 新手引导不受影响。旧名 showHeadBubble */
+    showChatDialogue: true as boolean,
     /** 对话气泡平滑打字机动效配置 (视觉小说级字符渐显与语流停顿) */
     typewriter: {
       enabled: true,

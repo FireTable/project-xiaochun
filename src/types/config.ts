@@ -718,7 +718,8 @@ export interface ChatTypewriterConfig {
 }
 
 export interface ChatConfig {
-  showHeadBubble: boolean;
+  /** 日常 chat 模式对话字幕总开关 (PC 头顶气泡 + 移动端电影字幕栏); 故事 / 新手引导始终显示。旧名 showHeadBubble */
+  showChatDialogue: boolean;
   typewriter: ChatTypewriterConfig;
 }
 

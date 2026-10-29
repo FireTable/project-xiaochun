@@ -258,7 +258,9 @@ export const App: React.FC = () => {
 
 
 
-      {/* 3D 角色头顶悬浮对话框：PC 维持头顶跟随气泡；移动端隐藏头顶气泡转由 ChatBar 顶部电影条承接 */}
+      {/* 3D 角色头顶悬浮对话框：PC 维持头顶跟随气泡；移动端隐藏头顶气泡转由 ChatBar 顶部电影条承接。
+          两者都属于 chat 范围: 受「显示对话字幕」设置 (showChatDialogue) 控制, 且语音结束后消失；
+          故事 / 新手引导走 StoryPlayer 自己的电影条, 不受该设置影响。 */}
       {currentScene.components.headBubble !== false && !isStoryOrOnboarding && (
         <div className="hidden sm:block">
           <ChatBubble state={bubble} variant="bubble" />
@@ -276,6 +278,7 @@ export const App: React.FC = () => {
               <ChatBubble
                 state={bubble}
                 variant="cinematic"
+                dialogueScope="chat"
                 isStatic
                 placement="bottom"
                 maxWidthClass="max-w-full"

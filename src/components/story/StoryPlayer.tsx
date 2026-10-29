@@ -347,6 +347,7 @@ export const StoryPlayer: React.FC<StoryPlayerProps> = ({
       <ChatBubble
         isStatic
         variant="cinematic"
+        dialogueScope="story"
         placement="bottom"
         maxWidthClass={maxWidthClass}
         state={bubble}

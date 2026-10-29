@@ -4,11 +4,12 @@ import { vrmEngine, type BubbleState } from '@/core/vrmEngine';
 import { getBubbleTransform, type BubblePlacement } from '@/core/ui/bubbleTracker';
 import { Sparkles, VolumeX, Activity, AlertCircle } from '@/components/icons';
 import { TypewriterText } from '@/components/TypewriterText';
+import { resolveChatBubbleVisible } from '@/components/chatBubbleVisibility';
 import {
   getUserSettings,
   getCachedUserSettings,
   subscribeUserSettings,
-  resolveShowHeadBubble,
+  resolveShowChatDialogue,
 } from '@/llm/userSettings';
 
 export interface ChatBubbleProps {
@@ -23,6 +24,15 @@ export interface ChatBubbleProps {
   maxWidthClass?: string;
   children?: React.ReactNode;
   variant?: 'bubble' | 'cinematic';
+  /**
+   * 对白归属范围:
+   * - 'chat'  日常聊天: 可见性跟随 bubbleTracker 的 state.visible (语音结束 ChatDirector.onEnd → hide() 后消失),
+   *           并受「显示对话字幕」用户设置 (showChatDialogue) 控制 —— PC 头顶气泡与移动端电影字幕栏同一套规则。
+   * - 'story' 故事 / 新手引导: 台词在整拍内持续展示 (语音播完也不消失), 完全不受 showChatDialogue 影响。
+   * 缺省: 悬浮气泡 (非 isStatic) 视为 'chat', 静态电影条 (isStatic) 视为 'story' (StoryPlayer 沿用旧行为);
+   * 移动端 chat 模式的电影字幕栏必须显式传 dialogueScope="chat"。
+   */
+  dialogueScope?: 'chat' | 'story';
 }
 
 /** @deprecated 向后兼容别名，推荐使用 ChatBubbleProps */
@@ -76,19 +86,20 @@ export const ChatBubble: React.FC<ChatBubbleProps> = ({
   maxWidthClass = 'max-w-[240px] sm:max-w-xs',
   children,
   variant = 'bubble',
+  dialogueScope,
 }) => {
   const { t } = useTranslation();
-  const [enabled, setEnabled] = useState(() => resolveShowHeadBubble(getCachedUserSettings()));
+  const [enabled, setEnabled] = useState(() => resolveShowChatDialogue(getCachedUserSettings()));
   const cardRef = useRef<HTMLDivElement>(null);
   const [measuredSize, setMeasuredSize] = useState({ width: 240, height: 44 });
 
   useEffect(() => {
     let cancelled = false;
     void getUserSettings().then((s) => {
-      if (!cancelled) setEnabled(resolveShowHeadBubble(s));
+      if (!cancelled) setEnabled(resolveShowChatDialogue(s));
     });
     const unsub = subscribeUserSettings(() => {
-      setEnabled(resolveShowHeadBubble(getCachedUserSettings()));
+      setEnabled(resolveShowChatDialogue(getCachedUserSettings()));
     });
     return () => {
       cancelled = true;
@@ -136,19 +147,20 @@ export const ChatBubble: React.FC<ChatBubbleProps> = ({
     return () => observer.disconnect();
   }, [rawSpeechText, statusKey, isStatic, variant, children]);
 
-  // 对话设置关气泡：仅对日常悬浮气泡生效；
-  // 静态电影字幕条模式 (variant === 'cinematic')：只在存在台词正文、展开回顾、或明确处于思考中(thinking)时展示，杜绝在 TTS/EMAGE 缓冲无声音阶段提前露出空白外壳
   const isCinematic = variant === 'cinematic';
-  const hasCinematicContent =
-    Boolean(children) ||
-    Boolean(rawSpeechText) ||
-    (statusKey === 'thinking');
-
-  const isVisible = isStatic
-    ? isCinematic
-      ? hasCinematicContent
-      : Boolean(children) || Boolean(rawSpeechText) || (state ? state.visible && Boolean(statusKey) : Boolean(statusKey))
-    : enabled && Boolean(state?.visible);
+  // chat 范围 (PC 悬浮气泡 + 移动端 chat 电影字幕栏)：受「显示对话字幕」开关控制，语音结束 (state.visible=false) 后消失。
+  // story 范围 (StoryPlayer 静态电影条)：不看 enabled 开关，也不看 state.visible —— 台词整拍常驻。
+  const isVisible = resolveChatBubbleVisible({
+    scope: dialogueScope ?? (isStatic ? 'story' : 'chat'),
+    enabled,
+    isStatic,
+    isCinematic,
+    stateVisible: state?.visible,
+    hasState: Boolean(state),
+    statusKey,
+    rawSpeechText,
+    hasChildren: Boolean(children),
+  });
 
   if (!isVisible) return null;
 

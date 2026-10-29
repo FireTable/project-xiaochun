@@ -543,7 +543,7 @@ const PreviewRows: React.FC<{ preview: ImportPreview; t: ReturnType<typeof useTr
   if (
     preview.hasCustomPrompt
     || preview.memoryTurnsOverride !== undefined
-    || preview.showHeadBubble !== undefined
+    || preview.showChatDialogue !== undefined
   ) {
     const parts: string[] = [];
     if (preview.hasCustomPrompt) parts.push(t('chat.sync.valuePromptCustom'));
@@ -551,11 +551,11 @@ const PreviewRows: React.FC<{ preview: ImportPreview; t: ReturnType<typeof useTr
     if (preview.memoryTurnsOverride !== undefined) {
       parts.push(t('chat.sync.valueTurns', { count: preview.memoryTurnsOverride }));
     }
-    if (preview.showHeadBubble !== undefined) {
+    if (preview.showChatDialogue !== undefined) {
       parts.push(
-        preview.showHeadBubble
-          ? t('chat.sync.valueHeadBubbleOn')
-          : t('chat.sync.valueHeadBubbleOff'),
+        preview.showChatDialogue
+          ? t('chat.sync.valueChatDialogueOn')
+          : t('chat.sync.valueChatDialogueOff'),
       );
     }
     rows.push({

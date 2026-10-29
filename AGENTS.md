@@ -306,7 +306,8 @@ The 3D motion pipeline involves complex layered logic. Follow these geometric an
   - In everyday chat mode: Only render the dialogue text when `state.statusKey === 'speaking'` (anti-spoil rule).
   - In story / prologue mode: Character dialogue stays persistently displayed throughout the beat (even after speech ends), with `isSpeaking` decoupled from text persistence so options, scene preview, outfit swap, and camera interaction never cause the dialogue to flash away.
   - Layout & anti-occlusion: On mobile, options are full-width (`w-full`) stacked directly above the bottom cinematic bar; on PC, options reside on the right side and are elevated (`bottom-28 sm:bottom-32`), strictly higher than the bottom dialogue bar (`bottom-6`).
-  - User pref `APP_CONFIG.chat.showHeadBubble` (override in `userSettings`): when off, `ChatBubble` in floating mode returns null. Do **not** stop ChatDirector / `bubbleTracker` events.
+  - Dialogue scope (`dialogueScope` prop, logic in `chatBubbleVisibility.ts`): `'chat'` = PC floating bubble **and** the mobile chat-mode cinematic bar (`App.tsx` ChatBar `topSlot`, passes `dialogueScope="chat"`); it follows `bubbleTracker` `state.visible` (hidden once speech ends, via `ChatDirector.onEnd → hide()`) and the user setting. `'story'` = `StoryPlayer` cinematic bar; lines persist for the whole beat and ignore the setting. Static cinematic defaults to `'story'`, so mobile chat must pass `dialogueScope="chat"` explicitly.
+  - User pref `APP_CONFIG.chat.showChatDialogue` (renamed from `showHeadBubble`; override in `userSettings`, legacy `showHeadBubble` still read): when off, chat-scope `ChatBubble` (PC bubble + mobile cinematic bar) returns null. Story mode is never affected. Do **not** stop ChatDirector / `bubbleTracker` events.
 
 ---
 
@@ -320,7 +321,7 @@ When modifying any system-level configuration or parameter, follow the **central
 - **Post-processing**: `APP_CONFIG.postfx` (UnrealBloom strength/radius/threshold, toneMapping exposure, color grading matrix, plus `bloomInputScaleMobile|Desktop` and `composerMSAASamplesMobile|Desktop`).
 - **Lighting & Saturation**: `APP_CONFIG.lights` (3-channel studio lighting: dir 1.00, hemi 0.95, fill 1.40) and `APP_CONFIG.saturation`.
 - **Memory capacity**: `APP_CONFIG.memory` (`shortTermTurns`, `turnMaxChars`, `longTermKeep`, `longTermTopK`).
-- **Chat UI**: `APP_CONFIG.chat.showHeadBubble` (default `true`). User override lives in `userSettings`; `ChatBubble` (floating mode) returns null when off — do not gate ChatDirector / `bubbleTracker` events.
+- **Chat UI**: `APP_CONFIG.chat.showChatDialogue` (default `true`; formerly `showHeadBubble`). User override lives in `userSettings`; chat-scope `ChatBubble` (PC bubble + mobile cinematic bar) returns null when off, story mode is unaffected — do not gate ChatDirector / `bubbleTracker` events.
 
 ---
 

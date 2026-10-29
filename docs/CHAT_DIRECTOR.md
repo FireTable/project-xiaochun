@@ -106,7 +106,16 @@ In story / prologue mode, `isSpeaking` is decoupled from static dialogue text vi
 
 Screen position uses `VRMBodyMorph.getHeadTopWorldPosition` (raw crown), the same anchor as the dev height ruler — not the normalized `head` joint + 0.24m.
 
-User pref `APP_CONFIG.chat.showHeadBubble` (override in `userSettings`): when off, floating `ChatBubble` returns null. ChatDirector / `bubbleTracker` events still fire.
+**Dialogue scope.** `ChatBubble` takes `dialogueScope` (`'chat' | 'story'`, decision logic in [`chatBubbleVisibility.ts`](../src/components/chatBubbleVisibility.ts)):
+
+| Scope | Where | Visibility | Honors "Show dialogue subtitles" |
+| :--- | :--- | :--- | :--- |
+| `'chat'` | PC floating bubble; mobile chat-mode cinematic bar (`ChatBar` `topSlot` in `App.tsx`) | Follows `bubbleTracker` `state.visible`: hidden when speech ends (`ChatDirector.onEnd → bubbleTracker.hide()`) | Yes |
+| `'story'` | `StoryPlayer` cinematic bar | Persists for the whole beat | **No** — always shown |
+
+Static cinematic bars default to `'story'`, so the mobile chat bar passes `dialogueScope="chat"` explicitly.
+
+User pref `APP_CONFIG.chat.showChatDialogue` (formerly `showHeadBubble`; override in `userSettings`, the legacy field is still read for old records and sync payloads): when off, chat-scope `ChatBubble` returns null on desktop and mobile. Story mode is unaffected. ChatDirector / `bubbleTracker` events still fire.
 
 ---
 

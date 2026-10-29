@@ -16,7 +16,7 @@
  */
 
 import type { ProviderProfile } from './customProvider/types';
-import { resolveShowHeadBubble, type UserSettings } from './userSettings';
+import { resolveShowChatDialogue, type UserSettings } from './userSettings';
 import { readActiveModel } from './activeModel';
 import { THINKING_PREF_KEY } from '@/lib/constants';
 
@@ -99,7 +99,7 @@ export function buildSyncPayload(input: CollectInputs): SyncPayload {
     if (input.userSettings !== undefined) {
       data.userSettings = {
         ...input.userSettings,
-        showHeadBubble: resolveShowHeadBubble(input.userSettings),
+        showChatDialogue: resolveShowChatDialogue(input.userSettings),
       };
     }
   }
@@ -236,7 +236,7 @@ export interface ImportPreview {
   thinkingEnabled?: boolean;
   hasCustomPrompt: boolean;
   memoryTurnsOverride?: number;
-  showHeadBubble?: boolean;
+  showChatDialogue?: boolean;
 }
 
 export function previewImport(payload: SyncPayload): ImportPreview {
@@ -261,6 +261,6 @@ export function previewImport(payload: SyncPayload): ImportPreview {
     thinkingEnabled: d.thinkingEnabled,
     hasCustomPrompt: !!(d.userSettings?.systemPromptOverride?.trim()),
     memoryTurnsOverride: d.userSettings?.memoryTurnsOverride,
-    showHeadBubble: d.userSettings ? resolveShowHeadBubble(d.userSettings) : undefined,
+    showChatDialogue: d.userSettings ? resolveShowChatDialogue(d.userSettings) : undefined,
   };
 }
