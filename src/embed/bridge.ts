@@ -12,6 +12,9 @@
  *      裸模 base 不在服装表里, 不对外开放。
  */
 import { vrmEngine, type LoadingState } from '@/core/vrmEngine';
+import { resolveMotionUrl } from '@/motion/motionResolver';
+import { safeAssetUrl } from '@/core/protocol/assetUrl';
+import { type MotionGroupName, MOTION_GROUPS } from '@/motion/catalog';
 import { idbGet, idbPut } from '@/lib/idb-vrm-cache';
 import { APP_CONFIG } from '@/config';
 import { sceneManager } from '@/core/scene/sceneManager';
@@ -72,8 +75,20 @@ const TIMESCALE_RANGE: [number, number] = [0.25, 3];
 interface SwapJob { key: string; id: string | null; url: string; name: string }
 interface SwapResult { changed: boolean; id: string | null; name: string; previous: string | null }
 
-const EXPRESSIONS = new Set(['neutral', 'happy', 'angry', 'sad', 'relaxed', 'surprised']);
-const BUILTIN_MOTIONS: Record<string, string> = { thinking: '/vrm/motion/thinking.vrma' };
+const EXPRESSIONS = new Set([
+  'neutral',
+  'happy',
+  'gentle_smile',
+  'smile',
+  'angry',
+  'sad',
+  'sad_longing',
+  'relaxed',
+  'surprised',
+  'shy',
+  'playful',
+  'hesitant',
+]);
 
 // ── 极简 UI 状态仓 (给 React useSyncExternalStore) ──
 /** 内置界面部件开关 (对应 ?ui= 的部件名): ui = chat 聊天栏; autoHide = uiAutoHide 显示策略 (见 protocol XcUiAutoHide)。 */
@@ -143,17 +158,6 @@ const clamp = (v: unknown, [lo, hi]: [number, number], fallback: number): number
   return Math.min(hi, Math.max(lo, n));
 };
 
-/** 只放行 https:// 或同源地址, 且扩展名在白名单内; 否则返回 null。 */
-function safeAssetUrl(raw: unknown, exts: string[]): string | null {
-  if (typeof raw !== 'string' || !raw) return null;
-  let u: URL;
-  try { u = new URL(raw, window.location.origin); } catch { return null; }
-  const sameOrigin = u.origin === window.location.origin;
-  if (!sameOrigin && u.protocol !== 'https:') return null;
-  if (!exts.some((e) => u.pathname.toLowerCase().endsWith(e))) return null;
-  return u.href;
-}
-
 function waitModelReady(): Promise<void> {
   if (vrmEngine.isReady()) return Promise.resolve();
   return new Promise((resolve, reject) => {
@@ -196,12 +200,23 @@ export interface EmbedBridge {
 export function startEmbedBridge(opts: EmbedBridgeOptions): EmbedBridge {
   const { params } = opts;
   // 直接打开 /embed (没有宿主): 按钮仍可用, 直接驱动引擎 (没有消息可发)
+  let pendingPicks = 0; // 进行中的内置按钮换装数 (noop 模式), 用于判断被顶掉时 loading 该由谁清
   const noop: EmbedBridge = {
     async pickOutfit(id) {
       const e = ownEntry(APP_CONFIG.model.addons as Record<string, { source: string; name: string }>, id);
       if (!e) return;
       setPickerState({ loading: id });
-      try { await vrmEngine.swapOutfit(e.source, e.name); writeOutfitPref(safeLocalStorage(), WEARING_OUTFIT_KEY, id); setPickerState({ outfit: id }); } catch { pickerNotice('failed'); } finally { setPickerState({ loading: null }); }
+      pendingPicks++;
+      let superseded = false;
+      try {
+        // false = 被更新的换装请求顶掉: 不写偏好 / 不标记已穿
+        if ((await vrmEngine.swapOutfit(e.source, e.name)) === false) { superseded = true; return; }
+        writeOutfitPref(safeLocalStorage(), WEARING_OUTFIT_KEY, id); setPickerState({ outfit: id });
+      } catch { pickerNotice('failed'); } finally {
+        pendingPicks--;
+        // 被顶掉时, 只有还有别的按钮点选在跑 (它会去清 loading) 才留着; 被非 bridge 的换装顶掉就没人清了, 这里必须清, 否则 spinner 卡住
+        if (!superseded || pendingPicks === 0) setPickerState({ loading: null });
+      }
     },
     async pickScene(id) { if (ownEntry(APP_CONFIG.scenes.items, id)) await sceneManager.setScene(id, true); },
     pickLang(lang) { opts.onLang(lang); writeLangPref(safeLocalStorage(), EMBED_LANG_KEY, lang); },
@@ -440,7 +455,10 @@ export function startEmbedBridge(opts: EmbedBridgeOptions): EmbedBridge {
     }
     swapTarget = job.id;
     setPickerState({ loading: job.id });
-    try { await vrmEngine.swapOutfit(job.url, job.name); } finally { swapTarget = null; setPickerState({ loading: null }); }
+    let applied: boolean;
+    try { applied = await vrmEngine.swapOutfit(job.url, job.name); } finally { swapTarget = null; setPickerState({ loading: null }); }
+    // false = 被队列外更新的换装请求顶掉, 这次什么都没换: 不写偏好 / 不标记已穿, 按 noop 回报
+    if (applied === false) return { changed: false, id: previous, name: loadedModel ?? job.name, previous };
     currentOutfit = job.id;
     if (job.id !== null) writeOutfitPref(safeLocalStorage(), WEARING_OUTFIT_KEY, job.id); // 按钮 / xc.setOutfit / xc.setModel{outfit} 都走这里: 写回 iframe 自己的存储
     setPickerState({ outfit: job.id });
@@ -577,6 +595,7 @@ export function startEmbedBridge(opts: EmbedBridgeOptions): EmbedBridge {
     if (stt) return stt;
     const { SttClient } = await import('@/stt/sttClient'); // 懒加载: 不开麦就不下载 STT 代码
     stt = new SttClient();
+    stt.setTtsSpeakingProvider(() => vrmEngine.isSpeaking);
     sttOff = stt.on((e) => {
       if (e.type === 'state') {
         sttState = e.state;
@@ -643,7 +662,7 @@ export function startEmbedBridge(opts: EmbedBridgeOptions): EmbedBridge {
           const mode = p.mode === 'chat' ? 'chat' : 'speak';
           if (mode === 'speak') {
             // 与 xiaochun://speak?text=… 同一个 action / handler (core/protocol/handler.ts)
-            await dispatchSpeech(id, { action: 'speak', payload: { text } }, text, 'xc.say');
+            await dispatchSpeech(id, { action: 'speak', payload: { text, preserveMotion: p.preserveMotion } }, text, 'xc.say');
             break;
           }
           await waitModelReady().catch(() => { throw new CmdError('not_ready', 'model not ready'); });
@@ -741,9 +760,18 @@ export function startEmbedBridge(opts: EmbedBridgeOptions): EmbedBridge {
         case 'xc.motion': {
           await waitModelReady().catch(() => { throw new CmdError('not_ready', 'model not ready'); });
           if (p.stop === true) { vrmEngine.stopMotion(clamp(p.fadeDuration, FADE_RANGE, 0.75)); break; }
-          const url = p.name !== undefined
-            ? safeAssetUrl(BUILTIN_MOTIONS[String(p.name)], ['.vrma'])
-            : safeAssetUrl(p.url, ['.vrma']);
+          const rawGroup = (p.group || (p.name && p.name in MOTION_GROUPS ? p.name : '')) as MotionGroupName;
+          if (rawGroup && rawGroup in MOTION_GROUPS) {
+            await vrmEngine.playMotionGroup(rawGroup, {
+              loop: p.loop === true,
+              fadeDuration: clamp(p.fadeDuration, FADE_RANGE, 0.75),
+              timeScale: clamp(p.timeScale, TIMESCALE_RANGE, 1),
+              mask: p.mask === 'upperBody' ? 'upperBody' : 'all',
+            });
+            break;
+          }
+          const rawUrl = p.name !== undefined ? resolveMotionUrl(String(p.name)) : p.url;
+          const url = safeAssetUrl(rawUrl, ['.vrma']);
           if (!url) throw new CmdError('bad_request', 'motion needs a built-in name or an https/same-origin .vrma url');
           await vrmEngine.playMotion(url, {
             loop: p.loop === true,
@@ -756,7 +784,21 @@ export function startEmbedBridge(opts: EmbedBridgeOptions): EmbedBridge {
         case 'xc.expression': {
           if (typeof p.name !== 'string' || !EXPRESSIONS.has(p.name)) throw new CmdError('bad_request', 'invalid expression name');
           await waitModelReady().catch(() => { throw new CmdError('not_ready', 'model not ready'); });
-          vrmEngine.setExpression(p.name);
+          const intensity = typeof p.intensity === 'number' && Number.isFinite(p.intensity) ? p.intensity : undefined;
+          vrmEngine.setExpression(p.name, intensity);
+          break;
+        }
+        case 'xc.camera': {
+          await waitModelReady().catch(() => { throw new CmdError('not_ready', 'model not ready'); });
+          if (p.reset === true) {
+            vrmEngine.resetCamera();
+            break;
+          }
+          if (p.panUp === true) {
+            await vrmEngine.panUpRevealCamera(typeof p.durationSec === 'number' ? p.durationSec : 2.2);
+            break;
+          }
+          await runProtocolAction({ action: 'camera', payload: p });
           break;
         }
         case 'xc.pointer': {
@@ -823,6 +865,10 @@ export function startEmbedBridge(opts: EmbedBridgeOptions): EmbedBridge {
           vrmEngine.resumeRendering();
           publishState();
           break;
+        case 'xc.stop':
+          vrmEngine.stopSpeaking();
+          vrmEngine.stopMotion();
+          break;
         case 'xc.destroy':
           dispose();
           break;
@@ -849,6 +895,8 @@ export function startEmbedBridge(opts: EmbedBridgeOptions): EmbedBridge {
     prefetcher.close();
     window.removeEventListener('message', onWindowMessage);
     if (readyTimer) clearInterval(readyTimer);
+    hitGate.dispose();
+    readyOff();
     gestures.dispose();
     sttOff?.();
     void stt?.stop(false).catch(() => {});

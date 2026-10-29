@@ -2,6 +2,14 @@
 @plugin "tailwindcss-animate";
 
 @theme {
+  /* 1. 标准语义主题 Token (Primary) */
+  --color-primary: #ea8377;
+  --color-primary-foreground: #ffffff;
+  --color-primary-light: #f5aa9c;
+  --color-primary-dark: #e06d64;
+  --color-primary-highlight: #fce0d4;
+
+  /* 2. 小蠢品牌色阶 (Brand 50 ~ 700) */
   --color-brand-50: #fef5f3;
   --color-brand-100: #fce0d4;
   --color-brand-200: #f5c0b4;
@@ -107,7 +115,7 @@
   background: transparent;
 }
 
-/* 气泡专属极细微型滚动条 (3px 精准控制) */
+/* 气泡专属极细微型滚动条 (3px 精准控制，默认静默透明，仅在鼠标悬停时柔和显现，杜绝打字时闪现) */
 .custom-bubble-scrollbar::-webkit-scrollbar {
   width: 3px !important;
   height: 3px !important;
@@ -118,8 +126,13 @@
 }
 
 .custom-bubble-scrollbar::-webkit-scrollbar-thumb {
-  background-color: rgba(255, 255, 255, 0.35) !important;
+  background-color: transparent !important;
   border-radius: 9999px !important;
+  transition: background-color 0.2s ease;
+}
+
+.custom-bubble-scrollbar:hover::-webkit-scrollbar-thumb {
+  background-color: rgba(255, 255, 255, 0.35) !important;
 }
 
 .custom-bubble-scrollbar::-webkit-scrollbar-thumb:hover {
@@ -131,6 +144,13 @@
   * {
     scrollbar-width: thin;
     scrollbar-color: rgba(255, 255, 255, 0.25) transparent;
+  }
+  .custom-bubble-scrollbar {
+    scrollbar-width: thin;
+    scrollbar-color: transparent transparent;
+  }
+  .custom-bubble-scrollbar:hover {
+    scrollbar-color: rgba(255, 255, 255, 0.35) transparent;
   }
 }
 
@@ -257,6 +277,29 @@ html.is-tauri .dialog-overlay {
 .mic-ripple--busy-d1 { animation-delay: 0.175s; }
 .mic-ripple--busy-d2 { animation-delay: 0.35s; }
 .mic-ripple--busy-d3 { animation-delay: 0.525s; }
+
+/* Silero VAD Voice-Locked Halo */
+@keyframes mic-halo-pulse {
+  0%, 100% { transform: scale(1); opacity: 0.75; }
+  50% { transform: scale(1.08); opacity: 0.95; }
+}
+.mic-halo-active {
+  position: absolute;
+  inset: -4px;
+  border-radius: 9999px;
+  background: radial-gradient(circle, rgba(234, 131, 119, 0.35) 0%, rgba(234, 131, 119, 0.05) 70%, transparent 100%);
+  pointer-events: none;
+  animation: mic-halo-pulse 1.2s ease-in-out infinite;
+  box-shadow: 0 0 16px rgba(234, 131, 119, 0.3);
+}
+
+/* Soundwave Equalizer Bars */
+.soundwave-bar {
+  width: 2px;
+  border-radius: 9999px;
+  background-color: #ea8377;
+  transition: height 0.08s ease-out;
+}
 
 /* ── 新手向导卡片出场/退场动画 ── */
 @keyframes onboarding-card-in {
@@ -457,4 +500,83 @@ html.is-tauri .dialog-overlay {
 }
 @media (min-width: 1024px) {
   .xc-copy-panel { --xc-hero-col: calc(var(--xc-stage-w) * 0.5); }
+}
+
+/* ── 故事剧场模式：头顶气泡与前情提要卡片 View Transition ── */
+::view-transition-group(story-dialog-card) {
+  animation-duration: 0.38s;
+  animation-timing-function: cubic-bezier(0.16, 1, 0.3, 1);
+}
+::view-transition-old(story-dialog-card),
+::view-transition-new(story-dialog-card) {
+  animation-duration: 0.38s;
+  animation-timing-function: cubic-bezier(0.16, 1, 0.3, 1);
+  mix-blend-mode: normal;
+}
+
+/* ── 头顶对话气泡高质感平滑打字机动效 (方案一：字符微渐显 Cascade Blur & Fade，不改变垂直盒子高度) ── */
+@keyframes bubble-char-reveal {
+  0% {
+    opacity: 0;
+    transform: scale(0.96);
+    filter: blur(2px);
+  }
+  100% {
+    opacity: 1;
+    transform: scale(1);
+    filter: blur(0);
+  }
+}
+
+.animate-char-reveal {
+  display: inline-block;
+  vertical-align: baseline;
+  opacity: 0;
+  animation: bubble-char-reveal 180ms cubic-bezier(0.16, 1, 0.3, 1) forwards;
+  will-change: opacity, transform, filter;
+}
+
+/* ── 头顶气泡状态行上下推拉平滑动效 (Slide & Push) ── */
+@keyframes bubble-status-push {
+  0% {
+    opacity: 0;
+    transform: translateY(5px);
+  }
+  100% {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.animate-status-push {
+  animation: bubble-status-push 220ms cubic-bezier(0.16, 1, 0.3, 1) forwards;
+  will-change: transform, opacity;
+}
+
+/* ── 头顶气泡多段切句推挤滑入动效 (Segment Push-In) ── */
+@keyframes bubble-segment-push {
+  0% {
+    opacity: 0;
+    transform: translateY(6px);
+  }
+  100% {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.animate-segment-push {
+  animation: bubble-segment-push 240ms cubic-bezier(0.16, 1, 0.3, 1) forwards;
+  will-change: transform, opacity;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .animate-char-reveal,
+  .animate-status-push,
+  .animate-segment-push {
+    opacity: 1 !important;
+    transform: none !important;
+    filter: none !important;
+    animation: none !important;
+  }
 }

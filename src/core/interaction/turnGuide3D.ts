@@ -41,6 +41,7 @@ export class TurnGuide3D {
   }
 
   private initGuide(): void {
+    if (typeof document === 'undefined') return;
     const radius = 0.36;
     const bandHeight = INTERACTION_GUIDE_PHOTON.thickness;
 
@@ -110,7 +111,7 @@ export class TurnGuide3D {
     flowCanvas.height = 128;
     const fCtx = flowCanvas.getContext('2d');
 
-    if (fCtx) {
+    if (fCtx && typeof fCtx.moveTo === 'function') {
       const w = 1024;
       const h = 128;
       const midY = h / 2;

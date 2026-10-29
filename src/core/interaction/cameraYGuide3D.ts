@@ -54,6 +54,7 @@ export class CameraYGuide3D {
     }
 
     private initGuide(): void {
+        if (typeof document === 'undefined') return;
         const trackWidth = 0.032;
         const trackHeight = this.heightRange;
 

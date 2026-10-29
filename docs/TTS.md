@@ -12,24 +12,115 @@
 
 ## 1. Request / Response
 
-`POST /api/tts` (or `GET ?text=&voice=&pitch=`), body `{ text, voice?, pitch? }` (defaults `zh-CN-XiaoyiNeural`, `+10Hz`).
+`POST /api/tts` (or `GET ?text=&voice=&pitch=&rate=&volume=`), body `{ text, voice?, pitch?, rate?, volume? }`:
+- `voice`: target voice (defaults to `zh-CN-XiaoyiNeural`)
+- `pitch`: pitch offset (defaults to `+10Hz`)
+- `rate`: speaking rate change with percentage (defaults to `+0%`, e.g. `+20%`, `-10%`)
+- `volume`: volume gain (defaults to `+0%`, e.g. `+15%`)
 
 | Result | Status | Body / Headers |
 | :-- | :-- | :-- |
-| Success | 200 | `audio/mpeg` stream (MP3, 24 kHz mono 48 kbps), `X-TTS-Cache: MISS \| HIT` |
+| Success | 200 | `audio/mpeg` stream (MP3, 24 kHz mono 48 kbps), `X-TTS-Cache: MISS \| HIT \| R2-HIT`, `X-TTS-Storage: r2 \| r2+pop \| pop \| none` |
 | Empty text | 400 | `{"error":"text is required"}` |
 | Upstream failure | 502 | `{"error": "<root cause> (after N attempts)", "reasons": [...]}` |
 
-Successful audio is cached in the Worker cache keyed by `SHA-256(voice|pitch|text)`.
+### 1.1 3-Tier Multi-Layer Caching Architecture
+
+To guarantee low latency, high availability under concurrency, and persistent audio retention, `/api/tts` employs a 3-tier progressive caching architecture:
+
+1. **L1 Edge PoP Memory Cache (`caches.default`)**:
+   - Response latency: **< 15 ms**
+   - Eviction lifecycle: Short-term hot cache governed by Cloudflare's PoP-local LRU memory reclamation
+   - Response header: `X-TTS-Cache: HIT`
+2. **L2 R2 Object Storage Persistent Cache (`TTS_BUCKET` -> `xiaochun-tts`)**:
+   - Response latency: **20 ~ 50 ms**
+   - Eviction lifecycle: Permanent retention, cross-region sharing, 0 egress bandwidth fees
+   - On cache hit, asynchronously backfills the current PoP's L1 cache for subsequent < 15ms requests
+   - Response header: `X-TTS-Cache: R2-HIT`
+   - Object path: `v1/${voice}/${hashKey}.mp3`
+   - Compound cache key: `hashKey = SHA-256(voice|pitch|rate|volume|text)`, strictly isolating different speed, pitch, and volume parameters to prevent cross-prosody audio collisions
+3. **L3 Edge-TTS Upstream Live Synthesis**:
+   - Response latency: **~1.0 s** time-to-first-byte (TTFB) stream
+   - Response header: `X-TTS-Cache: MISS`
+   - Automatically dual-writes to both L1 and L2 asynchronously via `ctx.waitUntil` upon stream completion
+
+### 1.2 Open-Source Zero-Config & Graceful Degradation Guarantee
+
+Open-source deployments are fully decoupled from R2 persistent storage via duck-typing:
+- **Enable R2 Persistent Cache (Recommended)**:
+  ```bash
+  # 1. Create the R2 bucket (one-time setup)
+  pnpm run setup:tts-cache
+  # 2. wrangler.jsonc includes the TTS_BUCKET binding by default; deploy directly
+  pnpm run deploy
+  ```
+- **Deploy Without R2 Persistent Cache**:
+  If a user has no Cloudflare R2 allocation, simply delete or comment out the `r2_buckets` section in `wrangler.jsonc`. The Worker runtime detects `env.TTS_BUCKET === undefined` and seamlessly falls back to `L1 PoP Memory Cache + L3 Live Synthesis` with zero runtime exceptions or deployment barriers.
+
+### 1.3 Standalone Dedicated TTS Microservice Worker (`xiaochun-tts`)
+
+Project XiaoChun supports deploying the TTS subsystem as a pure, standalone microservice completely decoupled from the main website:
+- **Entry point**: [`src/tts-worker.ts`](../src/tts-worker.ts) (shares [`src/server/ttsHandler.ts`](../src/server/ttsHandler.ts) with the main site)
+- **Configuration**: [`wrangler.tts.jsonc`](../wrangler.tts.jsonc)
+- **Instant Deployment**:
+  ```bash
+  # Deploy standalone TTS microservice (only 34 KiB, 0 frontend dependencies, second-level deployment)
+  pnpm run deploy:tts
+  ```
+- **Live Endpoint**: `https://xiaochun-tts.firetable.workers.dev`
+  - `GET /` or `/health`: Returns service health status and R2 capability readiness
+  - `POST /api/tts` or `GET /api/tts?text=...`: Standard 5D prosody matrix streaming speech synthesis
+  - Can be populated directly into `.env.local` as `TTS_PROXY_URL` for local development or Tauri desktop client use.
+
+### 1.4 Audio Encoding Benchmark & Codec Evaluation (MP3 vs Opus vs OGG)
+
+To evaluate whether the default 48 kbps MP3 should be replaced by theoretically higher-compression formats like Opus or OGG to save R2 storage and network bandwidth, we conducted two-round benchmarks against Microsoft's live Edge-TTS upstream interface using identical text payloads.
+
+#### 1.4.1 Live Edge-TTS Upstream Benchmark Data
+
+Test payload: `"你好呀，我是小蠢，今天海边的风很舒服，我们一起去散步吹吹风吧！"`
+
+| Output Format Specifier (`outputFormat`) | Upstream Support | Time to First Byte (TTFB) | Total Stream Duration | Total Transfer Size | Chunk Count | Format Profile |
+| :--- | :--- | :--- | :--- | :--- | :--- | :--- |
+| **`audio-24khz-48kbitrate-mono-mp3` (Current)** | **Supported** | **998 ~ 1,094 ms** | **1,088 ~ 1,281 ms** | **39.7 ~ 43.9 KB** | 56 ~ 62 chunks | Industry-standard streaming MP3, frame-level self-contained |
+| **`webm-24khz-16bit-mono-opus`** | **Supported** | **716 ~ 1,114 ms** | **883 ~ 1,389 ms** | **42.0 ~ 46.5 KB** | 359 ~ 397 chunks | WebM (Matroska) containerized Opus audio stream |
+| **`ogg-24khz-16bit-mono-opus`** | **Unsupported (Timeout)** | **No data (0 Bytes)** | Timed out | 0 KB | 0 chunks | Free Edge-TTS endpoint does not provide OGG containers |
+| **`ogg-16khz-16bit-mono-opus`** | **Unsupported (Timeout)** | **No data (0 Bytes)** | Timed out | 0 KB | 0 chunks | Same as above; Microsoft reserves OGG for paid Azure Speech tiers |
+
+#### 1.4.2 Key Benchmark Conclusions
+
+1. **Synthesis & Streaming Latency: Identical Millisecond Tier**
+   - TTFB fluctuates between **0.7s ~ 1.1s**, and total completion takes **1.1s ~ 1.3s**, differing by only tens of milliseconds (primarily driven by Microsoft cloud GPU scheduling queues). Opus exhibits no meaningful throughput speedup.
+2. **Container Compatibility: Edge-TTS Does Not Support OGG, Only WebM Opus**
+   - The free Edge-TTS endpoint silently drops or times out on `ogg-` requests.
+   - The only functional Opus container is WebM (`webm-24khz-16bit-mono-opus`), which aligns with Chromium's internal streaming media pipeline.
+3. **Payload Size: WebM Opus Offers No Size Advantage Under Edge-TTS**
+   - While bare Opus can theoretically save ~50% space at 16~24 kbps, the free Edge-TTS service does not expose target bitrate tuning and produces high dynamic bitrates.
+   - WebM splits audio into hundreds of tiny fragments (~400 chunks), each carrying Matroska SimpleBlock header overhead. Consequently, the final payload (~44 KB) is slightly larger than 48 kbps MP3 (~41 KB).
+
+#### 1.4.3 Client-Side Architecture Breakdown
+
+- **Tone.js (Vocal DSP Engine)**:
+  - **Completely codec-agnostic**. Tone.js operates in the Web Audio graph on uncompressed Float32 PCM arrays, handling EQ3 equalization, dynamic compression, reverb, and 3D camera distance attenuation.
+- **ChatDirector Host Audio (`speakAudio`)**:
+  - **Universal format support**. Delegates to browser-native `AudioContext.decodeAudioData`, supporting MP3, WAV, AAC, FLAC, and WebM/Opus out of the box.
+- **ChatDirector Live TTS Pipeline (`streamChunkAudioToCheckpoint`)**:
+  - **Optimized for streaming MP3**. To allow the 3D avatar to drive bone animation and RMS lipsync within hundreds of milliseconds of the first packet, it employs a lightweight C-WASM `mpg123-decoder` for chunk-by-chunk PCM extraction. Switching to Opus would require adding a container demuxer and Opus WASM decoder (adding ~80 KiB to the frontend bundle).
+
+#### 1.4.4 Final Architectural Decision
+Retain default **`audio-24khz-48kbitrate-mono-mp3`**:
+- **Ultra-compact**: ~6 KB/s, only 20~30 KB per sentence. Cloudflare R2's free 10 GB tier comfortably stores over 300,000 sentences.
+- **Zero bundle overhead**: Eliminates the need for WebM demuxers or additional WASM decoders.
+- **100% universal compatibility**: Plays reliably with low latency across legacy iOS Safari, Android WebViews, and desktop clients.
 
 ## 2. Upstream Connection
 
 | Item | Value |
 | :-- | :-- |
-| Primary endpoint | `wss://api.msedgeservices.com/tts/cognitiveservices/websocket/v1?Ocp-Apim-Subscription-Key=<TRUSTED_CLIENT_TOKEN>` |
-| Fallback (on handshake 403) | legacy `wss://speech.platform.bing.com/consumer/speech/synthesize/readaloud/edge/v1?TrustedClientToken=<…>` |
-| Token | `Sec-MS-GEC` v1 = SHA-256(5-min-rounded Windows ticks + token), `Sec-MS-GEC-Version=1-143.0.3650.75` |
-| Per round | **one** request (no parallel hedging — the new host returns 429 on bursts) |
+| Primary endpoint | `wss://speech.platform.bing.com/consumer/speech/synthesize/readaloud/edge/v1?TrustedClientToken=<TRUSTED_CLIENT_TOKEN>` |
+| Fallback endpoint | `wss://api.msedgeservices.com/tts/cognitiveservices/websocket/v1?Ocp-Apim-Subscription-Key=<TRUSTED_CLIENT_TOKEN>` |
+| Token | `Sec-MS-GEC` v2 = CS64 + SHA-256 (`<16 hex>-<64 hex>`), `Sec-MS-GEC-Version=2-143.0.3650.75` |
+| Per round | **one** request (no parallel hedging) |
 | Rounds | up to 3; 429 → wait 3 s; other errors → 200–400 ms backoff |
 | Budget | ~7 s total (a retry is skipped if wait + 3.5 s would exceed it), so the client's 8 s `withTimeout` still receives the 502 |
 | First-chunk timeout | 3.5 s per flight |
@@ -69,7 +160,7 @@ sed "s#^import handler from '@tanstack/react-start/server-entry';#const handler 
 echo '{"name":"tts-harness","main":"entry.ts","compatibility_date":"2026-01-01","compatibility_flags":["nodejs_compat"]}' > grok/ttsharness/wrangler.json
 npx wrangler dev -c grok/ttsharness/wrangler.json --local --port 8799 --ip 127.0.0.1
 curl -s -o /tmp/t.mp3 -D - -X POST http://127.0.0.1:8799/api/tts \
-  -H 'Content-Type: application/json' -d '{"text":"你好，小蠢正在说话。"}'
+  -H 'Content-Type: application/json' -d '{"text":"Hello, XiaoChun is speaking."}'
 afinfo /tmp/t.mp3   # macOS: duration
 ```
 
@@ -80,7 +171,7 @@ Result (workerd, 5 sequential distinct texts): all **200** `audio/mpeg`, 24.6–
 ### 3.6 Next Time
 ```bash
 # 1. real cause from production (502 body carries reasons)
-curl -sS -X POST https://xiaochun.firetable.tech/api/tts -H 'Content-Type: application/json' -d '{"text":"你好"}'
+curl -sS -X POST https://xiaochun.firetable.tech/api/tts -H 'Content-Type: application/json' -d '{"text":"Hello"}'
 # 2. live logs
 npx wrangler tail project-xiaochun --format json
 # 3. raw handshake (expect 101); swap host / version to compare
@@ -122,7 +213,7 @@ To guarantee that post-processing never degrades motion fidelity or introduces v
    - The lip-sync analyzer (`AnalyserNode`) and EMAGE co-speech gesture engine receive the **raw, unadulterated audio stream** before any DSP coloration.
    - Reverb tails, dynamic compression, and EQ boosts never leak into viseme energy calculation or body gesture prediction.
 2. **Bit-Exact Pure Bypass Branch**:
-   - When the user selects the default `bypass` (原声直通) preset or disables vocal enhancement, audio travels exclusively through a dedicated `dryGain` bypass node (`inputNode -> dryGain -> outputNode`).
+   - When the user selects the default `bypass` (Pure Bypass) preset or disables vocal enhancement, audio travels exclusively through a dedicated `dryGain` bypass node (`inputNode -> dryGain -> outputNode`).
    - The signal completely skips the filter, EQ, compressor, and reverb nodes, ensuring zero phase shift, zero harmonic distortion, and 100% digital parity with raw Edge-TTS.
 3. **Decoupled Control State**:
    - Switching acoustic presets modulates **only** DSP slider parameters (low cut, EQ gains, compressor threshold/ratio, reverb wet/size). It **never** mutates the user's top-level switches (`enabled`, `sceneLinkage`, `distanceAttenuation`).
@@ -231,11 +322,11 @@ The application provides 5 curated acoustic presets configured in `src/config.ts
 
 | Preset | Key | Low-Cut | Chest EQ (350Hz) | Mid EQ | Air EQ (3.5kHz) | Compressor | Reverb Wet / Room | Character |
 | :--- | :--- | :--- | :--- | :--- | :--- | :--- | :--- | :--- |
-| **原声直通 (Default)** | `bypass` | *Bypassed* | *Bypassed* | *Bypassed* | *Bypassed* | *Off (0 dB / 1:1)* | *0%* | 100% digital bit-exact Edge-TTS dry signal; distance attenuation active |
-| **甜美软萌** | `sweet` | 85 Hz | -0.5 dB | +0.5 dB | +3.0 dB | -16 dB (3.0:1) | 6% wet (0.20 room) | Transparent highs, crisp presence, sweet anime idol timbre |
-| **温柔御姐** | `oneesan` | 75 Hz | +3.5 dB | +1.0 dB | +1.5 dB | -22 dB (4.5:1) | 10% wet (0.30 room) | Deep chest resonance, warm mid-body, mature and calming presence |
-| **复古电台** | `radio` | 300 Hz | -6.0 dB | +4.5 dB | -4.0 dB | -28 dB (8.0:1) | 4% wet (0.15 room) | Bandpass lo-fi, focused mid-range, telephone/radio broadcast character |
-| **贴耳耳语** | `whisper` | 100 Hz | +1.0 dB | -1.5 dB | +5.0 dB | -26 dB (5.0:1) | 15% wet (0.45 room) | Enhanced air harmonics, intimate compression, ASMR room space |
+| **Pure Bypass (Default)** | `bypass` | *Bypassed* | *Bypassed* | *Bypassed* | *Bypassed* | *Off (0 dB / 1:1)* | *0%* | 100% digital bit-exact Edge-TTS dry signal; distance attenuation active |
+| **Sweet & Kawaii** | `sweet` | 85 Hz | -0.5 dB | +0.5 dB | +3.0 dB | -16 dB (3.0:1) | 6% wet (0.20 room) | Transparent highs, crisp presence, sweet anime idol timbre |
+| **Mature & Gentle** | `oneesan` | 75 Hz | +3.5 dB | +1.0 dB | +1.5 dB | -22 dB (4.5:1) | 10% wet (0.30 room) | Deep chest resonance, warm mid-body, mature and calming presence |
+| **Vintage Radio** | `radio` | 300 Hz | -6.0 dB | +4.5 dB | -4.0 dB | -28 dB (8.0:1) | 4% wet (0.15 room) | Bandpass lo-fi, focused mid-range, telephone/radio broadcast character |
+| **Intimate Whisper** | `whisper` | 100 Hz | +1.0 dB | -1.5 dB | +5.0 dB | -26 dB (5.0:1) | 15% wet (0.45 room) | Enhanced air harmonics, intimate compression, ASMR room space |
 
 ### 4.5 Critical Web Audio & Tone.js Engineering Standards
 

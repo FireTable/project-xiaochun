@@ -1,4 +1,6 @@
 import { isEmbed, isTauri } from '@/lib/platform';
+import { vrmEngine } from '@/core/vrmEngine';
+import { parseProtocolUrl } from '@firetable/project-xiaochun/protocol-url';
 import { executeProtocolMessage } from './handler';
 import type { ProtocolMessage } from './types';
 
@@ -39,14 +41,63 @@ export async function initProtocolListener(): Promise<() => void> {
   }
   isInitialized = true;
 
-  // 开发调试辅助：挂载到 window，方便在 DevTools 控制台直接测试协议
+  // 开发调试辅助与全局控制桥：挂载到 window，方便在 DevTools 控制台直接测试与操控
   if (typeof window !== 'undefined') {
-    (window as any).__triggerXiaoChunProtocol = (action: string, payload: any) => {
+    const trigger = (action: string, payload?: any) => {
       console.log('[Protocol:Debug] 手动触发协议:', action, payload);
-      executeProtocolWithDedupe({
+      return executeProtocolWithDedupe({
         action: action as any,
         payload,
       });
+    };
+
+    (window as any).__triggerXiaoChunProtocol = trigger;
+    (window as any).vrmEngine = vrmEngine;
+
+    const playGroup = (name: string, opts?: Record<string, any>) => trigger('motion-group', { name, ...opts });
+    const triggerSpeak = (text: string, optsOrAudioUrl?: string | { audioUrl?: string; preserveMotion?: boolean }) => {
+      const payload: Record<string, any> = { text };
+      if (typeof optsOrAudioUrl === 'string') {
+        payload.audioUrl = optsOrAudioUrl;
+      } else if (optsOrAudioUrl && typeof optsOrAudioUrl === 'object') {
+        Object.assign(payload, optsOrAudioUrl);
+      }
+      return trigger('speak', payload);
+    };
+    (window as any).xiaochun = {
+      speak: triggerSpeak,
+      say: triggerSpeak,
+      motion: (nameOrPayload: string | Record<string, any>, opts?: Record<string, any>) => {
+        const payload = typeof nameOrPayload === 'string' ? { name: nameOrPayload, ...opts } : nameOrPayload;
+        return trigger('motion', payload);
+      },
+      motionGroup: playGroup,
+      playMotionGroup: playGroup,
+      group: playGroup,
+      stopMotion: (fadeDuration?: number) => trigger('motion', { stop: true, fadeDuration }),
+      expression: (name: string, intensity?: number) => trigger('expression', { name, intensity }),
+      camera: Object.assign(
+        (shotOrPayload: string | Record<string, any>, opts?: Record<string, any>) => {
+          const payload = typeof shotOrPayload === 'string' ? { shot: shotOrPayload, ...opts } : shotOrPayload;
+          return trigger('camera', payload);
+        },
+        {
+          reset: () => trigger('camera', { reset: true }),
+          panUp: (durationSec = 2.2) => trigger('camera', { panUp: true, durationSec }),
+        },
+      ),
+      stop: () => trigger('stop'),
+      protocol: (url: string) => {
+        if (typeof url === 'string' && url.startsWith('xiaochun://')) {
+          const parsed = parseProtocolUrl(url);
+          if (parsed) {
+            const { action, ...payload } = parsed;
+            return trigger(action, payload);
+          }
+        }
+        return trigger('speak', { text: url });
+      },
+      engine: vrmEngine,
     };
   }
 

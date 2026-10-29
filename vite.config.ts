@@ -23,9 +23,24 @@ export default defineConfig(({ command }) => ({
       },
     }),
     react(),
-    // ponytail: TTS_PROXY_URL 走 loadEnv 读 .env.local, EU 出口连不上 Microsoft 时反代到远端。
-    localApiPlugin(loadEnv('development', process.cwd(), '').TTS_PROXY_URL?.trim()),
+    // ponytail: TTS_PROXY_URL / STT_PROXY_URL 读 .env.local，反代到远端 Cloudflare Worker。
+    localApiPlugin(
+      loadEnv('development', process.cwd(), '').TTS_PROXY_URL?.trim(),
+      loadEnv('development', process.cwd(), '').STT_PROXY_URL?.trim(),
+    ),
     dropDockerfatAssets(),
+    {
+      name: 'force-exit-after-build',
+      enforce: 'post',
+      buildApp: {
+        order: 'post',
+        async handler() {
+          // TanStack Start prerender and Cloudflare workerd connection can keep the event loop alive.
+          // Cleanly exit the build process once all environments and prerenders have completed.
+          setTimeout(() => process.exit(0), 1500).unref();
+        },
+      },
+    },
     {
       name: 'glsl-raw-loader',
       transform(code, id) {
@@ -46,6 +61,7 @@ export default defineConfig(({ command }) => ({
       '@firetable/three-vrm-materials-mtoon': path.resolve(import.meta.dirname, 'packages/three-vrm-materials-mtoon/src/index.ts'),
       // /embed 与 npm 包 @firetable/project-xiaochun 共用同一份协议常量/类型 (源码直引, 不依赖包是否已 build)
       '@firetable/project-xiaochun/protocol': path.resolve(import.meta.dirname, 'packages/project-xiaochun/src/protocol.ts'),
+      '@firetable/project-xiaochun/protocol-url': path.resolve(import.meta.dirname, 'packages/project-xiaochun/src/protocol-url.ts'),
     },
   },
   ssr: {

@@ -27,6 +27,8 @@ export interface WindForceConfig {
   ribbonMultiplier: number;
   /** 鼠标静止无移动超时 (ms) */
   idleTimeoutMs: number;
+  /** 环境阵风基准强度 (m/s²，乘以 (倍率-1))：由剧情运镜的 windMultiplier 触发，与鼠标风叠加 */
+  gustStrength: number;
   /** 胸部专属风力动力学配置 */
   bust: {
     sensitivity: number;
@@ -45,6 +47,7 @@ const DEFAULT_CONFIG: WindForceConfig = {
   skirtMultiplier: APP_CONFIG.wind.skirtMultiplier,
   ribbonMultiplier: APP_CONFIG.wind.ribbonMultiplier,
   idleTimeoutMs: APP_CONFIG.wind.idleTimeoutMs,
+  gustStrength: APP_CONFIG.wind.gustStrength,
   bust: {
     sensitivity: APP_CONFIG.wind.bust.sensitivity,
     speedExponent: APP_CONFIG.wind.bust.speedExponent,
@@ -104,6 +107,15 @@ export class WindForceController {
   private _boundVrm: VRM | null = null;
   private _isWindActive = true;
 
+  // 环境阵风：目标倍率 (1 = 无风) 与平滑后的当前倍率；阵风相位计时
+  private _gustTarget = 1;
+  private _gustCurrent = 1;
+  // 镜头阵风 / 剧情环境风分别记录，目标倍率取较大者
+  private _directorGust = 1;
+  private _ambientGust = 1;
+  private _gustPhase = 0;
+  private readonly _gustDir = new THREE.Vector3();
+
   constructor(overrides: Partial<WindForceConfig> = {}) {
     this.cfg = { ...DEFAULT_CONFIG, ...overrides };
     this.attachMouseListener();
@@ -118,6 +130,30 @@ export class WindForceController {
   }
 
   /**
+   * 设置环境阵风倍率 (>1 时角色发丝/裙摆被持续阵风吹动；1 = 关闭)。
+   * 由 CameraDirector 在 windMultiplier 运镜期间设置，运镜结束 / 被打断时复位为 1，当前值约 1 秒内平滑回落。
+   */
+  public setGustMultiplier(mult: number): void {
+    this._directorGust = Number.isFinite(mult) ? Math.max(1, Math.min(4, mult)) : 1;
+    this._gustTarget = Math.max(this._directorGust, this._ambientGust);
+  }
+
+  /**
+   * 剧情环境风力等级 0~3 (0 = 无风, 1 = 微风, 2 = 清风, 3 = 海风) → 阵风倍率 1 + 0.5 × 等级。
+   * 和运镜 windMultiplier 互不覆盖 (取较大者)，运镜结束复位为 1 时环境风仍保持。
+   */
+  public setAmbientWindLevel(level: number): void {
+    const l = Number.isFinite(level) ? Math.max(0, Math.min(3, level)) : 0;
+    this._ambientGust = 1 + 0.5 * l;
+    this._gustTarget = Math.max(this._directorGust, this._ambientGust);
+  }
+
+  /** 当前 (平滑后的) 阵风倍率，仅供测试与调试 */
+  public getGustMultiplier(): number {
+    return this._gustCurrent;
+  }
+
+  /**
    * 清空重力缓存 (在换装或 applySpringBoneTuning 后重新同步)
    */
   public resetGravityCache(): void {
@@ -128,7 +164,7 @@ export class WindForceController {
   /**
    * 随渲染帧循环调用：鼠标 3D 切面投影、速度提取、合力注入
    */
-  public applyTo(vrm: VRM, _delta: number, camera: THREE.Camera): void {
+  public applyTo(vrm: VRM, delta: number, camera: THREE.Camera): void {
     const mgr = vrm.springBoneManager;
     if (!mgr) return;
 
@@ -204,9 +240,28 @@ export class WindForceController {
 
     const isMoving = this._speedFactor > 0.005;
 
+    // ── 2.5 环境阵风：倍率平滑 (升 ~0.25s，落 ~0.5s)，叠加缓慢起伏的脉冲 ──────────
+    const dt = Math.min(Math.max(delta, 0), 0.1);
+    const tau = this._gustTarget > this._gustCurrent ? 0.25 : 0.5;
+    this._gustCurrent += (this._gustTarget - this._gustCurrent) * (1 - Math.exp(-dt / tau));
+    if (Math.abs(this._gustCurrent - this._gustTarget) < 0.003) this._gustCurrent = this._gustTarget;
+    const gustActive = this._gustCurrent > 1.01 && Boolean(camera);
+    let gustLevel = 0;
+    if (gustActive) {
+      this._gustPhase += dt;
+      // 两个不同频率的正弦相乘 → 时强时弱的阵风，但永远不低于 35%，避免“风停”的断续感
+      const pulse = 0.35 + 0.65 * Math.abs(Math.sin(this._gustPhase * 2.1) * Math.cos(this._gustPhase * 0.8 + 0.6));
+      gustLevel = (this._gustCurrent - 1) * this.cfg.gustStrength * pulse;
+      this._camRight.setFromMatrixColumn(camera.matrixWorld, 0);
+      this._gustDir.copy(this._camRight).multiplyScalar(0.92);
+      this._gustDir.y += 0.18;
+      this._gustDir.normalize();
+    }
+
     // ── 3. 逐 Joint 动力学计算与牛顿合力注入 ──────────────────────────────
     // 静止或无鼠标状态短路：仅执行单次复位，后续静止帧零循环开销
-    if (!mouseActive || !isMoving) {
+    const mouseWind = mouseActive && isMoving;
+    if (!mouseWind && !gustActive) {
       if (!this._isWindActive) {
         return;
       }
@@ -249,13 +304,6 @@ export class WindForceController {
       bone.getWorldPosition(this._jointWorldPos);
       const dist = this._jointWorldPos.distanceTo(this._mouseWorldPos);
 
-      // 超出波及最大半径 → 保持原重力
-      if (dist > this.cfg.wakeRadius) {
-        joint.settings.gravityDir.copy(orig.dir);
-        joint.settings.gravityPower = orig.power;
-        return;
-      }
-
       const isBust = /bust/i.test(bone.name);
       const isLowerClothing = !isBust && (/skirt|coat|ribbon|acc|belt|tie|flap|_02|_03/i.test(bone.name) || joint.colliderGroups.length === 0);
 
@@ -275,62 +323,74 @@ export class WindForceController {
         jointForceScale = this.cfg.skirtMultiplier;
       }
 
+      // 阵风按部位缩放：胸部极轻微、裙摆/饰品沿用裙摆倍率、发丝等 1.0
+      const gustScale = isBust ? this.cfg.bust.sensitivity : isLowerClothing ? this.cfg.skirtMultiplier : 1.0;
+      const gustPower = gustLevel * gustScale;
+
       let windPower = 0;
-      if (dist <= this.cfg.mouseRadius) {
-        // 核心强风场：二次方衰减（中心强劲，外缘平滑过渡）
-        const ratio = 1 - dist / this.cfg.mouseRadius;
-        const falloff = ratio * ratio;
-        windPower = falloff * this.cfg.mouseWindStrength * jointSpeedFactor * jointForceScale;
-      } else {
-        // 周边波及扩散微风：柔和线性衰减
-        const wakeRatio = 1 - (dist - this.cfg.mouseRadius) / (this.cfg.wakeRadius - this.cfg.mouseRadius);
-        windPower = wakeRatio * (this.cfg.mouseWindStrength * this.cfg.wakeStrengthRatio) * jointSpeedFactor * jointForceScale;
+      if (mouseWind && dist <= this.cfg.wakeRadius) {
+        if (dist <= this.cfg.mouseRadius) {
+          // 核心强风场：二次方衰减（中心强劲，外缘平滑过渡）
+          const ratio = 1 - dist / this.cfg.mouseRadius;
+          const falloff = ratio * ratio;
+          windPower = falloff * this.cfg.mouseWindStrength * jointSpeedFactor * jointForceScale;
+        } else {
+          // 周边波及扩散微风：柔和线性衰减
+          const wakeRatio = 1 - (dist - this.cfg.mouseRadius) / (this.cfg.wakeRadius - this.cfg.mouseRadius);
+          windPower = wakeRatio * (this.cfg.mouseWindStrength * this.cfg.wakeStrengthRatio) * jointSpeedFactor * jointForceScale;
+        }
       }
 
-      if (windPower < 0.001) {
+      if (windPower < 0.001 && gustPower < 0.001) {
         joint.settings.gravityDir.copy(orig.dir);
         joint.settings.gravityPower = orig.power;
         return;
       }
 
-      // 风向合成：
-      // 1. 径向推开分量 (joint - mouse)
-      this._pushDir.copy(this._jointWorldPos).sub(this._mouseWorldPos);
-      if (this._pushDir.lengthSq() > 0.0001) {
-        this._pushDir.normalize();
-      } else {
-        this._pushDir.set(0, 0, 1);
-      }
-
-      // 2. 挥舞带风分量 (_mouseVelocityWorld)
-      // 70% 径向推开 + 30% 挥动手势带风，兼具推开感与顺流气流感
-      this._windDir.copy(this._pushDir).multiplyScalar(0.7).addScaledVector(this._mouseVelocityWorld, 0.3);
-      if (this._windDir.lengthSq() > 0.0001) {
-        this._windDir.normalize();
-      } else {
-        this._windDir.copy(this._pushDir);
-      }
-
-      // 3. 【裙摆与外饰整体自然受风与轻柔升力】
-      // 裙子与依附在上面的蝴蝶结、飘带等饰品作为一个物理整体布料系统，必须接收完全相同、统一的方向修正与升力，
-      // 严禁将裙子与配饰拆解为两套相互对抗的独立位移算法，彻底杜绝蝴蝶结与裙体穿插凹陷。
-      if (isLowerClothing) {
-        const dx = this._jointWorldPos.x - vrm.scene.position.x;
-        const dz = this._jointWorldPos.z - vrm.scene.position.z;
-        const radialLen = Math.hypot(dx, dz);
-        if (radialLen > 0.001) {
-          this._windDir.x += (dx / radialLen) * 0.15;
-          this._windDir.z += (dz / radialLen) * 0.15;
-        }
-        // 温和自然升力：裙摆与蝴蝶结整体同步轻拂微扬
-        this._windDir.y = Math.max(this._windDir.y, 0) + 0.20;
-        this._windDir.normalize();
-      }
-
-      // ── 牛顿矢量合力：F_total = F_gravity + F_wind ────────────────────────
+      // ── 牛顿矢量合力：F_total = F_gravity + F_mouseWind + F_gust ───────────
       // 保证重力绝不失重，风力矢量加成后自然表现为“下垂重力 + 被吹扬起”的逼真受力
       this._totalForce.copy(orig.dir).multiplyScalar(orig.power);
-      this._totalForce.addScaledVector(this._windDir, windPower);
+
+      if (windPower >= 0.001) {
+        // 风向合成：
+        // 1. 径向推开分量 (joint - mouse)
+        this._pushDir.copy(this._jointWorldPos).sub(this._mouseWorldPos);
+        if (this._pushDir.lengthSq() > 0.0001) {
+          this._pushDir.normalize();
+        } else {
+          this._pushDir.set(0, 0, 1);
+        }
+
+        // 2. 挥舞带风分量 (_mouseVelocityWorld)
+        // 70% 径向推开 + 30% 挥动手势带风，兼具推开感与顺流气流感
+        this._windDir.copy(this._pushDir).multiplyScalar(0.7).addScaledVector(this._mouseVelocityWorld, 0.3);
+        if (this._windDir.lengthSq() > 0.0001) {
+          this._windDir.normalize();
+        } else {
+          this._windDir.copy(this._pushDir);
+        }
+
+        // 3. 【裙摆与外饰整体自然受风与轻柔升力】
+        // 裙子与依附在上面的蝴蝶结、飘带等饰品作为一个物理整体布料系统，必须接收完全相同、统一的方向修正与升力，
+        // 严禁将裙子与配饰拆解为两套相互对抗的独立位移算法，彻底杜绝蝴蝶结与裙体穿插凹陷。
+        if (isLowerClothing) {
+          const dx = this._jointWorldPos.x - vrm.scene.position.x;
+          const dz = this._jointWorldPos.z - vrm.scene.position.z;
+          const radialLen = Math.hypot(dx, dz);
+          if (radialLen > 0.001) {
+            this._windDir.x += (dx / radialLen) * 0.15;
+            this._windDir.z += (dz / radialLen) * 0.15;
+          }
+          // 温和自然升力：裙摆与蝴蝶结整体同步轻拂微扬
+          this._windDir.y = Math.max(this._windDir.y, 0) + 0.20;
+          this._windDir.normalize();
+        }
+        this._totalForce.addScaledVector(this._windDir, windPower);
+      }
+
+      if (gustPower >= 0.001) {
+        this._totalForce.addScaledVector(this._gustDir, gustPower);
+      }
 
       const totalPower = this._totalForce.length();
       if (totalPower > 0.0001) {

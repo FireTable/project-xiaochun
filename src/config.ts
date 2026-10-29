@@ -22,6 +22,8 @@ import type {
   VocalPresetKey,
   VocalAudioConfig,
   SceneThemeId,
+  ChatTypewriterConfig,
+  MotionPipelineConfig,
 } from './types/config';
 
 /** 3D 场景专属的环境声学特征配置 (开阔度 / 房间材质 / 贴耳度) */
@@ -196,18 +198,26 @@ export const APP_CONFIG = {
   },
   tts: {
     defaultPitch: '+10Hz',
+    defaultRate: '+0%',
+    defaultVolume: '+0%',
     voices: {
       'zh-CN': {
         voice: 'zh-CN-XiaoyiNeural',
         pitch: '+10Hz',
+        rate: '+0%',
+        volume: '+0%',
       },
       en: {
         voice: 'zh-CN-XiaoyiNeural',
         pitch: '+10Hz',
+        rate: '+0%',
+        volume: '+0%',
       },
       ja: {
         voice: 'ja-JP-NanamiNeural',
         pitch: '+5Hz',
+        rate: '+0%',
+        volume: '+0%',
       },
     },
   },
@@ -361,6 +371,7 @@ export const APP_CONFIG = {
       vqFace: { file: q('vq_face.onnx'), enabled: false, label: 'vq_face (jaw + face 106D, disabled)' },
       vqGlobal: { file: q('vq_global.onnx'), enabled: false, label: 'vq_global (root translation 61D, disabled)' },
     } satisfies Record<string, { file: string; enabled: boolean; label: string }>,
+    // 注册的静态/动捕 VRMA 动作（如 thinking、listening 等）与交互加权分组（如 outfitShowcase 等）统一在 src/motion/catalog.ts 中管理，并享受 TypeScript 编译期强类型关联保障与 warmup 预热支持
     motion: {
       gestureIntensity: 1.0,
       fingerIntensity: 0.5,
@@ -398,14 +409,27 @@ export const APP_CONFIG = {
     modelFile: 'model.int8.onnx',
     tokensFile: 'tokens.txt',
     useItn: true,
-    vadSilenceMs: 600,
+    vadSilenceMs: 400,
+    commitSilenceMs: 1200,
+    maxAccumulateMs: 15_000,
     vadMaxMs: 20_000,
     sampleRate: 16_000,
     vadStartThreshold: 0.014,
     vadSilenceThreshold: 0.008,
     vadStartMs: 80,
     vadPrerollMs: 300,
-    minUtteranceMs: 250,
+    minUtteranceMs: 160,
+    /** TTS 播放期扬声器防自听打断 (Self-Listening Guard) 门限：低于此 RMS 视为扬声器回音过滤，高于此 RMS 判定为用户主动打断 (Barge-in) */
+    bargeInRms: 0.08,
+    /** TTS 播报结束后的房间残响与声学回声吸收冷却窗 (ms) */
+    ttsCooldownMs: 250,
+    punctuation: {
+      enabled: true,
+      base: 'https://cdn.firetable.tech/xiaochun/stt/punct-ct-transformer-zh-en-vocab272727-int8-2024-04-12',
+      modelFile: 'model.int8.onnx',
+      tokensFile: 'tokens.json',
+      cacheName: 'xiaochun-punct-v2024-04-12',
+    },
   },
   llm: {
     model: 'MiniCPM5-2B-q4f16_1-MLC',
@@ -420,7 +444,16 @@ export const APP_CONFIG = {
     userTurnsMax: 50,
   },
   chat: {
-    showHeadBubble: true as boolean,
+    /** 日常 chat 模式对话字幕总开关 (PC 头顶气泡 + 移动端电影字幕栏); 故事 / 新手引导不受影响。旧名 showHeadBubble */
+    showChatDialogue: true as boolean,
+    /** 对话气泡平滑打字机动效配置 (视觉小说级字符渐显与语流停顿) */
+    typewriter: {
+      enabled: true,
+      speedMs: 60,
+      minorPauseMs: 200,
+      majorPauseMs: 420,
+      revealDurationMs: 180,
+    } as ChatTypewriterConfig,
   },
   camera: {
     defaultFov: 30,
@@ -454,6 +487,9 @@ export const APP_CONFIG = {
   bodyTurn: {
     turnStartThreshold: 0.42,
     turnStopThreshold: 0.20,
+    actionTurnStartThreshold: 0.66,
+    preTurnShiftDuration: 0.25,
+    postTurnSettleDuration: 0.18,
     springK: 5.95,
     maxYawVel: 2.6,
     phaseDuration: { idle: 0, lift: 0.21, swing: 0.16, plant: 0.09, settle: 0.21 },
@@ -471,8 +507,29 @@ export const APP_CONFIG = {
     fovBlindHalfAngle: 2.35,
     trackSpeed: 10.0,
   },
+  idleFlavor: {
+    enabled: true,
+    minIntervalSec: 14, // 待机小动作随机最小冷却时间 (秒)
+    maxIntervalSec: 24, // 待机小动作随机最大冷却时间 (秒)
+  },
+  motionPipeline: {
+    sourceFadeDuration: 0.75, // 全身动作基准过渡时长 (秒)，默认 0.75s 黄金底线
+    fingerFadeDuration: 0.34, // 切入动作时手指独立微平滑时长 (秒)，消除抽搐与慢速蠕动
+  } as MotionPipelineConfig,
   springBone: {
-    bust: { stiffness: 0.22, dragForce: 0.26, gravityPower: 0.005, hitRadius: 0.0232 },
+    bust: {
+      stiffness: 0.83, // 刚度 (高韧性强承托，急停时紧实利落复位)
+      dragForce: 0.36, // 阻尼 (适度保留惯性微颤，兼具动感与快速收敛)
+      gravityPower: 0.003, // 重力下垂加速度 (微量自然垂坠感)
+      hitRadius: 0.0232, // 保持原生碰撞球半径
+      tipStiffnessRatio: 0.9, // 尖端末节刚度比例 (0~1，默认 0.9)
+      // Extra meters added to the bust collider only after the bust grows past its bind size.
+      clothClearance: 0.006,
+      // How far an arm vertex may slide out of the bust, in meters. The spring sphere stays small.
+      armPushCap: 0.025,
+      // Radians. 12 degrees. How far the arm bone may swing out of the bust before the spring runs.
+      armClearAngle: (12 * Math.PI) / 180,
+    },
     // 裙子: stiffness 合法 0~1, 越大越硬回弹越快; dragForce 合法 0~1, 越大阻尼越大、晃动停得越快 (调大=更稳, 调小=更飘); gravityPower 越大越下垂
     skirt: { stiffness: 0.35, dragForce: 0.40, gravityPower: 0.10, hitRadius: 0.018 },
     ribbon: { stiffness: 0.42, dragForce: 0.16, gravityPower: 0.005, hitRadius: 0.025 },
@@ -487,6 +544,7 @@ export const APP_CONFIG = {
     skirtMultiplier: 0.7, // 裙子风力放大倍数, 合法 >=0, 建议 0.5~1.5; 调大=鼠标一扫裙子更猛, 调小=更温和
     ribbonMultiplier: 1.35,
     idleTimeoutMs: 120,
+    gustStrength: 0.22, // 剧情运镜 windMultiplier 触发的环境阵风基准强度 (m/s²，乘以 倍率-1); 调大=阵风更猛, 0=关闭阵风
     bust: { sensitivity: 0.23, speedExponent: 0.85, impulseBonus: 1.35 },
   },
   renderer: {
@@ -526,7 +584,8 @@ export const APP_CONFIG = {
         icon: 'Sun',
         lineworkTheme: 'light',
         isTransparent: false,
-        components: { topHeader: true, chatBar: true, headBubble: true, heightRuler: true, dropZone: true },
+        supportsTime: false,
+        components: { topHeader: true, chatBar: true, headBubble: true, heightRuler: true, dropZone: true, time: false },
         tauri: { resizable: true, cornerHandles: false },
       },
       dark: {
@@ -535,7 +594,8 @@ export const APP_CONFIG = {
         icon: 'Moon',
         lineworkTheme: 'dark',
         isTransparent: false,
-        components: { topHeader: true, chatBar: true, headBubble: true, heightRuler: true, dropZone: true },
+        supportsTime: false,
+        components: { topHeader: true, chatBar: true, headBubble: true, heightRuler: true, dropZone: true, time: false },
         tauri: { resizable: true, cornerHandles: false },
       },
       transparent: {
@@ -544,7 +604,8 @@ export const APP_CONFIG = {
         icon: 'Ghost',
         lineworkTheme: 'transparent',
         isTransparent: true,
-        components: { topHeader: true, chatBar: true, headBubble: true, heightRuler: false, dropZone: true },
+        supportsTime: false,
+        components: { topHeader: true, chatBar: true, headBubble: true, heightRuler: false, dropZone: true, time: false },
         tauri: { resizable: false, cornerHandles: true },
       },
       // 海滩: 纯 Three.js 3D 场景 (src/core/scene/beach3d/), 真实地面 + 实时落影。不透明场景, 规则同 light / dark (TopHeader / ChatBar 常显, Tauri 20px 圆角)。
@@ -554,7 +615,8 @@ export const APP_CONFIG = {
         icon: 'TreePalm',
         lineworkTheme: 'beach3d',
         isTransparent: false,
-        components: { topHeader: true, chatBar: true, headBubble: true, heightRuler: true, dropZone: true },
+        supportsTime: true,
+        components: { topHeader: true, chatBar: true, headBubble: true, heightRuler: true, dropZone: true, time: true },
         tauri: { resizable: true, cornerHandles: false },
       },
       // 纯粹虚空: 新手向导专属初始场景，空无一物，极简暗场聚光灯舞台，待用户选定场景后具现化
@@ -565,7 +627,8 @@ export const APP_CONFIG = {
         lineworkTheme: 'void',
         isTransparent: false,
         hidden: true,
-        components: { topHeader: true, chatBar: false, headBubble: true, heightRuler: false, dropZone: false },
+        supportsTime: false,
+        components: { topHeader: true, chatBar: false, headBubble: true, heightRuler: false, dropZone: false, time: false },
         tauri: { resizable: true, cornerHandles: false },
       },
     },
@@ -1020,11 +1083,15 @@ export const APP_CONFIG = {
   },
   expressions: [
     { key: 'neutral' },
+    { key: 'gentle_smile' },
     { key: 'happy' },
     { key: 'angry' },
-    { key: 'sad' },
     { key: 'relaxed' },
     { key: 'surprised' },
+    { key: 'shy' },
+    { key: 'playful' },
+    { key: 'hesitant' },
+    { key: 'sad' },
   ],
   dev: {
     disableLoadingOverlayInDev: false,

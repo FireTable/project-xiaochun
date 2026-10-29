@@ -29,6 +29,11 @@ export class GazeController {
   private blinkDuration = 0.15;
   private isBlinking = false;
   private blinkProgress = 0;
+  private _currentBlink = 0;
+
+  public get currentBlink(): number {
+    return this._currentBlink;
+  }
 
   // 思考权重
   public thinkingWeight = 0.0;
@@ -69,6 +74,16 @@ export class GazeController {
   public isLookAtEyes = true;
   public isLookAtHead = true;
   public isLockHead = false;
+
+  /**
+   * 重置生理眨眼状态 (当动作执行单眼 Wink 或特殊表情时调用，避免双眼眨眼冲突)
+   */
+  public resetBlink(): void {
+    this.isBlinking = false;
+    this.blinkTimer = 0;
+    this.blinkProgress = 0;
+    this._currentBlink = 0;
+  }
 
   init(scene: THREE.Scene): void {
     scene.add(this.gazeTarget);
@@ -148,9 +163,40 @@ export class GazeController {
     camera: THREE.Camera,
     traits: MotionTraits,
     isSpeaking: boolean,
-    manualExpression: string | null,
+    _manualExpression?: string | null,
+    listening = 0,
   ): void {
-    if (!this.enabled) {
+    // ── 1. 自然生理眨眼 (即使动作禁用头部注视，眨眼仍正常计算瞬时值并保持生命感) ──
+    if (this.isAutoBlink) {
+      this.blinkTimer += delta;
+      if (!this.isBlinking && this.blinkTimer >= this.blinkInterval) {
+        this.isBlinking = true;
+        this.blinkTimer = 0;
+        this.blinkProgress = 0;
+        this.blinkInterval = 2.0 + Math.random() * 3.0;
+      }
+      if (this.isBlinking) {
+        this.blinkProgress += delta / this.blinkDuration;
+        if (this.blinkProgress <= 0.5) {
+          this._currentBlink = Math.min(0.85, (this.blinkProgress / 0.5) * 0.85);
+        } else if (this.blinkProgress <= 1.0) {
+          this._currentBlink = Math.min(0.85, ((1.0 - this.blinkProgress) / 0.5) * 0.85);
+        } else {
+          this.isBlinking = false;
+          this._currentBlink = 0;
+        }
+      } else {
+        this._currentBlink = 0;
+      }
+    } else {
+      this._currentBlink = 0;
+    }
+
+    if (vrm.expressionManager) {
+      vrm.expressionManager.setValue('blink', this._currentBlink);
+    }
+
+    if (!this.enabled || traits.disableGaze) {
       this.hasLastLookAt = false;
       if (vrm.lookAt) vrm.lookAt.autoUpdate = false;
       return;
@@ -163,30 +209,13 @@ export class GazeController {
       this.lookAtInitialized = false;
     }
 
-    // ── 1. 思考表情权重平滑淡入淡出 ──
+    // ── 2. 思考微晃权重平滑淡入淡出 ──
     if (traits.thinkSway) {
       this.thinkingWeight = Math.min(1.0, this.thinkingWeight + delta * 2.5);
     } else {
       this.thinkingWeight = Math.max(0.0, this.thinkingWeight - delta * 3.0);
     }
     const tw = this.thinkingWeight * this.thinkingWeight * (3 - 2 * this.thinkingWeight);
-
-    // ── 2. 表情管理 ──
-    if (vrm.expressionManager) {
-      if (manualExpression && manualExpression !== 'neutral') {
-        // 开发者手动指定表情时保持不变
-      } else if (isSpeaking) {
-        // 朗读说话中：清空思考嘴型 ('ou') 与静态微笑，完全让位给实时语音 LipSync ('aa')
-        vrm.expressionManager.setValue('ou', 0);
-        vrm.expressionManager.setValue('relaxed', 0);
-        vrm.expressionManager.setValue('happy', 0);
-      } else {
-        // 待机态：思考嘴型随 tw 渐变，保持平淡素雅自然神态
-        vrm.expressionManager.setValue('ou', 0.65 * tw);
-        vrm.expressionManager.setValue('relaxed', 0.15 * tw);
-        vrm.expressionManager.setValue('happy', 0);
-      }
-    }
 
     // ── 3. 自然生理生命微晃 (Natural Head Vital Sway) 与思考微动 ──
     // 模拟健康人类无意识的极微弱呼吸浮沉与头颈游移 (幅值约 ±0.4°，平滑连续，零机械僵硬感)
@@ -206,29 +235,7 @@ export class GazeController {
     );
     this._thinkSwayQ.setFromEuler(this._eulerLookAt);
 
-    // ── 4. 自然生理眨眼 ──
-    if (this.isAutoBlink && vrm.expressionManager) {
-      this.blinkTimer += delta;
-      if (!this.isBlinking && this.blinkTimer >= this.blinkInterval) {
-        this.isBlinking = true;
-        this.blinkTimer = 0;
-        this.blinkProgress = 0;
-        this.blinkInterval = 2.0 + Math.random() * 3.0;
-      }
-      if (this.isBlinking) {
-        this.blinkProgress += delta / this.blinkDuration;
-        if (this.blinkProgress <= 0.5) {
-          vrm.expressionManager.setValue('blink', this.blinkProgress / 0.5);
-        } else if (this.blinkProgress <= 1.0) {
-          vrm.expressionManager.setValue('blink', (1.0 - this.blinkProgress) / 0.5);
-        } else {
-          this.isBlinking = false;
-          vrm.expressionManager.setValue('blink', 0);
-        }
-      }
-    }
-
-    // ── 5. 自然视线微颤 (Micro-Saccade) 与注视目标定位 ──
+    // ── 4. 自然视线微颤 (Micro-Saccade) 与注视目标定位 ──
     const headNode = vrm.humanoid?.getNormalizedBoneNode('head');
     const neckNode = vrm.humanoid?.getNormalizedBoneNode('neck');
 
@@ -246,7 +253,9 @@ export class GazeController {
     if (this.gazeShiftTimer >= this.gazeShiftInterval) {
       this.gazeShiftTimer = 0;
       // 说话时以与观众直接眼神交流为主 (注视率 92%)，避免讲话时眼神持续飘走；待机时自然游移
-      const baseGlanceChance = isSpeaking ? 0.08 : (traits.glanceChance ?? 0.20);
+      const baseGlanceChance = isSpeaking || listening > 0.5
+        ? 0.08
+        : (traits.glanceChance ?? 0.20);
       this.isGlancingAway = !this.isGlancingAway && Math.random() < baseGlanceChance;
       if (this.isGlancingAway) {
         const side = Math.random() < 0.5 ? -1 : 1;

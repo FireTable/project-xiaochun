@@ -1,11 +1,12 @@
 /**
- * providers/store.ts — 加密 + 持久化 provider profiles。
+ * providers/store.ts — 加密 + 持久化 provider profiles（支持 LLM / STT / TTS 多模态）。
  *
- * ponytail: 每个 profile 一个 IndexedDB record,key 是 profile.id。apiKey 走 crypto.ts AES-GCM。
- * 「当前激活」走 ../activeModel 统一 key,不再单独存 — webllm 和 custom 用同一个 key 互斥。
+ * ponytail: 每个 profile 一个 IndexedDB record，key 是 profile.id。apiKey 走 crypto.ts AES-GCM。
+ * LLM「当前激活」走 ../activeModel 统一 key。
+ * STT / TTS「当前激活」走 ../activeAudioModes。
  */
 
-import type { ProviderProfile } from './types';
+import type { ProviderProfile, ProviderType } from './types';
 import { decryptString, encryptString } from './crypto';
 import { readActiveModel, writeActiveModel } from '../activeModel';
 import { unloadEngine } from '../webLLMProvider';
@@ -19,8 +20,7 @@ function openDb(): Promise<IDBDatabase> {
     const req = indexedDB.open(DB_NAME, DB_VER);
     req.onupgradeneeded = () => {
       const db = req.result;
-      // ponytail: 跟 crypto.ts 共享同一个 DB(v2),升级时把两个 store 都建出来。
-      // 谁先打开都行,缺的 store 都会补上。
+      // ponytail: 跟 crypto.ts 共享同一个 DB(v2)，升级时把两个 store 都建出来。
       if (!db.objectStoreNames.contains(DB_STORE)) db.createObjectStore(DB_STORE);
       if (!db.objectStoreNames.contains('meta')) db.createObjectStore('meta');
     };
@@ -49,29 +49,32 @@ function genId(): string {
   return `prov_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 6)}`;
 }
 
-export async function listProviders(): Promise<ProviderProfile[]> {
+export async function listProviders(type?: ProviderType): Promise<ProviderProfile[]> {
   const raw = await listEncrypted();
-  // ponytail: apiKey 字段加密存储,UI 不需要明文(只有 active 用于发请求),list 只返密文
-  // 字符串。解密推迟到 getActiveProvider 时。
-  return raw.map((p) => ({ ...p, apiKey: '' }));
+  const filtered = type
+    ? raw.filter((p) => (p.type ?? 'llm') === type)
+    : raw;
+  // ponytail: apiKey 字段加密存储，UI 不需要明文，list 只返密文空字符串。解密推迟到激活发请求时。
+  return filtered.map((p) => ({ ...p, type: p.type ?? 'llm', apiKey: '' }));
 }
 
 /**
- * ponytail: 跟 listProviders 一样,但 apiKey 字段解出明文 — 只在「需要把 provider 配置
- * 搬到另一台设备」的同步场景使用(SyncDialog 导出)。普通 UI 列表继续走 listProviders 拿空 key。
- * 解密失败返回空字符串,不让一个坏 provider 阻塞整个导出。
+ * ponytail: 跟 listProviders 一样，但 apiKey 字段解出明文 — 只在设备间同步等导出场景使用。
  */
-export async function listProvidersDecrypted(): Promise<ProviderProfile[]> {
+export async function listProvidersDecrypted(type?: ProviderType): Promise<ProviderProfile[]> {
   const raw = await listEncrypted();
+  const filtered = type
+    ? raw.filter((p) => (p.type ?? 'llm') === type)
+    : raw;
   const out: ProviderProfile[] = [];
-  for (const p of raw) {
+  for (const p of filtered) {
     let apiKey = '';
     try {
       apiKey = await decryptString(p.apiKey);
     } catch {
       /* decrypt failed — keep empty key */
     }
-    out.push({ ...p, apiKey });
+    out.push({ ...p, type: p.type ?? 'llm', apiKey });
   }
   return out;
 }
@@ -80,10 +83,10 @@ export async function getProvider(id: string): Promise<ProviderProfile | null> {
   const all = await listEncrypted();
   const found = all.find((p) => p.id === id);
   if (!found) return null;
-  return found;
+  return { ...found, type: found.type ?? 'llm' };
 }
 
-/** ponytail: 解密指定 id 的 apiKey,只用于"测试连接"等需要凭据但又不希望把 key 放 UI state 的场景。 */
+/** ponytail: 解密指定 id 的 apiKey，只用于"测试连接"等需要凭据但又不希望把 key 放 UI state 的场景。 */
 export async function getDecryptedApiKey(id: string): Promise<string | null> {
   const p = await getProvider(id);
   if (!p) return null;
@@ -94,19 +97,23 @@ export async function getDecryptedApiKey(id: string): Promise<string | null> {
   }
 }
 
-export async function getActiveProvider(): Promise<ProviderProfile | null> {
-  const active = readActiveModel();
-  if (!active || active.kind !== 'custom') return null;
-  const raw = await listEncrypted();
-  const found = raw.find((p) => p.id === active.providerId);
+/** 获取并解密指定的 profile（供 LLM / STT / TTS 各执行器调用） */
+export async function getProviderDecrypted(id: string): Promise<ProviderProfile | null> {
+  const all = await listEncrypted();
+  const found = all.find((p) => p.id === id);
   if (!found) return null;
-  // ponytail: 解密 apiKey,发请求前才解,常态内存里不存明文。
   try {
-    return { ...found, apiKey: await decryptString(found.apiKey) };
+    return { ...found, type: found.type ?? 'llm', apiKey: await decryptString(found.apiKey) };
   } catch (err) {
     console.warn('[providers] decrypt failed:', err);
     return null;
   }
+}
+
+export async function getActiveProvider(): Promise<ProviderProfile | null> {
+  const active = readActiveModel();
+  if (!active || active.kind !== 'custom') return null;
+  return getProviderDecrypted(active.providerId);
 }
 
 export async function getActiveProviderId(): Promise<string | null> {
@@ -117,8 +124,7 @@ export async function getActiveProviderId(): Promise<string | null> {
 export async function setActiveProviderId(id: string | null): Promise<void> {
   const wasCustom = readActiveModel()?.kind === 'custom';
   writeActiveModel(id ? { kind: 'custom', providerId: id } : null);
-  // ponytail: 切到 custom 时顺手把还在内存里的 webllm engine 释放掉,
-  // 不然 1-2GB 显存白占,用户也用不上。
+  // ponytail: 切到 custom 时顺手把还在内存里的 webllm engine 释放掉
   if (id && !wasCustom) {
     try {
       unloadEngine();
@@ -127,8 +133,7 @@ export async function setActiveProviderId(id: string | null): Promise<void> {
   notifyProvidersChange();
 }
 
-// ponytail: providers 列表 / 激活态变化的订阅 — sync import 批量写完 provider 后
-// UI(ChatBar 的 activeCustom state)一次性 re-fetch,避免手动重开 dialog 才能看到。
+// ponytail: providers 列表 / 激活态变化的订阅
 const providersChangeListeners = new Set<() => void>();
 
 export function subscribeProvidersChange(cb: () => void): () => void {
@@ -144,11 +149,13 @@ function notifyProvidersChange(): void {
 
 export interface SaveInput {
   id?: string;
+  type?: ProviderType;
   name: string;
   protocol: 'openai-compatible';
   baseURL: string;
   apiKey: string;
   model: string;
+  voice?: string;
   recentModels?: string[];
   lastProbeOk?: boolean;
   lastProbeAt?: number;
@@ -163,11 +170,13 @@ export async function saveProvider(input: SaveInput): Promise<ProviderProfile> {
   const encryptedKey = await encryptString(input.apiKey);
   const profile: ProviderProfile & { apiKey: string } = {
     id,
+    type: input.type ?? existing?.type ?? 'llm',
     name: input.name.trim(),
     protocol: input.protocol,
     baseURL: input.baseURL.trim().replace(/\/+$/, ''),
     apiKey: encryptedKey,
     model: input.model.trim(),
+    voice: input.voice?.trim() || undefined,
     recentModels: dedupeModels([
       ...(input.recentModels ?? existing?.recentModels ?? []),
       input.model.trim(),

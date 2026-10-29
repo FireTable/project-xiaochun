@@ -1,0 +1,18 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "xiaochun-tts",
+  "compatibility_date": "2026-09-03",
+  "compatibility_flags": ["nodejs_compat"],
+  "main": "src/tts-worker.ts",
+  "observability": {
+    "enabled": true
+  },
+  // 【可选】持久化语音缓存 Bucket (xiaochun-tts)
+  // 未绑定时自动优雅降级为 L1 PoP 内存缓存 + Edge-TTS 实时合成
+  "r2_buckets": [
+    {
+      "binding": "TTS_BUCKET",
+      "bucket_name": "xiaochun-tts"
+    }
+  ]
+}

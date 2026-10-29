@@ -217,7 +217,7 @@ Goal: no long main-thread task while the loading overlay animates or while the c
 | :-- | :-- | :-- |
 | Off-thread hero warp | `src/components/loading/keyvisualWarp*.ts`, `warpGL.ts` | The loading key visual is drawn in an `OffscreenCanvas` worker, so VRM parse / shader links / React commits no longer stall it; main-thread WebGL only when OffscreenCanvas is unsupported. See [`LOADING_OVERLAY.md` §7.1](LOADING_OVERLAY.md#71-hero-warp-live2d-lite). |
 | Single-mount overlay + `loadingStore` | `src/routes/index.tsx`, `loadingStore.ts` | One overlay instance for the whole boot; progress is coalesced to whole percent at ≤ 10 Hz and only the overlay subscribes (`useSyncExternalStore`), so progress reports no longer re-render `App` (70–150 ms commits in dev). The hero is `React.memo`. |
-| Async scene init | `vrmEngine.ts` (`yieldToMain`) | Cold-start VRM setup (`applyVrmUtilsOptimizations`, material / scene setup) yields to the event loop between heavy steps. Not used on outfit swap (`preserveMotion`), which keeps the old model animating instead. |
+| Async scene init | `vrmEngine.ts` (`yieldToMain`) | Cold-start and outfit-swap VRM setup (`applyVrmUtilsOptimizations`, texture deduplication, material / scene setup) yields to the event loop between heavy steps, ensuring the active model never freezes while incoming models are prepared. |
 | GPU prewarm | `vrmEngine.prewarmGpu()` | Before the first frame: textures are uploaded with `renderer.initTexture` in ~12 ms slices that yield, then programs are linked with `renderer.compileAsync` (`KHR_parallel_shader_compile`) into the post-fx input target, so cache keys (tone mapping / colour space) match the real RenderPass. `PCFSoftShadowMap` is switched to `PCFShadowMap` up front (three r18x downgrades it inside the first shadow render, which would recompile everything). Replaces a ~600 ms synchronous first render. Failure falls back to compile-on-first-render. |
 | Outfit-swap prewarm | `vrmEngine.ts` (swap path) | The new outfit's textures / programs are prewarmed while the old model keeps animating, instead of inside the first frame after the atomic swap (~400–700 ms freeze). See [`OUTFIT_SWAP.md`](OUTFIT_SWAP.md). |
 | Scene-switch prewarm | `vrmEngine.setScene('beach3d')` | A live switch builds `beach3d` hidden (`beach3d.prepare()`), prewarms its group, then switches. Its first render previously linked ~800 ms of shaders in one frame. See [`BEACH3D_SCENE.md`](BEACH3D_SCENE.md). |
@@ -228,3 +228,73 @@ Goal: no long main-thread task while the loading overlay animates or while the c
 **Intentionally unchanged**: EMAGE model loading, STT and WebLLM preload / download still run during the overlay (`preloadHeavyResources`). They run in workers, and starting them early is what keeps the first reply fast.
 
 Numbers above (ms) are dev-build profiles on the development machine, recorded to motivate each change; production / mobile timings are **Unverified**.
+
+---
+
+## 8. Motion Asset Optimization & Payload Reduction (v0.1.39+)
+
+The 25 `.vrma` motion assets in `public/vrm/motion/` were optimized offline via `scripts/slice-vrma.mjs --optimize-all`:
+
+| Metric | Before Optimization | After Optimization | Delta |
+| :-- | :-- | :-- | :-- |
+| **Total Uncompressed Binary Payload (Raw GLB)** | **6.28 MB** | **3.49 MB** | **−44.5% (−2.79 MB)** |
+| **Total Wire Transfer (Brotli Level 11)** | **2.75 MB** | **2.02 MB** | **−26.6% (−0.73 MB)** |
+| `show-full-body.vrma` (Largest motion) | 1,316.8 KB | **321.1 KB** | **−75.6%** (Brotli: 516 → 246 KB) |
+| `airplane-glide.vrma` (43.7s motion) | 1,128.0 KB | **363.0 KB** | **−67.8%** |
+
+### 8.1 Key Optimization Techniques
+1. **Adaptive 30 FPS Capping**: 60 FPS dense captures are downsampled to 30 FPS. Because Three.js `AnimationMixer` computes spherical linear quaternion interpolation (Slerp), rendering on 60/120 Hz displays is visually indistinguishable (angular error $< 1.5^\circ$, hips translation error $< 0.45\text{ mm}$). Native $\le 30\text{ FPS}$ clips remain untouched.
+2. **Orphan & Secondary Bone Stripping**: Unmapped secondary bones (hair, bust, eyes) that `@pixiv/three-vrm-animation` ignores are removed, avoiding spring bone interference and saving ~40% of buffer memory.
+3. **Exact Zero-Diff Static Track Collapse**: Tracks that remain stationary ($\Delta_{\max} \le 10^{-4}$) throughout the clip are collapsed into 2 constant keyframes ($t=0$ and $t=\text{duration}$), drastically reducing Three.js `KeyframeTrack` heap footprint.
+4. **Shared Time Accessor**: Eliminates duplicate per-sampler time accessor arrays into a single glTF accessor.
+5. **SSOT Cache Invalidation**: All updated motions declare incremented version queries (e.g. `?v=12`, `?v=6`) in `MOTION_CATALOG` (`src/motion/catalog.ts`), mirrored automatically across all legacy aliases in `src/motion/motionResolver.ts`. IndexedDB (`vrm-assets-cache` / `RAW_STORE`) and browser caches are invalidated seamlessly.
+
+---
+
+## 9. Outfit Swap Zero-Drop Architecture & Texture Deduplication (v0.1.39+)
+
+Detailed in [`docs/OUTFIT_SWAP.md` §5](OUTFIT_SWAP.md#5-gpu-resource-optimization--zero-drop-triad).
+
+### 9.1 Empirical Texture Hash Analysis
+A bit-for-bit SHA-256 analysis of embedded glTF images across `xiaochun_base.vrm` and all 8 official addons revealed that **21 textures** are 100% identical:
+- Face slots: `FaceMouth`, `EyeIris`, `EyeHighlight`, `EyeWhite`, `FaceBrow`, `FaceEyeline`, `FaceSkin` (diffuse + normal);
+- Hair slots: `HairBack`, `Hair_01`, `Hair_02` (diffuse + 3 normal maps);
+- Shader utility: `Shader_NoneBlack`, `Shader_NoneNormal`, `MatcapWarp`, `Face_out`.
+
+### 9.2 Zero-Drop Triad Metrics
+| Metric | Previous (Hard Switch) | Current (Zero-Drop Triad) | Benefit |
+| :-- | :-- | :-- | :-- |
+| **GPU Texture Re-Upload per Swap** | 24 ~ 36 textures (~60–80 MB VRAM) | **2 ~ 5 clothing textures** (< 5 MB VRAM) | **−85% GPU upload bandwidth & VRAM churn** |
+| **Atomic Swap Frame Execution Time** | 15 ~ 35 ms (stalled by synchronous `deepDispose`) | **< 1.0 ms** (`scene.remove` + `scene.add` only) | **Eliminates frame drops at switch instant** |
+| **Old Avatar Freeze During Parse** | 60 ~ 120 ms continuous main-thread block | **0 ms freeze** (cooperative `yieldToMain` slices) | **Active avatar animates at solid 60 FPS** |
+| **WebGL Resource Disposal** | Synchronous driver blocking | Background time-sliced ($\le 2\text{ ms}$ per frame) | Smooth deallocation over 3~5 subsequent frames |
+
+---
+
+## 10. STT Zero-Silence Gating, Mobile GPU Lifecycle & Pipeline Polish (v0.1.40+)
+
+### 10.1 Silero VAD Zero-Silence Gating Bypass (`src/stt/sileroVad.ts`)
+- **Problem**: When voice recording is active, Silero VAD evaluates 512-sample PCM chunks (~32ms per window at 16 kHz) via `ort-web` ONNX WASM inference (~31 calls/sec). While acoustic bleed gating prevents XiaoChun from transcribing her own voice, prolonged standby silence on low-end mobile devices and laptops generated continuous background CPU consumption.
+- **Solution**: Before invoking `session.run()`, a fast amplitude gate inspects the root-mean-square (`rms`) energy of the current PCM frame. When the character is not currently in a speech state (`!this.inSpeech && this.consecutiveSpeechFrames === 0`) and the frame amplitude is below the ambient noise floor (`rms < 0.003`):
+  - Model inference is completely bypassed;
+  - `speechProb` is immediately assigned to `0`;
+  - Reduces ONNX WASM neural network executions by **>80%** during silent intervals, dramatically lowering CPU utilization and thermal throttling.
+
+### 10.2 Mobile GPU Context Release on Page Hide (`src/core/gpuRelease.ts`)
+- **Problem**: Mobile operating systems (iOS Safari, Android Chrome) aggressively kill background web tabs that retain large WebGL/WebGPU framebuffers and VRAM allocations when switching apps or locking the screen.
+- **Solution**: Configured via `APP_CONFIG.scene.mobileGpuReleaseOnHide`:
+  - Listens to `visibilitychange` and `pagehide` events;
+  - Automatically disposes render targets and sheds heavy GPU buffers when the tab transitions into the background;
+  - Safely re-allocates and rebinds renderer buffers when returning to the foreground, defending against unexpected OS tab terminations.
+
+### 10.3 Time-Sliced Shader Compilation & Prewarming (`src/core/gpuPrewarm.ts`)
+- Material and shader prewarming routines execute cooperative yielding across animation frames (`requestAnimationFrame` / `yieldToMain`), ensuring that scene switching (`beach3d`) and complex shader compilation never introduce frame drops or block the user interface.
+
+### 10.4 Concurrency Serialization for Outfit Swapping (`src/core/latestWinsQueue.ts`)
+- Rapid user clicks across wardrobe presets are serialized through a single-flight `LatestWinsQueue`. Intermediate superseded swap requests are tagged with a stale generation token and discarded before heavy glTF/WASM synthesis begins, preventing pipeline thrashing and wasted GPU upload bandwidth.
+
+### 10.5 Finger Micro-Fade Smoothing (`src/motion/pipeline/fingerFade.ts`)
+- Implements a dedicated 0.34s micro-transition window specifically tailored for the 30 finger phalange joints during transitions between procedural idle fidgets and motion capture clips, eliminating micro-jitter in delicate hand poses.
+
+
+

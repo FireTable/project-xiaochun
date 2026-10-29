@@ -16,7 +16,7 @@
  */
 
 import type { ProviderProfile } from './customProvider/types';
-import { resolveShowHeadBubble, type UserSettings } from './userSettings';
+import { resolveShowChatDialogue, type UserSettings } from './userSettings';
 import { readActiveModel } from './activeModel';
 import { THINKING_PREF_KEY } from '@/lib/constants';
 
@@ -99,7 +99,7 @@ export function buildSyncPayload(input: CollectInputs): SyncPayload {
     if (input.userSettings !== undefined) {
       data.userSettings = {
         ...input.userSettings,
-        showHeadBubble: resolveShowHeadBubble(input.userSettings),
+        showChatDialogue: resolveShowChatDialogue(input.userSettings),
       };
     }
   }
@@ -191,23 +191,35 @@ export function serializeForTransfer(encrypted: EncryptedSync): string {
  * - 完整文本 `xs:v1:iv.ct.key` → 三段都有
  * - 仅密文 `xs:v1:iv.ct` → 只返密文,key 留空,接收端需要单独填 key
  */
+/** 粘贴文本格式错误：message 是英文 (给日志)，UI 用 code 走 i18n (chat.sync.errors.<code>) 显示本地化文案 */
+export class SyncFormatError extends Error {
+  readonly code: 'badPrefix' | 'badVersionTag' | 'unsupportedVersion' | 'badBody';
+  readonly params: Record<string, string | number>;
+  constructor(code: SyncFormatError['code'], message: string, params: Record<string, string | number> = {}) {
+    super(message);
+    this.name = 'SyncFormatError';
+    this.code = code;
+    this.params = params;
+  }
+}
+
 export function parseTransferText(text: string): EncryptedSync {
   const trimmed = (text ?? '').trim();
   const parts = trimmed.split(':');
   if (parts.length !== 3 || parts[0] !== PROTOCOL_TAG) {
-    throw new Error('格式不符 — 需要 xs:v1:... 开头');
+    throw new SyncFormatError('badPrefix', 'invalid format: expected xs:v1:...');
   }
   const versionPart = parts[1];
   if (!versionPart.startsWith('v')) {
-    throw new Error('格式不符 — 缺少版本号');
+    throw new SyncFormatError('badVersionTag', 'invalid format: missing version');
   }
   const version = parseInt(versionPart.slice(1), 10);
   if (version !== PROTOCOL_VERSION) {
-    throw new Error(`不支持的版本: v${version}`);
+    throw new SyncFormatError('unsupportedVersion', `unsupported version: v${version}`, { version });
   }
   const body = parts[2].split('.');
   if (body.length < 2 || body.length > 3) {
-    throw new Error('格式不符 — 主体必须是 iv.ct[.key]');
+    throw new SyncFormatError('badBody', 'invalid format: body must be iv.ct[.key]');
   }
   return {
     iv: body[0],
@@ -224,7 +236,7 @@ export interface ImportPreview {
   thinkingEnabled?: boolean;
   hasCustomPrompt: boolean;
   memoryTurnsOverride?: number;
-  showHeadBubble?: boolean;
+  showChatDialogue?: boolean;
 }
 
 export function previewImport(payload: SyncPayload): ImportPreview {
@@ -249,6 +261,6 @@ export function previewImport(payload: SyncPayload): ImportPreview {
     thinkingEnabled: d.thinkingEnabled,
     hasCustomPrompt: !!(d.userSettings?.systemPromptOverride?.trim()),
     memoryTurnsOverride: d.userSettings?.memoryTurnsOverride,
-    showHeadBubble: d.userSettings ? resolveShowHeadBubble(d.userSettings) : undefined,
+    showChatDialogue: d.userSettings ? resolveShowChatDialogue(d.userSettings) : undefined,
   };
 }

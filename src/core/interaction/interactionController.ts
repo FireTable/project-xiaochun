@@ -38,6 +38,7 @@ import { TurnGuide3D } from './turnGuide3D';
 import { PitchGuide3D } from './pitchGuide3D';
 import { CameraYGuide3D } from './cameraYGuide3D';
 import { GestureMachine, type GestureEvent, type GestureResponse } from '@/core/gesture';
+import { UserZoomTracker, type UserZoomEvent } from './userZoom';
 import { fillPointerSample, newPointerSample } from '@/core/gesture/adapters/domSample';
 import { startNativeWindowDrag } from '@/core/gesture/adapters/tauriWindow';
 
@@ -57,6 +58,8 @@ export interface InteractionContext {
   onSaveCameraPitch: () => void;
   /** ponytail: 拖拽 cameraYGuide 时调, 写入新 Y offset (-1 ~ +1) */
   onSetCameraYOffset: (offset: number) => void;
+  /** 用户主动交互开始回调 (指针按下 / 拖拽开始), 用于立即打断系统推镜头与冷启动待转身 */
+  onUserInteractionStart?: () => void;
 }
 
 export class InteractionController {
@@ -64,6 +67,7 @@ export class InteractionController {
   private context: InteractionContext | null = null;
 
   // 3D 空间导引
+  public guidesEnabled = true;
   private turnGuide3D = new TurnGuide3D();
   private pitchGuide3D = new PitchGuide3D();
   private cameraYGuide3D = new CameraYGuide3D();
@@ -98,6 +102,8 @@ export class InteractionController {
 
   private stateListeners = new Set<(state: InteractionState) => void>();
   private gestureListeners = new Set<(ev: GestureEvent) => void>();
+  private userZoomListeners = new Set<(ev: UserZoomEvent) => void>();
+  private userZoom = new UserZoomTracker((ev) => this.emitUserZoom(ev));
 
   constructor() {
     this.machine.on(this.onGestureEvent);
@@ -110,6 +116,25 @@ export class InteractionController {
     return () => {
       this.gestureListeners.delete(cb);
     };
+  }
+
+  /**
+   * 订阅“用户在缩放视角”：只来自画布上的真实滚轮 / 双指 / 中键拖动，且只在 OrbitControls 真的会响应的时候
+   * (controls 可用、没被导演运镜接管、没锁缩放)。程序化的相机变化 (导演运镜 / fitCamera / 回默认视角) 永远不会触发。
+   */
+  public onUserZoom(cb: (ev: UserZoomEvent) => void): () => void {
+    this.userZoomListeners.add(cb);
+    return () => {
+      this.userZoomListeners.delete(cb);
+    };
+  }
+
+  private emitUserZoom(ev: UserZoomEvent): void {
+    const controls = this.context?.controls;
+    if (!controls || controls.enabled === false || controls.enableZoom === false) return;
+    this.userZoomListeners.forEach((cb) => {
+      try { cb(ev); } catch {}
+    });
   }
 
   /**
@@ -190,6 +215,15 @@ export class InteractionController {
     cameraYOffset: number,
     _camera?: Camera,
   ): void {
+    if (!this.guidesEnabled) {
+      this.turnGuide3D.group.visible = false;
+      this.pitchGuide3D.group.visible = false;
+      this.cameraYGuide3D.group.visible = false;
+      this.lastDragDx = 0;
+      this.lastDragDy = 0;
+      return;
+    }
+
     // 1. 腰间转身光环
     const turnAngle = this.context?.motionPipeline.targetYawOffset ?? 0;
     this.turnGuide3D.update(
@@ -294,6 +328,7 @@ export class InteractionController {
         break;
       }
       case 'turn-start':
+        this.context?.onUserInteractionStart?.();
         this.lastDragDx = 0;
         this.lastDragDy = 0;
         break;
@@ -417,19 +452,29 @@ export class InteractionController {
   private setupCanvasPointerListeners(canvas: HTMLCanvasElement): void {
     const toSample = (e: PointerEvent) => fillPointerSample(this.sample, e, hasInteractionModifier(e));
 
+    const onWheel = (e: WheelEvent) => {
+      this.userZoom.wheel(e.deltaY);
+    };
+
     const onPointerDown = (e: PointerEvent) => {
+      this.userZoom.pointerDown(e.pointerId, e.clientX, e.clientY, e.button);
+      this.context?.onUserInteractionStart?.();
       this.applyResponse(e, this.machine.pointerDown(toSample(e)));
     };
 
     const onPointerMove = (e: PointerEvent) => {
+      this.userZoom.pointerMove(e.pointerId, e.clientX, e.clientY);
       this.applyResponse(e, this.machine.pointerMove(toSample(e)));
     };
 
     const onPointerUp = (e: PointerEvent) => {
+      this.userZoom.pointerUp(e.pointerId);
       this.machine.pointerUp(toSample(e));
     };
 
     const onPointerCancel = (e?: PointerEvent) => {
+      if (e) this.userZoom.pointerUp(e.pointerId);
+      else this.userZoom.reset();
       this.machine.pointerCancel(e ? toSample(e) : undefined);
     };
 
@@ -439,6 +484,7 @@ export class InteractionController {
       }
     };
 
+    canvas.addEventListener('wheel', onWheel, { passive: true });
     canvas.addEventListener('pointerdown', onPointerDown);
     window.addEventListener('pointermove', onPointerMove, { passive: false });
     window.addEventListener('pointerup', onPointerUp);
@@ -448,7 +494,9 @@ export class InteractionController {
     this.cleanupCanvasListeners = () => {
       this.machine.endTurn();
       this.machine.endGuideDrag();
+      canvas.removeEventListener('wheel', onWheel);
       canvas.removeEventListener('pointerdown', onPointerDown);
+      this.userZoom.reset();
       window.removeEventListener('pointermove', onPointerMove);
       window.removeEventListener('pointerup', onPointerUp);
       window.removeEventListener('pointercancel', onPointerCancel);

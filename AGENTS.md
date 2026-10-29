@@ -19,9 +19,11 @@ Project XiaoChun is a **100% browser-native 3D AI companion** with strong on-dev
 | **FootIK & Ground Anchors** | `FootIKSolver`<br/>(`src/motion/constraints/footIK.ts`) | Two-bone analytical IK, weight shift (contrapposto), pole-vector orientation, auto-sink, detailed in [`docs/FOOT_IK.md`](docs/FOOT_IK.md) |
 | **Locomotion & Gaze** | `BodyTurnSystem` + `GazeController`<br/>(`src/motion/constraints/bodyTurn.ts`, `gaze.ts`) | 4-phase stepping FSM, spring yaw tracking; traits `allowLocomotion` / `thinkSway`, detailed in [`docs/BODY_TURN_AND_GAZE.md`](docs/BODY_TURN_AND_GAZE.md) |
 | **Biomechanical Morphing** | `VRMBodyMorph`<br/>(`src/core/morph/vrmBodyMorph.ts`) | 28-parameter orthogonal decoupled bone & vertex morphing engine (VRoid 1.0 guarded), detailed in [`docs/BONE_MORPH.md`](docs/BONE_MORPH.md) |
-| **Chat Director & TTS** | `ChatDirector` + `speechSlicer` (`src/lib/utils.ts`) + native WebSocket client (`src/lib/edge-tts-core.ts`)<br/>(`src/director/chatDirector.ts`, `src/lib/utils.ts`, `src/server.ts`) | Smart 25~65 chars slicer, speech handoff (~0.4s fade), parallel TTS prefetch, stream sync, detailed in [`docs/CHAT_DIRECTOR.md`](docs/CHAT_DIRECTOR.md) |
+| **Chat Director & TTS** | `ChatDirector` + `ttsClient.ts` + `speechSlicer`<br/>(`src/director/`, `src/lib/edge-tts-core.ts`, `src/server.ts`) | Smart 25~65 chars slicer, multi-modal TTS (Built-in Edge/CF + Custom OpenAI `/v1/audio/speech`), graceful `ttsUnavailable` degradation, detailed in [`docs/CHAT_DIRECTOR.md`](docs/CHAT_DIRECTOR.md) |
+| **STT & Audio Dispatcher** | SenseVoice int8 + Silero VAD v5 + CT-Transformer int8 + `sttDispatcher.ts`<br/>(`src/stt/`, `ChatBar.tsx`, `src/server/sttHandler.ts`) | Multi-modal STT (Built-in CF Whisper Turbo `/api/stt` + Custom OpenAI `/v1/audio/transcriptions` + 5min Circuit Breaker + Local SenseVoice fallback), 2-Pass draft/commit, detailed in [`docs/STT.md`](docs/STT.md) |
 | **On-device AI & Memory** | `webLLM` + `EMAGE Worker` + `IndexedDB`<br/>(`src/llm/`, `src/motion/`, `src/memory/`) | 100% local WebGPU inference, EMAGE Worker, 3-tier memory, detailed in [`docs/ON_DEVICE_AI.md`](docs/ON_DEVICE_AI.md) |
 | **Hybrid desktop & in-app updater** | Tauri 2.x + `tauri-plugin-updater` + `tauri-plugin-process` + `tauri-plugin-opener`<br/>(`src-tauri/`, `src/lib/appUpdater.ts`, `src/lib/openExternal.ts`, `src/components/AppUpdateDialog.tsx`, `TauriTopHeader.tsx`) | Frameless pet, canvas-alpha click-through (DOM never masked), GitHub Releases `latest.json` whole-app updates, detailed in [`docs/HYBRID_DESKTOP_APP.md`](docs/HYBRID_DESKTOP_APP.md) |
+| **Beach 3D Scene & 24h Time Cycle** | `Beach3DWorld` + `SceneTimeCard`<br/>(`src/core/scene/beach3d/`, `src/components/SceneTimeCard.tsx`) | 24h continuous solar/lunar arc, dynamic 3-palette blending, CharacterShadow key light sync, polar `atan2` celestial dial with Ease-In-Out Cubic time-lapse easing, detailed in [`docs/BEACH3D_SCENE.md`](docs/BEACH3D_SCENE.md) |
 | **Documentation Index** | Complete Architecture Index & Sitemap | Complete agent fast-path guide, detailed in [`docs/README.md`](docs/README.md) |
 
 ---
@@ -34,7 +36,7 @@ The 3D motion pipeline involves complex layered logic. Follow these geometric an
 - Files: `src/motion/pipeline/motionPipeline.ts`, `src/motion/pipeline/selectLiveMotionSource.ts`, `src/motion/pipeline/poseBuffer.ts`, `src/motion/sources/`, `src/motion/constraints/`, `src/core/vrmEngine.ts`
 - **Architecture Principle**:
   1. **Single Bone Writer**: `MotionPipeline.tick()` is the only per-frame driver. `selectLiveMotionSource({ clip, emage, vrma })` picks exactly one Layer-1 writer (`clip > emage > vrma > idle`). Idle rest is **never** applied to the live skeleton while another source is active (idle+EMAGE arm mix / crossed hands).
-  2. **No motion flags**: The engine loop and Gaze/BodyTurn must not consult `isThinking` / `emageLive` / `activePlayer`. Thinking VRMA and EMAGE are `pipeline.playThinkingClip` / `beginEmageSpeech`. Gaze think-sway and “no stepping while speaking” come from the live source’s `MotionTraits` (`thinkSway`, `allowLocomotion`).
+  2. **No motion flags**: The engine loop and Gaze/BodyTurn must not consult `isThinking` / `emageLive` / `activePlayer`. Thinking posture and EMAGE are driven through unified `pipeline.playMotion` / `beginEmageSpeech`. Gaze think-sway and “no stepping while speaking” come from the live source’s `MotionTraits` (`thinkSway`, `allowLocomotion`).
   3. **Layered Blend Graph**:
      - **Layer 0 (Base)**: `NaturalIdle` procedural breathing and standby poise (only when idle is the selected writer, or as `basePose` for upper-body masks).
      - **Layer 1 (Main Action)**: Exclusive `idle` | `vrma` | `emage` | `clip`, Quintic Smootherstep crossfade on `PoseBuffer`, then `commitToVRM`.
@@ -80,16 +82,27 @@ The 3D motion pipeline involves complex layered logic. Follow these geometric an
 - **Engineering Standard & Rule**:
   - In `VRMAMotionPlayer.stop()`, **never call `mixer.stopAllAction()` nakedly**.
   - Always snapshot all 52 humanoid bone quaternions (`VRM_ALL_HUMANOID_BONES`) and `hips.position` immediately **before** calling `mixer.stopAllAction()`, and write them back immediately **after** `mixer.stopAllAction()`.
-  - This ensures bone transforms remain continuous in 3D space across action stops, allowing `MotionTransitionManager` to capture the true anatomical pose.
+  - In `UniversalMotionController` (`src/motion/sources/clip.ts`), both `stop()` and `play()` (when replacing an active action) **must wrap action stopping in `preserveHumanoidPose`**. This prevents Three.js's internal `AnimationAction.stop()` from resetting bone bindings to T-pose (0).
+  - This ensures bone transforms remain continuous in 3D space across action stops, allowing `MotionTransitionManager` and `PoseBuffer` to capture the true anatomical pose.
 
 ### 2.4 State Machine Race Conditions & Premature Assignment Pitfall
 - **Pitfall Symptom**: Clicking "Send" caused the character to twitch/flicker back to idle for one frame before resuming `think`.
 - **Root Cause**: Historically, `activePlayer = 'vrma'` was written before the clip actually played. The next frame saw `vrmaPlayer.isPlaying() === false` and demoted the writer to idle.
 - **Engineering Standard & Rule**:
   - There is no engine-level `activePlayer` / `isThinking` motion flag. `MotionPipeline.tick()` calls `selectLiveMotionSource` from live `isPlaying()` only.
-  - ChatDirector starts thinking with `pipeline.playThinkingClip` **after** `playLoop`, never by setting a flag the render loop consults.
+  - ChatDirector starts thinking via unified `setTurnState('thinking')` (`pipeline.playMotion`) **after** `playLoop`, never by setting a flag the render loop consults.
   - `beginEmageSpeech` does not `vrma.stop()` immediately. Think keeps playing until EMAGE writes a pose; then stop the mixer so speech-end goes to idle.
   - Never invent a new motion flag in `sendMessage()` / `say()` for the engine loop to read.
+  - **SSOT Interaction State Machine (`TurnState = 'idle' | 'listening' | 'thinking' | 'speaking'`)**:
+    * `ChatDirector` and `VRMEngine` drive motion strictly through `setTurnState(state)`.
+    * `motionPipeline.onTurnStateChange` transitions smoothly between idle, listening, thinking, and speaking.
+    * `isBusy` is evaluated strictly as `turnState === 'thinking' || turnState === 'speaking'`.
+    * `MotionAssetManager` (`src/motion/pipeline/motionAssetManager.ts`) provides L1 memory pool, L2 IndexedDB persistence, L3 bound clip pool, and parallel warmup for `warmup: true` catalog items.
+    * `MOTION_GROUPS` (`src/motion/catalog.ts`) guarantees compile-time type safety: deleting an action ID immediately causes a TypeScript compilation error.
+    * **VRM Reference SSOT Across Swaps**: `ChatDirector` and `MotionPipeline` must never retain or pass stale/disposed VRM references across outfit swaps. `chatDirector.bindVRM(vrm)` updates synchronously with `pipeline.bind(vrm)`. `onTurnStateChange` defaults strictly to `pipeline.boundVRM`.
+    * **Consecutive Motion Clip Crossfading**: When switching between two motion clips (e.g. showcase to listening), `MotionPipeline.setMotionSource('motion', ..., forceTransition = true)` forces a Quintic snapshot and crossfade, preventing instant 1-frame snaps.
+    * **Mid-Chat Swap Showcase Suppression**: Swapping outfits during dialogue/thinking (`wasSpeakingOrThinkingAtStart`) or while chat is active (`isChatActive`) strictly suppresses `outfitShowcase`, preventing unexpected motion triggers that conflict with user interaction.
+    * **Idle Flavor / Fidget Scheduler**: In `vrmEngine.ts`, `updateIdleFlavor(delta)` triggers spontaneous, non-intrusive one-shot motions (`MOTION_GROUPS.idleFlavor`) every 14~24s during pure idle, smoothly returning to `NaturalIdleSystem` via Quintic Slerp. Resets on user drag, speech, or input focus.
 
 ### 2.5 EMAGE Cross-Segment Streaming Continuity (`switchSegment`)
 - File: `src/motion/sources/emage.ts`
@@ -115,11 +128,17 @@ The 3D motion pipeline involves complex layered logic. Follow these geometric an
     * `EmagePlayer.stancePillar` defaults to `'balanced'` (`stanceRatio = 0.5`).
     * `APP_CONFIG.emage.motion.legIntensity` defaults to `0.40`: legs follow hip/audio; FootIK still stands the character.
 
-### 2.7 BodyTurn Stepping & Head Gaze Decoupling
+### 2.7 BodyTurn Stepping & Head Gaze Decoupling (Universal Lower-Body Locomotion FSM)
 - Files: `src/motion/constraints/bodyTurn.ts`, `src/motion/pipeline/motionPipeline.ts`
 - Overlay **`LEGS_MASK` only** (no hip rotation, no spine yaw). Gaze owns the head via draft LookAt then compose.
 - Do not call `MotionTransitionManager` for stepping handoffs.
 - While BodyTurn is busy, skip FootIK `solve`/`levelFeet` (fade mix out damp 14). After locomotion settles, recapture plants from the new stance, then fade FootIK back (damp 6).
+- **Universal Lower-Body Locomotion FSM (Action <-> Idle <-> BodyTurn Stepping)**:
+  * **Unified Behavior**: All actions (`mask: 'all'`) dynamically isolate the upper and lower body when locomotion triggers. The upper body remains 100% engaged in the action (listening, speaking, thinking, gestures), while the lower body strictly obeys the physiological weight-shift sequence:
+    `Action Stance -> (0.25s Quintic Shift) -> Neutral Idle Legs -> (Stepping) -> (0.18s Settle Hold) -> (0.50~0.85s Quintic Restore) -> Action Stance`.
+  * **Idle Fast-Path**: When in standby idle or `mask: 'upperBody'`, the legs are already in neutral stance. Transitions immediately into stepping with 0 delay at standard $24^\circ$ threshold (`turnStartThreshold: 0.42`).
+  * **Full-Body Protection Angle**: Full-body actions employ a higher threshold $\sim 38^\circ$ (`actionTurnStartThreshold: 0.66`). Camera micro-adjustments only drive Gaze and head tracking without triggering leg shuffling.
+  * **Timing Safety**: `bodyTurn.update` runs before checking stepping completion to prevent zero-frame early-exit races. Stepping completion transitions into neutral idle settle before smoothly restoring the action leg pose.
 
 ### 2.8 Biomechanical Bone Morphing & Orthogonal Decoupling Engine
 - Files: `src/core/morph/vrmBodyMorph.ts`, `src/config.ts`, `src/components/DevDrawer.tsx`, and detailed specification in [`docs/BONE_MORPH.md`](docs/BONE_MORPH.md)
@@ -146,6 +165,17 @@ The 3D motion pipeline involves complex layered logic. Follow these geometric an
   - `bspatch` differential synthesis, `fflate` decompression, and binary assembly **MUST NEVER run on the main thread**. All heavy binary operations must be offloaded to the Dedicated Web Worker (`src/core/vrmWorker.ts`) and returned via `Transferable ArrayBuffer` zero-copy transfer;
   - `packRawGLB` must strictly enforce glTF 2.0 4-byte boundary alignment (trailing spaces `0x20` for JSON, null bytes `0x00` for BIN);
   - Maintain L1 base and L2 composed (`${baseSha}:${addonSha}`) two-tier IndexedDB caches to achieve 10~30ms repeat swaps.
+- **⚠️ Critical Architecture Rule: Zero-Drop Triad (Texture Sharing, Staggered Disposal & Yielded Parsing)**:
+  - Files: `src/core/texturePool.ts`, `src/core/staggeredDisposer.ts`, `src/core/vrmEngine.ts`
+  1. **Algorithmic Texture Sharing (`VRMTexturePool`)**:
+     - 21 textures (face, hair, eyes, highlights, skin, normal maps, shader utilities — ~60–80 MB VRAM) are 100% bit-for-bit SHA-256 identical across all outfits.
+     - `VRMTexturePool` computes 64-bit content hashes of glTF bufferViews and reuses existing GPU-resident `THREE.Texture` instances directly on incoming materials, disposing duplicate uninitialized textures immediately.
+     - Never calls WebGL texture re-allocation for shared assets. Shared textures use reference counting so active avatars never lose their GPU textures.
+  2. **Staggered WebGL Disposal (`StaggeredDisposer`)**:
+     - **NEVER call synchronous `VRMUtils.deepDispose(previousVrm.scene)` in the atomic swap frame**. Synchronously destroying 50+ WebGL buffers, textures, and programs stalls the GPU driver for 15~35ms, dropping frames right as the new model mounts.
+     - `StaggeredDisposer` enqueues old geometries, materials, skeletons, and unique textures, cleanly releasing them across subsequent idle/animation frames within a strict $\le 2\text{ms}$ budget.
+  3. **Yielded Parsing (`yieldToMain`)**:
+     - `loadVRM` and `loadVRMFromBuffer` must cooperatively yield (`await yieldToMain()`) between heavy setup phases (`applyVrmUtilsOptimizations`, texture deduplication, `materialManager.optimize`). This guarantees the active character continues animating and breathing at full 60 FPS without micro-freezes while the new model prepares in memory.
 
 ### 2.10 Cinematic PostFx Pipeline & Anime Bloom Isolation
 - Files: `src/core/postfx/postFxPipeline.ts`, detailed in [`docs/POSTFX.md`](docs/POSTFX.md).
@@ -178,7 +208,66 @@ The 3D motion pipeline involves complex layered logic. Follow these geometric an
   3. **Code Ingestion Rule**:
      - When adding new 3D features, the first rule is to create or extend dedicated subsystem modules. `vrmEngine.ts` only handles instantiation and facade delegation.
 
-### 2.12 Performance & Frame-Budget Disciplines (Zero GC & 60 FPS Guarantees)
+### 2.12 Mocap Asset Ingestion, Pelvis Sinking Trap & SpringBone Limit-Cycle Oscillation
+- Files: `scripts/slice-vrma.mjs`, `src/motion/sources/clip.ts`, `src/motion/vrmaRetarget.ts`, `src/motion/catalog.ts`
+- **Pitfall Symptom**: When playing a looped mocap VRMA (such as `listening.vrma`), the character's skirt (`SpringBone`) violently blows up and flaps like an inflated parachute ("violent skirt flailing"), and seam loop points produce noticeable snapping and stuttering.
+- **Root Cause**:
+  1. **Hips Y Depression Colliding with Thigh Spheres**: In the VRM bone hierarchy, the skirt (`J_Sec_L/R_Skirt...`) hangs from `Hips`, while the collision spheres (`VRMSpringBoneColliderGroup`) are attached to `UpperLeg`. Arbitrarily subtracting a negative offset (`hipsYOffset = -0.094m` or `-0.054m`) from `Root_M` translation Y sinks the waistband directly down onto the thigh colliders! Any movement of the legs pushes the skirt mesh outwards with high physics impulses, inducing an undamped limit-cycle oscillation.
+  2. **Loop Boundary Discontinuity (Seam Pop)**: Raw mocap cuts without boundary smoothing create instant velocity and angle jumps between the last frame and frame 0 (e.g. $13.3^\circ$ on `Upper_Leg_R`, $12.3^\circ$ on `Foot_R`, $1.9\text{cm}$ on `Root_M`), imparting an explosive shockwave to all spring bones every 5.75s.
+  3. **Excessive Lateral Pelvic Sway in Standing Clips**: Raw mocap actors often shift full body weight (e.g. 26cm lateral $X$ swing). With planted feet, this forces the thighs to rotate outwards, driving colliders into the skirt.
+- **Engineering Standard & Rules**:
+  1. **Never Tamper with Mocap Hips Y**: Standard humanoid VRMA mocap tracks already calibrate foot soles to ground level ($Y \approx 0.00\text{m}$). `hipsYOffset` must default to `0.0`. Never depress the pelvis to fix perceived "ankle floating" (the ankle joint is naturally ~13cm above the sole in T-pose).
+  2. **Quintic Seamless Loop Bake on Sliced Assets (`scripts/slice-vrma.mjs`)**: Always apply Quintic Smootherstep ($6t^5 - 15t^4 + 10t^3$) over the tail $0.75\text{s}$ ($\approx 18$ frames) to Slerp/Lerp all bone channels into frame 0. Guarantees $0.00\text{mm}$ position jump, $< 0.04^\circ$ angular delta, and zero acceleration impulse at the seam.
+  3. **Center & Damp Lateral Sway for Standing Clips**: Scale down large horizontal sway ($X$) on standing idle/listening clips to subtle organic micro-sway ($\le \pm 1.5\text{cm}$), keeping thighs in the center of the skirt volume.
+  4. **Idempotent Mocap Slicing**: Keep pristine raw source files under `public/vrm/motion/raw/` so offline toolchains never repeatedly re-slice or degrade already processed assets.
+  5. **Lossless VRMA Optimization & Cache-Busting Invariant (`scripts/slice-vrma.mjs --optimize-all`)**:
+     - Strips unmapped non-humanoid orphan tracks (hair, bust, eyes) that `@pixiv/three-vrm-animation` ignores, preventing conflicts with `VRMSpringBone` and reclaiming ~40% of buffer memory;
+     - Strips non-standard `translation` tracks on bones other than `hips` (eliminates runtime Three.js console warnings);
+     - Caps FPS at 30 (Three.js Slerp delivers seamless 60/120Hz display refresh with zero visible loss); preserves native $\le 30\text{ FPS}$ untouched;
+     - Collapses exact zero-diff static channels ($\Delta_{\max} \le 10^{-4}$) to 2 constant frames;
+     - **CRITICAL INVARIANT**: Whenever `.vrma` assets are modified or re-optimized, **always bump the cache-busting version query (`?v=...`) in `MOTION_CATALOG` (`src/motion/catalog.ts`)**. `motionResolver.ts` mirrors catalog URLs via SSOT. Otherwise, browsers and IndexedDB cache (`vrm-assets-cache` / `RAW_STORE`) will silently continue serving stale, heavy binaries!
+  6. **Root Motion Z-Displacement Alignment Standard (`zeroZ: 'firstFrame'` vs `'all'`)**:
+     - **The Problem**: Raw mocap studio recordings arbitrarily place the actor's initial position at $Z_0 \neq 0$ (e.g. $-15\text{cm} \sim -47\text{cm}$). If unadjusted, playing the motion causes the character to instantly leap backwards into the background. But if $Z$ translation is forcibly zeroed across ALL frames ($Z(t) \equiv 0.0$), standing gestures, dances, and bows lose the actor's natural pelvic counterbalance (e.g. during a bow `bowSalute`, the hips must shift backwards by $18.6\text{cm}$ to counterbalance the forward-leaning torso; during dances `modelPose`, shifting weight from heel to toe creates $\pm 2\sim 4\text{cm}$ depth sway).
+     - **The Standard**: **First-Frame Z Relative Displacement (`zeroZ: 'firstFrame'`)**:
+       * Mathematical transform: $Z'(t) = Z(t) - Z(0)$.
+       * Guarantees Frame 0 starts strictly at $Z'(0) = 0.0\text{m}$, eliminating any initial backward leap or position jerk from Idle ($Z=0$).
+       * 100% preserves the actor's anatomical pelvis shift $\Delta Z(t) = Z(t) - Z(0)$ and center-of-mass counterbalance.
+       * In contrast, in-place locomotion cycles (`casualWalk`) use `zeroZ: 'all'` (or `true`) for treadmill execution.
+  7. **Vertical Ground Contact Protection (`hipsYOffset` + `compensateFloorContact`)**:
+     - Mocap assets recorded on custom rigs or high heels (e.g. `model-pose.vrma` baked with Hips Y ~4.5cm too high) float in mid-air.
+     - Slicing tool applies calibrated `hipsYOffset: -0.045m`, followed by automated `compensateFloorContact` which lifts only frames where ankle pitch or crouching dips below floor level (`penetration > 0`). This ensures flat, stable foot grounding throughout the entire animation with zero hovering and zero floor penetration.
+  8. **Root Motion Lateral X-Displacement Alignment Standard (`zeroX: 'firstFrame'` vs `'all'`)**:
+     - **The Problem**: Raw mocap actors often begin recording offset laterally from the center of the volume ($X_0 \neq 0$, e.g. $+29.4\text{cm}$ or $-6.6\text{cm}$). Directly playing these causes the avatar to abruptly pop sideways or misalign with ground shadows and camera framing. Conversely, locking $X(t) \equiv 0.0$ removes all natural weight shifting.
+     - **The Standard**: **First-Frame X Relative Displacement (`zeroX: 'firstFrame'`)**:
+       * Mathematical transform: $X'(t) = X(t) - X(0)$.
+       * Guarantees Frame 0 starts strictly at $X'(0) = 0.0\text{m}$ (aligned with Idle), while 100% preserving organic lateral swaying, dancing, and weight transfers.
+       * In contrast, in-place locomotion cycles (`casualWalk`) use `zeroX: 'all'` (or `true`) to lock the center axis.
+  9. **Symmetrical Zero-Crossing Periodic Slicing (Sway & Stand Fidget Standard)**:
+     - **The Apex Slicing Trap**: When slicing cyclical idle/sway motions (such as `swayIdle`), NEVER slice starting from a sway apex/turning point (e.g. maximum left lean). Doing so causes relative translation $X'(t) = X(t) - X(0)$ to hover near $0.0\text{m}$ for $> 1\text{s}$ while leg rotations are already tilted, producing a severe artifact: **"hips frozen, legs drift sideways, and only after 1.5s does the motion begin"**.
+     - **The Standard**: Always slice from the symmetrical center zero-crossing ($X \approx \text{midpoint}$, equal 50/50 leg weight distribution) and end at the matching zero-crossing one full period later ($t_{\text{end}} = t_{\text{start}} + T$). Hips begin swinging smoothly and immediately from Frame 1 ($t=0.5\text{s} \rightarrow X=+6\text{cm}$), lateral foot drift is $< 7\text{mm}$, and foot sliding is completely eliminated.
+  10. **Tail-Hold Keyframe Extension (`tailHoldDuration` / `--tail-hold=<seconds>`)**:
+     - For one-shot gestures that play once and crossfade back to `NaturalIdle`, duplicating the final frame for $N$ seconds provides a stable rest pose for the 0.75s Quintic Smootherstep crossfade, preventing premature snapping.
+
+### 2.13 Motion-Native Expression Binding & Organic Facial Morphing Architecture
+- Files: `src/motion/sources/clip.ts`, `src/core/morph/expressionController.ts`, `src/motion/catalog.ts`, `src/motion/constraints/gaze.ts`
+- **Architecture Principle & Motion-Level SSOT**:
+  1. **Expression as Motion Intrinsic Property**: Facial expressions are bound strictly to individual `MotionCatalogItem` records in `MOTION_CATALOG`, **never to `MOTION_GROUPS`**. Group-level binding inevitably causes semantic mismatch (e.g. angry foot stomping paired with smiling). Each atomic action defines its exact emotional resonance (`gentle_smile`, `happy`, `angry`, `hesitant`, `relaxed`, `playful`, `shy`, `surprised`).
+  2. **Automated Lifecycle & Timing Orchestration**:
+     - `UniversalMotionController.play(clip, options)` automatically extracts `options.expression` and routes it to `expressionController.setExpression(expr, intensity)`.
+     - Smooth continuous-time damping (`emotionDampSpeed: 7.5`, ~0.35s) ensures zero-snap emotional transitions.
+     - Micro-vital breathing oscillation ($\pm 0.015$) maintains continuous organic life during the action hold phase.
+     - Optional `expressionDuration`: Delta-time countdown timer in `update(delta)` smoothly returns the face to `neutral` when expired.
+     - Action Termination & Preemption Safety: When a motion reaches its natural end, is stopped via `stop()`, or is replaced by a motion with no expression specified, it automatically transitions back to `neutral` with Quintic smooth decay, completely preventing sticky residual facial expressions.
+  3. **Decoupled Priority Hierarchy & Speech Mouth Ducking**:
+     - **TTS Mouth Dominance**: Audio-driven lip sync (`aa`, `ou`) possesses absolute priority over mouth deformation.
+     - `ExpressionController` automatically applies `speechMouthDucking` ($0.25$) to `happy`, `sad`, and `angry` mouth-corner pulls when `isSpeaking === true`, guaranteeing clear, natural speech articulation without facial tear.
+     - `reset(vrm, isSpeaking)` strictly protects active `aa` visemes when speaking.
+     - **GazeController Decoupling**: Gaze logic is strictly restricted to eye saccades, lookAt tracking, and physiological blinking (`blink`). All emotion writes (`happy`, `relaxed`, `ou`) are removed from `gaze.ts`, completely eliminating dual-writer contention.
+  4. **Zero-GC & 60 FPS Discipline**:
+     - Uses a static `EMOTION_KEYS` array to iterate emotions per frame, strictly eradicating `Object.keys()` memory allocation inside the render loop.
+     - Eliminates redundant `expressionManager.update()` calls (which are already executed by `vrm.update(delta)`).
+
+### 2.14 Performance & Frame-Budget Disciplines (Zero GC & 60 FPS Guarantees)
 - Target: Strictly protect the 16.6ms frame budget, maintaining stable 60 FPS on both mobile and desktop with zero visible frame drops, micro-stutters, or memory leaks.
 - **Core Engineering Disciplines**:
   1. **Zero Dynamic Allocation in Render Loop (Zero GC in Tick / Update)**:
@@ -212,10 +301,13 @@ The 3D motion pipeline involves complex layered logic. Follow these geometric an
   $$\text{targetPreload} = \min\big(2, \min(N, \max(1, \lceil N/3 \rceil))\big)$$
   Short sentences start in 1~2 segments instantly; long texts buffer 2 segments (~8~12s audio) before playback begins, while remaining segments are generated in the background.
 - **Inter-segment Idle Takeover**: If the next playback chunk hasn't finished inference, immediately enter `emage.enterSpeakIdle()`; when the new segment is ready, call `emage.exitSpeakIdle()` and begin playback.
-- **Chat Bubble Text Display Rules (`HeadBubble.tsx`)**:
-  - Only render the dialogue text when `state.statusKey === 'speaking'` (i.e., when speech and motion are actively playing).
-  - During `thinking`, `tts`, `emage` preparation/buffering phases, only show the corresponding micro status icon/capsule — never spoil the dialogue text early.
-  - User pref `APP_CONFIG.chat.showHeadBubble` (override in `userSettings`): when off, `HeadBubble` returns null. Do **not** stop ChatDirector / `bubbleTracker` events.
+- **Chat Bubble Text Display Rules (`ChatBubble.tsx` / `HeadBubble.tsx`)**:
+  - `ChatBubble` supports dual variants: `variant="bubble"` (3D projected floating bubble with head-top tracking and dead-zone filtering) and `variant="cinematic"` (translucent glowing cinematic subtitle bar).
+  - In everyday chat mode: Only render the dialogue text when `state.statusKey === 'speaking'` (anti-spoil rule).
+  - In story / prologue mode: Character dialogue stays persistently displayed throughout the beat (even after speech ends), with `isSpeaking` decoupled from text persistence so options, scene preview, outfit swap, and camera interaction never cause the dialogue to flash away.
+  - Layout & anti-occlusion: On mobile, options are full-width (`w-full`) stacked directly above the bottom cinematic bar; on PC, options reside on the right side and are elevated (`bottom-28 sm:bottom-32`), strictly higher than the bottom dialogue bar (`bottom-6`).
+  - Dialogue scope (`dialogueScope` prop, logic in `chatBubbleVisibility.ts`): `'chat'` = PC floating bubble **and** the mobile chat-mode cinematic bar (`App.tsx` ChatBar `topSlot`, passes `dialogueScope="chat"`); it follows `bubbleTracker` `state.visible` (hidden once speech ends, via `ChatDirector.onEnd → hide()`) and the user setting. `'story'` = `StoryPlayer` cinematic bar; lines persist for the whole beat and ignore the setting. Static cinematic defaults to `'story'`, so mobile chat must pass `dialogueScope="chat"` explicitly.
+  - User pref `APP_CONFIG.chat.showChatDialogue` (renamed from `showHeadBubble`; override in `userSettings`, legacy `showHeadBubble` still read): when off, chat-scope `ChatBubble` (PC bubble + mobile cinematic bar) returns null. Story mode is never affected. Do **not** stop ChatDirector / `bubbleTracker` events.
 
 ---
 
@@ -229,7 +321,7 @@ When modifying any system-level configuration or parameter, follow the **central
 - **Post-processing**: `APP_CONFIG.postfx` (UnrealBloom strength/radius/threshold, toneMapping exposure, color grading matrix, plus `bloomInputScaleMobile|Desktop` and `composerMSAASamplesMobile|Desktop`).
 - **Lighting & Saturation**: `APP_CONFIG.lights` (3-channel studio lighting: dir 1.00, hemi 0.95, fill 1.40) and `APP_CONFIG.saturation`.
 - **Memory capacity**: `APP_CONFIG.memory` (`shortTermTurns`, `turnMaxChars`, `longTermKeep`, `longTermTopK`).
-- **Chat UI**: `APP_CONFIG.chat.showHeadBubble` (default `true`). User override lives in `userSettings`; `HeadBubble` returns null when off — do not gate ChatDirector / `bubbleTracker` events.
+- **Chat UI**: `APP_CONFIG.chat.showChatDialogue` (default `true`; formerly `showHeadBubble`). User override lives in `userSettings`; chat-scope `ChatBubble` (PC bubble + mobile cinematic bar) returns null when off, story mode is unaffected — do not gate ChatDirector / `bubbleTracker` events.
 
 ---
 

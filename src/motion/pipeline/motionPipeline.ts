@@ -2,7 +2,10 @@ import * as THREE from 'three';
 import type { VRM, VRMHumanBoneName } from '@pixiv/three-vrm';
 import {
   PoseBuffer,
-  LEGS_MASK,
+  PIPELINE_BONES,
+  LOWER_BODY_MASK,
+  FINGER_BONES,
+  BONE_INDEX_MAP,
   copyTransitionSnapshot,
   type MotionBoneMask,
 } from './poseBuffer';
@@ -12,6 +15,7 @@ import {
   type UniversalMotionHandle,
 } from '../sources/clip';
 import { NaturalIdleSystem } from '../sources/idle';
+import { ListeningMotionSystem } from '../sources/listening';
 import { VRMAMotionPlayer } from '../sources/vrma';
 import { EmagePlayer } from '../sources/emage';
 import { FootIKSolver } from '../constraints/footIK';
@@ -23,13 +27,20 @@ import {
   selectLiveMotionSource,
   writerToPipelineSource,
   SOURCE_FADE_DURATION,
+  FINGER_MICRO_FADE_DURATION,
   WRITER_FADE_DURATION,
   type LiveMotionWriter,
 } from './selectLiveMotionSource';
+import { computeAdaptiveFadeDuration } from './adaptiveFade';
+import { APP_CONFIG } from '../../config';
+import { motionAssetManager } from './motionAssetManager';
+import { MOTION_CATALOG, selectMotionFromGroup } from '../catalog';
+import { makeClipSeamless } from '../vrmaRetarget';
+import type { TurnState } from '../../director/chatDirector';
 
 export type PipelineMotionSource = 'idle' | 'vrma' | 'emage' | 'motion';
 export type { MotionTraits, MotionSource, MotionConstraint, PlayHandle } from './types';
-export { selectLiveMotionSource, writerToPipelineSource } from './selectLiveMotionSource';
+export { selectLiveMotionSource, writerToPipelineSource, FINGER_MICRO_FADE_DURATION } from './selectLiveMotionSource';
 export type { LiveMotionWriter, LiveMotionFlags } from './selectLiveMotionSource';
 
 /**
@@ -63,6 +74,7 @@ export class MotionPipeline {
 
   // ── Plugins (sources + constraints). tick() is the unique per-frame driver. ──
   public readonly idle = new NaturalIdleSystem();
+  public readonly listening = new ListeningMotionSystem();
   public readonly vrma = new VRMAMotionPlayer();
   public readonly universalMotion = new UniversalMotionController();
   public readonly emage = new EmagePlayer();
@@ -82,6 +94,7 @@ export class MotionPipeline {
   }
 
   // ── 主动作平滑 Crossfader ──
+  public crossfadeScale = 1.0;
   private activeSource: PipelineMotionSource = 'idle';
   public previousSource: PipelineMotionSource = 'idle';
   private activeMask: MotionBoneMask = 'all';
@@ -97,21 +110,35 @@ export class MotionPipeline {
   private footIkMix = 0;
   private footIkWanted = false;
   private locomotionWeight = 0; // 下半身步态连续混合权重 [0: 动作源下半身, 1: 步态踱步]
+  private locomotionTransitionElapsed = 0;
+  private locomotionTransitionDuration = 0.5;
+  private locomotionTransitionFromWeight = 0;
+  private locomotionTransitionTargetWeight = 0;
+  private wasStepping = false;
+
   public targetYawOffset = 0.0;
+  /** 上一帧相机相对角色的方位角 (atan2(dx, dz))，用于在运镜时抵消方位变化 */
+  private lastCameraAzimuth: number | null = null;
+  /** 运镜结束后继续抵消的剩余帧数 (吸收最后一帧的定格跳变) */
+  private holdFacingFramesLeft = 0;
   private boundVrm: VRM | null = null;
+  public get boundVRM(): VRM | null {
+    return this.boundVrm;
+  }
   private _btPos = new THREE.Vector3();
 
 
 
   bind(vrm: VRM): void {
-    const same = this.boundVrm === vrm;
+    if (this.boundVrm === vrm) {
+      return;
+    }
     this.universalMotion.bind(vrm);
     this.vrma.bind(vrm);
-    if (!same) {
-      this.restPose.sampleFromVRM(vrm);
-      this.emage.bind(vrm);
-      this.idle.bind(vrm);
-    }
+    motionAssetManager.invalidateBoundClips();
+    this.restPose.sampleFromVRM(vrm);
+    this.emage.bind(vrm);
+    this.idle.bind(vrm);
     this.footIK.bind(vrm);
     this.bodyTurn.bind(vrm);
     this.boundVrm = vrm;
@@ -135,13 +162,26 @@ export class MotionPipeline {
     lookAtOffsets?: { neck?: THREE.Quaternion; head?: THREE.Quaternion },
   ): Promise<UniversalMotionHandle> {
     this.bind(vrm);
-    const clip = await this.universalMotion.parseToClip(input, vrm);
+    const reqId = this.universalMotion.nextRequestId();
+    const clip = await this.universalMotion.parseToClip(input, vrm, options);
+    if (reqId !== this.universalMotion.getCurrentRequestId()) {
+      return {
+        name: clip.name || 'UniversalMotion',
+        duration: clip.duration,
+        stop: () => {},
+        pause: () => {},
+        resume: () => {},
+        setTimeScale: () => {},
+        isPlaying: () => false,
+        isPaused: () => false,
+      };
+    }
 
     const fadeDur = Math.max(0.26, options.fadeDuration ?? SOURCE_FADE_DURATION);
     const mask = options.mask ?? 'all';
 
-    // 启动管线平滑流转到通用动作源
-    this.setMotionSource('motion', fadeDur, lookAtOffsets, mask);
+    // 启动管线平滑流转到通用动作源 (forceTransition=true 保证连续播放动作时必触发 Quintic 补帧)
+    this.setMotionSource('motion', fadeDur, lookAtOffsets, mask, true);
 
     // 启动底层动画动作播放
     return this.universalMotion.play(clip, options);
@@ -152,7 +192,7 @@ export class MotionPipeline {
    */
   stopMotion(
     fadeDuration = SOURCE_FADE_DURATION,
-    lookAtOffsets?: { neck?: THREE.Quaternion; head?: THREE.Quaternion },
+    lookAtOffsets = this.gaze.getLookAtOffsets(),
   ): void {
     if (this.activeSource !== 'idle') {
       this.setMotionSource('idle', fadeDuration, lookAtOffsets);
@@ -176,19 +216,83 @@ export class MotionPipeline {
   }
 
   /**
+   * 角色目标朝向 = 相机方位角 + targetYawOffset，所以相机方位一变，角色就会“跟着转”。
+   * 用户拖拽 (改 targetYawOffset) 是想转身；而导演运镜 (环绕 / 弧摇 / 螺旋) 不该带动身体。
+   * hold 为 true 的帧里，把方位角的变化从 targetYawOffset 里扣掉，世界朝向保持不变。
+   */
+  public trackCameraAzimuth(vrm: VRM, camera: THREE.Camera, hold: boolean): void {
+    const dx = camera.position.x - vrm.scene.position.x;
+    const dz = camera.position.z - vrm.scene.position.z;
+    const az = Math.atan2(dx, dz);
+    if (hold) this.holdFacingFramesLeft = 3;
+    const holding = this.holdFacingFramesLeft > 0;
+    if (!hold && this.holdFacingFramesLeft > 0) this.holdFacingFramesLeft--;
+    if (holding && this.lastCameraAzimuth !== null) {
+      const d = THREE.MathUtils.euclideanModulo(az - this.lastCameraAzimuth + Math.PI, Math.PI * 2) - Math.PI;
+      this.targetYawOffset -= d;
+    }
+    this.lastCameraAzimuth = az;
+  }
+
+  /**
+   * 让镜头“背对她”：角色保持世界正前方朝向 (yaw 0，即默认方位角 0 的相机所面对的方向，和 fitCamera 一致)，
+   * 把相机绕她所在的竖轴搬到她正后方 (方位角 π，高度与水平距离不变)。
+   * 同步 targetYawOffset (= 她的世界朝向 − 相机方位角 = π)，保持下半身静止，不触发迈步。
+   *
+   * 不再转动角色本身：之后相机环绕回方位角 0 (orbit_to_front) 就是她的正面，
+   * 与 fitCamera 的默认方位一致，换场景重新取景时她不会被“翻面”。
+   */
+  public setFacingBackwards(vrm: VRM, camera: THREE.Camera): void {
+    this._btPos.copy(vrm.scene.position);
+    const dx = camera.position.x - this._btPos.x;
+    const dz = camera.position.z - this._btPos.z;
+    const isVrm0 = vrm.meta?.metaVersion === '0';
+    const baseYaw = isVrm0 ? Math.PI : 0;
+    // 世界朝向：面向方位角 0 (+Z)
+    vrm.scene.rotation.y = baseYaw;
+    // 相机搬到她正后方 (方位角 π)，水平半径保持
+    const radius = Math.hypot(dx, dz);
+    camera.position.x = this._btPos.x + radius * Math.sin(Math.PI);
+    camera.position.z = this._btPos.z + radius * Math.cos(Math.PI);
+    this.lastCameraAzimuth = Math.PI;
+    // 目标偏角 = 她的朝向 (0) − 相机方位角 (π) ≡ π，使当前差值为 0，保持静止不迈步
+    this.targetYawOffset = Math.PI;
+    this.resetLocomotion();
+  }
+
+  /**
+   * 触发角色转身面向镜头 (激活 4-phase stepping FSM 迈步转身)
+   */
+  public triggerBodyTurnToFront(): void {
+    this.targetYawOffset = 0;
+  }
+
+  /**
    * 复位下半身步态系统与混合权重，立即平息踏步动作
    */
   public resetLocomotion(): void {
     this.bodyTurn.reset();
     this.locomotionWeight = 0;
+    this.locomotionTransitionElapsed = 0;
+    this.locomotionTransitionDuration = 0.5;
+    this.locomotionTransitionFromWeight = 0;
+    this.locomotionTransitionTargetWeight = 0;
+    this.wasStepping = false;
   }
 
-  /** Play thinking VRMA as the live pipeline source (thinkSway trait disabled to prevent asynchronous sinusoidal collision with clip). */
-  playThinkingClip(clip: THREE.AnimationClip, vrm: VRM, fadeDuration = SOURCE_FADE_DURATION): void {
-    this.idle.traits.thinkSway = false;
-    this.vrma.traits = { allowLocomotion: true, thinkSway: false };
-    this.vrma.playLoop(clip, vrm, fadeDuration);
-    this.setMotionSource('vrma', fadeDuration, this.gaze.getLookAtOffsets(), 'upperBody');
+  /** Play thinking VRMA as the live pipeline source (deprecated in favor of unified playMotion). */
+  playThinkingClip(
+    clip: THREE.AnimationClip,
+    vrm: VRM,
+    fadeDuration = SOURCE_FADE_DURATION,
+    mask: 'all' | 'upperBody' = 'all',
+  ): void {
+    void this.playMotion(vrm, clip, {
+      loop: true,
+      fadeDuration,
+      mask,
+      antiClip: true,
+    });
   }
 
   /** Gaze-only think sway when the thinking clip is missing. Idle remains the writer. */
@@ -197,7 +301,18 @@ export class MotionPipeline {
   }
 
   /** Switch Layer-1 to EMAGE speech (planted stance, no think sway). */
-  beginEmageSpeech(): void {
+  beginEmageSpeech(preserveMotion = false): void {
+    if (this.universalMotion.isPlaying()) {
+      if (preserveMotion) {
+        // preserveMotion: 当前已有自定义动作在播，不强行中断；
+        // 让 universalMotion 继续驱动骨骼，等它自然播完后，selectLiveMotionSource 会无缝自动切到 EMAGE 接力
+        this.idle.traits.thinkSway = false;
+        this.vrma.traits = { ...DEFAULT_MOTION_TRAITS };
+        this.emage.traits = { allowLocomotion: true, thinkSway: false, glanceChance: 0.40 };
+        return;
+      }
+      this.universalMotion.stop(SOURCE_FADE_DURATION);
+    }
     this.idle.traits.thinkSway = false;
     this.vrma.traits = { ...DEFAULT_MOTION_TRAITS };
     this.actionPose.copyFrom(this.finalPose);
@@ -212,10 +327,91 @@ export class MotionPipeline {
     this.emage.traits = { allowLocomotion: true, thinkSway: false, glanceChance: 0.40 };
   }
 
+  /**
+   * 对话交互状态机统一动作响应 (SSOT TurnState -> Motion Blending)
+   */
+  onTurnStateChange(state: TurnState, vrm?: VRM | null, preserveMotion = false): void {
+    const targetVrm = vrm ?? this.boundVrm;
+    switch (state) {
+      case 'thinking': {
+        if (preserveMotion && this.universalMotion.isPlaying()) {
+          break;
+        }
+        const motionId = selectMotionFromGroup('thinking');
+        const catalogItem = MOTION_CATALOG[motionId];
+        const thinkingClip = motionAssetManager.getClip(motionId) ?? motionAssetManager.getClip(catalogItem.url);
+        if (thinkingClip && targetVrm) {
+          const fadeDur = catalogItem.fadeDuration ?? 0.65;
+          const mask = (catalogItem.mask as 'all' | 'upperBody') ?? 'all';
+          void this.playMotion(targetVrm, thinkingClip, { ...catalogItem, fadeDuration: fadeDur, mask });
+        } else if (targetVrm) {
+          this.setIdleThinkSway(true);
+          void this.universalMotion.parseToClip(catalogItem.url, targetVrm, catalogItem).then((clip) => {
+            makeClipSeamless(clip, catalogItem.fadeDuration);
+            motionAssetManager.setClip(motionId, clip);
+            motionAssetManager.setClip(catalogItem.url, clip);
+            if (this.activeSource === 'idle' && this.idle.traits.thinkSway) {
+              const fadeDur = catalogItem.fadeDuration ?? 0.65;
+              const mask = (catalogItem.mask as 'all' | 'upperBody') ?? 'all';
+              void this.playMotion(targetVrm, clip, { ...catalogItem, fadeDuration: fadeDur, mask });
+            }
+          }).catch((err) => {
+            console.warn('[MotionPipeline] 异步预热思考动作失败:', err);
+          });
+        } else {
+          this.setIdleThinkSway(true);
+        }
+        break;
+      }
+      case 'speaking': {
+        this.beginEmageSpeech(preserveMotion);
+        break;
+      }
+      case 'listening': {
+        const motionId = selectMotionFromGroup('listening');
+        const catalogItem = MOTION_CATALOG[motionId];
+        const listeningClip = motionAssetManager.getClip(motionId) ?? motionAssetManager.getClip(catalogItem.url);
+        if (listeningClip && targetVrm) {
+          const fadeDur = catalogItem.fadeDuration ?? 0.75;
+          const mask = catalogItem.mask ?? 'all';
+          void this.playMotion(targetVrm, listeningClip, { ...catalogItem, fadeDuration: fadeDur, mask });
+        } else if (targetVrm) {
+          void this.universalMotion.parseToClip(catalogItem.url, targetVrm, catalogItem).then((clip) => {
+            makeClipSeamless(clip, catalogItem.fadeDuration);
+            motionAssetManager.setClip(motionId, clip);
+            motionAssetManager.setClip(catalogItem.url, clip);
+            void this.playMotion(targetVrm, clip, catalogItem);
+          }).catch((err) => {
+            console.warn('[MotionPipeline] 异步预热倾听动作失败:', err);
+          });
+        }
+        break;
+      }
+      case 'idle': {
+        if (this.vrma.isPlaying()) {
+          this.vrma.stop();
+        }
+        if (this.universalMotion.isPlaying()) {
+          if (!preserveMotion) {
+            this.universalMotion.stop(SOURCE_FADE_DURATION);
+          }
+        }
+        this.resetChatMotion();
+        break;
+      }
+    }
+  }
+
   traitsForWriter(writer: LiveMotionWriter): MotionTraits {
     if (writer === 'emage') return this.emage.traits;
     if (writer === 'vrma') return this.vrma.traits;
-    if (writer === 'clip') return this.universalMotion.traits;
+    if (writer === 'clip') {
+      const opts = this.universalMotion.getCurrentOptions();
+      return {
+        ...this.universalMotion.traits,
+        ...(opts?.disableGaze !== undefined ? { disableGaze: opts.disableGaze } : {}),
+      };
+    }
     return this.idle.traits;
   }
 
@@ -225,12 +421,14 @@ export class MotionPipeline {
   setMotionSource(
     source: PipelineMotionSource,
     duration = SOURCE_FADE_DURATION,
-    lookAtOffsets?: { neck?: THREE.Quaternion; head?: THREE.Quaternion },
+    lookAtOffsets = this.gaze.getLookAtOffsets(),
     mask: MotionBoneMask = 'all',
+    forceTransition = false,
   ): void {
-    if (source === this.activeSource && mask === this.activeMask && !this.isCrossfading) return;
+    if (!forceTransition && source === this.activeSource && mask === this.activeMask && !this.isCrossfading) return;
 
-    copyTransitionSnapshot(this.transitionFromPose, this.finalPose, lookAtOffsets, true);
+    const gazeOffsets = lookAtOffsets ?? this.gaze.getLookAtOffsets();
+    copyTransitionSnapshot(this.transitionFromPose, this.finalPose, gazeOffsets, true);
 
     // 切源时把脚锚改成上一动作的脚位（idle/think 等），EMAGE 往这对齐而不是 bind 站姿
     this.footIK.recapturePlantFromCurrent();
@@ -239,7 +437,17 @@ export class MotionPipeline {
     this.previousSource = this.activeSource;
     this.activeSource = source;
     this.activeMask = mask;
-    this.crossfadeDuration = Math.max(0.26, duration);
+
+    // ── 0.75s ± 0.25s [0.50s, 1.00s] 黄金自适应过渡时长计算 ──
+    const targetPose = (source === 'idle') ? this.basePose : this.actionPose;
+    const diffScore = this.transitionFromPose.distanceTo(targetPose);
+    const isActionToIdle = (source === 'idle' && this.previousSource !== 'idle');
+    this.crossfadeDuration = computeAdaptiveFadeDuration(diffScore, {
+      crossfadeScale: this.crossfadeScale,
+      isActionToIdle,
+      userRequestedDuration: duration,
+    });
+
     this.crossfadeElapsed = 0;
     this.isCrossfading = true;
     this.waitingForActionSample = source !== 'idle';
@@ -262,7 +470,7 @@ export class MotionPipeline {
   }
 
   isMotionPlaying(): boolean {
-    return this.activeSource === 'motion' && this.universalMotion.isPlaying();
+    return this.activeSource === 'motion' && (this.universalMotion.isActive() || this.isCrossfading);
   }
 
   /**
@@ -301,7 +509,13 @@ export class MotionPipeline {
       delta: number;
       time: number;
       enableBodyTurn: boolean;
+      /**
+       * true 时相机方位角的变化不会让角色转身：运镜 (环绕 / 弧摇 / 螺旋) 期间，
+       * 角色保持世界朝向不变。只有用户的拖拽 (targetYawOffset) 才会转动角色。
+       */
+      holdWorldFacing?: boolean;
       isSpeaking: boolean;
+      isListening?: boolean;
       manualExpression: string | null;
     },
   ): void {
@@ -323,7 +537,7 @@ export class MotionPipeline {
       : WRITER_FADE_DURATION[writer];
 
     const targetMask: MotionBoneMask = target === 'vrma'
-      ? 'upperBody'
+      ? this.activeMask
       : (writer === 'clip' ? (this.universalMotion.getCurrentOptions().mask ?? 'all') : 'all');
 
     if (target !== this.activeSource || targetMask !== this.activeMask) {
@@ -335,7 +549,12 @@ export class MotionPipeline {
       }
     }
 
-    // 2. 物理转向与下半身步态求值 (BodyTurn update)
+    // 2. 物理转向与下半身步态求值 (BodyTurn update & Locomotion)
+    // 下半身始终由 BodyTurn 系统统辖，保持标准敏捷 24° 踏步阈值，0 延迟立即响应
+    const turnThreshold = APP_CONFIG.bodyTurn.turnStartThreshold;
+
+    this.trackCameraAzimuth(vrm, camera, ctx.holdWorldFacing === true);
+
     if (ctx.enableBodyTurn) {
       // 使用角色世界坐标基准（vrm.scene.position），避免采样随 Gaze 偏转的 headNode 引起步态与头部的交叉耦合震荡
       this._btPos.copy(vrm.scene.position);
@@ -345,33 +564,44 @@ export class MotionPipeline {
       const baseYaw = isVrm0 ? Math.PI : 0;
       const currentFacingYaw = vrm.scene.rotation.y - baseYaw;
       const desiredYaw = Math.atan2(dx, dz) + this.targetYawOffset;
-      let targetYaw = desiredYaw - currentFacingYaw;
-      // 限制前瞻角位移差值在 [-2π, 2π]，避免极速甩动时积压过多圈数
-      if (targetYaw > Math.PI * 2) {
-        this.targetYawOffset = currentFacingYaw - Math.atan2(dx, dz) + Math.PI * 2;
-        targetYaw = Math.PI * 2;
-      } else if (targetYaw < -Math.PI * 2) {
-        this.targetYawOffset = currentFacingYaw - Math.atan2(dx, dz) - Math.PI * 2;
-        targetYaw = -Math.PI * 2;
-      }
-      // 关键修复：严禁在此使用 atan2(sin, cos) 模折叠！
-      // 否则只要偏角越过 180° (π)，角位移符号就会瞬间倒置反转，导致角色在 180° 处卡死或反向抽搐。
+      // 始终走最短角位移路径 ([-π, π])，杜绝多转一整圈 (360°)
+      const targetYaw = THREE.MathUtils.euclideanModulo(desiredYaw - currentFacingYaw + Math.PI, Math.PI * 2) - Math.PI;
       // 保持目标方向单调一致，平滑限幅弹簧加速度上限：
       const normYaw = Math.max(-2.5, Math.min(2.5, targetYaw));
-      vrm.scene.rotation.y += this.bodyTurn.update(delta, normYaw, true);
+
+      vrm.scene.rotation.y += this.bodyTurn.update(delta, normYaw, true, turnThreshold);
       this.bodyTurn.copyToLowerBodyBuffer(this.locomotionPose);
     }
 
     const isStepping = ctx.enableBodyTurn && this.bodyTurn.isStepping();
 
-    // 步态层连续解剖学混合权重计算：
-    // 进入踱步响应迅速 (~0.18s)，避免启动迟滞；
-    // 退出踱步平滑释放 (~0.85s)，从落脚平稳从容地融入 EMAGE / 待机动作，抹平单帧顿挫与身体折回感
-    const targetLocomotionWeight = isStepping ? 1.0 : 0.0;
-    const blendRate = isStepping ? 10.0 : 8.0;
-    this.locomotionWeight = THREE.MathUtils.damp(this.locomotionWeight, targetLocomotionWeight, blendRate, delta);
-    if (Math.abs(this.locomotionWeight - targetLocomotionWeight) < 0.0005) {
-      this.locomotionWeight = targetLocomotionWeight;
+    // 步态层自适应五次平滑过渡 (Adaptive Quintic Locomotion Transition)
+    if (isStepping !== this.wasStepping) {
+      this.wasStepping = isStepping;
+      this.locomotionTransitionFromWeight = this.locomotionWeight;
+      this.locomotionTransitionTargetWeight = isStepping ? 1.0 : 0.0;
+      this.locomotionTransitionElapsed = 0;
+
+      if (isStepping) {
+        this.locomotionTransitionDuration = 0.22;
+      } else {
+        this.locomotionTransitionDuration = 0.28;
+      }
+    }
+
+    if (this.locomotionWeight !== this.locomotionTransitionTargetWeight) {
+      this.locomotionTransitionElapsed += delta;
+      const progress = Math.min(1.0, this.locomotionTransitionElapsed / Math.max(0.001, this.locomotionTransitionDuration));
+      // 五次平滑步阶曲线 (Quintic Smootherstep: 6t^5 - 15t^4 + 10t^3)，首尾速度零、加速度严格连续
+      const t = progress * progress * progress * (progress * (progress * 6 - 15) + 10);
+      this.locomotionWeight = THREE.MathUtils.lerp(
+        this.locomotionTransitionFromWeight,
+        this.locomotionTransitionTargetWeight,
+        t,
+      );
+      if (progress >= 1.0) {
+        this.locomotionWeight = this.locomotionTransitionTargetWeight;
+      }
     }
 
     // 3. Idle into PoseBuffer only (never a VRM writer while another source is live)
@@ -399,6 +629,12 @@ export class MotionPipeline {
         isBusyAction,
         btCtx,
       );
+      this.listening.sampleInto(
+        this.basePose,
+        time,
+        delta,
+        Boolean(ctx.isListening && !speakingNow && this.activeSource === 'idle'),
+      );
     } else {
       this.basePose.copyFrom(this.restPose);
     }
@@ -408,6 +644,17 @@ export class MotionPipeline {
     if (writer === 'clip') {
       const { isFadingOut, justEnded } = this.universalMotion.update(delta);
       this.actionPose.sampleFromVRM(vrm);
+      const animatedIndices = this.universalMotion.getAnimatedBoneIndices();
+      if (animatedIndices && animatedIndices.size > 0) {
+        for (let i = 0; i < PIPELINE_BONES.length; i++) {
+          if (!animatedIndices.has(i)) {
+            this.actionPose.quaternions[i]!.copy(this.basePose.quaternions[i]!);
+          }
+        }
+        if (!this.universalMotion.hasHipsPositionTrack()) {
+          this.actionPose.hipsPosition.copy(this.basePose.hipsPosition);
+        }
+      }
       this.waitingForActionSample = false;
       this.sampledThisFrame = true;
       if (isFadingOut && !this.isCrossfading) {
@@ -430,6 +677,17 @@ export class MotionPipeline {
       } else if (writer === 'vrma') {
         this.vrma.update(delta);
         this.actionPose.sampleFromVRM(vrm);
+        const animatedIndices = this.vrma.getAnimatedBoneIndices();
+        if (animatedIndices && animatedIndices.size > 0) {
+          for (let i = 0; i < PIPELINE_BONES.length; i++) {
+            if (!animatedIndices.has(i)) {
+              this.actionPose.quaternions[i]!.copy(this.basePose.quaternions[i]!);
+            }
+          }
+          if (!this.vrma.hasHipsPositionTrack()) {
+            this.actionPose.hipsPosition.copy(this.basePose.hipsPosition);
+          }
+        }
         this.waitingForActionSample = false;
         this.sampledThisFrame = true;
       } else {
@@ -484,7 +742,13 @@ export class MotionPipeline {
     this.currentTransitionT = t;
 
     this.basePose.clampTorsoPitch(this.restPose);
-    this.actionPose.clampTorsoPitch(this.restPose);
+
+    // 通用动作剪辑 (clip)：默认保持动捕资产 100% 原生骨骼自由度，彻底消除骨盆后撅与双足浮空；
+    // 仅在显式配置 clampTorsoPitch: true 时（针对粗糙 AI 动作）才执行躯干硬限幅。
+    const shouldClampAction = writer !== 'clip' || Boolean(this.universalMotion.getCurrentOptions()?.clampTorsoPitch);
+    if (shouldClampAction) {
+      this.actionPose.clampTorsoPitch(this.restPose);
+    }
 
     const targetUpper = (this.activeSource === 'idle') ? this.basePose : this.actionPose;
     const targetLowerBase = (this.activeSource === 'idle' || this.activeMask === 'upperBody')
@@ -494,16 +758,35 @@ export class MotionPipeline {
     if (this.isCrossfading) {
       this.upperPose.copyFrom(this.transitionFromPose).slerp(targetUpper, t);
       this.lowerPose.copyFrom(this.transitionFromPose).slerp(targetLowerBase, t);
+      // 切入动作时，手指独立执行 0.34s 快速微平滑 (Fast Finger Micro-Fade)
+      // 既消灭第 0 帧瞬间变脸/手型突变的抽搐感，又避免跟随全身 0.75s 慢速蠕动的诡异悬空感
+      if (this.activeSource !== 'idle') {
+        const fingerFadeConfig = APP_CONFIG.motionPipeline?.fingerFadeDuration ?? FINGER_MICRO_FADE_DURATION;
+        const fingerDuration = Math.min(this.crossfadeDuration, fingerFadeConfig);
+        const fingerAlpha = this.waitingForActionSample
+          ? 0
+          : Math.min(1.0, this.crossfadeElapsed / Math.max(0.001, fingerDuration));
+        const fingerT = fingerAlpha * fingerAlpha * fingerAlpha * (fingerAlpha * (fingerAlpha * 6 - 15) + 10);
+        for (const fingerName of FINGER_BONES) {
+          const idx = BONE_INDEX_MAP.get(fingerName);
+          if (idx !== undefined) {
+            if (fingerAlpha >= 1.0) {
+              this.upperPose.quaternions[idx]!.copy(targetUpper.quaternions[idx]!);
+            } else {
+              this.upperPose.quaternions[idx]!.copy(this.transitionFromPose.quaternions[idx]!).slerp(targetUpper.quaternions[idx]!, fingerT);
+            }
+          }
+        }
+      }
     } else {
       this.upperPose.copyFrom(targetUpper);
       this.lowerPose.copyFrom(targetLowerBase);
     }
 
+    // 步态绝对接管：当 BodyTurn 处于迈步状态或步态权重 > 0 时，下半身直接与 locomotionPose 融合
+    // 包含 LOWER_BODY_MASK 全部下肢以及 hips 骨盆旋转与位移，消除骨盆残留动作歪斜
     if (this.locomotionWeight > 0.0001) {
-      const w = this.locomotionWeight;
-      const smoothW = w * w * w * (w * (w * 6 - 15) + 10);
-      this.lowerPose.blendMasked(this.locomotionPose, smoothW, LEGS_MASK);
-      this.lowerPose.hipsPosition.lerp(this.locomotionPose.hipsPosition, smoothW);
+      this.lowerPose.blendMasked(this.locomotionPose, this.locomotionWeight, LOWER_BODY_MASK);
     }
 
     this.draftPose.composeLayered(this.lowerPose, this.upperPose);
@@ -512,7 +795,8 @@ export class MotionPipeline {
 
     const grounding = this.bodyTurn.getFootGroundedAlpha();
     const locomotionBusy = ctx.isStepping || this.locomotionWeight > 0.08;
-    const wantFootIk = this.footIK.enabled && writer === 'emage' && this.emage.enableFootIK && !locomotionBusy;
+    const clipWantsFootIk = writer === 'clip' && Boolean(this.universalMotion.getCurrentOptions()?.enableFootIK);
+    const wantFootIk = this.footIK.enabled && (writer === 'emage' ? this.emage.enableFootIK : clipWantsFootIk) && !locomotionBusy;
     if (wantFootIk && !this.footIkWanted) {
       this.footIK.recapturePlantFromCurrent();
       this.footIK.anchorToCurrentFeet();
@@ -534,6 +818,7 @@ export class MotionPipeline {
       ctx.traits,
       ctx.isSpeaking,
       ctx.manualExpression,
+      this.listening.weight,
     );
 
     this.lowerPose.sampleFromVRM(vrm);
@@ -542,7 +827,10 @@ export class MotionPipeline {
       this.footIK.writeHipsInto(this.lowerPose.hipsPosition, vrm);
     }
 
-    this.finalPose.composeLayeredSmooth(this.lowerPose, this.upperPose, delta);
+    const isActionActive = writer !== 'idle';
+    this.finalPose.composeLayeredSmooth(this.lowerPose, this.upperPose, delta, {
+      skipFingerSmooth: isActionActive,
+    });
     this.finalPose.sceneY = vrm.scene.position.y;
     this.finalPose.commitToVRM(vrm);
   }

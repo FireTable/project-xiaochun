@@ -117,25 +117,27 @@ export class NaturalIdleSystem {
     this.hips = getBone('hips');
     if (this.hips) {
       this.restHipsPos.copy(this.hips.position);
-      this.restHipsQ.copy(this.hips.quaternion);
     }
+    this.restHipsQ.identity();
 
     this.leftUpperLeg = getBone('leftUpperLeg');
-    if (this.leftUpperLeg) this.restLeftUpperLegQ.copy(this.leftUpperLeg.quaternion);
     this.rightUpperLeg = getBone('rightUpperLeg');
-    if (this.rightUpperLeg) this.restRightUpperLegQ.copy(this.rightUpperLeg.quaternion);
     this.leftLowerLeg = getBone('leftLowerLeg');
-    if (this.leftLowerLeg) this.restLeftLowerLegQ.copy(this.leftLowerLeg.quaternion);
     this.rightLowerLeg = getBone('rightLowerLeg');
-    if (this.rightLowerLeg) this.restRightLowerLegQ.copy(this.rightLowerLeg.quaternion);
     this.leftFoot = getBone('leftFoot');
-    if (this.leftFoot) this.restLeftFootQ.copy(this.leftFoot.quaternion);
     this.rightFoot = getBone('rightFoot');
-    if (this.rightFoot) this.restRightFootQ.copy(this.rightFoot.quaternion);
     this.leftToes = getBone('leftToes');
-    if (this.leftToes) this.restLeftToesQ.copy(this.leftToes.quaternion);
     this.rightToes = getBone('rightToes');
-    if (this.rightToes) this.restRightToesQ.copy(this.rightToes.quaternion);
+
+    // VRM 标准下肢 normalized 骨骼中立静息四元数权威保证为单位四元数 Identity (0, 0, 0, 1)
+    this.restLeftUpperLegQ.identity();
+    this.restRightUpperLegQ.identity();
+    this.restLeftLowerLegQ.identity();
+    this.restRightLowerLegQ.identity();
+    this.restLeftFootQ.identity();
+    this.restRightFootQ.identity();
+    this.restLeftToesQ.identity();
+    this.restRightToesQ.identity();
     this.leftUpperArm = getBone('leftUpperArm');
     this.rightUpperArm = getBone('rightUpperArm');
     this.leftLowerArm = getBone('leftLowerArm');
@@ -259,30 +261,30 @@ export class NaturalIdleSystem {
       b.quaternion.setFromEuler(new THREE.Euler(x, y * sign, z * sign));
     };
 
-    // 拇指
-    setBone(f.thumb.metacarpal, -0.10, 0.22, -0.25);
-    setBone(f.thumb.proximal, -0.06, 0.15, -0.35);
-    setBone(f.thumb.distal, 0.0, 0.08, -0.30);
+    // 拇指 (掌侧外展微倾，自然依托掌侧)
+    setBone(f.thumb.metacarpal, -0.06, 0.12, -0.10);
+    setBone(f.thumb.proximal, -0.03, 0.08, -0.12);
+    setBone(f.thumb.distal, 0.0, 0.04, -0.08);
 
-    // 食指
-    setBone(f.index.proximal, 0.02, 0.01, -0.32);
-    setBone(f.index.intermediate, 0.0, 0.0, -0.48);
-    setBone(f.index.distal, 0.0, 0.0, -0.30);
+    // 食指 (放松微曲约 7°~13°，呈优雅阶梯)
+    setBone(f.index.proximal, 0.015, 0.008, -0.15);
+    setBone(f.index.intermediate, 0.0, 0.0, -0.22);
+    setBone(f.index.distal, 0.0, 0.0, -0.10);
 
     // 中指
-    setBone(f.middle.proximal, 0.0, 0.0, -0.38);
-    setBone(f.middle.intermediate, 0.0, 0.0, -0.58);
-    setBone(f.middle.distal, 0.0, 0.0, -0.35);
+    setBone(f.middle.proximal, 0.0, 0.0, -0.17);
+    setBone(f.middle.intermediate, 0.0, 0.0, -0.26);
+    setBone(f.middle.distal, 0.0, 0.0, -0.12);
 
     // 无名指
-    setBone(f.ring.proximal, -0.02, -0.01, -0.44);
-    setBone(f.ring.intermediate, 0.0, 0.0, -0.66);
-    setBone(f.ring.distal, 0.0, 0.0, -0.38);
+    setBone(f.ring.proximal, -0.015, -0.008, -0.20);
+    setBone(f.ring.intermediate, 0.0, 0.0, -0.30);
+    setBone(f.ring.distal, 0.0, 0.0, -0.14);
 
     // 小指
-    setBone(f.little.proximal, -0.04, -0.02, -0.52);
-    setBone(f.little.intermediate, 0.0, 0.0, -0.74);
-    setBone(f.little.distal, 0.0, 0.0, -0.42);
+    setBone(f.little.proximal, -0.025, -0.015, -0.24);
+    setBone(f.little.intermediate, 0.0, 0.0, -0.34);
+    setBone(f.little.distal, 0.0, 0.0, -0.16);
   }
 
   /**
@@ -303,7 +305,21 @@ export class NaturalIdleSystem {
     const dt = deltaParam ?? (this.lastTime > 0 ? Math.min(0.1, Math.max(0.001, time - this.lastTime)) : 0.016);
     this.lastTime = time;
 
-    const isBusy = isSpeaking || isActiveAction || locomotionWeight > 0.1;
+    const isBusy = isSpeaking || isActiveAction || locomotionWeight > 0.1 || Boolean(_bodyTurnCtx?.isStepping);
+
+    // 踱步或移心期间：将待机旧重心平滑归零，杜绝转身停步后骨盆横向猛拽或反向跳变
+    if (locomotionWeight > 0.05 || _bodyTurnCtx?.isStepping) {
+      this.currentWeightShift = THREE.MathUtils.damp(this.currentWeightShift, 0.0, 12.0, dt);
+      this.isShiftingWeight = false;
+      this.shiftProgress = 0;
+      this.weightShiftTimer = 8.0 + Math.random() * 8.0;
+
+      if (this.torsoTurnPhase !== 'idle') {
+        this.torsoTurnPhase = 'idle';
+        this.currentTorsoTurnYaw = THREE.MathUtils.damp(this.currentTorsoTurnYaw, 0.0, 12.0, dt);
+        this.torsoTurnTimer = 12.0 + Math.random() * 8.0;
+      }
+    }
 
     // ── 模块 1：站姿重心换脚状态机 (Weight-Shift State) ──
     // 告别连续机械摇摆：换脚后在左脚或右脚稳稳停靠 10~22 秒，重力感扎实真实；思考与动作期间绝不突兀换腿
@@ -324,9 +340,8 @@ export class NaturalIdleSystem {
           this.isShiftingWeight = true;
         }
       }
-    } else {
-      const shiftSpeedFactor = isBusy ? 1.8 : 1.0;
-      this.shiftProgress += (dt / this.shiftDuration) * shiftSpeedFactor;
+    } else if (!isBusy) {
+      this.shiftProgress += (dt / this.shiftDuration);
       if (this.shiftProgress >= 1.0) {
         this.shiftProgress = 1.0;
         this.currentWeightShift = this.targetWeightShift;
@@ -517,11 +532,10 @@ export class NaturalIdleSystem {
     this.slerpEuler(out, 'neck', neckPitch * 0.5, 0, 0, idleWeight);
     this.slerpEuler(out, 'head', neckPitch * 0.5, 0, 0, idleWeight);
 
-    // ── 十指解剖学自然放松 + 上肢动力链末梢柔和弛豫 ──
-    const fingerWaveLeft = Math.sin(breathCycle - 1.6) * 0.016 + Math.sin(swaySlow - 1.8) * 0.008;
-    const fingerWaveRight = Math.sin(breathCycle - 1.7) * 0.016 - Math.sin(swaySlow - 1.8) * 0.008;
-    this.applyFingerPose(out, 'left', fingerWaveLeft, idleWeight);
-    this.applyFingerPose(out, 'right', fingerWaveRight, idleWeight);
+    // ── 十指解剖学自然放松 + 随呼吸小角度动态舒展 (Breath-coupled Organic Cascading Unfurling) ──
+    const fingerWeight = idleWeight * actionFade;
+    this.applyFingerPose(out, 'left', time, breathCycle, fingerWeight);
+    this.applyFingerPose(out, 'right', time, breathCycle, fingerWeight);
   }
 
 
@@ -546,8 +560,23 @@ export class NaturalIdleSystem {
     out.quaternions[idx]!.slerp(this._targetQ, weight);
   }
 
-  private applyFingerPose(out: PoseBuffer, side: 'left' | 'right', pulse: number, weight: number): void {
+  private applyFingerPose(
+    out: PoseBuffer,
+    side: 'left' | 'right',
+    time: number,
+    breathCycle: number,
+    weight: number,
+  ): void {
+    if (weight <= 0.0001) return;
+
     const sign = side === 'left' ? 1 : -1;
+    const isLeft = side === 'left';
+
+    // 左右手呼吸相位与微幅侧倾差异（消除左右完全镜像死板感）
+    const sidePhase = isLeft ? 0.0 : 0.45;
+    // 重心侧手臂较贴体安静，悬空自由侧手掌舒展呼吸幅度略大
+    const sideWeightFactor = (isLeft ? this.currentWeightShift : -this.currentWeightShift) > 0.1 ? 0.88 : 1.12;
+
     const slerpBone = (name: VRMHumanBoneName, x: number, y: number, z: number) => {
       const idx = BONE_INDEX_MAP.get(name);
       if (idx === undefined) return;
@@ -556,30 +585,53 @@ export class NaturalIdleSystem {
       out.quaternions[idx]!.slerp(this._targetQ, weight);
     };
 
-    const thumb = side === 'left' ? 'leftThumb' : 'rightThumb';
-    const index = side === 'left' ? 'leftIndex' : 'rightIndex';
-    const middle = side === 'left' ? 'leftMiddle' : 'rightMiddle';
-    const ring = side === 'left' ? 'leftRing' : 'rightRing';
-    const little = side === 'left' ? 'leftLittle' : 'rightLittle';
+    const thumb = isLeft ? 'leftThumb' : 'rightThumb';
+    const index = isLeft ? 'leftIndex' : 'rightIndex';
+    const middle = isLeft ? 'leftMiddle' : 'rightMiddle';
+    const ring = isLeft ? 'leftRing' : 'rightRing';
+    const little = isLeft ? 'leftLittle' : 'rightLittle';
 
-    slerpBone(`${thumb}Metacarpal` as VRMHumanBoneName, -0.08, 0.18, -0.20);
-    slerpBone(`${thumb}Proximal` as VRMHumanBoneName, -0.04, 0.12, -0.26 - pulse * 0.4);
-    slerpBone(`${thumb}Distal` as VRMHumanBoneName, 0.0, 0.05, -0.20 - pulse * 0.4);
+    // 缓慢有机微摆（避免单一正弦波单调重复）
+    const microTremor = Math.sin(time * 0.45 + (isLeft ? 0 : 1.2)) * 0.04;
+    const deepBoost = this.currentDeepBreathPower * 0.35;
 
-    slerpBone(`${index}Proximal` as VRMHumanBoneName, 0.02, 0.01, -0.32 - pulse);
-    slerpBone(`${index}Intermediate` as VRMHumanBoneName, 0.0, 0.0, -0.48 - pulse);
-    slerpBone(`${index}Distal` as VRMHumanBoneName, 0.0, 0.0, -0.30 - pulse * 0.5);
+    // ── 各指生理级级联时差波浪（食指先吸气舒展，小指滞后随动，指节间由近端到远端微滞后） ──
+    // 吸气舒展量：0=完全微卷待机，1=优雅舒展展开
+    const computeInhaleWave = (phaseLag: number, amp: number) => {
+      const wave = (Math.sin(breathCycle - phaseLag - sidePhase) + 1.0) * 0.5;
+      const combined = Math.min(1.0, Math.max(0.0, wave * amp + microTremor + deepBoost));
+      // 舒展系数：吸气展开时减小弯曲（乘以 1 - combined * 0.46），保留优雅柔和微弧度
+      return 1.0 - combined * 0.46 * sideWeightFactor;
+    };
 
-    slerpBone(`${middle}Proximal` as VRMHumanBoneName, 0.0, 0.0, -0.38 - pulse);
-    slerpBone(`${middle}Intermediate` as VRMHumanBoneName, 0.0, 0.0, -0.58 - pulse);
-    slerpBone(`${middle}Distal` as VRMHumanBoneName, 0.0, 0.0, -0.35 - pulse * 0.5);
+    // 1. 食指（最外侧优雅舒展，相位先行）
+    const openIndex = computeInhaleWave(1.35, 1.0);
+    slerpBone(`${index}Proximal` as VRMHumanBoneName, 0.015, 0.008, -0.15 * openIndex);
+    slerpBone(`${index}Intermediate` as VRMHumanBoneName, 0.0, 0.0, -0.22 * openIndex);
+    slerpBone(`${index}Distal` as VRMHumanBoneName, 0.0, 0.0, -0.10 * (openIndex * 0.95 + 0.05));
 
-    slerpBone(`${ring}Proximal` as VRMHumanBoneName, -0.02, -0.01, -0.44 - pulse);
-    slerpBone(`${ring}Intermediate` as VRMHumanBoneName, 0.0, 0.0, -0.66 - pulse);
-    slerpBone(`${ring}Distal` as VRMHumanBoneName, 0.0, 0.0, -0.38 - pulse * 0.5);
+    // 2. 中指（手掌中轴稳定依托，微滞后 0.15s）
+    const openMiddle = computeInhaleWave(1.55, 0.95);
+    slerpBone(`${middle}Proximal` as VRMHumanBoneName, 0.0, 0.0, -0.17 * openMiddle);
+    slerpBone(`${middle}Intermediate` as VRMHumanBoneName, 0.0, 0.0, -0.26 * openMiddle);
+    slerpBone(`${middle}Distal` as VRMHumanBoneName, 0.0, 0.0, -0.12 * (openMiddle * 0.95 + 0.05));
 
-    slerpBone(`${little}Proximal` as VRMHumanBoneName, -0.04, -0.02, -0.52 - pulse);
-    slerpBone(`${little}Intermediate` as VRMHumanBoneName, 0.0, 0.0, -0.74 - pulse);
-    slerpBone(`${little}Distal` as VRMHumanBoneName, 0.0, 0.0, -0.42 - pulse * 0.5);
+    // 3. 无名指（自然内敛微凹，微滞后 0.30s）
+    const openRing = computeInhaleWave(1.75, 0.92);
+    slerpBone(`${ring}Proximal` as VRMHumanBoneName, -0.015, -0.008, -0.20 * openRing);
+    slerpBone(`${ring}Intermediate` as VRMHumanBoneName, 0.0, 0.0, -0.30 * openRing);
+    slerpBone(`${ring}Distal` as VRMHumanBoneName, 0.0, 0.0, -0.14 * (openRing * 0.95 + 0.05));
+
+    // 4. 小指（最内侧收束，微外展与滞后 0.45s 涟漪波浪）
+    const openLittle = computeInhaleWave(1.95, 0.90);
+    slerpBone(`${little}Proximal` as VRMHumanBoneName, -0.025, -0.015, -0.24 * openLittle);
+    slerpBone(`${little}Intermediate` as VRMHumanBoneName, 0.0, 0.0, -0.34 * openLittle);
+    slerpBone(`${little}Distal` as VRMHumanBoneName, 0.0, 0.0, -0.16 * (openLittle * 0.95 + 0.05));
+
+    // 5. 拇指（掌侧外展微倾，随胸腔呼吸有机微开合）
+    const openThumb = computeInhaleWave(1.45, 0.85);
+    slerpBone(`${thumb}Metacarpal` as VRMHumanBoneName, -0.06 * openThumb, 0.12 * openThumb, -0.10 * openThumb);
+    slerpBone(`${thumb}Proximal` as VRMHumanBoneName, -0.03 * openThumb, 0.08 * openThumb, -0.12 * openThumb);
+    slerpBone(`${thumb}Distal` as VRMHumanBoneName, 0.0, 0.04 * openThumb, -0.08 * openThumb);
   }
 }

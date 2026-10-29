@@ -106,6 +106,21 @@ export const HEAD_NECK_MASK: readonly VRMHumanBoneName[] = [
   'neck', 'head',
 ] as const;
 
+export const FINGER_BONES: readonly VRMHumanBoneName[] = [
+  'leftThumbMetacarpal', 'leftThumbProximal', 'leftThumbDistal',
+  'leftIndexProximal', 'leftIndexIntermediate', 'leftIndexDistal',
+  'leftMiddleProximal', 'leftMiddleIntermediate', 'leftMiddleDistal',
+  'leftRingProximal', 'leftRingIntermediate', 'leftRingDistal',
+  'leftLittleProximal', 'leftLittleIntermediate', 'leftLittleDistal',
+  'rightThumbMetacarpal', 'rightThumbProximal', 'rightThumbDistal',
+  'rightIndexProximal', 'rightIndexIntermediate', 'rightIndexDistal',
+  'rightMiddleProximal', 'rightMiddleIntermediate', 'rightMiddleDistal',
+  'rightRingProximal', 'rightRingIntermediate', 'rightRingDistal',
+  'rightLittleProximal', 'rightLittleIntermediate', 'rightLittleDistal',
+] as const;
+
+export const FINGER_BONE_SET = new Set<string>(FINGER_BONES);
+
 export type MotionBoneMask = 'all' | 'upperBody' | 'lowerBody' | 'headNeck';
 
 export function getBoneMask(mask?: MotionBoneMask): readonly VRMHumanBoneName[] | null {
@@ -268,8 +283,10 @@ export class PoseBuffer {
     lower: PoseBuffer,
     upper: PoseBuffer,
     delta: number,
+    options?: { skipFingerSmooth?: boolean },
   ): this {
     const dt = Math.max(0.0001, Math.min(delta, 0.1));
+    const skipFingerSmooth = options?.skipFingerSmooth ?? false;
 
     for (const boneName of LOWER_BODY_MASK) {
       const idx = BONE_INDEX_MAP.get(boneName);
@@ -290,7 +307,11 @@ export class PoseBuffer {
     for (const boneName of UPPER_BODY_MASK) {
       const idx = BONE_INDEX_MAP.get(boneName);
       if (idx === undefined) continue;
-      this.smoothBoneQuaternion(idx, upper.quaternions[idx]!, dt);
+      if (skipFingerSmooth && FINGER_BONE_SET.has(boneName)) {
+        this.quaternions[idx]!.copy(upper.quaternions[idx]!);
+      } else {
+        this.smoothBoneQuaternion(idx, upper.quaternions[idx]!, dt);
+      }
     }
 
     return this;
@@ -361,6 +382,43 @@ export class PoseBuffer {
       }
     }
     vrm.scene.position.y = this.sceneY;
+  }
+
+  /**
+   * 测算与另一姿态的归一化加权位姿距离 (0.0 ~ 1.0)
+   * 0.0: 完全相同；1.0: 极限差异
+   * 采用零 GC 严苛规范：52 根骨骼四元数夹角加权求和 + 骨盆位移评估。
+   */
+  distanceTo(target: PoseBuffer, mask?: readonly VRMHumanBoneName[]): number {
+    let quatAngleSum = 0;
+    let quatWeightSum = 0;
+
+    const bones = mask ?? PIPELINE_BONES;
+    for (let i = 0; i < bones.length; i++) {
+      const boneName = bones[i]!;
+      const idx = BONE_INDEX_MAP.get(boneName);
+      if (idx === undefined) continue;
+
+      const qA = this.quaternions[idx]!;
+      const qB = target.quaternions[idx]!;
+
+      // 四元数绝对点积 |qA · qB|，点积为 1 表示同向重合
+      const dot = Math.abs(qA.x * qB.x + qA.y * qB.y + qA.z * qB.z + qA.w * qB.w);
+      const angle = 2 * Math.acos(Math.min(1.0, dot)) / Math.PI; // 归一化到 [0, 1]
+
+      // 视觉显著性加权：躯干与四肢 1.2，末端指节 0.4
+      const isFinger = boneName.includes('Thumb') || boneName.includes('Index')
+        || boneName.includes('Middle') || boneName.includes('Ring') || boneName.includes('Little');
+      const w = isFinger ? 0.4 : 1.2;
+
+      quatAngleSum += angle * w;
+      quatWeightSum += w;
+    }
+
+    const quatScore = quatWeightSum > 0 ? quatAngleSum / quatWeightSum : 0;
+    const posDist = Math.min(1.0, this.hipsPosition.distanceTo(target.hipsPosition) / 0.35);
+
+    return quatScore * 0.8 + posDist * 0.2;
   }
 }
 

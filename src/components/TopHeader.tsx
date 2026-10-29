@@ -19,6 +19,7 @@ import {
 } from '@/components/ui/tooltip';
 import { APP_CONFIG } from '@/config';
 import { WEARING_OUTFIT_KEY } from '@/lib/constants';
+import { changeOutfit, resolveOutfit } from '@/lib/outfit';
 import { changeLang, type Lang } from '@/i18n';
 import { isTauri } from '@/lib/platform';
 import { holdPetUi, releasePetUi } from '@/hooks/usePetUiVisibility';
@@ -56,8 +57,18 @@ export const TopHeader: React.FC<TopHeaderProps> = ({
   // ponytail: 换装进行中状态 — worker compose 期间设 true,swapOutfit 收尾设 false。
   // TopHeader 不直接管理 isSwapping,而是订阅 vrmEngine.onSwapProgress 单一来源,
   // 让按钮 spinner / disabled 跟 worker 真实进度严格对齐,不靠本地 setTimeout 估时。
-  const [isSwapping, setIsSwapping] = useState(false);
+  const [isSwapping, setIsSwapping] = useState(() => vrmEngine.isSwappingOutfit);
   const headerRef = useRef<HTMLElement>(null);
+
+  // 菜单之外换上的衣服 (比如开场剧情里点的试衣卡) 也要同步菜单的 ✓：引擎每次换装完成都会广播当前的 addon key
+  useEffect(
+    () =>
+      vrmEngine.onOutfitChange((key) => {
+        // 引擎是“当前穿什么”的唯一事实源：addon key / null (裸模) / '__upload__' (上传的 VRM) 都同步到菜单的 ✓
+        if (key === null || key === '__upload__' || key in APP_CONFIG.model.addons) setWearingAddonKey(key);
+      }),
+    [],
+  );
 
   useEffect(() => {
     vrmEngine.onSwapProgress = (state) => setIsSwapping(state.active);
@@ -129,10 +140,11 @@ export const TopHeader: React.FC<TopHeaderProps> = ({
       }
       const targetUrl = addon ? addon.source : APP_CONFIG.model.defaultSource;
       const targetName = addon ? addon.name : APP_CONFIG.model.defaultName;
-      vrmEngine.swapOutfit(targetUrl, targetName).then(() => {
+      vrmEngine.swapOutfit(targetUrl, targetName).then((applied) => {
+        // applied === false: 被更新的换装请求顶掉, 这次什么都没换, 不写 key (由顶掉它的那次负责)
         // ponytail: 命中 default addon 时把 key 写回 state,菜单 ✓ 才亮,
         // 下次 refresh 直接走持久化路径,不再走 default 查找。
-        if (resolvedKey && resolvedKey !== savedKey) setWearingAddonKey(resolvedKey);
+        if (applied !== false && resolvedKey && resolvedKey !== savedKey) setWearingAddonKey(resolvedKey);
       }).catch((e) => {
         console.error('[TopHeader] cold-start swap failed:', e);
       });
@@ -151,8 +163,8 @@ export const TopHeader: React.FC<TopHeaderProps> = ({
       // loadVRM(url, name, { preserveMotion: true }) 路径。
       // 成功后 setWearingAddonKey('__upload__') — 上传菜单项显示 ✓,
       // 但 __upload__ 不写 localStorage (blob URL 临时)。
-      vrmEngine.swapOutfit(url, file.name).then(() => {
-        setWearingAddonKey(UPLOAD_KEY);
+      vrmEngine.swapOutfit(url, file.name).then((applied) => {
+        if (applied !== false) setWearingAddonKey(UPLOAD_KEY); // false = 被更新的换装顶掉, 不标记成功
       }).catch((e) => {
         console.error('[TopHeader] upload swap failed:', e);
       });
@@ -251,12 +263,16 @@ export const TopHeader: React.FC<TopHeaderProps> = ({
                   addon 异常 / 对比 base vs addon 渲染差异。 */}
               {isDrawerOpen && (
                 <DropdownMenuItem
+                  disabled={isSwapping}
                   onSelect={() => {
                     // ponytail: Issue 1 — 已在穿 base 时重复点 → short-circuit,不再调 swapOutfit
                     // (避免 worker 再跑一遍 fetch + unzip + bspatch + pack)。
                     if (isWearingBase) return;
-                    void vrmEngine.swapOutfit(APP_CONFIG.model.defaultSource, APP_CONFIG.model.defaultName)
-                      .then(() => setWearingAddonKey(null))
+                    // 与剧情试衣卡共用 changeOutfit (src/lib/outfit.ts)：串行 + 最新优先 + 落盘 WEARING_OUTFIT_KEY
+                    const base = resolveOutfit('base');
+                    if (!base || isSwapping) return;
+                    void changeOutfit(base)
+                      .then((applied) => { if (applied) setWearingAddonKey(null); })
                       .catch((e) => console.error('[TopHeader] load base failed:', e));
                   }}
                   className="justify-between"
@@ -268,11 +284,12 @@ export const TopHeader: React.FC<TopHeaderProps> = ({
               {Object.entries(addons).map(([key, addon]) => (
                 <DropdownMenuItem
                   key={key}
+                  disabled={isSwapping}
                   onSelect={() => {
                     // ponytail: Issue 1 — 已在穿这个 addon → short-circuit。
-                    if (wearingAddonKey === key) return;
-                    void vrmEngine.swapOutfit(addon.source, addon.name)
-                      .then(() => setWearingAddonKey(key))
+                    if (wearingAddonKey === key || isSwapping) return;
+                    void changeOutfit({ key, source: addon.source, name: addon.name })
+                      .then((applied) => { if (applied) setWearingAddonKey(key); })
                       .catch((e) => console.error('[TopHeader] outfit swap failed:', e));
                   }}
                   className="justify-between"

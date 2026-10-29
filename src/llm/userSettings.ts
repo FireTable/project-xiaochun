@@ -6,7 +6,7 @@
  *
  * 默认值不在这里写 — system prompt 默认走 XIAOCHUN_SYSTEM_PROMPT[lang],
  * memory turns 默认走 deviceDetection.getDeviceMemoryTurns(),
- * 头顶气泡默认走 APP_CONFIG.chat.showHeadBubble。resolve 函数
+ * 「对话字幕」(日常 chat 模式的头顶气泡 + 电影模式字幕栏)默认走 APP_CONFIG.chat.showChatDialogue。resolve 函数
  * 在读写时合并 override + 默认,UI 层只关心 override 字段。
  */
 
@@ -24,7 +24,16 @@ const RECORD_KEY = 'main';
 export interface UserSettings {
   systemPromptOverride?: string;
   memoryTurnsOverride?: number;
-  /** undefined = 走 APP_CONFIG.chat.showHeadBubble */
+  /**
+   * 日常 chat 模式的对话字幕总开关 (PC 头顶气泡 + 移动端电影模式字幕栏)。
+   * undefined = 走 APP_CONFIG.chat.showChatDialogue。
+   * 注意: 故事 / 新手引导 (StoryPlayer) 的台词不受此开关影响, 始终显示。
+   */
+  showChatDialogue?: boolean;
+  /**
+   * @deprecated 旧字段名 (当时只控制头顶气泡)。仅用于读取老 IDB 记录 / 老设备同步包,
+   * 新代码一律读写 showChatDialogue; resolveShowChatDialogue 会回落读取它。
+   */
   showHeadBubble?: boolean;
 }
 
@@ -137,20 +146,27 @@ export function resolveMemoryTurns(settings: UserSettings): number {
   return getDeviceMemoryTurns();
 }
 
-export async function setShowHeadBubbleOverride(on: boolean | null): Promise<void> {
+export async function setShowChatDialogueOverride(on: boolean | null): Promise<void> {
   const next: UserSettings = { ...cached };
-  if (typeof on === 'boolean' && on !== APP_CONFIG.chat.showHeadBubble) {
-    next.showHeadBubble = on;
+  if (typeof on === 'boolean' && on !== APP_CONFIG.chat.showChatDialogue) {
+    next.showChatDialogue = on;
   } else {
-    delete next.showHeadBubble;
+    delete next.showChatDialogue;
   }
+  // 迁移: 写入新字段时顺手清掉旧字段名, 避免两个 key 并存互相打架
+  delete next.showHeadBubble;
   await persist(next);
 }
 
-/** 头顶气泡 — 有 override 用 override,否则走 APP_CONFIG.chat.showHeadBubble。 */
-export function resolveShowHeadBubble(settings: UserSettings): boolean {
+/**
+ * 日常 chat 模式对话字幕 (PC 头顶气泡 + 移动端电影字幕栏) 是否显示。
+ * 优先级: showChatDialogue override > 旧字段 showHeadBubble (兼容) > APP_CONFIG.chat.showChatDialogue。
+ * 仅作用于 chat 模式; 故事 / 新手引导台词不调用本函数, 始终显示。
+ */
+export function resolveShowChatDialogue(settings: UserSettings): boolean {
+  if (typeof settings.showChatDialogue === 'boolean') return settings.showChatDialogue;
   if (typeof settings.showHeadBubble === 'boolean') return settings.showHeadBubble;
-  return APP_CONFIG.chat.showHeadBubble;
+  return APP_CONFIG.chat.showChatDialogue;
 }
 
 /** ponytail: 异步便利函数 — 一次 getUserSettings + 两次 resolve,给生成时单点调用。 */

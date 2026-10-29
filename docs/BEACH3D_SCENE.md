@@ -11,7 +11,7 @@ The look is **二次元 MMD 舞台风格** (anime MMD stage): soft modern 3D ani
 - A blue-to-pale-blue sky with hand-painted anime cumulus sprites and high wisps; the horizon is a soft lavender-tinted pastel glow with a thin white mist on the waterline.
 - Layered distant island silhouettes on the left, fading into atmospheric haze, and a small pastel lighthouse standing in the sea on the right.
 
-There is no HDRI, no realistic material and no third-party asset. Exactly two small hand-painted textures are used (the cloud atlas and the palm frond, see [Assets](#assets)); all geometry is generated in code, and every other pattern is computed procedurally in shaders. Light direction and colour follow the engine's main light, so the scene blends with the MToon character.
+There is no HDRI, no realistic material and no third-party asset. Exactly two small hand-painted textures are used (the cloud atlas and the palm frond, see [Assets](#assets)); all geometry is generated in code, and every other pattern is computed procedurally in shaders. The scene owns its light: it computes the sun position from the time of day (see [Environment time](#environment-time-day--sunset--night)) and drives the engine's main light with it, so the character and the beach are always lit by the same sun.
 
 ## Where things live
 
@@ -19,10 +19,14 @@ There is no HDRI, no realistic material and no third-party asset. Exactly two sm
 | :--- | :--- |
 | `src/core/scene/beach3d/beach3dWorld.ts` | `Beach3DWorld`: builds and owns all meshes, does the per-frame updates, `getStats()`, `dispose()` |
 | `src/core/scene/beach3d/beach3dShaders.ts` | GLSL for sky, clouds, islands, ground (sand + sea + baked prop shadows), palms, rocks, scallop shells, chair + parasol + lighthouse + sandcastle, and the shadow-mask bake |
+| `src/core/scene/beach3d/beach3dTime.ts` | Solar / lunar arc maths and the three base palettes (day, sunset, night). Pure maths, no DOM |
+| `src/core/scene/environmentTime.ts` | Generic scene-time contract: `IEnvironmentTimeAware`, `IEnvironmentLightProvider`, `EnvironmentLightState` |
 | `src/core/scene/beach3d/beach3dGeometry.ts` | Procedural low-poly geometry: palm trunk (flaring into a domed crown) and crown (fronds, stalks, leaf-base sheaths and coconuts), island strip, rock, scallop shell, chair + parasol, lighthouse, sandcastle |
 | `src/core/scene/beach3d/beach3dLayout.ts` | Pure data and functions (no three / DOM): shoreline, palm / rock / shell / cloud layout, chair, parasol and sandcastle placement, island peaks and silhouette profile |
 | `src/core/scene/sceneMotion.ts` | `SceneMotionGovernor`: reduced-motion and low-FPS downgrade, plus the separate cloud-drift clock |
 | `src/core/scene/__tests__/beach3dLayout.test.ts` | Layout invariants (props on sand, keep-out zones, asymmetric palms, crown shape and frond attachment, chair placement and joints, lighthouse placement, sandcastle placement / shape / connectivity, island heights, cloud layout, shell distribution and scallop shape, triangle budget) |
+| `src/core/scene/__tests__/beach3dTime.test.ts` | Time system: solar arc maths, palette blending, and the regression locks for the night / sunset look (hard-coded daylight colours must stay time-driven) |
+| `src/core/scene/__tests__/beach3dShadowAlign.test.ts` | The character shadow and the prop shadows must project along the same direction at every hour |
 | `src/core/scene/beach3d/beach3dConfig.ts` | All tunables (`BEACH3D_SCENE_CONFIG`, exposed as `APP_CONFIG.beach3dScene` in `src/config.ts`). Ranges and meanings are documented inline and in `src/types/config.ts` (`Beach3DSceneConfig`) |
 | `public/scene/beach3d/clouds.webp` | Cloud sprite atlas (see [Assets](#assets)) |
 | `public/scene/beach3d/palm-frond.webp` | Palm frond texture (see [Assets](#assets)) |
@@ -31,7 +35,7 @@ Engine hooks:
 - `vrmEngine.beach3d` is attached after lighting init.
 - `syncSceneBackdrop` calls `setActive(theme === 'beach3d')`.
 - `lineworkWorld` hides itself in this scene.
-- The character shadow, lighting and bloom are the engine defaults shared by every scene; there is no scene-specific tint or shadow tweak.
+- The character shadow and bloom are the engine defaults shared by every scene. The main light is the one exception: while this scene is active it is **driven by the scene's own sun** (see [Environment time](#environment-time-day--sunset--night)), so the character's shading and her ground shadow follow the beach instead of the fixed studio key light. Leaving the scene hands the light back to the engine defaults.
 
 When another scene is active, the group is hidden and costs 0 draw calls. Its geometry, materials and textures stay allocated until the engine is disposed, so switching back does not rebuild them.
 
@@ -75,7 +79,7 @@ The character shadow is the engine's existing `CharacterShadowSystem` plane. The
 ## Palms
 
 - **Layout**: each palm has its own position, scale, height multiplier, lean multiplier, lean direction and crown spin. Near the character there are two palms on the left (a near one leaning toward the sea and the frame centre, and a taller, straighter companion behind it) and one on the right whose trunk enters the frame while its crown is half outside it. Seven smaller palms continue along the shore on both sides. The near left palm uses height multiplier 0.85.
-- **Trunk**: a smooth 10-sided tapered tube, 3.6 m tall before the per-tree height multiplier and scale (`PALM_TRUNK` in `beach3dLayout.ts`). The vertex shader bends a shared base curve per instance (height and lean), so every tree has a different arc. Over the top 12% of its height the trunk flares smoothly by `TRUNK_CROWN_FLARE` (0.2, in `beach3dGeometry.ts`) and closes in a rounded dome, so the crown is part of the trunk mesh (about 1.2–1.4× the trunk's top radius, no separate blob and no seam). Soft two-step shading, faint irregular rings that fade out below the crown, a warm sand tint at the base, and a smooth blend from trunk tan into the olive crown colour (`vegetation.bootColor`).
+- **Trunk**: a smooth 10-sided tapered tube, 3.6 m tall before the per-tree height multiplier and scale (`PALM_TRUNK` in `beach3dLayout.ts`). The vertex shader bends a shared base curve per instance (height and lean), so every tree has a different arc. Over the top 12% of its height the trunk flares smoothly by `TRUNK_CROWN_FLARE` (0.2, in `beach3dGeometry.ts`) and closes in a rounded dome, so the crown is part of the trunk mesh (about 1.2–1.4× the trunk's top radius, no separate blob and no seam). Soft two-step shading, faint irregular rings that fade out below the crown, a sand tint at the base that follows the current beach colour (see [Environment time](#environment-time-day--sunset--night)), and a smooth blend from trunk tan into the olive crown colour (`vegetation.bootColor`).
 - **Crown**: 14 fronds on golden-angle azimuths, arranged by age like a real coconut palm. Each frond has a tier from young (top) to old (bottom). The petiole's starting elevation goes from `frondRiseDeg + frondTierSpreadDeg` for the youngest frond down to `frondRiseDeg − frondTierSpreadDeg` for the oldest, and the droop grows with age. Young fronds point up and out, middle fronds arch out and down, and only the oldest few droop. The result is a radiating fountain / starburst silhouette instead of a mop. Length, width, droop, azimuth, curl and twist vary per frond; young fronds are shorter and narrower.
 - **Fronds**: each frond is a curved ribbon along its rachis (12 segments, 48 triangles) carrying the painted frond texture. The rachis stays straight for the first `frondStiffness` of its length (a stiff, rising petiole) and only then bends down, with the bend concentrated in the outer half (`frondDroop`), so every frond is an arch. The cross-section is an inverted V (`frondFoldDeg`, slightly deeper toward the tip): the rachis is the ridge and the leaflets slope down to both sides but stay spread like a feather rather than hanging. Width follows the texture's proportions (`vegetation.frondWidth` stretches it).
 - **Attachment**: every frond starts within a few centimetres of the trunk top, inside the crown dome. Two staggered rings of small overlapping leaf-shaped sheaths (7 outer, 6 inner; narrow base, widest in the middle, pointed tip) lie on the flared crown. Their bases share the crown colour, so they grow out of the trunk without a seam; the upper halves get slightly darker edges and a greener tip. Along the first third of each rachis a thin, tapered three-sided stalk tube runs from inside the crown, shading from the crown olive into the frond green, so from below or the side each frond reads as a solid stalk growing out of the crown top.
@@ -109,15 +113,15 @@ The character shadow is the engine's existing `CharacterShadowSystem` plane. The
   - A low, squared-off packed-sand platform (0.52 × 0.44 m, 7 cm high) with soft rounded edges and small hand-patted irregularities, slightly sunk into the beach, plus a small ramp up to the door. No round mound, no moat.
   - A central keep with an arched door and small windows, two back towers (one taller, with the flag) and a front-left tower, all cylinders with crenellated tops, and a small rounded cone turret at the front right.
   - A thin pole with a tiny coral-pink pennant (`sandcastle.flag`).
-- Colour is `sandcastle.color` (a slightly darker, warmer packed-wet-sand tone than the beach) with the same two-step pastel toon shading as the other props. Windows and the door are darker recesses.
+- Colour is a slightly darker, warmer packed-wet-sand tone than the beach, with the same two-step pastel toon shading as the other props. Windows and the door are darker recesses. The tone is not a fixed hex: it is derived from the **current** sand colour (darkened and desaturated), so the castle always reads as the same beach — at noon it reproduces `sandcastle.color` exactly, and at night it sinks into the sand instead of staying cream white. The little pennant (`sandcastle.flag`) is coloured per period.
 - It is merged into the chair + parasol + lighthouse mesh (same draw call, ~1.4k triangles), casts a baked soft ground shadow (see [Ground shadows](#ground-shadows)), and is hidden with the other props in the below-ground fallback or with `props.enabled = false` / `sandcastle.enabled = false`. Shells keep out of its footprint (`SANDCASTLE_RADIUS = 0.36 m × scale`).
 
 ## Ground shadows
 
 - **Character**: the engine's `CharacterShadowSystem`, unchanged.
-- **Consistency**: every ground shadow (baked palms and sandcastle, analytic chair and parasol, the real-time character shadow) is projected along the same sun direction, and only the character casts a real-time shadow, so no prop gets a second shadow.
+- **Consistency**: every ground shadow (baked palms and sandcastle, analytic chair and parasol, the real-time character shadow) is projected along the same sun direction, and only the character casts a real-time shadow, so no prop gets a second shadow. While the scene is active the engine key light follows the scene's sun (see [Environment time](#environment-time-day--sunset--night)), so the character's shadow points the same way as the chair's and the palms'. All of them fold the sun's elevation through the same floor (`SUN_Y_FLOOR`), which keeps their lengths in proportion when the sun is near the horizon.
 - **Chair and parasol**: analytic soft shapes in the ground shader (see above).
-- **Palms and sandcastle**: a baked shadow mask. Palm trunks (with their real bend, lean and height), the textured frond ribbons (alpha-tested, so each frond gives a long, narrow, tapering shadow with serrated leaflet edges) and the sandcastle are rendered once, projected along the sun direction onto y = 0, into a 2048 × 1024 single-channel (R8, ~2 MB) render target that covers the near beach (x −26 … 24 m, z −21 … 3 m around the character). The ground shader samples it with a small blur, using the same tone as the chair shadow and `props.groundShadow` for strength.
+- **Palms and sandcastle**: a baked shadow mask. Palm trunks (with their real bend, lean and height), the textured frond ribbons (alpha-tested, so each frond gives a long, narrow, tapering shadow with serrated leaflet edges) and the sandcastle are rendered once, projected along the sun direction onto y = 0, into a 2048 × 2048 single-channel (R8, ~4 MB) render target that covers the entire near-to-foreground beach (x −32 … 32 m, z −26 … 26 m around the character) with edge smoothstep fade to prevent truncation during dynamic sun/moon arcs. The ground shader samples it with a small blur, using the same tone as the chair shadow and `props.groundShadow` for strength.
 - The bake runs only when the scene is activated, when the frond texture finishes loading and when the sun direction changes; there is no per-frame shadow-map pass and no extra draw call in the normal frame. Palm sway is not reflected in the shadow.
 - `vegetation.frondShadow` (0.85) sets frond shadows relative to the trunk shadow (lower = lighter, more dappled), and `vegetation.shadowSoftness` (1.0) scales the blur of palm and sandcastle shadows.
 
@@ -194,7 +198,90 @@ With `horizonCurveR = 700` the horizon lands around the hips in full-body portra
 - Clouds and islands follow the camera's translation (not its rotation) and live inside the 100 m far plane, which makes them effectively infinitely far away.
 - The sky draws first (`renderOrder −1000`), then clouds (−990), then islands (−980).
 
+## Environment time & 24-hour day-night cycle
+
+The scene can be lit by the time of day with a continuous **24-hour solar and lunar celestial progression**. The time system is **generic**: the engine and UI components interact exclusively through the `IEnvironmentTimeAware` and `IEnvironmentLightProvider` contracts in `src/core/scene/environmentTime.ts`. `beach3d` is the reference scene implementing full 24-hour dynamic illumination, sky gradients, and synchronized character lighting.
+
+### Time modes and presets
+
+| Mode | Hour | Atmosphere | Visual Characteristic |
+| :--- | :--- | :--- | :--- |
+| `auto` | Real-time | Follows system clock | Automatically syncs with reality, smoothly interpolated every 10 seconds |
+| `dawn` | 05:00 – 08:00 | Dawn Awakening | Warm pinkish-violet sky (`#f472b6`), low sunrise elevation, soft violet ambient shadows |
+| `day` | 08:00 – 16:30 | Sunny Day | 12:00 reference look (`#38bdf8`), turquoise sea, bright sand, crisp noon shadow |
+| `sunset` | 16:30 – 19:30 | Sunset Glow | 17:45 golden hour (`#fb923c`), sun touching the sea horizon, sparkling water glint path |
+| `night` | 19:30 – 05:00 | Starry Night | 22:00 moonlit beach (`#818cf8`), cool high moon, illuminated lighthouse beacon |
+| `number` | 0.00 – 24.00 | Continuous 24h dial | Exact hour float with seamless palette interpolation and shadow-sun alignment |
+
+`vrmEngine.setEnvironmentTime(time, { isDragging })` is the unified entry point. The engine retains the latest active environment time across scene switches and notifies listeners via the `environment-time-changed` event. Scenes without environment time support return `isEnvironmentTimeSupported() === false`, cleanly hiding time cards in desktop-pet and static canvas modes.
+
+### Interactive celestial HUD (`SceneTimeCard`)
+
+The beach scene features an interactive glassmorphic HUD (`src/components/SceneTimeCard.tsx`) positioned at the top-right corner of the canvas:
+
+1. **Liquid Glass styling & optical-aligned micro-capsule**:
+   - Fixed `h-8` (32px) translucent liquid glass (`backdrop-blur-2xl backdrop-saturate-150`) capsule button with three optically centered elements:
+     `[CurrentPillIcon (14px)] [HH:MM (SF Mono Tabular)] [ChevronDown (14px)]`
+   - High-saturation liquid ambient core with crisp top-edge specular rim reflection (`border-t-white/45`, `inset 0 1px 1px rgba(255,255,255,0.4)`), transparently revealing the 3D beach waves and skies behind.
+2. **Polar-angle celestial track (`Math.atan2`)**:
+   - A semicircle arc with center $(130, 115)$ and radius $r = 92\text{px}$, spanning from 00:00 (left, $\pi$) through 12:00 (top, $\pi/2$) to 24:00 (right, $0$).
+   - Drag coordinates are evaluated using true polar angles `Math.atan2(cy - y, x - cx)`, eliminating the infinite derivative singularities and boundary-speed warping previously caused by $\arccos$ horizontal projections.
+3. **Cinematic ease-in-out time-lapse pacing (`timeLapseEase`)**:
+   - Uses an Ease-In-Out Cubic curve ($f(t) = 4t^3$ for $t < 0.5$, $1 - (-2t+2)^3 / 2$ for $t \ge 0.5$).
+   - Starts at initial velocity $v(0) = 0$ (gentle start), smoothly accelerates into peak flow velocity across the middle hours (time-warp acceleration), and gently settles into the target hour.
+   - Proportional duration scaling:
+     $$\text{Duration} = \min(3.8, \max(1.2, 1.2 + \Delta\text{Hours} \times 0.22)) \text{ seconds}$$
+     Small adjustments take ~1.4s; long daytime-to-night transitions (10+ hours) take ~3.4s to provide an immersive time-travel sensation.
+4. **Real-time 5-preset dock binding (`activePresetId`)**:
+   - The bottom 5-preset dock (`Auto Sync`, `Midnight 00:00`, `Dawn 06:00`, `Noon 12:00`, `Dusk 18:00`) strictly follows every 6-hour symmetrical quadrant (±3h centered window) during animation and user dragging, completely eliminating cross-period misattribution bugs.
+   - Symmetrical 4-quadrant celestial cycle: Midnight (21:00~03:00, center 00:00), Dawn (03:00~09:00, center 06:00), Noon (09:00~15:00, center 12:00), Dusk (15:00~21:00, center 18:00).
+5. **Full Internationalization (i18n)**:
+   - Full translation coverage in Chinese (`zh-CN`), English (`en`), and Japanese (`ja`) for all atmospheric titles, badges, and preset options.
+
+### Solar and lunar arc
+
+`computeSunDirection(hour)` in `beach3dTime.ts` returns the unit vector **towards the light**:
+
+- **05:30 – 18:30 (sun)**: the elevation follows a sine arc peaking at 45.8° at noon; the azimuth sweeps from the left front at sunrise, through the classic write-light direction at noon (`0.3586, 0.7171, 0.5976` — exactly the engine's studio key light, so noon is a zero-drift state), to the sea horizon in front of the camera at sunset (a back-lit golden path on the water).
+- **18:30 – 05:30 (moon)**: a cool high moon (42° ± 16°) takes over, so the night shadows are short and soft.
+
+### Palettes and blending
+
+Three base palettes (`PALETTE_DAY` / `PALETTE_SUNSET` / `PALETTE_NIGHT`) cover sky, sea, sand, distant islands, clouds, vegetation, rocks, props, the sandcastle and the lighthouse. `computeTimeWeights(hour)` returns the three weights (they always sum to 1) and `evaluateBeachPalette(hour)` blends them into a preallocated palette — **0 allocations per frame, no shader recompiles, no extra draw calls**.
+
+Two colours are derived rather than picked per period, so they can never drift away from the beach:
+
+- **palm base** (the tint on the bottom of every trunk): the current sand colour, brightened. At noon this reproduces the shader's original hard-coded `(0.95, 0.87, 0.74)` exactly, so the day look is unchanged.
+- **sandcastle sand**: the current sand colour, darkened and desaturated (compacted wet sand). At noon this reproduces `sandcastle.color` exactly.
+
+### Making hard-coded daylight colours time-driven
+
+Every near-white highlight and every cool ambient tint that used to be written into the shaders as a constant is now a shared uniform, multiplied by one of three time-driven factors:
+
+| Uniform | Meaning | Day | Sunset | Night |
+| :--- | :--- | :--- | :--- | :--- |
+| `uAmbMul` | multiplies the hard-coded cool ambient / shade tints | `(1,1,1)` | dimmed, slightly violet | dim cool blue |
+| `uHighlight` | multiplies the hard-coded near-white highlights (sand grain sparkle, caustics, wave fronts, glints, rim light) | `(1,1,1)` | golden | dim moon white |
+| `uLightTint` | the direct-light colour, also used to tint the painted frond texture | `(1,1,1)` | warm orange | cool moonlight |
+| `uLightLevel` | direct-light strength (how much of the painted texture is mixed in, how visible the highlights are) | `1.0` | `0.85` | `0.25` |
+| `uPalmBase` | the sand colour at the bottom of the palm trunks | derived | derived | derived |
+
+At noon all factors are exactly neutral, so the daytime render is bit-for-bit the same as before this system existed.
+
+### The character follows the scene sun
+
+The engine's `DirectionalLight` normally sits at a fixed studio position, and the character's real-time shadow (`CharacterShadowSystem`) is cast by it. The beach's prop shadows, on the other hand, are projected along the scene's own sun. Left alone, the two disagree and the character's shadow points somewhere else than the chair's.
+
+While `beach3d` is active the engine therefore asks the scene for its light (`IEnvironmentLightProvider.getEnvironmentLight()`) and applies it to the studio key light: direction, colour, intensity, plus the hemisphere and fill lights. The scene hands the light back (`StudioLighting.clearEnvironmentLight()`) when it is no longer active.
+
+Both the prop shadows and the character use the same **effective sun elevation floor** (`SUN_Y_FLOOR = 0.26`, shared by the GLSL and the TypeScript side). Without it, a sun sitting on the horizon would cast shadows longer than the frame — and, worse, the props and the character would use different floors and stop agreeing. `beach3dShadowAlign.test.ts` locks this down.
+
+### Cost & zero-overhead dragging
+
+Re-evaluating the palette is a handful of `THREE.Color.copy()` calls and only happens when the hour actually changes. While the celestial handle is being dragged (`isDragging = true`), the heavy 2048×2048 shadow-mask bake is deferred so dragging maintains 60 FPS without garbage collection. Once the pointer is released, the baked shadow mask updates cleanly in a single background frame.
+
 ## Dynamics and fallbacks
+
 
 These are animated: swash, wave bands, foam, caustics, glints, high wisps, cloud drift and palm sway. They run through `SceneMotionGovernor` with `dynamics.respectReducedMotion` and `dynamics.autoDowngrade`. If `prefers-reduced-motion` is set, or the average FPS drops below `minFps`, the scene freezes on a well-composed static frame (`STATIC_TIME`) for the rest of the session. A downgrade mid-session freezes the animations where they are instead of jumping back. Cloud drift (and the optional horizon bank) runs on a separate clock that keeps going under the FPS downgrade, so clouds never snap back or stop; only reduced motion freezes it.
 

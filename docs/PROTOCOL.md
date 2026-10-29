@@ -2,12 +2,12 @@
 
 ## 1. Protocol Architecture Overview
 
-Project XiaoChun provides an operating-system-level Inter-Process Communication (IPC) protocol via custom URL Scheme (`xiaochun://`). This enables external applications, automated scripts, CLI tools, web browsers, and AI agents to awaken XiaoChun, focus her desktop window, and command her to vocalize speech with synchronized real-time 3D motion, facial expressions, and head bubble bubbles.
+Project XiaoChun provides an operating-system-level Inter-Process Communication (IPC) protocol via custom URL Scheme (`xiaochun://`). This enables external applications, automated scripts, CLI tools, web browsers, and AI agents to awaken XiaoChun, focus her desktop window, command her to vocalize speech, trigger 3D skeletal motions & motion groups, express facial emotions, and execute cinematic camera directing (transitions, framing presets, and orbital trajectories).
 
 ```
 [External Application / CLI / Agent / Web Browser]
                       │
-                      ▼ Calls system open ("xiaochun://speak?text=...")
+                      ▼ Calls system open ("xiaochun://speak?text=...", "xiaochun://camera?shot=close_up")
           [OS URL Scheme Dispatcher]
                       │
                       ▼
@@ -21,12 +21,12 @@ Project XiaoChun provides an operating-system-level Inter-Process Communication 
      ├── index.ts: Event listener & dev bridge (`window.__triggerXiaoChunProtocol`)
      └── handler.ts: Waits for VRM model readiness if cold-started
                       │
-                      ▼
-         [vrmEngine.speakText(text)]
-     ├── Edge-TTS Audio Generation
-     ├── EMAGE Real-Time Gesture Streaming
-     ├── Dynamic LipSync Viseme Interpolation
-     └── 3D HeadBubble Status Rendering
+        ┌─────────────┼───────────────┬──────────────────────┬──────────────────────┐
+        ▼             ▼               ▼                      ▼                      ▼
+[speakText]     [playMotion]    [setExpression]      [transitionCamera]           [stop]
+Edge-TTS +     Quintic Slerp    Emotion Damp Speed    Cinematic Shots & Presets   Cut Audio &
+EMAGE Stream   Limb Masking     Speech Ducking        Quintic Orbit / Push / Pull Reset to Idle
+LipSync Viseme 8 Motion Groups  Micro-Expressions     Pedestal-Up Reveal
 ```
 
 ---
@@ -47,9 +47,9 @@ Command XiaoChun to speak directly from a text string.
 - **Parameters**:
   | Parameter | Type | Required | Description |
   | :--- | :--- | :--- | :--- |
-  | `text` | string | Yes | The dialogue line to speak. Must be URL-encoded. |
+  | `text` | string | Yes* | The dialogue line to speak. Must be URL-encoded (*unless `audioUrl` or `file` is provided). |
+  | `audioUrl` | string (URL) | Optional | Pre-synthesized audio URL (`https:`), bypassing TTS and driving motion via EMAGE. |
   | `file` | string (path) | Optional | Local file path to read text from (for ultra-long documents). |
-  | `audioUrl` | string (URL) | Optional | Optional pre-synthesized audio URL (bypasses TTS generation). |
 
 - **Examples**:
   - `xiaochun://speak?text=Hello%20Master%2C%20welcome%20home!`
@@ -63,6 +63,125 @@ For extensive scripts, novels, or reports exceeding OS command-line parameter co
 - **URL Pattern**:
   ```
   xiaochun://speak?file=/path/to/script.txt
+  ```
+
+---
+
+### 2.3 Single Motion Playback (`motion`)
+Command XiaoChun to execute a specific 3D animation with Quintic Smootherstep crossfading and anatomical limb coordination.
+
+- **URL Pattern**:
+  ```
+  xiaochun://motion?name=<motion_name>[&loop=true][&fadeDuration=0.75][&timeScale=1.0][&mask=upperBody]
+  ```
+
+- **Parameters**:
+  | Parameter | Type | Required | Default | Description |
+  | :--- | :--- | :--- | :--- | :--- |
+  | `name` | string | Yes* | - | Identifier from the Motion Catalog (e.g., `waving`, `joyfulJump`, `handHeart`). |
+  | `url` | string | Yes* | - | Direct relative or `https://` URL to a `.vrma` motion asset. |
+  | `loop` | boolean | Optional | `false` | When `true`, loops playback continuously until superseded or stopped. |
+  | `fadeDuration`| number | Optional | `0.75` | Quintic transition window duration in seconds (`0.26 ~ 3.0s`). |
+  | `timeScale` | number | Optional | `1.0` | Playback speed multiplier (`0.25 ~ 3.0`). |
+  | `mask` | `'all'` \| `'upperBody'` | Optional | `'all'` | `'upperBody'` limits motion to torso and arms while legs remain in standing pose. |
+  | `stop` | boolean | Optional | `false` | When `true`, smoothly fades out the active motion back to standing idle. |
+
+- **Examples**:
+  - `xiaochun://motion?name=waving`
+  - `xiaochun://motion?name=joyfulJump&loop=false`
+  - `xiaochun://motion?name=bellyDance&loop=true`
+  - `xiaochun://motion?stop=true&fadeDuration=0.5`
+
+---
+
+### 2.4 Motion Group Playback (`motion-group`)
+Randomly draws and plays an animation from a curated semantic motion group.
+
+- **URL Pattern**:
+  ```
+  xiaochun://motion-group?name=<group_name>[&loop=false][&fadeDuration=0.75]
+  # Or query parameter on motion:
+  xiaochun://motion?group=<group_name>[&loop=false]
+  # (Backward-compatible alias: xiaochun://group?name=...)
+  ```
+
+- **Standard Motion Groups**:
+  | Group Name | Semantic Purpose | Included Animations |
+  | :--- | :--- | :--- |
+  | `greeting` | Welcoming, meeting, waving | `waving`, `singleHandWave`, `bowSalute` |
+  | `idleFlavor` | Spontaneous standby fidgets | `touchHair`, `casualWalk`, `checkTime`, `airplaneGlide`, `swayIdle`, `impatientWait`, `modelPose` |
+  | `listening` | Attentive ear, nodding | `listening`, `attentiveLean`, `cozyLean`, `sleepyNod` |
+  | `thinking` | Contemplative posture, chin-rest | `thinking`, `fistThinking` |
+  | `praiseCute` | Delighted praise, playful cute | `fistCute`, `catPaws`, `puppyPaws`, `pokeDimple`, `joyfulJump`, `handHeart`, `cheerUp` |
+  | `playfulSulking` | Tsundere pout, coquettish sulk | `poutHum`, `angryJump`, `shyBehindBack`, `shhLean` |
+  | `dancePerformance` | Expressive dance choreographies | `bellyDance`, `bellyDanceWave`, `rumbaDance` |
+  | `outfitShowcase` | 360-degree full-body showcase | `showFullBody`, `modelPose` |
+
+- **Examples**:
+  - `xiaochun://motion-group?name=greeting`
+  - `xiaochun://motion?group=praiseCute`
+  - `xiaochun://motion-group?name=dancePerformance&loop=true`
+
+---
+
+### 2.5 Facial Expression Trigger (`expression`)
+Command XiaoChun to express a specific emotion on her face.
+
+- **URL Pattern**:
+  ```
+  xiaochun://expression?name=<expression_name>[&intensity=0.85]
+  ```
+
+- **Parameters**:
+  | Parameter | Type | Required | Default | Description |
+  | :--- | :--- | :--- | :--- | :--- |
+  | `name` | string | Yes | - | Emotion identifier (`neutral`, `happy`, `gentle_smile`, `smile`, `shy`, `playful`, `surprised`, `hesitant`, `sad`, `angry`, `relaxed`). |
+  | `intensity` | number | Optional | `0.80` | Blendshape weight between `0.0` (zero) and `1.0` (maximum). |
+
+- **Examples**:
+  - `xiaochun://expression?name=happy`
+  - `xiaochun://expression?name=gentle_smile&intensity=0.9`
+  - `xiaochun://expression?name=playful`
+  - `xiaochun://expression?name=neutral` (resets to default poise)
+
+---
+
+### 2.6 Cinematic Camera Director (`camera`)
+Command XiaoChun's camera to execute cinematic transitions, framing presets, and orbital trajectories with Quintic Smootherstep motion damping.
+
+- **URL Pattern**:
+  ```
+  xiaochun://camera?[shot=<shot>][&movement=<movement>][&durationSec=1.2][&orbitAngleDeg=45][&targetFov=28][&reset=true][&panUp=true]
+  ```
+
+- **Parameters**:
+  | Parameter | Type | Required | Default | Description |
+  | :--- | :--- | :--- | :--- | :--- |
+  | `shot` | string | Optional | `medium` | Camera framing preset: `extreme_close_up` (eyes/micro-expression, fov 22), `close_up` (chin/collarbone monologue, fov 26), `medium` (chest conversation, fov 30), `full` (full-body showcase, fov 35), `dramatic_low` (low-angle hero shot, fov 28). |
+  | `movement` | string | Optional | `none` | Trajectory: `none`, `push_in`, `pull_out`, `hero_spiral_orbit`, `hero_backlight_reveal`, `dutch_tilt`, `arc_sweep`, `orbit_subtle`, `pedestal_up`. |
+  | `durationSec` | number | Optional | `1.2` | Transition duration in seconds (`0.2 ~ 12.0s`). |
+  | `targetFov` | number | Optional | - | Target camera Field of View in degrees (`15 ~ 65`). |
+  | `orbitAngleDeg` | number | Optional | - | Horizontal orbital azimuth rotation in degrees (e.g. `+45`, `-90`, `180`, `360`). |
+  | `easing` | string | Optional | `quintic_smooth` | Interpolation curve: `quintic_smooth`, `ease_out_dramatic`, `linear`. |
+  | `windMultiplier` | number | Optional | `1.0` | Wind force scale multiplier to accompany camera movement. |
+  | `panUp` | boolean | Optional | `false` | When `true`, executes a cinematic pedestal-up reveal from hem/ankles up to chest height (`2.2s`). |
+  | `reset` | boolean | Optional | `false` | When `true`, resets the camera back to default angle and hands control back to free OrbitControls. |
+
+- **Examples**:
+  - `xiaochun://camera?shot=close_up`
+  - `xiaochun://camera?shot=full&orbitAngleDeg=45`
+  - `xiaochun://camera?shot=extreme_close_up&movement=push_in&durationSec=1.5`
+  - `xiaochun://camera?panUp=true`
+  - `xiaochun://camera?reset=true`
+
+---
+
+### 2.7 Instant Stop (`stop`)
+Immediately cuts any active TTS / audio playback and gracefully crossfades active animations back to upright natural standby.
+
+- **URL Pattern**:
+  ```
+  xiaochun://stop
   ```
 
 ---
@@ -81,25 +200,67 @@ For extensive scripts, novels, or reports exceeding OS command-line parameter co
 ### 4.1 Shell & Command Line
 - **macOS**:
   ```bash
-  open "xiaochun://speak?text=主人，构建成功！"
+  # Speech
+  open "xiaochun://speak?text=Master,%20build%20succeeded!"
+
+  # Motion
+  open "xiaochun://motion?name=waving"
+
+  # Expression
+  open "xiaochun://expression?name=gentle_smile"
+
+  # Camera
+  open "xiaochun://camera?shot=close_up&movement=push_in"
+
+  # Stop
+  open "xiaochun://stop"
   ```
 - **Windows (Command Prompt / PowerShell)**:
   ```cmd
-  start "" "xiaochun://speak?text=主人，构建成功！"
+  start "" "xiaochun://speak?text=Master,%20build%20succeeded!"
+  start "" "xiaochun://motion?name=handHeart"
+  start "" "xiaochun://camera?shot=full"
+  start "" "xiaochun://stop"
   ```
 - **Linux**:
   ```bash
-  xdg-open "xiaochun://speak?text=主人，构建成功！"
+  xdg-open "xiaochun://speak?text=Master,%20build%20succeeded!"
+  xdg-open "xiaochun://motion-group?name=praiseCute"
+  xdg-open "xiaochun://camera?panUp=true"
   ```
 
 ### 4.2 Project XiaoChun Built-in CLI Runner
 For local development or shell scripts inside the repository, use the dedicated convenience runner (which handles argument encoding and cross-platform binary resolution automatically):
 ```bash
-# Direct speech
+# 1. Direct speech
 pnpm speak "Master, continuous integration pipeline has succeeded!"
 
-# Raw protocol URL
-pnpm protocol "xiaochun://speak?text=Testing%20raw%20protocol"
+# 2. Trigger motion
+pnpm motion waving
+pnpm motion joyfulJump --loop
+pnpm motion --stop
+
+# 3. Trigger motion group
+pnpm motion-group greeting
+pnpm motion-group praiseCute
+# (or legacy alias: pnpm group greeting)
+
+# 4. Trigger expression
+pnpm expr happy
+pnpm expr gentle_smile 0.9
+
+# 5. Trigger camera transition
+pnpm camera close_up
+pnpm camera full --orbit 45
+pnpm camera extreme_close_up --movement push_in
+pnpm camera --pan-up
+pnpm camera --reset
+
+# 6. Immediate stop
+pnpm stop
+
+# 7. Raw protocol URL
+pnpm protocol "xiaochun://camera?shot=close_up&orbitAngleDeg=30"
 ```
 
 ### 4.3 Python Integration
@@ -107,24 +268,58 @@ pnpm protocol "xiaochun://speak?text=Testing%20raw%20protocol"
 import urllib.parse
 import webbrowser
 
-def make_xiaochun_speak(text: str):
-    encoded_text = urllib.parse.quote(text)
-    url = f"xiaochun://speak?text={encoded_text}"
+def xiaochun_call(action: str, **kwargs):
+    query = urllib.parse.urlencode({k: v for k, v in kwargs.items() if v is not None})
+    url = f"xiaochun://{action}?{query}" if query else f"xiaochun://{action}"
     webbrowser.open(url)
 
-make_xiaochun_speak("Python agent connected successfully!")
+# Speak
+xiaochun_call("speak", text="Python agent connected successfully!")
+
+# Play Motion
+xiaochun_call("motion", name="waving", loop="false")
+
+# Play Motion Group
+xiaochun_call("motion-group", name="praiseCute")
+
+# Set Expression
+xiaochun_call("expression", name="gentle_smile", intensity="0.85")
+
+# Camera transition
+xiaochun_call("camera", shot="close_up", movement="push_in", durationSec=1.5)
+
+# Stop
+xiaochun_call("stop")
 ```
 
 ### 4.4 In-Browser / Web Links
 Any HTML webpage can link to the protocol to wake up the user's desktop companion:
 ```html
 <a href="xiaochun://speak?text=Clicked%20from%20webpage!">Wake Up XiaoChun</a>
+<a href="xiaochun://motion?name=waving">Wave Hand</a>
+<a href="xiaochun://motion-group?name=praiseCute">Cute Motion Group</a>
+<a href="xiaochun://expression?name=happy">Smile</a>
+<a href="xiaochun://camera?shot=close_up">Close-Up View</a>
 ```
 
-### 4.5 Developer Console Bridge
-In the webview or browser Developer Tools console, simulate a protocol trigger directly:
+### 4.5 Developer Console Bridge (`window.xiaochun`)
+In the webview or browser Developer Tools console, control XiaoChun directly via the first-class `window.xiaochun` interface or the low-level `window.__triggerXiaoChunProtocol` bridge:
 ```javascript
-window.__triggerXiaoChunProtocol('speak', { text: 'Console test message' });
+// Direct High-Level API (window.xiaochun)
+window.xiaochun.speak("Master, time to take a break!");
+window.xiaochun.motion("waving", { loop: false });
+window.xiaochun.motionGroup("praiseCute"); // (alias: window.xiaochun.group("praiseCute"))
+window.xiaochun.expression("gentle_smile", 0.9);
+window.xiaochun.camera("close_up", { movement: "push_in", durationSec: 1.5 });
+window.xiaochun.camera.reset();
+window.xiaochun.camera.panUp(2.2);
+window.xiaochun.stop();
+
+// Raw Protocol URL String
+window.xiaochun.protocol("xiaochun://camera?shot=extreme_close_up&movement=push_in");
+
+// Low-Level Protocol Bridge
+window.__triggerXiaoChunProtocol('motion', { name: 'handHeart' });
 ```
 
 ---
@@ -141,7 +336,7 @@ On **cold start** (app fully quit), especially on **macOS**, the launch URL is o
 
 Raw URLs are deduped within 5s so Opened + get_current + `on_open_url` do not double-speak. The frontend still drains `get_pending_protocol_actions` and dedupes by message `id`.
 
-Prefer **URL-encoded** `text` (e.g. Chinese) for portability; unencoded Chinese in `open "xiaochun://speak?text=..."` is usually OK on macOS but encoding is safer across shells and platforms.
+Prefer **URL-encoded** parameters for portability; unencoded Chinese in `open "xiaochun://speak?text=..."` is usually OK on macOS but encoding is safer across shells and platforms.
 
 ---
 
@@ -149,20 +344,23 @@ Prefer **URL-encoded** `text` (e.g. Chinese) for portability; unencoded Chinese 
 
 The embed bridge (`src/embed/bridge.ts`) and the deep-link entry (`initProtocolListener`) share **one handler** (`src/core/protocol/handler.ts`, types in `types.ts`, audio helpers in `audio.ts`). Only the transport differs.
 
-| `xc.*` (iframe postMessage) | Protocol action | `xiaochun://` (desktop deep link) |
+| `xc.*` (iframe postMessage / SDK) | Protocol Action | `xiaochun://` (Desktop Deep Link) |
 | :--- | :--- | :--- |
 | `xc.say { text }` | `speak { text }` | `xiaochun://speak?text=…` |
-| `xc.say { mode: 'chat' }` | — (LLM chat; no deep-link form) | — |
+| `xc.say { mode: 'chat' }` | — (LLM chat; no deep link form) | — |
 | `xc.audio { source: <URL> }` | `speak { audioUrl[, text] }` → `audio` | `xiaochun://speak?audioUrl=…[&text=…]` |
-| `xc.audio { source: ArrayBuffer \| Blob }`, `xc.audio.chunk`, `xc.audio.end` | `audio { source \| stream }` | — (binary cannot fit in a URL) |
+| `xc.audio { source: ArrayBuffer \| Blob }`, `xc.audio.chunk`, `xc.audio.end` | `audio { source \| stream }` | — (binary data cannot fit in a URL) |
 | — | `speak { file }` | `xiaochun://speak?file=…` (desktop shell only) |
+| `xc.motion { name, loop, mask, fadeDuration }` | `motion { name, loop, mask, fadeDuration }` | `xiaochun://motion?name=…[&loop=true][&mask=upperBody]` |
+| `xc.motion { group }` | `motion-group { name }` | `xiaochun://motion-group?name=…` (or `xiaochun://motion?group=…`) |
+| `xc.motion { stop: true }` | `motion { stop: true }` | `xiaochun://motion?stop=true` |
+| `xc.expression { name, intensity }` | `expression { name, intensity }` | `xiaochun://expression?name=…[&intensity=0.8]` |
+| `xc.camera { shot, movement, durationSec, ... }` | `camera { shot, movement, ... }` | `xiaochun://camera?shot=…[&movement=…][&durationSec=1.2]` |
+| `xc.stop` | `stop` | `xiaochun://stop` |
+| `xc.transport { playbackRate, volume }` | — (audio rate / gain) | — |
+| `xc.clock { time, playing }` | — (hostClock alignment) | — |
 
-Notes:
-- **`audioUrl` is now implemented.** It used to be a reserved parameter that the handler ignored; it now plays the audio through the same pipeline as `xc.audio` (decode → 16 kHz mono windows → EMAGE motion + A/V sync + lip-sync), without calling TTS. The URL must be `https:` (or same-origin).
-- **`audible`** on `xc.audio` / `speakAudio` defaults to `true`. `false` sets the iframe playback gain to 0 after the analyser, so EMAGE and lip-sync still follow that buffer while the host page can play the sound itself.
-- **`playbackRate`** (`0.25–3`, default `1`) and **`volume`** (`0–1`, default `1`) on `xc.audio` / the first `xc.audio.chunk` / `speakAudio` scale that host-audio buffer and its motion clock together. `xc.transport` changes them without restarting the utterance. TTS is unchanged. `audible: false` still forces the speaker gain to 0. `xc.pause` suspends rendering only; it does not pause this clock or the voice.
-- **`hostClock: true`** (with `audible: false`): the host plays the audio itself. The embed skips the thinking motion and start-up wait, sends `xc.utterance start` as soon as the first motion window is ready, and drives motion + lips from `xc.clock { time, playing, playbackRate?, seek? }`. Without clock messages it free-runs from start. Seeks inside the already-sent audio jump the playhead without restarting EMAGE. Advertised as `capabilities.audio.hostClock`; older embeds ignore the flag.
-- **The `/embed` page does not respond to `xiaochun://`** and does not expose `__triggerXiaoChunProtocol`; use `xc.*` there.
-- Trust model differs: a deep link has no handshake (the OS is the trust boundary); `xc.*` is origin-checked. `xc.say` has no character cap. Long text is split inside `splitIntoSpeechChunks` before TTS. A newer speech command fades out the audible line (~0.4s; skipped when the gain is already 0), then starts. `stop()` and an aborted host-audio stream cut immediately.
-- Helpers in `@firetable/project-xiaochun`: `toProtocolUrl()`, `parseProtocolUrl()`, `XC_PROTOCOL_MAPPING`. See [`EMBED.md` §2.4–2.5](EMBED.md).
-
+Helpers in `@firetable/project-xiaochun`:
+- `toProtocolUrl(action)`: Builds standard URL from action object (`speak`, `motion`, `motion-group`, `expression`, `camera`, `stop`).
+- `parseProtocolUrl(url)`: Parses deep link URL back into structured action object.
+- `XC_PROTOCOL_MAPPING`: Single source of truth mapping array.

@@ -9,6 +9,7 @@ export default defineConfig({
       '@': path.resolve(import.meta.dirname, 'src'),
       // 与 vite.config.ts 一致: 协议常量源码直引 (src/embed/params.ts 等会 import)
       '@firetable/project-xiaochun/protocol': path.resolve(import.meta.dirname, 'packages/project-xiaochun/src/protocol.ts'),
+      '@firetable/project-xiaochun/protocol-url': path.resolve(import.meta.dirname, 'packages/project-xiaochun/src/protocol-url.ts'),
     },
   },
   test: {

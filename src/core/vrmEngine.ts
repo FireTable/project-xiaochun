@@ -1,7 +1,8 @@
 import * as THREE from 'three';
+import { LatestWinsQueue, SUPERSEDED } from '@/core/latestWinsQueue';
 import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js';
 import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
-import { VRM, VRMLoaderPlugin, VRMUtils, type VRMExpressionPresetName } from '@pixiv/three-vrm';
+import { VRM, VRMLoaderPlugin, VRMUtils } from '@pixiv/three-vrm';
 // @pixiv/three-vrm inlines stock MToon in its bundle — load fork explicitly (pnpm override → packages/...)
 import { MToonMaterial, MToonMaterialLoaderPlugin } from '@pixiv/three-vrm-materials-mtoon';
 
@@ -15,16 +16,21 @@ import { CAMERA_STATE_KEY, BODY_YAW_KEY, CAMERA_PITCH_KEY, SCENE_THEME_KEY, CAME
 
 import { VRMBodyMorph } from './morph/vrmBodyMorph';
 import { postFxPipeline, type PostFxPipeline } from './postfx/postFxPipeline';
-import { ChatDirector } from '@/director/chatDirector';
+import { ChatDirector, type TurnState } from '@/director/chatDirector';
 import type { VocalAudioProcessor } from '@/director/vocalProcessor';
 import type { HostAudioInput } from '@/director/hostAudio';
 import { MotionPipeline } from '@/motion/pipeline/motionPipeline';
 import type { PlayMotionOptions, UniversalMotionHandle } from '@/motion/sources/clip';
+import { MOTION_CATALOG, type MotionCatalogId, type MotionGroupName, isMotionCatalogId, selectMotionFromGroup } from '@/motion/catalog';
+import { motionAssetManager } from '@/motion/pipeline/motionAssetManager';
+import { resolveMotionUrl } from '@/motion/motionResolver';
 import { preloadWebLLM, unloadWebLLM } from '@/llm/webLLMProvider';
 import { isHeavyPreloadAllowed, isLlmPreloadAllowed } from '@/lib/heavyPreload';
 import { APP_CONFIG, type LightConfig, type VocalAudioConfig, type VocalPresetKey } from '@/config';
 import { loadPostFxEnabledFromStorage, getRenderPixelRatio, resolveInitialSceneTheme } from '@/lib/utils';
 import { isMobile, isTauri } from '@/lib/platform';
+import { registerGpuReleaser, releaseRendererGpu } from './gpuRelease';
+import { PREWARM_BUDGET_MS, PREWARM_EXTENSIONS, runTimeSliced, warmExtensions } from './gpuPrewarm';
 import type { Lang } from '@/i18n';
 import { langFromSystemPrompt } from '@/llm/prompts';
 
@@ -32,6 +38,8 @@ import { langFromSystemPrompt } from '@/llm/prompts';
 import { LineworkWorld } from './scene/lineworkWorld';
 import { Beach3DWorld } from './scene/beach3d/beach3dWorld';
 import { VoidWorld } from './scene/void/voidWorld';
+import type { EnvironmentTimeMode, EnvironmentTimeOptions, EnvironmentTimeState } from './scene/environmentTime';
+import { resolveEffectiveHour } from './scene/beach3d/beach3dTime';
 import type { SceneThemeId, LineworkTheme } from '@/types/config';
 import { passthroughManager } from './scene/passthroughManager';
 import { StudioLighting } from './lighting/studioLighting';
@@ -47,8 +55,17 @@ import {
 import { BubbleTracker, type BubbleState } from './ui/bubbleTracker';
 import { InteractionController } from './interaction/interactionController';
 import { WindForceController } from './wind/windForce';
+import { bindBustArmContact, clearBustArms, updateBustArmContact } from './contact/bustArmContact';
+import { applyBustClothFit, bustJointHitRadius } from './spring/bustClothFit';
 import { CharacterShadowSystem } from './scene/characterShadow';
 import { adjustZoomInWhileClamped, solveGroundClamp, visibleRatioCap } from './camera/groundClamp';
+import { cameraDirector } from './scene/cameraDirector';
+import { ViewReturner, VIEW_RETURN_MS, type ViewPose } from './scene/viewReturn';
+import { captureViewPrefs, restoreViewPrefs, type ViewPrefsSnapshot } from './viewPrefs';
+import type { CameraDirective } from '@/story/schema';
+import { expressionController, type SupportedExpression } from './morph/expressionController';
+import { VRMTexturePool, extractParserImageHashes } from './texturePool';
+import { StaggeredDisposer } from './staggeredDisposer';
 import {
   captureExpressions,
   restoreExpressions,
@@ -60,6 +77,7 @@ import {
 
 export type {
   BubbleState,
+  TurnState,
   MaterialSaturationSettings,
   MaterialSaturationPresetKey,
   ModelPartDefinition,
@@ -209,9 +227,17 @@ function computeDefaultCameraPosition(fovDeg: number): [number, number, number] 
  * `removeUnnecessaryJoints` is deprecated; `combineSkeletons` replaced it.
  */
 function applyVrmUtilsOptimizations(scene: THREE.Object3D, vrm: VRM): void {
+  // 在 combineMorphs 烘焙合并形态前，先完成预设表情解耦 (嘴巴大笑与眯眼剥离)，
+  // 确保 combineMorphs 烘焙出的 'happy' / 'relaxed' 形态中眼睛 100% 睁开、0 眯眼！
+  expressionController.ensureDecoupledExpressions(vrm);
   VRMUtils.removeUnnecessaryVertices(scene);
   VRMUtils.combineSkeletons(scene);
   VRMUtils.combineMorphs(vrm);
+}
+
+export interface SwapOutfitOptions {
+  /** 是否在换装成功且非对话时自动播放 showFullBody 展示动作（默认 true，冷启动时自动为 false） */
+  showcase?: boolean;
 }
 
 export class VRMEngine {
@@ -256,6 +282,11 @@ export class VRMEngine {
   private get vrmaPlayer() { return this.motionPipeline.vrma; }
   private get bodyTurn() { return this.motionPipeline.bodyTurn; }
   public readonly bodyMorph = new VRMBodyMorph(APP_CONFIG.bodyMorph.default);
+  /** 冷启动内存登记的历史 bodyYaw 偏角（用于进入时先正脸迎客招手推镜头，结束后自然迈步转身复位） */
+  private _pendingColdStartTargetYaw: number | null = null;
+  private _coldStartIntroTimer: ReturnType<typeof setTimeout> | null = null;
+  private _coldStartTurnTimer: ReturnType<typeof setTimeout> | null = null;
+  private rawHitRadiusMap = new WeakMap<object, number>();
   // ponytail: 后期管线单例 — attachCanvas 时 init,render() 走 composer
   public readonly postFx: PostFxPipeline = postFxPipeline;
   // ponytail: dev 探针 (浏览器 console 调试用),生产不影响 bundle tree-shake
@@ -272,6 +303,11 @@ export class VRMEngine {
 
   public getControls(): OrbitControls | null {
     return this.controls;
+  }
+
+  /** 剧情环境风力 0~3 (0 = 无风)，叠加在运镜阵风之上 (取较大者)。剧终传 0 复位。 */
+  public setStoryWind(level: number): void {
+    this.windForce.setAmbientWindLevel(level);
   }
 
   public getCamera(): THREE.PerspectiveCamera | null {
@@ -291,6 +327,12 @@ export class VRMEngine {
     });
   }
   private chatDirector = new ChatDirector();
+  private texturePool = new VRMTexturePool();
+  private staggeredDisposer = new StaggeredDisposer();
+
+  public get texturePoolStats() {
+    return this.texturePool.getStats();
+  }
 
   // ── 实体状态 ──
   public currentVRM: VRM | null = null;
@@ -413,6 +455,9 @@ export class VRMEngine {
       return new VRMLoaderPlugin(parser, { mtoonMaterialPlugin: mtoonPlugin });
     });
     this.initScene();
+    if (typeof window !== 'undefined') {
+      (window as any).__VRM_ENGINE__ = this;
+    }
   }
 
   // ── Facade 门面属性代理 (保障外部 100% 零破坏兼容) ──
@@ -430,6 +475,13 @@ export class VRMEngine {
 
   public set onBubbleChange(cb: ((state: BubbleState) => void) | undefined) {
     this.bubbleTracker.onBubbleChange = cb;
+  }
+
+  /**
+   * 订阅 3D 头部/状态气泡变更 (支持多组件并行监听)
+   */
+  public subscribeBubbleChange(cb: (state: BubbleState) => void): () => void {
+    return this.bubbleTracker.subscribe(cb);
   }
 
   public getCurrentUrl(): string {
@@ -521,6 +573,18 @@ export class VRMEngine {
     this.resumeForeground();
   };
 
+  /**
+   * Hard-release the engine's GL context (renderer.dispose + WEBGL_lose_context). Idempotent. Called from the
+   * non-bfcache `pagehide` (see gpuRelease.ts) and from dispose(). The render loop is stopped first so nothing draws
+   * on the lost context; resumeRendering() refuses to restart afterwards.
+   */
+  public releaseGpu(): void {
+    if (this._gpuReleased) return;
+    this._gpuReleased = true;
+    this.suspendRendering();
+    if (this.renderer) releaseRendererGpu(this.renderer, { loseContext: true });
+  }
+
   /** 仅当前台可见时恢复；后台 pageshow/resume 不把 GPU 叫醒。 */
   private resumeForeground(): void {
     if (typeof document !== 'undefined' && document.hidden) return;
@@ -542,6 +606,7 @@ export class VRMEngine {
   }
 
   public resumeRendering(): void {
+    if (this._gpuReleased) return;
     // /embed: 宿主 xc.pause 期间, 前台恢复/pageshow 也不唤醒渲染 (宿主 xc.resume 才放行)
     if (this.hostPaused) return;
     if (!this.isRenderingSuspended && this.animFrameId !== null) {
@@ -569,8 +634,27 @@ export class VRMEngine {
     if (this.cinematicIntroRafId === null) return false;
     cancelAnimationFrame(this.cinematicIntroRafId);
     this.cinematicIntroRafId = null;
-    if (this.controls) this.controls.enabled = true;
+    if (this.controls) {
+      this.controls.enabled = true;
+      this.controls.update();
+    }
     return true;
+  }
+
+  /**
+   * 取消冷启动待机迎客演出（推镜头与延迟迈步复位），将控制权无延迟归还给用户
+   */
+  public cancelColdStartWelcoming(): void {
+    if (this._coldStartIntroTimer !== null) {
+      clearTimeout(this._coldStartIntroTimer);
+      this._coldStartIntroTimer = null;
+    }
+    if (this._coldStartTurnTimer !== null) {
+      clearTimeout(this._coldStartTurnTimer);
+      this._coldStartTurnTimer = null;
+    }
+    this._pendingColdStartTargetYaw = null;
+    this.cancelCinematicIntro();
   }
 
   // ── 宿主相机覆盖 (/embed 的 camera 选项) ──
@@ -631,7 +715,25 @@ export class VRMEngine {
     }
   }
 
-  public cinematicIntro(durationMs: number = 1100): void {
+  /**
+   * 将相机设置在入场全景预备机位 (中远景)，为开屏 greeting 留出全身视距，并在之后平滑推向特写
+   */
+  public prepareCinematicCamera(multiplier = 2.0): void {
+    const camera = this.camera;
+    const controls = this.controls;
+    if (!camera || !controls || this.cameraOverride.intro === false) return;
+    const finalTarget = controls.target.clone();
+    const { pitch, distance: dist } = this.resolveShot(true);
+    const finalPos = new THREE.Vector3(...computeCameraPositionFromPitch(pitch, dist, finalTarget));
+    const offset = finalPos.clone().sub(finalTarget);
+    const startPos = finalTarget.clone().add(offset.clone().multiplyScalar(multiplier));
+    camera.position.copy(startPos);
+    camera.lookAt(finalTarget);
+    controls.target.copy(finalTarget);
+    controls.update();
+  }
+
+  public cinematicIntro(durationMs: number = 1100, multiplier = 2.0): void {
     const camera = this.camera;
     const controls = this.controls;
     if (!camera || !controls) return;
@@ -655,10 +757,14 @@ export class VRMEngine {
     // 再跳到 startPos 准备推进。
     camera.position.copy(finalPos);
     controls.target.copy(finalTarget);
-    // 沿 finalPos→finalTarget 反方向 ×3.3 = 从同视角的远处起步,VRM 一开始是个小点
+    // 从同视角的较远机位起步推进
     const offset = finalPos.clone().sub(finalTarget);
-    const startPos = finalTarget.clone().add(offset.clone().multiplyScalar(3.3));
-    camera.position.copy(startPos);
+    const startPos = finalTarget.clone().add(offset.clone().multiplyScalar(multiplier));
+    // 若当前相机已处于中远景预备机位，则以当前位置为起点无缝推近；否则跳到 startPos 推进
+    const fromPos = camera.position.distanceTo(finalTarget) > dist * 1.15
+      ? camera.position.clone()
+      : startPos;
+    camera.position.copy(fromPos);
     camera.lookAt(finalTarget);
     controls.target.copy(finalTarget);
     const wasEnabled = controls.enabled;
@@ -669,7 +775,7 @@ export class VRMEngine {
       this.cinematicIntroRafId = null;
       const t = Math.min(1, (performance.now() - startTime) / durationMs);
       const eased = easeOutCubic(t);
-      camera.position.lerpVectors(startPos, finalPos, eased);
+      camera.position.lerpVectors(fromPos, finalPos, eased);
       camera.lookAt(finalTarget);
       if (t < 1) {
         this.cinematicIntroRafId = requestAnimationFrame(tick);
@@ -701,6 +807,7 @@ export class VRMEngine {
     this.lineworkWorld.attach(this.scene);
     // 海滩 3D: 挂进场景 (默认不可见, 首次进入时才构建); 太阳方向取主方向光
     this.beach3d.attach(this.scene, this.lighting.dirLight);
+    this.beach3d.setEnvironmentTime(this._environmentTime);
     // 虚空场景: 挂进场景 (默认不可见, 首次进入时才构建浮游微尘)
     this.voidWorld.attach(this.scene);
     // 夜空需要知道后期调色参数, 以反向补偿 OutputPass 对深色的压黑 (保证与 CSS 渐变同色)
@@ -712,6 +819,28 @@ export class VRMEngine {
     this.chatDirector.onSuspendRendering = () => this.suspendRendering();
     this.chatDirector.onResumeRendering = () => this.resumeRendering();
     this.chatDirector.setOnEnd(() => this.bubbleTracker.hide());
+    this.chatDirector.onSpeakingChange = (speaking) => {
+      this.speakingListeners.forEach((cb) => {
+        try { cb(speaking); } catch (e) { console.error(e); }
+      });
+    };
+    this.chatDirector.onTurnStateChange = (state) => {
+      this.turnStateListeners.forEach((cb) => {
+        try { cb(state); } catch (e) { console.error(e); }
+      });
+    };
+
+    // 绑定电影级镜头调度器 (采用 getControls 动态取用，防止 constructor 时期 controls 为 null)
+    cameraDirector.bind({
+      camera: this.camera,
+      getControls: () => this.controls,
+      controls: this.controls,
+      getVRM: () => this.currentVRM,
+      getSunDirection: () => this.lighting.dirLight.position.clone().normalize(),
+      onApplyGroundClamp: () => this.applyGroundClamp(null),
+      setWindMultiplier: (mult) => this.windForce.setGustMultiplier(mult),
+      getDefaultFov: () => this.cameraOverride.fov ?? APP_CONFIG.camera.defaultFov,
+    });
   }
 
   /**
@@ -858,6 +987,8 @@ export class VRMEngine {
   }
 
   private handleContextLost = (event: Event): void => {
+    // GPU 已被主动释放 (releaseGpu): 丢上下文是预期内的, 不要去动渲染循环状态
+    if (this._gpuReleased) return;
     event.preventDefault();
     console.warn('[VRMEngine] WebGL context lost. Suspending rendering loop...');
     this.isRenderingSuspended = true;
@@ -868,6 +999,8 @@ export class VRMEngine {
   };
 
   private handleContextRestored = (): void => {
+    // GPU 已被主动释放: 不能在这里把渲染器又建回来 (会白占显存, 还会把渲染循环重新拉起)
+    if (this._gpuReleased) return;
     console.info('[VRMEngine] WebGL context restored. Recreating renderer context...');
     try {
       this.recreateRendererContext();
@@ -930,7 +1063,9 @@ export class VRMEngine {
       this.controls = null;
     }
     if (this.renderer) {
-      this.renderer.dispose();
+      // A different canvas means the old context is orphaned: lose it now instead of waiting for GC. Never lose it
+      // when the SAME canvas is re-attached, the new renderer would get that dead context back.
+      releaseRendererGpu(this.renderer, { loseContext: !!this.canvas && this.canvas !== canvas });
       this.renderer = null;
     }
     if (this.canvas && this.canvas !== canvas) {
@@ -955,6 +1090,9 @@ export class VRMEngine {
 
     this.bindBatteryPowerPreference();
     this.renderer = new THREE.WebGLRenderer(this.getRendererContextAttributes());
+    this._gpuReleased = false;
+    this._unregisterGpuRelease?.();
+    this._unregisterGpuRelease = registerGpuReleaser(() => this.releaseGpu());
     this._rendererContextKey = this.rendererContextKey();
     this.renderer.setClearColor(0x000000, 0);
 
@@ -1037,6 +1175,16 @@ export class VRMEngine {
     });
     setTimeout(() => { cameraSaveReady = true; }, 2000);
 
+    // 用户主动操作 OrbitControls (滚轮缩放或指针交互) 立即让位
+    this.controls.addEventListener('start', () => {
+      this.cancelColdStartWelcoming();
+    });
+
+    const onCanvasWheel = () => {
+      this.cancelColdStartWelcoming();
+    };
+    canvas.addEventListener('wheel', onCanvasWheel, { passive: true });
+
     window.addEventListener('resize', this.handleResize);
     this.__dev_expose_once();
 
@@ -1051,6 +1199,7 @@ export class VRMEngine {
       onSaveBodyYaw: () => this.saveCurrentBodyYaw(),
       onSaveCameraPitch: () => this.saveCurrentCameraPitch(),
       onSetCameraYOffset: (offset) => this.setCameraYOffset(offset),
+      onUserInteractionStart: () => this.cancelColdStartWelcoming(),
     });
 
     if (this.canvas) {
@@ -1071,7 +1220,7 @@ export class VRMEngine {
       const storedTheme = resolveInitialSceneTheme();
       this.setScene(storedTheme, false);
       this.startAnimation();
-      this.cinematicIntro(1100);
+      this.prepareCinematicCamera(2.0);
     } else if (this.currentVRM || this._sceneInitialized) {
       this.startAnimation();
     }
@@ -1081,7 +1230,34 @@ export class VRMEngine {
 
   /** 保存当前人物 bodyTurn 目标自转偏角 */
   public saveCurrentBodyYaw(): void {
-    persistBodyYaw(this.motionPipeline.targetYawOffset);
+    if (this._coldStartTurnTimer !== null) {
+      clearTimeout(this._coldStartTurnTimer);
+      this._coldStartTurnTimer = null;
+    }
+    this._pendingColdStartTargetYaw = null;
+    const normalizedYaw = THREE.MathUtils.euclideanModulo(this.motionPipeline.targetYawOffset + Math.PI, Math.PI * 2) - Math.PI;
+    this.motionPipeline.targetYawOffset = normalizedYaw;
+    persistBodyYaw(normalizedYaw);
+  }
+
+  /**
+   * 让镜头背对角色并保持她静止 (用于序章电影级初醒演出)：角色保持世界正前方朝向，
+   * 相机绕她搬到正后方 (方位角 π)，之后 orbit_to_front 环绕回方位角 0 即她的正面，与 fitCamera 的默认方位一致。
+   */
+  public setFacingBackwards(): void {
+    if (!this.currentVRM) return;
+    this.motionPipeline.setFacingBackwards(this.currentVRM, this.camera);
+    if (this.controls) {
+      this.camera.lookAt(this.controls.target);
+      this.controls.update();
+    }
+    this.currentVRM.scene.updateMatrixWorld(true);
+    this.settleSpringBones(this.currentVRM);
+  }
+
+  /** 触发角色转身面向镜头 (激活 4-phase stepping FSM 迈步转身) */
+  public triggerBodyTurnToFront(): void {
+    this.motionPipeline.triggerBodyTurnToFront();
   }
 
   /** 保存当前相机垂直俯仰角与视距 */
@@ -1098,12 +1274,31 @@ export class VRMEngine {
 
   /**
    * 将持久化的人物 bodyTurn 目标角度还原至 VRM 实例与动作管线
+   * @param isColdStart 是否为冷启动。仅当历史偏角在背面半球（不在镜头视线范围内，|yaw| > 90°）时，才先正脸迎客招手，结束后自然迈步转回；若本来就在正面视线内，直接保持朝向迎客
    */
-  private applySavedBodyYawToVRM(vrm: VRM): void {
-    const savedYaw = loadSavedBodyYaw();
-    if (savedYaw !== null) {
+  private applySavedBodyYawToVRM(vrm: VRM, isColdStart = false): void {
+    const rawSavedYaw = loadSavedBodyYaw();
+    if (rawSavedYaw !== null) {
       const isVrm0 = vrm.meta?.metaVersion === '0';
       const baseYaw = isVrm0 ? Math.PI : 0;
+      // 规范化到 [-π, π] 最短角空间，杜绝累计圈数导致转一整圈
+      const savedYaw = THREE.MathUtils.euclideanModulo(rawSavedYaw + Math.PI, Math.PI * 2) - Math.PI;
+
+      // 视线范围判定：仅当历史偏角绝对值 > 90° (Math.PI * 0.5 ≈ 1.57 rad) 时，角色才处于背面（背对镜头看不到脸）
+      // 此时才需要在冷启动时先正面迎客招手，待招手完成后由 bodyTurn 迈步转回背面；
+      // 若在正面 180° 视线区内（|savedYaw| <= π/2），角色本来就在正面/侧面视线范围内，头部 Gaze 可自然看向镜头，
+      // 直接在原位迎客，绝不平白无故转圈！
+      const isFacingBackwards = Math.abs(savedYaw) > Math.PI * 0.5;
+
+      if (isColdStart && isFacingBackwards) {
+        this._pendingColdStartTargetYaw = savedYaw;
+        vrm.scene.rotation.y = baseYaw;
+        this.motionPipeline.targetYawOffset = 0;
+        this.motionPipeline.resetLocomotion();
+        return;
+      }
+
+      this._pendingColdStartTargetYaw = null;
       vrm.scene.rotation.y = baseYaw + savedYaw;
       this.motionPipeline.targetYawOffset = savedYaw;
       this.motionPipeline.resetLocomotion();
@@ -1133,12 +1328,24 @@ export class VRMEngine {
         if (u) for (const uk in u) { const v = u[uk]?.value; if (v && (v as THREE.Texture).isTexture) textures.add(v); }
       }
     });
-    let since = performance.now();
-    for (const t of textures) {
-      if ((t as any).isRenderTargetTexture) continue;
-      try { renderer.initTexture(t); } catch { /* first render uploads it instead */ }
-      if (performance.now() - since > 12) { await yieldToMain(); since = performance.now(); }
+    const aborted = () => this._gpuReleased || this.renderer !== renderer;
+    const onSlow = (label: string, ms: number) => {
+      if (import.meta.env?.DEV) console.debug(`[VRMEngine] prewarm: ${label} took ${Math.round(ms)}ms (sync GPU call)`);
+    };
+    // gl.getExtension is a synchronous round trip to the GPU process and, right after a reload, can queue behind the
+    // previous document's teardown (seen: ~11 s inside the first initTexture). Touch the lazily-queried extensions
+    // one per task, once per renderer, so a stall is isolated to one step and never gates the whole texture upload.
+    if (!this._extWarmed.has(renderer)) {
+      this._extWarmed.add(renderer);
+      await warmExtensions(renderer.extensions, PREWARM_EXTENSIONS, { yieldFn: yieldToMain, aborted, onSlow });
     }
+    // Texture uploads in ~PREWARM_BUDGET_MS slices, yielding to the loop between slices.
+    await runTimeSliced(
+      Array.from(textures).filter((t) => !(t as any).isRenderTargetTexture),
+      (t) => renderer.initTexture(t),
+      { budgetMs: PREWARM_BUDGET_MS, yieldFn: yieldToMain, aborted, onSlow },
+    );
+    if (aborted()) return;
     await yieldToMain();
     // three r18x silently downgrades PCFSoftShadowMap to PCFShadowMap inside the first shadow render; apply the same
     // downgrade up front, otherwise every precompiled program's cache key (shadowMapType) misses and relinks.
@@ -1287,6 +1494,11 @@ export class VRMEngine {
   }
 
   private _beachPrewarmed = false;
+  /** True once the GL context was explicitly released (page unload / dispose). The renderer is unusable afterwards. */
+  private _gpuReleased = false;
+  private _unregisterGpuRelease: (() => void) | null = null;
+  /** Renderers whose lazily-queried GL extensions were already touched by prewarmGpu. */
+  private _extWarmed = new WeakSet<object>();
   private _pendingScene: SceneThemeId | null = null;
 
   public setScene(theme: SceneThemeId, persist: boolean = true): void {
@@ -1340,6 +1552,20 @@ export class VRMEngine {
     this.shadow.updateOpacity(isDark);
   }
 
+  private _environmentTime: EnvironmentTimeMode | number = (() => {
+    if (typeof localStorage !== 'undefined') {
+      try {
+        const saved = localStorage.getItem('xiaochun_environment_time');
+        if (saved) {
+          const num = parseFloat(saved);
+          if (!isNaN(num) && saved.trim() === String(num)) return num;
+          if (['auto', 'weeHours', 'dawn', 'noon', 'dusk', 'day', 'sunset', 'night'].includes(saved)) return saved as EnvironmentTimeMode;
+        }
+      } catch {}
+    }
+    return 'auto';
+  })();
+
   /**
    * 切场景时同步背景: beach3d 背景层显隐; 灯色 (StudioLighting.applyTheme) 与角色落影配色 (CharacterShadowSystem.applyTheme)
    *   重置为所有场景共用的默认值, 没有场景专属的灯光 / 落影微调。
@@ -1347,9 +1573,79 @@ export class VRMEngine {
    */
   private syncSceneBackdrop(theme: SceneThemeId): void {
     this.beach3d.setActive(theme === 'beach3d');
+    if (theme === 'beach3d') {
+      this.beach3d.setEnvironmentTime(this._environmentTime);
+      if (typeof window !== 'undefined') {
+        window.dispatchEvent(new CustomEvent('environment-time-changed', { detail: this._environmentTime }));
+      }
+    }
+    // 场景退场时先把"接管灯光"还回去 (否则 beach 的主光会漏到别的场景)
+    this.lighting.clearEnvironmentLight();
+    this.shadow.setOpacityScale(1);
     this.lighting.applyTheme(theme);
     this.shadow.applyTheme(theme);
     this.chatDirector.vocalProcessor.applySceneTheme(theme);
+  }
+
+  /**
+   * 把当前激活场景提供的光照 (太阳 / 月亮的方向与颜色) 应用到引擎主光。
+   * 角色 (MToon) 与角色脚下落影都用这套主光, 于是角色的影子和场景里椅子、棕榈、沙堡的影子指向同一边。
+   * 没有提供光照的场景 (void / light / transparent) 走默认摄影棚灯。
+   */
+  private applyEnvironmentLight(): void {
+    if (!this.beach3d.isActive()) {
+      this.lighting.clearEnvironmentLight();
+      this.shadow.setOpacityScale(1);
+      return;
+    }
+    this.beach3d.updateEnvironmentTime();
+    const light = this.beach3d.getEnvironmentLight();
+    this.lighting.applyEnvironmentLight(light);
+    this.shadow.setOpacityScale(light.keyScale);
+  }
+
+  /**
+   * 通用场景环境时间调度接口
+   * 引擎保持通用抽象，不绑定任何具体场景名词；
+   * 若当前激活场景支持时间（如 beach3d），则实时分发响应；未来新增场景可直接并列接入。
+   */
+  public setEnvironmentTime(time: EnvironmentTimeMode | number, options?: EnvironmentTimeOptions): void {
+    this._environmentTime = time;
+    if (typeof localStorage !== 'undefined' && !options?.isDragging) {
+      try {
+        localStorage.setItem('xiaochun_environment_time', String(time));
+      } catch {}
+    }
+    if (this.beach3d.isActive()) {
+      this.beach3d.setEnvironmentTime(time, options);
+    }
+    if (typeof window !== 'undefined' && !options?.isDragging) {
+      window.dispatchEvent(new CustomEvent('environment-time-changed', { detail: time }));
+    }
+  }
+
+  /**
+   * 当前激活的场景是否支持环境时间变化
+   */
+  public isEnvironmentTimeSupported(): boolean {
+    return this.beach3d.isActive();
+  }
+
+  /**
+   * 读取当前环境时间状态（模式、当前生效小时、是否支持）
+   */
+  public getEnvironmentTime(): EnvironmentTimeState {
+    if (this.beach3d.isActive()) {
+      const state = this.beach3d.getEnvironmentTime();
+      return { ...state, isSupported: true };
+    }
+    const mode = typeof this._environmentTime === 'string'
+      ? this._environmentTime
+      : (this._environmentTime >= 6.5 && this._environmentTime < 16.5 ? 'day' : (this._environmentTime >= 16.5 && this._environmentTime < 19.5 ? 'sunset' : 'night'));
+    const hour = typeof this._environmentTime === 'number'
+      ? this._environmentTime
+      : resolveEffectiveHour(this._environmentTime);
+    return { mode, currentHour: hour, isSupported: false };
   }
 
   public getLineworkTheme(): LineworkTheme {
@@ -1417,6 +1713,9 @@ export class VRMEngine {
   // ── 骨骼体型微调系统 (Bone Morphing) ──
   public setBodyPartScale(part: import('@/config').BodyMorphPartKey, value: number): void {
     this.bodyMorph.setPart(part, value);
+    if (part.startsWith('bust')) {
+      this.applySpringBoneTuning();
+    }
     this.notifyHeightChange();
   }
 
@@ -1430,6 +1729,7 @@ export class VRMEngine {
 
   public resetBodyMorph(): void {
     this.bodyMorph.reset();
+    this.applySpringBoneTuning();
     this.notifyHeightChange();
   }
 
@@ -1448,6 +1748,7 @@ export class VRMEngine {
 
   public setBustScale(scale: number): void {
     this.bodyMorph.setPart('bust', scale);
+    this.applySpringBoneTuning();
   }
 
   public getBustScale(): number {
@@ -1468,6 +1769,35 @@ export class VRMEngine {
 
   public getEnableGaze(): boolean {
     return this.gazeController.enabled;
+  }
+
+  public setListening(listening: boolean): void {
+    if (listening) {
+      if (this.turnState === 'idle') {
+        this.setTurnState('listening');
+      }
+    } else {
+      if (this.turnState === 'listening') {
+        this.setTurnState('idle');
+      }
+    }
+  }
+
+  public isListening(): boolean {
+    return this.turnState === 'listening';
+  }
+
+  /**
+   * 设置全局动作过渡时长倍率 (基准为 0.75s ± 0.25s，默认 1.0)
+   */
+  public setCrossfadeScale(scale: number): void {
+    const s = Math.max(0.2, scale);
+    this.motionPipeline.crossfadeScale = s;
+    this.motionPipeline.listening.crossfadeScale = s;
+  }
+
+  public getCrossfadeScale(): number {
+    return this.motionPipeline.crossfadeScale;
   }
 
   /** DevDrawer / P0b: thin forward to EmagePlayer.getPerfSnapshot(). */
@@ -1517,6 +1847,8 @@ export class VRMEngine {
       const zoomBase = this.restoreGroundClamp();
       const changed = update(deltaTime);
       this.applyGroundClamp(zoomBase);
+      // 荷兰角 (dutch_tilt)：lookAt 重算朝向后，把导演指定的滚转叠加回去
+      cameraDirector.applyRoll();
       return changed;
     };
   }
@@ -1691,20 +2023,107 @@ export class VRMEngine {
     }
   }
 
-  public setExpression(name: string): void {
+  public setExpression(name: SupportedExpression | string, intensity?: number): void {
     if (!this.currentVRM?.expressionManager) return;
     this.manualExpression = name === 'neutral' ? null : name;
-    const mgr = this.currentVRM.expressionManager;
-    const presets: VRMExpressionPresetName[] = [
-      'happy', 'angry', 'sad', 'relaxed', 'surprised', 'neutral', 'aa', 'ih', 'ou', 'ee', 'oh'
-    ];
-    presets.forEach((p) => {
-      try { mgr.setValue(p, 0); } catch { }
-    });
-    if (name !== 'neutral') {
-      try { mgr.setValue(name as VRMExpressionPresetName, 1); } catch { }
+    expressionController.setExpression(name, intensity);
+  }
+
+  // ── 电影级运镜调度 ──
+  /**
+   * 电影级运镜调度：平滑过渡至指定景别与轨迹动势
+   */
+  public async transitionCamera(directive: CameraDirective): Promise<void> {
+    await cameraDirector.transitionTo(directive);
+  }
+
+  /**
+   * 重置镜头机位至默认自由机位 (平滑回正至初始取景姿态并恢复自由控制)
+   */
+  public async resetCamera(durationMs: number = VIEW_RETURN_MS): Promise<void> {
+    await this.returnToDefaultView(durationMs);
+  }
+
+  // ── 退出故事 / 运镜后回到“刷新页面后的默认视角” ──
+  private readonly _viewReturner = new ViewReturner(() => ({
+    camera: this.camera,
+    controls: this.controls,
+    director: cameraDirector,
+    computeView: () => this.computeRefreshView(),
+    settle: () => {
+      this.fitCamera(true);
+      this.renderSingleFrame();
+    },
+    restoreFacing: () => this.restoreDefaultFacing(),
+    setHoldFacing: (hold) => {
+      this._holdFacingForViewReturn = hold;
+    },
+    cancelIntro: () => void this.cancelCinematicIntro(),
+  }));
+  private _holdFacingForViewReturn = false;
+
+  /** 记录用户的视角偏好 (角色偏角 / 镜头俯仰视距 / 相机 Y 偏移)，故事结束时用 restoreViewPrefs 还原 */
+  public captureViewPrefs(): ViewPrefsSnapshot {
+    return captureViewPrefs();
+  }
+
+  public restoreViewPrefs(snap: ViewPrefsSnapshot): void {
+    restoreViewPrefs(snap);
+  }
+
+  /**
+   * 刷新页面后 fitCamera(true) 会落到的机位 (不改动任何状态)：
+   * target = 头骨下 0.25m；俯仰 / 视距 = 保存值或默认取景；再叠加相机 Y 偏移；FOV = 宿主覆盖或默认。
+   */
+  private computeRefreshView(): Omit<ViewPose, 'roll'> | null {
+    const head = this.currentVRM?.humanoid?.getNormalizedBoneNode('head');
+    if (!head || !this.controls) return null;
+    const p = new THREE.Vector3();
+    head.getWorldPosition(p);
+    const target = new THREE.Vector3(p.x, p.y - 0.25, p.z);
+    const { pitch, distance } = this.resolveShot(true);
+    const position = new THREE.Vector3(...computeCameraPositionFromPitch(pitch, distance, target));
+    let yOffset = this.cameraOverride.height ?? 0;
+    if (this.cameraOverride.height === undefined && typeof window !== 'undefined') {
+      try {
+        const raw = window.localStorage.getItem(CAMERA_Y_OFFSET_KEY);
+        const v = raw === null ? 0 : Number(raw);
+        if (Number.isFinite(v)) yOffset = v;
+      } catch { /* ignore */ }
     }
-    mgr.update();
+    target.y += yOffset;
+    position.y += yOffset;
+    return { position, target, fov: this.cameraOverride.fov ?? APP_CONFIG.camera.defaultFov };
+  }
+
+  /** 角色朝向回到默认：保存的自转偏角，没有则正对镜头 (与刷新后一致)。bodyTurn 会自然迈步转回去。 */
+  private restoreDefaultFacing(): void {
+    const saved = loadSavedBodyYaw();
+    this.motionPipeline.targetYawOffset = saved === null
+      ? 0
+      : THREE.MathUtils.euclideanModulo(saved + Math.PI, Math.PI * 2) - Math.PI;
+  }
+
+  /** 中止进行中的回正 (新故事开始时调用，避免与导演运镜抢相机) */
+  public cancelViewReturn(): void {
+    this._viewReturner.cancel();
+  }
+
+  /**
+   * 平滑回到刷新页面后的默认视角 (默认 ~1s)：位置 / 目标点 / FOV / 视距 / 荷兰角滚转一起缓动，
+   * 导演放手 (运镜、阵风倍率、滚转、FOV 覆盖全部清掉)，最后用 fitCamera(true) 落到与刷新完全一致的机位，
+   * 并把角色朝向 (targetYawOffset) 还原为默认。回正期间相机方位的变化不会带动 bodyTurn。
+   * 环境时间 / 场景不动。
+   */
+  public returnToDefaultView(durationMs: number = VIEW_RETURN_MS): Promise<void> {
+    return this._viewReturner.run(durationMs);
+  }
+
+  /**
+   * 裙摆脚踝自下而上缓缓打量人物的电影级升降运镜
+   */
+  public async panUpRevealCamera(durationSec = 2.2): Promise<void> {
+    await cameraDirector.panUpReveal(durationSec);
   }
 
   // ── 模型生命周期加载 ──
@@ -1716,7 +2135,7 @@ export class VRMEngine {
    */
   public loadVRM(
     url: string,
-    filename = '小蠢 (xiaochun_v1)',
+    filename = 'XiaoChun (xiaochun_v1)',
     options: LoadVRMOptions = {},
   ): Promise<VRM> {
     const preserveMotion = !!options.preserveMotion;
@@ -1726,7 +2145,7 @@ export class VRMEngine {
     // ponytail: 非 preserveMotion 时(冷启动/完全重置)，立即清理旧模型并归零动作
     if (this.currentVRM && !preserveMotion) {
       this.scene.remove(this.currentVRM.scene);
-      VRMUtils.deepDispose(this.currentVRM.scene);
+      this.staggeredDisposer.enqueueScene(this.currentVRM.scene, this.texturePool);
       this.currentVRM = null;
       this.notifyReady(false);
       this.vrmaPlayer.stop();
@@ -1763,9 +2182,21 @@ export class VRMEngine {
           }
 
           const asyncInit = !preserveMotion;
-          if (asyncInit) await yieldToMain();
+          await yieldToMain();
           applyVrmUtilsOptimizations(gltf.scene, vrm);
-          if (asyncInit) await yieldToMain();
+          await yieldToMain();
+
+          // 贴图智能共享与去重：重用头部/五官/发丝已驻留显存的纹理 (零冗余上传与显存节省)
+          try {
+            const imageHashes = await extractParserImageHashes(gltf.parser);
+            const dedupStats = this.texturePool.deduplicateModel(vrm, gltf.parser, imageHashes);
+            if (dedupStats.sharedCount > 0) {
+              console.log(`[VRMEngine] 贴图去重命中: 复用 ${dedupStats.sharedCount} 张共享贴图，新增 ${dedupStats.uniqueCount} 张`);
+            }
+          } catch (e) {
+            console.warn('[VRMEngine] 贴图去重异常 (不影响正常加载):', e);
+          }
+          await yieldToMain();
 
           vrm.scene.traverse((obj) => {
             obj.frustumCulled = false;
@@ -1805,9 +2236,9 @@ export class VRMEngine {
           });
 
           // 委托材质管理器进行 MToon 优化与 Shader 注入
-          if (asyncInit) await yieldToMain();
+          await yieldToMain();
           this.materialManager.optimize(vrm);
-          if (asyncInit) await yieldToMain();
+          await yieldToMain();
           VRMUtils.rotateVRM0(vrm);
           vrm.scene.position.set(0, 0, 0);
           if (vrm.meta?.metaVersion !== '0') {
@@ -1829,6 +2260,12 @@ export class VRMEngine {
 
           // ponytail: 无缝换装核心时序 —— 旧模型全速运动直到此时，新模型在内存就绪后原子交接
           if (preserveMotion && previousVrm) {
+            // 兜底：解析期间 currentVRM 已被别的加载换掉 (理论上 swapOutfit 串行后不会发生) → 丢弃这个新模型，绝不再往场景里多挂一个
+            if (this.currentVRM !== previousVrm) {
+              this.staggeredDisposer.enqueueScene(vrm.scene, this.texturePool);
+              reject(new Error('[loadVRMFromBuffer] superseded: current model changed while parsing'));
+              return;
+            }
             // Outfit swap: upload the new model's textures and link its programs (yielding) while the old model keeps
             // animating, instead of inside the first renderSingleFrame after the atomic swap (~400–700 ms freeze).
             await this.prewarmGpu(vrm.scene);
@@ -1843,6 +2280,7 @@ export class VRMEngine {
 
             // 3. 将所有控制器重定向绑定到新模型
             this.motionPipeline.bind(vrm);
+            this.chatDirector.bindVRM(vrm);
             this.vrmaPlayer.resetHipsRest();
             this.motionPipeline.finalPose.sampleFromVRM(vrm);
             this.bodyMorph.bind(vrm);
@@ -1870,7 +2308,7 @@ export class VRMEngine {
 
             // 5. 同步原子切换：移除旧模型、挂入已处于正确动作姿势的新模型
             this.scene.remove(previousVrm.scene);
-            VRMUtils.deepDispose(previousVrm.scene);
+            this.staggeredDisposer.enqueueScene(previousVrm.scene, this.texturePool);
             this.currentVRM = vrm;
             this.scene.add(vrm.scene);
             this.notifyReady(true);
@@ -1901,11 +2339,15 @@ export class VRMEngine {
           this.notifyReady(true);
 
           this.motionPipeline.bind(vrm);
+          this.chatDirector.bindVRM(vrm);
           this.vrmaPlayer.resetHipsRest();
           this.motionPipeline.finalPose.sampleFromVRM(vrm);
           this.bodyMorph.bind(vrm);
+          if (!preserveMotion) {
+            expressionController.reset(vrm);
+          }
           this.applySpringBoneTuning(vrm);
-          this.applySavedBodyYawToVRM(vrm);
+          this.applySavedBodyYawToVRM(vrm, !preserveMotion);
           const initialBaseY = this.vrmBaseSceneY - this.footIK.getSinkOffset() + this.bodyMorph.getLegHeightDelta();
           vrm.scene.position.y = initialBaseY;
           this.motionPipeline.tick(vrm, {
@@ -1914,6 +2356,7 @@ export class VRMEngine {
             time: performance.now() * 0.001,
             enableBodyTurn: false,
             isSpeaking: false,
+            isListening: false,
             manualExpression: this.manualExpression,
           });
           vrm.scene.updateMatrixWorld(true);
@@ -1934,7 +2377,7 @@ export class VRMEngine {
             // Cold start: upload textures / link programs in yielding steps before the first frame.
             await this.prewarmGpu();
             this.startAnimation();
-            this.cinematicIntro(1100);
+            this.prepareCinematicCamera(2.0);
           } else if (this.controls) {
             this.fitCamera();
             this.renderSingleFrame();
@@ -1965,34 +2408,61 @@ export class VRMEngine {
   }
 
   /**
-   * 应用胸部等 SpringBone 动力学物理调优：
-   * 将 VRoid 官方默认的高刚度硬塑料参数 (stiffness 0.75) 优化为富有弹性、反应自然的仿生乳摇效果。
+   * Bust spring stiffness, arm colliders, and cloth fit.
+   * Joint hitRadius tracks the bust bone's world scale. Cloth clearance lives on the
+   * bust collider spheres, not on this radius.
    */
   public applySpringBoneTuning(vrm: VRM | null = this.currentVRM): void {
     const mgr = vrm?.springBoneManager;
-    if (!mgr) return;
+    if (!mgr || !vrm) return;
     const cfg = APP_CONFIG.springBone.bust;
+    const visualScale = this.bodyMorph.getBustVisualScale();
+
+    const armColliderGroups = mgr.colliderGroups.filter((cg) => {
+      const name = (cg.name ?? '').toLowerCase();
+      return name.includes('arm') || name.includes('hand');
+    });
+
     for (const joint of mgr.joints) {
       const name = joint.bone?.name ?? '';
       if (/bust/i.test(name)) {
         const isTip = /bust2/i.test(name);
-        joint.settings.stiffness = isTip ? cfg.stiffness * 0.85 : cfg.stiffness;
+        const tipRatio = cfg.tipStiffnessRatio ?? 0.9;
+        joint.settings.stiffness = isTip ? cfg.stiffness * tipRatio : cfg.stiffness;
         joint.settings.dragForce = cfg.dragForce;
         joint.settings.gravityPower = cfg.gravityPower;
-        if (cfg.hitRadius > 0) {
-          joint.settings.hitRadius = cfg.hitRadius;
+
+        if (!this.rawHitRadiusMap.has(joint)) {
+          const initialRadius = joint.settings.hitRadius > 0 ? joint.settings.hitRadius : cfg.hitRadius;
+          this.rawHitRadiusMap.set(joint, initialRadius);
+        }
+        const rawHitRadius: number = this.rawHitRadiusMap.get(joint)!;
+        joint.settings.hitRadius = bustJointHitRadius(rawHitRadius, visualScale);
+
+        // VRoid leaves bust colliderGroups empty, so the arm passes through the chest.
+        if (armColliderGroups.length > 0) {
+          const currentGroups = new Set(joint.colliderGroups);
+          for (const acg of armColliderGroups) {
+            currentGroups.add(acg);
+          }
+          joint.colliderGroups = Array.from(currentGroups);
         }
       }
     }
+
+    applyBustClothFit(vrm, visualScale, cfg.clothClearance);
+    bindBustArmContact(vrm);
     this.windForce.resetGravityCache();
   }
 
   /**
-   * 弹簧骨骼加载瞬间零速预热与碰撞松弛 (方案 B):
-   * 仅在模型上屏前瞬间在后台迭代 16 步小物理步长，解除大腿碰撞体穿透并清零初速度。
-   * 完全不改动任何日常物理参数 (stiffness, dragForce, gravityPower)，确保日常动感 100% 原汁原味。
+   * 弹簧骨骼加载瞬间零速预热与碰撞松弛 (两阶段防炸裙):
+   * 阶段一: 临时分离/清空碰撞体 (colliderGroups = []) 并 reset 骨骼，在重力场中零冲击下垂 8 步，消除初始大穿透与瞬移爆冲；
+   * 阶段二: 恢复碰撞体，迭代 16 步小物理步长，并在每步强制将 _prevTail 对齐 _currentTail，清空碰撞反弹累积动能。
+   * 确保无论是初次加载、换装原子交接、还是从黑幕/隐藏切回显示并 180 度调转朝向时，裙摆与发丝均能 100% 平稳落地，绝不狂甩。
    */
-  public settleSpringBones(vrm: VRM): void {
+  public settleSpringBones(vrm: VRM | null = this.currentVRM, disableCollidersFirst = true): void {
+    if (!vrm) return;
     const mgr = vrm.springBoneManager;
     if (!mgr) return;
 
@@ -2002,7 +2472,39 @@ export class VRMEngine {
       (joint as any).reset?.();
     }
 
+    // 1. 临时保存并断开所有 joint 的碰撞体组，避免瞬间深穿透引发物理爆炸推斥
+    const savedColliderGroups = new Map<any, any[]>();
+    if (disableCollidersFirst) {
+      for (const joint of mgr.joints) {
+        savedColliderGroups.set(joint, joint.colliderGroups);
+        joint.colliderGroups = [];
+      }
+    }
+
     const subDelta = 0.016;
+
+    // 阶段一: 无碰撞重力垂顺迭代 (8 步)，让布料自然沉降
+    const freeSteps = disableCollidersFirst ? 8 : 0;
+    for (let step = 0; step < freeSteps; step++) {
+      mgr.update(subDelta);
+      for (const joint of mgr.joints) {
+        const j = joint as unknown as { _currentTail?: THREE.Vector3; _prevTail?: THREE.Vector3 };
+        if (j._currentTail && j._prevTail) {
+          j._prevTail.copy(j._currentTail);
+        }
+      }
+      vrm.scene.updateMatrixWorld(true);
+    }
+
+    // 恢复碰撞体组
+    if (disableCollidersFirst) {
+      for (const joint of mgr.joints) {
+        const saved = savedColliderGroups.get(joint);
+        if (saved) joint.colliderGroups = saved;
+      }
+    }
+
+    // 阶段二: 开启碰撞体进行松弛贴合迭代 (16 步)，每步清零初速度 (prevTail = currentTail)
     for (let step = 0; step < 16; step++) {
       mgr.update(subDelta);
       for (const joint of mgr.joints) {
@@ -2022,6 +2524,7 @@ export class VRMEngine {
     stiffness?: number;
     dragForce?: number;
     gravityPower?: number;
+    tipStiffnessRatio?: number;
   }): void {
     if (!params) {
       this.applySpringBoneTuning();
@@ -2029,12 +2532,14 @@ export class VRMEngine {
     }
     const mgr = this.currentVRM?.springBoneManager;
     if (!mgr) return;
+    const cfg = APP_CONFIG.springBone.bust;
+    const tipRatio = params.tipStiffnessRatio ?? cfg.tipStiffnessRatio ?? 0.9;
     for (const joint of mgr.joints) {
       const name = joint.bone?.name ?? '';
       if (/bust/i.test(name)) {
         const isTip = /bust2/i.test(name);
         if (params.stiffness !== undefined) {
-          joint.settings.stiffness = isTip ? params.stiffness * 0.85 : params.stiffness;
+          joint.settings.stiffness = isTip ? params.stiffness * tipRatio : params.stiffness;
         }
         if (params.dragForce !== undefined) {
           joint.settings.dragForce = params.dragForce;
@@ -2140,9 +2645,19 @@ export class VRMEngine {
           if (res.ok) buf = await res.arrayBuffer();
         }
         if (buf) {
-          const clip = await this.vrmaPlayer.parseBufferToClip(buf, vrm);
-          this.motionPipeline.playThinkingClip(clip, vrm, 0.01);
-          this.vrmaPlayer.seek(state.vrmaTime);
+          const clip = await this.vrmaPlayer.parseBufferToClip(buf, vrm, { antiClip: true });
+          await this.motionPipeline.playMotion(
+            vrm,
+            clip,
+            {
+              loop: true,
+              fadeDuration: 0.01,
+              mask: 'all',
+              antiClip: true,
+            },
+            this.gazeController.getLookAtOffsets(),
+          );
+          this.motionPipeline.universalMotion.seek(state.vrmaTime);
         } else {
           this.motionPipeline.setIdleThinkSway(true);
         }
@@ -2162,7 +2677,7 @@ export class VRMEngine {
           buf = await res.arrayBuffer();
         }
         if (buf) {
-          const clip = await this.vrmaPlayer.parseBufferToClip(buf, vrm);
+          const clip = await this.vrmaPlayer.parseBufferToClip(buf, vrm, { antiClip: true });
           if (state.vrmaLoop) {
             this.vrmaPlayer.playLoop(clip, vrm, 0.01);
           } else {
@@ -2213,7 +2728,35 @@ export class VRMEngine {
    * 冷启动调到这里时 currentVRM 为 null,但 addon 路径仍然要走 (loadVRM 接 .vrmaddon URL 会挂),
    * 所以 addon 检测放在 currentVRM 检查之前。
    */
-  public async swapOutfit(url: string, filename: string): Promise<void> {
+  public swapOutfit(
+    url: string,
+    filename: string,
+    options?: SwapOutfitOptions,
+  ): Promise<boolean> {
+    // 并发安全：换装请求串行执行 + 最新请求优先 (generation token)。
+    // 之前两次换装可以并发跑：两个都以同一个 currentVRM 作为 previousVrm，各自 scene.add 自己的新模型，
+    // 先落地的那个新模型被后落地的覆盖 (currentVRM 指针丢了) 却仍留在场景里 → 手机连点两下出现多个模型。
+    // 现在：每次调用领一个递增 token；排队等候期间被更新的请求顶掉的 (token 已过期) 直接跳过 (resolve(false))；
+    // 正在跑的不会被打断 (半途取消会留下半截状态)，但 compose 完发现自己已过期会提前放弃，不再解析/上屏。
+    return this.swapQueue
+      .run((token) => this.swapOutfitNow(url, filename, options, token))
+      .then((r) => (r === SUPERSEDED ? false : r));
+  }
+
+  /** 是否有换装在跑或排队 (UI 用来禁用重复点击) */
+  public get isSwappingOutfit(): boolean {
+    return this.swapQueue.busy;
+  }
+
+  private swapQueue = new LatestWinsQueue();
+
+  /** 返回 true = 这次换装已落地；false = 被更新的请求顶掉 (没有改动场景) */
+  private async swapOutfitNow(
+    url: string,
+    filename: string,
+    options: SwapOutfitOptions | undefined,
+    token: number,
+  ): Promise<boolean> {
     // ponytail: addon URL 走 composeOutfit 路径(worker 内 unzip + 合成完整 GLB),
     // 普通 URL (.vrm / blob:) 走 loadVRM 直通。.vrmbase 是 cold-start 的 whole-glb zip,
     // 跟 .vrmaddon 走同一条 worker 通道。
@@ -2223,6 +2766,7 @@ export class VRMEngine {
     //   - onLoadingChange — 只在 preserveMotion=false 时发(冷启动),LoadingOverlay 用。
     //   中途换装 (preserveMotion=true) overlay 已被 loadVRM 跳过,只靠按钮反馈。
     const preserveMotion = this.currentVRM !== null;
+    const wasSpeakingOrThinkingAtStart = this.turnState === 'thinking' || this.turnState === 'speaking' || this.chatDirector.speaking;
     const phaseLabel = preserveMotion ? 'swappingOutfit' : 'loadingModel';
     const subtitleVars = { name: filename };
     if (!preserveMotion) {
@@ -2243,6 +2787,8 @@ export class VRMEngine {
         ) ?? null;
         const addonSha = addonKey ? APP_CONFIG.model.addons[addonKey].sha : '';
         const composed = await this.composeVRMFromAddon(url, addonSha, { phaseLabel, subtitleVars, preserveMotion });
+        // compose 期间又来了更新的请求：此刻还没动场景，直接放弃这份结果 (省掉解析 + GPU 预热 + 一次多余的换模型)
+        if (preserveMotion && !this.swapQueue.isLatest(token)) return false;
         if (!preserveMotion) {
           this.reportLoading({ active: true, subtitleKey: 'parsingModel', subtitleVars, progress: 45 });
         }
@@ -2263,6 +2809,16 @@ export class VRMEngine {
       } else {
         await this.loadVRM(url, filename, { preserveMotion: true });
         this.notifyOutfitChange('__upload__');
+      }
+
+      // 运行时换衣且当前未在对话/思考/倾听（且非会话中换装），自动从走秀动作组按权重随机抽取并展示
+      const isChatActive = this.turnState === 'thinking' || this.turnState === 'speaking' || this.turnState === 'listening' || this.chatDirector.speaking;
+      const shouldShowcase = preserveMotion && !wasSpeakingOrThinkingAtStart && !isChatActive && (options?.showcase ?? true);
+      if (shouldShowcase) {
+        const showcaseMotion = selectMotionFromGroup('outfitShowcase');
+        void this.playMotion(showcaseMotion, { fadeDuration: 0.6, loop: false }).catch((e) => {
+          console.warn('[vrmEngine] outfit showcase motion notice:', e);
+        });
       }
 
       // 冷启动阶段：等待 EMAGE 动作模型加载就绪，使 LoadingOverlay 的 04 动作管线就绪名副其实
@@ -2290,12 +2846,51 @@ export class VRMEngine {
           console.warn('[vrmEngine] cold-start emage load notice:', e);
         }
       }
+      return true;
     } finally {
       // ponytail: 末尾回调 — 成功 / 失败都发,UI 收起 spinner + overlay。
       // 用 progress:100 而非 0 — 上一版本用 0 让 bar 倒带回 0%,看着像失败。
-      this.onSwapProgress?.({ active: false, subtitleKey: '', progress: 100 });
+      // 后面还有更新的请求在排队：不收起 spinner (避免按钮在两次换装之间闪一下可点)，由最后一个请求收尾
+      if (this.swapQueue.isLatest(token)) {
+        this.onSwapProgress?.({ active: false, subtitleKey: '', progress: 100 });
+      }
       if (!preserveMotion) {
         this.reportLoading({ active: false, subtitleKey: '', progress: 100 });
+        // 冷启动进入 3D 舞台：遮罩淡出时立即起播 greeting (热情招手问候)，在招手展开时平滑推镜头
+        const isChatActive = this.turnState === 'thinking' || this.turnState === 'speaking' || this.turnState === 'listening' || this.chatDirector.speaking;
+        if (!isChatActive && this.turnState === 'idle' && !this.interaction.getState().isDragging && (options?.showcase ?? true)) {
+          // 1. 立即播放 greeting 招手（遮罩淡出的同时小春已在正向迎客抬手，零等待延迟）
+          void this.playMotionGroup('greeting', { fadeDuration: 0.65, loop: false, isColdStartGreeting: true }).catch((e) => {
+            console.warn('[vrmEngine] cold-start greeting motion notice:', e);
+          });
+          // 2. 然后推镜头 (在小春抬手热情招手展开至高位时，镜头平滑推向角色特写)
+          this._coldStartIntroTimer = setTimeout(() => {
+            this._coldStartIntroTimer = null;
+            const stillClean = this.turnState === 'idle' && !this.chatDirector.speaking && !this.interaction.getState().isDragging;
+            if (stillClean) {
+              this.cinematicIntro(1200);
+            }
+          }, 600);
+          // 3. 招手致意与镜头落定后（约 2.8s）：若有待恢复的历史偏角，启动 bodyTurn 迈步自然转回记录点
+          this._coldStartTurnTimer = setTimeout(() => {
+            this._coldStartTurnTimer = null;
+            if (this._pendingColdStartTargetYaw !== null) {
+              const targetYaw = this._pendingColdStartTargetYaw;
+              this._pendingColdStartTargetYaw = null;
+              const stillClean = this.turnState === 'idle' && !this.chatDirector.speaking && !this.interaction.getState().isDragging;
+              if (stillClean && this.currentVRM) {
+                this.motionPipeline.targetYawOffset = targetYaw;
+              }
+            }
+          }, 2800);
+        } else {
+          this.cinematicIntro(1100);
+          if (this._pendingColdStartTargetYaw !== null) {
+            const targetYaw = this._pendingColdStartTargetYaw;
+            this._pendingColdStartTargetYaw = null;
+            this.motionPipeline.targetYawOffset = targetYaw;
+          }
+        }
       }
     }
   }
@@ -2305,7 +2900,7 @@ export class VRMEngine {
   /** ponytail: 直接喂 ArrayBuffer 进 GLTFLoader (合成好的 v1_1 GLB)。options.preserveMotion=true 时内联 capture/restore。 */
   public loadVRMFromBuffer(
     buffer: ArrayBuffer,
-    filename = '小蠢 (xiaochun_v1)',
+    filename = 'XiaoChun (xiaochun_v1)',
     options: LoadVRMOptions = {},
   ): Promise<VRM> {
     this.currentUrl = `data:glb-buffer:${filename}`;
@@ -2315,7 +2910,7 @@ export class VRMEngine {
     // ponytail: 非 preserveMotion 时(冷启动/完全重置)，立即清理旧模型并归零动作
     if (this.currentVRM && !preserveMotion) {
       this.scene.remove(this.currentVRM.scene);
-      VRMUtils.deepDispose(this.currentVRM.scene);
+      this.staggeredDisposer.enqueueScene(this.currentVRM.scene, this.texturePool);
       this.currentVRM = null;
       this.notifyReady(false);
       this.vrmaPlayer.stop();
@@ -2331,13 +2926,28 @@ export class VRMEngine {
         buffer,
         '',
         async (gltf) => {
+          try {
           const vrm = gltf.userData.vrm as VRM | undefined;
           if (!vrm) {
             reject(new Error('[loadVRMFromBuffer] gltf.userData.vrm is empty'));
             return;
           }
 
+          await yieldToMain();
           applyVrmUtilsOptimizations(gltf.scene, vrm);
+          await yieldToMain();
+
+          // 贴图智能共享与去重：重用头部/五官/发丝已驻留显存的纹理 (零冗余上传与显存节省)
+          try {
+            const imageHashes = await extractParserImageHashes(gltf.parser);
+            const dedupStats = this.texturePool.deduplicateModel(vrm, gltf.parser, imageHashes);
+            if (dedupStats.sharedCount > 0) {
+              console.log(`[VRMEngine] 贴图去重命中: 复用 ${dedupStats.sharedCount} 张共享贴图，新增 ${dedupStats.uniqueCount} 张`);
+            }
+          } catch (e) {
+            console.warn('[VRMEngine] 贴图去重异常 (不影响正常加载):', e);
+          }
+          await yieldToMain();
 
           vrm.scene.traverse((obj) => {
             obj.frustumCulled = false;
@@ -2376,7 +2986,9 @@ export class VRMEngine {
             }
           });
 
+          await yieldToMain();
           this.materialManager.optimize(vrm);
+          await yieldToMain();
           VRMUtils.rotateVRM0(vrm);
           vrm.scene.position.set(0, 0, 0);
           if (vrm.meta?.metaVersion !== '0') {
@@ -2398,6 +3010,12 @@ export class VRMEngine {
 
           // ponytail: 无缝换装核心时序 —— 旧模型全速运动直到此时，新模型在内存就绪后原子交接
           if (preserveMotion && previousVrm) {
+            // 兜底：解析期间 currentVRM 已被别的加载换掉 (理论上 swapOutfit 串行后不会发生) → 丢弃这个新模型，绝不再往场景里多挂一个
+            if (this.currentVRM !== previousVrm) {
+              this.staggeredDisposer.enqueueScene(vrm.scene, this.texturePool);
+              reject(new Error('[loadVRMFromBuffer] superseded: current model changed while parsing'));
+              return;
+            }
             // Outfit swap: upload the new model's textures and link its programs (yielding) while the old model keeps
             // animating, instead of inside the first renderSingleFrame after the atomic swap (~400–700 ms freeze).
             await this.prewarmGpu(vrm.scene);
@@ -2412,6 +3030,7 @@ export class VRMEngine {
 
             // 3. 将所有控制器重定向绑定到新模型
             this.motionPipeline.bind(vrm);
+            this.chatDirector.bindVRM(vrm);
             this.vrmaPlayer.resetHipsRest();
             this.motionPipeline.finalPose.sampleFromVRM(vrm);
             this.bodyMorph.bind(vrm);
@@ -2439,7 +3058,7 @@ export class VRMEngine {
 
             // 5. 同步原子切换：移除旧模型、挂入已处于正确动作姿势的新模型
             this.scene.remove(previousVrm.scene);
-            VRMUtils.deepDispose(previousVrm.scene);
+            this.staggeredDisposer.enqueueScene(previousVrm.scene, this.texturePool);
             this.currentVRM = vrm;
             this.scene.add(vrm.scene);
             this.notifyReady(true);
@@ -2460,11 +3079,15 @@ export class VRMEngine {
           this.notifyReady(true);
 
           this.motionPipeline.bind(vrm);
+          this.chatDirector.bindVRM(vrm);
           this.vrmaPlayer.resetHipsRest();
           this.motionPipeline.finalPose.sampleFromVRM(vrm);
           this.bodyMorph.bind(vrm);
+          if (!preserveMotion) {
+            expressionController.reset(vrm);
+          }
           this.applySpringBoneTuning(vrm);
-          this.applySavedBodyYawToVRM(vrm);
+          this.applySavedBodyYawToVRM(vrm, !preserveMotion);
           const initialBaseY = this.vrmBaseSceneY - this.footIK.getSinkOffset() + this.bodyMorph.getLegHeightDelta();
           vrm.scene.position.y = initialBaseY;
           this.motionPipeline.tick(vrm, {
@@ -2473,6 +3096,7 @@ export class VRMEngine {
             time: performance.now() * 0.001,
             enableBodyTurn: false,
             isSpeaking: false,
+            isListening: false,
             manualExpression: this.manualExpression,
           });
           vrm.scene.updateMatrixWorld(true);
@@ -2492,12 +3116,16 @@ export class VRMEngine {
             // Cold start: upload textures / link programs in yielding steps before the first frame.
             await this.prewarmGpu();
             this.startAnimation();
-            this.cinematicIntro(1100);
+            this.prepareCinematicCamera(2.0);
           } else if (this.controls) {
             this.renderSingleFrame();
           }
           void this.chatDirector.warmThinkingClip(vrm, this.vrmaPlayer);
           resolve(vrm);
+          } catch (e) {
+            // async 回调里的异常不会冒泡给 Promise：不收尾的话换装队列会一直卡在这一次上，后面的换装全部排不上
+            reject(e instanceof Error ? e : new Error(String(e)));
+          }
         },
         (err) => reject(err instanceof Error ? err : new Error(String(err))),
       );
@@ -2675,21 +3303,140 @@ export class VRMEngine {
     });
   }
 
+  // ── 待机自发小动作调度器 (Idle Flavor / Fidget Scheduler) ──
+  private idleFlavorTimer = 0;
+  private nextIdleFlavorInterval = 14 + Math.random() * 10; // 14s ~ 24s 随机冷却窗口
+  private enableIdleFlavor = (APP_CONFIG as any)?.idleFlavor?.enabled ?? true;
+
+  /** 是否开启待机自发小动作 */
+  public setEnableIdleFlavor(enable: boolean): void {
+    this.enableIdleFlavor = enable;
+    if (!enable) this.idleFlavorTimer = 0;
+  }
+
+  public get isIdleFlavorEnabled(): boolean {
+    return this.enableIdleFlavor;
+  }
+
+  /** 是否处于 DevDrawer 打开状态（打开调试抽屉期间彻底静默 idleFlavor 自发小动作，防动作调试串流冲突） */
+  public isDevDrawerOpen = false;
+
+  public setDevDrawerOpen(isOpen: boolean): void {
+    this.isDevDrawerOpen = isOpen;
+    if (isOpen) {
+      this.resetIdleFlavorTimer();
+    }
+  }
+
+  /** 重置待机小动作计时器（在用户交互、发消息、换装时调用） */
+  public resetIdleFlavorTimer(): void {
+    this.idleFlavorTimer = 0;
+    const minSec = (APP_CONFIG as any)?.idleFlavor?.minIntervalSec ?? 14;
+    const maxSec = (APP_CONFIG as any)?.idleFlavor?.maxIntervalSec ?? 24;
+    this.nextIdleFlavorInterval = minSec + Math.random() * Math.max(1, maxSec - minSec);
+  }
+
+  /** 待机小动作逐帧心跳（在 render 循环中驱动） */
+  private updateIdleFlavor(delta: number): void {
+    if (!this.enableIdleFlavor || !this.currentVRM || this.isDevDrawerOpen) return;
+
+    // 前置守卫：必须处于纯粹待机（idle），且无对话、无动作播放、无过渡融合
+    const isCleanIdle =
+      this.turnState === 'idle' &&
+      !this.chatDirector.speaking &&
+      !this.motionPipeline.isMotionPlaying() &&
+      !this.motionPipeline.isTransitioning();
+
+    if (!isCleanIdle) {
+      this.idleFlavorTimer = 0;
+      return;
+    }
+
+    // 若用户正在拖拽镜头或与角色进行 3D 交互，重置计时器并清除冷启动待转角度
+    if (this.interaction.getState().isDragging) {
+      this._pendingColdStartTargetYaw = null;
+      this.idleFlavorTimer = 0;
+      return;
+    }
+
+    this.idleFlavorTimer += delta;
+    if (this.idleFlavorTimer >= this.nextIdleFlavorInterval) {
+      this.idleFlavorTimer = 0;
+      const minSec = (APP_CONFIG as any)?.idleFlavor?.minIntervalSec ?? 14;
+      const maxSec = (APP_CONFIG as any)?.idleFlavor?.maxIntervalSec ?? 24;
+      this.nextIdleFlavorInterval = minSec + Math.random() * Math.max(1, maxSec - minSec);
+      const motionId = selectMotionFromGroup('idleFlavor');
+      void this.playMotion(motionId, { fadeDuration: 0.85, loop: false }).catch((e) => {
+        console.warn('[VRMEngine] 待机小动作播放提示:', e);
+      });
+    }
+  }
+
   // ── 万能动作播放接口 ──
   public async playMotion(
-    input: string | ArrayBuffer | THREE.AnimationClip,
+    input: MotionCatalogId | string | ArrayBuffer | THREE.AnimationClip,
     options: PlayMotionOptions = {},
   ): Promise<UniversalMotionHandle> {
+    this.resetIdleFlavorTimer();
+    if (!options.isColdStartGreeting) {
+      this.cancelColdStartWelcoming();
+    }
     if (!this.currentVRM) {
       throw new Error('[VRMEngine] 模型尚未就绪，无法播放动作');
     }
+    let targetInput: string | ArrayBuffer | THREE.AnimationClip = input;
+    let mergedOptions: PlayMotionOptions = { ...options };
+
+    if (typeof input === 'string') {
+      if (isMotionCatalogId(input)) {
+        const catalogItem = MOTION_CATALOG[input];
+        targetInput = catalogItem.url;
+        mergedOptions = { ...catalogItem, ...options };
+      } else {
+        targetInput = resolveMotionUrl(input);
+      }
+    }
+
     const lookAtOffsets = this.gazeController.getLookAtOffsets();
-    return this.motionPipeline.playMotion(this.currentVRM, input, options, lookAtOffsets);
+    return this.motionPipeline.playMotion(this.currentVRM, targetInput, mergedOptions, lookAtOffsets);
+  }
+
+  /**
+   * 从指定动作组按权重随机抽取动作并播放
+   * @param groupName 动作组名 (如 'greeting' | 'outfitShowcase' | 'praiseCute' 等)
+   * @param options 播放配置
+   */
+  public playMotionGroup(
+    groupName: MotionGroupName,
+    options: PlayMotionOptions = {},
+  ): Promise<UniversalMotionHandle> {
+    const motionId = selectMotionFromGroup(groupName);
+    return this.playMotion(motionId, options);
   }
 
   public stopMotion(fadeDuration = 0.75): void {
     const lookAtOffsets = this.gazeController.getLookAtOffsets();
     this.motionPipeline.stopMotion(fadeDuration, lookAtOffsets);
+  }
+
+  public pauseMotion(): void {
+    this.motionPipeline.universalMotion.pause();
+  }
+
+  public resumeMotion(): void {
+    this.motionPipeline.universalMotion.resume();
+  }
+
+  public isMotionPaused(): boolean {
+    return this.motionPipeline.universalMotion.isPaused();
+  }
+
+  public setMotionTimeScale(scale: number): void {
+    this.motionPipeline.universalMotion.setTimeScale(scale);
+  }
+
+  public getMotionTimeScale(): number {
+    return this.motionPipeline.universalMotion.getTimeScale();
   }
 
   public isMotionPlaying(): boolean {
@@ -2731,7 +3478,11 @@ export class VRMEngine {
    * ponytail: 跳过 LLM,直接跑 TTS → EMAGE → 播放流水线。
    * 当前仅 dev 测试按钮调用;函数本身通用,后续其他 "直接念" 场景也可复用。
    */
-  public async speakText(text: string, voiceOverride?: string): Promise<void> {
+  public async speakText(
+    text: string,
+    voiceOverride?: string,
+    opts?: { preserveMotion?: boolean },
+  ): Promise<void> {
     if (!this.currentVRM) return;
 
     const setStatus = (
@@ -2758,7 +3509,7 @@ export class VRMEngine {
       );
     };
 
-    await this.chatDirector.speakText(text, this.currentVRM, this.vrmaPlayer, this.emagePlayer, setStatus, voiceOverride);
+    await this.chatDirector.speakText(text, this.currentVRM, this.vrmaPlayer, this.emagePlayer, setStatus, voiceOverride, opts);
   }
 
   /**
@@ -2809,9 +3560,12 @@ export class VRMEngine {
     this.chatDirector.setHostClock(c);
   }
 
-  /** 打断当前说话 (文字/音频均可)。 */
+  /** 打断当前说话（文字和音频），并收掉头顶字幕。 */
   public stopSpeaking(): void {
-    try { this.chatDirector.stop(); } catch { /* ignore */ }
+    try {
+      this.chatDirector.stop();
+      this.bubbleTracker.hide();
+    } catch { /* ignore */ }
   }
 
   /** TTS 语音后处理插件处理器 (Tone.js) */
@@ -2839,6 +3593,35 @@ export class VRMEngine {
     return this.chatDirector.speaking;
   }
 
+  private speakingListeners = new Set<(speaking: boolean) => void>();
+
+  public onSpeakingChange(cb: (speaking: boolean) => void): () => void {
+    this.speakingListeners.add(cb);
+    cb(this.isSpeaking);
+    return () => this.speakingListeners.delete(cb);
+  }
+
+  /** 当前对话状态 ('idle' | 'listening' | 'thinking' | 'speaking') */
+  public get turnState(): TurnState {
+    return this.chatDirector.turnState;
+  }
+
+  public setTurnState(state: TurnState): void {
+    this.resetIdleFlavorTimer();
+    if (state !== 'idle') {
+      this.cancelColdStartWelcoming();
+    }
+    this.chatDirector.setTurnState(state);
+  }
+
+  private turnStateListeners = new Set<(state: TurnState) => void>();
+
+  public onTurnStateChange(cb: (state: TurnState) => void): () => void {
+    this.turnStateListeners.add(cb);
+    cb(this.turnState);
+    return () => this.turnStateListeners.delete(cb);
+  }
+
 
 
   /**
@@ -2852,6 +3635,11 @@ export class VRMEngine {
     if (!force && !isHeavyPreloadAllowed()) return;
     if (!this.emagePlayer.ready) void this.emagePlayer.ensureLoaded();
     if (opts.llm ?? isLlmPreloadAllowed()) preloadWebLLM();
+    if (this.currentVRM) {
+      void motionAssetManager.warmCatalogMotions(this.currentVRM, (input, vrm, options) =>
+        this.motionPipeline.universalMotion.parseToClip(input, vrm, options),
+      );
+    }
     // new AudioContext() is a ~150 ms synchronous main-thread call (macOS CoreAudio); do it now, behind the loading
     // overlay, instead of mid-chat where it froze the VRM for a frame burst right as speech starts.
     setTimeout(() => this.chatDirector.prewarmAudio(), 0); // own task, not stacked on VRM setup
@@ -2876,6 +3664,7 @@ export class VRMEngine {
 
   public renderSingleFrame(): void {
     if (this.renderer && this.currentVRM) {
+      this.applyEnvironmentLight();
       if (!this.renderer.shadowMap.autoUpdate) {
         this.renderer.shadowMap.needsUpdate = true;
       }
@@ -2985,11 +3774,32 @@ export class VRMEngine {
           delta,
           time,
           enableBodyTurn: this.enableBodyTurn,
+          holdWorldFacing: cameraDirector.active || this._holdFacingForViewReturn,
           isSpeaking: this.chatDirector.speaking,
+          isListening: this.turnState === 'listening',
           manualExpression: this.manualExpression,
         });
 
         this.chatDirector.tick(vrm, this.vrmaPlayer);
+        this.updateIdleFlavor(delta);
+
+        // The spring hits raw arm colliders. Swing the normalized arm first;
+        // vrm.update copies it onto those bones. The shader cannot move them.
+        clearBustArms(vrm);
+
+        // 若当前正处于单眼 Wink 眨眼或动作眨眼状态，重置生理双眼眨眼避免干扰
+        if (expressionController.isWinking()) {
+          this.gazeController.resetBlink();
+        }
+
+        // 活体动态表情系统逐帧更新 (眉眼与口型解耦、呼吸微波动与眨眼)
+        expressionController.update(
+          delta,
+          vrm,
+          this.chatDirector.speaking,
+          0,
+          this.gazeController.currentBlink,
+        );
 
         // ponytail: 注入 wind (ambient + 鼠标冲量) 到 springBone joints 的 gravityDir/Power,
         // 必须在 vrm.update(delta) 之前, 因为 springBoneManager.update() 内部读取这些 settings.
@@ -3002,6 +3812,7 @@ export class VRMEngine {
         if (this.bodyMorph.isCompatible) {
           this.bodyMorph.update(vrm);
         }
+        updateBustArmContact(vrm);
 
         // 7. 实体脚下影子平面中心与地面高度贴合 — ponytail: 全部交给 CharacterShadowSystem
         if (vrm.humanoid) {
@@ -3095,6 +3906,8 @@ export class VRMEngine {
         this.chatDirector.vocalProcessor.updateCameraAcoustics({ distance: dist, pitch, bodyYaw });
       }
       try {
+        // 场景时间 → 引擎主光 (角色的受光与脚下落影跟随场景的太阳 / 月亮)
+        this.applyEnvironmentLight();
         if (this.renderer && !this.renderer.shadowMap.autoUpdate) {
           const interval = Math.max(1, APP_CONFIG.shadow.updateIntervalFrames ?? 2);
           this._shadowFrameCount++;
@@ -3246,6 +4059,7 @@ export class VRMEngine {
   }
 
   public dispose(): void {
+    this.cancelColdStartWelcoming();
     this.unbindVisibilityPause();
     this._batteryUnsub?.();
     this._batteryUnsub = null;
@@ -3263,13 +4077,17 @@ export class VRMEngine {
     }
     this.controls?.dispose();
 
+    this.staggeredDisposer.dispose();
+    this.texturePool.clear();
     if (this.currentVRM) {
       this.scene.remove(this.currentVRM.scene);
       VRMUtils.deepDispose(this.currentVRM.scene);
       this.currentVRM = null;
     }
 
-    this.renderer?.dispose();
+    this.releaseGpu();
+    this._unregisterGpuRelease?.();
+    this._unregisterGpuRelease = null;
     this.lineworkWorld.dispose(this.scene);
     this.voidWorld.dispose(this.scene);
     this.beach3d.dispose(this.scene);
@@ -3280,4 +4098,7 @@ export class VRMEngine {
 }
 
 export const vrmEngine = new VRMEngine();
+if (typeof window !== 'undefined') {
+  (window as any).vrmEngine = vrmEngine;
+}
 export type { LineworkTheme, SceneThemeId } from '@/types/config';

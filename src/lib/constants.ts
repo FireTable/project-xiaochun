@@ -59,6 +59,9 @@ export const DEV_DRAWER_OPEN_KEY = 'xiaochun_dev_drawer_open';
 /** 当前 wearing 的 outfit addon key (null = 裸模 base)。TopHeader 持久化。 */
 export const WEARING_OUTFIT_KEY = 'xiaochun_wearing_outfit';
 
+/** 通用场景时间设置持久化 key (auto | day | sunset | night | 具体小时数) */
+export const ENVIRONMENT_TIME_KEY = 'xiaochun_environment_time';
+
 /** 场景线稿背景主题 ('light' | 'dark')。TopHeader 场景切换持久化。 */
 /** /embed iframe 自己记住的界面语言 (用户在内置语言按钮里选的; 优先级: ?lang= / SDK lang > 这个 > 浏览器语言 > zh-CN)。主站仍用 cookie `lang`。 */
 export const EMBED_LANG_KEY = 'xiaochun_embed_lang';

@@ -8,7 +8,7 @@ import React, { lazy, startTransition, Suspense, useEffect, useMemo, useState, u
 import { useTranslation } from 'react-i18next';
 import { vrmEngine, type BubbleState } from '@/core/vrmEngine';
 import { SceneCanvas } from '@/components/SceneCanvas';
-import { HeadBubble } from '@/components/HeadBubble';
+import { ChatBubble } from '@/components/ChatBubble';
 import { ChatBar } from '@/components/ChatBar';
 import { APP_CONFIG } from '@/config';
 import { XIAOCHUN_SYSTEM_PROMPT } from '@/llm/prompts';
@@ -46,7 +46,7 @@ export const EmbedApp: React.FC = () => {
   const hasChrome = ui.ui || ui.outfit || ui.scene || ui.lang || ui.github;
   const { isPetUIVisible } = usePetUiVisibility(autoHide && hasChrome);
   const [bubble, setBubble] = useState<BubbleState>({
-    visible: false, statusKey: '', speechText: '', isError: false, x: 0, y: 0,
+    visible: false, statusKey: '', speechText: '', isError: false, x: 0, y: 0, placement: 'top',
   });
 
   useEffect(() => {
@@ -60,6 +60,7 @@ export const EmbedApp: React.FC = () => {
     for (const w of params.cameraWarnings) console.warn(`[xiaochun] ${w}`);
     vrmEngine.setCameraConfig(params.camera); // 相机选项 (?cameraFov= 等): 模型加载前设置, 首次取景 / 推镜头直接按它来
     document.documentElement.classList.add('xc-embed');
+    vrmEngine.interaction.guidesEnabled = false; // /embed 环境隐藏腰部转身光环与相机高度尺导轨
 
     // ── 引擎绑定 (与 App.tsx 同款: i18n / system prompt) ──
     vrmEngine.resumeRendering();
@@ -101,11 +102,15 @@ export const EmbedApp: React.FC = () => {
     const name = initial ? initial.entry.name : APP_CONFIG.model.defaultName;
     const timer = setTimeout(() => {
       vrmEngine.swapOutfit(url, name)
-        .then(() => bridge.reportLoaded(name, initial?.id ?? null))
+        .then((applied) => {
+          // applied === false: 被更新的换装请求顶掉, 这次什么都没换: 不上报已加载 / 不标记已穿 (由顶掉它的那次负责), 也不算错误
+          if (applied !== false) bridge.reportLoaded(name, initial?.id ?? null);
+        })
         .catch((e) => console.error('[embed] initial model load failed:', e));
     }, 120);
 
     return () => {
+      vrmEngine.interaction.guidesEnabled = true;
       clearTimeout(timer);
       unsubSettings();
       vrmEngine.onLoadingChange = undefined;
@@ -119,7 +124,7 @@ export const EmbedApp: React.FC = () => {
   return (
     <div id="app" className="relative w-full h-screen h-[100dvh] overflow-hidden">
       <SceneCanvas />
-      {ui.bubble && <HeadBubble state={bubble} />}
+      {ui.bubble && <ChatBubble state={bubble} />}
       {ui.ui && <ChatBar isPetUIVisible={isPetUIVisible} autoHide={autoHide} onShowDevPanel={() => {}} />}
       {bridgeRef && (
         // 四角弧线: 只有宿主开了 resizable 才渲染 (组件内部按手势状态仓决定; 默认关闭时什么都不画)

@@ -12,6 +12,19 @@
   "observability": {
     "enabled": true
   },
+  // Cloudflare Workers AI 绑定（运行 Whisper Large v3 Turbo 多语种语音转录）
+  "ai": {
+    "binding": "AI"
+  },
+  // 【可选】持久化语音缓存 Bucket。
+  // 若已创建 xiaochun-tts Bucket (pnpm run setup:tts-cache)，配置此绑定即可启用 L2 R2 持久化缓存；
+  // 开源部署若不需要持久缓存，直接删除或注释掉 r2_buckets 即可，系统将自动优雅降级为 L1 PoP 内存缓存 + 即时合成。
+  "r2_buckets": [
+    {
+      "binding": "TTS_BUCKET",
+      "bucket_name": "xiaochun-tts"
+    }
+  ],
   "vars": {
     "EMAGE_MODELS_BASE": "https://cdn.firetable.tech/xiaochun/emage",
     // /embed 的 CSP frame-ancestors 白名单 (空格分隔); "*" = 任何站点都可内嵌。见 docs/EMBED.md

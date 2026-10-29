@@ -1,4 +1,5 @@
 import * as THREE from 'three';
+import { springStableWorldMatrix } from '../spring/bustClothFit';
 import { VRM } from '@pixiv/three-vrm';
 import { APP_CONFIG, type BodyMorphConfig, type BodyMorphPartKey } from '../../config';
 import { BODY_MORPH_KEY } from '@/lib/constants';
@@ -79,6 +80,12 @@ export class VRMBodyMorph {
   private baseRBustPos: THREE.Vector3 = new THREE.Vector3();
   private baseLBustRot: THREE.Quaternion = new THREE.Quaternion();
   private baseRBustRot: THREE.Quaternion = new THREE.Quaternion();
+  /** Bust bone world scale at bind, before morph. Slider scale is current / this. */
+  private restBustWorldScale = 1;
+  private readonly _bustScalePos = new THREE.Vector3();
+  private readonly _bustScaleQuat = new THREE.Quaternion();
+  private readonly _bustScaleVec = new THREE.Vector3();
+  private readonly _bustWorld = new THREE.Matrix4();
   private baseHipsRot: THREE.Quaternion = new THREE.Quaternion();
   private baseSpineRot: THREE.Quaternion = new THREE.Quaternion();
   private baseLLegRot: THREE.Quaternion = new THREE.Quaternion();
@@ -103,6 +110,9 @@ export class VRMBodyMorph {
   private readonly _localUpSpine = new THREE.Vector3();
   private readonly _localUpChest = new THREE.Vector3();
 
+  // 骨骼世界矩阵剥离父级非等比缩放使用的单位缩放向量
+  private readonly _unitScaleVec = new THREE.Vector3(1, 1, 1);
+
   /**
    * 纯四元数自底向上链式世界旋转提取：
    * 直接相乘父级各骨骼的纯单位四元数，完全避开带剪切矩阵的 decompose() 奇异翻转，在全空间无穷阶光滑连续
@@ -115,6 +125,39 @@ export class VRMBodyMorph {
       curr = curr.parent;
     }
     return target;
+  }
+
+  /**
+   * 骨骼世界矩阵解耦：
+   * 剥离父节点的非等比缩放矩阵（Scale），消除由于父级非等比缩放与子级旋转不可交换导致的旋转剪切畸变（Shear/Skewing）。
+   * 彻底杜绝前倾动作下大腿在世界坐标中被虚假拉长 2cm 导致鞋子插地，
+   * 以及侧弯/扭腰动作下脊柱与胸腔产生的 7.5° 菱形剪切几何畸变！
+   */
+  private setupUnscaledMatrixUpdate(node: THREE.Object3D): void {
+    const pPos = new THREE.Vector3();
+    const pQuat = new THREE.Quaternion();
+    const pScale = new THREE.Vector3();
+    const pUnscaled = new THREE.Matrix4();
+    const unitScale = this._unitScaleVec;
+
+    node.updateMatrixWorld = function (force?: boolean): void {
+      if (this.matrixAutoUpdate) this.updateMatrix();
+      if (this.matrixWorldNeedsUpdate || force) {
+        if (this.parent) {
+          // 提取 parent 的世界位置与旋转，剥离其非等比缩放
+          this.parent.matrixWorld.decompose(pPos, pQuat, pScale);
+          pUnscaled.compose(pPos, pQuat, unitScale);
+          this.matrixWorld.multiplyMatrices(pUnscaled, this.matrix);
+        } else {
+          this.matrixWorld.copy(this.matrix);
+        }
+        this.matrixWorldNeedsUpdate = false;
+        force = true;
+      }
+      for (let i = 0, l = this.children.length; i < l; i++) {
+        this.children[i].updateMatrixWorld(force);
+      }
+    };
   }
 
   // 100% 纯动态从 VRM 几何体与骨骼测量的原生几何尺寸与身高基准 (零写死魔数，完全自适应任意模型)
@@ -180,9 +223,16 @@ export class VRMBodyMorph {
     if (this.rawSpine) {
       this.baseSpinePos.copy(this.rawSpine.position);
       this.baseSpineRot.copy(this.rawSpine.quaternion);
+      this.setupUnscaledMatrixUpdate(this.rawSpine);
     }
-    if (this.rawChest) this.baseChestPos.copy(this.rawChest.position);
-    if (this.rawUpperChest) this.baseUpperChestPos.copy(this.rawUpperChest.position);
+    if (this.rawChest) {
+      this.baseChestPos.copy(this.rawChest.position);
+      this.setupUnscaledMatrixUpdate(this.rawChest);
+    }
+    if (this.rawUpperChest) {
+      this.baseUpperChestPos.copy(this.rawUpperChest.position);
+      this.setupUnscaledMatrixUpdate(this.rawUpperChest);
+    }
     if (this.rawHead) {
       this.baseHeadPos.copy(this.rawHead.position);
       this.rawHead.matrixWorldAutoUpdate = !this.isCompatible;
@@ -222,10 +272,12 @@ export class VRMBodyMorph {
     if (this.rawLLeg) {
       this.baseLLegPos.copy(this.rawLLeg.position);
       this.baseLLegRot.copy(this.rawLLeg.quaternion);
+      this.setupUnscaledMatrixUpdate(this.rawLLeg);
     }
     if (this.rawRLeg) {
       this.baseRLegPos.copy(this.rawRLeg.position);
       this.baseRLegRot.copy(this.rawRLeg.quaternion);
+      this.setupUnscaledMatrixUpdate(this.rawRLeg);
     }
     if (this.rawLCalf) {
       this.baseLCalfPos.copy(this.rawLCalf.position);
@@ -359,7 +411,30 @@ export class VRMBodyMorph {
       this.baseRestHeight = 1.636;
     }
 
+    this.captureBustRestScale();
     this.apply();
+  }
+
+  /** World-scale ratio of the bust bone against its bind pose. 1 means the sliders have not grown it. */
+  public getBustVisualScale(): number {
+    const bone = this.rawLBust ?? this.rawRBust;
+    if (!bone) return 1;
+    // Spring bones leave matrixWorld one tick behind .scale. Read the scale the next tick will commit.
+    springStableWorldMatrix(this._bustWorld, bone);
+    this._bustWorld.decompose(this._bustScalePos, this._bustScaleQuat, this._bustScaleVec);
+    const cur = Math.max(this._bustScaleVec.x, this._bustScaleVec.y, this._bustScaleVec.z);
+    return cur / this.restBustWorldScale;
+  }
+
+  private captureBustRestScale(): void {
+    const bone = this.rawLBust ?? this.rawRBust;
+    if (!bone) {
+      this.restBustWorldScale = 1;
+      return;
+    }
+    springStableWorldMatrix(this._bustWorld, bone);
+    this._bustWorld.decompose(this._bustScalePos, this._bustScaleQuat, this._bustScaleVec);
+    this.restBustWorldScale = Math.max(this._bustScaleVec.x, this._bustScaleVec.y, this._bustScaleVec.z, 1e-4);
   }
 
   /**
@@ -591,12 +666,10 @@ export class VRMBodyMorph {
       // 提臀纵向微调：提臀时骨盆重心微收 (+Y 微升 0.005m)，平缓时自然微落
       pitchLiftY = -buttocksPitch * 0.015;
 
-      // 保持当前骨骼动画的横向 X 位置，仅在 Y 和 Z 轴施加提臀与腹部防凸补偿偏移
-      this.rawHips.position.set(
-        this.rawHips.position.x,
-        this.baseHipsPos.y + pitchLiftY,
-        this.baseHipsPos.z + hipsZOffset
-      );
+      // 保持当前骨骼动画的实时位置 (X, Y, Z)，仅在 Y 和 Z 轴施加提臀与腹部防凸补偿增量偏移，
+      // 杜绝使用静态 baseHipsPos 覆盖破坏动画系统的骨盆前后与垂直重心位移！
+      this.rawHips.position.y += pitchLiftY;
+      this.rawHips.position.z += hipsZOffset;
 
       // 臀部提臀朝向：仅当用户调整 buttocksPitch 时叠加骨盆俯仰增量，绝不破坏动画系统原生姿态
       if (Math.abs(buttocksPitch) > 0.0001) {
@@ -608,18 +681,19 @@ export class VRMBodyMorph {
 
     // ── 2. 股骨头位置与大腿角度解耦 (彻底杜绝大腿被扭歪，同时完整保留踱步与动作旋转) ──
     // 伴随胯宽与臀展适度平滑展开股骨头位置，消除腹股沟皮肤挤压锐角尖刺
+    // 由于 setupUnscaledLegMatrixUpdate 剥离了父级非等比缩放，位置无需再除以 (hx, hy, hz)
     const hipSpreadX = (hips - 1.0) * 0.018 + buttocksSpread * 0.035;
     if (this.rawLLeg && this.rawRLeg) {
       // 腿根位置：在大腿根施加对称横向展开，塑造圆润丰盈的沙漏梨形臀部外侧弧线
       this.rawLLeg.position.set(
-        (this.baseLLegPos.x + hipSpreadX) / Math.max(0.01, hx),
-        (this.baseLLegPos.y - pitchLiftY) / Math.max(0.01, hy),
-        (this.baseLLegPos.z - hipsZOffset) / Math.max(0.01, hz)
+        this.baseLLegPos.x + hipSpreadX,
+        this.baseLLegPos.y - pitchLiftY,
+        this.baseLLegPos.z - hipsZOffset
       );
       this.rawRLeg.position.set(
-        (this.baseRLegPos.x - hipSpreadX) / Math.max(0.01, hx),
-        (this.baseRLegPos.y - pitchLiftY) / Math.max(0.01, hy),
-        (this.baseRLegPos.z - hipsZOffset) / Math.max(0.01, hz)
+        this.baseRLegPos.x - hipSpreadX,
+        this.baseRLegPos.y - pitchLiftY,
+        this.baseRLegPos.z - hipsZOffset
       );
 
       // 【核心保障】：仅当用户主动调节 buttocksPitch 时对大腿施加反向逆补偿，
@@ -638,10 +712,9 @@ export class VRMBodyMorph {
     const thighThickX = 1.0 + (thighs - 1.0) * 0.75;
     const thighThickZ = 1.0 + (thighs - 1.0) * 0.70;
     if (this.rawLLeg && this.rawRLeg) {
-      tx = thighThickX / Math.max(0.01, 1.0 + (hx - 1.0) * 0.40);
-      ty = thighLength / Math.max(0.01, hy);
-      // 核心解耦：局部 Z 轴 100% 除以 hz，使大腿在世界空间的前后粗细严格等于 thighThickZ，绝对不受臀部影响！
-      tz = thighThickZ / Math.max(0.01, hz);
+      tx = thighThickX;
+      ty = thighLength;
+      tz = thighThickZ;
       this.rawLLeg.scale.set(tx, ty, tz);
       this.rawRLeg.scale.set(tx, ty, tz);
     }
@@ -705,15 +778,17 @@ export class VRMBodyMorph {
     // 躯干厚度前后自然匀称饱满，100% 消除后背病理性凸包或塌陷深坑！
     const torsoZComp = -(torsoThickness - 1.0) * 0.015;
 
-    const sx = targetSpineX / Math.max(0.01, hx);
-    const sz = targetSpineZ / Math.max(0.01, hz);
+    // 由于 setupUnscaledMatrixUpdate 剥离了父级非等比缩放，Spine 局部缩放即为独立形变目标，
+    // 位置亦无需再除以父级的 (hx, hy, hz)
+    const sx = targetSpineX;
+    const sz = targetSpineZ;
 
     if (this.rawSpine) {
       this.rawSpine.scale.set(sx, 1.0, sz);
       this.rawSpine.position.set(
         this.baseSpinePos.x,
-        (this.baseSpinePos.y - pitchLiftY + deltaSpine) / Math.max(0.01, hy),
-        (this.baseSpinePos.z - hipsZOffset + torsoZComp) / Math.max(0.01, hz)
+        this.baseSpinePos.y - pitchLiftY + deltaSpine,
+        this.baseSpinePos.z - hipsZOffset + torsoZComp
       );
 
       // 仅当用户主动调整 buttocksPitch 时施加反向逆补偿，默认 0 时保持呼吸与预旋姿态
@@ -726,7 +801,7 @@ export class VRMBodyMorph {
     // ── 7. 胸腔 (Chest) 宽度解耦与解剖学生理顺滑过渡 (Rib-Waist Anatomical Smoothing) ──
     // 核心改进：当腰部收窄（如 70% 蜂腰）时，下胸廓/肋骨下缘在解剖学上需自然顺滑收拢微量（0.25 阻尼），
     // 彻底根除下肋骨在侧腰接缝处形成断崖式外撑横向突刺，使身体下肋骨与侧腰完美退回紧身裙/礼服内部！
-    // 同时在 UpperChest 节点施加 1/targetChestX 逆缩放补偿，使双肩、锁骨与头颈的世界宽度 100% 挺拔恒定！
+    // 配合 setupUnscaledMatrixUpdate，UpperChest 世界比例恒定为纯正交等比 1.0，双肩与头颈绝对挺拔！
     const chestThickFactor = 1.0 + (torsoThickness - 1.0) * 0.50;
     // 0.42 阻尼系数：在腰部 70% 极限细腰时收拢约 12.6%，彻底消除侧腰接缝残余的尖角穿模，使裙身与素体严丝合缝
     const ribWaistCoupling = 1.0 + (waist - 1.0) * 0.42;
@@ -744,15 +819,16 @@ export class VRMBodyMorph {
     }
 
     if (this.rawChest) {
-      const cx = targetChestX / Math.max(0.01, targetSpineX);
-      const cz = targetChestZ / Math.max(0.01, targetSpineZ);
+      // 剥离了 Spine 的非等比缩放后，Chest 局部缩放即为 targetChestX / targetChestZ 独立目标
+      const cx = targetChestX;
+      const cz = targetChestZ;
       this.rawChest.scale.set(cx, 1.0, cz);
 
       // 融合 torsoLength 正交身长平移 (Spine ➔ Chest 相对剪切错位严格为 0)
       this.rawChest.position.set(
-        (this.baseChestPos.x + localUpSpine.x * deltaChest) / Math.max(0.01, sx),
+        this.baseChestPos.x + localUpSpine.x * deltaChest,
         this.baseChestPos.y + localUpSpine.y * deltaChest,
-        (this.baseChestPos.z + localUpSpine.z * deltaChest) / Math.max(0.01, sz)
+        this.baseChestPos.z + localUpSpine.z * deltaChest
       );
     }
 
@@ -767,13 +843,12 @@ export class VRMBodyMorph {
     // ── 8.5 上胸 (UpperChest) 局部正交解耦 ──
     // 严格在相对骨盆 (Hips) 的骨骼树中完成变换，彻底杜绝全局固定世界坐标导致的大腿长拉伸躯干与全身缩放爆炸！
     if (this.rawUpperChest) {
-      // 逆缩放锁定：使 UpperChest 及其子级（双肩、手臂、头颈）的世界横向比例完全不受下胸廓微调影响，恒定为 1.0
-      const ucx = 1.0 / Math.max(0.01, targetChestX);
-      this.rawUpperChest.scale.set(ucx, 1.0, 1.0);
+      // 剥离了父级 Chest 缩放后，UpperChest 及其子级（双肩、手臂、头颈）的世界比例直接锁定为纯正交等比 1.0
+      this.rawUpperChest.scale.set(1.0, 1.0, 1.0);
       this.rawUpperChest.position.set(
-        (this.baseUpperChestPos.x + localUpChest.x * deltaUpperChest) / Math.max(0.01, targetChestX),
+        this.baseUpperChestPos.x + localUpChest.x * deltaUpperChest,
         this.baseUpperChestPos.y + localUpChest.y * deltaUpperChest,
-        (this.baseUpperChestPos.z + localUpChest.z * deltaUpperChest - torsoZComp) / Math.max(0.01, targetChestZ)
+        this.baseUpperChestPos.z + localUpChest.z * deltaUpperChest - torsoZComp
       );
     }
 
@@ -901,8 +976,27 @@ export class VRMBodyMorph {
     const thickScaleY = deltaThickness >= 0 ? 1.0 + deltaThickness * 0.28 : 1.0 + deltaThickness * 0.20;
     const thickScaleZ = deltaThickness >= 0 ? 1.0 + deltaThickness * 0.65 : 1.0 + deltaThickness * 0.70;
 
-    const finalBustScaleX = bust * thickScaleX;
-    const finalBustScaleY = bust * thickScaleY;
+    // 解剖学生理曲度软阻尼曲线 (Physiological Asymptotic Diminishing Returns):
+    // 真实解剖学中，乳腺与脂肪充盈主要沿 Z 轴向前挺翘，受胸廓侧壁及锁骨筋膜锚定，横向 X 与纵向上缘 Y 存在生理收敛界限。
+    // 在 deltaB <= 0.20 时保持 100% 灵敏线性缩放；超过 0.20 时通过 tanh 光滑过渡至渐近线，
+    // 防止高胸围时横向撑破肋部、纵向上缘刺穿低胸/抹胸服装领口，同时保留充足的前向深邃度。
+    const deltaB = bust - 1.0;
+    let effBustX = bust;
+    let effBustY = bust;
+    let effBustZ = bust;
+    if (deltaB > 0.20) {
+      const kX = 0.45;
+      effBustX = 1.0 + 0.20 + kX * Math.tanh((deltaB - 0.20) / kX);
+      const kY = 0.40;
+      effBustY = 1.0 + 0.20 + kY * Math.tanh((deltaB - 0.20) / kY);
+    }
+    if (deltaB > 0.35) {
+      const kZ = 0.70;
+      effBustZ = 1.0 + 0.35 + kZ * Math.tanh((deltaB - 0.35) / kZ);
+    }
+
+    const finalBustScaleX = effBustX * thickScaleX;
+    const finalBustScaleY = effBustY * thickScaleY;
 
     if (this.rawLBust) {
       this.rawLBust.position.x = this.baseLBustPos.x + spreadX;
@@ -921,7 +1015,7 @@ export class VRMBodyMorph {
       }
 
       const bustParentScaleZ = (this.rawLBust.parent === this.rawChest) ? targetChestZ : 1.0;
-      const finalBustScaleZ = (bust * thickScaleZ) / Math.max(0.01, bustParentScaleZ);
+      const finalBustScaleZ = (effBustZ * thickScaleZ) / Math.max(0.01, bustParentScaleZ);
       this.rawLBust.scale.set(finalBustScaleX, finalBustScaleY, finalBustScaleZ);
       this.rawLBust.updateMatrixWorld(true);
     }
@@ -942,7 +1036,7 @@ export class VRMBodyMorph {
       }
 
       const bustParentScaleZ = (this.rawRBust.parent === this.rawChest) ? targetChestZ : 1.0;
-      const finalBustScaleZ = (bust * thickScaleZ) / Math.max(0.01, bustParentScaleZ);
+      const finalBustScaleZ = (effBustZ * thickScaleZ) / Math.max(0.01, bustParentScaleZ);
       this.rawRBust.scale.set(finalBustScaleX, finalBustScaleY, finalBustScaleZ);
       this.rawRBust.updateMatrixWorld(true);
     }

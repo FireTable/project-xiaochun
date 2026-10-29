@@ -3,11 +3,11 @@
 > **Core Files**:  
 > - [`src/director/chatDirector.ts`](../src/director/chatDirector.ts) (Director orchestration & pipeline scheduler)  
 > - [`src/lib/utils.ts`](../src/lib/utils.ts) (Speech chunking single source of truth: `splitIntoSpeechChunks` & `extractNextSpeechChunk`)  
-> - [`src/components/HeadBubble.tsx`](../src/components/HeadBubble.tsx) (3D head bubble & status capsules)  
+> - [`src/components/ChatBubble.tsx`](../src/components/ChatBubble.tsx) (3D head bubble, status capsules & cinematic subtitle bar; re-exported via [`HeadBubble.tsx`](../src/components/HeadBubble.tsx))  
 > - [`src/motion/sources/speakIdle.ts`](../src/motion/sources/speakIdle.ts) (Speech-gap biomechanical micro-motion)  
 > - [`src/server.ts`](../src/server.ts) (Edge-TTS proxy + COOP/COEP document isolation)
 > - [`src/motion/sources/emageWorker.ts`](../src/motion/sources/emageWorker.ts) / [`emage.ts`](../src/motion/sources/emage.ts) (streaming `motion_chunk`; `copyToPoseBuffer`)
-> - [`src/motion/pipeline/motionPipeline.ts`](../src/motion/pipeline/motionPipeline.ts) (`playThinkingClip` / `beginEmageSpeech`)
+> - [`src/motion/pipeline/motionPipeline.ts`](../src/motion/pipeline/motionPipeline.ts) (`playMotion` / `beginEmageSpeech`)
 > - [`EMAGE_MODEL.md`](EMAGE_MODEL.md) (EP / INT8 / limits)
 
 ---
@@ -86,9 +86,13 @@ If network latency temporarily delays the subsequent chunk:
 
 ---
 
-### 2.4 Head Bubble & Anti-Spoil Rules (`HeadBubble.tsx`)
+### 2.4 Chat Bubble & Anti-Spoil Rules (`ChatBubble.tsx` / `HeadBubble.tsx`)
 
-Dialogue bubbles strictly follow the **Anti-Spoil Principle**:
+`ChatBubble` supports dual visual variants:
+1. `variant="bubble"`: 3D head-projected floating bubble with dead-zone filtering and viewport collision avoidance;
+2. `variant="cinematic"`: Pure, translucent glowing subtitle bar used across story mode and mobile chat dock.
+
+In daily chat mode, dialogue bubbles strictly follow the **Anti-Spoil Principle**:
 
 | Interaction Phase | Status Key (`statusKey`) | Visual Presentation | Core Constraint |
 | :--- | :--- | :--- | :--- |
@@ -96,11 +100,22 @@ Dialogue bubbles strictly follow the **Anti-Spoil Principle**:
 | **TTS Synthesis** | `'tts'` | Blue capsule: `🎙️ Preparing voice...` | Maintains conversational pacing |
 | **EMAGE Synthesis** | `'emage'` | Amber capsule: `✨ Rehearsing gestures...` | Displays pipeline state only |
 | **Active Speech** | `'speaking'` | **Expands full speech bubble with text** | **Reveals dialogue text exclusively when audio & motion play!** |
-| **TTS Unavailable** | `'ttsUnavailable'` | Header row with a `VolumeX` icon + `bubble.ttsUnavailable` (语音暂时不可用 / Voice unavailable), **plus the reply text** | Not an error state; no technical detail in the UI (§2.7) |
+| **TTS Unavailable** | `'ttsUnavailable'` | Header row with a `VolumeX` icon + `bubble.ttsUnavailable` ("Voice unavailable"), **plus the reply text** | Not an error state; no technical detail in the UI (§2.7) |
+
+In story / prologue mode, `isSpeaking` is decoupled from static dialogue text visibility: character lines persist stably post-speech so users can freely explore camera perspectives, try on outfits, and switch scenes without dialogue flashing away.
 
 Screen position uses `VRMBodyMorph.getHeadTopWorldPosition` (raw crown), the same anchor as the dev height ruler — not the normalized `head` joint + 0.24m.
 
-User pref `APP_CONFIG.chat.showHeadBubble` (override in `userSettings`): when off, `HeadBubble` returns null. ChatDirector / `bubbleTracker` events still fire.
+**Dialogue scope.** `ChatBubble` takes `dialogueScope` (`'chat' | 'story'`, decision logic in [`chatBubbleVisibility.ts`](../src/components/chatBubbleVisibility.ts)):
+
+| Scope | Where | Visibility | Honors "Show dialogue subtitles" |
+| :--- | :--- | :--- | :--- |
+| `'chat'` | PC floating bubble; mobile chat-mode cinematic bar (`ChatBar` `topSlot` in `App.tsx`) | Follows `bubbleTracker` `state.visible`: hidden when speech ends (`ChatDirector.onEnd → bubbleTracker.hide()`) | Yes |
+| `'story'` | `StoryPlayer` cinematic bar | Persists for the whole beat | **No** — always shown |
+
+Static cinematic bars default to `'story'`, so the mobile chat bar passes `dialogueScope="chat"` explicitly.
+
+User pref `APP_CONFIG.chat.showChatDialogue` (formerly `showHeadBubble`; override in `userSettings`, the legacy field is still read for old records and sync payloads): when off, chat-scope `ChatBubble` returns null on desktop and mobile. Story mode is unaffected. ChatDirector / `bubbleTracker` events still fire.
 
 ---
 
@@ -129,7 +144,7 @@ Details and non-goals (no WebGPU-EMAGE, no P0d): [`EMAGE_MODEL.md`](EMAGE_MODEL.
 
 `xc.say` has no character cap. Empty text is still `bad_request`. Long text is cut only by `splitIntoSpeechChunks` (§2.1) inside `runSpeechPipeline`. Hosts send the full reply in one `say()`.
 
-`resetClipCache()` only drops the cached thinking VRMA so the next think clip rebinds after an outfit swap. It does not stop speech. A wardrobe change does not preempt an utterance.
+`resetClipCache()` only drops the cached thinking VRMA so the next think clip rebinds after an outfit swap. It does not stop speech. A wardrobe change does not preempt an utterance. When a wardrobe change occurs, `VRMEngine` calls `chatDirector.bindVRM(vrm)`, ensuring `ChatDirector` never retains stale references to disposed VRMs when transitioning `TurnState` ('idle' | 'listening' | 'thinking' | 'speaking'). Motion state transitions invoke `pipeline.onTurnStateChange(state)` strictly using the pipeline's active bound VRM.
 
 A text `xc.utterance` `start` is emitted by the protocol handler before `speakText` enters `handoff`, so the host can see that start before the fade ends. An audio `start` waits for the playback clock. When a preempted command returns, the bridge still sends that command's `xc.utterance` `end`.
 
@@ -139,7 +154,7 @@ When TTS (or the per-chunk EMAGE feed) throws in the producer loop, `runSpeechPi
 
 1. The producer records `producerError`, marks itself finished and wakes the consumer.
 2. EMAGE stream: on error it calls `emage.abortAudioStream()` instead of `endAudioStream()` (the worker may never answer `feed_audio_end`). On success `endAudioStream()` is wrapped in `withTimeout(…, END_STREAM_TIMEOUT_MS)` (8 s). Both are skipped when a newer utterance owns the session.
-3. After `stop()` / `onEnd`, a failed run sets status `ttsUnavailable` (not `isError`) with the speech text, so `HeadBubble` shows the reply text under a `VolumeX` header with `bubble.ttsUnavailable`. The raw message goes to `console.warn('[ChatDirector] TTS unavailable, showing text only: …')` only.
+3. After `stop()` / `onEnd`, a failed run sets status `ttsUnavailable` (not `isError`) with the speech text, so `ChatBubble` shows the reply text under a `VolumeX` header with `bubble.ttsUnavailable`. The raw message goes to `console.warn('[ChatDirector] TTS unavailable, showing text only: …')` only.
 4. The final wait on the producer is also bounded by `withTimeout(producerPromise, 8000)`, so the call always returns and the send button never stays in its loading state.
 
 Covered by `src/director/chatDirector.ttsError.test.ts`. On the server, `/api/tts` failures now carry the real cause (e.g. `Handshake failed: HTTP 403`, plus `(after N attempts)`, with a `reasons` array in the 502 body), for logs only. Upstream endpoint, retry policy and the 2026-10 403 incident: see [`TTS.md`](TTS.md).
@@ -190,3 +205,15 @@ flowchart TD
 Bubble status roughly tracks: `thinking` → early `emage` (first window ready) → `speaking` → inter-segment wait → idle.
 
 A newer `say` / `speakText` / `speakAudio` calls `handoff()` first (§2.6). The previous pipeline exits on its utterance id and does not run the idle cleanup for the line that replaced it.
+
+---
+
+## 3. Multi-Modal TTS Client & Error Degradation
+
+- Core file: [`src/director/ttsClient.ts`](../src/director/ttsClient.ts)
+- Supports two operating modes:
+  1. **Official Built-in Edge-TTS (Recommended)**: Synthesizes real-time audio streams via Cloudflare Worker `/api/tts` backed by dual-tier L1 PoP and L2 R2 persistent caching;
+  2. **Custom User Provider**: Dispatches standard OpenAI `/v1/audio/speech` format `POST ${baseURL}/audio/speech` with `{ model, input, voice, response_format: 'mp3' }`, compatible with MiniMax, SiliconFlow CosyVoice, OpenAI, ElevenLabs, and other cloud providers.
+- **Graceful Degradation & Fault Tolerance**:
+  - When speech synthesis encounters errors (network disconnection, authentication failure, quota exhaustion), it **never crashes or interrupts the main interaction pipeline**;
+  - Triggers `status('ttsUnavailable')`, displaying an unobtrusive "Voice unavailable" capsule below the chat bubble; LLM dialogue text continues to render smoothly, and motion orchestration gracefully degrades to a text-paced rhythm.

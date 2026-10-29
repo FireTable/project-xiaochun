@@ -21,15 +21,49 @@ const COMPOSED_STORE = 'composed';
 
 let dbPromise: Promise<IDBDatabase | null> | null = null;
 
+/** open 请求若既不 success 也不 error / blocked (极端浏览器状态), 超时后放弃缓存, 避免 swap 队列永远卡住。 */
+const OPEN_TIMEOUT_MS = 5000;
+
 function openDb(): Promise<IDBDatabase | null> {
   if (dbPromise) return dbPromise;
-  dbPromise = new Promise<IDBDatabase | null>((resolve) => {
+  const p = new Promise<IDBDatabase | null>((resolve) => {
     if (typeof indexedDB === 'undefined') {
       console.warn('[idb-vrm-cache] indexedDB unavailable (SSR/private mode), cache disabled');
       resolve(null);
       return;
     }
-    const req = indexedDB.open(DB_NAME, DB_VERSION);
+    let settled = false;
+    // 失败 (null) 时清掉缓存的 promise, 下次调用会重新尝试打开, 而不是永久禁用缓存
+    // (microtask: open 同步抛错时 dbPromise 还没赋值, 推迟到赋值之后再比较)
+    const fail = () => {
+      queueMicrotask(() => {
+        if (dbPromise === p) dbPromise = null;
+      });
+    };
+    const settle = (db: IDBDatabase | null) => {
+      if (settled) {
+        // 超时后才成功的连接: 不再使用, 关掉避免挡住后续升级
+        db?.close();
+        return;
+      }
+      settled = true;
+      clearTimeout(timer);
+      if (!db) fail();
+      resolve(db);
+    };
+    const timer = setTimeout(() => {
+      if (settled) return;
+      console.warn('[idb-vrm-cache] open timed out, cache disabled for this call');
+      settle(null);
+    }, OPEN_TIMEOUT_MS);
+    let req: IDBOpenDBRequest;
+    try {
+      req = indexedDB.open(DB_NAME, DB_VERSION);
+    } catch (e) {
+      console.warn('[idb-vrm-cache] open threw:', e);
+      settle(null);
+      return;
+    }
     req.onupgradeneeded = () => {
       const db = req.result;
       if (!db.objectStoreNames.contains(RAW_STORE)) {
@@ -39,17 +73,27 @@ function openDb(): Promise<IDBDatabase | null> {
         db.createObjectStore(COMPOSED_STORE);
       }
     };
-    req.onsuccess = () => resolve(req.result);
+    req.onsuccess = () => {
+      const db = req.result;
+      // 其他 tab 要升级 schema 时主动让路 (否则对方 open 永远 blocked), 并让下次调用重新打开
+      db.onversionchange = () => {
+        db.close();
+        fail();
+      };
+      db.onclose = fail;
+      settle(db);
+    };
     req.onerror = () => {
       console.warn('[idb-vrm-cache] open failed:', req.error);
-      resolve(null);
+      settle(null);
     };
     req.onblocked = () => {
       console.warn('[idb-vrm-cache] open blocked (另一 tab 持有旧 schema)');
-      resolve(null);
+      settle(null);
     };
   });
-  return dbPromise;
+  dbPromise = p;
+  return p;
 }
 
 function rawKey(url: string, sha: string): string {
@@ -69,6 +113,7 @@ export async function idbGet(url: string, sha: string): Promise<ArrayBuffer | nu
     try {
       const tx = db.transaction(RAW_STORE, 'readonly');
       const req = tx.objectStore(RAW_STORE).get(rawKey(url, sha));
+      tx.onabort = () => resolve(null);
       req.onsuccess = () => resolve((req.result as ArrayBuffer | undefined) ?? null);
       req.onerror = () => {
         console.warn('[idb-vrm-cache] get failed:', req.error);
@@ -89,6 +134,7 @@ export async function idbPut(url: string, sha: string, buf: ArrayBuffer): Promis
       const tx = db.transaction(RAW_STORE, 'readwrite');
       tx.objectStore(RAW_STORE).put(buf, rawKey(url, sha));
       tx.oncomplete = () => resolve();
+      tx.onabort = () => resolve();
       tx.onerror = () => {
         console.warn('[idb-vrm-cache] put failed:', tx.error);
         resolve();
@@ -112,6 +158,7 @@ export async function idbGetComposed(
     try {
       const tx = db.transaction(COMPOSED_STORE, 'readonly');
       const req = tx.objectStore(COMPOSED_STORE).get(composedKey(addonUrl, addonSha, baseUrl, baseSha));
+      tx.onabort = () => resolve(null);
       req.onsuccess = () => resolve((req.result as ArrayBuffer | undefined) ?? null);
       req.onerror = () => {
         console.warn('[idb-vrm-cache] getComposed failed:', req.error);
@@ -134,6 +181,7 @@ export async function idbPutComposed(
       const tx = db.transaction(COMPOSED_STORE, 'readwrite');
       tx.objectStore(COMPOSED_STORE).put(buf, composedKey(addonUrl, addonSha, baseUrl, baseSha));
       tx.oncomplete = () => resolve();
+      tx.onabort = () => resolve();
       tx.onerror = () => {
         console.warn('[idb-vrm-cache] putComposed failed:', tx.error);
         resolve();
@@ -155,9 +203,63 @@ export async function idbClearAll(): Promise<{ cleared: boolean; reason?: string
       tx.objectStore(RAW_STORE).clear();
       tx.objectStore(COMPOSED_STORE).clear();
       tx.oncomplete = () => resolve({ cleared: true });
+      tx.onabort = () => resolve({ cleared: false, reason: tx.error?.message ?? 'aborted' });
       tx.onerror = () => resolve({ cleared: false, reason: tx.error?.message ?? 'unknown' });
     } catch (e) {
       resolve({ cleared: false, reason: e instanceof Error ? e.message : String(e) });
+    }
+  });
+}
+
+/** v2: 分支前的 v1 缓存里可能有旧版 .vrma, 换版本号后旧条目自然 miss。 */
+function motionKey(url: string, version?: string): string {
+  const cleanUrl = url.split('?')[0];
+  const v = version ?? (url.includes('?') ? url.split('?')[1] : 'v2');
+  return `motion:${cleanUrl}@${v}`;
+}
+
+/**
+ * 获取 IndexedDB 中缓存的动作二进制 ArrayBuffer
+ */
+export async function idbGetMotion(url: string, version?: string): Promise<ArrayBuffer | null> {
+  const db = await openDb();
+  if (!db) return null;
+  return new Promise<ArrayBuffer | null>((resolve) => {
+    try {
+      const tx = db.transaction(RAW_STORE, 'readonly');
+      const req = tx.objectStore(RAW_STORE).get(motionKey(url, version));
+      tx.onabort = () => resolve(null);
+      req.onsuccess = () => resolve((req.result as ArrayBuffer | undefined) ?? null);
+      req.onerror = () => {
+        console.warn('[idb-vrm-cache] idbGetMotion failed:', req.error);
+        resolve(null);
+      };
+    } catch (e) {
+      console.warn('[idb-vrm-cache] idbGetMotion threw:', e);
+      resolve(null);
+    }
+  });
+}
+
+/**
+ * 将动作二进制 ArrayBuffer 写入 IndexedDB 持久化缓存
+ */
+export async function idbPutMotion(url: string, version: string | undefined, buf: ArrayBuffer): Promise<void> {
+  const db = await openDb();
+  if (!db) return;
+  return new Promise<void>((resolve) => {
+    try {
+      const tx = db.transaction(RAW_STORE, 'readwrite');
+      tx.objectStore(RAW_STORE).put(buf, motionKey(url, version));
+      tx.oncomplete = () => resolve();
+      tx.onabort = () => resolve();
+      tx.onerror = () => {
+        console.warn('[idb-vrm-cache] idbPutMotion failed:', tx.error);
+        resolve();
+      };
+    } catch (e) {
+      console.warn('[idb-vrm-cache] idbPutMotion threw:', e);
+      resolve();
     }
   });
 }

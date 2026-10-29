@@ -14,7 +14,7 @@ export const SectionCard: React.FC<{ id?: string; children: React.ReactNode }> =
 
   const arr = React.Children.toArray(children);
   return (
-    <div className="flex flex-col gap-3 p-3.5 rounded-xl bg-white/[0.03] border border-white/10">
+    <div id={id} className="flex flex-col gap-3 p-3.5 rounded-xl bg-white/[0.03] border border-white/10">
       {arr.map((child, idx) => {
         if (idx === 0) return child;
         return gateCollapsed ? null : child;

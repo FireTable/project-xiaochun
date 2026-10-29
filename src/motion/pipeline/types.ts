@@ -12,6 +12,8 @@ export interface MotionTraits {
   thinkSway: boolean;
   /** Glance-away probability for Gaze. Omit → constraint default. */
   glanceChance?: number;
+  /** When true, Gaze head/eye tracking is completely disabled (e.g. inverted/hanging motions). */
+  disableGaze?: boolean;
 }
 
 export const DEFAULT_MOTION_TRAITS: MotionTraits = {

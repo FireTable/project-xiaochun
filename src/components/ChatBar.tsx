@@ -1,7 +1,7 @@
 import { isEmbed } from '@/lib/platform';
 import React, { useState, useEffect, useRef, Fragment, useMemo } from 'react';
 import { useTranslation } from 'react-i18next';
-import { ChevronLeft, ChevronRight, Menu, Mic, Mountain, Server, Sun, Zap } from 'lucide-react';
+import { ChevronLeft, ChevronRight, Menu, Mountain, Server, Sun, Zap } from 'lucide-react';
 import { vrmEngine } from '@/core/vrmEngine';
 import { useCurrentScene } from '@/core/scene/sceneManager';
 import { DeviceStatusDialog } from '@/components/DeviceStatusDialog';
@@ -29,6 +29,9 @@ import {
 import { getActiveProviderId, getProvider, type ProviderProfile, subscribeProvidersChange } from '@/llm/customProvider';
 import { readActiveModel, subscribeActiveModel } from '@/llm/activeModel';
 import { Send, Sparkles, Loader2 } from '@/components/icons';
+import { zhCN } from '@/i18n/zh-CN';
+import { en as enBundle } from '@/i18n/en';
+import { ja as jaBundle } from '@/i18n/ja';
 import { splitIntoSpeechChunks } from '@/director/chatDirector';
 import {
   Tooltip,
@@ -46,7 +49,9 @@ import {
 import { LlmProviderIcon } from '@/components/LlmProviderIcon';
 import { holdPetUi, releasePetUi } from '@/hooks/usePetUiVisibility';
 import { isDev } from '@/lib/utils';
-import { SttClient, insertAtCursor, type SttUiState } from '@/stt/sttClient';
+import { SttClient, replaceOrInsertAtRange, type TextRange, type SttUiState } from '@/stt/sttClient';
+import { isDevDrawerActive, saveVoiceRecord } from '@/stt/voiceSessionHistory';
+import { VoicePill } from './VoicePill';
 
 function MenuSwitch({ on }: { on: boolean }) {
   return (
@@ -74,15 +79,39 @@ function AccentFill({ on }: { on: boolean }) {
   );
 }
 
-export const ChatBar: React.FC<{
+export interface ChatBarProps {
   isPetUIVisible?: boolean;
   /**
    * 是否启用"点击角色才出现"。缺省 = 当前是透明场景 (Tauri 桌宠的原规则);
    * /embed 按 uiAutoHide 选项算好后传进来 (见 src/embed/EmbedApp.tsx)。
    */
   autoHide?: boolean;
+  isDevDrawerOpen?: boolean;
   onShowDevPanel?: () => void;
-}> = ({ isPetUIVisible = false, autoHide, onShowDevPanel }) => {
+  className?: string;
+  topSlot?: React.ReactNode;
+  placeholder?: string;
+  onSend?: (text: string) => Promise<void> | void;
+  disabled?: boolean;
+  isStatic?: boolean;
+}
+
+/** 加载失败文案的三语前缀 (取自 i18n 包的 error.loadFailed，不在这里写死任何语言) */
+const LOAD_FAILED_PREFIXES = [zhCN.error.loadFailed, enBundle.error.loadFailed, jaBundle.error.loadFailed];
+const isLoadFailedText = (text: string): boolean => LOAD_FAILED_PREFIXES.some((p) => text.startsWith(p));
+
+export const ChatBar: React.FC<ChatBarProps> = ({
+  isPetUIVisible = false,
+  autoHide,
+  isDevDrawerOpen = false,
+  onShowDevPanel,
+  className = '',
+  topSlot,
+  placeholder: placeholderProp,
+  onSend,
+  disabled: disabledProp = false,
+  isStatic = false,
+}) => {
   const { t } = useTranslation();
   const currentScene = useCurrentScene();
   const isTransparent = Boolean(currentScene.isTransparent);
@@ -90,21 +119,37 @@ export const ChatBar: React.FC<{
   // ponytail: 不再有 hover-show — 透明桌宠模式只靠点击角色身体 (App.tsx 的 isPetUIVisible) 唤出/收起
   const [isMenuOpen, setIsMenuOpen] = useState(false);
 
+  const isDevDrawerOpenRef = useRef(isDevDrawerOpen);
+  isDevDrawerOpenRef.current = isDevDrawerOpen;
+
   const inputRef = useRef<HTMLTextAreaElement>(null);
 
   const sttRef = useRef<SttClient | null>(null);
+  const sttRangeRef = useRef<TextRange | null>(null);
+  const isComposingRef = useRef(false);
+  const isSttInsertingRef = useRef(false);
+  const pendingSttEventRef = useRef<{ text: string; isFinal: boolean } | null>(null);
   const [sttState, setSttState] = useState<SttUiState>('idle');
   const [sttPercent, setSttPercent] = useState(0);
+  const [sttProb, setSttProb] = useState(0);
+  const [sttRms, setSttRms] = useState(0);
   /** mic_denied | mic_insecure | mic_unsupported | mic_not_found | other */
   const [sttErrorKind, setSttErrorKind] = useState<string | null>(null);
+  const inputRowsRef = useRef(1);
   const [inputRows, setInputRows] = useState(1);
   const composerExpanded = inputRows > 1;
   /** 未聚焦时记录 visualViewport 高度，用来判断 Android 键盘是否挤矮了可视区 */
   const restingVvHeightRef = useRef<number>(typeof window !== 'undefined' && window.visualViewport ? window.visualViewport.height : 0);
   const [hasText, setHasText] = useState(false);
-  const [isSending, setIsSending] = useState(false);
+  const [turnState, setTurnState] = useState(() => vrmEngine.turnState);
+  const isBusy = turnState === 'thinking' || turnState === 'speaking';
+  const isListening = turnState === 'listening';
   const [isQueued, setIsQueued] = useState(false);
   const [isInputFocused, setIsInputFocused] = useState(false);
+
+  useEffect(() => {
+    return vrmEngine.onTurnStateChange(setTurnState);
+  }, []);
   const queuedTextRef = useRef('');
   const [thinkingOn, setThinkingOn] = useState(() => isThinkingEnabled());
   const [activeModel, setActiveModel] = useState(() => getActiveModelId());
@@ -114,46 +159,109 @@ export const ChatBar: React.FC<{
   const [showAdvancedDialog, setShowAdvancedDialog] = useState(false);
   const [showSyncDialog, setShowSyncDialog] = useState(false);
 
+  /** Height only grows (cap 4). Shrink back to 1 only when content is cleared. */
+  const syncComposerHeight = () => {
+    const el = inputRef.current;
+    if (!el) return;
+    const MAX = 4;
+    if (el.value.trim().length === 0) {
+      el.style.height = '';
+      el.style.overflowY = 'hidden';
+      inputRowsRef.current = 1;
+      setInputRows((prev) => (prev === 1 ? prev : 1));
+      return;
+    }
+
+    // Set height to 'auto' synchronously before measurement to allow scrollHeight to recalculate
+    // without ever collapsing to '0px' (which caused jarring zero-height flash / jump)
+    el.style.height = 'auto';
+    el.style.overflowY = 'hidden';
+    const cs = window.getComputedStyle(el);
+    let lineHeight = parseFloat(cs.lineHeight);
+    if (!Number.isFinite(lineHeight) || lineHeight <= 0) {
+      const fs = parseFloat(cs.fontSize) || 15;
+      lineHeight = fs * 1.5;
+    }
+    const content = el.scrollHeight;
+    const measuredRows = Math.max(1, Math.min(MAX, Math.ceil(content / lineHeight - 0.01)));
+    const nextRows = Math.max(inputRowsRef.current, measuredRows); // unidirectional: never shrink while typing
+    inputRowsRef.current = nextRows;
+
+    // Immediately restore and set final pixel height synchronously in the same execution turn!
+    const nextPx = lineHeight * Math.min(MAX, nextRows);
+    el.style.height = `${nextPx}px`;
+    el.style.overflowY = content > lineHeight * MAX + 0.5 ? 'auto' : 'hidden';
+
+    // Synchronize React state only if rows actually changed to prevent duplicate re-renders
+    setInputRows((prev) => (prev === nextRows ? prev : nextRows));
+  };
+
   // STT (SenseVoice) — lazy client; preload on first mic click
   useEffect(() => {
     const client = new SttClient();
+    client.setTtsSpeakingProvider(() => vrmEngine.isSpeaking);
     sttRef.current = client;
     const off = client.on((ev) => {
       if (ev.type === 'state') {
         setSttState(ev.state);
+        // 对齐 input focus 逻辑：只要麦克风处于激活会话态（listening / recognizing / loading），
+        // 就必须持续保持倾听姿态；唯有真正退回到 idle 或 error 且输入框没有焦点时才解除。
+        const isMicActive = ev.state === 'listening' || ev.state === 'recognizing' || ev.state === 'loading';
+        if (isMicActive) {
+          vrmEngine.setListening(true);
+        } else if (document.activeElement !== inputRef.current && !inputRef.current?.value.trim()) {
+          vrmEngine.setListening(false);
+        }
         if (ev.state !== 'error') setSttErrorKind(null);
+        if (ev.state === 'idle' || ev.state === 'error') {
+          setSttProb(0);
+          setSttRms(0);
+        }
+      } else if (ev.type === 'speech_prob') {
+        setSttProb(ev.prob);
+      } else if (ev.type === 'partial_rms') {
+        setSttRms(ev.rms);
+      } else if (ev.type === 'speech_start') {
+        setSttProb(0.9);
+        vrmEngine.stopSpeaking();
+        vrmEngine.setListening(true);
       } else if (ev.type === 'progress') setSttPercent(ev.percent);
       else if (ev.type === 'text') {
         const el = inputRef.current;
         if (el) {
-          insertAtCursor(el, ev.text);
+          // If user is currently composing with IME (e.g. Chinese Pinyin input),
+          // defer updating until composition ends to avoid disrupting candidate selection.
+          if (isComposingRef.current) {
+            pendingSttEventRef.current = { text: ev.text, isFinal: Boolean(ev.isFinal) };
+            return;
+          }
+          if (typeof document !== 'undefined' && document.activeElement !== el) {
+            el.focus({ preventScroll: true });
+          }
+          isSttInsertingRef.current = true;
+          let newRange: TextRange | null = null;
+          try {
+            newRange = replaceOrInsertAtRange(el, ev.text, sttRangeRef.current);
+          } finally {
+            isSttInsertingRef.current = false;
+          }
+          if (ev.isFinal) {
+            sttRangeRef.current = null;
+          } else {
+            sttRangeRef.current = newRange;
+          }
           setHasText(el.value.trim().length > 0);
-          requestAnimationFrame(() => {
-            const box = inputRef.current;
-            if (!box) return;
-            const MAX = 4;
-            if (box.value.trim().length === 0) {
-              box.style.height = '';
-              box.style.overflowY = 'hidden';
-              setInputRows(1);
-              return;
-            }
-            box.style.height = '0px';
-            box.style.overflowY = 'hidden';
-            const cs = window.getComputedStyle(box);
-            let lineHeight = parseFloat(cs.lineHeight);
-            if (!Number.isFinite(lineHeight) || lineHeight <= 0) {
-              const fs = parseFloat(cs.fontSize) || 15;
-              lineHeight = fs * 1.5;
-            }
-            const content = box.scrollHeight;
-            const measuredRows = Math.max(1, Math.min(MAX, Math.ceil(content / lineHeight - 0.01)));
-            setInputRows((prev) => {
-              const next = Math.max(prev, measuredRows);
-              box.style.height = `${lineHeight * Math.min(MAX, next)}px`;
-              box.style.overflowY = content > lineHeight * MAX + 0.5 ? 'auto' : 'hidden';
-              return next === prev ? prev : next;
-            });
+          setIsInputFocused(true);
+        }
+      } else if (ev.type === 'utterance_result') {
+        if (isDevDrawerOpenRef.current && isDevDrawerActive()) {
+          saveVoiceRecord({
+            text: ev.text,
+            pcm: ev.pcm,
+            sampleRate: ev.sampleRate,
+            durationMs: ev.durationMs,
+            inferenceMs: ev.inferenceMs,
+            rms: ev.rms,
           });
         }
       } else if (ev.type === 'error') {
@@ -181,6 +289,7 @@ export const ChatBar: React.FC<{
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps -- mount once
   }, []);
+
   // ponytail: 当前激活的自定义 provider(webllm 与 custom 二选一)。用来在模型下拉里
   // 显示真实生效的服务名 / 模型,而不是 webLLM 的兜底。
   const [activeCustom, setActiveCustom] = useState<ProviderProfile | null>(null);
@@ -335,7 +444,7 @@ export const ChatBar: React.FC<{
       }
 
       // 3) 节流:每 1000ms 推一次 UI state,但如果是终态 (>=100% 或错误) 则立即推更新
-      const isTerminal = p.progress >= 1 || p.text.startsWith('加载失败');
+      const isTerminal = p.progress >= 1 || isLoadFailedText(p.text);
       if (!isTerminal && now - lastUiTsRef.current < 1000) return;
       lastUiTsRef.current = now;
 
@@ -447,8 +556,8 @@ export const ChatBar: React.FC<{
   }
   function fmtEta(secs: number): string {
     if (!secs || !isFinite(secs) || secs <= 0) return '—';
-    if (secs >= 60) return `${Math.floor(secs / 60)}分${Math.round(secs % 60)}秒`;
-    return `${Math.round(secs)}秒`;
+    if (secs >= 60) return t('chat.etaMinSec', { min: Math.floor(secs / 60), sec: Math.round(secs % 60) });
+    return t('chat.etaSec', { sec: Math.round(secs) });
   }
 
   // ponytail: custom provider 永远 ready(webllm engine 用不上),不显示加载状态。
@@ -465,24 +574,35 @@ export const ChatBar: React.FC<{
         inputRef.current.style.overflowY = 'hidden';
       }
       setHasText(false);
+      inputRowsRef.current = 1;
       setInputRows(1);
       setIsQueued(false);
-      setIsSending(true);
 
-      void vrmEngine
-        .sendMessage(toSend)
-        .catch((e) => console.error('[ChatBar Queue] Send failed:', e))
-        .finally(() => {
-          setIsSending(false);
-        });
+      if (onSend) {
+        void Promise.resolve(onSend(toSend)).catch((e: unknown) => console.error('[ChatBar Queue] Send failed:', e));
+      } else {
+        void vrmEngine
+          .sendMessage(toSend)
+          .catch((e) => console.error('[ChatBar Queue] Send failed:', e));
+      }
     }
-  }, [isModelReady, isQueued]);
+  }, [isModelReady, isQueued, onSend]);
+
+  const handleStop = () => {
+    vrmEngine.stopSpeaking();
+    vrmEngine.setListening(false);
+  };
 
   const handleSend = async () => {
+    if (disabledProp) return;
     const text = inputRef.current?.value.trim() ?? '';
-    if (!text || isSending) return;
+    if (!text) return;
 
+    vrmEngine.stopSpeaking();
+    vrmEngine.setListening(false);
     inputRef.current?.blur();
+    sttRangeRef.current = null;
+    sttRef.current?.resetSession();
 
     // 模型尚未完全就绪：智能转入排队状态，输入内容安全保留，不吞字
     if (!isModelReady) {
@@ -497,34 +617,33 @@ export const ChatBar: React.FC<{
       inputRef.current.style.overflowY = 'hidden';
     }
     setHasText(false);
+    inputRowsRef.current = 1;
     setInputRows(1);
     setIsQueued(false);
-    setIsSending(true);
 
     try {
-      await vrmEngine.sendMessage(text);
+      if (onSend) {
+        await onSend(text);
+      } else {
+        await vrmEngine.sendMessage(text);
+      }
     } catch (e) {
       console.error(e);
-    } finally {
-      setIsSending(false);
     }
   };
 
   const handleSpeakText = async (which: 'spring' | 'shudao' = 'spring') => {
-    if (isSending || !isVRMReady) return;
+    if (isBusy || !isVRMReady) return;
     // ponytail: dev 测试菜单 — spring 复用原 testSpeakText 键(向后兼容),
     // shudao 是新增的 ~280 字长文(李白《蜀道难》),用于压测长会话流水线
     const text = which === 'shudao'
       ? t('chat.testSpeakShudaoText')
       : t('chat.testSpeakText');
     if (!text) return;
-    setIsSending(true);
     try {
       await vrmEngine.speakText(text);
     } catch (e) {
       console.error('[ChatBar SpeakText]', e);
-    } finally {
-      setIsSending(false);
     }
   };
 
@@ -537,39 +656,9 @@ export const ChatBar: React.FC<{
   };
 
   const handleSttToggle = () => {
+    inputRef.current?.focus({ preventScroll: true });
+    setIsInputFocused(true);
     void sttRef.current?.toggle();
-  };
-
-  /** Height only grows (cap 4). Shrink back to 1 only when content is cleared. */
-  const syncComposerHeight = () => {
-    const el = inputRef.current;
-    if (!el) return;
-    const MAX = 4;
-    if (el.value.trim().length === 0) {
-      el.style.height = '';
-      el.style.overflowY = 'hidden';
-      setInputRows((prev) => (prev === 1 ? prev : 1));
-      return;
-    }
-
-    el.style.height = '0px';
-    el.style.overflowY = 'hidden';
-    const cs = window.getComputedStyle(el);
-    let lineHeight = parseFloat(cs.lineHeight);
-    if (!Number.isFinite(lineHeight) || lineHeight <= 0) {
-      const fs = parseFloat(cs.fontSize) || 15;
-      lineHeight = fs * 1.5;
-    }
-    const content = el.scrollHeight;
-    const measuredRows = Math.max(1, Math.min(MAX, Math.ceil(content / lineHeight - 0.01)));
-
-    setInputRows((prev) => {
-      const next = Math.max(prev, measuredRows); // unidirectional: never shrink while typing
-      const nextPx = lineHeight * Math.min(MAX, next);
-      el.style.height = `${nextPx}px`;
-      el.style.overflowY = content > lineHeight * MAX + 0.5 ? 'auto' : 'hidden';
-      return next === prev ? prev : next;
-    });
   };
 
   const handleInput = () => {
@@ -577,6 +666,13 @@ export const ChatBar: React.FC<{
     const nowHasText = val.trim().length > 0;
     if (nowHasText !== hasText) {
       setHasText(nowHasText);
+    }
+    if (nowHasText) {
+      vrmEngine.setListening(true);
+    }
+    if (!isComposingRef.current && !isSttInsertingRef.current) {
+      // If user types manually outside of IME composition and outside of STT, unlink tracked voice range to avoid clobbering edits
+      sttRangeRef.current = null;
     }
     syncComposerHeight();
     if (isQueued) {
@@ -593,18 +689,23 @@ export const ChatBar: React.FC<{
     shudaoSegs: splitIntoSpeechChunks(t('chat.testSpeakShudaoText')).length,
   }), [t]);
 
-  const showChatBar = !autoHideActive || isPetUIVisible || isMenuOpen || isInputFocused || hasText || isSending || sttState === 'listening' || sttState === 'recognizing' || sttState === 'loading';
+  const showChatBar = !autoHideActive || isPetUIVisible || isMenuOpen || isInputFocused || hasText || isBusy || isListening || sttState === 'listening' || sttState === 'recognizing' || sttState === 'loading';
   const visibilityClass = showChatBar
     ? 'opacity-100 pointer-events-auto'
     : 'opacity-0 pointer-events-none';
+
+  const containerClasses = isStatic
+    ? `w-full select-none ${className}`
+    : `fixed bottom-[calc(0.75rem+var(--kb-safe,env(safe-area-inset-bottom,0px))+var(--kb,0px))] sm:bottom-8 left-1/2 -translate-x-1/2 z-30 w-full max-w-xl px-3 sm:px-4 select-none transition-opacity duration-300 ease-out ${visibilityClass} ${className}`;
 
   return (
     <div
       data-xc-ui="" // /embed 透明场景: 聊天栏可见时算"命中", 否则宿主会把指针穿透过去点不到
       onPointerEnter={() => holdPetUi('chatbar')}
       onPointerLeave={() => releasePetUi('chatbar')}
-      className={`fixed bottom-[calc(0.75rem+var(--kb-safe,env(safe-area-inset-bottom,0px))+var(--kb,0px))] sm:bottom-8 left-1/2 -translate-x-1/2 z-30 w-full max-w-xl px-3 sm:px-4 select-none transition-opacity duration-300 ease-out ${visibilityClass}`}
+      className={containerClasses}
     >
+      {topSlot}
       <div id="xiaochun-chatbar" className="flex items-end gap-2 sm:gap-2.5 w-full">
         {/* Unified composer: ONE permanent textarea; single↔multi via CSS grid only (no remount). */}
         {(() => {
@@ -686,7 +787,7 @@ export const ChatBar: React.FC<{
                             return (
                               <DropdownMenuItem
                                 key={m.id}
-                                disabled={isSending}
+                                disabled={isBusy}
                                 onSelect={() => {
                                   if (selected) return;
                                   // ponytail: setActiveModelId 现在写统一 key 的 webllm 分支,
@@ -802,15 +903,45 @@ export const ChatBar: React.FC<{
               autoCorrect="off"
               autoCapitalize="off"
               spellCheck={false}
-              placeholder={isModelReady ? t('chat.placeholder') : t('chat.syncingPlaceholder')}
+              disabled={disabledProp}
+              placeholder={placeholderProp ?? (isModelReady ? t('chat.placeholder') : t('chat.syncingPlaceholder'))}
+              onCompositionStart={() => {
+                isComposingRef.current = true;
+              }}
+              onCompositionEnd={() => {
+                isComposingRef.current = false;
+                const pending = pendingSttEventRef.current;
+                if (pending && inputRef.current) {
+                  pendingSttEventRef.current = null;
+                  const el = inputRef.current;
+                  isSttInsertingRef.current = true;
+                  let newRange: TextRange | null = null;
+                  try {
+                    newRange = replaceOrInsertAtRange(el, pending.text, sttRangeRef.current);
+                  } finally {
+                    isSttInsertingRef.current = false;
+                  }
+                  if (pending.isFinal) {
+                    sttRangeRef.current = null;
+                  } else {
+                    sttRangeRef.current = newRange;
+                  }
+                  setHasText(el.value.trim().length > 0);
+                }
+              }}
               onInput={handleInput}
               onKeyDown={handleKeyDown}
               onFocus={() => {
                 setIsInputFocused(true);
                 handleInputFocus();
+                vrmEngine.setListening(true);
               }}
               onBlur={() => {
                 setIsInputFocused(false);
+                const isMicActive = sttState === 'listening' || sttState === 'recognizing' || sttState === 'loading';
+                if (!isMicActive && !inputRef.current?.value.trim()) {
+                  vrmEngine.setListening(false);
+                }
                 const vv = window.visualViewport;
                 if (vv) {
                   restingVvHeightRef.current = vv.height;
@@ -834,81 +965,30 @@ export const ChatBar: React.FC<{
               ? t('chat.sttError')
               : null;
 
+          const isVoiceActive =
+            sttState === 'listening' || sttState === 'recognizing';
+
           const micEl = (
-            <button
-              type="button"
-              id="chatSttMic"
-              aria-label={
-                sttState === 'loading'
-                  ? t('chat.sttLoading')
-                  : sttState === 'listening'
-                  ? t('chat.sttListening')
-                  : sttState === 'recognizing'
-                  ? t('chat.sttRecognizing')
-                  : sttErrorLabel
-                  ? sttErrorLabel
-                  : t('chat.sttIdle')
-              }
-              title={
-                sttState === 'loading'
-                  ? t('chat.sttDownload', { percent: sttPercent })
-                  : sttState === 'listening'
-                  ? t('chat.sttListening')
-                  : sttState === 'recognizing'
-                  ? t('chat.sttRecognizing')
-                  : sttErrorLabel
-                  ? sttErrorLabel
-                  : t('chat.sttIdle')
-              }
-              onClick={handleSttToggle}
-              disabled={sttState === 'recognizing'}
-              className={`relative shrink-0 h-9 w-9 rounded-full flex items-center justify-center touch-manipulation active:scale-95 appearance-none outline-none border-none transition-colors overflow-visible ${
-                sttState === 'listening' || sttState === 'recognizing'
-                  ? 'bg-transparent text-[#ea8377]'
-                  : sttState === 'error'
-                  ? 'bg-red-500/20 text-red-300'
-                  : sttState === 'loading'
-                  ? 'bg-white/10 text-white/70'
-                  : 'bg-transparent text-white/50 hover:text-[#f5aa9c] hover:bg-white/10'
-              }`}
-            >
-              {sttState === 'listening' && (
-                <>
-                  <span className="mic-ripple" aria-hidden />
-                  <span className="mic-ripple mic-ripple--d1" aria-hidden />
-                  <span className="mic-ripple mic-ripple--d2" aria-hidden />
-                </>
-              )}
-              {sttState === 'recognizing' && (
-                <>
-                  <span className="mic-ripple mic-ripple--busy" aria-hidden />
-                  <span className="mic-ripple mic-ripple--busy mic-ripple--busy-d1" aria-hidden />
-                  <span className="mic-ripple mic-ripple--busy mic-ripple--busy-d2" aria-hidden />
-                  <span className="mic-ripple mic-ripple--busy mic-ripple--busy-d3" aria-hidden />
-                </>
-              )}
-              {sttState === 'loading' && (
-                <svg className="absolute inset-0 h-9 w-9 -rotate-90" viewBox="0 0 36 36" aria-hidden>
-                  <circle cx="18" cy="18" r="14" fill="none" stroke="rgba(255,255,255,0.15)" strokeWidth="2" />
-                  <circle
-                    cx="18"
-                    cy="18"
-                    r="14"
-                    fill="none"
-                    stroke="#ea8377"
-                    strokeWidth="2"
-                    strokeLinecap="round"
-                    strokeDasharray={`${2 * Math.PI * 14}`}
-                    strokeDashoffset={`${2 * Math.PI * 14 * (1 - sttPercent / 100)}`}
-                  />
-                </svg>
-              )}
-              {sttState === 'loading' ? (
-                <Loader2 className="w-4 h-4 animate-spin relative z-10" />
-              ) : (
-                <Mic className="w-4 h-4 relative z-10" />
-              )}
-            </button>
+            <VoicePill
+              state={sttState}
+              rms={sttRms}
+              speechProb={sttProb}
+              loadingPercent={sttPercent}
+              errorLabel={sttErrorLabel}
+              getAnalyser={() => sttRef.current?.getAnalyser() ?? null}
+              onToggle={handleSttToggle}
+              onHoldStart={() => {
+                inputRef.current?.focus({ preventScroll: true });
+                setIsInputFocused(true);
+                if (sttState === 'idle') void sttRef.current?.start();
+              }}
+              onHoldEnd={() => {
+                void sttRef.current?.stop(true);
+              }}
+              onCancel={() => {
+                void sttRef.current?.stop(false);
+              }}
+            />
           );
 
           const llmPct = Math.round(Math.min(1, Math.max(0, llmProgress.progress)) * 100);
@@ -916,7 +996,7 @@ export const ChatBar: React.FC<{
             llmBps > 0 && llmProgress.total > llmProgress.loaded
               ? (llmProgress.total - llmProgress.loaded) / llmBps
               : 0;
-          const isError = !isLLMReady && llmProgress.text.startsWith('加载失败');
+          const isError = !isLLMReady && isLoadFailedText(llmProgress.text);
           const hasBytes = llmProgress.loaded > 0 && llmProgress.total > 0;
           const isDownloading = !isError && /fetch/i.test(llmProgress.text) && hasBytes;
           const stageKey = isError
@@ -941,7 +1021,7 @@ export const ChatBar: React.FC<{
                         <span className="text-white/60 tabular-nums">
                           {fmtBytes(llmProgress.loaded)} / {fmtBytes(llmProgress.total)}
                           {' · '}{fmtSpeed(llmBps)}
-                          {llmEta > 0 ? <> · 剩余 {fmtEta(llmEta)}</> : null}
+                          {llmEta > 0 ? <> · {t('chat.etaRemaining', { eta: fmtEta(llmEta) })}</> : null}
                         </span>
                       ) : null}
                       <span className="text-white/50 break-all">{getActiveModelId()}</span>
@@ -953,15 +1033,24 @@ export const ChatBar: React.FC<{
             </div>
           );
 
+          const canStop = !hasText && isBusy;
+          const isButtonActive = (canStop || isQueued || hasText) && !disabledProp;
+
           const sendBtn = (
             <button
               id="chatSend"
               type="button"
-              onClick={() => void handleSend()}
-              disabled={isSending || !hasText}
+              onClick={() => {
+                if (canStop) {
+                  handleStop();
+                  return;
+                }
+                void handleSend();
+              }}
+              disabled={!isButtonActive}
               aria-label={
-                isSending
-                  ? t('chat.sending')
+                canStop
+                  ? t('chat.stopSpeaking')
                   : isQueued
                   ? t('chat.queued')
                   : hasText && !isModelReady
@@ -969,26 +1058,24 @@ export const ChatBar: React.FC<{
                   : t('chat.send')
               }
               title={
-                isSending
-                  ? t('chat.sending')
+                canStop
+                  ? t('chat.stopSpeaking')
                   : isQueued
                   ? `${t('chat.queued')}${!isLLMReady ? ` ${llmPct}%` : ''}`
                   : hasText && !isModelReady
                   ? t('chat.queueSend')
                   : t('chat.send')
               }
-              className={`relative h-9 w-9 shrink-0 rounded-full flex items-center justify-center select-none touch-manipulation active:scale-95 appearance-none outline-none border-none transition-colors ${
-                isSending
-                  ? 'bg-white/10 text-white/50 cursor-wait'
-                  : isQueued || hasText
-                  ? 'text-white bg-[#ea8377] shadow-[0_4px_14px_rgba(234,131,119,0.35)] cursor-pointer'
+              className={`relative h-9 w-9 shrink-0 rounded-full flex items-center justify-center select-none touch-manipulation active:scale-95 appearance-none outline-none border-none transition-all ${
+                isButtonActive
+                  ? 'text-white bg-[#ea8377] shadow-[0_4px_14px_rgba(234,131,119,0.35)] cursor-pointer hover:brightness-105'
                   : 'text-white/40 bg-transparent cursor-not-allowed'
               }`}
             >
-              <AccentFill on={!isSending && (isQueued || hasText)} />
+              <AccentFill on={isButtonActive} />
               <span className="relative z-10 flex items-center justify-center">
-                {isSending || isQueued ? (
-                  <Loader2 className="w-4 h-4 animate-spin text-white" />
+                {canStop ? (
+                  <span className="w-3 h-3 bg-white rounded-[2.5px] shadow-sm block" />
                 ) : hasText && !isModelReady ? (
                   <Sparkles className="w-4 h-4 text-white animate-pulse" />
                 ) : (
@@ -1016,15 +1103,15 @@ export const ChatBar: React.FC<{
                 <button
                   id="chatTestSpeak"
                   type="button"
-                  disabled={isSending || !isVRMReady}
+                  disabled={isBusy || !isVRMReady}
                   aria-label={t('chat.testSpeak')}
                   className={`shrink-0 h-9 w-9 rounded-full flex items-center justify-center select-none touch-manipulation active:scale-95 appearance-none outline-none border-none transition-colors ${
-                    isSending || !isVRMReady
+                    isBusy || !isVRMReady
                       ? 'text-white/30 cursor-not-allowed'
                       : 'text-[#f5aa9c] hover:bg-[#ea8377]/20 hover:text-[#ea8377] data-[state=open]:bg-[#ea8377]/20 data-[state=open]:text-[#ea8377]'
                   }`}
                 >
-                  <Zap className={`w-4 h-4 ${isSending ? '' : 'animate-pulse'}`} />
+                  <Zap className={`w-4 h-4 ${isBusy ? '' : 'animate-pulse'}`} />
                 </button>
               </DropdownMenuTrigger>
               <DropdownMenuContent
@@ -1064,35 +1151,39 @@ export const ChatBar: React.FC<{
 
           // Dual mode: single = one row centered; multi = text top + bottom bar. Hard cut (no FLIP/transition).
           return (
-            <div
-              className={`w-full grid min-h-12 rounded-[1.75rem] bg-[#13111c]/85 border backdrop-blur-2xl ${shellPad} relative overflow-visible ${
-                composerExpanded
-                  ? 'grid-cols-[auto_1fr_auto] grid-rows-[minmax(0,1fr)_auto] gap-y-1'
-                  : 'grid-cols-[auto_minmax(0,1fr)_auto] grid-rows-1 items-center gap-x-2'
-              } ${
-                isQueued
-                  ? 'border-[#ea8377] ring-2 ring-[#ea8377]/40 shadow-[0_0_24px_rgba(234,131,119,0.35)]'
-                  : 'border-white/15 focus-within:border-[#ea8377] focus-within:ring-2 focus-within:ring-[#ea8377]/30 focus-within:shadow-[0_0_24px_rgba(234,131,119,0.3)]'
-              }`}
-            >
+            <div className="relative w-full overflow-visible">
               <div
-                className={
+                className={`w-full grid min-h-12 rounded-[1.75rem] bg-[#13111c]/90 border backdrop-blur-2xl ${shellPad} relative z-10 overflow-visible transition-colors duration-200 ${
                   composerExpanded
-                    ? 'row-start-2 col-start-1 self-center'
-                    : 'row-start-1 col-start-1 self-center'
-                }
+                    ? 'grid-cols-[auto_1fr_auto] grid-rows-[minmax(0,1fr)_auto] gap-y-1'
+                    : 'grid-cols-[auto_minmax(0,1fr)_auto] grid-rows-1 items-center gap-x-2'
+                } ${
+                  isVoiceActive
+                    ? 'border-[#ea8377]/40 ring-1 ring-[#ea8377]/25 shadow-[0_0_20px_rgba(234,131,119,0.2)]'
+                    : isQueued
+                    ? 'border-[#ea8377] ring-2 ring-[#ea8377]/40 shadow-[0_0_24px_rgba(234,131,119,0.35)]'
+                    : 'border-white/15 focus-within:border-[#ea8377] focus-within:ring-2 focus-within:ring-[#ea8377]/30 focus-within:shadow-[0_0_24px_rgba(234,131,119,0.3)]'
+                }`}
               >
-                {leftEl}
-              </div>
-              {textareaEl}
-              <div
-                className={
-                  composerExpanded
-                    ? 'row-start-2 col-start-3 self-center justify-self-end'
-                    : 'row-start-1 col-start-3 self-center'
-                }
-              >
-                {actionsEl}
+                <div
+                  className={
+                    composerExpanded
+                      ? 'row-start-2 col-start-1 self-center'
+                      : 'row-start-1 col-start-1 self-center'
+                  }
+                >
+                  {leftEl}
+                </div>
+                {textareaEl}
+                <div
+                  className={
+                    composerExpanded
+                      ? 'row-start-2 col-start-3 self-center justify-self-end'
+                      : 'row-start-1 col-start-3 self-center'
+                  }
+                >
+                  {actionsEl}
+                </div>
               </div>
             </div>
           );

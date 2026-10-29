@@ -1,0 +1,176 @@
+import { describe, expect, it } from 'vitest';
+import { ExpressionController } from '../expressionController';
+import type { VRM } from '@pixiv/three-vrm';
+
+function createMockVRM() {
+  const expressionValues: Record<string, number> = {};
+  return {
+    vrm: {
+      expressionManager: {
+        setValue: (name: string, value: number) => {
+          expressionValues[name] = value;
+        },
+        getValue: (name: string) => expressionValues[name] ?? 0,
+        update: () => {},
+      },
+    } as unknown as VRM,
+    expressionValues,
+  };
+}
+
+describe('ExpressionController Organic Facial Morphing', () => {
+  it('starts inactive with neutral weight = 1 and passes through to gaze blinking', () => {
+    const controller = new ExpressionController();
+    const { vrm } = createMockVRM();
+
+    expect(controller.getIsActive()).toBe(false);
+    // When inactive, update does not manipulate expressionManager
+    controller.update(0.016, vrm, false);
+    expect(controller.getIsActive()).toBe(false);
+  });
+
+  it('smoothly ramps happy with lively radiant ceiling avoiding deformed eyes', () => {
+    const controller = new ExpressionController();
+    const { vrm, expressionValues } = createMockVRM();
+
+    controller.setExpression('happy', 1.0);
+    expect(controller.getIsActive()).toBe(true);
+
+    // Simulate 0.5s of frame updates (~30 frames at 60fps)
+    for (let i = 0; i < 30; i++) {
+      controller.update(0.016, vrm, false);
+    }
+
+    // Happy value should be expressively radiant (~0.70) and bounded <= 0.80
+    const happyVal = expressionValues['happy'] ?? 0;
+    expect(happyVal).toBeGreaterThan(0.50);
+    expect(happyVal).toBeLessThanOrEqual(0.80);
+  });
+
+  it('smoothly ramps angry with tsundere pout ceiling avoiding demonic distortion', () => {
+    const controller = new ExpressionController();
+    const { vrm, expressionValues } = createMockVRM();
+
+    controller.setExpression('angry', 1.0);
+    expect(controller.getIsActive()).toBe(true);
+
+    // Simulate 0.5s of frame updates
+    for (let i = 0; i < 30; i++) {
+      controller.update(0.016, vrm, false);
+    }
+
+    const angryVal = expressionValues['angry'] ?? 0;
+    expect(angryVal).toBeGreaterThan(0.50);
+    expect(angryVal).toBeLessThanOrEqual(0.70);
+  });
+
+  it('smoothly transitions back to neutral and gracefully deactivates', () => {
+    const controller = new ExpressionController();
+    const { vrm, expressionValues } = createMockVRM();
+
+    controller.setExpression('happy', 1.0);
+    for (let i = 0; i < 30; i++) {
+      controller.update(0.016, vrm, false);
+    }
+    expect(expressionValues['happy']).toBeGreaterThan(0.10);
+
+    // Now command return to neutral
+    controller.setExpression('neutral');
+
+    // Simulate 1.0s of smooth dampening back to zero
+    for (let i = 0; i < 60; i++) {
+      controller.update(0.016, vrm, false);
+    }
+
+    // Should have deactivated and zeroed out VRM expressions
+    expect(controller.getIsActive()).toBe(false);
+    expect(expressionValues['happy'] ?? 0).toBe(0);
+    expect(expressionValues['angry'] ?? 0).toBe(0);
+  });
+
+  it('ducks smile mouth expression when character is speaking', () => {
+    const controller = new ExpressionController();
+    const { vrm, expressionValues } = createMockVRM();
+
+    controller.setExpression('happy', 1.0);
+    // Update while speaking
+    for (let i = 0; i < 30; i++) {
+      controller.update(0.016, vrm, true);
+    }
+
+    // Mouth is ducked by speechMouthDucking (0.25)
+    const duckedHappy = expressionValues['happy'] ?? 0;
+    expect(duckedHappy).toBeLessThan(0.25);
+  });
+
+  it('ducks angry expression mouth pull when character is speaking', () => {
+    const controller = new ExpressionController();
+    const { vrm, expressionValues } = createMockVRM();
+
+    controller.setExpression('angry', 1.0);
+    for (let i = 0; i < 30; i++) {
+      controller.update(0.016, vrm, true);
+    }
+
+    // Angry is ducked by mouthDuck (0.25) when speaking
+    const duckedAngry = expressionValues['angry'] ?? 0;
+    expect(duckedAngry).toBeLessThan(0.20);
+  });
+
+  it('reset does not clobber aa viseme when character is speaking', () => {
+    const controller = new ExpressionController();
+    const { vrm, expressionValues } = createMockVRM();
+
+    expressionValues['aa'] = 0.85;
+    expressionValues['ou'] = 0.50;
+
+    controller.reset(vrm, true); // speaking = true
+
+    // 'aa' is preserved for TTS lip sync, 'ou' is cleared
+    expect(expressionValues['aa']).toBe(0.85);
+    expect(expressionValues['ou']).toBe(0);
+
+    controller.reset(vrm, false); // speaking = false
+    expect(expressionValues['aa']).toBe(0);
+  });
+
+  it('does not call expressionManager.update() during update loop (avoids redundant CPU recalculation)', () => {
+    const controller = new ExpressionController();
+    let updateCallCount = 0;
+    const { vrm } = createMockVRM();
+    (vrm.expressionManager as any).update = () => {
+      updateCallCount++;
+    };
+
+    controller.setExpression('happy', 1.0);
+    for (let i = 0; i < 10; i++) {
+      controller.update(0.016, vrm, false);
+    }
+
+    // VRM.update() in vrmEngine.ts is responsible for calling expressionManager.update()
+    expect(updateCallCount).toBe(0);
+  });
+
+  it('executes zero-GC in per-frame update loop without invoking Object.keys()', () => {
+    const controller = new ExpressionController();
+    const { vrm } = createMockVRM();
+
+    controller.setExpression('happy', 1.0);
+
+    const originalKeys = Object.keys;
+    let keysCalled = 0;
+    Object.keys = (obj: any) => {
+      keysCalled++;
+      return originalKeys(obj);
+    };
+
+    try {
+      for (let i = 0; i < 60; i++) {
+        controller.update(0.016, vrm, false);
+      }
+      expect(keysCalled).toBe(0);
+    } finally {
+      Object.keys = originalKeys;
+    }
+  });
+});

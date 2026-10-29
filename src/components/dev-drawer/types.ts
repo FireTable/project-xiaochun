@@ -33,6 +33,7 @@ export interface DevDrawerFullSettings {
 /** 段 id — 跟 schema SECTIONS 一一对应 */
 export type SectionId =
   | 'expressions'
+  | 'motion'
   | 'vocal'
   | 'emagePerf'
   | 'saturation'
@@ -40,7 +41,8 @@ export type SectionId =
   | 'wardrobe'
   | 'lighting'
   | 'camera'
-  | 'postfx';
+  | 'postfx'
+  | 'voiceAnalysis';
 
 
 /** 历史撤销操作动作 */

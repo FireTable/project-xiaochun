@@ -111,7 +111,7 @@ Then `frustumCulled = false` (VRM bounds are often wrong) and `VRMUtils.rotateVR
 three.js GPU resources are not GC'd. `vrm.dispose()` was removed in three-vrm 1.0.
 
 When reloading models or unloading the engine:
-1. `scene.remove(vrm.scene)` then `VRMUtils.deepDispose(vrm.scene)` (swap/reload paths and `VRMEngine.dispose()`);
+1. `scene.remove(vrm.scene)` followed by `StaggeredDisposer` + `VRMTexturePool` (on outfit swaps, preserving shared textures and time-slicing WebGL deallocations over subsequent frames $\le 2\text{ms}$/frame) or `VRMUtils.deepDispose(vrm.scene)` on complete teardown (`VRMEngine.dispose()`);
 2. `PostFxPipeline.dispose()` releases composer / bloom render targets;
 3. Renderer, linework world, and character shadow dispose their own GPU objects.
 

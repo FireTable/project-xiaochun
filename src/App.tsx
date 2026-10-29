@@ -2,8 +2,9 @@ import React, { useState, useEffect, useCallback, startTransition } from 'react'
 import { useTranslation } from 'react-i18next';
 import type { LoadingState, BubbleState } from '@/core/vrmEngine';
 import { TopHeader } from '@/components/TopHeader';
+import { SceneTimeCard } from '@/components/SceneTimeCard';
 import { AppUpdateDialog } from '@/components/AppUpdateDialog';
-import { HeadBubble } from '@/components/HeadBubble';
+import { ChatBubble } from '@/components/ChatBubble';
 import { ChatBar } from '@/components/ChatBar';
 import { loadingStore } from '@/components/loading/loadingStore';
 
@@ -12,7 +13,11 @@ import { loadingStore } from '@/components/loading/loadingStore';
 const DevDrawerHost = React.memo(DevDrawer);
 import { DevDrawer } from '@/components/dev-drawer';
 import { SceneCanvas } from '@/components/SceneCanvas';
-import { OnboardingTour, ONBOARDING_STORAGE_KEY } from '@/components/onboarding/OnboardingTour';
+import { ONBOARDING_STORAGE_KEY } from '@/components/onboarding/OnboardingTour';
+import { StoryPlayer } from '@/components/story/StoryPlayer';
+import { storyDirectorEngine } from '@/story/storyEngine';
+import { storyGenerator } from '@/story/storyGenerator';
+import { prologueStory } from '@/story/prologueStory';
 
 import { XIAOCHUN_SYSTEM_PROMPT } from '@/llm/prompts';
 import { resolveSystemPrompt, getCachedUserSettings, subscribeUserSettings } from '@/llm/userSettings';
@@ -54,6 +59,7 @@ export const App: React.FC = () => {
     isError: false,
     x: 0,
     y: 0,
+    placement: 'top',
   });
 
   // ponytail: 抽屉开关状态记到 localStorage,刷新后保持原样,调试不用每次手动打开。
@@ -65,6 +71,7 @@ export const App: React.FC = () => {
     if (typeof localStorage === 'undefined') return;
     localStorage.setItem(DEV_DRAWER_OPEN_KEY, isDrawerOpen ? '1' : '0');
   }, [isDrawerOpen]);
+
   const closeDrawer = useCallback(() => setIsDrawerOpen(false), []);
   const [isDragOver, setIsDragOver] = useState(false);
   // ponytail: 10 次连击暗号触发后,生产构建也要能看见右上角调试按钮 — 用户已经
@@ -88,16 +95,36 @@ export const App: React.FC = () => {
     return false;
   });
 
-  // 支持外部事件或菜单随时重温新手引导
+  // 故事导演引擎剧场模式状态
+  const [isStoryActive, setIsStoryActive] = useState(false);
+  const isStoryOrOnboarding = isOnboardingActive || isStoryActive;
+
+  // 支持外部事件或菜单随时重温新手引导或进入故事剧场
   useEffect(() => {
     const handleTrigger = () => {
       setIsOnboardingActive(true);
       void sceneManager.setScene('void', false);
+      void storyDirectorEngine.playScript(prologueStory);
+    };
+    const handleStoryTrigger = () => {
+      setIsStoryActive(true);
+      void storyDirectorEngine.playScript(prologueStory);
     };
     window.addEventListener('xc-trigger-onboarding', handleTrigger);
-    return () => window.removeEventListener('xc-trigger-onboarding', handleTrigger);
+    window.addEventListener('xc-trigger-story', handleStoryTrigger);
+    return () => {
+      window.removeEventListener('xc-trigger-onboarding', handleTrigger);
+      window.removeEventListener('xc-trigger-story', handleStoryTrigger);
+    };
   }, []);
   const showDevUi = isDev() || hasDevEasterEgg;
+
+  useEffect(() => {
+    const isDevOpen = isDrawerOpen && showDevUi && !isStoryOrOnboarding;
+    if (typeof window !== 'undefined' && (window as any).vrmEngine) {
+      (window as any).vrmEngine.setDevDrawerOpen(isDevOpen);
+    }
+  }, [isDrawerOpen, showDevUi, isStoryOrOnboarding]);
 
   // 外部协议调用 (Deep Link / Single-Instance / 调试桥接) 监听初始化
   useEffect(() => {
@@ -122,6 +149,9 @@ export const App: React.FC = () => {
       if (typeof window !== 'undefined') {
         (window as any).vrmEngine = mod.vrmEngine;
         (window as any).sceneManager = sceneManager;
+        (window as any).storyDirectorEngine = storyDirectorEngine;
+        (window as any).storyGenerator = storyGenerator;
+        (window as any).triggerStory = () => setIsStoryActive(true);
       }
       // ponytail: 渲染循环不再被 LoadingOverlay suspend —— overlay 只是视觉遮罩,
       // 渲染从 startAnimation 一直跑,fitCamera + cinematicIntro 在 VRM 加载完后直接生效。
@@ -228,31 +258,66 @@ export const App: React.FC = () => {
 
 
 
-      {/* 3D 角色头顶悬浮对话框：引导与日常统一使用头顶气泡 */}
-      {currentScene.components.headBubble !== false && (
-        <HeadBubble state={bubble} />
+      {/* 3D 角色头顶悬浮对话框：PC 维持头顶跟随气泡；移动端隐藏头顶气泡转由 ChatBar 顶部电影条承接。
+          两者都属于 chat 范围: 受「显示对话字幕」设置 (showChatDialogue) 控制, 且语音结束后消失；
+          故事 / 新手引导走 StoryPlayer 自己的电影条, 不受该设置影响。 */}
+      {currentScene.components.headBubble !== false && !isStoryOrOnboarding && (
+        <div className="hidden sm:block">
+          <ChatBubble state={bubble} variant="bubble" />
+        </div>
       )}
 
-      {/* 底部对话输入条 — 启动 splash 期间及新手向导期间不渲染 */}
-      {!loadingActive && !isOnboardingActive && currentScene.components.chatBar !== false && (
+      {/* 底部对话输入条 — 启动 splash 期间及故事/向导期间不渲染；Mobile Chat 模式下在顶部槽位渲染电影条 */}
+      {!loadingActive && !isStoryOrOnboarding && currentScene.components.chatBar !== false && (
         <ChatBar
           isPetUIVisible={isPetUIVisible}
+          isDevDrawerOpen={isDrawerOpen && showDevUi && !isStoryOrOnboarding}
           onShowDevPanel={() => setHasDevEasterEgg(true)}
+          topSlot={
+            <div className="block sm:hidden w-full pb-1.5 pointer-events-auto">
+              <ChatBubble
+                state={bubble}
+                variant="cinematic"
+                dialogueScope="chat"
+                isStatic
+                placement="bottom"
+                maxWidthClass="max-w-full"
+              />
+            </div>
+          }
         />
       )}
 
-      {/* 沉浸式小蠢新手向导：仅在小蠢 3D 模型完全站立就绪且无全屏进度遮罩时呈现 */}
-      {!loadingActive && isVRMReady && isOnboardingActive && (
-        <OnboardingTour onComplete={() => setIsOnboardingActive(false)} />
+      {/* 沉浸式小蠢故事导演引擎 · 试点剧场与序章 */}
+      {!loadingActive && isVRMReady && isStoryOrOnboarding && (
+        <StoryPlayer
+          onComplete={() => {
+            setIsOnboardingActive(false);
+            setIsStoryActive(false);
+            try {
+              localStorage.setItem(ONBOARDING_STORAGE_KEY, '1');
+              // 若用户在虚空场景提前跳过，自动回退到默认海滩场景
+              if (sceneManager.getCurrentSceneId() === 'void') {
+                void sceneManager.setScene(APP_CONFIG.scenes.defaultSceneId, true);
+              }
+              // 清除 URL 中的 ?onboarding=1，防止刷新反复进入向导
+              if (typeof window !== 'undefined' && window.location.search.includes('onboarding=')) {
+                const url = new URL(window.location.href);
+                url.searchParams.delete('onboarding');
+                window.history.replaceState({}, '', url.toString());
+              }
+            } catch { }
+          }}
+        />
       )}
 
       {/* 模型加载进度遮罩由 routes/index.tsx 单实例渲染，App 通过 loadingStore 驱动 */}
 
       <AppUpdateDialog allowPrompt={!loadingActive} />
 
-      {/* 顶部控制栏 — 始终挂载以维持模型冷启与换装，新手向导期间视觉隐藏 */}
-      {(currentScene.components.topHeader !== false || isOnboardingActive) && (
-        <div className={isOnboardingActive ? 'hidden' : undefined}>
+      {/* 顶部控制栏 — 始终挂载以维持模型冷启与换装，故事/向导期间视觉隐藏 */}
+      {(currentScene.components.topHeader !== false || isStoryOrOnboarding) && (
+        <div className={isStoryOrOnboarding ? 'hidden' : undefined}>
           <TopHeader
             isDev={showDevUi}
             isDrawerOpen={isDrawerOpen && showDevUi}
@@ -262,9 +327,14 @@ export const App: React.FC = () => {
         </div>
       )}
 
-      {/* 生产包默认不露抽屉；10 次连击后 hasDevEasterEgg 打开同一套面板。新手向导期间不遮挡 */}
+      {/* 场景时间卡片 (独立浮窗，位于 TopHeader 下方；依据当前场景是否支持时间系统决定是否挂载，故事/向导期间隐藏避让) */}
+      {!isStoryOrOnboarding && Boolean(currentScene.supportsTime || currentScene.components.time) && (
+        <SceneTimeCard isPetUIVisible={isPetUIVisible} />
+      )}
+
+      {/* 生产包默认不露抽屉；10 次连击后 hasDevEasterEgg 打开同一套面板。故事与向导期间不遮挡 */}
       <DevDrawerHost
-        isOpen={isDrawerOpen && showDevUi && !isOnboardingActive}
+        isOpen={isDrawerOpen && showDevUi && !isStoryOrOnboarding}
         onClose={closeDrawer}
       />
 

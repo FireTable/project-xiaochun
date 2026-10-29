@@ -124,8 +124,22 @@ function buildNodeToHumanoidMap(vrm: VRM): Map<string, string> {
   return map;
 }
 
+export interface RetargetOptions {
+  /**
+   * 是否开启 AI 动作防穿模限幅（ANTI_CLIP_BONES 上臂 60° 限制与锁骨削减）。
+   * - false (默认): 用于标准真人动捕 VRMA（如 listening.vrma、各类高质量动捕），保留原汁原味的人体关节自由度。
+   * - true: 用于 SimpleText2Motion 等 AI 生成的粗糙动作（如老旧 thinking.vrma）；
+   */
+  antiClip?: boolean;
+}
+
 // ponytail: 主入口 —— 直接改 THREE.AnimationClip 的 tracks,不碰 GLB。
-export function retargetClip(clip: THREE.AnimationClip, vrm: VRM): THREE.AnimationClip {
+export function retargetClip(
+  clip: THREE.AnimationClip,
+  vrm: VRM,
+  options: RetargetOptions = {},
+): THREE.AnimationClip {
+  const antiClip = options.antiClip ?? false;
   // ponytail: 库生成的 track 名字用 VRM 实际节点名(例 "J_Bip_L_Shoulder"),
   // 我们 ANTI_CLIP_BONES 用 humanoid 规范名("leftShoulder"),需要个映射表。
   const nodeToHname = buildNodeToHumanoidMap(vrm);
@@ -190,41 +204,58 @@ export function retargetClip(clip: THREE.AnimationClip, vrm: VRM): THREE.Animati
   console.log(`[Retarget] ratio-scaling disabled (bad bone measurements); ${rotScaled} rotation track(s), ${posScaled} position track(s)`);
 
   // 3) 肩膀/锁骨 (Shoulder) 旋转衰减 ——
-  // 防止 AI 生成动作导致锁骨剧烈抬升与耸肩内缩 (彻底解决图一耸肩、恢复图二舒展状态)
-  for (const track of clip.tracks) {
-    if (!track.name.endsWith('.quaternion')) continue;
-    const hname = hnameOf(track.name);
-    if (hname === 'leftShoulder' || hname === 'rightShoulder') {
-      for (let i = 0; i < track.values.length; i += 4) {
-        scaleQuaternion(track.values as unknown as Float32Array, i, 0.15);
+  // 仅在 AI 动作启用 antiClip 时生效，防止 SimpleText2Motion 导致锁骨剧烈抬升与耸肩内缩
+  if (antiClip) {
+    for (const track of clip.tracks) {
+      if (!track.name.endsWith('.quaternion')) continue;
+      const hname = hnameOf(track.name);
+      if (hname === 'leftShoulder' || hname === 'rightShoulder') {
+        for (let i = 0; i < track.values.length; i += 4) {
+          scaleQuaternion(track.values as unknown as Float32Array, i, 0.15);
+        }
       }
     }
   }
 
-  // 过滤掉任何试图驱动眼球的动画轨道，确保眼球始终由 VRMLookAt 系统精确注视镜头
-  // 同时严密过滤脚掌与脚趾轨道：小蠢模型穿厚底高跟鞋，通用平底鞋动捕的脚踝旋转会导致鞋尖翘起悬空
+  // 4) 过滤眼球驱动轨道，确保眼球始终由 VRMLookAt 视线系统精确注视镜头
+  // 若启用 antiClip，则额外过滤脚掌与脚趾轨道（避免高跟鞋模型因平底鞋动捕翘起悬空）
   clip.tracks = clip.tracks.filter((track) => {
     const lower = track.name.toLowerCase();
     if (lower.includes('eye')) return false;
-    if (lower.includes('foot') || lower.includes('toe')) return false;
     const hname = hnameOf(track.name);
-    if (hname && (hname === 'leftEye' || hname === 'rightEye' || hname === 'leftFoot' || hname === 'rightFoot' || hname === 'leftToes' || hname === 'rightToes')) return false;
+    if (hname && (hname === 'leftEye' || hname === 'rightEye')) return false;
+    if (antiClip) {
+      if (lower.includes('foot') || lower.includes('toe')) return false;
+      if (hname && (hname === 'leftFoot' || hname === 'rightFoot' || hname === 'leftToes' || hname === 'rightToes')) return false;
+    }
     return true;
   });
+
   let clamped = 0;
   const clampedBones: string[] = [];
-  for (const track of clip.tracks) {
-    if (!track.name.endsWith('.quaternion')) continue;
-    const hname = hnameOf(track.name);
-    if (!hname) continue;
-    const maxSwing = ANTI_CLIP_BONES[hname];
-    if (maxSwing === undefined) continue;
-    for (let i = 0; i < track.values.length; i += 4) {
-      clampSwing(track.values as unknown as Float32Array, i, maxSwing);
+  if (antiClip) {
+    for (const track of clip.tracks) {
+      if (!track.name.endsWith('.quaternion')) continue;
+      const hname = hnameOf(track.name);
+      if (!hname) continue;
+      const maxSwing = ANTI_CLIP_BONES[hname];
+      if (maxSwing === undefined) continue;
+      for (let i = 0; i < track.values.length; i += 4) {
+        clampSwing(track.values as unknown as Float32Array, i, maxSwing);
+      }
+      clamped++;
+      if (!clampedBones.includes(hname)) clampedBones.push(hname);
     }
-    clamped++;
-    if (!clampedBones.includes(hname)) clampedBones.push(hname);
   }
+
+  // 4.5) 躯干曲率生理顺滑分配 (Harmonize Torso Curvature) ——
+  // 消除 AI/动捕动作在腰椎(Spine)与胸椎(Chest)短短 10cm 内出现的反向对折折腰(如 Spine -17° / Chest +31°)，
+  // 保持上半身全局目标倾角不变，但将其顺滑分配给腰和胸，彻底杜绝 LBS 糖果纸拧麻花坍缩与紧身礼服撕裂！
+  const harmonizedFrames = harmonizeTorsoCurvature(clip, nodeToHname);
+  if (harmonizedFrames > 0) {
+    console.log(`[Retarget] harmonized torso curvature on ${harmonizedFrames} frame(s)`);
+  }
+
   // 5) 轨迹 low-pass 四元数平滑滤波 (消除高频抖动，大幅提升动作丝滑度)
   for (const track of clip.tracks) {
     if (track.name.endsWith('.quaternion')) {
@@ -232,7 +263,7 @@ export function retargetClip(clip: THREE.AnimationClip, vrm: VRM): THREE.Animati
     }
   }
 
-  console.log(`[Retarget] swing-clamped ${clamped} track(s): ${clampedBones.join(', ')}`);
+  console.log(`[Retarget] antiClip=${antiClip}, swing-clamped ${clamped} track(s): ${clampedBones.join(', ')}`);
   return clip;
 }
 
@@ -263,20 +294,144 @@ function smoothQuaternionTrack(values: Float32Array) {
   }
 }
 
-// 循环首尾无缝缝合 (将末尾 25% 帧平滑 Slerp/Lerp 到第 0 帧，确保 Loop 循环 100% 丝滑无跳跃、无瞬移)
-export function makeClipSeamless(clip: THREE.AnimationClip): THREE.AnimationClip {
+function isTorsoTrack(trackName: string, bone: 'spine' | 'chest', nodeToHname?: Map<string, string>): boolean {
+  if (!trackName.endsWith('.quaternion')) return false;
+  const dot = trackName.lastIndexOf('.');
+  const nodeName = dot < 0 ? trackName : trackName.slice(0, dot);
+  if (nodeToHname) {
+    const h = nodeToHname.get(nodeName);
+    if (h) return h === bone;
+  }
+  const lower = nodeName.toLowerCase();
+  if (bone === 'spine') return lower.includes('spine') && !lower.includes('chest');
+  if (bone === 'chest') return lower.includes('chest') && !lower.includes('upper');
+  return false;
+}
+
+/**
+ * 躯干曲率生理顺滑分配 (Harmonize Torso Curvature) ——
+ * 针对 AI/动捕动作在腰椎 (Spine) 与胸椎 (Chest) 短短 10cm 内出现的反向对折折腰 (如 Spine Roll -17° / Chest Roll +31°)，
+ * 在保持角色上半身在世界空间整体目标倾角不变的前提下，按照真实人体脊柱生理学曲线自然平滑分配（下腰椎分担 38%，胸椎分担 62%），
+ * 彻底消除 LBS 线性蒙皮糖果纸拧麻花坍缩与一体式紧身礼服大面积斜向撕裂褶皱。
+ * 实施 C1 连续性的平滑过渡门限（Smoothstep Soft-Thresholding），杜绝边界跳帧。
+ */
+export function harmonizeTorsoCurvature(clip: THREE.AnimationClip, nodeToHname?: Map<string, string>): number {
+  const spineTrack = clip.tracks.find((t) => isTorsoTrack(t.name, 'spine', nodeToHname));
+  const chestTrack = clip.tracks.find((t) => isTorsoTrack(t.name, 'chest', nodeToHname));
+  if (!spineTrack || !chestTrack) return 0;
+
+  const spineValues = spineTrack.values as unknown as Float32Array;
+  const chestValues = chestTrack.values as unknown as Float32Array;
+  const count = Math.min(spineValues.length, chestValues.length) / 4;
+  if (count <= 0) return 0;
+
+  const qSpine = new THREE.Quaternion();
+  const qChest = new THREE.Quaternion();
+  const qChestWorld = new THREE.Quaternion();
+  const eSpine = new THREE.Euler(0, 0, 0, 'YXZ');
+  const eChest = new THREE.Euler(0, 0, 0, 'YXZ');
+  const eWorld = new THREE.Euler(0, 0, 0, 'YXZ');
+
+  const ROLL_MIN = 0.30; // ~17.2° 启动软门限
+  const ROLL_MAX = 0.55; // ~31.5° 完全饱和门限
+  const YAW_MIN = 0.35;  // ~20.0° 启动软门限
+  const YAW_MAX = 0.60;  // ~34.4° 完全饱和门限
+
+  let modifiedCount = 0;
+
+  for (let i = 0; i < count; i++) {
+    const idx = i * 4;
+    qSpine.fromArray(spineValues, idx);
+    qChest.fromArray(chestValues, idx);
+
+    eSpine.setFromQuaternion(qSpine, 'YXZ');
+    eChest.setFromQuaternion(qChest, 'YXZ');
+
+    const rollDiff = Math.abs(eChest.z - eSpine.z);
+    const oppositeRoll = (eSpine.z * eChest.z < -0.005) && (rollDiff > ROLL_MIN);
+
+    const yawDiff = Math.abs(eChest.y - eSpine.y);
+    const oppositeYaw = (eSpine.y * eChest.y < -0.01) && (yawDiff > YAW_MIN);
+
+    if (oppositeRoll || oppositeYaw) {
+      modifiedCount++;
+      qChestWorld.multiplyQuaternions(qSpine, qChest);
+      eWorld.setFromQuaternion(qChestWorld, 'YXZ');
+
+      let newSpineRoll = eSpine.z;
+      let newChestRoll = eChest.z;
+      if (oppositeRoll) {
+        const t = Math.max(0, Math.min(1, (rollDiff - ROLL_MIN) / (ROLL_MAX - ROLL_MIN)));
+        const s = t * t * (3 - 2 * t);
+        newSpineRoll = eSpine.z + (eWorld.z * 0.38 - eSpine.z) * s;
+        newChestRoll = eChest.z + (eWorld.z * 0.62 - eChest.z) * s;
+      }
+
+      let newSpineYaw = eSpine.y;
+      let newChestYaw = eChest.y;
+      if (oppositeYaw) {
+        const t = Math.max(0, Math.min(1, (yawDiff - YAW_MIN) / (YAW_MAX - YAW_MIN)));
+        const s = t * t * (3 - 2 * t);
+        newSpineYaw = eSpine.y + (eWorld.y * 0.40 - eSpine.y) * s;
+        newChestYaw = eChest.y + (eWorld.y * 0.60 - eChest.y) * s;
+      }
+
+      eSpine.set(eSpine.x, newSpineYaw, newSpineRoll, 'YXZ');
+      eChest.set(eChest.x, newChestYaw, newChestRoll, 'YXZ');
+
+      qSpine.setFromEuler(eSpine);
+      qChest.setFromEuler(eChest);
+
+      spineValues[idx] = qSpine.x;
+      spineValues[idx + 1] = qSpine.y;
+      spineValues[idx + 2] = qSpine.z;
+      spineValues[idx + 3] = qSpine.w;
+
+      chestValues[idx] = qChest.x;
+      chestValues[idx + 1] = qChest.y;
+      chestValues[idx + 2] = qChest.z;
+      chestValues[idx + 3] = qChest.w;
+    }
+  }
+
+  return modifiedCount;
+}
+
+// 循环首尾无缝缝合：支持复用外部 fadeDuration（或默认 0.75s），基于物理真实时间轴实施 Quintic Smootherstep
+export function makeClipSeamless(clip: THREE.AnimationClip, seamlessDuration?: number): THREE.AnimationClip {
+  if ((clip as any)._seamlessBaked) return clip;
+
   for (const track of clip.tracks) {
     const isQuat = track.name.endsWith('.quaternion');
     const isPos = track.name.endsWith('.position');
     if (!isQuat && !isPos) continue;
 
     const values = track.values as unknown as Float32Array;
+    const times = track.times as unknown as Float32Array;
     const stride = isQuat ? 4 : 3;
     const numFrames = values.length / stride;
     if (numFrames < 8) continue;
 
-    const blendCount = Math.max(4, Math.floor(numFrames * 0.25));
-    const startFrame = numFrames - blendCount;
+    const totalDur = times && times.length === numFrames
+      ? Math.max(0.01, times[numFrames - 1] - times[0])
+      : clip.duration;
+
+    // 动态计算缝合时长：复用动作配置的 fadeDuration，最大不超过动作总长 35%，保底不少于 0.35s
+    const targetDur = Math.max(0.35, Math.min(seamlessDuration ?? 0.75, totalDur * 0.35));
+
+    let startFrame = 0;
+    if (times && times.length === numFrames) {
+      const cutoffTime = times[numFrames - 1] - targetDur;
+      while (startFrame < numFrames - 4 && times[startFrame] < cutoffTime) {
+        startFrame++;
+      }
+    } else {
+      const blendFrames = Math.max(4, Math.round(numFrames * (targetDur / totalDur)));
+      startFrame = Math.max(0, numFrames - blendFrames);
+    }
+
+    const blendCount = numFrames - startFrame;
+    if (blendCount < 2) continue;
 
     if (isQuat) {
       const q0 = new THREE.Quaternion(values[0], values[1], values[2], values[3]);
@@ -288,7 +443,9 @@ export function makeClipSeamless(clip: THREE.AnimationClip): THREE.AnimationClip
         // 当 i = numFrames - 1 时，alpha 正好为 1.0，确保首尾完全重合
         const alpha = (i - startFrame + 1) / blendCount;
         const clampedAlpha = Math.min(1.0, Math.max(0.0, alpha));
-        const easedAlpha = clampedAlpha * clampedAlpha * (3 - 2 * clampedAlpha); // Smoothstep S 曲线
+        // Quintic Smootherstep: 6t^5 - 15t^4 + 10t^3，保证首尾速度与加速度一阶、二阶导数连续归零
+        const t = clampedAlpha;
+        const easedAlpha = t * t * t * (t * (t * 6 - 15) + 10);
         qCur.slerp(q0, easedAlpha);
 
         values[idx]     = qCur.x;
@@ -305,7 +462,8 @@ export function makeClipSeamless(clip: THREE.AnimationClip): THREE.AnimationClip
         pCur.set(values[idx], values[idx + 1], values[idx + 2]);
         const alpha = (i - startFrame + 1) / blendCount;
         const clampedAlpha = Math.min(1.0, Math.max(0.0, alpha));
-        const easedAlpha = clampedAlpha * clampedAlpha * (3 - 2 * clampedAlpha);
+        const t = clampedAlpha;
+        const easedAlpha = t * t * t * (t * (t * 6 - 15) + 10);
         pCur.lerp(p0, easedAlpha);
 
         values[idx]     = pCur.x;
@@ -314,5 +472,6 @@ export function makeClipSeamless(clip: THREE.AnimationClip): THREE.AnimationClip
       }
     }
   }
+  (clip as any)._seamlessBaked = true;
   return clip;
 }

@@ -24,6 +24,8 @@ export interface SceneComponentConfig {
   headBubble?: boolean;
   heightRuler?: boolean;
   dropZone?: boolean;
+  /** 场景时间流转控制卡片 (SceneTimeCard) */
+  time?: boolean;
 }
 
 export interface SceneTauriConfig {
@@ -39,6 +41,8 @@ export interface SceneItemConfig {
   lineworkTheme: LineworkTheme;
   isTransparent?: boolean;
   hidden?: boolean;
+  /** 场景世界是否支持环境时间/昼夜流转 (如太阳轨迹、天空色温、动态光照与落影) */
+  supportsTime?: boolean;
   components: SceneComponentConfig;
   tauri: SceneTauriConfig;
 }
@@ -698,4 +702,34 @@ export interface VocalAudioConfig {
   /** 输出音量补偿倍率 (0.6~1.6, 默认 1.0) */
   outputGain: number;
 }
+
+/** 对话气泡平滑打字机动效配置 (视觉小说级字符渐显与语流停顿) */
+export interface ChatTypewriterConfig {
+  /** 是否启用打字机渐显动效 (false 则瞬间呈现完整文本) */
+  enabled: boolean;
+  /** 单字阶梯级联间隔 (毫秒，推荐 50~75ms，默认 60ms，与配音语速自然咬合) */
+  speedMs: number;
+  /** 逗号、顿号、分号轻微呼吸停顿 (毫秒，默认 200ms，带给分句约 260ms 的自然换气感) */
+  minorPauseMs: number;
+  /** 句号、感叹号、问号、换行等主要段落呼吸停顿 (毫秒，默认 420ms，带给句末约 480ms 的舒适沉淀感) */
+  majorPauseMs: number;
+  /** 字符渐现动效时长 (毫秒，默认 180ms，与 CSS keyframe bubble-char-reveal 保持一致) */
+  revealDurationMs: number;
+}
+
+export interface ChatConfig {
+  /** 日常 chat 模式对话字幕总开关 (PC 头顶气泡 + 移动端电影字幕栏); 故事 / 新手引导始终显示。旧名 showHeadBubble */
+  showChatDialogue: boolean;
+  typewriter: ChatTypewriterConfig;
+}
+
+/** 统一动作融合管线配置 (MotionPipeline) */
+export interface MotionPipelineConfig {
+  /** 全身动作基准过渡时长 (秒)，默认 0.75s 黄金底线 */
+  sourceFadeDuration: number;
+  /** 切入动作时手指独立微平滑时长 (秒)，消除抽搐与慢速蠕动 */
+  fingerFadeDuration: number;
+}
+
+
 

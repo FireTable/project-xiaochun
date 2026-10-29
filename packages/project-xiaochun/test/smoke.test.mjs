@@ -66,6 +66,13 @@ test('toProtocolUrl / parseProtocolUrl: speak 往返 + audioUrl 校验', () => {
   assert.equal(esm.parseProtocolUrl('xiaochun://dance?x=1'), null);
   assert.throws(() => esm.toProtocolUrl({ action: 'speak' }));
   assert.throws(() => esm.toProtocolUrl({ action: 'speak', audioUrl: 'file:///etc/passwd' }));
+
+  // motion-group 与 legacy group 往返
+  const mgUrl = esm.toProtocolUrl({ action: 'motion-group', name: 'praiseCute', loop: true });
+  assert.equal(mgUrl, 'xiaochun://motion-group?name=praiseCute&loop=true');
+  assert.deepEqual(esm.parseProtocolUrl(mgUrl), { action: 'motion-group', name: 'praiseCute', loop: true });
+  assert.deepEqual(esm.parseProtocolUrl('xiaochun://group?name=greeting'), { action: 'group', name: 'greeting' });
+  assert.deepEqual(esm.parseProtocolUrl('xiaochun://motion_group?name=greeting'), { action: 'motion-group', name: 'greeting' });
 });
 
 test('协议: xc.audio 命令已声明且实现; 映射表只引用已声明命令', () => {

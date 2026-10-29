@@ -260,13 +260,13 @@ Project XiaoChun features a cross-platform desktop build powered by **Tauri 2.x*
 - [TanStack Start](https://tanstack.com/start) — full-stack React framework
 - [Tailwind CSS](https://tailwindcss.com) — utility-first styling
 
-## On-Device STT (SenseVoice)
+## Multimodal STT & Speech Recognition Pipeline
 
-ChatBar microphone dictation runs locally:
-- Model: sherpa-onnx SenseVoice Small **int8** `2024-07-17` (zh/en/ja/ko/yue) with ITN/punctuation
-- CDN: `https://cdn.firetable.tech/xiaochun/stt/sensevoice-zh-en-ja-ko-yue-int8-2024-07-17/{model.int8.onnx,tokens.txt}`
-- Pipeline: getUserMedia → energy VAD (preroll ~300ms, auto-segment, keep tail silence) → Dedicated Worker ORT wasm → insert at caret
-- UX: continuous listening until mic toggled off; recognizing keeps mic icon with denser ripples
-- Not included: Zipformer streaming ASR; prefer int8 on mobile (not fp32)
+ChatBar microphone dictation runs via multimodal dispatch:
+- Endpoints: Cloudflare Workers AI Whisper Turbo (`/api/stt`) with 5-minute circuit breaker, Custom OpenAI `/v1/audio/transcriptions`, and on-device SenseVoice Small **int8** fallback
+- On-device Model: sherpa-onnx SenseVoice Small **int8** `2024-07-17` (zh/en/ja/ko/yue) in Dedicated Worker
+- Neural VAD: Silero VAD v5 ONNX WASM evaluating 512-sample PCM chunks (~32ms) with acoustic bleed gate (prevents self-listening to XiaoChun's TTS) and zero-silence WASM CPU bypass (`rms < 0.003`) saving >80% idle CPU
+- Conversational Barge-In: User voice activity immediately halts character speech and triggers the mocap attentive listening pose (`ListeningMotionSystem`)
+- Punctuation: FunASR CT-Transformer int8 real-time punctuation with 2-Pass client-cloud streaming draft and punctuated commit
 - Spec: `/docs/STT.md`
 

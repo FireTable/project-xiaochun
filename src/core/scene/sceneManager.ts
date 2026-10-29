@@ -184,6 +184,15 @@ class SceneManager {
       this.listeners.delete(listener);
     };
   }
+
+  /**
+   * 判断指定场景或当前场景是否支持环境时间/昼夜流转
+   */
+  public isTimeSupported(sceneId?: string): boolean {
+    const scene = sceneId ? APP_CONFIG.scenes.items[sceneId] : this.getCurrentScene();
+    if (!scene) return false;
+    return Boolean(scene.supportsTime || scene.components?.time);
+  }
 }
 
 export const sceneManager = new SceneManager();

@@ -30,9 +30,9 @@ graph LR
 
 ---
 
-## 1.1 ChatBar On-Device STT (SenseVoice)
+## 1.1 ChatBar On-Device STT & Punctuation (SenseVoice + CT-Transformer)
 
-Microphone dictation uses **SenseVoice Small int8** in a Dedicated Worker with energy-VAD auto-segmentation (otoji `?simple` style). Weights load from CDN (`APP_CONFIG.stt`). Details, UX states, and agent invariants: [`STT.md`](STT.md).
+Microphone dictation uses **SenseVoice Small int8**, **Silero VAD v5**, and **CT-Transformer int8** in a Dedicated Worker with 2-Pass draft/commit streaming and acoustic bleed gating. Weights load from CDN (`APP_CONFIG.stt`). Details, UX states, and agent invariants: [`STT.md`](STT.md).
 
 ---
 

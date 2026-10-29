@@ -1,0 +1,1696 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+  <title>Project XiaoChun · 4 章节视频演播录制演播台</title>
+  <link rel="icon" type="image/png" href="/favicon.png">
+  <style>
+    * {
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0;
+      user-select: none;
+      -webkit-user-select: none;
+    }
+
+    :root {
+      --board-bg: #16241c;
+      --wood-dark: #3a2215;
+      --wood-mid: #543420;
+      --wood-light: #73482d;
+      --chalk-white: #f8fafc;
+      --chalk-yellow: #fef08a;
+      --chalk-pink: #fca5a5;
+      --chalk-cyan: #7dd3fc;
+      --chalk-green: #86efac;
+      --chalk-orange: #fdba74;
+    }
+
+    body, html {
+      width: 100vw;
+      height: 100vh;
+      overflow: hidden;
+      background: #0d1310;
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", sans-serif;
+    }
+
+    /* 演播台全屏容器 */
+    #app-container {
+      position: relative;
+      width: 100vw;
+      height: 100vh;
+      display: flex;
+      background: var(--wood-dark);
+      border: 12px solid var(--wood-mid);
+      border-image: linear-gradient(135deg, var(--wood-light) 0%, var(--wood-mid) 50%, var(--wood-dark) 100%) 12;
+      box-shadow: inset 0 0 50px rgba(0, 0, 0, 0.85), 0 20px 60px rgba(0, 0, 0, 0.95);
+    }
+
+    /* 黑板画布区 (铺满全屏) */
+    #chalkboard-container {
+      position: absolute;
+      inset: 0;
+      width: 100%;
+      height: 100%;
+      overflow: hidden;
+      z-index: 1;
+      cursor: crosshair;
+      background: 
+        radial-gradient(circle at 45% 35%, rgba(40, 70, 55, 0.25) 0%, transparent 70%),
+        radial-gradient(circle at 20% 80%, rgba(30, 50, 40, 0.35) 0%, transparent 60%),
+        repeating-linear-gradient(45deg, rgba(255,255,255,0.003) 0px, rgba(255,255,255,0.003) 2px, transparent 2px, transparent 6px),
+        var(--board-bg);
+      box-shadow: inset 0 0 120px rgba(0, 0, 0, 0.7);
+    }
+
+    #chalk-canvas {
+      width: 100%;
+      height: 100%;
+      display: block;
+      touch-action: none;
+    }
+
+    /* ═══════════════════════════════════════════════════════════════
+       16:9 电影级视频展示大屏 (用于章节 2 与章节 3 的实机视频剪辑插入)
+       支持放大全屏 (fullscreen)并在 3 秒后缩回黑板
+       ═══════════════════════════════════════════════════════════════ */
+    #cinematic-screen-container {
+      position: absolute;
+      top: 50%;
+      left: calc(33.333% - 20px);
+      transform: translate(-50%, -50%) scale(0.92);
+      width: min(58vw, calc((100vh - 120px) * 16 / 9));
+      aspect-ratio: 16 / 9;
+      z-index: 10;
+      pointer-events: auto;
+      border-radius: 14px;
+      overflow: hidden;
+      background: radial-gradient(circle at center, #111a14 0%, #080c0a 100%);
+      border: 3px solid rgba(243, 208, 154, 0.6);
+      box-shadow: 
+        0 20px 60px rgba(0, 0, 0, 0.9),
+        0 0 40px rgba(234, 131, 119, 0.25),
+        inset 0 0 30px rgba(0, 0, 0, 0.8);
+      display: none;
+      opacity: 0;
+      transition: opacity 0.5s cubic-bezier(0.16, 1, 0.3, 1), transform 0.5s cubic-bezier(0.16, 1, 0.3, 1);
+    }
+
+    #cinematic-screen-container.active {
+      display: flex;
+      flex-direction: column;
+      opacity: 1;
+      transform: translate(-50%, -50%) scale(1);
+    }
+
+    /* 全屏实机演示模式 (Fullscreen Cinema Mode) */
+    #cinematic-screen-container.fullscreen {
+      position: fixed !important;
+      top: 0 !important;
+      left: 0 !important;
+      width: 100vw !important;
+      height: 100vh !important;
+      max-width: 100vw !important;
+      transform: none !important;
+      border-radius: 0 !important;
+      border: none !important;
+      z-index: 50 !important;
+      aspect-ratio: auto !important;
+      box-shadow: 0 0 120px rgba(0, 0, 0, 0.98) !important;
+      background: #000000 !important;
+    }
+
+    #cinematic-screen-container.fullscreen #screen-viewport {
+      width: 100vw !important;
+      height: calc(100vh - 36px) !important;
+      max-width: 100vw !important;
+      margin: 0 auto;
+    }
+
+    #cinematic-screen-container.fullscreen .safe-title-box {
+      width: 95% !important;
+      height: 93% !important;
+      border: 2px dashed rgba(243, 208, 154, 0.45) !important;
+      gap: 16px;
+    }
+
+    #cinematic-screen-container.fullscreen .placeholder-title {
+      font-size: 26px;
+    }
+
+    #cinematic-screen-container.fullscreen .placeholder-desc {
+      font-size: 15px;
+      max-width: 680px;
+    }
+
+    #cinematic-screen-container.fullscreen .placeholder-icon {
+      font-size: 64px;
+    }
+
+    #screen-header {
+      height: 36px;
+      background: linear-gradient(90deg, #231610, #141f17);
+      border-bottom: 1px solid rgba(243, 208, 154, 0.25);
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 0 14px;
+    }
+
+    #screen-title {
+      font-size: 12px;
+      font-weight: 700;
+      color: #fef08a;
+      letter-spacing: 0.5px;
+      display: flex;
+      align-items: center;
+      gap: 6px;
+    }
+
+    .screen-ctrl-btn {
+      background: rgba(255, 255, 255, 0.12);
+      border: 1px solid rgba(255, 255, 255, 0.25);
+      color: #f1f5f9;
+      font-size: 11px;
+      font-weight: 700;
+      padding: 3px 8px;
+      border-radius: 4px;
+      cursor: pointer;
+      transition: all 0.15s;
+    }
+    .screen-ctrl-btn:hover {
+      background: rgba(243, 208, 154, 0.25);
+      border-color: #fef08a;
+      color: #fef08a;
+    }
+
+    #screen-aspect-badge {
+      font-size: 10px;
+      font-weight: 700;
+      color: #38bdf8;
+      background: rgba(56, 189, 248, 0.15);
+      border: 1px solid rgba(56, 189, 248, 0.35);
+      padding: 2px 7px;
+      border-radius: 4px;
+    }
+
+    #screen-viewport {
+      flex: 1;
+      position: relative;
+      width: 100%;
+      height: 100%;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      background: #000000;
+      overflow: hidden;
+    }
+
+    /* 视频播放器 (支持拖入本地 MP4 实机录屏) */
+    #demo-video {
+      position: absolute;
+      inset: 0;
+      width: 100%;
+      height: 100%;
+      object-fit: contain;
+      display: none;
+    }
+
+    /* 16:9 安全参考框与剪辑对齐线 (给后期剪辑提供像素级定位) */
+    .screen-guides {
+      position: absolute;
+      inset: 0;
+      pointer-events: none;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+    }
+
+    .safe-title-box {
+      width: 84%;
+      height: 82%;
+      border: 1px dashed rgba(243, 208, 154, 0.25);
+      border-radius: 10px;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      gap: 14px;
+      position: relative;
+    }
+
+    .safe-corner {
+      position: absolute;
+      width: 14px;
+      height: 14px;
+      border-color: #38bdf8;
+      border-style: solid;
+      opacity: 0.8;
+    }
+    .safe-tl { top: -2px; left: -2px; border-width: 2px 0 0 2px; }
+    .safe-tr { top: -2px; right: -2px; border-width: 2px 2px 0 0; }
+    .safe-bl { bottom: -2px; left: -2px; border-width: 0 0 2px 2px; }
+    .safe-br { bottom: -2px; right: -2px; border-width: 0 2px 2px 0; }
+
+    .placeholder-content {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      text-align: center;
+      padding: 20px;
+    }
+
+    .placeholder-icon {
+      font-size: 48px;
+      margin-bottom: 10px;
+      animation: floatPulse 2.5s ease-in-out infinite;
+    }
+
+    @keyframes floatPulse {
+      0%, 100% { transform: translateY(0); }
+      50% { transform: translateY(-6px); }
+    }
+
+    .placeholder-title {
+      font-size: 18px;
+      font-weight: 700;
+      color: #f8fafc;
+      margin-bottom: 8px;
+      letter-spacing: 0.5px;
+    }
+
+    .placeholder-desc {
+      font-size: 13px;
+      color: #94a3b8;
+      max-width: 460px;
+      line-height: 1.6;
+    }
+
+    .dropzone-hint {
+      margin-top: 14px;
+      padding: 7px 16px;
+      background: rgba(255, 255, 255, 0.06);
+      border: 1px dashed rgba(255, 255, 255, 0.25);
+      border-radius: 20px;
+      font-size: 11px;
+      color: #cbd5e1;
+      cursor: pointer;
+      pointer-events: auto;
+      transition: all 0.2s;
+    }
+
+    .dropzone-hint:hover {
+      background: rgba(243, 208, 154, 0.18);
+      border-color: #f3d09a;
+      color: #fef08a;
+    }
+
+    /* ═══════════════════════════════════════════════════════════════
+       右侧伴侣视窗：无框、无按钮、透明背景融入黑板 (默认大号 44vw x 88vh)
+       层级 z-index: 60，全屏演示时自动隐藏 3s，演示后平滑浮现
+       ═══════════════════════════════════════════════════════════════ */
+    #embed-wrapper {
+      position: absolute;
+      right: 0;
+      bottom: 0;
+      width: 44vw;
+      height: 88vh;
+      min-width: 500px;
+      min-height: 680px;
+      z-index: 60;
+      display: flex;
+      background: transparent !important;
+      border: none !important;
+      box-shadow: none !important;
+      border-radius: 0 !important;
+      overflow: visible;
+      pointer-events: auto;
+      transition: opacity 0.45s cubic-bezier(0.16, 1, 0.3, 1), transform 0.45s cubic-bezier(0.16, 1, 0.3, 1), width 0.3s ease, height 0.3s ease;
+    }
+
+    #embed-wrapper.size-xl {
+      width: 52vw;
+      height: 94vh;
+      min-width: 620px;
+    }
+
+    #embed-wrapper.size-standard {
+      width: 36vw;
+      height: 72vh;
+    }
+
+    #embed-wrapper.pip-hidden {
+      opacity: 0 !important;
+      pointer-events: none !important;
+      transform: translateY(24px) scale(0.95) !important;
+    }
+
+    #xiaochun-frame {
+      width: 100%;
+      height: 100%;
+      border: none !important;
+      background: transparent !important;
+      pointer-events: auto;
+    }
+
+    /* ═══════════════════════════════════════════════════════════════
+       🎬 顶部演播导播控制器 (Director HUD) - 可通过按 H 随时隐藏
+       ═══════════════════════════════════════════════════════════════ */
+    #director-hud {
+      position: absolute;
+      top: 14px;
+      left: 20px;
+      z-index: 70;
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      background: rgba(20, 28, 23, 0.92);
+      border: 1.5px solid rgba(243, 208, 154, 0.35);
+      border-radius: 30px;
+      padding: 5px 14px;
+      box-shadow: 0 10px 30px rgba(0, 0, 0, 0.7);
+      backdrop-filter: blur(12px);
+      transition: opacity 0.25s, transform 0.25s;
+    }
+
+    #director-hud.hidden {
+      opacity: 0;
+      pointer-events: none;
+      transform: translateY(-10px);
+    }
+
+    .hud-title {
+      font-size: 12px;
+      font-weight: 800;
+      color: #fef08a;
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      padding-right: 8px;
+      border-right: 1px solid rgba(255, 255, 255, 0.15);
+    }
+
+    .chapter-btn-group {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+    }
+
+    .chapter-btn {
+      background: rgba(255, 255, 255, 0.08);
+      border: 1px solid rgba(255, 255, 255, 0.16);
+      color: #f1f5f9;
+      font-size: 11px;
+      font-weight: 600;
+      padding: 5px 10px;
+      border-radius: 16px;
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      gap: 5px;
+      transition: all 0.15s;
+    }
+
+    .chapter-btn:hover {
+      background: rgba(243, 208, 154, 0.2);
+      border-color: #f3d09a;
+      color: #ffffff;
+      transform: translateY(-1px);
+    }
+
+    .chapter-btn.active {
+      background: linear-gradient(135deg, #ea8377, #f97316);
+      border-color: #f97316;
+      color: #ffffff;
+      box-shadow: 0 0 12px rgba(234, 131, 119, 0.5);
+    }
+
+    .auto-tour-btn {
+      background: linear-gradient(135deg, #38bdf8, #2563eb);
+      border: none;
+      color: #ffffff;
+      font-size: 11px;
+      font-weight: 700;
+      padding: 5px 12px;
+      border-radius: 16px;
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      gap: 5px;
+      box-shadow: 0 4px 14px rgba(37, 99, 235, 0.35);
+      transition: all 0.15s;
+    }
+
+    .auto-tour-btn:hover {
+      transform: translateY(-1px);
+      box-shadow: 0 6px 18px rgba(37, 99, 235, 0.5);
+    }
+
+    #hud-timer-badge {
+      font-size: 11px;
+      font-weight: 700;
+      color: #38bdf8;
+      background: rgba(56, 189, 248, 0.15);
+      border: 1px solid rgba(56, 189, 248, 0.3);
+      border-radius: 12px;
+      padding: 3px 8px;
+      min-width: 60px;
+      text-align: center;
+    }
+
+    .stop-btn {
+      background: rgba(239, 68, 68, 0.2);
+      border: 1px solid rgba(239, 68, 68, 0.4);
+      color: #fca5a5;
+      font-size: 11px;
+      font-weight: 600;
+      padding: 4px 10px;
+      border-radius: 14px;
+      cursor: pointer;
+      transition: all 0.15s;
+    }
+
+    .stop-btn:hover {
+      background: rgba(239, 68, 68, 0.4);
+      color: #ffffff;
+    }
+
+    /* ═══════════════════════════════════════════════════════════════
+       底部粉笔槽工具条 (Chalk Tray) - 可通过按 H 随时隐藏
+       ═══════════════════════════════════════════════════════════════ */
+    #chalk-tray {
+      position: absolute;
+      bottom: 12px;
+      left: 20px;
+      z-index: 30;
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      background: linear-gradient(180deg, #382417 0%, #26160d 100%);
+      border: 2px solid var(--wood-light);
+      border-radius: 12px;
+      padding: 6px 14px;
+      box-shadow: inset 0 2px 4px rgba(255,255,255,0.1), 0 8px 24px rgba(0,0,0,0.7);
+      transition: opacity 0.25s;
+    }
+
+    .tray-group {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      padding: 0 4px;
+      border-right: 1px solid rgba(255, 255, 255, 0.12);
+    }
+    .tray-group:last-child {
+      border-right: none;
+    }
+
+    .tool-btn {
+      background: rgba(255, 255, 255, 0.06);
+      border: 1px solid rgba(255, 255, 255, 0.12);
+      color: #e2e8f0;
+      font-size: 11px;
+      font-weight: 500;
+      padding: 4px 8px;
+      border-radius: 6px;
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      gap: 4px;
+      transition: all 0.15s;
+    }
+
+    .tool-btn:hover {
+      background: rgba(255, 255, 255, 0.15);
+      color: #fff;
+    }
+
+    .tool-btn.active {
+      background: #f3d09a;
+      border-color: #f3d09a;
+      color: #1e293b;
+      font-weight: 700;
+      box-shadow: 0 0 10px rgba(243, 208, 154, 0.4);
+    }
+
+    /* 粉笔棍样式 */
+    .chalk-stick {
+      width: 12px;
+      height: 24px;
+      border-radius: 3px 3px 1px 1px;
+      cursor: pointer;
+      border: 1.5px solid transparent;
+      transition: transform 0.15s, border-color 0.15s;
+      box-shadow: 0 2px 5px rgba(0,0,0,0.5);
+    }
+
+    .chalk-stick:hover {
+      transform: translateY(-3px);
+    }
+
+    .chalk-stick.active {
+      border-color: #ffffff;
+      transform: translateY(-5px);
+      box-shadow: 0 0 10px currentColor;
+    }
+
+    /* 粗细按钮 */
+    .brush-size-btn {
+      width: 22px;
+      height: 22px;
+      border-radius: 4px;
+      background: rgba(255, 255, 255, 0.08);
+      border: 1px solid rgba(255, 255, 255, 0.15);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      cursor: pointer;
+      transition: all 0.15s;
+    }
+
+    .brush-size-btn.active {
+      background: #f3d09a;
+      border-color: #f3d09a;
+    }
+
+    .brush-dot {
+      background: #ffffff;
+      border-radius: 50%;
+    }
+
+    .brush-size-btn.active .brush-dot {
+      background: #1e293b;
+    }
+
+    /* 提示 Toast */
+    #chalk-toast {
+      position: absolute;
+      bottom: 70px;
+      left: 50%;
+      transform: translateX(-50%);
+      z-index: 80;
+      background: rgba(20, 26, 23, 0.92);
+      border: 1px solid rgba(243, 208, 154, 0.45);
+      color: #fef08a;
+      font-size: 13px;
+      font-weight: 600;
+      padding: 6px 18px;
+      border-radius: 20px;
+      pointer-events: none;
+      opacity: 0;
+      transition: opacity 0.25s, transform 0.25s;
+      box-shadow: 0 6px 25px rgba(0,0,0,0.6);
+    }
+
+    #chalk-toast.show {
+      opacity: 1;
+      transform: translateX(-50%) translateY(4px);
+    }
+
+    /* 录制按键提示角标 */
+    #rec-hint-badge {
+      position: absolute;
+      top: 14px;
+      right: 20px;
+      z-index: 30;
+      background: rgba(0, 0, 0, 0.5);
+      border: 1px solid rgba(255, 255, 255, 0.15);
+      border-radius: 12px;
+      padding: 4px 10px;
+      font-size: 11px;
+      color: #94a3b8;
+      backdrop-filter: blur(8px);
+      pointer-events: none;
+      transition: opacity 0.25s;
+    }
+
+    #rec-hint-badge kbd {
+      background: rgba(255, 255, 255, 0.15);
+      padding: 1px 5px;
+      border-radius: 4px;
+      color: #f8fafc;
+    }
+  </style>
+</head>
+<body>
+  <div id="app-container">
+    <!-- 1. 左侧主体与全局底板：黑板画板 (z-index: 1) -->
+    <div id="chalkboard-container">
+      <canvas id="chalk-canvas"></canvas>
+    </div>
+
+    <!-- 2. 章节 2 与章节 3 的 16:9 电影大屏框 (用于实机录屏剪辑占位与视频播放) -->
+    <div id="cinematic-screen-container">
+      <div id="screen-header">
+        <div id="screen-title">
+          <span>📺 章节实机演示视窗</span>
+        </div>
+        <div style="display: flex; align-items: center; gap: 8px;">
+          <button id="btn-toggle-fullscreen" class="screen-ctrl-btn" title="全屏实机演示 / 缩回黑板">⛶ 全屏演示 (3s)</button>
+          <button id="btn-toggle-size" class="screen-ctrl-btn" title="切换小蠢尺寸">🔍 尺寸: 大 (44vw)</button>
+          <button id="btn-toggle-pip" class="screen-ctrl-btn" title="伴侣画中画浮层开关">👤 伴侣浮层: 开</button>
+          <div id="screen-aspect-badge">16:9 CINEMA</div>
+        </div>
+      </div>
+      <div id="screen-viewport">
+        <!-- 视频容器 (如果拖入了 MP4 则播放，否则显示高质感剪辑占位提示) -->
+        <video id="demo-video" controls playsinline></video>
+
+        <div id="screen-placeholder" class="screen-guides">
+          <div class="safe-title-box">
+            <div class="safe-corner safe-tl"></div>
+            <div class="safe-corner safe-tr"></div>
+            <div class="safe-corner safe-bl"></div>
+            <div class="safe-corner safe-br"></div>
+
+            <div class="placeholder-content">
+              <div id="placeholder-icon" class="placeholder-icon">🎬</div>
+              <div id="placeholder-title" class="placeholder-title">StoryEngine 电影级新手引导演示</div>
+              <div id="placeholder-desc" class="placeholder-desc">
+                已预留 16:9 黄金画幅剪辑区。在剪辑软件 (剪映 / Premiere) 中将实机录屏视频直接对齐此框覆盖即可！
+              </div>
+              <label class="dropzone-hint">
+                <span>📁 或点击/拖放本地 .mp4 视频直接在此全屏播放</span>
+                <input id="video-file-input" type="file" accept="video/mp4,video/webm" style="display: none;" />
+              </label>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- 3. 🎬 演播导播总控条 (按 H 键可随时一键隐藏/唤出，录屏无杂质) -->
+    <div id="director-hud">
+      <div class="hud-title">
+        <span>🎬 4 章节演播总控</span>
+      </div>
+      <div class="chapter-btn-group">
+        <button id="btn-chapter-1" class="chapter-btn" title="演练第 1 章 (15s)">
+          <span>1️⃣ 项目总览板书</span>
+        </button>
+        <button id="btn-chapter-2" class="chapter-btn" title="演练第 2 章 (15s)">
+          <span>2️⃣ StoryEngine 剧场</span>
+        </button>
+        <button id="btn-chapter-3" class="chapter-btn" title="演练第 3 章 (15s)">
+          <span>3️⃣ Chat 全双工打断</span>
+        </button>
+        <button id="btn-chapter-4" class="chapter-btn" title="演练第 4 章 (8s)">
+          <span>4️⃣ 感谢领导莅临</span>
+        </button>
+      </div>
+      <button id="btn-auto-tour" class="auto-tour-btn" title="一键按序连续演播全套 4 个章节">
+        <span>🚀 连续全流程录制 (50s)</span>
+      </button>
+      <div id="hud-timer-badge">15s / 拍</div>
+      <button id="btn-stop-speech" class="stop-btn" title="停播台词与动作">⏹️ 停止</button>
+    </div>
+
+    <!-- 快捷按键提示角标 -->
+    <div id="rec-hint-badge">
+      按 <kbd>H</kbd> 键隐藏/显示导播条与粉笔槽
+    </div>
+
+    <!-- 4. 底部粉笔槽工具条 (Chalk Tray) -->
+    <div id="chalk-tray">
+      <div class="tray-group">
+        <button id="tool-pen" class="tool-btn active" title="粉笔手绘 (P)">✏️ 粉笔</button>
+        <button id="tool-arrow" class="tool-btn" title="手绘箭头 (A)">➡️ 箭头</button>
+        <button id="tool-line" class="tool-btn" title="直线 (L)">📏 直线</button>
+        <button id="tool-rect" class="tool-btn" title="流程方框 (R)">⬜ 方框</button>
+        <button id="tool-circle" class="tool-btn" title="重点圈 (C)">⭕ 重点圈</button>
+        <button id="tool-eraser" class="tool-btn" title="粉笔擦 (E)">🧽 板擦</button>
+      </div>
+
+      <div class="tray-group">
+        <div class="chalk-stick active" data-color="#f8fafc" style="background: var(--chalk-white);" title="白色粉笔"></div>
+        <div class="chalk-stick" data-color="#fef08a" style="background: var(--chalk-yellow);" title="黄色粉笔"></div>
+        <div class="chalk-stick" data-color="#fca5a5" style="background: var(--chalk-pink);" title="粉色粉笔"></div>
+        <div class="chalk-stick" data-color="#7dd3fc" style="background: var(--chalk-cyan);" title="天青粉笔"></div>
+        <div class="chalk-stick" data-color="#86efac" style="background: var(--chalk-green);" title="草绿粉笔"></div>
+        <div class="chalk-stick" data-color="#fdba74" style="background: var(--chalk-orange);" title="暖橙粉笔"></div>
+      </div>
+
+      <div class="tray-group">
+        <div class="brush-size-btn" data-size="3" title="细笔 (3px)"><div class="brush-dot" style="width: 4px; height: 4px;"></div></div>
+        <div class="brush-size-btn active" data-size="6" title="中粉笔 (6px)"><div class="brush-dot" style="width: 8px; height: 8px;"></div></div>
+        <div class="brush-size-btn" data-size="14" title="粗粉笔 (14px)"><div class="brush-dot" style="width: 14px; height: 14px;"></div></div>
+      </div>
+
+      <div class="tray-group">
+        <button id="btn-undo" class="tool-btn" title="撤销 (Cmd/Ctrl+Z)">↩️ 撤销</button>
+        <button id="btn-clear" class="tool-btn" title="全黑板擦净">🧹 擦净黑板</button>
+        <button id="btn-save" class="tool-btn" title="导出画板截图">📷 存图</button>
+      </div>
+    </div>
+
+    <!-- 5. 右侧伴侣嵌入窗：透明背景、无边框、无按钮、融入黑板 (z-index: 60) -->
+    <div id="embed-wrapper">
+      <iframe 
+        id="xiaochun-frame" 
+        src=""
+        allow="microphone; camera; display-capture; autoplay; clipboard-write;"
+        allowtransparency="true"
+      ></iframe>
+    </div>
+
+    <!-- 提示框 -->
+    <div id="chalk-toast"></div>
+  </div>
+
+  <script>
+    // ═══════════════════════════════════════════════════════════════
+    // 1. 动态确定嵌入源并携带 host 白名单参数
+    // ═══════════════════════════════════════════════════════════════
+    const iframe = document.getElementById('xiaochun-frame');
+    const hostOrigin = (window.location.origin && window.location.origin !== 'null')
+      ? window.location.origin
+      : 'https://localhost:5185';
+    
+    // 构建 /embed URL，必须携带 host 参数用于 bridge.ts 握手白名单校验
+    const embedUrl = new URL('/embed', hostOrigin);
+    embedUrl.searchParams.set('scene', 'transparent');
+    embedUrl.searchParams.set('transparent', '1');
+    embedUrl.searchParams.set('host', hostOrigin);
+    embedUrl.searchParams.set('heavy', 'eager'); // 预热动作引擎，降低首次动作延迟
+    
+    iframe.src = embedUrl.pathname + embedUrl.search;
+    console.log('[Chalkboard] Embedding XiaoChun from:', iframe.src);
+
+    // ═══════════════════════════════════════════════════════════════
+    // 2. 双向通信协议桥 (严格符合 @firetable/project-xiaochun v:1 协议)
+    // ═══════════════════════════════════════════════════════════════
+    const XC_PROTOCOL_VERSION = 1;
+    let messagePort = null;
+    const commandQueue = [];
+
+    function makeEnvelope(type, payload = {}, id) {
+      return {
+        type,
+        v: XC_PROTOCOL_VERSION,
+        payload,
+        id: id || ('cmd_' + Math.random().toString(36).slice(2, 9))
+      };
+    }
+
+    function sendCommandToXiaoChun(type, payload = {}) {
+      const env = makeEnvelope(type, payload);
+      if (messagePort) {
+        try {
+          messagePort.postMessage(env);
+          console.log('[Chalkboard] Sent command to XiaoChun:', env);
+        } catch (err) {
+          console.error('[Chalkboard] Error posting command:', err);
+        }
+      } else {
+        console.log('[Chalkboard] Buffering command until port is ready:', env);
+        commandQueue.push(env);
+      }
+    }
+
+    // 接收来自 iframe 的 xc.ready 握手消息 (只握手一次)
+    window.addEventListener('message', (ev) => {
+      const data = ev.data;
+      if (!data || typeof data !== 'object') return;
+      
+      if (data.type === 'xc.ready' && data.v === XC_PROTOCOL_VERSION) {
+        if (messagePort) {
+          // 已经建立端口，忽略后续重试心跳
+          return;
+        }
+        console.log('[Chalkboard] Received xc.ready from XiaoChun:', data);
+        const channel = new MessageChannel();
+        messagePort = channel.port1;
+
+        messagePort.onmessage = (event) => {
+          const msg = event.data;
+          if (!msg) return;
+          console.log('[Chalkboard] Event from XiaoChun port:', msg.type, msg.payload);
+          if (msg.type === 'xc.utterance') {
+            const u = msg.payload;
+            if (u && u.phase === 'start') {
+              showToast('🗣️ 小蠢开始讲演...');
+            } else if (u && u.phase === 'end') {
+              showToast('✅ 小蠢本段讲演完毕');
+              // 触发等待台词讲完的 Promise
+              if (msg.id && pendingSpeechResolvers.has(msg.id)) {
+                const finish = pendingSpeechResolvers.get(msg.id);
+                finish();
+              } else {
+                for (const finish of pendingSpeechResolvers.values()) {
+                  finish();
+                }
+                pendingSpeechResolvers.clear();
+              }
+              if (onSpeechEndCallback) {
+                const cb = onSpeechEndCallback;
+                onSpeechEndCallback = null;
+                cb();
+              }
+            }
+          } else if (msg.type === 'xc.loaded') {
+            showToast('✨ 小蠢 3D 模型已就绪！');
+          }
+        };
+
+        // 回复 xc.init 握手包，并传递 channel.port2
+        const initMsg = makeEnvelope('xc.init', {
+          hostOrigin: window.location.origin,
+          config: {
+            heavy: 'eager'
+          }
+        });
+
+        if (iframe && iframe.contentWindow) {
+          iframe.contentWindow.postMessage(initMsg, ev.origin, [channel.port2]);
+          console.log('[Chalkboard] Sent xc.init with port2');
+          showToast('✨ 小蠢已就绪，随时可以开始演播！');
+        }
+
+        // 刷新之前排队的待发送指令
+        while (commandQueue.length > 0) {
+          const cmd = commandQueue.shift();
+          console.log('[Chalkboard] Flushing buffered command:', cmd);
+          messagePort.postMessage(cmd);
+        }
+      }
+    });
+
+    // 页面交互唤醒音频（防止浏览器 Autoplay 拦截）
+    window.addEventListener('click', () => {
+      if (typeof AudioContext !== 'undefined') {
+        const ctx = new (window.AudioContext || window.webkitAudioContext)();
+        if (ctx.state === 'suspended') ctx.resume();
+      }
+    }, { once: true });
+
+    // ═══════════════════════════════════════════════════════════════
+    // 3. 4 章节核心文案、动作调度与独立定制大字粉笔板书
+    // ═══════════════════════════════════════════════════════════════
+    const CHAPTER_BOARD_DATA = {
+      0: {
+        title: '✦ Project XiaoChun (小蠢)',
+        subtitle: '纯端侧 3D AI 伴侣 · 零显存开销架构',
+        items: [
+          { prefix: '✦', text: '100% 浏览器原生运行 · Three.js 0.185 + VRM 1.0 标准', color: '#f8fafc' },
+          { prefix: '✦', text: '本地大语言模型 · WebLLM (WebGPU 纯端侧零后端显存推理)', color: '#7dd3fc' },
+          { prefix: '✦', text: '端侧语音与打断 · SenseVoice int8 + Silero VAD (全双工打断)', color: '#86efac' },
+          { prefix: '✦', text: '端侧动作扩散 · EMAGE Web Worker (单骨骼写锁 + 0.75s 平滑)', color: '#fdba74' },
+        ],
+        annotation: '👉 纯端侧驱动实景三维伴侣 (右侧实时互动)',
+        arrowTarget: true,
+      },
+      1: {
+        title: '🎬 StoryEngine 电影级新手引导剧场',
+        subtitle: '沉浸式伴侣故事引擎 · 交互剧情与场景推演',
+        items: [
+          { prefix: '✦', text: '交互式分支剧情引导 · 帮助玩家零门槛快速上手交互', color: '#f8fafc' },
+          { prefix: '✦', text: '电影级运镜调度 · 视线追踪、多景别平滑推拉摇移', color: '#7dd3fc' },
+          { prefix: '✦', text: '实时换装与打量 · 0 帧 T-Pose 换装与真实微光照映射', color: '#86efac' },
+          { prefix: '✦', text: '24 小时海滩连续光照 · 昼夜天象实时动态渐变渲染', color: '#fdba74' },
+        ],
+        annotation: '📺 即将切入全屏实机演示 (请看大屏幕) ➔',
+        arrowTarget: false,
+      },
+      2: {
+        title: '🎙️ Chat 自由对话与全双工实时打断',
+        subtitle: '拟人化多模态交互核心特性 · 实时言语感知',
+        items: [
+          { prefix: '✦', text: '四大多模态状态流转 · 待机 (Idle) ➔ 倾听 ➔ 思考 ➔ 说话', color: '#f8fafc' },
+          { prefix: '✦', text: '全双工实时语音打断 · 无论何时开口，小蠢立刻停下倾听', color: '#7dd3fc' },
+          { prefix: '✦', text: 'Silero VAD 毫秒声学门控 · 智能防回声与意图感知', color: '#86efac' },
+          { prefix: '✦', text: '语义感知肢体语言 · 细腻讲述与自发性活体微小动作', color: '#fdba74' },
+        ],
+        annotation: '📺 即将切入全屏实机演示 (请看大屏幕) ➔',
+        arrowTarget: false,
+      },
+      3: {
+        title: '💐 感谢各位领导莅临指导',
+        subtitle: 'Project XiaoChun · 探索 100% 浏览器纯端侧 AI 伴侣未来',
+        items: [
+          { prefix: '✦', text: '致谢领导关怀 · 感谢各位领导的莅临指导与宝贵意见！', color: '#fef08a' },
+          { prefix: '✦', text: '坚守纯端侧体验 · 极致隐私保护，零服务器与显存成本', color: '#7dd3fc' },
+          { prefix: '✦', text: '开发团队敬上 · 感谢支持，期待与大家共见三维伴侣未来！', color: '#86efac' },
+        ],
+        annotation: '💖 小蠢与开发团队全体成员，向各位领导深表感谢！ ➔',
+        arrowTarget: true,
+      }
+    };
+
+    const CHAPTERS = [
+      {
+        id: 1,
+        title: '章节 1：项目总览与端侧架构',
+        durationSec: 15,
+        script: '大家好！我是小蠢。Project XiaoChun 是一款纯端侧的 3D AI 伴侣，无需任何后端 GPU，在浏览器里就能同时运行大模型、语音识别与三维动作生成！',
+        motion: 'waving', // 开场招手
+        subsequentMotion: 'detailNarrate', // 2.8s 后转入仔细讲述
+        subsequentDelay: 2800,
+        expression: 'gentle_smile',
+        screenMode: 'board', // 纯黑板模式
+      },
+      {
+        id: 2,
+        title: '章节 2：基于 StoryEngine 的新手引导剧场',
+        durationSec: 16,
+        script: '为了帮助大家快速上手，我们打造了 StoryEngine 电影级新手引导。支持分支剧情、镜头调度与场景换装，现在请看全屏实机演示！',
+        motion: 'explainPoint', // 讲解要点
+        subsequentMotion: 'handHeart', // 比心引向大屏
+        subsequentDelay: 3200,
+        expression: 'playful',
+        screenMode: 'fullscreen', // 放大为全屏实机演示
+        fullscreenDelay: 4200,    // 4.2s 时展开全屏
+        fullscreenHoldSec: 3,     // 全屏展示 3s 后缩回黑板
+        screenTitle: 'StoryEngine 电影级新手引导实机演示',
+        screenDesc: '分支选择 ➔ 电影级运镜推演 ➔ 实时换装与场景打量。可拖入 MP4 录屏直接全屏播放！',
+        screenIcon: '🎬',
+      },
+      {
+        id: 3,
+        title: '章节 3：Chat 自由对话与全双工实时打断',
+        durationSec: 16,
+        script: '在 Chat 模式下，小蠢具备待机、倾听、思考和说话四种完整状态，支持全双工实时语音打断。无论我正在说什么，只要你一开口，我就会立刻停下来认真听你说，现在请看全屏实机演示！',
+        motion: 'listening', // 倾听微前倾
+        subsequentMotion: 'detailNarrate', // 深入讲述
+        subsequentDelay: 3500,
+        expression: 'gentle_smile',
+        screenMode: 'fullscreen', // 放大为全屏实机演示
+        fullscreenDelay: 4800,    // 4.8s 时展开全屏
+        fullscreenHoldSec: 3,     // 全屏展示 3s 后缩回黑板
+        screenTitle: 'Chat 模式 · 四大状态与全双工实时语音打断',
+        screenDesc: '待机 (Idle) ➔ 倾听 (Listening) ➔ 思考 (Thinking) ➔ 说话 (Speaking)。Silero VAD 毫秒级打断。',
+        screenIcon: '🎙️',
+      },
+      {
+        id: 4,
+        title: '章节 4：致谢与展望 · 感谢各位领导莅临指导',
+        durationSec: 8,
+        script: '非常感谢各位领导莅临指导！小蠢会继续坚持纯端侧探索，期待与大家共见未来，谢谢大家！',
+        motion: 'bowSalute', // 前倾敬礼，端庄礼貌
+        subsequentMotion: 'handHeart', // 2.5s 后双手比心致谢
+        subsequentDelay: 2500,
+        expression: 'gentle_smile',
+        screenMode: 'board', // 纯黑板模式 (展示大气致谢板书)
+      }
+    ];
+
+    // ═══════════════════════════════════════════════════════════════
+    // 4. 演播引擎与大屏全屏展开 / 3s 缩回控制器
+    // ═══════════════════════════════════════════════════════════════
+    const screenContainer = document.getElementById('cinematic-screen-container');
+    const screenTitle = document.getElementById('screen-title');
+    const placeholderTitle = document.getElementById('placeholder-title');
+    const placeholderDesc = document.getElementById('placeholder-desc');
+    const placeholderIcon = document.getElementById('placeholder-icon');
+    const timerBadge = document.getElementById('hud-timer-badge');
+    const embedWrapper = document.getElementById('embed-wrapper');
+    const chapterButtons = [
+      document.getElementById('btn-chapter-1'),
+      document.getElementById('btn-chapter-2'),
+      document.getElementById('btn-chapter-3'),
+      document.getElementById('btn-chapter-4'),
+    ];
+
+    let currentPlayingChapter = null;
+    let autoTourTimer = null;
+    let countdownInterval = null;
+    let fullscreenTimer = null;
+    let isPipHidden = false;
+
+    function setChapterActiveBtn(index) {
+      chapterButtons.forEach((btn, i) => {
+        if (i === index) btn.classList.add('active');
+        else btn.classList.remove('active');
+      });
+    }
+
+    // 展开实机演示为全屏
+    function expandScreenFullscreen(title, desc, icon) {
+      clearTimeout(fullscreenTimer);
+      screenContainer.classList.add('active', 'fullscreen');
+      screenTitle.innerHTML = `<span>📺 ${title} · 全屏实机演示中</span>`;
+      placeholderTitle.innerText = title;
+      placeholderDesc.innerText = desc;
+      if (icon) placeholderIcon.innerText = icon;
+
+      if (demoVideo.src) {
+        demoVideo.style.display = 'block';
+        screenPlaceholder.style.display = 'none';
+        demoVideo.currentTime = 0;
+        demoVideo.play().catch(() => {});
+      } else {
+        demoVideo.style.display = 'none';
+        screenPlaceholder.style.display = 'flex';
+      }
+
+      showToast(`📺 进入全屏实机演示 (3s 后缩回黑板)...`);
+    }
+
+    // 缩回黑板模式
+    function shrinkScreenToBoard() {
+      clearTimeout(fullscreenTimer);
+      screenContainer.classList.remove('fullscreen');
+      screenContainer.classList.remove('active');
+      showToast('📺 实机演示完成，已平滑缩回黑板');
+    }
+
+    const pendingSpeechResolvers = new Map();
+
+    function speakTextAndWait(text, maxTimeoutMs = 35000) {
+      return new Promise((resolve) => {
+        const speechId = 'spk_' + Math.random().toString(36).slice(2, 9);
+        let resolved = false;
+
+        const finish = () => {
+          if (resolved) return;
+          resolved = true;
+          if (fallbackTimer) clearTimeout(fallbackTimer);
+          pendingSpeechResolvers.delete(speechId);
+          resolve();
+        };
+
+        pendingSpeechResolvers.set(speechId, finish);
+        sendCommandToXiaoChun('xc.say', { text }, speechId);
+
+        const fallbackTimer = setTimeout(() => {
+          console.warn('[Chalkboard] Speech wait fallback reached after 35s');
+          finish();
+        }, maxTimeoutMs);
+      });
+    }
+
+    let currentChapterSession = 0;
+
+    // 播放指定章节
+    async function playChapter(chapterIndex) {
+      const thisSession = ++currentChapterSession;
+      const chapter = CHAPTERS[chapterIndex];
+      if (!chapter) return;
+      currentPlayingChapter = chapterIndex;
+      setChapterActiveBtn(chapterIndex);
+
+      showToast(`🎬 开始演播: ${chapter.title}`);
+      
+      // 1. 黑板清晰大字板书 (每个章节独立绘制)
+      renderChapterBoard(chapterIndex);
+
+      // 确保小蠢恢复显示并缩回可能展开的屏幕
+      embedWrapper.classList.remove('pip-hidden');
+      shrinkScreenToBoard();
+
+      // 2. 伴侣交互动作与表情
+      sendCommandToXiaoChun('xc.expression', { name: chapter.expression, intensity: 0.95 });
+      sendCommandToXiaoChun('xc.motion', { name: chapter.motion, loop: false });
+
+      // 动作连招调度：中途转入深度讲解动作 (如 detailNarrate / handHeart)
+      if (chapter.subsequentMotion) {
+        setTimeout(() => {
+          if (currentChapterSession === thisSession) {
+            sendCommandToXiaoChun('xc.motion', { name: chapter.subsequentMotion, loop: false });
+          }
+        }, chapter.subsequentDelay || 3000);
+      }
+
+      // 3. 伴侣张嘴朗读台词，并严格等待全部说完！
+      timerBadge.innerText = '小蠢讲演中...';
+      await speakTextAndWait(chapter.script);
+
+      if (currentChapterSession !== thisSession) return;
+
+      // 4. 核心要求：等说完话等 1s 再打开全屏演示 3s，此时小蠢隐藏 3s
+      if (chapter.screenMode === 'fullscreen') {
+        timerBadge.innerText = '准备演示 (1s)...';
+        await new Promise((r) => setTimeout(r, 1000));
+        if (currentChapterSession !== thisSession) return;
+
+        showToast('🎬 全屏实机演示 3 秒！');
+
+        // 此时小蠢隐藏 3s
+        embedWrapper.classList.add('pip-hidden');
+
+        // 打开全屏实机演示
+        expandScreenFullscreen(chapter.screenTitle, chapter.screenDesc, chapter.screenIcon);
+
+        // 动态展示 3s 倒计时
+        let sec = 3;
+        timerBadge.innerText = `全屏演示 ${sec}s`;
+        const countInt = setInterval(() => {
+          sec--;
+          if (sec > 0) {
+            timerBadge.innerText = `全屏演示 ${sec}s`;
+          } else {
+            clearInterval(countInt);
+          }
+        }, 1000);
+
+        // 严格全屏展示 3 秒
+        await new Promise((r) => setTimeout(r, 3000));
+        clearInterval(countInt);
+
+        if (currentChapterSession !== thisSession) return;
+
+        // 3 秒过后，实机演示缩回黑板，小蠢恢复显现
+        shrinkScreenToBoard();
+        embedWrapper.classList.remove('pip-hidden');
+        sendCommandToXiaoChun('xc.expression', { name: 'gentle_smile', intensity: 0.9 });
+        timerBadge.innerText = '本章完成';
+        
+        // 留 1 秒余韵缓冲
+        await new Promise((r) => setTimeout(r, 1000));
+      } else {
+        shrinkScreenToBoard();
+        embedWrapper.classList.remove('pip-hidden');
+        timerBadge.innerText = '本章完成';
+        if (chapterIndex === 3) {
+          // 第四章致谢收尾：热情挥手致意
+          sendCommandToXiaoChun('xc.expression', { name: 'smile', intensity: 0.95 });
+          sendCommandToXiaoChun('xc.motion', { name: 'waving', loop: false });
+        }
+        await new Promise((r) => setTimeout(r, 1000));
+      }
+    }
+
+    // 一键全流程连续自动录播 (Chapter 1 ➔ Chapter 2 ➔ Chapter 3 ➔ Chapter 4)
+    async function runAutoTour() {
+      clearTimeout(autoTourTimer);
+      clearInterval(countdownInterval);
+      showToast('🚀 启动 4 章节全流程连续录制...');
+      
+      // 第 1 章 (板书 + 小蠢完整讲述)
+      await playChapter(0);
+      
+      // 第 2 章 (StoryEngine: 小蠢完整说完 ➔ 全屏实机演示 3s + 小蠢隐藏 ➔ 缩回恢复)
+      await playChapter(1);
+      
+      // 第 3 章 (Chat 模式: 小蠢完整说完 ➔ 全屏实机演示 3s + 小蠢隐藏 ➔ 缩回恢复)
+      await playChapter(2);
+
+      // 第 4 章 (致谢与展望: 感谢各位领导莅临指导 + 鞠躬敬礼与比心致谢)
+      await playChapter(3);
+      
+      showToast('🎉 4 章节全流程演播圆满结束！');
+      timerBadge.innerText = '演示完成';
+      chapterButtons.forEach(btn => btn.classList.remove('active'));
+      sendCommandToXiaoChun('xc.expression', { name: 'smile', intensity: 0.95 });
+      sendCommandToXiaoChun('xc.motion', { name: 'waving', loop: false });
+    }
+
+    function stopAll() {
+      currentChapterSession++;
+      clearTimeout(autoTourTimer);
+      clearTimeout(fullscreenTimer);
+      clearInterval(countdownInterval);
+      clearBoardHandwriting();
+      shrinkScreenToBoard();
+      embedWrapper.classList.remove('pip-hidden');
+      for (const finish of pendingSpeechResolvers.values()) finish();
+      pendingSpeechResolvers.clear();
+      onSpeechEndCallback = null;
+      sendCommandToXiaoChun('xc.stop', {});
+      chapterButtons.forEach(btn => btn.classList.remove('active'));
+      timerBadge.innerText = '已停止';
+      showToast('⏹️ 已停止所有演播与动作');
+    }
+
+    // 绑定导播按钮
+    chapterButtons[0].addEventListener('click', () => playChapter(0));
+    chapterButtons[1].addEventListener('click', () => playChapter(1));
+    chapterButtons[2].addEventListener('click', () => playChapter(2));
+    chapterButtons[3].addEventListener('click', () => playChapter(3));
+    document.getElementById('btn-auto-tour').addEventListener('click', runAutoTour);
+    document.getElementById('btn-stop-speech').addEventListener('click', stopAll);
+
+    // 手动全屏切换按钮
+    const btnToggleFullscreen = document.getElementById('btn-toggle-fullscreen');
+    btnToggleFullscreen.addEventListener('click', () => {
+      if (screenContainer.classList.contains('fullscreen')) {
+        shrinkScreenToBoard();
+      } else {
+        expandScreenFullscreen('当前实机展示', '全屏演示画幅', '📺', 3);
+      }
+    });
+
+    // 伴侣画中画浮层开关
+    const btnTogglePip = document.getElementById('btn-toggle-pip');
+    btnTogglePip.addEventListener('click', () => {
+      isPipHidden = !isPipHidden;
+      if (isPipHidden) {
+        embedWrapper.classList.add('pip-hidden');
+        btnTogglePip.innerText = '👤 伴侣浮层: 关';
+        showToast('已隐藏右下角伴侣画中画浮层');
+      } else {
+        embedWrapper.classList.remove('pip-hidden');
+        btnTogglePip.innerText = '👤 伴侣浮层: 开';
+        showToast('已恢复右下角伴侣画中画浮层');
+      }
+    });
+
+    // 伴侣尺寸切换 (大 44vw ➔ 特大 52vw ➔ 标准 36vw)
+    const btnToggleSize = document.getElementById('btn-toggle-size');
+    let currentSizeTier = 'large';
+    btnToggleSize.addEventListener('click', () => {
+      if (currentSizeTier === 'large') {
+        currentSizeTier = 'xl';
+        embedWrapper.classList.remove('size-standard');
+        embedWrapper.classList.add('size-xl');
+        btnToggleSize.innerText = '🔍 尺寸: 特大 (52vw)';
+        showToast('伴侣已设为特大尺寸 (52vw)');
+      } else if (currentSizeTier === 'xl') {
+        currentSizeTier = 'standard';
+        embedWrapper.classList.remove('size-xl');
+        embedWrapper.classList.add('size-standard');
+        btnToggleSize.innerText = '🔍 尺寸: 标准 (36vw)';
+        showToast('伴侣已设为标准尺寸 (36vw)');
+      } else {
+        currentSizeTier = 'large';
+        embedWrapper.classList.remove('size-standard', 'size-xl');
+        btnToggleSize.innerText = '🔍 尺寸: 大 (44vw)';
+        showToast('伴侣已设为大号尺寸 (44vw)');
+      }
+    });
+
+    // ═══════════════════════════════════════════════════════════════
+    // 5. 大字清晰粉笔手写板书动画引擎 (每个章节定制)
+    // ═══════════════════════════════════════════════════════════════
+    let handwritingTimers = [];
+
+    function clearBoardHandwriting() {
+      handwritingTimers.forEach(t => clearTimeout(t));
+      handwritingTimers = [];
+      ctx.clearRect(0, 0, canvas.width, canvas.height);
+    }
+
+    function renderChapterBoard(index) {
+      clearBoardHandwriting();
+      saveUndoSnapshot();
+
+      const data = CHAPTER_BOARD_DATA[index];
+      if (!data) return;
+
+      const startX = 60;
+      const startY = 110;
+
+      // 1. 主标题 (大号醒目暖金粉笔字 40px)
+      const t1 = setTimeout(() => {
+        ctx.save();
+        ctx.font = 'bold 40px "Chalkboard", "Bradley Hand", -apple-system, sans-serif';
+        ctx.fillStyle = '#fef08a';
+        ctx.shadowColor = 'rgba(254, 240, 138, 0.4)';
+        ctx.shadowBlur = 8;
+        ctx.fillText(data.title, startX, startY);
+        ctx.restore();
+      }, 100);
+      handwritingTimers.push(t1);
+
+      // 2. 副标题与粉笔分隔线
+      const t2 = setTimeout(() => {
+        ctx.save();
+        ctx.font = 'italic 22px -apple-system, sans-serif';
+        ctx.fillStyle = '#94a3b8';
+        ctx.fillText(data.subtitle, startX, startY + 48);
+
+        // 手绘粉笔虚线分割线
+        drawChalkSegment(startX, startY + 68, startX + 760, startY + 68, 'rgba(243, 208, 154, 0.35)', 2);
+        ctx.restore();
+      }, 400);
+      handwritingTimers.push(t2);
+
+      // 3. 要点逐行大字展现 (字号 25px，间距 58px)
+      data.items.forEach((item, i) => {
+        const itemY = startY + 124 + i * 58;
+        const ti = setTimeout(() => {
+          ctx.save();
+          // 图标
+          ctx.font = 'bold 24px -apple-system, sans-serif';
+          ctx.fillStyle = item.color;
+          ctx.fillText(item.prefix, startX, itemY);
+
+          // 核心内容
+          ctx.font = '600 25px -apple-system, sans-serif';
+          ctx.fillStyle = item.color;
+          ctx.shadowColor = item.color;
+          ctx.shadowBlur = 4;
+          ctx.fillText(item.text, startX + 32, itemY);
+          ctx.restore();
+        }, 800 + i * 450);
+        handwritingTimers.push(ti);
+      });
+
+      // 4. 底部引导演示批注与手绘箭头
+      const tAnno = setTimeout(() => {
+        const annoY = startY + 124 + data.items.length * 58 + 28;
+        ctx.save();
+        ctx.font = 'bold 24px -apple-system, sans-serif';
+        ctx.fillStyle = '#fca5a5';
+        ctx.shadowColor = 'rgba(252, 165, 165, 0.4)';
+        ctx.shadowBlur = 5;
+        ctx.fillText(data.annotation, startX, annoY);
+        ctx.restore();
+
+        if (data.arrowTarget) {
+          // 准确指向右侧小蠢身体中心 (胸口/肩颈区域，与用户手绘红线完全对齐)
+          const arrowStartX = startX + 470;
+          const arrowStartY = annoY - 8;
+          const embedRect = embedWrapper ? embedWrapper.getBoundingClientRect() : null;
+          let arrowEndX = window.innerWidth * 0.77;
+          let arrowEndY = window.innerHeight * 0.52;
+          if (embedRect) {
+            arrowEndX = embedRect.left + embedRect.width * 0.40;
+            arrowEndY = embedRect.top + embedRect.height * 0.44;
+          }
+          drawChalkArrow(arrowStartX, arrowStartY, arrowEndX, arrowEndY, '#fca5a5', 6);
+        }
+      }, 800 + data.items.length * 450 + 400);
+      handwritingTimers.push(tAnno);
+    }
+
+    // ═══════════════════════════════════════════════════════════════
+    // 6. 16:9 大屏的本地视频拖放播放支持
+    // ═══════════════════════════════════════════════════════════════
+    const demoVideo = document.getElementById('demo-video');
+    const screenPlaceholder = document.getElementById('screen-placeholder');
+    const videoFileInput = document.getElementById('video-file-input');
+
+    function loadLocalVideo(file) {
+      if (!file) return;
+      const url = URL.createObjectURL(file);
+      demoVideo.src = url;
+      demoVideo.style.display = 'block';
+      screenPlaceholder.style.display = 'none';
+      demoVideo.play().catch(() => {});
+      showToast(`🎬 已载入实机录屏: ${file.name}`);
+    }
+
+    videoFileInput.addEventListener('change', (e) => {
+      if (e.target.files && e.target.files[0]) {
+        loadLocalVideo(e.target.files[0]);
+      }
+    });
+
+    const viewport = document.getElementById('screen-viewport');
+    viewport.addEventListener('dragover', (e) => {
+      e.preventDefault();
+      viewport.style.borderColor = '#fef08a';
+    });
+    viewport.addEventListener('dragleave', () => {
+      viewport.style.borderColor = 'transparent';
+    });
+    viewport.addEventListener('drop', (e) => {
+      e.preventDefault();
+      if (e.dataTransfer.files && e.dataTransfer.files[0]) {
+        loadLocalVideo(e.dataTransfer.files[0]);
+      }
+    });
+
+    // ═══════════════════════════════════════════════════════════════
+    // 7. 快捷键支持 (按 H 键隐藏所有按钮与粉笔槽，纯净无遮挡录屏)
+    // ═══════════════════════════════════════════════════════════════
+    const directorHud = document.getElementById('director-hud');
+    const chalkTray = document.getElementById('chalk-tray');
+    const recHintBadge = document.getElementById('rec-hint-badge');
+    let isHudHidden = false;
+
+    function toggleHudVisibility() {
+      isHudHidden = !isHudHidden;
+      if (isHudHidden) {
+        directorHud.classList.add('hidden');
+        chalkTray.style.opacity = '0';
+        chalkTray.style.pointerEvents = 'none';
+        recHintBadge.style.opacity = '0';
+        showToast('已隐藏全部工具条 (再按 H 键恢复)');
+      } else {
+        directorHud.classList.remove('hidden');
+        chalkTray.style.opacity = '1';
+        chalkTray.style.pointerEvents = 'auto';
+        recHintBadge.style.opacity = '1';
+        showToast('已显示演播导播条');
+      }
+    }
+
+    window.addEventListener('keydown', (e) => {
+      if (e.key.toLowerCase() === 'h' && !e.ctrlKey && !e.metaKey) {
+        toggleHudVisibility();
+      } else if (e.key === '1') playChapter(0);
+      else if (e.key === '2') playChapter(1);
+      else if (e.key === '3') playChapter(2);
+      else if (e.key === '4') playChapter(3);
+      else if (e.key === ' ') {
+        e.preventDefault();
+        runAutoTour();
+      }
+    });
+
+    // ═══════════════════════════════════════════════════════════════
+    // 8. 黑板画布基础绘制引擎 (粉笔质感、箭头、方框、撤销)
+    // ═══════════════════════════════════════════════════════════════
+    const canvas = document.getElementById('chalk-canvas');
+    const ctx = canvas.getContext('2d');
+    const toast = document.getElementById('chalk-toast');
+
+    let currentTool = 'pen';
+    let currentColor = '#f8fafc';
+    let currentSize = 6;
+    let isDrawing = false;
+    let startX = 0, startY = 0, lastX = 0, lastY = 0;
+    const undoStack = [];
+
+    function showToast(msg) {
+      toast.innerText = msg;
+      toast.classList.add('show');
+      setTimeout(() => toast.classList.remove('show'), 2200);
+    }
+
+    function saveUndoSnapshot() {
+      if (undoStack.length >= 30) undoStack.shift();
+      undoStack.push(ctx.getImageData(0, 0, canvas.width, canvas.height));
+    }
+
+    function resizeCanvas() {
+      const rect = canvas.getBoundingClientRect();
+      const dpr = window.devicePixelRatio || 1;
+      let temp = null;
+      if (canvas.width > 0 && canvas.height > 0) {
+        temp = document.createElement('canvas');
+        temp.width = canvas.width;
+        temp.height = canvas.height;
+        temp.getContext('2d').drawImage(canvas, 0, 0);
+      }
+      canvas.width = rect.width * dpr;
+      canvas.height = rect.height * dpr;
+      ctx.scale(dpr, dpr);
+      if (temp) {
+        ctx.drawImage(temp, 0, 0, rect.width, rect.height);
+      } else {
+        renderChapterBoard(0);
+      }
+    }
+
+    function drawChalkSegment(x1, y1, x2, y2, color, size, isEraser = false) {
+      if (isEraser) {
+        ctx.save();
+        ctx.globalCompositeOperation = 'destination-out';
+        ctx.beginPath();
+        ctx.arc(x2, y2, size * 2.5, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.restore();
+        return;
+      }
+      ctx.save();
+      const dist = Math.hypot(x2 - x1, y2 - y1);
+      const steps = Math.max(1, Math.floor(dist / 2));
+      for (let i = 0; i <= steps; i++) {
+        const t = i / steps;
+        const cx = x1 + (x2 - x1) * t;
+        const cy = y1 + (y2 - y1) * t;
+        const density = Math.max(3, Math.floor(size * 1.5));
+        for (let j = 0; j < density; j++) {
+          const angle = Math.random() * Math.PI * 2;
+          const r = (Math.random() ** 1.5) * (size / 1.5);
+          ctx.fillStyle = color;
+          ctx.globalAlpha = 0.25 + Math.random() * 0.55;
+          const dot = 0.8 + Math.random() * 1.4;
+          ctx.fillRect(cx + Math.cos(angle) * r, cy + Math.sin(angle) * r, dot, dot);
+        }
+      }
+      ctx.restore();
+    }
+
+    function drawChalkArrow(x1, y1, x2, y2, color, size) {
+      const headLength = Math.max(16, size * 3.5);
+      const angle = Math.atan2(y2 - y1, x2 - x1);
+      drawChalkSegment(x1, y1, x2, y2, color, size);
+      drawChalkSegment(x2, y2, x2 - headLength * Math.cos(angle - Math.PI / 6), y2 - headLength * Math.sin(angle - Math.PI / 6), color, size);
+      drawChalkSegment(x2, y2, x2 - headLength * Math.cos(angle + Math.PI / 6), y2 - headLength * Math.sin(angle + Math.PI / 6), color, size);
+    }
+
+    function drawChalkRect(x1, y1, x2, y2, color, size) {
+      drawChalkSegment(x1, y1, x2, y1, color, size);
+      drawChalkSegment(x2, y1, x2, y2, color, size);
+      drawChalkSegment(x2, y2, x1, y2, color, size);
+      drawChalkSegment(x1, y2, x1, y1, color, size);
+    }
+
+    function drawChalkCircle(x1, y1, x2, y2, color, size) {
+      const rx = Math.abs(x2 - x1) / 2;
+      const ry = Math.abs(y2 - y1) / 2;
+      const cx = (x1 + x2) / 2, cy = (y1 + y2) / 2;
+      let prevX = cx + rx, prevY = cy;
+      for (let i = 1; i <= 36; i++) {
+        const theta = (i / 36) * Math.PI * 2;
+        const curX = cx + Math.cos(theta) * rx;
+        const curY = cy + Math.sin(theta) * ry;
+        drawChalkSegment(prevX, prevY, curX, curY, color, size);
+        prevX = curX; prevY = curY;
+      }
+    }
+
+    let tempSnapshot = null;
+
+    canvas.addEventListener('mousedown', (e) => {
+      if (e.button !== 0) return;
+      saveUndoSnapshot();
+      isDrawing = true;
+      iframe.style.pointerEvents = 'none';
+      const rect = canvas.getBoundingClientRect();
+      startX = e.clientX - rect.left;
+      startY = e.clientY - rect.top;
+      lastX = startX;
+      lastY = startY;
+      if (currentTool !== 'pen' && currentTool !== 'eraser') {
+        tempSnapshot = ctx.getImageData(0, 0, canvas.width, canvas.height);
+      }
+    });
+
+    window.addEventListener('mousemove', (e) => {
+      if (!isDrawing) return;
+      const rect = canvas.getBoundingClientRect();
+      const curX = e.clientX - rect.left;
+      const curY = e.clientY - rect.top;
+      if (currentTool === 'pen') {
+        drawChalkSegment(lastX, lastY, curX, curY, currentColor, currentSize);
+        lastX = curX; lastY = curY;
+      } else if (currentTool === 'eraser') {
+        drawChalkSegment(lastX, lastY, curX, curY, currentColor, currentSize, true);
+        lastX = curX; lastY = curY;
+      } else if (tempSnapshot) {
+        ctx.putImageData(tempSnapshot, 0, 0);
+        if (currentTool === 'line') drawChalkSegment(startX, startY, curX, curY, currentColor, currentSize);
+        else if (currentTool === 'arrow') drawChalkArrow(startX, startY, curX, curY, currentColor, currentSize);
+        else if (currentTool === 'rect') drawChalkRect(startX, startY, curX, curY, currentColor, currentSize);
+        else if (currentTool === 'circle') drawChalkCircle(startX, startY, curX, curY, currentColor, currentSize);
+      }
+    });
+
+    window.addEventListener('mouseup', () => {
+      if (!isDrawing) return;
+      isDrawing = false;
+      tempSnapshot = null;
+      iframe.style.pointerEvents = 'auto';
+    });
+
+    // 触摸屏 / iPad / 数位板触控支持
+    canvas.addEventListener('touchstart', (e) => {
+      if (e.touches.length !== 1) return;
+      e.preventDefault();
+      saveUndoSnapshot();
+      isDrawing = true;
+      iframe.style.pointerEvents = 'none';
+      const rect = canvas.getBoundingClientRect();
+      startX = e.touches[0].clientX - rect.left;
+      startY = e.touches[0].clientY - rect.top;
+      lastX = startX;
+      lastY = startY;
+      if (currentTool !== 'pen' && currentTool !== 'eraser') {
+        tempSnapshot = ctx.getImageData(0, 0, canvas.width, canvas.height);
+      }
+    }, { passive: false });
+
+    window.addEventListener('touchmove', (e) => {
+      if (!isDrawing) return;
+      if (e.touches.length !== 1) return;
+      e.preventDefault();
+      const rect = canvas.getBoundingClientRect();
+      const curX = e.touches[0].clientX - rect.left;
+      const curY = e.touches[0].clientY - rect.top;
+      if (currentTool === 'pen') {
+        drawChalkSegment(lastX, lastY, curX, curY, currentColor, currentSize);
+        lastX = curX; lastY = curY;
+      } else if (currentTool === 'eraser') {
+        drawChalkSegment(lastX, lastY, curX, curY, currentColor, currentSize, true);
+        lastX = curX; lastY = curY;
+      } else if (tempSnapshot) {
+        ctx.putImageData(tempSnapshot, 0, 0);
+        if (currentTool === 'line') drawChalkSegment(startX, startY, curX, curY, currentColor, currentSize);
+        else if (currentTool === 'arrow') drawChalkArrow(startX, startY, curX, curY, currentColor, currentSize);
+        else if (currentTool === 'rect') drawChalkRect(startX, startY, curX, curY, currentColor, currentSize);
+        else if (currentTool === 'circle') drawChalkCircle(startX, startY, curX, curY, currentColor, currentSize);
+      }
+    }, { passive: false });
+
+    window.addEventListener('touchend', () => {
+      if (!isDrawing) return;
+      isDrawing = false;
+      tempSnapshot = null;
+      iframe.style.pointerEvents = 'auto';
+    });
+
+    function undo() {
+      if (undoStack.length === 0) return;
+      ctx.putImageData(undoStack.pop(), 0, 0);
+      showToast('已撤销一步');
+    }
+
+    const toolButtons = {
+      pen: document.getElementById('tool-pen'),
+      arrow: document.getElementById('tool-arrow'),
+      line: document.getElementById('tool-line'),
+      rect: document.getElementById('tool-rect'),
+      circle: document.getElementById('tool-circle'),
+      eraser: document.getElementById('tool-eraser')
+    };
+
+    Object.keys(toolButtons).forEach((key) => {
+      const btn = toolButtons[key];
+      btn.addEventListener('click', () => {
+        Object.values(toolButtons).forEach(b => b.classList.remove('active'));
+        btn.classList.add('active');
+        currentTool = key;
+      });
+    });
+
+    document.querySelectorAll('.chalk-stick').forEach((s) => {
+      s.addEventListener('click', () => {
+        document.querySelectorAll('.chalk-stick').forEach(el => el.classList.remove('active'));
+        s.classList.add('active');
+        currentColor = s.dataset.color;
+      });
+    });
+
+    document.querySelectorAll('.brush-size-btn').forEach((b) => {
+      b.addEventListener('click', () => {
+        document.querySelectorAll('.brush-size-btn').forEach(el => el.classList.remove('active'));
+        b.classList.add('active');
+        currentSize = parseInt(b.dataset.size, 10);
+      });
+    });
+
+    document.getElementById('btn-undo').addEventListener('click', undo);
+    document.getElementById('btn-clear').addEventListener('click', () => {
+      saveUndoSnapshot();
+      ctx.clearRect(0, 0, canvas.width, canvas.height);
+      showToast('黑板已全擦净');
+    });
+    document.getElementById('btn-save').addEventListener('click', () => {
+      const a = document.createElement('a');
+      a.download = `xiaochun-presentation-${Date.now()}.png`;
+      a.href = canvas.toDataURL('image/png');
+      a.click();
+    });
+
+    window.addEventListener('resize', resizeCanvas);
+    resizeCanvas();
+  </script>
+</body>
+</html>

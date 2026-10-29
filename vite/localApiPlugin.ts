@@ -19,18 +19,22 @@ import {
 
 const TTS_PROXY_TIMEOUT_MS = 12_000;
 
-async function streamNativeEdgeTTSNode(
+export async function streamNativeEdgeTTSNode(
   text: string,
   voice: string,
-  pitch: string,
+  pitch: string = '+10Hz',
+  rate: string = '+0%',
+  volume: string = '+0%',
   onChunk: (chunk: Uint8Array) => Promise<boolean> | boolean,
   signal: AbortSignal
 ): Promise<void> {
+  // 先校验 / 构造 payload: 非法参数在这里抛出 (async 函数 → reject), 由调用方转成错误响应; 不能等到 socket 'open' 监听器里再抛 (那里没有 try/catch, 会变成未捕获异常)
+  const { speechConfig, ssmlMessage } = buildEdgeTTSPayloads(text, voice, pitch, rate, volume);
   const secMsGec = await makeSecMsGec();
   const connId = makeConnectionId();
-  // 2026-10 起旧 host 对 v1 token 握手 403，改走新 host（同一 token 作 Ocp-Apim-Subscription-Key）
-  const url = new URL(EDGE_TTS_CONSTANTS.SYNTHESIS_URL_V2.replace(/^https:/, 'wss:'));
-  url.searchParams.set('Ocp-Apim-Subscription-Key', EDGE_TTS_CONSTANTS.TRUSTED_CLIENT_TOKEN);
+  // 采用 Sec-MS-GEC v2 签名直连主端点 speech.platform.bing.com
+  const url = new URL(EDGE_TTS_CONSTANTS.SYNTHESIS_URL.replace(/^https:/, 'wss:'));
+  url.searchParams.set('TrustedClientToken', EDGE_TTS_CONSTANTS.TRUSTED_CLIENT_TOKEN);
   url.searchParams.set('Sec-MS-GEC', secMsGec);
   url.searchParams.set('Sec-MS-GEC-Version', EDGE_TTS_CONSTANTS.SEC_MS_GEC_VERSION);
   url.searchParams.set('ConnectionId', connId);
@@ -61,7 +65,6 @@ async function streamNativeEdgeTTSNode(
     });
 
     socket.addEventListener('open', () => {
-      const { speechConfig, ssmlMessage } = buildEdgeTTSPayloads(text, voice, pitch);
       try {
         socket.send(speechConfig);
         socket.send(ssmlMessage);
@@ -122,13 +125,77 @@ async function streamNativeEdgeTTSNode(
   });
 }
 
-export function localApiPlugin(ttsProxyUrl: string): Plugin {
+export function localApiPlugin(ttsProxyUrl?: string, sttProxyUrl?: string): Plugin {
+  const resolvedSttProxy =
+    sttProxyUrl ||
+    (ttsProxyUrl && !ttsProxyUrl.includes('/api/tts')
+      ? `${ttsProxyUrl.replace(/\/+$/, '')}/api/stt`
+      : '');
+
   return {
     name: 'local-api-plugin',
     configureServer(server) {
       server.middlewares.use(async (req, res, next) => {
         const host = req.headers.host || 'localhost:5185';
         const url = new URL(req.url || '', `http://${host}`);
+
+        if (url.pathname === '/api/stt') {
+          if (req.method === 'OPTIONS') {
+            res.statusCode = 204;
+            for (const [k, v] of Object.entries(EDGE_TTS_CONSTANTS.COMMON_CORS)) {
+              res.setHeader(k, v);
+            }
+            res.end();
+            return;
+          }
+
+          if (resolvedSttProxy) {
+            try {
+              const controller = new AbortController();
+              req.on('close', () => controller.abort());
+              const chunks: Buffer[] = [];
+              req.on('data', (c) => chunks.push(c));
+              req.on('end', async () => {
+                try {
+                  const body = Buffer.concat(chunks);
+                  const upstream = await fetch(resolvedSttProxy, {
+                    method: 'POST',
+                    headers: {
+                      'Content-Type': req.headers['content-type'] ?? 'audio/wav',
+                    },
+                    body,
+                    signal: controller.signal,
+                  });
+                  res.statusCode = upstream.status;
+                  res.setHeader('Content-Type', 'application/json; charset=utf-8');
+                  res.setHeader('Access-Control-Allow-Origin', '*');
+                  const text = await upstream.text();
+                  res.end(text);
+                } catch (fetchErr: any) {
+                  console.warn('[Vite Local STT Proxy Fetch Error]', fetchErr);
+                  res.statusCode = 502;
+                  res.setHeader('Content-Type', 'application/json');
+                  res.setHeader('Access-Control-Allow-Origin', '*');
+                  res.end(JSON.stringify({ error: String(fetchErr?.message || fetchErr), code: 'PROXY_ERROR' }));
+                }
+              });
+              return;
+            } catch (err: any) {
+              console.warn('[Vite Local STT Proxy Error]', err);
+            }
+          }
+
+          res.statusCode = 503;
+          res.setHeader('Content-Type', 'application/json');
+          res.setHeader('Access-Control-Allow-Origin', '*');
+          res.end(
+            JSON.stringify({
+              error: 'Local Vite Dev: Cloudflare Workers AI runs in Cloudflare Workers. Falling back to on-device SenseVoice.',
+              code: 'LOCAL_DEV_FALLBACK',
+            }),
+          );
+          return;
+        }
 
         if (url.pathname !== '/api/tts') {
           next();
@@ -223,6 +290,8 @@ export function localApiPlugin(ttsProxyUrl: string): Plugin {
             let text = url.searchParams.get('text') || '';
             let voice = url.searchParams.get('voice') || 'zh-CN-XiaoyiNeural';
             let pitch = url.searchParams.get('pitch') || '+10Hz';
+            let rate = url.searchParams.get('rate') || '+0%';
+            let volume = url.searchParams.get('volume') || '+0%';
 
             if (bodyText) {
               try {
@@ -230,6 +299,8 @@ export function localApiPlugin(ttsProxyUrl: string): Plugin {
                 if (parsed.text) text = parsed.text;
                 if (parsed.voice) voice = parsed.voice;
                 if (parsed.pitch) pitch = parsed.pitch;
+                if (parsed.rate) rate = parsed.rate;
+                if (parsed.volume) volume = parsed.volume;
               } catch { }
             }
 
@@ -237,6 +308,17 @@ export function localApiPlugin(ttsProxyUrl: string): Plugin {
               res.statusCode = 400;
               res.setHeader('Content-Type', 'application/json');
               res.end(JSON.stringify({ error: 'text is required' }));
+              return;
+            }
+
+            // 非法 voice / pitch / rate / volume: 在写 200 头、打开上游 socket 之前就返回 400
+            try {
+              buildEdgeTTSPayloads(text.trim(), voice, pitch, rate, volume);
+            } catch {
+              res.statusCode = 400;
+              res.setHeader('Content-Type', 'application/json');
+              res.setHeader('Access-Control-Allow-Origin', '*');
+              res.end(JSON.stringify({ error: 'invalid tts parameter' }));
               return;
             }
 
@@ -254,6 +336,8 @@ export function localApiPlugin(ttsProxyUrl: string): Plugin {
               text.trim(),
               voice,
               pitch,
+              rate,
+              volume,
               async (chunk) => {
                 const flushed = res.write(chunk);
                 if (!flushed) {

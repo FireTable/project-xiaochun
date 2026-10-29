@@ -7,9 +7,7 @@
  * 思考阶段仍用 thinking.vrma。
  */
 
-import type * as THREE from 'three';
 import type { VRM } from '@pixiv/three-vrm';
-import { makeClipSeamless } from '@/motion/vrmaRetarget';
 import type { VRMAMotionPlayer } from '@/motion/sources/vrma';
 import { type EmagePlayer, type EmageMotionData } from '@/motion/sources/emage';
 import { generateSpeechReply } from '@/llm/chatWorkflow';
@@ -20,10 +18,15 @@ import type { Lang } from '@/i18n';
 import { APP_CONFIG } from '@/config';
 import { StreamResampler16k, PcmSlicer, HOST_AUDIO, clampPlaybackRate, clampVolume, type HostAudioInput } from '@/director/hostAudio';
 
+export type TurnState = 'idle' | 'listening' | 'thinking' | 'speaking';
+
 interface Plan { speech: string; llm_provider?: string }
 
 import { splitIntoSpeechChunks, stripForTTS } from '@/lib/utils';
+import { requestTTSAudio } from './ttsClient';
 import { VocalAudioProcessor } from './vocalProcessor';
+import { MOTION_CATALOG } from '@/motion/catalog';
+import { motionAssetManager } from '@/motion/pipeline/motionAssetManager';
 
 
 /** endAudioStream / 生产者收尾的最长等待；超时后不再阻塞发送按钮 */
@@ -93,18 +96,46 @@ function getChunkRMS(pcm: Float32Array): number {
  * - 纯英文/拉丁字母文本 → APP_CONFIG.tts.voices.en (zh-CN-XiaoyiNeural)
  * - 中文及其他 → APP_CONFIG.tts.voices['zh-CN'] (zh-CN-XiaoyiNeural)
  */
-export function resolveTTSVoice(text: string, voiceOverride?: string): { voice: string; pitch: string } {
+export function resolveTTSVoice(
+  text: string,
+  voiceOverride?: string,
+): { voice: string; pitch: string; rate: string; volume: string } {
   const ttsConfig = APP_CONFIG.tts;
+  const defaultRate = (ttsConfig as any)?.defaultRate ?? '+0%';
+  const defaultVolume = (ttsConfig as any)?.defaultVolume ?? '+0%';
   if (voiceOverride) {
-    return { voice: voiceOverride, pitch: ttsConfig?.defaultPitch ?? '+10Hz' };
+    return {
+      voice: voiceOverride,
+      pitch: ttsConfig?.defaultPitch ?? '+10Hz',
+      rate: defaultRate,
+      volume: defaultVolume,
+    };
   }
   if (/[\u3040-\u309F\u30A0-\u30FF]/.test(text)) {
-    return ttsConfig?.voices?.ja ?? { voice: 'ja-JP-NanamiNeural', pitch: '+5Hz' };
+    const ja = ttsConfig?.voices?.ja as any;
+    return {
+      voice: ja?.voice ?? 'ja-JP-NanamiNeural',
+      pitch: ja?.pitch ?? '+5Hz',
+      rate: ja?.rate ?? defaultRate,
+      volume: ja?.volume ?? defaultVolume,
+    };
   }
   if (!/[\u4E00-\u9FFF]/.test(text) && /[a-zA-Z]/.test(text)) {
-    return ttsConfig?.voices?.en ?? { voice: 'zh-CN-XiaoyiNeural', pitch: '+10Hz' };
+    const en = ttsConfig?.voices?.en as any;
+    return {
+      voice: en?.voice ?? 'zh-CN-XiaoyiNeural',
+      pitch: en?.pitch ?? '+10Hz',
+      rate: en?.rate ?? defaultRate,
+      volume: en?.volume ?? defaultVolume,
+    };
   }
-  return ttsConfig?.voices?.['zh-CN'] ?? { voice: 'zh-CN-XiaoyiNeural', pitch: '+10Hz' };
+  const zh = ttsConfig?.voices?.['zh-CN'] as any;
+  return {
+    voice: zh?.voice ?? 'zh-CN-XiaoyiNeural',
+    pitch: zh?.pitch ?? '+10Hz',
+    rate: zh?.rate ?? defaultRate,
+    volume: zh?.volume ?? defaultVolume,
+  };
 }
 
 /**
@@ -137,30 +168,16 @@ async function streamChunkAudioToCheckpoint(
     await ctx.resume();
   }
 
-  const { voice, pitch } = resolveTTSVoice(ttsText, voiceOverride);
+  const { voice, pitch, rate, volume } = resolveTTSVoice(ttsText, voiceOverride);
 
-  let res: Response | null = null;
-  for (let attempt = 1; attempt <= 2; attempt++) {
-    try {
-      res = await fetch('/api/tts', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          text: ttsText,
-          voice,
-          pitch,
-        }),
-      });
-      if (res.ok && res.body) break;
-    } catch (fetchErr) {
-      if (attempt === 2) throw fetchErr;
-    }
-    if (attempt < 2) {
-      await new Promise((r) => setTimeout(r, 300));
-    }
-  }
+  const res = await requestTTSAudio({
+    text: ttsText,
+    voice,
+    pitch,
+    rate,
+    volume,
+  });
 
-  if (!res || !res.ok) throw new Error(`语音合成服务异常: HTTP ${res?.status ?? 'Unknown'}`);
   if (!res.body) throw new Error('语音合成响应无 body');
 
   const reader = res.body.getReader();
@@ -356,12 +373,54 @@ export class ChatDirector {
   private audioDoneTime = 0;
 
   private plan: Plan | null = null;
-  public speaking = false;
+  private _turnState: TurnState = 'idle';
+  public get turnState(): TurnState {
+    return this._turnState;
+  }
+  public onTurnStateChange: ((state: TurnState) => void) | null = null;
+  private preserveMotionCurrent = false;
+
+  public setTurnState(state: TurnState): void {
+    if (this._turnState === state) return;
+    this._turnState = state;
+    this._speaking = state === 'speaking';
+
+    if (typeof document !== 'undefined') {
+      if (state !== 'idle') {
+        document.body.classList.add('chat-playing');
+      } else {
+        document.body.classList.remove('chat-playing');
+      }
+    }
+
+    this.onSpeakingChange?.(this._speaking);
+    this.onTurnStateChange?.(state);
+
+    if (this.pipeline) {
+      if (this.preserveMotionCurrent) {
+        this.pipeline.onTurnStateChange(state, undefined, true);
+      } else {
+        this.pipeline.onTurnStateChange(state);
+      }
+    }
+  }
+
+  private _speaking = false;
+  public get speaking(): boolean {
+    return this._speaking;
+  }
+  public set speaking(val: boolean) {
+    this.setTurnState(val ? 'speaking' : (this._turnState === 'thinking' ? 'thinking' : 'idle'));
+  }
+  public onSpeakingChange: ((speaking: boolean) => void) | null = null;
   private stopped = false;
   private onEnd: (() => void) | null = null;
   private player: VRMAMotionPlayer | null = null;
   private emage: EmagePlayer | null = null;
   private currentVRM: VRM | null = null;
+  public bindVRM(vrm: VRM | null): void {
+    this.currentVRM = vrm;
+  }
   private pipeline: MotionPipeline | null = null;
   private stopPlaySegment: (() => void) | null = null;
   /**
@@ -415,62 +474,30 @@ export class ChatDirector {
   public onSuspendRendering: (() => void) | null = null;
   public onResumeRendering: (() => void) | null = null;
 
-  private thinkingVRMABuf: ArrayBuffer | null = null;
-  private cachedThinkingClip: THREE.AnimationClip | null = null;
-
   resetClipCache(): void {
-    this.cachedThinkingClip = null;
+    motionAssetManager.invalidateBoundClips();
   }
 
   async preloadThinking(): Promise<void> {
     try {
-      const vrmaRes = await fetch('/vrm/motion/thinking.vrma');
-      if (vrmaRes.ok) {
-        this.thinkingVRMABuf = await vrmaRes.arrayBuffer();
-      }
+      const url = MOTION_CATALOG.thinking?.url ?? '/vrm/motion/thinking.vrma';
+      await motionAssetManager.fetchBuffer(url);
     } catch (e) {
       console.warn('预加载思考动作失败', e);
     }
   }
 
-  async warmThinkingClip(vrm: VRM, player: VRMAMotionPlayer): Promise<void> {
-    if (!this.thinkingVRMABuf) await this.preloadThinking();
-    if (!this.thinkingVRMABuf) return;
-    try {
-      const clip = await player.parseBufferToClip(this.thinkingVRMABuf, vrm);
-      makeClipSeamless(clip);
-      this.cachedThinkingClip = clip;
-    } catch (e) {
-      console.warn('预解析思考动作失败', e);
+  async warmThinkingClip(vrm: VRM, _player?: VRMAMotionPlayer): Promise<void> {
+    if (this.pipeline) {
+      await motionAssetManager.warmCatalogMotions(vrm, (input, targetVrm, opts) =>
+        this.pipeline!.universalMotion.parseToClip(input, targetVrm, opts),
+      );
     }
   }
 
-  private async playThinking(vrm: VRM, player: VRMAMotionPlayer): Promise<void> {
-    const id = this.utterance;
-    document.body.classList.add('chat-playing');
+  private async playThinking(vrm: VRM, _player?: VRMAMotionPlayer): Promise<void> {
     this.currentVRM = vrm;
-
-    if (!this.thinkingVRMABuf) {
-      await this.preloadThinking();
-    }
-    if (!this.owns(id)) return;
-    if (this.thinkingVRMABuf) {
-      try {
-        if (!this.cachedThinkingClip) {
-          const clip = await player.parseBufferToClip(this.thinkingVRMABuf, vrm);
-          if (!this.owns(id)) return;
-          makeClipSeamless(clip);
-          this.cachedThinkingClip = clip;
-        }
-        if (!this.owns(id)) return;
-        this.pipeline?.playThinkingClip(this.cachedThinkingClip, vrm, 0.65);
-      } catch (e) {
-        console.warn('播放 thinking.vrma 动作失败', e);
-        this.pipeline?.setIdleThinkSway(true);
-      }
-    } else {
-      this.pipeline?.setIdleThinkSway(true);
-    }
+    this.setTurnState('thinking');
   }
 
   /**
@@ -505,6 +532,7 @@ export class ChatDirector {
       segmentIndex?: number,
       totalSegments?: number,
     ) => void,
+    opts?: { preserveMotion?: boolean },
   ): Promise<void> {
     if (await this.audioBlocked()) {
       console.info('[ChatDirector] 自动播放被拦截 (页面尚未被用户激活), 跳过这一句:', text);
@@ -513,11 +541,17 @@ export class ChatDirector {
     const id = await this.handoff();
     if (id === null) return;
     this.audioDone = false;
-    this.speaking = false;
     this.player = player;
     this.emage = emage;
-    await this.playThinking(vrm, player);
-    if (!this.owns(id)) return;
+    const preserveMotion = opts?.preserveMotion === true;
+    this.preserveMotionCurrent = preserveMotion;
+    if (!preserveMotion) {
+      this.setTurnState('thinking');
+      await this.playThinking(vrm, player);
+      if (!this.owns(id)) return;
+    } else {
+      this.currentVRM = vrm;
+    }
 
     const isMobile = typeof navigator !== 'undefined' && /Mobi|Android|iPhone|iPad/i.test(navigator.userAgent);
     const staggerDelay = isMobile ? 380 : 50;
@@ -530,9 +564,13 @@ export class ChatDirector {
         prompt: this.getSystemPrompt?.() ?? '',
         lang: 'zh-CN' as Lang,
       }));
+      const guardedStatus = (key: string, vars?: Record<string, unknown>) => {
+        if (!this.owns(id)) return;
+        status(key, vars);
+      };
       speechText = await generateSpeechReply(
         text,
-        (key, vars) => status(key, vars),
+        guardedStatus,
         ctx.prompt,
         ctx.lang,
       );
@@ -550,7 +588,7 @@ export class ChatDirector {
       if (!speechText.trim()) return;
     }
     this.plan = { speech: speechText.trim(), llm_provider: 'WebLLM (q4f16_1)' };
-    await this.runSpeechPipeline(text, player, emage, status, id);
+    await this.runSpeechPipeline(text, player, emage, status, id, undefined, opts);
   }
 
   async speakText(
@@ -567,6 +605,7 @@ export class ChatDirector {
       totalSegments?: number,
     ) => void,
     voiceOverride?: string,
+    opts?: { preserveMotion?: boolean },
   ): Promise<void> {
     if (await this.audioBlocked()) {
       console.info('[ChatDirector] 自动播放被拦截 (页面尚未被用户激活), 跳过这一句:', text);
@@ -575,11 +614,17 @@ export class ChatDirector {
     const id = await this.handoff();
     if (id === null) return;
     this.audioDone = false;
-    this.speaking = false;
     this.player = player;
     this.emage = emage;
-    await this.playThinking(vrm, player);
-    if (!this.owns(id)) return;
+    const preserveMotion = opts?.preserveMotion === true;
+    this.preserveMotionCurrent = preserveMotion;
+    if (!preserveMotion) {
+      this.setTurnState('thinking');
+      await this.playThinking(vrm, player);
+      if (!this.owns(id)) return;
+    } else {
+      this.currentVRM = vrm;
+    }
 
     const isMobile = typeof navigator !== 'undefined' && /Mobi|Android|iPhone|iPad/i.test(navigator.userAgent);
     const staggerDelay = isMobile ? 380 : 50;
@@ -590,7 +635,7 @@ export class ChatDirector {
     if (!this.owns(id)) return;
 
     this.plan = { speech: text, llm_provider: 'DEV_BYPASS' };
-    await this.runSpeechPipeline(text, player, emage, status, id, voiceOverride);
+    await this.runSpeechPipeline(text, player, emage, status, id, voiceOverride, opts);
   }
 
   /**
@@ -646,9 +691,9 @@ export class ChatDirector {
     if (volume !== undefined) this.volume = volume;
     const gone = () => !this.owns(session);
     this.audioDone = false;
-    this.speaking = false;
     this.player = player;
     this.emage = emage;
+    this.setTurnState('thinking');
     // hostClock 跳过了 playThinking (原来在那里记下 currentVRM): 这里记下, stop 时 hardStop 才能把嘴 ('aa') 合上
     this.currentVRM = vrm;
     this.lipsyncDisabled = opts.lipsync === false;
@@ -852,9 +897,11 @@ export class ChatDirector {
     ) => void,
     utteranceId: number,
     voiceOverride?: string,
+    opts?: { preserveMotion?: boolean },
   ): Promise<void> {
     const live = () => this.owns(utteranceId);
-    console.log('[ChatDirector] speech:', this.plan!.speech, 'llm:', this.plan!.llm_provider);
+    const useMotion = true;
+    console.log('[ChatDirector] speech:', this.plan!.speech, 'llm:', this.plan!.llm_provider, 'preserveMotion:', opts?.preserveMotion);
     void rememberTurn(userText, this.plan!.speech);
 
     this.ctx = this.ctx ?? new AudioContext();
@@ -1003,12 +1050,12 @@ export class ChatDirector {
           }
           audioTimelineOffsetSec = offset + buf.duration;
           // E1: freeze streaming clock between TTS segments (avoid playhead rewind yank)
-          if (emage.streamingMotionActive) {
+          if (useMotion && emage.streamingMotionActive) {
             const frozen = audioTimelineOffsetSec;
             emage.setExternalClock(() => frozen);
           }
           resolve();
-        }, emage, player, isInitial, offset);
+        }, emage, player, isInitial, offset, useMotion);
       });
     };
 
@@ -1018,7 +1065,7 @@ export class ChatDirector {
 
       if (readyQueue.length === 0 && !producerFinished && live()) {
         // P0c: streaming 路径勿 SpeakIdle、勿清 clock；段间空隙由 playhead 停帧 + catch-up 吸收
-        if (!emage.streamingMotionActive) {
+        if (useMotion && !emage.streamingMotionActive) {
           emage.clearExternalClock();
           emage.enterSpeakIdle();
         }
@@ -1030,7 +1077,7 @@ export class ChatDirector {
         while (readyQueue.length === 0 && !producerFinished && live()) {
           await new Promise<void>((resolve) => notifyReady.push(resolve));
         }
-        if (!emage.streamingMotionActive) {
+        if (useMotion && !emage.streamingMotionActive) {
           emage.exitSpeakIdle();
         }
       }
@@ -1045,18 +1092,22 @@ export class ChatDirector {
 
       // P0a: 若已在 motion_chunk 流式播，勿 applyMotionData/switchSegment（会重置 playhead）
       // checkpoint 若仍带回未交付尾巴（frameCount>0），追加即可
-      if (emage.streamingMotionActive) {
-        if (seg.motion.frameCount > 0) {
-          emage.appendMotionChunk(seg.motion);
+      if (useMotion) {
+        if (emage.streamingMotionActive) {
+          if (seg.motion.frameCount > 0) {
+            emage.appendMotionChunk(seg.motion);
+          }
+          await playSegmentAudio(seg.audioBuffer, i === 0);
+        } else if (i === 0) {
+          emage.applyMotionData(seg.motion, APP_CONFIG.emage.motion.fadeInDuration);
+          await playSegmentAudio(seg.audioBuffer, true);
+        } else {
+          // 后续段切段：P0c.1 时长自适应 Slerp（默认 ~0.24s）
+          emage.switchSegment(seg.motion, APP_CONFIG.emage.motion.switchSegmentCrossFade);
+          await playSegmentAudio(seg.audioBuffer, false);
         }
-        await playSegmentAudio(seg.audioBuffer, i === 0);
-      } else if (i === 0) {
-        emage.applyMotionData(seg.motion, APP_CONFIG.emage.motion.fadeInDuration);
-        await playSegmentAudio(seg.audioBuffer, true);
       } else {
-        // 后续段切段：P0c.1 时长自适应 Slerp（默认 ~0.24s）
-        emage.switchSegment(seg.motion, APP_CONFIG.emage.motion.switchSegmentCrossFade);
-        await playSegmentAudio(seg.audioBuffer, false);
+        await playSegmentAudio(seg.audioBuffer, i === 0);
       }
       tracker.update(i, { 'Playback': '🏁 播放完成' });
     }
@@ -1105,11 +1156,16 @@ export class ChatDirector {
       return;
     }
 
-    if (isInitial && useMotion) this.pipeline?.beginEmageSpeech();
+    if (isInitial && useMotion) {
+      if (this.preserveMotionCurrent) {
+        this.pipeline?.beginEmageSpeech(true);
+      } else {
+        this.pipeline?.beginEmageSpeech();
+      }
+    }
     this.speaking = true;
     this.audioDone = false;
     this.audioDoneTime = 0;
-    document.body.classList.add('chat-playing');
 
     this.analyser = this.ctx.createAnalyser();
     this.analyser.fftSize = 512;
@@ -1273,7 +1329,6 @@ export class ChatDirector {
     this.audioDone = false;
     this.audioDoneTime = 0;
     this.audioBuffer = null;
-    document.body.classList.add('chat-playing');
     if (text) status('speaking', undefined, false, text, 1, 1);
     drain();
     if (!this.hostClockSeen) {
@@ -1417,25 +1472,24 @@ export class ChatDirector {
     if (this.stopped && !this.ctx && !this.currentSource) return;
     this.stopped = true;
     this.pipeline?.resetChatMotion();
-    this.speaking = false;
+    this.setTurnState('idle');
+    this.preserveMotionCurrent = false;
     this.audioDoneTime = 0;
     this.onResumeRendering?.();
     if (this.stopPlaySegment) {
       this.stopPlaySegment();
       this.stopPlaySegment = null;
     }
-    if (this.currentVRM) {
-      if (this.currentVRM.expressionManager) {
-        this.currentVRM.expressionManager.setValue('aa', 0);
-        this.currentVRM.expressionManager.setValue('ou', 0);
-      }
+    const activeVrm = this.currentVRM ?? this.pipeline?.boundVRM ?? null;
+    if (activeVrm?.expressionManager) {
+      activeVrm.expressionManager.setValue('aa', 0);
+      activeVrm.expressionManager.setValue('ou', 0);
     }
     try { this.currentSource?.stop(); } catch { }
     this.currentSource = null;
     this.audioBuffer = null;
     this.plan = null;
     this.audioDone = true;
-    document.body.classList.remove('chat-playing');
     this.emage?.clearExternalClock();
     this.emage?.stop();
     this.player?.stop();

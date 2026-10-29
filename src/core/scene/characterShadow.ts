@@ -25,7 +25,9 @@ export class CharacterShadowSystem {
   private _shadowEdgeFadeUniform: { value: number } | null = null;
   private _shadowSoftUniform: { value: number } | null = null;
   private tempShadowNdc = new THREE.Vector3();
-
+  /** 场景接管灯光时的落影深浅倍率 (夜里月光弱 → 影子更淡)。 */
+  private opacityScale = 1;
+  private currentTheme: string = 'light';
   /**
    * ponytail: 在 vrmEngine.initScene 调一次, 建 mesh + mask texture + 加到 scene。
    * theme 传进来决定初始 opacity。
@@ -107,12 +109,35 @@ export class CharacterShadowSystem {
   /**
    * 场景级落影配色: 黑色落影, 深色场景用 shadow.opacityDark, 其它场景用 shadow.opacityLight。
    */
-  public applyTheme(theme: LineworkTheme): void {
+  public applyTheme(theme: LineworkTheme | 'beach3d'): void {
+    this.currentTheme = theme;
     if (this.shadowPlane && this.shadowPlane.material instanceof THREE.ShadowMaterial) {
       const m = this.shadowPlane.material;
-      m.color.setHex(0x000000);
-      m.opacity = (theme === 'dark' || theme === 'void') ? APP_CONFIG.shadow.opacityDark : APP_CONFIG.shadow.opacityLight;
+      // 在 3D 海滩场景下: 道具阴影是温暖的沙滩环境染色 (约 33%~35% 阴影吸收深度);
+      // 角色落影使用 0.34 基准不透明度与微暖黑 0x1f1d24, 与场景道具落影在深浅与色温上完美对齐
+      const isBeach = (theme as string) === 'beach3d';
+      m.color.setHex(isBeach ? 0x1f1d24 : 0x000000);
+      const base = isBeach
+        ? 0.34
+        : (theme === 'dark' || theme === 'void')
+          ? APP_CONFIG.shadow.opacityDark
+          : APP_CONFIG.shadow.opacityLight;
+      m.opacity = base * this.opacityScale;
       m.needsUpdate = true;
+    }
+  }
+
+  /**
+   * 场景接管灯光时的落影深浅倍率 (0 ~ 1): 夜里月光弱, 角色的影子也该跟着淡下去。
+   */
+  public setOpacityScale(scale: number): void {
+    const s = Math.max(0, Math.min(1, Number.isFinite(scale) ? scale : 1));
+    if (Math.abs(s - this.opacityScale) < 1e-4) return;
+    const prev = this.opacityScale;
+    this.opacityScale = s;
+    if (this.shadowPlane && this.shadowPlane.material instanceof THREE.ShadowMaterial) {
+      const m = this.shadowPlane.material;
+      m.opacity = (m.opacity / Math.max(1e-4, prev)) * s;
     }
   }
 
@@ -120,7 +145,12 @@ export class CharacterShadowSystem {
   public updateOpacity(isDark: boolean): void {
     if (this.shadowPlane && this.shadowPlane.material instanceof THREE.ShadowMaterial) {
       const sc = APP_CONFIG.shadow;
-      this.shadowPlane.material.opacity = isDark ? sc.opacityDark : sc.opacityLight;
+      const isBeach = this.currentTheme === 'beach3d';
+      this.shadowPlane.material.color.setHex(isBeach ? 0x1f1d24 : 0x000000);
+      const base = isBeach
+        ? 0.34
+        : (isDark ? sc.opacityDark : sc.opacityLight);
+      this.shadowPlane.material.opacity = base * this.opacityScale;
       this.shadowPlane.material.needsUpdate = true;
     }
   }

@@ -45,18 +45,20 @@ export function bakeGuideShadowCanvas(src: HTMLCanvasElement, { padX = 0, padY =
     offsets.push([Math.cos(a) * s, Math.sin(a) * s]);
   }
   // 每个偏移画两遍, 让低 alpha 的点 (0.4) 的阴影也能积到接近饱和
-  for (const [dx, dy] of offsets) {
-    ctx.drawImage(src, padX + dx - off, padY + dy);
-    ctx.drawImage(src, padX + dx - off, padY + dy);
+  if (typeof ctx.drawImage === 'function') {
+    for (const [dx, dy] of offsets) {
+      ctx.drawImage(src, padX + dx - off, padY + dy);
+      ctx.drawImage(src, padX + dx - off, padY + dy);
+    }
+    // 把主体自己覆盖的区域从阴影里抠掉: 主体半透明时 (GUIDE_OPACITY) 才不会透出下面阴影的脏边,
+    // 阴影只留在主体外围 (需要先关掉 shadow, 否则 destination-out 也会画出阴影)
+    ctx.shadowColor = 'transparent';
+    ctx.shadowBlur = 0;
+    ctx.shadowOffsetX = 0;
+    ctx.globalCompositeOperation = 'destination-out';
+    for (let i = 0; i < 3; i++) ctx.drawImage(src, padX, padY);
+    ctx.globalCompositeOperation = 'source-over';
   }
-  // 把主体自己覆盖的区域从阴影里抠掉: 主体半透明时 (GUIDE_OPACITY) 才不会透出下面阴影的脏边,
-  // 阴影只留在主体外围 (需要先关掉 shadow, 否则 destination-out 也会画出阴影)
-  ctx.shadowColor = 'transparent';
-  ctx.shadowBlur = 0;
-  ctx.shadowOffsetX = 0;
-  ctx.globalCompositeOperation = 'destination-out';
-  for (let i = 0; i < 3; i++) ctx.drawImage(src, padX, padY);
-  ctx.globalCompositeOperation = 'source-over';
   return out;
 }
 
