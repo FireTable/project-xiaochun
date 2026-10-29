@@ -297,7 +297,8 @@ describe('prologue story (Act 0 v4 · Meeting XiaoChun)', () => {
     expect(b.beat_2.camera).toMatchObject({ shot: 'medium_close_up', movement: 'orbit_to_front', durationSec: 2.4 });
     expect(b.beat_2.actor.facing).toBeUndefined(); // she is not told to step around: the orbit brings the camera to her front
     expect(b.beat_4.camera).toMatchObject({ shot: 'full', movement: 'pull_out', durationSec: 2.5 });
-    expect(b.beat_5.camera).toMatchObject({ shot: 'wide', movement: 'hero_spiral_orbit', durationSec: 3.0 });
+    // 5: pull back from the current angle to reveal the new scene (no 360° orbit behind her; azimuth and elevation unchanged)
+    expect(b.beat_5.camera).toMatchObject({ shot: 'wide', movement: 'pull_out', durationSec: 3.0, keepPitch: true });
     expect(b.beat_6.camera).toMatchObject({ shot: 'full', movement: 'none', durationSec: 2.0 });
   });
 

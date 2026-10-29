@@ -102,6 +102,52 @@ describe('CameraDirector & Cinematic Orbit Orchestration', () => {
     expect(fakeControls.enabled).toBe(true);
   });
 
+  it('pull_out with keepPitch keeps the current azimuth and elevation and only increases distance', async () => {
+    const az = 0.7;
+    const polar = 1.2;
+    const endTarget = new THREE.Vector3(0, 1.45 + SHOT_PRESETS.wide.targetYOffset, 0);
+    const d0 = 2.2;
+    fakeControls.getAzimuthalAngle = () => az;
+    fakeControls.getPolarAngle = () => polar;
+    target.copy(endTarget);
+    camera.position.set(
+      endTarget.x + d0 * Math.sin(polar) * Math.sin(az),
+      endTarget.y + d0 * Math.cos(polar),
+      endTarget.z + d0 * Math.sin(polar) * Math.cos(az),
+    );
+
+    const p = director.transitionTo({ shot: 'wide', movement: 'pull_out', durationSec: 1.0, easing: 'linear', keepPitch: true });
+    vi.advanceTimersByTime(1100);
+    await p;
+
+    const v = camera.position.clone().sub(endTarget);
+    expect(v.length()).toBeCloseTo(SHOT_PRESETS.wide.distance, 3);
+    expect(Math.atan2(v.x, v.z)).toBeCloseTo(az, 3);
+    expect(Math.acos(v.y / v.length())).toBeCloseTo(polar, 3);
+  });
+
+  it('pull_out without keepPitch snaps elevation to the shot preset (azimuth still kept)', async () => {
+    const az = 0.7;
+    const polar = 1.2;
+    const endTarget = new THREE.Vector3(0, 1.45 + SHOT_PRESETS.wide.targetYOffset, 0);
+    fakeControls.getAzimuthalAngle = () => az;
+    fakeControls.getPolarAngle = () => polar;
+    target.copy(endTarget);
+    camera.position.set(
+      endTarget.x + 2.2 * Math.sin(polar) * Math.sin(az),
+      endTarget.y + 2.2 * Math.cos(polar),
+      endTarget.z + 2.2 * Math.sin(polar) * Math.cos(az),
+    );
+
+    const p = director.transitionTo({ shot: 'wide', movement: 'pull_out', durationSec: 1.0, easing: 'linear' });
+    vi.advanceTimersByTime(1100);
+    await p;
+
+    const v = camera.position.clone().sub(endTarget);
+    expect(Math.atan2(v.x, v.z)).toBeCloseTo(az, 3);
+    expect(Math.acos(v.y / v.length())).toBeCloseTo(SHOT_PRESETS.wide.pitch, 3);
+  });
+
   it('honors custom orbitAngleDeg for precise camera staging', async () => {
     const transitionPromise = director.transitionTo({
       shot: 'medium',

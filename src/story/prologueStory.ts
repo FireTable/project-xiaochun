@@ -268,7 +268,7 @@ const beats: Record<string, LocalizedStoryBeat> = {
       wind: 3,
       timeOfDay: { toNow: true, durationSec: 12 }, // 从“现在 − 12 小时”的光影一路走到此刻，再切 auto 跟随真实时间
     },
-    camera: { shot: 'wide', movement: 'hero_spiral_orbit', durationSec: 3.0 },
+    camera: { shot: 'wide', movement: 'pull_out', durationSec: 3.0, keepPitch: true }, // 从当前机位原地后拉揭开新场景：方位角与俯仰角都不变 (不再 360° 环绕到她背后)
     actor: {
       leadInMotion: 'relaxStretch', // 张开双臂深呼吸，随后俏皮地歪头看向正前方
       expression: { base: 'happy', intensity: 0.9 },

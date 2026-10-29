@@ -50,6 +50,8 @@ export const CameraDirectiveSchema = z.object({
   startDistance: z.number().min(0.5).max(14).optional(),
   /** slow_push_in：起点相对当前方位角的水平偏角 (度)，推进过程中平滑回到当前方位角 (例如 25 = 斜后方，慢慢转正) */
   startAzimuthOffsetDeg: z.number().min(-90).max(90).optional(),
+  /** true = 保持相机当前的俯仰角 (不吸附到景别预设的俯仰)；配合 pull_out / push_in 只改距离与取景，不改变视线方向 */
+  keepPitch: z.boolean().optional(),
 });
 export type CameraDirective = z.input<typeof CameraDirectiveSchema>;
 

@@ -278,6 +278,8 @@ export class CameraDirector {
       ? currentAzimuth + ((directive.startAzimuthOffsetDeg ?? 0) * Math.PI) / 180
       : currentAzimuth;
     const startPolar = controls && typeof controls.getPolarAngle === 'function' ? controls.getPolarAngle() : targetPitch;
+    // keepPitch：不吸附到景别预设的俯仰，沿相机当前的俯仰角推拉 (方位角本来就保持当前值)
+    if (directive.keepPitch) targetPitch = startPolar;
 
     // 解析环绕方位角增量
     let orbitDeltaRad = backlightDeltaRad;
