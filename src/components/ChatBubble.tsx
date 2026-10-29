@@ -353,7 +353,6 @@ export const ChatBubble: React.FC<ChatBubbleProps> = ({
               key={state.segmentIndex}
               className="ml-1 px-1.5 py-0.5 rounded-full bg-white/10 text-[10px] font-medium text-brand-200 tracking-wider inline-flex items-center gap-1 border border-white/10 shadow-sm backdrop-blur-sm animate-status-push"
             >
-              <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
               <span className="text-white font-bold">{state.segmentIndex}</span>
               <span className="opacity-40 text-[9px]">/</span>
               <span className="text-slate-300">{state.totalSegments}</span>
