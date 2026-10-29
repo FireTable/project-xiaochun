@@ -39,10 +39,7 @@ docs/
 ├── LOADING_OVERLAY.md             # Startup loading screen: single-mount overlay + loadingStore, logic contract, layout (text panel avoids the figure), night-sky layers, system-font title, transform/opacity-only motion, i18n tips, OffscreenCanvas worker hero warp (swap, bleed, shader fade, master breath, APP_CONFIG.loading.warp), key-visual regeneration
 ├── ONBOARDING.md                  # Galgame-style immersive onboarding system: schema steps, void stage, liquid glass cards, and voice flow
 ├── STORY_DIRECTOR.md              # Story mode scripts: beat lifecycle, autoNext & interruption, trilingual text (change_lang), transitions, grading, camera (backlight reveal, dutch tilt, gust wind), procedural BGM / ambience / SFX, Act 0 tests
-├── MTOON.md                       # MToon NPR material extensions, uniforms & part presets
-└── coding-test/                   # 4-Chapter video recording & presentation studio (Chalkboard studio & embed bridge)
-    ├── README.md                  # Studio specs, 4 chapters, shortcuts, protocol & video guides
-    └── chalkboard.html            # Standalone presentation studio HTML application
+└── MTOON.md                       # MToon NPR material extensions, uniforms & part presets
 ```
 
 ---
@@ -88,7 +85,6 @@ When tasked with modifications or refactoring, consult the dedicated technical g
 | **Edge API security / Origin allowlist / Desktop scheme guard** | [`src/server/originGuard.ts`](../src/server/originGuard.ts) | Validates Origin & Referer on edge routes (`/api/tts`, `/api/stt`) for production domain, localhost, and Tauri desktop schemes (`tauri://localhost`, `http://tauri.localhost`). |
 | **Performance / bundle size / EMAGE download size / what was measured vs not** | [`PERFORMANCE.md`](PERFORMANCE.md) | Only measured numbers; EMAGE set 71.59 MB at `cdn.firetable.tech/xiaochun/emage/` (cache `emage-models-v2`); web-llm only inside `llmWorker` (thin main-thread client, protocol pinned); `crossOriginIsolated` is opt-in; boot prewarm items are unconditional (no `PERF_FLAGS`); unmeasured items are listed. |
 | **EMAGE EP / INT8 / WebGPU myths / hop & seams** | [`EMAGE_MODEL.md`](EMAGE_MODEL.md) | EMAGE = **wasm + INT8 only**; T=64; `emage.motion`; **Worker flowchart**; no fake ms. |
-| **4-Chapter video presentation studio / Chalkboard testbed / Leader visit guidance** | [`coding-test/README.md`](coding-test/README.md) | 4-chapter automated tour (45~50s); chalkboard handwriting & particle pen; 16:9 cinematic video box with 3s full-screen reveal; `/embed` MessageChannel bidirectional bridge (`v: 1`); hotkey `H` clean recording. |
 
 ---
 
