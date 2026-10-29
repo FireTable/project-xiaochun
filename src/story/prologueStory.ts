@@ -123,9 +123,9 @@ const beats: Record<string, LocalizedStoryBeat> = {
       leadInMotion: 'pokeFingers', // 低头整理裙摆，随后叉腰等待检查
       expression: { base: 'shy', intensity: 0.8, microReaction: 'blush_ramp' },
       speechText: L(
-        '那叫专业热身懂不懂！都怪你突然袭击，快帮我看看背后头发乱没乱？凑近点看也行！',
-        "That was a pro warm-up, okay?! You startled me, so check if my hair's a mess in the back! Look closer!",
-        '今のはプロの準備運動よ！急に来たせいなんだから、後ろ髪がハネてないか近くでちゃんと見てよね！',
+        '那叫专业热身懂不懂！都怪你突然袭击，吓死我了！\n快帮我看看背后头发乱没乱？凑近点看也行！',
+        "That was a pro warm-up, okay?! You scared me half to death!\nQuick, check if my hair's a mess in the back! Look closer!",
+        '今のはプロの準備運動よ！急に来たせいで、心臓止まるかと思ったじゃない！\n後ろ髪がハネてないか近くでちゃんと見てよね！',
       ),
     },
     audio: { sfx: [{ id: 'shutter', delaySec: 0.5, volume: 0.7 }] },
