@@ -66,7 +66,7 @@ const beats: Record<string, LocalizedStoryBeat> = {
     // 不绕到她前面：远处 (6.5m) 斜后方 25° 就位，约一句台词的时间缓推到全身景别并转正到正后方
     camera: { shot: 'full', movement: 'slow_push_in', startDistance: 6.5, startAzimuthOffsetDeg: 25, durationSec: 9 },
     actor: {
-      facing: 'back', // 背对画面
+      facing: 'back', // 背对画面：她保持世界正前方朝向，相机被搬到她正后方 (方位角 π)；第 2 拍 orbit_to_front 绕回方位角 0 即她的正面
       motion: 'singleHandWave', // 单手抚胸，对着空气深情款款地挥手排练
       expression: { base: 'gentle_smile', intensity: 0.8 },
       speechText: L(

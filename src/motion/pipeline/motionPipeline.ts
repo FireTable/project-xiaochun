@@ -235,7 +235,12 @@ export class MotionPipeline {
   }
 
   /**
-   * 将角色朝向设置为背向相机，并同步 targetYawOffset 保持下半身静止，不触发迈步
+   * 让镜头“背对她”：角色保持世界正前方朝向 (yaw 0，即默认方位角 0 的相机所面对的方向，和 fitCamera 一致)，
+   * 把相机绕她所在的竖轴搬到她正后方 (方位角 π，高度与水平距离不变)。
+   * 同步 targetYawOffset (= 她的世界朝向 − 相机方位角 = π)，保持下半身静止，不触发迈步。
+   *
+   * 不再转动角色本身：之后相机环绕回方位角 0 (orbit_to_front) 就是她的正面，
+   * 与 fitCamera 的默认方位一致，换场景重新取景时她不会被“翻面”。
    */
   public setFacingBackwards(vrm: VRM, camera: THREE.Camera): void {
     this._btPos.copy(vrm.scene.position);
@@ -243,10 +248,14 @@ export class MotionPipeline {
     const dz = camera.position.z - this._btPos.z;
     const isVrm0 = vrm.meta?.metaVersion === '0';
     const baseYaw = isVrm0 ? Math.PI : 0;
-    const camAngle = Math.atan2(dx, dz);
-    // 身体旋转设置为背向相机 (camAngle + PI)
-    vrm.scene.rotation.y = baseYaw + camAngle + Math.PI;
-    // 目标偏角设为 PI，使当前差值为 0，保持静止不迈步
+    // 世界朝向：面向方位角 0 (+Z)
+    vrm.scene.rotation.y = baseYaw;
+    // 相机搬到她正后方 (方位角 π)，水平半径保持
+    const radius = Math.hypot(dx, dz);
+    camera.position.x = this._btPos.x + radius * Math.sin(Math.PI);
+    camera.position.z = this._btPos.z + radius * Math.cos(Math.PI);
+    this.lastCameraAzimuth = Math.PI;
+    // 目标偏角 = 她的朝向 (0) − 相机方位角 (π) ≡ π，使当前差值为 0，保持静止不迈步
     this.targetYawOffset = Math.PI;
     this.resetLocomotion();
   }

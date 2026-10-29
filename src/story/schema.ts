@@ -175,7 +175,7 @@ const buildActorSchema = <T extends z.ZodTypeAny>(speech: T) =>
     leadInMotion: z.string().optional(),
     /** 发音期间的主干动作 (VRMA 动作 key 或空由 EMAGE 接管) */
     motion: z.string().optional(),
-    /** 朝向：back = 背对镜头 (瞬间就位)，front = 迈步转身面向镜头 (bodyTurn 踏步) */
+    /** 朝向：back = 镜头背对她 (她保持世界正前方朝向，相机瞬间搬到她正后方)，front = 迈步转身面向镜头 (bodyTurn 踏步) */
     facing: z.enum(['front', 'back']).optional(),
     /** 面部活体表情 */
     expression: ExpressionDirectiveSchema.default({

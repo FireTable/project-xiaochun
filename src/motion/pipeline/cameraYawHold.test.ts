@@ -93,28 +93,38 @@ describe('camera azimuth vs character facing (bodyTurn)', () => {
     expect(Math.abs(pipeline.targetYawOffset - before)).toBeLessThan(0.3);
   });
 
-  it('Act 0 beats 1 → 2: she stays turned away during the push-in, and after the orbit to her front she faces the camera with no step', () => {
-    // 第 1 拍：背对相机，相机在斜后方缓推 (导演运镜 = hold)
+  it('Act 0 beats 1 → 2: the camera is put behind her (she keeps her world front), then orbits to azimuth 0 = her front with no step', () => {
+    // 第 1 拍：相机搬到她正后方 (方位角 π)，她保持世界正前方朝向 (yaw 0)
     pipeline.setFacingBackwards(vrm, camera);
-    const facingAway = vrm.scene.rotation.y;
+    expect(vrm.scene.rotation.y).toBeCloseTo(0, 6);
+    expect(Math.abs(Math.atan2(camera.position.x, camera.position.z))).toBeCloseTo(Math.PI, 5);
+    expect(camera.position.y).toBeCloseTo(1.4, 6); // 高度与半径不变
+    expect(Math.hypot(camera.position.x, camera.position.z)).toBeCloseTo(2, 6);
+    tick(false, 30);
+    expect(pipeline.bodyTurn.isTurnActive()).toBe(false);
+    // 相机在斜后方缓推 (导演运镜 = hold)：她不动
     for (let k = 0; k <= 20; k++) {
-      orbitTo(0.4 * (1 - k / 20));
+      orbitTo(Math.PI + 0.4 * (1 - k / 20));
       tick(true);
     }
     tick(false, 30);
-    expect(vrm.scene.rotation.y).toBeCloseTo(facingAway, 2);
+    expect(vrm.scene.rotation.y).toBeCloseTo(0, 2);
     expect(pipeline.bodyTurn.isTurnActive()).toBe(false);
-    // 第 2 拍：相机绕 180° 到她的正面，没有任何 triggerBodyTurnToFront
+    // 第 2 拍：相机沿 +π 环绕到方位角 0 (她的正面)，没有任何 triggerBodyTurnToFront
     for (let k = 1; k <= 60; k++) {
-      orbitTo(Math.PI * (k / 60));
+      orbitTo(Math.PI + Math.PI * (k / 60));
       tick(true);
     }
     tick(false, 30);
     expect(pipeline.bodyTurn.isTurnActive()).toBe(false);
-    expect(vrm.scene.rotation.y).toBeCloseTo(facingAway, 2);
-    // 她面朝的方向就是相机所在方位：与相机方位角的差为 0 (mod 2π)
+    expect(vrm.scene.rotation.y).toBeCloseTo(0, 2);
+    // 终点方位角 = 0，与 fitCamera 的默认方位一致：之后重新取景 (setScene → fitCamera) 相机方位不变，她不会被翻面
     const camAz = Math.atan2(camera.position.x, camera.position.z);
-    const diff = THREE.MathUtils.euclideanModulo(vrm.scene.rotation.y - camAz + Math.PI, Math.PI * 2) - Math.PI;
-    expect(Math.abs(diff)).toBeLessThan(0.05);
+    expect(Math.abs(camAz)).toBeLessThan(0.05);
+    expect(Math.abs(pipeline.targetYawOffset)).toBeLessThan(0.05);
+    orbitTo(0);
+    tick(false, 60);
+    expect(pipeline.bodyTurn.isTurnActive()).toBe(false);
+    expect(vrm.scene.rotation.y).toBeCloseTo(0, 2);
   });
 });

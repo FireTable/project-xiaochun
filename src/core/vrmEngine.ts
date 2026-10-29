@@ -1240,10 +1240,17 @@ export class VRMEngine {
     persistBodyYaw(normalizedYaw);
   }
 
-  /** 将角色朝向初始化为背对镜头并保持静止 (用于序章电影级初醒演出) */
+  /**
+   * 让镜头背对角色并保持她静止 (用于序章电影级初醒演出)：角色保持世界正前方朝向，
+   * 相机绕她搬到正后方 (方位角 π)，之后 orbit_to_front 环绕回方位角 0 即她的正面，与 fitCamera 的默认方位一致。
+   */
   public setFacingBackwards(): void {
     if (!this.currentVRM) return;
     this.motionPipeline.setFacingBackwards(this.currentVRM, this.camera);
+    if (this.controls) {
+      this.camera.lookAt(this.controls.target);
+      this.controls.update();
+    }
     this.currentVRM.scene.updateMatrixWorld(true);
     this.settleSpringBones(this.currentVRM);
   }
