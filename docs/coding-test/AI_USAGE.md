@@ -69,12 +69,63 @@
        - 手指切入不跳变（`f49b459`）
        - 剧情拍动作说话时不被打断（`2d71fa2`）
      - 普通聊天的思考 → 说话流程不受影响。
+     - 对动作系统做了大量重构，并逐项人工验证：
+       - 动作目录与解析：
+         - 统一的 `MOTION_CATALOG`（`src/motion/catalog.ts`，35 个动作；`91ee0b2` 建立，`b672b46` 加入别名解析 `motionResolver.ts` 和开发抽屉动作预览，`57c74a4` 全面整理）
+         - `resolveMotionUrl()` 把语义 ID、kebab-case 别名和历史命名统一解析为带版本号的 `.vrma` 路径
+       - 动作组：
+         - `MOTION_GROUPS`（8 组：`outfitShowcase` / `idleFlavor` / `listening` / `thinking` / `greeting` / `praiseCute` / `playfulSulking` / `dancePerformance`），按权重由 `selectMotionFromGroup()` 随机抽取（`a1c1a2e` 引入情境动作组、待机微动作调度和冷启动迎客）
+         - 组内动作 id 与 `MOTION_CATALOG` 在类型上强关联（`satisfies`），动作被删除或改名会直接报类型错误
+         - 换装展示走 `outfitShowcase` 组（`5633681`）
+       - 使用方法：
+         - 引擎接口：`vrmEngine.playMotion(id | url, options)`、`playMotionGroup(group, options)`、`stopMotion(fade)`
+         - 选项：`fadeDuration`、`loop`、`timeScale`、`mask`、`timeRange`、`enableFootIK`、`disableGaze`、`onEnd` 等（`PlayMotionOptions`）
+         - 同一套能力也通过 `xiaochun://` 协议和 SDK 的 `motion` / `motion-group` 暴露（`c5f48aa`；`a812d1a` 把 `group` 改名为 `motion-group` 并保持向后兼容）
+       - 缓存分层（`MotionAssetManager`，`src/motion/pipeline/motionAssetManager.ts`）：
+         - L1：内存 ArrayBuffer 池
+         - L2：IndexedDB 持久缓存
+         - 网络：L1 / L2 都未命中才下载，同一 URL 的并发请求会合并
+         - L3：与当前 VRM 绑定的已解析 `AnimationClip` 池，换装只清这一层，二进制缓存保留
+         - 目录里 18 个标记 `warmup: true` 的动作会在启动时预热
+         - `1f85ad8`：只缓存 glTF 魔数合法的文件，预热解析加代次保护（generation guard）
+       - 管线稳定性：
+         - `8de22d7`：播放竞态令牌（race token）、PropertyMixer 缓存失效、下半身 locomotion 遮罩
+         - `d10147f`：没被动画驱动的骨骼不再互相污染（从 basePose 填充）
+         - `793cde6`：消除腿部外八，`MotionPipeline.bind()` 幂等
+         - `59b6774`：换装后的过期 VRM 指针、骨骼复位和过渡跳变
+     - 动作引起的视觉问题也逐个人工检查：
+       - 胸部穿模：
+         - `3a339da`：手臂碰撞体接入胸部弹簧骨
+         - `d7d91b4`：蒙皮后把手臂顶点推出胸前椭球（上限 2 cm）
+         - `228b638`、`9abf189`：缩放后的胸部不穿出衣服，衣服按胸骨形状贴合
+         - `494a9a4`：改为依赖 GPU 骨骼蒙皮完成胸部衣服贴合；单元测试 `src/core/spring/bustClothFit.test.ts`
+       - 腰部伸展 / 躯干弯曲时的衣服变形：
+         - `1f217df`：脊柱、胸、上胸去掉非均匀缩放带来的 7.54° 剪切；`harmonizeTorsoCurvature`（`src/motion/vrmaRetarget.ts`）把超过 17° 的极端反向弯曲分摊到腰椎和胸椎；单元测试 `torsoDecoupling.test.ts`
+         - `cac1bd9`：大腿矩阵与髋部非均匀缩放解耦，避免脚下沉
+       - 动捕素材本身：`antiClip` 默认关闭，标准动捕保持原生，避免 A-Pose / 翅膀悬空畸变（`91ee0b2`）；滑步、悬空、循环接缝、裙摆横向晃出等用 `scripts/slice-vrma.mjs` 精修（见第 1 项）
   3. **语音打断**：
      - 角色说话时开口，语音立刻停止并切到倾听（`3b55161`）
      - 扬声器回声不会让角色打断自己（`d8079e4`）
      - 按钮状态与真实状态一致（`e05dd36`）
      - 被打断那一轮的迟到回复和旧转写不会再冒出来（`ac5493a`）
-  4. **方案核查与对比**：
+  4. **场景 24 小时变化**（`beach3d` 海滩，需要大量验证）：
+     - 位置与引入：`src/core/scene/beach3d/beach3dTime.ts`；`8824215` 引入太阳轨迹与时间流转，`514b8a6` 加入 `SceneTimeCard` 24 小时天体面板
+     - 24 小时内实际变化：
+       - 光源方向：
+         - 白天太阳走一条弧线，正午最高，17:45 贴近海平线、影子很长
+         - 夜间月亮沿同一条弧接替，日出日落两侧的交接点重合，地上的影子不会横扫
+       - 色彩：
+         - 白天（12:00）、落日（17:45）、夜晚（22:00）三套基准调色板，按平滑步阶连续混合
+         - 07:00–16:30 纯白天，16:30–17:45 渐入落日，17:45–19:30 渐入夜晚，19:30–05:00 纯夜晚
+         - 05:00–06:00 拂晓借用落日暖色，06:00–07:00 回到白天
+       - 随时间变化的对象：天空、海水、沙滩、远山群岛、云、植被、礁石、躺椅 / 遮阳伞、沙堡、灯塔（夜里亮起，塔身沉入夜色）、阴影染色
+       - 角色打光：主光、半球光、补光与场景太阳同向，角色影子与道具影子保持一致（`5baeb85`）
+     - 时间模式：`auto`（跟随真实时间）、`weeHours` / `dawn` / `noon` / `dusk` / `day` / `sunset` / `night` 预设，或 0–24 的小时数值（`environmentTime.ts`、`resolveEffectiveHour`）
+     - 验证：
+       - 人工逐时段检查画面，并修复夜间海平线虚线（`f2165cc`、`3cebc18`）
+       - 单元测试 `src/core/scene/__tests__/beach3dTime.test.ts`：方向向量归一化、正午与原配置零差异、17:45 / 22:00 权重、24 小时光照方向连续无突变等
+       - 剧情里从浏览器本地时间减 12 小时扫到此刻，再切回跟随真实时间（`9b07ac4`，`src/story/timeOfDay.ts`）
+  5. **方案核查与对比**：
      - 对 AI 给出的多种方案逐一核查后再选型：
        - STT（本地 / 2-pass / 纯云端，最终默认纯云端 + 本地熔断，`878714c`、`66c7c35`、`c12527b`）
        - UI / UX（字幕与选项卡布局、打字与语音打断区分、相机任务卡只认用户手势 `68695dd`）
