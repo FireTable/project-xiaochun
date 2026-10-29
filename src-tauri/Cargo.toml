@@ -1,6 +1,6 @@
 [package]
 name = "project-xiaochun"
-version = "0.2.0"
+version = "0.2.1"
 description = "100% Client-Native Anime Companion & Transparent Desktop Pet"
 authors = ["FireTable <firetable@foxmail.com>"]
 license = "MIT"
