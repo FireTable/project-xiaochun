@@ -8,6 +8,9 @@ const PROD = 'https://xiaochun.firetable.tech';
 describe('isAllowedOrigin', () => {
   it.each([
     PROD,
+    'tauri://localhost',
+    'http://tauri.localhost',
+    'https://tauri.localhost',
     'http://localhost',
     'http://localhost:5173',
     'https://localhost:8443',
@@ -50,8 +53,16 @@ describe('isAllowedOrigin', () => {
     'http://[::2]',
     'http://[fe80::1]',
     'ftp://localhost',
-    'tauri://localhost',
     'file://',
+    'tauri://localhost:1420',
+    'tauri://tauri.localhost',
+    'tauri://localhost/',
+    'tauri://evil.localhost',
+    'tauri://localhost.evil.com',
+    'http://tauri.localhost:8080',
+    'http://tauri.localhost.evil.com',
+    'http://evil.tauri.localhost',
+    'ftp://tauri.localhost',
   ])('denies %s', (origin) => {
     expect(isAllowedOrigin(origin)).toBe(false);
   });

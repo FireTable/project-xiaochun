@@ -3,6 +3,7 @@
  *
  * Allowed:
  * - https://xiaochun.firetable.tech (production, exact origin)
+ * - Tauri desktop shell origins: tauri://localhost, http://tauri.localhost, https://tauri.localhost (exact)
  * - localhost / 127.0.0.1 / [::1] on any port, http or https
  * - private LAN IPv4 (192.168.x.x, 10.x.x.x, 172.16-31.x.x) on any port, http or https
  *
@@ -10,6 +11,8 @@
  */
 
 const PROD_ORIGIN = 'https://xiaochun.firetable.tech';
+// Non-special scheme origins serialize as "null" in URL, so Tauri origins are matched as exact strings.
+const TAURI_ORIGINS = new Set(['tauri://localhost', 'http://tauri.localhost', 'https://tauri.localhost']);
 const LOOPBACK_HOSTS = new Set(['localhost', '127.0.0.1', '[::1]']);
 const IPV4_RE = /^(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})$/;
 
@@ -23,6 +26,7 @@ function isPrivateLanIPv4(host: string): boolean {
 
 export function isAllowedOrigin(origin: string | null | undefined): boolean {
   if (!origin) return false;
+  if (TAURI_ORIGINS.has(origin)) return true;
   let url: URL;
   try {
     url = new URL(origin);
