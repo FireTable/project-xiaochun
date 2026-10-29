@@ -70,9 +70,9 @@ const beats: Record<string, LocalizedStoryBeat> = {
       motion: 'singleHandWave', // 单手抚胸，对着空气深情款款地挥手排练
       expression: { base: 'gentle_smile', intensity: 0.8 },
       speechText: L(
-        '……咳，命运指引的旅人啊，欢迎来到我的领域……不对，这句太中二了，重来重来！',
-        '...Ahem! O traveler guided by fate, welcome to my realm... Ugh, way too edgy. Take two!',
-        '……コホン。運命に導かれし旅人よ、我が領域へようこそ……って、さすがに中二すぎるわね。もう一回！',
+        '……咳，命运指引的旅人啊，欢迎来到我的领域……\n不对，这句太中二了，重来重来！',
+        '...Ahem! O traveler guided by fate, welcome to my realm... \nUgh, way too edgy. Take two!',
+        '……コホン。運命に導かれし旅人よ、我が領域へようこそ……\nって、さすがに中二すぎるわね。もう一回！',
       ),
     },
     audio: { bgmAction: 'fade_out', bgmFadeSec: 0.6, sfx: [{ id: 'crystal', delaySec: 0.2, volume: 0.7 }] },
