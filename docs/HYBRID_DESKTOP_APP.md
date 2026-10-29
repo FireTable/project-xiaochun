@@ -125,3 +125,5 @@ In desktop companion mode, XiaoChun should never be lost offscreen or dragged ou
   export TAURI_SIGNING_PRIVATE_KEY_PATH="$PWD/.tauri/xiaochun.key"
   pnpm tauri:build
   ```
+
+- **Tauri builds skip the Cloudflare Vite plugin.** `tauri build` runs `beforeBuildCommand` (`pnpm build`) with `TAURI_ENV_PLATFORM` set, and `vite.config.ts` then does not load `@cloudflare/vite-plugin` (also skipped for the prerender preview server). `wrangler.jsonc` declares a Workers AI `ai` binding, which has no local simulation, so the plugin would open a remote proxy session and require `CLOUDFLARE_API_TOKEN` (not available in GitHub Actions). The desktop app only ships the static client (`frontendDist: ../dist/client`, still prerendered by TanStack Start) and calls the online `/api/*` endpoints, so no Worker runtime or Cloudflare credentials are needed. Web builds and `vite dev` / `tauri dev` still use the plugin.

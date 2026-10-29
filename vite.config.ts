@@ -12,10 +12,22 @@ import { dropDockerfatAssets } from './vite/dropDockerfatAssets';
 const isTauri = Boolean(process.env.TAURI_ENV_PLATFORM || process.env.TAURI_DEV_HOST);
 const defaultPort = isTauri ? 5186 : 5185;
 
-export default defineConfig(({ command }) => ({
+export default defineConfig(({ command, isPreview }) => ({
   plugins: [
     ...(command === 'serve' && !isTauri ? [basicSsl()] : []),
-    cloudflare({ viteEnvironment: { name: 'ssr' } }),
+    // Tauri release builds (`tauri build` -> beforeBuildCommand `pnpm build`; the Tauri CLI sets
+    // TAURI_ENV_PLATFORM for that command) must NOT load @cloudflare/vite-plugin.
+    // wrangler.jsonc declares an `ai` binding (Workers AI), which has no local simulation: the plugin
+    // opens a remote proxy session to Cloudflare for it and demands CLOUDFLARE_API_TOKEN. In
+    // non-interactive CI (GitHub Actions) there is no token, so the TanStack Start prerender step
+    // (it boots a Vite preview server) fails. The desktop app only ships the static client
+    // (`frontendDist` = dist/client) and calls the online /api/* endpoints remotely, so the Worker
+    // runtime is not needed there. `isPreview` matters too: the prerender step starts the preview
+    // server through `vite.preview()` (command === 'serve'), which would load the plugin again.
+    // Web/Cloudflare deploys and `vite dev` (incl. `tauri dev`) still load the plugin.
+    ...(isTauri && (command === 'build' || isPreview)
+      ? []
+      : [cloudflare({ viteEnvironment: { name: 'ssr' } })]),
     tailwindcss(),
     tanstackStart({
       prerender: {
