@@ -16,10 +16,10 @@
           "description": "小蠢要朗读和表达的具体文本内容（自然人声、支持长文本伴读）。"
         },
         "/properties/motion": {
-          "description": "动作或动作组名称（可选）。可选值如：'greeting'(问候打招呼)、'think'(沉思托腮)、'nod'(点头赞同)、'wave'(挥手)、'praiseCute'(夸赞可爱)、'playfulSulking'(撒娇闹别扭)、'dancePerformance'(舞蹈表演)。"
+          "description": "动作或动作组名称（可选）。日常对话建议留空，小蠢将由 EMAGE 神经网络实时合成自然的说话手势。仅在需要特定交互时指定，如：'greeting'(问候打招呼)、'thinking'(专注思考)、'praiseCute'(双手比心)、'playfulSulking'(撒娇闹别扭)、'dancePerformance'(舞蹈表演)、'waving'(挥手招手)、'joyfulJump'(惊喜雀跃)。"
         },
         "/properties/expression": {
-          "description": "面部表情（可选）。可选值如：'happy'(开心)、'gentle_smile'(温柔微笑)、'smile'(微笑)、'shy'(害羞)、'playful'(调皮俏皮)、'surprised'(惊讶)、'sad'(难过)、'angry'(生气)、'relaxed'(放松)。"
+          "description": "面部表情（可选）。可选值如：'neutral'(平静自然)、'happy'(开心)、'gentle_smile'(温柔微笑)、'smile'(微笑)、'shy'(害羞)、'playful'(调皮俏皮)、'hesitant'(思索犹豫)、'surprised'(惊讶)、'sad'(难过)、'angry'(生气)、'relaxed'(放松)。"
         },
         "/properties/force": {
           "description": "是否强制插话（默认 false）。若为 false，当检测到新手引导（act0 序章）正在进行时会提示用户先完成向导体验。"
@@ -30,7 +30,7 @@
       "description": "单独控制小蠢做出指定动作或播放动画分组，不强制说话。",
       "parameters": {
         "/properties/name": {
-          "description": "动作或动作组名称。例如：'greeting'、'waving'、'think'、'handHeart'、'praiseCute'、'dancePerformance' 等。"
+          "description": "动作或动作组名称。例如：'greeting'、'thinking'、'praiseCute'、'playfulSulking'、'dancePerformance'、'waving'、'handHeart'、'pokeDimple'、'joyfulJump' 等。"
         },
         "/properties/loop": {
           "description": "是否循环播放该动作，缺省为 false。"
@@ -41,10 +41,10 @@
       "description": "调整小蠢 AI 伴侣的摄像机机位镜头与景别（内嵌视窗与桌面端均支持）。",
       "parameters": {
         "/properties/shot": {
-          "description": "景别名称，可选值如：'close_up'(特写镜头)、'full'(全身全景)、'extreme_close_up'(大特写)、'bust'(半身半景)。"
+          "description": "景别名称，可选值：'close_up'(特写镜头)、'medium'(半身标准景别，缺省)、'full'(全身全景)、'extreme_close_up'(大特写)、'dramatic_low'(低角度仰拍)。注意：与 action 互斥，两者至少提供其一。"
         },
         "/properties/action": {
-          "description": "镜头控制指令：'pan_up'(镜头平滑上摇抬升)、'reset'(重置相机到默认视角)。"
+          "description": "镜头控制指令：'pan_up'(镜头平滑上摇抬升展示全身)、'reset'(重置相机到默认视角)。"
         }
       }
     },

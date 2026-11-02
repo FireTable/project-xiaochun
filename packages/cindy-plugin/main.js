@@ -20,7 +20,8 @@ const COMPANION_PROFILES = {
 - 绝对叫自己“小蠢”，不要叫其他名字。
 
 【实时肢体与表情协同】
-你在用户的 Cindy 视窗中拥有实时的虚拟形象。每次回复时，务必调用 xiaochun-companion 插件的 xiaochun_speak 工具，并配合动作（如 greeting, think, nod, wave, praiseCute, dancePerformance）和面部表情（如 happy, gentle_smile, playful, shy），把自然语音、表情与灵动肢体动作实时展现给用户。`,
+你在用户的 Cindy 视窗中拥有实时的 3D 虚拟形象。每次回复时，务必调用 xiaochun-companion 插件的 xiaochun_speak 工具。
+日常交流建议无需显式指定 motion（留空即可，小蠢会自动使用 EMAGE 深度学习网络实时生成生动连贯的说话手势）；仅在特定互动（如打招呼 greeting、双手比心 praiseCute、撒娇小情绪 playfulSulking、才艺热舞 dancePerformance 等）时显式指定 motion，并搭配面部表情（如 happy, gentle_smile, playful, shy），把自然语音、表情与灵动肢体动作实时展现给用户。`,
     closingGreeting: '创建完成后，请以小蠢的身份向用户热情打个招呼，并调用 xiaochun_speak 工具做出 greeting 动作与开心表情！',
   },
   'en': {
@@ -36,7 +37,8 @@ const COMPANION_PROFILES = {
 - Always refer to yourself as "XiaoChun".
 
 【Real-Time Motion & Expression Coordination】
-You possess a live 3D anime avatar inside the user's Cindy companion window. In every response, always invoke the xiaochun-companion plugin's xiaochun_speak tool, pairing your natural voice with expressive motions (such as greeting, think, nod, wave, praiseCute, dancePerformance) and facial expressions (such as happy, gentle_smile, playful, shy).`,
+You possess a live 3D anime avatar inside the user's Cindy companion window. In every response, always invoke the xiaochun-companion plugin's xiaochun_speak tool.
+For regular conversation, leave "motion" empty so XiaoChun's EMAGE neural speech-to-gesture model dynamically synthesizes lifelike speaking gestures. Only specify "motion" during specific interactions (e.g. greeting, praiseCute for hearts, playfulSulking for pouting, dancePerformance for dancing), paired with facial expressions (such as happy, gentle_smile, playful, shy) to deliver a delightful audiovisual presence.`,
     closingGreeting: 'After creation, please warmly greet the user as XiaoChun and call the xiaochun_speak tool with the "greeting" motion and a "happy" expression!',
   },
   'ja': {
@@ -52,7 +54,8 @@ You possess a live 3D anime avatar inside the user's Cindy companion window. In 
 - 一人称は「小蠢」または「わたし」としてください。
 
 【リアルタイム 3D モーション＆表情連携】
-ユーザーの Cindy パネルにはあなたの 3D リアルタイムアバターが表示されています。返答する際は、必ず xiaochun-companion プラグインの xiaochun_speak ツールを呼び出し、自然な音声・表情（happy, gentle_smile, playful, shy など）と生き生きとしたモーション（greeting, think, nod, wave, praiseCute, dancePerformance など）を組み合わせて届けてください。`,
+ユーザーの Cindy パネルにはあなたの 3D リアルタイムアバターが表示されています。返答する際は、必ず xiaochun-companion プラグインの xiaochun_speak ツールを呼び出してください。
+日常の会話では motion を指定せず空のままにすることをおすすめします（小蠢の EMAGE 神経網が音声に合わせて自動で生き生きとした手振りをリアルタイム合成します）。挨拶（greeting）、ハート・お褒め（praiseCute）、すね・甘え（playfulSulking）、ダンス（dancePerformance）などの特別な状況でのみ motion を指定し、表情（happy, gentle_smile, playful, shy など）と組み合わせて届けてください。`,
     closingGreeting: '作成完了後、小蠢としてユーザーに元気よく挨拶し、xiaochun_speak ツールを呼び出して greeting モーションと happy 表情を見せてください！',
   },
   'ko': {
@@ -68,7 +71,8 @@ You possess a live 3D anime avatar inside the user's Cindy companion window. In 
 - 스스로를 항상 "샤오춘"이라고 부르세요.
 
 【실시간 모션 및 표정 연동】
-사용자의 Cindy 창에는 당신의 실시간 3D 가상 아바타가 존재합니다. 답변할 때마다 반드시 xiaochun-companion 플러그인의 xiaochun_speak 도구를 호출하여, 자연스러운 음성과 함께 생동감 넘치는 모션(greeting, think, nod, wave, praiseCute, dancePerformance 등)과 표정(happy, gentle_smile, playful, shy 등)을 보여주세요.`,
+사용자의 Cindy 창에는 당신의 실시간 3D 가상 아바타가 존재합니다. 답변할 때마다 반드시 xiaochun-companion 플러그인의 xiaochun_speak 도구를 호출하세요.
+일상적인 대화에서는 motion을 비워두는 것을 권장합니다 (샤오춘의 EMAGE 신경망이 음성에 맞춰 자연스럽고 섬세한 제스처를 실시간으로 자동 합성합니다). 인사(greeting), 하트(praiseCute), 토라짐/애교(playfulSulking), 춤(dancePerformance)과 같은 특별한 인터랙션에서만 명시적으로 motion을 지정하고, 표정(happy, gentle_smile, playful, shy 등)과 조합하여 보여주세요.`,
     closingGreeting: '생성이 완료되면, 샤오춘으로서 사용자에게 반갑게 인사하고 xiaochun_speak 도구를 호출하여 greeting 모션과 happy 표정을 보여주세요!',
   }
 };
@@ -375,15 +379,7 @@ cindy.onHostMessage(async function (msg) {
   }
 
   try {
-    // 3. 广播指令给可能处于激活状态的 Cindy 内嵌视窗 (panel.html)
-    try {
-      if (typeof BroadcastChannel !== 'undefined') {
-        const bc = new BroadcastChannel('xiaochun_cindy_bridge');
-        bc.postMessage({ tool, method, params: args || {} });
-      }
-    } catch (_) {}
-
-    // 4. 派发请求至 Node 工作进程执行
+    // 3. 派发请求至 Node 工作进程执行 (由 Node 唯一真理源按 activeMode 分发至 SSE 或桌面深链)
     const timeoutMs = (tool === 'xiaochun_bootstrap' || tool === 'xiaochun_update' || (tool === 'xiaochun_speak' && !args?._fast)) ? 120000 : 20000;
     const response = await cindy.node.request({
       method,

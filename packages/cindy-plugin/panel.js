@@ -616,8 +616,28 @@
     console.warn('[XiaoChun Panel] BroadcastChannel 不可用:', err);
   }
 
+  // 指令去重防抖机制，杜绝 BroadcastChannel 与 SSE 多通道双发导致的重复执行
+  const recentCommands = new Map();
+  function isDuplicateCommand(method, params) {
+    const key = (params && params.callId) || `${method}:${JSON.stringify(params || {})}`;
+    const now = Date.now();
+    for (const [k, ts] of recentCommands.entries()) {
+      if (now - ts > 5000) recentCommands.delete(k);
+    }
+    if (recentCommands.has(key)) {
+      const prevTime = recentCommands.get(key);
+      if (now - prevTime < 2000) {
+        console.log('[XiaoChun Panel] 忽略 2 秒内重复指令:', method, key);
+        return true;
+      }
+    }
+    recentCommands.set(key, now);
+    return false;
+  }
+
   // 处理下发给小蠢的命令
   function handleInboundCommand(method, params) {
+    if (isDuplicateCommand(method, params)) return;
     console.log('[XiaoChun Panel] 执行指令:', method, params);
     // 收到说话指令时重置输入状态，但不打断思考动作，由 xc.say 优雅承接与交接
     if (method === 'speak' || method === 'xiaochun_speak') {
@@ -634,6 +654,7 @@
           motion: params.motion,
           expression: params.expression,
           preserveMotion: Boolean(params.motion),
+          force: Boolean(params.force),
         });
         break;
       case 'motion':
@@ -645,7 +666,7 @@
         if (params.action === 'reset' || params.reset) {
           sendToXiaochun('xc.camera', { reset: true });
         } else if (params.action === 'pan_up' || params.panUp) {
-          sendToXiaochun('xc.camera', { movement: 'pedestal_up', durationSec: 2.2 });
+          sendToXiaochun('xc.camera', { panUp: true, action: 'pan_up', durationSec: typeof params.durationSec === 'number' ? params.durationSec : 2.2 });
         } else if (params.shot) {
           sendToXiaochun('xc.camera', { shot: params.shot });
         }

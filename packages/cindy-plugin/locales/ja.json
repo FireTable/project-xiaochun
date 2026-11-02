@@ -16,10 +16,10 @@
           "description": "小蠢が読み上げて表現する具体的なテキスト内容（自然音声、長文読み上げ対応）。"
         },
         "/properties/motion": {
-          "description": "モーションまたはモショングループ名（任意）。例：'greeting'（挨拶）、'think'（思考・顎に手を当てる）、'nod'（頷く）、'wave'（手を振る）、'praiseCute'（褒める・可愛い仕草）、'dancePerformance'（ダンス）。"
+          "description": "モーションまたはモショングループ名（任意）。日常会話では空のままにすることをおすすめします（EMAGE 神経網がリアルタイムで自然な手振りを自動合成します）。特定アクション時のみ指定：'greeting'（挨拶）、'thinking'（思考・顎に手を当てる）、'praiseCute'（ハート・可愛い仕草）、'playfulSulking'（すねる）、'dancePerformance'（ダンス）、'waving'（手を振る）、'joyfulJump'（ジャンプ）。"
         },
         "/properties/expression": {
-          "description": "表情名（任意）。例：'happy'（笑顔）、'gentle_smile'（優しい微笑み）、'shy'（照れ）、'playful'（いたずらっぽく）、'surprised'（驚き）、'sad'（悲しい）、'angry'（怒り）、'relaxed'（リラックス）。"
+          "description": "表情名（任意）。例：'neutral'（平常）、'happy'（笑顔）、'gentle_smile'（優しい微笑み）、'smile'（微笑み）、'shy'（照れ）、'playful'（いたずらっぽく）、'hesitant'（思案）、'surprised'（驚き）、'sad'（悲しい）、'angry'（怒り）、'relaxed'（リラックス）。"
         },
         "/properties/force": {
           "description": "強制的に発話させるかどうか（デフォルトは false）。false の場合、チュートリアル（act0 序章）進行中は先にガイドを体験するよう促します。"
@@ -30,7 +30,7 @@
       "description": "音声なしで小蠢に指定のモーションやアニメーショングループを再生させます。",
       "parameters": {
         "/properties/name": {
-          "description": "モーション名またはグループ名。例：'greeting', 'waving', 'think', 'handHeart', 'praiseCute', 'dancePerformance' など。"
+          "description": "モーション名またはグループ名。例：'greeting', 'thinking', 'praiseCute', 'playfulSulking', 'dancePerformance', 'waving', 'handHeart', 'pokeDimple', 'joyfulJump' など。"
         },
         "/properties/loop": {
           "description": "モーションをループ再生するかどうか。デフォルトは false です。"
@@ -41,10 +41,10 @@
       "description": "小蠢デスクトップクライアントのカメラアングルや画角を調整します。",
       "parameters": {
         "/properties/shot": {
-          "description": "カメラショット名。例：'close_up'（クローズアップ）、'full'（全身）、'extreme_close_up'（大クローズアップ）、'bust'（バストアップ）。"
+          "description": "カメラショット名：'close_up'（クローズアップ）、'medium'（上半身標準）、'full'（全身）、'extreme_close_up'（大クローズアップ）、'dramatic_low'（ローアングル）。action と排他。"
         },
         "/properties/action": {
-          "description": "カメラアクション指示：'pan_up'（カメラを上にティルトアップ）、'reset'（デフォルト視点にリセット）。"
+          "description": "カメラアクション指示：'pan_up'（カメラを上にティルトアップして全身表示）、'reset'（デフォルト視点にリセット）。"
         }
       }
     },

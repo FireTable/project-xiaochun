@@ -16,10 +16,10 @@
           "description": "샤오춘이 읽고 표현할 구체적인 텍스트 내용(자연스러운 음성, 긴 글 읽기 지원)."
         },
         "/properties/motion": {
-          "description": "모션 또는 모션 그룹 이름(선택 사항). 예: 'greeting'(인사), 'think'(생각/턱 괴기), 'nod'(고개 끄덕임), 'wave'(손 흔들기), 'praiseCute'(귀여운 칭찬), 'dancePerformance'(댄스)."
+          "description": "모션 또는 모션 그룹 이름(선택 사항). 일상 대화에서는 비워두는 것을 권장합니다(EMAGE 신경망이 실시간으로 자연스러운 손동작 제스처를 자동 합성합니다). 특정 동작 시에만 지정: 'greeting'(인사), 'thinking'(생각/턱 괴기), 'praiseCute'(하트/귀여운 칭찬), 'playfulSulking'(토라짐/애교), 'dancePerformance'(댄스), 'waving'(손 흔들기), 'joyfulJump'(기쁨 도약)."
         },
         "/properties/expression": {
-          "description": "얼굴 표정 이름(선택 사항). 예: 'happy'(행복), 'gentle_smile'(부드러운 미소), 'smile'(미소), 'shy'(부끄러움), 'playful'(장난기), 'surprised'(놀람), 'sad'(슬픔), 'angry'(화남), 'relaxed'(편안함)."
+          "description": "얼굴 표정 이름(선택 사항). 선택 가능: 'neutral'(평온), 'happy'(행복), 'gentle_smile'(부드러운 미소), 'smile'(미소), 'shy'(부끄러움), 'playful'(장난기), 'hesitant'(망설임), 'surprised'(놀람), 'sad'(슬픔), 'angry'(화남), 'relaxed'(편안함)."
         },
         "/properties/force": {
           "description": "강제 낭독 여부(기본값 false). false일 때 튜토리얼(act0 프롤로그) 진행 중이면 먼저 가이드를 완료하도록 안내합니다."
@@ -30,7 +30,7 @@
       "description": "음성 없이 샤오춘에게 지정된 모션이나 애니메이션 그룹을 단독으로 재생합니다.",
       "parameters": {
         "/properties/name": {
-          "description": "모션 또는 모션 그룹 이름. 예: 'greeting', 'waving', 'think', 'handHeart', 'praiseCute', 'dancePerformance' 등."
+          "description": "모션 또는 모션 그룹 이름. 예: 'greeting', 'thinking', 'praiseCute', 'playfulSulking', 'dancePerformance', 'waving', 'handHeart', 'pokeDimple', 'joyfulJump' 등."
         },
         "/properties/loop": {
           "description": "모션을 반복 재생할지 여부. 기본값은 false입니다."
@@ -41,10 +41,10 @@
       "description": "샤오춘 데스크톱 앱의 카메라 앵글, 화각 및 움직임을 조정합니다.",
       "parameters": {
         "/properties/shot": {
-          "description": "카메라 샷 이름. 예: 'close_up'(클로즈업), 'full'(풀샷/전신), 'extreme_close_up'(익스트림 클로즈업), 'bust'(바스트샷)."
+          "description": "카메라 샷 이름: 'close_up'(클로즈업), 'medium'(상반신 표준 샷), 'full'(풀샷/전신), 'extreme_close_up'(익스트림 클로즈업), 'dramatic_low'(로우 앵글). action과 상호 배타적."
         },
         "/properties/action": {
-          "description": "카메라 동작 명령: 'pan_up'(카메라를 위로 부드럽게 틸트업), 'reset'(기본 시점으로 초기화)."
+          "description": "카메라 동작 명령: 'pan_up'(카메라를 위로 부드럽게 틸트업하여 전신 표시), 'reset'(기본 시점으로 초기화)."
         }
       }
     },

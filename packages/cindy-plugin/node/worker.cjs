@@ -7,6 +7,7 @@ const path = require('node:path');
 const os = require('node:os');
 const https = require('node:https');
 const http = require('node:http');
+const crypto = require('node:crypto');
 
 // 统一标准输出 JSON-RPC 响应，日志仅允许输出到 stderr
 function reply(message) {
@@ -367,11 +368,79 @@ const bridgeServer = http.createServer((req, res) => {
     return;
   }
 
+// ── 本地磁盘资产缓存机制（加速首屏加载、消除换端口重复拉取、坚决不缓存 HTML 页面） ──
+function getAssetCacheDir() {
+  const cindyDir = path.join(os.homedir(), '.cindy');
+  const baseDir = fs.existsSync(cindyDir) ? cindyDir : os.tmpdir();
+  const cacheDir = path.join(baseDir, 'xiaochun-cache');
+  try {
+    if (!fs.existsSync(cacheDir)) {
+      fs.mkdirSync(cacheDir, { recursive: true });
+    }
+  } catch (_) {}
+  return cacheDir;
+}
+
+const MIME_TYPES = {
+  '.js': 'application/javascript; charset=utf-8',
+  '.css': 'text/css; charset=utf-8',
+  '.html': 'text/html; charset=utf-8',
+  '.json': 'application/json; charset=utf-8',
+  '.png': 'image/png',
+  '.jpg': 'image/jpeg',
+  '.jpeg': 'image/jpeg',
+  '.webp': 'image/webp',
+  '.svg': 'image/svg+xml',
+  '.wasm': 'application/wasm',
+  '.onnx': 'application/octet-stream',
+  '.vrm': 'model/gltf-binary',
+  '.vrmbase': 'application/octet-stream',
+  '.vrmaddon': 'application/octet-stream',
+  '.mp3': 'audio/mpeg',
+  '.woff2': 'font/woff2'
+};
+
+function isHtmlPageRequest(cleanUrl) {
+  if (cleanUrl === '/' || cleanUrl === '/embed' || cleanUrl === '/embed/' || cleanUrl.endsWith('.html')) {
+    return true;
+  }
+  return false;
+}
+
+function isCacheableAsset(cleanUrl) {
+  if (isHtmlPageRequest(cleanUrl)) return false;
+  if (cleanUrl.startsWith('/api/') || cleanUrl.startsWith('/bridge-port') || cleanUrl.startsWith('/events') || cleanUrl.startsWith('/sse')) {
+    return false;
+  }
+  return (
+    cleanUrl.startsWith('/assets/') ||
+    cleanUrl.startsWith('/emage/') ||
+    cleanUrl.startsWith('/onnx/') ||
+    cleanUrl.startsWith('/stt/') ||
+    cleanUrl.startsWith('/wasm/') ||
+    cleanUrl.startsWith('/audio/') ||
+    cleanUrl.endsWith('.vrmaddon') ||
+    cleanUrl.endsWith('.vrmbase') ||
+    cleanUrl.endsWith('.vrm') ||
+    cleanUrl.endsWith('.onnx') ||
+    cleanUrl.endsWith('.wasm') ||
+    cleanUrl.endsWith('.mp3') ||
+    cleanUrl.endsWith('.png') ||
+    cleanUrl.endsWith('.jpg') ||
+    cleanUrl.endsWith('.webp') ||
+    cleanUrl.endsWith('.svg') ||
+    cleanUrl.endsWith('.woff2') ||
+    cleanUrl.endsWith('.css')
+  );
+}
+
   // ── 反向代理路由解析：根据路径将请求分发至对应上游服务器，严格保持 127.0.0.1 域内 ──
   const cleanUrl = (req.url || '').split('?')[0];
   const isJsAsset = cleanUrl.endsWith('.js');
   const isAudioOrTts = cleanUrl === '/api/tts' || cleanUrl.startsWith('/audio/') || cleanUrl.endsWith('.mp3');
   const isHeavyModelOrAsset = cleanUrl.endsWith('.vrmaddon') || cleanUrl.endsWith('.vrmbase') || cleanUrl.endsWith('.onnx') || cleanUrl.endsWith('.wasm');
+  const isHtml = isHtmlPageRequest(cleanUrl);
+  const shouldCache = req.method === 'GET' && isCacheableAsset(cleanUrl);
 
   let targetHost = 'xiaochun.firetable.tech';
   let targetPath = req.url;
@@ -391,6 +460,36 @@ const bridgeServer = http.createServer((req, res) => {
     const subPath = cleanUrl.replace(/^\/wasm\//, '');
     const query = (req.url || '').includes('?') ? '?' + (req.url || '').split('?')[1] : '';
     targetPath = `/npm/onnxruntime-web@1.22.0-dev.20250409-89f8206ba4/dist/${subPath}${query}`;
+  }
+
+  // 1. 优先尝试从本地磁盘资产缓存读取（极速命中，零网络开销，Origin 无关）
+  const cacheDir = getAssetCacheDir();
+  const cacheKey = crypto.createHash('sha256').update(`${targetHost}:${targetPath}`).digest('hex');
+  const ext = path.extname(cleanUrl) || '';
+  const cacheFilePath = path.join(cacheDir, `${cacheKey}${ext}`);
+
+  if (shouldCache) {
+    try {
+      if (fs.existsSync(cacheFilePath)) {
+        const stat = fs.statSync(cacheFilePath);
+        if (stat.size > 0) {
+          const mime = MIME_TYPES[ext.toLowerCase()] || 'application/octet-stream';
+          res.writeHead(200, {
+            'Content-Type': mime,
+            'Content-Length': stat.size,
+            'Cache-Control': 'public, max-age=31536000, immutable',
+            'Access-Control-Allow-Origin': '*',
+            'Cross-Origin-Opener-Policy': 'unsafe-none',
+            'Cross-Origin-Embedder-Policy': 'unsafe-none',
+            'X-XiaoChun-Cache': 'HIT'
+          });
+          fs.createReadStream(cacheFilePath).pipe(res);
+          return;
+        }
+      }
+    } catch (err) {
+      log('读取磁盘缓存异常, 降级至网络直连:', err.message);
+    }
   }
 
   const forwardHeaders = {
@@ -432,7 +531,14 @@ const bridgeServer = http.createServer((req, res) => {
     headers['cross-origin-opener-policy'] = 'unsafe-none';
     headers['cross-origin-embedder-policy'] = 'unsafe-none';
 
-    // 针对 JS 核心资产补丁：放行 cindy-ghost: 协议的 origin 校验，实现双向 postMessage 握手
+    // 核心安全与更新保证：对 HTML 页面强制禁止缓存，确保前端发版后一刷新即拉取最新页面！
+    if (isHtml) {
+      headers['cache-control'] = 'no-cache, no-store, must-revalidate';
+      headers['pragma'] = 'no-cache';
+      headers['expires'] = '0';
+    }
+
+    // 针对 JS 核心资产补丁：放行 cindy-ghost: 协议的 origin 校验，实现双向 postMessage 握手并写入磁盘缓存
     if (isJsAsset) {
       delete headers['content-encoding'];
       let body = '';
@@ -449,8 +555,55 @@ const bridgeServer = http.createServer((req, res) => {
           );
         }
         headers['content-length'] = Buffer.byteLength(modified, 'utf8');
+
+        // 写入磁盘缓存（下次请求直接命中）
+        if (shouldCache && proxyRes.statusCode === 200) {
+          try {
+            fs.writeFileSync(cacheFilePath, modified, 'utf8');
+          } catch (_) {}
+        }
+
         res.writeHead(proxyRes.statusCode, headers);
         res.end(modified);
+      });
+      return;
+    }
+
+    // 其他重型静态资产 (VRM, ONNX, WASM, 图片, 音频等)：在向客户端流式输出的同时写入磁盘缓存
+    if (shouldCache && proxyRes.statusCode === 200) {
+      headers['cache-control'] = 'public, max-age=31536000, immutable';
+      res.writeHead(proxyRes.statusCode, headers);
+      const tmpFile = `${cacheFilePath}.tmp_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`;
+      const fileStream = fs.createWriteStream(tmpFile);
+      let streamFailed = false;
+
+      fileStream.on('error', () => {
+        streamFailed = true;
+        try { fs.unlinkSync(tmpFile); } catch (_) {}
+      });
+
+      proxyRes.on('data', (chunk) => {
+        res.write(chunk);
+        if (!streamFailed) fileStream.write(chunk);
+      });
+
+      proxyRes.on('end', () => {
+        res.end();
+        if (!streamFailed) {
+          fileStream.end(() => {
+            try {
+              fs.renameSync(tmpFile, cacheFilePath);
+            } catch (_) {
+              try { fs.unlinkSync(tmpFile); } catch (_) {}
+            }
+          });
+        }
+      });
+
+      proxyRes.on('error', () => {
+        streamFailed = true;
+        try { fs.unlinkSync(tmpFile); } catch (_) {}
+        res.end();
       });
       return;
     }
@@ -468,23 +621,45 @@ const bridgeServer = http.createServer((req, res) => {
   req.pipe(proxyReq);
 });
 
-function startBridgeServer(port = PREFERRED_BRIDGE_PORT) {
-  bridgeServer.once('error', (err) => {
-    if (err.code === 'EADDRINUSE' && port !== 0) {
-      log(`端口 ${port} 被占用，回退至随机端口...`);
-      startBridgeServer(0);
+const CANDIDATE_PORTS = [PREFERRED_BRIDGE_PORT, 23519, 23520];
+let portRetryAttempts = 0;
+const MAX_PORT_RETRIES = process.env.XIAOCHUN_TEST_MODE === '1' ? 0 : 2;
+
+function startBridgeServer(candidateIndex = 0) {
+  const currentPort = candidateIndex < CANDIDATE_PORTS.length ? CANDIDATE_PORTS[candidateIndex] : 0;
+
+  const errorHandler = (err) => {
+    bridgeServer.removeListener('listening', listenHandler);
+    if (err.code === 'EADDRINUSE' && currentPort !== 0) {
+      if (portRetryAttempts < MAX_PORT_RETRIES) {
+        portRetryAttempts++;
+        log(`端口 ${currentPort} 暂时被占用 (可能正处于重载释放中)，250ms 后进行第 ${portRetryAttempts} 次复用重试...`);
+        setTimeout(() => {
+          startBridgeServer(candidateIndex);
+        }, 250);
+        return;
+      }
+      portRetryAttempts = 0;
+      const nextCandidate = candidateIndex + 1;
+      log(`端口 ${currentPort} 持续占用，尝试候选端口序列 [${candidateIndex + 1}]...`);
+      startBridgeServer(nextCandidate);
     } else {
       log('桥接服务器发生错误 (非致命):', err.message);
     }
-  });
+  };
 
-  bridgeServer.listen(port, '127.0.0.1', () => {
+  const listenHandler = () => {
+    bridgeServer.removeListener('error', errorHandler);
     const addr = bridgeServer.address();
-    bridgePort = addr ? addr.port : port;
+    bridgePort = addr ? addr.port : currentPort;
     bridgeServer.unref();
     log(`内嵌视窗与反向代理服务器就绪: http://127.0.0.1:${bridgePort}`);
     writeBridgePortFile();
-  });
+  };
+
+  bridgeServer.once('error', errorHandler);
+  bridgeServer.once('listening', listenHandler);
+  bridgeServer.listen(currentPort, '127.0.0.1');
 }
 
 function cleanupBridgeServer() {

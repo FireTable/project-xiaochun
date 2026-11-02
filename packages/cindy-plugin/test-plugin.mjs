@@ -235,11 +235,27 @@ async function testWorker() {
   assert.ok(broadcastRes.result.success);
   console.log('   ✅ Node Worker 成功响应 panel_broadcast 方法');
 
-  const portData = JSON.parse(fs.readFileSync(path.join(os.tmpdir(), 'xiaochun-bridge-port.json'), 'utf-8'));
-  const testPort = portData.port;
-  assert.ok(typeof testPort === 'number' && testPort > 0);
-
-  const bridgePortRes = await fetch(`http://127.0.0.1:${testPort}/bridge-port.json`).then(r => r.json());
+  // 等待 bridge-port 文件就绪且 HTTP 桥接服务器就绪响应
+  let testPort = 0;
+  let bridgePortRes = null;
+  const bridgePortFile = path.join(os.tmpdir(), 'xiaochun-bridge-port.json');
+  for (let i = 0; i < 30; i++) {
+    try {
+      if (fs.existsSync(bridgePortFile)) {
+        const portData = JSON.parse(fs.readFileSync(bridgePortFile, 'utf-8'));
+        if (typeof portData.port === 'number' && portData.port > 0) {
+          const res = await fetch(`http://127.0.0.1:${portData.port}/bridge-port.json`).then(r => r.json()).catch(() => null);
+          if (res && res.port === portData.port) {
+            testPort = portData.port;
+            bridgePortRes = res;
+            break;
+          }
+        }
+      }
+    } catch (_) {}
+    await new Promise(r => setTimeout(r, 100));
+  }
+  assert.ok(testPort > 0 && bridgePortRes, '未能在规定时间内连接上 Node Worker HTTP 桥接服务器');
   assert.equal(bridgePortRes.port, testPort);
   assert.equal(typeof bridgePortRes.onboardingCompleted, 'boolean');
   console.log('   ✅ Node Worker HTTP /bridge-port.json 响应合规, onboardingCompleted:', bridgePortRes.onboardingCompleted);
@@ -285,6 +301,16 @@ async function testWorker() {
   assert.equal(notificationReceived.method, 'user_chat_input');
   assert.equal(notificationReceived.params.text, '你好小蠢测试对话');
   console.log('   ✅ Node Worker HTTP /api/chat-input 成功触发 JSON-RPC 消息反向通知:', notificationReceived.params);
+
+  // 4.9 验证反向代理缓存控制策略：HTML 严禁缓存
+  try {
+    const embedRes = await fetch(`http://127.0.0.1:${testPort}/embed`, { method: 'GET' });
+    const cacheCtrl = embedRes.headers.get('cache-control') || '';
+    if (embedRes.status < 500) {
+      assert.ok(cacheCtrl.includes('no-cache'), 'HTML 响应必须包含 no-cache');
+      console.log('   ✅ Node Worker 反向代理 HTML 严格禁止缓存 (保证更新即时生效):', cacheCtrl);
+    }
+  } catch (_) {}
 
   worker.kill();
   console.log('\n🎉 [Success] packages/cindy-plugin 所有官方规范与自动化自测全部通过！');

@@ -16,10 +16,10 @@
           "description": "The exact text content for XiaoChun to speak and express with natural voice (supports long text reading)."
         },
         "/properties/motion": {
-          "description": "Optional motion or motion group name. Examples: 'greeting', 'think', 'nod', 'wave', 'praiseCute', 'playfulSulking', 'dancePerformance'."
+          "description": "Optional motion or motion group name. Recommended to leave empty for daily chats so EMAGE neural network generates live speech gestures. Use only for specific actions: 'greeting', 'thinking', 'praiseCute', 'playfulSulking', 'dancePerformance', 'waving', 'joyfulJump'."
         },
         "/properties/expression": {
-          "description": "Optional facial expression name. Examples: 'happy', 'gentle_smile', 'smile', 'shy', 'playful', 'surprised', 'sad', 'angry', 'relaxed'."
+          "description": "Optional facial expression name. Options: 'neutral', 'happy', 'gentle_smile', 'smile', 'shy', 'playful', 'hesitant', 'surprised', 'sad', 'angry', 'relaxed'."
         },
         "/properties/force": {
           "description": "Whether to force speaking (default false). When false, it will prompt user to finish the act0 onboarding tour if in progress."
@@ -30,7 +30,7 @@
       "description": "Trigger a standalone motion or animation group on XiaoChun without speaking.",
       "parameters": {
         "/properties/name": {
-          "description": "The motion or animation group name, e.g. 'greeting', 'waving', 'think', 'handHeart', 'praiseCute', 'dancePerformance'."
+          "description": "The motion or animation group name, e.g. 'greeting', 'thinking', 'praiseCute', 'playfulSulking', 'dancePerformance', 'waving', 'handHeart', 'pokeDimple', 'joyfulJump'."
         },
         "/properties/loop": {
           "description": "Whether to loop the motion playback, defaults to false."
@@ -41,7 +41,7 @@
       "description": "Adjust XiaoChun's desktop camera angle, framing, or movement.",
       "parameters": {
         "/properties/shot": {
-          "description": "Shot framing name, e.g. 'close_up', 'full', 'extreme_close_up', 'bust'."
+          "description": "Shot framing name: 'close_up', 'medium' (half-body default), 'full', 'extreme_close_up', 'dramatic_low'. Mutually exclusive with action."
         },
         "/properties/action": {
           "description": "Camera action command: 'pan_up' (smoothly tilt/pan up), 'reset' (reset camera to default angle)."

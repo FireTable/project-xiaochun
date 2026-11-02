@@ -12,6 +12,8 @@ export const MOTION_FILES: Record<string, string> = {
   // ── 1. 核心待机与倾听姿态 (Core Idle & Listening) ──
   listening: MOTION_CATALOG.listening.url,
   thinking: MOTION_CATALOG.thinking.url,
+  think: MOTION_CATALOG.thinking.url,
+  nod: MOTION_CATALOG.listening.url,
   relaxStretch: MOTION_CATALOG.relaxStretch.url,
   'relax-stretch': MOTION_CATALOG.relaxStretch.url,
   classicIdle: MOTION_CATALOG.relaxStretch.url,
