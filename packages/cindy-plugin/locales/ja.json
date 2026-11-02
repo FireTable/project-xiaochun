@@ -1,6 +1,6 @@
 {
   "name": "小蠢 AI パートナー",
-  "description": "ローカルの Project XiaoChun デスクトップ AI 伴侶アプリと連携し、キャラクターが音声読み上げ、モーション、表情、カメラ演出で対話を盛り上げます。自動コールドスタートとワンクリック導入に対応。PC 専用（macOS / Windows / Linux）。",
+  "description": "Project XiaoChun デスクトップ AI 伴侶アプリと連携し、キャラクターが音声読み上げ、モーション、表情、カメラ演出で対話を盛り上げます。Cindy 内蔵パネル（インストール不要）と独立デスクトップペットに対応。PC 専用（macOS / Windows / Linux）。",
   "whenToUse": "デスクトップ AI パートナーの小蠢に発話・読み上げ・動作をさせたいとき、または Cindy で専属パートナーを作成・設定したいときに使用します。",
   "panel": {
     "title": "小蠢 AI パートナー"
@@ -10,7 +10,7 @@
   },
   "tools": {
     "xiaochun_speak": {
-      "description": "デスクトップ AI パートナーの小蠢に音声読み上げをさせ、モーションや表情を同期して再生します。未起動の場合は自動で起動し、未インストールの場合は導入を案内または自動インストールします。",
+      "description": "小蠢に音声読み上げをさせ、モーションや表情を同期して再生します。インストール不要で即利用可能。デスクトップモードに切り替え済みで未起動の場合は自動で起動します。",
       "parameters": {
         "/properties/text": {
           "description": "小蠢が読み上げて表現する具体的なテキスト内容（自然音声、長文読み上げ対応）。"
@@ -74,21 +74,27 @@
       "description": "現在の環境における小蠢の動作形態（デスクトップペット／Cindy内蔵パネル）、インストール・稼働状態、初期チュートリアル進捗、衣装および背景シーンを確認します。"
     },
     "xiaochun_bootstrap": {
-      "description": "小蠢の動作形態およびコールドスタート準備を案内または設定します。独立デスクトップペットと Cindy 内蔵パネルの切り替えに対応しています。",
+      "description": "小蠢の動作形態を確認または設定します（'desktop' 独立ペット / 'embed' 内蔵パネル）。デフォルトはインストール不要の embed パネルです。ユーザーの明確な同意なしに install を実行することは禁止されています。",
       "parameters": {
         "/properties/action": {
-          "description": "実行アクション：'ensure'（自動検出して準備完了）、'install'（デスクトップ版の取得・インストール）、'launch'（クライアント起動）、'switch_mode'（形態切り替え）。デフォルトは 'ensure' です。"
+          "description": "実行アクション：'ensure'（自動検出して準備完了、デフォルト）、'install'（ユーザー同意時のみデスクトップ版を取得・インストール）、'launch'（クライアント起動）、'switch_mode'（形態切り替え）。デフォルトは 'ensure' です。"
         },
         "/properties/mode": {
           "description": "動作モード：'auto'（自動判定）、'desktop'（デスクトップ独立ペット）、'embed'（Cindy 内蔵パネル、インストール不要）。デフォルトは 'auto' です。"
+        },
+        "/properties/userConfirmed": {
+          "description": "ユーザーが会話内でデスクトップ版のインストールに明確に同意したかどうか。"
         }
       }
     },
     "xiaochun_update": {
-      "description": "小蠢デスクトップアプリのバージョン更新を確認・実行します。GitHub Releases から最新版を確認し、新バージョンがある場合は自動でダウンロード・インストールして再起動します。",
+      "description": "小蠢デスクトップアプリの更新を確認します。デフォルトは 'check'（確認のみ）。ユーザーが更新に同意した場合のみ 'install' を指定できます。Cindy 内蔵パネルでは更新不要です。",
       "parameters": {
         "/properties/mode": {
-          "description": "実行モード：'install'（新バージョンがあれば自動更新して再起動、デフォルト）、'check'（更新の有無を確認するのみ）。デフォルトは 'install' です。"
+          "description": "実行モード：'check'（更新の有無を確認するのみ、デフォルト）、'install'（ユーザー同意時にダウンロードして再起動）。デフォルトは 'check' です。"
+        },
+        "/properties/userConfirmed": {
+          "description": "ユーザーが会話内でアップデートの実行に明確に同意したかどうか。"
         }
       }
     }

@@ -290,7 +290,9 @@ cindy.onHostMessage(async function (msg) {
     const workerResult = response.result || {};
     let friendlyMessage = '小蠢 AI 伴侣已成功接收指令。';
 
-    if (workerResult.needSetupChoice) {
+    if (workerResult.needInstallConfirm) {
+      friendlyMessage = workerResult.message || '【安装确认】使用桌面独立桌宠形态需要安装 Project XiaoChun 官方客户端。请先向用户确认：“是否同意下载并安装小蠢桌面客户端？”';
+    } else if (workerResult.needSetupChoice) {
       friendlyMessage = '【初次使用设置】检测到当前尚未安装小蠢桌面客户端。您可以选择：\n' +
         '1. 自动安装桌面端：调用 xiaochun_bootstrap(action="install", mode="desktop")，体验透明置顶、支持鼠标穿透的完整桌面独立桌宠；\n' +
         '2. 免安装内嵌模式（推荐）：调用 xiaochun_bootstrap(mode="embed")，直接在 Cindy 视窗 Tab 中与小蠢 AI 伴侣交互，零安装开箱即用。';

@@ -16,8 +16,8 @@ This manual guides agents on controlling the local AI companion XiaoChun.
 - **Camera Adjustments (`xiaochun_camera`)**: Alters framing between `close_up`, `full`, and `pan_up`.
 - **Scene Switching (`xiaochun_scene`)**: Seamlessly switches between scenes (`beach3d`, `transparent`, `dark`, `light`, `void`).
 - **Outfit Switching (`xiaochun_outfit`)**: Seamless 0-frame delta outfit change (`dinner_dress`, `cheongsam`, `techwear`, `bikini`, `maid`, `default`).
-- **App Updates & Relaunch (`xiaochun_update`)**: Checks for latest releases on GitHub Releases, automatically downloads and installs whole-app updates, and relaunches the companion cleanly.
-- **Readiness, Setup & Dual-Mode (`xiaochun_bootstrap` / `xiaochun_status`)**: Defaults strictly to in-app `embed` mode (zero installation, instant ready). Switching to `desktop` requires explicit user confirmation (via plugin Settings page or by asking user for installation confirmation before executing `action="install", mode="desktop"`). Probes active runtime mode, reports onboarding completion, and switches morphology mode (`mode: 'desktop' | 'embed'`).
+- **App Updates & Relaunch (`xiaochun_update`)**: Checks for latest releases on GitHub Releases (mode: 'check', default). Only installs upon explicit user consent (`userConfirmed: true`). Embed mode does not require updates.
+- **Readiness, Setup & Dual-Mode (`xiaochun_bootstrap` / `xiaochun_status`)**: Defaults strictly to in-app `embed` mode (zero installation, instant ready). Strictly forbids executing `action="install"` unless user explicitly agreed in chat and `userConfirmed: true` is passed. Probes active runtime mode, reports onboarding completion, and switches morphology mode (`mode: 'desktop' | 'embed'`).
 
 ## Dedicated Cindy Teammate Companion Setup
 When the user expresses a desire to have XiaoChun as a permanent Cindy Bot teammate (伙伴) or wants an independent dialogue window for XiaoChun:

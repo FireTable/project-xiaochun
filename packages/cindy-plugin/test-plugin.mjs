@@ -217,6 +217,14 @@ async function testWorker() {
   assert.equal(switchDesktopRes.result.mode, 'desktop');
   console.log('   ✅ Node Worker 成功切换回 desktop 桌面桌宠模式');
 
+  // 4.7 验证安全防线：在 embed 模式下调用 update 绝不执行下载安装
+  await sendReq(9, 'bootstrap', { action: 'switch_mode', mode: 'embed' });
+  const embedUpdateRes = await sendReq(10, 'update', { mode: 'install' });
+  assert.equal(embedUpdateRes.id, 10);
+  assert.equal(embedUpdateRes.result.mode, 'embed');
+  assert.ok(embedUpdateRes.result.message.includes('内嵌伴侣视窗') || embedUpdateRes.result.message.includes('无需更新'));
+  console.log('   ✅ 安全防线核验通过：内嵌视窗模式下 update 严格拦截静默安装');
+
   worker.kill();
   console.log('\n🎉 [Success] packages/cindy-plugin 所有官方规范与自动化自测全部通过！');
 }

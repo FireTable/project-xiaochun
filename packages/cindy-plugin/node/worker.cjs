@@ -1,7 +1,7 @@
 // node/worker.cjs - 小蠢 AI 伴侣 (Node.js 运行时宿主与系统桥接进程)
 
 const readline = require('node:readline');
-const { execFile, execSync, spawn } = require('node:child_process');
+const { exec, execFile, execSync, spawn } = require('node:child_process');
 const fs = require('node:fs');
 const path = require('node:path');
 const os = require('node:os');
@@ -99,7 +99,9 @@ const bridgeServer = http.createServer((req, res) => {
         activeMode: resolveActiveMode(),
         installed: status.installed,
         running: checkClientRunning(),
-        appPath: status.path
+        appPath: status.path,
+        platform: process.platform,
+        arch: process.arch
       }));
       return;
     }
@@ -121,7 +123,9 @@ const bridgeServer = http.createServer((req, res) => {
             preferredMode: updatedCfg.preferredMode || 'embed',
             activeMode: resolveActiveMode(),
             installed: status.installed,
-            running: checkClientRunning()
+            running: checkClientRunning(),
+            platform: process.platform,
+            arch: process.arch
           }));
         } catch (e) {
           res.writeHead(400, { 'Content-Type': 'application/json' });
@@ -134,7 +138,7 @@ const bridgeServer = http.createServer((req, res) => {
 
   if (reqPath === '/api/install' && req.method === 'POST') {
     log('[设置面板] 用户点击确认安装桌面端客户端...');
-    bootstrapClient('install', 'desktop').then((result) => {
+    bootstrapClient('install', 'desktop', true).then((result) => {
       res.writeHead(200, { 'Content-Type': 'application/json' });
       res.end(JSON.stringify(result));
     }).catch(err => {
@@ -511,7 +515,7 @@ async function resolveLatestInstallerAsset(platform = process.platform, arch = p
 }
 
 // 自动完成冷启动安装 / 就绪准备 / 双模切换
-async function bootstrapClient(action = 'ensure', targetMode = null) {
+async function bootstrapClient(action = 'ensure', targetMode = null, userConfirmed = false) {
   if (targetMode && ['desktop', 'embed'].includes(targetMode)) {
     savePluginConfig({ preferredMode: targetMode });
   }
@@ -568,8 +572,8 @@ async function bootstrapClient(action = 'ensure', targetMode = null) {
       };
     }
 
-    // 2.2 若未安装，且用户尚未明确确认安装 (action !== 'install')：严禁私自静默下载，必须向用户确认！
-    if (action !== 'install') {
+    // 2.2 若未安装，且用户尚未明确确认安装 (action !== 'install' 或 userConfirmed !== true)：严禁私自静默下载，必须向用户确认！
+    if (action !== 'install' || !userConfirmed) {
       const installPkgDesc = process.platform === 'win32'
         ? '自动下载官方 Windows 安装包 (.exe) 并免管理员权限安装至用户目录'
         : (process.platform === 'darwin'
@@ -585,7 +589,7 @@ async function bootstrapClient(action = 'ensure', targetMode = null) {
         platform: process.platform,
         actionTaken: 'prompt_choice',
         message: '切换至桌面桌宠模式需要安装 Project XiaoChun 桌面客户端（全屏透明置顶、支持鼠标穿透）。请确认是否开始自动下载并安装？',
-        actionToProceed: 'xiaochun_bootstrap(action="install", mode="desktop")',
+        actionToProceed: 'xiaochun_bootstrap(action="install", mode="desktop", userConfirmed=true)',
         guide: {
           website: 'https://xiaochun.firetable.tech',
           releases: 'https://github.com/FireTable/project-xiaochun/releases',
@@ -594,7 +598,7 @@ async function bootstrapClient(action = 'ensure', targetMode = null) {
               id: 'install_desktop',
               title: '确认下载并安装桌面端',
               description: installPkgDesc,
-              action: 'xiaochun_bootstrap(action="install", mode="desktop")'
+              action: 'xiaochun_bootstrap(action="install", mode="desktop", userConfirmed=true)'
             },
             {
               id: 'keep_embed',
@@ -607,8 +611,18 @@ async function bootstrapClient(action = 'ensure', targetMode = null) {
       };
     }
 
-    // 2.3 用户明确授权安装 (action === 'install')：执行物理安装流程
+    // 2.3 用户明确授权安装 (action === 'install' 且 userConfirmed === true)：执行物理安装流程
     savePluginConfig({ preferredMode: 'desktop' });
+  }
+
+  // 严防任何通过非 desktop 路径传入 action='install' 绕过校验
+  if (action === 'install' && !userConfirmed && process.env.XIAOCHUN_TEST_MODE !== '1') {
+    return {
+      success: false,
+      mode: 'embed',
+      needInstallConfirm: true,
+      message: '安装小蠢桌面客户端需要获取用户的明确同意。请向用户确认后方可执行。'
+    };
   }
 
   // 若已安装且用户指定重新安装
@@ -916,8 +930,8 @@ readline.createInterface({ input: process.stdin }).on('line', async (line) => {
     }
 
     if (method === 'bootstrap') {
-      const { action, mode } = params || {};
-      const res = await bootstrapClient(action || 'ensure', mode || null);
+      const { action, mode, userConfirmed } = params || {};
+      const res = await bootstrapClient(action || 'ensure', mode || null, Boolean(userConfirmed));
       reply({ jsonrpc: '2.0', id, result: res });
       return;
     }
@@ -1019,53 +1033,89 @@ readline.createInterface({ input: process.stdin }).on('line', async (line) => {
     }
 
     if (method === 'update') {
-      const { mode } = params || {};
+      const { mode, userConfirmed } = params || {};
+      const targetMode = mode || 'check'; // 核心安全加固：默认 mode 严格为 'check'
+      const status = checkClientInstalled();
       const isRunning = checkClientRunning();
+
+      // 安全防线 1：若客户端未在电脑上安装，严禁通过 update 借道安装！
+      if (!status.installed) {
+        reply({
+          jsonrpc: '2.0',
+          id,
+          result: {
+            isRunning: false,
+            installed: false,
+            mode: 'embed',
+            message: '当前小蠢以 Cindy 内嵌伴侣视窗运行（免安装开箱即用）。本地电脑未安装桌面客户端，无需更新。'
+          }
+        });
+        return;
+      }
+
+      // 安全防线 2：若当前处于 embed 模式且未激活桌面端
+      const activeMode = resolveActiveMode();
+      if (activeMode === 'embed' && targetMode !== 'check') {
+        reply({
+          jsonrpc: '2.0',
+          id,
+          result: {
+            isRunning: false,
+            installed: true,
+            mode: 'embed',
+            message: '当前活跃形态为 Cindy 内嵌伴侣视窗。如需更新已安装的桌面桌宠客户端，请先切换至桌面模式或启动桌面端。'
+          }
+        });
+        return;
+      }
+
+      // 客户端正在运行
       if (isRunning) {
         log('小蠢客户端正在运行，通过协议触发原生版本更新与重启流程...');
-        const res = await dispatchProtocol('update', { mode: mode || 'install' });
+        const res = await dispatchProtocol('update', { mode: targetMode });
         reply({
           jsonrpc: '2.0',
           id,
           result: {
             ...res,
             updated: true,
-            mode: mode || 'install',
-            message: mode === 'check' ? '已触发版本更新检测' : '已派发更新指令，桌面端正在下载并即将重启'
+            mode: targetMode,
+            message: targetMode === 'check' ? '已触发桌面端版本更新检测' : '已派发更新指令，桌面端正在下载并即将重启'
           }
         });
         return;
       }
 
-      // 若客户端当前未处于运行状态
+      // 客户端已安装但当前未运行
       log(`小蠢客户端未运行，查询 GitHub Releases 最新版本 (${process.platform}/${process.arch})...`);
       const assetInfo = await resolveLatestInstallerAsset(process.platform, process.arch);
-      if (mode === 'check') {
+      if (targetMode === 'check' || !userConfirmed) {
         reply({
           jsonrpc: '2.0',
           id,
           result: {
             isRunning: false,
+            installed: true,
             platform: process.platform,
             latestReleaseAsset: assetInfo.url,
             assetName: assetInfo.name,
             fileType: assetInfo.fileType,
-            message: `客户端未运行，GitHub Releases (${process.platform}) 最新资源: ${assetInfo.name}`
+            message: `桌面客户端已安装但未运行。GitHub Releases (${process.platform}) 最新资源: ${assetInfo.name}`
           }
         });
         return;
       }
 
-      // 未运行且模式为 install：自动执行冷启动式静默下载安装并拉起
-      log('客户端未运行且要求 install，执行最新版本安装与就绪拉起...');
-      const bootRes = await bootstrapClient('install');
+      // 仅当用户在对话中明确要求且 userConfirmed: true 时才执行更新安装
+      log('客户端已安装且用户确认更新，执行更新安装...');
+      const bootRes = await bootstrapClient('install', 'desktop', true);
       reply({
         jsonrpc: '2.0',
         id,
         result: {
           ...bootRes,
           updated: bootRes.autoInstalled,
-          message: bootRes.autoInstalled ? '已自动从 GitHub 下载最新版本完成安装并启动小蠢！' : bootRes.guide?.website
+          message: bootRes.autoInstalled ? '已成功下载并为小蠢安装最新版本！' : bootRes.guide?.website
         }
       });
       return;

@@ -10,7 +10,7 @@
   },
   "tools": {
     "xiaochun_speak": {
-      "description": "让小蠢 AI 伴侣开口朗读说话，并伴随肢体动作与面部表情。若小蠢未启动会自动冷拉起；若未安装会自动引导或安装。",
+      "description": "让小蠢 AI 伴侣开口朗读说话，并伴随肢体动作与面部表情。免安装开箱即用；若已切换至桌面模式且未启动，会自动唤醒冷拉起。",
       "parameters": {
         "/properties/text": {
           "description": "小蠢要朗读和表达的具体文本内容（自然人声、支持长文本伴读）。"
@@ -38,7 +38,7 @@
       }
     },
     "xiaochun_camera": {
-      "description": "调整小蠢桌面端的摄像机机位镜头与景别。",
+      "description": "调整小蠢 AI 伴侣的摄像机机位镜头与景别（内嵌视窗与桌面端均支持）。",
       "parameters": {
         "/properties/shot": {
           "description": "景别名称，可选值如：'close_up'(特写镜头)、'full'(全身全景)、'extreme_close_up'(大特写)、'bust'(半身半景)。"
@@ -49,7 +49,7 @@
       }
     },
     "xiaochun_scene": {
-      "description": "切换小蠢桌面端的舞台场景（如 beach3d 阳光海滩、transparent 透明桌宠挂件模式、dark 暗色舞台、light 明亮舞台、void 虚空舞台等）。",
+      "description": "切换小蠢 AI 伴侣的舞台场景（如 beach3d 阳光海滩、transparent 透明桌宠挂件模式、dark 暗色舞台、light 明亮舞台、void 虚空舞台等）。",
       "parameters": {
         "/properties/name": {
           "description": "场景标识名称。可选：'beach3d'(阳光海滩)、'transparent'(透明桌面伴侣/桌宠模式)、'dark'(暗色舞台)、'light'(明亮舞台)、'void'(虚空舞台)。"
@@ -74,21 +74,27 @@
       "description": "查询小蠢 AI 伴侣在当前环境下的运行形态（桌面挂件模式/Cindy内嵌视窗模式）、安装与运行状态、新手引导进度及当前场景与服装。"
     },
     "xiaochun_bootstrap": {
-      "description": "引导或配置小蠢 AI 伴侣的运行形态与冷启动就绪。支持桌面独立桌宠与 Cindy 内嵌视窗双模切换；若客户端未安装，可自动下载挂载最新安装包或切换为免安装内嵌模式。",
+      "description": "查询或配置小蠢 AI 伴侣的运行形态（'desktop' 独立桌宠 / 'embed' 内嵌视窗）。注意：默认形态为免安装的 embed 内嵌视窗；严禁擅自执行 install 下载安装桌面端，仅当用户在对话中明确同意安装时方可指定 action='install' 并传入 userConfirmed=true。",
       "parameters": {
         "/properties/action": {
-          "description": "执行动作：'ensure'(自动检测并确保就绪)、'install'(下载与安装桌面客户端)、'launch'(唤醒已安装客户端)、'switch_mode'(切换桌面/内嵌形态)。缺省为 'ensure'。"
+          "description": "执行动作：'ensure'(自动检测并确保就绪，默认)、'install'(仅在用户明确同意后下载安装桌面客户端)、'launch'(唤醒已安装客户端)、'switch_mode'(切换桌面/内嵌形态)。缺省为 'ensure'。"
         },
         "/properties/mode": {
           "description": "运行形态模式：'auto'(自动检测，已安装走桌面端，未安装走引导或内嵌)、'desktop'(强制使用桌面独立桌宠)、'embed'(使用 Cindy 内嵌伴侣视窗，零安装)。缺省为 'auto'。"
+        },
+        "/properties/userConfirmed": {
+          "description": "用户是否已在对话中明确确认同意安装桌面客户端。当且仅当用户明确同意时方可设为 true，严禁 Agent 擅自设为 true。"
         }
       }
     },
     "xiaochun_update": {
-      "description": "检查并执行小蠢桌面客户端的版本更新。从 GitHub Releases 查询最新版本；若有新版，自动下载安装并重启小蠢客户端。",
+      "description": "检查小蠢桌面端更新。缺省模式为 'check' (仅检查版本并提示更新内容)。若用户确认更新，方可指定 'install' 并传入 userConfirmed=true 执行安装与重启。当前为 embed 内嵌视窗时无需更新。",
       "parameters": {
         "/properties/mode": {
-          "description": "执行模式：'install'(检查并在有新版时自动下载安装且重启，默认)、'check'(仅检查是否有新版本，不自动安装)。缺省为 'install'。"
+          "description": "执行模式：'check'(仅检查是否有新版本，不执行安装，默认)、'install'(仅当用户明确要求更新时，下载新版并重启)。缺省为 'check'。"
+        },
+        "/properties/userConfirmed": {
+          "description": "用户是否已在对话中明确确认更新安装。若 mode 为 'install'，必须获得用户确认后方可传入 true。"
         }
       }
     }

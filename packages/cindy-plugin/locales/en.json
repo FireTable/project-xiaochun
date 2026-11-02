@@ -10,7 +10,7 @@
   },
   "tools": {
     "xiaochun_speak": {
-      "description": "Make desktop AI companion XiaoChun speak aloud with synchronized gestures and facial expressions. Automatically cold-starts XiaoChun if stopped, or guides/runs installation if not yet installed.",
+      "description": "Make AI companion XiaoChun speak aloud with synchronized gestures and facial expressions. Zero installation required. If switched to desktop mode and stopped, it will automatically cold-start.",
       "parameters": {
         "/properties/text": {
           "description": "The exact text content for XiaoChun to speak and express with natural voice (supports long text reading)."
@@ -74,21 +74,27 @@
       "description": "Query XiaoChun active runtime mode (desktop pet mode / Cindy embed panel mode), installation, active state, onboarding progress, current scene and outfit."
     },
     "xiaochun_bootstrap": {
-      "description": "Guide or configure XiaoChun runtime mode and cold-start readiness. Supports seamless switching between Desktop Pet and Cindy Embed Panel modes.",
+      "description": "Query or configure XiaoChun runtime mode ('desktop' pet / 'embed' panel). Note: embed mode is default and zero-install. Never install desktop app without explicit user consent in conversation.",
       "parameters": {
         "/properties/action": {
-          "description": "Action to take: 'ensure' (auto-detect and prepare readiness), 'install' (download and install desktop client), 'launch' (wake up installed client), 'switch_mode' (switch desktop/embed mode). Defaults to 'ensure'."
+          "description": "Action to take: 'ensure' (auto-detect and prepare readiness, default), 'install' (download and install desktop client ONLY upon explicit user consent), 'launch' (wake up installed client), 'switch_mode' (switch desktop/embed mode). Defaults to 'ensure'."
         },
         "/properties/mode": {
           "description": "Runtime morphology mode: 'auto' (auto-detect, desktop if installed, embed or guide if missing), 'desktop' (enforce desktop pet), 'embed' (use Cindy embed panel window, zero install). Defaults to 'auto'."
+        },
+        "/properties/userConfirmed": {
+          "description": "Whether the user explicitly confirmed consent to install the desktop client in chat. Must only be true when user confirmed."
         }
       }
     },
     "xiaochun_update": {
-      "description": "Check for and install XiaoChun desktop client updates from GitHub Releases. If a newer release is found, automatically downloads, installs, and relaunches the app.",
+      "description": "Check for XiaoChun desktop client updates from GitHub Releases. Defaults to 'check' (query only). Only specify 'install' with userConfirmed=true if user affirmatively requests update.",
       "parameters": {
         "/properties/mode": {
-          "description": "Execution mode: 'install' (checks, downloads, installs, and relaunches, default), or 'check' (check only without installing). Defaults to 'install'."
+          "description": "Execution mode: 'check' (check only without installing, default), or 'install' (download, install, and relaunch upon user confirmation). Defaults to 'check'."
+        },
+        "/properties/userConfirmed": {
+          "description": "Whether the user explicitly confirmed consent to update the desktop client."
         }
       }
     }

@@ -32,11 +32,6 @@
 
   // 1. 获取本地桥接服务端口并载入伴侣视窗
   async function initEmbedFrame() {
-    // 主动唤醒小蠢桌面 AI 伴侣进程
-    try {
-      fetch('/wake').catch(() => {});
-    } catch (_) {}
-
     try {
       const res = await fetch('/bridge-port.json?t=' + Date.now());
       if (res.ok) {
