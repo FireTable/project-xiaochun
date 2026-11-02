@@ -1,6 +1,6 @@
 {
   "name": "XiaoChun AI Companion",
-  "description": "Connect to local Project XiaoChun 3D desktop companion or Cindy embed window for live speech, gestures, and companion reading. Supports automatic cold-start, zero-install embed panel dual-mode adaptation, and one-click readiness.",
+  "description": "Bring cheerful and healing XiaoChun into your Cindy! XiaoChun is your personal AI companion always by your side—staying peacefully in Cindy's sidebar or floating as a transparent desktop pet. Features natural voice reading, delicate facial expressions, lively body gestures, instant outfit swapping, dancing, heart-making, and multi-angle cameras. Ready out-of-the-box to make coding and chatting full of warmth and energy.",
   "whenToUse": "Use when the user wants 3D companion XiaoChun to speak, read text, perform body gestures, express emotions, adjust camera angles, or vividly act out conversational responses on their desktop or inside Cindy.",
   "panel": {
     "title": "XiaoChun AI Companion"

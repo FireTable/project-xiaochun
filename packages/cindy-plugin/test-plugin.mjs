@@ -61,7 +61,19 @@ if (manifest.mainView) {
   if (manifest.mainView.icon) {
     assert.ok(validIcons.includes(manifest.mainView.icon), `mainView.icon 必须是 Cindy 官方图标之一: ${validIcons.join(', ')}`);
   }
+  if (manifest.mainView.open === 'sidebar') {
+    assert.ok(['left', 'right', 'top', 'bottom'].includes(manifest.mainView.side), 'mainView.side 必须是 left, right, top 或 bottom');
+    console.log(`   ✅ mainView 声明右侧分屏伴读模式 (open: sidebar, side: ${manifest.mainView.side})`);
+  }
   console.log(`   ✅ mainView 一级主视图入口存在且合规 (${manifest.mainView.html}, 图标: ${manifest.mainView.icon || 'puzzle'})`);
+}
+
+if (manifest.agent) {
+  assert.equal(typeof manifest.agent.tasks, 'boolean', 'agent.tasks 必须为布尔值');
+  if (manifest.agent.targets) {
+    assert.equal(manifest.agent.tasks, true, 'agent.targets: true 时 agent.tasks 必须同时为 true');
+  }
+  console.log(`   ✅ agent 权限声明合规 (tasks: ${manifest.agent.tasks}, targets: ${manifest.agent.targets})`);
 }
 
 if (manifest.preview) {

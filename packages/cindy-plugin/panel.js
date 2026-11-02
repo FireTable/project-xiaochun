@@ -137,14 +137,127 @@
   }
 
   // 4. 监听来自 Cindy 插件主通道的广播（支持 BroadcastChannel 通信）
+  let bc = null;
+  const chatForm = document.getElementById('chat-form');
+  const chatInput = document.getElementById('chat-input');
+  const btnSend = document.getElementById('btn-send');
+  const iconSend = document.getElementById('icon-send');
+  const iconLoading = document.getElementById('icon-loading');
+  const tipPill = document.getElementById('companion-tip-pill');
+  const tipText = document.getElementById('tip-text');
+  const btnCreateTeammate = document.getElementById('btn-create-teammate');
+  const btnCloseTip = document.getElementById('btn-close-tip');
+
+  let isSending = false;
+  let sendTimeoutTimer = null;
+
+  function setSendingState(sending) {
+    isSending = sending;
+    if (btnSend) btnSend.disabled = sending;
+    if (chatInput) chatInput.disabled = sending;
+    if (iconSend) iconSend.style.display = sending ? 'none' : 'block';
+    if (iconLoading) iconLoading.style.display = sending ? 'block' : 'none';
+
+    if (sending) {
+      if (sendTimeoutTimer) clearTimeout(sendTimeoutTimer);
+      // 15 秒超时强制解挂，防止网络或进程未响应卡死 UI
+      sendTimeoutTimer = setTimeout(() => {
+        setSendingState(false);
+      }, 15000);
+    } else {
+      if (sendTimeoutTimer) {
+        clearTimeout(sendTimeoutTimer);
+        sendTimeoutTimer = null;
+      }
+    }
+  }
+
+  // 绑定底部输入栏提交事件
+  if (chatForm && chatInput) {
+    chatForm.addEventListener('submit', (e) => {
+      e.preventDefault();
+      const text = (chatInput.value || '').trim();
+      if (!text || isSending) return;
+
+      console.log('[XiaoChun Panel] 发送用户输入:', text);
+      setSendingState(true);
+
+      // 通过 BroadcastChannel 广播给主逻辑 main.js
+      if (bc) {
+        bc.postMessage({
+          type: 'user_chat_input',
+          text,
+          timestamp: Date.now()
+        });
+      }
+
+      // 清空输入框并聚焦
+      chatInput.value = '';
+    });
+  }
+
+  // 绑定一键创建专属伙伴按钮
+  if (btnCreateTeammate) {
+    btnCreateTeammate.addEventListener('click', () => {
+      if (btnCreateTeammate.disabled) return;
+      btnCreateTeammate.disabled = true;
+      if (tipText) tipText.textContent = '已发送创建指令，Cindy 正在生成小蠢伙伴...';
+
+      if (bc) {
+        bc.postMessage({
+          type: 'create_companion_request',
+          timestamp: Date.now()
+        });
+      }
+
+      setTimeout(() => {
+        if (tipPill) tipPill.classList.add('hidden');
+      }, 4000);
+    });
+  }
+
+  if (btnCloseTip) {
+    btnCloseTip.addEventListener('click', () => {
+      if (tipPill) tipPill.classList.add('hidden');
+      try {
+        sessionStorage.setItem('xc_tip_dismissed', '1');
+      } catch (_) {}
+    });
+  }
+
   try {
     if (typeof BroadcastChannel !== 'undefined') {
-      const bc = new BroadcastChannel('xiaochun_cindy_bridge');
+      bc = new BroadcastChannel('xiaochun_cindy_bridge');
       bc.onmessage = (event) => {
         const data = event.data;
         if (!data) return;
+
+        // 处理伙伴状态回报
+        if (data.type === 'bot_status') {
+          if (data.hasXiaoChunBot) {
+            if (tipPill) tipPill.classList.add('hidden');
+          } else {
+            const dismissed = sessionStorage.getItem('xc_tip_dismissed');
+            if (!dismissed && tipPill) tipPill.classList.remove('hidden');
+          }
+          return;
+        }
+
+        // 处理回复重置状态
+        if (data.type === 'bot_reply_status') {
+          if (data.state === 'idle' || data.state === 'speaking') {
+            setSendingState(false);
+          }
+          return;
+        }
+
         handleInboundCommand(data.method || data.action || data.tool, data.params || data.args || data);
       };
+
+      // 视窗挂载后主动询问伙伴状态
+      setTimeout(() => {
+        bc.postMessage({ type: 'check_bot_status' });
+      }, 800);
     }
   } catch (err) {
     console.warn('[XiaoChun Panel] BroadcastChannel 不可用:', err);
@@ -153,6 +266,11 @@
   // 处理下发给小蠢的命令
   function handleInboundCommand(method, params) {
     console.log('[XiaoChun Panel] 执行指令:', method, params);
+    // 收到说话指令时重置输入状态
+    if (method === 'speak' || method === 'xiaochun_speak') {
+      setSendingState(false);
+    }
+
     params = params || {};
     switch (method) {
       case 'speak':

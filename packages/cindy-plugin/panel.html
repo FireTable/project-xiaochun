@@ -96,6 +96,217 @@
     .retry-btn.show {
       display: inline-block;
     }
+
+    /* 方案 1: 3D 舞台原生悬浮毛玻璃对话栏 */
+    .chat-bar-container {
+      position: absolute;
+      bottom: 24px;
+      left: 50%;
+      transform: translateX(-50%);
+      width: calc(100% - 32px);
+      max-width: 520px;
+      z-index: 20;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 8px;
+      pointer-events: auto;
+    }
+
+    /* 快捷建议/提示药丸 (一键添加专属伙伴) */
+    .tip-pill {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      padding: 6px 14px;
+      border-radius: 9999px;
+      background: rgba(15, 23, 42, 0.85);
+      backdrop-filter: blur(16px);
+      -webkit-backdrop-filter: blur(16px);
+      border: 1px solid rgba(236, 72, 153, 0.4);
+      box-shadow: 0 8px 24px rgba(0, 0, 0, 0.35);
+      font-size: 12px;
+      color: var(--text);
+      animation: tipFadeIn 0.3s ease-out;
+      transition: all 0.25s ease;
+    }
+
+    @media (prefers-color-scheme: light) {
+      .tip-pill {
+        background: rgba(255, 255, 255, 0.9);
+        border-color: rgba(236, 72, 153, 0.5);
+        box-shadow: 0 8px 24px rgba(236, 72, 153, 0.15);
+      }
+    }
+
+    @keyframes tipFadeIn {
+      from { opacity: 0; transform: translateY(6px); }
+      to { opacity: 1; transform: translateY(0); }
+    }
+
+    .tip-pill.hidden {
+      display: none !important;
+    }
+
+    .tip-icon {
+      font-size: 14px;
+      animation: pulse 2s infinite ease-in-out;
+    }
+
+    @keyframes pulse {
+      0%, 100% { transform: scale(1); }
+      50% { transform: scale(1.15); }
+    }
+
+    .tip-text {
+      color: var(--text);
+      font-weight: 500;
+    }
+
+    .tip-action-btn {
+      appearance: none;
+      background: linear-gradient(135deg, #ec4899, #f43f5e);
+      border: none;
+      color: #fff;
+      font-size: 11px;
+      font-weight: 600;
+      padding: 3px 10px;
+      border-radius: 9999px;
+      cursor: pointer;
+      box-shadow: 0 2px 8px rgba(236, 72, 153, 0.35);
+      transition: all 0.2s ease;
+    }
+
+    .tip-action-btn:hover {
+      filter: brightness(1.1);
+      transform: scale(1.05);
+    }
+
+    .tip-close-btn {
+      appearance: none;
+      background: transparent;
+      border: none;
+      color: var(--text-muted);
+      font-size: 14px;
+      cursor: pointer;
+      padding: 0 4px;
+      line-height: 1;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    }
+
+    .tip-close-btn:hover {
+      color: var(--text);
+    }
+
+    /* 毛玻璃输入表单 */
+    .chat-form {
+      width: 100%;
+      display: flex;
+      align-items: center;
+      background: rgba(15, 23, 42, 0.65);
+      backdrop-filter: blur(20px) saturate(180%);
+      -webkit-backdrop-filter: blur(20px) saturate(180%);
+      border: 1px solid rgba(255, 255, 255, 0.16);
+      box-shadow: 0 12px 32px -4px rgba(0, 0, 0, 0.45), 0 0 1px rgba(255, 255, 255, 0.2);
+      border-radius: 9999px;
+      padding: 4px 6px 4px 18px;
+      transition: all 0.25s cubic-bezier(0.16, 1, 0.3, 1);
+    }
+
+    @media (prefers-color-scheme: light) {
+      .chat-form {
+        background: rgba(255, 255, 255, 0.75);
+        border: 1px solid rgba(0, 0, 0, 0.08);
+        box-shadow: 0 12px 32px -4px rgba(0, 0, 0, 0.12), 0 0 1px rgba(0, 0, 0, 0.1);
+      }
+    }
+
+    .chat-form:focus-within {
+      border-color: rgba(236, 72, 153, 0.65);
+      box-shadow: 0 14px 40px -4px rgba(236, 72, 153, 0.25), 0 0 0 2px rgba(236, 72, 153, 0.2);
+      background: rgba(15, 23, 42, 0.8);
+    }
+
+    @media (prefers-color-scheme: light) {
+      .chat-form:focus-within {
+        background: rgba(255, 255, 255, 0.92);
+      }
+    }
+
+    .chat-input {
+      flex: 1;
+      height: 38px;
+      background: transparent;
+      border: none;
+      outline: none;
+      font-size: 13.5px;
+      color: var(--text);
+      font-family: inherit;
+    }
+
+    .chat-input::placeholder {
+      color: var(--text-muted);
+      opacity: 0.8;
+    }
+
+    .btn-send {
+      width: 36px;
+      height: 36px;
+      border-radius: 9999px;
+      background: linear-gradient(135deg, #ec4899, #f43f5e);
+      border: none;
+      cursor: pointer;
+      color: #fff;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      box-shadow: 0 4px 12px rgba(236, 72, 153, 0.35);
+      transition: all 0.2s cubic-bezier(0.16, 1, 0.3, 1);
+      flex-shrink: 0;
+    }
+
+    .btn-send:hover {
+      transform: scale(1.06);
+      filter: brightness(1.1);
+      box-shadow: 0 6px 16px rgba(236, 72, 153, 0.5);
+    }
+
+    .btn-send:active {
+      transform: scale(0.96);
+    }
+
+    .btn-send:disabled {
+      opacity: 0.6;
+      cursor: not-allowed;
+      transform: none;
+      filter: grayscale(0.5);
+    }
+
+    .send-icon {
+      width: 15px;
+      height: 15px;
+      transition: transform 0.2s ease;
+    }
+
+    .btn-send:hover .send-icon {
+      transform: translateX(1px) translateY(-1px);
+    }
+
+    /* 正在思考 / 回复时的加载转圈 */
+    .spinner {
+      width: 14px;
+      height: 14px;
+      border: 2px solid rgba(255, 255, 255, 0.3);
+      border-top-color: #fff;
+      border-radius: 50%;
+      animation: spin 0.8s linear infinite;
+    }
+
+    @keyframes spin {
+      to { transform: rotate(360deg); }
+    }
   </style>
 </head>
 <body>
@@ -112,6 +323,34 @@
       sandbox="allow-scripts allow-same-origin allow-popups allow-forms allow-downloads"
       loading="eager"
     ></iframe>
+
+    <!-- 方案 1: 底部悬浮毛玻璃对话栏 -->
+    <div id="chat-bar-container" class="chat-bar-container">
+      <!-- 快捷提示药丸 (若尚未建立小蠢专属伙伴，提示一键创建) -->
+      <div id="companion-tip-pill" class="tip-pill hidden">
+        <span class="tip-icon">✨</span>
+        <span class="tip-text" id="tip-text">生成专属「小蠢」伙伴</span>
+        <button type="button" class="tip-action-btn" id="btn-create-teammate">立即添加</button>
+        <button type="button" class="tip-close-btn" id="btn-close-tip" aria-label="关闭提示">×</button>
+      </div>
+
+      <form id="chat-form" class="chat-form" autocomplete="off">
+        <input
+          type="text"
+          id="chat-input"
+          class="chat-input"
+          placeholder="输入想对小蠢说的话，按 Enter 发送..."
+          maxlength="500"
+        />
+        <button type="submit" id="btn-send" class="btn-send" aria-label="发送消息" title="发送">
+          <svg id="icon-send" class="send-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <line x1="22" y1="2" x2="11" y2="13"></line>
+            <polygon points="22 2 15 22 11 13 2 9 22 2"></polygon>
+          </svg>
+          <div id="icon-loading" class="spinner" style="display: none;"></div>
+        </button>
+      </form>
+    </div>
   </div>
 
   <script src="panel.js"></script>

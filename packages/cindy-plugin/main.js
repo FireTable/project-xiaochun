@@ -1,5 +1,131 @@
 // main.js - 小蠢 AI 伴侣 (Cindy 插件前端沙箱逻辑)
 
+let bridgeChannel = null;
+
+// 初始化跨视窗与内嵌面板双向通信通道
+try {
+  if (typeof BroadcastChannel !== 'undefined') {
+    bridgeChannel = new BroadcastChannel('xiaochun_cindy_bridge');
+
+    bridgeChannel.onmessage = async (event) => {
+      const data = event.data;
+      if (!data) return;
+
+      // 1. 面板询问当前是否存在「小蠢」专属伙伴
+      if (data.type === 'check_bot_status') {
+        const hasBot = await checkHasXiaoChunBot();
+        bridgeChannel.postMessage({ type: 'bot_status', hasXiaoChunBot: hasBot });
+        return;
+      }
+
+      // 2. 面板一键申请让 Cindy 创建小蠢伙伴
+      if (data.type === 'create_companion_request') {
+        await handleCreateCompanionRequest();
+        return;
+      }
+
+      // 3. 用户在 3D 面板底部输入栏发送对话
+      if (data.type === 'user_chat_input') {
+        await handleUserChatInput(data.text);
+        return;
+      }
+    };
+  }
+} catch (err) {
+  console.warn('[XiaoChun Main] 初始化 BroadcastChannel 失败:', err);
+}
+
+// 检查是否存在名称带有「小蠢」或「xiaochun」的伙伴
+async function checkHasXiaoChunBot() {
+  try {
+    if (typeof cindy.targets?.list === 'function') {
+      const res = await cindy.targets.list({ targetKind: 'bot' });
+      const bots = res?.targets || [];
+      return bots.some(b => b.label?.includes('小蠢') || b.label?.toLowerCase().includes('xiaochun'));
+    }
+  } catch (_) {}
+  return false;
+}
+
+// 引导 Cindy 创建「小蠢」伙伴
+async function handleCreateCompanionRequest() {
+  try {
+    if (typeof cindy.targets?.list === 'function' && typeof cindy.targets?.send === 'function') {
+      const res = await cindy.targets.list({ targetKind: 'bot' });
+      const bots = res?.targets || [];
+      const defaultBot = bots[0];
+      if (defaultBot) {
+        const requestKey = `xc_bot_create_${Date.now()}`;
+        const prompt = '请调用 Cindy 内置系统工具 create_teammate 帮我创建一个专属伙伴「小蠢」：' +
+          '名字为「小蠢」，职责为「3D AI 伴侣少女」，性格活泼治愈、元气灵动，' +
+          '身份设定为小蠢 AI 伴侣，在回复时调用 xiaochun_speak 工具配合动作与表情。';
+        await cindy.targets.send({
+          target: { kind: 'bot', id: defaultBot.id },
+          requestKey,
+          text: prompt
+        });
+        console.log('[XiaoChun Main] 已向伙伴发送创建小蠢指令:', defaultBot.id);
+      }
+    }
+  } catch (err) {
+    console.warn('[XiaoChun Main] 申请创建伙伴失败:', err);
+  }
+}
+
+// 处理来自 3D 舞台底部输入栏的用户消息
+async function handleUserChatInput(userText) {
+  if (!userText || !userText.trim()) return;
+  const trimmed = userText.trim();
+
+  try {
+    if (typeof cindy.targets?.list === 'function' && typeof cindy.targets?.send === 'function') {
+      const res = await cindy.targets.list({ targetKind: 'bot' });
+      const bots = res?.targets || [];
+
+      // 优先路由给专属「小蠢」伙伴
+      const xiaoChunBot = bots.find(b => b.label?.includes('小蠢') || b.label?.toLowerCase().includes('xiaochun'));
+      if (xiaoChunBot) {
+        console.log('[XiaoChun Main] 路由对话至小蠢伙伴:', xiaoChunBot.id);
+        const requestKey = `xc_chat_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`;
+        await cindy.targets.send({
+          target: { kind: 'bot', id: xiaoChunBot.id },
+          requestKey,
+          text: trimmed
+        });
+        return;
+      }
+
+      // 未创建小蠢伙伴时的零门槛兜底：投递给默认伙伴（如 Cindy），并附带角色设定前缀
+      if (bots.length > 0) {
+        const fallbackBot = bots[0];
+        console.log('[XiaoChun Main] 兜底路由至现有伙伴:', fallbackBot.id);
+        const requestKey = `xc_fallback_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`;
+        const roleplayPrompt = `[请以小蠢（3D AI 伴侣少女）的元气可爱语气回复用户，并务必调用 xiaochun_speak 工具配合肢体动作与面部表情]\n用户：${trimmed}`;
+        await cindy.targets.send({
+          target: { kind: 'bot', id: fallbackBot.id },
+          requestKey,
+          text: roleplayPrompt
+        });
+        return;
+      }
+    }
+
+    // 若 cindy.targets 不可用，直接通过 Node Worker 触发朗读反馈
+    if (cindy.node && typeof cindy.node.request === 'function') {
+      await cindy.node.request({
+        method: 'speak',
+        params: { text: `小蠢收到啦：「${trimmed}」` },
+        timeoutMs: 15000
+      });
+    }
+  } catch (err) {
+    console.warn('[XiaoChun Main] 处理用户输入对话异常:', err);
+    if (bridgeChannel) {
+      bridgeChannel.postMessage({ type: 'bot_reply_status', state: 'idle' });
+    }
+  }
+}
+
 cindy.onHostMessage(async function (msg) {
   if (msg.type !== 'tool-call') return;
 
