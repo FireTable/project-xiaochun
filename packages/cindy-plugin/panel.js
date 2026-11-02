@@ -2,10 +2,164 @@
   const iframe = document.getElementById('xiaochun-frame');
   const loadingOverlay = document.getElementById('loading-overlay');
   const btnRetry = document.getElementById('btn-retry');
+  const pageTitle = document.getElementById('page-title');
+  const tipPill = document.getElementById('companion-tip-pill');
+  const tipText = document.getElementById('tip-text');
+  const btnCreateTeammate = document.getElementById('btn-create-teammate');
+  const btnCloseTip = document.getElementById('btn-close-tip');
+  const chatBarContainer = document.getElementById('chat-bar-container');
+  const chatForm = document.getElementById('chat-form');
+  const chatInput = document.getElementById('chat-input');
+  const btnSend = document.getElementById('btn-send');
+  const iconSend = document.getElementById('icon-send');
+  const iconLoading = document.getElementById('icon-loading');
 
   let currentPort = 23518;
   let isFrameLoaded = false;
   let handshakePort = null;
+  let currentLocale = 'zh-CN';
+
+  const I18N = {
+    'zh-CN': {
+      title: '小蠢 AI 伴侣',
+      retry: '🔄 重新连接小蠢 AI 伴侣',
+      tip_create: '生成专属「小蠢」伙伴',
+      tip_add_btn: '立即添加',
+      tip_close_aria: '关闭提示',
+      tip_creating: '已发送创建指令，Cindy 正在生成小蠢伙伴...',
+      input_placeholder: '和温柔可爱的小蠢聊聊天，按 Enter 发送...',
+      btn_send_title: '发送',
+      btn_send_aria: '发送消息',
+      err_bot_response: '伙伴响应异常，请检查 Cindy 模型',
+      err_no_bot: '未找到可用的 Cindy 伙伴，请在 Cindy 左侧新建「小蠢」伙伴'
+    },
+    'en': {
+      title: 'XiaoChun AI Companion',
+      retry: '🔄 Reconnect XiaoChun AI Companion',
+      tip_create: 'Create exclusive "XiaoChun" partner',
+      tip_add_btn: 'Add Now',
+      tip_close_aria: 'Dismiss tip',
+      tip_creating: 'Creation command sent, Cindy is generating XiaoChun partner...',
+      input_placeholder: 'Chat with XiaoChun, press Enter to send...',
+      btn_send_title: 'Send',
+      btn_send_aria: 'Send message',
+      err_bot_response: 'Partner response error, please check Cindy model settings',
+      err_no_bot: 'No available Cindy partner found, please create XiaoChun partner in Cindy'
+    },
+    'ja': {
+      title: '小蠢 AIパートナー',
+      retry: '🔄 小蠢 AIパートナーに再接続',
+      tip_create: '専属パートナー「小蠢」を生成',
+      tip_add_btn: '今すぐ追加',
+      tip_close_aria: 'ヒントを閉じる',
+      tip_creating: '作成指示を送信しました。Cindy が小蠢パートナーを生成中...',
+      input_placeholder: 'やさしく可愛い小蠢とおしゃべりしよう。Enter で送信...',
+      btn_send_title: '送信',
+      btn_send_aria: 'メッセージを送信',
+      err_bot_response: 'パートナーの応答エラーです。Cindy のモデル設定を確認してください',
+      err_no_bot: '利用可能な Cindy パートナーが見つかりません。左側で「小蠢」を作成してください'
+    },
+    'ko': {
+      title: '샤오춘 AI 메이트',
+      retry: '🔄 샤오춘 AI 메이트 다시 연결',
+      tip_create: '전용 메이트 「샤오춘」 생성',
+      tip_add_btn: '지금 추가',
+      tip_close_aria: '안내 닫기',
+      tip_creating: '생성 명령을 전송했습니다. Cindy가 샤오춘 메이트를 생성 중입니다...',
+      input_placeholder: '다정하고 귀여운 샤오춘과 대화해보세요. Enter를 눌러 전송...',
+      btn_send_title: '전송',
+      btn_send_aria: '메시지 전송',
+      err_bot_response: '메이트 응답 오류가 발생했습니다. Cindy 모델 설정을 확인해주세요',
+      err_no_bot: '사용 가능한 Cindy 메이트를 찾을 수 없습니다. Cindy 좌측에서 샤오춘 메이트를 추가해주세요'
+    }
+  };
+
+  function t(key) {
+    const dict = I18N[currentLocale] || I18N['zh-CN'];
+    return dict[key] || I18N['zh-CN'][key] || key;
+  }
+
+  function getEmbedSupportedLang(loc) {
+    if (loc && loc.startsWith('zh')) return 'zh-CN';
+    if (loc && loc.startsWith('ja')) return 'ja';
+    return 'en';
+  }
+
+  function applyLocale(locale) {
+    if (!I18N[locale]) {
+      if (locale && locale.startsWith('zh')) locale = 'zh-CN';
+      else if (locale && locale.startsWith('ja')) locale = 'ja';
+      else if (locale && locale.startsWith('ko')) locale = 'ko';
+      else locale = 'en';
+    }
+    currentLocale = locale;
+    document.documentElement.lang = locale;
+
+    if (pageTitle) pageTitle.textContent = t('title');
+    if (btnRetry) btnRetry.textContent = t('retry');
+    if (tipText && (!btnCreateTeammate || !btnCreateTeammate.disabled)) {
+      tipText.textContent = t('tip_create');
+    }
+    if (btnCreateTeammate) btnCreateTeammate.textContent = t('tip_add_btn');
+    if (btnCloseTip) btnCloseTip.setAttribute('aria-label', t('tip_close_aria'));
+    if (chatInput) chatInput.setAttribute('placeholder', t('input_placeholder'));
+    if (btnSend) {
+      btnSend.setAttribute('title', t('btn_send_title'));
+      btnSend.setAttribute('aria-label', t('btn_send_aria'));
+    }
+
+    // 动态同步给 Project XiaoChun 伴侣视窗
+    const embedLang = getEmbedSupportedLang(locale);
+    sendToXiaochun('xc.setConfig', { lang: embedLang });
+  }
+
+  async function resolveInitialLocale() {
+    let detected = null;
+    try {
+      if (typeof window.cindy !== 'undefined' && window.cindy.request) {
+        const res = await window.cindy.request({ kind: 'app-context' });
+        if (res && res.context && res.context.locale) {
+          detected = res.context.locale;
+        }
+      }
+    } catch (_) {}
+
+    if (!detected) {
+      try {
+        const r = await fetch('/app-context');
+        if (r.ok) {
+          const data = await r.json();
+          if (data && data.locale) detected = data.locale;
+        }
+      } catch (_) {}
+    }
+
+    if (!detected) {
+      const urlLang = new URLSearchParams(window.location.search).get('lang');
+      if (urlLang) detected = urlLang;
+      else {
+        const nav = (navigator.language || '').toLowerCase();
+        if (nav.startsWith('zh')) detected = 'zh-CN';
+        else if (nav.startsWith('ja')) detected = 'ja';
+        else if (nav.startsWith('ko')) detected = 'ko';
+        else detected = 'en';
+      }
+    }
+    applyLocale(detected || 'zh-CN');
+  }
+
+  // 监听 Cindy 宿主语言动态变更
+  if (typeof window.cindy !== 'undefined' && typeof window.cindy.onHostMessage === 'function') {
+    window.cindy.onHostMessage((msg) => {
+      if (msg && msg.type === 'host-context-changed') {
+        const nextLocale = msg.context?.locale || msg.locale;
+        if (nextLocale) {
+          console.log('[XiaoChun Panel] 响应宿主语言切换:', nextLocale);
+          applyLocale(nextLocale);
+        }
+      }
+    });
+  }
 
   function hideLoading() {
     isFrameLoaded = true;
@@ -20,8 +174,6 @@
       btnRetry.classList.add('show');
     }
   }
-
-  const chatBarContainer = document.getElementById('chat-bar-container');
 
   function revealChatBar() {
     let onboarded = true;
@@ -50,23 +202,27 @@
     } catch (_) {}
 
     const hostOrigin = window.location.origin;
-    // 首次进入 Cindy 伴侣视窗时，带上 &onboarding=1 开启沉浸式新手剧情向导（Act 0 序章·初遇小蠢）
+    // 首次进入 Cindy 伴侣视窗时，带上 &onboarding=1 开启沉浸式新手向导（Act 0 序章·初遇小蠢）
     let hasCompletedOnboarding = false;
     try {
       hasCompletedOnboarding = localStorage.getItem('xc_onboarding_completed_v1') === '1' || localStorage.getItem('xc_cindy_onboarded_v1') === '1';
     } catch (_) {}
     const onboardingParam = !hasCompletedOnboarding ? '&onboarding=1' : '';
+    const embedLang = getEmbedSupportedLang(currentLocale);
 
     // 纯净伴侣视窗：挂载头顶气泡、换装菜单、换场景菜单与 GitHub 图标，开启原生全屏 LoadingOverlay，排除透明背景选项（Cindy 视窗背景不透明），交由 Cindy 作为统一对话大脑
-    const targetUrl = `http://127.0.0.1:${currentPort}/embed/?host=${encodeURIComponent(hostOrigin)}&scene=beach3d&scenes=beach3d,light,dark&ui=bubble,outfit,scene,github&heavy=motion&enableLoadingOverlay=1${onboardingParam}`;
+    // 不传 scene 参数，确保 onboarding=1 时角色从纯粹虚空 (void) 完整起步并走完整段 Act 0 序章剧情，不被硬编码场景截断或影响
+    const targetUrl = `http://127.0.0.1:${currentPort}/embed/?host=${encodeURIComponent(hostOrigin)}&ui=bubble,outfit,scene,github&heavy=motion&enableLoadingOverlay=1&lang=${encodeURIComponent(embedLang)}${onboardingParam}`;
     console.log('[XiaoChun Panel] 正在载入小蠢 AI 伴侣:', targetUrl);
     iframe.src = targetUrl;
 
     // 建立与后台 Node Worker 的实时 SSE 指令接收通道，激活 hasActivePanel 状态
     connectBridgeSse();
 
-    // 4 秒安全兜底浮现输入栏（防止离线或弱网下 postMessage 握手遗失导致输入框永久不显）
-    setTimeout(revealChatBar, 4000);
+    // 仅在已完成向导的常态下，开启 4 秒安全兜底浮现输入栏；若处于新手向导中，严格等待 Act 0 完成事件
+    if (hasCompletedOnboarding) {
+      setTimeout(revealChatBar, 4000);
+    }
 
     // 12 秒超时未完成加载显示重试按钮
     setTimeout(showRetry, 12000);
@@ -75,8 +231,10 @@
   iframe.onload = () => {
     isFrameLoaded = true;
     hideLoading();
-    // 场景载入后延时 1.5 秒平滑浮现底部对话栏 (即使 postMessage 握手遗失也能可靠呈现)
-    setTimeout(revealChatBar, 1500);
+    // 仅在已完成向导时延时 1.5 秒平滑浮现底部对话栏
+    if (hasCompletedOnboarding) {
+      setTimeout(revealChatBar, 1500);
+    }
   };
 
   btnRetry.onclick = () => {
@@ -174,16 +332,6 @@
 
   // 4. 监听来自 Cindy 插件主通道的广播（支持 BroadcastChannel 通信）
   let bc = null;
-  const chatForm = document.getElementById('chat-form');
-  const chatInput = document.getElementById('chat-input');
-  const btnSend = document.getElementById('btn-send');
-  const iconSend = document.getElementById('icon-send');
-  const iconLoading = document.getElementById('icon-loading');
-  const tipPill = document.getElementById('companion-tip-pill');
-  const tipText = document.getElementById('tip-text');
-  const btnCreateTeammate = document.getElementById('btn-create-teammate');
-  const btnCloseTip = document.getElementById('btn-close-tip');
-
   let isSending = false;
   let sendTimeoutTimer = null;
 
@@ -222,9 +370,14 @@
       btnSend.classList.toggle('active', hasText);
     });
     chatInput.addEventListener('focus', () => {
+      sendToXiaochun('xc.resume', {});
       if (bc) bc.postMessage({ type: 'check_bot_status' });
     });
   }
+
+  // 用户在宿主面板发生任何交互（点击/触摸/按键）时，主动同步通知伴侣视窗解冻 Web Audio 上下文
+  window.addEventListener('pointerdown', () => sendToXiaochun('xc.resume', {}), { passive: true });
+  window.addEventListener('keydown', () => sendToXiaochun('xc.resume', {}), { passive: true });
 
   // 绑定底部输入栏提交事件
   if (chatForm && chatInput) {
@@ -241,6 +394,7 @@
         bc.postMessage({
           type: 'user_chat_input',
           text,
+          locale: currentLocale,
           timestamp: Date.now()
         });
       }
@@ -256,11 +410,12 @@
     btnCreateTeammate.addEventListener('click', () => {
       if (btnCreateTeammate.disabled) return;
       btnCreateTeammate.disabled = true;
-      if (tipText) tipText.textContent = '已发送创建指令，Cindy 正在生成小蠢伙伴...';
+      if (tipText) tipText.textContent = t('tip_creating');
 
       if (bc) {
         bc.postMessage({
           type: 'create_companion_request',
+          locale: currentLocale,
           timestamp: Date.now()
         });
       }
@@ -301,7 +456,7 @@
         // 处理错误回报
         if (data.type === 'bot_error') {
           setSendingState(false);
-          if (tipText) tipText.textContent = data.message || '伙伴响应异常，请检查 Cindy 模型';
+          if (tipText) tipText.textContent = data.message || t('err_bot_response');
           if (tipPill) tipPill.classList.remove('hidden');
           return;
         }
@@ -389,6 +544,8 @@
     }
   }
 
-  // 启动加载
-  initEmbedFrame();
+  // 初始化语言并启动加载
+  void resolveInitialLocale().then(() => {
+    initEmbedFrame();
+  });
 })();

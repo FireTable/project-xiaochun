@@ -157,6 +157,8 @@ const bridgeServer = http.createServer((req, res) => {
   const forwardHeaders = {
     ...req.headers,
     host: 'xiaochun.firetable.tech',
+    origin: 'https://xiaochun.firetable.tech',
+    referer: 'https://xiaochun.firetable.tech/',
     'accept-encoding': needsRewrite ? 'identity' : (req.headers['accept-encoding'] || 'identity')
   };
 

@@ -662,6 +662,7 @@ export function startEmbedBridge(opts: EmbedBridgeOptions): EmbedBridge {
     try {
       switch (type) {
         case 'xc.say': {
+          vrmEngine.unlockAudio();
           const text = typeof p.text === 'string' ? p.text.trim() : '';
           if (!text) throw new CmdError('bad_request', 'text is required');
           const mode = p.mode === 'chat' ? 'chat' : 'speak';
@@ -868,6 +869,7 @@ export function startEmbedBridge(opts: EmbedBridgeOptions): EmbedBridge {
           paused = false;
           vrmEngine.hostPaused = false;
           vrmEngine.resumeRendering();
+          vrmEngine.unlockAudio();
           publishState();
           break;
         case 'xc.stop':

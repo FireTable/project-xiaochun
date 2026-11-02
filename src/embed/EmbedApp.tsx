@@ -118,6 +118,11 @@ export const EmbedApp: React.FC = () => {
     vrmEngine.setCameraConfig(params.camera); // 相机选项 (?cameraFov= 等): 模型加载前设置, 首次取景 / 推镜头直接按它来
     document.documentElement.classList.add('xc-embed');
     vrmEngine.interaction.guidesEnabled = false; // /embed 环境隐藏腰部转身光环与相机高度尺导轨
+    const handleFirstUnlock = () => {
+      vrmEngine.unlockAudio();
+    };
+    window.addEventListener('pointerdown', handleFirstUnlock, { capture: true, once: true });
+    window.addEventListener('keydown', handleFirstUnlock, { capture: true, once: true });
     if (!params.onboarding && !params.story) {
       try { localStorage.setItem(ONBOARDING_STORAGE_KEY, '1'); } catch { /* ignore */ }
       (window as any).__IS_ONBOARDING_ACTIVE__ = false;
@@ -188,6 +193,8 @@ export const EmbedApp: React.FC = () => {
     }, 120);
 
     return () => {
+      window.removeEventListener('pointerdown', handleFirstUnlock, { capture: true });
+      window.removeEventListener('keydown', handleFirstUnlock, { capture: true });
       vrmEngine.interaction.guidesEnabled = true;
       clearTimeout(timer);
       unsubSettings();

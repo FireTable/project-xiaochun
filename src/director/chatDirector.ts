@@ -883,6 +883,20 @@ export class ChatDirector {
     }
   }
 
+  /** 在用户手势（点击/触摸/按键）的同步调用栈中解锁 AudioContext，防止被浏览器 Autoplay 策略拦截 */
+  public unlockAudio(): void {
+    if (typeof AudioContext === 'undefined') return;
+    try {
+      this.ctx = this.ctx ?? new AudioContext();
+      this.vocalProcessor.init(this.ctx);
+      if (this.ctx.state === 'suspended') {
+        void this.ctx.resume().catch(() => {});
+      }
+    } catch (e) {
+      console.warn('[ChatDirector] unlockAudio error:', e);
+    }
+  }
+
   private async runSpeechPipeline(
     userText: string,
     player: VRMAMotionPlayer,

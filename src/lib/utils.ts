@@ -73,22 +73,27 @@ export function loadPostFxEnabledFromStorage(): boolean | null {
  */
 export function resolveInitialSceneTheme(): LineworkTheme {
   if (typeof window === 'undefined') return APP_CONFIG.scene?.theme ?? 'light';
+
+  // 沉浸式新人引导向导状态 (首次进入或 URL 带 ?onboarding=1 / ?story=1 / ?onboarding=auto)：
+  // 此时舞台必须处于「纯粹虚空」(void)，空无一物，直到第 4 步用户选定世界后才正式具现化加载！
+  try {
+    const q = new URLSearchParams(window.location.search);
+    const onboardingVal = q.get('onboarding');
+    const storyVal = q.get('story');
+    const isFirstVisit = localStorage.getItem(ONBOARDING_STORAGE_KEY) !== '1';
+    const isExplicitOnboarding = onboardingVal === '1' || onboardingVal === 'true' || storyVal === '1' || storyVal === 'prologue';
+    const isAutoOnboarding = isEmbed() && onboardingVal === 'auto' && isFirstVisit;
+    if (isExplicitOnboarding || isAutoOnboarding || (!isEmbed() && isFirstVisit)) {
+      return 'void';
+    }
+  } catch {}
+
   // /embed: URL 参数 (?scene= / ?transparent=1 / ?theme=dark|light) 优先于 iframe 自己存的场景偏好 (下面读 localStorage; 存储被分区 / 拦截时 try/catch 回退默认)
   if (isEmbed()) {
     const fromUrl = embedSceneFromSearch(window.location.search); // 与 sceneManager 同一份解析 (scene > transparent > theme)
     if (fromUrl === 'transparent') document.documentElement.classList.add('scene-transparent');
     if (fromUrl) return fromUrl;
   }
-
-  // 沉浸式新人引导向导状态 (首次进入或 URL 带 ?onboarding=1)：
-  // 此时舞台必须处于「纯粹虚空」(void)，空无一物，直到第 4 步用户选定世界后才正式具现化加载！
-  try {
-    const isExplicitOnboarding = new URLSearchParams(window.location.search).get('onboarding') === '1';
-    const isFirstVisit = localStorage.getItem(ONBOARDING_STORAGE_KEY) !== '1';
-    if (!isEmbed() && (isExplicitOnboarding || isFirstVisit)) {
-      return 'void';
-    }
-  } catch {}
 
   try {
     const stored = localStorage.getItem(SCENE_THEME_KEY) as LineworkTheme | null;

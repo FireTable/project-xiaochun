@@ -3650,6 +3650,13 @@ export class VRMEngine {
     setTimeout(() => this.chatDirector.prewarmAudio(), 0); // own task, not stacked on VRM setup
   }
 
+  /** 在用户手势（点击/触摸/按键）的同步调用栈中解锁 AudioContext 与舞台音效，确保出声不受浏览器自动播放策略拦截 */
+  public unlockAudio(): void {
+    try {
+      this.chatDirector.unlockAudio();
+    } catch {}
+  }
+
   public releaseHeavyResources(): void {
     try { this.chatDirector.stop(); } catch { }
     try { unloadWebLLM(); } catch (e) { console.warn('[VRMEngine] 释放 WebLLM 异常:', e); }

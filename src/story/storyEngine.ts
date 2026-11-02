@@ -165,6 +165,9 @@ export class StoryDirectorEngine {
    */
   public skipIntertitle(): void {
     storyAudioDirector.unlock();
+    try {
+      vrmEngine.unlockAudio();
+    } catch {}
     if (this.intertitleResolver) {
       this.intertitleResolver();
       this.intertitleResolver = null;
