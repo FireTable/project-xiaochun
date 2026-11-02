@@ -175,10 +175,6 @@ export const EmbedApp: React.FC = () => {
     };
     vrmEngine.onSwapProgress = (s) => {
       bridge.reportProgress(s);
-      setLoadingActive(s.active);
-      if (params.enableLoadingOverlay) {
-        loadingStore.set(s);
-      }
     };
 
     // ── 加载初始模型 (主站由 TopHeader 负责; embed 无 TopHeader, 这里补上) ──
