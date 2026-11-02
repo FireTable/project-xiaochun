@@ -18,6 +18,8 @@
   let isFrameLoaded = false;
   let handshakePort = null;
   let currentLocale = 'zh-CN';
+  let hasCompletedOnboarding = false;
+  const pendingCommands = [];
 
   const I18N = {
     'zh-CN': {
@@ -203,7 +205,6 @@
 
     const hostOrigin = window.location.origin;
     // 首次进入 Cindy 伴侣视窗时，带上 &onboarding=1 开启沉浸式新手向导（Act 0 序章·初遇小蠢）
-    let hasCompletedOnboarding = false;
     try {
       hasCompletedOnboarding = localStorage.getItem('xc_onboarding_completed_v1') === '1' || localStorage.getItem('xc_cindy_onboarded_v1') === '1';
     } catch (_) {}
@@ -245,6 +246,9 @@
 
   // 2. 与 /embed 内部的消息通信通道握手
   window.addEventListener('message', (event) => {
+    if (iframe && event.source !== iframe.contentWindow) return;
+    const expectedOrigin = `http://127.0.0.1:${currentPort}`;
+    if (event.origin !== expectedOrigin && !event.origin.startsWith('http://127.0.0.1:')) return;
     const msg = event.data;
     if (!msg || typeof msg !== 'object') return;
 
@@ -263,6 +267,7 @@
           try {
             localStorage.setItem('xc_cindy_onboarded_v1', '1');
             localStorage.setItem('xc_onboarding_completed_v1', '1');
+            hasCompletedOnboarding = true;
           } catch (_) {}
           if (chatBarContainer) chatBarContainer.classList.add('ready');
         }
@@ -275,18 +280,38 @@
       // 回复 xc.init 握手，把 MessagePort 转移给 iframe
       iframe.contentWindow.postMessage(
         { type: 'xc.init', v: 1, payload: { allowedHostOrigins: [window.location.origin] } },
-        '*',
+        expectedOrigin,
         [channel.port2]
       );
+
+      // 握手建立完毕，即刻将积压的消息队列排空下发给小蠢引擎
+      while (pendingCommands.length > 0) {
+        const item = pendingCommands.shift();
+        try {
+          handshakePort.postMessage({ type: item.type, v: 1, payload: item.payload });
+        } catch (err) {
+          console.warn('[XiaoChun Panel] 排空待发指令失败:', err);
+        }
+      }
     }
   });
 
   // 协议指令下发辅助
   function sendToXiaochun(type, payload) {
     if (handshakePort) {
-      handshakePort.postMessage({ type, v: 1, payload });
-    } else if (iframe && iframe.contentWindow) {
-      iframe.contentWindow.postMessage({ type, v: 1, payload }, '*');
+      try {
+        handshakePort.postMessage({ type, v: 1, payload });
+      } catch (err) {
+        console.warn('[XiaoChun Panel] postMessage to handshakePort failed:', err);
+      }
+    } else {
+      pendingCommands.push({ type, payload });
+      if (iframe && iframe.contentWindow) {
+        try {
+          const expectedOrigin = `http://127.0.0.1:${currentPort}`;
+          iframe.contentWindow.postMessage({ type, v: 1, payload }, expectedOrigin);
+        } catch (_) {}
+      }
     }
   }
 
@@ -469,6 +494,12 @@
           return;
         }
 
+        // 处理运行模式变更广播
+        if (data.type === 'mode_changed') {
+          console.log('[XiaoChun Panel] 响应运行形态变更广播:', data.mode);
+          return;
+        }
+
         handleInboundCommand(data.method || data.action || data.tool, data.params || data.args || data);
       };
 
@@ -505,6 +536,7 @@
     switch (method) {
       case 'speak':
       case 'xiaochun_speak':
+        sendToXiaochun('xc.resume', {});
         if (params.expression) sendToXiaochun('xc.expression', { name: params.expression });
         if (params.motion) sendToXiaochun('xc.motion', { name: params.motion });
         sendToXiaochun('xc.say', { text: params.text || '' });

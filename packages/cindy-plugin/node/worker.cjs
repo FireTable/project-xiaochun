@@ -56,7 +56,22 @@ let bridgePort = 0;
 const PREFERRED_BRIDGE_PORT = 23518;
 
 const bridgeServer = http.createServer((req, res) => {
-  res.setHeader('Access-Control-Allow-Origin', '*');
+  const reqOrigin = req.headers.origin || '';
+  const isAllowedOrigin = !reqOrigin || 
+    reqOrigin.startsWith('cindy-ghost:') || 
+    reqOrigin.startsWith('http://127.0.0.1') || 
+    reqOrigin.startsWith('http://localhost') ||
+    reqOrigin === 'null';
+
+  if (!isAllowedOrigin) {
+    log(`[安全拦截] 阻止来自外部未授权域名的桥接请求: ${reqOrigin}`);
+    res.writeHead(403, { 'Content-Type': 'application/json' });
+    res.end(JSON.stringify({ error: 'Forbidden: unauthorized origin' }));
+    return;
+  }
+
+  const allowOrigin = reqOrigin || '*';
+  res.setHeader('Access-Control-Allow-Origin', allowOrigin);
   res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
   res.setHeader('Access-Control-Allow-Headers', '*');
 
@@ -149,17 +164,15 @@ const bridgeServer = http.createServer((req, res) => {
   }
 
   // ── 反向代理 https://xiaochun.firetable.tech (确保在 Cindy CSP 严格沙箱内以 127.0.0.1 loopback 形式安全加载) ──
-  const cleanUrl = req.url.split('?')[0];
-  const isUtilsChunk = cleanUrl.includes('utils-') && cleanUrl.endsWith('.js');
-  const isEmbedAppChunk = cleanUrl.includes('EmbedApp-') && cleanUrl.endsWith('.js');
-  const needsRewrite = isUtilsChunk || isEmbedAppChunk;
+  const cleanUrl = (req.url || '').split('?')[0];
+  const isJsAsset = cleanUrl.endsWith('.js');
 
   const forwardHeaders = {
     ...req.headers,
     host: 'xiaochun.firetable.tech',
     origin: 'https://xiaochun.firetable.tech',
     referer: 'https://xiaochun.firetable.tech/',
-    'accept-encoding': needsRewrite ? 'identity' : (req.headers['accept-encoding'] || 'identity')
+    'accept-encoding': isJsAsset ? 'identity' : (req.headers['accept-encoding'] || 'identity')
   };
 
   const proxyReq = https.request({
@@ -193,24 +206,21 @@ const bridgeServer = http.createServer((req, res) => {
     headers['cross-origin-opener-policy'] = 'unsafe-none';
     headers['cross-origin-embedder-policy'] = 'unsafe-none';
 
-    // 针对 utils 及 EmbedApp 核心代码补丁：放行 cindy-ghost: 协议的 origin 校验，实现双向 postMessage 握手
-    if (needsRewrite) {
+    // 针对 JS 核心资产补丁：放行 cindy-ghost: 协议的 origin 校验，实现双向 postMessage 握手
+    if (isJsAsset) {
       delete headers['content-encoding'];
       let body = '';
       proxyRes.setEncoding('utf8');
       proxyRes.on('data', chunk => { body += chunk; });
       proxyRes.on('end', () => {
         let modified = body;
-        if (isUtilsChunk) {
+        // 关键补丁：解决 WHATWG 规范下 new URL('cindy-ghost:...').origin 返回 "null" 的标准行为，
+        // 确保 normalizeOrigin 能够正确返回 cindy-ghost://xiaochun-companion
+        if (modified.includes('protocol!==`https:`') || modified.includes('protocol!==\"https:\"') || modified.includes('cindy-ghost')) {
           modified = modified.replace(
-            /t\.protocol!==`https:`&&t\.protocol!==`http:`\?null:t\.origin/g,
+            /t\.protocol!==`https:`&&t\.protocol!==`http:`(?:&&t\.protocol!==`cindy-ghost:`)?\?null:t\.origin/g,
             "t.protocol===`cindy-ghost:`?(t.protocol+`//`+t.host):(t.protocol!==`https:`&&t.protocol!==`http:`?null:t.origin)"
           );
-        }
-        if (isEmbedAppChunk) {
-          modified = modified.replace('z&&window.parent.postMessage', 'window.parent.postMessage');
-          modified = modified.replace('height],intro:!0}}}),z)', "height],intro:!0}}}),'*')");
-          modified = modified.replace('!re.has(t.origin)', "!re.has(t.origin)&&!String(t.origin).startsWith('cindy-ghost:')");
         }
         headers['content-length'] = Buffer.byteLength(modified, 'utf8');
         res.writeHead(proxyRes.statusCode, headers);
@@ -675,9 +685,9 @@ async function bootstrapClient(action = 'ensure', targetMode = null, userConfirm
       const destApp = path.join(destDir, 'Project XiaoChun.app');
       log(`正在将应用复制到 ${destApp}...`);
       if (fs.existsSync(destApp)) {
-        execSync(`rm -rf "${destApp}"`);
+        fs.rmSync(destApp, { recursive: true, force: true });
       }
-      execSync(`cp -R "${srcApp}" "${destApp}"`);
+      fs.cpSync(srcApp, destApp, { recursive: true });
 
       // 卸载镜像并清理临时文件
       try {
