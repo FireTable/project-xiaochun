@@ -11,10 +11,15 @@ export function isTauri(): boolean {
 
 /**
  * 是否运行在 /embed 入口 (被宿主页以 iframe 内嵌)。
- * 仅看 pathname, SSR 安全; 与 Tauri 互斥 (Tauri 永远走主入口)。
+ * 优先检查 pathname 路径与 iframe 顶层视窗归属，SSR 安全。
  */
 export function isEmbed(): boolean {
-  return typeof window !== 'undefined' && /^\/embed(\/|$)/.test(window.location.pathname);
+  if (typeof window === 'undefined') return false;
+  try {
+    return /^\/embed(\/|$)/.test(window.location.pathname) || window.self !== window.top;
+  } catch {
+    return /^\/embed(\/|$)/.test(window.location.pathname);
+  }
 }
 
 /**

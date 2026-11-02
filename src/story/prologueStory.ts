@@ -1,4 +1,5 @@
 import type { StoryScript, LocalizedStoryBeat, LocalizedText, AudioDirective } from './schema';
+import { isEmbed } from '@/lib/platform';
 
 /**
  * 序章 v4 · 《初遇小蠢》 (Meeting XiaoChun)  —— Mock 演示版：零 API Key、零外部音频资源，中 / 英 / 日三语
@@ -29,6 +30,9 @@ const L = (zh: string, en: string, ja: string): LocalizedText => ({ 'zh-CN': zh,
 
 /** 程序化 BGM 指令 (同一个 mood 再次触发只更新音量，不会重启) */
 const music = (mood: string, bgmVolume = 0.3, bgmFadeSec = 3): AudioDirective => ({ bgmAction: 'play', bgmMood: mood, bgmVolume, bgmFadeSec });
+
+let _overrideBrainChoice: LocalizedStoryBeat | null = null;
+let _overrideBeat6: LocalizedStoryBeat | null = null;
 
 const beats: Record<string, LocalizedStoryBeat> = {
   // ═══ 叫醒 (沿用原来的黑幕“轻点屏幕，把她叫醒”) ═══
@@ -360,77 +364,139 @@ const beats: Record<string, LocalizedStoryBeat> = {
     autoNextDelayMs: 500,
   },
 
-  // ═══ 5.8 · 选大脑 (旧版 beat_brain_choice：本地 WebLLM 开箱即用 / 自定义外部模型 → 打开服务配置弹窗；无 key 也能走完) ═══
+  // ═══ 5.8 · 选大脑 (旧版 beat_brain_choice：本地 WebLLM 开箱即用 / 自定义外部模型 → 打开服务配置弹窗；无 key 也能走完；/embed 下宿主接管无需安装大脑) ═══
   // 两张卡都进入第 6 拍；选自定义时由 StoryPlayer 打开配置弹窗，弹窗关闭 (配没配都行) 后进入第 6 拍。
-  beat_brain_choice: {
-    id: 'beat_brain_choice',
-    cinematics: { grading: 'default' },
-    camera: { shot: 'medium', movement: 'none', durationSec: 1.2 }, // 与上一拍同景别、同正面机位：不推近、不环绕 (只保持构图)
-    actor: {
-      expression: { base: 'shy', intensity: 0.7, microReaction: 'avert_gaze' },
-      speechText: L(
-        '最后一件事！台词都背熟了，可我还缺个会即兴发挥的脑袋，你帮我挑一个？',
-        'One last thing! The lines are memorized, but I still need a brain that can ad-lib. Pick one for me?',
-        '最後にひとつ！台詞は覚えたけど、アドリブのきく頭がまだないの。選んでくれる？',
-      ),
-    },
-    choices: [
-      {
-        id: 'brain_webllm',
-        icon: '⚡',
-        badge: L('开箱即用', 'Ready to go', 'すぐ使える'),
-        text: L('本地端侧大脑 (WebLLM)', 'On-device brain (WebLLM)', 'ローカル脳 (WebLLM)'),
-        subText: L(
-          '在本机显卡运行，无需 API Key，隐私不离机；以后可在右上角更换',
-          'Runs on this device, no API key, nothing leaves your machine; change it later at the top right',
-          '端末内で動作、APIキー不要、データは外に出ない。あとで右上から変更できる',
-        ),
-        actionType: 'custom',
-        actionPayload: async () => {
-          try {
-            const { setActiveProviderId } = await import('@/llm/customProvider');
-            const { preloadWebLLM } = await import('@/llm/webLLMProvider');
-            await setActiveProviderId(null);
-            preloadWebLLM({ warmup: true });
-          } catch (err) {
-            console.warn('[Prologue] on-device brain setup skipped:', err);
-          }
+  // 在 /embed 宿主视窗中，对话完全由外部宿主驱动，直接给出宿主接管卡，无需额外配置或加载模型。
+  get beat_brain_choice(): LocalizedStoryBeat {
+    if (_overrideBrainChoice) return _overrideBrainChoice;
+    if (isEmbed()) {
+      return {
+        id: 'beat_brain_choice',
+        cinematics: { grading: 'default' },
+        camera: { shot: 'medium', movement: 'none', durationSec: 1.2 },
+        actor: {
+          expression: { base: 'shy', intensity: 0.7, microReaction: 'avert_gaze' },
+          speechText: L(
+            '最后一件事！不过在当前视窗里，我的聪明脑袋直接由外部宿主接管，不需要另外安装大脑啦～',
+            "One last thing! Since I'm in an embed window, my brain is run by your host—no need to install anything!",
+            '最後にひとつ！このウィンドウでは外部ホストが私の頭脳を動かすから、頭のインストールは不要だよ！',
+          ),
         },
-        nextBeatId: 'beat_6',
-      },
-      {
-        id: 'brain_custom',
-        icon: '🖥️',
-        badge: L('高级扩展', 'Advanced', '上級'),
-        text: L('自定义外部模型 (API / 本地)', 'Custom model (API / local)', 'カスタムモデル (API / ローカル)'),
-        subText: L(
-          '接入 OpenAI、Claude 或本地 Ollama，解锁更强的推理与创意',
-          'Plug in OpenAI, Claude or a local Ollama for stronger reasoning and creativity',
-          'OpenAI・Claude・ローカルOllamaにつないで、より強力な推論と創造性を',
+        choices: [
+          {
+            id: 'embed_host_ready',
+            icon: '🚀',
+            badge: L('宿主接管', 'Host Powered', 'ホスト連携'),
+            text: L('太棒啦，即刻启程！', "Awesome, let's go!", 'いいね、出発しよう！'),
+            subText: L(
+              '完全由外部宿主驱动对话，无需额外加载',
+              'Driven entirely by host, zero extra loading',
+              '外部ホストが対話を駆動、追加読み込み不要',
+            ),
+            actionType: 'next_beat',
+            nextBeatId: 'beat_6',
+          },
+        ],
+      };
+    }
+    return {
+      id: 'beat_brain_choice',
+      cinematics: { grading: 'default' },
+      camera: { shot: 'medium', movement: 'none', durationSec: 1.2 }, // 与上一拍同景别、同正面机位：不推近、不环绕 (只保持构图)
+      actor: {
+        expression: { base: 'shy', intensity: 0.7, microReaction: 'avert_gaze' },
+        speechText: L(
+          '最后一件事！台词都背熟了，可我还缺个会即兴发挥的脑袋，你帮我挑一个？',
+          'One last thing! The lines are memorized, but I still need a brain that can ad-lib. Pick one for me?',
+          '最後にひとつ！台詞は覚えたけど、アドリブのきく頭がまだないの。選んでくれる？',
         ),
-        actionType: 'open_provider_config',
-        nextBeatId: 'beat_6',
       },
-    ],
+      choices: [
+        {
+          id: 'brain_webllm',
+          icon: '⚡',
+          badge: L('开箱即用', 'Ready to go', 'すぐ使える'),
+          text: L('本地端侧大脑 (WebLLM)', 'On-device brain (WebLLM)', 'ローカル脳 (WebLLM)'),
+          subText: L(
+            '在本机显卡运行，无需 API Key，隐私不离机；以后可在右上角更换',
+            'Runs on this device, no API key, nothing leaves your machine; change it later at the top right',
+            '端末内で動作、APIキー不要、データは外に出ない。あとで右上から変更できる',
+          ),
+          actionType: 'custom',
+          actionPayload: async () => {
+            try {
+              const { setActiveProviderId } = await import('@/llm/customProvider');
+              const { preloadWebLLM } = await import('@/llm/webLLMProvider');
+              await setActiveProviderId(null);
+              preloadWebLLM({ warmup: true });
+            } catch (err) {
+              console.warn('[Prologue] on-device brain setup skipped:', err);
+            }
+          },
+          nextBeatId: 'beat_6',
+        },
+        {
+          id: 'brain_custom',
+          icon: '🖥️',
+          badge: L('高级扩展', 'Advanced', '上級'),
+          text: L('自定义外部模型 (API / 本地)', 'Custom model (API / local)', 'カスタムモデル (API / ローカル)'),
+          subText: L(
+            '接入 OpenAI、Claude 或本地 Ollama，解锁更强的推理与创意',
+            'Plug in OpenAI, Claude or a local Ollama for stronger reasoning and creativity',
+            'OpenAI・Claude・ローカルOllamaにつないで、より強力な推論と創造性を',
+          ),
+          actionType: 'open_provider_config',
+          nextBeatId: 'beat_6',
+        },
+      ],
+    };
+  },
+  set beat_brain_choice(val: LocalizedStoryBeat) {
+    _overrideBrainChoice = val;
   },
 
   // ═══ 6 · 剧本杀青 (沿用第 5 拍的场景 / BGM；说完 300ms 后结束序章 → 镜头回到默认视角 → 自由聊天) ═══
-  beat_6: {
-    id: 'beat_6',
-    cinematics: { transition: 'eye_blink', grading: 'default', wind: 1 },
-    camera: { shot: 'full', movement: 'none', durationSec: 2.0 }, // 全身：看她把台本一丢、蹦起来
-    actor: {
-      leadInMotion: 'joyfulJump', // 把藏在身后的台本随手一丢，拍拍手
-      expression: { base: 'playful', intensity: 0.7 },
-      speechText: L(
-        '行啦，那些死板的台词本我全扔了。现在开始没有剧本，你想跟我聊点什么？',
-        "Alright, I tossed that stiff script out the window. No more rehearsals from here on—what's on your mind?",
-        'よし、堅苦しい台本はもうポイしちゃった！ここからは台本なし、何から話す？',
-      ),
-    },
-    audio: { sfx: [{ id: 'bell', delaySec: 0.2, volume: 0.6 }] },
-    autoFinish: true,
-    autoNextDelayMs: 300,
+  get beat_6(): LocalizedStoryBeat {
+    if (_overrideBeat6) return _overrideBeat6;
+    if (isEmbed()) {
+      return {
+        id: 'beat_6',
+        cinematics: { transition: 'eye_blink', grading: 'default', wind: 1 },
+        camera: { shot: 'full', movement: 'none', durationSec: 2.0 },
+        actor: {
+          leadInMotion: 'joyfulJump',
+          expression: { base: 'playful', intensity: 0.7 },
+          speechText: L(
+            '好啦，那些死板的台词本我全扔了！现在开始没有剧本，随时听你召唤哦！',
+            "Alright, tossed that stiff script away! No script from now on—ready whenever you call!",
+            'よし、堅苦しい台本はポイしちゃった！ここからは台本なし、いつでも呼んでね！',
+          ),
+        },
+        audio: { sfx: [{ id: 'bell', delaySec: 0.2, volume: 0.6 }] },
+        autoFinish: true,
+        autoNextDelayMs: 300,
+      };
+    }
+    return {
+      id: 'beat_6',
+      cinematics: { transition: 'eye_blink', grading: 'default', wind: 1 },
+      camera: { shot: 'full', movement: 'none', durationSec: 2.0 }, // 全身：看她把台本一丢、蹦起来
+      actor: {
+        leadInMotion: 'joyfulJump', // 把藏在身后的台本随手一丢，拍拍手
+        expression: { base: 'playful', intensity: 0.7 },
+        speechText: L(
+          '行啦，那些死板的台词本我全扔了。现在开始没有剧本，你想跟我聊点什么？',
+          "Alright, I tossed that stiff script out the window. No more rehearsals from here on—what's on your mind?",
+          'よし、堅苦しい台本はもうポイしちゃった！ここからは台本なし、何から話す？',
+        ),
+      },
+      audio: { sfx: [{ id: 'bell', delaySec: 0.2, volume: 0.6 }] },
+      autoFinish: true,
+      autoNextDelayMs: 300,
+    };
+  },
+  set beat_6(val: LocalizedStoryBeat) {
+    _overrideBeat6 = val;
   },
 };
 

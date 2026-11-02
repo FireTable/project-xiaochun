@@ -47,6 +47,7 @@ bench/
 *.sln
 *.sw?
 .git.bak/
+.vitest/
 .wrangler/
 *.cindy
 packages/cindy-plugin/bridge-port.json

@@ -333,4 +333,65 @@ describe('prologue story (Act 0 v4 · Meeting XiaoChun)', () => {
     // 没有别的拍用 eye_blink 进场 beat_1：叫醒后只有淡黑
     expect(prologueStory.beats.beat_1.cinematics?.transition).not.toBe('eye_blink');
   });
+
+  it('adapts beat_brain_choice and beat_6 dynamically for /embed mode without WebLLM preload or provider dialog', () => {
+    const originalWindow = (globalThis as any).window;
+    try {
+      (globalThis as any).window = {
+        location: { pathname: '/embed' },
+        self: {},
+        top: {},
+      };
+      const brainChoice = prologueStory.beats.beat_brain_choice;
+      const beat6 = prologueStory.beats.beat_6;
+
+      // 验证 beat_brain_choice 在 /embed 下的台词三语合规性 (短句、无违禁词、无小春)
+      for (const lang of STORY_LANGS) {
+        const beat = resolveBeat(brainChoice, lang);
+        const line = beat.actor.speechText;
+        expect(line.length, `embed brainChoice ${lang}: "${line}"`).toBeLessThanOrEqual(LIMIT[lang]);
+        expect(FORBIDDEN.test(line), `embed brainChoice ${lang} has no UI/meta words: "${line}"`).toBe(false);
+        expect(line.includes('小春'), `embed brainChoice ${lang}`).toBe(false);
+        if (lang === 'en') expect(CJK.test(line)).toBe(false);
+        if (lang === 'ja') expect(KANA.test(line)).toBe(true);
+        if (lang === 'zh-CN') expect(KANA.test(line)).toBe(false);
+      }
+
+      // /embed 下仅保留单一卡片，直接指向 beat_6，绝不预载 WebLLM 或打开 API Key 配置弹窗
+      expect((brainChoice.choices ?? []).map((c) => [c.id, c.actionType, c.nextBeatId])).toEqual([
+        ['embed_host_ready', 'next_beat', 'beat_6'],
+      ]);
+      expect(brainChoice.choices?.[0].actionPayload).toBeUndefined();
+
+      const card = brainChoice.choices![0];
+      for (const lang of STORY_LANGS) {
+        const text = typeof card.text === 'object' ? card.text[lang] : card.text;
+        const subText = typeof card.subText === 'object' ? card.subText[lang] : card.subText;
+        const badge = typeof card.badge === 'object' ? card.badge[lang] : card.badge;
+        expect(text && text.trim().length > 0).toBe(true);
+        expect(subText && subText.trim().length > 0).toBe(true);
+        expect(badge && badge.trim().length > 0).toBe(true);
+        expect(FORBIDDEN.test(text!)).toBe(false);
+        expect(FORBIDDEN.test(subText!)).toBe(false);
+      }
+
+      // 验证 beat_6 在 /embed 下的台词三语合规性与即刻杀青行为
+      for (const lang of STORY_LANGS) {
+        const beat = resolveBeat(beat6, lang);
+        const line = beat.actor.speechText;
+        expect(line.length, `embed beat6 ${lang}: "${line}"`).toBeLessThanOrEqual(LIMIT[lang]);
+        expect(FORBIDDEN.test(line), `embed beat6 ${lang} has no UI/meta words: "${line}"`).toBe(false);
+        expect(line.includes('小春'), `embed beat6 ${lang}`).toBe(false);
+      }
+      expect(beat6.actor.leadInMotion).toBe('joyfulJump');
+      expect(beat6.autoFinish).toBe(true);
+      expect(beat6.autoNextDelayMs).toBe(300);
+    } finally {
+      if (originalWindow !== undefined) {
+        (globalThis as any).window = originalWindow;
+      } else {
+        delete (globalThis as any).window;
+      }
+    }
+  });
 });
