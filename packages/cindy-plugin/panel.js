@@ -489,7 +489,8 @@
         // 处理错误回报
         if (data.type === 'bot_error') {
           setSendingState(false);
-          if (tipText) tipText.textContent = data.message || t('err_bot_response');
+          const localizedMsg = data.errorKey ? (I18N[currentLocale]?.[data.errorKey] || I18N['zh-CN']?.[data.errorKey]) : (data.message || t('err_bot_response'));
+          if (tipText) tipText.textContent = localizedMsg;
           if (tipPill) tipPill.classList.remove('hidden');
           return;
         }

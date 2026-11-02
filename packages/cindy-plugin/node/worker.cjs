@@ -1,7 +1,7 @@
 // node/worker.cjs - 小蠢 AI 伴侣 (Node.js 运行时宿主与系统桥接进程)
 
 const readline = require('node:readline');
-const { exec, execFile, execSync, spawn } = require('node:child_process');
+const { exec, execFile, execFileSync, execSync, spawn } = require('node:child_process');
 const fs = require('node:fs');
 const path = require('node:path');
 const os = require('node:os');
@@ -57,11 +57,22 @@ const PREFERRED_BRIDGE_PORT = 23518;
 
 const bridgeServer = http.createServer((req, res) => {
   const reqOrigin = req.headers.origin || '';
-  const isAllowedOrigin = !reqOrigin || 
-    reqOrigin.startsWith('cindy-ghost:') || 
-    reqOrigin.startsWith('http://127.0.0.1') || 
-    reqOrigin.startsWith('http://localhost') ||
-    reqOrigin === 'null';
+  let isAllowedOrigin = false;
+  if (!reqOrigin) {
+    // 允许非浏览器或同源直连（无 Origin 请求标头）
+    isAllowedOrigin = true;
+  } else if (reqOrigin.startsWith('cindy-ghost:')) {
+    // 允许来自 Cindy 插件协议的面板及设置页
+    isAllowedOrigin = true;
+  } else {
+    try {
+      const parsed = new URL(reqOrigin);
+      if (parsed.protocol === 'http:' || parsed.protocol === 'https:') {
+        // 严格精确匹配本地回环主机名，杜绝前缀伪造（如 127.0.0.1.attacker.com）与沙箱 null 越权
+        isAllowedOrigin = (parsed.hostname === '127.0.0.1' || parsed.hostname === 'localhost');
+      }
+    } catch {}
+  }
 
   if (!isAllowedOrigin) {
     log(`[安全拦截] 阻止来自外部未授权域名的桥接请求: ${reqOrigin}`);
@@ -70,7 +81,7 @@ const bridgeServer = http.createServer((req, res) => {
     return;
   }
 
-  const allowOrigin = reqOrigin || '*';
+  const allowOrigin = (isAllowedOrigin && reqOrigin) ? reqOrigin : '*';
   res.setHeader('Access-Control-Allow-Origin', allowOrigin);
   res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
   res.setHeader('Access-Control-Allow-Headers', '*');
@@ -167,13 +178,14 @@ const bridgeServer = http.createServer((req, res) => {
   const cleanUrl = (req.url || '').split('?')[0];
   const isJsAsset = cleanUrl.endsWith('.js');
   const isAudioOrTts = cleanUrl === '/api/tts' || cleanUrl.startsWith('/audio/') || cleanUrl.endsWith('.mp3');
+  const isHeavyModelOrAsset = cleanUrl.endsWith('.vrmaddon') || cleanUrl.endsWith('.vrmbase') || cleanUrl.endsWith('.onnx') || cleanUrl.endsWith('.wasm');
 
   const forwardHeaders = {
     ...req.headers,
     host: 'xiaochun.firetable.tech',
     origin: 'https://xiaochun.firetable.tech',
     referer: 'https://xiaochun.firetable.tech/',
-    'accept-encoding': (isJsAsset || isAudioOrTts) ? 'identity' : (req.headers['accept-encoding'] || 'identity')
+    'accept-encoding': (isJsAsset || isAudioOrTts || isHeavyModelOrAsset) ? 'identity' : (req.headers['accept-encoding'] || 'identity')
   };
 
   const proxyReq = https.request({
@@ -665,7 +677,7 @@ async function bootstrapClient(action = 'ensure', targetMode = null, userConfirm
       await downloadFile(dmgUrl, tmpDmg);
 
       log('正在挂载磁盘镜像...');
-      const attachOut = execSync(`hdiutil attach "${tmpDmg}" -nobrowse -readonly`, { encoding: 'utf-8' });
+      const attachOut = execFileSync('hdiutil', ['attach', tmpDmg, '-nobrowse', '-readonly'], { encoding: 'utf-8' });
       const mountMatch = attachOut.match(/\/Volumes\/[^\n\t\r]+/);
       const mountPoint = mountMatch ? mountMatch[0].trim() : null;
 
@@ -695,17 +707,17 @@ async function bootstrapClient(action = 'ensure', targetMode = null, userConfirm
 
       // 卸载镜像并清理临时文件
       try {
-        execSync(`hdiutil detach "${mountPoint}" -quiet`);
+        execFileSync('hdiutil', ['detach', mountPoint, '-quiet']);
         fs.unlinkSync(tmpDmg);
       } catch {}
 
       // 移除 macOS Gatekeeper 隔离属性
       try {
-        execSync(`xattr -cr "${destApp}"`);
+        execFileSync('xattr', ['-cr', destApp]);
       } catch {}
 
       log('安装完成，启动小蠢桌面端...');
-      execSync(`open -a "${destApp}"`);
+      execFileSync('open', ['-a', destApp]);
 
       savePluginConfig({ preferredMode: 'desktop' });
       return {
@@ -750,10 +762,10 @@ async function bootstrapClient(action = 'ensure', targetMode = null, userConfirm
       log(`安装程序已下载至: ${tmpExe}，正在执行免提权用户安装...`);
       // NSIS 安装包传入 /S 参数执行当前用户静默安装
       try {
-        execSync(`"${tmpExe}" /S`, { timeout: 120000 });
+        execFileSync(tmpExe, ['/S'], { timeout: 120000 });
       } catch (runErr) {
         log('静默安装触发完成或超时，调起标准安装向导:', runErr.message);
-        exec(`start "" "${tmpExe}"`);
+        execFile('cmd.exe', ['/c', 'start', '""', tmpExe]);
       }
 
       // 扫描 Windows 常用安装位置
@@ -767,7 +779,7 @@ async function bootstrapClient(action = 'ensure', targetMode = null, userConfirm
       const foundExe = standardWinPaths.find(p => fs.existsSync(p));
       if (foundExe) {
         log(`已找到安装完成的 Windows 客户端: ${foundExe}，正在启动...`);
-        exec(`start "" "${foundExe}"`);
+        execFile('cmd.exe', ['/c', 'start', '""', foundExe]);
         savePluginConfig({ preferredMode: 'desktop' });
         return {
           success: true,

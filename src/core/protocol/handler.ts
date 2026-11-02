@@ -190,7 +190,7 @@ export async function runProtocolAction(message: ProtocolMessage, hooks?: Protoc
         if (!force) {
           throw new ProtocolError(
             'busy',
-            '小蠢当前正在进行新手引导（art0 序章），请先在桌面窗口完成向导，或传入 force=true 强制插话。',
+            '小蠢当前正在进行新手引导（act0 序章），请先在桌面窗口完成向导，或传入 force=true 强制插话。',
           );
         }
       }
