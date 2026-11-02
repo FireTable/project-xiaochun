@@ -70,12 +70,12 @@ export class PostFxPipeline {
     const pixelRatio = getRenderPixelRatio();
     const size = renderer.getSize(new THREE.Vector2());
     const mobile = isMobile();
-    // 两端统一 3x MSAA, 保证镜头拉远时修长双腿与边缘轮廓丝滑无锯齿
+    // 4x MSAA. WebGL samples must be a power of two; 3 was rounded down.
     const msaa = mobile
       ? (APP_CONFIG.postfx.composerMSAASamplesMobile ?? 3)
       : (APP_CONFIG.postfx.composerMSAASamplesDesktop ?? 3);
     // ponytail: 主 RT 仍按全分辨率（× DPR）呈现。
-    // 主 RT MSAA：统一 3x, 保 MToon 描边与远景修长四肢锐利平滑。
+    // 主 RT MSAA：4x, 保 MToon 描边与远景修长四肢锐利平滑。
     // 方案 5 优化：离屏帧缓冲裁剪冗余 Stencil (Disable Redundant Stencil)
     // 后处理链路纯颜色计算无需模版测试，显式关闭 stencilBuffer 避免 GPU 分配 8-bit 模版深度附件，节约显存与带宽
     const renderTarget = new THREE.WebGLRenderTarget(
@@ -102,7 +102,13 @@ export class PostFxPipeline {
     }
 
     this.composer.addPass(new RenderPass(scene, camera));
+    if (this.config.bloom.strength > 0.001) this.addBloom(pixelRatio, mobile);
+    this.addOutputPass();
 
+    this._ready = true;
+  }
+
+  private addBloom(pixelRatio: number, mobile: boolean): void {
     // UnrealBloomPass: 低频光晕。setSize(w,h) 内部还会把第一级 mip 设为 w/2×h/2。
     // bloomInputScale=1 → 实际 Bloom = 主 RT 的 1/2。
     // bloomInputScale=0.5 → 实际 = 主 RT 的 1/4（移动端 / 桌面默认，更柔、更省）。
@@ -188,8 +194,10 @@ export class PostFxPipeline {
       this.bloom.blendMaterial.needsUpdate = true;
     }
 
-    this.composer.addPass(this.bloom);
+    this.composer?.addPass(this.bloom);
+  }
 
+  private addOutputPass(): void {
     // 方案 1 优化：合并 ColorGrading 到 OutputPass，彻底消除 1 次 4K 全屏 Blit FBO 切换与离屏拷贝
     // 调色 (BC + HS + 暗角) + 色调映射 (ToneMapping) + 颜色空间转换 (sRGB) + 高频抖色 (IGN Dithering)
     // 全部在单次全屏着色器中以 32 位浮点精度一次性计算输出，画质杜绝中间层量化损失，GPU Fillrate 与带宽大幅降低
@@ -270,9 +278,7 @@ export class PostFxPipeline {
       this.outputPass.material.fragmentShader = frag;
       this.outputPass.material.needsUpdate = true;
     }
-    this.composer.addPass(this.outputPass);
-
-    this._ready = true;
+    this.composer?.addPass(this.outputPass);
   }
 
   /** 每帧调。dt 是秒。 */

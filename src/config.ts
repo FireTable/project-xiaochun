@@ -644,16 +644,17 @@ export const APP_CONFIG = {
     globalMult: 1.0,
   } as LightConfig,
   postfx: {
+    // MSAA resolve stays on. Bloom is a separate pass and stays off unless its strength is raised.
     enabled: true,
-    bloom: { strength: 0.045, radius: 0.36, threshold: 0.76 },
+    bloom: { strength: 0, radius: 0.36, threshold: 0.76 },
     vignette: { darkness: 0.0, offset: 0.5 },
     toneMapping: { mode: THREE.LinearToneMapping, exposure: 1.06 },
     bc: { brightness: 0.0, contrast: 0.035 },
     hs: { hue: 0.0, saturation: 0.01 },
     bloomInputScaleMobile: 0.3,
     bloomInputScaleDesktop: 0.5,
-    composerMSAASamplesMobile: 3,
-    composerMSAASamplesDesktop: 3,
+    composerMSAASamplesMobile: 4,
+    composerMSAASamplesDesktop: 4,
   },
   saturation: {
     default: {

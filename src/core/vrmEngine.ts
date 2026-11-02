@@ -1028,13 +1028,16 @@ export class VRMEngine {
     this.renderer.setPixelRatio(ratio);
     this.renderer.setSize(width, height);
     this.renderer.toneMapping = THREE.LinearToneMapping;
-    this.renderer.toneMappingExposure = 1.08;
+    this.renderer.toneMappingExposure = APP_CONFIG.postfx.toneMapping.exposure;
+    this.renderer.outputColorSpace = THREE.SRGBColorSpace;
     this.renderer.shadowMap.enabled = true;
     this.renderer.shadowMap.type = THREE.PCFSoftShadowMap;
     this.renderer.shadowMap.autoUpdate = (APP_CONFIG.shadow.updateIntervalFrames ?? 1) <= 1;
     this.renderer.shadowMap.needsUpdate = true;
-    this.postFx.init(this.renderer, this.scene, this.camera);
-    this.postFx.applyConfig();
+    if (this.postFx.config.enabled) {
+      this.postFx.init(this.renderer, this.scene, this.camera);
+      this.postFx.applyConfig();
+    }
     this.postFx.resize(width, height, ratio);
     if (this.currentVRM || this._sceneInitialized) {
       this.syncSceneToNewRenderer();
@@ -1101,12 +1104,14 @@ export class VRMEngine {
     this.renderer.setSize(window.innerWidth, window.innerHeight);
     this.lastRenderWidth = window.innerWidth;
     this.lastRenderHeight = window.innerHeight;
-    this.renderer.toneMapping = THREE.LinearToneMapping;  // ponytail: 保持原 toneMapping,postfx 不接管 (避免双重映射)
-    this.renderer.toneMappingExposure = 1.08;
+    this.renderer.toneMapping = THREE.LinearToneMapping;
+    this.renderer.toneMappingExposure = APP_CONFIG.postfx.toneMapping.exposure;
+    this.renderer.outputColorSpace = THREE.SRGBColorSpace;
 
-    this.postFx.init(this.renderer, this.scene, this.camera);
+    if (this.postFx.config.enabled) this.postFx.init(this.renderer, this.scene, this.camera);
     // PostFX 开关会改默认帧缓冲是否需要 MSAA，必要时重建上下文；同时刷新 pixelRatio
-    this.postFx.onEnabledChange = () => {
+    this.postFx.onEnabledChange = (on) => {
+      if (on && this.renderer) this.postFx.init(this.renderer, this.scene, this.camera);
       this.syncRendererContextIfNeeded();
       this.updatePixelRatio();
     };
@@ -3745,10 +3750,9 @@ export class VRMEngine {
       const delta = Math.min(this.clock.getDelta(), 0.1);
       const time = this.clock.getElapsedTime();
 
-      // 持续驱动线稿背景世界的动态喷水花坛（水珠物理重力飞溅与同心涟漪波纹）
-      this.lineworkWorld.update(delta, time);
-      // 持续驱动虚空星尘粒子的微动悬浮
-      this.voidWorld.update(delta, time);
+      const sceneTheme = this._currentSceneTheme;
+      if (sceneTheme === 'light' || sceneTheme === 'dark') this.lineworkWorld.update(delta, time);
+      if (sceneTheme === 'void') this.voidWorld.update(delta, time);
 
       const vrm = this.currentVRM;
       if (vrm) {
