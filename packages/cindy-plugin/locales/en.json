@@ -22,7 +22,7 @@
           "description": "Optional facial expression name. Examples: 'happy', 'gentle_smile', 'smile', 'shy', 'playful', 'surprised', 'sad', 'angry', 'relaxed'."
         },
         "/properties/force": {
-          "description": "Whether to force speaking (default false). When false, it will prompt user to finish the art0 onboarding tour if in progress."
+          "description": "Whether to force speaking (default false). When false, it will prompt user to finish the act0 onboarding tour if in progress."
         }
       }
     },

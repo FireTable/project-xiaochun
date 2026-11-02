@@ -22,7 +22,7 @@
           "description": "表情名（任意）。例：'happy'（笑顔）、'gentle_smile'（優しい微笑み）、'shy'（照れ）、'playful'（いたずらっぽく）、'surprised'（驚き）、'sad'（悲しい）、'angry'（怒り）、'relaxed'（リラックス）。"
         },
         "/properties/force": {
-          "description": "強制的に発話させるかどうか（デフォルトは false）。false の場合、チュートリアル（art0 序章）進行中は先にガイドを体験するよう促します。"
+          "description": "強制的に発話させるかどうか（デフォルトは false）。false の場合、チュートリアル（act0 序章）進行中は先にガイドを体験するよう促します。"
         }
       }
     },

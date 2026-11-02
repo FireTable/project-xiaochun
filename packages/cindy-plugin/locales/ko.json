@@ -22,7 +22,7 @@
           "description": "얼굴 표정 이름(선택 사항). 예: 'happy'(행복), 'gentle_smile'(부드러운 미소), 'smile'(미소), 'shy'(부끄러움), 'playful'(장난기), 'surprised'(놀람), 'sad'(슬픔), 'angry'(화남), 'relaxed'(편안함)."
         },
         "/properties/force": {
-          "description": "강제 낭독 여부(기본값 false). false일 때 튜토리얼(art0 프롤로그) 진행 중이면 먼저 가이드를 완료하도록 안내합니다."
+          "description": "강제 낭독 여부(기본값 false). false일 때 튜토리얼(act0 프롤로그) 진행 중이면 먼저 가이드를 완료하도록 안내합니다."
         }
       }
     },

@@ -955,7 +955,7 @@ readline.createInterface({ input: process.stdin }).on('line', async (line) => {
           result: {
             success: false,
             onboardingActive: true,
-            message: '小蠢当前正在进行新手引导（art0 序章剧情向导）。建议您先在桌面的小蠢窗口完成向导，或传入 force=true 强制插话。'
+            message: '小蠢当前正在进行新手引导（act0 序章剧情向导）。建议您先在小蠢窗口完成向导，或传入 force=true 强制插话。'
           }
         });
         return;

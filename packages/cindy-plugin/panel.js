@@ -24,6 +24,13 @@
   const chatBarContainer = document.getElementById('chat-bar-container');
 
   function revealChatBar() {
+    let onboarded = true;
+    try {
+      const isFirst = localStorage.getItem('xc_onboarding_completed_v1') !== '1' && localStorage.getItem('xc_cindy_onboarded_v1') !== '1';
+      if (isFirst) onboarded = false;
+    } catch (_) {}
+    if (!onboarded) return;
+
     if (chatBarContainer && !chatBarContainer.classList.contains('ready')) {
       console.log('[XiaoChun Panel] 伴侣视窗与引擎已就绪，平滑浮现底部对话栏');
       chatBarContainer.classList.add('ready');
@@ -43,8 +50,15 @@
     } catch (_) {}
 
     const hostOrigin = window.location.origin;
+    // 首次进入 Cindy 伴侣视窗时，带上 &onboarding=1 开启沉浸式新手剧情向导（Act 0 序章·初遇小蠢）
+    let hasCompletedOnboarding = false;
+    try {
+      hasCompletedOnboarding = localStorage.getItem('xc_onboarding_completed_v1') === '1' || localStorage.getItem('xc_cindy_onboarded_v1') === '1';
+    } catch (_) {}
+    const onboardingParam = !hasCompletedOnboarding ? '&onboarding=1' : '';
+
     // 纯净伴侣视窗：挂载头顶气泡、换装菜单、换场景菜单与 GitHub 图标，开启原生全屏 LoadingOverlay，排除透明背景选项（Cindy 视窗背景不透明），交由 Cindy 作为统一对话大脑
-    const targetUrl = `http://127.0.0.1:${currentPort}/embed/?host=${encodeURIComponent(hostOrigin)}&scene=beach3d&scenes=beach3d,light,dark&ui=bubble,outfit,scene,github&heavy=motion&enableLoadingOverlay=1`;
+    const targetUrl = `http://127.0.0.1:${currentPort}/embed/?host=${encodeURIComponent(hostOrigin)}&scene=beach3d&scenes=beach3d,light,dark&ui=bubble,outfit,scene,github&heavy=motion&enableLoadingOverlay=1${onboardingParam}`;
     console.log('[XiaoChun Panel] 正在载入小蠢 AI 伴侣:', targetUrl);
     iframe.src = targetUrl;
 
@@ -87,7 +101,14 @@
       handshakePort.onmessage = (e) => {
         const ev = e.data;
         console.log('[XiaoChun Panel] 小蠢 AI 伴侣内部事件:', ev);
-        // 当模型完全加载 (xc.loaded) 或进入待机 (xc.state phase=idle) 时，正式浮现底部对话栏
+        if (ev && (ev.type === 'xc.story.complete' || ev.type === 'xc.onboarding.complete')) {
+          try {
+            localStorage.setItem('xc_cindy_onboarded_v1', '1');
+            localStorage.setItem('xc_onboarding_completed_v1', '1');
+          } catch (_) {}
+          if (chatBarContainer) chatBarContainer.classList.add('ready');
+        }
+        // 当模型完全加载 (xc.loaded) 或进入待机 (xc.state phase=idle) 时，正式浮现底部对话栏 (若向导已完成)
         if (ev && (ev.type === 'xc.loaded' || ev.payload?.phase === 'idle')) {
           revealChatBar();
         }
@@ -358,6 +379,12 @@
       case 'stop':
       case 'xiaochun_stop':
         sendToXiaochun('xc.stop', {});
+        break;
+      case 'story':
+      case 'xiaochun_story':
+      case 'onboarding':
+      case 'xiaochun_onboarding':
+        sendToXiaochun('xc.onboarding.start', {});
         break;
     }
   }

@@ -305,7 +305,7 @@ cindy.onHostMessage(async function (msg) {
         ? `【版本更新完成】已成功为小蠢安装最新版本并触发客户端重启！`
         : workerResult.message || '小蠢客户端版本检查与更新指令已派发。';
     } else if (workerResult.onboardingActive) {
-      friendlyMessage = '【新手引导进行中】检测到小蠢正在进行初见向导剧情（art0 序章）。建议您先在桌面端窗口中与小蠢完成初见对话；若需强制朗读，请设置 force 为 true。';
+      friendlyMessage = '【新手引导进行中】检测到小蠢正在进行初见向导剧情（act0 序章）。建议您先在窗口中与小蠢完成初见对话；若需强制朗读，请设置 force 为 true。';
     } else if (workerResult.coldStart) {
       friendlyMessage = '【冷启动】检测到小蠢客户端未启动，已自动为您唤醒小蠢并执行指令！';
     } else if (workerResult.autoInstalled) {

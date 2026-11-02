@@ -74,7 +74,7 @@
           },
           "force": {
             "type": "boolean",
-            "description": "是否强制在新手引导（art0 序章剧情）期间插话，默认为 false。为 false 时若检测到新手引导正在进行，会提示用户先体验向导。"
+            "description": "是否强制在新手引导（act0 序章剧情）期间插话，默认为 false。为 false 时若检测到新手引导正在进行，会提示用户先体验向导。"
           }
         },
         "required": ["text"]

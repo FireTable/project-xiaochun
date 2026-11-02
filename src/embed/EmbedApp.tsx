@@ -16,12 +16,12 @@ import { resolveSystemPrompt, getCachedUserSettings, subscribeUserSettings } fro
 import type { Lang } from '@/i18n';
 import type { XcLang } from '@firetable/project-xiaochun/protocol';
 import { XC_UI_PARTS, xcUiAutoHideActive } from '@firetable/project-xiaochun/protocol';
-import { useCurrentScene } from '@/core/scene/sceneManager';
+import { useCurrentScene, sceneManager } from '@/core/scene/sceneManager';
 import { usePetUiVisibility } from '@/hooks/usePetUiVisibility';
 import pkg from '../../package.json';
 import { readEmbedParams } from './params';
 import { readLangPref, readOutfitPref, resolveEmbedLang, resolveInitialOutfitWithPref, safeLocalStorage } from './registry';
-import { EMBED_LANG_KEY, WEARING_OUTFIT_KEY } from '@/lib/constants';
+import { EMBED_LANG_KEY, ONBOARDING_STORAGE_KEY, WEARING_OUTFIT_KEY } from '@/lib/constants';
 import {
   getEmbedUiState,
   setEmbedUiState,
@@ -30,11 +30,15 @@ import {
   uiStateFromParts,
   type EmbedBridge,
 } from './bridge';
+import { syncXiaoChunRuntimeState } from '@/core/protocol/runtimeState';
+import { prologueStory } from '@/story/prologueStory';
+import { storyDirectorEngine } from '@/story/storyEngine';
 
 // 内置按钮只在 ?picker= 打开时才加载 (Radix 下拉等); 默认不开的宿主不为它多下一个字节
 const EmbedCorners = lazy(() => import('./EmbedCorners').then((m) => ({ default: m.EmbedCorners })));
 const EmbedPicker = lazy(() => import('./EmbedPicker').then((m) => ({ default: m.EmbedPicker })));
 const LoadingOverlay = lazy(() => import('@/components/LoadingOverlay').then((m) => ({ default: m.LoadingOverlay })));
+const StoryPlayer = lazy(() => import('@/components/story/StoryPlayer').then((m) => ({ default: m.StoryPlayer })));
 import { loadingStore } from '@/components/loading/loadingStore';
 
 export const EmbedApp: React.FC = () => {
@@ -42,6 +46,57 @@ export const EmbedApp: React.FC = () => {
   const params = useMemo(() => readEmbedParams(), []);
   const ui = useSyncExternalStore(subscribeEmbedUi, getEmbedUiState, getEmbedUiState);
   const [bridgeRef, setBridgeRef] = useState<EmbedBridge | null>(null);
+
+  // ── 沉浸式新手剧情向导 (Act 0 序章) 与故事剧场状态 ──
+  const [isOnboardingActive, setIsOnboardingActive] = useState<boolean>(() => params.onboarding);
+  const [isStoryActive, setIsStoryActive] = useState<boolean>(() => Boolean(params.story));
+  const isStoryOrOnboarding = isOnboardingActive || isStoryActive;
+
+  // VRM 模型就绪状态：保证向导只在角色已渲染站立在舞台中时启动
+  const [isVRMReady, setIsVRMReady] = useState(() => vrmEngine.isReady());
+  const [loadingActive, setLoadingActive] = useState(false);
+
+  useEffect(() => {
+    return vrmEngine.onReadyChange((ready) => {
+      setIsVRMReady(ready);
+      if (ready && typeof window !== 'undefined') {
+        (window as any).__VRM_ALREADY_READY__ = true;
+        (window as any).vrmEngine = vrmEngine;
+      }
+    });
+  }, []);
+
+  // 支持外部事件或消息通道随时重温新手引导或进入故事剧场
+  useEffect(() => {
+    const handleOnboardingTrigger = () => {
+      setIsOnboardingActive(true);
+      void sceneManager.setScene('void', false);
+      void storyDirectorEngine.playScript(prologueStory);
+    };
+    const handleStoryTrigger = (e?: Event) => {
+      setIsStoryActive(true);
+      const customScript = (e as CustomEvent)?.detail?.script || prologueStory;
+      void storyDirectorEngine.playScript(customScript);
+    };
+    window.addEventListener('xc-trigger-onboarding', handleOnboardingTrigger);
+    window.addEventListener('xc-trigger-story', handleStoryTrigger);
+    return () => {
+      window.removeEventListener('xc-trigger-onboarding', handleOnboardingTrigger);
+      window.removeEventListener('xc-trigger-story', handleStoryTrigger);
+    };
+  }, []);
+
+  // 跨进程/全局运行时状态同步
+  useEffect(() => {
+    if (typeof window !== 'undefined') {
+      (window as any).__IS_ONBOARDING_ACTIVE__ = isStoryOrOnboarding;
+    }
+    void syncXiaoChunRuntimeState({
+      onboardingActive: isStoryOrOnboarding,
+      onboardingCompleted: !isStoryOrOnboarding,
+      currentScene: sceneManager.getCurrentSceneId(),
+    });
+  }, [isStoryOrOnboarding]);
   // ── 内置界面"点击出现" (与 Tauri 桌宠共用 usePetUiVisibility / ClickDetector): 只在 uiAutoHide 对当前场景生效时才监听 ──
   const scene = useCurrentScene();
   const autoHide = xcUiAutoHideActive(ui.autoHide, Boolean(scene.isTransparent));
@@ -63,8 +118,10 @@ export const EmbedApp: React.FC = () => {
     vrmEngine.setCameraConfig(params.camera); // 相机选项 (?cameraFov= 等): 模型加载前设置, 首次取景 / 推镜头直接按它来
     document.documentElement.classList.add('xc-embed');
     vrmEngine.interaction.guidesEnabled = false; // /embed 环境隐藏腰部转身光环与相机高度尺导轨
-    try { localStorage.setItem('xc_onboarding_completed_v1', '1'); } catch { /* ignore */ }
-    (window as any).__IS_ONBOARDING_ACTIVE__ = false;
+    if (!params.onboarding && !params.story) {
+      try { localStorage.setItem(ONBOARDING_STORAGE_KEY, '1'); } catch { /* ignore */ }
+      (window as any).__IS_ONBOARDING_ACTIVE__ = false;
+    }
 
     // ── 引擎绑定 (与 App.tsx 同款: i18n / system prompt) ──
     vrmEngine.resumeRendering();
@@ -104,12 +161,14 @@ export const EmbedApp: React.FC = () => {
     setBridgeRef(bridge);
     vrmEngine.onLoadingChange = (s) => {
       bridge.reportProgress(s);
+      setLoadingActive(s.active);
       if (params.enableLoadingOverlay) {
         loadingStore.set(s);
       }
     };
     vrmEngine.onSwapProgress = (s) => {
       bridge.reportProgress(s);
+      setLoadingActive(s.active);
       if (params.enableLoadingOverlay) {
         loadingStore.set(s);
       }
@@ -148,13 +207,13 @@ export const EmbedApp: React.FC = () => {
         </Suspense>
       )}
       <SceneCanvas />
-      {ui.bubble && <ChatBubble state={bubble} />}
-      {ui.ui && <ChatBar isPetUIVisible={isPetUIVisible} autoHide={autoHide} onShowDevPanel={() => {}} />}
-      {bridgeRef && (
+      {ui.bubble && !isStoryOrOnboarding && <ChatBubble state={bubble} />}
+      {ui.ui && !isStoryOrOnboarding && <ChatBar isPetUIVisible={isPetUIVisible} autoHide={autoHide} onShowDevPanel={() => {}} />}
+      {bridgeRef && !isStoryOrOnboarding && (
         // 四角弧线: 只有宿主开了 resizable 才渲染 (组件内部按手势状态仓决定; 默认关闭时什么都不画)
         <Suspense fallback={null}><EmbedCorners /></Suspense>
       )}
-      {bridgeRef && (ui.outfit || ui.scene || ui.lang || ui.github) && (
+      {bridgeRef && !isStoryOrOnboarding && (ui.outfit || ui.scene || ui.lang || ui.github) && (
         <Suspense fallback={null}>
           <EmbedPicker
             flags={{ outfit: ui.outfit, scene: ui.scene, lang: ui.lang, github: ui.github }}
@@ -162,6 +221,36 @@ export const EmbedApp: React.FC = () => {
             autoHide={autoHide}
             petUiVisible={isPetUIVisible}
             scenesFilter={params.scenesFilter}
+          />
+        </Suspense>
+      )}
+
+      {/* 沉浸式小蠢故事导演引擎 · 试点剧场与新手引导 (Act 0 序章) */}
+      {!loadingActive && isVRMReady && isStoryOrOnboarding && (
+        <Suspense fallback={null}>
+          <StoryPlayer
+            script={prologueStory}
+            onComplete={() => {
+              setIsOnboardingActive(false);
+              setIsStoryActive(false);
+              void syncXiaoChunRuntimeState({ onboardingActive: false, onboardingCompleted: true });
+              try {
+                localStorage.setItem(ONBOARDING_STORAGE_KEY, '1');
+                // 若用户在虚空场景提前跳过，自动回退到设定的场景或默认海滩场景
+                if (sceneManager.getCurrentSceneId() === 'void') {
+                  void sceneManager.setScene(params.scene ?? APP_CONFIG.scenes.defaultSceneId, true);
+                }
+                // 清除 URL 中的 ?onboarding=1 或 ?story=1，防止刷新反复进入向导
+                if (typeof window !== 'undefined' && (window.location.search.includes('onboarding=') || window.location.search.includes('story='))) {
+                  const url = new URL(window.location.href);
+                  url.searchParams.delete('onboarding');
+                  url.searchParams.delete('story');
+                  window.history.replaceState({}, '', url.toString());
+                }
+              } catch { /* ignore */ }
+              bridgeRef?.reportStoryComplete?.(prologueStory.id);
+              bridgeRef?.reportOnboardingComplete?.();
+            }}
           />
         </Suspense>
       )}

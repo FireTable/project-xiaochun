@@ -22,7 +22,7 @@
           "description": "面部表情（可选）。可选值如：'happy'(开心)、'gentle_smile'(温柔微笑)、'smile'(微笑)、'shy'(害羞)、'playful'(调皮俏皮)、'surprised'(惊讶)、'sad'(难过)、'angry'(生气)、'relaxed'(放松)。"
         },
         "/properties/force": {
-          "description": "是否强制插话（默认 false）。若为 false，当检测到新手引导（art0 序章）正在进行时会提示用户先完成向导体验。"
+          "description": "是否强制插话（默认 false）。若为 false，当检测到新手引导（act0 序章）正在进行时会提示用户先完成向导体验。"
         }
       }
     },

@@ -41,6 +41,9 @@ export const XC_HOST_TO_FRAME = [
   'xc.resume',
   'xc.stop',
   'xc.destroy',
+  'xc.story.play',
+  'xc.story.stop',
+  'xc.onboarding.start',
 ] as const;
 
 /** iframe → 宿主 事件。 */
@@ -59,6 +62,8 @@ export const XC_FRAME_TO_HOST = [
   'xc.gesture-move',
   'xc.gesture-resize',
   'xc.error',
+  'xc.story.complete',
+  'xc.onboarding.complete',
 ] as const;
 
 export type XcHostMessageType = (typeof XC_HOST_TO_FRAME)[number];
@@ -86,6 +91,9 @@ export const XC_IMPLEMENTED_COMMANDS = [
   'xc.resume',
   'xc.stop',
   'xc.destroy',
+  'xc.story.play',
+  'xc.story.stop',
+  'xc.onboarding.start',
 ] as const satisfies readonly XcHostMessageType[];
 
 /**
@@ -790,6 +798,9 @@ export interface XcHostPayloadMap {
   'xc.resume': undefined;
   'xc.stop': undefined;
   'xc.destroy': undefined;
+  'xc.story.play': { script?: string } | undefined;
+  'xc.story.stop': undefined;
+  'xc.onboarding.start': undefined;
 }
 
 export interface XcFramePayloadMap {
@@ -807,6 +818,8 @@ export interface XcFramePayloadMap {
   'xc.gesture-move': XcGestureMovePayload;
   'xc.gesture-resize': XcGestureResizePayload;
   'xc.error': XcErrorPayload;
+  'xc.story.complete': { scriptId?: string };
+  'xc.onboarding.complete': Record<string, never> | undefined;
 }
 
 export type XcHostMessage = {

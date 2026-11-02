@@ -34,22 +34,26 @@ function resolveInitialSceneId(): string {
     return APP_CONFIG.scenes.defaultSceneId;
   }
 
+  // 沉浸式新人引导向导状态 (首次进入或 URL 带 ?onboarding=1 / ?story=1 / ?onboarding=auto)：
+  // 此时舞台必须处于「纯粹虚空」(void)，空无一物，直到第 4 步用户选定世界后才正式具现化加载！
+  try {
+    const q = new URLSearchParams(window.location.search);
+    const onboardingVal = q.get('onboarding');
+    const storyVal = q.get('story');
+    const isFirstVisit = localStorage.getItem(ONBOARDING_STORAGE_KEY) !== '1';
+    const isExplicitOnboarding = onboardingVal === '1' || onboardingVal === 'true' || storyVal === '1' || storyVal === 'prologue';
+    const isAutoOnboarding = isEmbed() && onboardingVal === 'auto' && isFirstVisit;
+    if ((isExplicitOnboarding || isAutoOnboarding || (!isEmbed() && isFirstVisit)) && hasScene('void')) {
+      return 'void';
+    }
+  } catch {}
+
   // /embed: URL 参数优先于 localStorage (宿主显式指定的外观要确定性); 没指定时才读 iframe 自己存的场景偏好。
   // 优先级: ?scene= (light|dark|transparent) > ?transparent=1 (旧参数) > ?theme= (旧参数, 仅非透明)。
   if (isEmbed()) {
     const id = embedSceneFromSearch(window.location.search); // 与 vrmEngine 初始线稿主题同一份解析
     if (id !== null && hasScene(id)) return id;
   }
-
-  // 沉浸式新人引导向导状态 (首次进入或 URL 带 ?onboarding=1)：
-  // 此时舞台必须处于「纯粹虚空」(void)，空无一物，直到第 4 步用户选定世界后才正式具现化加载！
-  try {
-    const isExplicitOnboarding = new URLSearchParams(window.location.search).get('onboarding') === '1';
-    const isFirstVisit = localStorage.getItem(ONBOARDING_STORAGE_KEY) !== '1';
-    if (!isEmbed() && (isExplicitOnboarding || isFirstVisit) && hasScene('void')) {
-      return 'void';
-    }
-  } catch {}
 
   try {
     const stored = localStorage.getItem(SCENE_THEME_KEY);

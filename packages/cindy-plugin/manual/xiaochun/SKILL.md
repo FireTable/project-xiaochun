@@ -11,7 +11,7 @@ metadata:
 This manual guides agents on controlling the local AI companion XiaoChun.
 
 ## Core Capabilities
-- **Speaking & Voice Reading (`xiaochun_speak`)**: Speaks text aloud with natural voice, gestures, and emotions. Features new-user onboarding (art0 prologue) guard: prompts user to complete the initial tour before interrupting, unless `force: true` is passed.
+- **Speaking & Voice Reading (`xiaochun_speak`)**: Speaks text aloud with natural voice, gestures, and emotions. Features new-user onboarding (act0 prologue) guard: prompts user to complete the initial tour before interrupting, unless `force: true` is passed.
 - **Motions & Groups (`xiaochun_motion`)**: Plays specific gestures or action sets like `greeting`, `think`, `dancePerformance`.
 - **Camera Adjustments (`xiaochun_camera`)**: Alters framing between `close_up`, `full`, and `pan_up`.
 - **Scene Switching (`xiaochun_scene`)**: Seamlessly switches between scenes (`beach3d`, `transparent`, `dark`, `light`, `void`).

@@ -24,6 +24,7 @@
 import { parseControls, parseLoadingOverlay, parseScenesFilter } from './registry.ts';
 import { isLang, type Lang } from '@/i18n';
 import { XC_UI_AUTOHIDE_DEFAULT, normalizeOrigin, parseXcCameraParams, parseXcUiAutoHide, parseXcUiParam, type XcCamera, type XcHeavyMode, type XcUiAutoHide, type XcUiPart } from '@firetable/project-xiaochun/protocol';
+import { ONBOARDING_STORAGE_KEY } from '@/lib/constants';
 
 export interface EmbedParams {
   transparent: boolean;
@@ -52,6 +53,10 @@ export interface EmbedParams {
   allowedHostOrigins: string[];
   /** 是否在 iframe 内渲染全屏 LoadingOverlay (默认 false)。 */
   enableLoadingOverlay: boolean;
+  /** 是否开启沉浸式新手剧情向导 (Act 0 序章; 默认 false, 支持 ?onboarding=1|true|auto)。 */
+  onboarding: boolean;
+  /** 是否开启故事剧场模式 (默认 false, 支持 ?story=1|true|prologue|<script_id>)。 */
+  story: boolean | string;
 }
 
 export function readEmbedParams(search?: string): EmbedParams {
@@ -91,6 +96,26 @@ export function readEmbedParams(search?: string): EmbedParams {
 
   const enableLoadingOverlay = parseLoadingOverlay(q.get('enableLoadingOverlay') ?? q.get('loadingOverlay'));
 
+  const onboardingRaw = q.get('onboarding');
+  let onboarding = false;
+  if (onboardingRaw === '1' || onboardingRaw === 'true') {
+    onboarding = true;
+  } else if (onboardingRaw === 'auto') {
+    try {
+      onboarding = typeof localStorage !== 'undefined' ? localStorage.getItem(ONBOARDING_STORAGE_KEY) !== '1' : false;
+    } catch {
+      onboarding = false;
+    }
+  }
+
+  const storyRaw = q.get('story');
+  let story: boolean | string = false;
+  if (storyRaw === '1' || storyRaw === 'true' || storyRaw === 'prologue') {
+    story = true;
+  } else if (typeof storyRaw === 'string' && storyRaw.trim().length > 0 && storyRaw !== '0' && storyRaw !== 'false') {
+    story = storyRaw.trim();
+  }
+
   return {
     transparent: q.get('transparent') === '1',
     uiParts: [...uiSet],
@@ -107,5 +132,7 @@ export function readEmbedParams(search?: string): EmbedParams {
     controls: parseControls(q.get('controls')),
     allowedHostOrigins: [...origins],
     enableLoadingOverlay,
+    onboarding,
+    story,
   };
 }
