@@ -38,8 +38,12 @@ const GLOBAL_Y = 55;
 const GLOBAL_VZ = 56;
 // ponytail: 模型文件基础 URL。生产从 R2(绕过 Pages 25 MiB/300 MiB 单文件上限);
 // 本地 dev 在 .env.local 设 VITE_EMAGE_BASE=/onnx 即可用 public/onnx 软链。
-const ONNX_BASE = APP_CONFIG.emage.base;
-const WASM_PATHS = 'https://cdn.jsdelivr.net/npm/onnxruntime-web@1.22.0-dev.20250409-89f8206ba4/dist/';
+// 宿主回环沙箱（如 Cindy Electron 严格 webRequest 规则下仅放行 127.0.0.1）自动走本地代理路由。
+const isLoopbackHost = typeof self !== 'undefined' &&
+  (self.location.hostname === '127.0.0.1' || self.location.hostname === 'localhost');
+
+const ONNX_BASE = isLoopbackHost ? '/emage' : APP_CONFIG.emage.base;
+const WASM_PATHS = isLoopbackHost ? '/wasm/' : 'https://cdn.jsdelivr.net/npm/onnxruntime-web@1.22.0-dev.20250409-89f8206ba4/dist/';
 const CACHE_NAME = APP_CONFIG.emage.cacheName;
 
 function postStageProfile(

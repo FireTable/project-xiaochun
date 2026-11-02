@@ -22,14 +22,16 @@ import { punctuationPipeline, finalizePunctuation } from './punctuation';
 import { ctTransformerPunct } from './ctTransformerPunct';
 
 const STT = APP_CONFIG.stt;
-const ONNX_BASE = STT.base.replace(/\/$/, '');
+const isLoopbackHost = typeof self !== 'undefined' && (self.location.hostname === '127.0.0.1' || self.location.hostname === 'localhost');
+const ONNX_BASE = isLoopbackHost ? '/stt/sensevoice-zh-en-ja-ko-yue-int8-2024-07-17' : STT.base.replace(/\/$/, '');
 const CACHE_NAME = STT.cacheName;
 const CACHE_PREFIX = STT.cacheKeyPrefix; // e.g. xiaochun-stt/v2024-07-17
 const MODEL_FILE = STT.modelFile;
 const TOKENS_FILE = STT.tokensFile;
 const SAMPLE_RATE = STT.sampleRate;
-const WASM_PATHS =
-  'https://cdn.jsdelivr.net/npm/onnxruntime-web@1.22.0-dev.20250409-89f8206ba4/dist/';
+const WASM_PATHS = isLoopbackHost
+  ? '/wasm/'
+  : 'https://cdn.jsdelivr.net/npm/onnxruntime-web@1.22.0-dev.20250409-89f8206ba4/dist/';
 
 type WorkerIn =
   | { type: 'load' }

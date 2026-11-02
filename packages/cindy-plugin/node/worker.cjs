@@ -174,24 +174,44 @@ const bridgeServer = http.createServer((req, res) => {
     return;
   }
 
-  // ── 反向代理 https://xiaochun.firetable.tech (确保在 Cindy CSP 严格沙箱内以 127.0.0.1 loopback 形式安全加载) ──
+  // ── 反向代理路由解析：根据路径将请求分发至对应上游服务器，严格保持 127.0.0.1 域内 ──
   const cleanUrl = (req.url || '').split('?')[0];
   const isJsAsset = cleanUrl.endsWith('.js');
   const isAudioOrTts = cleanUrl === '/api/tts' || cleanUrl.startsWith('/audio/') || cleanUrl.endsWith('.mp3');
   const isHeavyModelOrAsset = cleanUrl.endsWith('.vrmaddon') || cleanUrl.endsWith('.vrmbase') || cleanUrl.endsWith('.onnx') || cleanUrl.endsWith('.wasm');
 
+  let targetHost = 'xiaochun.firetable.tech';
+  let targetPath = req.url;
+
+  if (cleanUrl.startsWith('/emage/') || cleanUrl.startsWith('/onnx/')) {
+    targetHost = 'cdn.firetable.tech';
+    const subPath = cleanUrl.replace(/^\/(emage|onnx)\//, '');
+    const query = (req.url || '').includes('?') ? '?' + (req.url || '').split('?')[1] : '';
+    targetPath = `/xiaochun/emage/${subPath}${query}`;
+  } else if (cleanUrl.startsWith('/stt/')) {
+    targetHost = 'cdn.firetable.tech';
+    const subPath = cleanUrl.replace(/^\/stt\//, '');
+    const query = (req.url || '').includes('?') ? '?' + (req.url || '').split('?')[1] : '';
+    targetPath = `/xiaochun/stt/${subPath}${query}`;
+  } else if (cleanUrl.startsWith('/wasm/')) {
+    targetHost = 'cdn.jsdelivr.net';
+    const subPath = cleanUrl.replace(/^\/wasm\//, '');
+    const query = (req.url || '').includes('?') ? '?' + (req.url || '').split('?')[1] : '';
+    targetPath = `/npm/onnxruntime-web@1.22.0-dev.20250409-89f8206ba4/dist/${subPath}${query}`;
+  }
+
   const forwardHeaders = {
     ...req.headers,
-    host: 'xiaochun.firetable.tech',
-    origin: 'https://xiaochun.firetable.tech',
-    referer: 'https://xiaochun.firetable.tech/',
+    host: targetHost,
+    origin: `https://${targetHost}`,
+    referer: `https://${targetHost}/`,
     'accept-encoding': (isJsAsset || isAudioOrTts || isHeavyModelOrAsset) ? 'identity' : (req.headers['accept-encoding'] || 'identity')
   };
 
   const proxyReq = https.request({
-    hostname: 'xiaochun.firetable.tech',
+    hostname: targetHost,
     port: 443,
-    path: req.url,
+    path: targetPath,
     method: req.method,
     headers: forwardHeaders
   }, (proxyRes) => {

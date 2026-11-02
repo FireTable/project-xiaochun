@@ -34,8 +34,10 @@ export type SileroVadEvent =
 const DEFAULT_MODEL_PATH = '/models/silero_vad_v5.onnx';
 const FALLBACK_MODEL_URL =
   'https://cdn.jsdelivr.net/npm/@ricky0123/vad-web@0.0.31/dist/silero_vad_v5.onnx';
-const WASM_PATHS =
-  'https://cdn.jsdelivr.net/npm/onnxruntime-web@1.22.0-dev.20250409-89f8206ba4/dist/';
+const isLoopbackHost = typeof window !== 'undefined' && (window.location.hostname === '127.0.0.1' || window.location.hostname === 'localhost');
+const WASM_PATHS = isLoopbackHost
+  ? '/wasm/'
+  : 'https://cdn.jsdelivr.net/npm/onnxruntime-web@1.22.0-dev.20250409-89f8206ba4/dist/';
 
 export class SileroVad {
   private session: ort.InferenceSession | null = null;
