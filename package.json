@@ -51,6 +51,7 @@
     "test": "vitest run",
     "pack:cindy": "node scripts/pack-cindy-plugin.mjs",
     "build:cindy": "node scripts/pack-cindy-plugin.mjs",
+    "test:cindy": "node packages/cindy-plugin/test-plugin.mjs",
     "test:cindy-plugin": "node packages/cindy-plugin/test-plugin.mjs",
     "test:embed": "node --test src/embed/__tests__/*.test.mjs",
     "generate:previews": "node scripts/generate-previews.mjs",

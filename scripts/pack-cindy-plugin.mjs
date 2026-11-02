@@ -163,7 +163,11 @@ async function main() {
   files.sort((a, b) => a.relPath.localeCompare(b.relPath));
 
   for (const { fullPath, relPath } of files) {
-    const content = fs.readFileSync(fullPath);
+    let content = fs.readFileSync(fullPath);
+    // 确保打进包内的 bridge-port.json 始终是标准预留端口 23518，防止测试时的临时端口泄露到安装包
+    if (relPath === 'bridge-port.json') {
+      content = Buffer.from(JSON.stringify({ port: 23518, timestamp: 1793630000000 }, null, 2));
+    }
     totalRawBytes += content.length;
     zipEntries[relPath] = new Uint8Array(content);
     console.log(`   + ${relPath} (${(content.length / 1024).toFixed(1)} KB)`);

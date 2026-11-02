@@ -261,9 +261,12 @@ function startBridgeServer(port = PREFERRED_BRIDGE_PORT) {
     try {
       fs.writeFileSync(path.join(os.tmpdir(), 'xiaochun-bridge-port.json'), portData, 'utf-8');
     } catch {}
-    try {
-      fs.writeFileSync(path.join(__dirname, '..', 'bridge-port.json'), portData, 'utf-8');
-    } catch {}
+    // 仅在真实运行模式下写入 bridge-port.json，测试环境绝不污染工程文件
+    if (process.env.XIAOCHUN_TEST_MODE !== '1') {
+      try {
+        fs.writeFileSync(path.join(__dirname, '..', 'bridge-port.json'), portData, 'utf-8');
+      } catch {}
+    }
   });
 }
 

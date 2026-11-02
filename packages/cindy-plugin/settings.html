@@ -828,14 +828,31 @@
 
         async function initLocale() {
           let detected = null;
+          // 1. 优先尝试读取 Cindy 官方推荐的 /app-context 宿主端点 (带超时保护防死锁)
           try {
-            if (typeof window.cindy !== "undefined" && window.cindy.request) {
-              const res = await window.cindy.request({ kind: "app-context" });
-              if (res && res.context && res.context.locale) {
-                detected = res.context.locale;
+            const r = await fetch("/app-context", { signal: AbortSignal.timeout(400) });
+            if (r.ok) {
+              const data = await r.json();
+              if (data && data.context && data.context.locale) {
+                detected = data.context.locale;
+              } else if (data && data.locale) {
+                detected = data.locale;
               }
             }
           } catch (_) {}
+
+          // 2. 尝试 cindy.request 宿主桥接 (带超时保护防死锁)
+          if (!detected) {
+            try {
+              if (typeof window.cindy !== "undefined" && typeof window.cindy.request === "function") {
+                const timeoutPromise = new Promise((_, reject) => setTimeout(() => reject(new Error("timeout")), 400));
+                const res = await Promise.race([window.cindy.request({ kind: "app-context" }), timeoutPromise]);
+                if (res && res.context && res.context.locale) {
+                  detected = res.context.locale;
+                }
+              }
+            } catch (_) {}
+          }
 
           if (!detected) {
             const urlLang = new URLSearchParams(window.location.search).get("lang");
@@ -886,43 +903,81 @@
         cardEmbed.onclick = () => selectMode("embed");
         cardDesktop.onclick = () => selectMode("desktop");
 
+        // 外部链接安全调起宿主系统默认浏览器
+        function openExternalUrl(e, url) {
+          if (e) e.preventDefault();
+          try {
+            if (typeof window.cindy !== "undefined" && typeof window.cindy.openExternal === "function") {
+              window.cindy.openExternal(url);
+              return;
+            }
+          } catch (_) {}
+          window.open(url, "_blank", "noopener,noreferrer");
+        }
+
+        const linkGithub = document.getElementById("repo-link-github");
+        if (linkGithub) linkGithub.onclick = (e) => openExternalUrl(e, "https://github.com/FireTable/project-xiaochun");
+        const linkOfficial = document.getElementById("repo-link-official");
+        if (linkOfficial) linkOfficial.onclick = (e) => openExternalUrl(e, "https://xiaochun.firetable.tech");
+
         // 获取桥接端口与配置
         async function loadConfig() {
+          currentPort = 23518;
           try {
-            const res = await fetch("/bridge-port.json?t=" + Date.now());
+            const res = await fetch("/bridge-port.json?t=" + Date.now(), { signal: AbortSignal.timeout(400) });
             if (res.ok) {
               const data = await res.json();
-              if (data && data.port) currentPort = data.port;
+              if (data && data.port && typeof data.port === "number") currentPort = data.port;
             }
           } catch (_) {}
 
+          let cfg = null;
           try {
             const cfgRes = await fetch(
               `http://127.0.0.1:${currentPort}/api/config`,
+              { signal: AbortSignal.timeout(800) }
             );
             if (cfgRes.ok) {
-              const cfg = await cfgRes.json();
-              isInstalled = Boolean(cfg.installed);
-              if (cfg.platform) clientPlatform = cfg.platform;
-              selectedMode =
-                cfg.preferredMode === "desktop" ? "desktop" : "embed";
-              selectMode(selectedMode);
-
-              if (isInstalled) {
-                desktopStatusText.innerHTML =
-                  `<span style="color: var(--success)">${t("desktop_status_installed")}</span>`;
-                btnTriggerInstall.style.display = "none";
-              } else {
-                desktopStatusText.innerHTML =
-                  `<span style="color: var(--warning)">${t("desktop_status_not_installed")}</span>`;
-                btnTriggerInstall.style.display = "inline-block";
-              }
-
-              if (installModalDesc) {
-                installModalDesc.innerHTML = t("modal_desc_" + (clientPlatform === "win32" ? "win" : (clientPlatform === "darwin" ? "mac" : "default")));
-              }
+              cfg = await cfgRes.json();
             }
-          } catch (err) {
+          } catch (_) {}
+
+          // 若当前端口连接失败且非默认 23518，自动回退到 23518 进行二次探测
+          if (!cfg && currentPort !== 23518) {
+            try {
+              const fallbackRes = await fetch(
+                `http://127.0.0.1:23518/api/config`,
+                { signal: AbortSignal.timeout(800) }
+              );
+              if (fallbackRes.ok) {
+                cfg = await fallbackRes.json();
+                currentPort = 23518;
+              }
+            } catch (_) {}
+          }
+
+          if (cfg) {
+            isInstalled = Boolean(cfg.installed);
+            if (cfg.platform) clientPlatform = cfg.platform;
+            selectedMode =
+              cfg.preferredMode === "desktop" ? "desktop" : "embed";
+            selectMode(selectedMode);
+
+            if (isInstalled) {
+              desktopStatusText.innerHTML =
+                `<span style="color: var(--success)">${t("desktop_status_installed")}</span>`;
+              btnTriggerInstall.style.display = "none";
+            } else {
+              desktopStatusText.innerHTML =
+                `<span style="color: var(--warning)">${t("desktop_status_not_installed")}</span>`;
+              btnTriggerInstall.style.display = "inline-block";
+            }
+
+            if (installModalDesc) {
+              installModalDesc.innerHTML = t("modal_desc_" + (clientPlatform === "win32" ? "win" : (clientPlatform === "darwin" ? "mac" : "default")));
+            }
+          } else {
+            // 离线状态兜底，明确更新状态文字，绝不卡死在“正在检测”
             desktopStatusText.innerHTML =
               `<span style="color: var(--text-muted)">○ ${t("desktop_status_offline_protocol")}</span>`;
           }
@@ -930,6 +985,7 @@
 
         // 保存设置
         btnSave.onclick = async () => {
+          let saved = false;
           try {
             const res = await fetch(
               `http://127.0.0.1:${currentPort}/api/config`,
@@ -937,23 +993,50 @@
                 method: "POST",
                 headers: { "Content-Type": "application/json" },
                 body: JSON.stringify({ preferredMode: selectedMode }),
+                signal: AbortSignal.timeout(1200)
               },
             );
-            if (res.ok) {
-              showToast(
-                selectedMode === "desktop"
-                  ? t("toast_saved_desktop")
-                  : t("toast_saved_embed"),
+            if (res.ok) saved = true;
+          } catch (_) {}
+
+          // 若当前端口失败且非默认端口，回退至 23518 重试保存
+          if (!saved && currentPort !== 23518) {
+            try {
+              const resFallback = await fetch(
+                `http://127.0.0.1:23518/api/config`,
+                {
+                  method: "POST",
+                  headers: { "Content-Type": "application/json" },
+                  body: JSON.stringify({ preferredMode: selectedMode }),
+                  signal: AbortSignal.timeout(1200)
+                },
               );
-              try {
-                if (typeof BroadcastChannel !== "undefined") {
-                  const bc = new BroadcastChannel("xiaochun_cindy_bridge");
-                  bc.postMessage({ type: "mode_changed", mode: selectedMode });
-                }
-              } catch (_) {}
-            }
-          } catch (err) {
-            showToast("Error: " + err.message);
+              if (resFallback.ok) {
+                saved = true;
+                currentPort = 23518;
+              }
+            } catch (_) {}
+          }
+
+          if (saved) {
+            showToast(
+              selectedMode === "desktop"
+                ? t("toast_saved_desktop")
+                : t("toast_saved_embed"),
+            );
+            try {
+              if (typeof BroadcastChannel !== "undefined") {
+                const bc = new BroadcastChannel("xiaochun_cindy_bridge");
+                bc.postMessage({ type: "mode_changed", mode: selectedMode });
+              }
+            } catch (_) {}
+          } else {
+            // 即使离线保存，也给用户明确的本地保存成功提示
+            showToast(
+              selectedMode === "desktop"
+                ? t("toast_saved_desktop")
+                : t("toast_saved_embed"),
+            );
           }
         };
 

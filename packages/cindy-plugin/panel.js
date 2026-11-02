@@ -117,21 +117,28 @@
 
   async function resolveInitialLocale() {
     let detected = null;
+    // 1. 优先尝试读取 Cindy 官方推荐的 /app-context 端点 (带超时保护防死锁)
     try {
-      if (typeof window.cindy !== 'undefined' && window.cindy.request) {
-        const res = await window.cindy.request({ kind: 'app-context' });
-        if (res && res.context && res.context.locale) {
-          detected = res.context.locale;
+      const r = await fetch('/app-context', { signal: AbortSignal.timeout(400) });
+      if (r.ok) {
+        const data = await r.json();
+        if (data && data.context && data.context.locale) {
+          detected = data.context.locale;
+        } else if (data && data.locale) {
+          detected = data.locale;
         }
       }
     } catch (_) {}
 
+    // 2. 尝试 cindy.request 宿主桥接 (带超时保护防死锁)
     if (!detected) {
       try {
-        const r = await fetch('/app-context');
-        if (r.ok) {
-          const data = await r.json();
-          if (data && data.locale) detected = data.locale;
+        if (typeof window.cindy !== 'undefined' && typeof window.cindy.request === 'function') {
+          const timeoutPromise = new Promise((_, reject) => setTimeout(() => reject(new Error('timeout')), 400));
+          const res = await Promise.race([window.cindy.request({ kind: 'app-context' }), timeoutPromise]);
+          if (res && res.context && res.context.locale) {
+            detected = res.context.locale;
+          }
         }
       } catch (_) {}
     }
@@ -193,11 +200,12 @@
 
   // 1. 获取本地桥接服务端口并载入伴侣视窗
   async function initEmbedFrame() {
+    currentPort = 23518;
     try {
-      const res = await fetch('/bridge-port.json?t=' + Date.now());
+      const res = await fetch('/bridge-port.json?t=' + Date.now(), { signal: AbortSignal.timeout(500) });
       if (res.ok) {
         const data = await res.json();
-        if (data && data.port) {
+        if (data && data.port && typeof data.port === 'number') {
           currentPort = data.port;
         }
       }
@@ -576,8 +584,10 @@
     }
   }
 
-  // 初始化语言并启动加载
-  void resolveInitialLocale().then(() => {
+  // 初始化语言并启动加载 (确保无论 initLocale 成功还是失败，均能无阻碍拉起视窗)
+  void resolveInitialLocale().catch((err) => {
+    console.warn('[XiaoChun Panel] 解析语言失败，使用默认 zh-CN:', err);
+  }).finally(() => {
     initEmbedFrame();
   });
 })();
