@@ -203,6 +203,13 @@ export interface XiaochunOptions {
    */
   crossOriginIsolated?: boolean;
   zIndex?: number;
+  /**
+   * 是否在 iframe 内启用原生的全屏 LoadingOverlay 启动遮罩 (默认 false: 由宿主自行画占位图)。
+   * 开启后 iframe 启动时会呈现星空、立绘光效 (Keyvisual Warp) 与流水线进度条，加载完成后平滑破次元退场。
+   */
+  enableLoadingOverlay?: boolean;
+  /** `enableLoadingOverlay` 别名。 */
+  loadingOverlay?: boolean;
 }
 
 /** speakAudio / speakAudioStream 的选项。 */
@@ -709,6 +716,7 @@ export function createXiaochun(options: XiaochunOptions): XiaochunInstance {
     if (typeof camera.intro === 'boolean') u.searchParams.set('cameraIntro', camera.intro ? '1' : '0');
     if (options.heavy) u.searchParams.set('heavy', options.heavy);
     if (options.controls === false) u.searchParams.set('controls', '0');
+    if (options.enableLoadingOverlay || options.loadingOverlay) u.searchParams.set('enableLoadingOverlay', '1');
     if (initialScene && isXcId(initialScene)) u.searchParams.set('scene', initialScene);
     if (initialOutfit) u.searchParams.set('outfit', initialOutfit);
     return u.href;

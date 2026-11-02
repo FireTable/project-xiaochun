@@ -88,6 +88,14 @@ export function parseControls(raw: string | null | undefined): boolean {
   return !(raw === '0' || raw === 'false');
 }
 
+/**
+ * ?enableLoadingOverlay= (或 ?loadingOverlay=) 解析。
+ * 默认关 (false: 由宿主自己画占位图); 只有显式 1 / true 才开启。
+ */
+export function parseLoadingOverlay(raw: string | null | undefined): boolean {
+  return raw === '1' || raw === 'true';
+}
+
 export type EmbedSceneId = 'light' | 'dark' | 'transparent' | 'beach3d';
 
 /**

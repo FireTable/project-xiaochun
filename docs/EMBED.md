@@ -53,6 +53,7 @@ sequenceDiagram
 | `scene` | follows `transparent` / `theme` | Initial scene: `light` / `dark` / `transparent` / `beach3d`. Strictly validated; priority: `scene` > `transparent=1` > `theme` > system light/dark. Explicit assignment prevents system theme changes from switching scenes. |
 | `theme` | follows system | Linework theme (`light` / `dark`) when non-transparent. |
 | `controls` | `1` (enabled) | Scroll wheel zoom, matching main site. `0` = Force disabled; `1` = Enabled. In **transparent scenes**, only zooms when pointer is over character pixels, passing wheel events to host otherwise. In **opaque scenes**, entire iframe area captures wheel events as zoom, **suppressing host page scrolling in that box** (use `controls=0` if host scrolling is needed). |
+| `enableLoadingOverlay` | `0` (disabled) | `0` = Disabled (default: host draws placeholder); `1` = Enable built-in full-screen starry sky and keyvisual warp loading overlay with smooth breakthrough and camera push-in. Alias: `loadingOverlay`. |
 
 ---
 
@@ -306,6 +307,7 @@ createXiaochun({
   uiAutoHide: undefined,         // 'transparent' | true | false
   heavy: 'lazy',                 // 'lazy' | 'eager' (EMAGE + WebLLM) | 'motion' (EMAGE only)
   controls: true,                // Enable wheel zoom
+  enableLoadingOverlay: false,   // Enable full-screen starry LoadingOverlay (defaults to false)
   autoPause: true,               // Suspend render loop when outside viewport
   passthrough: undefined,        // Alpha hit testing toggle (defaults to transparent)
   sandbox: 'allow-scripts allow-same-origin allow-popups allow-popups-to-escape-sandbox',
@@ -317,7 +319,7 @@ createXiaochun({
 
 ### 4.4 Web Component: `<xiaochun-avatar>`
 
-Supported attributes: `src`, `outfit`, `scene`, `camera-fov`, `camera-distance`, `camera-height`, `camera-intro`, `persist-box`, `persist`, `prefetch`, `allow-custom-model`, `lang`, `mic`, `transparent`, `draggable`, `resizable`, `border-radius`, `min-size`, `max-size`, `position`, `size`, `lazy`, `paused`, `ui`, `ui-autohide`, `controls`, `placeholder`, `heavy`, `cross-origin-isolated`.
+Supported attributes: `src`, `outfit`, `scene`, `camera-fov`, `camera-distance`, `camera-height`, `camera-intro`, `persist-box`, `persist`, `prefetch`, `allow-custom-model`, `lang`, `mic`, `transparent`, `draggable`, `resizable`, `border-radius`, `min-size`, `max-size`, `position`, `size`, `lazy`, `paused`, `ui`, `ui-autohide`, `controls`, `enable-loading-overlay`, `placeholder`, `heavy`, `cross-origin-isolated`.
 
 Events emitted: `xc-ready`, `xc-progress`, `xc-state`, `xc-stt`, `xc-utterance`, `xc-outfit-changed`, `xc-scene-changed`, `xc-lang-changed`, `xc-move`, `xc-resize`, `xc-error`.
 

@@ -221,6 +221,7 @@ function createElementClass(): CustomElementConstructor {
         camera: cameraAttrs(this),
         controls: boolAttr(this, 'controls', true),
         crossOriginIsolated: boolAttr(this, 'cross-origin-isolated', false),
+        enableLoadingOverlay: boolAttr(this, 'enable-loading-overlay', false) || boolAttr(this, 'loading-overlay', false),
       });
       this.client = c;
       const fwd = (ev: string, name: string) => c.on(ev as 'ready', (detail) =>

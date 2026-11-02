@@ -34,6 +34,8 @@ import {
 // 内置按钮只在 ?picker= 打开时才加载 (Radix 下拉等); 默认不开的宿主不为它多下一个字节
 const EmbedCorners = lazy(() => import('./EmbedCorners').then((m) => ({ default: m.EmbedCorners })));
 const EmbedPicker = lazy(() => import('./EmbedPicker').then((m) => ({ default: m.EmbedPicker })));
+const LoadingOverlay = lazy(() => import('@/components/LoadingOverlay').then((m) => ({ default: m.LoadingOverlay })));
+import { loadingStore } from '@/components/loading/loadingStore';
 
 export const EmbedApp: React.FC = () => {
   const { i18n } = useTranslation();
@@ -84,6 +86,11 @@ export const EmbedApp: React.FC = () => {
     const stored = params.outfit === null ? readOutfitPref(safeLocalStorage(), WEARING_OUTFIT_KEY, addons) : null;
     const initial = resolveInitialOutfitWithPref(addons, params.outfit, stored);
 
+    if (params.enableLoadingOverlay) {
+      loadingStore.init({ active: true, subtitleKey: 'parsingModel', progress: 0 });
+      loadingStore.setBreakStartHandler(() => vrmEngine.resumeRendering());
+    }
+
     // ── 协议桥 ──
     const bridge: EmbedBridge = startEmbedBridge({
       params,
@@ -93,8 +100,18 @@ export const EmbedApp: React.FC = () => {
       initialOutfit: initial?.id ?? null,
     });
     setBridgeRef(bridge);
-    vrmEngine.onLoadingChange = (s) => bridge.reportProgress(s);
-    vrmEngine.onSwapProgress = (s) => bridge.reportProgress(s);
+    vrmEngine.onLoadingChange = (s) => {
+      bridge.reportProgress(s);
+      if (params.enableLoadingOverlay) {
+        loadingStore.set(s);
+      }
+    };
+    vrmEngine.onSwapProgress = (s) => {
+      bridge.reportProgress(s);
+      if (params.enableLoadingOverlay) {
+        loadingStore.set(s);
+      }
+    };
 
     // ── 加载初始模型 (主站由 TopHeader 负责; embed 无 TopHeader, 这里补上) ──
     // 稍作延后, 让出主线程给 canvas 初始化。
@@ -123,6 +140,11 @@ export const EmbedApp: React.FC = () => {
 
   return (
     <div id="app" className="relative w-full h-screen h-[100dvh] overflow-hidden">
+      {params.enableLoadingOverlay && (
+        <Suspense fallback={null}>
+          <LoadingOverlay />
+        </Suspense>
+      )}
       <SceneCanvas />
       {ui.bubble && <ChatBubble state={bubble} />}
       {ui.ui && <ChatBar isPetUIVisible={isPetUIVisible} autoHide={autoHide} onShowDevPanel={() => {}} />}

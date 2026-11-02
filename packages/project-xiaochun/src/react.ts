@@ -132,6 +132,7 @@ export function useXiaochun(options: XiaochunHookOptions = {}): UseXiaochunResul
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [el, o.src, o.origin, originsKey, o.lazy, o.lazyMargin, o.placeholder, o.transparent, o.position,
     JSON.stringify(o.ui ?? null), o.uiAutoHide, o.heavy, o.controls, o.autoPause, o.passthrough, o.sandbox, o.handshakeTimeout, o.crossOriginIsolated, o.zIndex,
+    o.enableLoadingOverlay, o.loadingOverlay,
     o.allowCustomModel, o.persist, o.persistBox, Array.isArray(o.prefetch) ? o.prefetch.join(',') : o.prefetch]);
 
   // 热更新: lang / outfit (model 是旧别名) / scene (跳过首次: 创建时已经作为初始选项传入)。

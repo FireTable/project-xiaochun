@@ -52,7 +52,7 @@
       background: transparent;
     }
 
-    /* 载入状态轻量遮罩（就绪后平滑淡出） */
+    /* 宿主超时重试遮罩 (默认穿透，全权由 iframe 内原生 LoadingOverlay 呈现启动视觉) */
     #loading-overlay {
       position: absolute;
       inset: 0;
@@ -61,59 +61,36 @@
       flex-direction: column;
       align-items: center;
       justify-content: center;
-      background: var(--bg);
-      gap: 14px;
-      transition: opacity 0.35s ease, visibility 0.35s ease;
-    }
-
-    #loading-overlay.hidden {
-      opacity: 0;
-      visibility: hidden;
+      background: transparent;
       pointer-events: none;
     }
 
-    .spinner {
-      width: 36px;
-      height: 36px;
-      border: 3px solid rgba(var(--primary-rgb), 0.2);
-      border-top-color: var(--primary);
-      border-radius: 50%;
-      animation: spin 0.8s cubic-bezier(0.5, 0.1, 0.4, 0.9) infinite;
-    }
-
-    @keyframes spin {
-      to { transform: rotate(360deg); }
-    }
-
-    .loading-title {
-      font-size: 13px;
-      font-weight: 500;
-      color: var(--text);
-      letter-spacing: 0.3px;
-    }
-
-    .loading-sub {
-      font-size: 11px;
-      color: var(--text-muted);
+    #loading-overlay.hidden {
+      display: none;
     }
 
     .retry-btn {
-      margin-top: 4px;
       appearance: none;
-      border: 1px solid rgba(255, 255, 255, 0.15);
-      background: rgba(255, 255, 255, 0.06);
+      border: 1px solid rgba(255, 255, 255, 0.2);
+      background: rgba(15, 17, 23, 0.88);
+      backdrop-filter: blur(12px);
+      -webkit-backdrop-filter: blur(12px);
       color: var(--text);
-      padding: 5px 12px;
-      border-radius: 6px;
-      font-size: 11px;
+      padding: 8px 18px;
+      border-radius: 9999px;
+      font-size: 12px;
+      font-weight: 500;
       cursor: pointer;
       display: none;
-      transition: all 0.15s ease;
+      pointer-events: auto;
+      box-shadow: 0 6px 20px rgba(0, 0, 0, 0.4);
+      transition: all 0.2s ease;
     }
 
     .retry-btn:hover {
-      background: rgba(var(--primary-rgb), 0.15);
-      color: var(--primary);
+      background: rgba(var(--primary-rgb), 0.2);
+      border-color: var(--primary);
+      color: #fff;
     }
 
     .retry-btn.show {
@@ -123,12 +100,9 @@
 </head>
 <body>
   <div id="app-container">
-    <!-- 载入轻量过渡遮罩 -->
-    <div id="loading-overlay">
-      <div class="spinner"></div>
-      <div class="loading-title">正在载入小蠢 AI 伴侣...</div>
-      <div class="loading-sub">连接本地沙箱反向代理与 3D 渲染画布</div>
-      <button class="retry-btn" id="btn-retry">🔄 重新连接</button>
+    <!-- 失败超时重试挂件（仅在加载超时时唤出） -->
+    <div id="loading-overlay" class="hidden">
+      <button class="retry-btn" id="btn-retry">🔄 重新连接小蠢 AI 伴侣</button>
     </div>
 
     <!-- 小蠢 AI 伴侣 iframe 嵌入 -->

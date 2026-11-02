@@ -16,10 +16,11 @@
  *   ?theme=light|dark  非透明时的线稿主题                默认跟随系统
  *   ?controls=0      锁定滚轮缩放 (默认开, 与主站一致: 透明场景只在指针落在角色上时缩放, 其余穿透给宿主;
  *                    不透明场景整个 iframe 区域的滚轮 = 缩放, 会吞掉该区域的页面滚动)。controls=1 与缺省等价
+ *   ?enableLoadingOverlay=0|1 是否启用原生的全屏 LoadingOverlay 启动遮罩 (默认 0 = 关, 由宿主自己画占位图; 支持别名 ?loadingOverlay=)
  *   ?host=<origin>   宿主页 origin (SDK 自动带上; 手写 iframe 必须自己加)
  *   ?allow=<o1,o2>   额外允许握手的宿主 origin (逗号分隔, 不支持 '*')
  */
-import { parseControls } from './registry';
+import { parseControls, parseLoadingOverlay } from './registry.ts';
 import { isLang, type Lang } from '@/i18n';
 import { XC_UI_AUTOHIDE_DEFAULT, normalizeOrigin, parseXcCameraParams, parseXcUiAutoHide, parseXcUiParam, type XcCamera, type XcHeavyMode, type XcUiAutoHide, type XcUiPart } from '@firetable/project-xiaochun/protocol';
 
@@ -46,6 +47,8 @@ export interface EmbedParams {
   controls: boolean;
   /** 已规整的宿主 origin 白名单 (host + allow); 空 = 无法握手 (fail closed)。 */
   allowedHostOrigins: string[];
+  /** 是否在 iframe 内渲染全屏 LoadingOverlay (默认 false)。 */
+  enableLoadingOverlay: boolean;
 }
 
 export function readEmbedParams(search?: string): EmbedParams {
@@ -83,6 +86,8 @@ export function readEmbedParams(search?: string): EmbedParams {
     }
   }
 
+  const enableLoadingOverlay = parseLoadingOverlay(q.get('enableLoadingOverlay') ?? q.get('loadingOverlay'));
+
   return {
     transparent: q.get('transparent') === '1',
     uiParts: [...uiSet],
@@ -97,5 +102,6 @@ export function readEmbedParams(search?: string): EmbedParams {
     scene: q.get('scene'),
     controls: parseControls(q.get('controls')),
     allowedHostOrigins: [...origins],
+    enableLoadingOverlay,
   };
 }

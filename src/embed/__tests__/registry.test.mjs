@@ -4,7 +4,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { statSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
-import { OUTFIT_SIZE_MB, defaultOutfitId, listOutfits, listScenes, embedSceneFromSearch, ownEntry, parseControls, readOutfitPref, resolveInitialOutfit, resolveInitialOutfitWithPref, safeLocalStorage, writeOutfitPref } from '../registry.ts';
+import { OUTFIT_SIZE_MB, defaultOutfitId, listOutfits, listScenes, embedSceneFromSearch, ownEntry, parseControls, parseLoadingOverlay, readOutfitPref, resolveInitialOutfit, resolveInitialOutfitWithPref, safeLocalStorage, writeOutfitPref } from '../registry.ts';
 
 const addons = {
   xiaochun_maid: { source: '/a', name: 'Maid' },
@@ -101,6 +101,16 @@ test('parseControls: 默认放开滚轮缩放, 只有 0 / false 才锁', () => {
   assert.equal(parseControls('true'), true);
   assert.equal(parseControls('0'), false);
   assert.equal(parseControls('false'), false);
+});
+
+test('parseLoadingOverlay: 默认 false, 只有显式 1 / true 才开启', () => {
+  assert.equal(parseLoadingOverlay(null), false);
+  assert.equal(parseLoadingOverlay(undefined), false);
+  assert.equal(parseLoadingOverlay(''), false);
+  assert.equal(parseLoadingOverlay('0'), false);
+  assert.equal(parseLoadingOverlay('false'), false);
+  assert.equal(parseLoadingOverlay('1'), true);
+  assert.equal(parseLoadingOverlay('true'), true);
 });
 
 test('embedSceneFromSearch: scene > transparent=1 > theme; 非法 / 缺省 → null (vrmEngine 与 sceneManager 共用)', () => {

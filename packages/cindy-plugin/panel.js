@@ -15,7 +15,8 @@
   }
 
   function showRetry() {
-    if (!isFrameLoaded && btnRetry) {
+    if (!isFrameLoaded && btnRetry && loadingOverlay) {
+      loadingOverlay.classList.remove('hidden');
       btnRetry.classList.add('show');
     }
   }
@@ -38,29 +39,26 @@
     } catch (_) {}
 
     const hostOrigin = window.location.origin;
-    // 纯净伴侣视窗：仅挂载头顶气泡、换装菜单与换场景菜单，彻底关闭内嵌端侧 WebLLM 下载，交由 Cindy 作为统一对话大脑
-    const targetUrl = `http://127.0.0.1:${currentPort}/embed/?host=${encodeURIComponent(hostOrigin)}&scene=beach3d&ui=bubble,outfit,scene&heavy=motion`;
+    // 纯净伴侣视窗：挂载头顶气泡、换装菜单、换场景菜单与 GitHub 图标，开启原生全屏 LoadingOverlay，交由 Cindy 作为统一对话大脑
+    const targetUrl = `http://127.0.0.1:${currentPort}/embed/?host=${encodeURIComponent(hostOrigin)}&scene=beach3d&ui=bubble,outfit,scene,github&heavy=motion&enableLoadingOverlay=1`;
     console.log('[XiaoChun Panel] 正在载入小蠢 AI 伴侣:', targetUrl);
     iframe.src = targetUrl;
 
     // 建立与后台 Node Worker 的实时 SSE 指令接收通道，激活 hasActivePanel 状态
     connectBridgeSse();
 
-    // 1.5 秒后主动平滑淡出过渡遮罩，避免视觉卡顿
-    setTimeout(hideLoading, 1500);
-
     // 12 秒超时未完成加载显示重试按钮
     setTimeout(showRetry, 12000);
   }
 
   iframe.onload = () => {
-    setTimeout(() => {
-      if (!isFrameLoaded) hideLoading();
-    }, 1000);
+    isFrameLoaded = true;
+    hideLoading();
   };
 
   btnRetry.onclick = () => {
     btnRetry.classList.remove('show');
+    if (loadingOverlay) loadingOverlay.classList.add('hidden');
     initEmbedFrame();
   };
 
