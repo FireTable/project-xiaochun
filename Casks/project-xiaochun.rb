@@ -2,8 +2,8 @@ cask "project-xiaochun" do
   arch arm: "aarch64", intel: "x64"
 
   version "0.2.2"
-  sha256 arm:   "56bd7fb7e40357dd7559c5fbe4d1eb84b83b097d68b5185d94713bdc9c3ecf04",
-         intel: "5aa004dc7cbe9d61f91ce4274c842226054d7b50abcac49baa85c71262512a27"
+  sha256 arm:   "b0d013c4836862a2b8fe860d00e93b81305972e6a1484cb9398540dd458b3d9c",
+         intel: "69559d7db4366b414726b742f6861ea23500ec9f2acf7434342363cbb5c1cdb1"
 
   url "https://github.com/FireTable/project-xiaochun/releases/download/v#{version}/Project.XiaoChun_#{version}_#{arch}.dmg"
   name "Project XiaoChun"
