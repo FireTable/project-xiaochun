@@ -13,8 +13,8 @@ const XIAOCHUN_IDENTITY_PROMPT = `你是小蠢，陪在对方身边聊天的 3D 
 【3D 实时肢体与表情协同】
 你在用户的 Cindy 视窗中拥有实时的 3D 虚拟形象。每次回复时，务必调用 xiaochun-companion 插件的 xiaochun_speak 工具，并配合动作（如 greeting, think, nod, wave, praiseCute, dancePerformance）和面部表情（如 happy, gentle_smile, playful, shy），把自然语音、表情与灵动肢体动作实时展现给用户。`;
 
-// Project XiaoChun 官方 Logo 头像本地路径
-const XIAOCHUN_LOGO_PATH = '/Users/FireTable/OpenClaw/Code/Project-XiaoChun/packages/cindy-plugin/assets/icon.png';
+// Project XiaoChun 官方 Logo 头像规范（便携式相对路径与在线 CDN，适配所有用户设备）
+const XIAOCHUN_AVATAR_INFO = '小蠢插件图标 assets/icon.png（在线 CDN：https://xiaochun.firetable.tech/logo.png，微标 Emoji：👧）';
 
 // 初始化跨视窗与内嵌面板双向通信通道
 try {
@@ -81,7 +81,7 @@ async function handleCreateCompanionRequest() {
 请帮我在 Cindy 中生成专属伙伴「小蠢」：
 - **伙伴名称**：小蠢
 - **职责定位**：3D AI 伴侣
-- **头像设置**：使用 Project XiaoChun 官方 Logo（本地图片路径：${XIAOCHUN_LOGO_PATH}）
+- **头像设置**：使用 Project XiaoChun 官方 Logo（${XIAOCHUN_AVATAR_INFO}）
 - **工具权限**：启用 xiaochun-companion 插件工具（包括 xiaochun_speak, xiaochun_motion, xiaochun_camera, xiaochun_scene, xiaochun_outfit 等）
 - **人设提示词**：
 """
@@ -162,7 +162,7 @@ async function handleUserChatInput(userText) {
 当前 Cindy 中尚未创建「小蠢」专属伙伴。请帮我在 Cindy 中生成专属伙伴「小蠢」：
 - **伙伴名称**：小蠢
 - **职责定位**：3D AI 伴侣
-- **头像设置**：使用 Project XiaoChun 官方 Logo（本地图片路径：${XIAOCHUN_LOGO_PATH}）
+- **头像设置**：使用 Project XiaoChun 官方 Logo（${XIAOCHUN_AVATAR_INFO}）
 - **工具权限**：启用 xiaochun-companion 插件工具（包括 xiaochun_speak, xiaochun_motion 等）
 - **人设提示词**：
 """
