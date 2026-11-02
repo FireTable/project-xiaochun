@@ -210,6 +210,8 @@ export interface XiaochunOptions {
   enableLoadingOverlay?: boolean;
   /** `enableLoadingOverlay` 别名。 */
   loadingOverlay?: boolean;
+  /** 场景切换下拉菜单允许展示的场景 ID 列表 (默认全部可用场景)。如 ['beach3d', 'light', 'dark']。 */
+  scenesFilter?: string[];
 }
 
 /** speakAudio / speakAudioStream 的选项。 */
@@ -717,6 +719,7 @@ export function createXiaochun(options: XiaochunOptions): XiaochunInstance {
     if (options.heavy) u.searchParams.set('heavy', options.heavy);
     if (options.controls === false) u.searchParams.set('controls', '0');
     if (options.enableLoadingOverlay || options.loadingOverlay) u.searchParams.set('enableLoadingOverlay', '1');
+    if (options.scenesFilter?.length) u.searchParams.set('scenes', options.scenesFilter.join(','));
     if (initialScene && isXcId(initialScene)) u.searchParams.set('scene', initialScene);
     if (initialOutfit) u.searchParams.set('outfit', initialOutfit);
     return u.href;

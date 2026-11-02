@@ -13,6 +13,7 @@
  *   ?outfit=<id>     初始服装 (capabilities.outfits 里的 id, 严格校验: 小写字母/数字/下划线, 且必须是内置服装; 裸模 base 不开放)
  *                    非法或未知 → 回退默认服装并通过 xc.error{unknown_id} 告知宿主     默认 default addon
  *   ?scene=light|dark|transparent|beach3d  初始场景 (优先于 ?transparent / ?theme; 非法 → 忽略)   默认跟随 ?transparent / 系统
+ *   ?scenes=beach3d,light,dark 场景切换菜单中允许展示的场景白名单 (逗号分隔; 缺省 = 显示全部)
  *   ?theme=light|dark  非透明时的线稿主题                默认跟随系统
  *   ?controls=0      锁定滚轮缩放 (默认开, 与主站一致: 透明场景只在指针落在角色上时缩放, 其余穿透给宿主;
  *                    不透明场景整个 iframe 区域的滚轮 = 缩放, 会吞掉该区域的页面滚动)。controls=1 与缺省等价
@@ -20,7 +21,7 @@
  *   ?host=<origin>   宿主页 origin (SDK 自动带上; 手写 iframe 必须自己加)
  *   ?allow=<o1,o2>   额外允许握手的宿主 origin (逗号分隔, 不支持 '*')
  */
-import { parseControls, parseLoadingOverlay } from './registry.ts';
+import { parseControls, parseLoadingOverlay, parseScenesFilter } from './registry.ts';
 import { isLang, type Lang } from '@/i18n';
 import { XC_UI_AUTOHIDE_DEFAULT, normalizeOrigin, parseXcCameraParams, parseXcUiAutoHide, parseXcUiParam, type XcCamera, type XcHeavyMode, type XcUiAutoHide, type XcUiPart } from '@firetable/project-xiaochun/protocol';
 
@@ -44,6 +45,8 @@ export interface EmbedParams {
   outfit: string | null;
   /** 原样的 ?scene= (未校验; 校验在 sceneManager 里统一做)。 */
   scene: string | null;
+  /** ?scenes= 场景菜单展示白名单 (未给出则展示全部)。 */
+  scenesFilter: string[] | null;
   controls: boolean;
   /** 已规整的宿主 origin 白名单 (host + allow); 空 = 无法握手 (fail closed)。 */
   allowedHostOrigins: string[];
@@ -100,6 +103,7 @@ export function readEmbedParams(search?: string): EmbedParams {
     heavy: q.get('heavy') === 'eager' || q.get('heavy') === 'motion' ? (q.get('heavy') as XcHeavyMode) : 'lazy',
     outfit: q.get('outfit'),
     scene: q.get('scene'),
+    scenesFilter: parseScenesFilter(q.get('scenes')),
     controls: parseControls(q.get('controls')),
     allowedHostOrigins: [...origins],
     enableLoadingOverlay,

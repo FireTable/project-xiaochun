@@ -65,7 +65,8 @@ const bridgeServer = http.createServer((req, res) => {
     return;
   }
 
-  if (req.url === '/events') {
+  const reqPath = (req.url || '').split('?')[0];
+  if (reqPath === '/events' || reqPath === '/sse') {
     res.writeHead(200, {
       'Content-Type': 'text/event-stream',
       'Cache-Control': 'no-cache',

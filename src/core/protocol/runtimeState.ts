@@ -59,6 +59,10 @@ export function isXiaoChunOnboardingActive(): boolean {
   if ((window as any).__IS_ONBOARDING_ACTIVE__ !== undefined) {
     return Boolean((window as any).__IS_ONBOARDING_ACTIVE__);
   }
+  // 在 /embed 纯净内嵌环境中，不挂载新手序章向导，因此引导状态恒为非激活，免除对宿主指令的阻拦
+  if (typeof window.location !== 'undefined' && window.location.pathname.startsWith('/embed')) {
+    return false;
+  }
   try {
     if (typeof localStorage === 'undefined') return false;
     return localStorage.getItem(ONBOARDING_STORAGE_KEY) !== '1';

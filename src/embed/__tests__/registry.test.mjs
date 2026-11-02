@@ -4,7 +4,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { statSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
-import { OUTFIT_SIZE_MB, defaultOutfitId, listOutfits, listScenes, embedSceneFromSearch, ownEntry, parseControls, parseLoadingOverlay, readOutfitPref, resolveInitialOutfit, resolveInitialOutfitWithPref, safeLocalStorage, writeOutfitPref } from '../registry.ts';
+import { OUTFIT_SIZE_MB, defaultOutfitId, listOutfits, listScenes, embedSceneFromSearch, ownEntry, parseControls, parseLoadingOverlay, parseScenesFilter, readOutfitPref, resolveInitialOutfit, resolveInitialOutfitWithPref, safeLocalStorage, writeOutfitPref } from '../registry.ts';
 
 const addons = {
   xiaochun_maid: { source: '/a', name: 'Maid' },
@@ -111,6 +111,14 @@ test('parseLoadingOverlay: 默认 false, 只有显式 1 / true 才开启', () =>
   assert.equal(parseLoadingOverlay('false'), false);
   assert.equal(parseLoadingOverlay('1'), true);
   assert.equal(parseLoadingOverlay('true'), true);
+});
+
+test('parseScenesFilter: 缺省返回 null (全部展示), 逗号分隔白名单正确过滤', () => {
+  assert.equal(parseScenesFilter(null), null);
+  assert.equal(parseScenesFilter(undefined), null);
+  assert.equal(parseScenesFilter(''), null);
+  assert.deepEqual(parseScenesFilter('beach3d,light,dark'), ['beach3d', 'light', 'dark']);
+  assert.deepEqual(parseScenesFilter(' beach3d , LIGHT ,, dark '), ['beach3d', 'light', 'dark']);
 });
 
 test('embedSceneFromSearch: scene > transparent=1 > theme; 非法 / 缺省 → null (vrmEngine 与 sceneManager 共用)', () => {

@@ -377,6 +377,10 @@ export interface XcSayPayload {
    * 'chat': 当作用户输入走 WebLLM / 自定义 provider (会触发大模型加载)。
    */
   mode?: 'speak' | 'chat';
+  /** 是否强制插话 (跳过新手引导状态拦截)。 */
+  force?: boolean;
+  /** 是否保持当前动作与表情。 */
+  preserveMotion?: boolean;
 }
 
 /** 宿主音频的编码: encoded = 容器格式 (mp3/wav/ogg/aac/webm… 由浏览器 decodeAudioData 决定); pcm16 / float32 = 无头原始 PCM (小端, 交错)。 */

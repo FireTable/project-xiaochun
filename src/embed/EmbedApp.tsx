@@ -63,6 +63,8 @@ export const EmbedApp: React.FC = () => {
     vrmEngine.setCameraConfig(params.camera); // 相机选项 (?cameraFov= 等): 模型加载前设置, 首次取景 / 推镜头直接按它来
     document.documentElement.classList.add('xc-embed');
     vrmEngine.interaction.guidesEnabled = false; // /embed 环境隐藏腰部转身光环与相机高度尺导轨
+    try { localStorage.setItem('xc_onboarding_completed_v1', '1'); } catch { /* ignore */ }
+    (window as any).__IS_ONBOARDING_ACTIVE__ = false;
 
     // ── 引擎绑定 (与 App.tsx 同款: i18n / system prompt) ──
     vrmEngine.resumeRendering();
@@ -154,7 +156,13 @@ export const EmbedApp: React.FC = () => {
       )}
       {bridgeRef && (ui.outfit || ui.scene || ui.lang || ui.github) && (
         <Suspense fallback={null}>
-          <EmbedPicker flags={{ outfit: ui.outfit, scene: ui.scene, lang: ui.lang, github: ui.github }} bridge={bridgeRef} autoHide={autoHide} petUiVisible={isPetUIVisible} />
+          <EmbedPicker
+            flags={{ outfit: ui.outfit, scene: ui.scene, lang: ui.lang, github: ui.github }}
+            bridge={bridgeRef}
+            autoHide={autoHide}
+            petUiVisible={isPetUIVisible}
+            scenesFilter={params.scenesFilter}
+          />
         </Suspense>
       )}
     </div>

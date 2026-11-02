@@ -50,9 +50,11 @@ interface Props {
   autoHide?: boolean;
   /** usePetUiVisibility 的 isPetUIVisible (单击角色后为 true, 10 秒无操作自动收起)。 */
   petUiVisible?: boolean;
+  /** 允许展示在切换菜单中的场景白名单 (未给出则展示全部)。 */
+  scenesFilter?: string[] | null;
 }
 
-export const EmbedPicker: React.FC<Props> = ({ flags, bridge, autoHide = false, petUiVisible = false }) => {
+export const EmbedPicker: React.FC<Props> = ({ flags, bridge, autoHide = false, petUiVisible = false, scenesFilter }) => {
   const { t, i18n } = useTranslation();
   const currentLang = (i18n.resolvedLanguage ?? i18n.language ?? 'zh-CN') as Lang;
   const [openMenus, setOpenMenus] = useState(0);
@@ -62,7 +64,13 @@ export const EmbedPicker: React.FC<Props> = ({ flags, bridge, autoHide = false, 
     () => listOutfits(APP_CONFIG.model.addons as Record<string, { source: string; name: string }>),
     [],
   );
-  const scenes = Object.values(APP_CONFIG.scenes.items).filter((s) => !s.hidden);
+  const scenes = Object.values(APP_CONFIG.scenes.items).filter((s) => {
+    if (s.hidden) return false;
+    if (scenesFilter && scenesFilter.length > 0) {
+      return scenesFilter.includes(s.id);
+    }
+    return true;
+  });
   const loading = state.loading !== null;
 
   // 轻提示: notice.n 变化就弹 NOTICE_MS

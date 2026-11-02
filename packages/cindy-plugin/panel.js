@@ -39,8 +39,8 @@
     } catch (_) {}
 
     const hostOrigin = window.location.origin;
-    // 纯净伴侣视窗：挂载头顶气泡、换装菜单、换场景菜单与 GitHub 图标，开启原生全屏 LoadingOverlay，交由 Cindy 作为统一对话大脑
-    const targetUrl = `http://127.0.0.1:${currentPort}/embed/?host=${encodeURIComponent(hostOrigin)}&scene=beach3d&ui=bubble,outfit,scene,github&heavy=motion&enableLoadingOverlay=1`;
+    // 纯净伴侣视窗：挂载头顶气泡、换装菜单、换场景菜单与 GitHub 图标，开启原生全屏 LoadingOverlay，排除透明背景选项（Cindy 视窗背景不透明），交由 Cindy 作为统一对话大脑
+    const targetUrl = `http://127.0.0.1:${currentPort}/embed/?host=${encodeURIComponent(hostOrigin)}&scene=beach3d&scenes=beach3d,light,dark&ui=bubble,outfit,scene,github&heavy=motion&enableLoadingOverlay=1`;
     console.log('[XiaoChun Panel] 正在载入小蠢 AI 伴侣:', targetUrl);
     iframe.src = targetUrl;
 
@@ -105,7 +105,7 @@
     }
 
     try {
-      const sseUrl = `http://127.0.0.1:${currentPort}/sse`;
+      const sseUrl = `http://127.0.0.1:${currentPort}/events`;
       console.log('[XiaoChun Panel] 连接 Node Worker SSE 长连接:', sseUrl);
       sseInstance = new EventSource(sseUrl);
 

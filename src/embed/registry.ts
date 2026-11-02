@@ -96,6 +96,16 @@ export function parseLoadingOverlay(raw: string | null | undefined): boolean {
   return raw === '1' || raw === 'true';
 }
 
+/**
+ * ?scenes= 场景切换菜单过滤器白名单解析 (逗号分隔, 如 beach3d,light,dark)。
+ * 缺省或空返回 null (默认展示全部可用场景)。
+ */
+export function parseScenesFilter(raw: string | null | undefined): string[] | null {
+  if (!raw) return null;
+  const list = raw.split(',').map((s) => s.trim().toLowerCase()).filter(Boolean);
+  return list.length > 0 ? list : null;
+}
+
 export type EmbedSceneId = 'light' | 'dark' | 'transparent' | 'beach3d';
 
 /**
