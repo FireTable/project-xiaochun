@@ -889,7 +889,20 @@ export function startEmbedBridge(opts: EmbedBridgeOptions): EmbedBridge {
         case 'xc.stop':
           vrmEngine.stopSpeaking();
           vrmEngine.stopMotion();
+          vrmEngine.setTurnState('idle');
           break;
+        case 'xc.think':
+          await waitModelReady().catch(() => { throw new CmdError('not_ready', 'model not ready'); });
+          vrmEngine.setTurnState('thinking');
+          break;
+        case 'xc.turnState': {
+          await waitModelReady().catch(() => { throw new CmdError('not_ready', 'model not ready'); });
+          const state = p.state as any;
+          if (state === 'idle' || state === 'listening' || state === 'thinking' || state === 'speaking') {
+            vrmEngine.setTurnState(state);
+          }
+          break;
+        }
         case 'xc.story.play':
           if (typeof window !== 'undefined') {
             window.dispatchEvent(new CustomEvent('xc-trigger-story', { detail: p }));

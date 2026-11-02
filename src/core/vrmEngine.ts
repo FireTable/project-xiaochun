@@ -3415,11 +3415,17 @@ export class VRMEngine {
     groupName: MotionGroupName,
     options: PlayMotionOptions = {},
   ): Promise<UniversalMotionHandle> {
+    if (groupName === 'thinking') {
+      this.setTurnState('thinking');
+    }
     const motionId = selectMotionFromGroup(groupName);
     return this.playMotion(motionId, options);
   }
 
   public stopMotion(fadeDuration = 0.75): void {
+    if (this.turnState === 'thinking') {
+      this.setTurnState('idle');
+    }
     const lookAtOffsets = this.gazeController.getLookAtOffsets();
     this.motionPipeline.stopMotion(fadeDuration, lookAtOffsets);
   }

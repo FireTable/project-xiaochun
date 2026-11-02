@@ -368,7 +368,7 @@
   let isSending = false;
   let sendTimeoutTimer = null;
 
-  function setSendingState(sending) {
+  function setSendingState(sending, resetMotion = false) {
     isSending = sending;
     if (btnSend) {
       btnSend.disabled = sending;
@@ -384,14 +384,17 @@
 
     if (sending) {
       if (sendTimeoutTimer) clearTimeout(sendTimeoutTimer);
-      // 15 秒超时强制解挂，防止网络或进程未响应卡死 UI
+      // 30 秒超时强制解挂，防止网络或进程未响应卡死 UI，并平滑恢复 idle 待机
       sendTimeoutTimer = setTimeout(() => {
-        setSendingState(false);
-      }, 15000);
+        setSendingState(false, true);
+      }, 30000);
     } else {
       if (sendTimeoutTimer) {
         clearTimeout(sendTimeoutTimer);
         sendTimeoutTimer = null;
+      }
+      if (resetMotion) {
+        sendToXiaochun('xc.stop', {});
       }
     }
   }
@@ -422,6 +425,13 @@
       console.log('[XiaoChun Panel] 发送用户输入:', text);
       setSendingState(true);
 
+      // 1. 唤醒并解冻伴侣视窗的 Web Audio 上下文
+      sendToXiaochun('xc.resume', {});
+
+      // 2. 触发 thinking 状态与 thinking 动作组（对齐 speakText / say 思考管线）
+      sendToXiaochun('xc.think', {});
+      sendToXiaochun('xc.motion', { group: 'thinking', loop: true, mask: 'upperBody' });
+
       // 通过 BroadcastChannel 广播给主逻辑 main.js
       if (bc) {
         bc.postMessage({
@@ -444,6 +454,11 @@
       if (btnCreateTeammate.disabled) return;
       btnCreateTeammate.disabled = true;
       if (tipText) tipText.textContent = t('tip_creating');
+
+      // 创建专属伙伴期间让小蠢同步进入专注思考姿态
+      sendToXiaochun('xc.resume', {});
+      sendToXiaochun('xc.think', {});
+      sendToXiaochun('xc.motion', { group: 'thinking', loop: true, mask: 'upperBody' });
 
       if (bc) {
         bc.postMessage({
@@ -488,7 +503,7 @@
 
         // 处理错误回报
         if (data.type === 'bot_error') {
-          setSendingState(false);
+          setSendingState(false, true);
           const localizedMsg = data.errorKey ? (I18N[currentLocale]?.[data.errorKey] || I18N['zh-CN']?.[data.errorKey]) : (data.message || t('err_bot_response'));
           if (tipText) tipText.textContent = localizedMsg;
           if (tipPill) tipPill.classList.remove('hidden');
@@ -497,8 +512,10 @@
 
         // 处理回复重置状态
         if (data.type === 'bot_reply_status') {
-          if (data.state === 'idle' || data.state === 'speaking') {
-            setSendingState(false);
+          if (data.state === 'idle') {
+            setSendingState(false, true);
+          } else if (data.state === 'speaking') {
+            setSendingState(false, false);
           }
           return;
         }
@@ -536,9 +553,9 @@
   // 处理下发给小蠢的命令
   function handleInboundCommand(method, params) {
     console.log('[XiaoChun Panel] 执行指令:', method, params);
-    // 收到说话指令时重置输入状态
+    // 收到说话指令时重置输入状态，但不打断思考动作，由 xc.say 优雅承接与交接
     if (method === 'speak' || method === 'xiaochun_speak') {
-      setSendingState(false);
+      setSendingState(false, false);
     }
 
     params = params || {};
