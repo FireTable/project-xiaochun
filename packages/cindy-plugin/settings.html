@@ -1,622 +1,772 @@
-<!DOCTYPE html>
+<!doctype html>
 <html lang="zh-CN">
-<head>
-  <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>小蠢 AI 伴侣 设置</title>
-  <style>
-    :root {
-      --primary: #ea8377;
-      --primary-light: #f5aa9c;
-      --primary-dark: #e06d64;
-      --primary-gradient: linear-gradient(135deg, #f5aa9c 0%, #ea8377 50%, #e06d64 100%);
-      --primary-glow: rgba(234, 131, 119, 0.4);
-      --bg: #08090f;
-      --surface: rgba(19, 17, 28, 0.96);
-      --surface-card: rgba(28, 25, 40, 0.85);
-      --surface-card-hover: rgba(38, 33, 54, 0.95);
-      --surface-card-active: rgba(234, 131, 119, 0.12);
-      --border: rgba(234, 131, 119, 0.22);
-      --border-active: #ea8377;
-      --text: #f3f4f6;
-      --text-muted: #9ca3af;
-      --success: #34d399;
-      --warning: #fbbf24;
-    }
-
-    * {
-      box-sizing: border-box;
-      margin: 0;
-      padding: 0;
-    }
-
-    body {
-      background: var(--bg);
-      color: var(--text);
-      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
-      font-size: 13px;
-      line-height: 1.5;
-      padding: 24px 28px;
-      user-select: none;
-      -webkit-font-smoothing: antialiased;
-    }
-
-    .header {
-      display: flex;
-      align-items: center;
-      gap: 14px;
-      margin-bottom: 24px;
-      padding-bottom: 18px;
-      border-bottom: 1px solid var(--border);
-    }
-
-    .logo-img {
-      width: 44px;
-      height: 44px;
-      border-radius: 12px;
-      box-shadow: 0 4px 16px var(--primary-glow);
-      border: 1px solid var(--border);
-      object-fit: cover;
-    }
-
-    .header-text h1 {
-      font-size: 17px;
-      font-weight: 700;
-      color: #fff;
-      display: flex;
-      align-items: center;
-      gap: 8px;
-    }
-
-    .header-text p {
-      font-size: 12.5px;
-      color: var(--text-muted);
-      margin-top: 2px;
-    }
-
-    .section-title {
-      font-size: 13px;
-      font-weight: 600;
-      color: var(--primary-light);
-      margin-bottom: 12px;
-      letter-spacing: 0.02em;
-      text-transform: uppercase;
-    }
-
-    .mode-cards {
-      display: flex;
-      flex-direction: column;
-      gap: 12px;
-      margin-bottom: 24px;
-    }
-
-    .mode-card {
-      position: relative;
-      display: flex;
-      align-items: flex-start;
-      gap: 14px;
-      padding: 16px 18px;
-      border-radius: 14px;
-      background: var(--surface-card);
-      border: 1.5px solid var(--border);
-      cursor: pointer;
-      transition: all 0.22s cubic-bezier(0.16, 1, 0.3, 1);
-    }
-
-    .mode-card:hover {
-      background: var(--surface-card-hover);
-      border-color: rgba(234, 131, 119, 0.45);
-      transform: translateY(-1px);
-    }
-
-    .mode-card.active {
-      background: var(--surface-card-active);
-      border-color: var(--border-active);
-      box-shadow: 0 0 20px var(--primary-glow);
-    }
-
-    .radio-circle {
-      width: 18px;
-      height: 18px;
-      border-radius: 50%;
-      border: 2px solid var(--text-muted);
-      margin-top: 2px;
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      flex-shrink: 0;
-      transition: all 0.2s ease;
-    }
-
-    .mode-card.active .radio-circle {
-      border-color: var(--primary);
-      background: var(--primary);
-    }
-
-    .radio-dot {
-      width: 6px;
-      height: 6px;
-      border-radius: 50%;
-      background: #fff;
-      display: none;
-    }
-
-    .mode-card.active .radio-dot {
-      display: block;
-    }
-
-    .mode-info {
-      flex: 1;
-    }
-
-    .mode-header {
-      display: flex;
-      align-items: center;
-      gap: 8px;
-      margin-bottom: 4px;
-    }
-
-    .mode-name {
-      font-size: 14px;
-      font-weight: 600;
-      color: #fff;
-    }
-
-    .badge {
-      font-size: 10.5px;
-      font-weight: 600;
-      padding: 2px 7px;
-      border-radius: 9999px;
-      letter-spacing: 0.02em;
-    }
-
-    .badge-primary {
-      background: rgba(234, 131, 119, 0.18);
-      color: var(--primary-light);
-      border: 1px solid rgba(234, 131, 119, 0.35);
-    }
-
-    .badge-gray {
-      background: rgba(255, 255, 255, 0.08);
-      color: var(--text-muted);
-    }
-
-    .mode-desc {
-      font-size: 12px;
-      color: var(--text-muted);
-      line-height: 1.45;
-    }
-
-    .desktop-status-row {
-      margin-top: 10px;
-      padding-top: 10px;
-      border-top: 1px solid rgba(255, 255, 255, 0.06);
-      display: flex;
-      align-items: center;
-      justify-content: space-between;
-      gap: 10px;
-      font-size: 11.5px;
-    }
-
-    .status-text {
-      color: var(--text-muted);
-      display: flex;
-      align-items: center;
-      gap: 6px;
-    }
-
-    .btn-inline-install {
-      appearance: none;
-      border: none;
-      background: var(--primary-gradient);
-      color: #fff;
-      font-size: 11px;
-      font-weight: 600;
-      padding: 4px 12px;
-      border-radius: 9999px;
-      cursor: pointer;
-      box-shadow: 0 2px 8px var(--primary-glow);
-      transition: all 0.2s ease;
-    }
-
-    .btn-inline-install:hover {
-      transform: scale(1.04);
-      filter: brightness(1.1);
-    }
-
-    .btn-inline-install:disabled {
-      opacity: 0.5;
-      cursor: not-allowed;
-      transform: none;
-    }
-
-    .footer {
-      display: flex;
-      align-items: center;
-      justify-content: space-between;
-      margin-top: 28px;
-      padding-top: 18px;
-      border-top: 1px solid var(--border);
-    }
-
-    .save-btn {
-      appearance: none;
-      background: var(--primary-gradient);
-      border: none;
-      color: #fff;
-      font-size: 13px;
-      font-weight: 600;
-      padding: 8px 26px;
-      border-radius: 9999px;
-      cursor: pointer;
-      box-shadow: 0 4px 14px var(--primary-glow);
-      transition: all 0.2s cubic-bezier(0.16, 1, 0.3, 1);
-    }
-
-    .save-btn:hover {
-      transform: scale(1.03);
-      filter: brightness(1.08);
-      box-shadow: 0 6px 18px var(--primary-glow);
-    }
-
-    .save-btn:active {
-      transform: scale(0.97);
-    }
-
-    .toast {
-      position: fixed;
-      bottom: 20px;
-      left: 50%;
-      transform: translateX(-50%) translateY(20px);
-      background: rgba(19, 17, 28, 0.96);
-      border: 1px solid var(--primary);
-      box-shadow: 0 10px 28px rgba(0, 0, 0, 0.6), 0 0 16px var(--primary-glow);
-      padding: 8px 18px;
-      border-radius: 9999px;
-      font-size: 12px;
-      color: #fff;
-      display: flex;
-      align-items: center;
-      gap: 8px;
-      opacity: 0;
-      visibility: hidden;
-      transition: all 0.3s cubic-bezier(0.16, 1, 0.3, 1);
-      z-index: 100;
-    }
-
-    .toast.show {
-      opacity: 1;
-      visibility: visible;
-      transform: translateX(-50%) translateY(0);
-    }
-
-    /* 确认安装模态弹窗 */
-    .modal-overlay {
-      position: fixed;
-      inset: 0;
-      background: rgba(0, 0, 0, 0.65);
-      backdrop-filter: blur(8px);
-      -webkit-backdrop-filter: blur(8px);
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      z-index: 999;
-      opacity: 0;
-      visibility: hidden;
-      transition: all 0.25s ease;
-    }
-
-    .modal-overlay.show {
-      opacity: 1;
-      visibility: visible;
-    }
-
-    .modal-card {
-      background: #13111c;
-      border: 1px solid var(--border);
-      box-shadow: 0 24px 60px rgba(0, 0, 0, 0.8), 0 0 24px var(--primary-glow);
-      border-radius: 18px;
-      width: 90%;
-      max-width: 400px;
-      padding: 24px;
-      text-align: center;
-      transform: scale(0.95);
-      transition: transform 0.25s cubic-bezier(0.16, 1, 0.3, 1);
-    }
-
-    .modal-overlay.show .modal-card {
-      transform: scale(1);
-    }
-
-    .modal-card h2 {
-      font-size: 16px;
-      font-weight: 700;
-      color: #fff;
-      margin-bottom: 10px;
-    }
-
-    .modal-card p {
-      font-size: 12.5px;
-      color: var(--text-muted);
-      line-height: 1.55;
-      margin-bottom: 20px;
-      text-align: left;
-    }
-
-    .modal-actions {
-      display: flex;
-      gap: 10px;
-      justify-content: flex-end;
-    }
-
-    .btn-modal-cancel {
-      appearance: none;
-      background: rgba(255, 255, 255, 0.08);
-      border: 1px solid rgba(255, 255, 255, 0.12);
-      color: var(--text);
-      padding: 7px 18px;
-      border-radius: 9999px;
-      cursor: pointer;
-      font-size: 12.5px;
-      font-weight: 500;
-      transition: background 0.15s ease;
-    }
-
-    .btn-modal-cancel:hover {
-      background: rgba(255, 255, 255, 0.14);
-    }
-
-    .btn-modal-confirm {
-      appearance: none;
-      background: var(--primary-gradient);
-      border: none;
-      color: #fff;
-      padding: 7px 20px;
-      border-radius: 9999px;
-      cursor: pointer;
-      font-size: 12.5px;
-      font-weight: 600;
-      box-shadow: 0 2px 10px var(--primary-glow);
-      transition: all 0.2s ease;
-    }
-
-    .btn-modal-confirm:hover {
-      filter: brightness(1.1);
-      transform: scale(1.03);
-    }
-
-    .spinner {
-      width: 14px;
-      height: 14px;
-      border: 2px solid rgba(255, 255, 255, 0.25);
-      border-top-color: #fff;
-      border-radius: 50%;
-      animation: spin 0.8s linear infinite;
-      display: inline-block;
-      vertical-align: middle;
-      margin-right: 6px;
-    }
-
-    @keyframes spin {
-      to { transform: rotate(360deg); }
-    }
-  </style>
-</head>
-<body>
-  <div class="header">
-    <img src="assets/icon.png" alt="小蠢" class="logo-img" />
-    <div class="header-text">
-      <h1>小蠢 AI 伴侣 设置</h1>
-      <p>选择 3D 虚拟形象的呈现形态与常驻运行模式</p>
-    </div>
-  </div>
-
-  <div class="section-title">运行形态配置</div>
-
-  <div class="mode-cards">
-    <!-- 选项 1: 内嵌伴侣视窗 (默认) -->
-    <div class="mode-card active" id="card-embed" data-mode="embed">
-      <div class="radio-circle">
-        <div class="radio-dot"></div>
-      </div>
-      <div class="mode-info">
-        <div class="mode-header">
-          <span class="mode-name">Cindy 内嵌伴侣视窗</span>
-          <span class="badge badge-primary">默认 · 推荐</span>
-          <span class="badge badge-gray">免安装</span>
-        </div>
-        <div class="mode-desc">
-          直接在 Cindy 侧边栏/主视窗中渲染 3D 舞台，支持实时伴读、肢体动作、服装切换与面部表情。开箱即用，0 门槛免安装，不占用桌面置顶层。
-        </div>
-      </div>
-    </div>
-
-    <!-- 选项 2: 独立桌面桌宠形态 -->
-    <div class="mode-card" id="card-desktop" data-mode="desktop">
-      <div class="radio-circle">
-        <div class="radio-dot"></div>
-      </div>
-      <div class="mode-info">
-        <div class="mode-header">
-          <span class="mode-name">桌面独立桌宠形态</span>
-          <span class="badge badge-gray">全屏置顶桌宠</span>
-        </div>
-        <div class="mode-desc">
-          全屏透明置顶悬浮在系统桌面，支持鼠标穿透、全局屏幕伴读与跟随交互。适合习惯桌面虚拟宠物的深度陪伴场景。
-        </div>
-        <div class="desktop-status-row">
-          <span class="status-text" id="desktop-status-text">⏳ 正在检测桌面端安装状态...</span>
-          <button type="button" class="btn-inline-install" id="btn-trigger-install" style="display: none;">📥 立即安装桌面端</button>
-        </div>
-      </div>
-    </div>
-  </div>
-
-  <div class="footer">
-    <span style="font-size: 11.5px; color: var(--text-muted);">
-      🔒 未经您的明确授权，系统绝不会在后台自动下载桌面客户端。
-    </span>
-    <button type="button" class="save-btn" id="btn-save">保存设置</button>
-  </div>
-
-  <!-- 安装确认弹窗 -->
-  <div class="modal-overlay" id="install-modal">
-    <div class="modal-card">
-      <h2>确认安装小蠢桌面客户端？</h2>
-      <p>
-        桌面独立桌宠形态需要安装 Project XiaoChun 官方客户端（macOS 约 30MB DMG，免密码无提权复制到您的应用程序目录）。<br/><br/>
-        是否确认立即开始自动下载并安装？
-      </p>
-      <div class="modal-actions">
-        <button type="button" class="btn-modal-cancel" id="btn-modal-cancel">取消</button>
-        <button type="button" class="btn-modal-confirm" id="btn-modal-confirm">确认下载安装</button>
-      </div>
-    </div>
-  </div>
-
-  <!-- 浮动提示 Toast -->
-  <div class="toast" id="toast">✅ 设置已成功保存！</div>
-
-  <script>
-    (function () {
-      let currentPort = 23518;
-      let selectedMode = 'embed';
-      let isInstalled = false;
-      let isInstalling = false;
-
-      const cardEmbed = document.getElementById('card-embed');
-      const cardDesktop = document.getElementById('card-desktop');
-      const desktopStatusText = document.getElementById('desktop-status-text');
-      const btnTriggerInstall = document.getElementById('btn-trigger-install');
-      const btnSave = document.getElementById('btn-save');
-      const toast = document.getElementById('toast');
-      const installModal = document.getElementById('install-modal');
-      const btnModalCancel = document.getElementById('btn-modal-cancel');
-      const btnModalConfirm = document.getElementById('btn-modal-confirm');
-
-      function showToast(msg) {
-        toast.textContent = msg;
-        toast.classList.add('show');
-        setTimeout(() => toast.classList.remove('show'), 2600);
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>小蠢 AI 伴侣·设置</title>
+    <style>
+      :root {
+        --primary: #ea8377;
+        --primary-light: #f5aa9c;
+        --primary-dark: #e06d64;
+        --primary-gradient: linear-gradient(
+          135deg,
+          #f5aa9c 0%,
+          #ea8377 50%,
+          #e06d64 100%
+        );
+        --primary-glow: rgba(234, 131, 119, 0.4);
+        --bg: #08090f;
+        --surface: rgba(19, 17, 28, 0.96);
+        --surface-card: rgba(28, 25, 40, 0.85);
+        --surface-card-hover: rgba(38, 33, 54, 0.95);
+        --surface-card-active: rgba(234, 131, 119, 0.12);
+        --border: rgba(234, 131, 119, 0.22);
+        --border-active: #ea8377;
+        --text: #f3f4f6;
+        --text-muted: #9ca3af;
+        --success: #34d399;
+        --warning: #fbbf24;
       }
 
-      function selectMode(mode) {
-        selectedMode = mode;
-        if (mode === 'embed') {
-          cardEmbed.classList.add('active');
-          cardDesktop.classList.remove('active');
-        } else {
-          cardEmbed.classList.remove('active');
-          cardDesktop.classList.add('active');
-          // 若切换至 desktop 且未安装，主动弹出确认安装弹窗
-          if (!isInstalled) {
-            installModal.classList.add('show');
-          }
+      * {
+        box-sizing: border-box;
+        margin: 0;
+        padding: 0;
+      }
+
+      body {
+        background: var(--bg);
+        color: var(--text);
+        font-family:
+          -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto,
+          "Helvetica Neue", Arial, sans-serif;
+        font-size: 13px;
+        line-height: 1.5;
+        padding: 24px 28px;
+        user-select: none;
+        -webkit-font-smoothing: antialiased;
+      }
+
+      .header {
+        display: flex;
+        align-items: center;
+        gap: 14px;
+        margin-bottom: 24px;
+        padding-bottom: 18px;
+        border-bottom: 1px solid var(--border);
+      }
+
+      .logo-img {
+        width: 44px;
+        height: 44px;
+        border-radius: 12px;
+        box-shadow: 0 4px 16px var(--primary-glow);
+        border: 1px solid var(--border);
+        object-fit: cover;
+      }
+
+      .header-text h1 {
+        font-size: 17px;
+        font-weight: 700;
+        color: #fff;
+        display: flex;
+        align-items: center;
+        gap: 8px;
+      }
+
+      .header-text p {
+        font-size: 12.5px;
+        color: var(--text-muted);
+        margin-top: 2px;
+      }
+
+      .section-title {
+        font-size: 13px;
+        font-weight: 600;
+        color: var(--primary-light);
+        margin-bottom: 12px;
+        letter-spacing: 0.02em;
+        text-transform: uppercase;
+      }
+
+      .mode-cards {
+        display: flex;
+        flex-direction: column;
+        gap: 12px;
+        margin-bottom: 24px;
+      }
+
+      .mode-card {
+        position: relative;
+        display: flex;
+        align-items: flex-start;
+        gap: 14px;
+        padding: 16px 18px;
+        border-radius: 14px;
+        background: var(--surface-card);
+        border: 1.5px solid var(--border);
+        cursor: pointer;
+        transition: all 0.22s cubic-bezier(0.16, 1, 0.3, 1);
+      }
+
+      .mode-card:hover {
+        background: var(--surface-card-hover);
+        border-color: rgba(234, 131, 119, 0.45);
+        transform: translateY(-1px);
+      }
+
+      .mode-card.active {
+        background: var(--surface-card-active);
+        border-color: var(--border-active);
+        box-shadow: 0 0 20px var(--primary-glow);
+      }
+
+      .radio-circle {
+        width: 18px;
+        height: 18px;
+        border-radius: 50%;
+        border: 2px solid var(--text-muted);
+        margin-top: 2px;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        flex-shrink: 0;
+        transition: all 0.2s ease;
+      }
+
+      .mode-card.active .radio-circle {
+        border-color: var(--primary);
+        background: var(--primary);
+      }
+
+      .radio-dot {
+        width: 6px;
+        height: 6px;
+        border-radius: 50%;
+        background: #fff;
+        display: none;
+      }
+
+      .mode-card.active .radio-dot {
+        display: block;
+      }
+
+      .mode-info {
+        flex: 1;
+      }
+
+      .mode-header {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        margin-bottom: 4px;
+      }
+
+      .mode-name {
+        font-size: 14px;
+        font-weight: 600;
+        color: #fff;
+      }
+
+      .badge {
+        font-size: 10.5px;
+        font-weight: 600;
+        padding: 2px 7px;
+        border-radius: 9999px;
+        letter-spacing: 0.02em;
+      }
+
+      .badge-primary {
+        background: rgba(234, 131, 119, 0.18);
+        color: var(--primary-light);
+        border: 1px solid rgba(234, 131, 119, 0.35);
+      }
+
+      .badge-gray {
+        background: rgba(255, 255, 255, 0.08);
+        color: var(--text-muted);
+      }
+
+      .mode-desc {
+        font-size: 12px;
+        color: var(--text-muted);
+        line-height: 1.45;
+      }
+
+      .desktop-status-row {
+        margin-top: 10px;
+        padding-top: 10px;
+        border-top: 1px solid rgba(255, 255, 255, 0.06);
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 10px;
+        font-size: 11.5px;
+      }
+
+      .status-text {
+        color: var(--text-muted);
+        display: flex;
+        align-items: center;
+        gap: 6px;
+      }
+
+      .btn-inline-install {
+        appearance: none;
+        border: none;
+        background: var(--primary-gradient);
+        color: #fff;
+        font-size: 11px;
+        font-weight: 600;
+        padding: 4px 12px;
+        border-radius: 9999px;
+        cursor: pointer;
+        box-shadow: 0 2px 8px var(--primary-glow);
+        transition: all 0.2s ease;
+      }
+
+      .btn-inline-install:hover {
+        transform: scale(1.04);
+        filter: brightness(1.1);
+      }
+
+      .btn-inline-install:disabled {
+        opacity: 0.5;
+        cursor: not-allowed;
+        transform: none;
+      }
+
+      .footer {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        margin-top: 28px;
+        padding-top: 18px;
+        border-top: 1px solid var(--border);
+      }
+
+      .save-btn {
+        appearance: none;
+        background: var(--primary-gradient);
+        border: none;
+        color: #fff;
+        font-size: 13px;
+        font-weight: 600;
+        padding: 8px 26px;
+        border-radius: 9999px;
+        cursor: pointer;
+        box-shadow: 0 4px 14px var(--primary-glow);
+        transition: all 0.2s cubic-bezier(0.16, 1, 0.3, 1);
+      }
+
+      .save-btn:hover {
+        transform: scale(1.03);
+        filter: brightness(1.08);
+        box-shadow: 0 6px 18px var(--primary-glow);
+      }
+
+      .save-btn:active {
+        transform: scale(0.97);
+      }
+
+      .repo-card {
+        margin-top: 20px;
+        padding: 12px 16px;
+        border-radius: 12px;
+        background: rgba(28, 25, 40, 0.6);
+        border: 1px dashed rgba(234, 131, 119, 0.25);
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 12px;
+      }
+
+      .repo-info {
+        display: flex;
+        flex-direction: column;
+        gap: 3px;
+      }
+
+      .repo-title {
+        font-size: 12px;
+        font-weight: 600;
+        color: #fff;
+        display: flex;
+        align-items: center;
+        gap: 6px;
+      }
+
+      .repo-meta {
+        font-size: 11px;
+        color: var(--text-muted);
+        display: flex;
+        align-items: center;
+        gap: 6px;
+      }
+
+      .repo-meta strong {
+        color: var(--primary-light);
+        font-weight: 500;
+      }
+
+      .repo-links {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        flex-shrink: 0;
+      }
+
+      .link-btn {
+        display: inline-flex;
+        align-items: center;
+        gap: 5px;
+        font-size: 11.5px;
+        font-weight: 500;
+        color: var(--primary-light);
+        background: rgba(234, 131, 119, 0.1);
+        border: 1px solid rgba(234, 131, 119, 0.28);
+        padding: 4px 10px;
+        border-radius: 8px;
+        text-decoration: none;
+        transition: all 0.2s ease;
+      }
+
+      .link-btn:hover {
+        background: rgba(234, 131, 119, 0.2);
+        border-color: var(--primary);
+        color: #fff;
+        transform: translateY(-1px);
+      }
+
+      .toast {
+        position: fixed;
+        bottom: 20px;
+        left: 50%;
+        transform: translateX(-50%) translateY(20px);
+        background: rgba(19, 17, 28, 0.96);
+        border: 1px solid var(--primary);
+        box-shadow:
+          0 10px 28px rgba(0, 0, 0, 0.6),
+          0 0 16px var(--primary-glow);
+        padding: 8px 18px;
+        border-radius: 9999px;
+        font-size: 12px;
+        color: #fff;
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        opacity: 0;
+        visibility: hidden;
+        transition: all 0.3s cubic-bezier(0.16, 1, 0.3, 1);
+        z-index: 100;
+      }
+
+      .toast.show {
+        opacity: 1;
+        visibility: visible;
+        transform: translateX(-50%) translateY(0);
+      }
+
+      /* 确认安装模态弹窗 */
+      .modal-overlay {
+        position: fixed;
+        inset: 0;
+        background: rgba(0, 0, 0, 0.65);
+        backdrop-filter: blur(8px);
+        -webkit-backdrop-filter: blur(8px);
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        z-index: 999;
+        opacity: 0;
+        visibility: hidden;
+        transition: all 0.25s ease;
+      }
+
+      .modal-overlay.show {
+        opacity: 1;
+        visibility: visible;
+      }
+
+      .modal-card {
+        background: #13111c;
+        border: 1px solid var(--border);
+        box-shadow:
+          0 24px 60px rgba(0, 0, 0, 0.8),
+          0 0 24px var(--primary-glow);
+        border-radius: 18px;
+        width: 90%;
+        max-width: 400px;
+        padding: 24px;
+        text-align: center;
+        transform: scale(0.95);
+        transition: transform 0.25s cubic-bezier(0.16, 1, 0.3, 1);
+      }
+
+      .modal-overlay.show .modal-card {
+        transform: scale(1);
+      }
+
+      .modal-card h2 {
+        font-size: 16px;
+        font-weight: 700;
+        color: #fff;
+        margin-bottom: 10px;
+      }
+
+      .modal-card p {
+        font-size: 12.5px;
+        color: var(--text-muted);
+        line-height: 1.55;
+        margin-bottom: 20px;
+        text-align: left;
+      }
+
+      .modal-actions {
+        display: flex;
+        gap: 10px;
+        justify-content: flex-end;
+      }
+
+      .btn-modal-cancel {
+        appearance: none;
+        background: rgba(255, 255, 255, 0.08);
+        border: 1px solid rgba(255, 255, 255, 0.12);
+        color: var(--text);
+        padding: 7px 18px;
+        border-radius: 9999px;
+        cursor: pointer;
+        font-size: 12.5px;
+        font-weight: 500;
+        transition: background 0.15s ease;
+      }
+
+      .btn-modal-cancel:hover {
+        background: rgba(255, 255, 255, 0.14);
+      }
+
+      .btn-modal-confirm {
+        appearance: none;
+        background: var(--primary-gradient);
+        border: none;
+        color: #fff;
+        padding: 7px 20px;
+        border-radius: 9999px;
+        cursor: pointer;
+        font-size: 12.5px;
+        font-weight: 600;
+        box-shadow: 0 2px 10px var(--primary-glow);
+        transition: all 0.2s ease;
+      }
+
+      .btn-modal-confirm:hover {
+        filter: brightness(1.1);
+        transform: scale(1.03);
+      }
+
+      .spinner {
+        width: 14px;
+        height: 14px;
+        border: 2px solid rgba(255, 255, 255, 0.25);
+        border-top-color: #fff;
+        border-radius: 50%;
+        animation: spin 0.8s linear infinite;
+        display: inline-block;
+        vertical-align: middle;
+        margin-right: 6px;
+      }
+
+      @keyframes spin {
+        to {
+          transform: rotate(360deg);
         }
       }
+    </style>
+  </head>
+  <body>
+    <div class="header">
+      <img src="assets/icon.png" alt="小蠢" class="logo-img" />
+      <div class="header-text">
+        <h1>小蠢 AI 伴侣 设置</h1>
+        <p>选择 3D 虚拟形象的呈现形态与常驻运行模式</p>
+      </div>
+    </div>
 
-      cardEmbed.onclick = () => selectMode('embed');
-      cardDesktop.onclick = () => selectMode('desktop');
+    <div class="section-title">运行形态配置</div>
 
-      // 获取桥接端口与配置
-      async function loadConfig() {
-        try {
-          const res = await fetch('/bridge-port.json?t=' + Date.now());
-          if (res.ok) {
-            const data = await res.json();
-            if (data && data.port) currentPort = data.port;
-          }
-        } catch (_) {}
+    <div class="mode-cards">
+      <!-- 选项 1: 内嵌伴侣视窗 (默认) -->
+      <div class="mode-card active" id="card-embed" data-mode="embed">
+        <div class="radio-circle">
+          <div class="radio-dot"></div>
+        </div>
+        <div class="mode-info">
+          <div class="mode-header">
+            <span class="mode-name">Cindy 内嵌伴侣视窗</span>
+            <span class="badge badge-primary">默认 · 推荐</span>
+            <span class="badge badge-gray">免安装</span>
+          </div>
+          <div class="mode-desc">
+            直接在 Cindy 侧边栏/主视窗中渲染 3D
+            舞台，支持实时伴读、肢体动作、服装切换与面部表情。开箱即用，0
+            门槛免安装，不占用桌面置顶层。
+          </div>
+        </div>
+      </div>
 
-        try {
-          const cfgRes = await fetch(`http://127.0.0.1:${currentPort}/api/config`);
-          if (cfgRes.ok) {
-            const cfg = await cfgRes.json();
-            isInstalled = Boolean(cfg.installed);
-            selectedMode = cfg.preferredMode === 'desktop' ? 'desktop' : 'embed';
-            selectMode(selectedMode);
+      <!-- 选项 2: 独立桌面桌宠形态 -->
+      <div class="mode-card" id="card-desktop" data-mode="desktop">
+        <div class="radio-circle">
+          <div class="radio-dot"></div>
+        </div>
+        <div class="mode-info">
+          <div class="mode-header">
+            <span class="mode-name">桌面独立桌宠形态</span>
+            <span class="badge badge-gray">全屏置顶桌宠</span>
+          </div>
+          <div class="mode-desc">
+            全屏透明置顶悬浮在系统桌面，支持鼠标穿透、全局屏幕伴读与跟随交互。适合习惯桌面虚拟宠物的深度陪伴场景。
+          </div>
+          <div class="desktop-status-row">
+            <span class="status-text" id="desktop-status-text"
+              >⏳ 正在检测桌面端安装状态...</span
+            >
+            <button
+              type="button"
+              class="btn-inline-install"
+              id="btn-trigger-install"
+              style="display: none"
+            >
+              📥 立即安装桌面端
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
 
-            if (isInstalled) {
-              desktopStatusText.innerHTML = '<span style="color: var(--success)">● 已安装桌面客户端</span>';
-              btnTriggerInstall.style.display = 'none';
-            } else {
-              desktopStatusText.innerHTML = '<span style="color: var(--warning)">○ 尚未安装桌面端</span>';
-              btnTriggerInstall.style.display = 'inline-block';
+    <!-- 开源来源与项目信息 -->
+    <div class="repo-card">
+      <div class="repo-info">
+        <div class="repo-title">
+          <svg viewBox="0 0 24 24" width="14" height="14" fill="currentColor" style="opacity: 0.9;">
+            <path d="M12 0C5.37 0 0 5.37 0 12c0 5.31 3.435 9.795 8.205 11.385.6.105.825-.255.825-.57 0-.285-.015-1.23-.015-2.235-3.015.555-3.795-.735-4.035-1.41-.135-.345-.72-1.41-1.23-1.695-.42-.225-1.02-.78-.015-.795.945-.015 1.62.87 1.845 1.23 1.08 1.815 2.805 1.305 3.495.99.105-.78.42-1.305.765-1.605-2.67-.3-5.46-1.335-5.46-5.925 0-1.305.465-2.385 1.23-3.225-.12-.3-.54-1.53.12-3.18 0 0 1.005-.315 3.3 1.23.96-.27 1.98-.405 3-.405s2.04.135 3 .405c2.295-1.56 3.3-1.23 3.3-1.23.66 1.65.24 2.88.12 3.18.765.84 1.23 1.905 1.23 3.225 0 4.605-2.805 5.625-5.475 5.925.435.375.81 1.095.81 2.22 0 1.605-.015 2.895-.015 3.3 0 .315.225.69.825.57A12.02 12.02 0 0024 12c0-6.63-5.37-12-12-12z"/>
+          </svg>
+          <span>Project XiaoChun · 开源来源声明</span>
+        </div>
+        <div class="repo-meta">
+          <span>作者：<strong>FireTable</strong></span>
+          <span>·</span>
+          <span>协议：<strong>MIT</strong></span>
+          <span>·</span>
+          <span>版本：<strong>v1.0.0</strong></span>
+        </div>
+      </div>
+      <div class="repo-links">
+        <a href="https://github.com/FireTable/project-xiaochun" target="_blank" rel="noopener noreferrer" class="link-btn">
+          GitHub 仓库
+        </a>
+        <a href="https://xiaochun.firetable.tech" target="_blank" rel="noopener noreferrer" class="link-btn">
+          官方主页
+        </a>
+      </div>
+    </div>
+
+    <div class="footer">
+      <span style="font-size: 11.5px; color: var(--text-muted)">
+        🔒 未经您的明确授权，系统绝不会在后台自动下载桌面客户端。
+      </span>
+      <button type="button" class="save-btn" id="btn-save">保存设置</button>
+    </div>
+
+    <!-- 安装确认弹窗 -->
+    <div class="modal-overlay" id="install-modal">
+      <div class="modal-card">
+        <h2>确认安装小蠢桌面客户端？</h2>
+        <p>
+          桌面独立桌宠形态需要安装 Project XiaoChun 官方客户端（macOS 约 30MB
+          DMG，免密码无提权复制到您的应用程序目录）。<br /><br />
+          是否确认立即开始自动下载并安装？
+        </p>
+        <div class="modal-actions">
+          <button type="button" class="btn-modal-cancel" id="btn-modal-cancel">
+            取消
+          </button>
+          <button
+            type="button"
+            class="btn-modal-confirm"
+            id="btn-modal-confirm"
+          >
+            确认下载安装
+          </button>
+        </div>
+      </div>
+    </div>
+
+    <!-- 浮动提示 Toast -->
+    <div class="toast" id="toast">✅ 设置已成功保存！</div>
+
+    <script>
+      (function () {
+        let currentPort = 23518;
+        let selectedMode = "embed";
+        let isInstalled = false;
+        let isInstalling = false;
+
+        const cardEmbed = document.getElementById("card-embed");
+        const cardDesktop = document.getElementById("card-desktop");
+        const desktopStatusText = document.getElementById(
+          "desktop-status-text",
+        );
+        const btnTriggerInstall = document.getElementById(
+          "btn-trigger-install",
+        );
+        const btnSave = document.getElementById("btn-save");
+        const toast = document.getElementById("toast");
+        const installModal = document.getElementById("install-modal");
+        const btnModalCancel = document.getElementById("btn-modal-cancel");
+        const btnModalConfirm = document.getElementById("btn-modal-confirm");
+
+        function showToast(msg) {
+          toast.textContent = msg;
+          toast.classList.add("show");
+          setTimeout(() => toast.classList.remove("show"), 2600);
+        }
+
+        function selectMode(mode) {
+          selectedMode = mode;
+          if (mode === "embed") {
+            cardEmbed.classList.add("active");
+            cardDesktop.classList.remove("active");
+          } else {
+            cardEmbed.classList.remove("active");
+            cardDesktop.classList.add("active");
+            // 若切换至 desktop 且未安装，主动弹出确认安装弹窗
+            if (!isInstalled) {
+              installModal.classList.add("show");
             }
           }
-        } catch (err) {
-          desktopStatusText.textContent = '无法连通本地 Node 桥接服务';
         }
-      }
 
-      // 保存设置
-      btnSave.onclick = async () => {
-        try {
-          const res = await fetch(`http://127.0.0.1:${currentPort}/api/config`, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ preferredMode: selectedMode })
-          });
-          if (res.ok) {
-            showToast(selectedMode === 'desktop' ? '✨ 已保存：小蠢将以桌面桌宠形态运行' : '✨ 已保存：小蠢以 Cindy 内嵌伴侣视窗运行');
-            try {
-              if (typeof BroadcastChannel !== 'undefined') {
-                const bc = new BroadcastChannel('xiaochun_cindy_bridge');
-                bc.postMessage({ type: 'mode_changed', mode: selectedMode });
+        cardEmbed.onclick = () => selectMode("embed");
+        cardDesktop.onclick = () => selectMode("desktop");
+
+        // 获取桥接端口与配置
+        async function loadConfig() {
+          try {
+            const res = await fetch("/bridge-port.json?t=" + Date.now());
+            if (res.ok) {
+              const data = await res.json();
+              if (data && data.port) currentPort = data.port;
+            }
+          } catch (_) {}
+
+          try {
+            const cfgRes = await fetch(
+              `http://127.0.0.1:${currentPort}/api/config`,
+            );
+            if (cfgRes.ok) {
+              const cfg = await cfgRes.json();
+              isInstalled = Boolean(cfg.installed);
+              selectedMode =
+                cfg.preferredMode === "desktop" ? "desktop" : "embed";
+              selectMode(selectedMode);
+
+              if (isInstalled) {
+                desktopStatusText.innerHTML =
+                  '<span style="color: var(--success)">● 已安装桌面客户端</span>';
+                btnTriggerInstall.style.display = "none";
+              } else {
+                desktopStatusText.innerHTML =
+                  '<span style="color: var(--warning)">○ 尚未安装桌面端</span>';
+                btnTriggerInstall.style.display = "inline-block";
               }
-            } catch (_) {}
+            }
+          } catch (err) {
+            desktopStatusText.textContent = "无法连通本地 Node 桥接服务";
           }
-        } catch (err) {
-          showToast('保存失败: ' + err.message);
         }
-      };
 
-      // 触发安装流程
-      btnTriggerInstall.onclick = (e) => {
-        e.stopPropagation();
-        installModal.classList.add('show');
-      };
-
-      btnModalCancel.onclick = () => {
-        installModal.classList.remove('show');
-        if (!isInstalled && selectedMode === 'desktop') {
-          selectMode('embed');
-        }
-      };
-
-      btnModalConfirm.onclick = async () => {
-        if (isInstalling) return;
-        isInstalling = true;
-        btnModalConfirm.disabled = true;
-        btnModalConfirm.innerHTML = '<span class="spinner"></span>正在下载并安装...';
-
-        try {
-          const res = await fetch(`http://127.0.0.1:${currentPort}/api/install`, {
-            method: 'POST'
-          });
-          const data = await res.json();
-          if (data && data.success) {
-            isInstalled = true;
-            installModal.classList.remove('show');
-            desktopStatusText.innerHTML = '<span style="color: var(--success)">● 已安装并启动桌面桌宠！</span>';
-            btnTriggerInstall.style.display = 'none';
-            selectMode('desktop');
-            showToast('🎉 小蠢桌面客户端已安装并成功启动！');
-          } else {
-            showToast('安装未完成: ' + (data.message || '请重试'));
+        // 保存设置
+        btnSave.onclick = async () => {
+          try {
+            const res = await fetch(
+              `http://127.0.0.1:${currentPort}/api/config`,
+              {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ preferredMode: selectedMode }),
+              },
+            );
+            if (res.ok) {
+              showToast(
+                selectedMode === "desktop"
+                  ? "✨ 已保存：小蠢将以桌面桌宠形态运行"
+                  : "✨ 已保存：小蠢以 Cindy 内嵌伴侣视窗运行",
+              );
+              try {
+                if (typeof BroadcastChannel !== "undefined") {
+                  const bc = new BroadcastChannel("xiaochun_cindy_bridge");
+                  bc.postMessage({ type: "mode_changed", mode: selectedMode });
+                }
+              } catch (_) {}
+            }
+          } catch (err) {
+            showToast("保存失败: " + err.message);
           }
-        } catch (err) {
-          showToast('安装请求异常: ' + err.message);
-        } finally {
-          isInstalling = false;
-          btnModalConfirm.disabled = false;
-          btnModalConfirm.textContent = '确认下载安装';
-          installModal.classList.remove('show');
-        }
-      };
+        };
 
-      loadConfig();
-    })();
-  </script>
-</body>
+        // 触发安装流程
+        btnTriggerInstall.onclick = (e) => {
+          e.stopPropagation();
+          installModal.classList.add("show");
+        };
+
+        btnModalCancel.onclick = () => {
+          installModal.classList.remove("show");
+          if (!isInstalled && selectedMode === "desktop") {
+            selectMode("embed");
+          }
+        };
+
+        btnModalConfirm.onclick = async () => {
+          if (isInstalling) return;
+          isInstalling = true;
+          btnModalConfirm.disabled = true;
+          btnModalConfirm.innerHTML =
+            '<span class="spinner"></span>正在下载并安装...';
+
+          try {
+            const res = await fetch(
+              `http://127.0.0.1:${currentPort}/api/install`,
+              {
+                method: "POST",
+              },
+            );
+            const data = await res.json();
+            if (data && data.success) {
+              isInstalled = true;
+              installModal.classList.remove("show");
+              desktopStatusText.innerHTML =
+                '<span style="color: var(--success)">● 已安装并启动桌面桌宠！</span>';
+              btnTriggerInstall.style.display = "none";
+              selectMode("desktop");
+              showToast("🎉 小蠢桌面客户端已安装并成功启动！");
+            } else {
+              showToast("安装未完成: " + (data.message || "请重试"));
+            }
+          } catch (err) {
+            showToast("安装请求异常: " + err.message);
+          } finally {
+            isInstalling = false;
+            btnModalConfirm.disabled = false;
+            btnModalConfirm.textContent = "确认下载安装";
+            installModal.classList.remove("show");
+          }
+        };
+
+        loadConfig();
+      })();
+    </script>
+  </body>
 </html>

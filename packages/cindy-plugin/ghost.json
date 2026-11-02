@@ -7,6 +7,7 @@
   "whenToUse": "用户需要让小蠢 AI 伴侣说话、伴读、做肢体动作、表达面部表情，或者希望在 Cindy 中创建或配置「小蠢」专属常驻伙伴时使用。",
   "version": "1.0.0",
   "minCindyVersion": "0.1.121",
+  "author": "FireTable (github.com/FireTable/project-xiaochun)",
   "command": "小蠢",
   "icon": "assets/icon.png",
   "entry": "main.js",
@@ -20,7 +21,7 @@
     ]
   },
   "settingsHtml": "settings.html",
-  "settingsHeight": 520,
+  "settingsHeight": 580,
   "panel": {
     "title": "小蠢 AI 伴侣",
     "html": "panel.html",

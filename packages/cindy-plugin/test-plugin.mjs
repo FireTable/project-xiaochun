@@ -23,10 +23,11 @@ assert.ok(manifest.description && manifest.description.length <= 300, 'descripti
 assert.ok(manifest.whenToUse && manifest.whenToUse.length <= 300, 'whenToUse 长度不能超过 300 字符');
 assert.ok(manifest.version, '必须有 version 字段');
 assert.ok(manifest.minCindyVersion, '必须有 minCindyVersion 字段');
+assert.ok(manifest.author && manifest.author.length <= 64, 'author 必须声明且长度不超过 64 字符');
 assert.ok(manifest.entry, '必须有 entry 字段');
 assert.ok(manifest.icon, '必须有 icon 字段');
 assert.ok(manifest.node && manifest.node.entry, '必须有 node.entry 声明');
-console.log('   ✅ 基础元信息合规 (id, name, version, minCindyVersion, node)');
+console.log('   ✅ 基础元信息合规 (id, name, version, author, minCindyVersion, node)');
 
 // 2. 校验文件存在性与大小
 console.log('2️⃣ 校验引用的物理文件与体积约束:');
