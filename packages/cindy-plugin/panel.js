@@ -173,7 +173,14 @@
 
   function setSendingState(sending) {
     isSending = sending;
-    if (btnSend) btnSend.disabled = sending;
+    if (btnSend) {
+      btnSend.disabled = sending;
+      if (sending) {
+        btnSend.classList.remove('active');
+      } else if (chatInput && chatInput.value.trim().length > 0) {
+        btnSend.classList.add('active');
+      }
+    }
     if (chatInput) chatInput.disabled = sending;
     if (iconSend) iconSend.style.display = sending ? 'none' : 'block';
     if (iconLoading) iconLoading.style.display = sending ? 'block' : 'none';
@@ -190,6 +197,14 @@
         sendTimeoutTimer = null;
       }
     }
+  }
+
+  // 监听输入实时点亮小蠢珊瑚桃色发送按钮
+  if (chatInput && btnSend) {
+    chatInput.addEventListener('input', () => {
+      const hasText = chatInput.value.trim().length > 0;
+      btnSend.classList.toggle('active', hasText);
+    });
   }
 
   // 绑定底部输入栏提交事件
@@ -213,6 +228,7 @@
 
       // 清空输入框并聚焦
       chatInput.value = '';
+      if (btnSend) btnSend.classList.remove('active');
     });
   }
 

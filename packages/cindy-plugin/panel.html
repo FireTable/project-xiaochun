@@ -6,18 +6,38 @@
   <title>小蠢 AI 伴侣</title>
   <style>
     :root {
-      --bg: #0f1117;
-      --text: #f0f3f8;
-      --text-muted: #8b949e;
-      --primary: #ec4899;
-      --primary-rgb: 236, 72, 153;
+      /* Project XiaoChun 官方深空背景体系 */
+      --bg: #08090f;
+      --surface: rgba(19, 17, 28, 0.82);
+      --surface-focus: rgba(26, 23, 38, 0.94);
+      --border: rgba(255, 255, 255, 0.12);
+      --border-highlight: rgba(255, 255, 255, 0.2);
+      --text: #f8fafc;
+      --text-muted: rgba(248, 250, 252, 0.55);
+      --text-sub: rgba(248, 250, 252, 0.38);
+
+      /* Project XiaoChun 官方品牌与语义色彩 (暖杏桃粉) */
+      --primary: #ea8377;
+      --primary-light: #f5aa9c;
+      --primary-dark: #e06d64;
+      --primary-highlight: #fce0d4;
+      --primary-rgb: 234, 131, 119;
+      --primary-glow: rgba(234, 131, 119, 0.35);
+      --primary-gradient: linear-gradient(135deg, #f5aa9c 0%, #ea8377 50%, #e06d64 100%);
+      --primary-gradient-subtle: linear-gradient(135deg, rgba(234, 131, 119, 0.2) 0%, rgba(224, 109, 100, 0.25) 100%);
     }
 
     @media (prefers-color-scheme: light) {
       :root {
         --bg: #f8fafc;
+        --surface: rgba(255, 255, 255, 0.88);
+        --surface-focus: rgba(255, 255, 255, 0.98);
+        --border: rgba(0, 0, 0, 0.08);
+        --border-highlight: rgba(234, 131, 119, 0.3);
         --text: #0f172a;
         --text-muted: #64748b;
+        --text-sub: #94a3b8;
+        --primary-glow: rgba(234, 131, 119, 0.22);
       }
     }
 
@@ -34,6 +54,8 @@
       background-color: var(--bg);
       font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", sans-serif;
       color: var(--text);
+      -webkit-font-smoothing: antialiased;
+      -moz-osx-font-smoothing: grayscale;
     }
 
     #app-container {
@@ -71,45 +93,47 @@
 
     .retry-btn {
       appearance: none;
-      border: 1px solid rgba(255, 255, 255, 0.2);
-      background: rgba(15, 17, 23, 0.88);
-      backdrop-filter: blur(12px);
-      -webkit-backdrop-filter: blur(12px);
+      border: 1px solid rgba(234, 131, 119, 0.4);
+      background: rgba(19, 17, 28, 0.88);
+      backdrop-filter: blur(16px);
+      -webkit-backdrop-filter: blur(16px);
       color: var(--text);
-      padding: 8px 18px;
+      padding: 8px 20px;
       border-radius: 9999px;
       font-size: 12px;
       font-weight: 500;
       cursor: pointer;
       display: none;
       pointer-events: auto;
-      box-shadow: 0 6px 20px rgba(0, 0, 0, 0.4);
-      transition: all 0.2s ease;
+      box-shadow: 0 8px 24px rgba(0, 0, 0, 0.4), 0 0 16px rgba(234, 131, 119, 0.2);
+      transition: all 0.2s cubic-bezier(0.16, 1, 0.3, 1);
     }
 
     .retry-btn:hover {
-      background: rgba(var(--primary-rgb), 0.2);
+      background: rgba(234, 131, 119, 0.18);
       border-color: var(--primary);
       color: #fff;
+      transform: scale(1.04);
+      box-shadow: 0 8px 28px rgba(0, 0, 0, 0.45), 0 0 20px var(--primary-glow);
     }
 
     .retry-btn.show {
       display: inline-block;
     }
 
-    /* 方案 1: 3D 舞台原生悬浮毛玻璃对话栏 (默认隐藏，待 vrmEngine 与 3D 场景完全就绪后再平滑浮现) */
+    /* 3D 舞台原生悬浮毛玻璃对话栏 (平滑浮现) */
     .chat-bar-container {
       position: absolute;
-      bottom: 24px;
+      bottom: 28px;
       left: 50%;
-      transform: translateX(-50%) translateY(24px);
+      transform: translateX(-50%) translateY(28px);
       width: calc(100% - 32px);
-      max-width: 520px;
+      max-width: 540px;
       z-index: 20;
       display: flex;
       flex-direction: column;
       align-items: center;
-      gap: 8px;
+      gap: 10px;
       opacity: 0;
       visibility: hidden;
       pointer-events: none;
@@ -126,35 +150,35 @@
       transform: translateX(-50%) translateY(0);
     }
 
-    /* 快捷建议/提示药丸 (一键添加专属伙伴) */
+    /* 快捷建议/提示药丸 (专属伙伴引导) */
     .tip-pill {
       display: flex;
       align-items: center;
       gap: 8px;
       padding: 6px 14px;
       border-radius: 9999px;
-      background: rgba(15, 23, 42, 0.85);
-      backdrop-filter: blur(16px);
-      -webkit-backdrop-filter: blur(16px);
-      border: 1px solid rgba(236, 72, 153, 0.4);
-      box-shadow: 0 8px 24px rgba(0, 0, 0, 0.35);
+      background: rgba(19, 17, 28, 0.92);
+      backdrop-filter: blur(20px) saturate(180%);
+      -webkit-backdrop-filter: blur(20px) saturate(180%);
+      border: 1px solid rgba(234, 131, 119, 0.35);
+      box-shadow: 0 10px 28px -4px rgba(0, 0, 0, 0.45), 0 0 16px rgba(234, 131, 119, 0.18);
       font-size: 12px;
       color: var(--text);
-      animation: tipFadeIn 0.3s ease-out;
+      animation: tipFadeIn 0.35s cubic-bezier(0.16, 1, 0.3, 1);
       transition: all 0.25s ease;
     }
 
     @media (prefers-color-scheme: light) {
       .tip-pill {
-        background: rgba(255, 255, 255, 0.9);
-        border-color: rgba(236, 72, 153, 0.5);
-        box-shadow: 0 8px 24px rgba(236, 72, 153, 0.15);
+        background: rgba(255, 255, 255, 0.94);
+        border-color: rgba(234, 131, 119, 0.45);
+        box-shadow: 0 10px 24px -4px rgba(0, 0, 0, 0.1), 0 0 16px rgba(234, 131, 119, 0.2);
       }
     }
 
     @keyframes tipFadeIn {
-      from { opacity: 0; transform: translateY(6px); }
-      to { opacity: 1; transform: translateY(0); }
+      from { opacity: 0; transform: translateY(8px) scale(0.96); }
+      to { opacity: 1; transform: translateY(0) scale(1); }
     }
 
     .tip-pill.hidden {
@@ -162,37 +186,48 @@
     }
 
     .tip-icon {
-      font-size: 14px;
-      animation: pulse 2s infinite ease-in-out;
+      font-size: 13px;
+      color: var(--primary-light);
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      animation: pulse 2.4s infinite ease-in-out;
     }
 
     @keyframes pulse {
-      0%, 100% { transform: scale(1); }
-      50% { transform: scale(1.15); }
+      0%, 100% { transform: scale(1); opacity: 0.9; }
+      50% { transform: scale(1.15); opacity: 1; filter: drop-shadow(0 0 6px var(--primary)); }
     }
 
     .tip-text {
       color: var(--text);
       font-weight: 500;
+      letter-spacing: 0.01em;
     }
 
     .tip-action-btn {
       appearance: none;
-      background: linear-gradient(135deg, #ec4899, #f43f5e);
+      background: var(--primary-gradient);
       border: none;
       color: #fff;
       font-size: 11px;
       font-weight: 600;
-      padding: 3px 10px;
+      padding: 3.5px 12px;
       border-radius: 9999px;
       cursor: pointer;
-      box-shadow: 0 2px 8px rgba(236, 72, 153, 0.35);
-      transition: all 0.2s ease;
+      box-shadow: 0 2px 10px rgba(234, 131, 119, 0.38);
+      transition: all 0.2s cubic-bezier(0.16, 1, 0.3, 1);
+      letter-spacing: 0.02em;
     }
 
     .tip-action-btn:hover {
-      filter: brightness(1.1);
+      filter: brightness(1.08);
       transform: scale(1.05);
+      box-shadow: 0 4px 14px rgba(234, 131, 119, 0.52);
+    }
+
+    .tip-action-btn:active {
+      transform: scale(0.96);
     }
 
     .tip-close-btn {
@@ -207,45 +242,88 @@
       display: flex;
       align-items: center;
       justify-content: center;
+      transition: color 0.15s ease;
     }
 
     .tip-close-btn:hover {
-      color: var(--text);
+      color: var(--primary-light);
     }
 
-    /* 毛玻璃输入表单 */
+    /* 毛玻璃输入表单 — Project XiaoChun 原生质感 */
     .chat-form {
       width: 100%;
+      min-height: 48px;
       display: flex;
       align-items: center;
-      background: rgba(15, 23, 42, 0.65);
-      backdrop-filter: blur(20px) saturate(180%);
-      -webkit-backdrop-filter: blur(20px) saturate(180%);
-      border: 1px solid rgba(255, 255, 255, 0.16);
-      box-shadow: 0 12px 32px -4px rgba(0, 0, 0, 0.45), 0 0 1px rgba(255, 255, 255, 0.2);
+      background: var(--surface);
+      backdrop-filter: blur(24px) saturate(190%);
+      -webkit-backdrop-filter: blur(24px) saturate(190%);
+      border: 1px solid var(--border);
+      box-shadow: 0 16px 40px -8px rgba(0, 0, 0, 0.5), inset 0 1px 1px 0 rgba(255, 255, 255, 0.12);
       border-radius: 9999px;
-      padding: 4px 6px 4px 18px;
+      padding: 5px 6px 5px 14px;
+      gap: 8px;
       transition: all 0.25s cubic-bezier(0.16, 1, 0.3, 1);
     }
 
     @media (prefers-color-scheme: light) {
       .chat-form {
-        background: rgba(255, 255, 255, 0.75);
-        border: 1px solid rgba(0, 0, 0, 0.08);
-        box-shadow: 0 12px 32px -4px rgba(0, 0, 0, 0.12), 0 0 1px rgba(0, 0, 0, 0.1);
+        background: var(--surface);
+        border: 1px solid var(--border);
+        box-shadow: 0 14px 36px -8px rgba(0, 0, 0, 0.12), inset 0 1px 1px 0 rgba(255, 255, 255, 0.6);
       }
     }
 
     .chat-form:focus-within {
-      border-color: rgba(236, 72, 153, 0.65);
-      box-shadow: 0 14px 40px -4px rgba(236, 72, 153, 0.25), 0 0 0 2px rgba(236, 72, 153, 0.2);
-      background: rgba(15, 23, 42, 0.8);
+      border-color: var(--primary);
+      box-shadow: 0 20px 48px -6px rgba(0, 0, 0, 0.6),
+                  0 0 0 2px rgba(234, 131, 119, 0.28),
+                  0 0 24px var(--primary-glow);
+      background: var(--surface-focus);
     }
 
     @media (prefers-color-scheme: light) {
       .chat-form:focus-within {
-        background: rgba(255, 255, 255, 0.92);
+        background: var(--surface-focus);
+        box-shadow: 0 16px 40px -6px rgba(234, 131, 119, 0.2),
+                    0 0 0 2px rgba(234, 131, 119, 0.25);
       }
+    }
+
+    /* 小蠢品牌专属身份微标 */
+    .brand-badge {
+      display: inline-flex;
+      align-items: center;
+      gap: 5px;
+      padding: 3px 8px;
+      border-radius: 9999px;
+      background: rgba(234, 131, 119, 0.12);
+      border: 1px solid rgba(234, 131, 119, 0.25);
+      flex-shrink: 0;
+      user-select: none;
+    }
+
+    .brand-dot {
+      width: 6px;
+      height: 6px;
+      border-radius: 50%;
+      background: var(--primary);
+      box-shadow: 0 0 6px var(--primary);
+      animation: pulseDot 2.4s infinite ease-in-out;
+    }
+
+    @keyframes pulseDot {
+      0%, 100% { opacity: 0.8; transform: scale(1); }
+      50% { opacity: 1; transform: scale(1.25); box-shadow: 0 0 10px var(--primary-light); }
+    }
+
+    .brand-name {
+      font-size: 11px;
+      font-weight: 700;
+      letter-spacing: 0.04em;
+      color: var(--primary-light);
+      text-shadow: 0 0 8px rgba(234, 131, 119, 0.35);
+      line-height: 1;
     }
 
     .chat-input {
@@ -255,46 +333,62 @@
       border: none;
       outline: none;
       font-size: 13.5px;
+      font-weight: 450;
       color: var(--text);
       font-family: inherit;
+      min-width: 0;
     }
 
     .chat-input::placeholder {
       color: var(--text-muted);
-      opacity: 0.8;
+      opacity: 0.75;
+      font-size: 13px;
     }
 
+    /* 发送按钮 — 暖杏桃色渐变与微交互 */
     .btn-send {
       width: 36px;
       height: 36px;
       border-radius: 9999px;
-      background: linear-gradient(135deg, #ec4899, #f43f5e);
-      border: none;
+      background: rgba(255, 255, 255, 0.08);
+      border: 1px solid rgba(255, 255, 255, 0.08);
       cursor: pointer;
-      color: #fff;
+      color: var(--text-muted);
       display: flex;
       align-items: center;
       justify-content: center;
-      box-shadow: 0 4px 12px rgba(236, 72, 153, 0.35);
-      transition: all 0.2s cubic-bezier(0.16, 1, 0.3, 1);
+      transition: all 0.25s cubic-bezier(0.16, 1, 0.3, 1);
       flex-shrink: 0;
     }
 
+    /* 输入有内容时或处于 active 状态时点亮小蠢品牌主色 */
+    .btn-send.active,
+    .btn-send:focus-visible {
+      background: var(--primary-gradient);
+      border-color: transparent;
+      color: #fff;
+      box-shadow: 0 4px 14px var(--primary-glow), inset 0 1px 1px rgba(255, 255, 255, 0.35);
+    }
+
     .btn-send:hover {
+      background: var(--primary-gradient);
+      border-color: transparent;
+      color: #fff;
       transform: scale(1.06);
-      filter: brightness(1.1);
-      box-shadow: 0 6px 16px rgba(236, 72, 153, 0.5);
+      filter: brightness(1.08);
+      box-shadow: 0 6px 18px rgba(234, 131, 119, 0.5);
     }
 
     .btn-send:active {
-      transform: scale(0.96);
+      transform: scale(0.95);
     }
 
     .btn-send:disabled {
-      opacity: 0.6;
+      opacity: 0.5;
       cursor: not-allowed;
-      transform: none;
+      transform: none !important;
       filter: grayscale(0.5);
+      box-shadow: none !important;
     }
 
     .send-icon {
@@ -309,10 +403,10 @@
 
     /* 正在思考 / 回复时的加载转圈 */
     .spinner {
-      width: 14px;
-      height: 14px;
-      border: 2px solid rgba(255, 255, 255, 0.3);
-      border-top-color: #fff;
+      width: 15px;
+      height: 15px;
+      border: 2px solid rgba(255, 255, 255, 0.25);
+      border-top-color: var(--primary-light);
       border-radius: 50%;
       animation: spin 0.8s linear infinite;
     }
@@ -337,7 +431,7 @@
       loading="eager"
     ></iframe>
 
-    <!-- 方案 1: 底部悬浮毛玻璃对话栏 -->
+    <!-- 底部悬浮毛玻璃对话栏 (Project XiaoChun 品牌主题) -->
     <div id="chat-bar-container" class="chat-bar-container">
       <!-- 快捷提示药丸 (若尚未建立小蠢专属伙伴，提示一键创建) -->
       <div id="companion-tip-pill" class="tip-pill hidden">
@@ -348,11 +442,15 @@
       </div>
 
       <form id="chat-form" class="chat-form" autocomplete="off">
+        <div class="brand-badge" title="小蠢 3D AI 伴侣">
+          <span class="brand-dot"></span>
+          <span class="brand-name">小蠢</span>
+        </div>
         <input
           type="text"
           id="chat-input"
           class="chat-input"
-          placeholder="输入想对小蠢说的话，按 Enter 发送..."
+          placeholder="和温柔可爱的小蠢聊聊天，按 Enter 发送..."
           maxlength="500"
         />
         <button type="submit" id="btn-send" class="btn-send" aria-label="发送消息" title="发送">
