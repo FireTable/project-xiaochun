@@ -59,16 +59,29 @@ async function handleCreateCompanionRequest() {
         const prompt = '请调用 Cindy 内置系统工具 create_teammate 帮我创建一个专属伙伴「小蠢」：' +
           '名字为「小蠢」，职责为「3D AI 伴侣少女」，性格活泼治愈、元气灵动，' +
           '身份设定为小蠢 AI 伴侣，在回复时调用 xiaochun_speak 工具配合动作与表情。';
-        await cindy.targets.send({
+        const sendRes = await cindy.targets.send({
           target: { kind: 'bot', id: defaultBot.id },
           requestKey,
           text: prompt
         });
-        console.log('[XiaoChun Main] 已向伙伴发送创建小蠢指令:', defaultBot.id);
+        console.log('[XiaoChun Main] 已向伙伴发送创建小蠢指令:', defaultBot.id, sendRes);
+        return;
       }
+    }
+    if (bridgeChannel) {
+      bridgeChannel.postMessage({
+        type: 'bot_error',
+        message: '未找到可用的 Cindy 伙伴，请在 Cindy 左侧新建「小蠢」伙伴'
+      });
     }
   } catch (err) {
     console.warn('[XiaoChun Main] 申请创建伙伴失败:', err);
+    if (bridgeChannel) {
+      bridgeChannel.postMessage({
+        type: 'bot_error',
+        message: '向 Cindy 发送失败，请检查 Cindy 伙伴的模型设置: ' + (err.message || String(err))
+      });
+    }
   }
 }
 

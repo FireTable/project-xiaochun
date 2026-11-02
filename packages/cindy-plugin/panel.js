@@ -243,6 +243,14 @@
           return;
         }
 
+        // 处理错误回报
+        if (data.type === 'bot_error') {
+          setSendingState(false);
+          if (tipText) tipText.textContent = data.message || '伙伴响应异常，请检查 Cindy 模型';
+          if (tipPill) tipPill.classList.remove('hidden');
+          return;
+        }
+
         // 处理回复重置状态
         if (data.type === 'bot_reply_status') {
           if (data.state === 'idle' || data.state === 'speaking') {
