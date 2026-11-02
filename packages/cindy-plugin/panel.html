@@ -261,7 +261,7 @@
       border: 1px solid var(--border);
       box-shadow: 0 16px 40px -8px rgba(0, 0, 0, 0.5), inset 0 1px 1px 0 rgba(255, 255, 255, 0.12);
       border-radius: 9999px;
-      padding: 5px 6px 5px 14px;
+      padding: 5px 6px 5px 18px;
       gap: 8px;
       transition: all 0.25s cubic-bezier(0.16, 1, 0.3, 1);
     }
@@ -288,42 +288,6 @@
         box-shadow: 0 16px 40px -6px rgba(234, 131, 119, 0.2),
                     0 0 0 2px rgba(234, 131, 119, 0.25);
       }
-    }
-
-    /* 小蠢品牌专属身份微标 */
-    .brand-badge {
-      display: inline-flex;
-      align-items: center;
-      gap: 5px;
-      padding: 3px 8px;
-      border-radius: 9999px;
-      background: rgba(234, 131, 119, 0.12);
-      border: 1px solid rgba(234, 131, 119, 0.25);
-      flex-shrink: 0;
-      user-select: none;
-    }
-
-    .brand-dot {
-      width: 6px;
-      height: 6px;
-      border-radius: 50%;
-      background: var(--primary);
-      box-shadow: 0 0 6px var(--primary);
-      animation: pulseDot 2.4s infinite ease-in-out;
-    }
-
-    @keyframes pulseDot {
-      0%, 100% { opacity: 0.8; transform: scale(1); }
-      50% { opacity: 1; transform: scale(1.25); box-shadow: 0 0 10px var(--primary-light); }
-    }
-
-    .brand-name {
-      font-size: 11px;
-      font-weight: 700;
-      letter-spacing: 0.04em;
-      color: var(--primary-light);
-      text-shadow: 0 0 8px rgba(234, 131, 119, 0.35);
-      line-height: 1;
     }
 
     .chat-input {
@@ -442,10 +406,6 @@
       </div>
 
       <form id="chat-form" class="chat-form" autocomplete="off">
-        <div class="brand-badge" title="小蠢 3D AI 伴侣">
-          <span class="brand-dot"></span>
-          <span class="brand-name">小蠢</span>
-        </div>
         <input
           type="text"
           id="chat-input"

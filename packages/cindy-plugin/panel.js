@@ -199,11 +199,14 @@
     }
   }
 
-  // 监听输入实时点亮小蠢珊瑚桃色发送按钮
+  // 监听输入实时点亮小蠢珊瑚桃色发送按钮，聚焦时检测伙伴状态
   if (chatInput && btnSend) {
     chatInput.addEventListener('input', () => {
       const hasText = chatInput.value.trim().length > 0;
       btnSend.classList.toggle('active', hasText);
+    });
+    chatInput.addEventListener('focus', () => {
+      if (bc) bc.postMessage({ type: 'check_bot_status' });
     });
   }
 
@@ -302,6 +305,18 @@
       setTimeout(() => {
         bc.postMessage({ type: 'check_bot_status' });
       }, 800);
+
+      // 窗口切回前台时重新核对伙伴状态
+      window.addEventListener('focus', () => {
+        bc.postMessage({ type: 'check_bot_status' });
+      });
+
+      // 当提示条可见时，每 4 秒轮询一次伙伴状态（Cindy 创建成功后无需刷新即可自动隐藏引导）
+      setInterval(() => {
+        if (tipPill && !tipPill.classList.contains('hidden')) {
+          bc.postMessage({ type: 'check_bot_status' });
+        }
+      }, 4000);
     }
   } catch (err) {
     console.warn('[XiaoChun Panel] BroadcastChannel 不可用:', err);

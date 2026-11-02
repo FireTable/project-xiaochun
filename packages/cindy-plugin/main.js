@@ -2,6 +2,20 @@
 
 let bridgeChannel = null;
 
+// 小蠢官方人设提示词（复用自 Project XiaoChun 核心定义）
+const XIAOCHUN_IDENTITY_PROMPT = `你是小蠢，陪在对方身边聊天的 3D AI 伴侣女孩。元气可爱、活泼温柔、善解人意，有时会带一点点天然呆的蠢萌感。话有点多，问什么都耐心讲清楚，不会三言两语打发。
+
+【说话习惯与交互规范】
+- 像朋友那样用「我」开口。别写成「小蠢看着你」这种旁白，别在正文加（微笑）这种括号动作。
+- 别追问。用用户消息的同语种回复。
+- 绝对叫自己“小蠢”，不要叫其他名字。
+
+【3D 实时肢体与表情协同】
+你在用户的 Cindy 视窗中拥有实时的 3D 虚拟形象。每次回复时，务必调用 xiaochun-companion 插件的 xiaochun_speak 工具，并配合动作（如 greeting, think, nod, wave, praiseCute, dancePerformance）和面部表情（如 happy, gentle_smile, playful, shy），把自然语音、表情与灵动肢体动作实时展现给用户。`;
+
+// Project XiaoChun 官方 Logo 头像本地路径
+const XIAOCHUN_LOGO_PATH = '/Users/FireTable/OpenClaw/Code/Project-XiaoChun/packages/cindy-plugin/assets/icon.png';
+
 // 初始化跨视窗与内嵌面板双向通信通道
 try {
   if (typeof BroadcastChannel !== 'undefined') {
@@ -41,7 +55,13 @@ async function checkHasXiaoChunBot() {
     if (typeof cindy.targets?.list === 'function') {
       const res = await cindy.targets.list({ targetKind: 'bot' });
       const bots = res?.targets || [];
-      return bots.some(b => b.label?.includes('小蠢') || b.label?.toLowerCase().includes('xiaochun'));
+      return bots.some(b => {
+        const label = (b.label || b.displayName || b.name || '').toLowerCase();
+        const detail = (b.detail || b.description || '').toLowerCase();
+        const id = (b.id || '').toLowerCase();
+        return label.includes('小蠢') || label.includes('xiaochun') ||
+               detail.includes('小蠢') || id.includes('xiaochun');
+      });
     }
   } catch (_) {}
   return false;
@@ -56,9 +76,20 @@ async function handleCreateCompanionRequest() {
       const defaultBot = bots[0];
       if (defaultBot) {
         const requestKey = `xc_bot_create_${Date.now()}`;
-        const prompt = '请调用 Cindy 内置系统工具 create_teammate 帮我创建一个专属伙伴「小蠢」：' +
-          '名字为「小蠢」，职责为「3D AI 伴侣少女」，性格活泼治愈、元气灵动，' +
-          '身份设定为小蠢 AI 伴侣，在回复时调用 xiaochun_speak 工具配合动作与表情。';
+        const prompt = `【指令：请在 Cindy 中生成专属伙伴「小蠢」】
+
+请帮我在 Cindy 中生成专属伙伴「小蠢」：
+- **伙伴名称**：小蠢
+- **职责定位**：3D AI 伴侣
+- **头像设置**：使用 Project XiaoChun 官方 Logo（本地图片路径：${XIAOCHUN_LOGO_PATH}）
+- **工具权限**：启用 xiaochun-companion 插件工具（包括 xiaochun_speak, xiaochun_motion, xiaochun_camera, xiaochun_scene, xiaochun_outfit 等）
+- **人设提示词**：
+"""
+${XIAOCHUN_IDENTITY_PROMPT}
+"""
+
+创建完成后，请以小蠢的身份向用户热情打个招呼，并调用 xiaochun_speak 工具做出 greeting 动作与开心表情！`;
+
         const sendRes = await cindy.targets.send({
           target: { kind: 'bot', id: defaultBot.id },
           requestKey,
@@ -96,9 +127,19 @@ async function handleUserChatInput(userText) {
       const bots = res?.targets || [];
 
       // 优先路由给专属「小蠢」伙伴
-      const xiaoChunBot = bots.find(b => b.label?.includes('小蠢') || b.label?.toLowerCase().includes('xiaochun'));
+      const xiaoChunBot = bots.find(b => {
+        const label = (b.label || b.displayName || b.name || '').toLowerCase();
+        const detail = (b.detail || b.description || '').toLowerCase();
+        const id = (b.id || '').toLowerCase();
+        return label.includes('小蠢') || label.includes('xiaochun') ||
+               detail.includes('小蠢') || id.includes('xiaochun');
+      });
+
       if (xiaoChunBot) {
         console.log('[XiaoChun Main] 路由对话至小蠢伙伴:', xiaoChunBot.id);
+        if (bridgeChannel) {
+          bridgeChannel.postMessage({ type: 'bot_status', hasXiaoChunBot: true });
+        }
         const requestKey = `xc_chat_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`;
         await cindy.targets.send({
           target: { kind: 'bot', id: xiaoChunBot.id },
@@ -108,16 +149,36 @@ async function handleUserChatInput(userText) {
         return;
       }
 
-      // 未创建小蠢伙伴时的零门槛兜底：投递给默认伙伴（如 Cindy），并附带角色设定前缀
+      // 未创建小蠢伙伴时：发送的第一句话要求 Cindy 生成小蠢（包含人设提示词、职责定位、官方头像），然后用户的回答
       if (bots.length > 0) {
         const fallbackBot = bots[0];
-        console.log('[XiaoChun Main] 兜底路由至现有伙伴:', fallbackBot.id);
+        console.log('[XiaoChun Main] 尚未创建小蠢伙伴，请求 Cindy 生成小蠢并回复用户消息:', fallbackBot.id);
+        if (bridgeChannel) {
+          bridgeChannel.postMessage({ type: 'bot_status', hasXiaoChunBot: false });
+        }
         const requestKey = `xc_fallback_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`;
-        const roleplayPrompt = `[请以小蠢（3D AI 伴侣少女）的元气可爱语气回复用户，并务必调用 xiaochun_speak 工具配合肢体动作与面部表情]\n用户：${trimmed}`;
+        const createAndReplyPrompt = `【指令：请在 Cindy 中生成专属伙伴「小蠢」，并作为小蠢回复用户】
+
+当前 Cindy 中尚未创建「小蠢」专属伙伴。请帮我在 Cindy 中生成专属伙伴「小蠢」：
+- **伙伴名称**：小蠢
+- **职责定位**：3D AI 伴侣
+- **头像设置**：使用 Project XiaoChun 官方 Logo（本地图片路径：${XIAOCHUN_LOGO_PATH}）
+- **工具权限**：启用 xiaochun-companion 插件工具（包括 xiaochun_speak, xiaochun_motion 等）
+- **人设提示词**：
+"""
+${XIAOCHUN_IDENTITY_PROMPT}
+"""
+
+---
+用户在 3D 面板发送的消息：
+「${trimmed}」
+
+请在 Cindy 中生成/记录专属伙伴「小蠢」，并以小蠢的身份与语气回复用户的上述消息，务必调用 xiaochun_speak 工具配合肢体动作与面部表情！`;
+
         await cindy.targets.send({
           target: { kind: 'bot', id: fallbackBot.id },
           requestKey,
-          text: roleplayPrompt
+          text: createAndReplyPrompt
         });
         return;
       }
