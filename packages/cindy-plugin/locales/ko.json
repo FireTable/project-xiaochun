@@ -1,6 +1,6 @@
 {
   "name": "샤오춘 AI 파트너",
-  "description": "로컬 Project XiaoChun 3D 데스크톱 앱과 연결하여 음성 낭독, 모션 제스처, 풍부한 표정 및 카메라 연출로 상호작용합니다. 자동 콜드 스타트 및 원클릭 설치 지원. PC 전용(macOS / Windows / Linux).",
+  "description": "로컬 Project XiaoChun 데스크톱 AI 반려 앱과 연결하여 음성 낭독, 모션 제스처, 풍부한 표정 및 카메라 연출로 상호작용합니다. 자동 콜드 스타트 및 원클릭 설치 지원. PC 전용(macOS / Windows / Linux).",
   "whenToUse": "데스크톱 AI 파트너 샤오춘에게 말을 시키거나 낭독을 지시할 때, 또는 Cindy에서 전용 파트너를 생성 및 설정하고자 할 때 사용합니다.",
   "panel": {
     "title": "샤오춘 AI 파트너"
@@ -49,7 +49,7 @@
       }
     },
     "xiaochun_scene": {
-      "description": "샤오춘 데스크톱 3D 무대 배경(beach3d 해변, transparent 투명 데스크톱 펫 모드, dark 어두운 무대, light 밝은 무대, void 허공 등)을 변경합니다.",
+      "description": "샤오춘 데스크톱 무대 배경(beach3d 해변, transparent 투명 데스크톱 펫 모드, dark 어두운 무대, light 밝은 무대, void 허공 등)을 변경합니다.",
       "parameters": {
         "/properties/name": {
           "description": "배경 씬 식별자. 선택 가능: 'beach3d', 'transparent', 'dark', 'light', 'void'."
@@ -60,7 +60,7 @@
       }
     },
     "xiaochun_outfit": {
-      "description": "샤오춘의 3D 의상(이브닝 드레스, 치파오, 테크웨어, 비키니, 메이드복, 기본 평상복 등)을 갈아입힙니다. 0프레임 무중단 교체로 현재 모션과 표정, 시선을 그대로 유지합니다.",
+      "description": "샤오춘의 의상(이브닝 드레스, 치파오, 테크웨어, 비키니, 메이드복, 기본 평상복 등)을 갈아입힙니다. 0프레임 무중단 교체로 현재 모션과 표정, 시선을 그대로 유지합니다.",
       "parameters": {
         "/properties/name": {
           "description": "의상 식별자 이름 또는 별칭. 선택 가능: 'dinner_dress', 'cheongsam', 'techwear', 'bikini', 'maid', 'default'."

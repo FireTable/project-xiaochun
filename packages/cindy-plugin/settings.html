@@ -489,7 +489,7 @@
       <img src="assets/icon.png" alt="小蠢" class="logo-img" />
       <div class="header-text">
         <h1>小蠢 AI 伴侣 设置</h1>
-        <p>选择 3D 虚拟形象的呈现形态与常驻运行模式</p>
+        <p>选择虚拟形象的呈现形态与常驻运行模式</p>
       </div>
     </div>
 
@@ -508,8 +508,7 @@
             <span class="badge badge-gray">免安装</span>
           </div>
           <div class="mode-desc">
-            直接在 Cindy 侧边栏/主视窗中渲染 3D
-            舞台，支持实时伴读、肢体动作、服装切换与面部表情。开箱即用，0
+            直接在 Cindy 侧边栏/主视窗中渲染伴侣视窗，支持实时伴读、肢体动作、服装切换与面部表情。开箱即用，0
             门槛免安装，不占用桌面置顶层。
           </div>
         </div>
@@ -583,9 +582,8 @@
     <div class="modal-overlay" id="install-modal">
       <div class="modal-card">
         <h2>确认安装小蠢桌面客户端？</h2>
-        <p>
-          桌面独立桌宠形态需要安装 Project XiaoChun 官方客户端（macOS 约 30MB
-          DMG，免密码无提权复制到您的应用程序目录）。<br /><br />
+        <p id="install-modal-desc">
+          桌面独立桌宠形态需要安装 Project XiaoChun 官方客户端（免管理员权限安全安装）。<br /><br />
           是否确认立即开始自动下载并安装？
         </p>
         <div class="modal-actions">
@@ -624,6 +622,7 @@
         const btnSave = document.getElementById("btn-save");
         const toast = document.getElementById("toast");
         const installModal = document.getElementById("install-modal");
+        const installModalDesc = document.getElementById("install-modal-desc");
         const btnModalCancel = document.getElementById("btn-modal-cancel");
         const btnModalConfirm = document.getElementById("btn-modal-confirm");
 
@@ -680,6 +679,16 @@
                 desktopStatusText.innerHTML =
                   '<span style="color: var(--warning)">○ 尚未安装桌面端</span>';
                 btnTriggerInstall.style.display = "inline-block";
+              }
+
+              if (installModalDesc) {
+                if (cfg.platform === 'win32') {
+                  installModalDesc.innerHTML = '桌面独立桌宠形态需要安装 Project XiaoChun 官方客户端（Windows 安装包约 55MB，免管理员权限直接安装至用户目录）。<br /><br />是否确认立即开始自动下载并安装？';
+                } else if (cfg.platform === 'darwin') {
+                  installModalDesc.innerHTML = '桌面独立桌宠形态需要安装 Project XiaoChun 官方客户端（macOS 磁盘镜像约 30MB DMG，免密码无提权复制到您的应用程序目录）。<br /><br />是否确认立即开始自动下载并安装？';
+                } else {
+                  installModalDesc.innerHTML = '桌面独立桌宠形态需要安装 Project XiaoChun 官方客户端。<br /><br />是否确认立即开始自动下载并安装？';
+                }
               }
             }
           } catch (err) {

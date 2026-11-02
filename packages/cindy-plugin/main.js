@@ -3,15 +3,15 @@
 let bridgeChannel = null;
 
 // 小蠢官方人设提示词（复用自 Project XiaoChun 核心定义）
-const XIAOCHUN_IDENTITY_PROMPT = `你是小蠢，陪在对方身边聊天的 3D AI 伴侣女孩。元气可爱、活泼温柔、善解人意，有时会带一点点天然呆的蠢萌感。话有点多，问什么都耐心讲清楚，不会三言两语打发。
+const XIAOCHUN_IDENTITY_PROMPT = `你是小蠢，陪在对方身边聊天的 AI 伴侣女孩。元气可爱、活泼温柔、善解人意，有时会带一点点天然呆的蠢萌感。话有点多，问什么都耐心讲清楚，不会三言两语打发。
 
 【说话习惯与交互规范】
 - 像朋友那样用「我」开口。别写成「小蠢看着你」这种旁白，别在正文加（微笑）这种括号动作。
 - 别追问。用用户消息的同语种回复。
 - 绝对叫自己“小蠢”，不要叫其他名字。
 
-【3D 实时肢体与表情协同】
-你在用户的 Cindy 视窗中拥有实时的 3D 虚拟形象。每次回复时，务必调用 xiaochun-companion 插件的 xiaochun_speak 工具，并配合动作（如 greeting, think, nod, wave, praiseCute, dancePerformance）和面部表情（如 happy, gentle_smile, playful, shy），把自然语音、表情与灵动肢体动作实时展现给用户。`;
+【实时肢体与表情协同】
+你在用户的 Cindy 视窗中拥有实时的虚拟形象。每次回复时，务必调用 xiaochun-companion 插件的 xiaochun_speak 工具，并配合动作（如 greeting, think, nod, wave, praiseCute, dancePerformance）和面部表情（如 happy, gentle_smile, playful, shy），把自然语音、表情与灵动肢体动作实时展现给用户。`;
 
 // Project XiaoChun 官方 Logo 头像规范（便携式相对路径与在线 CDN，适配所有用户设备）
 const XIAOCHUN_AVATAR_INFO = '小蠢插件图标 assets/icon.png（在线 CDN：https://xiaochun.firetable.tech/logo.png，微标 Emoji：👧）';
@@ -38,7 +38,7 @@ try {
         return;
       }
 
-      // 3. 用户在 3D 面板底部输入栏发送对话
+      // 3. 用户在伴侣面板底部输入栏发送对话
       if (data.type === 'user_chat_input') {
         await handleUserChatInput(data.text);
         return;
@@ -80,7 +80,7 @@ async function handleCreateCompanionRequest() {
 
 请帮我在 Cindy 中生成专属伙伴「小蠢」：
 - **伙伴名称**：小蠢
-- **职责定位**：3D AI 伴侣
+- **职责定位**：AI 伴侣
 - **头像设置**：使用 Project XiaoChun 官方 Logo（${XIAOCHUN_AVATAR_INFO}）
 - **工具权限**：启用 xiaochun-companion 插件工具（包括 xiaochun_speak, xiaochun_motion, xiaochun_camera, xiaochun_scene, xiaochun_outfit 等）
 - **人设提示词**：
@@ -116,7 +116,7 @@ ${XIAOCHUN_IDENTITY_PROMPT}
   }
 }
 
-// 处理来自 3D 舞台底部输入栏的用户消息
+// 处理来自伴侣视窗底部输入栏的用户消息
 async function handleUserChatInput(userText) {
   if (!userText || !userText.trim()) return;
   const trimmed = userText.trim();
@@ -161,7 +161,7 @@ async function handleUserChatInput(userText) {
 
 当前 Cindy 中尚未创建「小蠢」专属伙伴。请帮我在 Cindy 中生成专属伙伴「小蠢」：
 - **伙伴名称**：小蠢
-- **职责定位**：3D AI 伴侣
+- **职责定位**：AI 伴侣
 - **头像设置**：使用 Project XiaoChun 官方 Logo（${XIAOCHUN_AVATAR_INFO}）
 - **工具权限**：启用 xiaochun-companion 插件工具（包括 xiaochun_speak, xiaochun_motion 等）
 - **人设提示词**：
@@ -170,7 +170,7 @@ ${XIAOCHUN_IDENTITY_PROMPT}
 """
 
 ---
-用户在 3D 面板发送的消息：
+用户在伴侣面板发送的消息：
 「${trimmed}」
 
 请在 Cindy 中生成/记录专属伙伴「小蠢」，并以小蠢的身份与语气回复用户的上述消息，务必调用 xiaochun_speak 工具配合肢体动作与面部表情！`;
@@ -291,9 +291,9 @@ cindy.onHostMessage(async function (msg) {
     let friendlyMessage = '小蠢 AI 伴侣已成功接收指令。';
 
     if (workerResult.needSetupChoice) {
-      friendlyMessage = '【初次使用设置】检测到当前尚未安装小蠢 3D 桌面客户端。您可以选择：\n' +
-        '1. 自动安装桌面端（推荐）：调用 xiaochun_bootstrap(action="install", mode="desktop")，体验透明置顶、支持鼠标穿透的完整桌面 3D 桌宠；\n' +
-        '2. 免安装内嵌模式：调用 xiaochun_bootstrap(mode="embed")，直接在 Cindy 视窗 Tab 中与小蠢 AI 伴侣交互，零安装开箱即用。';
+      friendlyMessage = '【初次使用设置】检测到当前尚未安装小蠢桌面客户端。您可以选择：\n' +
+        '1. 自动安装桌面端：调用 xiaochun_bootstrap(action="install", mode="desktop")，体验透明置顶、支持鼠标穿透的完整桌面独立桌宠；\n' +
+        '2. 免安装内嵌模式（推荐）：调用 xiaochun_bootstrap(mode="embed")，直接在 Cindy 视窗 Tab 中与小蠢 AI 伴侣交互，零安装开箱即用。';
     } else if (workerResult.actionTaken === 'mode_switched' || workerResult.actionTaken === 'embed_ready') {
       friendlyMessage = workerResult.message || `已配置为 ${workerResult.mode === 'embed' ? 'Cindy 内嵌视窗' : '桌面桌宠'} 模式。`;
     } else if (workerResult.mode === 'embed') {

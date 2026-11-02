@@ -1,6 +1,6 @@
 {
   "name": "小蠢 AI パートナー",
-  "description": "ローカルの Project XiaoChun 3D デスクトップアプリと連携し、キャラクターが音声読み上げ、モーション、表情、カメラ演出で対話を盛り上げます。自動コールドスタートとワンクリック導入に対応。PC 専用（macOS / Windows / Linux）。",
+  "description": "ローカルの Project XiaoChun デスクトップ AI 伴侶アプリと連携し、キャラクターが音声読み上げ、モーション、表情、カメラ演出で対話を盛り上げます。自動コールドスタートとワンクリック導入に対応。PC 専用（macOS / Windows / Linux）。",
   "whenToUse": "デスクトップ AI パートナーの小蠢に発話・読み上げ・動作をさせたいとき、または Cindy で専属パートナーを作成・設定したいときに使用します。",
   "panel": {
     "title": "小蠢 AI パートナー"
@@ -49,7 +49,7 @@
       }
     },
     "xiaochun_scene": {
-      "description": "小蠢デスクトップアプリの 3D ステージシーン（beach3d 砂浜ビーチ、transparent 透過デスクトップペットモード、dark ダーク、light ライト、void 虚空など）を切り替えます。",
+      "description": "小蠢デスクトップアプリのステージシーン（beach3d 砂浜ビーチ、transparent 透過デスクトップペットモード、dark ダーク、light ライト、void 虚空など）を切り替えます。",
       "parameters": {
         "/properties/name": {
           "description": "シーン識別名。選択肢：'beach3d'、'transparent'、'dark'、'light'、'void'。"
@@ -60,7 +60,7 @@
       }
     },
     "xiaochun_outfit": {
-      "description": "小蠢の 3D 衣装（ドレス、チャイナドレス、テックウェア、ビキニ、メイド服、デフォルト私服など）を着せ替えます。0フレームシームレス換装で現在のモーション・表情・視線を維持します。",
+      "description": "小蠢の衣装（ドレス、チャイナドレス、テックウェア、ビキニ、メイド服、デフォルト私服など）を着せ替えます。0フレームシームレス換装で現在のモーション・表情・視線を維持します。",
       "parameters": {
         "/properties/name": {
           "description": "衣装識別名またはエイリアス。選択肢：'dinner_dress'、'cheongsam'、'techwear'、'bikini'、'maid'、'default'。"

@@ -1,16 +1,16 @@
 # XiaoChun Desktop AI Companion (Cindy Plugin)
 
-This plugin connects **Cindy** with the local **Project XiaoChun** 3D desktop companion app, allowing conversational AI responses to be vividly acted out on your desktop with 3D character voice reading, synchronized gestures, facial expressions, and camera control.
+This plugin connects **Cindy** with the local **Project XiaoChun** desktop AI companion app, allowing conversational AI responses to be vividly acted out on your desktop with character voice reading, synchronized gestures, facial expressions, and camera control.
 
-> ⚠️ **Note: This plugin only works on PC / desktop computers (macOS / Windows / Linux desktop Cindy). Mobile environments (iOS / Android) do not support local 3D companion integration.**
+> ⚠️ **Note: This plugin only works on PC / desktop computers (macOS / Windows / Linux desktop Cindy). Mobile environments (iOS / Android) do not support local companion integration.**
 
 ---
 
 ## Key Features
 
 1. **Dual-Mode Adaptive Architecture (Desktop Pet & Cindy Embed Panel)**:
-   - **Desktop Pet Mode**: Automatically reuses and wakes up the standalone desktop client when installed, providing a transparent, always-on-top, click-through 3D desk pet across your entire screen;
-   - **Cindy Embed Panel Mode**: Zero installation required! Embeds a 3D companion panel directly in Cindy's sidebar/tab view powered by `@firetable/project-xiaochun` JS SDK;
+   - **Desktop Pet Mode**: Automatically reuses and wakes up the standalone desktop client when installed, providing a transparent, always-on-top, click-through desk pet across your entire screen;
+   - **Cindy Embed Panel Mode**: Zero installation required! Embeds an AI companion panel directly in Cindy's sidebar/tab view powered by `@firetable/project-xiaochun` JS SDK;
    - **Interactive Setup Choice & Seamless Switching**: Prompts new users to choose between Desktop Pet and Embed Panel on setup, with one-click mode switching anytime via `xiaochun_bootstrap(action="switch_mode")`.
 2. **Vivid Companion Interactions**:
    - Synchronized natural speech and voice reading;
@@ -26,8 +26,8 @@ This plugin connects **Cindy** with the local **Project XiaoChun** 3D desktop co
 
 * `xiaochun_speak`: Speak aloud with synchronized motions and expressions (supports cold-start auto-launch, onboarding guard, and `force: true`).
 * `xiaochun_motion`: Play standalone motions or animation groups.
-* `xiaochun_camera`: Control 3D desktop camera angles and framing (close-up, full shot, pan-up, reset).
-* `xiaochun_scene`: Switch 3D stages (`beach3d` sunny beach, `transparent` desk pet mode, `light`, `dark`, `void`).
+* `xiaochun_camera`: Control desktop camera angles and framing (close-up, full shot, pan-up, reset).
+* `xiaochun_scene`: Switch stages (`beach3d` sunny beach, `transparent` desk pet mode, `light`, `dark`, `void`).
 * `xiaochun_outfit`: 0-frame delta outfit swap (`dinner_dress`, `cheongsam`, `techwear`, `bikini`, `maid`, `default`).
 * `xiaochun_update`: Check for and install client updates directly from GitHub Releases with automatic restart.
 * `xiaochun_stop`: Stop ongoing speech and animation immediately.

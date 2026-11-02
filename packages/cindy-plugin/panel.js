@@ -25,12 +25,12 @@
 
   function revealChatBar() {
     if (chatBarContainer && !chatBarContainer.classList.contains('ready')) {
-      console.log('[XiaoChun Panel] 3D 舞台与 vrmEngine 已就绪，平滑浮现底部对话栏');
+      console.log('[XiaoChun Panel] 伴侣视窗与引擎已就绪，平滑浮现底部对话栏');
       chatBarContainer.classList.add('ready');
     }
   }
 
-  // 1. 获取本地桥接服务端口并载入 3D 视窗
+  // 1. 获取本地桥接服务端口并载入伴侣视窗
   async function initEmbedFrame() {
     // 主动唤醒小蠢桌面 AI 伴侣进程
     try {
@@ -92,7 +92,7 @@
       handshakePort.onmessage = (e) => {
         const ev = e.data;
         console.log('[XiaoChun Panel] 小蠢 AI 伴侣内部事件:', ev);
-        // 当 3D 模型完全加载 (xc.loaded) 或进入待机 (xc.state phase=idle) 时，正式浮现底部对话栏
+        // 当模型完全加载 (xc.loaded) 或进入待机 (xc.state phase=idle) 时，正式浮现底部对话栏
         if (ev && (ev.type === 'xc.loaded' || ev.payload?.phase === 'idle')) {
           revealChatBar();
         }

@@ -49,10 +49,10 @@
       }
     },
     "xiaochun_scene": {
-      "description": "切换小蠢桌面端的 3D 舞台场景（如 beach3d 阳光海滩、transparent 透明桌宠挂件模式、dark 暗色舞台、light 明亮舞台、void 虚空舞台等）。",
+      "description": "切换小蠢桌面端的舞台场景（如 beach3d 阳光海滩、transparent 透明桌宠挂件模式、dark 暗色舞台、light 明亮舞台、void 虚空舞台等）。",
       "parameters": {
         "/properties/name": {
-          "description": "场景标识名称。可选：'beach3d'(3D阳光海滩)、'transparent'(透明桌面伴侣/桌宠模式)、'dark'(暗色舞台)、'light'(明亮舞台)、'void'(虚空舞台)。"
+          "description": "场景标识名称。可选：'beach3d'(阳光海滩)、'transparent'(透明桌面伴侣/桌宠模式)、'dark'(暗色舞台)、'light'(明亮舞台)、'void'(虚空舞台)。"
         },
         "/properties/persist": {
           "description": "是否持久化保存该场景选择（下次启动默认保留），默认为 true。"
@@ -60,7 +60,7 @@
       }
     },
     "xiaochun_outfit": {
-      "description": "切换小蠢身着的 3D 服装造型（晚礼服、旗袍、机能工装、比基尼泳装、女仆装、默认常服等）。0帧瞬时换装，保持当前动作、表情与视线连续。",
+      "description": "切换小蠢身着的服装造型（晚礼服、旗袍、机能工装、比基尼泳装、女仆装、默认常服等）。0帧瞬时换装，保持当前动作、表情与视线连续。",
       "parameters": {
         "/properties/name": {
           "description": "服装标识名称或别名。可选：'dinner_dress'(优雅晚礼服)、'cheongsam'(国风旗袍)、'techwear'(潮酷机能风工装)、'bikini'(清凉比基尼泳装)、'maid'(可爱女仆装)、'default'(默认常服/白T短裤)。"

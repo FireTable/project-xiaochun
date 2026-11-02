@@ -446,9 +446,30 @@ function downloadFile(url, destPath) {
   });
 }
 
-// 解析最新发布版本的 DMG 下载地址
-async function resolveLatestDmgUrl(arch = 'aarch64') {
+// 解析最新发布版本的安装包资产（严格区分 macOS DMG / Windows EXE / Linux AppImage）
+async function resolveLatestInstallerAsset(platform = process.platform, arch = process.arch) {
+  const isArm = arch === 'arm64' || arch === 'aarch64';
   const apiUrl = 'https://api.github.com/repos/FireTable/project-xiaochun/releases/latest';
+
+  let matchPattern;
+  let fallbackUrl;
+  let fileType = 'dmg';
+
+  if (platform === 'darwin') {
+    fileType = 'dmg';
+    matchPattern = isArm ? /aarch64.*\.dmg$/i : /x64.*\.dmg$/i;
+    fallbackUrl = `https://github.com/FireTable/project-xiaochun/releases/download/v0.2.2/Project.XiaoChun_0.2.2_${isArm ? 'aarch64' : 'x64'}.dmg`;
+  } else if (platform === 'win32') {
+    fileType = 'exe';
+    matchPattern = /_x64-setup\.exe$/i;
+    fallbackUrl = 'https://github.com/FireTable/project-xiaochun/releases/download/v0.2.2/Project.XiaoChun_0.2.2_x64-setup.exe';
+  } else {
+    // Linux
+    fileType = 'AppImage';
+    matchPattern = /_amd64\.AppImage$/i;
+    fallbackUrl = 'https://github.com/FireTable/project-xiaochun/releases/download/v0.2.2/Project.XiaoChun_0.2.2_amd64.AppImage';
+  }
+
   try {
     const data = await new Promise((resolve, reject) => {
       https.get(apiUrl, { headers: { 'User-Agent': 'XiaoChun-Cindy-Plugin' } }, (res) => {
@@ -465,11 +486,15 @@ async function resolveLatestDmgUrl(arch = 'aarch64') {
     });
 
     if (data && Array.isArray(data.assets)) {
-      const matchPattern = arch === 'aarch64' ? /aarch64.*\.dmg$/i : /x64.*\.dmg$/i;
       const asset = data.assets.find(a => matchPattern.test(a.name));
       if (asset && asset.browser_download_url) {
-        log(`动态解析到 GitHub 资产: ${asset.browser_download_url}`);
-        return asset.browser_download_url;
+        log(`动态解析到 GitHub 资产 (${platform}/${arch}): ${asset.browser_download_url}`);
+        return {
+          url: asset.browser_download_url,
+          name: asset.name,
+          platform,
+          fileType
+        };
       }
     }
   } catch (err) {
@@ -477,8 +502,12 @@ async function resolveLatestDmgUrl(arch = 'aarch64') {
   }
 
   // 默认已知可用基线版本回退
-  const cleanArch = arch === 'aarch64' ? 'aarch64' : 'x64';
-  return `https://github.com/FireTable/project-xiaochun/releases/download/v0.2.2/Project.XiaoChun_0.2.2_${cleanArch}.dmg`;
+  return {
+    url: fallbackUrl,
+    name: path.basename(fallbackUrl),
+    platform,
+    fileType
+  };
 }
 
 // 自动完成冷启动安装 / 就绪准备 / 双模切换
@@ -541,12 +570,19 @@ async function bootstrapClient(action = 'ensure', targetMode = null) {
 
     // 2.2 若未安装，且用户尚未明确确认安装 (action !== 'install')：严禁私自静默下载，必须向用户确认！
     if (action !== 'install') {
+      const installPkgDesc = process.platform === 'win32'
+        ? '自动下载官方 Windows 安装包 (.exe) 并免管理员权限安装至用户目录'
+        : (process.platform === 'darwin'
+            ? '自动下载官方 macOS 磁盘镜像 (.dmg) 并安装至应用程序目录（免提权）'
+            : '自动下载官方 Linux AppImage 安装包并就绪');
+
       return {
         success: false,
         mode: 'embed', // 暂留在安全的 embed 模式
         needInstallConfirm: true,
         installed: false,
         running: false,
+        platform: process.platform,
         actionTaken: 'prompt_choice',
         message: '切换至桌面桌宠模式需要安装 Project XiaoChun 桌面客户端（全屏透明置顶、支持鼠标穿透）。请确认是否开始自动下载并安装？',
         actionToProceed: 'xiaochun_bootstrap(action="install", mode="desktop")',
@@ -557,7 +593,7 @@ async function bootstrapClient(action = 'ensure', targetMode = null) {
             {
               id: 'install_desktop',
               title: '确认下载并安装桌面端',
-              description: '自动下载官方 DMG 并安装至应用程序目录（免提权）',
+              description: installPkgDesc,
               action: 'xiaochun_bootstrap(action="install", mode="desktop")'
             },
             {
@@ -587,15 +623,15 @@ async function bootstrapClient(action = 'ensure', targetMode = null) {
     };
   }
 
-  // 未安装且用户确认安装情况：尝试在 PC 端进行静默无缝安装（macOS 支持无 sudo 安装到 ~/Applications）
+  // 未安装且用户确认安装情况：区分 macOS (DMG) 与 Windows (EXE)
   if (process.platform === 'darwin') {
     log('开始在 macOS 上执行小蠢客户端自动化安装引导...');
     try {
-      const arch = process.arch === 'arm64' ? 'aarch64' : 'x64';
-      const dmgUrl = await resolveLatestDmgUrl(arch);
+      const assetInfo = await resolveLatestInstallerAsset('darwin', process.arch);
+      const dmgUrl = assetInfo.url;
       const tmpDmg = path.join(os.tmpdir(), `XiaoChun_Setup_${Date.now()}.dmg`);
 
-      log(`正在下载客户端镜像: ${dmgUrl}`);
+      log(`正在下载 macOS 客户端镜像: ${dmgUrl}`);
       await downloadFile(dmgUrl, tmpDmg);
 
       log('正在挂载磁盘镜像...');
@@ -652,8 +688,7 @@ async function bootstrapClient(action = 'ensure', targetMode = null) {
         actionTaken: 'auto_installed_and_launched'
       };
     } catch (installErr) {
-      log('自动化下载安装失败，回退为手动引导方案:', installErr.message);
-      // 回退方案：通过默认浏览器打开官方发布页与快速安装脚本
+      log('macOS 自动化下载安装失败，回退为手动引导方案:', installErr.message);
       return {
         success: false,
         mode: 'desktop',
@@ -671,7 +706,80 @@ async function bootstrapClient(action = 'ensure', targetMode = null) {
     }
   }
 
-  // Windows / Linux 友好回退
+  // Windows 平台安装流程 (下载 x64-setup.exe 并执行免提权用户安装)
+  if (process.platform === 'win32') {
+    log('开始在 Windows 上执行小蠢客户端自动化安装引导...');
+    try {
+      const assetInfo = await resolveLatestInstallerAsset('win32', process.arch);
+      const installerUrl = assetInfo.url;
+      const tmpExe = path.join(os.tmpdir(), `XiaoChun_Setup_${Date.now()}.exe`);
+
+      log(`正在下载 Windows 客户端安装包: ${installerUrl}`);
+      await downloadFile(installerUrl, tmpExe);
+
+      log(`安装程序已下载至: ${tmpExe}，正在执行免提权用户安装...`);
+      // NSIS 安装包传入 /S 参数执行当前用户静默安装
+      try {
+        execSync(`"${tmpExe}" /S`, { timeout: 120000 });
+      } catch (runErr) {
+        log('静默安装触发完成或超时，调起标准安装向导:', runErr.message);
+        exec(`start "" "${tmpExe}"`);
+      }
+
+      // 扫描 Windows 常用安装位置
+      const standardWinPaths = [
+        path.join(process.env.LOCALAPPDATA || '', 'Programs', 'Project XiaoChun', 'project-xiaochun.exe'),
+        path.join(process.env.LOCALAPPDATA || '', 'Project XiaoChun', 'project-xiaochun.exe'),
+        path.join(process.env.PROGRAMFILES || 'C:\\Program Files', 'Project XiaoChun', 'project-xiaochun.exe'),
+        path.join(process.env['ProgramFiles(x86)'] || 'C:\\Program Files (x86)', 'Project XiaoChun', 'project-xiaochun.exe')
+      ];
+
+      const foundExe = standardWinPaths.find(p => fs.existsSync(p));
+      if (foundExe) {
+        log(`已找到安装完成的 Windows 客户端: ${foundExe}，正在启动...`);
+        exec(`start "" "${foundExe}"`);
+        savePluginConfig({ preferredMode: 'desktop' });
+        return {
+          success: true,
+          mode: 'desktop',
+          installed: true,
+          running: true,
+          appPath: foundExe,
+          autoInstalled: true,
+          actionTaken: 'auto_installed_and_launched'
+        };
+      }
+
+      savePluginConfig({ preferredMode: 'desktop' });
+      return {
+        success: true,
+        mode: 'desktop',
+        installed: true,
+        running: true,
+        appPath: tmpExe,
+        autoInstalled: true,
+        actionTaken: 'installer_launched',
+        message: '已启动 Windows 安装程序，安装完成后小蠢将自动就绪！'
+      };
+    } catch (installErr) {
+      log('Windows 自动化下载安装失败，回退为手动引导方案:', installErr.message);
+      return {
+        success: false,
+        mode: 'desktop',
+        installed: false,
+        running: false,
+        needManualInstall: true,
+        canEmbed: true,
+        error: installErr.message,
+        guide: {
+          website: 'https://xiaochun.firetable.tech',
+          releases: 'https://github.com/FireTable/project-xiaochun/releases'
+        }
+      };
+    }
+  }
+
+  // Linux / 其他环境友好回退
   return {
     success: false,
     mode: 'desktop',
@@ -930,17 +1038,19 @@ readline.createInterface({ input: process.stdin }).on('line', async (line) => {
       }
 
       // 若客户端当前未处于运行状态
-      log('小蠢客户端未运行，查询 GitHub Releases 最新版本...');
-      const arch = process.arch === 'arm64' ? 'aarch64' : 'x64';
-      const dmgUrl = await resolveLatestDmgUrl(arch);
+      log(`小蠢客户端未运行，查询 GitHub Releases 最新版本 (${process.platform}/${process.arch})...`);
+      const assetInfo = await resolveLatestInstallerAsset(process.platform, process.arch);
       if (mode === 'check') {
         reply({
           jsonrpc: '2.0',
           id,
           result: {
             isRunning: false,
-            latestReleaseAsset: dmgUrl,
-            message: `客户端未运行，GitHub Releases 最新资源地址: ${dmgUrl}`
+            platform: process.platform,
+            latestReleaseAsset: assetInfo.url,
+            assetName: assetInfo.name,
+            fileType: assetInfo.fileType,
+            message: `客户端未运行，GitHub Releases (${process.platform}) 最新资源: ${assetInfo.name}`
           }
         });
         return;

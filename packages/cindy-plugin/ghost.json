@@ -16,7 +16,7 @@
       {
         "dir": "manual/xiaochun",
         "name": "xiaochun",
-        "description": "小蠢 3D 桌面与内嵌伴侣交互手册，包含专属伙伴创建与动作控制指南。"
+        "description": "小蠢桌面 App 与 Cindy 内嵌 AI 伴侣交互手册，包含专属伙伴创建与动作控制指南。"
       }
     ]
   },
@@ -117,13 +117,13 @@
     },
     {
       "name": "xiaochun_scene",
-      "description": "切换小蠢桌面端的 3D 舞台场景（如 beach3d 阳光海滩、transparent 透明桌宠挂件模式、dark 暗色舞台、light 明亮舞台、void 虚空舞台等）。",
+      "description": "切换小蠢桌面端的舞台场景（如 beach3d 阳光海滩、transparent 透明桌宠挂件模式、dark 暗色舞台、light 明亮舞台、void 虚空舞台等）。",
       "parameters": {
         "type": "object",
         "properties": {
           "name": {
             "type": "string",
-            "description": "场景标识名称。可选：'beach3d'(3D阳光海滩)、'transparent'(透明桌面伴侣/桌宠模式)、'dark'(暗色舞台)、'light'(明亮舞台)、'void'(虚空舞台)。"
+            "description": "场景标识名称。可选：'beach3d'(阳光海滩)、'transparent'(透明桌面伴侣/桌宠模式)、'dark'(暗色舞台)、'light'(明亮舞台)、'void'(虚空舞台)。"
           },
           "persist": {
             "type": "boolean",
@@ -135,7 +135,7 @@
     },
     {
       "name": "xiaochun_outfit",
-      "description": "切换小蠢身着的 3D 服装造型（晚礼服、旗袍、机能工装、比基尼泳装、女仆装、默认常服等）。0帧瞬时换装，保持当前动作、表情与视线连续。",
+      "description": "切换小蠢身着的服装造型（晚礼服、旗袍、机能工装、比基尼泳装、女仆装、默认常服等）。0帧瞬时换装，保持当前动作、表情与视线连续。",
       "parameters": {
         "type": "object",
         "properties": {
