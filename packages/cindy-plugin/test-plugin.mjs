@@ -76,6 +76,18 @@ if (manifest.agent) {
   console.log(`   ✅ agent 权限声明合规 (tasks: ${manifest.agent.tasks}, targets: ${manifest.agent.targets})`);
 }
 
+if (manifest.manual) {
+  assert.ok(Array.isArray(manifest.manual.items), 'manual.items 必须是数组');
+  for (const item of manifest.manual.items) {
+    assert.ok(item.dir, 'manual item 必须包含 dir');
+    assert.ok(item.name, 'manual item 必须包含 name');
+    assert.ok(item.description, 'manual item 必须包含 description');
+    const manualFile = path.join(pluginDir, item.dir, 'MANUAL.md');
+    assert.ok(fs.existsSync(manualFile), `manual 必须包含 MANUAL.md 入口: ${manualFile}`);
+  }
+  console.log(`   ✅ manual 随包手册声明合规 (${manifest.manual.items.length} 篇手册完整)`);
+}
+
 if (manifest.preview) {
   assert.ok(Array.isArray(manifest.preview.hosts), 'manifest.preview.hosts 必须是数组');
   assert.ok(manifest.preview.hosts.includes('127.0.0.1'), 'preview.hosts 必须包含 127.0.0.1 以支持内嵌视窗安全 loopback');

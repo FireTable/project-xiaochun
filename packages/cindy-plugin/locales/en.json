@@ -1,7 +1,7 @@
 {
   "name": "XiaoChun AI Companion",
   "description": "Bring cheerful, healing XiaoChun into your Cindy! Your personal AI companion stays peacefully in the sidebar or floats as a transparent desktop pet, with natural voice reading, delicate expressions, lively gestures, instant outfit swaps, dancing and multi-angle cameras.",
-  "whenToUse": "Use when the user wants 3D companion XiaoChun to speak, read text, perform body gestures, express emotions, adjust camera angles, or vividly act out conversational responses on their desktop or inside Cindy.",
+  "whenToUse": "Use when user wants 3D companion XiaoChun to speak, read text, perform body gestures, express emotions, or create and set up dedicated XiaoChun bot teammate.",
   "panel": {
     "title": "XiaoChun AI Companion"
   },
