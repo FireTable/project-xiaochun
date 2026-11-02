@@ -19,7 +19,11 @@
       }
     ]
   },
-  "panel": { "title": "小蠢 AI 伴侣", "html": "panel.html" },
+  "panel": {
+    "title": "小蠢 AI 伴侣",
+    "html": "panel.html",
+    "position": "right"
+  },
   "mainView": {
     "title": "小蠢 AI 伴侣",
     "icon": "message-circle",

@@ -50,7 +50,10 @@ if (manifest.panel) {
   const panelPath = path.join(pluginDir, panelRel);
   assert.ok(fs.existsSync(panelPath), `panel 入口文件不存在: ${panelRel}`);
   assert.ok(manifest.panel.title, 'manifest.panel 必须包含 title');
-  console.log(`   ✅ panel 内嵌视窗入口存在且合规 (${panelRel}, 标题: ${manifest.panel.title})`);
+  if (manifest.panel.position) {
+    assert.ok(['left', 'right', 'top', 'bottom', 'tab'].includes(manifest.panel.position), `panel.position 必须是 left, right, top, bottom 或 tab (当前: ${manifest.panel.position})`);
+  }
+  console.log(`   ✅ panel 内嵌视窗入口存在且合规 (${panelRel}, 标题: ${manifest.panel.title}, 停靠方向: ${manifest.panel.position || 'left'})`);
 }
 
 if (manifest.mainView) {
