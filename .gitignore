@@ -18,6 +18,10 @@ dist-ssr
 *.local
 public/onnx
 public/*_extracted/
+# Research weights only. The scripts and NARROW-CN.md stay tracked.
+packages/emage-onnx/research/narrow/*.onnx
+packages/emage-onnx/research/narrow/*.pt
+packages/emage-onnx/research/narrow/*.safetensors
 grok
 .grok
 public/vrm/.vroid
