@@ -128,7 +128,6 @@ export const EmbedApp: React.FC = () => {
       (window as any).__IS_ONBOARDING_ACTIVE__ = false;
     } else {
       (window as any).__IS_ONBOARDING_ACTIVE__ = true;
-      void sceneManager.setScene('void', false);
     }
 
     // ── 引擎绑定 (与 App.tsx 同款: i18n / system prompt) ──
@@ -236,9 +235,6 @@ export const EmbedApp: React.FC = () => {
       )}
 
       {/* 沉浸式小蠢故事导演引擎 · 试点剧场与新手引导 (Act 0 序章) */}
-      {isStoryOrOnboarding && !isVRMReady && (
-        <div className="fixed inset-0 z-50 bg-[#08090f] pointer-events-none" />
-      )}
       {!loadingActive && isVRMReady && isStoryOrOnboarding && (
         <StoryPlayer
           script={prologueStory}
