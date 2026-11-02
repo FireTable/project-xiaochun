@@ -545,9 +545,12 @@
       case 'speak':
       case 'xiaochun_speak':
         sendToXiaochun('xc.resume', {});
-        if (params.expression) sendToXiaochun('xc.expression', { name: params.expression });
-        if (params.motion) sendToXiaochun('xc.motion', { name: params.motion });
-        sendToXiaochun('xc.say', { text: params.text || '' });
+        sendToXiaochun('xc.say', {
+          text: params.text || '',
+          motion: params.motion,
+          expression: params.expression,
+          preserveMotion: Boolean(params.motion),
+        });
         break;
       case 'motion':
       case 'xiaochun_motion':
