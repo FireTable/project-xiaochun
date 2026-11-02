@@ -19,6 +19,8 @@
       }
     ]
   },
+  "settingsHtml": "settings.html",
+  "settingsHeight": 520,
   "panel": {
     "title": "小蠢 AI 伴侣",
     "html": "panel.html",

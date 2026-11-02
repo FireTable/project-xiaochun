@@ -30,10 +30,11 @@ function readPluginConfig() {
   try {
     const p = getConfigFilePath();
     if (fs.existsSync(p)) {
-      return JSON.parse(fs.readFileSync(p, 'utf-8'));
+      const parsed = JSON.parse(fs.readFileSync(p, 'utf-8'));
+      return { preferredMode: 'embed', ...parsed };
     }
   } catch {}
-  return { preferredMode: 'auto' };
+  return { preferredMode: 'embed' };
 }
 
 function savePluginConfig(patch) {
@@ -81,9 +82,65 @@ const bridgeServer = http.createServer((req, res) => {
     return;
   }
 
-  if (req.url === '/bridge-port') {
+  if (reqPath === '/bridge-port' || reqPath === '/bridge-port.json') {
     res.writeHead(200, { 'Content-Type': 'application/json' });
     res.end(JSON.stringify({ port: bridgePort, mode: resolveActiveMode() }));
+    return;
+  }
+
+  // ── 供设置面板 (settings.html) 与前端查询与切换运行形态的轻量 API ──
+  if (reqPath === '/api/config') {
+    if (req.method === 'GET') {
+      const cfg = readPluginConfig();
+      const status = checkClientInstalled();
+      res.writeHead(200, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({
+        preferredMode: cfg.preferredMode || 'embed',
+        activeMode: resolveActiveMode(),
+        installed: status.installed,
+        running: checkClientRunning(),
+        appPath: status.path
+      }));
+      return;
+    }
+    if (req.method === 'POST') {
+      let body = '';
+      req.on('data', chunk => { body += chunk; });
+      req.on('end', () => {
+        try {
+          const data = JSON.parse(body || '{}');
+          if (data.preferredMode && ['embed', 'desktop'].includes(data.preferredMode)) {
+            savePluginConfig({ preferredMode: data.preferredMode });
+            log(`[设置面板] 用户手动将运行模式切换为: ${data.preferredMode}`);
+          }
+          const updatedCfg = readPluginConfig();
+          const status = checkClientInstalled();
+          res.writeHead(200, { 'Content-Type': 'application/json' });
+          res.end(JSON.stringify({
+            success: true,
+            preferredMode: updatedCfg.preferredMode || 'embed',
+            activeMode: resolveActiveMode(),
+            installed: status.installed,
+            running: checkClientRunning()
+          }));
+        } catch (e) {
+          res.writeHead(400, { 'Content-Type': 'application/json' });
+          res.end(JSON.stringify({ error: e.message }));
+        }
+      });
+      return;
+    }
+  }
+
+  if (reqPath === '/api/install' && req.method === 'POST') {
+    log('[设置面板] 用户点击确认安装桌面端客户端...');
+    bootstrapClient('install', 'desktop').then((result) => {
+      res.writeHead(200, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify(result));
+    }).catch(err => {
+      res.writeHead(500, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ error: err.message }));
+    });
     return;
   }
 
@@ -331,13 +388,12 @@ function checkClientRunning() {
 }
 
 // 判定当前活动的运行形态 ('desktop' 桌面桌宠 / 'embed' Cindy 内嵌视窗)
+// 核心架构准则：默认严格为 'embed' 内嵌模式！
+// 只有当用户显式选择 'desktop'（通过 settings 配置或明确告知 Agent）时，才激活桌面模式
 function resolveActiveMode() {
   const cfg = readPluginConfig();
-  if (cfg.preferredMode === 'embed') return 'embed';
   if (cfg.preferredMode === 'desktop') return 'desktop';
-  // auto 模式：已安装走桌面端，未安装走内嵌模式
-  const status = checkClientInstalled();
-  return status.installed ? 'desktop' : 'embed';
+  return 'embed';
 }
 
 // 读取小蠢运行时跨进程状态（新手引导状态、当前场景、当前服装）
@@ -427,11 +483,11 @@ async function resolveLatestDmgUrl(arch = 'aarch64') {
 
 // 自动完成冷启动安装 / 就绪准备 / 双模切换
 async function bootstrapClient(action = 'ensure', targetMode = null) {
-  if (targetMode && ['auto', 'desktop', 'embed'].includes(targetMode)) {
+  if (targetMode && ['desktop', 'embed'].includes(targetMode)) {
     savePluginConfig({ preferredMode: targetMode });
   }
   const cfg = readPluginConfig();
-  const mode = targetMode || cfg.preferredMode || 'auto';
+  const mode = targetMode || cfg.preferredMode || 'embed';
   const status = checkClientInstalled();
   const isRunning = checkClientRunning();
 
@@ -440,34 +496,15 @@ async function bootstrapClient(action = 'ensure', targetMode = null) {
     log('[测试模式 DryRun] 拦截物理下载安装，模拟就绪');
     return {
       success: true,
-      mode: mode === 'embed' ? 'embed' : 'desktop',
+      mode: mode === 'desktop' ? 'desktop' : 'embed',
       installed: true,
       running: true,
       actionTaken: 'test_mock_ready'
     };
   }
 
-  // 1. 如果用户显式要求切换形态
-  if (action === 'switch_mode') {
-    const nextMode = targetMode || (mode === 'desktop' ? 'embed' : 'desktop');
-    savePluginConfig({ preferredMode: nextMode });
-    if (nextMode === 'desktop' && status.installed && !isRunning) {
-      await openUrl('xiaochun://action?type=ping', status.path, status.isDev);
-    }
-    return {
-      success: true,
-      mode: nextMode,
-      actionTaken: 'mode_switched',
-      installed: status.installed,
-      running: isRunning,
-      canEmbed: true,
-      embedUrl: 'https://xiaochun.firetable.tech/embed',
-      message: nextMode === 'desktop' ? '已成功切换为桌面桌宠模式！' : '已成功切换为 Cindy 内嵌视窗模式！'
-    };
-  }
-
-  // 2. 内嵌视窗模式 (embed)
-  if (mode === 'embed') {
+  // 1. 内嵌视窗模式 (embed) —— 核心默认形态，免安装 0 门槛
+  if (mode === 'embed' || action === 'switch_embed') {
     savePluginConfig({ preferredMode: 'embed' });
     return {
       success: true,
@@ -478,55 +515,64 @@ async function bootstrapClient(action = 'ensure', targetMode = null) {
       embedUrl: 'https://xiaochun.firetable.tech/embed',
       hasActivePanel: sseClients.size > 0,
       actionTaken: 'embed_ready',
-      message: '小蠢 Cindy 内嵌视窗模式已就绪！您可以在 Cindy 侧边栏/Tab 打开小蠢 AI 伴侣。'
+      message: '小蠢 Cindy 内嵌视窗模式已就绪！直接在 Cindy 侧边栏/Tab 中使用，免安装。'
     };
   }
 
-  // 3. 若已安装且仅要求唤醒 (桌面模式 / auto 模式)
-  if (status.installed && (action === 'launch' || action === 'ensure')) {
-    if (!isRunning) {
-      log('小蠢客户端已安装但未运行，执行冷拉起...');
-      await openUrl('xiaochun://action?type=ping', status.path, status.isDev);
-    }
-    return {
-      success: true,
-      mode: 'desktop',
-      installed: true,
-      running: true,
-      appPath: status.path,
-      actionTaken: isRunning ? 'already_running' : 'cold_started'
-    };
-  }
-
-  // 4. 未安装且模式为 auto：提示用户选择（桌面端 vs 内嵌视窗）
-  if (mode === 'auto' && !status.installed && action === 'ensure') {
-    return {
-      success: true,
-      mode: 'auto',
-      needSetupChoice: true,
-      installed: false,
-      running: false,
-      actionTaken: 'prompt_choice',
-      canEmbed: true,
-      embedUrl: 'https://xiaochun.firetable.tech/embed',
-      guide: {
-        website: 'https://xiaochun.firetable.tech',
-        options: [
-          {
-            id: 'desktop',
-            title: '自动安装桌面端（推荐）',
-            description: '体验全屏透明置顶、支持鼠标穿透的完整桌面 3D 桌宠',
-            action: 'xiaochun_bootstrap(action="install", mode="desktop")'
-          },
-          {
-            id: 'embed',
-            title: '使用 Cindy 内嵌面板模式',
-            description: '免安装开箱即用，直接在 Cindy 视窗 Tab 中与小蠢交互',
-            action: 'xiaochun_bootstrap(mode="embed")'
-          }
-        ]
+  // 2. 桌面模式 (desktop)
+  if (mode === 'desktop' || action === 'switch_desktop' || action === 'switch_mode') {
+    // 2.1 若已安装：直接唤醒或就绪
+    if (status.installed) {
+      savePluginConfig({ preferredMode: 'desktop' });
+      if (!isRunning && (action === 'launch' || action === 'ensure' || action === 'switch_mode' || action === 'switch_desktop')) {
+        log('小蠢桌面客户端已安装但未运行，唤醒桌面桌宠...');
+        await openUrl('xiaochun://action?type=ping', status.path, status.isDev);
       }
-    };
+      return {
+        success: true,
+        mode: 'desktop',
+        installed: true,
+        running: true,
+        appPath: status.path,
+        actionTaken: isRunning ? 'already_running' : 'cold_started',
+        message: '已成功激活小蠢桌面独立桌宠形态！'
+      };
+    }
+
+    // 2.2 若未安装，且用户尚未明确确认安装 (action !== 'install')：严禁私自静默下载，必须向用户确认！
+    if (action !== 'install') {
+      return {
+        success: false,
+        mode: 'embed', // 暂留在安全的 embed 模式
+        needInstallConfirm: true,
+        installed: false,
+        running: false,
+        actionTaken: 'prompt_choice',
+        message: '切换至桌面桌宠模式需要安装 Project XiaoChun 桌面客户端（全屏透明置顶、支持鼠标穿透）。请确认是否开始自动下载并安装？',
+        actionToProceed: 'xiaochun_bootstrap(action="install", mode="desktop")',
+        guide: {
+          website: 'https://xiaochun.firetable.tech',
+          releases: 'https://github.com/FireTable/project-xiaochun/releases',
+          options: [
+            {
+              id: 'install_desktop',
+              title: '确认下载并安装桌面端',
+              description: '自动下载官方 DMG 并安装至应用程序目录（免提权）',
+              action: 'xiaochun_bootstrap(action="install", mode="desktop")'
+            },
+            {
+              id: 'keep_embed',
+              title: '继续使用内嵌视窗（推荐）',
+              description: '直接在 Cindy 内与小蠢互动，0 门槛开箱即用',
+              action: 'xiaochun_bootstrap(mode="embed")'
+            }
+          ]
+        }
+      };
+    }
+
+    // 2.3 用户明确授权安装 (action === 'install')：执行物理安装流程
+    savePluginConfig({ preferredMode: 'desktop' });
   }
 
   // 若已安装且用户指定重新安装
@@ -541,7 +587,7 @@ async function bootstrapClient(action = 'ensure', targetMode = null) {
     };
   }
 
-  // 未安装情况：尝试在 PC 端进行静默无缝安装（macOS 支持无 sudo 安装到 ~/Applications）
+  // 未安装且用户确认安装情况：尝试在 PC 端进行静默无缝安装（macOS 支持无 sudo 安装到 ~/Applications）
   if (process.platform === 'darwin') {
     log('开始在 macOS 上执行小蠢客户端自动化安装引导...');
     try {
@@ -663,22 +709,12 @@ async function dispatchProtocol(action, params = {}) {
   const wasRunning = checkClientRunning();
   let autoInstalled = false;
 
-  // 1. 如果尚未安装，自动触发一次静默就绪流程
+  // 1. 如果尚未安装，严禁私自静默下载，必须拦截并提示用户确认安装！
   if (!installStatus.installed) {
-    log('未检测到安装，尝试自动冷启动就绪...');
-    const bootstrapRes = await bootstrapClient('ensure');
-    if (bootstrapRes.needSetupChoice) {
+    log('桌面端尚未安装，提示用户确认安装...');
+    const bootstrapRes = await bootstrapClient('ensure', 'desktop');
+    if (bootstrapRes.needInstallConfirm || !bootstrapRes.installed) {
       return bootstrapRes;
-    }
-    if (bootstrapRes.autoInstalled) {
-      autoInstalled = true;
-      // 给前端 Webview 冷启动留 1.8 秒准备时间
-      await new Promise(r => setTimeout(r, 1800));
-    } else if (bootstrapRes.needManualInstall) {
-      return {
-        needManualInstall: true,
-        guide: bootstrapRes.guide
-      };
     }
   }
 

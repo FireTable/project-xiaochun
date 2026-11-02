@@ -42,6 +42,15 @@ const iconSize = fs.statSync(iconPath).size;
 assert.ok(iconSize <= 512 * 1024, `icon 大小超过 512KB (当前: ${(iconSize / 1024).toFixed(1)}KB)`);
 console.log(`   ✅ 核心文件均存在，图标体积合规 (${(iconSize / 1024).toFixed(1)}KB)`);
 
+if (manifest.settingsHtml) {
+  const settingsPath = path.join(pluginDir, manifest.settingsHtml);
+  assert.ok(fs.existsSync(settingsPath), `settingsHtml 文件不存在: ${manifest.settingsHtml}`);
+  if (manifest.settingsHeight) {
+    assert.ok(manifest.settingsHeight >= 160 && manifest.settingsHeight <= 800, 'settingsHeight 必须在 160 到 800 之间');
+  }
+  console.log(`   ✅ settingsHtml 设置面板入口存在且合规 (${manifest.settingsHtml}, 高度: ${manifest.settingsHeight}px)`);
+}
+
 if (manifest.panel) {
   const panelRel = typeof manifest.panel === 'string'
     ? manifest.panel
