@@ -1,0 +1,179 @@
+{
+  "$schema": "https://raw.githubusercontent.com/makecindy/cindy/main/packages/plugin-protocol/schema/ghost.v3.json",
+  "schemaVersion": 3,
+  "id": "xiaochun-companion",
+  "name": "小蠢 AI 伴侣",
+  "description": "连接本地 Project XiaoChun 3D 桌面端或通过 Cindy 内嵌视窗，实现 3D 角色同步说话、做动作与伴读交互。支持客户端自动冷启动、免安装内嵌面板双模自适应与一键就绪。",
+  "whenToUse": "用户需要让小蠢 AI 伴侣说话、伴读、做肢体动作、表达面部表情、运镜展示，或者希望把对话回复在 PC 桌面或 Cindy 内嵌视窗中生动演绎出来时使用。",
+  "version": "1.0.0",
+  "minCindyVersion": "0.1.121",
+  "command": "小蠢",
+  "icon": "assets/icon.png",
+  "entry": "main.js",
+  "panel": { "title": "小蠢 AI 伴侣", "html": "panel.html" },
+  "mainView": {
+    "title": "小蠢 AI 伴侣",
+    "icon": "message-circle",
+    "html": "panel.html",
+    "open": "page"
+  },
+  "preview": {
+    "hosts": ["127.0.0.1", "localhost"]
+  },
+  "launch": "resident",
+  "node": {
+    "entry": "node/worker.cjs",
+    "protocol": "json-rpc-stdio",
+    "lifecycle": "resident"
+  },
+  "locales": {
+    "zh-CN": "locales/zh-CN.json",
+    "en": "locales/en.json",
+    "ja": "locales/ja.json",
+    "ko": "locales/ko.json"
+  },
+  "tools": [
+    {
+      "name": "xiaochun_speak",
+      "description": "让小蠢 AI 伴侣开口朗读说话，并伴随肢体动作与面部表情。若小蠢未启动会自动冷拉起；若未安装会自动引导或安装。",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "text": {
+            "type": "string",
+            "description": "小蠢要朗读和表达的具体文本内容（自然人声、支持长文本伴读）。"
+          },
+          "motion": {
+            "type": "string",
+            "description": "动作或动作组名称（可选）。可选值如：'greeting'(问候打招呼)、'think'(沉思托腮)、'nod'(点头赞同)、'wave'(挥手)、'praiseCute'(夸赞可爱)、'playfulSulking'(撒娇闹别扭)、'dancePerformance'(舞蹈表演)。"
+          },
+          "expression": {
+            "type": "string",
+            "description": "面部表情（可选）。可选值如：'happy'(开心)、'gentle_smile'(温柔微笑)、'smile'(微笑)、'shy'(害羞)、'playful'(调皮俏皮)、'surprised'(惊讶)、'sad'(难过)、'angry'(生气)、'relaxed'(放松)。"
+          },
+          "force": {
+            "type": "boolean",
+            "description": "是否强制在新手引导（art0 序章剧情）期间插话，默认为 false。为 false 时若检测到新手引导正在进行，会提示用户先体验向导。"
+          }
+        },
+        "required": ["text"]
+      }
+    },
+    {
+      "name": "xiaochun_motion",
+      "description": "单独控制小蠢做出指定动作或播放动画分组，不强制说话。",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string",
+            "description": "动作或动作组名称。例如：'greeting'、'waving'、'think'、'handHeart'、'praiseCute'、'dancePerformance' 等。"
+          },
+          "loop": {
+            "type": "boolean",
+            "description": "是否循环播放该动作，缺省为 false。"
+          }
+        },
+        "required": ["name"]
+      }
+    },
+    {
+      "name": "xiaochun_camera",
+      "description": "调整小蠢桌面端的摄像机机位镜头与景别。",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "shot": {
+            "type": "string",
+            "description": "景别名称，可选值如：'close_up'(特写镜头)、'full'(全身全景)、'extreme_close_up'(大特写)、'bust'(半身半景)。"
+          },
+          "action": {
+            "type": "string",
+            "description": "镜头控制指令：'pan_up'(镜头平滑上摇抬升)、'reset'(重置相机到默认视角)。"
+          }
+        }
+      }
+    },
+    {
+      "name": "xiaochun_scene",
+      "description": "切换小蠢桌面端的 3D 舞台场景（如 beach3d 阳光海滩、transparent 透明桌宠挂件模式、dark 暗色舞台、light 明亮舞台、void 虚空舞台等）。",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string",
+            "description": "场景标识名称。可选：'beach3d'(3D阳光海滩)、'transparent'(透明桌面伴侣/桌宠模式)、'dark'(暗色舞台)、'light'(明亮舞台)、'void'(虚空舞台)。"
+          },
+          "persist": {
+            "type": "boolean",
+            "description": "是否持久化保存该场景选择（下次启动默认保留），默认为 true。"
+          }
+        },
+        "required": ["name"]
+      }
+    },
+    {
+      "name": "xiaochun_outfit",
+      "description": "切换小蠢身着的 3D 服装造型（晚礼服、旗袍、机能工装、比基尼泳装、女仆装、默认常服等）。0帧瞬时换装，保持当前动作、表情与视线连续。",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string",
+            "description": "服装标识名称或别名。可选：'dinner_dress'(优雅晚礼服)、'cheongsam'(国风旗袍)、'techwear'(潮酷机能风工装)、'bikini'(清凉比基尼泳装)、'maid'(可爱女仆装)、'default'(默认常服/白T短裤)。"
+          }
+        },
+        "required": ["name"]
+      }
+    },
+    {
+      "name": "xiaochun_stop",
+      "description": "立即停止小蠢当前正在播放的语音台词与动作，平滑恢复至自然待机姿态。",
+      "parameters": {
+        "type": "object",
+        "properties": {}
+      }
+    },
+    {
+      "name": "xiaochun_status",
+      "description": "查询小蠢 AI 伴侣在当前环境下的运行形态（桌面挂件模式/Cindy内嵌视窗模式）、安装与运行状态、新手引导进度及当前场景与服装。",
+      "parameters": {
+        "type": "object",
+        "properties": {}
+      }
+    },
+    {
+      "name": "xiaochun_bootstrap",
+      "description": "引导或配置小蠢 AI 伴侣的运行形态与冷启动就绪。支持桌面独立桌宠与 Cindy 内嵌视窗双模切换；若客户端未安装，可自动下载挂载最新安装包或切换为免安装内嵌模式。",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "action": {
+            "type": "string",
+            "enum": ["ensure", "install", "launch", "switch_mode"],
+            "description": "执行动作：'ensure'(自动检测并确保就绪)、'install'(下载与安装桌面客户端)、'launch'(唤醒已安装客户端)、'switch_mode'(切换桌面/内嵌形态)。缺省为 'ensure'。"
+          },
+          "mode": {
+            "type": "string",
+            "enum": ["auto", "desktop", "embed"],
+            "description": "运行形态模式：'auto'(自动检测，已安装走桌面端，未安装走引导或内嵌)、'desktop'(强制使用桌面独立桌宠)、'embed'(使用 Cindy 内嵌伴侣视窗，零安装)。缺省为 'auto'。"
+          }
+        }
+      }
+    },
+    {
+      "name": "xiaochun_update",
+      "description": "检查并执行小蠢桌面客户端的版本更新。从 GitHub Releases 查询最新版本；若有新版，自动下载安装并重启小蠢客户端。",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "mode": {
+            "type": "string",
+            "enum": ["install", "check"],
+            "description": "执行模式：'install'(检查并在有新版时自动下载安装且重启，默认)、'check'(仅检查是否有新版本，不自动安装)。缺省为 'install'。"
+          }
+        }
+      }
+    }
+  ]
+}

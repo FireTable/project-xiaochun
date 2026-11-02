@@ -8,6 +8,9 @@ import {
   type XiaochunGroupAction,
   type XiaochunExpressionAction,
   type XiaochunCameraAction,
+  type XiaochunSceneAction,
+  type XiaochunOutfitAction,
+  type XiaochunUpdateAction,
   type XiaochunStopAction,
 } from '@firetable/project-xiaochun/protocol-url';
 import { runProtocolAction } from '../handler';
@@ -25,6 +28,8 @@ vi.mock('../../vrmEngine', () => ({
     panUpRevealCamera: vi.fn().mockResolvedValue(undefined),
     stopSpeaking: vi.fn(),
     stopMotion: vi.fn(),
+    setLineworkTheme: vi.fn(),
+    swapOutfit: vi.fn().mockResolvedValue(true),
     isLoaded: vi.fn().mockReturnValue(true),
     onLoaded: vi.fn(),
   },
@@ -127,6 +132,33 @@ describe('protocol-url (toProtocolUrl & parseProtocolUrl)', () => {
     expect(parsed).toEqual(action);
   });
 
+  it('encodes and parses scene action', () => {
+    const action: XiaochunSceneAction = { action: 'scene', name: 'beach3d', persist: true };
+    const url = toProtocolUrl(action);
+    expect(url).toBe('xiaochun://scene?name=beach3d&persist=true');
+
+    const parsed = parseProtocolUrl(url);
+    expect(parsed).toEqual(action);
+  });
+
+  it('encodes and parses outfit action', () => {
+    const action: XiaochunOutfitAction = { action: 'outfit', name: 'dinner_dress' };
+    const url = toProtocolUrl(action);
+    expect(url).toBe('xiaochun://outfit?name=dinner_dress');
+
+    const parsed = parseProtocolUrl(url);
+    expect(parsed).toEqual(action);
+  });
+
+  it('encodes and parses update action', () => {
+    const action: XiaochunUpdateAction = { action: 'update', mode: 'install', relaunch: true };
+    const url = toProtocolUrl(action);
+    expect(url).toBe('xiaochun://update?mode=install&relaunch=true');
+
+    const parsed = parseProtocolUrl(url);
+    expect(parsed).toEqual(action);
+  });
+
   it('encodes and parses stop action', () => {
     const action: XiaochunStopAction = { action: 'stop' };
     const url = toProtocolUrl(action);
@@ -139,7 +171,12 @@ describe('protocol-url (toProtocolUrl & parseProtocolUrl)', () => {
 
 // handler 里的 safeAssetUrl 读 window.location.origin; node 测试环境没有 window
 beforeAll(() => {
-  vi.stubGlobal('window', { location: { origin: 'https://app.test' } });
+  vi.stubGlobal('window', {
+    location: { origin: 'https://app.test' },
+    dispatchEvent: vi.fn(),
+    addEventListener: vi.fn(),
+    removeEventListener: vi.fn(),
+  });
 });
 afterAll(() => {
   vi.unstubAllGlobals();
@@ -272,6 +309,101 @@ describe('runProtocolAction dispatcher', () => {
     expect(d.orbitAngleDeg).toBeUndefined();
     expect(d.durationSec).toBe(1.2);
     expect(d.easing).toBe('linear');
+  });
+
+  it('handles scene action through sceneManager', async () => {
+    await runProtocolAction({
+      action: 'scene',
+      payload: { name: 'beach3d', persist: false },
+    });
+    // Test alias resolution
+    await runProtocolAction({
+      action: 'scene',
+      payload: { name: '海滩', persist: false },
+    });
+    await runProtocolAction({
+      action: 'scene',
+      payload: { name: '暗色舞台', persist: false },
+    });
+    await runProtocolAction({
+      action: 'scene',
+      payload: { name: '3D阳光海滩', persist: false },
+    });
+    await runProtocolAction({
+      action: 'scene',
+      payload: { name: '透明桌面伴侣', persist: false },
+    });
+  });
+
+  it('handles outfit action through outfit swap', async () => {
+    await runProtocolAction({
+      action: 'outfit',
+      payload: { name: 'dinner_dress' },
+    });
+    expect(vrmEngine.swapOutfit).toHaveBeenCalled();
+    // Test Chinese alias resolution
+    await runProtocolAction({
+      action: 'outfit',
+      payload: { name: '旗袍' },
+    });
+    expect(vrmEngine.swapOutfit).toHaveBeenCalled();
+  });
+
+  it('dispatches speak with expression and motion', async () => {
+    await runProtocolAction({
+      action: 'speak',
+      payload: {
+        text: '小蠢很高兴见到你！',
+        expression: 'happy',
+        motion: 'greeting',
+      },
+    });
+    expect(vrmEngine.setExpression).toHaveBeenCalledWith('happy');
+    expect(vrmEngine.playMotionGroup).toHaveBeenCalledWith('greeting');
+    expect(vrmEngine.speakText).toHaveBeenCalledWith(
+      '小蠢很高兴见到你！',
+      undefined,
+      expect.objectContaining({ preserveMotion: true }),
+    );
+  });
+
+  it('dispatches camera action=reset and action=pan_up', async () => {
+    await runProtocolAction({
+      action: 'camera',
+      payload: { action: 'reset' },
+    });
+    expect(vrmEngine.resetCamera).toHaveBeenCalled();
+
+    await runProtocolAction({
+      action: 'camera',
+      payload: { action: 'pan_up', duration: 3.0 },
+    });
+    expect(vrmEngine.panUpRevealCamera).toHaveBeenCalledWith(3.0);
+  });
+
+  it('handles update action gracefully', async () => {
+    await runProtocolAction({
+      action: 'update',
+      payload: { mode: 'check' },
+    });
+  });
+
+  it('guards speak action during active onboarding unless force: true is provided', async () => {
+    (window as any).__IS_ONBOARDING_ACTIVE__ = true;
+    await expect(
+      runProtocolAction({
+        action: 'speak',
+        payload: { text: '你好呀' },
+      }),
+    ).rejects.toMatchObject({ code: 'busy' });
+
+    // With force: true, it should bypass the onboarding block
+    await runProtocolAction({
+      action: 'speak',
+      payload: { text: '你好呀', force: true },
+    });
+    expect(vrmEngine.speakText).toHaveBeenCalled();
+    delete (window as any).__IS_ONBOARDING_ACTIVE__;
   });
 });
 

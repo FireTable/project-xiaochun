@@ -1,0 +1,96 @@
+{
+  "name": "小蠢 AI パートナー",
+  "description": "ローカルの Project XiaoChun 3D デスクトップアプリと連携し、キャラクターが音声読み上げ、モーション、表情、カメラ演出で対話を盛り上げます。自動コールドスタートとワンクリック導入に対応。PC 専用（macOS / Windows / Linux）。",
+  "whenToUse": "デスクトップ AI パートナーの小蠢に発话させたいとき、テキストを読み上げさせたいとき、ジェスチャーや表情、カメラワークで対話をデスクトップ上で生き生きと表現させたいときに使用します。",
+  "panel": {
+    "title": "小蠢 AI パートナー"
+  },
+  "mainView": {
+    "title": "小蠢 AI パートナー"
+  },
+  "tools": {
+    "xiaochun_speak": {
+      "description": "デスクトップ AI パートナーの小蠢に音声読み上げをさせ、モーションや表情を同期して再生します。未起動の場合は自動で起動し、未インストールの場合は導入を案内または自動インストールします。",
+      "parameters": {
+        "/properties/text": {
+          "description": "小蠢が読み上げて表現する具体的なテキスト内容（自然音声、長文読み上げ対応）。"
+        },
+        "/properties/motion": {
+          "description": "モーションまたはモショングループ名（任意）。例：'greeting'（挨拶）、'think'（思考・顎に手を当てる）、'nod'（頷く）、'wave'（手を振る）、'praiseCute'（褒める・可愛い仕草）、'dancePerformance'（ダンス）。"
+        },
+        "/properties/expression": {
+          "description": "表情名（任意）。例：'happy'（笑顔）、'gentle_smile'（優しい微笑み）、'shy'（照れ）、'playful'（いたずらっぽく）、'surprised'（驚き）、'sad'（悲しい）、'angry'（怒り）、'relaxed'（リラックス）。"
+        },
+        "/properties/force": {
+          "description": "強制的に発話させるかどうか（デフォルトは false）。false の場合、チュートリアル（art0 序章）進行中は先にガイドを体験するよう促します。"
+        }
+      }
+    },
+    "xiaochun_motion": {
+      "description": "音声なしで小蠢に指定のモーションやアニメーショングループを再生させます。",
+      "parameters": {
+        "/properties/name": {
+          "description": "モーション名またはグループ名。例：'greeting', 'waving', 'think', 'handHeart', 'praiseCute', 'dancePerformance' など。"
+        },
+        "/properties/loop": {
+          "description": "モーションをループ再生するかどうか。デフォルトは false です。"
+        }
+      }
+    },
+    "xiaochun_camera": {
+      "description": "小蠢デスクトップクライアントのカメラアングルや画角を調整します。",
+      "parameters": {
+        "/properties/shot": {
+          "description": "カメラショット名。例：'close_up'（クローズアップ）、'full'（全身）、'extreme_close_up'（大クローズアップ）、'bust'（バストアップ）。"
+        },
+        "/properties/action": {
+          "description": "カメラアクション指示：'pan_up'（カメラを上にティルトアップ）、'reset'（デフォルト視点にリセット）。"
+        }
+      }
+    },
+    "xiaochun_scene": {
+      "description": "小蠢デスクトップアプリの 3D ステージシーン（beach3d 砂浜ビーチ、transparent 透過デスクトップペットモード、dark ダーク、light ライト、void 虚空など）を切り替えます。",
+      "parameters": {
+        "/properties/name": {
+          "description": "シーン識別名。選択肢：'beach3d'、'transparent'、'dark'、'light'、'void'。"
+        },
+        "/properties/persist": {
+          "description": "このシーン設定を次回以降もデフォルトとして永続化するかどうか。デフォルトは true です。"
+        }
+      }
+    },
+    "xiaochun_outfit": {
+      "description": "小蠢の 3D 衣装（ドレス、チャイナドレス、テックウェア、ビキニ、メイド服、デフォルト私服など）を着せ替えます。0フレームシームレス換装で現在のモーション・表情・視線を維持します。",
+      "parameters": {
+        "/properties/name": {
+          "description": "衣装識別名またはエイリアス。選択肢：'dinner_dress'、'cheongsam'、'techwear'、'bikini'、'maid'、'default'。"
+        }
+      }
+    },
+    "xiaochun_stop": {
+      "description": "小蠢が現在再生している音声やモーションを直ちに停止し、自然な待机姿勢へ戻します。"
+    },
+    "xiaochun_status": {
+      "description": "現在の環境における小蠢の動作形態（デスクトップペット／Cindy内蔵パネル）、インストール・稼働状態、初期チュートリアル進捗、衣装および背景シーンを確認します。"
+    },
+    "xiaochun_bootstrap": {
+      "description": "小蠢の動作形態およびコールドスタート準備を案内または設定します。独立デスクトップペットと Cindy 内蔵パネルの切り替えに対応しています。",
+      "parameters": {
+        "/properties/action": {
+          "description": "実行アクション：'ensure'（自動検出して準備完了）、'install'（デスクトップ版の取得・インストール）、'launch'（クライアント起動）、'switch_mode'（形態切り替え）。デフォルトは 'ensure' です。"
+        },
+        "/properties/mode": {
+          "description": "動作モード：'auto'（自動判定）、'desktop'（デスクトップ独立ペット）、'embed'（Cindy 内蔵パネル、インストール不要）。デフォルトは 'auto' です。"
+        }
+      }
+    },
+    "xiaochun_update": {
+      "description": "小蠢デスクトップアプリのバージョン更新を確認・実行します。GitHub Releases から最新版を確認し、新バージョンがある場合は自動でダウンロード・インストールして再起動します。",
+      "parameters": {
+        "/properties/mode": {
+          "description": "実行モード：'install'（新バージョンがあれば自動更新して再起動、デフォルト）、'check'（更新の有無を確認するのみ）。デフォルトは 'install' です。"
+        }
+      }
+    }
+  }
+}

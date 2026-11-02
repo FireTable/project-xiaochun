@@ -48,5 +48,8 @@ bench/
 *.sw?
 .git.bak/
 .wrangler/
+*.cindy
+packages/cindy-plugin/bridge-port.json
+
 .tanstack/
 tmp/

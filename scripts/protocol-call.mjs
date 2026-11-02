@@ -52,10 +52,27 @@ if (args.length === 0 || args[0] === '--help' || args[0] === '-h') {
      \x1b[32mpnpm camera --pan-up\x1b[0m
      \x1b[32mpnpm camera --reset\x1b[0m
 
-  6. 立即停止语音与动作:
+  6. 切换 3D 舞台场景:
+     \x1b[32mpnpm scene beach3d\x1b[0m
+     \x1b[32mpnpm scene transparent\x1b[0m
+     \x1b[32mpnpm scene dark\x1b[0m
+
+  7. 切换角色服装:
+     \x1b[32mpnpm outfit dinner_dress\x1b[0m
+     \x1b[32mpnpm outfit cheongsam\x1b[0m
+     \x1b[32mpnpm outfit techwear\x1b[0m
+     \x1b[32mpnpm outfit bikini\x1b[0m
+     \x1b[32mpnpm outfit maid\x1b[0m
+     \x1b[32mpnpm outfit default\x1b[0m
+
+  8. 检查并安装版本更新 (自动重启):
+     \x1b[32mpnpm update-app\x1b[0m
+     \x1b[32mpnpm update-app --check\x1b[0m
+
+  9. 立即停止语音与动作:
      \x1b[32mpnpm stop\x1b[0m
 
-  7. 完整自定义协议 URL:
+  10. 完整自定义协议 URL:
      \x1b[32mpnpm protocol "xiaochun://motion?name=handHeart&loop=true"\x1b[0m
 `);
   process.exit(0);
@@ -130,6 +147,31 @@ if (cmd === 'speak') {
     if (fovIdx !== -1 && subArgs[fovIdx + 1]) params.set('fov', subArgs[fovIdx + 1]);
     targetUrl = `xiaochun://camera?${params.toString()}`;
   }
+} else if (cmd === 'scene') {
+  const name = args[1];
+  if (!name) {
+    console.error('\x1b[31m[Error]\x1b[0m 请指定场景名称，例如: pnpm scene beach3d');
+    console.log('可用场景: beach3d, light, dark, transparent, void');
+    process.exit(1);
+  }
+  const params = new URLSearchParams();
+  params.set('name', name);
+  targetUrl = `xiaochun://scene?${params.toString()}`;
+} else if (cmd === 'outfit') {
+  const name = args[1];
+  if (!name) {
+    console.error('\x1b[31m[Error]\x1b[0m 请指定服装名称，例如: pnpm outfit dinner_dress');
+    console.log('可用服装: dinner_dress, cheongsam, techwear, bikini, maid, default');
+    process.exit(1);
+  }
+  const params = new URLSearchParams();
+  params.set('name', name);
+  targetUrl = `xiaochun://outfit?${params.toString()}`;
+} else if (cmd === 'update' || cmd === 'update-app' || cmd === 'app-update') {
+  const isCheck = args.includes('--check');
+  const params = new URLSearchParams();
+  params.set('mode', isCheck ? 'check' : 'install');
+  targetUrl = `xiaochun://update?${params.toString()}`;
 } else if (cmd === 'stop') {
   targetUrl = 'xiaochun://stop';
 } else if (cmd.startsWith('xiaochun://')) {

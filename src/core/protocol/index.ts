@@ -86,6 +86,9 @@ export async function initProtocolListener(): Promise<() => void> {
           panUp: (durationSec = 2.2) => trigger('camera', { panUp: true, durationSec }),
         },
       ),
+      scene: (name: string, persist?: boolean) => trigger('scene', { name, persist }),
+      outfit: (name: string) => trigger('outfit', { name }),
+      update: (mode: 'install' | 'check' = 'install') => trigger('update', { mode }),
       stop: () => trigger('stop'),
       protocol: (url: string) => {
         if (typeof url === 'string' && url.startsWith('xiaochun://')) {

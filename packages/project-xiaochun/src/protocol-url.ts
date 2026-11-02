@@ -17,6 +17,14 @@ export interface XiaochunSpeakAction {
   audioUrl?: string;
   /** 本机文本文件路径 (超长文本)。仅桌面壳可读, 在 iframe 里没有对应物。 */
   file?: string;
+  /** 是否强制在新手引导 / 故事向导期间插话 (默认 false) */
+  force?: boolean;
+  /** 说话时同时播放的动作或动作组名称 */
+  motion?: string;
+  /** 说话时同时表达的面部表情 */
+  expression?: string;
+  /** 是否保持当前动作 */
+  preserveMotion?: boolean;
 }
 
 /** `xiaochun://motion` 的参数。 */
@@ -81,6 +89,35 @@ export interface XiaochunCameraAction {
   reset?: boolean;
   /** 是否执行自下而上缓缓打量人物的电影级升降运镜 */
   panUp?: boolean;
+  /** 镜头动作指令 ('reset' | 'pan_up') */
+  cameraAction?: string;
+}
+
+/** `xiaochun://scene` 的参数。 */
+export interface XiaochunSceneAction {
+  action: 'scene';
+  /** 场景名称 ('beach3d' | 'light' | 'dark' | 'transparent' | 'void') */
+  name?: string;
+  scene?: string;
+  /** 是否持久化到本地存储 (默认 true) */
+  persist?: boolean;
+}
+
+/** `xiaochun://outfit` 的参数。 */
+export interface XiaochunOutfitAction {
+  action: 'outfit';
+  /** 服装名称或别名 ('dinner_dress' | 'cheongsam' | 'techwear' | 'bikini' | 'maid' | 'default' 等) */
+  name?: string;
+  outfit?: string;
+  key?: string;
+}
+
+/** `xiaochun://update` 的参数。 */
+export interface XiaochunUpdateAction {
+  action: 'update';
+  /** 操作模式：'install'(检查并安装重启，默认) 或 'check'(仅检查) */
+  mode?: 'install' | 'check';
+  relaunch?: boolean;
 }
 
 /** `xiaochun://stop` 的参数。立即停止语音与动作。 */
@@ -94,6 +131,9 @@ export type XiaochunProtocolAction =
   | XiaochunMotionGroupAction
   | XiaochunExpressionAction
   | XiaochunCameraAction
+  | XiaochunSceneAction
+  | XiaochunOutfitAction
+  | XiaochunUpdateAction
   | XiaochunStopAction;
 
 export const XIAOCHUN_PROTOCOL_SCHEME = 'xiaochun';
@@ -113,6 +153,10 @@ export function toProtocolUrl(a: XiaochunProtocolAction): string {
       if (a.text) q.set('text', a.text);
       if (a.audioUrl) q.set('audioUrl', a.audioUrl);
       if (a.file) q.set('file', a.file);
+      if (a.force !== undefined) q.set('force', String(a.force));
+      if (a.motion) q.set('motion', a.motion);
+      if (a.expression) q.set('expression', a.expression);
+      if (a.preserveMotion !== undefined) q.set('preserveMotion', String(a.preserveMotion));
       break;
     }
     case 'motion': {
@@ -160,6 +204,29 @@ export function toProtocolUrl(a: XiaochunProtocolAction): string {
       if (a.easing) q.set('easing', a.easing);
       if (a.reset !== undefined) q.set('reset', String(a.reset));
       if (a.panUp !== undefined) q.set('panUp', String(a.panUp));
+      if (a.cameraAction) q.set('action', a.cameraAction);
+      break;
+    }
+    case 'scene': {
+      const sName = a.name || a.scene;
+      if (!sName) {
+        throw new Error('[project-xiaochun] scene needs name or scene');
+      }
+      q.set('name', sName);
+      if (a.persist !== undefined) q.set('persist', String(a.persist));
+      break;
+    }
+    case 'outfit': {
+      const oName = a.name || a.outfit || a.key;
+      if (!oName) {
+        throw new Error('[project-xiaochun] outfit needs name, outfit or key');
+      }
+      q.set('name', oName);
+      break;
+    }
+    case 'update': {
+      if (a.mode) q.set('mode', a.mode);
+      if (a.relaunch !== undefined) q.set('relaunch', String(a.relaunch));
       break;
     }
     case 'stop': {
@@ -191,9 +258,17 @@ export function parseProtocolUrl(url: string): XiaochunProtocolAction | null {
       const text = u.searchParams.get('text');
       const audioUrl = u.searchParams.get('audioUrl');
       const file = u.searchParams.get('file');
+      const force = u.searchParams.get('force');
+      const motion = u.searchParams.get('motion');
+      const expression = u.searchParams.get('expression');
+      const preserveMotion = u.searchParams.get('preserveMotion');
       if (text) out.text = text;
       if (audioUrl) out.audioUrl = audioUrl;
       if (file) out.file = file;
+      if (force !== null) out.force = force === 'true' || force === '1';
+      if (motion) out.motion = motion;
+      if (expression) out.expression = expression;
+      if (preserveMotion !== null) out.preserveMotion = preserveMotion === 'true' || preserveMotion === '1';
       return out.text || out.audioUrl || out.file ? out : null;
     }
     case 'motion': {
@@ -255,6 +330,7 @@ export function parseProtocolUrl(url: string): XiaochunProtocolAction | null {
       const easing = u.searchParams.get('easing');
       const reset = u.searchParams.get('reset');
       const panUp = u.searchParams.get('panUp');
+      const camAction = u.searchParams.get('action');
 
       if (shot) out.shot = shot;
       if (movement) out.movement = movement;
@@ -264,8 +340,36 @@ export function parseProtocolUrl(url: string): XiaochunProtocolAction | null {
       if (easing === 'quintic_smooth' || easing === 'ease_out_dramatic' || easing === 'linear') out.easing = easing;
       if (reset !== null) out.reset = reset === 'true' || reset === '1';
       if (panUp !== null) out.panUp = panUp === 'true' || panUp === '1';
+      if (camAction === 'reset') {
+        out.reset = true;
+      } else if (camAction === 'pan_up' || camAction === 'panUp') {
+        out.panUp = true;
+      } else if (camAction) {
+        out.cameraAction = camAction;
+      }
 
-      return out.shot || out.movement || out.reset !== undefined || out.panUp !== undefined ? out : null;
+      return out.shot || out.movement || out.reset !== undefined || out.panUp !== undefined || out.cameraAction !== undefined ? out : null;
+    }
+    case 'scene': {
+      const sName = u.searchParams.get('name') || u.searchParams.get('scene');
+      if (!sName) return null;
+      const out: XiaochunSceneAction = { action: 'scene', name: sName };
+      const persist = u.searchParams.get('persist');
+      if (persist !== null) out.persist = persist === 'true' || persist === '1';
+      return out;
+    }
+    case 'outfit': {
+      const oName = u.searchParams.get('name') || u.searchParams.get('outfit') || u.searchParams.get('key');
+      if (!oName) return null;
+      return { action: 'outfit', name: oName };
+    }
+    case 'update': {
+      const out: XiaochunUpdateAction = { action: 'update' };
+      const mode = u.searchParams.get('mode');
+      const relaunch = u.searchParams.get('relaunch');
+      if (mode === 'check' || mode === 'install') out.mode = mode;
+      if (relaunch !== null) out.relaunch = relaunch === 'true' || relaunch === '1';
+      return out;
     }
     case 'stop': {
       return { action: 'stop' };

@@ -431,7 +431,7 @@ export const zhCN = {
     llmReady: '对话引擎就绪',
     llmReadyLocal: '对话引擎就绪 · 本地运行',
     llmCustom: '已连接自定义模型',
-    tagline: '小蠢 · 端侧二次元 AI 伴侣',
+    tagline: '小蠢桌面 AI 伴侣',
   },
   bubble: {
     thinking: '嗯嗯…让小蠢想想嘛…',

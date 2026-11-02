@@ -5,6 +5,7 @@ import { MOTION_FILES, resolveMotionUrl } from '@/motion/motionResolver';
 import { isMotionCatalogId } from '@/motion/catalog';
 import { resolveWholeAudio } from './audio';
 import { safeAssetUrl } from './assetUrl';
+import { isXiaoChunOnboardingActive, syncXiaoChunRuntimeState } from './runtimeState';
 import {
   ProtocolError,
   type AudioPayload,
@@ -12,10 +13,50 @@ import {
   type ExpressionPayload,
   type MotionGroupPayload,
   type MotionPayload,
+  type OutfitPayload,
   type ProtocolMessage,
   type ProtocolRunHooks,
+  type ScenePayload,
   type SpeakPayload,
+  type UpdatePayload,
 } from './types';
+
+const SCENE_ALIASES: Record<string, string> = {
+  海滩: 'beach3d',
+  '3d海滩': 'beach3d',
+  '3D海滩': 'beach3d',
+  '3d阳光海滩': 'beach3d',
+  '3D阳光海滩': 'beach3d',
+  阳光海滩: 'beach3d',
+  沙滩: 'beach3d',
+  海边: 'beach3d',
+  beach: 'beach3d',
+  beach3d: 'beach3d',
+  透明: 'transparent',
+  透明背景: 'transparent',
+  透明桌面伴侣: 'transparent',
+  桌宠: 'transparent',
+  桌宠模式: 'transparent',
+  transparent: 'transparent',
+  白天: 'light',
+  浅色: 'light',
+  明亮: 'light',
+  明亮舞台: 'light',
+  纯白: 'light',
+  白: 'light',
+  light: 'light',
+  黑夜: 'dark',
+  深色: 'dark',
+  暗色: 'dark',
+  暗色舞台: 'dark',
+  纯黑: 'dark',
+  黑: 'dark',
+  dark: 'dark',
+  虚空: 'void',
+  虚空舞台: 'void',
+  灰: 'void',
+  void: 'void',
+};
 
 /**
  * 等待 VRM 模型加载完毕（应对应用刚冷启动时立即收到协议调用的场景）
@@ -144,6 +185,15 @@ export async function runProtocolAction(message: ProtocolMessage, hooks?: Protoc
   switch (message.action) {
     case 'speak': {
       const payload = message.payload as SpeakPayload;
+      if (isXiaoChunOnboardingActive()) {
+        const force = payload?.force === true || payload?.force === 'true';
+        if (!force) {
+          throw new ProtocolError(
+            'busy',
+            '小蠢当前正在进行新手引导（art0 序章），请先在桌面窗口完成向导，或传入 force=true 强制插话。',
+          );
+        }
+      }
       // 预合成音频: 绕过 TTS, 走和 xc.audio 同一条链路 (text 只作气泡文字)
       if (payload && typeof payload.audioUrl === 'string' && payload.audioUrl) {
         await runAudio({ source: payload.audioUrl, text: payload.text }, hooks);
@@ -155,9 +205,21 @@ export async function runProtocolAction(message: ProtocolMessage, hooks?: Protoc
         throw new ProtocolError('bad_request', 'speak 指令缺少 text 内容');
       }
       await requireVRM();
+      if (payload.expression) {
+        vrmEngine.setExpression(payload.expression);
+      }
+      let preserveMotion = payload.preserveMotion === true || payload.preserveMotion === 'true';
+      if (payload.motion) {
+        if (payload.motion in MOTION_GROUPS) {
+          await vrmEngine.playMotionGroup(payload.motion as MotionGroupName);
+          preserveMotion = true;
+        } else if (isSafeMotionTarget(payload.motion)) {
+          await vrmEngine.playMotion(payload.motion);
+          preserveMotion = true;
+        }
+      }
       hooks?.onStart?.({ kind: 'text', text: payload.text });
       console.log(`[Protocol] 执行 speakText (字数: ${payload.text.length}):`, payload.text.slice(0, 40));
-      const preserveMotion = payload.preserveMotion === true || payload.preserveMotion === 'true';
       await vrmEngine.speakText(payload.text, undefined, { preserveMotion });
       return;
     }
@@ -231,11 +293,16 @@ export async function runProtocolAction(message: ProtocolMessage, hooks?: Protoc
     case 'camera': {
       await requireVRM();
       const payload = (message.payload || {}) as CameraPayload;
-      if (payload.reset === true || payload.reset === 'true') {
+      if (payload.reset === true || payload.reset === 'true' || payload.action === 'reset') {
         await vrmEngine.resetCamera();
         return;
       }
-      if (payload.panUp === true || payload.panUp === 'true') {
+      if (
+        payload.panUp === true ||
+        payload.panUp === 'true' ||
+        payload.action === 'pan_up' ||
+        payload.action === 'panUp'
+      ) {
         const rawDur = payload.duration !== undefined ? payload.duration : payload.durationSec;
         const dur = rawDur ? Number(rawDur) : 2.2;
         await vrmEngine.panUpRevealCamera(Number.isFinite(dur) ? dur : 2.2);
@@ -243,6 +310,57 @@ export async function runProtocolAction(message: ProtocolMessage, hooks?: Protoc
       }
       const directive = normalizeCameraDirective(payload);
       await vrmEngine.transitionCamera(directive);
+      return;
+    }
+    case 'scene': {
+      const payload = (message.payload || {}) as ScenePayload;
+      const rawScene = (payload.name || payload.scene || '').trim();
+      if (!rawScene) {
+        throw new ProtocolError('bad_request', 'scene 指令缺少 name 或 scene 参数');
+      }
+      const sceneName = SCENE_ALIASES[rawScene] || SCENE_ALIASES[rawScene.toLowerCase()] || rawScene;
+      const { sceneManager } = await import('@/core/scene/sceneManager');
+      const persist = payload.persist !== false && payload.persist !== 'false';
+      await sceneManager.setScene(sceneName, persist);
+      await syncXiaoChunRuntimeState({ currentScene: sceneManager.getCurrentSceneId() });
+      return;
+    }
+    case 'outfit': {
+      await requireVRM();
+      const payload = (message.payload || {}) as OutfitPayload;
+      const outfitName = payload.name || payload.outfit || payload.key;
+      if (!outfitName) {
+        throw new ProtocolError('bad_request', 'outfit 指令缺少 name, outfit 或 key 参数');
+      }
+      const { resolveOutfit, changeOutfit } = await import('@/lib/outfit');
+      const target = resolveOutfit(outfitName);
+      if (!target) {
+        throw new ProtocolError('bad_request', `未知的服装名称或别名: ${outfitName}`);
+      }
+      await changeOutfit(target);
+      await syncXiaoChunRuntimeState({ currentOutfit: target.key });
+      return;
+    }
+    case 'update': {
+      const payload = (message.payload || {}) as UpdatePayload;
+      const mode = payload.mode || payload.action || 'install';
+      const { isTauri } = await import('@/lib/platform');
+      if (!isTauri()) {
+        console.log('[Protocol] 当前非桌面端 (Tauri) 环境，忽略应用更新请求');
+        return;
+      }
+      const { checkForAppUpdate, downloadAndInstallAppUpdate, requestAppUpdateCheck } = await import('@/lib/appUpdater');
+      const updateInfo = await checkForAppUpdate();
+      if (!updateInfo) {
+        console.log('[Protocol] 检查更新完成：当前已是最新版本');
+        return;
+      }
+      console.log(`[Protocol] 检测到新版本 ${updateInfo.version} (当前: ${updateInfo.currentVersion})`);
+      if (mode === 'check') {
+        requestAppUpdateCheck();
+        return;
+      }
+      await downloadAndInstallAppUpdate();
       return;
     }
     case 'stop': {

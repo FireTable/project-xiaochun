@@ -18,17 +18,54 @@ export interface OutfitTarget {
   name: string;
 }
 
-/** 'xiaochun_maid' / 'maid' / 'base' / 'default' → 目标；认不出的返回 null */
+const OUTFIT_ALIASES: Record<string, string> = {
+  晚礼服: 'xiaochun_dinner_dress',
+  礼服: 'xiaochun_dinner_dress',
+  dinner_dress: 'xiaochun_dinner_dress',
+  dinner: 'xiaochun_dinner_dress',
+  旗袍: 'xiaochun_cheongsam',
+  cheongsam: 'xiaochun_cheongsam',
+  qipao: 'xiaochun_cheongsam',
+  女仆: 'xiaochun_maid',
+  女仆装: 'xiaochun_maid',
+  maid: 'xiaochun_maid',
+  机能: 'xiaochun_techwear',
+  机能风: 'xiaochun_techwear',
+  techwear: 'xiaochun_techwear',
+  比基尼: 'xiaochun_bikini',
+  bikini: 'xiaochun_bikini',
+  泳装: 'xiaochun_swimsuit',
+  死库水: 'xiaochun_swimsuit',
+  swimsuit: 'xiaochun_swimsuit',
+  职业装: 'xiaochun_office_lady',
+  职场: 'xiaochun_office_lady',
+  ol: 'xiaochun_office_lady',
+  office_lady: 'xiaochun_office_lady',
+  婚纱: 'xiaochun_wedding',
+  花嫁: 'xiaochun_wedding',
+  wedding: 'xiaochun_wedding',
+  薄纱: 'xiaochun_shroud',
+  shroud: 'xiaochun_shroud',
+  默认: 'base',
+  基础: 'base',
+  原装: 'base',
+  default: 'base',
+  base: 'base',
+};
+
+/** 'xiaochun_maid' / 'maid' / '女仆' / 'base' / 'default' → 目标；认不出的返回 null */
 export function resolveOutfit(keyOrAlias: string): OutfitTarget | null {
   const addons = (APP_CONFIG.model.addons || {}) as Record<string, { source: string; name: string }>;
-  if (keyOrAlias === 'base' || keyOrAlias === 'default') {
+  const raw = (keyOrAlias || '').trim();
+  const directKey = OUTFIT_ALIASES[raw] || OUTFIT_ALIASES[raw.toLowerCase()] || raw;
+  if (directKey === 'base' || directKey === 'default') {
     return { key: null, source: APP_CONFIG.model.defaultSource, name: APP_CONFIG.model.defaultName };
   }
   // hasOwn: 防 'constructor' / '__proto__' 之类原型链上的键被当成衣服
-  const key = Object.hasOwn(addons, keyOrAlias)
-    ? keyOrAlias
-    : Object.hasOwn(addons, `xiaochun_${keyOrAlias}`)
-      ? `xiaochun_${keyOrAlias}`
+  const key = Object.hasOwn(addons, directKey)
+    ? directKey
+    : Object.hasOwn(addons, `xiaochun_${directKey}`)
+      ? `xiaochun_${directKey}`
       : null;
   return key ? { key, source: addons[key].source, name: addons[key].name } : null;
 }

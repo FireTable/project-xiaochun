@@ -1,0 +1,96 @@
+{
+  "name": "XiaoChun AI Companion",
+  "description": "Connect to local Project XiaoChun 3D desktop companion or Cindy embed window for live speech, gestures, and companion reading. Supports automatic cold-start, zero-install embed panel dual-mode adaptation, and one-click readiness.",
+  "whenToUse": "Use when the user wants 3D companion XiaoChun to speak, read text, perform body gestures, express emotions, adjust camera angles, or vividly act out conversational responses on their desktop or inside Cindy.",
+  "panel": {
+    "title": "XiaoChun AI Companion"
+  },
+  "mainView": {
+    "title": "XiaoChun AI Companion"
+  },
+  "tools": {
+    "xiaochun_speak": {
+      "description": "Make desktop AI companion XiaoChun speak aloud with synchronized gestures and facial expressions. Automatically cold-starts XiaoChun if stopped, or guides/runs installation if not yet installed.",
+      "parameters": {
+        "/properties/text": {
+          "description": "The exact text content for XiaoChun to speak and express with natural voice (supports long text reading)."
+        },
+        "/properties/motion": {
+          "description": "Optional motion or motion group name. Examples: 'greeting', 'think', 'nod', 'wave', 'praiseCute', 'playfulSulking', 'dancePerformance'."
+        },
+        "/properties/expression": {
+          "description": "Optional facial expression name. Examples: 'happy', 'gentle_smile', 'smile', 'shy', 'playful', 'surprised', 'sad', 'angry', 'relaxed'."
+        },
+        "/properties/force": {
+          "description": "Whether to force speaking (default false). When false, it will prompt user to finish the art0 onboarding tour if in progress."
+        }
+      }
+    },
+    "xiaochun_motion": {
+      "description": "Trigger a standalone motion or animation group on XiaoChun without speaking.",
+      "parameters": {
+        "/properties/name": {
+          "description": "The motion or animation group name, e.g. 'greeting', 'waving', 'think', 'handHeart', 'praiseCute', 'dancePerformance'."
+        },
+        "/properties/loop": {
+          "description": "Whether to loop the motion playback, defaults to false."
+        }
+      }
+    },
+    "xiaochun_camera": {
+      "description": "Adjust XiaoChun's 3D desktop camera angle, framing, or movement.",
+      "parameters": {
+        "/properties/shot": {
+          "description": "Shot framing name, e.g. 'close_up', 'full', 'extreme_close_up', 'bust'."
+        },
+        "/properties/action": {
+          "description": "Camera action command: 'pan_up' (smoothly tilt/pan up), 'reset' (reset camera to default angle)."
+        }
+      }
+    },
+    "xiaochun_scene": {
+      "description": "Switch XiaoChun desktop 3D stage scene (e.g. beach3d beach world, transparent desktop pet overlay, dark stage, light stage, void, etc.).",
+      "parameters": {
+        "/properties/name": {
+          "description": "Scene identifier name. Options: 'beach3d', 'transparent', 'dark', 'light', 'void'."
+        },
+        "/properties/persist": {
+          "description": "Whether to persist this scene choice as default for future launches, defaults to true."
+        }
+      }
+    },
+    "xiaochun_outfit": {
+      "description": "Switch XiaoChun's 3D outfit (dinner dress, cheongsam, techwear, bikini, maid, default, etc.) with 0-frame seamless delta swap preserving current motion, expression, and gaze.",
+      "parameters": {
+        "/properties/name": {
+          "description": "Outfit identifier name or alias. Options: 'dinner_dress', 'cheongsam', 'techwear', 'bikini', 'maid', 'default'."
+        }
+      }
+    },
+    "xiaochun_stop": {
+      "description": "Immediately stop XiaoChun's ongoing speech and animation, smoothly transitioning back to natural idle posture."
+    },
+    "xiaochun_status": {
+      "description": "Query XiaoChun active runtime mode (desktop pet mode / Cindy embed panel mode), installation, active state, onboarding progress, current scene and outfit."
+    },
+    "xiaochun_bootstrap": {
+      "description": "Guide or configure XiaoChun runtime mode and cold-start readiness. Supports seamless switching between Desktop Pet and Cindy Embed Panel modes.",
+      "parameters": {
+        "/properties/action": {
+          "description": "Action to take: 'ensure' (auto-detect and prepare readiness), 'install' (download and install desktop client), 'launch' (wake up installed client), 'switch_mode' (switch desktop/embed mode). Defaults to 'ensure'."
+        },
+        "/properties/mode": {
+          "description": "Runtime morphology mode: 'auto' (auto-detect, desktop if installed, embed or guide if missing), 'desktop' (enforce desktop pet), 'embed' (use Cindy embed panel window, zero install). Defaults to 'auto'."
+        }
+      }
+    },
+    "xiaochun_update": {
+      "description": "Check for and install XiaoChun desktop client updates from GitHub Releases. If a newer release is found, automatically downloads, installs, and relaunches the app.",
+      "parameters": {
+        "/properties/mode": {
+          "description": "Execution mode: 'install' (checks, downloads, installs, and relaunches, default), or 'check' (check only without installing). Defaults to 'install'."
+        }
+      }
+    }
+  }
+}

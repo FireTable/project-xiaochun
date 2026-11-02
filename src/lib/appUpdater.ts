@@ -50,7 +50,11 @@ export async function checkForAppUpdate(): Promise<AppUpdateInfo | null> {
 export async function downloadAndInstallAppUpdate(
   onProgress?: (downloaded: number, total: number) => void,
 ): Promise<void> {
-  const update = pendingUpdate;
+  let update = pendingUpdate;
+  if (!update) {
+    await checkForAppUpdate();
+    update = pendingUpdate;
+  }
   if (!update) throw new Error('No pending update');
 
   let downloaded = 0;

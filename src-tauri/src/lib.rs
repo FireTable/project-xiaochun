@@ -73,9 +73,10 @@ fn parse_deep_link_url(raw_url: &str) -> Option<ProtocolMessage> {
     }
   };
 
+  let uses_action_param_for_route = host.is_empty() || host == "action";
   let mut payload_map = serde_json::Map::new();
   for (k, v) in parsed.query_pairs() {
-    if k != "action" {
+    if !uses_action_param_for_route || k != "action" {
       payload_map.insert(k.to_string(), serde_json::Value::String(v.to_string()));
     }
   }
@@ -280,6 +281,23 @@ fn update_alpha_bitmask(
 }
 
 #[tauri::command]
+fn sync_runtime_state(
+  app: tauri::AppHandle,
+  state: serde_json::Value,
+) -> Result<(), String> {
+  let json_str = state.to_string();
+  let _ = std::fs::write("/tmp/xiaochun-runtime-state.json", &json_str);
+  let _ = std::fs::write(std::env::temp_dir().join("xiaochun-runtime-state.json"), &json_str);
+
+  use tauri::Manager;
+  if let Ok(app_data) = app.path().app_data_dir() {
+    let _ = std::fs::create_dir_all(&app_data);
+    let _ = std::fs::write(app_data.join("runtime-state.json"), &json_str);
+  }
+  Ok(())
+}
+
+#[tauri::command]
 fn get_pending_protocol_actions(
   state: tauri::State<'_, Arc<ProtocolState>>,
 ) -> Result<Vec<ProtocolMessage>, String> {
@@ -363,6 +381,7 @@ pub fn run() {
       set_dom_blocks_passthrough,
       update_interactive_rects,
       update_alpha_bitmask,
+      sync_runtime_state,
       get_pending_protocol_actions,
       clamp_window_to_monitor
     ])

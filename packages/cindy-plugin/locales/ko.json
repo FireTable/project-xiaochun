@@ -1,0 +1,96 @@
+{
+  "name": "샤오춘 AI 파트너",
+  "description": "로컬 Project XiaoChun 3D 데스크톱 앱과 연결하여 음성 낭독, 모션 제스처, 풍부한 표정 및 카메라 연출로 상호작용합니다. 자동 콜드 스타트 및 원클릭 설치 지원. PC 전용(macOS / Windows / Linux).",
+  "whenToUse": "데스크톱 AI 파트너 샤오춘에게 말을 시키거나 텍스트를 읽게 하고 싶을 때, 제스처와 표정, 카메라 워크로 대화를 데스크톱 화면에서 생생하게 표현하고 싶을 때 사용합니다.",
+  "panel": {
+    "title": "샤오춘 AI 파트너"
+  },
+  "mainView": {
+    "title": "샤오춘 AI 파트너"
+  },
+  "tools": {
+    "xiaochun_speak": {
+      "description": "데스크톱 AI 파트너 샤오춘이 음성으로 말을 낭독하고 모션과 표정을 동기화하여 표현합니다. 실행 중이 아니면 자동으로 실행하며, 미설치 시 자동 설치 또는 안내를 제공합니다.",
+      "parameters": {
+        "/properties/text": {
+          "description": "샤오춘이 읽고 표현할 구체적인 텍스트 내용(자연스러운 음성, 긴 글 읽기 지원)."
+        },
+        "/properties/motion": {
+          "description": "모션 또는 모션 그룹 이름(선택 사항). 예: 'greeting'(인사), 'think'(생각/턱 괴기), 'nod'(고개 끄덕임), 'wave'(손 흔들기), 'praiseCute'(귀여운 칭찬), 'dancePerformance'(댄스)."
+        },
+        "/properties/expression": {
+          "description": "얼굴 표정 이름(선택 사항). 예: 'happy'(행복), 'gentle_smile'(부드러운 미소), 'smile'(미소), 'shy'(부끄러움), 'playful'(장난기), 'surprised'(놀람), 'sad'(슬픔), 'angry'(화남), 'relaxed'(편안함)."
+        },
+        "/properties/force": {
+          "description": "강제 낭독 여부(기본값 false). false일 때 튜토리얼(art0 프롤로그) 진행 중이면 먼저 가이드를 완료하도록 안내합니다."
+        }
+      }
+    },
+    "xiaochun_motion": {
+      "description": "음성 없이 샤오춘에게 지정된 모션이나 애니메이션 그룹을 단독으로 재생합니다.",
+      "parameters": {
+        "/properties/name": {
+          "description": "모션 또는 모션 그룹 이름. 예: 'greeting', 'waving', 'think', 'handHeart', 'praiseCute', 'dancePerformance' 등."
+        },
+        "/properties/loop": {
+          "description": "모션을 반복 재생할지 여부. 기본값은 false입니다."
+        }
+      }
+    },
+    "xiaochun_camera": {
+      "description": "샤오춘 데스크톱 앱의 카메라 앵글, 화각 및 움직임을 조정합니다.",
+      "parameters": {
+        "/properties/shot": {
+          "description": "카메라 샷 이름. 예: 'close_up'(클로즈업), 'full'(풀샷/전신), 'extreme_close_up'(익스트림 클로즈업), 'bust'(바스트샷)."
+        },
+        "/properties/action": {
+          "description": "카메라 동작 명령: 'pan_up'(카메라를 위로 부드럽게 틸트업), 'reset'(기본 시점으로 초기화)."
+        }
+      }
+    },
+    "xiaochun_scene": {
+      "description": "샤오춘 데스크톱 3D 무대 배경(beach3d 해변, transparent 투명 데스크톱 펫 모드, dark 어두운 무대, light 밝은 무대, void 허공 등)을 변경합니다.",
+      "parameters": {
+        "/properties/name": {
+          "description": "배경 씬 식별자. 선택 가능: 'beach3d', 'transparent', 'dark', 'light', 'void'."
+        },
+        "/properties/persist": {
+          "description": "다음 실행 시에도 유지되도록 영구 저장할지 여부(기본값 true)."
+        }
+      }
+    },
+    "xiaochun_outfit": {
+      "description": "샤오춘의 3D 의상(이브닝 드레스, 치파오, 테크웨어, 비키니, 메이드복, 기본 평상복 등)을 갈아입힙니다. 0프레임 무중단 교체로 현재 모션과 표정, 시선을 그대로 유지합니다.",
+      "parameters": {
+        "/properties/name": {
+          "description": "의상 식별자 이름 또는 별칭. 선택 가능: 'dinner_dress', 'cheongsam', 'techwear', 'bikini', 'maid', 'default'."
+        }
+      }
+    },
+    "xiaochun_stop": {
+      "description": "샤오춘이 현재 재생 중인 음성과 모션을 즉시 멈추고 자연스러운 대기 자세로 복귀합니다."
+    },
+    "xiaochun_status": {
+      "description": "현재 환경에서 샤오춘의 작동 형태(데스크톱 펫 모드 / Cindy 내장 패널 모드), 설치 및 실행 상태, 온보딩 진행률, 현재 의상과 배경을 확인합니다."
+    },
+    "xiaochun_bootstrap": {
+      "description": "샤오춘의 작동 형태 및 콜드 스타트 준비를 안내하거나 설정합니다. 데스크톱 독립 펫과 Cindy 내장 패널 간의 전환을 지원합니다.",
+      "parameters": {
+        "/properties/action": {
+          "description": "수행할 동작: 'ensure'(자동 감지 후 준비 완료), 'install'(데스크톱 클라이언트 다운로드 및 설치), 'launch'(클라이언트 실행), 'switch_mode'(형태 전환). 기본값은 'ensure'입니다."
+        },
+        "/properties/mode": {
+          "description": "작동 모드: 'auto'(자동 감지), 'desktop'(데스크톱 독립 펫), 'embed'(Cindy 내장 패널, 무설치). 기본값은 'auto'입니다."
+        }
+      }
+    },
+    "xiaochun_update": {
+      "description": "샤오춘 데스크톱 클라이언트의 버전 업데이트를 확인하고 실행합니다. GitHub Releases에서 최신 버전을 조회하며, 새 버전이 있으면 자동으로 다운로드/설치 후 재실행합니다.",
+      "parameters": {
+        "/properties/mode": {
+          "description": "실행 모드: 'install'(새 버전이 있을 때 자동 설치 및 재실행, 기본값), 'check'(설치 없이 업데이트 여부만 확인). 기본값은 'install'입니다."
+        }
+      }
+    }
+  }
+}

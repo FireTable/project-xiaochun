@@ -2,6 +2,16 @@
   "name": "Project-XiaoChun",
   "private": true,
   "version": "0.2.2",
+  "description": "100% browser-native 3D AI companion with WebGPU/WebGL, VRM, EMAGE, EdgeTTS and Cindy Desktop Plugin integration.",
+  "keywords": [
+    "cindy-plugin",
+    "cindy",
+    "ai-companion",
+    "3d-companion",
+    "vrm",
+    "threejs",
+    "tauri"
+  ],
   "type": "module",
   "packageManager": "pnpm@10.12.2",
   "scripts": {
@@ -31,10 +41,15 @@
     "group": "node scripts/protocol-call.mjs group",
     "expr": "node scripts/protocol-call.mjs expr",
     "camera": "node scripts/protocol-call.mjs camera",
+    "scene": "node scripts/protocol-call.mjs scene",
+    "outfit": "node scripts/protocol-call.mjs outfit",
+    "update-app": "node scripts/protocol-call.mjs update",
     "stop": "node scripts/protocol-call.mjs stop",
     "check:i18n": "npx tsx scripts/check-i18n.ts",
     "check:cjk": "node scripts/check-cjk-literals.mjs --ui --latin",
+    "typecheck": "tsc --noEmit",
     "test": "vitest run",
+    "test:cindy-plugin": "node packages/cindy-plugin/test-plugin.mjs",
     "test:embed": "node --test src/embed/__tests__/*.test.mjs",
     "generate:previews": "node scripts/generate-previews.mjs",
     "setup:tts-cache": "wrangler r2 bucket create xiaochun-tts"

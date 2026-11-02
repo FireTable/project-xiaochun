@@ -27,6 +27,7 @@ import { APP_CONFIG } from '@/config';
 import { sceneManager, useCurrentScene } from '@/core/scene/sceneManager';
 import { usePetUiVisibility } from '@/hooks/usePetUiVisibility';
 import { initProtocolListener } from '@/core/protocol';
+import { syncXiaoChunRuntimeState } from '@/core/protocol/runtimeState';
 import { isDev } from '@/lib/utils';
 
 export const App: React.FC = () => {
@@ -137,12 +138,28 @@ export const App: React.FC = () => {
     };
   }, []);
 
+  // 跨进程运行时状态与当前页面同步
+  useEffect(() => {
+    void syncXiaoChunRuntimeState({
+      onboardingActive: isOnboardingActive,
+      onboardingCompleted: !isOnboardingActive,
+      currentScene: sceneManager.getCurrentSceneId(),
+    });
+    const unsubScene = sceneManager.subscribe((scene) => {
+      void syncXiaoChunRuntimeState({ currentScene: scene.id });
+    });
+    return () => {
+      unsubScene();
+    };
+  }, [isOnboardingActive]);
+
   useEffect(() => {
     let engineModule: typeof import('@/core/vrmEngine') | null = null;
     // ponytail: 闭包局部变量,不能在 engineModule(ESM namespace, 冻结)上挂属性 ——
     // prod 构建会抛 "Cannot assign to property '_unsubUserSettings'"。
     let unsubUserSettings: (() => void) | null = null;
     let unsubReady: (() => void) | null = null;
+    let unsubOutfit: (() => void) | null = null;
 
     import('@/core/vrmEngine').then((mod) => {
       engineModule = mod;
@@ -171,6 +188,9 @@ export const App: React.FC = () => {
           (window as any).vrmEngine = mod.vrmEngine;
           (window as any).sceneManager = sceneManager;
         }
+      });
+      unsubOutfit = mod.vrmEngine.onOutfitChange((outfitKey) => {
+        void syncXiaoChunRuntimeState({ currentOutfit: outfitKey });
       });
       // React 并发过渡：将气泡 UI 状态更新降级为非阻塞 transition，绝不阻塞主线程 3D 动画帧与交互
       mod.vrmEngine.onBubbleChange = (state) => {
@@ -238,6 +258,7 @@ export const App: React.FC = () => {
       window.removeEventListener('drop', handleDrop);
       unsubUserSettings?.();
       unsubReady?.();
+      unsubOutfit?.();
     };
   }, [i18n]);
 
@@ -294,6 +315,7 @@ export const App: React.FC = () => {
           onComplete={() => {
             setIsOnboardingActive(false);
             setIsStoryActive(false);
+            void syncXiaoChunRuntimeState({ onboardingActive: false, onboardingCompleted: true });
             try {
               localStorage.setItem(ONBOARDING_STORAGE_KEY, '1');
               // 若用户在虚空场景提前跳过，自动回退到默认海滩场景

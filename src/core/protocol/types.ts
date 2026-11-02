@@ -16,9 +16,35 @@ import type { HostAudioInput } from '@/director/hostAudio';
  * motion-group / group = 从指定动作组随机抽取播放 (如 greeting, praiseCute, dancePerformance);
  * expression = 触发指定面部表情 (如 happy, gentle_smile, playful);
  * camera = 执行电影级镜头调度 (运镜、景别切换、环绕旋转、升降展示等);
+ * scene = 切换当前 3D 舞台场景 (如 beach3d, light, dark, transparent);
+ * outfit = 切换当前角色服装 (如 dinner_dress, cheongsam, techwear, bikini, maid, default);
+ * update = 检查并安装版本更新 (查询 GitHub Releases latest.json 并自动下载重启);
  * stop = 立即停止当前语音与动作。
  */
-export type ProtocolAction = 'speak' | 'audio' | 'motion' | 'expression' | 'group' | 'motion-group' | 'camera' | 'stop';
+export type ProtocolAction = 'speak' | 'audio' | 'motion' | 'expression' | 'group' | 'motion-group' | 'camera' | 'scene' | 'outfit' | 'update' | 'stop';
+
+export interface UpdatePayload {
+  /** 操作模式：'install'(检查并安装重启，默认) 或 'check'(仅检查) */
+  mode?: 'install' | 'check';
+  action?: 'install' | 'check';
+  /** 是否在安装完成后自动重启 (默认 true) */
+  relaunch?: boolean | string;
+}
+
+export interface ScenePayload {
+  /** 场景名称 ('beach3d' | 'light' | 'dark' | 'transparent' | 'void') */
+  name?: string;
+  scene?: string;
+  /** 是否持久化到本地存储 (默认 true) */
+  persist?: boolean | string;
+}
+
+export interface OutfitPayload {
+  /** 服装名称或别名 ('dinner_dress' | 'cheongsam' | 'techwear' | 'bikini' | 'maid' | 'default' 等) */
+  name?: string;
+  outfit?: string;
+  key?: string;
+}
 
 export interface CameraPayload {
   /** 镜头景别 ('extreme_close_up' | 'close_up' | 'medium' | 'full' | 'dramatic_low' 等) */
@@ -45,6 +71,8 @@ export interface CameraPayload {
   reset?: boolean | string;
   /** 是否执行自下而上缓缓打量人物的电影级升降运镜 */
   panUp?: boolean | string;
+  /** 镜头动作指令 ('reset' | 'pan_up') */
+  action?: string;
 }
 
 export interface MotionPayload {
@@ -106,6 +134,15 @@ export interface SpeakPayload {
    * 若为 true，不切思考托下巴姿态，也不加载 EMAGE 说话手势，仅同步播放音频并驱动嘴唇张合口型（Lipsync）。
    */
   preserveMotion?: boolean | string;
+  /**
+   * 是否强制在新手引导 / 故事向导期间插话（默认 false）。
+   * 缺省时若检测到新手引导正在进行，会拒绝插话以免破坏向导体验。
+   */
+  force?: boolean | string;
+  /** 可选：说话时同时播放的动作或动作组名称 (如 greeting, think, nod, wave 等) */
+  motion?: string;
+  /** 可选：说话时同时表达的面部表情 (如 happy, gentle_smile, playful 等) */
+  expression?: string;
 }
 
 /** action = 'audio' 的 payload (xc.audio / xc.audio.chunk 转换而来)。选项字段与 npm 包协议同源。 */
