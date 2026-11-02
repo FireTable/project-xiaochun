@@ -202,25 +202,44 @@
   async function initEmbedFrame() {
     currentPort = 23518;
     try {
-      const res = await fetch('/bridge-port.json?t=' + Date.now(), { signal: AbortSignal.timeout(500) });
+      const res = await fetch('/bridge-port.json?t=' + Date.now(), { signal: AbortSignal.timeout(600) });
       if (res.ok) {
         const data = await res.json();
         if (data && data.port && typeof data.port === 'number') {
           currentPort = data.port;
         }
+        if (data && data.onboardingCompleted === true) {
+          hasCompletedOnboarding = true;
+        }
       }
     } catch (_) {}
 
+    // 如果 /bridge-port.json 未指示已完成，继续探测 worker 的 /api/companion-state
+    if (!hasCompletedOnboarding) {
+      try {
+        const res2 = await fetch(`http://127.0.0.1:${currentPort}/api/companion-state?t=` + Date.now(), { signal: AbortSignal.timeout(600) });
+        if (res2.ok) {
+          const s = await res2.json();
+          if (s && s.onboardingCompleted === true) {
+            hasCompletedOnboarding = true;
+          }
+        }
+      } catch (_) {}
+    }
+
+    if (!hasCompletedOnboarding) {
+      try {
+        hasCompletedOnboarding = localStorage.getItem('xc_onboarding_completed_v1') === '1' || localStorage.getItem('xc_cindy_onboarded_v1') === '1';
+      } catch (_) {}
+    }
+
     const hostOrigin = window.location.origin;
-    // 首次进入 Cindy 伴侣视窗时，带上 &onboarding=1 开启沉浸式新手向导（Act 0 序章·初遇小蠢）
-    try {
-      hasCompletedOnboarding = localStorage.getItem('xc_onboarding_completed_v1') === '1' || localStorage.getItem('xc_cindy_onboarded_v1') === '1';
-    } catch (_) {}
-    const onboardingParam = !hasCompletedOnboarding ? '&onboarding=1' : '';
+    // 若本地文件系统或缓存已记录完成向导，传递 onboarding=0；若未完成，传递 onboarding=auto 允许 iframe 结合自身存储自检
+    const onboardingParam = hasCompletedOnboarding ? '&onboarding=0' : '&onboarding=auto';
     const embedLang = getEmbedSupportedLang(currentLocale);
 
     // 纯净伴侣视窗：挂载头顶气泡、换装菜单、换场景菜单与 GitHub 图标，开启原生全屏 LoadingOverlay，排除透明背景选项（Cindy 视窗背景不透明），交由 Cindy 作为统一对话大脑
-    // 不传 scene 参数，确保 onboarding=1 时角色从纯粹虚空 (void) 完整起步并走完整段 Act 0 序章剧情，不被硬编码场景截断或影响
+    // 不传 scene 参数，确保 onboarding 时角色从纯粹虚空 (void) 完整起步，日常模式回退默认海滩
     const targetUrl = `http://127.0.0.1:${currentPort}/embed/?host=${encodeURIComponent(hostOrigin)}&ui=bubble,outfit,scene,github&heavy=motion&enableLoadingOverlay=1&lang=${encodeURIComponent(embedLang)}${onboardingParam}`;
     console.log('[XiaoChun Panel] 正在载入小蠢 AI 伴侣:', targetUrl);
     iframe.src = targetUrl;
@@ -272,11 +291,17 @@
         const ev = e.data;
         console.log('[XiaoChun Panel] 小蠢 AI 伴侣内部事件:', ev);
         if (ev && (ev.type === 'xc.story.complete' || ev.type === 'xc.onboarding.complete')) {
+          hasCompletedOnboarding = true;
           try {
             localStorage.setItem('xc_cindy_onboarded_v1', '1');
             localStorage.setItem('xc_onboarding_completed_v1', '1');
-            hasCompletedOnboarding = true;
           } catch (_) {}
+          // 立即持久化记录至本地文件系统 SSOT，永不反复触发 onboarding
+          fetch(`http://127.0.0.1:${currentPort}/api/companion-state`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ onboardingCompleted: true })
+          }).catch(() => {});
           if (chatBarContainer) chatBarContainer.classList.add('ready');
         }
         // 当模型完全加载 (xc.loaded) 或进入待机 (xc.state phase=idle) 时，正式浮现底部对话栏 (若向导已完成)
@@ -344,7 +369,9 @@
         try {
           if (!event.data || event.data.startsWith(':')) return;
           const msg = JSON.parse(event.data);
-          if (msg && msg.method) {
+          if (msg && msg.method === 'panel_event' && msg.params) {
+            handlePanelEvent(msg.params);
+          } else if (msg && msg.method) {
             handleInboundCommand(msg.method, msg.params);
           }
         } catch (err) {
@@ -399,6 +426,55 @@
     }
   }
 
+  function handlePanelEvent(data) {
+    if (!data) return;
+
+    // 处理伙伴状态回报
+    if (data.type === 'bot_status') {
+      if (data.hasXiaoChunBot) {
+        if (tipPill) tipPill.classList.add('hidden');
+      } else {
+        const dismissed = sessionStorage.getItem('xc_tip_dismissed');
+        if (!dismissed && tipPill) tipPill.classList.remove('hidden');
+      }
+      return;
+    }
+
+    // 处理错误回报
+    if (data.type === 'bot_error') {
+      setSendingState(false, true);
+      const localizedMsg = data.errorKey ? (I18N[currentLocale]?.[data.errorKey] || I18N['zh-CN']?.[data.errorKey]) : (data.message || t('err_bot_response'));
+      if (tipText) tipText.textContent = localizedMsg;
+      if (tipPill) tipPill.classList.remove('hidden');
+      return;
+    }
+
+    // 处理回复重置状态
+    if (data.type === 'bot_reply_status') {
+      if (data.state === 'idle') {
+        setSendingState(false, true);
+      } else if (data.state === 'speaking') {
+        setSendingState(false, false);
+      }
+      return;
+    }
+
+    // 处理运行模式变更广播
+    if (data.type === 'mode_changed') {
+      console.log('[XiaoChun Panel] 响应运行形态变更广播:', data.mode);
+      return;
+    }
+
+    handleInboundCommand(data.method || data.action || data.tool, data.params || data.args || data);
+  }
+
+  function triggerCheckBotStatus() {
+    fetch(`http://127.0.0.1:${currentPort}/api/check-bot-status`, { method: 'POST' }).catch(() => {});
+    if (bc) {
+      try { bc.postMessage({ type: 'check_bot_status' }); } catch (_) {}
+    }
+  }
+
   // 监听输入实时点亮小蠢珊瑚桃色发送按钮，聚焦时检测伙伴状态
   if (chatInput && btnSend) {
     chatInput.addEventListener('input', () => {
@@ -407,7 +483,7 @@
     });
     chatInput.addEventListener('focus', () => {
       sendToXiaochun('xc.resume', {});
-      if (bc) bc.postMessage({ type: 'check_bot_status' });
+      triggerCheckBotStatus();
     });
   }
 
@@ -432,14 +508,29 @@
       sendToXiaochun('xc.think', {});
       sendToXiaochun('xc.motion', { group: 'thinking', loop: true, mask: 'upperBody' });
 
-      // 通过 BroadcastChannel 广播给主逻辑 main.js
-      if (bc) {
-        bc.postMessage({
-          type: 'user_chat_input',
+      // 3. 通过本地 HTTP 桥接派发至 Node Worker -> Cindy main.js (主通道，跨进程稳定)
+      fetch(`http://127.0.0.1:${currentPort}/api/chat-input`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
           text,
           locale: currentLocale,
           timestamp: Date.now()
-        });
+        })
+      }).catch(err => {
+        console.warn('[XiaoChun Panel] HTTP chat-input 发送异常:', err);
+      });
+
+      // 4. 通过 BroadcastChannel 同步广播 (同域多开备用通道)
+      if (bc) {
+        try {
+          bc.postMessage({
+            type: 'user_chat_input',
+            text,
+            locale: currentLocale,
+            timestamp: Date.now()
+          });
+        } catch (_) {}
       }
 
       // 清空输入框并聚焦
@@ -460,12 +551,26 @@
       sendToXiaochun('xc.think', {});
       sendToXiaochun('xc.motion', { group: 'thinking', loop: true, mask: 'upperBody' });
 
-      if (bc) {
-        bc.postMessage({
-          type: 'create_companion_request',
+      // HTTP 桥接主通道
+      fetch(`http://127.0.0.1:${currentPort}/api/create-companion`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
           locale: currentLocale,
           timestamp: Date.now()
-        });
+        })
+      }).catch(err => {
+        console.warn('[XiaoChun Panel] HTTP create-companion 发送异常:', err);
+      });
+
+      if (bc) {
+        try {
+          bc.postMessage({
+            type: 'create_companion_request',
+            locale: currentLocale,
+            timestamp: Date.now()
+          });
+        } catch (_) {}
       }
 
       setTimeout(() => {
@@ -487,62 +592,23 @@
     if (typeof BroadcastChannel !== 'undefined') {
       bc = new BroadcastChannel('xiaochun_cindy_bridge');
       bc.onmessage = (event) => {
-        const data = event.data;
-        if (!data) return;
-
-        // 处理伙伴状态回报
-        if (data.type === 'bot_status') {
-          if (data.hasXiaoChunBot) {
-            if (tipPill) tipPill.classList.add('hidden');
-          } else {
-            const dismissed = sessionStorage.getItem('xc_tip_dismissed');
-            if (!dismissed && tipPill) tipPill.classList.remove('hidden');
-          }
-          return;
-        }
-
-        // 处理错误回报
-        if (data.type === 'bot_error') {
-          setSendingState(false, true);
-          const localizedMsg = data.errorKey ? (I18N[currentLocale]?.[data.errorKey] || I18N['zh-CN']?.[data.errorKey]) : (data.message || t('err_bot_response'));
-          if (tipText) tipText.textContent = localizedMsg;
-          if (tipPill) tipPill.classList.remove('hidden');
-          return;
-        }
-
-        // 处理回复重置状态
-        if (data.type === 'bot_reply_status') {
-          if (data.state === 'idle') {
-            setSendingState(false, true);
-          } else if (data.state === 'speaking') {
-            setSendingState(false, false);
-          }
-          return;
-        }
-
-        // 处理运行模式变更广播
-        if (data.type === 'mode_changed') {
-          console.log('[XiaoChun Panel] 响应运行形态变更广播:', data.mode);
-          return;
-        }
-
-        handleInboundCommand(data.method || data.action || data.tool, data.params || data.args || data);
+        handlePanelEvent(event.data);
       };
 
       // 视窗挂载后主动询问伙伴状态
       setTimeout(() => {
-        bc.postMessage({ type: 'check_bot_status' });
+        triggerCheckBotStatus();
       }, 800);
 
       // 窗口切回前台时重新核对伙伴状态
       window.addEventListener('focus', () => {
-        bc.postMessage({ type: 'check_bot_status' });
+        triggerCheckBotStatus();
       });
 
       // 当提示条可见时，每 4 秒轮询一次伙伴状态（Cindy 创建成功后无需刷新即可自动隐藏引导）
       setInterval(() => {
         if (tipPill && !tipPill.classList.contains('hidden')) {
-          bc.postMessage({ type: 'check_bot_status' });
+          triggerCheckBotStatus();
         }
       }, 4000);
     }

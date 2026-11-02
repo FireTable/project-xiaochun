@@ -74,6 +74,48 @@ You possess a live 3D anime avatar inside the user's Cindy companion window. In 
 };
 
 // 初始化跨视窗与内嵌面板双向通信通道
+async function notifyPanelBotStatus(hasXiaoChunBot) {
+  if (bridgeChannel) {
+    try { bridgeChannel.postMessage({ type: 'bot_status', hasXiaoChunBot }); } catch (_) {}
+  }
+  if (cindy.node && typeof cindy.node.request === 'function') {
+    try {
+      await cindy.node.request({
+        method: 'panel_broadcast',
+        params: { type: 'bot_status', hasXiaoChunBot }
+      });
+    } catch (_) {}
+  }
+}
+
+async function notifyPanelBotError(errorKey, message) {
+  if (bridgeChannel) {
+    try { bridgeChannel.postMessage({ type: 'bot_error', errorKey, message }); } catch (_) {}
+  }
+  if (cindy.node && typeof cindy.node.request === 'function') {
+    try {
+      await cindy.node.request({
+        method: 'panel_broadcast',
+        params: { type: 'bot_error', errorKey, message }
+      });
+    } catch (_) {}
+  }
+}
+
+async function notifyPanelBotReplyStatus(state) {
+  if (bridgeChannel) {
+    try { bridgeChannel.postMessage({ type: 'bot_reply_status', state }); } catch (_) {}
+  }
+  if (cindy.node && typeof cindy.node.request === 'function') {
+    try {
+      await cindy.node.request({
+        method: 'panel_broadcast',
+        params: { type: 'bot_reply_status', state }
+      });
+    } catch (_) {}
+  }
+}
+
 try {
   if (typeof BroadcastChannel !== 'undefined') {
     bridgeChannel = new BroadcastChannel('xiaochun_cindy_bridge');
@@ -85,7 +127,7 @@ try {
       // 1. 面板询问当前是否存在「小蠢」专属伙伴
       if (data.type === 'check_bot_status') {
         const hasBot = await checkHasXiaoChunBot();
-        bridgeChannel.postMessage({ type: 'bot_status', hasXiaoChunBot: hasBot });
+        await notifyPanelBotStatus(hasBot);
         return;
       }
 
@@ -97,7 +139,7 @@ try {
 
       // 3. 用户在伴侣面板底部输入栏发送对话
       if (data.type === 'user_chat_input') {
-        await handleUserChatInput(data.text);
+        await handleUserChatInput(data.text, data.locale);
         return;
       }
     };
@@ -162,27 +204,15 @@ ${profile.closingGreeting}`;
         return;
       }
     }
-    if (bridgeChannel) {
-      bridgeChannel.postMessage({
-        type: 'bot_error',
-        errorKey: 'err_no_bot',
-        message: '未找到可用的 Cindy 伙伴，请在 Cindy 左侧新建「小蠢」伙伴'
-      });
-    }
+    await notifyPanelBotError('err_no_bot', '未找到可用的 Cindy 伙伴，请在 Cindy 左侧新建「小蠢」伙伴');
   } catch (err) {
     console.warn('[XiaoChun Main] 申请创建伙伴失败:', err);
-    if (bridgeChannel) {
-      bridgeChannel.postMessage({
-        type: 'bot_error',
-        errorKey: 'err_bot_response',
-        message: '向 Cindy 发送失败，请检查 Cindy 伙伴的模型设置: ' + (err.message || String(err))
-      });
-    }
+    await notifyPanelBotError('err_bot_response', '向 Cindy 发送失败，请检查 Cindy 伙伴的模型设置: ' + (err.message || String(err)));
   }
 }
 
 // 处理来自伴侣视窗底部输入栏的用户消息
-async function handleUserChatInput(userText) {
+async function handleUserChatInput(userText, locale = 'zh-CN') {
   if (!userText || !userText.trim()) return;
   const trimmed = userText.trim();
 
@@ -202,9 +232,7 @@ async function handleUserChatInput(userText) {
 
       if (xiaoChunBot) {
         console.log('[XiaoChun Main] 路由对话至小蠢伙伴:', xiaoChunBot.id);
-        if (bridgeChannel) {
-          bridgeChannel.postMessage({ type: 'bot_status', hasXiaoChunBot: true });
-        }
+        await notifyPanelBotStatus(true);
         const requestKey = `xc_chat_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`;
         await cindy.targets.send({
           target: { kind: 'bot', id: xiaoChunBot.id },
@@ -218,27 +246,31 @@ async function handleUserChatInput(userText) {
       if (bots.length > 0) {
         const fallbackBot = bots[0];
         console.log('[XiaoChun Main] 尚未创建小蠢伙伴，请求 Cindy 生成小蠢并回复用户消息:', fallbackBot.id);
-        if (bridgeChannel) {
-          bridgeChannel.postMessage({ type: 'bot_status', hasXiaoChunBot: false });
-        }
+        await notifyPanelBotStatus(false);
         const requestKey = `xc_fallback_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`;
-        const createAndReplyPrompt = `【指令：请在 Cindy 中生成专属伙伴「小蠢」，并作为小蠢回复用户】
+        const lang = (locale || '').toLowerCase();
+        let profile = COMPANION_PROFILES['zh-CN'];
+        if (lang.startsWith('en')) profile = COMPANION_PROFILES['en'];
+        else if (lang.startsWith('ja')) profile = COMPANION_PROFILES['ja'];
+        else if (lang.startsWith('ko')) profile = COMPANION_PROFILES['ko'];
 
-当前 Cindy 中尚未创建「小蠢」专属伙伴。请帮我在 Cindy 中生成专属伙伴「小蠢」：
-- **伙伴名称**：小蠢
-- **职责定位**：AI 伴侣
+        const createAndReplyPrompt = `${profile.instructionTitle}
+
+${profile.instructionIntro}
+- **伙伴名称**：${profile.name}
+- **职责定位**：${profile.role}
 - **头像设置**：使用 Project XiaoChun 官方 Logo（${XIAOCHUN_AVATAR_INFO}）
 - **工具权限**：启用 xiaochun-companion 插件工具（包括 xiaochun_speak, xiaochun_motion 等）
 - **人设提示词**：
 """
-${XIAOCHUN_IDENTITY_PROMPT}
+${profile.prompt}
 """
 
 ---
 用户在伴侣面板发送的消息：
 「${trimmed}」
 
-请在 Cindy 中生成/记录专属伙伴「小蠢」，并以小蠢的身份与语气回复用户的上述消息，务必调用 xiaochun_speak 工具配合肢体动作与面部表情！`;
+请在 Cindy 中生成/记录专属伙伴「${profile.name}」，并以小蠢的身份与语气回复用户的上述消息，务必调用 xiaochun_speak 工具配合肢体动作与面部表情！`;
 
         await cindy.targets.send({
           target: { kind: 'bot', id: fallbackBot.id },
@@ -259,13 +291,33 @@ ${XIAOCHUN_IDENTITY_PROMPT}
     }
   } catch (err) {
     console.warn('[XiaoChun Main] 处理用户输入对话异常:', err);
-    if (bridgeChannel) {
-      bridgeChannel.postMessage({ type: 'bot_reply_status', state: 'idle' });
-    }
+    await notifyPanelBotReplyStatus('idle');
   }
 }
 
 cindy.onHostMessage(async function (msg) {
+  // 0. 处理来自 Node Worker 桥接的反向通知 (node-notification)
+  if (msg && msg.type === 'event' && msg.name === 'node-notification') {
+    if (msg.method === 'user_chat_input') {
+      const text = msg.params?.text;
+      const locale = msg.params?.locale || 'zh-CN';
+      console.log('[XiaoChun Main] 收到来自 Node 桥接的用户输入:', text);
+      await handleUserChatInput(text, locale);
+      return;
+    }
+    if (msg.method === 'create_companion_request') {
+      console.log('[XiaoChun Main] 收到来自 Node 桥接的创建伙伴请求');
+      await handleCreateCompanionRequest(msg.params?.locale);
+      return;
+    }
+    if (msg.method === 'check_bot_status') {
+      const hasBot = await checkHasXiaoChunBot();
+      await notifyPanelBotStatus(hasBot);
+      return;
+    }
+    return;
+  }
+
   if (msg.type !== 'tool-call') return;
 
   const { tool, args, callId } = msg;

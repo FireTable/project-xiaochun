@@ -1,6 +1,7 @@
 // test-plugin.mjs - 严格核验 Cindy 官方插件规范与功能完整性
 import fs from 'node:fs';
 import path from 'node:path';
+import os from 'node:os';
 import { fileURLToPath } from 'node:url';
 import { spawn } from 'node:child_process';
 import assert from 'node:assert/strict';
@@ -227,6 +228,63 @@ async function testWorker() {
   assert.equal(embedUpdateRes.result.mode, 'embed');
   assert.ok(embedUpdateRes.result.message.includes('内嵌伴侣视窗') || embedUpdateRes.result.message.includes('无需更新'));
   console.log('   ✅ 安全防线核验通过：内嵌视窗模式下 update 严格拦截静默安装');
+
+  // 4.8 测试 HTTP 桥接与反向通知管道 (chat-input, companion-state, bridge-port)
+  const broadcastRes = await sendReq(11, 'panel_broadcast', { type: 'bot_status', hasXiaoChunBot: true });
+  assert.equal(broadcastRes.id, 11);
+  assert.ok(broadcastRes.result.success);
+  console.log('   ✅ Node Worker 成功响应 panel_broadcast 方法');
+
+  const portData = JSON.parse(fs.readFileSync(path.join(os.tmpdir(), 'xiaochun-bridge-port.json'), 'utf-8'));
+  const testPort = portData.port;
+  assert.ok(typeof testPort === 'number' && testPort > 0);
+
+  const bridgePortRes = await fetch(`http://127.0.0.1:${testPort}/bridge-port.json`).then(r => r.json());
+  assert.equal(bridgePortRes.port, testPort);
+  assert.equal(typeof bridgePortRes.onboardingCompleted, 'boolean');
+  console.log('   ✅ Node Worker HTTP /bridge-port.json 响应合规, onboardingCompleted:', bridgePortRes.onboardingCompleted);
+
+  const companionStateRes = await fetch(`http://127.0.0.1:${testPort}/api/companion-state`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ onboardingCompleted: true })
+  }).then(r => r.json());
+  assert.ok(companionStateRes.success);
+  assert.equal(companionStateRes.state.onboardingCompleted, true);
+  console.log('   ✅ Node Worker HTTP /api/companion-state 持久化写入合规');
+
+  let notificationReceived = null;
+  const oldResolve = resolveResponse;
+  worker.stdout.removeAllListeners('data');
+  worker.stdout.on('data', (chunk) => {
+    buffer += chunk.toString();
+    const lines = buffer.split('\n');
+    buffer = lines.pop();
+    for (const line of lines) {
+      if (line.trim()) {
+        const json = JSON.parse(line.trim());
+        if (json.method === 'user_chat_input') {
+          notificationReceived = json;
+        } else if (resolveResponse) {
+          resolveResponse(json);
+        }
+      }
+    }
+  });
+
+  const chatInputRes = await fetch(`http://127.0.0.1:${testPort}/api/chat-input`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ text: '你好小蠢测试对话', locale: 'zh-CN' })
+  }).then(r => r.json());
+  assert.ok(chatInputRes.success);
+
+  // 等待反向通知派发至 stdio
+  await new Promise(r => setTimeout(r, 100));
+  assert.ok(notificationReceived);
+  assert.equal(notificationReceived.method, 'user_chat_input');
+  assert.equal(notificationReceived.params.text, '你好小蠢测试对话');
+  console.log('   ✅ Node Worker HTTP /api/chat-input 成功触发 JSON-RPC 消息反向通知:', notificationReceived.params);
 
   worker.kill();
   console.log('\n🎉 [Success] packages/cindy-plugin 所有官方规范与自动化自测全部通过！');

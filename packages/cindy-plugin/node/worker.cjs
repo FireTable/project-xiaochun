@@ -50,6 +50,103 @@ function savePluginConfig(patch) {
   }
 }
 
+// ── 伴侣运行时状态持久化 (新手向导、场景、服装，作为本地唯一真理源 SSOT) ──
+function getCompanionStatePath() {
+  const cindyDir = path.join(os.homedir(), '.cindy');
+  if (fs.existsSync(cindyDir)) {
+    return path.join(cindyDir, 'xiaochun-companion-state.json');
+  }
+  return path.join(os.tmpdir(), 'xiaochun-companion-state.json');
+}
+
+function readCompanionState() {
+  let state = {
+    onboardingCompleted: false,
+    onboardingActive: false,
+    currentScene: 'beach3d',
+    currentOutfit: null
+  };
+
+  try {
+    const p = getCompanionStatePath();
+    if (fs.existsSync(p)) {
+      const parsed = JSON.parse(fs.readFileSync(p, 'utf-8'));
+      state = { ...state, ...parsed };
+    }
+  } catch {}
+
+  if (!state.onboardingCompleted) {
+    try {
+      const cfg = readPluginConfig();
+      if (cfg && cfg.onboardingCompleted) {
+        state.onboardingCompleted = true;
+      }
+    } catch {}
+  }
+
+  if (!state.onboardingCompleted) {
+    try {
+      const rt = readRuntimeState();
+      if (rt && rt.onboardingCompleted) {
+        state.onboardingCompleted = true;
+        if (rt.currentScene) state.currentScene = rt.currentScene;
+        if (rt.currentOutfit) state.currentOutfit = rt.currentOutfit;
+      }
+    } catch {}
+  }
+
+  return state;
+}
+
+function writeBridgePortFile() {
+  if (bridgePort <= 0) return;
+  const companionState = readCompanionState();
+  const cfg = readPluginConfig();
+  const portData = JSON.stringify({
+    port: bridgePort,
+    onboardingCompleted: Boolean(companionState.onboardingCompleted),
+    preferredMode: cfg.preferredMode || 'embed',
+    timestamp: Date.now()
+  });
+  try {
+    fs.writeFileSync(path.join(os.tmpdir(), 'xiaochun-bridge-port.json'), portData, 'utf-8');
+  } catch {}
+  if (process.env.XIAOCHUN_TEST_MODE !== '1') {
+    try {
+      fs.writeFileSync(path.join(__dirname, '..', 'bridge-port.json'), portData, 'utf-8');
+    } catch {}
+  }
+}
+
+function saveCompanionState(patch) {
+  try {
+    const cur = readCompanionState();
+    const next = { ...cur, ...patch, updatedAt: Date.now() };
+
+    const p = getCompanionStatePath();
+    fs.writeFileSync(p, JSON.stringify(next, null, 2), 'utf-8');
+
+    if (patch.onboardingCompleted !== undefined) {
+      savePluginConfig({ onboardingCompleted: Boolean(patch.onboardingCompleted) });
+    }
+
+    const tmpStatePath = path.join(os.tmpdir(), 'xiaochun-runtime-state.json');
+    try {
+      let tmpData = {};
+      if (fs.existsSync(tmpStatePath)) {
+        tmpData = JSON.parse(fs.readFileSync(tmpStatePath, 'utf-8'));
+      }
+      fs.writeFileSync(tmpStatePath, JSON.stringify({ ...tmpData, ...next }), 'utf-8');
+    } catch {}
+
+    writeBridgePortFile();
+    return next;
+  } catch (err) {
+    log('保存伴侣状态失败:', err.message);
+    return patch;
+  }
+}
+
 // ── Cindy 内嵌视窗 (panel.html) 的轻量 SSE/HTTP 桥接与小蠢 AI 伴侣反向代理服务 ──
 const sseClients = new Set();
 let bridgePort = 0;
@@ -109,8 +206,104 @@ const bridgeServer = http.createServer((req, res) => {
   }
 
   if (reqPath === '/bridge-port' || reqPath === '/bridge-port.json') {
+    const companionState = readCompanionState();
+    const cfg = readPluginConfig();
     res.writeHead(200, { 'Content-Type': 'application/json' });
-    res.end(JSON.stringify({ port: bridgePort, mode: resolveActiveMode() }));
+    res.end(JSON.stringify({
+      port: bridgePort,
+      onboardingCompleted: Boolean(companionState.onboardingCompleted),
+      mode: resolveActiveMode(),
+      preferredMode: cfg.preferredMode || 'embed',
+      timestamp: Date.now()
+    }));
+    return;
+  }
+
+  // ── 伴侣状态持久化 API ──
+  if (reqPath === '/api/companion-state') {
+    if (req.method === 'GET') {
+      const state = readCompanionState();
+      res.writeHead(200, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ ...state, port: bridgePort }));
+      return;
+    }
+    if (req.method === 'POST') {
+      let body = '';
+      req.on('data', chunk => { body += chunk; });
+      req.on('end', () => {
+        try {
+          const data = JSON.parse(body || '{}');
+          const saved = saveCompanionState(data);
+          log('[伴侣状态] 成功持久化保存伴侣状态:', JSON.stringify(saved));
+          res.writeHead(200, { 'Content-Type': 'application/json' });
+          res.end(JSON.stringify({ success: true, state: saved }));
+        } catch (e) {
+          res.writeHead(400, { 'Content-Type': 'application/json' });
+          res.end(JSON.stringify({ error: e.message }));
+        }
+      });
+      return;
+    }
+  }
+
+  // ── 面板聊天输入端点 (HTTP -> JSON-RPC 通知 Cindy 主逻辑 main.js) ──
+  if (reqPath === '/api/chat-input' && req.method === 'POST') {
+    let body = '';
+    req.on('data', chunk => { body += chunk; });
+    req.on('end', () => {
+      try {
+        const data = JSON.parse(body || '{}');
+        const userText = data.text;
+        const locale = data.locale || 'zh-CN';
+        log('[面板输入] 收到用户对话输入:', userText);
+        reply({
+          jsonrpc: '2.0',
+          method: 'user_chat_input',
+          params: { text: userText, locale, timestamp: Date.now() }
+        });
+        res.writeHead(200, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ success: true }));
+      } catch (e) {
+        res.writeHead(400, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ error: e.message }));
+      }
+    });
+    return;
+  }
+
+  // ── 面板申请创建小蠢专属伙伴端点 ──
+  if (reqPath === '/api/create-companion' && req.method === 'POST') {
+    let body = '';
+    req.on('data', chunk => { body += chunk; });
+    req.on('end', () => {
+      try {
+        const data = JSON.parse(body || '{}');
+        const locale = data.locale || 'zh-CN';
+        log('[面板申请] 收到创建专属伙伴请求, 语言:', locale);
+        reply({
+          jsonrpc: '2.0',
+          method: 'create_companion_request',
+          params: { locale, timestamp: Date.now() }
+        });
+        res.writeHead(200, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ success: true }));
+      } catch (e) {
+        res.writeHead(400, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ error: e.message }));
+      }
+    });
+    return;
+  }
+
+  // ── 面板核对伙伴存在状态端点 ──
+  if ((reqPath === '/api/check-bot-status' || reqPath === '/api/bot-status') && (req.method === 'GET' || req.method === 'POST')) {
+    reply({
+      jsonrpc: '2.0',
+      method: 'check_bot_status',
+      params: { timestamp: Date.now() }
+    });
+    res.writeHead(200, { 'Content-Type': 'application/json' });
+    res.end(JSON.stringify({ ok: true }));
     return;
   }
 
@@ -290,18 +483,18 @@ function startBridgeServer(port = PREFERRED_BRIDGE_PORT) {
     bridgePort = addr ? addr.port : port;
     bridgeServer.unref();
     log(`内嵌视窗与反向代理服务器就绪: http://127.0.0.1:${bridgePort}`);
-    const portData = JSON.stringify({ port: bridgePort, timestamp: Date.now() });
-    try {
-      fs.writeFileSync(path.join(os.tmpdir(), 'xiaochun-bridge-port.json'), portData, 'utf-8');
-    } catch {}
-    // 仅在真实运行模式下写入 bridge-port.json，测试环境绝不污染工程文件
-    if (process.env.XIAOCHUN_TEST_MODE !== '1') {
-      try {
-        fs.writeFileSync(path.join(__dirname, '..', 'bridge-port.json'), portData, 'utf-8');
-      } catch {}
-    }
+    writeBridgePortFile();
   });
 }
+
+function cleanupBridgeServer() {
+  try {
+    bridgeServer.close();
+  } catch (_) {}
+}
+process.on('SIGTERM', () => { cleanupBridgeServer(); process.exit(0); });
+process.on('SIGINT', () => { cleanupBridgeServer(); process.exit(0); });
+process.on('exit', () => { cleanupBridgeServer(); });
 
 startBridgeServer();
 
@@ -952,6 +1145,7 @@ readline.createInterface({ input: process.stdin }).on('line', async (line) => {
       const installStatus = checkClientInstalled();
       const isRunning = checkClientRunning();
       const runtimeState = readRuntimeState();
+      const companionState = readCompanionState();
       const cfg = readPluginConfig();
       const activeMode = resolveActiveMode();
       reply({
@@ -968,12 +1162,18 @@ readline.createInterface({ input: process.stdin }).on('line', async (line) => {
           isInstalled: installStatus.installed,
           isRunning,
           appPath: installStatus.path,
-          onboardingCompleted: runtimeState ? Boolean(runtimeState.onboardingCompleted) : false,
-          onboardingActive: runtimeState ? Boolean(runtimeState.onboardingActive) : false,
-          currentScene: runtimeState?.currentScene || 'beach3d',
-          currentOutfit: runtimeState?.currentOutfit || null
+          onboardingCompleted: Boolean(companionState.onboardingCompleted || runtimeState?.onboardingCompleted),
+          onboardingActive: companionState.onboardingActive || (runtimeState ? Boolean(runtimeState.onboardingActive) : false),
+          currentScene: companionState.currentScene || runtimeState?.currentScene || 'beach3d',
+          currentOutfit: companionState.currentOutfit || runtimeState?.currentOutfit || null
         }
       });
+      return;
+    }
+
+    if (method === 'panel_broadcast') {
+      broadcastToEmbedPanel('panel_event', params || {});
+      reply({ jsonrpc: '2.0', id, result: { success: true } });
       return;
     }
 
