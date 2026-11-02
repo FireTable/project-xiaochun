@@ -166,13 +166,14 @@ const bridgeServer = http.createServer((req, res) => {
   // ── 反向代理 https://xiaochun.firetable.tech (确保在 Cindy CSP 严格沙箱内以 127.0.0.1 loopback 形式安全加载) ──
   const cleanUrl = (req.url || '').split('?')[0];
   const isJsAsset = cleanUrl.endsWith('.js');
+  const isAudioOrTts = cleanUrl === '/api/tts' || cleanUrl.startsWith('/audio/') || cleanUrl.endsWith('.mp3');
 
   const forwardHeaders = {
     ...req.headers,
     host: 'xiaochun.firetable.tech',
     origin: 'https://xiaochun.firetable.tech',
     referer: 'https://xiaochun.firetable.tech/',
-    'accept-encoding': isJsAsset ? 'identity' : (req.headers['accept-encoding'] || 'identity')
+    'accept-encoding': (isJsAsset || isAudioOrTts) ? 'identity' : (req.headers['accept-encoding'] || 'identity')
   };
 
   const proxyReq = https.request({

@@ -289,7 +289,19 @@ async function streamChunkAudioToCheckpoint(
   onEmagePhase?.(totalCommittedSamples / srcSampleRate);
 
   // 核心改动：调用 checkpointAudioStream() 增量提取切片动作，绝不关流，特征栈完整保留[cite: 13]
-  const motion = await emage.checkpointAudioStream();
+  let motion: EmageMotionData;
+  try {
+    motion = await emage.checkpointAudioStream();
+  } catch (e) {
+    console.warn('[ChatDirector] checkpointAudioStream 异常，回退空动作以确保语音播放不中断:', e);
+    motion = {
+      rot6d: new Float32Array(0),
+      trans: new Float32Array(0),
+      frameCount: 0,
+      duration: totalCommittedSamples / (srcSampleRate || 16000),
+      fps: 30,
+    };
+  }
 
   // 将同步裁剪后的 Mono PCM 组装并重采样为 AudioBuffer[cite: 13]
   const mono = new Float32Array(totalCommittedSamples);
@@ -945,12 +957,16 @@ export class ChatDirector {
       status('emage', { seconds: data.duration.toFixed(1) }, false);
     };
     // ponyx-experiment: 003 patch 验证用,跑稳后改回 false
-    await emage.startAudioStream({
-      continueFromPrevious: false,
-      profileStages: true,
-      emitPerWindow: true,
-      advanceFrames: APP_CONFIG.emage.motion.advanceFrames,
-    });
+    try {
+      await emage.startAudioStream({
+        continueFromPrevious: false,
+        profileStages: true,
+        emitPerWindow: true,
+        advanceFrames: APP_CONFIG.emage.motion.advanceFrames,
+      });
+    } catch (e) {
+      console.warn('[ChatDirector] EMAGE startAudioStream 失败，降级为纯语音模式:', e);
+    }
 
     interface SpeechSegment {
       index: number;
