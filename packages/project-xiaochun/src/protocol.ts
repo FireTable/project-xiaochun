@@ -844,7 +844,7 @@ export function normalizeOrigin(input: string | null | undefined): string | null
   if (!input || input === '*' || input === 'null') return null;
   try {
     const u = new URL(input);
-    if (u.protocol !== 'https:' && u.protocol !== 'http:') return null;
+    if (u.protocol !== 'https:' && u.protocol !== 'http:' && u.protocol !== 'cindy-ghost:') return null;
     return u.origin;
   } catch {
     return null;

@@ -56,8 +56,8 @@
     // 建立与后台 Node Worker 的实时 SSE 指令接收通道，激活 hasActivePanel 状态
     connectBridgeSse();
 
-    // 8 秒安全兜底浮现输入栏（防止离线或弱网下 postMessage 握手遗失导致输入框永久不显）
-    setTimeout(revealChatBar, 8000);
+    // 4 秒安全兜底浮现输入栏（防止离线或弱网下 postMessage 握手遗失导致输入框永久不显）
+    setTimeout(revealChatBar, 4000);
 
     // 12 秒超时未完成加载显示重试按钮
     setTimeout(showRetry, 12000);
@@ -66,6 +66,8 @@
   iframe.onload = () => {
     isFrameLoaded = true;
     hideLoading();
+    // 场景载入后延时 1.5 秒平滑浮现底部对话栏 (即使 postMessage 握手遗失也能可靠呈现)
+    setTimeout(revealChatBar, 1500);
   };
 
   btnRetry.onclick = () => {
@@ -83,6 +85,7 @@
     if (msg.type === 'xc.ready') {
       console.log('[XiaoChun Panel] 收到小蠢 AI 伴侣就绪事件:', msg);
       hideLoading();
+      setTimeout(revealChatBar, 500);
       const channel = new MessageChannel();
       handshakePort = channel.port1;
 
