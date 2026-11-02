@@ -535,8 +535,7 @@ export class ChatDirector {
     opts?: { preserveMotion?: boolean },
   ): Promise<void> {
     if (await this.audioBlocked()) {
-      console.info('[ChatDirector] 自动播放被拦截 (页面尚未被用户激活), 跳过这一句:', text);
-      return;
+      console.warn('[ChatDirector] 自动播放受浏览器策略限制，继续合成动作与气泡，等待用户手势激活音频:', text);
     }
     const id = await this.handoff();
     if (id === null) return;
@@ -608,8 +607,7 @@ export class ChatDirector {
     opts?: { preserveMotion?: boolean },
   ): Promise<void> {
     if (await this.audioBlocked()) {
-      console.info('[ChatDirector] 自动播放被拦截 (页面尚未被用户激活), 跳过这一句:', text);
-      return;
+      console.warn('[ChatDirector] 自动播放受浏览器策略限制，继续合成动作与气泡，等待用户手势激活音频:', text);
     }
     const id = await this.handoff();
     if (id === null) return;

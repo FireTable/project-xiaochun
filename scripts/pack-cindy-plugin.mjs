@@ -90,9 +90,13 @@ function findCindyLocalInstallDirs(pluginId) {
     try {
       const owners = fs.readdirSync(baseOwnersDir);
       for (const owner of owners) {
-        const candidate = path.join(baseOwnersDir, owner, 'cindy-brain/_ns/_root', pluginId);
-        if (fs.existsSync(candidate) && fs.statSync(candidate).isDirectory()) {
-          dirs.push(candidate);
+        const candidate1 = path.join(baseOwnersDir, owner, 'cindy-brain', pluginId);
+        if (fs.existsSync(candidate1) && fs.statSync(candidate1).isDirectory()) {
+          dirs.push(candidate1);
+        }
+        const candidate2 = path.join(baseOwnersDir, owner, 'cindy-brain/_ns/_root', pluginId);
+        if (fs.existsSync(candidate2) && fs.statSync(candidate2).isDirectory()) {
+          dirs.push(candidate2);
         }
       }
     } catch {}

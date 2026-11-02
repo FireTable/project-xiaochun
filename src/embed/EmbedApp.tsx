@@ -38,7 +38,7 @@ import { storyDirectorEngine } from '@/story/storyEngine';
 const EmbedCorners = lazy(() => import('./EmbedCorners').then((m) => ({ default: m.EmbedCorners })));
 const EmbedPicker = lazy(() => import('./EmbedPicker').then((m) => ({ default: m.EmbedPicker })));
 const LoadingOverlay = lazy(() => import('@/components/LoadingOverlay').then((m) => ({ default: m.LoadingOverlay })));
-const StoryPlayer = lazy(() => import('@/components/story/StoryPlayer').then((m) => ({ default: m.StoryPlayer })));
+import { StoryPlayer } from '@/components/story/StoryPlayer';
 import { loadingStore } from '@/components/loading/loadingStore';
 
 export const EmbedApp: React.FC = () => {
@@ -126,6 +126,9 @@ export const EmbedApp: React.FC = () => {
     if (!params.onboarding && !params.story) {
       try { localStorage.setItem(ONBOARDING_STORAGE_KEY, '1'); } catch { /* ignore */ }
       (window as any).__IS_ONBOARDING_ACTIVE__ = false;
+    } else {
+      (window as any).__IS_ONBOARDING_ACTIVE__ = true;
+      void sceneManager.setScene('void', false);
     }
 
     // ── 引擎绑定 (与 App.tsx 同款: i18n / system prompt) ──
@@ -233,33 +236,34 @@ export const EmbedApp: React.FC = () => {
       )}
 
       {/* 沉浸式小蠢故事导演引擎 · 试点剧场与新手引导 (Act 0 序章) */}
+      {isStoryOrOnboarding && !isVRMReady && (
+        <div className="fixed inset-0 z-50 bg-[#08090f] pointer-events-none" />
+      )}
       {!loadingActive && isVRMReady && isStoryOrOnboarding && (
-        <Suspense fallback={null}>
-          <StoryPlayer
-            script={prologueStory}
-            onComplete={() => {
-              setIsOnboardingActive(false);
-              setIsStoryActive(false);
-              void syncXiaoChunRuntimeState({ onboardingActive: false, onboardingCompleted: true });
-              try {
-                localStorage.setItem(ONBOARDING_STORAGE_KEY, '1');
-                // 若用户在虚空场景提前跳过，自动回退到设定的场景或默认海滩场景
-                if (sceneManager.getCurrentSceneId() === 'void') {
-                  void sceneManager.setScene(params.scene ?? APP_CONFIG.scenes.defaultSceneId, true);
-                }
-                // 清除 URL 中的 ?onboarding=1 或 ?story=1，防止刷新反复进入向导
-                if (typeof window !== 'undefined' && (window.location.search.includes('onboarding=') || window.location.search.includes('story='))) {
-                  const url = new URL(window.location.href);
-                  url.searchParams.delete('onboarding');
-                  url.searchParams.delete('story');
-                  window.history.replaceState({}, '', url.toString());
-                }
-              } catch { /* ignore */ }
-              bridgeRef?.reportStoryComplete?.(prologueStory.id);
-              bridgeRef?.reportOnboardingComplete?.();
-            }}
-          />
-        </Suspense>
+        <StoryPlayer
+          script={prologueStory}
+          onComplete={() => {
+            setIsOnboardingActive(false);
+            setIsStoryActive(false);
+            void syncXiaoChunRuntimeState({ onboardingActive: false, onboardingCompleted: true });
+            try {
+              localStorage.setItem(ONBOARDING_STORAGE_KEY, '1');
+              // 若用户在虚空场景提前跳过，自动回退到设定的场景或默认海滩场景
+              if (sceneManager.getCurrentSceneId() === 'void') {
+                void sceneManager.setScene(params.scene ?? APP_CONFIG.scenes.defaultSceneId, true);
+              }
+              // 清除 URL 中的 ?onboarding=1 或 ?story=1，防止刷新反复进入向导
+              if (typeof window !== 'undefined' && (window.location.search.includes('onboarding=') || window.location.search.includes('story='))) {
+                const url = new URL(window.location.href);
+                url.searchParams.delete('onboarding');
+                url.searchParams.delete('story');
+                window.history.replaceState({}, '', url.toString());
+              }
+            } catch { /* ignore */ }
+            bridgeRef?.reportStoryComplete?.(prologueStory.id);
+            bridgeRef?.reportOnboardingComplete?.();
+          }}
+        />
       )}
     </div>
   );

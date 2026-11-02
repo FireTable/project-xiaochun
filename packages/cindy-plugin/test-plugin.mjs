@@ -49,7 +49,10 @@ if (manifest.settingsHtml) {
   if (manifest.settingsHeight) {
     assert.ok(manifest.settingsHeight >= 160 && manifest.settingsHeight <= 800, 'settingsHeight 必须在 160 到 800 之间');
   }
-  console.log(`   ✅ settingsHtml 设置面板入口存在且合规 (${manifest.settingsHtml}, 高度: ${manifest.settingsHeight}px)`);
+  // CSP 合规性检查：禁止内联脚本
+  const settingsContent = fs.readFileSync(settingsPath, 'utf8');
+  assert.ok(!/<script(?![^>]*\bsrc=)[^>]*>[\s\S]*?<\/script>/i.test(settingsContent), 'settingsHtml 禁止使用内联 script 脚本（违反 Cindy 严格 CSP）');
+  console.log(`   ✅ settingsHtml 设置面板入口存在且合规 (${manifest.settingsHtml}, 高度: ${manifest.settingsHeight}px, CSP 严格合规)`);
 }
 
 if (manifest.panel) {
