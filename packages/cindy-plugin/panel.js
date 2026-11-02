@@ -21,6 +21,15 @@
     }
   }
 
+  const chatBarContainer = document.getElementById('chat-bar-container');
+
+  function revealChatBar() {
+    if (chatBarContainer && !chatBarContainer.classList.contains('ready')) {
+      console.log('[XiaoChun Panel] 3D 舞台与 vrmEngine 已就绪，平滑浮现底部对话栏');
+      chatBarContainer.classList.add('ready');
+    }
+  }
+
   // 1. 获取本地桥接服务端口并载入 3D 视窗
   async function initEmbedFrame() {
     // 主动唤醒小蠢桌面 AI 伴侣进程
@@ -46,6 +55,9 @@
 
     // 建立与后台 Node Worker 的实时 SSE 指令接收通道，激活 hasActivePanel 状态
     connectBridgeSse();
+
+    // 8 秒安全兜底浮现输入栏（防止离线或弱网下 postMessage 握手遗失导致输入框永久不显）
+    setTimeout(revealChatBar, 8000);
 
     // 12 秒超时未完成加载显示重试按钮
     setTimeout(showRetry, 12000);
@@ -75,7 +87,12 @@
       handshakePort = channel.port1;
 
       handshakePort.onmessage = (e) => {
-        console.log('[XiaoChun Panel] 小蠢 AI 伴侣内部事件:', e.data);
+        const ev = e.data;
+        console.log('[XiaoChun Panel] 小蠢 AI 伴侣内部事件:', ev);
+        // 当 3D 模型完全加载 (xc.loaded) 或进入待机 (xc.state phase=idle) 时，正式浮现底部对话栏
+        if (ev && (ev.type === 'xc.loaded' || ev.payload?.phase === 'idle')) {
+          revealChatBar();
+        }
       };
 
       // 回复 xc.init 握手，把 MessagePort 转移给 iframe

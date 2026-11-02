@@ -97,12 +97,12 @@
       display: inline-block;
     }
 
-    /* 方案 1: 3D 舞台原生悬浮毛玻璃对话栏 */
+    /* 方案 1: 3D 舞台原生悬浮毛玻璃对话栏 (默认隐藏，待 vrmEngine 与 3D 场景完全就绪后再平滑浮现) */
     .chat-bar-container {
       position: absolute;
       bottom: 24px;
       left: 50%;
-      transform: translateX(-50%);
+      transform: translateX(-50%) translateY(24px);
       width: calc(100% - 32px);
       max-width: 520px;
       z-index: 20;
@@ -110,7 +110,20 @@
       flex-direction: column;
       align-items: center;
       gap: 8px;
+      opacity: 0;
+      visibility: hidden;
+      pointer-events: none;
+      transition: opacity 0.5s cubic-bezier(0.16, 1, 0.3, 1),
+                  transform 0.5s cubic-bezier(0.16, 1, 0.3, 1),
+                  visibility 0.5s;
+    }
+
+    /* 当 3D 场景与 vrmEngine 完全就绪后激活浮现 */
+    .chat-bar-container.ready {
+      opacity: 1;
+      visibility: visible;
       pointer-events: auto;
+      transform: translateX(-50%) translateY(0);
     }
 
     /* 快捷建议/提示药丸 (一键添加专属伙伴) */
