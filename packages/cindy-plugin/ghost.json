@@ -268,12 +268,7 @@
   ],
   "subscribe": {
     "topics": [
-      "turn",
-      "activity"
-    ],
-    "hooks": [
-      "will-user-message",
-      "will-assistant-message"
+      "turn"
     ]
   }
 }

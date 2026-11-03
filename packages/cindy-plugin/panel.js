@@ -21,11 +21,6 @@
   let hasCompletedOnboarding = false;
   const pendingCommands = [];
 
-  let isSpeaking = false;
-  let bubbleClearTimer = null;
-  let activeSpeechQueue = [];
-  let isPlayingSpeechQueue = false;
-
   const I18N = {
     'zh-CN': {
       title: '小蠢 AI 伴侣',
@@ -330,19 +325,6 @@
       return;
     }
 
-    // 发声生命周期监听
-    if (msg.type === 'xc.utterance') {
-      if (msg.payload?.phase === 'start') {
-        isSpeaking = true;
-      } else if (msg.payload?.phase === 'end') {
-        isSpeaking = false;
-        if (activeSpeechQueue.length > 0) {
-          advanceSpeechQueue();
-        }
-      }
-      return;
-    }
-
     // 故事剧场 / 新手引导开始事件：隐去底部对话栏，提供全沉浸式视觉
     if (msg.type === 'xc.story.start' || msg.type === 'xc.onboarding.start') {
       console.log('[XiaoChun Panel] 伴侣视窗进入故事剧场/新手引导，隐藏对话栏:', msg.type);
@@ -404,16 +386,6 @@
             body: JSON.stringify({ onboardingCompleted: true, onboardingActive: false })
           }).catch(() => {});
           revealChatBar();
-        }
-        if (ev && ev.type === 'xc.utterance') {
-          if (ev.payload?.phase === 'start') {
-            isSpeaking = true;
-          } else if (ev.payload?.phase === 'end') {
-            isSpeaking = false;
-            if (activeSpeechQueue.length > 0) {
-              advanceSpeechQueue();
-            }
-          }
         }
       };
 
@@ -533,133 +505,6 @@
     }
   }
 
-  function clearSpeechQueue() {
-    activeSpeechQueue = [];
-    isPlayingSpeechQueue = false;
-  }
-
-  function advanceSpeechQueue() {
-    if (activeSpeechQueue.length === 0) {
-      isPlayingSpeechQueue = false;
-      return;
-    }
-    isPlayingSpeechQueue = true;
-    const seg = activeSpeechQueue.shift();
-    if (!seg) return;
-
-    sendToXiaochun('xc.say', {
-      text: seg.text,
-      preserveMotion: true,
-      segmentIndex: seg.index,
-      totalSegments: seg.total
-    });
-  }
-
-  // 智能分句算法 (与主仓 utils.ts 一致，按 25~65 字符标点换气断句)
-  function splitIntoSpeechChunks(text) {
-    const clean = (text || '').trim();
-    if (!clean) return [];
-    if (/[\r\n]/.test(clean)) {
-      const rawParagraphs = clean.split(/[\r\n]+/).map(p => p.trim()).filter(Boolean);
-      const chunks = [];
-      for (const p of rawParagraphs) {
-        chunks.push(...splitIntoSpeechChunks(p));
-      }
-      return chunks;
-    }
-    if (clean.length <= 45) return [clean];
-
-    const SENTENCE_DELIMS = /(?:[。！？!?\n]|\.(?:\s+|$))/g;
-    const COMMA_DELIMS = /(?:[，,；;]|,(?:\s+|$)|;(?:\s+|$))/g;
-    const chunks = [];
-    let remaining = clean;
-    while (remaining.length > 0) {
-      if (remaining.length <= 55) {
-        chunks.push(remaining);
-        break;
-      }
-      let cutIdx = -1;
-      SENTENCE_DELIMS.lastIndex = 0;
-      let match;
-      while ((match = SENTENCE_DELIMS.exec(remaining)) !== null) {
-        const idx = match.index + match[0].length;
-        if (idx >= 25 && idx <= 65) {
-          cutIdx = idx;
-          break;
-        }
-        if (idx > 65) break;
-      }
-      if (cutIdx === -1 && remaining.length >= 45) {
-        COMMA_DELIMS.lastIndex = 0;
-        while ((match = COMMA_DELIMS.exec(remaining)) !== null) {
-          const idx = match.index + match[0].length;
-          if (idx >= 25 && idx <= 60) cutIdx = idx;
-        }
-      }
-      if (cutIdx === -1) cutIdx = Math.min(50, remaining.length);
-      chunks.push(remaining.slice(0, cutIdx).trim());
-      remaining = remaining.slice(cutIdx).trim();
-    }
-    return chunks.filter(Boolean);
-  }
-
-  function handleHostSessionEvent(eventName, payload) {
-    console.log('[XiaoChun Panel] 响应宿主会话事件:', eventName, payload);
-    if (bubbleClearTimer) {
-      clearTimeout(bubbleClearTimer);
-      bubbleClearTimer = null;
-    }
-
-    switch (eventName) {
-      case 'user_message':
-      case 'turn_start':
-        // 用户发言瞬间：小蠢唤醒、做沉思托腮动作、头顶气泡即时投影聆听中
-        sendToXiaochun('xc.resume', {});
-        sendToXiaochun('xc.think', {});
-        sendToXiaochun('xc.bubble', { statusKey: 'thinking', text: '💭 正在聆听思考…' });
-        break;
-
-      case 'thinking_start':
-        sendToXiaochun('xc.bubble', { statusKey: 'thinking', text: '💭 正在深度思索中…' });
-        break;
-
-      case 'thinking_end':
-        sendToXiaochun('xc.bubble', { statusKey: 'thinking', text: '✨ 正在组织语言…' });
-        break;
-
-      case 'assistant_message': {
-        const text = (payload.text || '').trim();
-        if (!text) break;
-        // 将全文投影到 3D 头部气泡 (Typewriter 自动流畅打字呈现)
-        sendToXiaochun('xc.bubble', { statusKey: 'speaking', text });
-
-        // 若当前正在说话或本轮已有 xiaochun_speak 接管，工具优先
-        if (isSpeaking) break;
-
-        // 若处于非完全访问模式未触发 xiaochun_speak，通过流式分句队列自动伴读
-        const chunks = splitIntoSpeechChunks(text);
-        if (chunks.length > 0) {
-          clearSpeechQueue();
-          activeSpeechQueue = chunks.map((c, i) => ({
-            text: c,
-            index: i + 1,
-            total: chunks.length
-          }));
-          advanceSpeechQueue();
-        }
-        break;
-      }
-
-      case 'turn_end':
-        bubbleClearTimer = setTimeout(() => {
-          if (!isSpeaking && !isPlayingSpeechQueue) {
-            sendToXiaochun('xc.bubble', { visible: false });
-          }
-        }, 5000);
-        break;
-    }
-  }
-
   function handlePanelEvent(data) {
     if (!data) return;
 
@@ -722,12 +567,6 @@
     // 处理运行模式变更广播
     if (data.type === 'mode_changed') {
       console.log('[XiaoChun Panel] 响应运行形态变更广播:', data.mode);
-      return;
-    }
-
-    // 处理宿主会话流事件 (流式气泡投影与分句朗读)
-    if (data.type === 'host_session_event') {
-      handleHostSessionEvent(data.event, data);
       return;
     }
 
@@ -912,9 +751,8 @@
   function handleInboundCommand(method, params) {
     if (isDuplicateCommand(method, params)) return;
     console.log('[XiaoChun Panel] 执行指令:', method, params);
-    // 收到说话指令时重置输入状态与流式队列，但不打断思考动作，由 xc.say 优雅承接与交接
+    // 收到说话指令时重置输入状态，但不打断思考动作，由 xc.say 优雅承接与交接
     if (method === 'speak' || method === 'xiaochun_speak') {
-      clearSpeechQueue();
       setSendingState(false, false);
     }
 
