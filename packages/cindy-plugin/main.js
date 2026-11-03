@@ -229,14 +229,14 @@ function markChatInputStarted(locale) {
   chatTurnState.hadSpeakToolCall = false;
   chatTurnState.locale = locale || 'zh-CN';
   if (chatTurnState.timer) clearTimeout(chatTurnState.timer);
-  // 16 秒超时安全保护（防宿主端异常或网络丢包）
+  // 30 秒超时安全保护（防宿主端异常或网络丢包）
   chatTurnState.timer = setTimeout(() => {
     if (chatTurnState.waitingReply && !chatTurnState.hadSpeakToolCall) {
       console.warn('[XiaoChun Main] 超时未收到 xiaochun_speak 工具调用，触发权限阻断指引');
       triggerPermissionBlockedNotice(chatTurnState.locale);
       chatTurnState.waitingReply = false;
     }
-  }, 16000);
+  }, 30000);
 }
 
 function triggerPermissionBlockedNotice(locale = 'zh-CN') {
