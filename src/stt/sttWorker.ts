@@ -14,9 +14,10 @@
  * BLOCKER risk: fbank is a TS port of knf, not bit-exact kaldi_native_fbank — if WER is bad,
  * swap in sherpa-onnx wasm frontend or precomputed CMVN+fbank wasm. Never posts fake text.
  */
-import * as ort from 'onnxruntime-web';
+import * as ort from 'onnxruntime-web/wasm';
 import { APP_CONFIG } from '@/config';
 import { isLoopbackHost } from '@/lib/loopback';
+import { resolveOrtWasmPaths } from '@/lib/ortWasm';
 import { applyCmvn, applyLfr, computeLogMelFbank } from './fbank';
 import { extractOnnxMetadataProps } from './onnxMeta';
 import { punctuationPipeline, finalizePunctuation } from './punctuation';
@@ -32,10 +33,7 @@ const CACHE_PREFIX = STT.cacheKeyPrefix; // e.g. xiaochun-stt/v2024-07-17
 const MODEL_FILE = STT.modelFile;
 const TOKENS_FILE = STT.tokensFile;
 const SAMPLE_RATE = STT.sampleRate;
-const getWasmPaths = (): string =>
-  loopbackMode
-    ? '/wasm/'
-    : 'https://cdn.jsdelivr.net/npm/onnxruntime-web@1.22.0-dev.20250409-89f8206ba4/dist/';
+const getWasmPaths = (): string => resolveOrtWasmPaths(loopbackMode);
 
 type WorkerIn =
   | { type: 'config'; loopback: boolean }

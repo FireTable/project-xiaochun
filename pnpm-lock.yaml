@@ -93,7 +93,7 @@ importers:
         specifier: ^1.0.3
         version: 1.0.3
       onnxruntime-web:
-        specifier: ^1.22.0-dev.20250409-89f8206ba4
+        specifier: 1.29.0
         version: 1.29.0
       react:
         specifier: ^19.2.8

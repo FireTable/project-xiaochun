@@ -355,6 +355,20 @@ export const APP_CONFIG = {
       },
     } as Record<string, AddonDefinition>,
   },
+  /**
+   * onnxruntime-web 运行时 (wasm + .mjs loader) 基址，用于 ort.env.wasm.wasmPaths。
+   * 版本须与 package.json 固定的 onnxruntime-web 一致 (1.29.0)，升级时同步改 CDN 目录。
+   * 只托管 `onnxruntime-web/wasm` (非 JSEP) 构建所需的 ort-wasm-simd-threaded.{wasm,mjs}；
+   * jsep.wasm 27.8 MB 超 Cloudflare Pages 25 MiB 单文件上限，且本项目只用 wasm EP，不需要。
+   * 宿主回环代理 (Cindy) 走 '/wasm/'，不读此值。
+   * 生产: VITE_ORT_WASM_BASE_PROD ?? CDN；dev: VITE_ORT_WASM_BASE ?? Vite 直出 node_modules。
+   */
+  ort: {
+    version: '1.29.0',
+    wasmBase: Boolean(import.meta.env?.PROD)
+      ? ((import.meta.env?.VITE_ORT_WASM_BASE_PROD as string | undefined) ?? 'https://cdn.firetable.tech/xiaochun/ort/1.29.0/')
+      : ((import.meta.env?.VITE_ORT_WASM_BASE as string | undefined) ?? '/node_modules/onnxruntime-web/dist/'),
+  },
   emage: {
     base: Boolean(import.meta.env?.PROD)
       ? ((import.meta.env?.VITE_EMAGE_BASE_PROD as string | undefined) ?? 'https://cdn.firetable.tech/xiaochun/emage')

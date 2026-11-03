@@ -5,9 +5,10 @@
  * breathing, wind, and background noise while preserving 100% of speech onsets
  * via an internal 300ms pre-speech ring buffer.
  */
-import * as ort from 'onnxruntime-web';
+import * as ort from 'onnxruntime-web/wasm';
 import { APP_CONFIG } from '@/config';
 import { isLoopbackHost } from '@/lib/loopback';
+import { resolveOrtWasmPaths } from '@/lib/ortWasm';
 
 export type SileroVadConfig = {
   sampleRate?: number;
@@ -35,9 +36,7 @@ export type SileroVadEvent =
 const DEFAULT_MODEL_PATH = '/models/silero_vad_v5.onnx';
 const FALLBACK_MODEL_URL =
   'https://cdn.jsdelivr.net/npm/@ricky0123/vad-web@0.0.31/dist/silero_vad_v5.onnx';
-const getWasmPaths = (): string => isLoopbackHost()
-  ? '/wasm/'
-  : 'https://cdn.jsdelivr.net/npm/onnxruntime-web@1.22.0-dev.20250409-89f8206ba4/dist/';
+const getWasmPaths = (): string => resolveOrtWasmPaths(isLoopbackHost());
 
 export class SileroVad {
   private session: ort.InferenceSession | null = null;

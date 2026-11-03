@@ -4,7 +4,7 @@
  * Runs official Alibaba FunASR / sherpa-onnx CT-Transformer (int8) via onnxruntime-web.
  * Accurately restores Chinese/English commas (，), periods (。), question marks (？), and pause marks (、).
  */
-import * as ort from 'onnxruntime-web';
+import * as ort from 'onnxruntime-web/wasm';
 import { APP_CONFIG } from '@/config';
 
 const PUNCT = APP_CONFIG.stt.punctuation;

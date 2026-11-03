@@ -7,6 +7,8 @@ export default defineConfig({
   resolve: {
     alias: {
       '@': path.resolve(import.meta.dirname, 'src'),
+      // 生产代码 import 'onnxruntime-web/wasm' (浏览器 wasm-only 构建, 无 node 条件); node 单测改用包根的 node 构建 (onnxruntime-node 后端)。
+      'onnxruntime-web/wasm': 'onnxruntime-web',
       // 与 vite.config.ts 一致: 协议常量源码直引 (src/embed/params.ts 等会 import)
       '@firetable/project-xiaochun/protocol': path.resolve(import.meta.dirname, 'packages/project-xiaochun/src/protocol.ts'),
       '@firetable/project-xiaochun/protocol-url': path.resolve(import.meta.dirname, 'packages/project-xiaochun/src/protocol-url.ts'),

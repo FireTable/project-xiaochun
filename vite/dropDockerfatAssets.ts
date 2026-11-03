@@ -1,8 +1,9 @@
 /**
  * dropDockerfatAssets — Cloudflare Pages 单文件上限 25 MiB,生产 bundle 需要去掉:
- * 1. onnxruntime-web 的 ort-wasm-simd-threaded.jsep.wasm(WebGPU EP variant,26.5 MiB)
- *    EMAGE 已在 src/motion/emageWorker.ts 设 ort.env.wasm.wasmPaths 指向 jsDelivr
- *    CDN,运行时根本不用本地这份。generateBundle 钩子删 —— WASM 走 Rollup bundle。
+ * 1. onnxruntime-web 的 ort-wasm-simd-threaded*.wasm(jsep 变体 26.5 MiB 超限; 非 JSEP 13.3 MiB 也改走 CDN)
+ *    各 ORT 调用方 import 'onnxruntime-web/wasm'(非 JSEP) 并设 ort.env.wasm.wasmPaths 指向
+ *    APP_CONFIG.ort.wasmBase(自有 CDN xiaochun/ort/<version>/),运行时根本不用本地这份。
+ *    generateBundle 钩子兜底删 —— WASM 走 Rollup bundle。
  * 2. EMAGE ONNX 模型(emage_step.onnx 504 MB + 6 个 VQ 30 MB)
  *    生产走 R2(VITE_EMAGE_BASE_PROD 默认 https://cdn.firetable.tech/xiaochun/emage/),
  *    本地 dev 仍读 public/onnx 软链 —— dist/ 删掉不影响本地文件。
@@ -19,7 +20,9 @@ export function dropDockerfatAssets(): Plugin {
     name: 'drop-dockerfat-assets',
     generateBundle(_options, bundle) {
       for (const file of Object.keys(bundle)) {
-        if (file.includes('ort-wasm-simd-threaded.jsep') && file.endsWith('.wasm')) {
+        // ORT runtime wasm (含 jsep/jspi/asyncify 变体及 onnxruntime-web/wasm 构建里 new URL(..., import.meta.url) 引出的
+        // 带 hash 文件, 如 ort-wasm-simd-threaded-<hash>.wasm 13.3 MiB): 一律不进产物, 运行时由 wasmPaths 指向自有 CDN。
+        if (/(^|\/)ort-wasm-simd-threaded[^/]*\.wasm$/.test(file)) {
           delete bundle[file];
         }
       }

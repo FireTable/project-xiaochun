@@ -489,10 +489,11 @@ function isCacheableAsset(cleanUrl) {
     const query = (req.url || '').includes('?') ? '?' + (req.url || '').split('?')[1] : '';
     targetPath = `/xiaochun/stt/${subPath}${query}`;
   } else if (cleanUrl.startsWith('/wasm/')) {
-    targetHost = 'cdn.jsdelivr.net';
+    // onnxruntime-web 运行时 (ort-wasm-simd-threaded.{wasm,mjs})：自有 CDN，版本目录须与前端 APP_CONFIG.ort 一致 (1.29.0)
+    targetHost = 'cdn.firetable.tech';
     const subPath = cleanUrl.replace(/^\/wasm\//, '');
     const query = (req.url || '').includes('?') ? '?' + (req.url || '').split('?')[1] : '';
-    targetPath = `/npm/onnxruntime-web@1.22.0-dev.20250409-89f8206ba4/dist/${subPath}${query}`;
+    targetPath = `/xiaochun/ort/1.29.0/${subPath}${query}`;
   }
 
   // 1. 优先尝试从本地磁盘资产缓存读取（极速命中，零网络开销，Origin 无关）

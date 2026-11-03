@@ -15,8 +15,9 @@
  * 6. Top-K 多样性动作采样：消除确定性贪心解码，让同一段话每次手势动作自然多变，生动灵动！
  */
 
-import * as ort from 'onnxruntime-web';
+import * as ort from 'onnxruntime-web/wasm';
 import { isLoopbackHost } from '@/lib/loopback';
+import { resolveOrtWasmPaths } from '@/lib/ortWasm';
 import { APP_CONFIG } from '@/config';
 import { computeSeedFromLogits, type SeedDeps } from './emageSeed';
 
@@ -44,8 +45,7 @@ const GLOBAL_VZ = 56;
 // worker 看不到页面 URL：主线程用 isLoopbackHost() 算好后经 'config' 消息传入；未收到则用 worker 内安全默认（旧规则 + 排除 DEV）。
 let loopbackMode: boolean = isLoopbackHost();
 const getOnnxBase = (): string => (loopbackMode ? '/emage' : APP_CONFIG.emage.base);
-const getWasmPaths = (): string =>
-  loopbackMode ? '/wasm/' : 'https://cdn.jsdelivr.net/npm/onnxruntime-web@1.22.0-dev.20250409-89f8206ba4/dist/';
+const getWasmPaths = (): string => resolveOrtWasmPaths(loopbackMode);
 const CACHE_NAME = APP_CONFIG.emage.cacheName;
 
 function postStageProfile(
