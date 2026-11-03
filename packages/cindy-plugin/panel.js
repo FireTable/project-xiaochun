@@ -238,9 +238,9 @@
     const onboardingParam = hasCompletedOnboarding ? '&onboarding=0' : '&onboarding=auto';
     const embedLang = getEmbedSupportedLang(currentLocale);
 
-    // 纯净伴侣视窗：挂载头顶气泡、换装菜单、换场景菜单与 GitHub 图标，开启原生全屏 LoadingOverlay，排除透明背景选项（Cindy 视窗背景不透明），交由 Cindy 作为统一对话大脑
+    // 纯净伴侣视窗：挂载头顶气泡、换装菜单、换场景菜单与 GitHub 图标，开启原生全屏 LoadingOverlay，通过 scenes=beach3d,light,dark 排除透明背景选项（Cindy 视窗背景不透明），交由 Cindy 作为统一对话大脑
     // 不传 scene 参数，确保 onboarding 时角色从纯粹虚空 (void) 完整起步，日常模式回退默认海滩
-    const targetUrl = `http://127.0.0.1:${currentPort}/embed/?host=${encodeURIComponent(hostOrigin)}&ui=bubble,outfit,scene,github&heavy=motion&enableLoadingOverlay=1&lang=${encodeURIComponent(embedLang)}${onboardingParam}`;
+    const targetUrl = `http://127.0.0.1:${currentPort}/embed/?host=${encodeURIComponent(hostOrigin)}&ui=bubble,outfit,scene,github&scenes=beach3d,light,dark&heavy=motion&enableLoadingOverlay=1&lang=${encodeURIComponent(embedLang)}${onboardingParam}`;
     console.log('[XiaoChun Panel] 正在载入小蠢 AI 伴侣:', targetUrl);
     iframe.src = targetUrl;
 
