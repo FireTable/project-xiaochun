@@ -621,14 +621,12 @@ export class ChatDirector {
     if (await this.audioBlocked()) {
       console.warn('[ChatDirector] 自动播放受浏览器策略限制，继续合成动作与气泡，等待用户手势激活音频:', text);
     }
-    const preserveMotion = opts?.preserveMotion === true;
-    // 已在思考 (宿主 xc.think / panel 发送后) 时交接不回 idle: 否则 thinking 动作会先淡出再重抽一个, 出现跳变
-    const keepThinking = !preserveMotion && this._turnState === 'thinking';
-    const id = await this.handoff({ keepThinking });
+    const id = await this.handoff();
     if (id === null) return;
     this.audioDone = false;
     this.player = player;
     this.emage = emage;
+    const preserveMotion = opts?.preserveMotion === true;
     this.preserveMotionCurrent = preserveMotion;
     if (!preserveMotion) {
       this.setTurnState('thinking');
@@ -1452,13 +1450,13 @@ export class ChatDirector {
    * 淡出期间如果又来了更新的一句，这次直接退出，不碰对方已经开始的声音。
    * 显式 stop() 不走这里，仍然立刻切断。
    */
-  private async handoff(opts?: { keepThinking?: boolean }): Promise<number | null> {
+  private async handoff(): Promise<number | null> {
     const id = ++this.utterance;
     this.stopped = true;
     this.wakeSpeakAudio?.();
     await this.fadeOutPlaying(id);
     if (!this.owns(id)) return null;
-    this.hardStop(opts?.keepThinking === true);
+    this.hardStop();
     if (!this.owns(id)) return null;
     this.stopped = false;
     return id;
@@ -1491,7 +1489,7 @@ export class ChatDirector {
     this.hardStop();
   }
 
-  private hardStop(keepThinking = false): void {
+  private hardStop(): void {
     this.followTransport = false;
     this.hostClockMode = false;
     this.hostClockSeen = false;
@@ -1502,7 +1500,7 @@ export class ChatDirector {
     if (this.stopped && !this.ctx && !this.currentSource) return;
     this.stopped = true;
     this.pipeline?.resetChatMotion();
-    this.setTurnState(keepThinking && this._turnState === 'thinking' ? 'thinking' : 'idle');
+    this.setTurnState('idle');
     this.preserveMotionCurrent = false;
     this.audioDoneTime = 0;
     this.onResumeRendering?.();
