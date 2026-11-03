@@ -13,6 +13,33 @@ describe('TypewriterText Tokenization & Cascade Timings', () => {
     expect(cfg.revealDurationMs).toBe(180);
   });
 
+  it('preserves multi-byte emojis and surrogate pairs without splitting into broken diamonds', () => {
+    const text = '哈哈，怎么啦？是在等我这个元气小聊天搭子嘛～🥰🌸❤️👨‍👩‍👧‍👦';
+    
+    // 模拟 TypewriterText 内部的分词逻辑
+    let rawSegments: string[] = [];
+    if (typeof Intl !== 'undefined' && (Intl as any).Segmenter) {
+      const segmenter = new (Intl as any).Segmenter(undefined, { granularity: 'grapheme' });
+      rawSegments = Array.from(segmenter.segment(text), (s: any) => s.segment);
+    } else {
+      const fallbackRegex = /(\p{Extended_Pictographic}(?:\u200D\p{Extended_Pictographic}|\uFE0F|\p{Emoji_Modifier})*|[a-zA-Z0-9'_]+|\s+|[^\s\w])/gu;
+      rawSegments = text.match(fallbackRegex) || Array.from(text);
+    }
+
+    expect(rawSegments).toContain('🥰');
+    expect(rawSegments).toContain('🌸');
+    expect(rawSegments).toContain('❤️');
+    expect(rawSegments).toContain('👨‍👩‍👧‍👦');
+
+    // 确保没有孤立高/低代理项产生 (绝不会出现 \uD800-\uDFFF 字符单独暴露)
+    for (const seg of rawSegments) {
+      if (seg.length === 1) {
+        const code = seg.charCodeAt(0);
+        expect(code >= 0xd800 && code <= 0xdfff).toBe(false);
+      }
+    }
+  });
+
   it('correctly tokenizes mixed Chinese and English without breaking English words', () => {
     const text = '你好，我是 XiaoChun！';
     const regex = /([a-zA-Z0-9'_]+|[^\s\w]|\s+)/g;

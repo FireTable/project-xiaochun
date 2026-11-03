@@ -81,43 +81,84 @@ export const TypewriterText: React.FC<TypewriterTextProps> = ({
   }, [cycleKey, alreadyCompleted]);
 
   // 词组分词算法：保证英文单词整体折行，中日韩单字自然折行，并累积自然标点停顿
+  // 核心安全保证：通过标准 Intl.Segmenter (或 Unicode 增强正则) 精准处理 Grapheme Cluster，
+  // 绝对杜绝 Emoji、复合修饰符或 UTF-16 代理对被拆开成为孤立 high/low surrogate 导致渲染为  问号乱码！
   const { tokens, totalDurationMs } = useMemo(() => {
     if (!text) return { tokens: [], totalDurationMs: 0 };
-    // 匹配连续英数单词，或者单个非空白字符，或者连续空白符
-    const regex = /([a-zA-Z0-9'_]+|[^\s\w]|\s+)/g;
-    const matches = text.match(regex) || [text];
+
+    // 1. 获取完整字形簇 (Grapheme Clusters)
+    let rawSegments: string[] = [];
+    if (typeof Intl !== 'undefined' && (Intl as any).Segmenter) {
+      const segmenter = new (Intl as any).Segmenter(undefined, { granularity: 'grapheme' });
+      rawSegments = Array.from(segmenter.segment(text), (s: any) => s.segment);
+    } else {
+      // 降级使用带 u 标志的 Unicode 感知正则，保证 Emoji 与代理对绝不被破坏
+      const fallbackRegex = /(\p{Extended_Pictographic}(?:\u200D\p{Extended_Pictographic}|\uFE0F|\p{Emoji_Modifier})*|[a-zA-Z0-9'_]+|\s+|[^\s\w])/gu;
+      rawSegments = text.match(fallbackRegex) || Array.from(text);
+    }
+
+    const parsedTokens: {
+      text: string;
+      isWhitespace: boolean;
+      isWord: boolean;
+      chars: { char: string; delayMs: number }[];
+    }[] = [];
+
+    let currentWordChars: { char: string; delayMs: number }[] = [];
+
+    const flushWord = () => {
+      if (currentWordChars.length === 0) return;
+      const wordText = currentWordChars.map((c) => c.char).join('');
+      parsedTokens.push({
+        text: wordText,
+        isWhitespace: false,
+        isWord: true,
+        chars: currentWordChars,
+      });
+      currentWordChars = [];
+    };
+
     let accumulatedDelayMs = 0;
 
-    const parsedTokens = matches.map((token) => {
-      const isWhitespace = /^\s+$/.test(token);
-      const isWord = /^[a-zA-Z0-9'_]+$/.test(token);
-      const chars = Array.from(token);
+    for (const seg of rawSegments) {
+      const isWhitespace = /^\s+$/.test(seg);
+      const isWordChar = /^[a-zA-Z0-9'_]+$/.test(seg);
 
-      const mappedChars = chars.map((ch) => {
+      // 如果是连续英文单词字符，聚合进当前单词
+      if (isWordChar) {
         const currentDelay = accumulatedDelayMs;
-        // 逗号/顿号/分号轻微停顿；句号/感叹号/问号/换行明确呼吸停顿
-        const isMinorPause = /[，、,；;]/.test(ch);
-        const isMajorPause = /[。！？!?…~～\n]/.test(ch);
-        const pauseOffset = isMajorPause
-          ? effectiveMajorPauseMs
-          : isMinorPause
-            ? effectiveMinorPauseMs
-            : 0;
-
-        accumulatedDelayMs += effectiveSpeedMs + pauseOffset;
-        return {
-          char: ch,
+        accumulatedDelayMs += effectiveSpeedMs;
+        currentWordChars.push({
+          char: seg,
           delayMs: currentDelay,
-        };
-      });
+        });
+        continue;
+      }
 
-      return {
-        text: token,
+      // 非英文单词字符：先结算之前的单词
+      flushWord();
+
+      const currentDelay = accumulatedDelayMs;
+      // 逗号/顿号/分号轻微停顿；句号/感叹号/问号/换行明确呼吸停顿
+      const isMinorPause = /[，、,；;]/.test(seg);
+      const isMajorPause = /[。！？!?…~～\n]/.test(seg);
+      const pauseOffset = isMajorPause
+        ? effectiveMajorPauseMs
+        : isMinorPause
+          ? effectiveMinorPauseMs
+          : 0;
+
+      accumulatedDelayMs += effectiveSpeedMs + pauseOffset;
+
+      parsedTokens.push({
+        text: seg,
         isWhitespace,
-        isWord,
-        chars: mappedChars,
-      };
-    });
+        isWord: false,
+        chars: [{ char: seg, delayMs: currentDelay }],
+      });
+    }
+
+    flushWord();
 
     return {
       tokens: parsedTokens,

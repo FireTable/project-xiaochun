@@ -1,7 +1,7 @@
 {
   "name": "Project-XiaoChun",
   "private": true,
-  "version": "0.2.5",
+  "version": "0.2.6",
   "description": "100% browser-native 3D AI companion with WebGPU/WebGL, VRM, EMAGE, EdgeTTS and Cindy Desktop Plugin integration.",
   "keywords": [
     "cindy-plugin",

@@ -195,6 +195,15 @@ export function extractNextSpeechChunk(
     }
   }
 
+  // 代理对安全保护：若切分点恰好落在 UTF-16 高低代理项 (Surrogate Pair) 之间，向前退 1 位避免破坏 Emoji 字符
+  if (cutIdx > 0 && cutIdx < clean.length) {
+    const prevCode = clean.charCodeAt(cutIdx - 1);
+    const currCode = clean.charCodeAt(cutIdx);
+    if (prevCode >= 0xd800 && prevCode <= 0xdbff && currCode >= 0xdc00 && currCode <= 0xdfff) {
+      cutIdx--;
+    }
+  }
+
   if (cutIdx !== -1) {
     const chunk = clean.slice(0, cutIdx).trim();
     const nextRemaining = clean.slice(cutIdx).trimStart();
