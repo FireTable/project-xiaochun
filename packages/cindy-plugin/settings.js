@@ -115,7 +115,7 @@
     const licenseEl = document.getElementById("repo-license-text");
     if (licenseEl) licenseEl.innerHTML = t("repo_license") + "<strong>MIT</strong>";
     const versionEl = document.getElementById("repo-version-text");
-    if (versionEl) versionEl.innerHTML = t("repo_version") + "<strong>v1.0.6</strong>";
+    if (versionEl) versionEl.innerHTML = t("repo_version") + "<strong>v1.0.7</strong>";
   }
 
   async function initLocale() {
