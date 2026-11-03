@@ -197,8 +197,12 @@ export interface EmbedBridge {
   reportLoaded: (model: string, outfitId?: string | null) => void;
   /** 破次元入场完成, 3D 舞台已正式对用户展现。 */
   reportSceneEntered: () => void;
+  /** 上报故事剧场开始事件 */
+  reportStoryStart?: (scriptId?: string) => void;
   /** 上报故事剧场结束事件 */
   reportStoryComplete?: (scriptId?: string) => void;
+  /** 上报新手引导 (Act 0 序章) 开始事件 */
+  reportOnboardingStart?: () => void;
   /** 上报新手引导 (Act 0 序章) 完成事件 */
   reportOnboardingComplete?: () => void;
 }
@@ -228,7 +232,8 @@ export function startEmbedBridge(opts: EmbedBridgeOptions): EmbedBridge {
     pickLang(lang) { opts.onLang(lang); writeLangPref(safeLocalStorage(), EMBED_LANG_KEY, lang); },
     dispose() {}, reportProgress() {}, reportLoaded(_m, id = null) { setPickerState({ outfit: id, loading: null }); },
     reportSceneEntered() {},
-    reportStoryComplete() {}, reportOnboardingComplete() {},
+    reportStoryStart() {}, reportStoryComplete() {},
+    reportOnboardingStart() {}, reportOnboardingComplete() {},
   };
   if (typeof window === 'undefined' || window.parent === window) return noop; // 直接打开 /embed: 无宿主
   const allowed = new Set(params.allowedHostOrigins);
@@ -1035,12 +1040,40 @@ export function startEmbedBridge(opts: EmbedBridgeOptions): EmbedBridge {
       }
       publishState(true);
     },
+    reportStoryStart(scriptId = 'prologue_awakening') {
+      send('xc.story.start', { scriptId });
+      if (hostOrigin) {
+        try {
+          window.parent.postMessage(xcMessage('xc.story.start', { scriptId }), hostOrigin);
+        } catch (_) {}
+      }
+      publishState(true);
+    },
     reportStoryComplete(scriptId = 'prologue_awakening') {
       send('xc.story.complete', { scriptId });
+      if (hostOrigin) {
+        try {
+          window.parent.postMessage(xcMessage('xc.story.complete', { scriptId }), hostOrigin);
+        } catch (_) {}
+      }
+      publishState(true);
+    },
+    reportOnboardingStart() {
+      send('xc.onboarding.start', {});
+      if (hostOrigin) {
+        try {
+          window.parent.postMessage(xcMessage('xc.onboarding.start', {}), hostOrigin);
+        } catch (_) {}
+      }
       publishState(true);
     },
     reportOnboardingComplete() {
       send('xc.onboarding.complete', {});
+      if (hostOrigin) {
+        try {
+          window.parent.postMessage(xcMessage('xc.onboarding.complete', {}), hostOrigin);
+        } catch (_) {}
+      }
       publishState(true);
     },
   };

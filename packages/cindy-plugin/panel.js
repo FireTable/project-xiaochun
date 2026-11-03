@@ -184,10 +184,22 @@
     }
   }
 
+  let isStoryOrOnboardingActive = false;
+
   function revealChatBar() {
+    if (isStoryOrOnboardingActive) {
+      console.log('[XiaoChun Panel] 当前处于故事剧场 / 新手引导，保持底部对话栏隐藏');
+      return;
+    }
     if (chatBarContainer && !chatBarContainer.classList.contains('ready')) {
       console.log('[XiaoChun Panel] 伴侣视窗与引擎已就绪，浮现底部对话栏');
       chatBarContainer.classList.add('ready');
+    }
+  }
+
+  function hideChatBar() {
+    if (chatBarContainer) {
+      chatBarContainer.classList.remove('ready');
     }
   }
 
@@ -204,6 +216,10 @@
         if (data && data.onboardingCompleted === true) {
           hasCompletedOnboarding = true;
         }
+        if (data && data.onboardingActive === true) {
+          isStoryOrOnboardingActive = true;
+          hideChatBar();
+        }
       }
     } catch (_) {}
 
@@ -215,6 +231,10 @@
           const s = await res2.json();
           if (s && s.onboardingCompleted === true) {
             hasCompletedOnboarding = true;
+          }
+          if (s && s.onboardingActive === true) {
+            isStoryOrOnboardingActive = true;
+            hideChatBar();
           }
         }
       } catch (_) {}
@@ -300,7 +320,33 @@
 
     // 破次元入场完成事件 (xc.scene.entered): LoadingOverlay 动画结束，3D 舞台正式展现
     if (msg.type === 'xc.scene.entered') {
-      console.log('[XiaoChun Panel] 伴侣视窗入场动效完成 (xc.scene.entered)，浮现底部对话栏');
+      console.log('[XiaoChun Panel] 伴侣视窗入场动效完成 (xc.scene.entered)');
+      revealChatBar();
+      return;
+    }
+
+    // 故事剧场 / 新手引导开始事件：隐去底部对话栏，提供全沉浸式视觉
+    if (msg.type === 'xc.story.start' || msg.type === 'xc.onboarding.start') {
+      console.log('[XiaoChun Panel] 伴侣视窗进入故事剧场/新手引导，隐藏对话栏:', msg.type);
+      isStoryOrOnboardingActive = true;
+      hideChatBar();
+      return;
+    }
+
+    // 故事剧场 / 新手引导结束事件：恢复浮现底部对话栏并持久化
+    if (msg.type === 'xc.story.complete' || msg.type === 'xc.onboarding.complete') {
+      console.log('[XiaoChun Panel] 伴侣视窗故事剧场/新手引导完成，浮现对话栏:', msg.type);
+      isStoryOrOnboardingActive = false;
+      hasCompletedOnboarding = true;
+      try {
+        localStorage.setItem('xc_cindy_onboarded_v1', '1');
+        localStorage.setItem('xc_onboarding_completed_v1', '1');
+      } catch (_) {}
+      fetch(`http://127.0.0.1:${currentPort}/api/companion-state`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ onboardingCompleted: true, onboardingActive: false })
+      }).catch(() => {});
       revealChatBar();
       return;
     }
@@ -317,10 +363,17 @@
         console.log('[XiaoChun Panel] 小蠢 AI 伴侣内部事件:', ev);
         // LoadingOverlay 破次元入场完成，正式浮现底部对话栏
         if (ev && ev.type === 'xc.scene.entered') {
-          console.log('[XiaoChun Panel] 伴侣视窗入场动效完成 (via port)，浮现底部对话栏');
+          console.log('[XiaoChun Panel] 伴侣视窗入场动效完成 (via port)');
           revealChatBar();
         }
+        if (ev && (ev.type === 'xc.story.start' || ev.type === 'xc.onboarding.start')) {
+          console.log('[XiaoChun Panel] 伴侣视窗进入故事剧场/新手引导 (via port)，隐藏对话栏:', ev.type);
+          isStoryOrOnboardingActive = true;
+          hideChatBar();
+        }
         if (ev && (ev.type === 'xc.story.complete' || ev.type === 'xc.onboarding.complete')) {
+          console.log('[XiaoChun Panel] 伴侣视窗故事剧场/新手引导完成 (via port)，浮现对话栏:', ev.type);
+          isStoryOrOnboardingActive = false;
           hasCompletedOnboarding = true;
           try {
             localStorage.setItem('xc_cindy_onboarded_v1', '1');
@@ -330,9 +383,9 @@
           fetch(`http://127.0.0.1:${currentPort}/api/companion-state`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ onboardingCompleted: true })
+            body: JSON.stringify({ onboardingCompleted: true, onboardingActive: false })
           }).catch(() => {});
-          if (chatBarContainer) chatBarContainer.classList.add('ready');
+          revealChatBar();
         }
       };
 
@@ -713,6 +766,8 @@
       case 'xiaochun_story':
       case 'onboarding':
       case 'xiaochun_onboarding':
+        isStoryOrOnboardingActive = true;
+        hideChatBar();
         sendToXiaochun('xc.onboarding.start', {});
         break;
     }

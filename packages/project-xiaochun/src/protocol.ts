@@ -62,7 +62,9 @@ export const XC_FRAME_TO_HOST = [
   'xc.gesture-move',
   'xc.gesture-resize',
   'xc.error',
+  'xc.story.start',
   'xc.story.complete',
+  'xc.onboarding.start',
   'xc.onboarding.complete',
   'xc.scene.entered',
 ] as const;
@@ -819,7 +821,9 @@ export interface XcFramePayloadMap {
   'xc.gesture-move': XcGestureMovePayload;
   'xc.gesture-resize': XcGestureResizePayload;
   'xc.error': XcErrorPayload;
+  'xc.story.start': { scriptId?: string };
   'xc.story.complete': { scriptId?: string };
+  'xc.onboarding.start': Record<string, never> | undefined;
   'xc.onboarding.complete': Record<string, never> | undefined;
   'xc.scene.entered': Record<string, never> | undefined;
 }

@@ -72,11 +72,13 @@ export const EmbedApp: React.FC = () => {
       setIsOnboardingActive(true);
       void sceneManager.setScene('void', false);
       void storyDirectorEngine.playScript(prologueStory);
+      bridgeRef?.reportOnboardingStart?.();
     };
     const handleStoryTrigger = (e?: Event) => {
       setIsStoryActive(true);
       const customScript = (e as CustomEvent)?.detail?.script || prologueStory;
       void storyDirectorEngine.playScript(customScript);
+      bridgeRef?.reportStoryStart?.(customScript.id);
     };
     window.addEventListener('xc-trigger-onboarding', handleOnboardingTrigger);
     window.addEventListener('xc-trigger-story', handleStoryTrigger);
@@ -84,7 +86,15 @@ export const EmbedApp: React.FC = () => {
       window.removeEventListener('xc-trigger-onboarding', handleOnboardingTrigger);
       window.removeEventListener('xc-trigger-story', handleStoryTrigger);
     };
-  }, []);
+  }, [bridgeRef]);
+
+  // 当宿主握手建立或初次进入故事时，立即向上层宿主上报 start 状态，保护 UI 沉浸感
+  useEffect(() => {
+    if (bridgeRef && isStoryOrOnboarding) {
+      if (isOnboardingActive) bridgeRef.reportOnboardingStart?.();
+      else if (isStoryActive) bridgeRef.reportStoryStart?.();
+    }
+  }, [bridgeRef, isStoryOrOnboarding, isOnboardingActive, isStoryActive]);
 
   // 跨进程/全局运行时状态同步
   useEffect(() => {

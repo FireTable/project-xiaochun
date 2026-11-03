@@ -315,6 +315,15 @@ const bridgeServer = http.createServer((req, res) => {
     return;
   }
 
+  // ── 伴侣重新进入新手引导端点 (支持外部脚本 / CDP / 调试一键触发) ──
+  if (reqPath === '/api/trigger-onboarding') {
+    saveCompanionState({ onboardingCompleted: false, onboardingActive: true });
+    broadcastToEmbedPanel('onboarding', {});
+    res.writeHead(200, { 'Content-Type': 'application/json' });
+    res.end(JSON.stringify({ success: true, message: '已派发新手引导触发指令' }));
+    return;
+  }
+
   // ── 面板申请创建小蠢专属伙伴端点 ──
   if (reqPath === '/api/create-companion' && req.method === 'POST') {
     let body = '';
