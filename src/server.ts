@@ -37,6 +37,35 @@ function withSecurityHeaders(res: Response, pathname: string, env: SecurityEnv):
 export default {
   async fetch(request: Request, env: unknown, ctx?: ExecutionContext) {
     const url = new URL(request.url);
+
+    // 双模内容协商 (Content Negotiation & LLM Ingestion):
+    // 当各类 Agent (如 Perplexity, SearchGPT, Claude Code, Cursor) 带 Accept: text/markdown 访问首页，
+    // 或直接请求 /index.md 时，直通返回结构化 Markdown 语料 (/llms.txt)。仅对 GET/HEAD 生效。
+    const isGetOrHead = request.method === 'GET' || request.method === 'HEAD';
+    const accept = request.headers.get('accept') || '';
+    if (
+      isGetOrHead &&
+      (url.pathname === '/' || url.pathname === '/index.md') &&
+      (accept.includes('text/markdown') || url.pathname.endsWith('.md'))
+    ) {
+      const serverEnv = env as ServerEnv;
+      if (serverEnv.ASSETS) {
+        try {
+          const mdRes = await serverEnv.ASSETS.fetch(new URL('/llms.txt', request.url));
+          if (mdRes.ok) {
+            const headers = new Headers(mdRes.headers);
+            applySecurityHeaders(headers, url.pathname, (env ?? {}) as SecurityEnv);
+            headers.set('Content-Type', 'text/markdown; charset=utf-8');
+            headers.set('Vary', 'Accept');
+            const body = request.method === 'HEAD' ? null : mdRes.body;
+            return new Response(body, { status: 200, headers });
+          }
+        } catch (err) {
+          console.warn('[Server] Markdown content negotiation fetch failed:', err);
+        }
+      }
+    }
+
     if (url.pathname === '/api/tts') {
       return handleTTS(request, env as ServerEnv, ctx);
     }

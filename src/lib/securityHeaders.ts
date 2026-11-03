@@ -31,6 +31,9 @@ export function applySecurityHeaders(headers: Headers, pathname: string, env: Se
   // SenseVoice STT 需要 getUserMedia; camera/geolocation 一律关闭。
   // /embed 同样 microphone=(self): 宿主还必须在 <iframe allow="microphone"> 里委派, 缺一不可。
   headers.set('Permissions-Policy', 'camera=(), microphone=(self), geolocation=(), interest-cohort=()');
+  // AI GEO / Agent 抓取信令
+  headers.set('Content-Signal', 'ai-train=yes, search=yes, ai-input=yes');
+
   if (isEmbedPath(pathname)) {
     headers.delete('X-Frame-Options');
     headers.set('Content-Security-Policy', `frame-ancestors ${resolveFrameAncestors(env.EMBED_FRAME_ANCESTORS)}`);
@@ -41,5 +44,15 @@ export function applySecurityHeaders(headers: Headers, pathname: string, env: Se
     headers.set('Cross-Origin-Opener-Policy', 'same-origin');
     headers.set('X-Frame-Options', 'DENY');
   }
+
+  // 根路径与首页: 注入 RFC 8288 Link 标头 (用于 AI Agent 自动服务发现与 GEO) 并声明 Vary: Accept
+  if (pathname === '/' || pathname === '/index.html' || pathname === '') {
+    headers.set(
+      'Link',
+      '</llms.txt>; rel="service-doc", </llms-full.txt>; rel="describedby", </llms.txt>; rel="alternate"; type="text/markdown", </.well-known/api-catalog>; rel="api-catalog", </auth.md>; rel="service-doc"',
+    );
+    headers.set('Vary', 'Accept');
+  }
+
   return headers;
 }

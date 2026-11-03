@@ -1,0 +1,44 @@
+{
+  "linkset": [
+    {
+      "anchor": "https://xiaochun.firetable.tech/",
+      "service-doc": [
+        {
+          "href": "https://xiaochun.firetable.tech/llms.txt",
+          "type": "text/markdown",
+          "title": "Project XiaoChun LLM Context & Architecture Overview"
+        },
+        {
+          "href": "https://xiaochun.firetable.tech/docs/AGENT_SKILL.md",
+          "type": "text/markdown",
+          "title": "Project XiaoChun Agent Skill Specification"
+        },
+        {
+          "href": "https://xiaochun.firetable.tech/auth.md",
+          "type": "text/markdown",
+          "title": "Agent Authentication Policy (Public & Anonymous Access)"
+        }
+      ],
+      "describedby": [
+        {
+          "href": "https://xiaochun.firetable.tech/llms-full.txt",
+          "type": "text/markdown",
+          "title": "Complete Architecture & Technical Documentation"
+        }
+      ],
+      "service-desc": [
+        {
+          "href": "https://xiaochun.firetable.tech/docs/PROTOCOL.md",
+          "type": "text/markdown",
+          "title": "XiaoChun Desktop & Web Protocol Specification"
+        }
+      ],
+      "alternate": [
+        {
+          "href": "https://xiaochun.firetable.tech/llms.txt",
+          "type": "text/markdown"
+        }
+      ]
+    }
+  ]
+}

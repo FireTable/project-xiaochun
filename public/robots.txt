@@ -2,4 +2,6 @@ User-agent: *
 Allow: /
 Disallow: /api/
 
+Content-Signal: ai-train=yes, search=yes, ai-input=yes
+
 Sitemap: https://xiaochun.firetable.tech/sitemap.xml

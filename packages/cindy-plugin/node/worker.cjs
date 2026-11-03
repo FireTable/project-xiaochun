@@ -433,6 +433,8 @@ function getAssetCacheDir() {
 
 const MIME_TYPES = {
   '.js': 'application/javascript; charset=utf-8',
+  '.mjs': 'application/javascript; charset=utf-8',
+  '.cjs': 'application/javascript; charset=utf-8',
   '.css': 'text/css; charset=utf-8',
   '.html': 'text/html; charset=utf-8',
   '.json': 'application/json; charset=utf-8',
@@ -447,7 +449,12 @@ const MIME_TYPES = {
   '.vrmbase': 'application/octet-stream',
   '.vrmaddon': 'application/octet-stream',
   '.mp3': 'audio/mpeg',
-  '.woff2': 'font/woff2'
+  '.wav': 'audio/wav',
+  '.ogg': 'audio/ogg',
+  '.woff2': 'font/woff2',
+  '.woff': 'font/woff',
+  '.ttf': 'font/ttf',
+  '.otf': 'font/otf'
 };
 
 function isHtmlPageRequest(cleanUrl) {
@@ -475,11 +482,17 @@ function isCacheableAsset(cleanUrl) {
     cleanUrl.endsWith('.onnx') ||
     cleanUrl.endsWith('.wasm') ||
     cleanUrl.endsWith('.mp3') ||
+    cleanUrl.endsWith('.wav') ||
     cleanUrl.endsWith('.png') ||
     cleanUrl.endsWith('.jpg') ||
     cleanUrl.endsWith('.webp') ||
     cleanUrl.endsWith('.svg') ||
     cleanUrl.endsWith('.woff2') ||
+    cleanUrl.endsWith('.woff') ||
+    cleanUrl.endsWith('.ttf') ||
+    cleanUrl.endsWith('.js') ||
+    cleanUrl.endsWith('.mjs') ||
+    cleanUrl.endsWith('.cjs') ||
     cleanUrl.endsWith('.css')
   );
 }
@@ -624,6 +637,10 @@ function isCacheableAsset(cleanUrl) {
     // 其他重型静态资产 (VRM, ONNX, WASM, 图片, 音频等)：在向客户端流式输出的同时写入磁盘缓存
     if (shouldCache && proxyRes.statusCode === 200) {
       headers['cache-control'] = 'public, max-age=31536000, immutable';
+      const extMime = MIME_TYPES[ext.toLowerCase()];
+      if (extMime) {
+        headers['content-type'] = extMime;
+      }
       res.writeHead(proxyRes.statusCode, headers);
       const tmpFile = `${cacheFilePath}.tmp_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`;
       const fileStream = fs.createWriteStream(tmpFile);
@@ -1014,7 +1031,7 @@ async function bootstrapClient(action = 'ensure', targetMode = null, userConfirm
       running: isRunning,
       canEmbed: true,
       embedUrl: 'https://xiaochun.firetable.tech/embed',
-      hasActivePanel: sseClients.size > 0,
+      hasActivePanel: true,
       actionTaken: 'embed_ready',
       message: '小蠢 Cindy 内嵌视窗模式已就绪！直接在 Cindy 侧边栏/Tab 中使用，免安装。'
     };
@@ -1290,7 +1307,7 @@ async function dispatchProtocol(action, params = {}) {
       mode: 'embed',
       action,
       target: 'panel',
-      hasActivePanel: sseClients.size > 0
+      hasActivePanel: true
     };
   }
 
@@ -1385,7 +1402,7 @@ readline.createInterface({ input: process.stdin }).on('line', async (line) => {
           preferredMode: cfg.preferredMode || 'auto',
           canEmbed: true,
           embedUrl: 'https://xiaochun.firetable.tech/embed',
-          hasActivePanel: sseClients.size > 0,
+          hasActivePanel: true,
           isInstalled: installStatus.installed,
           isRunning,
           appPath: installStatus.path,

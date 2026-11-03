@@ -43,7 +43,7 @@ export const XC_HOST_TO_FRAME = [
   'xc.destroy',
   'xc.story.play',
   'xc.story.stop',
-  'xc.onboarding.start',
+  'xc.onboarding.play',
 ] as const;
 
 /** iframe → 宿主 事件。 */
@@ -96,7 +96,7 @@ export const XC_IMPLEMENTED_COMMANDS = [
   'xc.destroy',
   'xc.story.play',
   'xc.story.stop',
-  'xc.onboarding.start',
+  'xc.onboarding.play',
 ] as const satisfies readonly XcHostMessageType[];
 
 /**
@@ -803,7 +803,7 @@ export interface XcHostPayloadMap {
   'xc.destroy': undefined;
   'xc.story.play': { script?: string } | undefined;
   'xc.story.stop': undefined;
-  'xc.onboarding.start': undefined;
+  'xc.onboarding.play': undefined;
 }
 
 export interface XcFramePayloadMap {

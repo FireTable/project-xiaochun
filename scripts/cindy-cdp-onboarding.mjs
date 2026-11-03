@@ -93,7 +93,7 @@ async function main() {
           localStorage.removeItem('xc_cindy_onboarded_v1');
         } catch (_) {}
         if (typeof sendToXiaochun === 'function') {
-          sendToXiaochun('xc.onboarding.start', {});
+          sendToXiaochun('xc.onboarding.play', {});
           return { ok: true, target: 'panel-bridge', location: window.location.href };
         }
         const iframe = document.getElementById('xiaochun-frame');

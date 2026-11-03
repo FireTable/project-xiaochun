@@ -921,6 +921,7 @@ export function startEmbedBridge(opts: EmbedBridgeOptions): EmbedBridge {
           storyDirectorEngine.finish();
           break;
         }
+        case 'xc.onboarding.play':
         case 'xc.onboarding.start':
           if (typeof window !== 'undefined') {
             window.dispatchEvent(new CustomEvent('xc-trigger-onboarding'));

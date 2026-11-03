@@ -6,8 +6,6 @@
 # 根路径与所有 HTML 走安全头 + 短缓存(SPA-style)。
 
 # === 根路径与所有页面:安全头 + 短缓存(SSR 内容必须短缓存)===
-/
-/index.html
 /*
   X-Content-Type-Options: nosniff
   X-Frame-Options: DENY
@@ -16,6 +14,14 @@
   Cross-Origin-Opener-Policy: same-origin
   Cross-Origin-Embedder-Policy: credentialless
   Cache-Control: public, max-age=0, must-revalidate
+  Content-Signal: ai-train=yes, search=yes, ai-input=yes
+
+# === 根路径与首页主动投喂: RFC 8288 Link 关系标头 ===
+/
+  Link: </llms.txt>; rel="service-doc", </llms-full.txt>; rel="describedby", </llms.txt>; rel="alternate"; type="text/markdown", </.well-known/api-catalog>; rel="api-catalog", </auth.md>; rel="service-doc"
+
+/index.html
+  Link: </llms.txt>; rel="service-doc", </llms-full.txt>; rel="describedby", </llms.txt>; rel="alternate"; type="text/markdown", </.well-known/api-catalog>; rel="api-catalog", </auth.md>; rel="service-doc"
 
 # === 静态资源(指纹化,长缓存)===
 # 注意 (顺序很重要): `/*` 也会命中 /assets/* 并给出 `Cache-Control: max-age=0, must-revalidate`; Cloudflare 对同名头多规则命中是"拼成逗号串"
@@ -73,3 +79,40 @@
 # === /api/* 由 src/server.ts 动态处理,本身不带静态缓存 ===
 /api/*
   Cache-Control: public, max-age=86400
+
+# === AI / Agent 发现与 Markdown 语料 (RFC 9727, Markdown, LLMs) ===
+/.well-known/api-catalog
+  ! Cache-Control
+  Content-Type: application/linkset+json; charset=utf-8
+  Access-Control-Allow-Origin: *
+  Cross-Origin-Resource-Policy: cross-origin
+  Cache-Control: public, max-age=86400, must-revalidate
+
+/llms.txt
+  ! Cache-Control
+  Content-Type: text/markdown; charset=utf-8
+  Access-Control-Allow-Origin: *
+  Cross-Origin-Resource-Policy: cross-origin
+  Cache-Control: public, max-age=3600, must-revalidate
+
+/llms-full.txt
+  ! Cache-Control
+  Content-Type: text/markdown; charset=utf-8
+  Access-Control-Allow-Origin: *
+  Cross-Origin-Resource-Policy: cross-origin
+  Cache-Control: public, max-age=3600, must-revalidate
+
+/auth.md
+  ! Cache-Control
+  Content-Type: text/markdown; charset=utf-8
+  Access-Control-Allow-Origin: *
+  Cross-Origin-Resource-Policy: cross-origin
+  Cache-Control: public, max-age=86400, must-revalidate
+
+/docs/*
+  ! Cache-Control
+  Content-Type: text/markdown; charset=utf-8
+  Access-Control-Allow-Origin: *
+  Cross-Origin-Resource-Policy: cross-origin
+  Cache-Control: public, max-age=3600, must-revalidate
+

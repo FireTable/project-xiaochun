@@ -538,6 +538,13 @@
       return;
     }
 
+    // 处理来自 main.js 的工具直通下发 (tool_call)
+    if (data.type === 'tool_call') {
+      console.log('[XiaoChun Panel] 收到来自 main.js 的 tool_call 广播:', data.method, data.params);
+      handleInboundCommand(data.method, data.params);
+      return;
+    }
+
     // 处理运行模式变更广播
     if (data.type === 'mode_changed') {
       console.log('[XiaoChun Panel] 响应运行形态变更广播:', data.mode);
@@ -674,6 +681,12 @@
         handlePanelEvent(event.data);
       };
 
+      // 视窗挂载后主动通知 main.js 视窗就绪并保持心跳
+      bc.postMessage({ type: 'panel_ready', timestamp: Date.now() });
+      setInterval(() => {
+        try { bc.postMessage({ type: 'panel_heartbeat', timestamp: Date.now() }); } catch (_) {}
+      }, 3000);
+
       // 视窗挂载后主动询问伙伴状态
       setTimeout(() => {
         triggerCheckBotStatus();
@@ -768,7 +781,7 @@
       case 'xiaochun_onboarding':
         isStoryOrOnboardingActive = true;
         hideChatBar();
-        sendToXiaochun('xc.onboarding.start', {});
+        sendToXiaochun('xc.onboarding.play', {});
         break;
     }
   }

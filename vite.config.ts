@@ -6,8 +6,25 @@ import { cloudflare } from '@cloudflare/vite-plugin';
 import react from '@vitejs/plugin-react';
 import basicSsl from '@vitejs/plugin-basic-ssl';
 import path from 'path';
+import fs from 'fs';
 import { localApiPlugin } from './vite/localApiPlugin';
 import { dropDockerfatAssets } from './vite/dropDockerfatAssets';
+
+function syncDocsPlugin() {
+  return {
+    name: 'sync-docs-plugin',
+    buildStart() {
+      const srcDocs = path.resolve(import.meta.dirname, 'docs');
+      const destDocs = path.resolve(import.meta.dirname, 'public/docs');
+      if (fs.existsSync(destDocs)) {
+        fs.rmSync(destDocs, { recursive: true, force: true });
+      }
+      if (fs.existsSync(srcDocs)) {
+        fs.cpSync(srcDocs, destDocs, { recursive: true });
+      }
+    },
+  };
+}
 
 const isTauri = Boolean(process.env.TAURI_ENV_PLATFORM || process.env.TAURI_DEV_HOST);
 const defaultPort = isTauri ? 5186 : 5185;
@@ -41,6 +58,7 @@ export default defineConfig(({ command, isPreview }) => ({
       loadEnv('development', process.cwd(), '').STT_PROXY_URL?.trim(),
     ),
     dropDockerfatAssets(),
+    syncDocsPlugin(),
     {
       name: 'force-exit-after-build',
       enforce: 'post',

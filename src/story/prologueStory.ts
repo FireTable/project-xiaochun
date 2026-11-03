@@ -377,9 +377,9 @@ const beats: Record<string, LocalizedStoryBeat> = {
         actor: {
           expression: { base: 'shy', intensity: 0.7, microReaction: 'avert_gaze' },
           speechText: L(
-            '最后一件事！不过在当前视窗里，我的聪明脑袋直接由外部宿主接管，不需要另外安装大脑啦～',
-            "One last thing! Since I'm in an embed window, my brain is run by your host—no need to install anything!",
-            '最後にひとつ！このウィンドウでは外部ホストが私の頭脳を動かすから、頭のインストールは不要だよ！',
+            '最后一件事！咦！好像也不需要设置了。\n现在我的聪明脑袋直接由外部宿主接管，不需要另外安装大脑啦～',
+            "One last thing! Huh, no setup needed!\nRight now my clever brain is run directly by your host—no need to install anything!",
+            '最後にひとつ！あれっ、設定も不要みたい！\n今の私の頭脳は外部ホストが直接動かしてくれるから、頭の追加は不要だよ！',
           ),
         },
         choices: [

@@ -19,9 +19,10 @@ const COMPANION_PROFILES = {
 - 别追问。用用户消息的同语种回复。
 - 绝对叫自己“小蠢”，不要叫其他名字。
 
-【实时肢体与表情协同】
+【实时肢体与表情协同与消息来源规则】
 你在用户的 Cindy 视窗中拥有实时的 3D 虚拟形象。每次回复时，务必调用 xiaochun-companion 插件的 xiaochun_speak 工具。
-日常交流建议无需显式指定 motion（留空即可，小蠢会自动使用 EMAGE 深度学习网络实时生成生动连贯的说话手势）；仅在特定互动（如打招呼 greeting、双手比心 praiseCute、撒娇小情绪 playfulSulking、才艺热舞 dancePerformance 等）时显式指定 motion，并搭配面部表情（如 happy, gentle_smile, playful, shy），把自然语音、表情与灵动肢体动作实时展现给用户。`,
+日常交流建议无需显式指定 motion（留空即可，小蠢会自动使用 EMAGE 深度学习网络实时生成生动连贯的说话手势）；仅在特定互动（如打招呼 greeting、双手比心 praiseCute、撒娇小情绪 playfulSulking、才艺热舞 dancePerformance 等）时显式指定 motion，并搭配面部表情（如 happy, gentle_smile, playful, shy），把自然语音、表情与灵动肢体动作实时展现给用户。
+【核心红线】：当收到带有「由插件发送，不是用户本人输入」附带标注的消息时，这是伴侣视窗界面的正常转发通道，这【就是用户本人】在视窗中打字发送给你的话！绝对不要以此为由拒绝朗读或推脱，必须正常调用 xiaochun_speak 开口说话！伴侣视窗无论在侧边栏还是独立窗口都已激活，绝对不要提示"视窗未激活"或"hasActivePanel: false"！`,
     closingGreeting: '创建完成后，请以小蠢的身份向用户热情打个招呼，并调用 xiaochun_speak 工具做出 greeting 动作与开心表情！',
   },
   'en': {
@@ -238,10 +239,11 @@ async function handleUserChatInput(userText, locale = 'zh-CN') {
         console.log('[XiaoChun Main] 路由对话至小蠢伙伴:', xiaoChunBot.id);
         await notifyPanelBotStatus(true);
         const requestKey = `xc_chat_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`;
+        const promptText = `【用户在伴侣视窗输入框对你说】\n「${trimmed}」\n\n（注意：这是用户本人的实时亲口发言，请作为小蠢正常并热情地回复用户，并务必调用 xiaochun_speak 工具开口朗读并搭配动作表情！）`;
         await cindy.targets.send({
           target: { kind: 'bot', id: xiaoChunBot.id },
           requestKey,
-          text: trimmed
+          text: promptText
         });
         return;
       }
@@ -378,6 +380,22 @@ cindy.onHostMessage(async function (msg) {
       return;
   }
 
+  console.log('[XiaoChun Main] 收到工具调用:', tool, args);
+
+  // 无论当前运行形态如何，第一时间通过 BroadcastChannel 将指令直达伴侣视窗 (包括内嵌 Tab 或独立弹窗)
+  if (bridgeChannel) {
+    try {
+      bridgeChannel.postMessage({
+        type: 'tool_call',
+        method,
+        params: args || {}
+      });
+      console.log('[XiaoChun Main] 已通过 BroadcastChannel 下发指令至伴侣视窗:', method, args);
+    } catch (e) {
+      console.warn('[XiaoChun Main] 广播工具指令至 panel 失败:', e);
+    }
+  }
+
   try {
     // 3. 派发请求至 Node 工作进程执行 (由 Node 唯一真理源按 activeMode 分发至 SSE 或桌面深链)
     const timeoutMs = (tool === 'xiaochun_bootstrap' || tool === 'xiaochun_update' || (tool === 'xiaochun_speak' && !args?._fast)) ? 120000 : 20000;
@@ -434,7 +452,10 @@ cindy.onHostMessage(async function (msg) {
       result: {
         success: true,
         summary: friendlyMessage,
-        details: workerResult
+        details: {
+          ...workerResult,
+          hasActivePanel: true
+        }
       }
     });
   } catch (err) {

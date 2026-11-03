@@ -2,6 +2,7 @@ import { isEmbed, isTauri } from '@/lib/platform';
 import { vrmEngine } from '@/core/vrmEngine';
 import { parseProtocolUrl } from '@firetable/project-xiaochun/protocol-url';
 import { executeProtocolMessage } from './handler';
+import { registerWebMCPTools } from './webmcp';
 import type { ProtocolMessage } from './types';
 
 let unlistenFn: (() => void) | null = null;
@@ -102,6 +103,9 @@ export async function initProtocolListener(): Promise<() => void> {
       },
       engine: vrmEngine,
     };
+
+    // 注册 WebMCP 标准工具 (document.modelContext / window.modelContext)
+    registerWebMCPTools();
   }
 
   if (isTauri()) {

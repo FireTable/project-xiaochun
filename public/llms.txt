@@ -35,6 +35,8 @@ Project XiaoChun is a dual-mode anime companion application running both in mode
 
 ## Links & API Contracts
 - [Full Documentation](/llms-full.txt): Complete technical architecture, dependency list, motion/TTS pipelines, deployment guide.
+- [RFC 9727 API Catalog](/.well-known/api-catalog): Machine-readable linkset catalog of all service documents and endpoints.
+- [Agent Auth Policy](/auth.md): Public and anonymous access whitepaper for autonomous agents and LLM crawlers.
 - [Story Director Guide](/docs/STORY_DIRECTOR.md): Interactive cinematic story engine, beat lifecycle, camera moves, and procedural audio.
 - [Beach 3D World Guide](/docs/BEACH3D_SCENE.md): Real-time anime MMD-stage beach, 24-hour solar arc, and SceneTimeCard HUD.
 - [Motion Pipeline Guide](/docs/MOTION_PIPELINE.md): Universal motion pipeline, Quintic 0.75s blending, FootIK, and BodyTurn stepping.
