@@ -122,6 +122,18 @@
         box-shadow: 0 0 20px var(--primary-glow);
       }
 
+      .mode-card.disabled {
+        opacity: 0.55;
+        cursor: not-allowed;
+        filter: grayscale(0.5);
+      }
+
+      .mode-card.disabled:hover {
+        border-color: var(--border);
+        transform: none;
+        box-shadow: none;
+      }
+
       .radio-circle {
         width: 18px;
         height: 18px;
@@ -192,49 +204,6 @@
         font-size: 12px;
         color: var(--text-muted);
         line-height: 1.45;
-      }
-
-      .desktop-status-row {
-        margin-top: 10px;
-        padding-top: 10px;
-        border-top: 1px solid rgba(255, 255, 255, 0.06);
-        display: flex;
-        align-items: center;
-        justify-content: space-between;
-        gap: 10px;
-        font-size: 11.5px;
-      }
-
-      .status-text {
-        color: var(--text-muted);
-        display: flex;
-        align-items: center;
-        gap: 6px;
-      }
-
-      .btn-inline-install {
-        appearance: none;
-        border: none;
-        background: var(--primary-gradient);
-        color: #fff;
-        font-size: 11px;
-        font-weight: 600;
-        padding: 4px 12px;
-        border-radius: 9999px;
-        cursor: pointer;
-        box-shadow: 0 2px 8px var(--primary-glow);
-        transition: all 0.2s ease;
-      }
-
-      .btn-inline-install:hover {
-        transform: scale(1.04);
-        filter: brightness(1.1);
-      }
-
-      .btn-inline-install:disabled {
-        opacity: 0.5;
-        cursor: not-allowed;
-        transform: none;
       }
 
       .footer {
@@ -367,121 +336,6 @@
         visibility: visible;
         transform: translateX(-50%) translateY(0);
       }
-
-      /* 确认安装模态弹窗 */
-      .modal-overlay {
-        position: fixed;
-        inset: 0;
-        background: rgba(0, 0, 0, 0.65);
-        backdrop-filter: blur(8px);
-        -webkit-backdrop-filter: blur(8px);
-        display: flex;
-        align-items: center;
-        justify-content: center;
-        z-index: 999;
-        opacity: 0;
-        visibility: hidden;
-        transition: all 0.25s ease;
-      }
-
-      .modal-overlay.show {
-        opacity: 1;
-        visibility: visible;
-      }
-
-      .modal-card {
-        background: #13111c;
-        border: 1px solid var(--border);
-        box-shadow:
-          0 24px 60px rgba(0, 0, 0, 0.8),
-          0 0 24px var(--primary-glow);
-        border-radius: 18px;
-        width: 90%;
-        max-width: 400px;
-        padding: 24px;
-        text-align: center;
-        transform: scale(0.95);
-        transition: transform 0.25s cubic-bezier(0.16, 1, 0.3, 1);
-      }
-
-      .modal-overlay.show .modal-card {
-        transform: scale(1);
-      }
-
-      .modal-card h2 {
-        font-size: 16px;
-        font-weight: 700;
-        color: #fff;
-        margin-bottom: 10px;
-      }
-
-      .modal-card p {
-        font-size: 12.5px;
-        color: var(--text-muted);
-        line-height: 1.55;
-        margin-bottom: 20px;
-        text-align: left;
-      }
-
-      .modal-actions {
-        display: flex;
-        gap: 10px;
-        justify-content: flex-end;
-      }
-
-      .btn-modal-cancel {
-        appearance: none;
-        background: rgba(255, 255, 255, 0.08);
-        border: 1px solid rgba(255, 255, 255, 0.12);
-        color: var(--text);
-        padding: 7px 18px;
-        border-radius: 9999px;
-        cursor: pointer;
-        font-size: 12.5px;
-        font-weight: 500;
-        transition: background 0.15s ease;
-      }
-
-      .btn-modal-cancel:hover {
-        background: rgba(255, 255, 255, 0.14);
-      }
-
-      .btn-modal-confirm {
-        appearance: none;
-        background: var(--primary-gradient);
-        border: none;
-        color: #fff;
-        padding: 7px 20px;
-        border-radius: 9999px;
-        cursor: pointer;
-        font-size: 12.5px;
-        font-weight: 600;
-        box-shadow: 0 2px 10px var(--primary-glow);
-        transition: all 0.2s ease;
-      }
-
-      .btn-modal-confirm:hover {
-        filter: brightness(1.1);
-        transform: scale(1.03);
-      }
-
-      .spinner {
-        width: 14px;
-        height: 14px;
-        border: 2px solid rgba(255, 255, 255, 0.25);
-        border-top-color: #fff;
-        border-radius: 50%;
-        animation: spin 0.8s linear infinite;
-        display: inline-block;
-        vertical-align: middle;
-        margin-right: 6px;
-      }
-
-      @keyframes spin {
-        to {
-          transform: rotate(360deg);
-        }
-      }
     </style>
   </head>
   <body>
@@ -513,32 +367,18 @@
         </div>
       </div>
 
-      <!-- 选项 2: 独立桌面桌宠形态 -->
-      <div class="mode-card" id="card-desktop" data-mode="desktop">
+      <!-- 选项 2: 独立桌面桌宠形态 (暂不支持) -->
+      <div class="mode-card disabled" id="card-desktop" data-mode="desktop">
         <div class="radio-circle">
           <div class="radio-dot"></div>
         </div>
         <div class="mode-info">
           <div class="mode-header">
             <span class="mode-name" id="mode-name-desktop">桌面独立桌宠形态</span>
-            <span class="badge badge-primary" id="badge-desktop-recommended">推荐 · 独立伴侣</span>
-            <span class="badge badge-gray" id="badge-desktop-standalone">全屏置顶桌宠</span>
+            <span class="badge badge-gray" id="badge-desktop-unsupported">暂不支持</span>
           </div>
           <div class="mode-desc" id="mode-desc-desktop">
-            全屏透明置顶悬浮在系统桌面，支持鼠标穿透、全局屏幕伴读与跟随交互。适合习惯桌面虚拟宠物的深度陪伴场景。
-          </div>
-          <div class="desktop-status-row">
-            <span class="status-text" id="desktop-status-text"
-              >⏳ 正在检测桌面端安装状态...</span
-            >
-            <button
-              type="button"
-              class="btn-inline-install"
-              id="btn-trigger-install"
-              style="display: none"
-            >
-              📥 立即安装桌面端
-            </button>
+            暂不支持桌面独立桌宠形态，当前仅支持 Cindy 侧边栏内嵌视窗模式。
           </div>
         </div>
       </div>
@@ -573,32 +413,9 @@
 
     <div class="footer">
       <span style="font-size: 11.5px; color: var(--text-muted)" id="footer-security-text">
-        🔒 未经您的明确授权，系统绝不会在后台自动下载桌面客户端。
+        ✨ 小蠢作为原生 3D AI 伴侣轻量常驻 Cindy 侧边栏，开箱即用。
       </span>
       <button type="button" class="save-btn" id="btn-save">保存设置</button>
-    </div>
-
-    <!-- 安装确认弹窗 -->
-    <div class="modal-overlay" id="install-modal">
-      <div class="modal-card">
-        <h2 id="modal-title-text">确认安装小蠢桌面客户端？</h2>
-        <p id="install-modal-desc">
-          桌面独立桌宠形态需要安装 Project XiaoChun 官方客户端（免管理员权限安全安装）。<br /><br />
-          是否确认立即开始自动下载并安装？
-        </p>
-        <div class="modal-actions">
-          <button type="button" class="btn-modal-cancel" id="btn-modal-cancel">
-            取消
-          </button>
-          <button
-            type="button"
-            class="btn-modal-confirm"
-            id="btn-modal-confirm"
-          >
-            确认下载安装
-          </button>
-        </div>
-      </div>
     </div>
 
     <!-- 浮动提示 Toast -->

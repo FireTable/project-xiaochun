@@ -1,42 +1,40 @@
-# XiaoChun Desktop AI Companion (Cindy Plugin)
+# XiaoChun AI Companion (Cindy Plugin)
 
-This plugin connects **Cindy** with the local **Project XiaoChun** desktop AI companion app, allowing conversational AI responses to be vividly acted out on your desktop with character voice reading, synchronized gestures, facial expressions, and camera control.
+Bring cheerful, healing XiaoChun into your Cindy! Your personal 3D AI companion stays in Cindy's sidebar with natural voice reading, delicate expressions, lively gestures, instant outfit swaps, dancing and multi-angle cameras. Zero installation required, instant ready.
 
-> ⚠️ **Note: This plugin only works on PC / desktop computers (macOS / Windows / Linux desktop Cindy). Mobile environments (iOS / Android) do not support local companion integration.**
+> ⚠️ **Note: This plugin is designed for PC desktop computers (macOS / Windows / Linux desktop Cindy). Mobile environments (iOS / Android) do not support 3D companion integration.**
 
 ---
 
 ## Key Features
 
-1. **Dual-Mode Adaptive Architecture (Desktop Pet & Cindy Embed Panel)**:
-   - **Desktop Pet Mode**: Automatically reuses and wakes up the standalone desktop client when installed, providing a transparent, always-on-top, click-through desk pet across your entire screen;
-   - **Cindy Embed Panel Mode**: Zero installation required! Embeds an AI companion panel directly in Cindy's sidebar/tab view powered by `@firetable/project-xiaochun` JS SDK;
-   - **Interactive Setup Choice & Seamless Switching**: Prompts new users to choose between Desktop Pet and Embed Panel on setup, with one-click mode switching anytime via `xiaochun_bootstrap(action="switch_mode")`.
+1. **Native Cindy Sidebar Embedded Panel**:
+   - Zero installation required! Embeds the 3D companion panel directly in Cindy's sidebar or main tab view;
+   - Lightweight, zero footprint on desktop top layer.
 2. **Vivid Companion Interactions**:
    - Synchronized natural speech and voice reading;
-   - Rich motion choreography (`greeting`, `think`, `praiseCute`, `dancePerformance`, etc.);
+   - Rich motion choreography (`greeting`, `thinking`, `praiseCute`, `dancePerformance`, etc.);
    - Subtle facial expressions (`happy`, `gentle_smile`, `shy`, `playful`, `surprised`, `relaxed`);
-   - Cinematic camera framing (close-up, full shot, pan-up).
-3. **Safe Long-Text Transmission**:
-   - Automatically utilizes temporary file pipelines for long text (>400 chars) to prevent URL length limits and command line truncation.
+   - Cinematic camera framing (close-up, full shot, pan-up, reset).
+3. **Seamless Outfit Swaps & Stage Scenes**:
+   - 0-frame delta outfit swaps (`dinner_dress`, `cheongsam`, `techwear`, `bikini`, `maid`, `default`);
+   - Dynamic 3D stages (`beach3d` sunny beach, `light`, `dark`, `void`).
 
 ---
 
 ## Tools
 
-* `xiaochun_speak`: Speak aloud with synchronized motions and expressions (supports cold-start auto-launch, onboarding guard, and `force: true`).
+* `xiaochun_speak`: Speak aloud with synchronized motions and expressions (onboarding guard, and `force: true`).
 * `xiaochun_motion`: Play standalone motions or animation groups.
-* `xiaochun_camera`: Control desktop camera angles and framing (close-up, full shot, pan-up, reset).
+* `xiaochun_camera`: Control camera angles and framing (close-up, full shot, pan-up, reset).
 * `xiaochun_scene`: Switch stages (`beach3d` sunny beach, `light`, `dark`, `void`).
 * `xiaochun_outfit`: 0-frame delta outfit swap (`dinner_dress`, `cheongsam`, `techwear`, `bikini`, `maid`, `default`).
-* `xiaochun_update`: Check for and install client updates directly from GitHub Releases with automatic restart.
 * `xiaochun_stop`: Stop ongoing speech and animation immediately.
-* `xiaochun_status`: Check installation, running status, onboarding status, active scene, and outfit on the PC.
-* `xiaochun_bootstrap`: Ensure client readiness, launch, or install missing desktop assets.
+* `xiaochun_status`: Check companion connection status, onboarding status, active scene, and outfit.
 
 ---
 
 ## Resources
 
 * Open Source Repository: [https://github.com/FireTable/project-xiaochun](https://github.com/FireTable/project-xiaochun)
-* Official Website & Download: [https://xiaochun.firetable.tech](https://xiaochun.firetable.tech)
+* Official Website: [https://xiaochun.firetable.tech](https://xiaochun.firetable.tech)

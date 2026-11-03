@@ -1,6 +1,6 @@
 {
   "name": "XiaoChun AI Companion",
-  "description": "Bring cheerful, healing XiaoChun into your Cindy! Your personal AI companion stays peacefully in the sidebar or floats as a transparent desktop pet, with natural voice reading, delicate expressions, lively gestures, instant outfit swaps, dancing and multi-angle cameras.",
+  "description": "Bring cheerful, healing XiaoChun into your Cindy! Your personal 3D AI companion stays in Cindy's sidebar with natural voice reading, delicate expressions, lively gestures, instant outfit swaps, dancing and multi-angle cameras.",
   "whenToUse": "Use when user wants AI companion XiaoChun to speak, read text, perform body gestures, express emotions, or create and set up dedicated XiaoChun bot teammate.",
   "panel": {
     "title": "XiaoChun AI Companion"
@@ -10,7 +10,7 @@
   },
   "tools": {
     "xiaochun_speak": {
-      "description": "Make AI companion XiaoChun speak aloud with synchronized gestures and facial expressions. Zero installation required. If switched to desktop mode and stopped, it will automatically cold-start.",
+      "description": "Make AI companion XiaoChun speak aloud with synchronized gestures and facial expressions. Embedded in Cindy sidebar, instant ready.",
       "parameters": {
         "/properties/text": {
           "description": "The exact text content for XiaoChun to speak and express with natural voice (supports long text reading)."
@@ -38,7 +38,7 @@
       }
     },
     "xiaochun_camera": {
-      "description": "Adjust XiaoChun's desktop camera angle, framing, or movement.",
+      "description": "Adjust XiaoChun's camera angle, framing, or movement.",
       "parameters": {
         "/properties/shot": {
           "description": "Shot framing name: 'close_up', 'medium' (half-body default), 'full', 'extreme_close_up', 'dramatic_low'. Mutually exclusive with action."
@@ -71,32 +71,7 @@
       "description": "Immediately stop XiaoChun's ongoing speech and animation, smoothly transitioning back to natural idle posture."
     },
     "xiaochun_status": {
-      "description": "Query XiaoChun active runtime mode (desktop pet mode / Cindy embed panel mode), installation, active state, onboarding progress, current scene and outfit."
-    },
-    "xiaochun_bootstrap": {
-      "description": "Query or configure XiaoChun runtime mode ('desktop' pet / 'embed' panel). Note: embed mode is default and zero-install. Never install desktop app without explicit user consent in conversation.",
-      "parameters": {
-        "/properties/action": {
-          "description": "Action to take: 'ensure' (auto-detect and prepare readiness, default), 'install' (download and install desktop client ONLY upon explicit user consent), 'launch' (wake up installed client), 'switch_mode' (switch desktop/embed mode). Defaults to 'ensure'."
-        },
-        "/properties/mode": {
-          "description": "Runtime morphology mode: 'auto' (auto-detect, desktop if installed, embed or guide if missing), 'desktop' (enforce desktop pet), 'embed' (use Cindy embed panel window, zero install). Defaults to 'auto'."
-        },
-        "/properties/userConfirmed": {
-          "description": "Whether the user explicitly confirmed consent to install the desktop client in chat. Must only be true when user confirmed."
-        }
-      }
-    },
-    "xiaochun_update": {
-      "description": "Check for XiaoChun desktop client updates from GitHub Releases. Defaults to 'check' (query only). Only specify 'install' with userConfirmed=true if user affirmatively requests update.",
-      "parameters": {
-        "/properties/mode": {
-          "description": "Execution mode: 'check' (check only without installing, default), or 'install' (download, install, and relaunch upon user confirmation). Defaults to 'check'."
-        },
-        "/properties/userConfirmed": {
-          "description": "Whether the user explicitly confirmed consent to update the desktop client."
-        }
-      }
+      "description": "Query XiaoChun active runtime status, sidebar window connection, onboarding progress, current scene and outfit."
     }
   }
 }

@@ -439,12 +439,6 @@ cindy.onHostMessage(async function (msg) {
     case 'xiaochun_status':
       method = 'status';
       break;
-    case 'xiaochun_bootstrap':
-      method = 'bootstrap';
-      break;
-    case 'xiaochun_update':
-      method = 'update';
-      break;
     default:
       cindy.send({
         type: 'tool-result',
@@ -457,7 +451,7 @@ cindy.onHostMessage(async function (msg) {
 
   console.log('[XiaoChun Main] 收到工具调用:', tool, args);
 
-  // 无论当前运行形态如何，第一时间通过 BroadcastChannel 将指令直达伴侣视窗 (包括内嵌 Tab 或独立弹窗)
+  // 第一时间通过 BroadcastChannel 将指令直达伴侣视窗
   if (bridgeChannel) {
     try {
       bridgeChannel.postMessage({
@@ -472,8 +466,8 @@ cindy.onHostMessage(async function (msg) {
   }
 
   try {
-    // 3. 派发请求至 Node 工作进程执行 (由 Node 唯一真理源按 activeMode 分发至 SSE 或桌面深链)
-    const timeoutMs = (tool === 'xiaochun_bootstrap' || tool === 'xiaochun_update' || (tool === 'xiaochun_speak' && !args?._fast)) ? 120000 : 20000;
+    // 派发请求至 Node 工作进程执行
+    const timeoutMs = (tool === 'xiaochun_speak' && !args?._fast) ? 120000 : 20000;
     const response = await cindy.node.request({
       method,
       params: args || {},
@@ -492,32 +486,14 @@ cindy.onHostMessage(async function (msg) {
       return;
     }
 
-    // 5. 组装返回给 Agent 和用户的优雅结果
+    // 组装返回给 Agent 和用户的优雅结果
     const workerResult = response.result || {};
     let friendlyMessage = '小蠢 AI 伴侣已成功接收指令。';
 
-    if (workerResult.needInstallConfirm) {
-      friendlyMessage = workerResult.message || '【安装确认】使用桌面独立桌宠形态需要安装 Project XiaoChun 官方客户端。请先向用户确认：“是否同意下载并安装小蠢桌面客户端？”';
-    } else if (workerResult.needSetupChoice) {
-      friendlyMessage = '【初次使用设置】检测到当前尚未安装小蠢桌面客户端。您可以选择：\n' +
-        '1. 自动安装桌面端：调用 xiaochun_bootstrap(action="install", mode="desktop")，体验透明置顶、支持鼠标穿透的完整桌面独立桌宠；\n' +
-        '2. 免安装内嵌模式（推荐）：调用 xiaochun_bootstrap(mode="embed")，直接在 Cindy 视窗 Tab 中与小蠢 AI 伴侣交互，零安装开箱即用。';
-    } else if (workerResult.actionTaken === 'mode_switched' || workerResult.actionTaken === 'embed_ready') {
-      friendlyMessage = workerResult.message || `已配置为 ${workerResult.mode === 'embed' ? 'Cindy 内嵌视窗' : '桌面桌宠'} 模式。`;
-    } else if (workerResult.mode === 'embed') {
-      friendlyMessage = '【Cindy 内嵌视窗模式】指令已同步派发至小蠢 AI 伴侣。';
-    } else if (tool === 'xiaochun_update') {
-      friendlyMessage = workerResult.updated
-        ? `【版本更新完成】已成功为小蠢安装最新版本并触发客户端重启！`
-        : workerResult.message || '小蠢客户端版本检查与更新指令已派发。';
-    } else if (workerResult.onboardingActive) {
+    if (workerResult.onboardingActive) {
       friendlyMessage = '【新手引导进行中】检测到小蠢正在进行初见向导剧情（act0 序章）。建议您先在窗口中与小蠢完成初见对话；若需强制朗读，请设置 force 为 true。';
-    } else if (workerResult.coldStart) {
-      friendlyMessage = '【冷启动】检测到小蠢客户端未启动，已自动为您唤醒小蠢并执行指令！';
-    } else if (workerResult.autoInstalled) {
-      friendlyMessage = '【一键就绪】已自动为您完成小蠢桌面端的安装与冷启动，小蠢已就绪并开始说话！';
-    } else if (workerResult.needManualInstall) {
-      friendlyMessage = '未在您的 PC 上检测到小蠢桌面端。已为您准备好下载安装方案。';
+    } else if (workerResult.message) {
+      friendlyMessage = workerResult.message;
     }
 
     cindy.send({

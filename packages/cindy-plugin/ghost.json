@@ -3,7 +3,7 @@
   "schemaVersion": 3,
   "id": "xiaochun-companion",
   "name": "小蠢 AI 伴侣",
-  "description": "让活泼治愈的小蠢常驻你的 Cindy！小蠢是随时伴你左右的桌面 AI 伴侣——不仅能在 Cindy 侧边栏安静停靠，还能化身透明桌宠悬浮在屏幕一角。对话时支持实时自然人声伴读、细腻微表情与灵动肢体动作，更有百变服装无缝切换、跳舞比心与多视角运镜，开箱即用，让写代码与日常对话从此充满元气与温度。",
+  "description": "让活泼治愈的小蠢常驻你的 Cindy！小蠢是停靠在 Cindy 侧边栏的 3D AI 伴侣。对话时支持实时自然人声伴读、细腻微表情与灵动肢体动作，更有百变服装无缝切换、跳舞比心与多视角运镜，开箱即用，让写代码与日常对话从此充满元气与温度。",
   "whenToUse": "用户需要让小蠢 AI 伴侣说话、伴读、做肢体动作、表达面部表情，或者希望在 Cindy 中创建或配置「小蠢」专属常驻伙伴时使用。",
   "version": "1.0.6",
   "minCindyVersion": "0.1.121",
@@ -16,7 +16,7 @@
       {
         "dir": "manual/xiaochun",
         "name": "xiaochun",
-        "description": "小蠢桌面 App 与 Cindy 内嵌 AI 伴侣交互手册，包含专属伙伴创建与动作控制指南。"
+        "description": "小蠢 Cindy 侧边栏 AI 伴侣交互手册，包含专属伙伴创建与动作控制指南。"
       }
     ]
   },
@@ -59,7 +59,7 @@
   "tools": [
     {
       "name": "xiaochun_speak",
-      "description": "让小蠢 AI 伴侣开口朗读说话，并伴随肢体动作与面部表情。免安装开箱即用；若已切换至桌面模式且未启动，会自动唤醒冷拉起。",
+      "description": "让小蠢 AI 伴侣开口朗读说话，并伴随肢体动作与面部表情。停靠在 Cindy 侧边栏，开箱即用。",
       "parameters": {
         "type": "object",
         "properties": {
@@ -120,7 +120,7 @@
     },
     {
       "name": "xiaochun_camera",
-      "description": "调整小蠢 AI 伴侣的摄像机机位镜头与景别（内嵌视窗与桌面端均支持）。",
+      "description": "调整小蠢 AI 伴侣的摄像机机位镜头与景别。",
       "parameters": {
         "type": "object",
         "properties": {
@@ -206,63 +206,10 @@
     },
     {
       "name": "xiaochun_status",
-      "description": "查询小蠢 AI 伴侣在当前环境下的运行形态（桌面挂件模式/Cindy内嵌视窗模式）、安装与运行状态、新手引导进度及当前场景与服装。",
+      "description": "查询小蠢 AI 伴侣在当前环境下的运行状态、侧边栏视窗连接状态、新手引导进度及当前场景与服装。",
       "parameters": {
         "type": "object",
         "properties": {}
-      }
-    },
-    {
-      "name": "xiaochun_bootstrap",
-      "description": "查询或配置小蠢 AI 伴侣的运行形态（'desktop' 独立桌宠 / 'embed' 内嵌视窗）。注意：默认形态为免安装的 embed 内嵌视窗；严禁擅自执行 install 下载安装桌面端，仅当用户在对话中明确同意安装时方可指定 action='install' 并传入 userConfirmed=true。",
-      "parameters": {
-        "type": "object",
-        "properties": {
-          "action": {
-            "type": "string",
-            "enum": [
-              "ensure",
-              "install",
-              "launch",
-              "switch_mode"
-            ],
-            "description": "执行动作：'ensure'(自动检测并确保就绪，默认)、'install'(仅在用户明确同意后下载安装桌面客户端)、'launch'(唤醒已安装客户端)、'switch_mode'(切换桌面/内嵌形态)。缺省为 'ensure'。"
-          },
-          "mode": {
-            "type": "string",
-            "enum": [
-              "auto",
-              "desktop",
-              "embed"
-            ],
-            "description": "运行形态模式：'auto'(自动检测，已安装走桌面端，未安装走引导或内嵌)、'desktop'(强制使用桌面独立桌宠)、'embed'(使用 Cindy 内嵌伴侣视窗，零安装)。缺省为 'auto'。"
-          },
-          "userConfirmed": {
-            "type": "boolean",
-            "description": "用户是否已在对话中明确确认同意安装桌面客户端。当且仅当用户明确同意时方可设为 true，严禁 Agent 擅自设为 true。"
-          }
-        }
-      }
-    },
-    {
-      "name": "xiaochun_update",
-      "description": "检查小蠢桌面端更新。缺省模式为 'check' (仅检查版本并提示更新内容)。若用户确认更新，方可指定 'install' 并传入 userConfirmed=true 执行安装与重启。当前为 embed 内嵌视窗时无需更新。",
-      "parameters": {
-        "type": "object",
-        "properties": {
-          "mode": {
-            "type": "string",
-            "enum": [
-              "check",
-              "install"
-            ],
-            "description": "执行模式：'check'(仅检查是否有新版本，不执行安装，默认)、'install'(仅当用户明确要求更新时，下载新版并重启)。缺省为 'check'。"
-          },
-          "userConfirmed": {
-            "type": "boolean",
-            "description": "用户是否已在对话中明确确认更新安装。若 mode 为 'install'，必须获得用户确认后方可传入 true。"
-          }
-        }
       }
     }
   ],

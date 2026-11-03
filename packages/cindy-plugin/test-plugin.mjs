@@ -211,30 +211,19 @@ async function testWorker() {
   assert.ok(updateRes.result);
   console.log('   ✅ Node Worker 成功响应 update 检查方法');
 
-  // 4.6 测试形态切换与内嵌视窗派发
-  const switchEmbedRes = await sendReq(6, 'bootstrap', { action: 'switch_mode', mode: 'embed' });
-  assert.equal(switchEmbedRes.id, 6);
-  assert.equal(switchEmbedRes.result.mode, 'embed');
-  console.log('   ✅ Node Worker 成功切换至 embed 内嵌视窗模式');
-
+  // 4.6 测试内嵌视窗指令派发
   const embedMotionRes = await sendReq(7, 'motion', { name: 'greeting' });
   assert.equal(embedMotionRes.id, 7);
   assert.equal(embedMotionRes.result.mode, 'embed');
   assert.equal(embedMotionRes.result.target, 'panel');
   console.log('   ✅ Node Worker 在内嵌模式下成功将指令定向至 panel 桥接通道');
 
-  const switchDesktopRes = await sendReq(8, 'bootstrap', { action: 'switch_mode', mode: 'desktop' });
-  assert.equal(switchDesktopRes.id, 8);
-  assert.equal(switchDesktopRes.result.mode, 'desktop');
-  console.log('   ✅ Node Worker 成功切换回 desktop 桌面桌宠模式');
-
-  // 4.7 验证安全防线：在 embed 模式下调用 update 绝不执行下载安装
-  await sendReq(9, 'bootstrap', { action: 'switch_mode', mode: 'embed' });
-  const embedUpdateRes = await sendReq(10, 'update', { mode: 'install' });
+  // 4.7 验证安全防线：调用 update 严格提示无需更新桌面端
+  const embedUpdateRes = await sendReq(10, 'update', {});
   assert.equal(embedUpdateRes.id, 10);
   assert.equal(embedUpdateRes.result.mode, 'embed');
-  assert.ok(embedUpdateRes.result.message.includes('内嵌伴侣视窗') || embedUpdateRes.result.message.includes('无需更新'));
-  console.log('   ✅ 安全防线核验通过：内嵌视窗模式下 update 严格拦截静默安装');
+  assert.ok(embedUpdateRes.result.message.includes('无需更新'));
+  console.log('   ✅ 安全防线核验通过：纯内嵌视窗模式下无需更新桌面端');
 
   // 4.8 测试 HTTP 桥接与反向通知管道 (chat-input, companion-state, bridge-port)
   const broadcastRes = await sendReq(11, 'panel_broadcast', { type: 'bot_status', hasXiaoChunBot: true });
