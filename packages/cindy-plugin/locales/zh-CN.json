@@ -49,10 +49,10 @@
       }
     },
     "xiaochun_scene": {
-      "description": "切换小蠢 AI 伴侣的舞台场景（如 beach3d 阳光海滩、transparent 透明桌宠挂件模式、dark 暗色舞台、light 明亮舞台、void 虚空舞台等）。",
+      "description": "切换小蠢 AI 伴侣的舞台场景（如 beach3d 阳光海滩、dark 暗色舞台、light 明亮舞台、void 虚空舞台等）。",
       "parameters": {
         "/properties/name": {
-          "description": "场景标识名称。可选：'beach3d'(阳光海滩)、'transparent'(透明桌面伴侣/桌宠模式)、'dark'(暗色舞台)、'light'(明亮舞台)、'void'(虚空舞台)。"
+          "description": "场景标识名称。可选：'beach3d'(阳光海滩)、'dark'(暗色舞台)、'light'(明亮舞台)、'void'(虚空舞台)。"
         },
         "/properties/persist": {
           "description": "是否持久化保存该场景选择（下次启动默认保留），默认为 true。"

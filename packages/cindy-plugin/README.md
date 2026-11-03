@@ -27,7 +27,7 @@ This plugin connects **Cindy** with the local **Project XiaoChun** desktop AI co
 * `xiaochun_speak`: Speak aloud with synchronized motions and expressions (supports cold-start auto-launch, onboarding guard, and `force: true`).
 * `xiaochun_motion`: Play standalone motions or animation groups.
 * `xiaochun_camera`: Control desktop camera angles and framing (close-up, full shot, pan-up, reset).
-* `xiaochun_scene`: Switch stages (`beach3d` sunny beach, `transparent` desk pet mode, `light`, `dark`, `void`).
+* `xiaochun_scene`: Switch stages (`beach3d` sunny beach, `light`, `dark`, `void`).
 * `xiaochun_outfit`: 0-frame delta outfit swap (`dinner_dress`, `cheongsam`, `techwear`, `bikini`, `maid`, `default`).
 * `xiaochun_update`: Check for and install client updates directly from GitHub Releases with automatic restart.
 * `xiaochun_stop`: Stop ongoing speech and animation immediately.

@@ -195,6 +195,8 @@ export interface EmbedBridge {
   reportProgress: (state: LoadingState) => void;
   /** model = 展示名; outfitId = 内置服装 id (自定义 URL 传 null)。 */
   reportLoaded: (model: string, outfitId?: string | null) => void;
+  /** 破次元入场完成, 3D 舞台已正式对用户展现。 */
+  reportSceneEntered: () => void;
   /** 上报故事剧场结束事件 */
   reportStoryComplete?: (scriptId?: string) => void;
   /** 上报新手引导 (Act 0 序章) 完成事件 */
@@ -225,6 +227,7 @@ export function startEmbedBridge(opts: EmbedBridgeOptions): EmbedBridge {
     async pickScene(id) { if (ownEntry(APP_CONFIG.scenes.items, id)) await sceneManager.setScene(id, true); },
     pickLang(lang) { opts.onLang(lang); writeLangPref(safeLocalStorage(), EMBED_LANG_KEY, lang); },
     dispose() {}, reportProgress() {}, reportLoaded(_m, id = null) { setPickerState({ outfit: id, loading: null }); },
+    reportSceneEntered() {},
     reportStoryComplete() {}, reportOnboardingComplete() {},
   };
   if (typeof window === 'undefined' || window.parent === window) return noop; // 直接打开 /embed: 无宿主
@@ -1013,6 +1016,23 @@ export function startEmbedBridge(opts: EmbedBridgeOptions): EmbedBridge {
       setPickerState({ outfit: outfitId, loading: null });
       send('xc.loaded', { model });
       send('xc.outfit-changed', { id: outfitId, name: model, initial: true });
+      if (!params.enableLoadingOverlay) {
+        send('xc.scene.entered', {});
+        if (hostOrigin) {
+          try {
+            window.parent.postMessage(xcMessage('xc.scene.entered', {}), hostOrigin);
+          } catch (_) {}
+        }
+      }
+      publishState(true);
+    },
+    reportSceneEntered() {
+      send('xc.scene.entered', {});
+      if (hostOrigin) {
+        try {
+          window.parent.postMessage(xcMessage('xc.scene.entered', {}), hostOrigin);
+        } catch (_) {}
+      }
       publishState(true);
     },
     reportStoryComplete(scriptId = 'prologue_awakening') {

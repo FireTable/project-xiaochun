@@ -122,11 +122,12 @@
     }
 
     /* 伴侣视窗悬浮毛玻璃对话栏 (平滑浮现) */
+    /* 底部悬浮对话输入栏容器：初始隐藏，等待 LoadingOverlay 破次元入场完成 (xc.scene.entered) 后平滑浮现 */
     .chat-bar-container {
       position: absolute;
       bottom: 28px;
       left: 50%;
-      transform: translateX(-50%) translateY(28px);
+      transform: translateX(-50%) translateY(24px);
       width: calc(100% - 32px);
       max-width: 540px;
       z-index: 20;
@@ -137,12 +138,12 @@
       opacity: 0;
       visibility: hidden;
       pointer-events: none;
-      transition: opacity 0.5s cubic-bezier(0.16, 1, 0.3, 1),
-                  transform 0.5s cubic-bezier(0.16, 1, 0.3, 1),
-                  visibility 0.5s;
+      transition: opacity 0.45s cubic-bezier(0.16, 1, 0.3, 1),
+                  transform 0.45s cubic-bezier(0.16, 1, 0.3, 1),
+                  visibility 0.45s;
     }
 
-    /* 当伴侣场景与引擎完全就绪后激活浮现 */
+    /* 当伴侣场景与引擎完全就绪/破次元入场后激活浮现 */
     .chat-bar-container.ready {
       opacity: 1;
       visibility: visible;

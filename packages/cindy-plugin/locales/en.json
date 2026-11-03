@@ -49,10 +49,10 @@
       }
     },
     "xiaochun_scene": {
-      "description": "Switch XiaoChun desktop stage scene (e.g. beach3d beach world, transparent desktop pet overlay, dark stage, light stage, void, etc.).",
+      "description": "Switch XiaoChun companion stage scene (e.g. beach3d beach world, dark stage, light stage, void, etc.).",
       "parameters": {
         "/properties/name": {
-          "description": "Scene identifier name. Options: 'beach3d', 'transparent', 'dark', 'light', 'void'."
+          "description": "Scene identifier name. Options: 'beach3d', 'dark', 'light', 'void'."
         },
         "/properties/persist": {
           "description": "Whether to persist this scene choice as default for future launches, defaults to true."

@@ -18,13 +18,60 @@ function log(...args) {
   process.stderr.write(`[XiaoChun-Worker] ${args.join(' ')}\n`);
 }
 
+// ── 插件二级命名空间存储目录：~/.cindy/plugins/xiaochun-companion/ ──
+function getPluginDataDir() {
+  const cindyDir = path.join(os.homedir(), '.cindy');
+  const baseDir = fs.existsSync(cindyDir)
+    ? path.join(cindyDir, 'plugins', 'xiaochun-companion')
+    : path.join(os.tmpdir(), 'cindy-plugins', 'xiaochun-companion');
+  try {
+    if (!fs.existsSync(baseDir)) {
+      fs.mkdirSync(baseDir, { recursive: true });
+    }
+  } catch (_) {}
+  return baseDir;
+}
+
+// 自动平滑迁移老目录中的历史文件（若存在），并彻底清理旧根目录平铺文件
+function migrateLegacyStorageOnce() {
+  try {
+    const cindyDir = path.join(os.homedir(), '.cindy');
+    if (!fs.existsSync(cindyDir)) return;
+    const dataDir = getPluginDataDir();
+
+    // 1. 迁移或清理老配置 xiaochun-plugin-config.json -> config.json
+    const legacyCfg = path.join(cindyDir, 'xiaochun-plugin-config.json');
+    const newCfg = path.join(dataDir, 'config.json');
+    if (fs.existsSync(legacyCfg)) {
+      if (!fs.existsSync(newCfg)) {
+        try { fs.copyFileSync(legacyCfg, newCfg); } catch (_) {}
+      }
+      try { fs.unlinkSync(legacyCfg); } catch (_) {}
+    }
+
+    // 2. 迁移或清理老状态 xiaochun-companion-state.json -> state.json
+    const legacyState = path.join(cindyDir, 'xiaochun-companion-state.json');
+    const newState = path.join(dataDir, 'state.json');
+    if (fs.existsSync(legacyState)) {
+      if (!fs.existsSync(newState)) {
+        try { fs.copyFileSync(legacyState, newState); } catch (_) {}
+      }
+      try { fs.unlinkSync(legacyState); } catch (_) {}
+    }
+
+    // 3. 彻底删除老缓存目录 ~/.cindy/xiaochun-cache
+    const legacyCache = path.join(cindyDir, 'xiaochun-cache');
+    if (fs.existsSync(legacyCache)) {
+      try { fs.rmSync(legacyCache, { recursive: true, force: true }); } catch (_) {}
+    }
+  } catch (_) {}
+}
+
+migrateLegacyStorageOnce();
+
 // ── 插件形态配置持久化 (desktop: 独立桌面桌宠 / embed: Cindy 内嵌视窗 / auto: 自动识别) ──
 function getConfigFilePath() {
-  const cindyDir = path.join(os.homedir(), '.cindy');
-  if (fs.existsSync(cindyDir)) {
-    return path.join(cindyDir, 'xiaochun-plugin-config.json');
-  }
-  return path.join(os.tmpdir(), 'xiaochun-plugin-config.json');
+  return path.join(getPluginDataDir(), 'config.json');
 }
 
 function readPluginConfig() {
@@ -53,11 +100,7 @@ function savePluginConfig(patch) {
 
 // ── 伴侣运行时状态持久化 (新手向导、场景、服装，作为本地唯一真理源 SSOT) ──
 function getCompanionStatePath() {
-  const cindyDir = path.join(os.homedir(), '.cindy');
-  if (fs.existsSync(cindyDir)) {
-    return path.join(cindyDir, 'xiaochun-companion-state.json');
-  }
-  return path.join(os.tmpdir(), 'xiaochun-companion-state.json');
+  return path.join(getPluginDataDir(), 'state.json');
 }
 
 function readCompanionState() {
@@ -370,9 +413,7 @@ const bridgeServer = http.createServer((req, res) => {
 
 // ── 本地磁盘资产缓存机制（加速首屏加载、消除换端口重复拉取、坚决不缓存 HTML 页面） ──
 function getAssetCacheDir() {
-  const cindyDir = path.join(os.homedir(), '.cindy');
-  const baseDir = fs.existsSync(cindyDir) ? cindyDir : os.tmpdir();
-  const cacheDir = path.join(baseDir, 'xiaochun-cache');
+  const cacheDir = path.join(getPluginDataDir(), 'cache');
   try {
     if (!fs.existsSync(cacheDir)) {
       fs.mkdirSync(cacheDir, { recursive: true });
@@ -492,12 +533,14 @@ function isCacheableAsset(cleanUrl) {
     }
   }
 
+  // 代理请求始终强制要求上游以 identity (未压缩原始数据) 返回，
+  // 确保写入磁盘缓存并经由 127.0.0.1 服务本地 iframe 时，CSS / JS / WASM / 模型数据均为原始数据，绝不出现 zstd/br 二进制乱码导致 CSS 样式解析崩溃！
   const forwardHeaders = {
     ...req.headers,
     host: targetHost,
     origin: `https://${targetHost}`,
     referer: `https://${targetHost}/`,
-    'accept-encoding': (isJsAsset || isAudioOrTts || isHeavyModelOrAsset) ? 'identity' : (req.headers['accept-encoding'] || 'identity')
+    'accept-encoding': 'identity'
   };
 
   const proxyReq = https.request({
@@ -1428,6 +1471,14 @@ readline.createInterface({ input: process.stdin }).on('line', async (line) => {
           jsonrpc: '2.0',
           id,
           error: { code: -32602, message: '必须提供场景名称 name 或 scene' }
+        });
+        return;
+      }
+      if (sceneName === 'transparent') {
+        reply({
+          jsonrpc: '2.0',
+          id,
+          error: { code: -32602, message: 'Cindy 伴侣视窗不支持 transparent 透明场景，请选择 beach3d / light / dark / void' }
         });
         return;
       }

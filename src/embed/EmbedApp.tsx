@@ -117,7 +117,7 @@ export const EmbedApp: React.FC = () => {
     for (const w of params.cameraWarnings) console.warn(`[xiaochun] ${w}`);
     vrmEngine.setCameraConfig(params.camera); // 相机选项 (?cameraFov= 等): 模型加载前设置, 首次取景 / 推镜头直接按它来
     document.documentElement.classList.add('xc-embed');
-    vrmEngine.interaction.guidesEnabled = false; // /embed 环境隐藏腰部转身光环与相机高度尺导轨
+    vrmEngine.interaction.guidesEnabled = true; // /embed 环境启用腰部转身光环与相机高度尺导轨
     const handleFirstUnlock = () => {
       vrmEngine.unlockAudio();
     };
@@ -155,6 +155,9 @@ export const EmbedApp: React.FC = () => {
     if (params.enableLoadingOverlay) {
       loadingStore.init({ active: true, subtitleKey: 'parsingModel', progress: 0 });
       loadingStore.setBreakStartHandler(() => vrmEngine.resumeRendering());
+      loadingStore.setBreakCompleteHandler(() => {
+        bridge.reportSceneEntered();
+      });
     }
 
     // ── 协议桥 ──
@@ -208,7 +211,14 @@ export const EmbedApp: React.FC = () => {
     <div id="app" className="relative w-full h-screen h-[100dvh] overflow-hidden">
       {params.enableLoadingOverlay && (
         <Suspense fallback={null}>
-          <LoadingOverlay />
+          <LoadingOverlay
+            onBreakStart={() => {
+              vrmEngine.resumeRendering();
+            }}
+            onBreakComplete={() => {
+              bridgeRef?.reportSceneEntered();
+            }}
+          />
         </Suspense>
       )}
       <SceneCanvas />

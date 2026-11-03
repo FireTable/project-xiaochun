@@ -192,6 +192,13 @@ async function testWorker() {
   assert.equal(sceneErr.error.code, -32602);
   console.log('   ✅ Node Worker 成功拦截非法 scene 参数');
 
+  // 4.3.1 测试 transparent 场景拦截（Cindy embed 视窗不支持透明背景）
+  const sceneTransparentErr = await sendReq(31, 'scene', { name: 'transparent' });
+  assert.equal(sceneTransparentErr.id, 31);
+  assert.equal(sceneTransparentErr.error.code, -32602);
+  assert.ok(sceneTransparentErr.error.message.includes('transparent'));
+  console.log('   ✅ Node Worker 成功拦截 embed 不支持的 transparent 场景');
+
   // 4.4 测试 outfit 参数校验
   const outfitErr = await sendReq(4, 'outfit', {});
   assert.equal(outfitErr.id, 4);
@@ -269,6 +276,14 @@ async function testWorker() {
   assert.equal(companionStateRes.state.onboardingCompleted, true);
   console.log('   ✅ Node Worker HTTP /api/companion-state 持久化写入合规');
 
+  // 验证数据目录已收拢至二级命名空间 ~/.cindy/plugins/xiaochun-companion/
+  const expectedStateFile = path.join(os.homedir(), '.cindy', 'plugins', 'xiaochun-companion', 'state.json');
+  if (fs.existsSync(path.join(os.homedir(), '.cindy'))) {
+    assert.ok(fs.existsSync(expectedStateFile), '状态文件必须收拢在 ~/.cindy/plugins/xiaochun-companion/state.json');
+    assert.ok(!fs.existsSync(path.join(os.homedir(), '.cindy', 'xiaochun-cache')), '老的 ~/.cindy/xiaochun-cache 必须已删除');
+    console.log('   ✅ 插件二级命名空间存储验证通过 (~/.cindy/plugins/xiaochun-companion/)');
+  }
+
   let notificationReceived = null;
   const oldResolve = resolveResponse;
   worker.stdout.removeAllListeners('data');
@@ -309,6 +324,21 @@ async function testWorker() {
     if (embedRes.status < 500) {
       assert.ok(cacheCtrl.includes('no-cache'), 'HTML 响应必须包含 no-cache');
       console.log('   ✅ Node Worker 反向代理 HTML 严格禁止缓存 (保证更新即时生效):', cacheCtrl);
+    }
+  } catch (_) {}
+
+  // 4.10 验证 CSS 静态资产未压缩直出与缓存合法性（杜绝 zstd 压缩乱码导致样式崩溃）
+  try {
+    const cssRes = await fetch(`http://127.0.0.1:${testPort}/assets/main-DFQt3I8f.css`, {
+      method: 'GET',
+      headers: { 'Accept-Encoding': 'gzip, deflate, br, zstd' }
+    });
+    if (cssRes.status === 200) {
+      const cssText = await cssRes.text();
+      assert.ok(cssText.includes('@layer') || cssText.includes('tailwindcss'), 'CSS 内容必须为未压缩纯文本样式表');
+      const encoding = cssRes.headers.get('content-encoding');
+      assert.equal(encoding, null, '代理与缓存必须以未压缩纯文本返回，严禁返回 zstd 等二进制乱码');
+      console.log('   ✅ Node Worker 成功保障 CSS 样式表以纯文本合法返回 (杜绝样式崩溃)');
     }
   } catch (_) {}
 

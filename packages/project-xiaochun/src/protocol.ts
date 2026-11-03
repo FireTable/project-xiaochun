@@ -64,6 +64,7 @@ export const XC_FRAME_TO_HOST = [
   'xc.error',
   'xc.story.complete',
   'xc.onboarding.complete',
+  'xc.scene.entered',
 ] as const;
 
 export type XcHostMessageType = (typeof XC_HOST_TO_FRAME)[number];
@@ -820,6 +821,7 @@ export interface XcFramePayloadMap {
   'xc.error': XcErrorPayload;
   'xc.story.complete': { scriptId?: string };
   'xc.onboarding.complete': Record<string, never> | undefined;
+  'xc.scene.entered': Record<string, never> | undefined;
 }
 
 export type XcHostMessage = {

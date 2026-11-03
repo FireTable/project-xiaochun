@@ -36,11 +36,15 @@ function flush(): void {
 }
 
 let breakStartHandler: (() => void) | null = null;
+let breakCompleteHandler: (() => void) | null = null;
 
 export const loadingStore = {
   /** App registers what to do when the overlay starts its exit (single-mount overlay has no App props). */
   setBreakStartHandler(fn: (() => void) | null): void { breakStartHandler = fn; },
   breakStart(): void { breakStartHandler?.(); },
+  /** App registers what to do when the overlay completes its exit animation. */
+  setBreakCompleteHandler(fn: (() => void) | null): void { breakCompleteHandler = fn; },
+  breakComplete(): void { breakCompleteHandler?.(); },
   get: (): LoadingState => current,
   getServer: (): LoadingState => DEFAULT_LOADING_STATE,
   subscribe(l: Listener): () => void {

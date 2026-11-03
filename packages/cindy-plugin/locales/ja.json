@@ -49,10 +49,10 @@
       }
     },
     "xiaochun_scene": {
-      "description": "小蠢デスクトップアプリのステージシーン（beach3d 砂浜ビーチ、transparent 透過デスクトップペットモード、dark ダーク、light ライト、void 虚空など）を切り替えます。",
+      "description": "小蠢デスクトップアプリのステージシーン（beach3d 砂浜ビーチ、dark ダーク、light ライト、void 虚空など）を切り替えます。",
       "parameters": {
         "/properties/name": {
-          "description": "シーン識別名。選択肢：'beach3d'、'transparent'、'dark'、'light'、'void'。"
+          "description": "シーン識別名。選択肢：'beach3d'、'dark'、'light'、'void'。"
         },
         "/properties/persist": {
           "description": "このシーン設定を次回以降もデフォルトとして永続化するかどうか。デフォルトは true です。"

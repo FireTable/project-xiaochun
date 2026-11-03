@@ -257,6 +257,8 @@ export interface XiaochunEvents {
   handshake: XcReadyPayload;
   /** 模型加载完成 (= xc.loaded)。 */
   ready: { model: string };
+  /** 破次元入场动效完成, 3D 舞台正式呈现 (= xc.scene.entered)。 */
+  'scene-entered': Record<string, never> | undefined;
   progress: XcLoadProgressPayload;
   state: XcStatePayload;
   stt: XcSttPayload;
@@ -828,6 +830,9 @@ export function createXiaochun(options: XiaochunOptions): XiaochunInstance {
           resolveReady();
         }
         emit('ready', data.payload);
+        break;
+      case 'xc.scene.entered':
+        emit('scene-entered', data.payload);
         break;
       case 'xc.outfit-changed': {
         const pl = data.payload;

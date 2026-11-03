@@ -122,7 +122,11 @@ export const LoadingOverlay: React.FC<LoadingOverlayProps> = ({ state, onBreakSt
     requestAnimationFrame(() => requestAnimationFrame(() => (onBreakStart ? onBreakStart() : loadingStore.breakStart())));
     setTimeout(() => {
       setHasExited(true);
-      onBreakComplete?.();
+      if (onBreakComplete) {
+        onBreakComplete();
+      } else {
+        loadingStore.breakComplete();
+      }
     }, 1100);
   };
 

@@ -185,15 +185,8 @@
   }
 
   function revealChatBar() {
-    let onboarded = true;
-    try {
-      const isFirst = localStorage.getItem('xc_onboarding_completed_v1') !== '1' && localStorage.getItem('xc_cindy_onboarded_v1') !== '1';
-      if (isFirst) onboarded = false;
-    } catch (_) {}
-    if (!onboarded) return;
-
     if (chatBarContainer && !chatBarContainer.classList.contains('ready')) {
-      console.log('[XiaoChun Panel] 伴侣视窗与引擎已就绪，平滑浮现底部对话栏');
+      console.log('[XiaoChun Panel] 伴侣视窗与引擎已就绪，浮现底部对话栏');
       chatBarContainer.classList.add('ready');
     }
   }
@@ -234,23 +227,19 @@
     }
 
     const hostOrigin = window.location.origin;
-    // 若本地文件系统或缓存已记录完成向导，传递 onboarding=0；若未完成，传递 onboarding=auto 允许 iframe 结合自身存储自检
-    const onboardingParam = hasCompletedOnboarding ? '&onboarding=0' : '&onboarding=auto';
     const embedLang = getEmbedSupportedLang(currentLocale);
 
     // 纯净伴侣视窗：挂载头顶气泡、换装菜单、换场景菜单与 GitHub 图标，开启原生全屏 LoadingOverlay，通过 scenes=beach3d,light,dark 排除透明背景选项（Cindy 视窗背景不透明），交由 Cindy 作为统一对话大脑
-    // 不传 scene 参数，确保 onboarding 时角色从纯粹虚空 (void) 完整起步，日常模式回退默认海滩
-    const targetUrl = `http://127.0.0.1:${currentPort}/embed/?host=${encodeURIComponent(hostOrigin)}&ui=bubble,outfit,scene,github&scenes=beach3d,light,dark&heavy=motion&enableLoadingOverlay=1&lang=${encodeURIComponent(embedLang)}${onboardingParam}`;
+    // 在 Cindy 伴侣视窗常态下固定禁用 onboarding=0，开箱即刻与小蠢实时对话互动
+    const targetUrl = `http://127.0.0.1:${currentPort}/embed/?host=${encodeURIComponent(hostOrigin)}&ui=bubble,outfit,scene,github&scenes=beach3d,light,dark&heavy=motion&enableLoadingOverlay=1&lang=${encodeURIComponent(embedLang)}&onboarding=0`;
     console.log('[XiaoChun Panel] 正在载入小蠢 AI 伴侣:', targetUrl);
     iframe.src = targetUrl;
 
     // 建立与后台 Node Worker 的实时 SSE 指令接收通道，激活 hasActivePanel 状态
     connectBridgeSse();
 
-    // 仅在已完成向导的常态下，开启 4 秒安全兜底浮现输入栏；若处于新手向导中，严格等待 Act 0 完成事件
-    if (hasCompletedOnboarding) {
-      setTimeout(revealChatBar, 4000);
-    }
+    // 15 秒安全兜底：若网络异常或未收到破次元入场事件，强制浮现对话栏
+    setTimeout(revealChatBar, 15000);
 
     // 12 秒超时未完成加载显示重试按钮
     setTimeout(showRetry, 12000);
@@ -259,15 +248,45 @@
   iframe.onload = () => {
     isFrameLoaded = true;
     hideLoading();
-    // 仅在已完成向导时延时 1.5 秒平滑浮现底部对话栏
-    if (hasCompletedOnboarding) {
-      setTimeout(revealChatBar, 1500);
-    }
   };
+
+  iframe.addEventListener('pointerenter', () => {
+    try { iframe.contentWindow.focus(); } catch (_) {}
+  });
+
+  // 跨层向伴侣视窗透传修饰键状态，确保在面板任意位置按下 ⌘ / Ctrl 时 3D 旋转与俯仰导轨光环平滑浮现
+  window.addEventListener('keydown', (e) => {
+    if ((e.key === 'Meta' || e.key === 'Control') && iframe && iframe.contentWindow) {
+      try {
+        iframe.contentWindow.dispatchEvent(new KeyboardEvent('keydown', {
+          key: e.key,
+          code: e.code,
+          metaKey: e.metaKey,
+          ctrlKey: e.ctrlKey,
+          bubbles: true
+        }));
+      } catch (_) {}
+    }
+  }, { capture: true });
+
+  window.addEventListener('keyup', (e) => {
+    if ((e.key === 'Meta' || e.key === 'Control') && iframe && iframe.contentWindow) {
+      try {
+        iframe.contentWindow.dispatchEvent(new KeyboardEvent('keyup', {
+          key: e.key,
+          code: e.code,
+          metaKey: e.metaKey,
+          ctrlKey: e.ctrlKey,
+          bubbles: true
+        }));
+      } catch (_) {}
+    }
+  }, { capture: true });
 
   btnRetry.onclick = () => {
     btnRetry.classList.remove('show');
     if (loadingOverlay) loadingOverlay.classList.add('hidden');
+    if (chatBarContainer) chatBarContainer.classList.remove('ready');
     initEmbedFrame();
   };
 
@@ -279,17 +298,28 @@
     const msg = event.data;
     if (!msg || typeof msg !== 'object') return;
 
+    // 破次元入场完成事件 (xc.scene.entered): LoadingOverlay 动画结束，3D 舞台正式展现
+    if (msg.type === 'xc.scene.entered') {
+      console.log('[XiaoChun Panel] 伴侣视窗入场动效完成 (xc.scene.entered)，浮现底部对话栏');
+      revealChatBar();
+      return;
+    }
+
     // 握手接收: /embed 页面发出 xc.ready
     if (msg.type === 'xc.ready') {
       console.log('[XiaoChun Panel] 收到小蠢 AI 伴侣就绪事件:', msg);
       hideLoading();
-      setTimeout(revealChatBar, 500);
       const channel = new MessageChannel();
       handshakePort = channel.port1;
 
       handshakePort.onmessage = (e) => {
         const ev = e.data;
         console.log('[XiaoChun Panel] 小蠢 AI 伴侣内部事件:', ev);
+        // LoadingOverlay 破次元入场完成，正式浮现底部对话栏
+        if (ev && ev.type === 'xc.scene.entered') {
+          console.log('[XiaoChun Panel] 伴侣视窗入场动效完成 (via port)，浮现底部对话栏');
+          revealChatBar();
+        }
         if (ev && (ev.type === 'xc.story.complete' || ev.type === 'xc.onboarding.complete')) {
           hasCompletedOnboarding = true;
           try {
@@ -303,10 +333,6 @@
             body: JSON.stringify({ onboardingCompleted: true })
           }).catch(() => {});
           if (chatBarContainer) chatBarContainer.classList.add('ready');
-        }
-        // 当模型完全加载 (xc.loaded) 或进入待机 (xc.state phase=idle) 时，正式浮现底部对话栏 (若向导已完成)
-        if (ev && (ev.type === 'xc.loaded' || ev.payload?.phase === 'idle')) {
-          revealChatBar();
         }
       };
 

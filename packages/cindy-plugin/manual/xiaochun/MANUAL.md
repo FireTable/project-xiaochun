@@ -29,7 +29,7 @@ Cindy Agent 应直接调用内置系统工具 `create_teammate` 完成创建（�
 - `xiaochun_speak(text, motion, expression, force)`: 让小蠢开口朗读说话，并伴随肢体动作与面部表情。免安装开箱即用；日常对话推荐留空 motion，小蠢会自动使用 EMAGE 神经手势合成；若已切换至桌面模式且未启动，会自动唤醒冷拉起。
 - `xiaochun_motion(name, loop)`: 播放指定动画或分组动作（如 'greeting' 问候、'dancePerformance' 舞蹈表演、'praiseCute' 比心夸奖、'thinking' 专注沉思、'playfulSulking' 撒娇、'waving' 招手等）。
 - `xiaochun_camera(shot, action)`: 调整镜头景别（'close_up' 特写、'medium' 半身、'full' 全身、'dramatic_low' 仰角）或镜头运动（'pan_up' 抬升、'reset' 重置）。内嵌视窗与桌面端均支持。
-- `xiaochun_scene(name)`: 切换舞台场景（'beach3d' 阳光海滩、'light' 明亮舞台、'dark' 暗色舞台、'transparent' 透明桌宠模式）。内嵌视窗与桌面端均支持。
+- `xiaochun_scene(name)`: 切换舞台场景（'beach3d' 阳光海滩、'light' 明亮舞台、'dark' 暗色舞台、'void' 虚空舞台）。内嵌视窗与桌面端均支持。
 - `xiaochun_outfit(name)`: 0 帧瞬时切换服装（'dinner_dress' 晚礼服、'cheongsam' 旗袍、'techwear' 机能风、'bikini' 泳装、'maid' 女仆装、'default' 常服）。
 - `xiaochun_stop()`: 立即停止当前正在播放的语音台词与动作，平滑恢复至待机姿态。
 - `xiaochun_status()`: 查询小蠢 AI 伴侣在当前环境下的运行形态（桌面挂件模式/Cindy内嵌视窗模式）、安装与运行状态、新手引导进度及当前场景与服装。
