@@ -16,24 +16,29 @@
  */
 import * as ort from 'onnxruntime-web';
 import { APP_CONFIG } from '@/config';
+import { isLoopbackHost } from '@/lib/loopback';
 import { applyCmvn, applyLfr, computeLogMelFbank } from './fbank';
 import { extractOnnxMetadataProps } from './onnxMeta';
 import { punctuationPipeline, finalizePunctuation } from './punctuation';
 import { ctTransformerPunct } from './ctTransformerPunct';
 
 const STT = APP_CONFIG.stt;
-const isLoopbackHost = typeof self !== 'undefined' && (self.location.hostname === '127.0.0.1' || self.location.hostname === 'localhost');
-const ONNX_BASE = isLoopbackHost ? '/stt/sensevoice-zh-en-ja-ko-yue-int8-2024-07-17' : STT.base.replace(/\/$/, '');
+// worker 看不到页面 URL：主线程经 'config' 消息传入 loopback；未收到则用 worker 内安全默认（旧规则 + 排除 DEV）。
+let loopbackMode: boolean = isLoopbackHost();
+const getOnnxBase = (): string =>
+  loopbackMode ? '/stt/sensevoice-zh-en-ja-ko-yue-int8-2024-07-17' : STT.base.replace(/\/$/, '');
 const CACHE_NAME = STT.cacheName;
 const CACHE_PREFIX = STT.cacheKeyPrefix; // e.g. xiaochun-stt/v2024-07-17
 const MODEL_FILE = STT.modelFile;
 const TOKENS_FILE = STT.tokensFile;
 const SAMPLE_RATE = STT.sampleRate;
-const WASM_PATHS = isLoopbackHost
-  ? '/wasm/'
-  : 'https://cdn.jsdelivr.net/npm/onnxruntime-web@1.22.0-dev.20250409-89f8206ba4/dist/';
+const getWasmPaths = (): string =>
+  loopbackMode
+    ? '/wasm/'
+    : 'https://cdn.jsdelivr.net/npm/onnxruntime-web@1.22.0-dev.20250409-89f8206ba4/dist/';
 
 type WorkerIn =
+  | { type: 'config'; loopback: boolean }
   | { type: 'load' }
   | { type: 'recognize'; id: number; pcm: Float32Array; sampleRate?: number; isFinal?: boolean }
   | { type: 'punctuate'; id: number; text: string }
@@ -63,7 +68,7 @@ function cacheUrl(file: string): string {
 }
 
 function assetUrl(file: string): string {
-  return `${ONNX_BASE}/${file}`;
+  return `${getOnnxBase()}/${file}`;
 }
 
 async function fetchWithCacheProgress(
@@ -262,7 +267,7 @@ async function ensureLoaded(): Promise<void> {
       throw new Error(`tokens.txt looks invalid (only ${tokens.length} entries)`);
     }
 
-    ort.env.wasm.wasmPaths = WASM_PATHS;
+    ort.env.wasm.wasmPaths = getWasmPaths();
     const sabOk = typeof SharedArrayBuffer !== 'undefined';
     const hw = (typeof navigator !== 'undefined' && navigator.hardwareConcurrency) || 1;
     ort.env.wasm.numThreads = sabOk ? Math.min(Math.max(1, hw), 4) : 1;
@@ -388,6 +393,10 @@ async function recognize(
 self.onmessage = (ev: MessageEvent<WorkerIn>) => {
   const msg = ev.data;
   if (!msg || typeof msg !== 'object') return;
+  if (msg.type === 'config') {
+    if (typeof msg.loopback === 'boolean') loopbackMode = msg.loopback;
+    return;
+  }
   if (msg.type === 'load') {
     void ensureLoaded().catch((e) => {
       post({ type: 'error', message: e instanceof Error ? e.message : String(e) });

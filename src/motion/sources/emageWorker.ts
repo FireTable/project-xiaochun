@@ -16,6 +16,7 @@
  */
 
 import * as ort from 'onnxruntime-web';
+import { isLoopbackHost } from '@/lib/loopback';
 import { APP_CONFIG } from '@/config';
 import { computeSeedFromLogits, type SeedDeps } from './emageSeed';
 
@@ -39,11 +40,12 @@ const GLOBAL_VZ = 56;
 // ponytail: 模型文件基础 URL。生产从 R2(绕过 Pages 25 MiB/300 MiB 单文件上限);
 // 本地 dev 在 .env.local 设 VITE_EMAGE_BASE=/onnx 即可用 public/onnx 软链。
 // 宿主回环沙箱（如 Cindy Electron 严格 webRequest 规则下仅放行 127.0.0.1）自动走本地代理路由。
-const isLoopbackHost = typeof self !== 'undefined' &&
-  (self.location.hostname === '127.0.0.1' || self.location.hostname === 'localhost');
-
-const ONNX_BASE = isLoopbackHost ? '/emage' : APP_CONFIG.emage.base;
-const WASM_PATHS = isLoopbackHost ? '/wasm/' : 'https://cdn.jsdelivr.net/npm/onnxruntime-web@1.22.0-dev.20250409-89f8206ba4/dist/';
+// 本地 Vite dev (localhost:5185) 也是回环地址但没有 /emage、/wasm 代理路由，必须排除，否则 404。
+// worker 看不到页面 URL：主线程用 isLoopbackHost() 算好后经 'config' 消息传入；未收到则用 worker 内安全默认（旧规则 + 排除 DEV）。
+let loopbackMode: boolean = isLoopbackHost();
+const getOnnxBase = (): string => (loopbackMode ? '/emage' : APP_CONFIG.emage.base);
+const getWasmPaths = (): string =>
+  loopbackMode ? '/wasm/' : 'https://cdn.jsdelivr.net/npm/onnxruntime-web@1.22.0-dev.20250409-89f8206ba4/dist/';
 const CACHE_NAME = APP_CONFIG.emage.cacheName;
 
 function postStageProfile(
@@ -305,7 +307,7 @@ async function ensureLoaded(onStatus?: (msg: string) => void): Promise<void> {
   if (loadPromise) return loadPromise;
 
   loadPromise = (async () => {
-    ort.env.wasm.wasmPaths = WASM_PATHS;
+    ort.env.wasm.wasmPaths = getWasmPaths();
     // P0b: SAB only exists under COOP/COEP isolation; log env so FINAL_TEST can verify threads>1 on phone.
     const sabOk = typeof SharedArrayBuffer !== 'undefined';
     const isolated = typeof self !== 'undefined' && !!(self as unknown as { crossOriginIsolated?: boolean }).crossOriginIsolated;
@@ -338,7 +340,7 @@ async function ensureLoaded(onStatus?: (msg: string) => void): Promise<void> {
 
     const sess = {} as Sessions;
     const t0 = performance.now();
-    const cleanBase = ONNX_BASE.replace(/\/+$/, '');
+    const cleanBase = getOnnxBase().replace(/\/+$/, '');
 
     // 所有加载路径 (主站 / Tauri / /embed / 预热) 都走这里:
     //  - 下载 (fetchWithCache: CacheStorage 命中直接读缓存) 对全部模型并行发起, 不再一个个排队;
@@ -646,6 +648,12 @@ async function decodeRange(fromFrame: number, toFrame: number, temporalSmoothRad
 // ─── Worker 消息路由监听 ───
 self.onmessage = async (e: MessageEvent) => {
   const { id, type, pcm, temporalSmoothRadius, continueFromPrevious, profileStages } = e.data;
+
+  // 主线程在创建 worker 后立刻发送，先于任何 init/generate（消息按序投递）。
+  if (type === 'config') {
+    if (typeof e.data.loopback === 'boolean') loopbackMode = e.data.loopback;
+    return;
+  }
 
   if (type === 'reset') {
     seed = null;

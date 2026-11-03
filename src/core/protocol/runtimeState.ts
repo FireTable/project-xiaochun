@@ -11,6 +11,7 @@
 
 import { ONBOARDING_STORAGE_KEY } from '@/lib/constants';
 import { isTauri } from '@/lib/platform';
+import { isLoopbackHost } from '@/lib/loopback';
 
 export interface XiaoChunRuntimeState {
   onboardingCompleted: boolean;
@@ -101,7 +102,7 @@ export async function syncXiaoChunRuntimeState(updates: Partial<XiaoChunRuntimeS
     } catch (err) {
       console.warn('[RuntimeState] 同步原生状态失败:', err);
     }
-  } else if (typeof window !== 'undefined' && (window.location.hostname === '127.0.0.1' || window.location.hostname === 'localhost')) {
+  } else if (typeof window !== 'undefined' && isLoopbackHost()) {
     // 若处于内嵌伴侣回环服务环境中，向 Node 桥接服务同步状态文件，确保持久化落盘 (SSOT)
     try {
       void fetch('/api/companion-state', {

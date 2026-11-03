@@ -8,6 +8,7 @@
  * Stop mid-utterance flushes VAD → recognize.
  */
 import { APP_CONFIG } from '@/config';
+import { isLoopbackHost } from '@/lib/loopback';
 import { SileroVad } from './sileroVad';
 import { richTranscriptionPostprocess } from './transcriptFilter';
 import { formatDraftPunctuation, finalizePunctuation } from './punctuation';
@@ -190,6 +191,8 @@ export class SttClient {
   private ensureWorker(): Worker {
     if (this.worker) return this.worker;
     const w = new Worker(new URL('./sttWorker.ts', import.meta.url), { type: 'module' });
+    // worker 看不到页面 URL，回环判定在主线程算好后传入（须先于 load/recognize 发送）
+    w.postMessage({ type: 'config', loopback: isLoopbackHost() });
     w.onmessage = (ev: MessageEvent<Record<string, unknown>>) => {
       const msg = ev.data;
       if (!msg || typeof msg !== 'object') return;

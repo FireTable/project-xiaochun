@@ -2,6 +2,7 @@ import * as THREE from 'three';
 import type { VRM } from '@pixiv/three-vrm';
 import type { VRMHumanBoneName } from '@pixiv/three-vrm';
 import { APP_CONFIG } from '../../config';
+import { isLoopbackHost } from '../../lib/loopback';
 import { isHeavyPreloadAllowed } from '../../lib/heavyPreload';
 import { FootIKSolver } from '../constraints/footIK';
 import { SpeakIdleSystem } from './speakIdle';
@@ -315,6 +316,8 @@ export class EmagePlayer {
     if (typeof Worker === 'undefined') return;
     try {
       this.worker = new Worker(new URL('./emageWorker.ts', import.meta.url), { type: 'module' });
+      // worker 看不到页面 URL，回环判定在主线程算好后传入（须先于 init 发送）
+      this.worker.postMessage({ type: 'config', loopback: isLoopbackHost() });
       this.worker.onmessage = (e: MessageEvent) => {
         const { id, type, message, error, rot6d, trans, frameCount, duration, fps, windowsProcessed, totalBufferedFrames, stage, elapsedMs, frames } = e.data;
         const pending = this.pendingRequests.get(id);

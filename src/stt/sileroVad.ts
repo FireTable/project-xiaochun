@@ -7,6 +7,7 @@
  */
 import * as ort from 'onnxruntime-web';
 import { APP_CONFIG } from '@/config';
+import { isLoopbackHost } from '@/lib/loopback';
 
 export type SileroVadConfig = {
   sampleRate?: number;
@@ -34,8 +35,7 @@ export type SileroVadEvent =
 const DEFAULT_MODEL_PATH = '/models/silero_vad_v5.onnx';
 const FALLBACK_MODEL_URL =
   'https://cdn.jsdelivr.net/npm/@ricky0123/vad-web@0.0.31/dist/silero_vad_v5.onnx';
-const isLoopbackHost = typeof window !== 'undefined' && (window.location.hostname === '127.0.0.1' || window.location.hostname === 'localhost');
-const WASM_PATHS = isLoopbackHost
+const getWasmPaths = (): string => isLoopbackHost()
   ? '/wasm/'
   : 'https://cdn.jsdelivr.net/npm/onnxruntime-web@1.22.0-dev.20250409-89f8206ba4/dist/';
 
@@ -82,7 +82,7 @@ export class SileroVad {
     this.initPromise = (async () => {
       try {
         if (typeof window !== 'undefined' && typeof ort !== 'undefined' && ort.env?.wasm) {
-          ort.env.wasm.wasmPaths = WASM_PATHS;
+          ort.env.wasm.wasmPaths = getWasmPaths();
           ort.env.wasm.numThreads = 1;
         }
 
