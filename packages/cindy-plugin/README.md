@@ -2,7 +2,7 @@
 
 Bring cheerful, healing XiaoChun into your Cindy! Your personal 3D AI companion stays in Cindy's sidebar with natural voice reading, delicate expressions, lively gestures, instant outfit swaps, dancing and multi-angle cameras. Zero installation required, instant ready.
 
-> ⚠️ **Note: This plugin is designed for PC desktop computers (macOS / Windows / Linux desktop Cindy). Mobile environments (iOS / Android) do not support 3D companion integration.**
+> ⚠️ **Note: This plugin works with Cindy on computers only (macOS / Windows / Linux). Mobile environments (iOS / Android) do not support 3D companion integration.**
 
 ---
 
@@ -10,7 +10,7 @@ Bring cheerful, healing XiaoChun into your Cindy! Your personal 3D AI companion 
 
 1. **Native Cindy Sidebar Embedded Panel**:
    - Zero installation required! Embeds the 3D companion panel directly in Cindy's sidebar or main tab view;
-   - Lightweight, zero footprint on desktop top layer.
+   - Lightweight: everything stays inside the Cindy window.
 2. **Vivid Companion Interactions**:
    - Synchronized natural speech and voice reading;
    - Rich motion choreography (`greeting`, `thinking`, `praiseCute`, `dancePerformance`, etc.);

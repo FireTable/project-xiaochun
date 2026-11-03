@@ -30,4 +30,4 @@ When the user expresses a desire to have XiaoChun as a permanent Cindy Bot teamm
 - Once created, XiaoChun appears directly under the "伙伴" (Companions) section on the Cindy sidebar.
 
 ## Platform Constraints
-This plugin is strictly for PC Desktop environments (macOS / Windows / Linux desktop Cindy). It will gracefully reject mobile invocations.
+This plugin works with Cindy on computers only (macOS / Windows / Linux). It will gracefully reject mobile invocations.

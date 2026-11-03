@@ -49,7 +49,7 @@
       }
     },
     "xiaochun_scene": {
-      "description": "샤오춘 데스크톱 무대 배경(beach3d 해변, dark 어두운 무대, light 밝은 무대, void 허공 등)을 변경합니다.",
+      "description": "샤오춘 컴패니언 무대 배경(beach3d 해변, dark 어두운 무대, light 밝은 무대, void 허공 등)을 변경합니다.",
       "parameters": {
         "/properties/name": {
           "description": "배경 씬 식별자. 선택 가능: 'beach3d', 'dark', 'light', 'void'."

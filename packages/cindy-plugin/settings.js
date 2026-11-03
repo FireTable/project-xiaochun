@@ -10,10 +10,7 @@
       section_mode: "运行形态配置",
       embed_title: "Cindy 内嵌伴侣视窗",
       embed_badge_noinstall: "免安装 · 开箱即用",
-      embed_desc: "直接在 Cindy 侧边栏/主视窗中渲染伴侣视窗，支持实时伴读、肢体动作、服装切换与面部表情。开箱即用，0 门槛免安装，不占用桌面置顶层。",
-      desktop_title: "桌面独立桌宠形态",
-      desktop_badge_unsupported: "暂不支持",
-      desktop_desc: "暂不支持桌面独立桌宠形态，当前仅支持 Cindy 侧边栏内嵌视窗模式。",
+      embed_desc: "直接在 Cindy 侧边栏/主视窗中渲染伴侣视窗，支持实时伴读、肢体动作、服装切换与面部表情。开箱即用，0 门槛免安装。",
       repo_title: "Project XiaoChun · 开源来源声明",
       repo_author: "作者：",
       repo_license: "协议：",
@@ -30,10 +27,7 @@
       section_mode: "Runtime Mode Configuration",
       embed_title: "Cindy Embed Panel Window",
       embed_badge_noinstall: "Zero-Install · Instant Ready",
-      embed_desc: "Renders the companion window directly in Cindy sidebar or main tab. Supports synchronized reading, body motions, outfit swap, and facial expressions. Zero install, ready to use, no desktop footprint.",
-      desktop_title: "Desktop Standalone Pet",
-      desktop_badge_unsupported: "Not Supported",
-      desktop_desc: "Desktop Standalone Pet mode is not supported at this stage. Cindy Embedded View mode is currently supported.",
+      embed_desc: "Renders the companion window directly in Cindy sidebar or main tab. Supports synchronized reading, body motions, outfit swap, and facial expressions. Zero install, ready to use.",
       repo_title: "Project XiaoChun · Open Source Statement",
       repo_author: "Author: ",
       repo_license: "License: ",
@@ -51,9 +45,6 @@
       embed_title: "Cindy 内蔵パネル視窗",
       embed_badge_noinstall: "インストール不要 · すぐ使える",
       embed_desc: "Cindy のサイドバーやメインタブ内で直接パートナー視窓をレンダリング。リアルタイム朗読、動作、着せ替え、表情変化に対応。インストール不要で即座に使えます。",
-      desktop_title: "デスクトップ独立ペット",
-      desktop_badge_unsupported: "現在非対応",
-      desktop_desc: "デスクトップ独立ペット形態は現在非対応です。Cindy 内蔵パネル視窓をご利用ください。",
       repo_title: "Project XiaoChun · オープンソース宣言",
       repo_author: "作者：",
       repo_license: "ライセンス：",
@@ -71,9 +62,6 @@
       embed_title: "Cindy 내장 패널 뷰",
       embed_badge_noinstall: "무설치 · 즉시 사용",
       embed_desc: "Cindy 사이드바 및 메인 탭에 메이트 뷰를 직접 렌더링합니다. 실시간 낭독, 모션, 의상 변경, 표정 연동을 지원하며 설치 없이 바로 사용 가능합니다。",
-      desktop_title: "데스크톱 독립 펫 형태",
-      desktop_badge_unsupported: "현재 미지원",
-      desktop_desc: "데스크톱 독립 펫 형태는 현재 지원되지 않으며, Cindy 내장 패널 뷰만 지원됩니다。",
       repo_title: "Project XiaoChun · 오픈소스 성명",
       repo_author: "작성자: ",
       repo_license: "라이선스: ",
@@ -92,7 +80,6 @@
   }
 
   const cardEmbed = document.getElementById("card-embed");
-  const cardDesktop = document.getElementById("card-desktop");
   const btnSave = document.getElementById("btn-save");
   const toast = document.getElementById("toast");
 
@@ -117,9 +104,6 @@
     setTxt("mode-name-embed", "embed_title");
     setTxt("badge-embed-noinstall", "embed_badge_noinstall");
     setTxt("mode-desc-embed", "embed_desc");
-    setTxt("mode-name-desktop", "desktop_title");
-    setTxt("badge-desktop-unsupported", "desktop_badge_unsupported");
-    setTxt("mode-desc-desktop", "desktop_desc");
     setTxt("repo-title-text", "repo_title");
     setTxt("repo-link-github", "repo_github");
     setTxt("repo-link-official", "repo_official");
@@ -195,13 +179,6 @@
 
   // 始终锁定 embed 模式
   if (cardEmbed) cardEmbed.classList.add("active");
-  if (cardDesktop) {
-    cardDesktop.classList.remove("active");
-    cardDesktop.onclick = (e) => {
-      e.preventDefault();
-      e.stopPropagation();
-    };
-  }
 
   // 外部链接安全调起宿主系统默认浏览器
   function openExternalUrl(e, url) {
