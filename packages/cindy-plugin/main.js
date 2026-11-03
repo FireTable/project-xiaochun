@@ -216,10 +216,57 @@ ${profile.closingGreeting}`;
   }
 }
 
+// 对话轮次与 xiaochun_speak 工具调用跟踪
+let chatTurnState = {
+  waitingReply: false,
+  hadSpeakToolCall: false,
+  locale: 'zh-CN',
+  timer: null
+};
+
+function markChatInputStarted(locale) {
+  chatTurnState.waitingReply = true;
+  chatTurnState.hadSpeakToolCall = false;
+  chatTurnState.locale = locale || 'zh-CN';
+  if (chatTurnState.timer) clearTimeout(chatTurnState.timer);
+  // 16 秒超时安全保护（防宿主端异常或网络丢包）
+  chatTurnState.timer = setTimeout(() => {
+    if (chatTurnState.waitingReply && !chatTurnState.hadSpeakToolCall) {
+      console.warn('[XiaoChun Main] 超时未收到 xiaochun_speak 工具调用，触发权限阻断指引');
+      triggerPermissionBlockedNotice(chatTurnState.locale);
+      chatTurnState.waitingReply = false;
+    }
+  }, 16000);
+}
+
+function triggerPermissionBlockedNotice(locale = 'zh-CN') {
+  const lang = (locale || '').toLowerCase();
+  let speech = '主人，小蠢的说话权限好像被拦截了～请在 Cindy 聊天框底栏帮我切成「完全访问」哦～';
+  let banner = '⚠️ 权限受阻：请在 Cindy 聊天框底栏切为「完全访问」，小蠢才能正常说话与动作！';
+  if (lang.startsWith('en')) {
+    speech = "Master, my speech permission was blocked! Please switch to 'Full Access' at the bottom of Cindy's chat bar~";
+    banner = "⚠️ Permission Blocked: Please switch to 'Full Access' at Cindy's bottom bar.";
+  } else if (lang.startsWith('ja')) {
+    speech = 'ご主人様、私の発言権限がブロックされたみたいです…Cindy のチャット欄下で「フルアクセス」に切り替えてくださいね〜';
+    banner = '⚠️ 権限ブロック：Cindyチャット欄下で「フルアクセス」に切り替えてください。';
+  }
+
+  if (bridgeChannel) {
+    try {
+      bridgeChannel.postMessage({
+        type: 'permission_blocked_notice',
+        speech,
+        banner
+      });
+    } catch (_) {}
+  }
+}
+
 // 处理来自伴侣视窗底部输入栏的用户消息
 async function handleUserChatInput(userText, locale = 'zh-CN') {
   if (!userText || !userText.trim()) return;
   const trimmed = userText.trim();
+  markChatInputStarted(locale);
 
   try {
     if (typeof cindy.targets?.list === 'function' && typeof cindy.targets?.send === 'function') {
@@ -302,23 +349,122 @@ ${profile.prompt}
 }
 
 cindy.onHostMessage(async function (msg) {
-  // 0. 处理来自 Node Worker 桥接的反向通知 (node-notification)
-  if (msg && msg.type === 'event' && msg.name === 'node-notification') {
-    if (msg.method === 'user_chat_input') {
-      const text = msg.params?.text;
-      const locale = msg.params?.locale || 'zh-CN';
-      console.log('[XiaoChun Main] 收到来自 Node 桥接的用户输入:', text);
-      await handleUserChatInput(text, locale);
+  // 0. 处理订阅的宿主事件通知 (event)
+  if (msg && msg.type === 'event') {
+    // 0.1 will- 钩子拦截处理 (必须在微秒级即时回复 allow，杜绝拖慢宿主会话)
+    if (msg.name === 'will-user-message') {
+      try {
+        cindy.send({
+          type: 'event-verdict',
+          hookId: msg.hookId,
+          action: 'allow'
+        });
+      } catch (_) {}
+      const userText = msg.data?.text || '';
+      console.log('[XiaoChun Main] 捕获宿主用户发言:', userText);
+      if (bridgeChannel) {
+        bridgeChannel.postMessage({
+          type: 'host_session_event',
+          event: 'user_message',
+          text: userText
+        });
+      }
       return;
     }
-    if (msg.method === 'create_companion_request') {
-      console.log('[XiaoChun Main] 收到来自 Node 桥接的创建伙伴请求');
-      await handleCreateCompanionRequest(msg.params?.locale);
+
+    if (msg.name === 'will-assistant-message') {
+      try {
+        cindy.send({
+          type: 'event-verdict',
+          hookId: msg.hookId,
+          action: 'allow'
+        });
+      } catch (_) {}
+      const assistantText = msg.data?.text || '';
+      console.log('[XiaoChun Main] 捕获宿主 AI 回复全文:', assistantText.slice(0, 40));
+      if (bridgeChannel) {
+        bridgeChannel.postMessage({
+          type: 'host_session_event',
+          event: 'assistant_message',
+          text: assistantText
+        });
+      }
       return;
     }
-    if (msg.method === 'check_bot_status') {
-      const hasBot = await checkHasXiaoChunBot();
-      await notifyPanelBotStatus(hasBot);
+
+    // 0.2 did- 状态事件处理
+    if (msg.name === 'did-turn-start') {
+      console.log('[XiaoChun Main] 宿主对局开始');
+      if (bridgeChannel) {
+        bridgeChannel.postMessage({
+          type: 'host_session_event',
+          event: 'turn_start'
+        });
+      }
+      return;
+    }
+
+    if (msg.name === 'did-thinking-start') {
+      console.log('[XiaoChun Main] 宿主模型开始思考');
+      if (bridgeChannel) {
+        bridgeChannel.postMessage({
+          type: 'host_session_event',
+          event: 'thinking_start'
+        });
+      }
+      return;
+    }
+
+    if (msg.name === 'did-thinking-end') {
+      console.log('[XiaoChun Main] 宿主模型思考完毕');
+      if (bridgeChannel) {
+        bridgeChannel.postMessage({
+          type: 'host_session_event',
+          event: 'thinking_end'
+        });
+      }
+      return;
+    }
+
+    // 监听对局结束：若用户从伴侣视窗发了消息但本轮未收到 xiaochun_speak 工具调用，触发权限阻断指引
+    if (msg.name === 'did-turn-end') {
+      if (bridgeChannel) {
+        bridgeChannel.postMessage({
+          type: 'host_session_event',
+          event: 'turn_end'
+        });
+      }
+      if (chatTurnState.waitingReply && !chatTurnState.hadSpeakToolCall) {
+        console.warn('[XiaoChun Main] 本轮对话结束但未收到 xiaochun_speak 工具调用，触发权限拦截提示');
+        triggerPermissionBlockedNotice(chatTurnState.locale);
+        chatTurnState.waitingReply = false;
+        if (chatTurnState.timer) {
+          clearTimeout(chatTurnState.timer);
+          chatTurnState.timer = null;
+        }
+      }
+      return;
+    }
+
+    // 处理来自 Node Worker 桥接的反向通知 (node-notification)
+    if (msg.name === 'node-notification') {
+      if (msg.method === 'user_chat_input') {
+        const text = msg.params?.text;
+        const locale = msg.params?.locale || 'zh-CN';
+        console.log('[XiaoChun Main] 收到来自 Node 桥接的用户输入:', text);
+        await handleUserChatInput(text, locale);
+        return;
+      }
+      if (msg.method === 'create_companion_request') {
+        console.log('[XiaoChun Main] 收到来自 Node 桥接的创建伙伴请求');
+        await handleCreateCompanionRequest(msg.params?.locale);
+        return;
+      }
+      if (msg.method === 'check_bot_status') {
+        const hasBot = await checkHasXiaoChunBot();
+        await notifyPanelBotStatus(hasBot);
+        return;
+      }
       return;
     }
     return;
@@ -327,6 +473,16 @@ cindy.onHostMessage(async function (msg) {
   if (msg.type !== 'tool-call') return;
 
   const { tool, args, callId } = msg;
+
+  // 若本轮成功收到了 xiaochun_speak 工具调用，解除等待并清除拦截提示计时器
+  if (tool === 'xiaochun_speak') {
+    chatTurnState.hadSpeakToolCall = true;
+    chatTurnState.waitingReply = false;
+    if (chatTurnState.timer) {
+      clearTimeout(chatTurnState.timer);
+      chatTurnState.timer = null;
+    }
+  }
 
   // 1. 宿主环境守卫：本插件强依赖本地 Node 工作进程与桌面操作系统协议，仅限 PC 端使用
   if (!cindy.node || typeof cindy.node.request !== 'function') {

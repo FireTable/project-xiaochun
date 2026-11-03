@@ -911,6 +911,24 @@ export function startEmbedBridge(opts: EmbedBridgeOptions): EmbedBridge {
           }
           break;
         }
+        case 'xc.bubble': {
+          const text = typeof p.text === 'string' ? p.text : '';
+          const statusKey = typeof p.statusKey === 'string' ? p.statusKey : '';
+          const isError = Boolean(p.isError);
+          if (p.visible === false || (!text && !statusKey)) {
+            vrmEngine.hideBubble();
+          } else {
+            vrmEngine.setBubbleStatus(
+              statusKey,
+              p.vars,
+              isError,
+              text,
+              p.segmentIndex,
+              p.totalSegments,
+            );
+          }
+          break;
+        }
         case 'xc.story.play':
           if (typeof window !== 'undefined') {
             window.dispatchEvent(new CustomEvent('xc-trigger-story', { detail: p }));

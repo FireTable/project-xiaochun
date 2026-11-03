@@ -484,6 +484,40 @@ export class VRMEngine {
     return this.bubbleTracker.subscribe(cb);
   }
 
+  /**
+   * 显式设定 3D 头部状态气泡内容（支持外部打字机投影与状态展示）
+   */
+  public setBubbleStatus(
+    key: string,
+    vars?: Record<string, unknown>,
+    isError = false,
+    speechText?: string,
+    segmentIndex?: number,
+    totalSegments?: number,
+  ): void {
+    if (this.currentVRM) {
+      this.bodyMorph.getHeadTopWorldPosition(this.tempHeadTopPos);
+    }
+    this.bubbleTracker.setStatus(
+      key,
+      this.currentVRM,
+      this.camera,
+      vars,
+      isError,
+      speechText,
+      segmentIndex,
+      totalSegments,
+      this.currentVRM ? this.tempHeadTopPos : undefined,
+    );
+  }
+
+  /**
+   * 隐藏 3D 头部状态气泡
+   */
+  public hideBubble(): void {
+    this.bubbleTracker.hide();
+  }
+
   public getCurrentUrl(): string {
     return this.currentUrl;
   }

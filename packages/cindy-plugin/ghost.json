@@ -5,7 +5,7 @@
   "name": "小蠢 AI 伴侣",
   "description": "让活泼治愈的小蠢常驻你的 Cindy！小蠢是随时伴你左右的桌面 AI 伴侣——不仅能在 Cindy 侧边栏安静停靠，还能化身透明桌宠悬浮在屏幕一角。对话时支持实时自然人声伴读、细腻微表情与灵动肢体动作，更有百变服装无缝切换、跳舞比心与多视角运镜，开箱即用，让写代码与日常对话从此充满元气与温度。",
   "whenToUse": "用户需要让小蠢 AI 伴侣说话、伴读、做肢体动作、表达面部表情，或者希望在 Cindy 中创建或配置「小蠢」专属常驻伙伴时使用。",
-  "version": "1.0.4",
+  "version": "1.0.5",
   "minCindyVersion": "0.1.121",
   "author": "FireTable",
   "command": "小蠢",
@@ -39,7 +39,10 @@
     "targets": true
   },
   "preview": {
-    "hosts": ["127.0.0.1", "localhost"]
+    "hosts": [
+      "127.0.0.1",
+      "localhost"
+    ]
   },
   "launch": "resident",
   "node": {
@@ -70,7 +73,19 @@
           },
           "expression": {
             "type": "string",
-            "enum": ["neutral", "happy", "gentle_smile", "smile", "shy", "playful", "hesitant", "surprised", "sad", "angry", "relaxed"],
+            "enum": [
+              "neutral",
+              "happy",
+              "gentle_smile",
+              "smile",
+              "shy",
+              "playful",
+              "hesitant",
+              "surprised",
+              "sad",
+              "angry",
+              "relaxed"
+            ],
             "description": "面部表情（可选）。可选值如：'neutral'(平静自然)、'happy'(开心)、'gentle_smile'(温柔微笑)、'smile'(微笑)、'shy'(害羞)、'playful'(调皮俏皮)、'hesitant'(思索犹豫)、'surprised'(惊讶)、'sad'(难过)、'angry'(生气)、'relaxed'(放松)。"
           },
           "force": {
@@ -78,7 +93,9 @@
             "description": "是否强制在新手引导（act0 序章剧情）期间插话，默认为 false。为 false 时若检测到新手引导正在进行，会提示用户先体验向导。"
           }
         },
-        "required": ["text"]
+        "required": [
+          "text"
+        ]
       }
     },
     {
@@ -96,7 +113,9 @@
             "description": "是否循环播放该动作，缺省为 false。"
           }
         },
-        "required": ["name"]
+        "required": [
+          "name"
+        ]
       }
     },
     {
@@ -107,12 +126,21 @@
         "properties": {
           "shot": {
             "type": "string",
-            "enum": ["close_up", "medium", "full", "extreme_close_up", "dramatic_low"],
+            "enum": [
+              "close_up",
+              "medium",
+              "full",
+              "extreme_close_up",
+              "dramatic_low"
+            ],
             "description": "景别名称，可选值：'close_up'(特写镜头)、'medium'(半身标准景别，缺省)、'full'(全身全景)、'extreme_close_up'(大特写)、'dramatic_low'(低角度仰拍)。注意：与 action 互斥，两者至少提供其一。"
           },
           "action": {
             "type": "string",
-            "enum": ["pan_up", "reset"],
+            "enum": [
+              "pan_up",
+              "reset"
+            ],
             "description": "镜头控制指令：'pan_up'(镜头平滑上摇抬升展示全身)、'reset'(重置相机到默认视角)。"
           }
         }
@@ -126,7 +154,12 @@
         "properties": {
           "name": {
             "type": "string",
-            "enum": ["beach3d", "dark", "light", "void"],
+            "enum": [
+              "beach3d",
+              "dark",
+              "light",
+              "void"
+            ],
             "description": "场景标识名称。可选：'beach3d'(阳光海滩)、'dark'(暗色舞台)、'light'(明亮舞台)、'void'(虚空舞台)。"
           },
           "persist": {
@@ -134,7 +167,9 @@
             "description": "是否持久化保存该场景选择（下次启动默认保留），默认为 true。"
           }
         },
-        "required": ["name"]
+        "required": [
+          "name"
+        ]
       }
     },
     {
@@ -145,11 +180,20 @@
         "properties": {
           "name": {
             "type": "string",
-            "enum": ["dinner_dress", "cheongsam", "techwear", "bikini", "maid", "default"],
+            "enum": [
+              "dinner_dress",
+              "cheongsam",
+              "techwear",
+              "bikini",
+              "maid",
+              "default"
+            ],
             "description": "服装标识名称或别名。可选：'dinner_dress'(优雅晚礼服)、'cheongsam'(国风旗袍)、'techwear'(潮酷机能风工装)、'bikini'(清凉比基尼泳装)、'maid'(可爱女仆装)、'default'(默认常服/白T短裤)。"
           }
         },
-        "required": ["name"]
+        "required": [
+          "name"
+        ]
       }
     },
     {
@@ -176,12 +220,21 @@
         "properties": {
           "action": {
             "type": "string",
-            "enum": ["ensure", "install", "launch", "switch_mode"],
+            "enum": [
+              "ensure",
+              "install",
+              "launch",
+              "switch_mode"
+            ],
             "description": "执行动作：'ensure'(自动检测并确保就绪，默认)、'install'(仅在用户明确同意后下载安装桌面客户端)、'launch'(唤醒已安装客户端)、'switch_mode'(切换桌面/内嵌形态)。缺省为 'ensure'。"
           },
           "mode": {
             "type": "string",
-            "enum": ["auto", "desktop", "embed"],
+            "enum": [
+              "auto",
+              "desktop",
+              "embed"
+            ],
             "description": "运行形态模式：'auto'(自动检测，已安装走桌面端，未安装走引导或内嵌)、'desktop'(强制使用桌面独立桌宠)、'embed'(使用 Cindy 内嵌伴侣视窗，零安装)。缺省为 'auto'。"
           },
           "userConfirmed": {
@@ -199,7 +252,10 @@
         "properties": {
           "mode": {
             "type": "string",
-            "enum": ["check", "install"],
+            "enum": [
+              "check",
+              "install"
+            ],
             "description": "执行模式：'check'(仅检查是否有新版本，不执行安装，默认)、'install'(仅当用户明确要求更新时，下载新版并重启)。缺省为 'check'。"
           },
           "userConfirmed": {
@@ -209,5 +265,15 @@
         }
       }
     }
-  ]
+  ],
+  "subscribe": {
+    "topics": [
+      "turn",
+      "activity"
+    ],
+    "hooks": [
+      "will-user-message",
+      "will-assistant-message"
+    ]
+  }
 }
