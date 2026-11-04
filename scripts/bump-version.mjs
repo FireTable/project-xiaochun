@@ -40,6 +40,8 @@ const SOURCES = [
   { file: 'src-tauri/tauri.conf.json', match: /"version":\s*"(\d+\.\d+\.\d+)"/,     replace: (v) => `"version": "${v}"` },
   // npm SDK 与桌面 app 同一条版本线: 一次 bump / 一个 v* tag 同时驱动 release-tauri 与 publish-npm
   { file: 'packages/project-xiaochun/package.json', match: /"version":\s*"(\d+\.\d+\.\d+)"/, replace: (v) => `"version": "${v}"` },
+  // Schema.org LD+JSON 站点版本
+  { file: 'src/routes/__root.tsx', match: /softwareVersion:\s*'(\d+\.\d+\.\d+)'/, replace: (v) => `softwareVersion: '${v}'` },
 ];
 
 const argv = process.argv.slice(2);
