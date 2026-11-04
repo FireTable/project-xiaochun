@@ -69,24 +69,34 @@ Besides local WebLLM execution, [`src/llm/customProvider/`](../src/llm/customPro
 
 ---
 
-## 4. Multi-Tier IndexedDB Memory System
+## 4. Multi-Tier Client Cognitive Memory System (`@firetable/client-memory`)
 
-Located in [`src/memory/`](../src/memory/), all context resides in the client IndexedDB database `xiaochun-memory`:
+Located in [`packages/client-memory/`](../packages/client-memory/) and [`src/memory/`](../src/memory/), all context resides strictly in the client IndexedDB database `client-memory-db`:
 
 ```
-IndexedDB: xiaochun-memory
-├── store: turns (Recent dialog turns) -> { user, assistant, ts }
-└── store: entities (Extracted user profile) -> { nickname, hobbies, relationship... }
+IndexedDB: client-memory-db
+├── store: turns      (Recent short-term dialog turns) -> { user, assistant, ts, summarized }
+├── store: profile    (User identity & preference facts) -> { nickname, traits, facts, relationshipStage }
+├── store: episodes   (Long-term narrative diary entries) -> { title, summary, entities, importance, recallCount }
+└── store: lorebooks  (SillyTavern compatible knowledge base) -> { keys, constant, order, depth, content }
 ```
 
-### 4.1 Memory Retrieval & Injection Lifecycle
+### 4.1 Memory Retrieval & Cognitive Ingestion Lifecycle
 
-1. **Entity Extraction (`extract.ts`)**:
-   Post-turn regex parsers extract user persona details (name, preferences, relationship nuance) into `entities`;
-2. **Device-Adaptive Short-Term Window (`inject.ts`)**:
-   Small models (0.5B ~ 2B) degrade quickly under lengthy contexts. The system caps short-term history (default 2 turns), preventing repetition, persona drift, and prefill delays;
-3. **System Prompt Hydration (`applyRecall`)**:
-   Entities format cleanly into the system prompt, while conversational history injects via standard ChatML messages (`[{system}, {user}, {assistant}, ...]`).
+1. **Heuristic Fact & Persona Extraction (`IntentExtractor`)**:
+   Post-turn regex parsers extract user identity, occupation, location, and likes/dislikes into the user profile with zero GPU overhead.
+2. **Conflict Resolution & Cap (`ConflictResolver`)**:
+   Single-value fields overwrite cleanly, preference facts are normalized, and profile facts are capped at a maximum of 60 items.
+3. **Zero-GPU Episodic Consolidation (`EpisodicConsolidator`)**:
+   Turns exceeding the short-term working window are consolidated into narrative episodic memory cards with entity tagging and importance rating.
+4. **Stanford 3D Cognitive Retrieval (`scorer.ts` + `BM25Index`)**:
+   Episodes are ranked by recency (exponential half-life decay, default 7 days), importance, and BM25 relevance score.
+5. **SillyTavern (酒馆) Lorebook Knowledge Matching (`LorebookMatcher`)**:
+   Keyword-triggered and constant worldbook entries are dynamically injected for rich conversational background.
+6. **KV-Cache Deterministic Context Assembly (`ContextAssembler`)**:
+   Memory components are assembled with deterministic prefix stability (`System Prompt -> Profile Facts -> Lorebooks -> Episodes -> Short-term Turns`), maximizing WebLLM KV-cache reuse and eliminating expensive prefill latency.
+
+> 📖 **Full Specification & Architecture**: See [`CLIENT_MEMORY.md`](CLIENT_MEMORY.md) for detailed formulas, schemas, lock safety, and UI interaction specs.
 
 ---
 

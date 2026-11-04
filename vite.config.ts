@@ -92,6 +92,8 @@ export default defineConfig(({ command, isPreview }) => ({
       // /embed 与 npm 包 @firetable/project-xiaochun 共用同一份协议常量/类型 (源码直引, 不依赖包是否已 build)
       '@firetable/project-xiaochun/protocol': path.resolve(import.meta.dirname, 'packages/project-xiaochun/src/protocol.ts'),
       '@firetable/project-xiaochun/protocol-url': path.resolve(import.meta.dirname, 'packages/project-xiaochun/src/protocol-url.ts'),
+      '@firetable/client-memory': path.resolve(import.meta.dirname, 'packages/client-memory/src/index.ts'),
+      'client-memory': path.resolve(import.meta.dirname, 'packages/client-memory/src/index.ts'),
     },
   },
   ssr: {

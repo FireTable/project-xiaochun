@@ -546,7 +546,7 @@ export class VRMBodyMorph {
    * 动态获取角色当前实时精确身高 (厘米 cm，保留一位小数)
    * 严格基于物理世界地面 (Y=0) 到头顶世界坐标的真实测量，
    * 彻底杜绝 Blendshape 极端包围盒撑大虚高与静态写死硬编码，
-   * 穿鞋动态自适应（小春模型为 163.6cm ~ 163.8cm），脱鞋 IK 下沉实时反映，换任意新模型 100% 动态自适应！
+   * 穿鞋动态自适应（小蠢模型为 163.6cm ~ 163.8cm），脱鞋 IK 下沉实时反映，换任意新模型 100% 动态自适应！
    */
   /** 头顶世界 Y（米）→ 身高 cm。供同帧已采样的 head-top 复用，避免再走一遍 getWorldPosition。 */
   public heightCmFromHeadTopY(y: number): number {

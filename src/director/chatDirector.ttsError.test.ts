@@ -1,6 +1,9 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 
-vi.mock('@/memory', () => ({ rememberTurn: vi.fn(async () => {}) }));
+vi.mock('@/memory', () => ({
+  rememberTurn: vi.fn(async () => {}),
+  clearAssembledUserContent: vi.fn(),
+}));
 vi.mock('@/llm/chatWorkflow', () => ({ generateSpeechReply: vi.fn() }));
 vi.mock('mpg123-decoder', () => ({ MPEGDecoder: class { ready = Promise.resolve(); } }));
 

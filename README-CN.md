@@ -227,15 +227,16 @@ brew upgrade --cask project-xiaochun
 * **预览后导入** — 接收端本地解密后展示「将导入」的完整列表(active 服务 / N 个 provider / 思考模式 / 对话设置含对话字幕开/关),用户点「确认导入」才落库。导入走 `saveUserSettings`,内存缓存与 `ChatBubble` 订阅立刻刷新。
 * **纯前端无服务端架构** — 纯客户端处理，无需第三方服务器中转，无遥测，无后端协调。
 
-### 💾 端侧持久化多级记忆系统 (Client-Side Memory System)
-* **100% 纯本地隐私安全 (IndexedDB)**：基于浏览器原生 IndexedDB（`xiaochun-memory` 独立数据库），对话轮次、用户称呼、性格喜好与长期记忆全部保留在用户设备本地，绝不向任何云端服务器回传。
-* **三层记忆分级架构 (3-Tier Memory Architecture)**：
-  * **短期对话轮次 (Short-Term Turns)**：自动维护最近 $N$ 轮对话上下文（默认保留 6 轮，单轮截断 180 字符，由 `APP_CONFIG.memory.shortTermTurns` 控制），保障即时对话连贯性。
-  * **实体画像提取 (Entity Profile)**：支持中 / 英 / 日多语言正则智能抓取用户称呼（如“我叫…”、“叫我…”、“my name is…”、“call me…”、“私は…”）、偏好倾向（“我喜欢…”、“我不喜欢…”、“i like…”）与关键事实，去重收录并持久化至画像配置。
-  * **长期摘要笔记与相关度检索 (Long-Term Notes & n-gram Retrieval)**：自动沉淀对话摘要笔记（长期存储上限 80 条）；新对话发起时，通过 n-gram 文本相似度打分算法 (`gramScore`) 快速召回最相关的 Top-K（默认 4 条）历史笔记。
-* **免阻塞异步写入与动态提示词注入**：
-  * **异步落库**：对话结束后台异步执行 `rememberTurn()`，零阻塞主线程渲染、手势与音频播放。
-  * **动态记忆注入**：发起生成前瞬时完成 `recallForChat()`，将提取的实体画像与召回的长期笔记智能封装进小蠢的 LLM 系统提示词（`appendMemoryToSystem`），支持中 / 英 / 日多语系个性化称呼（如“你还记得对方：称呼 xxx。喜欢 xxx…”、“以前聊过的事：…”），并指示模型优先接续最新话题。
+### 💾 端侧持久化认知记忆系统 (`@firetable/client-memory`)
+* **100% 纯本地隐私安全 (IndexedDB)**：基于浏览器原生 IndexedDB（`client-memory-db` 独立数据库，由独立包 `@firetable/client-memory` 驱动），对话轮次、用户称呼、性格偏好、情景回忆日记与世界书知识全部保留在用户设备本地，绝不向任何云端服务器回传。
+* **四层认知分级架构 (4-Tier Cognitive Architecture)**：
+  * **短期工作记忆 (Working Turns)**：自动维护滚动对话上下文（设备智能推荐 2~6 轮，用户可在对话设置中自主调节 1–50 轮），保障即时对话连贯性与显存负载平衡。
+  * **用户身份与偏好画像 (User Profile & Facts)**：零 GPU 开销多语言正则启发式提取（`IntentExtractor`）称谓、职业、地点与喜好/厌恶，结合先进的单值覆盖与去重机制（`ConflictResolver`，上限 60 条事实）。
+  * **长程情景陪伴日记 (Episodic Journal)**：零 GPU 归纳器（`EpisodicConsolidator`）将超出短期窗口的对话自动凝聚成陪伴情景卡片，采用 **Stanford Generative Agents 3D 认知评分算法**（$\text{遗忘衰减} + \text{重要度} + \text{BM25 相关性}$）进行记忆加权召回。
+  * **酒馆 (SillyTavern) 兼容世界书知识库 (Lorebook)**：原生兼容酒馆世界书 JSON 导出，支持常驻与关键词触发的设定知识动态注入。
+* **KV-Cache 确定性前缀装配 (ContextAssembler)**：以结构化前缀保证提示词稳定性（`系统提示词 -> 画像特征 -> 世界书设定 -> 情景回忆 -> 短期对话`），最大化命中 WebLLM KV-cache，消除耗时的重复 Prefill 显存计算。
+* **独立记忆手帐中心 (`MemoryDialog`)**：点击对话条菜单 → **「记忆设置」** 进入，内含三段式控制器（`[记忆画像]`、`[时光回忆]`、`[世界书]`），支持一键粘贴导入酒馆 JSON，以及带 4 秒超时防护的两步确认安全清空重置（`memory.clearAll({ includeLorebook: false })`）。
+* **免阻塞异步写入与加密同步**：对话结束后台异步执行提交，支持导出 AES-GCM-256 加密单行文本实现跨设备无缝迁移。完整架构详见 [`docs/CLIENT_MEMORY.md`](docs/CLIENT_MEMORY.md)。
 
 ### 🌐 国际化与 SSR 水合 (i18n & SSR)
 * **TanStack Start** 全栈 SSR,基于 Cookie 的语言水合 —— **客户端首屏不闪语言**。
