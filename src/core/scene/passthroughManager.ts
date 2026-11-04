@@ -163,7 +163,7 @@ class PassthroughManager {
       let bitCount = 0;
 
       for (let i = 3; i < data.length; i += 4) {
-        // 阈值设为 40 (约 16% 不透明度)：彻底避免微弱边缘漫射杂散像素污染，确保小春身体 (255) 100% 精准响应
+        // 阈值设为 40 (约 16% 不透明度)：彻底避免微弱边缘漫射杂散像素污染，确保小蠢身体 (255) 100% 精准响应
         if (data[i]! > 40) {
           currentByte |= (1 << bitCount);
         }

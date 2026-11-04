@@ -47,7 +47,7 @@ const CONJUNCTION_COMMA_REGEX =
 
 // Conversational head particles/interjections: e.g. "是吗", "对了", "你好", "简单说两句"
 const CHINESE_HEAD_PARTICLES_REGEX =
-  /^(是吗|对吧|对了|你好|小春|等等|喂|哈喽|话说|我说|那啥|简单说两句|简单来说|简单说|简单讲|说实话|实际上|坦白讲|客观来说)(?=[^，。？！\s])/;
+  /^(是吗|对吧|对了|你好|小蠢|小春|等等|喂|哈喽|话说|我说|那啥|简单说两句|简单来说|简单说|简单讲|说实话|实际上|坦白讲|客观来说)(?=[^，。？！\s])/;
 
 // Subjective transitions / opinion markers: e.g. "我想", "我觉得", "我认为"
 const CHINESE_SUBJECTIVE_TRANSITION_REGEX =

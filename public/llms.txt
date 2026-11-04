@@ -28,7 +28,7 @@ Project XiaoChun is a dual-mode anime companion application running both in mode
 - **Desktop Companion Mode (Tauri 2.x)**: Operates borderless and chromeless with true transparent desktop compositing, 60Hz Alpha Bitmask hit-testing thread for click-through, and persistent window state (`tauri-plugin-window-state`).
 - **Inter-Process Protocol (`xiaochun://`)**: System-wide IPC URL Scheme allowing external applications, CLI scripts, and autonomous AI agents to wake up XiaoChun and drive `speakText` with full-body motion, lip-syncing, and dialog bubbles.
 - **3D Holographic Guides & Aerodynamics**: In-world WebGL controls including `TurnGuide3D` (yaw guide ring with reactive light beacon), `PitchGuide3D` (elevation arc), `CameraYGuide3D` (floating 3D height rail), and localized cursor wind drag impulses (`windForce.ts`).
-- **Client-Side Memory**: IndexedDB (`xiaochun-memory`) local persistence — 3-tier architecture with short-term turns, multilingual entity profile extraction, and n-gram long-term note retrieval. 100% local privacy guarantee with zero telemetry.
+- **Client-Side Cognitive Memory**: IndexedDB (`client-memory-db` via `@firetable/client-memory`) local persistence — 4-tier cognitive architecture with short-term turns, zero-GPU intent/fact extraction, long-term episodic narrative journals, Stanford Generative Agents 3D decay scoring, and SillyTavern compatible lorebook injection. 100% local privacy guarantee with zero telemetry.
 - **i18n & SSR**: TanStack Start full-stack SSR with cookie-based language hydration; ships zh-CN / en / ja; adaptive prompt matching user input language.
 - **Mobile-First UI**: iOS HIG 44 pt / Material 48 dp touch targets, liquid-glass aesthetic, SSR pre-rendered LoadingOverlay. Chat input remains editable during response so users can pre-type.
 - **Debug Drawer (localhost only)**: Schema-driven **11-section** panel (expressions / motion / vocal / camera / saturation / bone morph / wardrobe / lighting / postfx / emagePerf / voiceAnalysis). Per-section state isolation + per-frame / commit slider split. Full architecture in `docs/ARCHITECTURE_AND_RULES.md` §3.
@@ -39,6 +39,7 @@ Project XiaoChun is a dual-mode anime companion application running both in mode
 - [Agent Auth Policy](/auth.md): Public and anonymous access whitepaper for autonomous agents and LLM crawlers.
 - [Story Director Guide](/docs/STORY_DIRECTOR.md): Interactive cinematic story engine, beat lifecycle, camera moves, and procedural audio.
 - [Beach 3D World Guide](/docs/BEACH3D_SCENE.md): Real-time anime MMD-stage beach, 24-hour solar arc, and SceneTimeCard HUD.
+- [Client Memory Architecture Guide](/docs/CLIENT_MEMORY.md): Cognitive memory system (@firetable/client-memory), 4-tier IndexedDB hierarchy, SillyTavern lorebooks, and episodic scoring.
 - [Motion Pipeline Guide](/docs/MOTION_PIPELINE.md): Universal motion pipeline, Quintic 0.75s blending, FootIK, and BodyTurn stepping.
 - [Performance Guide](/docs/PERFORMANCE.md): Model slimming, zero-drop outfit swap, Silero silence bypass, and mobile GPU lifecycle.
 - [TTS & Vocal Post-Processing Guide](/docs/TTS.md): Edge-TTS proxy architecture and Tone.js 3D spatial vocal processing.

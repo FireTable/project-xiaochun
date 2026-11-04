@@ -7,6 +7,7 @@ import { useCurrentScene } from '@/core/scene/sceneManager';
 import { DeviceStatusDialog } from '@/components/DeviceStatusDialog';
 import { ProviderConfigDialog } from '@/components/ProviderConfigDialog';
 import { AdvancedSettingsDialog } from '@/components/AdvancedSettingsDialog';
+import { MemoryDialog } from '@/components/MemoryDialog';
 import { SyncDialog } from '@/components/SyncDialog';
 import {
   isWebLLMReady,
@@ -157,6 +158,7 @@ export const ChatBar: React.FC<ChatBarProps> = ({
   const [showDeviceDialog, setShowDeviceDialog] = useState(false);
   const [showProviderDialog, setShowProviderDialog] = useState(false);
   const [showAdvancedDialog, setShowAdvancedDialog] = useState(false);
+  const [showMemoryDialog, setShowMemoryDialog] = useState(false);
   const [showSyncDialog, setShowSyncDialog] = useState(false);
 
   /** Height only grows (cap 4). Shrink back to 1 only when content is cleared. */
@@ -862,6 +864,13 @@ export const ChatBar: React.FC<ChatBarProps> = ({
                       <ChevronRight className="h-4 w-4 shrink-0 text-white/50" />
                     </DropdownMenuItem>
                     <DropdownMenuItem
+                      onSelect={() => setShowMemoryDialog(true)}
+                      className="justify-between"
+                    >
+                      <span>{t('chat.memoryMenu')}</span>
+                      <ChevronRight className="h-4 w-4 shrink-0 text-white/50" />
+                    </DropdownMenuItem>
+                    <DropdownMenuItem
                       onSelect={() => setShowSyncDialog(true)}
                       className="justify-between"
                     >
@@ -1204,6 +1213,11 @@ export const ChatBar: React.FC<ChatBarProps> = ({
       <AdvancedSettingsDialog
         open={showAdvancedDialog}
         onOpenChange={setShowAdvancedDialog}
+      />
+
+      <MemoryDialog
+        open={showMemoryDialog}
+        onOpenChange={setShowMemoryDialog}
       />
 
       <SyncDialog

@@ -254,15 +254,16 @@ You can download installer packages directly from the official Releases page:
 * **Preview-Before-Apply** — The receiving device decrypts locally, shows exactly what will change (active service / N providers / thinking on-off / chat settings including dialogue-subtitles on-off), and only commits after the user clicks **确认导入**. Import writes `userSettings` through `saveUserSettings` so the in-memory cache and `ChatBubble` subscribers update immediately.
 * **Pure Client-Side Architecture** — Pure client-side execution with no third-party telemetry and no backend coordination.
 
-### 💾 Client-Side Multi-Tier Memory System
-* **100% Local Privacy (IndexedDB)**: Powered by browser-native IndexedDB (`xiaochun-memory` database). Dialogue turns, personal preferences, and recalled facts stay entirely on the client device — zero telemetry or chat logs sent to any server.
-* **3-Tier Memory Architecture**:
-  * **Short-Term Turns**: Automatically buffers the most recent conversational rounds (default 6 turns, clipped to 180 chars per turn via `APP_CONFIG.memory.shortTermTurns`), maintaining dialogue coherence.
-  * **Entity Profile Extraction**: Multilingual (zh / en / ja) regex smart extraction captures user names/nicknames (e.g., "my name is...", "call me...", "我叫...", "叫我...", "私は..."), likes, dislikes, and entity facts with deduplication.
-  * **Long-Term Notes & n-gram Retrieval**: Archives conversational summaries (up to 80 notes); retrieves the most contextually relevant Top-K (default 4) past memories using an n-gram similarity scoring algorithm (`gramScore`).
-* **Non-blocking Async Persistence & Dynamic Injection**:
-  * **Async Commit**: Executes `rememberTurn()` in the background upon turn completion, never stuttering UI animations or audio playback.
-  * **Contextual Prompt Injection**: `recallForChat()` swiftly retrieves entities and relevant notes, injecting localized memory headers (`appendMemoryToSystem`) directly into the LLM system prompt so XiaoChun naturally remembers your identity and prior topics while prioritizing current chatter.
+### 💾 Client-Side Cognitive Memory System (`@firetable/client-memory`)
+* **100% Local Privacy (IndexedDB)**: Powered by browser-native IndexedDB (`client-memory-db` database via `@firetable/client-memory`). Dialogue turns, personal preferences, episodic diaries, and imported lorebooks stay entirely on the client device — zero telemetry or chat logs sent to any server.
+* **4-Tier Cognitive Architecture**:
+  * **Working Memory (Turns)**: Automatically buffers rolling short-term rounds (device-recommended 2~6 turns, customizable 1–50 via Dialogue Settings), maintaining coherent multi-turn context.
+  * **User Persona & Preference Facts**: Zero-GPU heuristic extraction (`IntentExtractor`) of nickname, occupation, location, and likes/dislikes with FIFO deduplication (`ConflictResolver`, capped at 60 facts).
+  * **Episodic Narrative Journal**: Zero-GPU consolidation (`EpisodicConsolidator`) of turns exceeding the working window into narrative memory cards, ranked via **Stanford Generative Agents 3D scoring** ($\text{Recency Decay} + \text{Importance} + \text{BM25 Relevance}$).
+  * **SillyTavern (酒馆) Lorebook Knowledge Base**: Compatible with SillyTavern JSON exports, supporting keyword-triggered and constant worldbook knowledge injection.
+* **KV-Cache Deterministic Prefix Assembly**: Formats memory with strict prefix stability (`System Prompt -> Profile Facts -> Lorebooks -> Episodes -> Short-term Turns`), maximizing WebLLM KV-cache reuse and eliminating expensive prefill latency.
+* **Standalone Memory Center (`MemoryDialog`)**: Access via ChatBar menu → **记忆设置 / Memory Settings** with 3 segmented tabs (`[记忆画像]`, `[时光回忆]`, `[世界书]`), inline SillyTavern JSON import, and a 2-step confirmation memory reset with 4s timeout protection (`memory.clearAll({ includeLorebook: false })`).
+* **Encrypted Cross-Device Portability**: Exports memories and custom providers into an AES-GCM-256 encrypted string for seamless cross-device synchronization. Detailed in [`docs/CLIENT_MEMORY.md`](docs/CLIENT_MEMORY.md).
 
 ### 🌐 i18n & SSR
 * **TanStack Start** full-stack SSR with cookie-based language hydration — no client-side language flash.

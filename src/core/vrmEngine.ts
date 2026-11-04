@@ -2861,7 +2861,7 @@ export class VRMEngine {
       }
 
       // 冷启动阶段：等待 EMAGE 动作模型加载就绪，使 LoadingOverlay 的 04 动作管线就绪名副其实
-      // 破次元进入 3D 舞台后小春开口第一句话可直接无缝做出灵动肢体动作
+      // 破次元进入 3D 舞台后小蠢开口第一句话可直接无缝做出灵动肢体动作
       if (!preserveMotion && isHeavyPreloadAllowed()) {
         let emageProgress = 55;
         this.reportLoading({ active: true, subtitleKey: 'madMotionSync', subtitleVars, progress: emageProgress });
@@ -2898,11 +2898,11 @@ export class VRMEngine {
         // 冷启动进入 3D 舞台：遮罩淡出时立即起播 greeting (热情招手问候)，在招手展开时平滑推镜头
         const isChatActive = this.turnState === 'thinking' || this.turnState === 'speaking' || this.turnState === 'listening' || this.chatDirector.speaking;
         if (!isChatActive && this.turnState === 'idle' && !this.interaction.getState().isDragging && (options?.showcase ?? true)) {
-          // 1. 立即播放 greeting 招手（遮罩淡出的同时小春已在正向迎客抬手，零等待延迟）
+          // 1. 立即播放 greeting 招手（遮罩淡出的同时小蠢已在正向迎客抬手，零等待延迟）
           void this.playMotionGroup('greeting', { fadeDuration: 0.65, loop: false, isColdStartGreeting: true }).catch((e) => {
             console.warn('[vrmEngine] cold-start greeting motion notice:', e);
           });
-          // 2. 然后推镜头 (在小春抬手热情招手展开至高位时，镜头平滑推向角色特写)
+          // 2. 然后推镜头 (在小蠢抬手热情招手展开至高位时，镜头平滑推向角色特写)
           this._coldStartIntroTimer = setTimeout(() => {
             this._coldStartIntroTimer = null;
             const stillClean = this.turnState === 'idle' && !this.chatDirector.speaking && !this.interaction.getState().isDragging;
@@ -4075,7 +4075,7 @@ export class VRMEngine {
   }
 
   /**
-   * 射线检测屏幕坐标 (clientX, clientY) 是否击中小春 3D 角色模型实体
+   * 射线检测屏幕坐标 (clientX, clientY) 是否击中小蠢 3D 角色模型实体
    */
   public isHitModel(clientX: number, clientY: number): boolean {
     if (!this.currentVRM || !this.camera || typeof window === 'undefined') return false;

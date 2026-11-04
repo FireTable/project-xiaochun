@@ -1,14 +1,13 @@
 /**
  * AdvancedSettingsDialog — 用户自定义系统提示词与对话记忆轮数。
  *
- * ponytail: 跟 ProviderConfigDialog 同套视觉(dark glass card,圆角,bg-white/[0.04])。
- * 字段:
- * - 系统提示词:textarea,留空 = 用默认人设
- * - 记忆轮数:slider,1-50,有 override 时显示 override,否则显示设备推荐
- * - 对话字幕:switch,默认 APP_CONFIG.chat.showChatDialogue;关了只藏 chat 模式的 PC 头顶气泡 + 移动端电影字幕栏
- *   (ChatBubble),不拦 ChatDirector / bubbleTracker 事件;故事模式台词不受影响
+ * 专注管理对话维度配置：
+ * - 系统提示词：textarea，留空 = 用默认人设
+ * - 记忆轮数：slider 1-50，有 override 时显示 override，否则显示设备推荐
+ * - 对话字幕：switch，控制聊天模式头顶气泡与字幕栏
  *
- * 写入 userSettings IDB;App.tsx 订阅变化 → 重新 bindSystemContext,下次 send 自动生效。
+ * 样式遵循深色玻璃拟态 (dark glass card, border-white/15, bg-slate-950/95)，
+ * 所有图标统一使用系统 primary (brand-300 / brand-400) 主题色。
  */
 
 import React, { useEffect, useRef, useState } from 'react';
@@ -60,7 +59,6 @@ export const AdvancedSettingsDialog: React.FC<AdvancedSettingsDialogProps> = ({
   onOpenChange,
 }) => {
   const { t, i18n } = useTranslation();
-  // ponytail: 表单态从 IDB 同步读一次,打开 dialog 期间缓存,save 时再 persist。
   const [settings, setSettings] = useState<UserSettings>({});
   const [draftPrompt, setDraftPrompt] = useState('');
   const [draftTurns, setDraftTurns] = useState<number>(0);
@@ -68,16 +66,13 @@ export const AdvancedSettingsDialog: React.FC<AdvancedSettingsDialogProps> = ({
   const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  // ponytail: 用于 onOpenAutoFocus 把焦点重定向到 system prompt textarea,
-  // 不让 Radix 默认去聚焦「恢复默认」按钮。
+
   const promptTextareaRef = useRef<HTMLTextAreaElement>(null);
 
-  // ponytail: 当前语言从 i18n 读 — 默认人设按语言挑,fallback zh-CN。
   const lang: Lang = ((i18n.resolvedLanguage ?? i18n.language ?? DEFAULT_LANG) as Lang);
   const defaultPrompt = XIAOCHUN_SYSTEM_PROMPT[lang] ?? XIAOCHUN_SYSTEM_PROMPT['zh-CN'];
   const deviceRecommended = getDeviceMemoryTurns();
 
-  // 表单是否被用户改过 — 用来显示「使用默认」按钮
   const promptOverridden = (settings.systemPromptOverride?.trim() ?? '') !== '';
   const turnsOverridden = typeof settings.memoryTurnsOverride === 'number' && settings.memoryTurnsOverride > 0;
   const dialogueOverridden = typeof settings.showChatDialogue === 'boolean';
@@ -87,7 +82,6 @@ export const AdvancedSettingsDialog: React.FC<AdvancedSettingsDialogProps> = ({
     void (async () => {
       const s = await getUserSettings();
       setSettings(s);
-      // 表单初值:override 有就用,否则预填默认人设(让用户看到「当前是什么」,方便微调)
       setDraftPrompt(s.systemPromptOverride ?? defaultPrompt);
       setDraftTurns(s.memoryTurnsOverride ?? deviceRecommended);
       setDraftShowDialogue(resolveShowChatDialogue(s));
@@ -112,7 +106,6 @@ export const AdvancedSettingsDialog: React.FC<AdvancedSettingsDialogProps> = ({
     setSaving(true);
     setError(null);
     try {
-      // ponytail: 文本跟默认人设字面值相等 → 视作"未设置",清掉 override,下次读默认。
       const trimmed = draftPrompt.trim();
       const promptChanged = trimmed && trimmed !== defaultPrompt;
       const turnsChanged = draftTurns !== deviceRecommended;
@@ -120,7 +113,7 @@ export const AdvancedSettingsDialog: React.FC<AdvancedSettingsDialogProps> = ({
       await setSystemPromptOverride(promptChanged ? trimmed : null);
       await setMemoryTurnsOverride(turnsChanged ? draftTurns : null);
       await setShowChatDialogueOverride(dialogueChanged ? draftShowDialogue : null);
-      // 同步本地 settings,让 "已使用 override" 提示立刻更新
+
       const next: UserSettings = {};
       if (promptChanged) next.systemPromptOverride = trimmed;
       if (turnsChanged) next.memoryTurnsOverride = draftTurns;
@@ -141,9 +134,6 @@ export const AdvancedSettingsDialog: React.FC<AdvancedSettingsDialogProps> = ({
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent
         className="max-w-[min(28rem,calc(100vw-1.75rem))] sm:max-w-lg max-h-[90vh] overflow-x-hidden overflow-y-auto"
-        // ponytail: Radix 默认会把焦点放到第一个 focusable 元素(右上角的「恢复默认」),
-        // 那个按钮视觉上不显眼但被聚焦会出现 outline,看着像 bug。改到 system prompt textarea,
-        // 用户一进来就能立刻打字。
         onOpenAutoFocus={(e) => {
           e.preventDefault();
           promptTextareaRef.current?.focus();
@@ -161,113 +151,142 @@ export const AdvancedSettingsDialog: React.FC<AdvancedSettingsDialogProps> = ({
           </DialogDescription>
         </DialogHeader>
 
-        <div className="space-y-3 text-xs min-w-0">
+        <div className="space-y-4 py-2 min-w-0">
           {/* 系统提示词 */}
-          <div className="rounded-xl bg-white/[0.04] border border-white/10 p-2.5 sm:p-3 space-y-2">
-            <div className="flex items-center justify-between">
-              <span className="text-white/40 text-[11px] font-medium flex items-center gap-1.5">
-                <FileText className="h-3.5 w-3.5 text-white/40" />
-                {t('chat.advancedDialog.systemPromptLabel')}
-              </span>
-              <button
-                type="button"
-                onClick={handleResetPrompt}
-                disabled={!promptOverridden}
-                className="inline-flex items-center gap-1 px-2 py-1 rounded-md text-[10px] text-white/60 hover:text-white border border-white/10 hover:border-white/20 focus:outline-none focus-visible:ring-1 focus-visible:ring-white/30 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
+          <div className="space-y-1.5 min-w-0">
+            <div className="flex items-center justify-between text-xs">
+              <label
+                htmlFor="advanced-system-prompt"
+                className="font-medium text-white/90 flex items-center gap-1.5"
               >
-                <RotateCcw className="h-3 w-3" />
-                {t('chat.advancedDialog.reset')}
-              </button>
+                <FileText className="h-3.5 w-3.5 text-brand-300" />
+                <span>{t('chat.advancedDialog.systemPromptLabel')}</span>
+                {promptOverridden && (
+                  <span className="text-[10px] px-1.5 py-0.5 rounded bg-brand-500/20 text-brand-300 border border-brand-400/30">
+                    {t('chat.advancedDialog.saved')}
+                  </span>
+                )}
+              </label>
+              {draftPrompt !== defaultPrompt && (
+                <button
+                  type="button"
+                  onClick={handleResetPrompt}
+                  className="inline-flex items-center gap-1 text-[11px] text-white/50 hover:text-brand-300 transition-colors"
+                  title={t('chat.advancedDialog.reset')}
+                >
+                  <RotateCcw className="h-3 w-3" />
+                  <span>{t('chat.advancedDialog.reset')}</span>
+                </button>
+              )}
             </div>
             <textarea
+              id="advanced-system-prompt"
               ref={promptTextareaRef}
               value={draftPrompt}
               onChange={(e) => setDraftPrompt(e.target.value)}
-              spellCheck={false}
               rows={6}
-              className="w-full rounded-lg bg-black/40 border border-white/10 px-2.5 py-2 font-mono text-[11px] sm:text-xs text-white/90 placeholder:text-white/30 focus:outline-none focus:border-[#ea8377]/60 focus:ring-2 focus:ring-[#ea8377]/20 resize-y min-h-[7rem] max-h-72 transition-all"
-              placeholder={defaultPrompt}
+              className="w-full resize-none rounded-xl bg-white/[0.03] border border-white/10 focus:border-brand-400/60 focus:bg-white/[0.05] p-3 text-xs text-white/90 font-mono leading-relaxed placeholder:text-white/30 outline-none transition-colors"
             />
             <p className="text-[10px] sm:text-[11px] text-white/50 leading-relaxed">
               {t('chat.advancedDialog.systemPromptHint')}
             </p>
           </div>
 
-          {/* 记忆轮数 */}
-          <div className="rounded-xl bg-white/[0.04] border border-white/10 p-2.5 sm:p-3 space-y-2">
-            <div className="flex items-center justify-between">
-              <span className="text-white/40 text-[11px] font-medium flex items-center gap-1.5">
-                <History className="h-3.5 w-3.5 text-white/40" />
-                {t('chat.advancedDialog.memoryTurnsLabel')}
-              </span>
-              <button
-                type="button"
-                onClick={handleResetTurns}
-                disabled={!turnsOverridden}
-                className="inline-flex items-center gap-1 px-2 py-1 rounded-md text-[10px] text-white/60 hover:text-white border border-white/10 hover:border-white/20 focus:outline-none focus-visible:ring-1 focus-visible:ring-white/30 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
-              >
-                <RotateCcw className="h-3 w-3" />
-                {t('chat.advancedDialog.reset')}
-              </button>
+          {/* 对话记忆轮数 */}
+          <div className="space-y-2 rounded-xl bg-white/[0.02] border border-white/5 p-3 min-w-0">
+            <div className="flex items-center justify-between text-xs">
+              <label className="font-medium text-white/90 flex items-center gap-1.5">
+                <History className="h-3.5 w-3.5 text-brand-300" />
+                <span>{t('chat.advancedDialog.memoryTurnsLabel')}</span>
+                {turnsOverridden && (
+                  <span className="text-[10px] px-1.5 py-0.5 rounded bg-brand-500/20 text-brand-300 border border-brand-400/30">
+                    {t('chat.advancedDialog.saved')}
+                  </span>
+                )}
+              </label>
+              {draftTurns !== deviceRecommended && (
+                <button
+                  type="button"
+                  onClick={handleResetTurns}
+                  className="inline-flex items-center gap-1 text-[11px] text-white/50 hover:text-brand-300 transition-colors"
+                  title={t('chat.advancedDialog.reset')}
+                >
+                  <RotateCcw className="h-3 w-3" />
+                  <span>{t('chat.advancedDialog.reset')}</span>
+                </button>
+              )}
             </div>
+
             <div className="flex items-center gap-3 pt-1">
               <Slider
                 value={[draftTurns]}
+                onValueChange={(vals) => setDraftTurns(vals[0] ?? deviceRecommended)}
                 min={TURNS_MIN}
                 max={TURNS_MAX}
                 step={1}
-                onValueChange={(v) => setDraftTurns(v[0])}
-                aria-label={t('chat.advancedDialog.memoryTurnsLabel')}
                 className="flex-1"
+                aria-label={t('chat.advancedDialog.memoryTurnsLabel')}
               />
-              <div className="flex items-center justify-center h-8 min-w-[3rem] px-2 rounded-lg bg-black/40 border border-white/10 font-mono font-bold text-brand-300 text-sm tabular-nums">
+              <span className="text-xs font-mono font-semibold text-brand-300 w-8 text-right tabular-nums">
                 {draftTurns}
-              </div>
+              </span>
             </div>
-            <div className="flex items-center justify-between text-[10px] sm:text-[11px] text-white/50">
+
+            <div className="flex items-center justify-between text-[10px] text-white/40 pt-0.5">
               <span>
                 {t('chat.advancedDialog.deviceDefault', {
                   count: deviceRecommended,
                 })}
               </span>
-              <span className="font-mono text-white/40">
+              <span>
                 {TURNS_MIN}–{TURNS_MAX}
               </span>
             </div>
+
             <p className="text-[10px] sm:text-[11px] text-white/50 leading-relaxed">
               {t('chat.advancedDialog.memoryTurnsHint')}
             </p>
           </div>
 
-          {/* 对话字幕 (chat 模式 PC 气泡 + 移动端电影字幕栏; 故事模式不受影响) */}
-          <div className="rounded-xl bg-white/[0.04] border border-white/10 p-2.5 sm:p-3 space-y-2">
-            <div className="flex items-center justify-between gap-3">
-              <span className="text-white/40 text-[11px] font-medium flex items-center gap-1.5 min-w-0">
-                <MessageCircle className="h-3.5 w-3.5 text-white/40 shrink-0" />
-                {t('chat.advancedDialog.showChatDialogueLabel')}
-              </span>
-              <div className="flex items-center gap-2 shrink-0">
-                <button
-                  type="button"
-                  onClick={handleResetDialogue}
-                  disabled={!dialogueOverridden}
-                  className="inline-flex items-center gap-1 px-2 py-1 rounded-md text-[10px] text-white/60 hover:text-white border border-white/10 hover:border-white/20 focus:outline-none focus-visible:ring-1 focus-visible:ring-white/30 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
-                >
-                  <RotateCcw className="h-3 w-3" />
-                  {t('chat.advancedDialog.reset')}
-                </button>
+          {/* 显示对话字幕 */}
+          <div className="rounded-xl bg-white/[0.02] border border-white/5 p-3 space-y-1.5 min-w-0">
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-2">
+                <MessageCircle className="h-3.5 w-3.5 text-brand-300" />
+                <span className="text-xs font-medium text-white/90">
+                  {t('chat.advancedDialog.showChatDialogueLabel')}
+                </span>
+                {dialogueOverridden && (
+                  <span className="text-[10px] px-1.5 py-0.5 rounded bg-brand-500/20 text-brand-300 border border-brand-400/30">
+                    {t('chat.advancedDialog.saved')}
+                  </span>
+                )}
+              </div>
+              <div className="flex items-center gap-2">
+                {draftShowDialogue !== DEFAULT_SHOW_CHAT_DIALOGUE && (
+                  <button
+                    type="button"
+                    onClick={handleResetDialogue}
+                    className="inline-flex items-center gap-1 text-[11px] text-white/50 hover:text-brand-300 transition-colors"
+                    title={t('chat.advancedDialog.reset')}
+                  >
+                    <RotateCcw className="h-3 w-3" />
+                    <span>{t('chat.advancedDialog.reset')}</span>
+                  </button>
+                )}
                 <button
                   type="button"
                   role="switch"
                   aria-checked={draftShowDialogue}
                   aria-label={t('chat.advancedDialog.showChatDialogueLabel')}
-                  onClick={() => setDraftShowDialogue((v) => !v)}
-                  className={`flex h-5 w-9 items-center rounded-full p-0.5 transition-colors focus:outline-none focus-visible:ring-1 focus-visible:ring-white/30 ${
-                    draftShowDialogue ? 'bg-[#ea8377]' : 'bg-white/20'
+                  onClick={() => setDraftShowDialogue((prev) => !prev)}
+                  className={`relative inline-flex h-5 w-9 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none focus:ring-1 focus:ring-brand-400/50 ${
+                    draftShowDialogue ? 'bg-brand-500' : 'bg-white/20'
                   }`}
                 >
                   <span
-                    className={`h-4 w-4 rounded-full bg-white shadow transition-transform ${
+                    aria-hidden="true"
+                    className={`pointer-events-none inline-block h-4 w-4 transform rounded-full bg-white shadow-lg ring-0 transition duration-200 ease-in-out ${
                       draftShowDialogue ? 'translate-x-4' : 'translate-x-0'
                     }`}
                   />
@@ -278,22 +297,22 @@ export const AdvancedSettingsDialog: React.FC<AdvancedSettingsDialogProps> = ({
               {t('chat.advancedDialog.showChatDialogueHint')}
             </p>
           </div>
-
-          {error && (
-            <div className="flex items-center gap-2 px-2.5 py-1.5 rounded-lg bg-rose-500/10 border border-rose-500/20 text-rose-300 text-[11px]">
-              <AlertTriangle className="h-3.5 w-3.5 shrink-0" />
-              <span>{error}</span>
-            </div>
-          )}
         </div>
 
-        <DialogFooter className="mt-2 gap-2">
+        {error && (
+          <div className="flex items-center gap-2 p-2 rounded-lg bg-red-500/10 border border-red-500/30 text-red-300 text-xs">
+            <AlertTriangle className="h-4 w-4 shrink-0" />
+            <span className="truncate">{error}</span>
+          </div>
+        )}
+
+        <DialogFooter className="flex flex-col-reverse sm:flex-row items-stretch sm:items-center justify-end gap-2 pt-2 border-t border-white/10 mt-1">
           <Button
             type="button"
             variant="secondary"
             size="sm"
             onClick={handleClose}
-            className="w-full sm:flex-1 h-9 sm:h-8"
+            className="w-full sm:w-auto sm:min-w-[5rem] h-9 sm:h-8 text-xs"
           >
             {t('chat.advancedDialog.close')}
           </Button>
@@ -303,10 +322,10 @@ export const AdvancedSettingsDialog: React.FC<AdvancedSettingsDialogProps> = ({
             size="sm"
             onClick={handleSave}
             disabled={saving}
-            className={`w-full sm:flex-1 h-9 sm:h-8 transition-all ${
+            className={`w-full sm:w-auto h-9 sm:h-8 text-xs font-medium min-w-[5.5rem] transition-all duration-200 ${
               saved
-                ? 'bg-emerald-500/20 text-emerald-300 border-emerald-500/40'
-                : 'bg-brand-500/15 hover:bg-brand-500/25 text-brand-100 border-brand-400/30'
+                ? 'bg-emerald-500/20 border border-emerald-500/40 text-emerald-300 hover:bg-emerald-500/20'
+                : 'bg-brand-500/20 hover:bg-brand-500/30 text-brand-100 border-brand-400/40'
             }`}
           >
             {saved ? (

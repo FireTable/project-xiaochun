@@ -83,14 +83,14 @@ export async function generateSpeechReply(
   // ponytail: 用户可能改了记忆轮数 — 走 effective 解析(override 优先,否则设备默认)。
   const { memoryTurns } = await resolveEffectiveSettings(effectiveLang);
   const mem = await recallForChat(userText, memoryTurns);
-  const recalled = applyRecall(systemPrompt, mem, effectiveLang);
+  const recalled = applyRecall(systemPrompt, mem, effectiveLang, userText);
 
-  // 组装标准 ChatML 格式的 messages 列表：直接使用用户原始纯文本，杜绝额外前缀包装，
-  // 确保历史记录与当轮输入的格式 100% 严格一致，让 WebLLM compareConversationObject 成功复用 KV Cache。
+  // 组装标准 ChatML 格式的 messages 列表：历史记录使用纯净原始文本杜绝污染，
+  // 仅在当轮输入附带轻量记忆提示，让 WebLLM compareConversationObject 成功复用 KV Cache。
   const messages: ChatMessage[] = [
     { role: 'system', content: recalled.system },
     ...recalled.history,
-    { role: 'user', content: userText.trim() },
+    { role: 'user', content: recalled.currentUserContent || userText.trim() },
   ];
 
   const wantThink = isThinkingEnabled();

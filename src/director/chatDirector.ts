@@ -12,7 +12,7 @@ import type { VRMAMotionPlayer } from '@/motion/sources/vrma';
 import { type EmagePlayer, type EmageMotionData } from '@/motion/sources/emage';
 import { generateSpeechReply } from '@/llm/chatWorkflow';
 import { MPEGDecoder } from 'mpg123-decoder';
-import { rememberTurn } from '@/memory';
+import { clearAssembledUserContent, rememberTurn } from '@/memory';
 import type { MotionPipeline } from '@/motion/pipeline/motionPipeline';
 import type { Lang } from '@/i18n';
 import { APP_CONFIG } from '@/config';
@@ -1502,6 +1502,7 @@ export class ChatDirector {
     if (this.stopped && !this.ctx && !this.currentSource) return;
     this.stopped = true;
     this.pipeline?.resetChatMotion();
+    clearAssembledUserContent();
     this.setTurnState(keepThinking && this._turnState === 'thinking' ? 'thinking' : 'idle');
     this.preserveMotionCurrent = false;
     this.audioDoneTime = 0;

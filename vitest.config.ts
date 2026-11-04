@@ -12,10 +12,12 @@ export default defineConfig({
       // 与 vite.config.ts 一致: 协议常量源码直引 (src/embed/params.ts 等会 import)
       '@firetable/project-xiaochun/protocol': path.resolve(import.meta.dirname, 'packages/project-xiaochun/src/protocol.ts'),
       '@firetable/project-xiaochun/protocol-url': path.resolve(import.meta.dirname, 'packages/project-xiaochun/src/protocol-url.ts'),
+      '@firetable/client-memory': path.resolve(import.meta.dirname, 'packages/client-memory/src/index.ts'),
+      'client-memory': path.resolve(import.meta.dirname, 'packages/client-memory/src/index.ts'),
     },
   },
   test: {
-    include: ['src/**/*.test.ts'],
+    include: ['src/**/*.test.ts', 'packages/client-memory/test/**/*.test.ts'],
     environment: 'node',
   },
 });

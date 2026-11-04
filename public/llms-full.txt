@@ -88,14 +88,16 @@ AI runs in the browser tab. **WebLLM may use WebGPU**; **EMAGE uses ONNX Runtime
   4. Lip-sync (viseme blending) updates from TTS audio energy + EMAGE mouth keyframes
 - **Cancellation**: New user message cancels in-flight LLM/TTS/EMAGE via token cancellation
 
-### 2.6 Memory System (Client-Side Persistence & Extraction)
-- **Files**: `src/memory/` (`store.ts`, `extract.ts`, `inject.ts`, `index.ts`, `types.ts`)
-- **Storage**: Browser-native IndexedDB database `xiaochun-memory` with three object stores (`turns`, `notes`, `meta`). Zero telemetry or server transfer.
-- **3-Tier Architecture**:
-  1. *Short-Term Turns*: Recalls last $N$ dialogue rounds (default 6 turns, clipped to 180 chars) for immediate conversational context.
-  2. *Entity Profile*: Multilingual regex extraction identifies user name/nickname, preferences (likes/dislikes), and key entity facts.
-  3. *Long-Term Notes*: Keeps up to 80 summarized dialogue notes; retrieves Top-4 relevant notes per turn using n-gram similarity scoring.
-- **Async Execution**: Turn commits happen asynchronously without blocking rendering or speech. `recallForChat()` injects localized memory context (`appendMemoryToSystem`) directly into system prompt instructions.
+### 2.6 Cognitive Memory System (`@firetable/client-memory`)
+- **Package**: `packages/client-memory/` and integration in `src/memory/`
+- **Storage**: Browser-native IndexedDB database `client-memory-db` with four object stores (`turns`, `profile`, `episodes`, `lorebooks`). Zero telemetry or server transfer.
+- **4-Tier Architecture**:
+  1. *Working Turns*: Recalls last $N$ dialogue rounds (device-recommended 2~6 turns, customizable 1–50) for immediate conversational context.
+  2. *User Persona & Facts*: Heuristic regex extraction (`IntentExtractor`) captures user nickname, occupation, location, and likes/dislikes with single-value overwrites and deduplication (`ConflictResolver`, max 60 facts).
+  3. *Long-Term Episodic Journal*: Consolidates turns beyond the short-term window into narrative memory cards (`EpisodicConsolidator`), ranked via Stanford Generative Agents 3D cognitive scoring ($\text{Recency Decay} + \text{Importance} + \text{BM25 Relevance}$).
+  4. *SillyTavern Lorebooks*: Ingests and matches Tavern worldbook entries with constant and keyword-based injection.
+- **Deterministic Prefix Assembly**: Formats memory with strict prefix stability (`ContextAssembler`) to maximize WebLLM KV-cache reuse.
+- **UI HUD & Safety**: Standalone `MemoryDialog` with 3 segmented tabs (`[记忆画像]`, `[时光回忆]`, `[世界书]`), inline SillyTavern JSON import, and a 2-step confirmation memory reset with 4s timeout protection (`memory.clearAll({ includeLorebook: false })`). Details in `/docs/CLIENT_MEMORY.md`.
 
 ---
 

@@ -13,7 +13,9 @@
     "paths": {
       "@/*": ["./src/*"],
       "@firetable/project-xiaochun/protocol": ["./packages/project-xiaochun/src/protocol.ts"],
-      "@firetable/project-xiaochun/protocol-url": ["./packages/project-xiaochun/src/protocol-url.ts"]
+      "@firetable/project-xiaochun/protocol-url": ["./packages/project-xiaochun/src/protocol-url.ts"],
+      "@firetable/client-memory": ["./packages/client-memory/src/index.ts"],
+      "client-memory": ["./packages/client-memory/src/index.ts"]
     },
     "allowImportingTsExtensions": true,
     "verbatimModuleSyntax": true,
