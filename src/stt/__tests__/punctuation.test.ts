@@ -37,6 +37,11 @@ describe('Punctuation Engine & Pipeline', () => {
       expect(normalizePunctuationSpacing('等等,')).toBe('等等，');
       expect(normalizePunctuationSpacing('是的.')).toBe('是的。');
     });
+
+    it('replaces spaces between multi-sentence CJK segments with fullwidth commas while preserving Latin spaces', () => {
+      expect(normalizePunctuationSpacing('今天天气真好 我们去散步吧')).toBe('今天天气真好，我们去散步吧');
+      expect(normalizePunctuationSpacing('hello world')).toBe('hello world');
+    });
   });
 
   describe('Stage 1: applyHeuristicPunctuation', () => {

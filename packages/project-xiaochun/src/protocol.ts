@@ -727,7 +727,7 @@ export interface XcStatePayload {
 export type XcSttPayload =
   | { kind: 'state'; state: 'idle' | 'loading' | 'listening' | 'recognizing' | 'error' }
   | { kind: 'progress'; percent: number }
-  | { kind: 'text'; text: string };
+  | { kind: 'text'; text: string; isFinal?: boolean };
 
 export interface XcUtterancePayload {
   phase: 'start' | 'end';

@@ -619,7 +619,7 @@ export function startEmbedBridge(opts: EmbedBridgeOptions): EmbedBridge {
         const pct = Math.round(e.percent);
         if (pct !== lastSttPercent) { lastSttPercent = pct; send('xc.stt', { kind: 'progress', percent: pct }); }
       }
-      else if (e.type === 'text') send('xc.stt', { kind: 'text', text: e.text });
+      else if (e.type === 'text') send('xc.stt', { kind: 'text', text: e.text, isFinal: e.isFinal });
       else if (e.type === 'error' && e.message !== 'empty_transcript') sendError('failed', `stt: ${e.message}`, 'xc.mic');
     });
     return stt;

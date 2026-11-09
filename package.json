@@ -85,6 +85,7 @@
   },
   "dependencies": {
     "@firetable/client-memory": "workspace:*",
+    "@firetable/stream-asr": "^0.1.2",
     "@firetable/three-vrm-materials-mtoon": "workspace:*",
     "@fontsource-variable/geist": "^5.3.0",
     "@gltf-transform/core": "^4.4.2",

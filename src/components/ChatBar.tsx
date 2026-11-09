@@ -50,7 +50,13 @@ import {
 import { LlmProviderIcon } from '@/components/LlmProviderIcon';
 import { holdPetUi, releasePetUi } from '@/hooks/usePetUiVisibility';
 import { isDev } from '@/lib/utils';
-import { SttClient, replaceOrInsertAtRange, type TextRange, type SttUiState } from '@/stt/sttClient';
+import {
+  SttClient,
+  replaceOrInsertAtRange,
+  type TextRange,
+  type SttProgressPhase,
+  type SttUiState,
+} from '@/stt/sttClient';
 import { isDevDrawerActive, saveVoiceRecord } from '@/stt/voiceSessionHistory';
 import { VoicePill } from './VoicePill';
 
@@ -128,10 +134,20 @@ export const ChatBar: React.FC<ChatBarProps> = ({
   const sttRef = useRef<SttClient | null>(null);
   const sttRangeRef = useRef<TextRange | null>(null);
   const isComposingRef = useRef(false);
+  const justComposedRef = useRef(false);
+  const composeEndTimerRef = useRef<number | null>(null);
   const isSttInsertingRef = useRef(false);
   const pendingSttEventRef = useRef<{ text: string; isFinal: boolean } | null>(null);
   const [sttState, setSttState] = useState<SttUiState>('idle');
-  const [sttPercent, setSttPercent] = useState(0);
+  const [sttLoadStats, setSttLoadStats] = useState<{
+    phase: SttProgressPhase;
+    percent: number;
+    loaded: number;
+    total: number;
+    bps: number;
+  }>({ phase: 'init', percent: 0, loaded: 0, total: 0, bps: 0 });
+  const sttSamplesRef = useRef<{ ts: number; loaded: number }[]>([]);
+  const sttLastUiTsRef = useRef(0);
   const [sttProb, setSttProb] = useState(0);
   const [sttRms, setSttRms] = useState(0);
   /** mic_denied | mic_insecure | mic_unsupported | mic_not_found | other */
@@ -218,6 +234,8 @@ export const ChatBar: React.FC<ChatBarProps> = ({
         if (ev.state === 'idle' || ev.state === 'error') {
           setSttProb(0);
           setSttRms(0);
+          sttSamplesRef.current = [];
+          sttLastUiTsRef.current = 0;
         }
       } else if (ev.type === 'speech_prob') {
         setSttProb(ev.prob);
@@ -227,8 +245,48 @@ export const ChatBar: React.FC<ChatBarProps> = ({
         setSttProb(0.9);
         vrmEngine.stopSpeaking();
         vrmEngine.setListening(true);
-      } else if (ev.type === 'progress') setSttPercent(ev.percent);
-      else if (ev.type === 'text') {
+      } else if (ev.type === 'progress') {
+        const now = performance.now();
+        const loaded = ev.loaded ?? 0;
+        const total = ev.total ?? 0;
+        if (ev.phase === 'ready') {
+          sttSamplesRef.current = [];
+          sttLastUiTsRef.current = 0;
+          setSttLoadStats({ phase: 'ready', percent: 100, loaded: total, total, bps: 0 });
+        } else if (ev.phase === 'init' && loaded === 0 && total === 0) {
+          sttSamplesRef.current = [];
+          sttLastUiTsRef.current = 0;
+          setSttLoadStats({ phase: 'init', percent: 0, loaded: 0, total: 0, bps: 0 });
+        } else {
+          if (total > 0) {
+            sttSamplesRef.current.push({ ts: now, loaded });
+            const cutoff = now - 3000;
+            while (sttSamplesRef.current.length > 0 && sttSamplesRef.current[0]!.ts < cutoff) {
+              sttSamplesRef.current.shift();
+            }
+          }
+          const isTerminal = ev.phase === 'init' || ev.percent >= 100 || sttLastUiTsRef.current === 0;
+          if (isTerminal || now - sttLastUiTsRef.current >= 80) {
+            sttLastUiTsRef.current = now;
+            let bps = 0;
+            const samples = sttSamplesRef.current;
+            if (samples.length >= 2) {
+              const first = samples[0]!;
+              const last = samples[samples.length - 1]!;
+              const dt = (last.ts - first.ts) / 1000;
+              const dl = last.loaded - first.loaded;
+              if (dt > 0 && dl >= 0) bps = dl / dt;
+            }
+            setSttLoadStats({
+              phase: ev.phase,
+              percent: ev.percent,
+              loaded,
+              total,
+              bps,
+            });
+          }
+        }
+      } else if (ev.type === 'text') {
         const el = inputRef.current;
         if (el) {
           // If user is currently composing with IME (e.g. Chinese Pinyin input),
@@ -285,6 +343,10 @@ export const ChatBar: React.FC<ChatBarProps> = ({
       }
     });
     return () => {
+      if (composeEndTimerRef.current !== null) {
+        window.clearTimeout(composeEndTimerRef.current);
+        composeEndTimerRef.current = null;
+      }
       off();
       client.dispose();
       sttRef.current = null;
@@ -554,7 +616,7 @@ export const ChatBar: React.FC<ChatBarProps> = ({
     if (!bps || bps <= 0) return '—';
     if (bps >= 1024 * 1024) return `${(bps / 1024 / 1024).toFixed(2)} MB/s`;
     if (bps >= 1024) return `${(bps / 1024).toFixed(0)} KB/s`;
-    return `${bps} B/s`;
+    return `${Math.round(bps)} B/s`;
   }
   function fmtEta(secs: number): string {
     if (!secs || !isFinite(secs) || secs <= 0) return '—';
@@ -658,6 +720,10 @@ export const ChatBar: React.FC<ChatBarProps> = ({
   };
 
   const handleSttToggle = () => {
+    if (sttState === 'idle' || sttState === 'error') {
+      sttRangeRef.current = null;
+      pendingSttEventRef.current = null;
+    }
     inputRef.current?.focus({ preventScroll: true });
     setIsInputFocused(true);
     void sttRef.current?.toggle();
@@ -672,9 +738,13 @@ export const ChatBar: React.FC<ChatBarProps> = ({
     if (nowHasText) {
       vrmEngine.setListening(true);
     }
-    if (!isComposingRef.current && !isSttInsertingRef.current) {
-      // If user types manually outside of IME composition and outside of STT, unlink tracked voice range to avoid clobbering edits
+    if (!isComposingRef.current && !isSttInsertingRef.current && !justComposedRef.current) {
+      // If user types or deletes manually outside of IME composition and outside of STT:
+      // 1) unlink tracked voice range so subsequent speech inserts at caret instead of overwriting edits;
+      // 2) reset the STT turn so neither silent frames nor an in-flight finish() re-paste deleted speech.
       sttRangeRef.current = null;
+      pendingSttEventRef.current = null;
+      sttRef.current?.resetSession();
     }
     syncComposerHeight();
     if (isQueued) {
@@ -915,28 +985,42 @@ export const ChatBar: React.FC<ChatBarProps> = ({
               disabled={disabledProp}
               placeholder={placeholderProp ?? (isModelReady ? t('chat.placeholder') : t('chat.syncingPlaceholder'))}
               onCompositionStart={() => {
+                if (composeEndTimerRef.current !== null) {
+                  window.clearTimeout(composeEndTimerRef.current);
+                  composeEndTimerRef.current = null;
+                }
+                justComposedRef.current = false;
                 isComposingRef.current = true;
+                sttRangeRef.current = null;
               }}
               onCompositionEnd={() => {
                 isComposingRef.current = false;
-                const pending = pendingSttEventRef.current;
-                if (pending && inputRef.current) {
-                  pendingSttEventRef.current = null;
-                  const el = inputRef.current;
-                  isSttInsertingRef.current = true;
-                  let newRange: TextRange | null = null;
-                  try {
-                    newRange = replaceOrInsertAtRange(el, pending.text, sttRangeRef.current);
-                  } finally {
-                    isSttInsertingRef.current = false;
-                  }
-                  if (pending.isFinal) {
-                    sttRangeRef.current = null;
-                  } else {
-                    sttRangeRef.current = newRange;
-                  }
-                  setHasText(el.value.trim().length > 0);
+                justComposedRef.current = true;
+                if (composeEndTimerRef.current !== null) {
+                  window.clearTimeout(composeEndTimerRef.current);
                 }
+                // Use a 0ms macrotask so Safari/WKWebView's trailing native `input`
+                // (insertFromComposition) finishes before we apply deferred STT or resetSession.
+                composeEndTimerRef.current = window.setTimeout(() => {
+                  composeEndTimerRef.current = null;
+                  justComposedRef.current = false;
+                  const pending = pendingSttEventRef.current;
+                  if (pending && inputRef.current) {
+                    pendingSttEventRef.current = null;
+                    const el = inputRef.current;
+                    isSttInsertingRef.current = true;
+                    let newRange: TextRange | null = null;
+                    try {
+                      newRange = replaceOrInsertAtRange(el, pending.text, null);
+                    } finally {
+                      isSttInsertingRef.current = false;
+                    }
+                    sttRangeRef.current = pending.isFinal ? null : newRange;
+                    setHasText(el.value.trim().length > 0);
+                  } else {
+                    sttRef.current?.resetSession();
+                  }
+                }, 0);
               }}
               onInput={handleInput}
               onKeyDown={handleKeyDown}
@@ -982,22 +1066,75 @@ export const ChatBar: React.FC<ChatBarProps> = ({
               state={sttState}
               rms={sttRms}
               speechProb={sttProb}
-              loadingPercent={sttPercent}
+              loadingPercent={sttLoadStats.percent}
+              loadingPhase={sttLoadStats.phase}
               errorLabel={sttErrorLabel}
               getAnalyser={() => sttRef.current?.getAnalyser() ?? null}
               onToggle={handleSttToggle}
               onHoldStart={() => {
                 inputRef.current?.focus({ preventScroll: true });
                 setIsInputFocused(true);
-                if (sttState === 'idle') void sttRef.current?.start();
+                if (sttState === 'idle' || sttState === 'error') {
+                  sttRangeRef.current = null;
+                  pendingSttEventRef.current = null;
+                  void sttRef.current?.start();
+                }
               }}
               onHoldEnd={() => {
                 void sttRef.current?.stop(true);
               }}
               onCancel={() => {
+                const el = inputRef.current;
+                const draftRange = sttRangeRef.current;
+                sttRangeRef.current = null;
+                pendingSttEventRef.current = null;
+                if (el && draftRange) {
+                  isSttInsertingRef.current = true;
+                  try {
+                    replaceOrInsertAtRange(el, '', draftRange);
+                  } finally {
+                    isSttInsertingRef.current = false;
+                  }
+                  setHasText(el.value.trim().length > 0);
+                }
                 void sttRef.current?.stop(false);
               }}
             />
+          );
+
+          const sttEta =
+            sttLoadStats.bps > 0 && sttLoadStats.total > sttLoadStats.loaded
+              ? (sttLoadStats.total - sttLoadStats.loaded) / sttLoadStats.bps
+              : 0;
+          const isSttDownloading = sttLoadStats.phase === 'download' && sttLoadStats.total > 0;
+          const sttLoadingTooltip = (
+            <div className="flex flex-col gap-0.5 max-w-[18rem]">
+              <span>
+                {isSttDownloading
+                  ? t('chat.sttDownload', { percent: Math.round(sttLoadStats.percent) })
+                  : t('chat.sttLoading')}
+              </span>
+              {sttLoadStats.total > 0 ? (
+                <span className="text-white/60 tabular-nums">
+                  {fmtBytes(sttLoadStats.loaded)} / {fmtBytes(sttLoadStats.total)}
+                  {isSttDownloading && sttLoadStats.bps > 0 ? <> · {fmtSpeed(sttLoadStats.bps)}</> : null}
+                  {isSttDownloading && sttEta > 0 ? <> · {t('chat.etaRemaining', { eta: fmtEta(sttEta) })}</> : null}
+                </span>
+              ) : null}
+            </div>
+          );
+
+          // Keep a single stable React subtree across idle -> loading -> listening so <VoicePill>
+          // never remounts (preserving pointer capture for Hold-to-Talk and CSS width transitions).
+          const micWrapped = (
+            <Tooltip delayDuration={0} open={sttState === 'loading'}>
+              <TooltipTrigger asChild>
+                <span className="inline-flex shrink-0">{micEl}</span>
+              </TooltipTrigger>
+              <TooltipContent side="top" align="end" sideOffset={8} collisionPadding={12}>
+                {sttLoadingTooltip}
+              </TooltipContent>
+            </Tooltip>
           );
 
           const llmPct = Math.round(Math.min(1, Math.max(0, llmProgress.progress)) * 100);
@@ -1095,7 +1232,7 @@ export const ChatBar: React.FC<ChatBarProps> = ({
           );
 
           const sendWrapped =
-            isModelReady || (!isInputFocused && !hasText && !isQueued) ? (
+            isModelReady || sttState === 'loading' || (!isInputFocused && !hasText && !isQueued) ? (
               sendBtn
             ) : (
               <Tooltip delayDuration={0} open>
@@ -1152,7 +1289,7 @@ export const ChatBar: React.FC<ChatBarProps> = ({
 
           const actionsEl = (
             <div className="flex items-center gap-2 shrink-0">
-              {micEl}
+              {micWrapped}
               {sendWrapped}
               {lightningEl}
             </div>

@@ -14,6 +14,9 @@ importers:
       '@firetable/client-memory':
         specifier: workspace:*
         version: link:packages/client-memory
+      '@firetable/stream-asr':
+        specifier: ^0.1.2
+        version: 0.1.2
       '@firetable/three-vrm-materials-mtoon':
         specifier: workspace:*
         version: link:packages/three-vrm-materials-mtoon
@@ -881,6 +884,10 @@ packages:
 
   '@eshaz/web-worker@1.2.2':
     resolution: {integrity: sha512-WxXiHFmD9u/owrzempiDlBB1ZYqiLnm9s6aPc8AlFQalq2tKmqdmMr9GXOupDgzXtqnBipj8Un0gkIm7Sjf8mw==}
+
+  '@firetable/stream-asr@0.1.2':
+    resolution: {integrity: sha512-8jIwCz2n8R8CEJnvtEJOxkF4y33T+05078ge60rJdp9Gfp9lFcQMbqVsYaCuWfLsHfJgu8cKZWzTsPsjE9Dt6w==}
+    engines: {node: '>=18.0.0'}
 
   '@floating-ui/core@1.8.0':
     resolution: {integrity: sha512-0CIZ5itps/8x7BG8dEIhs53BvCUH2PCoogtakwRTut+Arm58sJooJ0AuZhLw2HJYIR5cMLNPBSS728sPho2khQ==}
@@ -5018,6 +5025,8 @@ snapshots:
     optional: true
 
   '@eshaz/web-worker@1.2.2': {}
+
+  '@firetable/stream-asr@0.1.2': {}
 
   '@floating-ui/core@1.8.0':
     dependencies:

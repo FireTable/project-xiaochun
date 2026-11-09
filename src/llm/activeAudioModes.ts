@@ -67,7 +67,7 @@ export function parseActiveTtsMode(raw: string | null | undefined): ActiveTtsMod
 }
 
 export function readActiveSttMode(): ActiveSttMode {
-  if (typeof window === 'undefined') return { kind: 'local' };
+  if (typeof window === 'undefined') return { kind: 'builtin' };
   try {
     return parseActiveSttMode(window.localStorage.getItem(STT_MODE_KEY));
   } catch {

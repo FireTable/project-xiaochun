@@ -1,11 +1,11 @@
-export { SileroVad, type SileroVadConfig, type SileroVadEvent } from './sileroVad';
-export { EnergyVad, type EnergyVadConfig, type EnergyVadEvent } from './energyVad';
 export {
   SttClient,
+  getSharedSttClient,
   insertAtCursor,
   replaceOrInsertAtRange,
   type TextRange,
   type SttClientEvent,
+  type SttProgressPhase,
   type SttUiState,
 } from './sttClient';
 export {

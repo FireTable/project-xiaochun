@@ -7,6 +7,7 @@ export interface VoicePillProps {
   rms: number; // 0 ~ 1 real audio energy fallback from STT/VAD
   speechProb: number; // 0 ~ 1 speech probability
   loadingPercent?: number;
+  loadingPhase?: 'download' | 'init' | 'ready';
   errorLabel?: string | null;
   title?: string;
   getAnalyser?: () => AnalyserNode | null;
@@ -19,6 +20,8 @@ export interface VoicePillProps {
 }
 
 const CANCEL_DISTANCE = 48; // px to drag left to trigger cancel
+const RING_RADIUS = 16.5;
+const RING_CIRCUMFERENCE = 2 * Math.PI * RING_RADIUS;
 const WAVE_MAX_BARS = 18;
 const WAVE_EVERY = 3;
 const MIC_BINS: [number, number][] = [
@@ -40,11 +43,12 @@ const micLevel = (analyser: AnalyserNode, buf: Uint8Array<ArrayBuffer>): number 
   return (total / MIC_BINS.length) * MIC_GAIN;
 };
 
-export const VoicePill: React.FC<VoicePillProps> = ({
+export const VoicePill = React.forwardRef<HTMLButtonElement, VoicePillProps>(({
   state,
   rms,
   speechProb,
   loadingPercent = 0,
+  loadingPhase = 'download',
   errorLabel,
   title,
   getAnalyser,
@@ -54,13 +58,15 @@ export const VoicePill: React.FC<VoicePillProps> = ({
   onCancel,
   accentColor = '#ea8377',
   className = '',
-}) => {
+}, ref) => {
   const { t } = useTranslation();
   const isListening = state === 'listening';
   const isRecognizing = state === 'recognizing';
   const isLoading = state === 'loading';
   const isError = state === 'error';
   const isActive = isListening || isRecognizing;
+  const isDeterminateLoading =
+    isLoading && loadingPhase === 'download' && loadingPercent > 0 && loadingPercent < 100;
 
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const timeRef = useRef<HTMLSpanElement | null>(null);
@@ -84,6 +90,16 @@ export const VoicePill: React.FC<VoicePillProps> = ({
   const envRef = useRef<number>(0);
   const lastTimeRef = useRef<number>(0);
   const bufRef = useRef<Uint8Array<ArrayBuffer> | null>(null);
+
+  // Clear hold timer on unmount
+  useEffect(() => {
+    return () => {
+      if (holdTimerRef.current) {
+        clearTimeout(holdTimerRef.current);
+        holdTimerRef.current = null;
+      }
+    };
+  }, []);
 
   // Start elapsed timer on active
   useEffect(() => {
@@ -137,15 +153,15 @@ export const VoicePill: React.FC<VoicePillProps> = ({
       // 1. Sample real microphone frequency levels or fall back to VAD RMS
       let target = 0;
       const analyser = getAnalyser?.();
-      if (analyser && isListening) {
+      if (analyser && isActive) {
         if (!bufRef.current || bufRef.current.length !== analyser.frequencyBinCount) {
           bufRef.current = new Uint8Array(analyser.frequencyBinCount);
         }
         target = micLevel(analyser, bufRef.current);
-      } else if (isListening) {
+      } else if (isActive) {
         target = speechProb > 0.4 ? Math.max(0.12, rms * 3.0) : 0.05;
       } else {
-        target = 0.35; // recognizing subtle pulse
+        target = 0.35;
       }
 
       target = Math.min(1, target * 1.15);
@@ -224,21 +240,26 @@ export const VoicePill: React.FC<VoicePillProps> = ({
     startXRef.current = e.clientX;
     setSlideX(0);
 
-    // If held for >= 300ms, enter Hold-to-Talk mode
-    holdTimerRef.current = window.setTimeout(() => {
-      isHoldModeRef.current = true;
-      wasHoldTriggeredRef.current = true;
-      if (state === 'idle') {
+    // Only enter Hold-to-Talk mode when starting from an inactive state ('idle' | 'error')
+    if (state === 'idle' || state === 'error') {
+      holdTimerRef.current = window.setTimeout(() => {
+        holdTimerRef.current = null;
+        isHoldModeRef.current = true;
+        wasHoldTriggeredRef.current = true;
         onHoldStart?.();
-      }
-    }, 300);
+      }, 300);
+    }
 
     e.currentTarget.setPointerCapture(e.pointerId);
   };
 
   const handlePointerMove = (e: React.PointerEvent<HTMLButtonElement>) => {
-    if (!isSlidingRef.current || !isActive) return;
     const deltaX = e.clientX - startXRef.current;
+    if (holdTimerRef.current && Math.abs(deltaX) > 8) {
+      clearTimeout(holdTimerRef.current);
+      holdTimerRef.current = null;
+    }
+    if (!isSlidingRef.current || !isActive) return;
     if (deltaX < 0) {
       setSlideX(Math.max(-CANCEL_DISTANCE, deltaX));
     } else {
@@ -266,6 +287,7 @@ export const VoicePill: React.FC<VoicePillProps> = ({
 
     if (cancelled) {
       isHoldModeRef.current = false;
+      wasHoldTriggeredRef.current = true;
       onCancel?.();
       return;
     }
@@ -290,6 +312,7 @@ export const VoicePill: React.FC<VoicePillProps> = ({
 
   return (
     <button
+      ref={ref}
       type="button"
       id="chatSttMic"
       aria-label={
@@ -304,11 +327,11 @@ export const VoicePill: React.FC<VoicePillProps> = ({
           : t('chat.sttIdle')
       }
       title={
-        title ||
+        title ??
         (isLoading
-          ? t('chat.sttDownload', { percent: loadingPercent })
+          ? undefined
           : isListening
-          ? t('chat.stopSpeaking')
+          ? t('chat.sttListening')
           : isError
           ? errorLabel || t('chat.sttError')
           : t('chat.sttIdle'))
@@ -318,13 +341,15 @@ export const VoicePill: React.FC<VoicePillProps> = ({
       onPointerUp={handlePointerUp}
       onPointerCancel={handlePointerUp}
       onClick={handleClick}
-      className={`relative inline-flex items-center justify-between select-none touch-none appearance-none outline-none overflow-hidden transition-all duration-300 ease-[cubic-bezier(0.23,1,0.32,1)] ${
+      className={`relative shrink-0 p-0 inline-flex items-center ${
+        isActive ? 'justify-between' : 'justify-center'
+      } select-none touch-none appearance-none outline-none overflow-hidden transition-all duration-300 ease-[cubic-bezier(0.23,1,0.32,1)] ${
         isActive
           ? 'w-[148px] h-9 px-2 rounded-full bg-[#ea8377]/15 border border-[#ea8377]/40 shadow-[0_0_16px_rgba(234,131,119,0.25)]'
           : isError
           ? 'w-9 h-9 rounded-full bg-red-500/20 text-red-300 border border-red-500/30'
           : isLoading
-          ? 'w-9 h-9 rounded-full bg-white/10 text-white/70 border border-white/20'
+          ? 'w-9 h-9 rounded-full bg-white/[0.08] text-[#f5aa9c] border-0'
           : 'w-9 h-9 rounded-full bg-transparent text-white/60 hover:text-[#f5aa9c] hover:bg-white/10 border border-transparent active:scale-95'
       } ${className}`}
     >
@@ -377,24 +402,45 @@ export const VoicePill: React.FC<VoicePillProps> = ({
         </>
       ) : (
         /* ── Idle / Loading / Error State: Compact Mic Button ── */
-        <span className="w-full h-full flex items-center justify-center">
+        <span className="relative w-full h-full flex items-center justify-center">
           {isLoading ? (
-            <div className="relative w-full h-full flex items-center justify-center">
-              <svg className="absolute inset-0 h-9 w-9 -rotate-90" viewBox="0 0 36 36" aria-hidden>
-                <circle cx="18" cy="18" r="14" fill="none" stroke="rgba(255,255,255,0.15)" strokeWidth="2" />
+            <>
+              <svg
+                className={`pointer-events-none absolute inset-0 h-full w-full ${
+                  isDeterminateLoading ? '-rotate-90' : 'animate-spin'
+                }`}
+                viewBox="0 0 36 36"
+                aria-hidden
+              >
                 <circle
                   cx="18"
                   cy="18"
-                  r="14"
+                  r={RING_RADIUS}
                   fill="none"
-                  stroke="#ea8377"
+                  stroke="rgba(255,255,255,0.16)"
+                  strokeWidth="2"
+                />
+                <circle
+                  cx="18"
+                  cy="18"
+                  r={RING_RADIUS}
+                  fill="none"
+                  stroke={accentColor}
                   strokeWidth="2"
                   strokeLinecap="round"
-                  strokeDasharray={`${(loadingPercent / 100) * 88} 88`}
+                  strokeDasharray={isDeterminateLoading ? RING_CIRCUMFERENCE : '28 104'}
+                  strokeDashoffset={
+                    isDeterminateLoading
+                      ? RING_CIRCUMFERENCE * (1 - Math.max(3, Math.min(100, loadingPercent)) / 100)
+                      : undefined
+                  }
+                  className={
+                    isDeterminateLoading ? 'transition-[stroke-dashoffset] duration-150 ease-out' : undefined
+                  }
                 />
               </svg>
-              <Loader2 className="w-4 h-4 text-[#ea8377] animate-spin" />
-            </div>
+              <Mic className="w-4 h-4 text-[#f5aa9c] animate-pulse" />
+            </>
           ) : (
             <Mic className={`w-4 h-4 ${isError ? 'text-red-400' : 'text-current'}`} />
           )}
@@ -402,4 +448,6 @@ export const VoicePill: React.FC<VoicePillProps> = ({
       )}
     </button>
   );
-};
+});
+
+VoicePill.displayName = 'VoicePill';

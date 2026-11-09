@@ -68,6 +68,7 @@ export function normalizePunctuationSpacing(raw: string): string {
     .trim()
     .replace(/\s+([，。？！,.?!])/g, '$1')
     .replace(/([，。？！,.?!])\s+/g, '$1')
+    .replace(/([\u4e00-\u9fa5])\s+(?=[\u4e00-\u9fa5])/g, '$1，')
     .replace(/([\u4e00-\u9fa5])\?/g, '$1？')
     .replace(/([\u4e00-\u9fa5])!/g, '$1！')
     .replace(/([\u4e00-\u9fa5]),/g, '$1，')

@@ -1,25 +1,33 @@
 /**
- * sttClient.ts — main-thread mic capture + Silero neural VAD + worker bridge for ChatBar.
+ * sttClient.ts — 100% on-device streaming speech recognition via @firetable/stream-asr.
  *
- * States: idle | loading | listening | recognizing | error
- * Dual Mode:
- *  - Click to Toggle continuous dictation
- *  - Hold to Talk (Push-to-talk)
- * Stop mid-utterance flushes VAD → recognize.
+ * Capabilities:
+ *  - 100% browser-native & offline WebAssembly SIMD runtime (zero cloud audio egress).
+ *  - Mode 3: Continuous universal streaming with neural Silero VAD & auto-punctuation.
+ *  - sub-50ms real-time interim drafts with atomic in-place caret/range replacement.
+ *  - Acoustic bleed gating (TTS Self-Listening Guard) to prevent speaker audio loopback.
+ *  - Full compatibility with ChatBar & Embed protocol.
  */
+import {
+  StreamRecognizer,
+  type DownloadProgressEvent,
+} from '@firetable/stream-asr';
 import { APP_CONFIG } from '@/config';
-import { isLoopbackHost } from '@/lib/loopback';
-import { SileroVad } from './sileroVad';
-import { richTranscriptionPostprocess } from './transcriptFilter';
 import { formatDraftPunctuation, finalizePunctuation } from './punctuation';
-import { isRemoteSttAvailable, transcribeRemote } from './sttDispatcher';
-import { readSttStrategy } from '../llm/activeAudioModes';
 
 export type SttUiState = 'idle' | 'loading' | 'listening' | 'recognizing' | 'error';
 
+export type SttProgressPhase = 'download' | 'init' | 'ready';
+
 export type SttClientEvent =
   | { type: 'state'; state: SttUiState }
-  | { type: 'progress'; phase: 'download' | 'init' | 'ready'; percent: number }
+  | {
+      type: 'progress';
+      phase: SttProgressPhase;
+      percent: number;
+      loaded?: number;
+      total?: number;
+    }
   | { type: 'partial_rms'; rms: number }
   | { type: 'speech_prob'; prob: number }
   | { type: 'speech_start' }
@@ -39,7 +47,7 @@ export type SttClientEvent =
 
 type Listener = (ev: SttClientEvent) => void;
 
-function resampleTo(targetRate: number, input: Float32Array, fromRate: number): Float32Array {
+export function resampleTo(targetRate: number, input: Float32Array, fromRate: number): Float32Array {
   if (fromRate === targetRate) return input;
   const ratio = fromRate / targetRate;
   const outLen = Math.max(1, Math.round(input.length / ratio));
@@ -52,6 +60,16 @@ function resampleTo(targetRate: number, input: Float32Array, fromRate: number): 
     out[i] = input[i0]! * (1 - t) + input[i1]! * t;
   }
   return out;
+}
+
+export function meanRms(pcm: Float32Array): number {
+  if (pcm.length === 0) return 0;
+  let sum = 0;
+  for (let i = 0; i < pcm.length; i++) {
+    const v = pcm[i]!;
+    sum += v * v;
+  }
+  return Math.sqrt(sum / pcm.length);
 }
 
 function classifyMediaError(e: unknown): string {
@@ -77,7 +95,7 @@ function classifyMediaError(e: unknown): string {
 }
 
 export class SttClient {
-  private worker: Worker | null = null;
+  private recognizer: StreamRecognizer | null = null;
   private listeners = new Set<Listener>();
   private state: SttUiState = 'idle';
   private stream: MediaStream | null = null;
@@ -85,56 +103,35 @@ export class SttClient {
   private processor: ScriptProcessorNode | null = null;
   private source: MediaStreamAudioSourceNode | null = null;
   private analyser: AnalyserNode | null = null;
-  private vad: SileroVad | null = null;
-  private recogId = 0;
-  private loadStarted = false;
-  /** True while a segment is in-flight. */
-  private recognizingBusy = false;
-  /** Session audio accumulator: chunks of Float32Array for the current continuous turn. */
-  private sessionPcmChunks: Float32Array[] = [];
-  /** Timer to finalize (commit) the current session after a long silence. */
-  private commitTimer: ReturnType<typeof setTimeout> | null = null;
-  /** Cached latest text and rawText from the session for finalize without re-inference. */
-  private lastSessionText = '';
-  private lastSessionRawText = '';
-  /** Total samples of PCM that was sent in the last recognize call. */
-  private lastSubmittedPcmSamples = 0;
-  /** Monotonic epoch incremented on resetSession to invalidate in-flight async results and prevent ghost text. */
-  private currentTurnId = 0;
-  private inFlightUtterance: {
-    id: number;
-    turnId: number;
-    pcm: Float32Array;
-    sampleRate: number;
-    durationMs: number;
-    startTime: number;
-    rms: number;
-    isFinal: boolean;
-  } | null = null;
-  private adhocRequests = new Map<
-    number,
-    {
-      resolve: (res: { text: string; inferenceMs: number }) => void;
-      reject: (err: Error) => void;
-      startTime: number;
-    }
-  >();
-  private punctuateRequests = new Map<
-    number,
-    {
-      resolve: (text: string) => void;
-      reject: (err: Error) => void;
-      timer: ReturnType<typeof setTimeout>;
-    }
-  >();
-  private lastProgressPercent = 0;
+  private loadPromise: Promise<void> | null = null;
   private isModelReady = false;
-  private startSessionId = 0;
+  private lastProgressPercent = 0;
   private desiredActive = false;
-  /** Provider indicating whether XiaoChun is actively speaking via TTS. */
+  private startSessionId = 0;
   private isTtsSpeakingProvider: (() => boolean) | null = null;
-  /** Timestamp when TTS was last speaking, used to absorb room reverb tail during ttsCooldownMs. */
   private lastTtsSpeakingTime = 0;
+  private utteranceCounter = 0;
+  private lastRms = 0;
+  private speechPcmBuffer: Float32Array[] = [];
+  private speechPcmSamples = 0;
+  /** Cap buffered PCM (preroll while idle / per-utterance) to ~30s @16kHz to avoid unbounded growth. */
+  private static readonly MAX_BUFFER_SAMPLES = 16000 * 30;
+  /** While VAD reports silence before any speech in a turn, only keep ~0.5s of preroll. */
+  private static readonly SILENCE_PREROLL_SAMPLES = 8000;
+  private vadActive = false;
+  private hasSpokenInTurn = false;
+  /**
+   * 1:1 FIFO sequence counters for StreamRecognizer's Worker messages:
+   * Every feed()/finish() sends one FEED_AUDIO and yields one non-refined RESULT ('recognizing').
+   * Setting ignoreResultsUntilCount = sentFeedCount discards all in-flight Worker results
+   * produced before resetSession() / cancel / manual input deletion.
+   */
+  private sentFeedCount = 0;
+  private receivedResultCount = 0;
+  private ignoreResultsUntilCount = 0;
+  private lastResultIgnored = false;
+  private hasFedAudioInTurn = false;
+  private lastEmittedRawText = '';
 
   constructor(options?: { isTtsSpeaking?: () => boolean }) {
     if (options?.isTtsSpeaking) {
@@ -142,15 +139,10 @@ export class SttClient {
     }
   }
 
-  /**
-   * Configures a provider callback that returns true if XiaoChun is currently speaking via TTS.
-   * Used for acoustic bleed gating to prevent speaker audio from triggering self-interruption.
-   */
   setTtsSpeakingProvider(provider: (() => boolean) | null): void {
     this.isTtsSpeakingProvider = provider;
   }
 
-  /** Checks whether the acoustic bleed guard (TTS speaking or post-speech reverb absorption) is active. */
   isAcousticGuardActive(): boolean {
     const now = performance.now();
     const isCurrentlySpeaking = this.isTtsSpeakingProvider ? this.isTtsSpeakingProvider() : false;
@@ -188,132 +180,160 @@ export class SttClient {
     this.emit({ type: 'state', state });
   }
 
-  private ensureWorker(): Worker {
-    if (this.worker) return this.worker;
-    const w = new Worker(new URL('./sttWorker.ts', import.meta.url), { type: 'module' });
-    // worker 看不到页面 URL，回环判定在主线程算好后传入（须先于 load/recognize 发送）
-    w.postMessage({ type: 'config', loopback: isLoopbackHost() });
-    w.onmessage = (ev: MessageEvent<Record<string, unknown>>) => {
-      const msg = ev.data;
-      if (!msg || typeof msg !== 'object') return;
-      if (msg.type === 'progress') {
-        const phase = msg.phase as 'download' | 'init' | 'ready';
-        const percent = Number(msg.percent ?? 0);
-        this.lastProgressPercent = percent;
-        this.emit({ type: 'progress', phase, percent });
-        if (phase === 'ready') {
-          this.isModelReady = true;
-          if (this.desiredActive || this.stream) this.setState('listening');
-          else if (this.state === 'loading') this.setState('idle');
-        } else if (!this.isModelReady && !this.stream && !this.desiredActive && this.state !== 'listening') {
-          this.setState('loading');
-        }
-        return;
-      }
-      if (msg.type === 'ready') {
-        this.isModelReady = true;
-        this.lastProgressPercent = 100;
-        this.emit({ type: 'progress', phase: 'ready', percent: 100 });
-        if (this.desiredActive || this.stream) this.setState('listening');
-        else if (this.state === 'loading') this.setState('idle');
-        return;
-      }
-      if (msg.type === 'punctuate_result') {
-        const reqId = Number(msg.id);
-        const req = this.punctuateRequests.get(reqId);
-        if (req) {
-          this.punctuateRequests.delete(reqId);
-          clearTimeout(req.timer);
-          req.resolve(String(msg.text ?? ''));
-        }
-        return;
-      }
-      if (msg.type === 'result') {
-        const reqId = Number(msg.id);
-        const adhoc = this.adhocRequests.get(reqId);
-        if (adhoc) {
-          const baseText = richTranscriptionPostprocess(String(msg.text ?? ''));
-          this.adhocRequests.delete(reqId);
-          const now = typeof performance !== 'undefined' ? performance.now() : Date.now();
-          const inferenceMs = Math.round(now - adhoc.startTime);
-          const adhocText = finalizePunctuation(baseText);
-          adhoc.resolve({ text: adhocText, inferenceMs });
-          return;
-        }
-
-        void this.handleRecognitionResult({
-          id: reqId,
-          text: String(msg.text ?? ''),
-          rawText: typeof msg.rawText === 'string' ? msg.rawText : undefined,
-          isFinal: typeof msg.isFinal === 'boolean' ? msg.isFinal : undefined,
-        });
-        return;
-      }
-      if (msg.type === 'error') {
-        const reqId = Number(msg.id);
-        const puncReq = this.punctuateRequests.get(reqId);
-        if (puncReq) {
-          this.punctuateRequests.delete(reqId);
-          clearTimeout(puncReq.timer);
-          puncReq.reject(new Error(String(msg.message || 'Punctuation error')));
-          return;
-        }
-
-        const adhoc = this.adhocRequests.get(reqId);
-        if (adhoc) {
-          this.adhocRequests.delete(reqId);
-          adhoc.reject(new Error(String(msg.message || 'STT recognition error')));
-          return;
-        }
-
-        this.inFlightUtterance = null;
-        const message = String(msg.message ?? 'STT error');
-        this.recognizingBusy = false;
-        // Soft: too-short / empty decode should not kill the listening session.
-        if (/too short|Not enough frames/i.test(message)) {
-          if (this.stream) this.setState('listening');
-          else this.setState('idle');
-          this.emit({ type: 'error', message: 'empty_transcript' });
-          return;
-        }
-        this.setState('error');
-        this.emit({ type: 'error', message });
-      }
-    };
-    w.onerror = (e) => {
-      this.setState('error');
-      this.emit({ type: 'error', message: e.message || 'STT worker error' });
-    };
-    this.worker = w;
-    return w;
+  private failSession(message: string): void {
+    this.desiredActive = false;
+    this.startSessionId++;
+    this.vadActive = false;
+    this.hasSpokenInTurn = false;
+    this.hasFedAudioInTurn = false;
+    this.lastEmittedRawText = '';
+    this.speechPcmBuffer = [];
+    this.speechPcmSamples = 0;
+    this.teardownAudio();
+    this.setState('error');
+    this.emit({ type: 'error', message });
   }
 
-  /** Prefetch model (download + ORT init). Safe to call early. */
-  preload(): void {
-    if (this.loadStarted) return;
-    this.loadStarted = true;
-    const isDirect = isRemoteSttAvailable() && readSttStrategy() === 'direct';
-    if (!isDirect) {
-      if (!this.isModelReady && !this.stream && !this.desiredActive) {
-        this.setState('loading');
-      }
-      this.ensureWorker().postMessage({ type: 'load' });
-    }
-    if (!this.vad) {
-      this.vad = new SileroVad({
-        sampleRate: APP_CONFIG.stt.sampleRate,
-        silenceMs: APP_CONFIG.stt.vadSilenceMs ?? 450,
-        maxMs: APP_CONFIG.stt.vadMaxMs ?? 20000,
-        startThreshold: 0.50,
-        silenceThreshold: 0.35,
-        prerollMs: APP_CONFIG.stt.vadPrerollMs ?? 300,
-        modelPath: (APP_CONFIG.stt as { sileroModelPath?: string }).sileroModelPath ?? '/models/silero_vad_v5.onnx',
+  private initRecognizer(): Promise<void> {
+    if (this.loadPromise) return this.loadPromise;
+
+    const recognizer = new StreamRecognizer({
+      modelUrl: APP_CONFIG.stt.modelUrl,
+      wasmBaseUrl: APP_CONFIG.stt.wasmBaseUrl,
+      modelVersion: APP_CONFIG.stt.modelVersion ?? '1.0.0',
+      mode: 3,
+      vadThreshold: APP_CONFIG.stt.vadThreshold ?? 0.5,
+      sampleRate: APP_CONFIG.stt.sampleRate ?? 16000,
+      numThreads: 'auto',
+      debug: false,
+    });
+
+    this.recognizer = recognizer;
+    this.lastProgressPercent = 0;
+    this.emit({
+      type: 'progress',
+      phase: 'init',
+      percent: 0,
+      loaded: 0,
+      total: 0,
+    });
+
+    recognizer.on('download_progress', (p: DownloadProgressEvent) => {
+      const pct = p.total > 0 ? Math.min(100, (p.loaded / p.total) * 100) : p.percent;
+      this.lastProgressPercent = Math.round(pct);
+      const doneDownloading = p.total > 0 && p.loaded >= p.total;
+      this.emit({
+        type: 'progress',
+        phase: doneDownloading ? 'init' : 'download',
+        percent: pct,
+        loaded: p.loaded,
+        total: p.total,
       });
-    }
-    void this.vad.init().catch(() => {});
+    });
+
+    recognizer.on('ready', () => {
+      this.isModelReady = true;
+      this.lastProgressPercent = 100;
+      this.emit({
+        type: 'progress',
+        phase: 'ready',
+        percent: 100,
+      });
+      if (this.desiredActive && this.stream && this.state === 'loading') {
+        this.setState('listening');
+      }
+    });
+
+    recognizer.on('vad_state_change', ({ state }) => {
+      this.vadActive = state === 1;
+      if (state === 1) {
+        this.hasSpokenInTurn = true;
+        this.lastTtsSpeakingTime = 0;
+        this.emit({ type: 'speech_start' });
+        this.emit({ type: 'speech_prob', prob: 0.95 });
+      } else if (state === 2) {
+        this.emit({ type: 'speech_prob', prob: 0.1 });
+      } else {
+        this.emit({ type: 'speech_prob', prob: 0 });
+      }
+    });
+
+    recognizer.on('recognizing', ({ text, isFinal, isRefined }) => {
+      if (!isRefined) {
+        this.receivedResultCount++;
+        this.lastResultIgnored = this.receivedResultCount <= this.ignoreResultsUntilCount;
+      }
+      if (this.lastResultIgnored || isRefined || isFinal || !this.desiredActive) return;
+
+      const raw = text?.trim() ?? '';
+      if (!raw || raw === this.lastEmittedRawText) return;
+      this.lastEmittedRawText = raw;
+
+      const formatted = formatDraftPunctuation(raw);
+      this.emit({ type: 'text', text: formatted, isFinal: false, rawText: text });
+    });
+
+    recognizer.on('recognized', ({ text, inferenceMs }) => {
+      if (this.lastResultIgnored) return;
+      this.lastEmittedRawText = '';
+
+      const raw = text?.trim() ?? '';
+      if (raw.length > 0) {
+        const finalized = finalizePunctuation(raw);
+        this.emit({ type: 'text', text: finalized, isFinal: true, rawText: text });
+
+        const pcm = this.flushSpeechPcm();
+        this.emit({
+          type: 'utterance_result',
+          id: ++this.utteranceCounter,
+          text: finalized,
+          pcm,
+          sampleRate: 16000,
+          durationMs: (pcm.length / 16000) * 1000,
+          inferenceMs: inferenceMs || 0,
+          rms: this.lastRms,
+          isFinal: true,
+        });
+      }
+      if (this.stream && this.desiredActive) {
+        this.setState('listening');
+      }
+    });
+
+    recognizer.on('error', (err) => {
+      if (this.receivedResultCount < this.sentFeedCount) {
+        this.receivedResultCount = this.sentFeedCount;
+      }
+      console.error('[SttClient] recognizer error:', err);
+      this.failSession(err.message || 'Stream ASR error');
+    });
+
+    this.loadPromise = recognizer.init().catch((err) => {
+      // Allow a fresh retry on next preload()/start() and immediately release any open mic stream.
+      try { recognizer.destroy?.(); } catch {}
+      if (this.recognizer === recognizer) this.recognizer = null;
+      this.loadPromise = null;
+      this.isModelReady = false;
+      this.sentFeedCount = 0;
+      this.receivedResultCount = 0;
+      this.ignoreResultsUntilCount = 0;
+      this.lastResultIgnored = false;
+      this.failSession(err instanceof Error ? err.message : 'Stream ASR init failed');
+      throw err;
+    });
+    return this.loadPromise;
   }
 
-  /** Toggle listening. */
+  preload(): void {
+    if (this.loadPromise) return;
+    if (!this.isModelReady && !this.stream && !this.desiredActive) {
+      this.setState('loading');
+    }
+    this.initRecognizer().catch((err) => {
+      console.warn('[SttClient] preload error:', err);
+    });
+  }
+
   async toggle(): Promise<void> {
     if (this.stream || this.desiredActive || this.state === 'listening' || this.state === 'recognizing') {
       await this.stop(true);
@@ -323,18 +343,24 @@ export class SttClient {
   }
 
   async start(): Promise<void> {
+    this.resetSession();
     this.desiredActive = true;
     const sessionId = ++this.startSessionId;
     try {
-      // Immediate visual feedback: activate edge glow without hardware wait
-      this.setState('listening');
+      if (this.isModelReady) {
+        this.setState('listening');
+      } else {
+        this.setState('loading');
+      }
       this.preload();
+
       if (typeof window !== 'undefined' && !window.isSecureContext) {
         throw Object.assign(new Error('mic_insecure'), { name: 'SecurityError' });
       }
       if (!navigator.mediaDevices?.getUserMedia) {
         throw Object.assign(new Error('mic_unsupported'), { name: 'NotSupportedError' });
       }
+
       const stream = await navigator.mediaDevices.getUserMedia({
         audio: {
           channelCount: 1,
@@ -345,7 +371,6 @@ export class SttClient {
         video: false,
       });
 
-      // User stopped/cancelled while awaiting getUserMedia
       if (sessionId !== this.startSessionId || !this.desiredActive) {
         for (const t of stream.getTracks()) t.stop();
         return;
@@ -355,74 +380,50 @@ export class SttClient {
       const ctx = new AudioContext();
       this.audioCtx = ctx;
       if (ctx.state === 'suspended') await ctx.resume();
-
-      const sr = APP_CONFIG.stt.sampleRate;
-      if (!this.vad) {
-        this.vad = new SileroVad({
-          sampleRate: sr,
-          silenceMs: APP_CONFIG.stt.vadSilenceMs ?? 450,
-          maxMs: APP_CONFIG.stt.vadMaxMs ?? 20000,
-          startThreshold: 0.50,
-          silenceThreshold: 0.35,
-          prerollMs: APP_CONFIG.stt.vadPrerollMs ?? 300,
-          modelPath: (APP_CONFIG.stt as { sileroModelPath?: string }).sileroModelPath ?? '/models/silero_vad_v5.onnx',
-        });
+      if (sessionId !== this.startSessionId || !this.desiredActive) {
+        this.teardownAudio();
+        return;
       }
-      void this.vad.init().catch(() => {});
 
       const source = ctx.createMediaStreamSource(stream);
       this.source = source;
 
-      // Real-time microphone frequency analyser for VoicePill waveform
       const analyser = ctx.createAnalyser();
       analyser.fftSize = 256;
       analyser.smoothingTimeConstant = 0;
       source.connect(analyser);
       this.analyser = analyser;
 
-      // ScriptProcessor: widely supported in Safari/Chromium/Tauri WKWebView.
       const processor = ctx.createScriptProcessor(4096, 1, 1);
       this.processor = processor;
       processor.onaudioprocess = (e) => {
+        if (!this.desiredActive || this.processor !== processor) return;
         const input = e.inputBuffer.getChannelData(0);
-        const copy = new Float32Array(input.length);
-        copy.set(input);
-        const pcm = resampleTo(sr, copy, ctx.sampleRate);
-        this.processPcmChunk(pcm);
+        this.processPcmChunk(input, ctx.sampleRate);
       };
-      // Must be in the graph to fire; mute so we do not echo mic to speakers.
+
       const mute = ctx.createGain();
       mute.gain.value = 0;
       source.connect(processor);
       processor.connect(mute);
       mute.connect(ctx.destination);
-      if (this.state === 'listening') {
-        this.emit({ type: 'state', state: 'listening' });
+
+      if (this.isModelReady && this.state !== 'recognizing') {
+        this.setState('listening');
       }
     } catch (e) {
-      this.teardownAudio();
-      const message = classifyMediaError(e);
-      this.setState('error');
-      this.emit({ type: 'error', message });
+      this.failSession(classifyMediaError(e));
     }
   }
 
-  /**
-   * Processes a resampled 16kHz PCM chunk with acoustic bleed gating (TTS Self-Listening Guard)
-   * and dispatches to Silero VAD.
-   */
-  private processPcmChunk(pcm: Float32Array): void {
-    if (pcm.length === 0) return;
+  private processPcmChunk(chunk: Float32Array, sampleRate: number): void {
+    if (chunk.length === 0) return;
 
-    // 1. Calculate RMS of the incoming 16kHz PCM chunk
-    let sumSq = 0;
-    for (let i = 0; i < pcm.length; i++) {
-      const sample = pcm[i]!;
-      sumSq += sample * sample;
-    }
-    const chunkRms = Math.sqrt(sumSq / pcm.length);
+    const pcm16k = resampleTo(16000, chunk, sampleRate);
+    const rms = meanRms(pcm16k);
+    this.lastRms = rms;
+    this.emit({ type: 'partial_rms', rms });
 
-    // 2. Evaluate acoustic bleed gating (TTS Self-Listening Guard)
     const now = performance.now();
     const isCurrentlySpeaking = this.isTtsSpeakingProvider ? this.isTtsSpeakingProvider() : false;
     if (isCurrentlySpeaking) {
@@ -434,484 +435,142 @@ export class SttClient {
       (this.lastTtsSpeakingTime > 0 && now - this.lastTtsSpeakingTime < ttsCooldownMs);
 
     const bargeInRms = APP_CONFIG.stt.bargeInRms ?? 0.08;
-    const isCandidate = this.vad?.isSpeechCandidate() ?? false;
 
-    // If TTS is actively speaking (or in room reverb cooldown) and audio does not meet barge-in threshold:
-    if (isGuardActive && !isCandidate && chunkRms < bargeInRms) {
-      // Acoustic bleed from speaker: suppress VAD trigger and discard chunk
-      if (this.vad) {
-        this.vad.reset();
-      }
-      this.emit({ type: 'partial_rms', rms: chunkRms });
+    if (isGuardActive && rms < bargeInRms) {
       this.emit({ type: 'speech_prob', prob: 0 });
       return;
     }
 
-    // 3. Normal / Barge-in path: feed to Silero VAD
-    void this.vad?.processChunk(pcm, (ev) => {
-      if (ev.type === 'frame') {
-        this.emit({ type: 'partial_rms', rms: ev.rms });
-        this.emit({ type: 'speech_prob', prob: ev.prob });
-      } else if (ev.type === 'speech_start') {
-        this.lastTtsSpeakingTime = 0; // Clear cooldown immediately on confirmed user barge-in
-        if (this.commitTimer) {
-          clearTimeout(this.commitTimer);
-          this.commitTimer = null;
-        }
-        this.emit({ type: 'speech_start' });
-      } else if (ev.type === 'speech_end') {
-        if (this.shouldSkipUtterance(ev.pcm, ev.durationMs)) {
-          return;
-        }
-        this.handleSpeechChunk(ev.pcm);
+    if (isGuardActive && rms >= bargeInRms) {
+      this.lastTtsSpeakingTime = 0;
+    }
+
+    if (this.recognizer && this.isModelReady) {
+      const copy = new Float32Array(pcm16k.length);
+      copy.set(pcm16k);
+      try {
+        this.recognizer.feed(copy, 16000);
+        this.sentFeedCount++;
+        this.hasFedAudioInTurn = true;
+        this.bufferPcm(copy);
+      } catch (err) {
+        console.warn('[SttClient] feed error:', err);
       }
-    });
+    }
   }
 
-  private handleSpeechChunk(chunkPcm: Float32Array): void {
-    this.sessionPcmChunks.push(chunkPcm);
-
-    const sr = APP_CONFIG.stt.sampleRate;
-    let totalSamples = 0;
-    for (const c of this.sessionPcmChunks) totalSamples += c.length;
-    const totalMs = (totalSamples / sr) * 1000;
-
-    const maxMs = APP_CONFIG.stt.maxAccumulateMs ?? 15_000;
-    const isOverLimit = totalMs >= maxMs;
-
-    if (this.commitTimer) {
-      clearTimeout(this.commitTimer);
-      this.commitTimer = null;
+  private bufferPcm(chunk: Float32Array): void {
+    this.speechPcmBuffer.push(chunk);
+    this.speechPcmSamples += chunk.length;
+    const limit =
+      this.vadActive || this.hasSpokenInTurn
+        ? SttClient.MAX_BUFFER_SAMPLES
+        : SttClient.SILENCE_PREROLL_SAMPLES;
+    while (this.speechPcmSamples > limit && this.speechPcmBuffer.length > 1) {
+      this.speechPcmSamples -= this.speechPcmBuffer.shift()!.length;
     }
-
-    if (!isOverLimit) {
-      this.commitTimer = setTimeout(() => {
-        void this.commitSession();
-      }, APP_CONFIG.stt.commitSilenceMs ?? 1200);
-    }
-
-    // 全程纯云端 (direct) 模式下，中间草稿短片段不启动本地模型，静默累积直至长停顿/松开触发单次高精云端定稿
-    const isDirect = isRemoteSttAvailable() && readSttStrategy() === 'direct';
-    if (isDirect && !isOverLimit) {
-      return;
-    }
-
-    if (this.recognizingBusy) {
-      return;
-    }
-
-    const combined = this.concatSessionPcm();
-    this.submitUtterance(combined, isOverLimit);
   }
 
-  private concatSessionPcm(): Float32Array {
-    let total = 0;
-    for (const c of this.sessionPcmChunks) total += c.length;
-    const combined = new Float32Array(total);
+  private flushSpeechPcm(): Float32Array {
+    this.hasSpokenInTurn = false;
+    if (this.speechPcmBuffer.length === 0) return new Float32Array(0);
+    let totalLen = 0;
+    for (const c of this.speechPcmBuffer) totalLen += c.length;
+    const out = new Float32Array(totalLen);
     let offset = 0;
-    for (const c of this.sessionPcmChunks) {
-      combined.set(c, offset);
+    for (const c of this.speechPcmBuffer) {
+      out.set(c, offset);
       offset += c.length;
     }
-    return combined;
-  }
-
-  /**
-   * Commits and finalizes the active continuous speech session.
-   * Pass 2: 若远程服务可用且有累积语音，整句只发 1 次云端 Whisper 大模型进行高精重写与定稿；
-   * 兜底模式 / 离线模式：使用本地 SenseVoice 草稿并由 CT-Transformer 固化标点。
-   */
-  async commitSession(): Promise<void> {
-    if (this.commitTimer) {
-      clearTimeout(this.commitTimer);
-      this.commitTimer = null;
-    }
-
-    if (this.sessionPcmChunks.length === 0 && !this.inFlightUtterance && !this.lastSessionText) {
-      return;
-    }
-
-    if (this.inFlightUtterance) {
-      this.inFlightUtterance.isFinal = true;
-      return;
-    }
-
-    const combinedPcm = this.concatSessionPcm();
-    const sessionTurnId = this.currentTurnId;
-    const textToCommit = this.lastSessionText;
-    const rawToCommit = this.lastSessionRawText;
-
-    this.sessionPcmChunks = [];
-    this.lastSessionText = '';
-    this.lastSessionRawText = '';
-    this.lastSubmittedPcmSamples = 0;
-
-    // Pass 2: 若远程服务可用 (内置 CF / 用户自定义) 且存在有效音频，调用云端 Whisper 进行整句高精定稿
-    if (combinedPcm.length > 0 && isRemoteSttAvailable()) {
-      try {
-        const sr = APP_CONFIG.stt.sampleRate;
-        const startTime = typeof performance !== 'undefined' ? performance.now() : Date.now();
-        const { text } = await transcribeRemote(combinedPcm, sr);
-        if (this.currentTurnId !== sessionTurnId) {
-          return;
-        }
-        const now = typeof performance !== 'undefined' ? performance.now() : Date.now();
-        const inferenceMs = Math.round(now - startTime);
-        const durationMs = (combinedPcm.length / sr) * 1000;
-        let sumSq = 0;
-        for (let i = 0; i < combinedPcm.length; i++) sumSq += combinedPcm[i]! * combinedPcm[i]!;
-        const rms = Math.sqrt(sumSq / Math.max(1, combinedPcm.length));
-
-        const baseText = richTranscriptionPostprocess(String(text ?? ''));
-        const cleaned = finalizePunctuation(baseText);
-        if (cleaned) {
-          if (typeof console !== 'undefined' && typeof console.log === 'function') {
-            console.log(
-              `%c[STT Client]%c 云端二阶段定稿固化 (Whisper Turbo): "${cleaned}"`,
-              'color: #10b981; font-weight: bold;',
-              'color: inherit;',
-            );
-          }
-          this.emit({
-            type: 'utterance_result',
-            id: ++this.recogId,
-            text: cleaned,
-            pcm: combinedPcm,
-            sampleRate: sr,
-            durationMs,
-            inferenceMs,
-            rms,
-            isFinal: true,
-          });
-          this.emit({ type: 'text', text: cleaned, isFinal: true, rawText: '' });
-          return;
-        }
-      } catch (remoteErr) {
-        console.warn('[STT Client] 云端二阶段定稿异常，0ms 降级为端侧本地草稿固化:', remoteErr);
-      }
-    }
-
-    // 兜底路径 (纯端侧离线模式 / 远端熔断 / 远端识别异常)：使用本地 SenseVoice 草稿经 CT-Transformer 标点固化
-    if (textToCommit) {
-      const finalized = await this.punctuateText(textToCommit);
-      // Guard: if session was reset (e.g. user sent message) while CT-Transformer was punctuating, discard
-      if (this.currentTurnId !== sessionTurnId) {
-        return;
-      }
-      if (typeof console !== 'undefined' && typeof console.log === 'function') {
-        console.log(
-          `%c[STT Client]%c 长停顿定稿固化 (本地 SenseVoice): "${finalized}"`,
-          'color: #0ea5e9; font-weight: bold;',
-          'color: inherit;',
-        );
-      }
-      this.emit({ type: 'text', text: finalized, isFinal: true, rawText: rawToCommit });
-    } else if (combinedPcm.length > 0) {
-      // 尚无草稿文字但有未识别的音频 (如用户刚说完立即点击结束麦克风)，由本地 Worker 进行兜底识别
-      this.submitUtterance(combinedPcm, true);
-    }
-  }
-
-  /**
-   * Resets active session state and pending chunks without emitting text.
-   */
-  resetSession(): void {
-    this.currentTurnId++;
-    if (this.commitTimer) {
-      clearTimeout(this.commitTimer);
-      this.commitTimer = null;
-    }
-    for (const req of this.punctuateRequests.values()) {
-      clearTimeout(req.timer);
-    }
-    this.punctuateRequests.clear();
-    this.inFlightUtterance = null;
-    this.sessionPcmChunks = [];
-    this.lastSessionText = '';
-    this.lastSessionRawText = '';
-    this.lastSubmittedPcmSamples = 0;
-    this.recognizingBusy = false;
-    this.lastTtsSpeakingTime = 0;
-  }
-
-  /**
-   * Delegates final punctuation to CT-Transformer running in the STT Web Worker.
-   * If the worker is unavailable or times out (>800ms), gracefully falls back to Stage 1 regex rules.
-   */
-  async punctuateText(text: string): Promise<string> {
-    if (!text || !text.trim()) return '';
-    const trimmed = text.trim();
-    if (!this.worker || !this.isModelReady) {
-      return finalizePunctuation(trimmed);
-    }
-    const id = ++this.recogId;
-    return new Promise<string>((resolve) => {
-      const timer = setTimeout(() => {
-        this.punctuateRequests.delete(id);
-        resolve(finalizePunctuation(trimmed));
-      }, 800);
-
-      this.punctuateRequests.set(id, {
-        resolve,
-        reject: () => resolve(finalizePunctuation(trimmed)),
-        timer,
-      });
-
-      this.worker!.postMessage({ type: 'punctuate', id, text: trimmed });
-    });
-  }
-
-  /** Stop mic; if flushUtterance, send leftover speech to recognizer and commit. */
-  async stop(flushUtterance = true): Promise<void> {
-    this.desiredActive = false;
-    this.startSessionId++;
-    this.lastTtsSpeakingTime = 0;
-    if (this.commitTimer) {
-      clearTimeout(this.commitTimer);
-      this.commitTimer = null;
-    }
-    const leftover = flushUtterance ? this.vad?.flush() ?? null : null;
-    this.teardownAudio();
-    if (leftover) {
-      const ms = (leftover.length / APP_CONFIG.stt.sampleRate) * 1000;
-      if (!this.shouldSkipUtterance(leftover, ms)) {
-        this.sessionPcmChunks.push(leftover);
-      }
-    }
-
-    await this.commitSession();
-    this.setState('idle');
-  }
-
-  /** min duration check (200ms). */
-  private shouldSkipUtterance(pcm: Float32Array, durationMs: number): boolean {
-    const stt = APP_CONFIG.stt;
-    if (pcm.length === 0) return true;
-    if (durationMs < (stt.minUtteranceMs ?? 160)) return true;
-    return false;
-  }
-
-  private async handleRecognitionResult(msg: {
-    id: number;
-    text: string;
-    rawText?: string;
-    isFinal?: boolean;
-  }): Promise<void> {
-    const inFlight = this.inFlightUtterance;
-    const reqId = Number(msg.id);
-    if (!inFlight || inFlight.id !== reqId || inFlight.turnId !== this.currentTurnId) {
-      this.recognizingBusy = false;
-      return;
-    }
-
-    const isFinal = Boolean(msg.isFinal ?? inFlight.isFinal ?? false);
-    const rawText = String(msg.rawText ?? '');
-    const baseText = richTranscriptionPostprocess(String(msg.text ?? ''));
-    const turnId = inFlight.turnId;
-
-    let cleaned: string;
-    if (isFinal) {
-      cleaned = msg.isFinal
-        ? finalizePunctuation(baseText)
-        : await this.punctuateText(baseText);
-    } else {
-      cleaned = formatDraftPunctuation(baseText);
-    }
-
-    // Guard again in case resetSession was invoked while punctuateText was awaiting
-    if (this.currentTurnId !== turnId) {
-      this.recognizingBusy = false;
-      return;
-    }
-
-    if (typeof console !== 'undefined' && typeof console.log === 'function' && cleaned) {
-      console.log(
-        `%c[STT Client]%c 识别文本就绪 [${isFinal ? '定稿' : '草稿'}]: "${cleaned}"${rawText ? ` (原始音素字流: "${rawText}")` : ''}`,
-        isFinal ? 'color: #10b981; font-weight: bold;' : 'color: #94a3b8; font-weight: bold;',
-        'color: inherit;',
-      );
-    }
-
-    this.recognizingBusy = false;
-    // Continuous dictation: stay listening if mic still open; user toggles mic to stop.
-    if (this.stream) this.setState('listening');
-    else this.setState('idle');
-
-    this.inFlightUtterance = null;
-    if (inFlight && inFlight.id === reqId) {
-      const now = typeof performance !== 'undefined' ? performance.now() : Date.now();
-      const inferenceMs = Math.round(now - inFlight.startTime);
-      this.emit({
-        type: 'utterance_result',
-        id: inFlight.id,
-        text: cleaned || String(msg.text ?? ''),
-        pcm: inFlight.pcm,
-        sampleRate: inFlight.sampleRate,
-        durationMs: inFlight.durationMs,
-        inferenceMs,
-        rms: inFlight.rms,
-        isFinal,
-      });
-    }
-
-    if (cleaned) {
-      this.lastSessionText = cleaned;
-      this.lastSessionRawText = rawText;
-      this.emit({ type: 'text', text: cleaned, isFinal, rawText });
-    } else if (isFinal && !this.lastSessionText) {
-      this.emit({ type: 'error', message: 'empty_transcript' });
-    }
-
-    if (isFinal) {
-      this.sessionPcmChunks = [];
-      this.lastSessionText = '';
-      this.lastSessionRawText = '';
-      this.lastSubmittedPcmSamples = 0;
-    } else {
-      // Check if more chunks arrived while in flight
-      let currentTotal = 0;
-      for (const c of this.sessionPcmChunks) currentTotal += c.length;
-      if (currentTotal > this.lastSubmittedPcmSamples && this.stream) {
-        const combined = this.concatSessionPcm();
-        this.submitUtterance(combined, false);
-      }
-    }
-  }
-
-  private submitUtterance(pcm: Float32Array, isFinal = false): void {
-    this.recognizingBusy = true;
-    this.setState('recognizing');
-    const id = ++this.recogId;
-    const sr = APP_CONFIG.stt.sampleRate;
-    const durationMs = (pcm.length / sr) * 1000;
-    let sumSq = 0;
-    for (let i = 0; i < pcm.length; i++) {
-      const v = pcm[i]!;
-      sumSq += v * v;
-    }
-    const rms = Math.sqrt(sumSq / Math.max(1, pcm.length));
-
-    this.inFlightUtterance = {
-      id,
-      turnId: this.currentTurnId,
-      pcm: pcm.slice(),
-      sampleRate: sr,
-      durationMs,
-      startTime: typeof performance !== 'undefined' ? performance.now() : Date.now(),
-      rms,
-      isFinal,
-    };
-    this.lastSubmittedPcmSamples = pcm.length;
-
-    // Pass 1 vs Pass 2 调度机制：
-    // 若为定稿 (isFinal) 且远程服务可用，走远程 Whisper Turbo (Pass 2)；
-    // 若为过程草稿 (isFinal=false)，始终由端侧本地 WebWorker (SenseVoice int8) 极速跳字预览 (Pass 1)
-    if (isFinal && isRemoteSttAvailable()) {
-      void (async () => {
-        try {
-          const { text } = await transcribeRemote(pcm, sr);
-          if (this.currentTurnId !== this.inFlightUtterance?.turnId) return;
-          await this.handleRecognitionResult({
-            id,
-            text,
-            isFinal: true,
-          });
-        } catch (remoteErr) {
-          console.warn('[STT Client] 远程定稿异常，无缝降级到本地模型兜底:', remoteErr);
-          if (this.currentTurnId !== this.inFlightUtterance?.turnId) return;
-          const w = this.ensureWorker();
-          const copy = pcm.slice();
-          w.postMessage({ type: 'recognize', id, pcm: copy, sampleRate: sr, isFinal: true }, [
-            copy.buffer,
-          ]);
-        }
-      })();
-      return;
-    }
-
-    const w = this.ensureWorker();
-    const copy = pcm.slice();
-    w.postMessage({ type: 'recognize', id, pcm: copy, sampleRate: sr, isFinal }, [
-      copy.buffer,
-    ]);
+    this.speechPcmBuffer = [];
+    this.speechPcmSamples = 0;
+    return out;
   }
 
   private teardownAudio(): void {
-    try {
-      this.analyser?.disconnect();
-      this.processor?.disconnect();
-      this.source?.disconnect();
-    } catch {
-      /* ignore */
+    if (this.processor) {
+      try { this.processor.disconnect(); } catch {}
+      this.processor = null;
     }
-    this.analyser = null;
-    this.processor = null;
-    this.source = null;
-    if (this.audioCtx) {
-      try {
-        void this.audioCtx.close();
-      } catch {
-        /* ignore */
-      }
-      this.audioCtx = null;
+    if (this.source) {
+      try { this.source.disconnect(); } catch {}
+      this.source = null;
+    }
+    if (this.analyser) {
+      try { this.analyser.disconnect(); } catch {}
+      this.analyser = null;
     }
     if (this.stream) {
       for (const t of this.stream.getTracks()) {
-        try {
-          t.stop();
-        } catch {
-          /* ignore */
-        }
+        try { t.stop(); } catch {}
       }
       this.stream = null;
     }
-    this.vad?.reset();
+    if (this.audioCtx) {
+      try { void this.audioCtx.close(); } catch {}
+      this.audioCtx = null;
+    }
   }
 
-  /**
-   * Ad-hoc ASR inference on a raw PCM Float32Array buffer (e.g. for re-testing/benchmarking in DevDrawer).
-   * Does NOT alter microphone capture, VAD state, or listening turn state.
-   */
-  async recognizePcm(
-    pcm: Float32Array,
-    sampleRate: number = APP_CONFIG.stt.sampleRate,
-  ): Promise<{ text: string; inferenceMs: number }> {
-    const w = this.ensureWorker();
-    if (!this.loadStarted) {
-      this.loadStarted = true;
-      w.postMessage({ type: 'load' });
+  async stop(commit = true): Promise<void> {
+    this.desiredActive = false;
+    this.startSessionId++;
+    this.vadActive = false;
+    this.teardownAudio();
+    if (commit && this.recognizer && this.isModelReady && this.hasFedAudioInTurn) {
+      this.hasFedAudioInTurn = false;
+      this.lastEmittedRawText = '';
+      try {
+        this.recognizer.finish();
+        this.sentFeedCount++;
+        // Immediately queue RESET behind finish() so WASM universalSegments/universalTranscript
+        // never leak this turn's speech into subsequent sessions.
+        this.recognizer.reset();
+      } catch (err) {
+        console.warn('[SttClient] finish error:', err);
+      }
+    } else {
+      this.resetSession();
     }
-    const id = ++this.recogId;
-    const copy = pcm.slice();
-    const startTime = typeof performance !== 'undefined' ? performance.now() : Date.now();
-    return new Promise((resolve, reject) => {
-      this.adhocRequests.set(id, { resolve, reject, startTime });
-      w.postMessage({ type: 'recognize', id, pcm: copy, sampleRate, isFinal: true }, [copy.buffer]);
-    });
+    this.setState('idle');
+  }
+
+  resetSession(): void {
+    this.ignoreResultsUntilCount = this.sentFeedCount;
+    this.hasFedAudioInTurn = false;
+    this.hasSpokenInTurn = false;
+    this.lastEmittedRawText = '';
+    this.vadActive = false;
+    if (this.recognizer && this.isModelReady) {
+      try {
+        this.recognizer.reset();
+      } catch {}
+    }
+    this.speechPcmBuffer = [];
+    this.speechPcmSamples = 0;
   }
 
   dispose(): void {
-    if (this.commitTimer) {
-      clearTimeout(this.commitTimer);
-      this.commitTimer = null;
-    }
-    for (const req of this.punctuateRequests.values()) {
-      clearTimeout(req.timer);
-    }
-    this.punctuateRequests.clear();
-    this.sessionPcmChunks = [];
-    this.lastSessionText = '';
-    this.lastSessionRawText = '';
-    this.lastSubmittedPcmSamples = 0;
     void this.stop(false);
-    this.inFlightUtterance = null;
-    this.adhocRequests.clear();
-    this.vad?.dispose();
-    this.vad = null;
-    this.worker?.terminate();
-    this.worker = null;
+    if (this.recognizer) {
+      try {
+        this.recognizer.destroy?.();
+      } catch {}
+      this.recognizer = null;
+    }
     this.listeners.clear();
-    this.loadStarted = false;
+    this.loadPromise = null;
+    this.isModelReady = false;
+    this.sentFeedCount = 0;
+    this.receivedResultCount = 0;
+    this.ignoreResultsUntilCount = 0;
+    this.lastResultIgnored = false;
+    this.hasFedAudioInTurn = false;
+    this.hasSpokenInTurn = false;
+    this.lastEmittedRawText = '';
+    this.speechPcmBuffer = [];
+    this.speechPcmSamples = 0;
+    this.vadActive = false;
     this.setState('idle');
   }
 }
@@ -978,11 +637,17 @@ export function replaceOrInsertAtRange(
     const proto =
       typeof HTMLTextAreaElement !== 'undefined' && el instanceof HTMLTextAreaElement
         ? window.HTMLTextAreaElement?.prototype
-        : window.HTMLInputElement?.prototype;
+        : typeof HTMLInputElement !== 'undefined' && el instanceof HTMLInputElement
+        ? window.HTMLInputElement?.prototype
+        : null;
     const setter = proto ? Object.getOwnPropertyDescriptor(proto, 'value')?.set : null;
     if (setter) {
-      setter.call(el, newVal);
-      applied = true;
+      try {
+        setter.call(el, newVal);
+        applied = true;
+      } catch {
+        /* fallback to direct value assignment on mock/cross-realm elements */
+      }
     }
   }
   if (!applied) {

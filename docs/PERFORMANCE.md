@@ -273,7 +273,9 @@ A bit-for-bit SHA-256 analysis of embedded glTF images across `xiaochun_base.vrm
 
 ## 10. STT Zero-Silence Gating, Mobile GPU Lifecycle & Pipeline Polish (v0.1.40+)
 
-### 10.1 Silero VAD Zero-Silence Gating Bypass (`src/stt/sileroVad.ts`)
+### 10.1 Silero VAD Zero-Silence Gating Bypass (removed)
+> **Obsolete**: the Silero/ONNX STT stack was replaced by `@firetable/stream-asr` (neural VAD built into the WASM engine). The notes below are kept as historical context only.
+
 - **Problem**: When voice recording is active, Silero VAD evaluates 512-sample PCM chunks (~32ms per window at 16 kHz) via `ort-web` ONNX WASM inference (~31 calls/sec). While acoustic bleed gating prevents XiaoChun from transcribing her own voice, prolonged standby silence on low-end mobile devices and laptops generated continuous background CPU consumption.
 - **Solution**: Before invoking `session.run()`, a fast amplitude gate inspects the root-mean-square (`rms`) energy of the current PCM frame. When the character is not currently in a speech state (`!this.inSpeech && this.consecutiveSpeechFrames === 0`) and the frame amplitude is below the ambient noise floor (`rms < 0.003`):
   - Model inference is completely bypassed;

@@ -38,6 +38,12 @@
   Cache-Control: public, max-age=31536000, immutable
   Access-Control-Allow-Origin: *
 
+# === /wasm/* WASM 核心运行时 (Stream ASR 等二进制与胶水层) ===
+/wasm/*
+  ! Cache-Control
+  Cache-Control: public, max-age=31536000, immutable
+  Access-Control-Allow-Origin: *
+
 # === /vrm/* 模型资源 (.vrmbase / .vrmaddon / .vrma) ===
 # 这些文件的 URL **不带内容哈希** (xiaochun_maid.vrmaddon 重建后路径不变), 所以不能用 immutable 长缓存:
 #   - 应用侧另有 IndexedDB 缓存 (键 = url + sha, 见 src/lib/idb-vrm-cache.ts), 命中时根本不走网络, 这才是"长缓存"的主力;

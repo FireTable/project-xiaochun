@@ -213,12 +213,10 @@ You can download installer packages directly from the official Releases page:
 * **Motion** — **EMAGE** full-body co-speech motion (ONNX Runtime Web) in a Dedicated Web Worker: **wasm execution provider + INT8** (`useInt8`); **does not use WebGPU** (model tensors include int64). Temporal Gaussian smoothing and natural idle blends. Streaming windows **T=64** with per-window `motion_chunk` for TTFA; A/V hold until audible TTS; hop/seam tunables under `APP_CONFIG.emage.motion` (`advanceFrames` 60..64). See [`docs/EMAGE_MODEL.md`](docs/EMAGE_MODEL.md). The shipped model set is a slimmed, INT8-quantized and graph-optimized build (download 191.35 → 71.59 MB, no retraining), produced by [`packages/emage-onnx`](packages/emage-onnx/README.md); see [`docs/PERFORMANCE.md`](docs/PERFORMANCE.md).
 * **TTS** — **Edge-TTS 晓伊 (XiaoyiNeural, zh-CN, +10 Hz)** via a hand-rolled native WebSocket client in `src/lib/edge-tts-core.ts` (no third-party TTS SDK); emoji stripped before speech.
 * **Vocal Post-Processing & 3D Spatial Acoustics** — **Tone.js 15.x + Web Audio DSP pipeline** (`src/director/vocalProcessor.ts`): low-cut highpass filter, 3-band EQ, broadcast dynamics compressor, subtle room reverb, bit-exact pure dry bypass routing, and 3D camera distance acoustics (near-field $<2.2\text{m}$ proximity boost, $2.2\sim 8\text{m}$ flat conversation, and $>8\text{m}$ smooth distance attenuation). Documented in [`docs/TTS.md`](docs/TTS.md).
-* **STT** — **Multimodal Speech-to-Text Pipeline**:
-  * **Cloudflare Workers AI Whisper Turbo (`/api/stt`)**: High-speed edge transcription with automatic 5-minute circuit breaker fallback;
-  * **Custom OpenAI `/v1/audio/transcriptions`**: Supports arbitrary custom OpenAI-compatible ASR endpoints;
-  * **On-Device SenseVoice Small int8 Fallback**: Pure client-side speech recognition in a Dedicated Web Worker (zh/en/ja/ko/yue);
-  * **Neural Silero VAD v5**: Full-duplex conversational barge-in interruption (instantly interrupts character speech and activates attentive listening when you speak), acoustic bleed gating (prevents self-listening to TTS), and zero-silence WASM CPU bypass (`rms < 0.003`) saving >80% idle CPU;
-  * **CT-Transformer int8 Real-Time Punctuation**: Client-cloud 2-Pass architecture streaming fast draft text followed by punctuated commit with sentence-tail mood particle arbitration. Detailed in [`docs/STT.md`](docs/STT.md).
+* **STT** — **On-Device Streaming Speech-to-Text** powered by [`@firetable/stream-asr`](https://github.com/FireTable/stream-asr):
+  * **100% in-browser WASM (SIMD) single-pass streaming**: real-time interim text, neural VAD sentence segmentation and automatic punctuation — audio never leaves the device, works offline after the first model download;
+  * **Full-duplex barge-in + acoustic bleed gating**: speaking instantly interrupts the character, while the TTS tail is gated so she never listens to herself;
+  * Cloud `/api/stt` (Workers AI Whisper) is retained server-side but not exposed in the UI. Detailed in [`docs/STT.md`](docs/STT.md).
 * **LLM + TTS + EMAGE orchestrated** by the chat director on the main thread at 60 FPS. **LLM may use WebGPU** (WebLLM); **EMAGE stays on wasm/INT8**.
 
 ### 🏖️ Real-Time 3D Beach Stage (`beach3d`) & 24h Solar Cycle

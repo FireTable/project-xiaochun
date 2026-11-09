@@ -5,7 +5,7 @@
 > - [`src/motion/sources/emageWorker.ts`](../src/motion/sources/emageWorker.ts) & [`emage.ts`](../src/motion/sources/emage.ts) (ONNX full-body gesture generation; `copyToPoseBuffer`)  
 > - [`src/memory/`](../src/memory/) (Pure client-side IndexedDB multi-tier memory system)  
 > - [`src/llm/chatWorkflow.ts`](../src/llm/chatWorkflow.ts) (Multi-provider dispatcher & workflow coordinator)
-> - [`src/stt/`](../src/stt/) (SenseVoice ChatBar dictation — see [`STT.md`](STT.md))
+> - [`src/stt/`](../src/stt/) (Stream ASR ChatBar dictation — see [`STT.md`](STT.md))
 
 ---
 
@@ -30,9 +30,9 @@ graph LR
 
 ---
 
-## 1.1 ChatBar On-Device STT & Punctuation (SenseVoice + CT-Transformer)
+## 1.1 ChatBar On-Device STT (Stream ASR)
 
-Microphone dictation uses **SenseVoice Small int8**, **Silero VAD v5**, and **CT-Transformer int8** in a Dedicated Worker with 2-Pass draft/commit streaming and acoustic bleed gating. Weights load from CDN (`APP_CONFIG.stt`). Details, UX states, and agent invariants: [`STT.md`](STT.md).
+Microphone dictation uses **`@firetable/stream-asr`** (WASM SIMD, single-pass streaming with neural VAD) in its own Worker, plus acoustic bleed gating. Model chunks load from CDN (`APP_CONFIG.stt.modelUrl`), WASM from `/wasm`. Details, UX states, and agent invariants: [`STT.md`](STT.md).
 
 ---
 

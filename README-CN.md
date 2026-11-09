@@ -34,7 +34,7 @@
 
 **Project XiaoChun (小蠢)** 是一个完全运行在浏览器里的二次元陪伴角色。角色用 `@pixiv/three-vrm` 渲染,采用 MToon NPR 着色,坐在沉浸式线稿户外场景中;**所有 AI 推理都在你当前的浏览器标签页里跑** —— 没有 Python 后端,没有服务器 GPU。
 
-进场是 2D MAD 预载破次元到 3D —— 镜头从 3.3 倍远景推近,splash 同步淡出。你跟她说话（ChatBar 麦克风端上 SenseVoice 听写，或打字）。她思考(WebLLM MiniCPM5 2B q4f16_1,失败降到 Qwen2.5 0.5B;思考模式可关)、她开口说话(Edge-TTS 走 Cloudflare Workers WebSocket)、她全身动作实时跟上(EMAGE ONNX 在 Dedicated Web Worker 里)。模型没就绪时输入会排队,不会丢字。对话条菜单可从 WebLLM 预置表换模型,也可在**应用内配置对话框**接入任意 **OpenAI 兼容 自定义服务**(Ollama / LM Studio / vLLM / LocalAI / 云厂商)——AES-GCM 加密存在 IndexedDB。
+进场是 2D MAD 预载破次元到 3D —— 镜头从 3.3 倍远景推近,splash 同步淡出。你跟她说话（ChatBar 麦克风端上 Stream ASR 流式听写，或打字）。她思考(WebLLM MiniCPM5 2B q4f16_1,失败降到 Qwen2.5 0.5B;思考模式可关)、她开口说话(Edge-TTS 走 Cloudflare Workers WebSocket)、她全身动作实时跟上(EMAGE ONNX 在 Dedicated Web Worker 里)。模型没就绪时输入会排队,不会丢字。对话条菜单可从 WebLLM 预置表换模型,也可在**应用内配置对话框**接入任意 **OpenAI 兼容 自定义服务**(Ollama / LM Studio / vLLM / LocalAI / 云厂商)——AES-GCM 加密存在 IndexedDB。
 
 UI 走 **TanStack Start SSR + i18next** 水合,**完整支持简体中文 / English / 日本語 三语切换**,并且按 iOS HIG 44 pt / Material 48 dp 触屏规范做了移动端优先适配。
 

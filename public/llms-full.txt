@@ -265,7 +265,7 @@ Project XiaoChun features a cross-platform desktop build powered by **Tauri 2.x*
 ## Multimodal STT & Speech Recognition Pipeline
 
 ChatBar microphone dictation runs via multimodal dispatch:
-- Endpoints: Cloudflare Workers AI Whisper Turbo (`/api/stt`) with 5-minute circuit breaker, Custom OpenAI `/v1/audio/transcriptions`, and on-device SenseVoice Small **int8** fallback
+- Endpoints: on-device `@firetable/stream-asr` single-pass streaming recognition (WASM, neural VAD); cloud `/api/stt` is retained server-side but not exposed in the UI
 - On-device Model: sherpa-onnx SenseVoice Small **int8** `2024-07-17` (zh/en/ja/ko/yue) in Dedicated Worker
 - Neural VAD: Silero VAD v5 ONNX WASM evaluating 512-sample PCM chunks (~32ms) with acoustic bleed gate (prevents self-listening to XiaoChun's TTS) and zero-silence WASM CPU bypass (`rms < 0.003`) saving >80% idle CPU
 - Conversational Barge-In: User voice activity immediately halts character speech and triggers the mocap attentive listening pose (`ListeningMotionSystem`)

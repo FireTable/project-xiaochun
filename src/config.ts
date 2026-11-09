@@ -413,37 +413,17 @@ export const APP_CONFIG = {
     } as EmageMotionConfig,
   },
   stt: {
-    base: Boolean(import.meta.env?.PROD)
-      ? ((import.meta.env?.VITE_STT_BASE_PROD as string | undefined) ??
-        'https://cdn.firetable.tech/xiaochun/stt/sensevoice-zh-en-ja-ko-yue-int8-2024-07-17')
-      : ((import.meta.env?.VITE_STT_BASE as string | undefined) ??
-        'https://cdn.firetable.tech/xiaochun/stt/sensevoice-zh-en-ja-ko-yue-int8-2024-07-17'),
-    cacheName: 'xiaochun-stt-v2024-07-17',
-    cacheKeyPrefix: 'xiaochun-stt/v2024-07-17',
-    modelFile: 'model.int8.onnx',
-    tokensFile: 'tokens.txt',
-    useItn: true,
-    vadSilenceMs: 400,
-    commitSilenceMs: 1200,
-    maxAccumulateMs: 15_000,
-    vadMaxMs: 20_000,
+    modelUrl: (import.meta.env?.VITE_STREAM_ASR_MODEL_URL as string | undefined) ??
+      'https://cdn.firetable.tech/stream-asr/v1/model_chunks/model.json',
+    wasmBaseUrl: (import.meta.env?.VITE_STREAM_ASR_WASM_BASE as string | undefined) ?? '/wasm',
+    modelVersion: '1.0.0',
     sampleRate: 16_000,
-    vadStartThreshold: 0.014,
-    vadSilenceThreshold: 0.008,
-    vadStartMs: 80,
-    vadPrerollMs: 300,
+    vadThreshold: 0.5,
     minUtteranceMs: 160,
     /** TTS 播放期扬声器防自听打断 (Self-Listening Guard) 门限：低于此 RMS 视为扬声器回音过滤，高于此 RMS 判定为用户主动打断 (Barge-in) */
     bargeInRms: 0.08,
     /** TTS 播报结束后的房间残响与声学回声吸收冷却窗 (ms) */
     ttsCooldownMs: 250,
-    punctuation: {
-      enabled: true,
-      base: 'https://cdn.firetable.tech/xiaochun/stt/punct-ct-transformer-zh-en-vocab272727-int8-2024-04-12',
-      modelFile: 'model.int8.onnx',
-      tokensFile: 'tokens.json',
-      cacheName: 'xiaochun-punct-v2024-04-12',
-    },
   },
   llm: {
     model: 'MiniCPM5-2B-q4f16_1-MLC',

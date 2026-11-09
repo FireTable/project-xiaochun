@@ -14,11 +14,9 @@ import {
   AlertTriangle,
   Pencil,
   Sparkles,
-  Mic,
   Volume2,
   Radio,
   ShieldCheck,
-  Cpu,
 } from 'lucide-react';
 import {
   Dialog,
@@ -43,9 +41,6 @@ import {
   getDecryptedApiKey,
   readActiveSttMode,
   writeActiveSttMode,
-  readSttStrategy,
-  writeSttStrategy,
-  type SttStrategy,
   readActiveTtsMode,
   writeActiveTtsMode,
   type ProviderProfile,
@@ -94,7 +89,6 @@ export const ProviderConfigDialog: React.FC<ProviderConfigDialogProps> = ({
   const [activeLlmId, setActiveLlmId] = useState<string | null>(null);
   const [activeSttMode, setActiveSttMode] = useState<ActiveSttMode>({ kind: 'builtin' });
   const [activeTtsMode, setActiveTtsMode] = useState<ActiveTtsMode>({ kind: 'builtin' });
-  const [sttStrategy, setSttStrategy] = useState<SttStrategy>('direct');
 
   const [form, setForm] = useState<FormState>(EMPTY_FORM);
   const [autoBusy, setAutoBusy] = useState(false);
@@ -129,7 +123,6 @@ export const ProviderConfigDialog: React.FC<ProviderConfigDialogProps> = ({
     setActiveLlmId(activeLlm);
     setActiveSttMode(readActiveSttMode());
     setActiveTtsMode(readActiveTtsMode());
-    setSttStrategy(readSttStrategy());
   };
 
   useEffect(() => {
@@ -291,11 +284,6 @@ export const ProviderConfigDialog: React.FC<ProviderConfigDialogProps> = ({
     setActiveSttMode(mode);
   };
 
-  const handleSetSttStrategy = (strategy: SttStrategy) => {
-    writeSttStrategy(strategy);
-    setSttStrategy(strategy);
-  };
-
   const handleActivateTts = (mode: ActiveTtsMode) => {
     writeActiveTtsMode(mode);
     setActiveTtsMode(mode);
@@ -340,7 +328,7 @@ export const ProviderConfigDialog: React.FC<ProviderConfigDialogProps> = ({
 
           {/* ─────── 三模态分段控制器 (Segmented Tab Bar) ─────── */}
           <div className="pt-1">
-            <div className="grid grid-cols-3 gap-1 bg-white/[0.04] p-1 rounded-xl border border-white/10">
+            <div className="grid grid-cols-2 gap-1 bg-white/[0.04] p-1 rounded-xl border border-white/10">
               <button
                 type="button"
                 onClick={() => {
@@ -355,22 +343,6 @@ export const ProviderConfigDialog: React.FC<ProviderConfigDialogProps> = ({
               >
                 <Sparkles className="h-3.5 w-3.5 text-brand-300" />
                 <span>{t('providerConfig.tabLlm')}</span>
-              </button>
-
-              <button
-                type="button"
-                onClick={() => {
-                  setActiveTab('stt');
-                  setInEditMode(false);
-                }}
-                className={`flex items-center justify-center gap-1.5 py-1.5 px-2 rounded-lg text-xs font-medium transition-all ${
-                  activeTab === 'stt'
-                    ? 'bg-brand-500/25 border border-brand-400/50 text-white shadow-sm'
-                    : 'text-white/60 hover:text-white hover:bg-white/[0.04]'
-                }`}
-              >
-                <Mic className="h-3.5 w-3.5 text-brand-300" />
-                <span>{t('providerConfig.tabStt')}</span>
               </button>
 
               <button
@@ -402,119 +374,6 @@ export const ProviderConfigDialog: React.FC<ProviderConfigDialogProps> = ({
             <div className="w-1/2 pr-1.5">
               {/* ─────── 入口页 ─────── */}
               <div className="space-y-3">
-                {/* ─────── STT 专属工作模式选择 ─────── */}
-                {activeTab === 'stt' && (
-                  <div className="space-y-1.5">
-                    <div className="text-white/60 text-xs font-semibold flex items-center gap-1.5">
-                      <Radio className="h-3.5 w-3.5 text-brand-300" />
-                      <span>{t('providerConfig.workMode')}</span>
-                    </div>
-                    <div className="grid grid-cols-1 gap-1.5">
-                      {/* 选项 1: 内置智能混合 */}
-                      <div
-                        onClick={() => handleActivateStt({ kind: 'builtin' })}
-                        className={`relative rounded-xl border p-2.5 cursor-pointer transition-colors ${
-                          activeSttMode.kind === 'builtin'
-                            ? 'bg-emerald-500/10 border-emerald-500/30'
-                            : 'bg-white/[0.03] border-white/10 hover:bg-white/[0.06]'
-                        }`}
-                      >
-                        <div className="flex items-center justify-between">
-                          <div className="flex items-center gap-2">
-                            <ShieldCheck className="h-4 w-4 text-emerald-400 shrink-0" />
-                            <span className="text-white text-xs font-medium">{t('providerConfig.sttBuiltin')}</span>
-                          </div>
-                          {activeSttMode.kind === 'builtin' && (
-                            <Check className="w-3.5 h-3.5 text-emerald-400" strokeWidth={3} />
-                          )}
-                        </div>
-                        <div className="text-white/50 text-[11px] mt-1 pl-6">
-                          {t('providerConfig.sttBuiltinDesc')}
-                        </div>
-                      </div>
-
-                      {/* 选项 2: 纯端侧离线 */}
-                      <div
-                        onClick={() => handleActivateStt({ kind: 'local' })}
-                        className={`relative rounded-xl border p-2.5 cursor-pointer transition-colors ${
-                          activeSttMode.kind === 'local'
-                            ? 'bg-emerald-500/10 border-emerald-500/30'
-                            : 'bg-white/[0.03] border-white/10 hover:bg-white/[0.06]'
-                        }`}
-                      >
-                        <div className="flex items-center justify-between">
-                          <div className="flex items-center gap-2">
-                            <Cpu className="h-4 w-4 text-brand-300 shrink-0" />
-                            <span className="text-white text-xs font-medium">{t('providerConfig.sttLocal')}</span>
-                          </div>
-                          {activeSttMode.kind === 'local' && (
-                            <Check className="w-3.5 h-3.5 text-emerald-400" strokeWidth={3} />
-                          )}
-                        </div>
-                        <div className="text-white/50 text-[11px] mt-1 pl-6">
-                          {t('providerConfig.sttLocalDesc')}
-                        </div>
-                      </div>
-                    </div>
-
-                    {/* ─────── 识别策略选择 (仅在开启云端识别时展示) ─────── */}
-                    {activeSttMode.kind !== 'local' && (
-                      <div className="mt-2 pt-2 border-t border-white/[0.08] space-y-1.5">
-                        <div className="text-white/60 text-xs font-semibold flex items-center justify-between">
-                          <div className="flex items-center gap-1.5">
-                            <Radio className="h-3.5 w-3.5 text-brand-300" />
-                            <span>{t('providerConfig.sttStrategyTitle')}</span>
-                          </div>
-                          <span className="text-[10px] text-brand-300 font-normal">
-                            {sttStrategy === '2pass' ? t('providerConfig.sttStrategy2pass') : t('providerConfig.sttStrategyDirect')}
-                          </span>
-                        </div>
-                        <div className="grid grid-cols-2 gap-1.5">
-                          {/* 策略 1: 全程纯云端 (默认推荐) */}
-                          <div
-                            onClick={() => handleSetSttStrategy('direct')}
-                            className={`relative rounded-xl border p-2 cursor-pointer transition-colors ${
-                              sttStrategy === 'direct'
-                                ? 'bg-emerald-500/10 border-emerald-500/30'
-                                : 'bg-white/[0.03] border-white/10 hover:bg-white/[0.06]'
-                            }`}
-                          >
-                            <div className="flex items-center justify-between">
-                              <span className="text-white text-xs font-medium">{t('providerConfig.sttDirectOption')}</span>
-                              {sttStrategy === 'direct' && (
-                                <Check className="w-3.5 h-3.5 text-emerald-400" strokeWidth={3} />
-                              )}
-                            </div>
-                            <div className="text-white/50 text-[10px] mt-1 leading-relaxed">
-                              {t('providerConfig.sttDirectDesc')}
-                            </div>
-                          </div>
-
-                          {/* 策略 2: 2-Pass 实时预览 */}
-                          <div
-                            onClick={() => handleSetSttStrategy('2pass')}
-                            className={`relative rounded-xl border p-2 cursor-pointer transition-colors ${
-                              sttStrategy === '2pass'
-                                ? 'bg-emerald-500/10 border-emerald-500/30'
-                                : 'bg-white/[0.03] border-white/10 hover:bg-white/[0.06]'
-                            }`}
-                          >
-                            <div className="flex items-center justify-between">
-                              <span className="text-white text-xs font-medium">{t('providerConfig.stt2passOption')}</span>
-                              {sttStrategy === '2pass' && (
-                                <Check className="w-3.5 h-3.5 text-emerald-400" strokeWidth={3} />
-                              )}
-                            </div>
-                            <div className="text-white/50 text-[10px] mt-1 leading-relaxed">
-                              {t('providerConfig.stt2passDesc')}
-                            </div>
-                          </div>
-                        </div>
-                      </div>
-                    )}
-                  </div>
-                )}
-
                 {/* ─────── TTS 专属工作模式选择 ─────── */}
                 {activeTab === 'tts' && (
                   <div className="space-y-1.5">

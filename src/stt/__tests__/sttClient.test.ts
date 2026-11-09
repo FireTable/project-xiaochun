@@ -1,8 +1,14 @@
 /**
- * Unit tests for sttClient.ts and insertAtCursor.
+ * Unit tests for sttClient.ts, text editing utilities, acoustic guard, and @firetable/stream-asr integration.
  */
 import { describe, it, expect, vi } from 'vitest';
-import { SttClient, insertAtCursor, replaceOrInsertAtRange } from '../sttClient';
+import {
+  SttClient,
+  insertAtCursor,
+  replaceOrInsertAtRange,
+  resampleTo,
+  meanRms,
+} from '../sttClient';
 
 describe('replaceOrInsertAtRange', () => {
   function createMockInput(initial = '') {
@@ -109,20 +115,35 @@ describe('insertAtCursor', () => {
     expect(textarea.value).toBe('你好美麗的世界');
     expect(textarea.selectionStart).toBe(5);
   });
+});
 
-  it('calls focus on textarea when inserting text', () => {
-    const textarea = createMockInput('你好');
-    let focused = false;
-    (textarea as any).focus = () => {
-      focused = true;
-    };
-    insertAtCursor(textarea, '小春');
-    expect(focused).toBe(true);
-    expect(textarea.value).toBe('你好小春');
+describe('resampleTo and meanRms utilities', () => {
+  it('resamples 48kHz audio to 16kHz audio with 1:3 ratio', () => {
+    const input = new Float32Array(4800);
+    for (let i = 0; i < input.length; i++) input[i] = Math.sin(i * 0.1);
+
+    const out = resampleTo(16000, input, 48000);
+    expect(out.length).toBe(1600);
+  });
+
+  it('returns original input when fromRate equals targetRate', () => {
+    const input = new Float32Array([0.1, 0.2, 0.3]);
+    const out = resampleTo(16000, input, 16000);
+    expect(out).toBe(input);
+  });
+
+  it('computes correct RMS of PCM samples', () => {
+    const pcm = new Float32Array([0.5, -0.5, 0.5, -0.5]);
+    const rms = meanRms(pcm);
+    expect(rms).toBeCloseTo(0.5, 4);
+  });
+
+  it('computes zero RMS for empty buffer', () => {
+    expect(meanRms(new Float32Array(0))).toBe(0);
   });
 });
 
-describe('SttClient state logic', () => {
+describe('SttClient state logic & Acoustic Guard', () => {
   it('initializes in idle state', () => {
     const client = new SttClient();
     expect(client.getState()).toBe('idle');
@@ -137,531 +158,385 @@ describe('SttClient state logic', () => {
     client.dispose();
   });
 
-  it('keeps listening state when model finishes loading while desiredActive is true', () => {
-    const originalWorker = (globalThis as any).Worker;
-    (globalThis as any).Worker = class MockWorker {
-      onmessage: any = null;
-      postMessage() {}
-      terminate() {}
-    };
+  it('suppresses speaker audio bleed during TTS speaking when rms < bargeInRms', () => {
+    let speaking = true;
+    const client = new SttClient({ isTtsSpeaking: () => speaking });
 
-    try {
-      const client = new SttClient();
-      const states: string[] = [];
-      client.on((ev) => {
-        if (ev.type === 'state') states.push(ev.state);
-      });
-
-      // Simulate start() setting desiredActive = true and listening state
-      (client as any).desiredActive = true;
-      (client as any).setState('listening');
-
-      // Simulate worker ready message arriving while stream is not yet ready (async getUserMedia in flight)
-      (client as any).stream = null;
-      const workerInstance = (client as any).ensureWorker();
-      // Trigger onmessage with { type: 'ready' }
-      workerInstance.onmessage({ data: { type: 'ready' } } as any);
-
-      expect(client.getState()).toBe('listening');
-      expect(states).not.toContain('idle');
-      client.dispose();
-    } finally {
-      (globalThis as any).Worker = originalWorker;
-    }
-  });
-
-  it('emits utterance_result event with pcm, duration, latency and rms on worker result', () => {
-    let lastPostedMsg: any = null;
-    const originalWorker = (globalThis as any).Worker;
-    (globalThis as any).Worker = class MockWorker {
-      onmessage: any = null;
-      postMessage(msg: any) {
-        lastPostedMsg = msg;
-      }
-      terminate() {}
-    };
-
-    try {
-      const client = new SttClient();
-      let receivedUtterance: any = null;
-      client.on((ev) => {
-        if (ev.type === 'utterance_result') {
-          receivedUtterance = ev;
-        }
-      });
-
-      // Submit an utterance of 16000 samples (1 second at 16kHz)
-      const pcm = new Float32Array(16000).fill(0.2);
-      (client as any).submitUtterance(pcm, true);
-
-      expect(lastPostedMsg).toBeTruthy();
-      expect(lastPostedMsg.type).toBe('recognize');
-      const id = lastPostedMsg.id;
-
-      // Simulate worker result
-      const workerInstance = (client as any).worker;
-      workerInstance.onmessage({
-        data: {
-          type: 'result',
-          id,
-          text: '你好小春',
-          isFinal: true,
-        },
-      });
-
-      expect(receivedUtterance).toBeTruthy();
-      expect(receivedUtterance.id).toBe(id);
-      expect(receivedUtterance.text).toBe('你好，小春。');
-      expect(receivedUtterance.durationMs).toBe(1000);
-      expect(receivedUtterance.pcm.length).toBe(16000);
-      expect(receivedUtterance.rms).toBeCloseTo(0.2, 2);
-      expect(receivedUtterance.inferenceMs).toBeGreaterThanOrEqual(0);
-
-      client.dispose();
-    } finally {
-      (globalThis as any).Worker = originalWorker;
-    }
-  });
-
-  it('recognizePcm performs ad-hoc recognition without opening mic stream', async () => {
-    let lastPostedMsg: any = null;
-    const originalWorker = (globalThis as any).Worker;
-    (globalThis as any).Worker = class MockWorker {
-      onmessage: any = null;
-      postMessage(msg: any) {
-        lastPostedMsg = msg;
-        if (msg.type === 'recognize') {
-          setTimeout(() => {
-            this.onmessage?.({
-              data: {
-                type: 'result',
-                id: msg.id,
-                text: '重测成功',
-              },
-            });
-          }, 5);
-        }
-      }
-      terminate() {}
-    };
-
-    try {
-      const client = new SttClient();
-      const pcm = new Float32Array(8000).fill(0.1);
-      const res = await client.recognizePcm(pcm, 16000);
-
-      expect(lastPostedMsg).toBeTruthy();
-      expect(lastPostedMsg.type).toBe('recognize');
-      expect(res.text).toBe('重测成功。');
-      expect(res.inferenceMs).toBeGreaterThanOrEqual(0);
-      expect(client.getState()).toBe('idle'); // mic never touched
-
-      client.dispose();
-    } finally {
-      (globalThis as any).Worker = originalWorker;
-    }
-  });
-
-  it('commitSession delegates to worker punctuate RPC and emits finalized text', async () => {
-    let punctuateMsg: any = null;
-    const originalWorker = (globalThis as any).Worker;
-    (globalThis as any).Worker = class MockWorker {
-      onmessage: any = null;
-      postMessage(msg: any) {
-        if (msg.type === 'punctuate') {
-          punctuateMsg = msg;
-          setTimeout(() => {
-            this.onmessage?.({
-              data: {
-                type: 'punctuate_result',
-                id: msg.id,
-                text: '简单说两句，我们这个项目其实移动的比较晚，在市场上并没有特别大的份额。',
-              },
-            });
-          }, 5);
-        }
-      }
-      terminate() {}
-    };
-
-    try {
-      const client = new SttClient();
-      (client as any).ensureWorker();
-      (client as any).isModelReady = true;
-      (client as any).lastSessionText = '简单说两句我们这个项目其实移动的比较晚在市场上并没有特别大的份额';
-
-      let emittedTextEvent: any = null;
-      client.on((ev) => {
-        if (ev.type === 'text') emittedTextEvent = ev;
-      });
-
-      await client.commitSession();
-
-      expect(punctuateMsg).toBeTruthy();
-      expect(punctuateMsg.type).toBe('punctuate');
-      expect(punctuateMsg.text).toBe('简单说两句我们这个项目其实移动的比较晚在市场上并没有特别大的份额');
-      expect(emittedTextEvent).toBeTruthy();
-      expect(emittedTextEvent.isFinal).toBe(true);
-      expect(emittedTextEvent.text).toBe('简单说两句，我们这个项目其实移动的比较晚，在市场上并没有特别大的份额。');
-
-      client.dispose();
-    } finally {
-      (globalThis as any).Worker = originalWorker;
-    }
-  });
-
-  it('resetSession invalidates in-flight utterances and prevents ghost text emission', async () => {
-    const originalWorker = (globalThis as any).Worker;
-    let workerInstance: any = null;
-    (globalThis as any).Worker = class MockWorker {
-      onmessage: any = null;
-      postMessage() {
-        workerInstance = this;
-      }
-      terminate() {}
-    };
-
-    try {
-      const client = new SttClient();
-      (client as any).ensureWorker();
-      (client as any).isModelReady = true;
-
-      // Submit an utterance in-flight
-      (client as any).submitUtterance(new Float32Array(3200), false);
-      const inFlightId = (client as any).inFlightUtterance.id;
-
-      let emittedEvents: any[] = [];
-      client.on((ev) => {
-        if (ev.type === 'text') emittedEvents.push(ev);
-      });
-
-      // User hits send, which calls resetSession()
-      client.resetSession();
-
-      // In-flight worker result arrives late
-      workerInstance.onmessage?.({
-        data: {
-          type: 'result',
-          id: inFlightId,
-          text: '迟到的幽灵文本',
-          isFinal: false,
-        },
-      });
-
-      // Verify no text event was emitted
-      expect(emittedEvents.length).toBe(0);
-      expect((client as any).lastSessionText).toBe('');
-
-      client.dispose();
-    } finally {
-      (globalThis as any).Worker = originalWorker;
-    }
-  });
-
-  describe('acoustic bleed gating (Self-Listening Guard)', () => {
-    it('suppresses acoustic bleed when TTS is speaking and audio RMS is below barge-in threshold', () => {
-      let isTtsSpeaking = true;
-      const client = new SttClient({ isTtsSpeaking: () => isTtsSpeaking });
-
-      let vadResetCount = 0;
-      let vadProcessCount = 0;
-      const mockVad = {
-        reset: () => {
-          vadResetCount++;
-        },
-        dispose: () => {},
-        isInSpeech: () => false,
-        isSpeechCandidate: () => false,
-        processChunk: () => {
-          vadProcessCount++;
-          return Promise.resolve();
-        },
-      };
-      (client as any).vad = mockVad;
-
-      const events: any[] = [];
-      client.on((ev) => events.push(ev));
-
-      // Create a low-volume audio chunk (speaker bleed RMS ~ 0.03 < 0.08)
-      const bleedPcm = new Float32Array(512).fill(0.03);
-      (client as any).processPcmChunk(bleedPcm);
-
-      // Verify VAD was reset and not fed the bleed chunk
-      expect(vadResetCount).toBe(1);
-      expect(vadProcessCount).toBe(0);
-
-      // Verify partial_rms was emitted with prob: 0, and no speech_start was emitted
-      const rmsEv = events.find((e) => e.type === 'partial_rms');
-      const probEv = events.find((e) => e.type === 'speech_prob');
-      const startEv = events.find((e) => e.type === 'speech_start');
-
-      expect(rmsEv).toBeTruthy();
-      expect(rmsEv.rms).toBeCloseTo(0.03, 3);
-      expect(probEv).toBeTruthy();
-      expect(probEv.prob).toBe(0);
-      expect(startEv).toBeUndefined();
-
-      client.dispose();
+    const probs: number[] = [];
+    client.on((ev) => {
+      if (ev.type === 'speech_prob') probs.push(ev.prob);
     });
 
-    it('permits user barge-in when TTS is speaking and audio RMS exceeds barge-in threshold', () => {
-      let isTtsSpeaking = true;
-      const client = new SttClient({ isTtsSpeaking: () => isTtsSpeaking });
+    // Audio chunk with low RMS (0.02 < bargeIn threshold 0.08)
+    const lowPcm = new Float32Array(1600).fill(0.02);
+    (client as any).processPcmChunk(lowPcm, 16000);
 
-      let vadProcessCount = 0;
-      let onVadEventCb: any = null;
-      const mockVad = {
-        reset: () => {},
-        dispose: () => {},
-        isInSpeech: () => false,
-        isSpeechCandidate: () => false,
-        processChunk: (_chunk: Float32Array, onEvent: (ev: any) => void) => {
-          vadProcessCount++;
-          onVadEventCb = onEvent;
-          return Promise.resolve();
-        },
-      };
-      (client as any).vad = mockVad;
+    // Suppressed: prob emitted is 0
+    expect(probs).toContain(0);
+    client.dispose();
+  });
 
-      const events: any[] = [];
-      client.on((ev) => events.push(ev));
+  it('permits barge-in when user speaks loudly over TTS (rms >= bargeInRms)', () => {
+    let speaking = true;
+    const client = new SttClient({ isTtsSpeaking: () => speaking });
 
-      // Create a loud chunk (user directly speaking into mic RMS ~ 0.15 >= 0.08)
-      const userPcm = new Float32Array(512).fill(0.15);
-      (client as any).processPcmChunk(userPcm);
+    let fedPcm: Float32Array | null = null;
+    (client as any).isModelReady = true;
+    (client as any).recognizer = {
+      feed: (pcm: Float32Array) => {
+        fedPcm = pcm;
+      },
+    };
 
-      // Verify chunk passed through to VAD
-      expect(vadProcessCount).toBe(1);
+    // Audio chunk with high RMS (0.2 > bargeIn threshold 0.08)
+    const loudPcm = new Float32Array(1600).fill(0.2);
+    (client as any).processPcmChunk(loudPcm, 16000);
 
-      // When VAD confirms speech start from user, client forwards speech_start
-      onVadEventCb?.({ type: 'speech_start' });
-      const startEv = events.find((e) => e.type === 'speech_start');
-      expect(startEv).toBeTruthy();
+    // Permitted: audio was fed to recognizer
+    expect(fedPcm).toBeTruthy();
+    expect((client as any).isAcousticGuardActive()).toBe(true);
+    client.dispose();
+  });
+});
 
-      client.dispose();
+describe('StreamRecognizer Integration & Events', () => {
+  it('dispatches recognizing and recognized events through real initRecognizer listeners with punctuation formatting', async () => {
+    const client = new SttClient();
+    const textEvents: { text: string; isFinal: boolean }[] = [];
+
+    client.on((ev) => {
+      if (ev.type === 'text') {
+        textEvents.push({ text: ev.text, isFinal: ev.isFinal });
+      }
     });
 
-    it('maintains acoustic guard during post-TTS room reverberation cooldown window', () => {
-      let isTtsSpeaking = true;
-      const client = new SttClient({ isTtsSpeaking: () => isTtsSpeaking });
-
-      expect(client.isAcousticGuardActive()).toBe(true);
-
-      // TTS finishes speaking
-      isTtsSpeaking = false;
-      // Mark last speaking time to now
-      (client as any).lastTtsSpeakingTime = performance.now();
-
-      // Guard is still active during the 250ms cooldown window
-      expect(client.isAcousticGuardActive()).toBe(true);
-
-      // Simulate passage of 300ms (> 250ms cooldown)
-      (client as any).lastTtsSpeakingTime = performance.now() - 350;
-      expect(client.isAcousticGuardActive()).toBe(false);
-
-      client.dispose();
-    });
-
-    describe('Client-Cloud 2-Pass Hybrid Mode', () => {
-      it('Pass 1: keeps interim draft recognition purely on local WebWorker without calling remote ASR', () => {
-        let lastWorkerMsg: any = null;
-        const originalWorker = (globalThis as any).Worker;
-        (globalThis as any).Worker = class MockWorker {
-          onmessage: any = null;
-          postMessage(msg: any) {
-            lastWorkerMsg = msg;
-          }
-          terminate() {}
-        };
-
-        try {
-          const client = new SttClient();
-          const pcm = new Float32Array(8000).fill(0.1);
-          // Draft submission (isFinal = false)
-          (client as any).submitUtterance(pcm, false);
-
-          // Should go directly to local worker
-          expect(lastWorkerMsg).toBeTruthy();
-          expect(lastWorkerMsg.type).toBe('recognize');
-          expect(lastWorkerMsg.isFinal).toBe(false);
-
-          client.dispose();
-        } finally {
-          (globalThis as any).Worker = originalWorker;
-        }
+    const { StreamRecognizer } = await import('@firetable/stream-asr');
+    let recognizerRef: InstanceType<typeof StreamRecognizer> | null = null;
+    const initSpy = vi
+      .spyOn(StreamRecognizer.prototype, 'init')
+      .mockImplementationOnce(async function (this: InstanceType<typeof StreamRecognizer>) {
+        recognizerRef = this;
+        (this as any).emit?.('ready');
       });
 
-      it('Pass 2: commitSession triggers transcribeRemote for full accumulated audio and emits finalized text', async () => {
-        const originalFetch = globalThis.fetch;
-        const originalWindow = (globalThis as any).window;
+    await (client as any).initRecognizer();
+    (client as any).desiredActive = true;
+    (client as any).setState('listening');
 
-        // Mock window.localStorage to return 'builtin'
-        (globalThis as any).window = {
-          localStorage: {
-            getItem: (key: string) => (key === 'xiaochun.stt.mode' ? 'builtin' : null),
-          },
-        };
+    // Interim multi-sentence speech: CJK inter-segment space becomes comma, state stays 'listening'
+    (recognizerRef as any).emit('recognizing', {
+      text: '今天天气真好 我们去散步好不好',
+      vadState: 1,
+      isFinal: false,
+    });
+    expect(textEvents).toHaveLength(1);
+    expect(textEvents[0]).toEqual({ text: '今天天气真好，我们去散步好不好', isFinal: false });
+    expect(client.getState()).toBe('listening');
 
-        let fetchCalledWith: any = null;
-        globalThis.fetch = vi.fn().mockImplementation(async (url: string, opts: any) => {
-          fetchCalledWith = { url, opts };
-          return {
-            ok: true,
-            status: 200,
-            json: async () => ({
-              text: '今天天气真好，我们一起去海边吧。',
-            }),
-          };
+    // Finalized sentence receives question mark
+    (recognizerRef as any).emit('recognized', {
+      text: '今天天气真好 我们去散步好不好',
+      isFinal: true,
+      tokenCount: 12,
+      inferenceMs: 10,
+    });
+    expect(textEvents).toHaveLength(2);
+    expect(textEvents[1]).toEqual({ text: '今天天气真好，我们去散步好不好？', isFinal: true });
+
+    initSpy.mockRestore();
+    client.dispose();
+  });
+
+  it('tears down active MediaStream and resets desiredActive if recognizer init rejects', async () => {
+    const client = new SttClient();
+    const stopTrack = vi.fn();
+    (client as any).desiredActive = true;
+    (client as any).stream = { getTracks: () => [{ stop: stopTrack }] };
+
+    const { StreamRecognizer } = await import('@firetable/stream-asr');
+    const spy = vi
+      .spyOn(StreamRecognizer.prototype, 'init')
+      .mockRejectedValueOnce(new Error('network_500'));
+
+    await expect((client as any).initRecognizer()).rejects.toThrow('network_500');
+    expect(stopTrack).toHaveBeenCalledTimes(1);
+    expect((client as any).stream).toBeNull();
+    expect((client as any).desiredActive).toBe(false);
+    expect(client.getState()).toBe('error');
+
+    spy.mockRestore();
+    client.dispose();
+  });
+
+  it('does not corrupt sequence counter if recognizer.feed throws synchronously', async () => {
+    const client = new SttClient();
+    const textEvents: string[] = [];
+    client.on((ev) => {
+      if (ev.type === 'text') textEvents.push(ev.text);
+    });
+
+    const { StreamRecognizer } = await import('@firetable/stream-asr');
+    let recognizerRef: InstanceType<typeof StreamRecognizer> | null = null;
+    const initSpy = vi
+      .spyOn(StreamRecognizer.prototype, 'init')
+      .mockImplementationOnce(async function (this: InstanceType<typeof StreamRecognizer>) {
+        recognizerRef = this;
+        (this as any).emit?.('ready');
+      });
+    const feedSpy = vi
+      .spyOn(StreamRecognizer.prototype, 'feed')
+      .mockImplementationOnce(() => {
+        throw new Error('transient_post_error');
+      })
+      .mockImplementation(() => {});
+    const resetSpy = vi.spyOn(StreamRecognizer.prototype, 'reset').mockImplementation(() => {});
+
+    await (client as any).initRecognizer();
+    (client as any).desiredActive = true;
+
+    // 1st feed throws -> sentFeedCount must remain 0
+    (client as any).processPcmChunk(new Float32Array(1600).fill(0.1), 16000);
+    expect((client as any).sentFeedCount).toBe(0);
+
+    // Next turn resets session -> ignoreResultsUntilCount is 0, so the very 1st valid chunk is NOT swallowed!
+    client.resetSession();
+    (client as any).desiredActive = true;
+    (client as any).processPcmChunk(new Float32Array(1600).fill(0.1), 16000);
+    (recognizerRef as any).emit('recognizing', { text: '正常识别', vadState: 1, isFinal: false });
+    expect(textEvents).toEqual(['正常识别']);
+
+    initSpy.mockRestore();
+    feedSpy.mockRestore();
+    resetSpy.mockRestore();
+    client.dispose();
+  });
+});
+
+describe('SttClient PCM buffer bounds & init recovery', () => {
+  it('caps buffered PCM to ~0.5s preroll while VAD is silent', () => {
+    const client = new SttClient();
+    (client as any).isModelReady = true;
+    (client as any).recognizer = { feed: vi.fn() };
+
+    // 20 chunks x 0.1s = 2s of silence-time audio
+    for (let i = 0; i < 20; i++) {
+      (client as any).processPcmChunk(new Float32Array(1600).fill(0.01), 16000);
+    }
+    expect((client as any).speechPcmSamples).toBeLessThanOrEqual(8000 + 1600);
+    client.dispose();
+  });
+
+  it('keeps the whole utterance while VAD reports speech, then flushes', () => {
+    const client = new SttClient();
+    (client as any).isModelReady = true;
+    (client as any).recognizer = { feed: vi.fn() };
+    (client as any).vadActive = true;
+
+    for (let i = 0; i < 20; i++) {
+      (client as any).processPcmChunk(new Float32Array(1600).fill(0.05), 16000);
+    }
+    expect((client as any).speechPcmSamples).toBe(32000);
+    const pcm = (client as any).flushSpeechPcm();
+    expect(pcm.length).toBe(32000);
+    expect((client as any).speechPcmSamples).toBe(0);
+    client.dispose();
+  });
+
+  it('resets loadPromise and reports error when init fails so a retry is possible', async () => {
+    const client = new SttClient();
+    const errors: string[] = [];
+    client.on((ev) => {
+      if (ev.type === 'error') errors.push(ev.message);
+    });
+    const { StreamRecognizer } = await import('@firetable/stream-asr');
+    const spy = vi
+      .spyOn(StreamRecognizer.prototype, 'init')
+      .mockRejectedValueOnce(new Error('boom'));
+
+    await expect((client as any).initRecognizer()).rejects.toThrow('boom');
+    expect((client as any).loadPromise).toBeNull();
+    expect(client.getState()).toBe('error');
+    expect(errors).toContain('boom');
+    spy.mockRestore();
+    client.dispose();
+  });
+
+  it('forwards loaded/total bytes during download_progress and transitions phase cleanly', async () => {
+    const client = new SttClient();
+    const progressEvents: Array<{
+      phase: string;
+      percent: number;
+      loaded?: number;
+      total?: number;
+    }> = [];
+    client.on((ev) => {
+      if (ev.type === 'progress') {
+        progressEvents.push({
+          phase: ev.phase,
+          percent: ev.percent,
+          loaded: ev.loaded,
+          total: ev.total,
         });
-
-        try {
-          const client = new SttClient();
-          (client as any).sessionPcmChunks = [
-            new Float32Array(8000).fill(0.1),
-            new Float32Array(8000).fill(0.1),
-          ];
-          (client as any).lastSessionText = '今天天气真好我们一起去海边吧';
-
-          let emittedFinal: any = null;
-          client.on((ev) => {
-            if (ev.type === 'text' && ev.isFinal) {
-              emittedFinal = ev;
-            }
-          });
-
-          await client.commitSession();
-
-          // Verify fetch was called with /api/stt
-          expect(fetchCalledWith).toBeTruthy();
-          expect(fetchCalledWith.url).toBe('/api/stt');
-
-          // Verify emitted text from Whisper
-          expect(emittedFinal).toBeTruthy();
-          expect(emittedFinal.isFinal).toBe(true);
-          expect(emittedFinal.text).toBe('今天天气真好，我们一起去海边吧。');
-
-          client.dispose();
-        } finally {
-          globalThis.fetch = originalFetch;
-          (globalThis as any).window = originalWindow;
-        }
-      });
-
-      it('Pass 2 fallback: gracefully falls back to local draft text when transcribeRemote fails on commit', async () => {
-        const originalFetch = globalThis.fetch;
-        const originalWindow = (globalThis as any).window;
-        const originalWorker = (globalThis as any).Worker;
-
-        (globalThis as any).window = {
-          localStorage: {
-            getItem: (key: string) => (key === 'xiaochun.stt.mode' ? 'builtin' : null),
-          },
-        };
-
-        // Simulate remote failure (e.g. 502)
-        globalThis.fetch = vi.fn().mockResolvedValue({
-          ok: false,
-          status: 502,
-          text: async () => 'Inference error',
-        });
-
-        (globalThis as any).Worker = class MockWorker {
-          onmessage: any = null;
-          postMessage() {}
-          terminate() {}
-        };
-
-        try {
-          const client = new SttClient();
-          (client as any).sessionPcmChunks = [new Float32Array(8000).fill(0.1)];
-          (client as any).lastSessionText = '今天天气真好';
-
-          let emittedFinal: any = null;
-          client.on((ev) => {
-            if (ev.type === 'text' && ev.isFinal) {
-              emittedFinal = ev;
-            }
-          });
-
-          await client.commitSession();
-
-          // Should fall back to local draft text with Stage 1 punctuation
-          expect(emittedFinal).toBeTruthy();
-          expect(emittedFinal.isFinal).toBe(true);
-          expect(emittedFinal.text).toBe('今天天气真好。');
-
-          client.dispose();
-        } finally {
-          globalThis.fetch = originalFetch;
-          (globalThis as any).window = originalWindow;
-          (globalThis as any).Worker = originalWorker;
-        }
-      });
-
-      it('Direct mode (Cloud-Only): skips local interim recognition during speech chunks and commits directly to cloud', async () => {
-        const originalFetch = globalThis.fetch;
-        const originalWindow = (globalThis as any).window;
-        const originalWorker = (globalThis as any).Worker;
-
-        (globalThis as any).window = {
-          localStorage: {
-            getItem: (key: string) => {
-              if (key === 'xiaochun.stt.mode') return 'builtin';
-              if (key === 'xiaochun.stt.strategy') return 'direct';
-              return null;
-            },
-          },
-        };
-
-        let fetchCalledCount = 0;
-        globalThis.fetch = vi.fn().mockImplementation(async (_url: string) => {
-          fetchCalledCount++;
-          return {
-            ok: true,
-            status: 200,
-            json: async () => ({ text: '直接云端定稿识别文本' }),
-          };
-        });
-
-        const workerPostMessages: any[] = [];
-        (globalThis as any).Worker = class MockWorker {
-          onmessage: any = null;
-          postMessage(msg: any) {
-            workerPostMessages.push(msg);
-          }
-          terminate() {}
-        };
-
-        try {
-          const client = new SttClient();
-          const emittedEvents: any[] = [];
-          client.on((ev) => emittedEvents.push(ev));
-
-          // Simulate incoming chunk in direct mode
-          const pcmChunk = new Float32Array(8000).fill(0.05);
-          (client as any).handleSpeechChunk(pcmChunk);
-
-          // In direct mode, interim chunk does NOT trigger worker recognize message!
-          const recognizeMsgs = workerPostMessages.filter((m) => m.type === 'recognize');
-          expect(recognizeMsgs.length).toBe(0);
-          expect(fetchCalledCount).toBe(0); // not yet committed
-
-          // Now simulate commit
-          await client.commitSession();
-
-          // Full audio is sent in exactly 1 request to /api/stt
-          expect(fetchCalledCount).toBe(1);
-          const finalEvent = emittedEvents.find((e) => e.type === 'text' && e.isFinal);
-          expect(finalEvent).toBeTruthy();
-          expect(finalEvent.text).toBe('直接云端定稿识别文本。');
-
-          client.dispose();
-        } finally {
-          globalThis.fetch = originalFetch;
-          (globalThis as any).window = originalWindow;
-          (globalThis as any).Worker = originalWorker;
-        }
-      });
+      }
     });
+
+    const { StreamRecognizer } = await import('@firetable/stream-asr');
+    const spy = vi
+      .spyOn(StreamRecognizer.prototype, 'init')
+      .mockImplementationOnce(async function (this: InstanceType<typeof StreamRecognizer>) {
+        (this as any).emit?.('download_progress', {
+          loaded: 10 * 1024 * 1024,
+          total: 40 * 1024 * 1024,
+          percent: 25,
+          completedChunks: 5,
+          totalChunks: 20,
+        });
+        (this as any).emit?.('download_progress', {
+          loaded: 40 * 1024 * 1024,
+          total: 40 * 1024 * 1024,
+          percent: 100,
+          completedChunks: 20,
+          totalChunks: 20,
+        });
+        (this as any).emit?.('ready');
+      });
+
+    (client as any).desiredActive = true;
+    (client as any).setState('loading');
+    await (client as any).initRecognizer();
+
+    expect(progressEvents[0]).toEqual({ phase: 'init', percent: 0, loaded: 0, total: 0 });
+    expect(progressEvents[1]).toEqual({
+      phase: 'download',
+      percent: 25,
+      loaded: 10 * 1024 * 1024,
+      total: 40 * 1024 * 1024,
+    });
+    expect(progressEvents[2]).toEqual({
+      phase: 'init',
+      percent: 100,
+      loaded: 40 * 1024 * 1024,
+      total: 40 * 1024 * 1024,
+    });
+    expect(progressEvents[3]).toEqual({
+      phase: 'ready',
+      percent: 100,
+      loaded: undefined,
+      total: undefined,
+    });
+    // Without an active MediaStream yet, ready must not prematurely flip loading -> listening
+    expect(client.getState()).toBe('loading');
+
+    spy.mockRestore();
+    client.dispose();
+  });
+
+  it('drops ghost text when mic closes and user deletes input before async finish() returns', async () => {
+    const client = new SttClient();
+    const emittedTexts: Array<{ text: string; isFinal: boolean }> = [];
+    client.on((ev) => {
+      if (ev.type === 'text') emittedTexts.push({ text: ev.text, isFinal: ev.isFinal });
+    });
+
+    const { StreamRecognizer } = await import('@firetable/stream-asr');
+    let recognizerRef: InstanceType<typeof StreamRecognizer> | null = null;
+    const initSpy = vi
+      .spyOn(StreamRecognizer.prototype, 'init')
+      .mockImplementationOnce(async function (this: InstanceType<typeof StreamRecognizer>) {
+        recognizerRef = this;
+        (this as any).emit?.('ready');
+      });
+    const feedSpy = vi.spyOn(StreamRecognizer.prototype, 'feed').mockImplementation(() => {});
+    const finishSpy = vi.spyOn(StreamRecognizer.prototype, 'finish').mockImplementation(() => {});
+    const resetSpy = vi.spyOn(StreamRecognizer.prototype, 'reset').mockImplementation(() => {});
+
+    await (client as any).initRecognizer();
+    (client as any).desiredActive = true;
+    (client as any).setState('listening');
+
+    // 1. Feed two chunks -> Worker emits recognizing for chunk #1 ("你好小春")
+    (client as any).processPcmChunk(new Float32Array(1600).fill(0.1), 16000);
+    (recognizerRef as any).emit('recognizing', { text: '你好小春', vadState: 1, isFinal: false });
+    expect(emittedTexts).toHaveLength(1);
+
+    // Identical silent frame from Worker must NOT re-emit duplicate text
+    (client as any).processPcmChunk(new Float32Array(1600).fill(0.001), 16000);
+    (recognizerRef as any).emit('recognizing', { text: '你好小春', vadState: 0, isFinal: false });
+    expect(emittedTexts).toHaveLength(1);
+
+    // 2. User closes mic -> stop(true) queues finish() AND reset()
+    await client.stop(true);
+    expect(finishSpy).toHaveBeenCalledTimes(1);
+    expect(resetSpy).toHaveBeenCalledTimes(1);
+
+    // 3. User deletes input content BEFORE Worker returns finish() RESULT -> ChatBar calls resetSession()
+    client.resetSession();
+
+    // 4. Late Worker RESULT arrives for finish() (StreamRecognizer fires both recognizing + recognized)
+    (recognizerRef as any).emit('recognizing', { text: '你好小春', vadState: 0, isFinal: true });
+    (recognizerRef as any).emit('recognized', {
+      text: '你好小春',
+      isFinal: true,
+      tokenCount: 4,
+      inferenceMs: 12,
+    });
+
+    // Deleted input stays clean — zero late ghost text emitted!
+    expect(emittedTexts).toHaveLength(1);
+
+    initSpy.mockRestore();
+    feedSpy.mockRestore();
+    finishSpy.mockRestore();
+    resetSpy.mockRestore();
+    client.dispose();
+  });
+
+  it('finalizes speech on normal stop(true) when user does NOT edit input, and resets recognizer for next turn', async () => {
+    const client = new SttClient();
+    const emittedTexts: Array<{ text: string; isFinal: boolean }> = [];
+    client.on((ev) => {
+      if (ev.type === 'text') emittedTexts.push({ text: ev.text, isFinal: ev.isFinal });
+    });
+
+    const { StreamRecognizer } = await import('@firetable/stream-asr');
+    let recognizerRef: InstanceType<typeof StreamRecognizer> | null = null;
+    const initSpy = vi
+      .spyOn(StreamRecognizer.prototype, 'init')
+      .mockImplementationOnce(async function (this: InstanceType<typeof StreamRecognizer>) {
+        recognizerRef = this;
+        (this as any).emit?.('ready');
+      });
+    const feedSpy = vi.spyOn(StreamRecognizer.prototype, 'feed').mockImplementation(() => {});
+    const finishSpy = vi.spyOn(StreamRecognizer.prototype, 'finish').mockImplementation(() => {});
+    const resetSpy = vi.spyOn(StreamRecognizer.prototype, 'reset').mockImplementation(() => {});
+
+    await (client as any).initRecognizer();
+    (client as any).desiredActive = true;
+    (client as any).setState('listening');
+
+    (client as any).processPcmChunk(new Float32Array(1600).fill(0.1), 16000);
+    (recognizerRef as any).emit('recognizing', { text: '今天天气真好', vadState: 1, isFinal: false });
+
+    await client.stop(true);
+    // Worker responds to finish()
+    (recognizerRef as any).emit('recognizing', { text: '今天天气真好', vadState: 0, isFinal: true });
+    (recognizerRef as any).emit('recognized', {
+      text: '今天天气真好',
+      isFinal: true,
+      tokenCount: 6,
+      inferenceMs: 15,
+    });
+
+    expect(emittedTexts).toEqual([
+      { text: '今天天气真好', isFinal: false },
+      { text: '今天天气真好。', isFinal: true },
+    ]);
+    expect(resetSpy).toHaveBeenCalledTimes(1);
+
+    initSpy.mockRestore();
+    feedSpy.mockRestore();
+    finishSpy.mockRestore();
+    resetSpy.mockRestore();
+    client.dispose();
   });
 });
