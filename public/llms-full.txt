@@ -6,7 +6,7 @@
 
 ## 1. System Architecture
 
-Project XiaoChun is a full-stack web application built on **Vite 8 + TanStack Start (full-stack SSR) + React 19 + three.js 0.185** deployed to **Cloudflare Workers**. WebLLM, EMAGE, and on-device SenseVoice STT run in the browser tab; Edge-TTS audio is proxied at the edge; the edge runtime handles SSR stream rendering and WebSocket Edge-TTS proxying.
+Project XiaoChun is a full-stack web application built on **Vite 8 + TanStack Start (full-stack SSR) + React 19 + three.js 0.185** deployed to **Cloudflare Workers**. WebLLM, EMAGE, and on-device `@firetable/stream-asr` streaming STT run in the browser tab; Edge-TTS audio is proxied at the edge; the edge runtime handles SSR stream rendering and WebSocket Edge-TTS proxying.
 
 - **3D Engine Architecture**: Decoupled into modular sub-engines:
   - `src/core/vrmEngine.ts`: Master facade and lifecycle coordinator, supporting both **VRM 1.0** and **VRM 0.x** avatars seamlessly.
@@ -262,13 +262,12 @@ Project XiaoChun features a cross-platform desktop build powered by **Tauri 2.x*
 - [TanStack Start](https://tanstack.com/start) — full-stack React framework
 - [Tailwind CSS](https://tailwindcss.com) — utility-first styling
 
-## Multimodal STT & Speech Recognition Pipeline
+## On-Device Streaming STT & Speech Recognition Pipeline
 
-ChatBar microphone dictation runs via multimodal dispatch:
-- Endpoints: on-device `@firetable/stream-asr` single-pass streaming recognition (WASM, neural VAD); cloud `/api/stt` is retained server-side but not exposed in the UI
-- On-device Model: sherpa-onnx SenseVoice Small **int8** `2024-07-17` (zh/en/ja/ko/yue) in Dedicated Worker
-- Neural VAD: Silero VAD v5 ONNX WASM evaluating 512-sample PCM chunks (~32ms) with acoustic bleed gate (prevents self-listening to XiaoChun's TTS) and zero-silence WASM CPU bypass (`rms < 0.003`) saving >80% idle CPU
-- Conversational Barge-In: User voice activity immediately halts character speech and triggers the mocap attentive listening pose (`ListeningMotionSystem`)
-- Punctuation: FunASR CT-Transformer int8 real-time punctuation with 2-Pass client-cloud streaming draft and punctuated commit
+ChatBar microphone dictation runs 100% in the browser tab:
+- Engine: `@firetable/stream-asr` single-pass streaming recognition (WASM SIMD, Mode 3: continuous streaming + built-in neural VAD) in a Dedicated Worker; cloud `POST /api/stt` is retained server-side for backward compatibility but not exposed in the UI
+- Model & Runtime: chunked model manifest (`VITE_STREAM_ASR_MODEL_URL`) cached in IndexedDB after first download + same-origin WASM runtime (`/wasm/`, `VITE_STREAM_ASR_WASM_BASE`)
+- Acoustic Bleed Gate & Conversational Barge-In: suppresses speaker bleed while TTS is playing (`rms < bargeInRms`), while louder user voice immediately halts character speech and triggers the mocap attentive listening pose (`ListeningMotionSystem`)
+- Streaming Draft & Final Punctuation: atomic in-place range replacement (`replaceOrInsertAtRange`) with heuristic draft/final punctuation, 1:1 Worker FIFO sequence fence (no ghost-paste after mic close or manual edits), and cross-browser IME macrotask guard
 - Spec: `/docs/STT.md`
 

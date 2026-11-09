@@ -1,9 +1,10 @@
 # On-Device Streaming STT (`STT.md`)
 
 > **Core Files**:
-> - [`src/stt/sttClient.ts`](../src/stt/sttClient.ts) — mic capture, `StreamRecognizer` (`@firetable/stream-asr`) bridge, acoustic bleed gating & barge-in guard, bounded PCM buffer
-> - [`src/stt/punctuation.ts`](../src/stt/punctuation.ts) — heuristic punctuation (`formatDraftPunctuation`, `finalizePunctuation`) applied to interim / final text
-> - [`src/components/ChatBar.tsx`](../src/components/ChatBar.tsx) — atomic in-place range replacement (`replaceOrInsertAtRange`), IME composition protection
+> - [`src/stt/sttClient.ts`](../src/stt/sttClient.ts) — mic capture, `StreamRecognizer` (`@firetable/stream-asr`) bridge, 1:1 Worker FIFO sequence fence, acoustic bleed gating & barge-in guard, bounded PCM buffer
+> - [`src/stt/punctuation.ts`](../src/stt/punctuation.ts) — heuristic punctuation (`formatDraftPunctuation`, `finalizePunctuation`) + multi-sentence CJK inter-segment comma normalization
+> - [`src/components/VoicePill.tsx`](../src/components/VoicePill.tsx) — perimeter SVG progress/indeterminate loading ring, live Canvas waveform, Hold-to-Talk & slide-to-cancel gestures
+> - [`src/components/ChatBar.tsx`](../src/components/ChatBar.tsx) — atomic in-place range replacement (`replaceOrInsertAtRange`), permanent controlled download `<Tooltip>`, cross-browser IME macrotask guard
 > - [`src/config.ts`](../src/config.ts) — `APP_CONFIG.stt` (`modelUrl`, `wasmBaseUrl`, `vadThreshold`, `bargeInRms`, `ttsCooldownMs`)
 
 ## 1. Architecture
@@ -32,14 +33,15 @@ There is **no Two-Pass** stage: interim drafts and finals both come from the sam
 | WASM runtime | same-origin `/wasm/` (`public/wasm`, override: `VITE_STREAM_ASR_WASM_BASE`) |
 | Cache | IndexedDB (managed by the SDK), offline after first download |
 
-The model is downloaded lazily on first mic activation; `progress` events carry `percent` in **0–100**.
+The model is downloaded lazily on first mic activation; `progress` events carry `phase` (`'download' | 'init' | 'ready'`), `percent` (**0–100**), `loaded`, and `total` bytes. `VoicePill` renders a single perimeter SVG arc (determinate during `download`, spinning arc during `init`), while `ChatBar` keeps a permanently mounted controlled `<Tooltip open={sttState === 'loading'}>` showing percentage, bytes, sliding-window speed, and ETA without ever unmounting `VoicePill` (preserving pointer capture for Hold-to-Talk).
 
 ## 3. Behaviour Invariants
 
 - **Acoustic bleed guard**: while TTS speaks (plus `ttsCooldownMs` tail), chunks with RMS `< bargeInRms` are dropped; louder input is treated as barge-in.
-- **Bounded PCM buffer**: PCM kept for DevDrawer `utterance_result` is capped (~0.5 s preroll in silence, ~30 s per utterance) — never grows unbounded while the mic is idle.
-- **Init failure is recoverable**: a failed `init()` resets state to `error` and allows retry on the next mic click.
-- **IME safety**: while composing, STT text is queued and flushed on `compositionend`.
+- **1:1 Worker FIFO sequence fence (no ghost-paste)**: every `feed()` / `finish()` increments `sentFeedCount`; calling `resetSession()` (on cancel, manual input edits/deletions, or new turn start) advances `ignoreResultsUntilCount = sentFeedCount` and resets WASM `universalSegments` so in-flight Worker `RESULT`s never paste deleted speech back into the input, while pre-existing typed text outside `sttRangeRef` is preserved.
+- **Bounded PCM buffer**: PCM kept for DevDrawer `utterance_result` is capped (~0.5 s preroll in silence, ~30 s per utterance once speech begins) — never grows unbounded while the mic is idle.
+- **Recoverable failure & mic release (`failSession`)**: `init()` failure, mic permission denial, or Worker errors immediately stop active `MediaStream` tracks, reset `desiredActive`, destroy failed recognizer instances, and allow a clean single-click retry.
+- **Cross-browser IME safety**: while composing, STT text is deferred and flushed via a `0ms` macrotask in `onCompositionEnd` so both Chromium (`input → compositionend`) and Safari / Tauri `WKWebView` (`compositionend → input`) finish candidate insertion first.
 
 ## 4. Cloud STT (hidden, retained)
 

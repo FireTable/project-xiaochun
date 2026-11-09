@@ -1,6 +1,6 @@
 # Project XiaoChun
 
-> 100% client-native anime companion & transparent desktop pet (Tauri 2.x + Web) — WebLLM (WebGPU), Multimodal STT (Whisper Turbo / OpenAI / SenseVoice) with Silero VAD v5 barge-in interruption & CT-Transformer punctuation, EMAGE motion (ONNX wasm INT8), Edge-TTS with Tone.js 3D spatial vocal DSP, 24h Beach 3D solar stage, StoryDirector interactive prologue, and Inter-process Protocol (`xiaochun://`). Private interactive VRM companion, zero cloud backend.
+> 100% client-native anime companion & transparent desktop pet (Tauri 2.x + Web) — WebLLM (WebGPU), on-device streaming STT (`@firetable/stream-asr` WASM + neural VAD barge-in interruption), EMAGE motion (ONNX wasm INT8), Edge-TTS with Tone.js 3D spatial vocal DSP, 24h Beach 3D solar stage, StoryDirector interactive prologue, and Inter-process Protocol (`xiaochun://`). Private interactive VRM companion, zero cloud backend.
 
 ## Overview
 Project XiaoChun is a dual-mode anime companion application running both in modern browser tabs and as a native, borderless, transparent desktop pet powered by **Tauri 2.x**. The 3D scene renders via `three.js` + `@pixiv/three-vrm` (MToon NPR shading) with native **VRM 1.0 & VRM 0.x dual-standard compatibility**; conversation, motion, and speech are generated 100% client-side: WebLLM on WebGPU, EMAGE on ONNX Runtime Web **wasm + INT8**, and Edge-TTS audio streaming. The desktop build features a real-time 60Hz Alpha Bitmask click-through engine and a system-level IPC URL scheme (`xiaochun://`) allowing external applications and AI agents to awaken and command her.
@@ -41,14 +41,14 @@ Project XiaoChun is a dual-mode anime companion application running both in mode
 - [Beach 3D World Guide](/docs/BEACH3D_SCENE.md): Real-time anime MMD-stage beach, 24-hour solar arc, and SceneTimeCard HUD.
 - [Client Memory Architecture Guide](/docs/CLIENT_MEMORY.md): Cognitive memory system (@firetable/client-memory), 4-tier IndexedDB hierarchy, SillyTavern lorebooks, and episodic scoring.
 - [Motion Pipeline Guide](/docs/MOTION_PIPELINE.md): Universal motion pipeline, Quintic 0.75s blending, FootIK, and BodyTurn stepping.
-- [Performance Guide](/docs/PERFORMANCE.md): Model slimming, zero-drop outfit swap, Silero silence bypass, and mobile GPU lifecycle.
+- [Performance Guide](/docs/PERFORMANCE.md): Model slimming, zero-drop outfit swap, and mobile GPU lifecycle.
 - [TTS & Vocal Post-Processing Guide](/docs/TTS.md): Edge-TTS proxy architecture and Tone.js 3D spatial vocal processing.
 - [Desktop Companion Docs](/docs/HYBRID_DESKTOP_APP.md): Architecture of the Tauri 2.x hybrid desktop mode.
 - [Protocol Specification](/docs/PROTOCOL.md): Detailed specification of the `xiaochun://` URL scheme.
 - [Embed / SDK Guide](/docs/EMBED.md): iframe embed + `@firetable/project-xiaochun` SDK. Host audio: `speakAudio(data, { audible: false, hostClock: true })` (0.1.35+, skips the thinking pose), hold the page player until `utterance start`, then `syncClock({ time, playing, playbackRate?, seek? })` (`xc.clock`) every ~250 ms and on play / pause / seeked / waiting so motion + lip-sync follow the page audio. Check `supportsHostClock()` (`capabilities.audio.hostClock`); older embeds need stop/restart on pause and seek. Fetch the audio once and share it between the page `<audio>` and `speakAudio`.
 - [Agent Skill Guide](/docs/AGENT_SKILL.md): Standard AI Agent skill for autonomous control of XiaoChun.
-- [STT Guide](/docs/STT.md): Multimodal STT (Whisper Turbo / OpenAI / SenseVoice int8), Silero VAD v5 barge-in interruption, and CT-Transformer punctuation.
+- [STT Guide](/docs/STT.md): On-device streaming STT via `@firetable/stream-asr` (WASM + neural VAD), conversational barge-in interruption, and acoustic bleed gating.
 - [Live Demo](https://xiaochun.firetable.tech): Full-stack SSR deploy on Cloudflare Workers.
 - [GitHub Repository](https://github.com/FireTable/Project-XiaoChun): Source code, setup instructions, and issue tracker.
-- Edge API: `GET /api/tts?text=...&voice=zh-CN-XiaoyiNeural&pitch=%2B10Hz` returns `audio/mpeg`. `POST /api/stt` returns transcribed JSON text via Whisper Turbo. Protected by Origin Guard (`src/server/originGuard.ts`).
+- Edge API: `GET /api/tts?text=...&voice=zh-CN-XiaoyiNeural&pitch=%2B10Hz` returns `audio/mpeg`. `POST /api/stt` (retained server-side, hidden from UI) returns transcribed JSON text via Whisper Turbo. Protected by Origin Guard (`src/server/originGuard.ts`).
 - Custom Providers: in-app **Custom Model Service** dialog (top-bar / chat-bar). Templates: Ollama, LM Studio, vLLM, LocalAI, Generic OpenAI-compatible. Test connection button probes `/v1/models` endpoint before save.

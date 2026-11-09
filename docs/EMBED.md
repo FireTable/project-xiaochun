@@ -98,7 +98,7 @@ Host commands may attach an `id`; matching `xc.error` / `xc.utterance` events ec
 | `xc.lang-changed` | `{ lang, previous?, initial? }` | UI language active. Emitted post-handshake (`initial: true`) and upon user button click or `setConfig{ lang }`. |
 | `xc.prefetched` | `{ downloaded[], cached[], failed[], skipped?: 'save-data' }` | Response to `xc.prefetch`. |
 | `xc.state` | `{ phase, paused, heavy }` | Current state phase: `loading | idle | thinking | speaking | listening | paused`. |
-| `xc.stt` | `{ kind: 'state' | 'progress' | 'text', … }` | Speech-to-text status, download percentage, and transcription text. |
+| `xc.stt` | `{ kind: 'state', state } \| { kind: 'progress', percent } \| { kind: 'text', text, isFinal? }` | Speech-to-text status, download percentage, and interim/final transcription text. |
 | `xc.utterance` | `{ phase: 'start' | 'end', text, kind?: 'text' | 'audio' }` | Speech lifecycle markers. `kind: 'audio'` indicates host-provided audio. For audio, `start` is sent when the first buffer's clock starts (after the thinking pose and the first EMAGE window), not when the command is accepted. Text `start` is still sent as speech begins. |
 | `xc.hit-region` | `{ hit, x, y }` | Pointer intersection state against character; SDK uses this to toggle iframe `pointer-events`. |
 | `xc.gesture-move` | `{ gesture, seq, phase: 'start' | 'move' | 'end', dx, dy, totalDx, totalDy, reason? }` | **Only when `gestures.move` enabled**: Dragging character translates iframe. See §2.8. |

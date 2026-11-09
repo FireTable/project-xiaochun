@@ -34,7 +34,7 @@
 
 **Project XiaoChun (小蠢)** is a fully browser-native anime companion and desktop pet. The character renders through `@pixiv/three-vrm` with MToon NPR shading inside real-time 3D environments (including a continuous 24-hour astronomical beach stage and minimalist line-art worlds); all AI inference runs in your browser tab — no Python backend, no server GPUs.
 
-Entry begins with an idol-debut 2D MAD preload dissolving into 3D, followed by an interactive cinematic prologue (Act 0: "Meeting XiaoChun") with branching choices and dynamic camera sweeps. You can talk to her with full-duplex voice interaction (multimodal STT with Silero VAD v5 conversational barge-in interruption, CT-Transformer 2-pass punctuation, and on-device SenseVoice int8 fallback). She listens attentively with a mocap chin-rest posture, thinks (WebLLM MiniCPM5 2B q4f16_1 on WebGPU, falls back to Qwen2.5 0.5B; thinking optional), speaks (Edge-TTS over a Cloudflare Workers WebSocket with Tone.js 3D spatial vocal processing), and gestures with full-body motion (EMAGE ONNX in a Dedicated Web Worker). If the model is not ready yet, typed messages queue instead of getting dropped. The chat-bar menu can switch models from WebLLM's prebuilt list, or connect any **custom OpenAI-compatible provider** (Ollama / LM Studio / vLLM / LocalAI / cloud) via the in-app config dialog — credentials stay AES-GCM encrypted in IndexedDB.
+Entry begins with an idol-debut 2D MAD preload dissolving into 3D, followed by an interactive cinematic prologue (Act 0: "Meeting XiaoChun") with branching choices and dynamic camera sweeps. You can talk to her with full-duplex voice interaction (100% on-device streaming STT via `@firetable/stream-asr` with neural VAD conversational barge-in interruption and automatic punctuation). She listens attentively with a mocap chin-rest posture, thinks (WebLLM MiniCPM5 2B q4f16_1 on WebGPU, falls back to Qwen2.5 0.5B; thinking optional), speaks (Edge-TTS over a Cloudflare Workers WebSocket with Tone.js 3D spatial vocal processing), and gestures with full-body motion (EMAGE ONNX in a Dedicated Web Worker). If the model is not ready yet, typed messages queue instead of getting dropped. The chat-bar menu can switch models from WebLLM's prebuilt list, or connect any **custom OpenAI-compatible provider** (Ollama / LM Studio / vLLM / LocalAI / cloud) via the in-app config dialog — credentials stay AES-GCM encrypted in IndexedDB.
 
 The UI is fully **SSR-hydrated multi-language** (zh-CN / en / ja) via TanStack Start + i18next, and is mobile-first responsive (iOS HIG 44 pt / Material 48 dp touch targets).
 
@@ -447,7 +447,7 @@ Project-XiaoChun/
 │   ├── FOOT_IK.md             # Ground anchoring & foot inverse kinematics solver
 │   ├── CHAT_DIRECTOR.md       # LLM + TTS + EMAGE streaming orchestration
 │   ├── TTS.md                 # Edge-TTS proxy & Tone.js vocal post-processing pipeline
-│   ├── STT.md                   # SenseVoice ChatBar dictation (VAD + ORT Worker)
+│   ├── STT.md                   # On-device streaming STT (@firetable/stream-asr + neural VAD)
 │   ├── ONBOARDING.md          # Galgame-style immersive onboarding system specification & schema
 │   ├── EMAGE_MODEL.md         # EMAGE status & known limits (wasm/INT8, streaming, isolation)
 │   └── PERFORMANCE.md         # Performance & size notes: measured numbers, rejected options, unmeasured items (Chinese)

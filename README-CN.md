@@ -202,7 +202,7 @@ brew upgrade --cask project-xiaochun
 * **统一 Provider 工厂 (`chatWorkflow.runChat`)** — WebLLM 与自定义 provider 共享同形 `runChat(opts) → string` 契约;dispatcher 通过 `ChatProvider` 注册表轮询,选第一个 `isActive` 命中的。加新 provider = 注册一个描述符。
 * **用户自定义系统提示词 + 记忆轮数 + 对话字幕** — 聊天菜单 → 「对话设置」可微调小蠢人设(留空/与默认相同则走默认人设)、对话记忆轮数(1-50,默认设备推荐)与「显示对话字幕」开关(`APP_CONFIG.chat.showChatDialogue`,旧名 `showHeadBubble`,默认开)。关掉后聊天模式下 PC 头顶气泡与移动端电影模式字幕栏都不渲染;故事模式对白始终显示。ChatDirector / `bubbleTracker` 事件照发。配置持久化在 IndexedDB(`xiaochun-user-settings`);轮数边界集中在 `APP_CONFIG.memory.userTurnsMin/Max`。
 * **动作生成** — **EMAGE** 全身协同动作 (ONNX Runtime Web) 在 Dedicated Web Worker 中运行：**wasm 执行提供者 + INT8**（`useInt8`）；**不使用 WebGPU**（模型含 int64）。时序高斯滤波与自然待机混合。流式窗长 **T=64**，每窗 `motion_chunk` 降低 TTFA；可听 TTS 前 A/V hold；hop/接缝参数集中在 `APP_CONFIG.emage.motion`（`advanceFrames` 60..64）。详情见 [`docs/EMAGE_MODEL.md`](docs/EMAGE_MODEL.md)。 线上使用的是瘦身、INT8 量化并离线优化后的模型集(下载 191.35 → 71.59 MB,无需重训),由 [`packages/emage-onnx`](packages/emage-onnx/README-CN.md) 产出,见 [`docs/PERFORMANCE.md`](docs/PERFORMANCE.md)。
-* **语音识别** — **SenseVoice Small int8**（中/英/日/韩/粤）Dedicated Worker：能量 VAD 自动切段、端上识别、回填 ChatBar 光标处。CDN：`cdn.firetable.tech/xiaochun/stt/…-2024-07-17`。详见 [`docs/STT.md`](docs/STT.md)。
+* **语音识别** — **端上单遍流式语音识别**（[`@firetable/stream-asr`](https://github.com/FireTable/stream-asr)）：100% 浏览器内 WASM SIMD 流式识别 + 内置神经 VAD 自动断句与自动标点，实时草稿原位回填 ChatBar 光标处（下载完首次模型后可完全离线运行，音频不出端）；支持全双工说话打断与 TTS 声学防自听门限；云端 `/api/stt` 仅保留服务端兼容而不暴露入口。详见 [`docs/STT.md`](docs/STT.md)。
 * **语音合成** — **Edge-TTS 晓伊 (XiaoyiNeural, zh-CN, +10 Hz)**，基于自研原生 WebSocket 客户端（`src/lib/edge-tts-core.ts`,无第三方 TTS SDK）；网络传输前智能剥离 emoji。
 * **客户端语音美化与 3D 空间声学** — **Tone.js 15.x + Web Audio DSP 链路**（`src/director/vocalProcessor.ts`）：低切滤波、三段均衡器、电台动态压限、空间微混响，配合**原声直通 (bypass)** 纯净旁路与 **3D 镜头自适应距离声学**（$<2.2\text{m}$ 贴耳低频共鸣增强、标准对话平直无染与 $>8\text{m}$ 远景平滑音量衰减）。详见 [`docs/TTS.md`](docs/TTS.md)。
 * **LLM + TTS + EMAGE 一体编排**：chat director 全链路统一协调，主线程满帧 60 FPS。**LLM 可用 WebGPU**（WebLLM）；**EMAGE 固定 wasm/INT8**。
@@ -401,7 +401,7 @@ Project-XiaoChun/
 │   ├── FOOT_IK.md             # 脚部物理地锚与贴地解算
 │   ├── CHAT_DIRECTOR.md       # LLM + TTS + EMAGE 流式状态机编排
 │   ├── TTS.md                 # Edge-TTS 代理与 Tone.js 客户端语音美化管线
-│   ├── STT.md                   # SenseVoice ChatBar 听写（VAD + ORT Worker）
+│   ├── STT.md                   # 端上流式语音听写（@firetable/stream-asr + 神经 VAD）
 │   ├── ON_DEVICE_AI.md        # 端侧 AI 推理全栈
 │   ├── ONBOARDING.md          # 沉浸式 Galgame 风格新手引导白皮书 (Schema 状态机/Void 舞台/任务打卡)
 │   ├── EMAGE_MODEL.md         # EMAGE 现状与已知限制（wasm/INT8、流式、隔离）
@@ -540,4 +540,4 @@ Project-XiaoChun/
 * [Animation Inc.](https://www.animation.inc) — 亲身体验过他们的 Ani-2 端侧实时全身动作产品后,萌生了"在浏览器里也能跑通"的想法;本项目自研的 EMAGE 管线,就是这次动手的尝试
 * [PantoMatrix / EMAGE](https://github.com/PantoMatrix/PantoMatrix):Haiyang Liu*、Zihao Zhu*、Giorgio Becherini、Yichen Peng、Mingyang Su、You Zhou、Naoya Iwamoto、Bo Zheng、Michael J. Black(*共同第一作者),《EMAGE: Towards Unified Holistic Co-Speech Gesture Generation via Expressive Masked Audio Gesture Modeling》,[CVPR 2024](https://pantomatrix.github.io/EMAGE/);权重:[H-Liu1997/emage_audio](https://huggingface.co/H-Liu1997/emage_audio)(model card 标注 Apache-2.0)。驱动小蠢对话时手势生成的全身协同动作模型。**本项目对其权重做了修改**(导出 ONNX、去掉 cross-attention 层、INT8 量化、图优化),详见 [`packages/emage-onnx/NOTICE`](packages/emage-onnx/NOTICE)。
 * [VolgaGerm / emage-onnx-export](https://github.com/VolgaGerm/emage-onnx-export)— PyTorch → ONNX 的导出脚本,以及我们浏览器里直接跑的那批预转换 `.onnx` 权重
-* [snomiao / otoji](https://github.com/snomiao/otoji)（[otoji.org](https://otoji.org)）— 开源端上 voice graph；本项目 ChatBar SenseVoice 听写（能量 VAD + Worker）大量参考了他们的 `?simple` 路径与 sherpa-onnx 接法
+* [snomiao / otoji](https://github.com/snomiao/otoji)（[otoji.org](https://otoji.org)）— 开源端上 voice graph；本项目早期 ChatBar SenseVoice 听写（能量 VAD + Worker）大量参考了他们的 `?simple` 路径与 sherpa-onnx 接法

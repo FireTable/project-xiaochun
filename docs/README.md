@@ -31,7 +31,7 @@ docs/
 ├── ON_DEVICE_AI.md                # WebLLM (WebGPU) + EMAGE ONNX Worker + Client-side multi-tier IndexedDB memory
 ├── TTS.md                         # Edge TTS proxy (/api/tts) & Tone.js client-side vocal DSP pipeline (EQ3, compressor, reverb, 3D camera distance attenuation & spatial zoning)
 ├── STT.md                         # On-device streaming STT (`@firetable/stream-asr`, neural VAD, no Two-Pass)
-├── PERFORMANCE.md                 # Performance & payload notes: EMAGE slimming (191.35 → 71.59 MB), VRMA optimization (−44.5% payload), parallel download, lazy web-llm, boot/runtime prewarm, mobile GPU release & Silero silence bypass
+├── PERFORMANCE.md                 # Performance & payload notes: EMAGE slimming (191.35 → 71.59 MB), VRMA optimization (−44.5% payload), parallel download, lazy web-llm, boot/runtime prewarm & mobile GPU release
 ├── EMAGE_MODEL.md                 # EMAGE tip status + Worker PCM→chunk flowchart; limits (wasm/INT8, no WebGPU-EMAGE)
 │   (pack) ../packages/emage-onnx/  # Offline EMAGE ONNX slim/quantize/optimize toolchain (slim step, INT8 Conv, layer removal, graph optimization, host-side seed): README.md / README-CN.md
 ├── OUTFIT_SWAP.md                 # Full-outfit swap (Delta .vrmaddon packages, 2-tier IDB caching, Zero-Drop Triad: texture sharing, staggered disposal, yielded parsing)

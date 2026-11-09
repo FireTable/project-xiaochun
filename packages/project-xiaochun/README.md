@@ -29,7 +29,7 @@
 
 ## 📖 Overview
 
-This package puts **[Project XiaoChun](https://github.com/FireTable/project-xiaochun)** on your own site through a **lazy, origin-checked `<iframe>`**. The character, the on-device AI (WebLLM / SenseVoice STT / EMAGE motion) and all heavy assets live inside the iframe; your page only ships a few KB of glue code (the SDK never bundles three.js).
+This package puts **[Project XiaoChun](https://github.com/FireTable/project-xiaochun)** on your own site through a **lazy, origin-checked `<iframe>`**. The character, the on-device AI (WebLLM / Stream ASR STT / EMAGE motion) and all heavy assets live inside the iframe; your page only ships a few KB of glue code (the SDK never bundles three.js).
 
 * 🧩 **`createXiaochun()`**: framework-free JS SDK.
 * 🏷️ **`<xiaochun-avatar>`**: Web Component (Shadow DOM, attributes + events).

@@ -29,7 +29,7 @@
 
 ## 📖 项目简介 (Overview)
 
-这个包通过一个**懒加载、严格校验 origin 的 `<iframe>`**,把 **[Project XiaoChun(小蠢)](https://github.com/FireTable/project-xiaochun)** 放到你自己的网站上。角色、端上 AI(WebLLM / SenseVoice 语音识别 / EMAGE 动作)和所有重资源都在 iframe 里,你的页面只多出几 KB 的胶水代码(SDK 不会打包 three.js)。
+这个包通过一个**懒加载、严格校验 origin 的 `<iframe>`**,把 **[Project XiaoChun(小蠢)](https://github.com/FireTable/project-xiaochun)** 放到你自己的网站上。角色、端上 AI(WebLLM / Stream ASR 流式语音识别 / EMAGE 动作)和所有重资源都在 iframe 里,你的页面只多出几 KB 的胶水代码(SDK 不会打包 three.js)。
 
 * 🧩 **`createXiaochun()`**:无框架 JS SDK。
 * 🏷️ **`<xiaochun-avatar>`**:Web Component(Shadow DOM,属性 + 事件)。
