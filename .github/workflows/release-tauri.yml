@@ -2,8 +2,6 @@ name: Release Tauri App
 
 on:
   push:
-    branches:
-      - main
     tags:
       - 'v*'
   workflow_dispatch:
@@ -27,12 +25,12 @@ jobs:
       matrix:
         include:
           # macOS Apple Silicon (M1/M2/M3/M4)
-          - platform: 'macos-14'
+          - platform: 'macos-latest'
             target: 'aarch64-apple-darwin'
             args: '--target aarch64-apple-darwin'
 
-          # macOS Intel (使用 macos-14 交叉编译 x86_64)
-          - platform: 'macos-14'
+          # macOS Intel (使用 macos-latest 交叉编译 x86_64)
+          - platform: 'macos-latest'
             target: 'x86_64-apple-darwin'
             args: '--target x86_64-apple-darwin'
 

@@ -129,12 +129,13 @@ if (doTag) {
   const tag = `v${target}`;
   const existing = runGit(`git tag -l ${tag}`);
   if (existing) { console.error(`error: tag ${tag} already exists locally`); process.exit(1); }
-  runGit(`git tag ${tag}`);
+  runGit(`git tag -a ${tag} -m "Release ${tag}"`);
   console.log(`[bump] tagged: ${tag}`);
 }
 if (doPush) {
-  runGit(`git push origin main${doTag ? ' --follow-tags' : ''}`);
-  console.log(`[bump] pushed to origin/main${doTag ? ' (with tag)' : ''}`);
+  runGit('git push origin main');
+  if (doTag) runGit(`git push origin refs/tags/v${target}`);
+  console.log(`[bump] pushed to origin/main${doTag ? ` (with tag v${target})` : ''}`);
 }
 
 console.log(`[bump] done. version = ${target}`);

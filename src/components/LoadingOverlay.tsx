@@ -343,7 +343,7 @@ export const LoadingOverlay: React.FC<LoadingOverlayProps> = ({ state, onBreakSt
             <span className="-mr-[0.6em]">PROJECT</span>
             <span aria-hidden className="h-px w-6 md:hidden bg-gradient-to-l from-transparent to-[#dcc28a]/80" />
           </span>
-          <h1 className="xc-title font-xc-italic leading-[1.05] text-[54px] sm:text-[62px] md:text-[clamp(46px,6.4vw,104px)] max-w-full whitespace-nowrap -ml-[0.04em] mt-1.5 md:mt-2 pr-[0.12em]">
+          <h1 className="xc-title font-xc-italic leading-[1.08] text-[clamp(44px,15vw,62px)] w-fit whitespace-nowrap px-[0.14em] md:pl-[0.05em] md:pr-[0.16em] md:-ml-[0.09em] mt-1.5 md:mt-2">
             XiaoChun
           </h1>
           <div className="mt-2.5 md:mt-4 flex items-center gap-2" aria-hidden>

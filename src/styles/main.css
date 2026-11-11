@@ -493,6 +493,7 @@ html.is-tauri .dialog-overlay {
    当立绘半宽 > 列半宽时，立绘向左越界 (29.71dvh - C/2)，面板右内边距随之加大。 */
 @media (min-width: 768px) {
   .xc-copy-panel {
+    container-type: inline-size;
     --xc-stage-w: min(100vw, 72rem);
     --xc-hero-col: calc(var(--xc-stage-w) * 0.46);
     --xc-hero-half: 29.71vh;
@@ -500,7 +501,12 @@ html.is-tauri .dialog-overlay {
     /* 额外 1.25rem 留白；不越界时保持原 pr-4 (1rem) */
     padding-right: max(1rem, calc(var(--xc-hero-half) - var(--xc-hero-col) / 2 + 1.25rem));
   }
-  .xc-copy-panel > * { max-width: 100%; }
+  .xc-copy-panel > :not(.xc-title) { max-width: 100%; }
+  /* 按面板真实内容宽度 (100cqi) 缩放字号，且不设 max-width 以免 background-clip: text 裁切斜体字尾 */
+  .xc-copy-panel > .xc-title {
+    font-size: clamp(42px, 5.4vw, 84px);
+    font-size: clamp(42px, 20cqi, 96px);
+  }
 }
 @media (min-width: 1024px) {
   .xc-copy-panel { --xc-hero-col: calc(var(--xc-stage-w) * 0.5); }
