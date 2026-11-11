@@ -20,6 +20,7 @@ import { isLoopbackHost } from '@/lib/loopback';
 import { resolveOrtWasmPaths } from '@/lib/ortWasm';
 import { APP_CONFIG } from '@/config';
 import { computeSeedFromLogits, type SeedDeps } from './emageSeed';
+import { fetchOnnxWithCache } from './onnxChunkLoader';
 
 const WINDOW = 64;
 const SEED_FRAMES = 4;
@@ -273,33 +274,26 @@ async function purgeOldModelCaches(): Promise<void> {
 }
 
 /**
- * 带有 CacheStorage 磁盘缓存的 ONNX 加载器，实现瞬间离线热冷启动
+ * 带有 CacheStorage 磁盘缓存与分片并发流式拼接的 ONNX 加载器，实现瞬间离线热冷启动与弱网防断流
  */
-async function fetchWithCache(url: string): Promise<ArrayBuffer> {
-  let cache: Cache | null = null;
-  try {
-    if (typeof caches !== 'undefined') {
-      cache = await caches.open(CACHE_NAME);
-      const match = await cache.match(url);
-      if (match) {
-        return await match.arrayBuffer();
-      }
-    }
-  } catch (e) {
-    console.warn('[EMAGE Worker] CacheStorage access failed, fallback to direct fetch', e);
-  }
-
-  const res = await fetch(url);
-  if (!res.ok) throw new Error(`Fetch ${url} failed: HTTP ${res.status}`);
-
-  if (cache) {
-    try {
-      await cache.put(url, res.clone());
-    } catch (e) {
-      console.warn('[EMAGE Worker] Cache put failed', e);
-    }
-  }
-  return await res.arrayBuffer();
+async function fetchWithCache(
+  url: string,
+  chunksManifestUrl?: string,
+  onStatus?: (msg: string) => void,
+  label?: string,
+): Promise<ArrayBuffer> {
+  return fetchOnnxWithCache({
+    url,
+    chunksManifestUrl,
+    cacheName: CACHE_NAME,
+    onProgress: onStatus
+      ? ({ loadedBytes, totalBytes, completedChunks, totalChunks }) => {
+          const loadedMb = (loadedBytes / (1024 * 1024)).toFixed(1);
+          const totalMb = (totalBytes / (1024 * 1024)).toFixed(1);
+          onStatus(`分片下载 ${label ?? 'ONNX'}: ${loadedMb} / ${totalMb} MiB (${completedChunks}/${totalChunks})`);
+        }
+      : undefined,
+  });
 }
 
 async function ensureLoaded(onStatus?: (msg: string) => void): Promise<void> {
@@ -331,19 +325,20 @@ async function ensureLoaded(onStatus?: (msg: string) => void): Promise<void> {
       simd: true,
     });
 
-    const allModels = APP_CONFIG.emage.models as unknown as Record<string, { file: string; enabled: boolean; label: string }>;
-    const files: { key: keyof Sessions; file: string; label: string }[] = (
-      Object.entries(allModels) as [keyof Sessions, { file: string; enabled: boolean; label: string }][]
+    type ModelEntry = { file: string; chunksManifest?: string; enabled: boolean; label: string };
+    const allModels = APP_CONFIG.emage.models as unknown as Record<string, ModelEntry>;
+    const files: { key: keyof Sessions; file: string; chunksManifest?: string; label: string }[] = (
+      Object.entries(allModels) as [keyof Sessions, ModelEntry][]
     )
       .filter(([, m]) => m.enabled)
-      .map(([key, m]) => ({ key, file: m.file, label: m.label }));
+      .map(([key, m]) => ({ key, file: m.file, chunksManifest: m.chunksManifest, label: m.label }));
 
     const sess = {} as Sessions;
     const t0 = performance.now();
     const cleanBase = getOnnxBase().replace(/\/+$/, '');
 
     // 所有加载路径 (主站 / Tauri / /embed / 预热) 都走这里:
-    //  - 下载 (fetchWithCache: CacheStorage 命中直接读缓存) 对全部模型并行发起, 不再一个个排队;
+    //  - 下载 (fetchWithCache: CacheStorage 命中直接读缓存; step 大模型走 8 MiB 分片并发流式拼接) 对全部模型并行发起, 不再一个个排队;
     //  - 哪个先下完就先 create 哪个 (边下边建), 总耗时 ≈ max(下载) + Σ(create) 而不是 Σ(下载 + create);
     //  - create 仍按"到达顺序"串行 (createChain): wasm 单线程下 create 本来就不能真并行, 串行还避开 ort-web 共享初始化的并发风险;
     //  - 推理期的串行 (withVqLock / "Session already started") 不受影响, 这里只改加载。
@@ -360,7 +355,12 @@ async function ensureLoaded(onStatus?: (msg: string) => void): Promise<void> {
     onStatus?.(`[0/${files.length}] 并行下载 ${files.length} 个模型…`);
     await Promise.all(
       files.map(async (m) => {
-        const buf = await fetchWithCache(`${cleanBase}/${m.file}`);
+        const buf = await fetchWithCache(
+          `${cleanBase}/${m.file}`,
+          m.chunksManifest ? `${cleanBase}/${m.chunksManifest}` : undefined,
+          onStatus,
+          m.key,
+        );
         downloaded++;
         onStatus?.(`[${downloaded}/${files.length}] 已下载 ${m.label}`);
         sess[m.key] = await createSession(buf);

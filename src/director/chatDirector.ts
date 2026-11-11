@@ -138,6 +138,26 @@ export function resolveTTSVoice(
   };
 }
 
+const EMAGE_READY_GRACE_MS = 250;
+const EMAGE_START_STREAM_TIMEOUT_MS = 2500;
+const AUDIO_RESUME_TIMEOUT_MS = 250;
+
+/**
+ * 尝试唤醒 AudioContext，带超时兜底：
+ * iOS Safari / 移动 WebView 在无手势或系统静音打断 ('interrupted' / 'suspended') 时，
+ * 原生 ctx.resume() 可能永远 pending；限时返回以确保后续 /api/tts 请求、字幕与动作绝不死锁。
+ */
+async function tryResumeAudioCtx(ctx: AudioContext, timeoutMs = AUDIO_RESUME_TIMEOUT_MS): Promise<boolean> {
+  const state = ctx.state as string;
+  if (state === 'running') return true;
+  if (state === 'closed') return false;
+  await Promise.race([
+    ctx.resume().catch(() => {}),
+    new Promise<void>((r) => setTimeout(r, timeoutMs)),
+  ]);
+  return (ctx.state as string) === 'running';
+}
+
 /**
  * 单切片音频合成与流式注入 (会话不关闭，通过 Checkpoint 增量结算动作，前置拦截尾静音对齐时钟)[cite: 13]
  */
@@ -148,6 +168,7 @@ async function streamChunkAudioToCheckpoint(
   isStopped: () => boolean,
   onEmagePhase?: (durationSec: number) => void,
   voiceOverride?: string,
+  useMotion = true,
 ): Promise<{ audioBuffer: AudioBuffer; motion: EmageMotionData }> {
   const ttsText = stripForTTS(text);
   if (!ttsText) {
@@ -164,8 +185,8 @@ async function streamChunkAudioToCheckpoint(
     };
   }
 
-  if (ctx.state === 'suspended') {
-    await ctx.resume();
+  if ((ctx.state as string) !== 'running') {
+    await tryResumeAudioCtx(ctx);
   }
 
   const { voice, pitch, rate, volume } = resolveTTSVoice(ttsText, voiceOverride);
@@ -237,7 +258,7 @@ async function streamChunkAudioToCheckpoint(
         if (pendingSilenceMono.length > 0) {
           for (let i = 0; i < pendingSilenceMono.length; i++) {
             committedMonoChunks.push(pendingSilenceMono[i]!);
-            if (pendingSilence16k[i] && pendingSilence16k[i]!.length > 0) {
+            if (useMotion && pendingSilence16k[i] && pendingSilence16k[i]!.length > 0) {
               emage.pushAudioChunk(pendingSilence16k[i]!);
             }
           }
@@ -250,7 +271,7 @@ async function streamChunkAudioToCheckpoint(
         // 提交当前有声 chunk[cite: 13]
         committedMonoChunks.push(chunkMono);
         totalCommittedSamples += r.samplesDecoded;
-        if (chunk16k.length > 0) {
+        if (useMotion && chunk16k.length > 0) {
           emage.pushAudioChunk(chunk16k);
         }
       }
@@ -267,7 +288,7 @@ async function streamChunkAudioToCheckpoint(
       if (keepSamplesCount + pMono.length <= maxKeepSamples) {
         committedMonoChunks.push(pMono);
         totalCommittedSamples += pMono.length;
-        if (p16k && p16k.length > 0) {
+        if (useMotion && p16k && p16k.length > 0) {
           emage.pushAudioChunk(p16k);
         }
         keepSamplesCount += pMono.length;
@@ -284,23 +305,29 @@ async function streamChunkAudioToCheckpoint(
     throw new Error('语音合成数据为空');
   }
 
-  // ponytail: TTS 字节流已收完,EMAGE 还在收尾窗+decode → 这就是"emage 阶段",
-  // 给气泡一个独立的切换点(老 batch 路径靠串行天然分两阶段,streaming 把它压扁了)。[cite: 13]
-  onEmagePhase?.(totalCommittedSamples / srcSampleRate);
+  const emptyMotion = (): EmageMotionData => ({
+    rot6d: new Float32Array(0),
+    trans: new Float32Array(0),
+    frameCount: 0,
+    duration: totalCommittedSamples / (srcSampleRate || 16000),
+    fps: 30,
+  });
 
-  // 核心改动：调用 checkpointAudioStream() 增量提取切片动作，绝不关流，特征栈完整保留[cite: 13]
   let motion: EmageMotionData;
-  try {
-    motion = await emage.checkpointAudioStream();
-  } catch (e) {
-    console.warn('[ChatDirector] checkpointAudioStream 异常，回退空动作以确保语音播放不中断:', e);
-    motion = {
-      rot6d: new Float32Array(0),
-      trans: new Float32Array(0),
-      frameCount: 0,
-      duration: totalCommittedSamples / (srcSampleRate || 16000),
-      fps: 30,
-    };
+  if (!useMotion) {
+    motion = emptyMotion();
+  } else {
+    // ponytail: TTS 字节流已收完,EMAGE 还在收尾窗+decode → 这就是"emage 阶段",
+    // 给气泡一个独立的切换点(老 batch 路径靠串行天然分两阶段,streaming 把它压扁了)。[cite: 13]
+    onEmagePhase?.(totalCommittedSamples / srcSampleRate);
+
+    // 核心改动：调用 checkpointAudioStream() 增量提取切片动作，绝不关流，特征栈完整保留[cite: 13]
+    try {
+      motion = await emage.checkpointAudioStream();
+    } catch (e) {
+      console.warn('[ChatDirector] checkpointAudioStream 异常，回退空动作以确保语音播放不中断:', e);
+      motion = emptyMotion();
+    }
   }
 
   // 将同步裁剪后的 Mono PCM 组装并重采样为 AudioBuffer[cite: 13]
@@ -391,6 +418,7 @@ export class ChatDirector {
   }
   public onTurnStateChange: ((state: TurnState) => void) | null = null;
   private preserveMotionCurrent = false;
+  private useMotionCurrent = true;
 
   public setTurnState(state: TurnState): void {
     if (this._turnState === state) return;
@@ -409,7 +437,14 @@ export class ChatDirector {
     this.onTurnStateChange?.(state);
 
     if (this.pipeline) {
-      if (this.preserveMotionCurrent) {
+      if (state === 'speaking' && !this.useMotionCurrent) {
+        // 本句走纯语音 + 口型直通 (例如 EMAGE 仍在后台下载 / 宿主禁用了动作)：
+        // 绝不进入 beginEmageSpeech 设置 waitingForActionSample，避免姿态过渡定格在 t=0。
+        this.pipeline.setIdleThinkSway(false);
+        if (!this.preserveMotionCurrent) {
+          this.pipeline.stopMotion();
+        }
+      } else if (this.preserveMotionCurrent) {
         this.pipeline.onTurnStateChange(state, undefined, true);
       } else {
         this.pipeline.onTurnStateChange(state);
@@ -523,12 +558,7 @@ export class ChatDirector {
   private async audioBlocked(): Promise<boolean> {
     if (typeof AudioContext === 'undefined') return false;
     this.ctx = this.ctx ?? new AudioContext();
-    if (this.ctx.state === 'running') return false;
-    await Promise.race([
-      this.ctx.resume().catch(() => { }),
-      new Promise((r) => setTimeout(r, ChatDirector.AUDIO_PROBE_MS)),
-    ]);
-    return (this.ctx.state as AudioContextState) !== 'running';
+    return !(await tryResumeAudioCtx(this.ctx, ChatDirector.AUDIO_PROBE_MS));
   }
 
   async say(
@@ -705,6 +735,7 @@ export class ChatDirector {
     this.audioDone = false;
     this.player = player;
     this.emage = emage;
+    this.useMotionCurrent = useMotion;
     this.setTurnState('thinking');
     // hostClock 跳过了 playThinking (原来在那里记下 currentVRM): 这里记下, stop 时 hardStop 才能把嘴 ('aa') 合上
     this.currentVRM = vrm;
@@ -900,10 +931,12 @@ export class ChatDirector {
     if (typeof AudioContext === 'undefined') return;
     try {
       this.ctx = this.ctx ?? new AudioContext();
-      this.vocalProcessor.init(this.ctx);
-      if (this.ctx.state === 'suspended') {
+      // 必须在手势同步调用栈第一时间触发 resume()（先于 Tone.js 图构建），并覆盖 iOS WebKit 特有的 'interrupted' 状态
+      const state = this.ctx.state as string;
+      if (state !== 'running' && state !== 'closed') {
         void this.ctx.resume().catch(() => {});
       }
+      this.vocalProcessor.init(this.ctx);
     } catch (e) {
       console.warn('[ChatDirector] unlockAudio error:', e);
     }
@@ -926,49 +959,86 @@ export class ChatDirector {
     opts?: { preserveMotion?: boolean },
   ): Promise<void> {
     const live = () => this.owns(utteranceId);
-    const useMotion = true;
     console.log('[ChatDirector] speech:', this.plan!.speech, 'llm:', this.plan!.llm_provider, 'preserveMotion:', opts?.preserveMotion);
     void rememberTurn(userText, this.plan!.speech);
 
     this.ctx = this.ctx ?? new AudioContext();
-    if (this.ctx.state === 'suspended') await this.ctx.resume();
+    if ((this.ctx.state as string) !== 'running') {
+      await tryResumeAudioCtx(this.ctx);
+      if (!live()) return;
+    }
 
     const speechText = this.plan!.speech;
     const chunks = splitIntoSpeechChunks(this.plan!.speech);
     const tracker = new PipelineTableTracker(chunks);
 
-    // ponytail: 不再调 emage.resetSeed() —— 下面的 startAudioStream({continueFromPrevious:false})
-    // 会在 Worker 内部全清状态(feed_audio_start handler 已 reset seed/buffer/features/cursor)。
-    emage.loop = false;
-    emage.playAudio = false;
-    emage.holdLastFrame = false;
-
-    // ── 开启全局长会话：整场回答期间状态机长驻，特征绝不中途清空[cite: 13] ──
-    // P0a: 窗级 motion_chunk；首块早于段 EOF 即可 status('emage')
-    // P0a-AV: 首块仅缓冲，可见动作等 playAudioSource → releaseMotionForAudio
-    let p0aFirstMotionLogged = false;
-    emage.onMotionChunk = (data, isFirst) => {
-      if (!isFirst || p0aFirstMotionLogged) return;
-      p0aFirstMotionLogged = true;
-      console.log('[P0a-AV] first motion_chunk buffered (before TTS play)', {
-        frameCount: data.frameCount,
-        duration: data.duration,
-        fps: data.fps,
-        awaitingAudioStart: emage.awaitingAudioStart,
-      });
-      status('emage', { seconds: data.duration.toFixed(1) }, false);
-    };
-    // ponyx-experiment: 003 patch 验证用,跑稳后改回 false
-    try {
-      await emage.startAudioStream({
-        continueFromPrevious: false,
-        profileStages: true,
-        emitPerWindow: true,
-        advanceFrames: APP_CONFIG.emage.motion.advanceFrames,
-      });
-    } catch (e) {
-      console.warn('[ChatDirector] EMAGE startAudioStream 失败，降级为纯语音模式:', e);
+    // ── EMAGE 后台就绪探测：绝不因 80MB+ 模型冷加载未完而阻塞 /api/tts 语音合成 ──
+    // - emage.ready !== false：模型已在内存（或单测 mock），正常开启 EMAGE 流式手势。
+    // - emage.ready === false：模型仍在后台下载/编译 WASM；继续后台预热，
+    //   若已有剧本编舞动作 (preserveMotion) 则零等待直通 TTS，否则仅给极短宽限窗口 (兼容本地 CacheStorage 刚读完的临界态)，
+    //   超时即本句降级为纯语音 + 口型直通，待后台加载完成后后续句子自动恢复 EMAGE。
+    let useMotion = emage.ready !== false;
+    if (!useMotion) {
+      const preload = emage.ensureLoaded?.();
+      void preload?.catch((err) => console.warn('[ChatDirector] EMAGE background preload notice:', err));
+      if (!opts?.preserveMotion && preload) {
+        useMotion = await Promise.race([
+          preload.then(() => true).catch(() => false),
+          new Promise<boolean>((r) => setTimeout(() => r(false), EMAGE_READY_GRACE_MS)),
+        ]);
+        if (!live()) return;
+      }
+      if (!useMotion) {
+        console.info('[ChatDirector] EMAGE 模型仍在后台预热中，本句直通 /api/tts 语音与口型');
+      }
     }
+
+    if (useMotion) {
+      // ponytail: 不再调 emage.resetSeed() —— 下面的 startAudioStream({continueFromPrevious:false})
+      // 会在 Worker 内部全清状态(feed_audio_start handler 已 reset seed/buffer/features/cursor)。
+      emage.loop = false;
+      emage.playAudio = false;
+      emage.holdLastFrame = false;
+
+      // ── 开启全局长会话：整场回答期间状态机长驻，特征绝不中途清空[cite: 13] ──
+      // P0a: 窗级 motion_chunk；首块早于段 EOF 即可 status('emage')
+      // P0a-AV: 首块仅缓冲，可见动作等 playAudioSource → releaseMotionForAudio
+      let p0aFirstMotionLogged = false;
+      emage.onMotionChunk = (data, isFirst) => {
+        if (!isFirst || p0aFirstMotionLogged) return;
+        p0aFirstMotionLogged = true;
+        console.log('[P0a-AV] first motion_chunk buffered (before TTS play)', {
+          frameCount: data.frameCount,
+          duration: data.duration,
+          fps: data.fps,
+          awaitingAudioStart: emage.awaitingAudioStart,
+        });
+        status('emage', { seconds: data.duration.toFixed(1) }, false);
+      };
+      // ponyx-experiment: 003 patch 验证用,跑稳后改回 false
+      try {
+        await withTimeout(
+          emage.startAudioStream({
+            continueFromPrevious: false,
+            profileStages: true,
+            emitPerWindow: true,
+            advanceFrames: APP_CONFIG.emage.motion.advanceFrames,
+          }),
+          EMAGE_START_STREAM_TIMEOUT_MS,
+        );
+      } catch (e) {
+        useMotion = false;
+        emage.onMotionChunk = null;
+        console.warn('[ChatDirector] EMAGE startAudioStream 失败，降级为纯语音模式:', e);
+      }
+      if (!live()) {
+        if (useMotion) {
+          try { emage.abortAudioStream(); } catch { /* ignore */ }
+        }
+        return;
+      }
+    }
+    this.useMotionCurrent = useMotion;
 
     interface SpeechSegment {
       index: number;
@@ -1013,6 +1083,7 @@ export class ChatDirector {
             // ponytail: 仅 #0 触发 emage 阶段气泡 — 后续段切到 speaking 状态,避免重复刷屏。[cite: 13]
             i === 0 ? (sec) => status('emage', { seconds: sec.toFixed(1) }, false) : undefined,
             voiceOverride,
+            useMotion,
           );
           if (!live()) break;
 
@@ -1040,7 +1111,7 @@ export class ChatDirector {
       }
       producerFinished = true;
       // 被新的一句抢走时不能关流：这时的 EMAGE 会话可能已经属于下一句。
-      if (live()) {
+      if (live() && useMotion) {
         if (producerError) {
           // 出错后 worker 可能永远不回 feed_audio_end：直接中止会话，不等它。
           try { emage.abortAudioStream(); } catch { /* ignore */ }
@@ -1150,9 +1221,11 @@ export class ChatDirector {
 
     this.audioDone = true;
     this.audioDoneTime = performance.now();
-    emage.onMotionChunk = null;
-    emage.clearExternalClock();
-    emage.stop();
+    if (useMotion) {
+      emage.onMotionChunk = null;
+      emage.clearExternalClock();
+      emage.stop();
+    }
     this.stop();
     this.onEnd?.();
 
@@ -1240,14 +1313,36 @@ export class ChatDirector {
       when,
     });
 
-    src.onended = () => {
+    let settled = false;
+    let blockedFallbackTimer: ReturnType<typeof setTimeout> | null = null;
+    const finishPlayback = () => {
+      if (settled) return;
+      settled = true;
+      if (blockedFallbackTimer) {
+        clearTimeout(blockedFallbackTimer);
+        blockedFallbackTimer = null;
+      }
       if (this.currentSource === src) {
         this.currentSource = null;
         onEnded();
       }
     };
+
+    src.onended = finishPlayback;
     // 先 start 可听 TTS，再释放可见动作（满足 motion 不早于 speech）
     src.start(when);
+    // 若浏览器仍拦截 AudioContext ('suspended' / 'interrupted')，currentTime 不走导致 onended 永不触发；
+    // 按真实音频时长兜底结算，保证字幕与剧情节拍不被卡死（若中途用户点击恢复了 running，则交回原生 onended）。
+    if ((this.ctx.state as string) !== 'running') {
+      const rate = Math.max(0.25, src.playbackRate.value || 1);
+      const fallbackMs = Math.ceil((buf.duration / rate) * 1000) + 150;
+      blockedFallbackTimer = setTimeout(() => {
+        if ((this.ctx?.state as string) !== 'running') {
+          try { src.stop(); } catch { /* ignore */ }
+          finishPlayback();
+        }
+      }, fallbackMs);
+    }
     if (isInitial) this.emitHostClockStart();
     console.log('[P0a-AV] AudioBufferSourceNode.start', {
       when,
@@ -1505,6 +1600,7 @@ export class ChatDirector {
     clearAssembledUserContent();
     this.setTurnState(keepThinking && this._turnState === 'thinking' ? 'thinking' : 'idle');
     this.preserveMotionCurrent = false;
+    this.useMotionCurrent = true;
     this.audioDoneTime = 0;
     this.onResumeRendering?.();
     if (this.stopPlaySegment) {

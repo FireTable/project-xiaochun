@@ -377,14 +377,19 @@ export const APP_CONFIG = {
     // emageWorker.ts deletes older `emage-models-*` buckets after a successful load.
     cacheName: 'emage-models-v2',
     models: {
-      step: { file: q('emage_step.onnx'), enabled: true, label: 'step (autoregressive temporal)' },
+      step: {
+        file: q('emage_step.onnx'),
+        chunksManifest: q('chunks/emage_step.onnx.json'),
+        enabled: true,
+        label: 'step (autoregressive temporal)',
+      },
       vqUpper: { file: q('vq_upper_idx.onnx'), enabled: true, label: 'vq_upper (head/neck/shoulders 78D)' },
       vqHands: { file: q('vq_hands_idx.onnx'), enabled: true, label: 'vq_hands (30 finger joints 180D)' },
       vqLower: { file: q('vq_lower_idx.onnx'), enabled: true, label: 'vq_lower (legs/hips/spine 61D)' },
       postprocess: { file: q('postprocess.onnx'), enabled: true, label: 'postprocess (VQ heads → 6D rot)' },
       vqFace: { file: q('vq_face.onnx'), enabled: false, label: 'vq_face (jaw + face 106D, disabled)' },
       vqGlobal: { file: q('vq_global.onnx'), enabled: false, label: 'vq_global (root translation 61D, disabled)' },
-    } satisfies Record<string, { file: string; enabled: boolean; label: string }>,
+    } satisfies Record<string, { file: string; chunksManifest?: string; enabled: boolean; label: string }>,
     // 注册的静态/动捕 VRMA 动作（如 thinking、listening 等）与交互加权分组（如 outfitShowcase 等）统一在 src/motion/catalog.ts 中管理，并享受 TypeScript 编译期强类型关联保障与 warmup 预热支持
     motion: {
       gestureIntensity: 1.0,

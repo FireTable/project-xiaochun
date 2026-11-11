@@ -40,5 +40,7 @@ if [ "$PINNED" = 1 ]; then
   node js/verify_convq.mjs --ort-web-dir "$P" --json out/reports/verify_convq_ort1.22-dev.json | tee out/reports/verify_convq_ort1.22-dev.log
   node js/bench_latency.mjs --ort-web-dir "$P" | tee out/reports/bench_latency_ort1.22-dev.log
 fi
+echo "== split emage_step_int8.onnx into 8 MiB parallel chunks -> out/final/chunks/ =="
+"$PYTHON" split_step_chunks.py
 echo "== sizes =="
 "$PYTHON" size_report.py $BROTLI --json out/reports/sizes.json | tee out/reports/sizes.txt

@@ -33,7 +33,7 @@ Quality is judged at logits / argmax level only: top-1 against the FP32 slim mod
 | Runtime | ONNX Runtime Web inside a **Dedicated Web Worker** |
 | Execution provider | **`wasm` only** (`executionProviders: ['wasm']`) |
 | Quantization | **INT8 dynamic PTQ already on** (`useInt8 = true` → `*_int8.onnx`; MatMul weights INT8 via `quantize_dynamic`, the remaining Conv weights INT8 per-channel in the Step 2 pack); the FP32 set is not part of the `/emage/` CDN directory (see Weights shipped) |
-| Model loading | `ensureLoaded` downloads all enabled models **in parallel** (cache logic unchanged) and queues `InferenceSession.create` in arrival order; **`create` stays serial** (single-thread wasm cannot overlap it, and it avoids ort-web shared-init races) |
+| Model loading | `ensureLoaded` downloads all enabled models **in parallel** (`emage_step_int8.onnx` streams 8 × 8 MiB slices from `chunks/emage_step_int8.onnx.json` into a single `Uint8Array(totalSize)` with single-file fallback; stitched buffer cached under canonical URL in `emage-models-v2`) and queues `InferenceSession.create` in arrival order; **`create` stays serial** (single-thread wasm cannot overlap it, and it avoids ort-web shared-init races) |
 | Window length | Fixed **T=64** frames per step (model export contract) |
 | Streaming | Per-window **`motion_chunk`** posts after each successful `runStep` (TTFA path) |
 | A/V sync | First chunk buffered until TTS `AudioContext.start` → `releaseMotionForAudio` (motion does not lead audible audio) |

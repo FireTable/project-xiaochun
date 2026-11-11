@@ -5,15 +5,51 @@ vi.mock('@/memory', () => ({
   clearAssembledUserContent: vi.fn(),
 }));
 vi.mock('@/llm/chatWorkflow', () => ({ generateSpeechReply: vi.fn() }));
-vi.mock('mpg123-decoder', () => ({ MPEGDecoder: class { ready = Promise.resolve(); } }));
+vi.mock('mpg123-decoder', () => ({
+  MPEGDecoder: class {
+    ready = Promise.resolve();
+    decode() {
+      const ch = new Float32Array(2400).fill(0.12);
+      return { channelData: [ch], samplesDecoded: ch.length, sampleRate: 24000 };
+    }
+    free() {}
+  },
+}));
 
 import { ChatDirector, withTimeout } from './chatDirector';
 
 class FakeCtx {
   state = 'running';
   sampleRate = 48000;
-  async resume() {}
-  createBuffer(_c: number, len: number, sr: number) { return { duration: len / sr } as unknown as AudioBuffer; }
+  currentTime = 0;
+  destination = {};
+  async resume() {
+    this.state = 'running';
+  }
+  createBuffer(_c: number, len: number, sr: number) {
+    return { duration: len / sr, copyToChannel() {} } as unknown as AudioBuffer;
+  }
+  createAnalyser() {
+    return { fftSize: 512, connect() {}, getByteTimeDomainData() {} };
+  }
+  createGain() {
+    return { gain: { value: 1, cancelScheduledValues() {}, setValueAtTime() {}, linearRampToValueAtTime() {} }, connect() {} };
+  }
+  createBufferSource() {
+    const src: any = {
+      buffer: null,
+      playbackRate: { value: 1 },
+      onended: null as (() => void) | null,
+      connect() {},
+      start: () => {
+        if (this.state === 'running') {
+          setTimeout(() => src.onended?.(), 5);
+        }
+      },
+      stop() {},
+    };
+    return src;
+  }
   close() { return Promise.resolve(); }
 }
 
@@ -55,5 +91,102 @@ describe('ChatDirector TTS failure path', () => {
 
   it('withTimeout rejects a never-settling promise', async () => {
     await expect(withTimeout(new Promise(() => {}), 10)).rejects.toThrow(/timeout/);
+  });
+
+  it('triggers /api/tts immediately on cold mobile visit when EMAGE ONNX preload has not finished', async () => {
+    const mp3Chunk = new Uint8Array([0xff, 0xfb, 0x90, 0x64]);
+    const fetchMock = vi.fn(async (_input: RequestInfo | URL, _init?: RequestInit) => ({
+      ok: true,
+      status: 200,
+      body: new ReadableStream({
+        start(ctrl) {
+          ctrl.enqueue(mp3Chunk);
+          ctrl.close();
+        },
+      }),
+    }));
+    vi.stubGlobal('fetch', fetchMock);
+
+    const d = new ChatDirector() as any;
+    d.plan = { speech: '……咳，命运指引的旅人啊，欢迎来到我的领域……', llm_provider: 'DEV_BYPASS' };
+    const emage = {
+      ...fakeEmage(),
+      ready: false,
+      // Simulate 81.6 MiB ONNX download stalled/in-progress over cellular
+      ensureLoaded: vi.fn(() => new Promise<void>(() => {})),
+      startAudioStream: vi.fn(() => new Promise<void>(() => {})),
+      pushAudioChunk: vi.fn(),
+      checkpointAudioStream: vi.fn(() => new Promise(() => {})),
+    };
+    const status = vi.fn();
+    const id = d.utterance;
+
+    await withTimeout(
+      d.runSpeechPipeline(d.plan.speech, { stop() {} }, emage, status, id, undefined, { preserveMotion: true }),
+      1500,
+    );
+
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(fetchMock.mock.calls[0]![0]).toBe('/api/tts');
+    expect(emage.ensureLoaded).toHaveBeenCalled();
+    expect(emage.startAudioStream).not.toHaveBeenCalled();
+    expect(emage.pushAudioChunk).not.toHaveBeenCalled();
+    expect(status.mock.calls.some((c) => c[0] === 'speaking')).toBe(true);
+  });
+
+  it('still calls /api/tts and settles when mobile AudioContext.resume() hangs in suspended/interrupted state', async () => {
+    class HangingSuspendedCtx extends FakeCtx {
+      override state = 'suspended';
+      override resume(): Promise<void> {
+        return new Promise<void>(() => {});
+      }
+    }
+    vi.stubGlobal('AudioContext', HangingSuspendedCtx);
+
+    const mp3Chunk = new Uint8Array([0xff, 0xfb, 0x90, 0x64]);
+    const fetchMock = vi.fn(async (_input: RequestInfo | URL, _init?: RequestInit) => ({
+      ok: true,
+      status: 200,
+      body: new ReadableStream({
+        start(ctrl) {
+          ctrl.enqueue(mp3Chunk);
+          ctrl.close();
+        },
+      }),
+    }));
+    vi.stubGlobal('fetch', fetchMock);
+
+    const d = new ChatDirector() as any;
+    d.plan = { speech: '测试静音挂起兜底。', llm_provider: 'DEV_BYPASS' };
+    const emage = { ...fakeEmage(), ready: false, ensureLoaded: vi.fn(() => new Promise<void>(() => {})) };
+    const status = vi.fn();
+    const id = d.utterance;
+
+    await withTimeout(
+      d.runSpeechPipeline(d.plan.speech, { stop() {} }, emage, status, id, undefined, { preserveMotion: true }),
+      2500,
+    );
+
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(fetchMock.mock.calls[0]![0]).toBe('/api/tts');
+    expect(status.mock.calls.some((c) => c[0] === 'speaking')).toBe(true);
+  });
+
+  it('unlockAudio() resumes WebKit interrupted state before initializing Tone DSP graph', () => {
+    const order: string[] = [];
+    class InterruptedCtx extends FakeCtx {
+      override state = 'interrupted';
+      override async resume() {
+        order.push('resume');
+        this.state = 'running';
+      }
+    }
+    vi.stubGlobal('AudioContext', InterruptedCtx);
+    const d = new ChatDirector();
+    vi.spyOn(d.vocalProcessor, 'init').mockImplementation(() => {
+      order.push('vocalInit');
+    });
+    d.unlockAudio();
+    expect(order).toEqual(['resume', 'vocalInit']);
   });
 });
