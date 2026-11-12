@@ -206,7 +206,7 @@ You can download installer packages directly from the official Releases page:
 * **Tauri vs Web vs `/embed` differences**: side-by-side table (window / background / click-through, gestures, UI, camera, persistence, loading, security, build & test) with code locations and maintenance rules in [`docs/PLATFORM_DIFFERENCES.md`](docs/PLATFORM_DIFFERENCES.md).
 
 ### 🧠 100% Browser-Side AI Stack
-* **LLM & Multimodal Vision (WebLLM, default)** — Workspace-patched [`@firetable/web-llm`](packages/web-llm/README.md) (`v0.2.88`) + [`@firetable/web-runtime`](packages/web-runtime/README.md) (`0.28.0-dev2`) running **MiniCPM5 2B (q4f16_1)** on WebGPU (fallback Qwen2.5 0.5B), plus **MiniCPM-V 4.7 1B (q4f16_1)** for 100% on-device multimodal vision. Selecting a vision model unlocks image attach, drag-and-drop, and clipboard screenshot paste (`Cmd/Ctrl + V`) in `ChatBar` (client-side normalized to `1024px`, up to 4 images, decoupled from `.vrm` outfit drops). Cooperative WebGPU frame pacing (`desktop` / `mobile` adaptive presets) keeps the 3D scene smooth at ~60 FPS across model loading, ViT image encoding, and LLM prefill/decode (`0.5B`–`8B`). Detailed in [`docs/ON_DEVICE_AI.md`](docs/ON_DEVICE_AI.md) and [`docs/PERFORMANCE.md`](docs/PERFORMANCE.md).
+* **LLM & Multimodal Vision (WebLLM, default)** — Workspace-patched [`@firetable/web-llm`](packages/web-llm/README.md) (`v0.2.88`) + [`@firetable/web-runtime`](packages/web-runtime/README.md) (`0.28.0-dev2`) running **MiniCPM5 2B (q4f16_1)** on WebGPU (fallback Qwen2.5 0.5B), plus **MiniCPM-V 4.7 1B (q4f16_1)** (`4x` high-res `256` tokens/tile + adaptive `<slice>` HD tiling) for 100% on-device multimodal vision. Both default WASM runtimes ship locally under `/wasm/`, while **auto-region / GeoIP + live CORS-race mirror switching** (`huggingface.co` ↔ `hf-mirror.com` & `jsdelivr`/`ghfast` ↔ `raw.githubusercontent.com`, with canonical cache keys), parallel `reload()` handshake pre-warming, and 4-way HTTP `Range` giant-shard slicing accelerate cold downloads globally. Selecting a vision model unlocks image attach, drag-and-drop, and clipboard screenshot paste (`Cmd/Ctrl + V`) in `ChatBar` (lossless PNG up to `1792px`, up to 4 images, decoupled from `.vrm` outfit drops). Cooperative WebGPU frame pacing (`desktop` / `mobile` adaptive presets) keeps the 3D scene smooth at ~60 FPS across model loading, ViT image encoding, and LLM prefill/decode (`0.5B`–`8B`). Detailed in [`docs/ON_DEVICE_AI.md`](docs/ON_DEVICE_AI.md) and [`docs/PERFORMANCE.md`](docs/PERFORMANCE.md).
 * **LLM (Custom OpenAI-Compatible Providers, optional)** — Connect any OpenAI-compatible HTTP service via the in-app config dialog: Ollama / LM Studio / vLLM / LocalAI / cloud (OpenAI, DeepSeek, Qwen API …). Provider profiles are AES-GCM encrypted in IndexedDB; the active provider is one click away from switching. When a custom provider is active, WebLLM is **not** preloaded — saves 1-2 GB VRAM on local and avoids wasting bandwidth on a model you won't use.
 * **Unified Provider Factory (`chatWorkflow.runChat`)** — Same-shape `runChat(opts) → string` contract for both WebLLM and custom providers; the dispatcher picks one per request via a `ChatProvider` registry. Adding a new provider = drop in a descriptor.
 * **User-Customizable System Prompt, Memory Turns & Dialogue Subtitles** — Open the chat-bar menu → **对话设置 / Chat Settings** to override the character system prompt (free-form text, falls back to default when empty/equal), tune the conversation memory-turn count (1–50, default = device-recommended), and toggle dialogue subtitles (`APP_CONFIG.chat.showChatDialogue`, default on; formerly `showHeadBubble`). When off, chat mode hides both the head bubble (desktop) and the cinematic subtitle bar (mobile); story mode dialogue is always shown. ChatDirector / `bubbleTracker` events still fire. Overrides persist in IndexedDB (`xiaochun-user-settings`); turn bounds live in `APP_CONFIG.memory.userTurnsMin/Max`.
@@ -359,10 +359,15 @@ cp .env.example .env.local
 # - VITE_EMAGE_BASE / VITE_EMAGE_BASE_PROD: ONNX model base URLs
 # - TTS_PROXY_URL: Forward Edge-TTS to your Cloudflare Worker (auto-appends /api/tts)
 
-# 3. Start dev server (SSR + Miniflare local edge runtime)
-pnpm dev          # → http://localhost:5185
+# 3. (Optional) Generate locally-trusted HTTPS certificates via mkcert (for LAN/mobile WebGPU & mic testing)
+pnpm setup:https  # generates .certs/localhost-cert.pem; `pnpm dev` auto-enables HTTPS when present
 
-# 4. Production build & preview
+# 4. Start dev server (SSR + Miniflare local edge runtime)
+pnpm dev          # → https://localhost:5185 (if .certs/ exists) or http://localhost:5185
+pnpm dev:http     # force plain HTTP on port 5185
+pnpm dev:https    # force HTTPS on port 5185
+
+# 5. Production build & preview
 pnpm build        # outputs dist/client & dist/server (Worker)
 pnpm preview      # preview production Worker behavior locally
 ```
@@ -420,6 +425,7 @@ Project-XiaoChun/
 │   ├── thinking.vrma          # Idle thinking animation loop
 │   ├── materials/             # Loading screen key visual (xiaochun_keyvisual*.webp)
 │   ├── onnx/                  # EMAGE body motion model weights (vq_*, emage_step, postprocess)
+│   ├── wasm/                  # Built-in WebGPU LLM/VLM WASM runtimes (MiniCPM5-2B, MiniCPM-V-4.7-1B 4x) & Stream ASR WASM
 │   ├── _headers               # Cache-Control and security headers
 │   ├── robots.txt / sitemap.* # Search engine crawler contracts
 │   ├── llms.txt / llms-full.* # AI agent & LLM GEO documentation specs

@@ -1719,18 +1719,24 @@ export class Instance implements Disposable {
           const dataUrl = new URL(shard.dataPath, tensorCacheUrl).href;
           let streamedBytes = 0;
           try {
-            await artifactCache.addToCache(dataUrl, "arraybuffer", signal, (delta) => {
-              const cappedDelta = Math.max(0, Math.min(delta, shard.nbytes - streamedBytes));
-              if (cappedDelta <= 0) return;
-              streamedBytes += cappedDelta;
-              fetchedBytes += cappedDelta;
-              const now = perf.now();
-              if (now - lastStreamReportMs >= 150) {
-                lastStreamReportMs = now;
-                timeElapsed = Math.ceil((now - tstart) / 1000);
-                reportCallback(fetchedShards, /*loading=*/false);
-              }
-            });
+            await artifactCache.addToCache(
+              dataUrl,
+              "arraybuffer",
+              signal,
+              (delta) => {
+                const cappedDelta = Math.max(0, Math.min(delta, shard.nbytes - streamedBytes));
+                if (cappedDelta <= 0) return;
+                streamedBytes += cappedDelta;
+                fetchedBytes += cappedDelta;
+                const now = perf.now();
+                if (now - lastStreamReportMs >= 150) {
+                  lastStreamReportMs = now;
+                  timeElapsed = Math.ceil((now - tstart) / 1000);
+                  reportCallback(fetchedShards, /*loading=*/false);
+                }
+              },
+              shard.nbytes,
+            );
           } catch (err) {
             this.env.logger("Error: Cannot fetch " + dataUrl + " err= " + err);
             throw err;

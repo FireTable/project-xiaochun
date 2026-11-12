@@ -197,7 +197,7 @@ brew upgrade --cask project-xiaochun
 * **Tauri / Web 主站 / `/embed` 三端差异**：窗口 / 背景 / 点击穿透、手势、界面、相机、持久化、加载、安全、构建与测试的逐项对照表（含代码位置、共享 / 独有标注、维护规则）详见 [`docs/PLATFORM_DIFFERENCES.md`](docs/PLATFORM_DIFFERENCES.md)。
 
 ### 🧠 100% 浏览器端 AI 推理栈 (Browser-Side AI)
-* **大语言模型与端侧多模态视觉 (WebLLM,默认)** — 基于工作区自维护包 [`@firetable/web-llm`](packages/web-llm/README.md)（`v0.2.88`）+ [`@firetable/web-runtime`](packages/web-runtime/README.md)（`0.28.0-dev2`），默认运行 **MiniCPM5 2B (q4f16_1)**（低配自动降级至 Qwen2.5 0.5B），并提供 **MiniCPM-V 4.7 1B (q4f16_1)** 纯端侧多模态视觉模型。切换到视觉模型后，底部对话条自动解锁图片按钮、拖拽上传与剪贴板粘贴截图（客户端自动压缩至最长边 `1024px`、最多 4 张，与 `.vrm` 拖拽换装互不干扰）。内置桌面/移动端双档自适应 **WebGPU 60 FPS 协同保帧**，从模型加载、ViT 看图编码到 `0.5B`~`8B` 长文本推理全程平滑共生。详见 [`docs/ON_DEVICE_AI.md`](docs/ON_DEVICE_AI.md) 与 [`docs/PERFORMANCE.md`](docs/PERFORMANCE.md)。
+* **大语言模型与端侧多模态视觉 (WebLLM,默认)** — 基于工作区自维护包 [`@firetable/web-llm`](packages/web-llm/README.md)（`v0.2.88`）+ [`@firetable/web-runtime`](packages/web-runtime/README.md)（`0.28.0-dev2`），默认运行 **MiniCPM5 2B (q4f16_1)**（低配自动降级至 Qwen2.5 0.5B），并提供 **MiniCPM-V 4.7 1B (q4f16_1)**（内置 `4x` 高清 `256` tokens/tile 运行时 + 自适应 `<slice>` 多切片）纯端侧多模态视觉模型。两款主力模型的 `.wasm` 运行时均已本地内置于 `/wasm/`，并支持**按地区/IP（`/api/region`）+ 实时 CORS 竞速自动切换镜像源**（`huggingface.co` ↔ `hf-mirror.com` 与 `jsdelivr`/`ghfast` ↔ `raw.githubusercontent.com`，统一规范化本地缓存键，开关代理绝不失效已缓存权重）、`reload()` 前置并行预热与 `100MB+` 超大分片 4 路 HTTP `Range` 并发拉取。切换到视觉模型后，底部对话条自动解锁图片按钮、拖拽上传与剪贴板粘贴截图（最长边 `1792px` PNG 无损保真、最多 4 张，与 `.vrm` 拖拽换装互不干扰）。内置桌面/移动端双档自适应 **WebGPU 60 FPS 协同保帧**，从模型加载、ViT 看图编码到 `0.5B`~`8B` 长文本推理全程平滑共生。详见 [`docs/ON_DEVICE_AI.md`](docs/ON_DEVICE_AI.md) 与 [`docs/PERFORMANCE.md`](docs/PERFORMANCE.md)。
 * **大语言模型 (OpenAI 兼容自定义服务,可选)** — 应用内配置对话框一键接入任意 OpenAI 兼容 HTTP 服务:Ollama / LM Studio / vLLM / LocalAI / 云厂商(OpenAI、DeepSeek、Qwen API 等)。Provider 配置 AES-GCM 加密存在 IndexedDB;激活后 WebLLM **不会**预热,省 1-2 GB 显存 + 模型下载带宽。
 * **统一 Provider 工厂 (`chatWorkflow.runChat`)** — WebLLM 与自定义 provider 共享同形 `runChat(opts) → string` 契约;dispatcher 通过 `ChatProvider` 注册表轮询,选第一个 `isActive` 命中的。加新 provider = 注册一个描述符。
 * **用户自定义系统提示词 + 记忆轮数 + 对话字幕** — 聊天菜单 → 「对话设置」可微调小蠢人设(留空/与默认相同则走默认人设)、对话记忆轮数(1-50,默认设备推荐)与「显示对话字幕」开关(`APP_CONFIG.chat.showChatDialogue`,旧名 `showHeadBubble`,默认开)。关掉后聊天模式下 PC 头顶气泡与移动端电影模式字幕栏都不渲染;故事模式对白始终显示。ChatDirector / `bubbleTracker` 事件照发。配置持久化在 IndexedDB(`xiaochun-user-settings`);轮数边界集中在 `APP_CONFIG.memory.userTurnsMin/Max`。
@@ -329,10 +329,15 @@ npm i @firetable/project-xiaochun
 # 1. 安装依赖
 pnpm install
 
-# 2. 启动开发服务器 (SSR + Miniflare 本地边缘运行时)
-pnpm dev          # → http://localhost:5185
+# 2. (可选) 使用 mkcert 生成本地受信任 HTTPS 证书（便于局域网真机调试 WebGPU / 麦克风）
+pnpm setup:https  # 生成 .certs/localhost-cert.pem；存在时 pnpm dev 自动开启 HTTPS
 
-# 3. 生产打包并预览
+# 3. 启动开发服务器 (SSR + Miniflare 本地边缘运行时)
+pnpm dev          # → https://localhost:5185 (有证书时) 或 http://localhost:5185
+pnpm dev:http     # 强制 HTTP 模式启动
+pnpm dev:https    # 强制 HTTPS 模式启动
+
+# 4. 生产打包并预览
 pnpm build        # 构建输出 dist/client 与 dist/server (Worker)
 pnpm preview      # 预览生产 Worker 行为
 ```
@@ -383,6 +388,7 @@ Project-XiaoChun/
 │   ├── thinking.vrma          # 待机思考动作循环
 │   ├── materials/             # 加载页主视觉 (xiaochun_keyvisual*.webp)
 │   ├── onnx/                  # EMAGE 全身动作模型权重 (vq_* / emage_step / postprocess)
+│   ├── wasm/                  # 内置端侧 WebGPU 大模型/多模态 WASM 运行时 (MiniCPM5-2B / MiniCPM-V-4.7-1B 4x) 与流式 ASR WASM
 │   ├── _headers               # 静态资源强缓存与安全响应头
 │   ├── robots.txt / sitemap.* # SEO 搜索引擎爬虫协议
 │   ├── llms.txt / llms-full.* # AI 代理与大模型 GEO 协议规范

@@ -33,6 +33,7 @@ import type { ChatProvider, RunChatOptions } from './chatTypes';
 
 import { detectGpuDeviceProfile, getQuickDeviceTier, getCachedDeviceProfile, type GpuDeviceProfile } from './deviceDetection';
 export { detectGpuDeviceProfile, getQuickDeviceTier, getCachedDeviceProfile, type GpuDeviceProfile };
+import { resolveBestMirrorConfig } from './modelMirror';
 
 import './polyfill';
 import { extractNextSpeechChunk } from '@/lib/utils';
@@ -57,8 +58,8 @@ export const CUSTOM_WEBLLM_MODELS: ModelRecord[] = [
   {
     model: `${hfBase}/ozhyhinas/MiniCPM5-2B-q4f16_1-MLC`,
     model_id: 'MiniCPM5-2B-q4f16_1-MLC',
-    model_lib:
-      `${hfBase}/ozhyhinas/MiniCPM5-2B-q4f16_1-MLC/resolve/main/libs/MiniCPM5-2B-q4f16_1-MLC-webgpu.wasm`,
+    // 本地内置 WebGPU 编译期 WASM 运行时，彻底消除首访跨洋拉取 WASM 阻塞
+    model_lib: '/wasm/MiniCPM5-2B-q4f16_1-MLC-webgpu.wasm',
     vram_required_MB: 1600,
     low_resource_required: false,
     overrides: {
@@ -444,14 +445,18 @@ export async function getWebLLMEngine(opts?: {
   initPromise = (async () => {
     onMilestone?.('loadingWebGpu');
 
+    // 与 Worker 启动和 WebGPU 硬件探测完全并行执行地区/IP 镜像探测，零额外阻塞关键路径
+    const mirrorPromise = resolveBestMirrorConfig();
+
     // 动态加载 web-llm 库(~6MB,首次 LLM 使用时才下载);之后 prebuilt 列表可用,校验已存储的模型 id。
-    await loadModelListThin();
+    const [, profile] = await Promise.all([
+      loadModelListThin(),
+      detectGpuDeviceProfile(),
+    ]);
     if (gen !== loadGen) throw new Error('model switched');
     if (activeModelId && !isKnownModelId(activeModelId)) activeModelId = null;
     const appConfig = getAppLlmConfig();
 
-    // 智能硬件与 WebGPU 能力算法裁决
-    const profile = await detectGpuDeviceProfile();
     console.log(`[WebLLM 评测] tier=${profile.tier}, maxBuffer=${profile.maxBufferSizeMB}MB, mem=${profile.deviceMemoryGB ?? '?'}GB, reason=${profile.reason}`);
 
     const hasExplicitWebLLMSelection = readActiveModel()?.kind === 'webllm';
@@ -481,11 +486,13 @@ export async function getWebLLMEngine(opts?: {
       notifyLoadProgress(report.progress, report.text);
       onProgressText?.(report.text);
     };
-    // Same sequence as web-llm's CreateWebWorkerMLCEngine: setAppConfig, then reload(modelId, chatOpts).
+    // Same sequence as web-llm's CreateWebWorkerMLCEngine: setMirrorConfig, setAppConfig, then reload(modelId, chatOpts).
     const create = async (w: Worker, id: string, opts: ChatOptions): Promise<LLMEngine> => {
       const client = thinClient && thinClient.worker === w ? thinClient : (thinClient = new ThinMLCEngine(w));
       bindVisibilityFramePacing();
       syncWorkerFramePacing(client);
+      const mirrorCfg = await mirrorPromise;
+      client.setMirrorConfig(mirrorCfg);
       client.setAppConfig(appConfig);
       client.initProgressCallback = onInit;
       await client.reload(id, opts);

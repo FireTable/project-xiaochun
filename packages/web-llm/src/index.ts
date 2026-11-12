@@ -80,9 +80,20 @@ export {
   getWebGPUFramePacing,
   DESKTOP_WEBGPU_FRAME_PACING,
   MOBILE_WEBGPU_FRAME_PACING,
+  CANONICAL_HF_ORIGIN,
+  DEFAULT_HF_MIRROR_ORIGIN,
+  CANONICAL_MLC_WASM_PREFIX,
+  DEFAULT_MLC_WASM_MIRROR_PREFIXES,
+  getArtifactMirrorConfig,
+  setArtifactMirrorConfig,
+  toCanonicalArtifactUrl,
+  resolveArtifactMirrorUrls,
+  fetchArtifactWithMirrorFailover,
+  fetchArtifactResponseWithAcceleration,
   type WebGPUFramePacingPreset,
   type WebGPUFramePacingOptions,
   type WebGPUFramePacingUpdate,
+  type ArtifactMirrorConfig,
 } from "@mlc-ai/web-runtime";
 
 export {

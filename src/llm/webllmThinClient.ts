@@ -14,6 +14,7 @@
  */
 import type {
   AppConfig,
+  ArtifactMirrorConfig,
   ChatCompletion,
   ChatCompletionChunk,
   ChatCompletionRequest,
@@ -66,6 +67,11 @@ export class ThinMLCEngine {
   /** Toggle or tune cooperative WebGPU frame pacing inside the worker ('desktop' / 'mobile' / 'turbo'). */
   setFramePacing(opts: WebGPUFramePacingUpdate): void {
     this.post({ kind: 'xcSetFramePacing', uuid: uuid(), content: opts });
+  }
+
+  /** Configure ordered Hugging Face & WASM CDN mirror failover inside the worker. */
+  setMirrorConfig(cfg: ArtifactMirrorConfig): void {
+    this.post({ kind: 'xcSetMirrorConfig', uuid: uuid(), content: cfg });
   }
 
   private post(msg: Msg): void {

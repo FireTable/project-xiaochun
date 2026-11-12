@@ -139,6 +139,16 @@ export function localApiPlugin(ttsProxyUrl?: string, sttProxyUrl?: string): Plug
         const host = req.headers.host || 'localhost:5185';
         const url = new URL(req.url || '', `http://${host}`);
 
+        if (url.pathname === '/api/region' && (req.method === 'GET' || req.method === 'HEAD')) {
+          const rawCountry = (process.env.XC_DEV_COUNTRY || '').trim().toUpperCase();
+          const country = /^[A-Z]{2}$/.test(rawCountry) ? rawCountry : null;
+          res.statusCode = 200;
+          res.setHeader('Content-Type', 'application/json; charset=utf-8');
+          res.setHeader('Cache-Control', 'no-store');
+          res.end(req.method === 'HEAD' ? undefined : JSON.stringify({ country }));
+          return;
+        }
+
         if (url.pathname === '/api/stt') {
           if (req.method === 'OPTIONS') {
             res.statusCode = 204;

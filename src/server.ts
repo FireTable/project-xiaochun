@@ -66,6 +66,29 @@ export default {
       }
     }
 
+    if (url.pathname === '/api/region' && isGetOrHead) {
+      const rawCountry = (
+        (request as unknown as { cf?: { country?: string } }).cf?.country ||
+        request.headers.get('cf-ipcountry') ||
+        ''
+      )
+        .trim()
+        .toUpperCase();
+      const country =
+        /^[A-Z]{2}$/.test(rawCountry) && rawCountry !== 'XX' && rawCountry !== 'T1'
+          ? rawCountry
+          : null;
+      const headers = new Headers({
+        'Content-Type': 'application/json; charset=utf-8',
+        'Cache-Control': 'private, max-age=600',
+      });
+      applySecurityHeaders(headers, url.pathname, (env ?? {}) as SecurityEnv);
+      return new Response(
+        request.method === 'HEAD' ? null : JSON.stringify({ country }),
+        { status: 200, headers },
+      );
+    }
+
     if (url.pathname === '/api/tts') {
       return handleTTS(request, env as ServerEnv, ctx);
     }

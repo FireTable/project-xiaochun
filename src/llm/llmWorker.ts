@@ -14,7 +14,9 @@ import './polyfill';
 import {
   WebWorkerMLCEngineHandler,
   prebuiltAppConfig,
+  setArtifactMirrorConfig,
   setWebGPUFramePacing,
+  type ArtifactMirrorConfig,
   type WebGPUFramePacingOptions,
 } from '@mlc-ai/web-llm';
 
@@ -28,6 +30,10 @@ self.onmessage = (msg: MessageEvent) => {
   }
   if (d?.kind === 'xcSetFramePacing') {
     setWebGPUFramePacing((d.content ?? {}) as Partial<WebGPUFramePacingOptions>);
+    return;
+  }
+  if (d?.kind === 'xcSetMirrorConfig') {
+    setArtifactMirrorConfig((d.content ?? null) as ArtifactMirrorConfig | null);
     return;
   }
   handler.onmessage(msg);

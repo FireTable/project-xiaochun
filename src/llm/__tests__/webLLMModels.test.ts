@@ -46,6 +46,23 @@ describe('CUSTOM_WEBLLM_MODELS & MiniCPM-V-4.7-1B integration', () => {
     expect(manifest.tasks['chat.completions'].inputs.image.processor.num_embeddings).toBe(256);
   });
 
+  it('bundles default MiniCPM5-2B-q4f16_1-MLC WebGPU WASM locally in public/wasm/', () => {
+    const cpm5 = CUSTOM_WEBLLM_MODELS.find((m) => m.model_id === 'MiniCPM5-2B-q4f16_1-MLC');
+    expect(cpm5).toBeDefined();
+    expect(cpm5?.model).toContain('/ozhyhinas/MiniCPM5-2B-q4f16_1-MLC');
+    expect(cpm5?.model_lib).toBe('/wasm/MiniCPM5-2B-q4f16_1-MLC-webgpu.wasm');
+
+    const wasmPath = path.join(process.cwd(), 'public', cpm5!.model_lib);
+    expect(fs.existsSync(wasmPath)).toBe(true);
+    const stat = fs.statSync(wasmPath);
+    expect(stat.size).toBeGreaterThan(5_000_000);
+    const fd = fs.openSync(wasmPath, 'r');
+    const magic = Buffer.alloc(4);
+    fs.readSync(fd, magic, 0, 4, 0);
+    fs.closeSync(fd);
+    expect(Array.from(magic)).toEqual([0x00, 0x61, 0x73, 0x6d]);
+  });
+
   it('computes aspect-preserving high-resolution slice grids for wide, tall, square, and HD images', () => {
     // Disabled slicing
     expect(computeSlicedGrid(1920, 1080, 0, 448)).toBeNull();

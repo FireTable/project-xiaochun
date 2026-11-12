@@ -35,7 +35,18 @@ export {
   ArtifactCrossOriginStorageCache,
   createArtifactCache,
   hasTensorInCache,
-  deleteTensorCache
+  deleteTensorCache,
+  CANONICAL_HF_ORIGIN,
+  DEFAULT_HF_MIRROR_ORIGIN,
+  CANONICAL_MLC_WASM_PREFIX,
+  DEFAULT_MLC_WASM_MIRROR_PREFIXES,
+  ArtifactMirrorConfig,
+  getArtifactMirrorConfig,
+  setArtifactMirrorConfig,
+  toCanonicalArtifactUrl,
+  resolveArtifactMirrorUrls,
+  fetchArtifactWithMirrorFailover,
+  fetchArtifactResponseWithAcceleration,
 } from "./artifact_cache";
 export { Disposable, LibraryProvider } from "./types";
 export { RPCServer } from "./rpc_server";

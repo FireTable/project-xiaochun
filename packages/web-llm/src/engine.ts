@@ -367,11 +367,16 @@ export class MLCEngine implements MLCEngineInterface {
         : modelRecord.model_type;
     this.loadedModelIdToModelType.set(modelId, modelType);
 
-    // instantiate cache
-    const configCache = tvmjs.createArtifactCache(
-      "webllm/config",
-      getCacheOptions(this.appConfig),
-    );
+    const wasmUrl = modelRecord.model_lib;
+    if (wasmUrl === undefined) {
+      throw new MissingModelWasmError(modelRecord.model_id);
+    }
+
+    const signal = this.reloadController?.signal;
+    const cacheOpts = getCacheOptions(this.appConfig);
+    const configCache = tvmjs.createArtifactCache("webllm/config", cacheOpts);
+    const wasmCache = tvmjs.createArtifactCache("webllm/wasm", cacheOpts);
+    const modelCache = tvmjs.createArtifactCache("webllm/model", cacheOpts);
 
     // A model uses its manifest only when the record names one.
     // Root-relative paths (`/wasm/...`) resolve against `baseUrl` so apps can bundle a
@@ -390,123 +395,160 @@ export class MLCEngine implements MLCEngineInterface {
         (modelRecord.model_manifest !== undefined &&
           modelRecord.model_manifest.startsWith("/"))
       ) {
-        return (
-          await fetch(url, { signal: this.reloadController?.signal })
-        ).arrayBuffer();
+        const res = await fetch(url, { signal });
+        if (!res.ok) {
+          throw new Error(`HTTP ${res.status} while fetching manifest ${url}`);
+        }
+        return res.arrayBuffer();
       }
       return (await configCache.fetchWithCache(
         url,
         "arraybuffer",
-        this.reloadController?.signal,
+        signal,
       )) as ArrayBuffer;
     };
-    const modelPackage =
-      manifestUrl === undefined
-        ? undefined
-        : await loadModelPackageManifest(
-            await fetchManifestSource(manifestUrl),
-          );
-    const packageResources = resolveModelPackageResourceURLs(
-      modelUrl,
-      modelPackage,
-    );
 
-    // load config
-    const configUrl = packageResources.chatConfigUrl;
-    const configData = (await configCache.fetchWithCache(
-      configUrl,
-      "arraybuffer",
-      this.reloadController?.signal,
-    )) as ArrayBuffer;
-    if (modelRecord.integrity?.config) {
-      await verifyIntegrity(
-        configData,
-        modelRecord.integrity.config,
-        configUrl,
-        modelRecord.integrity.onFailure,
-      );
-    }
-    const curModelConfig: ChatConfig = {
-      ...JSON.parse(new TextDecoder().decode(configData)),
-      ...modelRecord.overrides,
-      ...chatOpts,
-    } as ChatConfig;
-    this.loadedModelIdToChatConfig.set(modelId, curModelConfig);
-
-    // load tvm wasm
-    const wasmCache = tvmjs.createArtifactCache(
-      "webllm/wasm",
-      getCacheOptions(this.appConfig),
-    );
-
-    const wasmUrl = modelRecord.model_lib;
-    if (wasmUrl === undefined) {
-      throw new MissingModelWasmError(modelRecord.model_id);
-    }
-    const fetchWasmSource = async () => {
+    const fetchWasmSource = async (): Promise<ArrayBuffer> => {
       if (wasmUrl.includes("localhost")) {
         // do not cache wasm on local host as we might update code frequently
-        return (
-          await fetch(wasmUrl, { signal: this.reloadController?.signal })
-        ).arrayBuffer();
+        const res = await fetch(wasmUrl, { signal });
+        if (!res.ok) {
+          throw new Error(`HTTP ${res.status} while fetching WASM ${wasmUrl}`);
+        }
+        return res.arrayBuffer();
       } else if (!wasmUrl.startsWith("http")) {
         // do not cache wasm on the same server as it can also refresh
         // rely on the normal caching strategy
-        return (
-          await fetch(new URL(wasmUrl, baseUrl).href, {
-            signal: this.reloadController?.signal,
-          })
-        ).arrayBuffer();
+        const resolvedWasmUrl = new URL(wasmUrl, baseUrl).href;
+        const res = await fetch(resolvedWasmUrl, { signal });
+        if (!res.ok) {
+          throw new Error(`HTTP ${res.status} while fetching WASM ${resolvedWasmUrl}`);
+        }
+        return res.arrayBuffer();
       } else {
-        return await wasmCache.fetchWithCache(
+        return (await wasmCache.fetchWithCache(
           wasmUrl,
           "arraybuffer",
-          this.reloadController?.signal,
-        );
+          signal,
+        )) as ArrayBuffer;
       }
     };
-    const wasmSource = await fetchWasmSource();
 
-    if (modelRecord.integrity?.model_lib) {
-      await verifyIntegrity(
-        wasmSource,
-        modelRecord.integrity.model_lib,
-        wasmUrl,
-        modelRecord.integrity.onFailure,
-      );
-    }
-
-    const wasm = new Uint8Array(wasmSource);
-    const tvm = await tvmjs.instantiate(
-      wasm.buffer,
-      tvmjs.createPolyfillWASI(),
-      this.logger,
-    );
-
+    let tvm: tvmjs.Instance | undefined;
     let gpuDetectOutput: tvmjs.GPUDeviceDetectOutput | undefined;
     let loadedTokenizer: { dispose(): void } | undefined;
+    let tokenizerPromise: Promise<Awaited<ReturnType<typeof asyncLoadTokenizer>>> | undefined;
     let newPipeline: LLMChatPipeline | EmbeddingPipeline | undefined;
     let pipelineCommitted = false;
 
+    // Fire all independent handshake stages in parallel at t = 0 to eliminate
+    // 4-5 serial cross-ocean round-trips before shard fetching begins.
+    // Every background promise attaches a no-op rejection handler until awaited so early
+    // failures never trigger UnhandledPromiseRejection, and `finally` disposes all handles.
+    const defaultConfigUrl = new URL("mlc-chat-config.json", modelUrl).href;
+    const defaultTensorManifestUrl = new URL("tensor-cache.json", modelUrl).href;
+    void configCache.addToCache(defaultConfigUrl, "arraybuffer", signal).catch(() => {});
+    void modelCache.addToCache(defaultTensorManifestUrl, "json", signal).catch(() => {});
+
+    const manifestPromise =
+      manifestUrl === undefined
+        ? Promise.resolve(undefined)
+        : fetchManifestSource(manifestUrl).then((buf) =>
+            loadModelPackageManifest(buf),
+          );
+    manifestPromise.catch(() => {});
+
+    const wasmAndTvmPromise = (async () => {
+      const wasmSource = await fetchWasmSource();
+      if (modelRecord.integrity?.model_lib) {
+        await verifyIntegrity(
+          wasmSource,
+          modelRecord.integrity.model_lib,
+          wasmUrl,
+          modelRecord.integrity.onFailure,
+        );
+      }
+      const wasm = new Uint8Array(wasmSource);
+      const inst = await tvmjs.instantiate(
+        wasm.buffer,
+        tvmjs.createPolyfillWASI(),
+        this.logger,
+      );
+      tvm = inst;
+      return inst;
+    })();
+    wasmAndTvmPromise.catch(() => {});
+
+    const gpuDetectPromise = tvmjs.detectGPUDevice().then((res) => {
+      gpuDetectOutput = res;
+      return res;
+    });
+    gpuDetectPromise.catch(() => {});
+
     try {
+      const modelPackage = await manifestPromise;
+      const packageResources = resolveModelPackageResourceURLs(
+        modelUrl,
+        modelPackage,
+      );
+
+      // load config (already speculatively in-flight via `GLOBAL_INFLIGHT_CACHE_ADDS`)
+      const configUrl = packageResources.chatConfigUrl;
+      const configData = (await configCache.fetchWithCache(
+        configUrl,
+        "arraybuffer",
+        signal,
+      )) as ArrayBuffer;
+      if (modelRecord.integrity?.config) {
+        await verifyIntegrity(
+          configData,
+          modelRecord.integrity.config,
+          configUrl,
+          modelRecord.integrity.onFailure,
+        );
+      }
+      const curModelConfig: ChatConfig = {
+        ...JSON.parse(new TextDecoder().decode(configData)),
+        ...modelRecord.overrides,
+        ...chatOpts,
+      } as ChatConfig;
+      this.loadedModelIdToChatConfig.set(modelId, curModelConfig);
+
+      // Kick off 11-16 MB tokenizer download & parse immediately while WASM/GPU/shards proceed
+      tokenizerPromise = asyncLoadTokenizer(
+        modelUrl,
+        curModelConfig,
+        this.appConfig,
+        this.logger,
+        modelRecord.integrity,
+        signal,
+      ).then((tok) => {
+        loadedTokenizer = tok;
+        return tok;
+      });
+      tokenizerPromise.catch(() => {});
+
+      const [tvmInstance, detectedGpu] = await Promise.all([
+        wasmAndTvmPromise,
+        gpuDetectPromise,
+      ]);
+
       if (this.initProgressCallback !== undefined) {
-        tvm.registerInitProgressCallback(this.initProgressCallback);
+        tvmInstance.registerInitProgressCallback(this.initProgressCallback);
       }
 
-      // detect GPU
-      gpuDetectOutput = await tvmjs.detectGPUDevice();
-      if (gpuDetectOutput == undefined) {
+      if (detectedGpu == undefined) {
         throw new WebGPUNotAvailableError();
       }
       let gpuLabel = "WebGPU";
-      if (gpuDetectOutput.adapterInfo.description.length != 0) {
-        gpuLabel += " - " + gpuDetectOutput.adapterInfo.description;
+      if (detectedGpu.adapterInfo.description.length != 0) {
+        gpuLabel += " - " + detectedGpu.adapterInfo.description;
       } else {
-        gpuLabel += " - " + gpuDetectOutput.adapterInfo.vendor;
+        gpuLabel += " - " + detectedGpu.adapterInfo.vendor;
       }
       if (modelRecord.required_features !== undefined) {
         for (const feature of modelRecord.required_features) {
-          if (!gpuDetectOutput.device.features.has(feature)) {
+          if (!detectedGpu.device.features.has(feature)) {
             if (feature == "shader-f16") {
               throw new ShaderF16SupportError();
             }
@@ -519,7 +561,7 @@ export class MLCEngine implements MLCEngineInterface {
       // TVM's immediate `Instance.dispose()` on `device.lost` so suspended macrotask
       // yields during cooperative frame pacing never resume against freed FFI state.
       let deviceLostInReload = false;
-      gpuDetectOutput.device.lost.then((info: any) => {
+      detectedGpu.device.lost.then((info: any) => {
         if (this.deviceLostIsError) {
           log.error(
             `Device was lost. This can happen due to insufficient memory or other GPU constraints. ` +
@@ -529,59 +571,49 @@ export class MLCEngine implements MLCEngineInterface {
           deviceLostInReload = true;
         }
       });
-      tvm.initWebGPU(gpuDetectOutput.device);
-      tvm.setDeviceLostAutoDispose(false);
+      tvmInstance.initWebGPU(detectedGpu.device);
+      tvmInstance.setDeviceLostAutoDispose(false);
 
-      const signal = this.reloadController?.signal;
       if (signal?.aborted) {
         throw new DOMException(`Reload(${modelId}) aborted`, "AbortError");
       }
 
-      const tokenizer = await asyncLoadTokenizer(
-        modelUrl,
-        curModelConfig,
-        this.appConfig,
-        this.logger,
-        modelRecord.integrity,
-      );
-      loadedTokenizer = tokenizer;
-      if (signal?.aborted) {
-        throw new DOMException(`Reload(${modelId}) aborted`, "AbortError");
-      }
-
-      await tvm.fetchTensorCache(
-        packageResources.tensorCacheBaseUrl,
-        tvm.webgpu(),
-        {
-          ...getTensorCacheAccessOptions("webllm/model", this.appConfig),
-          signal,
-        },
-      );
+      const [tokenizer] = await Promise.all([
+        tokenizerPromise,
+        tvmInstance.fetchTensorCache(
+          packageResources.tensorCacheBaseUrl,
+          tvmInstance.webgpu(),
+          {
+            ...getTensorCacheAccessOptions("webllm/model", this.appConfig),
+            signal,
+          },
+        ),
+      ]);
       if (signal?.aborted) {
         throw new DOMException(`Reload(${modelId}) aborted`, "AbortError");
       }
 
       // Instantiate pipeline
-      tvm.beginBulkAllocation();
+      tvmInstance.beginBulkAllocation();
       try {
         if (modelRecord.model_type === ModelType.embedding) {
-          newPipeline = new EmbeddingPipeline(tvm, tokenizer, curModelConfig);
+          newPipeline = new EmbeddingPipeline(tvmInstance, tokenizer, curModelConfig);
         } else {
           newPipeline = new LLMChatPipeline(
-            tvm,
+            tvmInstance,
             tokenizer,
             curModelConfig,
             logitProcessor,
             modelPackage,
             {
-              features: gpuDetectOutput.device.features,
+              features: detectedGpu.device.features,
               maxStorageBufferBindingSize:
-                gpuDetectOutput.device.limits.maxStorageBufferBindingSize,
+                detectedGpu.device.limits.maxStorageBufferBindingSize,
             },
           );
         }
       } finally {
-        await tvm.endBulkAllocation();
+        await tvmInstance.endBulkAllocation();
       }
 
       await newPipeline.asyncLoadWebGPUPipelines(signal);
@@ -608,6 +640,13 @@ export class MLCEngine implements MLCEngineInterface {
       }
     } finally {
       if (!pipelineCommitted) {
+        // Ensure any concurrently in-flight WASM/GPU/tokenizer tasks settle before disposal
+        // so native/GPU handles are never leaked when an earlier stage fails or aborts.
+        await Promise.allSettled([
+          wasmAndTvmPromise,
+          gpuDetectPromise,
+          tokenizerPromise,
+        ]);
         this.loadedModelIdToChatConfig.delete(modelId);
         const prevFlag = this.deviceLostIsError;
         this.deviceLostIsError = false;
@@ -619,7 +658,7 @@ export class MLCEngine implements MLCEngineInterface {
               loadedTokenizer?.dispose();
             } catch {}
             try {
-              tvm.dispose();
+              tvm?.dispose();
             } catch {}
             try {
               gpuDetectOutput?.device.destroy();

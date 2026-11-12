@@ -171,6 +171,23 @@ Requests to `emage_step_int8.onnx` (66,550,463 bytes) on the CDN with varied `Ac
 
 ---
 
+### 2.3 WebLLM Cold-Start Download & Handshake Acceleration
+
+**Problem**: Upstream `web-llm` + `web-runtime` exhibited four network bottlenecks on cold model loads (especially from Mainland China or high-RTT trans-ocean links):
+1. **Serial Handshake Waterfall (4–5 RTTs before shard #0 starts)**: `reloadInternal` sequentially awaited `manifest` → `mlc-chat-config.json` → remote `.wasm` download & compile → `detectGPUDevice()` → `tokenizer.json` (`11–16 MB` single stream) → `tensor-cache.json` before starting `params_shard_*.bin`;
+2. **Hardcoded `huggingface.co` / `raw.githubusercontent.com` Origins**: Prebuilt models (`Qwen2.5-0.5B`, `Qwen3-*`, `Llama-*`) ignored `hfEndpoint`, and blind timezone-based rewriting to `hf-mirror.com` breaks under overseas/TUN-VPN IPs because `hf-mirror.com` returns an un-CORSed `HTTP 308 → huggingface.co` redirect blocked by browser `mode: 'cors'`;
+3. **Giant Embedding Shard Tail Stragglers**: `MiniCPM5-2B-q4f16_1-MLC` packs embedding / LM-head weights into two `127.5 MiB` (`133,693,440` B) shards (`params_shard_0.bin`, `params_shard_1.bin`) alongside forty `~30 MiB` shards — single-stream TCP throughput on those two shards dominated tail completion time;
+4. **Remote Default WASM Fetch**: `MiniCPM5-2B-q4f16_1-MLC` fetched its `6.3 MB` `.wasm` from Hugging Face on cold load.
+
+**Solution**:
+- **Same-Origin Built-In WASMs (`public/wasm/`)**: Bundled `MiniCPM5-2B-q4f16_1-MLC-webgpu.wasm` (`6.3 MB`) alongside `MiniCPM-V-4.7-1B-q4f16_1-4x-8378eafa-webgpu.wasm` (`8.1 MB`) locally under `/wasm/`;
+- **Edge GeoIP (`/api/region`) + Happy-Eyeballs CORS Race (`src/llm/modelMirror.ts`)**: Overlaps region hint detection (`request.cf.country` / `CF-IPCountry` + timezone fallback) and live `mode: 'cors'` probes (`huggingface.co` ↔ `hf-mirror.com`; `testingcf.jsdelivr.net` / `cdn.jsdelivr.net` / `ghfast.top` ↔ `raw.githubusercontent.com`) in parallel with Worker startup (`xcSetMirrorConfig`), with per-request failover (`fetchArtifactWithMirrorFailover`) and **canonical cache key normalization** (`toCanonicalArtifactUrl`) across Cache Storage / IndexedDB / OPFS so switching mirrors or VPNs never invalidates cached weights;
+- **Parallel `reload()` Pre-Warming (`packages/web-llm/src/engine.ts`)**: Fires `manifest`, `mlc-chat-config.json`, `tensor-cache.json`, WASM instantiate, and `detectGPUDevice()` concurrently at `t = 0` (deduplicated via `GLOBAL_INFLIGHT_CACHE_ADDS`), and runs `asyncLoadTokenizer` (`tokenizer.json`) concurrently with `tvm.fetchTensorCache()` (`Promise.all`);
+- **LPT Queue + 4-Way HTTP `Range` Giant-Shard Slicing (`packages/web-runtime/src/artifact_cache.ts` & `runtime.ts`)**: Sorts shards largest-first (`6` workers desktop / `2` mobile) and splits shards `≥ 48 MiB` into `4` concurrent HTTP `Range` (`206 Partial Content`) slices on desktop (probing chunk `0` first so `200 OK` servers stream with zero wasted bytes, and auto-disabling multi-part RAM buffers on `mobile` preset).
+- **Unverified Scope**: End-to-end wall-clock cold download speedup ratios across physical Mainland China ISP links (China Telecom / Unicom / Mobile without VPN) remain **Unverified** outside automated unit simulations (`src/llm/__tests__/modelMirror.test.ts`).
+
+---
+
 ## 3. EMAGE Model Parallel Download Pipeline
 
 In `emageWorker.ts#ensureLoaded`, the legacy flow sequentially executed `download → InferenceSession.create` for each model. The new architecture **downloads all enabled models in parallel** (preserving cache semantics), queueing `create` operations as each download resolves.

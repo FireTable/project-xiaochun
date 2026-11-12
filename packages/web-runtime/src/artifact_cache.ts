@@ -18,8 +18,245 @@
  */
 
 import { OPFSStore, type OPFSAccessMode } from "./opfs_store";
+import { getWebGPUFramePacing } from "./webgpu";
 
 export type { OPFSAccessMode } from "./opfs_store";
+
+export const CANONICAL_HF_ORIGIN = "https://huggingface.co";
+export const DEFAULT_HF_MIRROR_ORIGIN = "https://hf-mirror.com";
+export const CANONICAL_MLC_WASM_PREFIX =
+  "https://raw.githubusercontent.com/mlc-ai/binary-mlc-llm-libs/main";
+export const DEFAULT_MLC_WASM_MIRROR_PREFIXES: readonly string[] = Object.freeze([
+  "https://testingcf.jsdelivr.net/gh/mlc-ai/binary-mlc-llm-libs@main",
+  "https://cdn.jsdelivr.net/gh/mlc-ai/binary-mlc-llm-libs@main",
+  "https://fastly.jsdelivr.net/gh/mlc-ai/binary-mlc-llm-libs@main",
+  "https://ghfast.top/https://raw.githubusercontent.com/mlc-ai/binary-mlc-llm-libs/main",
+]);
+
+export interface ArtifactMirrorConfig {
+  /**
+   * Ordered Hugging Face origins to try for outbound network requests, e.g.
+   * `["https://hf-mirror.com", "https://huggingface.co"]`.
+   * Local Cache/IDB/OPFS keys always normalize back to `https://huggingface.co`.
+   */
+  hfOrigins?: string[];
+  /**
+   * Ordered prefix mirrors for prebuilt `mlc-ai/binary-mlc-llm-libs` `.wasm` files.
+   * Local Cache/IDB/OPFS keys always normalize back to `CANONICAL_MLC_WASM_PREFIX`.
+   */
+  wasmLibPrefixes?: string[];
+  /**
+   * Enable concurrent HTTP `Range` chunked fetching for giant weight shards.
+   * When omitted, enabled automatically on desktop (`maxParallelShardDownloads > 2`)
+   * and disabled on mobile to keep transient RAM usage low.
+   */
+  enableParallelRange?: boolean;
+  /** Minimum shard byte size to use parallel HTTP `Range` slicing (default: 48 MiB). */
+  parallelRangeMinBytes?: number;
+  /** Number of concurrent HTTP `Range` slices per giant shard (default: 4). */
+  parallelRangeConnections?: number;
+}
+
+const MIRROR_GLOBAL_KEY = "__xcArtifactMirrorConfig";
+
+function trimTrailingSlashes(input: string): string {
+  return input.trim().replace(/\/+$/, "");
+}
+
+function dedupeStrings(items: Iterable<string>): string[] {
+  const seen = new Set<string>();
+  const out: string[] = [];
+  for (const raw of items) {
+    const cleaned = trimTrailingSlashes(raw);
+    if (!cleaned || seen.has(cleaned)) continue;
+    seen.add(cleaned);
+    out.push(cleaned);
+  }
+  return out;
+}
+
+export function getArtifactMirrorConfig(): Readonly<ArtifactMirrorConfig> {
+  const g = globalThis as Record<string, unknown>;
+  const existing = g[MIRROR_GLOBAL_KEY] as ArtifactMirrorConfig | undefined;
+  return existing ?? {};
+}
+
+export function setArtifactMirrorConfig(
+  update: ArtifactMirrorConfig | null | undefined,
+): Readonly<ArtifactMirrorConfig> {
+  const g = globalThis as Record<string, unknown>;
+  if (!update) {
+    const empty = Object.freeze({});
+    g[MIRROR_GLOBAL_KEY] = empty;
+    return empty;
+  }
+  const normalized: ArtifactMirrorConfig = {};
+  if (update.hfOrigins !== undefined) {
+    normalized.hfOrigins = dedupeStrings(update.hfOrigins);
+  }
+  if (update.wasmLibPrefixes !== undefined) {
+    normalized.wasmLibPrefixes = dedupeStrings(update.wasmLibPrefixes);
+  }
+  if (update.enableParallelRange !== undefined) {
+    normalized.enableParallelRange = Boolean(update.enableParallelRange);
+  }
+  if (update.parallelRangeMinBytes !== undefined) {
+    normalized.parallelRangeMinBytes = Math.max(
+      4 * 1024 * 1024,
+      Math.floor(update.parallelRangeMinBytes),
+    );
+  }
+  if (update.parallelRangeConnections !== undefined) {
+    normalized.parallelRangeConnections = Math.max(
+      1,
+      Math.min(8, Math.floor(update.parallelRangeConnections)),
+    );
+  }
+  const frozen = Object.freeze(normalized);
+  g[MIRROR_GLOBAL_KEY] = frozen;
+  return frozen;
+}
+
+/**
+ * Normalize mirror URLs back to their canonical upstream URL so Cache Storage,
+ * IndexedDB, and OPFS keys remain 100% invariant across mirror/VPN switches.
+ */
+export function toCanonicalArtifactUrl(url: string): string {
+  if (!url || !url.startsWith("http")) {
+    return url;
+  }
+  const cfg = getArtifactMirrorConfig();
+
+  // 1. Check MLC binary WASM library mirrors first (some prefixes wrap raw.githubusercontent.com)
+  const wasmPrefixes = dedupeStrings([
+    CANONICAL_MLC_WASM_PREFIX,
+    ...DEFAULT_MLC_WASM_MIRROR_PREFIXES,
+    ...(cfg.wasmLibPrefixes ?? []),
+  ]);
+  for (const prefix of wasmPrefixes) {
+    if (url.startsWith(prefix + "/")) {
+      return CANONICAL_MLC_WASM_PREFIX + url.slice(prefix.length);
+    }
+  }
+
+  // 2. Check Hugging Face origins
+  const hfOrigins = dedupeStrings([
+    CANONICAL_HF_ORIGIN,
+    DEFAULT_HF_MIRROR_ORIGIN,
+    ...(cfg.hfOrigins ?? []),
+  ]);
+  for (const origin of hfOrigins) {
+    if (url.startsWith(origin + "/")) {
+      return CANONICAL_HF_ORIGIN + url.slice(origin.length);
+    }
+  }
+
+  return url;
+}
+
+/**
+ * Expand an artifact URL into ordered mirror candidate URLs `[primary, ...fallbacks]`.
+ */
+export function resolveArtifactMirrorUrls(url: string): string[] {
+  if (!url || !url.startsWith("http")) {
+    return [url];
+  }
+  const cfg = getArtifactMirrorConfig();
+  const canonical = toCanonicalArtifactUrl(url);
+
+  if (canonical.startsWith(CANONICAL_MLC_WASM_PREFIX + "/")) {
+    const suffix = canonical.slice(CANONICAL_MLC_WASM_PREFIX.length);
+    const configured = cfg.wasmLibPrefixes;
+    const prefixes =
+      configured && configured.length > 0
+        ? dedupeStrings([...configured, CANONICAL_MLC_WASM_PREFIX])
+        : dedupeStrings([
+            ...(url !== canonical ? [url.slice(0, url.length - suffix.length)] : []),
+            CANONICAL_MLC_WASM_PREFIX,
+            ...DEFAULT_MLC_WASM_MIRROR_PREFIXES,
+          ]);
+    return prefixes.map((p) => p + suffix);
+  }
+
+  if (canonical.startsWith(CANONICAL_HF_ORIGIN + "/")) {
+    const suffix = canonical.slice(CANONICAL_HF_ORIGIN.length);
+    const configured = cfg.hfOrigins;
+    const origins =
+      configured && configured.length > 0
+        ? dedupeStrings([...configured, CANONICAL_HF_ORIGIN])
+        : dedupeStrings([
+            ...(url !== canonical ? [url.slice(0, url.length - suffix.length)] : []),
+            CANONICAL_HF_ORIGIN,
+            DEFAULT_HF_MIRROR_ORIGIN,
+          ]);
+    return origins.map((o) => o + suffix);
+  }
+
+  return [url];
+}
+
+function createAbortError(message = "Artifact fetch aborted"): Error {
+  if (typeof DOMException !== "undefined") {
+    return new DOMException(message, "AbortError");
+  }
+  const err = new Error(message);
+  err.name = "AbortError";
+  return err;
+}
+
+function isAbortError(err: unknown, signal?: AbortSignal): boolean {
+  if (signal?.aborted) return true;
+  return (
+    typeof err === "object" &&
+    err !== null &&
+    "name" in err &&
+    (err as { name?: string }).name === "AbortError"
+  );
+}
+
+/**
+ * Fetch an artifact URL with automatic failover across configured mirrors on
+ * network error, CORS block (e.g. `hf-mirror.com` geo-308 on overseas IP), or non-OK HTTP status.
+ */
+export async function fetchArtifactWithMirrorFailover(
+  url: string,
+  init?: RequestInit,
+  fetchImpl: typeof fetch = fetch,
+): Promise<Response> {
+  const signal = init?.signal ?? undefined;
+  if (signal?.aborted) {
+    throw createAbortError(`Aborted before fetching ${url}`);
+  }
+  const candidates = resolveArtifactMirrorUrls(url);
+  let lastError: unknown;
+
+  for (let i = 0; i < candidates.length; i++) {
+    const candidate = candidates[i];
+    if (signal?.aborted) {
+      throw createAbortError(`Aborted while fetching ${url}`);
+    }
+    try {
+      const response = await fetchImpl(candidate, init);
+      if (response.ok || response.status === 206) {
+        return response;
+      }
+      lastError = new Error(`HTTP ${response.status} while fetching ${candidate}`);
+    } catch (err) {
+      if (isAbortError(err, signal)) {
+        throw err;
+      }
+      lastError = err;
+    }
+  }
+
+  throw lastError instanceof Error
+    ? lastError
+    : new Error(`Failed to fetch ${url}: ${String(lastError)}`);
+}
+
+const DEFAULT_PARALLEL_RANGE_MIN_BYTES = 48 * 1024 * 1024;
+const DEFAULT_PARALLEL_RANGE_CONNECTIONS = 4;
+const GLOBAL_INFLIGHT_CACHE_ADDS = new Map<string, Promise<void>>();
 
 export interface TensorCacheEntry {
   name: string;
@@ -104,6 +341,7 @@ export interface ArtifactCacheTemplate {
     storetype?: string,
     signal?: AbortSignal,
     onBytes?: (deltaBytes: number) => void,
+    expectedBytes?: number,
   ): Promise<void>;
 
   /**
@@ -251,16 +489,16 @@ class CrossOriginStorage {
 
   private normalizeRequest(request: RequestLike): string {
     if (typeof request === "string") {
-      return request;
+      return toCanonicalArtifactUrl(request);
     }
     if (request instanceof URL) {
-      return request.href;
+      return toCanonicalArtifactUrl(request.href);
     }
     if (request instanceof Request) {
-      return request.url;
+      return toCanonicalArtifactUrl(request.url);
     }
     if (request && typeof request.url === "string") {
-      return request.url;
+      return toCanonicalArtifactUrl(request.url);
     }
     throw new Error("CrossOriginStorage: Unsupported request type.");
   }
@@ -342,7 +580,7 @@ class CrossOriginStorage {
   private async extractHashFromPointer(url: string): Promise<string | null> {
     const rawUrl = url.replace(/\/resolve\//, "/raw/");
     try {
-      const text = await fetch(rawUrl).then((res) => res.text());
+      const text = await fetchArtifactWithMirrorFailover(rawUrl).then((res) => res.text());
       if (!text.includes("oid sha256:")) {
         return null;
       }
@@ -367,6 +605,276 @@ class CrossOriginStorage {
   }
 }
 
+
+function wrapResponseWithByteProgress(
+  response: Response,
+  onBytes?: (deltaBytes: number) => void,
+): Response {
+  if (!onBytes || !response.body || typeof TransformStream === "undefined") {
+    return response;
+  }
+  const trackedBody = response.body.pipeThrough(
+    new TransformStream<Uint8Array, Uint8Array>({
+      transform(chunk, controller) {
+        if (chunk && chunk.byteLength > 0) {
+          onBytes(chunk.byteLength);
+        }
+        controller.enqueue(chunk);
+      },
+    }),
+  );
+  return new Response(trackedBody, {
+    status: response.status,
+    statusText: response.statusText,
+    headers: response.headers,
+  });
+}
+
+async function readResponseToExactUint8Array(
+  response: Response,
+  expectedLength: number,
+  onBytes?: (deltaBytes: number) => void,
+  signal?: AbortSignal,
+): Promise<Uint8Array> {
+  if (!response.body) {
+    const ab = await response.arrayBuffer();
+    if (ab.byteLength !== expectedLength) {
+      throw new Error(
+        `Range chunk length mismatch: got ${ab.byteLength}, expected ${expectedLength}`,
+      );
+    }
+    onBytes?.(ab.byteLength);
+    return new Uint8Array(ab);
+  }
+  const out = new Uint8Array(expectedLength);
+  let offset = 0;
+  const reader = response.body.getReader();
+  try {
+    while (true) {
+      if (signal?.aborted) {
+        throw createAbortError("Range stream aborted");
+      }
+      const { value, done } = await reader.read();
+      if (done) break;
+      if (!value || value.byteLength === 0) continue;
+      if (offset + value.byteLength > expectedLength) {
+        throw new Error(
+          `Range chunk overflow: ${offset + value.byteLength} > ${expectedLength}`,
+        );
+      }
+      out.set(value, offset);
+      offset += value.byteLength;
+      onBytes?.(value.byteLength);
+    }
+  } finally {
+    try {
+      reader.releaseLock();
+    } catch {
+      // ignore
+    }
+  }
+  if (offset !== expectedLength) {
+    throw new Error(
+      `Incomplete Range chunk: got ${offset}, expected ${expectedLength}`,
+    );
+  }
+  return out;
+}
+
+/**
+ * Fetch an artifact with automatic mirror failover AND optional multi-connection
+ * HTTP `Range` acceleration for giant weight shards (e.g. 127.5 MiB embedding shards).
+ */
+export async function fetchArtifactResponseWithAcceleration(
+  url: string,
+  options?: {
+    signal?: AbortSignal;
+    onBytes?: (deltaBytes: number) => void;
+    expectedBytes?: number;
+    fetchImpl?: typeof fetch;
+  },
+): Promise<Response> {
+  const signal = options?.signal;
+  const onBytes = options?.onBytes;
+  const expectedBytes = options?.expectedBytes;
+  const fetchImpl = options?.fetchImpl ?? fetch;
+
+  const cfg = getArtifactMirrorConfig();
+  const minBytes = cfg.parallelRangeMinBytes ?? DEFAULT_PARALLEL_RANGE_MIN_BYTES;
+  const parts = cfg.parallelRangeConnections ?? DEFAULT_PARALLEL_RANGE_CONNECTIONS;
+  const enableParallelRange =
+    cfg.enableParallelRange ??
+    (getWebGPUFramePacing().maxParallelShardDownloads > 2);
+
+  const shouldTryRange =
+    enableParallelRange &&
+    parts >= 2 &&
+    expectedBytes !== undefined &&
+    Number.isSafeInteger(expectedBytes) &&
+    expectedBytes >= minBytes &&
+    url.startsWith("http") &&
+    !url.includes("localhost") &&
+    !url.includes("127.0.0.1");
+
+  let rangeReportedBytes = 0;
+
+  if (shouldTryRange) {
+    const partSize = Math.ceil(expectedBytes / parts);
+    const ranges: Array<{ start: number; end: number; len: number }> = [];
+    for (let start = 0; start < expectedBytes; start += partSize) {
+      const end = Math.min(expectedBytes - 1, start + partSize - 1);
+      ranges.push({ start, end, len: end - start + 1 });
+    }
+
+    if (ranges.length >= 2) {
+      const rangeAbort = new AbortController();
+      const onExternalAbort = () => rangeAbort.abort();
+      if (signal) {
+        if (signal.aborted) {
+          throw createAbortError(`Aborted before Range fetch ${url}`);
+        }
+        signal.addEventListener("abort", onExternalAbort, { once: true });
+      }
+      const reportRangeBytes = onBytes
+        ? (delta: number) => {
+            if (delta > 0) {
+              rangeReportedBytes += delta;
+              onBytes(delta);
+            }
+          }
+        : undefined;
+
+      try {
+        const res0 = await fetchArtifactWithMirrorFailover(
+          url,
+          {
+            method: "GET",
+            headers: { Range: `bytes=0-${ranges[0].end}` },
+            signal: rangeAbort.signal,
+          },
+          fetchImpl,
+        );
+
+        // Server ignored Range and returned full 200 OK — stream directly with 0 wasted bytes!
+        if (res0.status === 200) {
+          return wrapResponseWithByteProgress(res0, onBytes);
+        }
+
+        if (res0.status === 206) {
+          const directUrl =
+            res0.url && res0.url.startsWith("http") ? res0.url : undefined;
+          const fetchPart = async (idx: number): Promise<Uint8Array> => {
+            const r = ranges[idx];
+            if (idx === 0) {
+              return readResponseToExactUint8Array(
+                res0,
+                r.len,
+                reportRangeBytes,
+                rangeAbort.signal,
+              );
+            }
+            const rangeInit: RequestInit = {
+              method: "GET",
+              headers: { Range: `bytes=${r.start}-${r.end}` },
+              signal: rangeAbort.signal,
+            };
+            let partRes: Response | undefined;
+            if (directUrl) {
+              try {
+                const candidateRes = await fetchImpl(directUrl, rangeInit);
+                if (candidateRes.status === 206) {
+                  partRes = candidateRes;
+                } else {
+                  try {
+                    await candidateRes.body?.cancel();
+                  } catch {
+                    // ignore
+                  }
+                }
+              } catch (err) {
+                if (isAbortError(err, signal)) throw err;
+              }
+            }
+            if (!partRes) {
+              partRes = await fetchArtifactWithMirrorFailover(
+                url,
+                rangeInit,
+                fetchImpl,
+              );
+            }
+            if (partRes.status !== 206) {
+              try {
+                await partRes.body?.cancel();
+              } catch {
+                // ignore
+              }
+              throw new Error(
+                `Expected 206 Partial Content for range ${r.start}-${r.end}, got ${partRes.status}`,
+              );
+            }
+            return readResponseToExactUint8Array(
+              partRes,
+              r.len,
+              reportRangeBytes,
+              rangeAbort.signal,
+            );
+          };
+
+          const buffers = await Promise.all(
+            ranges.map((_, idx) => fetchPart(idx)),
+          );
+          const contentType =
+            res0.headers.get("content-type") || "application/octet-stream";
+          return new Response(new Blob(buffers as BlobPart[], { type: contentType }), {
+            status: 200,
+            headers: {
+              "Content-Type": contentType,
+              "Content-Length": String(expectedBytes),
+            },
+          });
+        }
+
+        try {
+          await res0.body?.cancel();
+        } catch {
+          // ignore
+        }
+      } catch (err) {
+        rangeAbort.abort();
+        if (isAbortError(err, signal)) {
+          throw err;
+        }
+        // Any Range/CORS/CDN partial error falls back cleanly to single-stream mirror failover
+      } finally {
+        if (signal) {
+          signal.removeEventListener("abort", onExternalAbort);
+        }
+      }
+    }
+  }
+
+  let fallbackStreamed = 0;
+  const compensatedOnBytes = onBytes
+    ? (delta: number) => {
+        const prev = fallbackStreamed;
+        fallbackStreamed += delta;
+        const uncompensated = Math.max(
+          0,
+          fallbackStreamed - Math.max(prev, rangeReportedBytes),
+        );
+        if (uncompensated > 0) {
+          onBytes(uncompensated);
+        }
+      }
+    : undefined;
+
+  const response = await fetchArtifactWithMirrorFailover(
+    url,
+    signal ? { ...DEFAULT_FETCH_OPTIONS, signal } : DEFAULT_FETCH_OPTIONS,
+    fetchImpl,
+  );
+  return wrapResponseWithByteProgress(response, compensatedOnBytes);
+}
 
 /**
  * Cache to store model related data, implemented with the Cache API.
@@ -403,8 +911,12 @@ export class ArtifactCache implements ArtifactCacheTemplate {
    * @returns response in json, arraybuffer or pure response format
    */
   async fetchWithCache(url: string, storetype?: string, signal?: AbortSignal): Promise<any> {
+    const canonicalUrl = toCanonicalArtifactUrl(url);
     await this.addToCache(url, storetype, signal);
-    const result = await this.cache.match(new Request(url));
+    let result = await this.cache!.match(new Request(canonicalUrl));
+    if (result === undefined && canonicalUrl !== url) {
+      result = await this.cache!.match(new Request(url));
+    }
     if (result === undefined) {
       // Already called `addToCache()`, should expect the request in cache.
       throw Error("Cannot fetch " + url);
@@ -414,46 +926,50 @@ export class ArtifactCache implements ArtifactCacheTemplate {
 
   async addToCache(
     url: string,
-    storetype?: string,
+    _storetype?: string,
     signal?: AbortSignal,
     onBytes?: (deltaBytes: number) => void,
+    expectedBytes?: number,
   ) {
-    const request = new Request(url, signal ? { signal } : undefined);
+    const canonicalUrl = toCanonicalArtifactUrl(url);
     if (this.cache === undefined) {
       this.cache = await caches.open(this.scope);
     }
-    const result = await this.cache.match(new Request(url));
-    if (result !== undefined) {
+    const existing = await this.cache.match(new Request(canonicalUrl));
+    if (existing !== undefined) {
       return;
     }
-    if (onBytes && typeof TransformStream !== "undefined") {
-      const response = await fetch(request);
-      if (!response.ok) {
-        throw new Error(`HTTP ${response.status} while fetching ${url}`);
-      }
-      if (response.body) {
-        const trackedBody = response.body.pipeThrough(
-          new TransformStream<Uint8Array, Uint8Array>({
-            transform(chunk, controller) {
-              if (chunk && chunk.byteLength > 0) {
-                onBytes(chunk.byteLength);
-              }
-              controller.enqueue(chunk);
-            },
-          }),
-        );
-        const trackedResponse = new Response(trackedBody, {
-          status: response.status,
-          statusText: response.statusText,
-          headers: response.headers,
-        });
-        await this.cache.put(new Request(url), trackedResponse);
+    if (canonicalUrl !== url) {
+      const legacyExisting = await this.cache.match(new Request(url));
+      if (legacyExisting !== undefined) {
         return;
       }
-      await this.cache.put(new Request(url), response);
+    }
+
+    const inflightKey = `${this.scope}::${canonicalUrl}`;
+    const existingInflight = GLOBAL_INFLIGHT_CACHE_ADDS.get(inflightKey);
+    if (existingInflight && !signal?.aborted) {
+      await existingInflight;
       return;
     }
-    await this.cache.add(request);
+
+    const task = (async () => {
+      const response = await fetchArtifactResponseWithAcceleration(url, {
+        signal,
+        onBytes,
+        expectedBytes,
+      });
+      await this.cache!.put(new Request(canonicalUrl), response);
+    })();
+
+    GLOBAL_INFLIGHT_CACHE_ADDS.set(inflightKey, task);
+    try {
+      await task;
+    } finally {
+      if (GLOBAL_INFLIGHT_CACHE_ADDS.get(inflightKey) === task) {
+        GLOBAL_INFLIGHT_CACHE_ADDS.delete(inflightKey);
+      }
+    }
   }
 
   /**
@@ -465,9 +981,14 @@ export class ArtifactCache implements ArtifactCacheTemplate {
     if (this.cache === undefined) {
       this.cache = await caches.open(this.scope);
     }
-    return this.cache.keys()
-      .then(requests => requests.map(request => request.url))
-      .then(cacheKeys => keys.every(key => cacheKeys.indexOf(key) !== -1))
+    return this.cache
+      .keys()
+      .then((requests) => {
+        const cacheKeySet = new Set(
+          requests.map((request) => toCanonicalArtifactUrl(request.url)),
+        );
+        return keys.every((key) => cacheKeySet.has(toCanonicalArtifactUrl(key)));
+      })
       .catch(() => false);
   }
 
@@ -479,7 +1000,11 @@ export class ArtifactCache implements ArtifactCacheTemplate {
     if (this.cache === undefined) {
       this.cache = await caches.open(this.scope);
     }
-    await this.cache.delete(url);
+    const canonicalUrl = toCanonicalArtifactUrl(url);
+    await this.cache.delete(canonicalUrl);
+    if (canonicalUrl !== url) {
+      await this.cache.delete(url);
+    }
   }
 }
 
@@ -563,13 +1088,17 @@ export class ArtifactIndexedDBCache implements ArtifactCacheTemplate {
   }
 
   async fetchWithCache(url: string, storetype?: string, signal?: AbortSignal): Promise<any> {
+    const canonicalUrl = toCanonicalArtifactUrl(url);
     await this.addToCache(url, storetype, signal);
-    let result = await this.asyncGetHelper(url);
+    let result = await this.asyncGetHelper(canonicalUrl);
+    if (result == null && canonicalUrl !== url) {
+      result = await this.asyncGetHelper(url);
+    }
     if (result == null) {
       // previously null/missing data in cache or somehow failed to add to cache, delete and retry
       await this.deleteInCache(url);
       await this.addToCache(url, storetype, signal);
-      result = await this.asyncGetHelper(url);
+      result = await this.asyncGetHelper(canonicalUrl);
     }
     if (result != null && typeof result === "object" && "data" in result) {
       // `storetype` not used here because the data stored in indexedDB is already in that type
@@ -604,20 +1133,33 @@ export class ArtifactIndexedDBCache implements ArtifactCacheTemplate {
     });
   }
 
-  async addToCache(url: string, storetype?: string, signal?: AbortSignal): Promise<void> {
+  async addToCache(
+    url: string,
+    storetype?: string,
+    signal?: AbortSignal,
+    onBytes?: (deltaBytes: number) => void,
+    expectedBytes?: number,
+  ): Promise<void> {
     await this.initDB(); // await the initDB process
+    const canonicalUrl = toCanonicalArtifactUrl(url);
     // If already cached, nothing to do
-    const isInDB = await this.isUrlInDB(url);
-    if (isInDB) {
+    if (await this.isUrlInDB(canonicalUrl)) {
+      return;
+    }
+    if (canonicalUrl !== url && (await this.isUrlInDB(url))) {
       return;
     }
     try {
-      const response = await fetch(url, signal ? { signal } : undefined);
-      if (!response.ok) {
-        throw new Error('Network response was not ok');
-      }
-      await this.addToIndexedDB(url, response, storetype);
+      const response = await fetchArtifactResponseWithAcceleration(url, {
+        signal,
+        onBytes,
+        expectedBytes,
+      });
+      await this.addToIndexedDB(canonicalUrl, response, storetype);
     } catch (error) {
+      if (isAbortError(error, signal)) {
+        throw error;
+      }
       throw Error("Failed to store " + url + " with error: " + error);
     }
   }
@@ -631,13 +1173,18 @@ export class ArtifactIndexedDBCache implements ArtifactCacheTemplate {
       const transaction = this.db.transaction(['urls'], 'readonly');
       const store = transaction.objectStore('urls');
       const promises = keys.map(key => {
+        const canonicalKey = toCanonicalArtifactUrl(key);
         return new Promise<boolean>((resolve) => {
-          const request = store.get(key);
+          const request = store.get(canonicalKey);
           request.onsuccess = () => {
-            if (request.result === undefined) {
-              resolve(false); // Key not found, resolve with false
+            if (request.result !== undefined) {
+              resolve(true);
+            } else if (canonicalKey !== key) {
+              const fallbackReq = store.get(key);
+              fallbackReq.onsuccess = () => resolve(fallbackReq.result !== undefined);
+              fallbackReq.onerror = () => resolve(false);
             } else {
-              resolve(true); // Key found, resolve with true
+              resolve(false);
             }
           };
           request.onerror = () => {
@@ -661,11 +1208,14 @@ export class ArtifactIndexedDBCache implements ArtifactCacheTemplate {
       return;
     }
     const store = transaction.objectStore('urls');
-    const request = store.delete(url);
-    // Await completion of the delete request
+    const canonicalUrl = toCanonicalArtifactUrl(url);
+    store.delete(canonicalUrl);
+    if (canonicalUrl !== url) {
+      store.delete(url);
+    }
     await new Promise<void>((resolve, reject) => {
-      request.onsuccess = () => resolve();
-      request.onerror = () => reject(request.error);
+      transaction.oncomplete = () => resolve();
+      transaction.onerror = () => reject(transaction.error);
     });
     return;
   }
@@ -707,10 +1257,16 @@ export class ArtifactOPFSCache implements ArtifactCacheTemplate {
     url: string,
     storetype?: string,
   ): Promise<any> {
+    const canonicalUrl = toCanonicalArtifactUrl(url);
     if (storetype?.toLowerCase() === "arraybuffer") {
+      const buf = await this.store.readArrayBuffer(canonicalUrl);
+      if (buf !== undefined || canonicalUrl === url) return buf;
       return this.store.readArrayBuffer(url);
     }
-    const cachedResponse = await this.store.read(url);
+    let cachedResponse = await this.store.read(canonicalUrl);
+    if (cachedResponse === undefined && canonicalUrl !== url) {
+      cachedResponse = await this.store.read(url);
+    }
     if (cachedResponse === undefined) {
       return undefined;
     }
@@ -721,32 +1277,41 @@ export class ArtifactOPFSCache implements ArtifactCacheTemplate {
     url: string,
     _storetype?: string,
     signal?: AbortSignal,
+    onBytes?: (deltaBytes: number) => void,
+    expectedBytes?: number,
   ): Promise<void> {
-    if (await this.store.has(url)) {
+    const canonicalUrl = toCanonicalArtifactUrl(url);
+    if (await this.store.has(canonicalUrl)) {
       return;
     }
-    const request = new Request(
-      url,
-      signal ? { ...DEFAULT_FETCH_OPTIONS, signal } : DEFAULT_FETCH_OPTIONS,
-    );
-    const response = await fetch(request);
-    if (!response.ok) {
-      throw new Error(
-        `ArtifactOPFSCache: Unable to fetch ${url}, received status ${response.status}`,
-      );
+    if (canonicalUrl !== url && (await this.store.has(url))) {
+      return;
     }
-    await this.store.write(url, response);
+    const response = await fetchArtifactResponseWithAcceleration(url, {
+      signal,
+      onBytes,
+      expectedBytes,
+    });
+    await this.store.write(canonicalUrl, response);
   }
 
   async hasAllKeys(keys: string[]): Promise<boolean> {
     const results = await Promise.all(
-      keys.map(async (key) => await this.store.has(key)),
+      keys.map(async (key) => {
+        const canonicalKey = toCanonicalArtifactUrl(key);
+        if (await this.store.has(canonicalKey)) return true;
+        return canonicalKey !== key ? await this.store.has(key) : false;
+      }),
     );
     return results.every((result) => result);
   }
 
   async deleteInCache(url: string): Promise<void> {
-    await this.store.remove(url);
+    const canonicalUrl = toCanonicalArtifactUrl(url);
+    await this.store.remove(canonicalUrl);
+    if (canonicalUrl !== url) {
+      await this.store.remove(url);
+    }
   }
 
   private async responseToStoreType(
@@ -785,12 +1350,13 @@ export class ArtifactCrossOriginStorageCache implements ArtifactCacheTemplate {
     storetype?: StoreType,
     signal?: AbortSignal,
   ): Promise<any> {
-    const cachedResponse = await this.storage.match(url);
+    const canonicalUrl = toCanonicalArtifactUrl(url);
+    const cachedResponse = await this.storage.match(canonicalUrl);
     if (cachedResponse !== undefined) {
       return this.responseToStoreType(cachedResponse, storetype);
     }
     await this.addToCache(url, storetype, signal);
-    const hydrated = await this.storage.match(url);
+    const hydrated = await this.storage.match(canonicalUrl);
     if (hydrated === undefined) {
       throw new Error(`ArtifactCrossOriginStorageCache: failed to hydrate ${url}`);
     }
@@ -801,28 +1367,26 @@ export class ArtifactCrossOriginStorageCache implements ArtifactCacheTemplate {
     url: string,
     _storetype?: StoreType,
     signal?: AbortSignal,
+    onBytes?: (deltaBytes: number) => void,
+    expectedBytes?: number,
   ): Promise<void> {
-    const existing = await this.storage.match(url);
+    const canonicalUrl = toCanonicalArtifactUrl(url);
+    const existing = await this.storage.match(canonicalUrl);
     if (existing !== undefined) {
       return;
     }
-    const request = new Request(
-      url,
-      signal ? { ...DEFAULT_FETCH_OPTIONS, signal } : DEFAULT_FETCH_OPTIONS,
-    );
-    const response = await fetch(request);
-    if (!response.ok) {
-      throw new Error(
-        `ArtifactCrossOriginStorageCache: Unable to fetch ${url}, received status ${response.status}`,
-      );
-    }
-    await this.storage.put(url, response);
+    const response = await fetchArtifactResponseWithAcceleration(url, {
+      signal,
+      onBytes,
+      expectedBytes,
+    });
+    await this.storage.put(canonicalUrl, response);
   }
 
   async hasAllKeys(keys: string[]): Promise<boolean> {
     const results = await Promise.all(
       keys.map(async (key) => {
-        const cached = await this.storage.match(key);
+        const cached = await this.storage.match(toCanonicalArtifactUrl(key));
         return cached !== undefined;
       }),
     );
@@ -830,7 +1394,7 @@ export class ArtifactCrossOriginStorageCache implements ArtifactCacheTemplate {
   }
 
   async deleteInCache(url: string): Promise<void> {
-    await this.storage.delete(url);
+    await this.storage.delete(toCanonicalArtifactUrl(url));
   }
 
   private async responseToStoreType(

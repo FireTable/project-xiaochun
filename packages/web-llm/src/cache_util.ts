@@ -164,12 +164,13 @@ export async function asyncLoadTokenizer(
   appConfig: AppConfig,
   logger: (msg: string) => void = console.log,
   integrity?: ModelIntegrity,
+  signal?: AbortSignal,
 ): Promise<Tokenizer> {
   const modelCache = createScopedArtifactCache("webllm/model", appConfig);
 
   if (config.tokenizer_files.includes("tokenizer.json")) {
     const url = new URL("tokenizer.json", baseUrl).href;
-    const model = await modelCache.fetchWithCache(url, "arraybuffer");
+    const model = await modelCache.fetchWithCache(url, "arraybuffer", signal);
     await maybeVerifyTokenizerIntegrity(
       model,
       "tokenizer.json",
@@ -186,7 +187,7 @@ export async function asyncLoadTokenizer(
         "with MLC again, or see if MLC's huggingface provides this file.",
     );
     const url = new URL("tokenizer.model", baseUrl).href;
-    const model = await modelCache.fetchWithCache(url, "arraybuffer");
+    const model = await modelCache.fetchWithCache(url, "arraybuffer", signal);
     await maybeVerifyTokenizerIntegrity(
       model,
       "tokenizer.model",
