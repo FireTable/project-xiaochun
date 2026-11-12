@@ -43,6 +43,9 @@ importers:
       '@pixiv/three-vrm-animation':
         specifier: ^3.5.5
         version: 3.5.5(three@0.185.1)
+      '@pixiv/three-vrm-materials-mtoon':
+        specifier: workspace:@firetable/three-vrm-materials-mtoon@*
+        version: link:packages/three-vrm-materials-mtoon
       '@pixiv/three-vrm-springbone':
         specifier: 3.5.5
         version: 3.5.5(three@0.185.1)
@@ -158,6 +161,9 @@ importers:
       '@tauri-apps/cli':
         specifier: ^2.11.4
         version: 2.11.4
+      '@types/node':
+        specifier: ^26.4.1
+        version: 26.4.1
       '@types/react':
         specifier: ^19.2.18
         version: 19.2.18
@@ -203,6 +209,9 @@ importers:
 
   packages/client-memory:
     devDependencies:
+      '@types/node':
+        specifier: ^26.4.1
+        version: 26.4.1
       typescript:
         specifier: ~5.8.0
         version: 5.8.3
@@ -293,6 +302,9 @@ importers:
         specifier: ^2.8.1
         version: 2.9.1
     devDependencies:
+      '@types/node':
+        specifier: ^26.4.1
+        version: 26.4.1
       '@webgpu/types':
         specifier: ^0.1.72
         version: 0.1.72
