@@ -139,7 +139,7 @@ export const Route = createRootRoute({
               alternateName: '小蠢透明桌面宠物',
               applicationCategory: 'DesktopEnhancement',
               operatingSystem: 'macOS (Apple Silicon & Intel), Windows 10/11, Linux',
-              softwareVersion: '0.2.14',
+              softwareVersion: '0.2.15',
               downloadUrl: 'https://github.com/FireTable/Project-XiaoChun/releases',
               installUrl: 'https://raw.githubusercontent.com/FireTable/project-xiaochun/main/scripts/install.sh',
               author: { '@id': 'https://firetable.tech/#author' },
