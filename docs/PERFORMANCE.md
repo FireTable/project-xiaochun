@@ -126,9 +126,48 @@ Requests to `emage_step_int8.onnx` (66,550,463 bytes) on the CDN with varied `Ac
 
 **Solution**: the client half of web-llm's worker protocol is re-implemented in `src/llm/webllmThinClient.ts` (`ThinMLCEngine`). The library is imported **only inside `llmWorker.ts`**; `webLLMProvider.ts` keeps type-only imports.
 
-- Protocol pin: mirrors `WebWorkerMLCEngine` of web-llm **0.2.84** (`WEBLLM_PROTOCOL_VERSION`): `{ kind, uuid, content }` messages, `return` / `throw` replies, `initProgressCallback` pushes during reload, `chatCompletionStreamInit` + `completionStreamNextChunk` for streaming. `webllmThinClient.test.ts` fails when the installed version changes; re-check the client on every web-llm upgrade.
-- Model list: the main thread asks the worker with our own `xcModelList` message, answered by `llmWorker.ts` from `prebuiltAppConfig.model_list`. Until the list has arrived, stored / UI model ids are trusted, then validated strictly.
+- Protocol pin: mirrors `WebWorkerMLCEngine` of web-llm **0.2.88** (`WEBLLM_PROTOCOL_VERSION`): `{ kind, uuid, content }` messages, `return` / `throw` replies, `initProgressCallback` pushes during reload, `chatCompletionStreamInit` (`streamId`) + `completionStreamNextChunk` + `completionStreamReturn` for streaming. `webllmThinClient.test.ts` fails when the installed version changes; re-check the client on every web-llm upgrade.
+- Model list & frame pacing: the main thread asks the worker with our `xcModelList` message (answered by `llmWorker.ts` from `prebuiltAppConfig.model_list`) and sends `xcSetFramePacing` on `visibilitychange`. Until the list has arrived, stored / UI model ids are trusted, then validated strictly.
 - The engine worker is created on first need (model list or engine) and the same client is reused by the engine.
+
+---
+
+### 2.2 Cooperative WebGPU Frame Pacing (`@firetable/web-runtime` & `@firetable/web-llm`)
+
+**Problem**: Even with `llmWorker.ts` 100% off the JS main thread, Three.js (`WebGL2` on main thread) and WebLLM (`WebGPU` in Worker) share the same browser GPU process (Chromium Dawn + ANGLE IPC) and single OS hardware GPU queue (Metal / D3D12 / Vulkan). During `MiniCPM-V-4.7-1B-q4f16_1-MLC` load and first vision turn, `requestAnimationFrame` telemetry recorded three distinct GPU starvation phases:
+1. **Weight Upload (`fetchTensorCacheInternal`)**: `181` frames `≥ 50 ms` (`51.5–64.8 ms`) caused by single-call `writeBuffer` uploads of `50+ MB` embedding/LM-head tensors, `3×` `pushErrorScope`/`popErrorScope` IPC per tensor (~1,000+ round-trips), and `cacheBackend: 'indexeddb'` 64 MB `ArrayBuffer` structured clones;
+2. **Shader Compilation (`asyncLoadWebGPUPipelines`)**: `983.3 ms`, `1000.0 ms`, `750.0 ms`, `468.4 ms`, `331.6 ms` (**~3.5 s continuous freeze**) from an unbounded `Promise.all` compilation flood, hardcoded `compilationHints[0].entryPoint = "main"` (mismatching `finfo.name`), and TVM's `mod.getFunction("webgpu.get_fmap", true)` stopping at `imported_modules[0]` (`13` custom GatedDeltaNet kernels) while skipping `imported_modules[1]` (`225` main Relax/SigLIP2 ViT kernels);
+3. **First Multimodal Turn (`forwardPrefill` + `artifactImageAdapter`)**: **`1600.8 ms`** freeze (+ `583.9 ms`, `101.1 ms`) caused by synchronous `wasm.WebGPUCreateShader` (`device.createComputePipeline`) fallback for the `225` skipped shaders plus unsegmented `GPUCommandEncoder` submission (`400–600` compute passes in one non-preemptible command buffer).
+
+**Solution**: Maintained workspace overrides in [`packages/web-runtime/`](../packages/web-runtime/) (`@firetable/web-runtime@0.28.0-dev2`, upstream `apache/tvm` `cbb1e12`) and [`packages/web-llm/`](../packages/web-llm/) (`@firetable/web-llm@0.2.88`, upstream `mlc-ai/web-llm` `e56c954`):
+- **Multi-Submodule Closed-Loop Pipeline Prebuild**: Hooks `ffi.Module.load_from_bytes.webgpu` to prebuild all `238/238` WGSL pipelines asynchronously (`shaderCompileConcurrency = 2` desktop / `1` mobile, closed-loop dropping to `1` whenever a heavy kernel exceeds `targetSliceMs * 1.5`) with `compilationHints[0].entryPoint = finfo.name`;
+- **Auto-Segmented `GPUCommandEncoder` (Zero-Extra-Weight-Read Preemption)**: Flushes `pendingEncoder` every `maxDispatchesPerEncoder` (`24` desktop / `12` mobile) compute dispatches in `submitShader`, allowing the OS GPU scheduler to interleave WebGL2 frames **inside** a single forward pass without shrinking prefill chunk size below the roofline knee (`128` desktop / `64` mobile, avoiding redundant full-model DRAM weight reads);
+- **Sliced Tensor Streaming + Bulk `ErrorScope` (Weights & KV-Cache) + Cache Storage**: Coalesces `ErrorScope` once per shard during weight upload and once across the entire `LLMChatPipeline` KV-cache/RNN-state allocation (`tvm.beginBulkAllocation()`), streams large tensors in `4 MB` (`2 MB` mobile) `copyFromRawBytesSlice` chunks with closed-loop latency feedback (`syncAndAdaptUploadSlice`), eliminates the unused `response.clone()` stream tee in `ArtifactIndexedDBCache`, caps mobile cold downloads to `maxParallelShardDownloads = 2`, and switches `webLLMProvider.ts` to native `cacheBackend: 'cache'`;
+- **Device-Tier & Visibility Adaptive Presets (`resolveAdaptiveFramePacing`)**: `webLLMProvider.ts` automatically selects `MOBILE_WEBGPU_FRAME_PACING` when `isMobile || tier === 'low'` and `DESKTOP_WEBGPU_FRAME_PACING` on high-tier desktops, switching to `enabled: false` when `document.visibilityState === 'hidden'`.
+
+**Empirical In-Browser Measurements — `MiniCPM-V-4.7-1B` Main Site** (foregrounded Chromium `ego-browser`, WebGPU `apple / metal-3`, `https://localhost:5185/` rendering live 3D VRM avatar + Beach3D scene while loading `MiniCPM-V-4.7-1B-q4f16_1-MLC` and running multimodal recognition on `vision_test_card.png`):
+
+| Phase | Upstream `@mlc-ai/web-llm@0.2.88` | Patched Workspace (`@firetable/web-runtime` + `@firetable/web-llm`) |
+| :-- | :-- | :-- |
+| **Phase A: Weight Upload** (`43` shards → WebGPU) | `181` frames `≥ 50 ms` (`51.5–64.8 ms` stutter) | `334` frames, **`59.8 FPS`**, `p99 = 18.59 ms`, `max = 33.71 ms`, **`0` frames `≥ 50 ms`** |
+| **Phase B: WGSL Shader Compile** (`238/238` shaders) | `983.3 ms`, `1000.0 ms`, `750.0 ms`, `468.4 ms`, `331.6 ms` (**~3.5 s freeze**) | `179` frames, **`59.3 FPS`**, `p99 = 18.65 ms`, `max = 51.31 ms` (`1` frame `≥ 50 ms`, **`0` frames `≥ 100 ms`**) |
+| **Phase C: Turn 1 Vision ViT + Prefill + Decode** | **`1600.8 ms`** freeze + `583.9 ms` + `101.1 ms` | `172` frames, **`60.0 FPS`**, `p99 = 18.66 ms`, **`max = 18.67 ms`**, **`0` frames `≥ 25 ms`** |
+| **Severe Freezes (`≥ 100 ms`) Across Full Run** | **`8` frames** (peak `1600.8 ms`) | **`0` frames** (overall `746` frames, **`59.7 FPS`**) |
+
+**Empirical Multi-Scale & Mobile-Preset Benchmarks on `live-bench.html`** (`https://localhost:5185/live-bench.html`, 60 Hz VSync, live `/embed?scene=beach3d` + `belly-dance.vrma` skeletal/SpringBone/Bloom/MSAA stress active concurrently):
+
+| Model & Pacing Preset | Stage / Prompt Tokens | Load / TTFT | Prefill / Decode | 3D Min FPS | Max Frame | Jank (`>25` / `>50 ms`) |
+| :-- | :-- | --: | --: | --: | --: | --: |
+| **`Qwen2.5-0.5B-Instruct` (0.9 GB, `mobile` + TTS + EMAGE)** | Warm Load (`ctx=1024`) | `2,844 ms` | — | `29 FPS` | `34.3 ms` | `10 / 0` |
+| **`Qwen2.5-0.5B-Instruct` (0.9 GB, `mobile` + TTS + EMAGE)** | Turn 1 (`98` toks) / Turn 2 (`26` toks) | `153 ms` / `58 ms` | `651.4` / `132.2 t/s` | **`58 / 57 FPS`** | **`17.3 / 17.7 ms`** | **`0 / 0`** |
+| **`MiniCPM-V-4.7-1B` (1.54 GB VLM, `mobile`)** | Vision `448×448` (`177` toks) | `698 ms` | `254.4` / `60.3 t/s` | **`57 FPS`** | **`17.6 ms`** | **`0 / 0`** |
+| **`Qwen3-4B` (3.4 GB, `desktop`)** | Warm Load / Long Turn 1 (`438` toks) / Turn 2 (`41` toks) | `7,046 ms` / `1,455 ms` / `215 ms` | `301.6` / `37.6 t/s` | `29` / **`57`** / **`57 FPS`** | `34.0` / **`17.7`** / **`17.6 ms`** | `11/0`, **`0/0`**, **`0/0`** |
+| **`Qwen3-4B` (3.4 GB, `mobile` preset)** | Warm Load / Long Turn 1 (`438` toks) / Turn 2 (`41` toks) | `8,379 ms` / `1,524 ms` / `210 ms` | `287.9` / `36.2 t/s` | `30` / **`57`** / **`57 FPS`** | `33.3` / **`17.6`** / **`17.6 ms`** | `6/0`, **`0/0`**, **`0/0`** |
+| **`Qwen3-8B` (5.7 GB, `108` shards, `desktop`)** | Cold Download + Load (`507.7 s`) | `507,678 ms` | — | `20 FPS` | `50.9 ms` | `396 / 6` (**`0` frames `≥ 100 ms`**) |
+| **`Qwen3-8B` (5.7 GB, `desktop`)** | Long Turn 1 (`438` toks) / Turn 2 (`41` toks) | `3,242 ms` / `323 ms` | `135.3` / `28.0 t/s` | **`57 / 57 FPS`** | **`17.6 / 17.6 ms`** | **`0 / 0`** |
+
+- **Note on Roofline Ablation**: Sub-slicing `interactivePrefillChunkSize` below `64` (tested down to `8–16` tokens on `Qwen3-4B` `438` tokens) degraded Prefill throughput from `301.6 t/s` to `58.8 t/s` (`TTFT` `1.45 s` → `7.45 s`) because every prefill pass reads 100% of model weights; keeping `64` (mobile) / `128` (desktop) while letting `maxDispatchesPerEncoder` (`12` / `24`) segment intra-pass command buffers achieved identical **`57 FPS` (`0 / 0` jank)** at **4.9× lower latency and DRAM traffic**.
+- **Unverified Scope**: Physical iOS Safari and Android Chrome handsets (the `mobile` preset above was benchmarked on `apple / metal-3` under mobile pacing/window budgets; thermal and OS Jetsam behavior on physical phones remains **Unverified**), discrete Windows D3D12 GPUs, and Linux Vulkan drivers.
 
 ---
 

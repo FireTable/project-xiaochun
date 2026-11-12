@@ -12,6 +12,7 @@ export const en: Trans = {
   },
   app: {
     dropZoneHint: 'Release to load this `.vrm` model',
+    dropImageHint: 'Release to attach image for XiaoChun',
   },
   sceneTimeCard: {
     title: 'Scene Time',
@@ -269,6 +270,9 @@ export const en: Trans = {
     etaSec: '{{sec}}s',
     etaRemaining: '{{eta}} left',
     send: 'Send',
+    attachImage: 'Attach image (drag & drop or paste)',
+    removeImage: 'Remove image',
+    defaultImagePrompt: 'Take a look at this image—what do you see?',
     sttIdle: 'Voice input (Click to toggle / Hold to speak)',
     sttLoading: 'Loading speech model…',
     sttListening: 'Listening… (tap to stop)',

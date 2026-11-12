@@ -17,6 +17,8 @@ vi.mock('mpg123-decoder', () => ({
 }));
 
 import { ChatDirector, withTimeout } from './chatDirector';
+import { rememberTurn } from '@/memory';
+import { generateSpeechReply } from '@/llm/chatWorkflow';
 
 class FakeCtx {
   state = 'running';
@@ -188,5 +190,34 @@ describe('ChatDirector TTS failure path', () => {
     });
     d.unlockAudio();
     expect(order).toEqual(['resume', 'vocalInit']);
+  });
+
+  it('speakText() does not pollute client-memory with scripted speech, while say() records user turns', async () => {
+    vi.mocked(rememberTurn).mockClear();
+    vi.stubGlobal('requestAnimationFrame', (cb: FrameRequestCallback) => {
+      cb(0);
+      return 1;
+    });
+    vi.stubGlobal('navigator', { userAgent: 'Mozilla/5.0 (Macintosh)' });
+
+    const d = new ChatDirector() as any;
+    d.audioBlocked = vi.fn(async () => false);
+    const emage = fakeEmage();
+    const status = vi.fn();
+    const fakeVrm = {} as any;
+    const fakePlayer = { stop: vi.fn() } as any;
+
+    await d.speakText('这是小蠢自己的台词，不是用户说的话。', fakeVrm, fakePlayer, emage, status, undefined, {
+      preserveMotion: true,
+    });
+    expect(rememberTurn).not.toHaveBeenCalled();
+
+    vi.mocked(generateSpeechReply).mockResolvedValueOnce('你好呀，我记住了！');
+    d.provideSystemContext = vi.fn(async () => ({ prompt: 'sys', lang: 'zh-CN' }));
+    d.playThinking = vi.fn(async () => {});
+
+    await d.say('我喜欢吃草莓蛋糕', fakeVrm, fakePlayer, emage, status);
+    expect(rememberTurn).toHaveBeenCalledTimes(1);
+    expect(rememberTurn).toHaveBeenCalledWith('我喜欢吃草莓蛋糕', '你好呀，我记住了！');
   });
 });

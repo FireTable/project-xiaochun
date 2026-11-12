@@ -139,6 +139,7 @@ export function retargetClip(
   vrm: VRM,
   options: RetargetOptions = {},
 ): THREE.AnimationClip {
+  if ((clip as any)._retargetedBaked) return clip;
   const antiClip = options.antiClip ?? false;
   // ponytail: 库生成的 track 名字用 VRM 实际节点名(例 "J_Bip_L_Shoulder"),
   // 我们 ANTI_CLIP_BONES 用 humanoid 规范名("leftShoulder"),需要个映射表。
@@ -264,6 +265,7 @@ export function retargetClip(
   }
 
   console.log(`[Retarget] antiClip=${antiClip}, swing-clamped ${clamped} track(s): ${clampedBones.join(', ')}`);
+  (clip as any)._retargetedBaked = true;
   return clip;
 }
 

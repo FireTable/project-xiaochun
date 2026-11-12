@@ -12,6 +12,7 @@ export const ja: Trans = {
   },
   app: {
     dropZoneHint: 'マウスを离すとこの `.vrm` モデルを読み込みます',
+    dropImageHint: 'マウスを離して小蠢に見せる画像を追加',
   },
   sceneTimeCard: {
     title: 'シーン時間',
@@ -269,6 +270,9 @@ export const ja: Trans = {
     etaSec: '{{sec}}秒',
     etaRemaining: '残り {{eta}}',
     send: '送信',
+    attachImage: '画像を添付（ドラッグ＆ドロップ・貼り付け対応）',
+    removeImage: '画像を削除',
+    defaultImagePrompt: 'この画像を見て、何が写っているか教えて？',
     sttIdle: '音声入力（クリックで連続 / 長押しで即話）',
     sttLoading: '音声モデルを読み込み中…',
     sttListening: '聞いています…（再タップで停止）',

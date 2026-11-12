@@ -5,7 +5,7 @@
  * 跟 webLLMProvider.runChat 同形,chatWorkflow 用同一段代码调度两者。
  */
 
-import { getActiveProvider, getActiveProviderId } from './store';
+import { getActiveProvider } from './store';
 import { completeOnce as customCompleteOnce } from './client';
 import type { ChatMessage } from './types';
 import type { ChatProvider, RunChatOptions } from '../chatTypes';
@@ -25,9 +25,9 @@ export async function runChat(opts: RunChatOptions): Promise<string> {
   });
 }
 
-/** ponytail: 跟 webllmChatProvider 完全同形 — active key 是 `custom:*` 时命中。 */
+/** ponytail: 跟 webllmChatProvider 完全同形 — 仅当 `custom:*` 在存储中真实存在且可解密时命中，否则自愈回退 WebLLM。 */
 export const customChatProvider: ChatProvider = {
-  isActive: async () => (await getActiveProviderId()) !== null,
+  isActive: async () => (await getActiveProvider()) !== null,
   runChat,
 };
 

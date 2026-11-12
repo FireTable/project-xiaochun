@@ -1,0 +1,48 @@
+{
+  "schema": "mlc.model-package",
+  "schema_version": 1,
+  "chat_config": "mlc-chat-config.json",
+  "interface_id": "sha256:8378eafa2c70ba731fc3faaa040dc511ce985b2271be97687bca3276d0280bc0",
+  "weights": {
+    "manifest": "tensor-cache.json",
+    "parameter_schema_id": "sha256:35686906beb814c9b7214f8815b3d52fea6874636fd1a383139653b75d790fdb"
+  },
+  "tasks": {
+    "chat.completions": {
+      "executor": "generation",
+      "inputs": {
+        "text": {
+          "processor": "tokenizer"
+        },
+        "image": {
+          "processor": {
+            "kind": "image_decode",
+            "format": "rgb_u8",
+            "layout": "nhwc",
+            "resize": {
+              "mode": "stretch",
+              "height": 448,
+              "width": 448
+            },
+            "num_embeddings": 256
+          },
+          "adapter": "image",
+          "prompt": {
+            "prefix_token_ids": [
+              248090,
+              15,
+              248091,
+              248078
+            ],
+            "placeholder_token_id": 248056,
+            "suffix_token_ids": [
+              248079,
+              198
+            ]
+          }
+        }
+      },
+      "output": "text"
+    }
+  }
+}

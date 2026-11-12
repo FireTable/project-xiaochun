@@ -432,6 +432,7 @@ export const APP_CONFIG = {
   },
   llm: {
     model: 'MiniCPM5-2B-q4f16_1-MLC',
+    visionModel: 'MiniCPM-V-4.7-1B-q4f16_1-MLC',
     fallback: 'Qwen2.5-0.5B-Instruct-q4f16_1-MLC',
     thinking: false,
     hfEndpoint: (import.meta.env?.VITE_HF_ENDPOINT as string | undefined) || 'https://huggingface.co',

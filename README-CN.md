@@ -197,7 +197,7 @@ brew upgrade --cask project-xiaochun
 * **Tauri / Web 主站 / `/embed` 三端差异**：窗口 / 背景 / 点击穿透、手势、界面、相机、持久化、加载、安全、构建与测试的逐项对照表（含代码位置、共享 / 独有标注、维护规则）详见 [`docs/PLATFORM_DIFFERENCES.md`](docs/PLATFORM_DIFFERENCES.md)。
 
 ### 🧠 100% 浏览器端 AI 推理栈 (Browser-Side AI)
-* **大语言模型 (WebLLM,默认)** — [`@mlc-ai/web-llm`](https://github.com/mlc-ai/web-llm) 默认 **MiniCPM5 2B (q4f16_1)**，低配设备自动降级至 Qwen2.5 0.5B。轻量高效，在移动端与低显存设备上兼顾推理速度与回复质量；对话条菜单可随时热切换模型或开关思考模式；回复语言随用户提问语系自适应匹配。
+* **大语言模型与端侧多模态视觉 (WebLLM,默认)** — 基于工作区自维护包 [`@firetable/web-llm`](packages/web-llm/README.md)（`v0.2.88`）+ [`@firetable/web-runtime`](packages/web-runtime/README.md)（`0.28.0-dev2`），默认运行 **MiniCPM5 2B (q4f16_1)**（低配自动降级至 Qwen2.5 0.5B），并提供 **MiniCPM-V 4.7 1B (q4f16_1)** 纯端侧多模态视觉模型。切换到视觉模型后，底部对话条自动解锁图片按钮、拖拽上传与剪贴板粘贴截图（客户端自动压缩至最长边 `1024px`、最多 4 张，与 `.vrm` 拖拽换装互不干扰）。内置桌面/移动端双档自适应 **WebGPU 60 FPS 协同保帧**，从模型加载、ViT 看图编码到 `0.5B`~`8B` 长文本推理全程平滑共生。详见 [`docs/ON_DEVICE_AI.md`](docs/ON_DEVICE_AI.md) 与 [`docs/PERFORMANCE.md`](docs/PERFORMANCE.md)。
 * **大语言模型 (OpenAI 兼容自定义服务,可选)** — 应用内配置对话框一键接入任意 OpenAI 兼容 HTTP 服务:Ollama / LM Studio / vLLM / LocalAI / 云厂商(OpenAI、DeepSeek、Qwen API 等)。Provider 配置 AES-GCM 加密存在 IndexedDB;激活后 WebLLM **不会**预热,省 1-2 GB 显存 + 模型下载带宽。
 * **统一 Provider 工厂 (`chatWorkflow.runChat`)** — WebLLM 与自定义 provider 共享同形 `runChat(opts) → string` 契约;dispatcher 通过 `ChatProvider` 注册表轮询,选第一个 `isActive` 命中的。加新 provider = 注册一个描述符。
 * **用户自定义系统提示词 + 记忆轮数 + 对话字幕** — 聊天菜单 → 「对话设置」可微调小蠢人设(留空/与默认相同则走默认人设)、对话记忆轮数(1-50,默认设备推荐)与「显示对话字幕」开关(`APP_CONFIG.chat.showChatDialogue`,旧名 `showHeadBubble`,默认开)。关掉后聊天模式下 PC 头顶气泡与移动端电影模式字幕栏都不渲染;故事模式对白始终显示。ChatDirector / `bubbleTracker` 事件照发。配置持久化在 IndexedDB(`xiaochun-user-settings`);轮数边界集中在 `APP_CONFIG.memory.userTurnsMin/Max`。
@@ -270,7 +270,7 @@ brew upgrade --cask project-xiaochun
 
 * **EMAGE 下载 191.35 → 71.59 MB**（逐文件 brotli 161.3 → 57.7 MB），无需重训：精简 step（去 face 分支、seed 挪到 JS 计算）、Conv 权重 INT8、去掉 cross-attention 第 0–3 层、离线图优化。Node wasm 单窗 548 → 274 ms（1 线程）、165 → 79 ms（4 线程）；Chrome 建会话约 196 → 66 ms（离线图优化）。质量只在 logits/argmax 层面验证（对 FP32 top-1 约 92.5%）；手机、Safari、Firefox 未测。
 * **模型并行下载** + 流水线建会话（建会话仍串行）；模型从 `cdn.firetable.tech/xiaochun/emage/` 加载，缓存桶 `emage-models-v2`，旧缓存自动清理。
-* **`@mlc-ai/web-llm` 按需加载**：共享的 `vrmEngine` chunk 从 6.95 MB 降到 1.01 MB，`/embed` 在不用对话 / 不预热 LLM 时不再请求 web-llm。
+* **`@mlc-ai/web-llm` 按需加载 + WebGPU 60 帧协同保帧（`@firetable/web-llm` + `@firetable/web-runtime`）**：共享的 `vrmEngine` chunk 从 6.95 MB 降到 1.01 MB（`/embed` 在不用对话 / 不预热 LLM 时不再请求 web-llm）；通过全子模块 WGSL 异步分片预编译、GPU 编码器自动切分提交（`12`/`24` dispatches）、闭环切片流式上传与 64/128 Token 让帧，Apple M 系 Chrome 60 Hz 下从 `0.5B` 到 `Qwen3-8B` 全程稳在 ~57–60 FPS（`0` 严重卡顿帧）。
 * **iframe 内可选多线程 EMAGE**：SDK 选项 `crossOriginIsolated`（默认关闭；宿主需要 COOP `same-origin` + COEP `credentialless`/`require-corp`）。
 
 数据、方法、试过但没采用的方案、以及**未实测**项：[`docs/PERFORMANCE.md`](docs/PERFORMANCE.md)。
@@ -408,6 +408,9 @@ Project-XiaoChun/
 │   └── PERFORMANCE.md         # 性能与体积优化笔记：实测数据、否决方案、未实测项
 ├── packages/                  # pnpm workspace 子包
 │   ├── project-xiaochun/      # 嵌入 SDK (@firetable/project-xiaochun,发布到 npm)
+│   ├── client-memory/         # 端侧四层认知记忆引擎 (@firetable/client-memory)
+│   ├── web-llm/               # 自维护 @mlc-ai/web-llm v0.2.88 分支 (60 FPS 协同让帧与协议扩展)
+│   ├── web-runtime/           # 自维护 @mlc-ai/web-runtime 0.28.0-dev2 分支 (TVM WebGPU 异步着色器与编码器切分)
 │   ├── three-vrm-materials-mtoon/ # 带 NPR 着色控制的 MToon 分支
 │   └── emage-onnx/       # 私有离线工具包:EMAGE ONNX 瘦身、量化、优化,下载 191 → 72 MB (不发布)
 ├── scripts/                   # 构建与离线处理脚本

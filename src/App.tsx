@@ -21,6 +21,7 @@ import { prologueStory } from '@/story/prologueStory';
 
 import { XIAOCHUN_SYSTEM_PROMPT } from '@/llm/prompts';
 import { resolveSystemPrompt, getCachedUserSettings, subscribeUserSettings } from '@/llm/userSettings';
+import { dataTransferHasImage, dispatchVisionDrop, isImageFile, isVisionDropActive } from '@/llm/visionDropBus';
 import { DEV_DRAWER_OPEN_KEY } from '@/lib/constants';
 import type { Lang } from '@/i18n';
 import { APP_CONFIG } from '@/config';
@@ -75,6 +76,7 @@ export const App: React.FC = () => {
 
   const closeDrawer = useCallback(() => setIsDrawerOpen(false), []);
   const [isDragOver, setIsDragOver] = useState(false);
+  const [dragKind, setDragKind] = useState<'vrm' | 'image'>('vrm');
   // ponytail: 10 次连击暗号触发后,生产构建也要能看见右上角调试按钮 — 用户已经
   // 「发现」了隐藏 dev 通道,继续藏按钮不合理。一次性解锁,刷新页面后重置。
   const [hasDevEasterEgg, setHasDevEasterEgg] = useState(false);
@@ -225,7 +227,19 @@ export const App: React.FC = () => {
     });
 
     const handleDragOver = (e: DragEvent) => {
+      const types = e.dataTransfer?.types;
+      if (!types || !Array.from(types).includes('Files')) return;
       e.preventDefault();
+      if (dataTransferHasImage(e.dataTransfer)) {
+        if (isVisionDropActive()) {
+          setDragKind('image');
+          setIsDragOver(true);
+        } else {
+          setIsDragOver(false);
+        }
+        return;
+      }
+      setDragKind('vrm');
       setIsDragOver(true);
     };
 
@@ -236,26 +250,46 @@ export const App: React.FC = () => {
     };
 
     const handleDrop = (e: DragEvent) => {
+      const files = Array.from(e.dataTransfer?.files ?? []);
+      if (files.length === 0) {
+        setIsDragOver(false);
+        return;
+      }
       e.preventDefault();
       setIsDragOver(false);
-      const file = e.dataTransfer?.files?.[0];
-      if (file && file.name.toLowerCase().endsWith('.vrm')) {
-        const url = URL.createObjectURL(file);
+      const vrmFile = files.find((f) => f.name.toLowerCase().endsWith('.vrm'));
+      if (vrmFile) {
+        const url = URL.createObjectURL(vrmFile);
         // ponytail: 走 swapOutfit — 拖入文件也保留当前镜头/动作/视线。
-        engineModule?.vrmEngine.swapOutfit(url, file.name).catch((e) => {
-          console.error('[App] drop swap failed:', e);
+        engineModule?.vrmEngine.swapOutfit(url, vrmFile.name).catch((err) => {
+          console.error('[App] drop swap failed:', err);
         });
+        return;
+      }
+      if (isVisionDropActive()) {
+        const imageFiles = files.filter(isImageFile);
+        if (imageFiles.length > 0) {
+          dispatchVisionDrop(imageFiles);
+        }
       }
     };
 
+    const clearDragOverlay = () => setIsDragOver(false);
+
     window.addEventListener('dragover', handleDragOver);
     window.addEventListener('dragleave', handleDragLeave);
+    window.addEventListener('drop', clearDragOverlay, true);
     window.addEventListener('drop', handleDrop);
+    window.addEventListener('dragend', clearDragOverlay);
+    window.addEventListener('blur', clearDragOverlay);
 
     return () => {
       window.removeEventListener('dragover', handleDragOver);
       window.removeEventListener('dragleave', handleDragLeave);
+      window.removeEventListener('drop', clearDragOverlay, true);
       window.removeEventListener('drop', handleDrop);
+      window.removeEventListener('dragend', clearDragOverlay);
+      window.removeEventListener('blur', clearDragOverlay);
       unsubUserSettings?.();
       unsubReady?.();
       unsubOutfit?.();
@@ -408,12 +442,12 @@ export const App: React.FC = () => {
       {isDragOver && currentScene.components.dropZone !== false && (
         <div id="drop-zone" className="drop-zone">
           <div className="drop-card">
-            <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2}>
               <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
               <polyline points="17 8 12 3 7 8" />
               <line x1="12" y1="3" x2="12" y2="15" />
             </svg>
-            <p>{t('app.dropZoneHint')}</p>
+            <p>{dragKind === 'image' ? t('app.dropImageHint') : t('app.dropZoneHint')}</p>
           </div>
         </div>
       )}

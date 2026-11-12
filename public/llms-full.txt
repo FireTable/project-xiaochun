@@ -34,11 +34,12 @@ Project XiaoChun is a full-stack web application built on **Vite 8 + TanStack St
 
 AI runs in the browser tab. **WebLLM may use WebGPU**; **EMAGE uses ONNX Runtime Web wasm + INT8 only** (int64 blocks WebGPU-EMAGE; E3-① closed):
 
-### 2.1 LLM (WebLLM, default)
-- **Engine**: `@mlc-ai/web-llm` v0.2.84
-- **Model**: MiniCPM5 2B (`MiniCPM5-2B-q4f16_1-MLC`, default) / Qwen2.5 0.5B (fallback) — downloaded on first launch and cached in `CacheStorage` for instant subsequent loads
-- **Runtime**: WebGPU (falls back to WASM with reduced throughput)
-- **Streaming**: Chunked completion with milestone callbacks (`loading-webgpu`, `thinking` states)
+### 2.1 LLM & Multimodal Vision (WebLLM, default)
+- **Engine**: Workspace-patched `@firetable/web-llm` (`v0.2.88`) + `@firetable/web-runtime` (`0.28.0-dev2`) overriding `@mlc-ai/web-llm` and `@mlc-ai/web-runtime`, with `ThinMLCEngine` (`src/llm/webllmThinClient.ts`) on the main thread
+- **Models**: MiniCPM5 2B (`MiniCPM5-2B-q4f16_1-MLC`, default), MiniCPM-V 4.7 1B (`MiniCPM-V-4.7-1B-q4f16_1-MLC`, on-device multimodal vision with SigLIP2 ViT + GatedDeltaNet), and Qwen2.5 0.5B (low-VRAM fallback) — downloaded on first launch and cached in `CacheStorage` (`cacheBackend: 'cache'`)
+- **Model-Gated Vision Input**: Selecting a vision model unlocks image upload, drag-and-drop (`visionDropBus`, decoupled from `.vrm` drops), and clipboard paste (`Cmd/Ctrl + V`) in `ChatBar` (normalized client-side to max edge `1024px`, up to 4 images)
+- **Runtime & 60 FPS Frame Pacing**: WebGPU with adaptive `desktop`/`mobile` cooperative frame pacing (`asyncLoadWebGPUPipelines` across all WebGPU sub-modules, `maxDispatchesPerEncoder` `24`/`12`, closed-loop weight upload slicing, and 64/128-token prefill yielding)
+- **Streaming**: Chunked completion (`streamId` + `completionStreamReturn` early-abort lock release) with milestone callbacks (`loading-webgpu`, `thinking` states)
 - **System Prompts**: Per-language (`src/llm/prompts.ts`) — each prompt enforces a `🌐 LANGUAGE RULE` so the LLM responds in the user's language regardless of input language
 
 ### 2.2 Custom OpenAI-Compatible Providers (optional)

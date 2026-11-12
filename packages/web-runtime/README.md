@@ -1,0 +1,11 @@
+# `@firetable/web-runtime`
+
+Project XiaoChun's workspace fork of `@mlc-ai/web-runtime` (`0.28.0-dev2`, upstream [`apache/tvm` `web/`](https://github.com/apache/tvm/tree/cbb1e12/web) commit `cbb1e12`), licensed under **Apache-2.0** (see [`LICENSE`](./LICENSE) and [`NOTICE`](./NOTICE)).
+
+## Enhancements Over Upstream `0.28.0-dev2`
+
+1. **Multi-Submodule Time-Sliced Shader Pipeline Compilation (`asyncLoadWebGPUPipelines` + `hookWebGPUModuleLoader`)**: Hooks `ffi.Module.load_from_bytes.webgpu` so hybrid Relax VM executables with multiple embedded WebGPU sub-modules (e.g. `13` custom GatedDeltaNet/sampling TIR kernels + `225` main Relax/ViT kernels in `MiniCPM-V-4.7-1B`) prebuild **all** `238` shaders asynchronously instead of stopping at `imported_modules[0]` and falling back to blocking `device.createComputePipeline` on the first turn. Replaces upstream's unbounded `Promise.all` flood with concurrency-bounded micro-batches (`DESKTOP` vs `MOBILE` presets).
+2. **Valid `GPUShaderModuleCompilationHint` (`createShadeInternal`)**: Fixes `compilationHints[0].entryPoint` from hardcoded `"main"` to `finfo.name` so Dawn pre-compiles pipelines against the actual kernel entry point and `GPUPipelineLayout`.
+3. **Auto-Segmented `GPUCommandEncoder` (`maxDispatchesPerEncoder`: `24` desktop / `12` mobile)**: Automatically flushes accumulated compute passes every 12–24 dispatches instead of submitting 400–1100 passes in one monolithic command buffer, allowing Metal / DX12 / Vulkan to interleave foreground 60 FPS WebGL2 frames even on 4B–8B models.
+4. **Closed-Loop Sliced Weight Streaming & Bulk Allocation Scopes**: Coalesces `pushErrorScope`/`popErrorScope` across tensor shards (`fetchTensorCacheInternal`) and KV-cache allocation (`beginBulkAllocation`), streams large tensors (`50+ MB`) in `2–4 MB` chunks, and adapts upload slice sizes in closed loop (`syncAndAdaptUploadSlice`) based on `queue.onSubmittedWorkDone()` wall-clock latency; caps concurrent shard fetches on mobile (`artifactFetchConcurrency = 2`) and removes redundant `response.clone()` copies in `ArtifactIndexedDBCache`.
+5. **Device-Tier Frame Pacing Presets (`DESKTOP_WEBGPU_FRAME_PACING` / `MOBILE_WEBGPU_FRAME_PACING`)**: Exports runtime-switchable `setWebGPUFramePacing` / `getWebGPUFramePacing` presets alongside clean browser/worker ESM output.

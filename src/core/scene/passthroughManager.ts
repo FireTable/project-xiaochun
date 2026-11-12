@@ -239,6 +239,7 @@ class PassthroughManager {
     };
 
     pushIfVisible(document.getElementById('control-panel'));
+    pushIfVisible(document.getElementById('xiaochun-chatbar-attachments'));
     pushIfVisible(document.getElementById('xiaochun-chatbar'));
 
     const header = document.querySelector('header');

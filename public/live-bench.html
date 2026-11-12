@@ -1,0 +1,2422 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>XiaoChun · WebGPU 抢占与双流 Live LLM 原型验证台</title>
+  <link rel="icon" type="image/png" href="/favicon.png" />
+  <style>
+    :root {
+      --bg: #0f1115;
+      --panel: #161920;
+      --panel-2: #1c2029;
+      --border: #2a303d;
+      --text: #e6eaf2;
+      --muted: #939db0;
+      --accent: #4f8cff;
+      --accent-hover: #6ba0ff;
+      --ok: #34d399;
+      --warn: #fbbf24;
+      --err: #f87171;
+      --s1: #38bdf8;
+      --s2: #a78bfa;
+      --mono: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+      --sans: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "PingFang SC", "Microsoft YaHei", sans-serif;
+    }
+
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+
+    html, body {
+      width: 100%;
+      height: 100%;
+      background: var(--bg);
+      color: var(--text);
+      font-family: var(--sans);
+      font-size: 13px;
+      line-height: 1.45;
+      overflow: hidden;
+    }
+
+    .layout {
+      display: grid;
+      grid-template-columns: minmax(420px, 46%) 1fr;
+      width: 100vw;
+      height: 100vh;
+    }
+
+    @media (max-width: 1024px) {
+      html, body { overflow: auto; height: auto; }
+      .layout { grid-template-columns: 1fr; height: auto; }
+      .left-col { min-height: 580px; }
+    }
+
+    .left-col {
+      display: flex;
+      flex-direction: column;
+      border-right: 1px solid var(--border);
+      background: #0b0d11;
+      min-height: 0;
+    }
+
+    .right-col {
+      display: flex;
+      flex-direction: column;
+      background: var(--bg);
+      min-height: 0;
+      overflow-y: auto;
+      padding: 12px 14px;
+      gap: 10px;
+    }
+
+    .toolbar {
+      display: flex;
+      flex-wrap: wrap;
+      align-items: center;
+      gap: 8px;
+      padding: 8px 10px;
+      background: var(--panel);
+      border-bottom: 1px solid var(--border);
+    }
+
+    .toolbar-title {
+      font-weight: 600;
+      font-size: 13px;
+      margin-right: auto;
+    }
+
+    .stage-wrap {
+      position: relative;
+      flex: 1;
+      min-height: 280px;
+      background: #090b0f;
+    }
+
+    #xc-iframe {
+      width: 100%;
+      height: 100%;
+      border: 0;
+      display: block;
+    }
+
+    .perf-dock {
+      background: var(--panel);
+      border-top: 1px solid var(--border);
+      padding: 10px 12px;
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+    }
+
+    .metrics-grid {
+      display: grid;
+      grid-template-columns: repeat(4, 1fr);
+      gap: 6px;
+    }
+
+    .metric-box {
+      background: var(--panel-2);
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      padding: 6px 8px;
+    }
+
+    .metric-label {
+      font-size: 11px;
+      color: var(--muted);
+    }
+
+    .metric-val {
+      font-family: var(--mono);
+      font-size: 15px;
+      font-weight: 600;
+      margin-top: 2px;
+    }
+
+    #fps-canvas {
+      width: 100%;
+      height: 76px;
+      background: #0c0e13;
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      display: block;
+    }
+
+    .legend-row {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 12px;
+      font-size: 11px;
+      color: var(--muted);
+      font-family: var(--mono);
+    }
+
+    .card {
+      background: var(--panel);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 10px 12px;
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+    }
+
+    .card-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 8px;
+    }
+
+    .card-title {
+      font-weight: 600;
+      font-size: 13px;
+    }
+
+    .subtext {
+      font-size: 12px;
+      color: var(--muted);
+    }
+
+    .row {
+      display: flex;
+      flex-wrap: wrap;
+      align-items: center;
+      gap: 8px;
+    }
+
+    label.field {
+      display: flex;
+      flex-direction: column;
+      gap: 3px;
+      font-size: 11px;
+      color: var(--muted);
+      flex: 1;
+      min-width: 150px;
+    }
+
+    label.inline-check {
+      display: inline-flex;
+      align-items: center;
+      gap: 5px;
+      font-size: 12px;
+      color: var(--text);
+      cursor: pointer;
+      user-select: none;
+    }
+
+    select, input[type="text"], textarea {
+      background: var(--panel-2);
+      color: var(--text);
+      border: 1px solid var(--border);
+      border-radius: 5px;
+      padding: 6px 8px;
+      font-size: 12px;
+      font-family: inherit;
+      outline: none;
+    }
+
+    select:focus, input[type="text"]:focus, textarea:focus {
+      border-color: var(--accent);
+    }
+
+    button {
+      background: var(--panel-2);
+      color: var(--text);
+      border: 1px solid var(--border);
+      border-radius: 5px;
+      padding: 6px 10px;
+      font-size: 12px;
+      cursor: pointer;
+      font-family: inherit;
+      transition: background 0.12s, border-color 0.12s;
+    }
+
+    button:hover:not(:disabled) {
+      background: #252b37;
+      border-color: #3b4354;
+    }
+
+    button.primary {
+      background: var(--accent);
+      border-color: var(--accent);
+      color: #fff;
+      font-weight: 600;
+    }
+
+    button.primary:hover:not(:disabled) {
+      background: var(--accent-hover);
+    }
+
+    button.danger {
+      border-color: rgba(248, 113, 113, 0.45);
+      color: var(--err);
+    }
+
+    button:disabled {
+      opacity: 0.45;
+      cursor: not-allowed;
+    }
+
+    .mode-tabs {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 6px;
+    }
+
+    .mode-btn {
+      text-align: left;
+      padding: 8px 10px;
+      display: flex;
+      flex-direction: column;
+      gap: 3px;
+    }
+
+    .mode-btn.active {
+      border-color: var(--accent);
+      background: rgba(79, 140, 255, 0.14);
+    }
+
+    .mode-btn strong {
+      font-size: 12px;
+      color: var(--text);
+    }
+
+    .mode-btn span {
+      font-size: 11px;
+      color: var(--muted);
+    }
+
+    .progress-wrap {
+      display: flex;
+      flex-direction: column;
+      gap: 4px;
+    }
+
+    .progress-bar {
+      width: 100%;
+      height: 6px;
+      background: #0c0e13;
+      border-radius: 3px;
+      overflow: hidden;
+      border: 1px solid var(--border);
+    }
+
+    .progress-fill {
+      height: 100%;
+      width: 0%;
+      background: var(--accent);
+      transition: width 0.15s linear;
+    }
+
+    .status-line {
+      font-family: var(--mono);
+      font-size: 11px;
+      color: var(--muted);
+      word-break: break-all;
+    }
+
+    .chat-log {
+      background: #0c0e13;
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      padding: 8px 10px;
+      min-height: 150px;
+      max-height: 230px;
+      overflow-y: auto;
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+    }
+
+    .msg {
+      padding: 6px 8px;
+      border-radius: 6px;
+      background: var(--panel-2);
+      border: 1px solid var(--border);
+      font-size: 12.5px;
+      white-space: pre-wrap;
+      word-break: break-word;
+    }
+
+    .msg.user {
+      background: rgba(79, 140, 255, 0.12);
+      border-color: rgba(79, 140, 255, 0.35);
+      align-self: flex-end;
+      max-width: 88%;
+    }
+
+    .msg .s1-chunk {
+      color: var(--s1);
+      font-weight: 500;
+    }
+
+    .msg .s2-chunk {
+      color: var(--text);
+    }
+
+    .msg .meta {
+      margin-top: 4px;
+      font-family: var(--mono);
+      font-size: 11px;
+      color: var(--muted);
+    }
+
+    .input-bar {
+      display: flex;
+      gap: 6px;
+    }
+
+    .input-bar input {
+      flex: 1;
+    }
+
+    .vision-bar {
+      display: flex;
+      flex-wrap: wrap;
+      align-items: center;
+      gap: 6px;
+    }
+
+    .img-preview-wrap {
+      display: none;
+      align-items: center;
+      gap: 8px;
+      padding: 5px 8px;
+      background: var(--panel-2);
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      font-size: 11px;
+      color: var(--muted);
+    }
+
+    .img-preview-wrap.visible {
+      display: flex;
+    }
+
+    .img-preview-wrap img {
+      width: 40px;
+      height: 40px;
+      object-fit: cover;
+      border-radius: 4px;
+      border: 1px solid var(--border);
+      background: #0c0e13;
+    }
+
+    .msg-img {
+      display: block;
+      max-width: 176px;
+      max-height: 176px;
+      border-radius: 5px;
+      border: 1px solid var(--border);
+      margin-bottom: 5px;
+    }
+
+    table.telemetry {
+      width: 100%;
+      border-collapse: collapse;
+      font-family: var(--mono);
+      font-size: 11px;
+    }
+
+    table.telemetry th, table.telemetry td {
+      border-bottom: 1px solid var(--border);
+      padding: 5px 6px;
+      text-align: right;
+      white-space: nowrap;
+    }
+
+    table.telemetry th:first-child,
+    table.telemetry td:first-child,
+    table.telemetry th:nth-child(2),
+    table.telemetry td:nth-child(2) {
+      text-align: left;
+    }
+
+    table.telemetry th {
+      color: var(--muted);
+      font-weight: 500;
+    }
+
+    .ok { color: var(--ok); }
+    .warn { color: var(--warn); }
+    .err { color: var(--err); }
+  </style>
+</head>
+<body>
+  <div class="layout">
+    <!-- 左侧：真实小蠢 3D 渲染管线 (同源 /embed 抢占同一块 GPU) -->
+    <section class="left-col" aria-label="小蠢 3D GPU 负载舞台">
+      <div class="toolbar">
+        <span class="toolbar-title">小蠢实机 3D 负载 (/embed 同 GPU 抢占)</span>
+        <select id="scene-select" aria-label="3D 场景负载">
+          <option value="beach3d">海滩全景 Beach3D (重负载: 海面+阴影+Bloom+MSAA)</option>
+          <option value="dark">暗色棚拍 Dark (中负载: VRM+MToon+Bloom)</option>
+          <option value="light">亮色棚拍 Light (中负载)</option>
+          <option value="pause">暂停 3D 渲染 (0 渲染抢占基准对照)</option>
+        </select>
+        <label class="inline-check" title="在 WebGPU Prefill/Decode 期间把小蠢 3D 帧率临时限到 30fps，测试是否能消除卡顿并加快 TTFT">
+          <input type="checkbox" id="cap-30fps-toggle" />
+          推理期 3D 限 30fps
+        </label>
+        <button id="dance-stress-btn" type="button" title="触发全身动作增加骨骼与 SpringBone 物理负载">触发动作负载</button>
+      </div>
+
+      <div class="stage-wrap">
+        <iframe id="xc-iframe" src="/embed?scene=beach3d&ui=bubble,outfit,scene" title="Project XiaoChun 3D Stage"></iframe>
+      </div>
+
+      <div class="perf-dock">
+        <div class="metrics-grid">
+          <div class="metric-box">
+            <div class="metric-label">小蠢 3D 实时 FPS</div>
+            <div class="metric-val" id="m-xc-fps">--</div>
+          </div>
+          <div class="metric-box">
+            <div class="metric-label">本轮最低 FPS / 最大帧</div>
+            <div class="metric-val" id="m-min-fps">--</div>
+          </div>
+          <div class="metric-box">
+            <div class="metric-label">本轮掉帧 (&gt;25ms / &gt;50ms)</div>
+            <div class="metric-val" id="m-jank">--</div>
+          </div>
+          <div class="metric-box">
+            <div class="metric-label">当前 GPU 阶段</div>
+            <div class="metric-val" id="m-phase">IDLE</div>
+          </div>
+        </div>
+        <canvas id="fps-canvas" width="640" height="76" aria-label="3D 帧耗时实时波形图"></canvas>
+        <div class="legend-row">
+          <span>参考线: 绿 16.7ms (60fps) / 黄 33.3ms (30fps)</span>
+          <span>灰=待机 | 橙=Prefill 抢占 | 紫=Decode 解码 | 青=S1 快模型</span>
+          <span id="xc-hook-status">正在挂载 iframe 帧率探针…</span>
+        </div>
+      </div>
+    </section>
+
+    <!-- 右侧：浏览器 WebGPU 单流/双流 Live 原型控制台 -->
+    <main class="right-col">
+      <!-- 1. 硬件与模型加载 -->
+      <section class="card">
+        <div class="card-header">
+          <div>
+            <div class="card-title">1. WebGPU 硬件与端侧模型驻留</div>
+            <div class="subtext" id="gpu-info">正在检测 WebGPU 适配器…</div>
+          </div>
+          <div class="row">
+            <button id="load-models-btn" class="primary" type="button">加载所选模型</button>
+            <button id="unload-models-btn" class="danger" type="button" disabled>释放显存</button>
+          </div>
+        </div>
+
+        <div class="row">
+          <label class="field">
+            主模型 (System-2 Heavy / 单模型主力，支持中英与多模态视觉)
+            <select id="s2-model-select">
+              <option value="MiniCPM-V-4.7-1B-q4f16_1-MLC" selected>MiniCPM-V-4.7-1B-q4f16_1 (1.54GB · WebGPU 视觉VLM+双语)</option>
+              <option value="MiniCPM5-2B-q4f16_1-MLC">MiniCPM5-2B-q4f16_1 (1.6GB · 小蠢默认，若已缓存秒开)</option>
+              <option value="Qwen3.5-2B-q4f16_1-MLC">Qwen3.5-2B-q4f16_1 (2.2GB · 最新双语)</option>
+              <option value="Qwen3-1.7B-q4f16_1-MLC">Qwen3-1.7B-q4f16_1 (2.0GB · 双语均衡)</option>
+              <option value="Qwen2.5-1.5B-Instruct-q4f16_1-MLC">Qwen2.5-1.5B-Instruct-q4f16_1 (1.6GB · 经典稳健)</option>
+              <option value="Qwen2.5-0.5B-Instruct-q4f16_1-MLC">Qwen2.5-0.5B-Instruct-q4f16_1 (0.9GB · 小蠢手机/低配兜底模型)</option>
+              <option value="Qwen3-4B-q4f16_1-MLC">Qwen3-4B-q4f16_1 (3.4GB · 重载抢占压测)</option>
+              <option value="Qwen3.5-4B-q4f16_1-MLC">Qwen3.5-4B-q4f16_1 (3.9GB · 混合架构重载压测)</option>
+              <option value="Qwen3-8B-q4f16_1-MLC">Qwen3-8B-q4f16_1 (5.7GB · 超大模型极限压测)</option>
+            </select>
+          </label>
+
+          <label class="field">
+            前端快模型 (仅模式 C 双流启用 · System-1 抢答)
+            <select id="s1-model-select">
+              <option value="Qwen2.5-0.5B-Instruct-q4f16_1-MLC">Qwen2.5-0.5B-Instruct-q4f16_1 (0.9GB · 双语快模)</option>
+              <option value="Qwen3-0.6B-q4f16_1-MLC">Qwen3-0.6B-q4f16_1 (1.4GB · Qwen3 小模)</option>
+              <option value="Qwen3.5-0.8B-q4f16_1-MLC">Qwen3.5-0.8B-q4f16_1 (1.6GB · Qwen3.5 小模)</option>
+              <option value="SmolLM2-360M-Instruct-q4f16_1-MLC">SmolLM2-360M-q4f16_1 (0.38GB · 超轻纯英文)</option>
+            </select>
+          </label>
+        </div>
+
+        <div class="row">
+          <label class="field">
+            权重下载源 (IndexedDB 按源 URL 缓存)
+            <select id="hf-endpoint-select">
+              <option value="https://huggingface.co">huggingface.co (与主站默认缓存一致)</option>
+              <option value="https://hf-mirror.com">hf-mirror.com (国内直连镜像)</option>
+            </select>
+          </label>
+
+          <label class="field">
+            KV 上下文窗口 (越小显存越省、减少长对话抖动)
+            <select id="ctx-window-select">
+              <option value="4096" selected>4096 tokens (4x 多图切片推荐)</option>
+              <option value="2048">2048 tokens (轻量省显存)</option>
+              <option value="1024">1024 tokens (极省显存)</option>
+            </select>
+          </label>
+
+          <label class="field">
+            语音输出链路 (TTS 联动验证)
+            <select id="tts-mode-select">
+              <option value="none">关闭语音 (纯测 GPU 渲染 + LLM 延迟)</option>
+              <option value="xiaochun" selected>小蠢实机 /api/tts + EMAGE 手势联动</option>
+              <option value="webspeech">浏览器原生 speechSynthesis 对照</option>
+            </select>
+          </label>
+
+          <label class="field">
+            WebGPU 协同保帧策略 (@firetable/web-runtime)
+            <select id="pacing-profile-select">
+              <option value="desktop" selected>桌面自适应保帧 (默认 60FPS)</option>
+              <option value="mobile">手机端严苛预算档 (窄带宽/低分片)</option>
+              <option value="off">关闭保帧节流 (复现上游原版抢占对照)</option>
+            </select>
+          </label>
+        </div>
+
+        <div class="progress-wrap" aria-live="polite">
+          <div class="progress-bar"><div class="progress-fill" id="load-progress-fill"></div></div>
+          <div class="status-line" id="load-status">未加载模型。点击右上角「加载所选模型」开始（已缓存模型约 2~5 秒就绪）。</div>
+        </div>
+      </section>
+
+      <!-- 2. 架构模式切换 -->
+      <section class="card">
+        <div class="card-header">
+          <div class="card-title">2. 选择推理与串流架构模式 (随时切换对比)</div>
+          <label class="inline-check" id="dual-sched-wrap">
+            双流调度:
+            <select id="dual-sched-select">
+              <option value="single-2pass" selected>C0 同模型双阶段抢答 (单 GPUDevice 零额外显存 · 浏览器推荐)</option>
+              <option value="staggered">C2 双模型错峰接力 (双 Worker 2x GPUDevice · S1 降窗 256)</option>
+              <option value="shared">C3 单 Worker 双模型驻留 (2x GPUDevice 顺序 · S1 降窗 256)</option>
+              <option value="parallel">C1 双 Worker 同时并发 (极限 GPU 队列抢占压测)</option>
+            </select>
+          </label>
+        </div>
+
+        <div class="mode-tabs" role="radiogroup" aria-label="推理架构模式">
+          <button type="button" class="mode-btn" data-mode="baseline">
+            <strong>模式 A · 现状复现 (破环 KV)</strong>
+            <span>单模型 + 每轮动态改系统前缀 → 强制每轮全量重算 Prefill + 25字慢切句</span>
+          </button>
+          <button type="button" class="mode-btn active" data-mode="kv-fast">
+            <strong>模式 B · 单模前缀锁死 + 极速切句</strong>
+            <span>单模型 + 严格追加消息保住 KV-Cache + 禁 &lt;think&gt; + 首片 8 字即送 TTS</span>
+          </button>
+          <button type="button" class="mode-btn" data-mode="dual-live">
+            <strong>模式 C · 双模型 Live 串流 (S1+S2)</strong>
+            <span>前端快模型 ~150ms 先接话出声 + 后端主模型无缝续写正文 (模拟 Live 架构)</span>
+          </button>
+        </div>
+      </section>
+
+      <!-- 3. 中英交互测试与一键多轮基准 -->
+      <section class="card">
+        <div class="card-header">
+          <div class="card-title">3. 中英文对话与一键多轮压测 (观察第 2、3 轮 Prefill Tokens 是否骤降)</div>
+          <div class="row">
+            <button type="button" id="bench-zh-btn">一键跑中文 3 轮压测</button>
+            <button type="button" id="bench-long-btn">长上下文 Prefill 压测 (~650 toks)</button>
+            <button type="button" id="bench-en-btn">Run English 3-Turn</button>
+            <button type="button" id="bench-mix-btn">中英混说测试</button>
+            <button type="button" id="reset-chat-btn">清空对话与 KV</button>
+          </div>
+        </div>
+
+        <div class="chat-log" id="chat-log" aria-live="polite">
+          <div class="msg">等待加载模型。建议先用「模式 B」跑一次「中文 3 轮压测」，再切到「模式 A」和「模式 C」跑同样的 3 轮，直接对比下方表格里的 TTFT、Prefill Tokens 和小蠢最低 FPS。</div>
+        </div>
+
+        <div class="vision-bar">
+          <input type="file" id="image-file-input" accept="image/*" hidden />
+          <button type="button" id="upload-img-btn">上传图片</button>
+          <button type="button" id="attach-testcard-btn">附带标准测试卡 (448×448)</button>
+          <button type="button" id="capture-stage-btn">截取左侧小蠢 3D 画面</button>
+          <button type="button" id="bench-vision-hd-btn" class="primary">一键 4x 大图 A/B 压测</button>
+          <span class="subtext">视觉输入适用于 MiniCPM-V-4.7-1B (内置 4x 256-token + 自适应大图切片)</span>
+        </div>
+
+        <div class="img-preview-wrap" id="img-preview-wrap">
+          <img id="img-preview-thumb" alt="待发送图片预览" />
+          <span id="img-preview-meta" style="flex: 1;"></span>
+          <button type="button" id="clear-img-btn">移除图片</button>
+        </div>
+
+        <form class="input-bar" id="chat-form">
+          <input type="text" id="chat-input" placeholder="输入中文 / English / 附带图片提问并回车发送…" autocomplete="off" />
+          <button type="submit" class="primary" id="send-btn">发送</button>
+          <button type="button" class="danger" id="stop-btn" disabled>打断 (Barge-in)</button>
+        </form>
+      </section>
+
+      <!-- 4. 量化遥测对比表 -->
+      <section class="card">
+        <div class="card-header">
+          <div class="card-title">4. 逐轮实测遥测记录 (GPU 抢占 + 延迟分解)</div>
+          <div class="row">
+            <button type="button" id="copy-report-btn">复制 Markdown 报告</button>
+            <button type="button" id="clear-table-btn">清空记录</button>
+          </div>
+        </div>
+        <div style="overflow-x: auto;">
+          <table class="telemetry">
+            <thead>
+              <tr>
+                <th>#</th>
+                <th>模式</th>
+                <th>Prefill Toks</th>
+                <th>TTFT</th>
+                <th>首句可播</th>
+                <th>Prefill 吞吐</th>
+                <th>Decode 吞吐</th>
+                <th>3D 最低 FPS</th>
+                <th>最大单帧</th>
+                <th>掉帧(&gt;25/&gt;50ms)</th>
+              </tr>
+            </thead>
+            <tbody id="telemetry-tbody"></tbody>
+          </table>
+        </div>
+      </section>
+    </main>
+  </div>
+
+  <script type="module">
+    // ═══════════════════════════════════════════════════════════════════════════
+    // 1. ThinMLCEngine 客户端 (零主线程 6.5MB 包解析开销；优先复用 Vite /src/llm/llmWorker.ts)
+    // ═══════════════════════════════════════════════════════════════════════════
+    const uuid = () => (crypto.randomUUID ? crypto.randomUUID() : Math.random().toString(36).slice(2) + Date.now());
+
+    const FALLBACK_WORKER_CODE = `
+      import { WebWorkerMLCEngineHandler, prebuiltAppConfig } from 'https://esm.run/@mlc-ai/web-llm@0.2.88';
+      const handler = new WebWorkerMLCEngineHandler();
+      self.onmessage = (msg) => {
+        const d = msg.data;
+        if (d && d.kind === 'xcModelList') {
+          self.postMessage({ kind: 'return', uuid: d.uuid, content: prebuiltAppConfig.model_list });
+          return;
+        }
+        if (d && d.kind === 'xcSetFramePacing') {
+          return;
+        }
+        handler.onmessage(msg);
+      };
+    `;
+
+    async function createLlmWorkerInstance() {
+      try {
+        const probe = await fetch('/src/llm/llmWorker.ts', { method: 'HEAD' });
+        const ct = probe.headers.get('content-type') || '';
+        if (probe.ok && !/text\/html/i.test(ct)) {
+          return new Worker('/src/llm/llmWorker.ts', { type: 'module' });
+        }
+      } catch {}
+      const blob = new Blob([FALLBACK_WORKER_CODE], { type: 'text/javascript' });
+      return new Worker(URL.createObjectURL(blob), { type: 'module' });
+    }
+
+    class BenchMLCClient {
+      constructor(worker, onProgress, onFatal) {
+        this.worker = worker;
+        this.pending = new Map();
+        this.loadedModels = [];
+        this.chatOpts = undefined;
+        this.onProgress = onProgress;
+        this.onFatal = onFatal;
+        worker.onmessage = (e) => this.handleMessage(e.data);
+        worker.onerror = (e) => {
+          const err = new Error('Worker error: ' + (e.message || 'unknown'));
+          for (const p of this.pending.values()) {
+            clearTimeout(p.timer);
+            p.reject(err);
+          }
+          this.pending.clear();
+          this.onFatal?.(err);
+        };
+      }
+
+      request(kind, content, timeoutMs = 30000) {
+        const id = uuid();
+        return new Promise((resolve, reject) => {
+          const timer = timeoutMs > 0
+            ? setTimeout(() => {
+                if (!this.pending.has(id)) return;
+                this.pending.delete(id);
+                const err = new Error(
+                  `WebGPU 响应超时 (${kind} > ${Math.round(timeoutMs / 1000)}s)：多半因双 GPUDevice 显存抢占触发 device.lost 挂起，已自动标记重建 Worker`
+                );
+                this.onFatal?.(err);
+                reject(err);
+              }, timeoutMs)
+            : null;
+          this.pending.set(id, { resolve, reject, timer });
+          this.worker.postMessage({ kind, uuid: id, content });
+        });
+      }
+
+      handleMessage(msg) {
+        if (!msg || typeof msg !== 'object') return;
+        if (msg.kind === 'initProgressCallback') {
+          this.onProgress?.(msg.content);
+          return;
+        }
+        if (msg.kind === 'return' || msg.kind === 'throw') {
+          const p = this.pending.get(msg.uuid);
+          if (!p) return;
+          clearTimeout(p.timer);
+          this.pending.delete(msg.uuid);
+          if (msg.kind === 'return') p.resolve(msg.content);
+          else p.reject(new Error(String(msg.content)));
+        }
+      }
+
+      setAppConfig(appConfig) {
+        this.worker.postMessage({ kind: 'setAppConfig', uuid: uuid(), content: appConfig });
+      }
+
+      setFramePacing(opts) {
+        this.worker.postMessage({ kind: 'xcSetFramePacing', uuid: uuid(), content: opts });
+      }
+
+      getModelList() {
+        return this.request('xcModelList', null, 15000);
+      }
+
+      async reload(modelIds, chatOpts) {
+        const ids = Array.isArray(modelIds) ? modelIds : [modelIds];
+        const opts = chatOpts === undefined ? undefined : (Array.isArray(chatOpts) ? chatOpts : [chatOpts]);
+        await this.request('reload', { modelId: ids, chatOpts: opts }, 600000);
+        this.loadedModels = ids;
+        this.chatOpts = opts;
+      }
+
+      async unload() {
+        await this.request('unload', null, 8000);
+        this.loadedModels = [];
+      }
+
+      resetChat(keepStats = false, modelId) {
+        return this.request('resetChat', { keepStats, modelId }, 10000);
+      }
+
+      getMessage(modelId) {
+        return this.request('getMessage', { modelId: modelId || this.loadedModels[0] }, 10000);
+      }
+
+      interruptGenerate() {
+        this.request('interruptGenerate', null, 5000).catch(() => {});
+      }
+
+      async *streamChat(request) {
+        const selectedModelId = request.model || this.loadedModels[0];
+        const streamId = uuid();
+        let completed = false;
+        await this.request('chatCompletionStreamInit', {
+          request: { ...request, stream: true },
+          selectedModelId,
+          streamId,
+          modelId: this.loadedModels,
+          chatOpts: this.chatOpts,
+        }, 60000);
+        try {
+          while (true) {
+            const chunk = await this.request('completionStreamNextChunk', { streamId }, 60000);
+            if (typeof chunk !== 'object' || chunk === null) {
+              completed = true;
+              return;
+            }
+            yield chunk;
+          }
+        } finally {
+          if (!completed) {
+            await this.request('completionStreamReturn', { streamId }, 5000).catch(() => {});
+          }
+        }
+      }
+
+      terminate() {
+        for (const p of this.pending.values()) clearTimeout(p.timer);
+        this.pending.clear();
+        try { this.worker.terminate(); } catch {}
+      }
+    }
+
+    // ═══════════════════════════════════════════════════════════════════════════
+    // 2. 小蠢 3D 舞台帧耗时示波器与 30fps 推理让步钩子
+    // ═══════════════════════════════════════════════════════════════════════════
+    const iframe = document.getElementById('xc-iframe');
+    const fpsCanvas = document.getElementById('fps-canvas');
+    const fpsCtx = fpsCanvas.getContext('2d');
+    const elXcFps = document.getElementById('m-xc-fps');
+    const elMinFps = document.getElementById('m-min-fps');
+    const elJank = document.getElementById('m-jank');
+    const elPhase = document.getElementById('m-phase');
+    const elHookStatus = document.getElementById('xc-hook-status');
+    const cap30Toggle = document.getElementById('cap-30fps-toggle');
+
+    let gpuPhase = 'idle'; // 'idle' | 'load' | 's1' | 'prefill' | 'decode'
+    function setGpuPhase(p) {
+      gpuPhase = p;
+      elPhase.textContent = p.toUpperCase();
+      elPhase.style.color =
+        p === 'load' ? '#34d399' :
+        p === 'prefill' ? '#fb923c' :
+        p === 'decode' ? '#a78bfa' :
+        p === 's1' ? '#38bdf8' : '#939db0';
+    }
+
+    const HISTORY_LEN = 320;
+    const frameHistory = []; // { dt, phase }
+    let turnFrameStats = null;
+
+    function beginTurnFrameMonitor() {
+      turnFrameStats = { maxDt: 0, jank25: 0, jank50: 0, frames: 0, sumDt: 0 };
+    }
+
+    function recordFrameDt(dt) {
+      if (dt <= 0 || (dt > 2000 && document.visibilityState !== 'visible')) return;
+      frameHistory.push({ dt, phase: gpuPhase });
+      if (frameHistory.length > HISTORY_LEN) frameHistory.shift();
+      if (turnFrameStats && gpuPhase !== 'idle') {
+        turnFrameStats.frames++;
+        turnFrameStats.sumDt += dt;
+        if (dt > turnFrameStats.maxDt) turnFrameStats.maxDt = dt;
+        if (dt > 25) turnFrameStats.jank25++;
+        if (dt > 50) turnFrameStats.jank50++;
+      }
+    }
+
+    let hookedWin = null;
+    let skipToggle = false;
+    let pendingCanvasCaptureResolve = null;
+
+    function tryHookIframeRaf() {
+      try {
+        const cw = iframe.contentWindow;
+        if (!cw || cw === hookedWin) return;
+        const origRaf = cw.requestAnimationFrame.bind(cw);
+        let lastTs = 0;
+        cw.requestAnimationFrame = (cb) => {
+          return origRaf((ts) => {
+            // 若开启「推理期 3D 限 30fps」，在 prefill / decode / s1 阶段隔帧跳过渲染回调
+            if (cap30Toggle.checked && gpuPhase !== 'idle') {
+              skipToggle = !skipToggle;
+              if (skipToggle) {
+                cw.requestAnimationFrame(cb);
+                return;
+              }
+            }
+            if (lastTs > 0) {
+              recordFrameDt(ts - lastTs);
+            }
+            lastTs = ts;
+            cb(ts);
+            // 在 Three.js WebGL2 单帧刚画完、交换缓冲区前同步抓帧，无需开启 preserveDrawingBuffer
+            if (pendingCanvasCaptureResolve) {
+              const resolver = pendingCanvasCaptureResolve;
+              pendingCanvasCaptureResolve = null;
+              try {
+                const cvs = iframe.contentDocument?.querySelector('canvas');
+                resolver(cvs ? cvs.toDataURL('image/png') : null);
+              } catch (err) {
+                console.warn('[LiveBench] canvas capture in rAF failed:', err);
+                resolver(null);
+              }
+            }
+          });
+        };
+        hookedWin = cw;
+        elHookStatus.textContent = '已直连小蠢 /embed WebGL2 rAF 探针';
+      } catch (e) {
+        elHookStatus.textContent = '回退宿主 rAF 探针: ' + e.message;
+      }
+    }
+
+    function captureXiaoChunCanvasDataUrl() {
+      return new Promise((resolve, reject) => {
+        const cvs = iframe.contentDocument?.querySelector('canvas');
+        if (!cvs) {
+          reject(new Error('未找到左侧小蠢 3D 画布，请等待 /embed 加载完成'));
+          return;
+        }
+        if (!hookedWin || document.getElementById('scene-select').value === 'pause') {
+          try {
+            resolve({ dataUrl: cvs.toDataURL('image/png'), width: cvs.width, height: cvs.height });
+          } catch (e) {
+            reject(e);
+          }
+          return;
+        }
+        const timer = setTimeout(() => {
+          if (pendingCanvasCaptureResolve) {
+            pendingCanvasCaptureResolve = null;
+            try {
+              resolve({ dataUrl: cvs.toDataURL('image/png'), width: cvs.width, height: cvs.height });
+            } catch (e) {
+              reject(e);
+            }
+          }
+        }, 350);
+        pendingCanvasCaptureResolve = (dataUrl) => {
+          clearTimeout(timer);
+          if (!dataUrl) {
+            reject(new Error('3D 画布截图为空'));
+            return;
+          }
+          resolve({ dataUrl, width: cvs.width, height: cvs.height });
+        };
+      });
+    }
+
+    iframe.addEventListener('load', () => {
+      hookedWin = null;
+      tryHookIframeRaf();
+    });
+    setInterval(tryHookIframeRaf, 1000);
+
+    // 宿主侧画波形 & 若 3D 暂停则用宿主帧率兜底显示
+    let hostLastTs = 0;
+    function drawOscilloscope(ts) {
+      if (!hookedWin || document.getElementById('scene-select').value === 'pause') {
+        if (hostLastTs > 0) recordFrameDt(ts - hostLastTs);
+      }
+      hostLastTs = ts;
+
+      const w = fpsCanvas.width;
+      const h = fpsCanvas.height;
+      fpsCtx.clearRect(0, 0, w, h);
+
+      // 60fps (16.7ms) 与 30fps (33.3ms) 参考线 (量程 0~66.7ms)
+      const y60 = h - (16.67 / 66.7) * h;
+      const y30 = h - (33.33 / 66.7) * h;
+      fpsCtx.strokeStyle = 'rgba(52, 211, 153, 0.35)';
+      fpsCtx.beginPath(); fpsCtx.moveTo(0, y60); fpsCtx.lineTo(w, y60); fpsCtx.stroke();
+      fpsCtx.strokeStyle = 'rgba(251, 191, 36, 0.35)';
+      fpsCtx.beginPath(); fpsCtx.moveTo(0, y30); fpsCtx.lineTo(w, y30); fpsCtx.stroke();
+
+      const barW = w / HISTORY_LEN;
+      for (let i = 0; i < frameHistory.length; i++) {
+        const item = frameHistory[i];
+        const clamped = Math.min(item.dt, 66.7);
+        const barH = Math.max(2, (clamped / 66.7) * h);
+        fpsCtx.fillStyle =
+          item.phase === 'prefill' ? '#fb923c' :
+          item.phase === 'decode' ? '#a78bfa' :
+          item.phase === 's1' ? '#38bdf8' :
+          item.dt > 33.3 ? '#f87171' : '#4b5563';
+        fpsCtx.fillRect(i * barW, h - barH, Math.max(1.2, barW - 0.5), barH);
+      }
+
+      // 更新顶部数字指标 (取最近 30 帧均值)
+      if (frameHistory.length >= 5) {
+        const recent = frameHistory.slice(-30);
+        const avgDt = recent.reduce((s, x) => s + x.dt, 0) / recent.length;
+        const fps = Math.min(120, 1000 / Math.max(avgDt, 1));
+        elXcFps.textContent = document.getElementById('scene-select').value === 'pause'
+          ? '已暂停 (宿主 ' + fps.toFixed(0) + ')'
+          : fps.toFixed(1) + ' FPS (' + avgDt.toFixed(1) + 'ms)';
+      }
+
+      if (turnFrameStats && turnFrameStats.maxDt > 0) {
+        const minFps = 1000 / turnFrameStats.maxDt;
+        elMinFps.textContent = `${minFps.toFixed(0)} FPS / ${turnFrameStats.maxDt.toFixed(1)}ms`;
+        elJank.textContent = `${turnFrameStats.jank25} / ${turnFrameStats.jank50}`;
+      }
+
+      requestAnimationFrame(drawOscilloscope);
+    }
+    requestAnimationFrame(drawOscilloscope);
+
+    // 场景与负载切换
+    document.getElementById('scene-select').addEventListener('change', (e) => {
+      const val = e.target.value;
+      const eng = iframe.contentWindow?.vrmEngine;
+      if (val === 'pause') {
+        eng?.suspendRendering?.();
+        elHookStatus.textContent = '小蠢 3D 渲染已挂起 (0 WebGL 抢占基准)';
+        return;
+      }
+      eng?.resumeRendering?.();
+      iframe.src = `/embed?scene=${encodeURIComponent(val)}&ui=bubble,outfit,scene`;
+    });
+
+    let danceLoopActive = false;
+    document.getElementById('dance-stress-btn').addEventListener('click', async (e) => {
+      const btn = e.currentTarget;
+      const eng = iframe.contentWindow?.vrmEngine;
+      if (!eng || !eng.isReady?.()) {
+        alert('请等待左侧小蠢 3D 模型加载完成');
+        return;
+      }
+      try {
+        if (danceLoopActive) {
+          eng.stopMotion?.(0.6);
+          danceLoopActive = false;
+          btn.textContent = '触发动作负载';
+        } else {
+          await eng.playMotion('/vrm/motion/belly-dance.vrma', { fadeDuration: 0.6, loop: true });
+          danceLoopActive = true;
+          btn.textContent = '停止动作负载';
+        }
+      } catch (err) {
+        console.warn('playMotion error:', err);
+      }
+    });
+
+    // ═══════════════════════════════════════════════════════════════════════════
+    // 3. WebGPU 设备探测
+    // ═══════════════════════════════════════════════════════════════════════════
+    const elGpuInfo = document.getElementById('gpu-info');
+    (async () => {
+      if (!navigator.gpu) {
+        elGpuInfo.textContent = '当前浏览器未启用 WebGPU (请使用 Chrome / Edge 113+ 或开启 WebGPU)';
+        elGpuInfo.classList.add('err');
+        return;
+      }
+      try {
+        const adapter = await navigator.gpu.requestAdapter({ powerPreference: 'high-performance' });
+        if (!adapter) {
+          elGpuInfo.textContent = '未获取到 WebGPU Adapter';
+          return;
+        }
+        const info = adapter.info || (await adapter.requestAdapterInfo?.()) || {};
+        const hasF16 = adapter.features.has('shader-f16');
+        const maxBufMB = Math.round((adapter.limits.maxBufferSize || 0) / 1048576);
+        const maxBindMB = Math.round((adapter.limits.maxStorageBufferBindingSize || 0) / 1048576);
+        elGpuInfo.textContent =
+          `GPU: ${info.description || info.vendor || 'WebGPU Device'} (${info.architecture || 'arch'}) · ` +
+          `shader-f16: ${hasF16 ? '支持' : '不支持'} · maxBuffer: ${maxBufMB}MB · maxBinding: ${maxBindMB}MB`;
+      } catch (err) {
+        elGpuInfo.textContent = 'WebGPU 检测异常: ' + err.message;
+      }
+    })();
+
+    // ═══════════════════════════════════════════════════════════════════════════
+    // 4. 模型管理与三种架构推理管线
+    // ═══════════════════════════════════════════════════════════════════════════
+    let currentMode = 'kv-fast'; // 'baseline' | 'kv-fast' | 'dual-live'
+    let s2Client = null;
+    let s1Client = null; // 独立 Worker 时持有；shared 模式下复用 s2Client
+    let loadedConfigSig = '';
+    let isGenerating = false;
+    let abortRequested = false;
+
+    const systemPromptZhEn =
+      '你是小蠢（XiaoChun），一个自然、灵动、像真人朋友一样聊天的双语 AI 伙伴。' +
+      '用户说中文你就用自然口语中文回答，用户说英文就用自然英文回答，中英混说也可以自然接住。' +
+      '直接说话，不要输出括号动作描写，控制在 2~3 句以内。';
+
+    const s1PromptZhEn =
+      'You are a fast conversational reflex assistant. Reply with ONLY a natural 4-10 word spoken reaction/acknowledgment matching the user language (Chinese if Chinese, English if English) that leads into thinking, ending with "—" or "，". Never answer factual details yet.';
+
+    let conversationHistory = []; // { role, content }
+    let turnCounter = 0;
+    const telemetryRecords = [];
+
+    const elLoadBtn = document.getElementById('load-models-btn');
+    const elUnloadBtn = document.getElementById('unload-models-btn');
+    const elProgressFill = document.getElementById('load-progress-fill');
+    const elLoadStatus = document.getElementById('load-status');
+    const elChatLog = document.getElementById('chat-log');
+    const elTbody = document.getElementById('telemetry-tbody');
+    const elStopBtn = document.getElementById('stop-btn');
+    const elSendBtn = document.getElementById('send-btn');
+
+    document.querySelectorAll('.mode-btn').forEach((btn) => {
+      btn.addEventListener('click', () => {
+        document.querySelectorAll('.mode-btn').forEach((b) => b.classList.remove('active'));
+        btn.classList.add('active');
+        currentMode = btn.dataset.mode;
+      });
+    });
+
+    function buildAppConfig(prebuiltList, hfBase) {
+      const cleanBase = hfBase.replace(/\/+$/, '');
+      const customModels = [
+        {
+          model: `${cleanBase}/m070122/MiniCPM-V-4.7-1B-q4f16_1-MLC`,
+          model_id: 'MiniCPM-V-4.7-1B-q4f16_1-MLC',
+          model_lib: '/wasm/MiniCPM-V-4.7-1B-q4f16_1-4x-8378eafa-webgpu.wasm',
+          model_manifest: '/wasm/MiniCPM-V-4.7-1B-q4f16_1-4x-8378eafa-manifest.json',
+          vram_required_MB: 1850,
+          buffer_size_required_bytes: 268435456,
+          low_resource_required: false,
+          required_features: ['shader-f16'],
+          overrides: { context_window_size: 4096 },
+        },
+        {
+          model: `${cleanBase}/ozhyhinas/MiniCPM5-2B-q4f16_1-MLC`,
+          model_id: 'MiniCPM5-2B-q4f16_1-MLC',
+          model_lib: `${cleanBase}/ozhyhinas/MiniCPM5-2B-q4f16_1-MLC/resolve/main/libs/MiniCPM5-2B-q4f16_1-MLC-webgpu.wasm`,
+          vram_required_MB: 1600,
+          low_resource_required: false,
+          overrides: { context_window_size: 4096 },
+        },
+      ];
+      const mappedPrebuilt = prebuiltList.map((m) => ({
+        ...m,
+        model: cleanBase === 'https://huggingface.co'
+          ? m.model
+          : String(m.model).replace('https://huggingface.co', cleanBase),
+      }));
+      return {
+        model_list: [...customModels, ...mappedPrebuilt],
+        cacheBackend: typeof caches !== 'undefined' ? 'cache' : 'indexeddb',
+      };
+    }
+
+    function getSelectedPacingOptions() {
+      const profile = document.getElementById('pacing-profile-select')?.value || 'desktop';
+      if (profile === 'off') {
+        return { preset: 'desktop', enabled: false };
+      }
+      if (profile === 'mobile') {
+        return { preset: 'mobile', enabled: true };
+      }
+      return { preset: 'desktop', enabled: true };
+    }
+
+    function isVisionModel(modelId) {
+      return /^(MiniCPM-V-4\.7|Phi-3\.5-vision|gemma-4)/i.test(String(modelId || ''));
+    }
+
+    // 仅对原生内置 <think> 模板的推理模型传 enable_thinking，避免向 Qwen2.5 / SmolLM2 注入非法标签污染输出
+    function supportsThinkingFlag(modelId) {
+      return /^(Qwen3|MiniCPM5|DeepSeek-R1)/i.test(String(modelId || ''));
+    }
+
+    function buildThinkingExtraBody(modelId, enableThinking) {
+      if (!supportsThinkingFlag(modelId)) return {};
+      return { extra_body: { enable_thinking: Boolean(enableThinking) } };
+    }
+
+    async function ensureModelsLoaded() {
+      const s2Model = document.getElementById('s2-model-select').value;
+      const s1Model = document.getElementById('s1-model-select').value;
+      const hfBase = document.getElementById('hf-endpoint-select').value;
+      const ctxWin = Number(document.getElementById('ctx-window-select').value) || 2048;
+      const dualSched = document.getElementById('dual-sched-select').value;
+      const pacingProfile = document.getElementById('pacing-profile-select')?.value || 'desktop';
+      const needDual = currentMode === 'dual-live' && dualSched !== 'single-2pass' && s1Model !== s2Model;
+      const effectiveS2Ctx = needDual ? Math.min(ctxWin, 1024) : ctxWin;
+      const sig = `${s2Model}|${needDual ? s1Model : 'none'}|${needDual ? dualSched : 'single'}|${hfBase}|${effectiveS2Ctx}|${pacingProfile}`;
+
+      if (s2Client && loadedConfigSig === sig) return;
+
+      await unloadAllModels();
+      elLoadBtn.disabled = true;
+
+      const onWorkerFatal = (err) => {
+        console.warn('[LiveBench] Worker fatal/timeout:', err);
+        loadedConfigSig = '';
+      };
+
+      beginTurnFrameMonitor();
+      setGpuPhase('load');
+      const loadStart = performance.now();
+
+      try {
+        elLoadStatus.textContent = '正在启动 WebGPU Worker…';
+        const w2 = await createLlmWorkerInstance();
+        s2Client = new BenchMLCClient(w2, (r) => {
+          const pct = Math.round((r.progress || 0) * 100);
+          elProgressFill.style.width = `${pct}%`;
+          elLoadStatus.textContent = `[主引擎] ${r.text || ''}`;
+        }, onWorkerFatal);
+        const pacingOpts = getSelectedPacingOptions();
+        s2Client.setFramePacing(pacingOpts);
+        const prebuilt = await s2Client.getModelList();
+        const appCfg = buildAppConfig(prebuilt, hfBase);
+        s2Client.setAppConfig(appCfg);
+
+        if (needDual && dualSched === 'shared') {
+          elLoadStatus.textContent = `正在单 Worker 加载双模型 (WebLLM 内部仍会建 2 个 GPUDevice): ${s1Model} (ctx=256) + ${s2Model} (ctx=${effectiveS2Ctx})…`;
+          await s2Client.reload(
+            [s1Model, s2Model],
+            [
+              { context_window_size: 256, prefill_chunk_size: 256 },
+              { context_window_size: effectiveS2Ctx },
+            ],
+          );
+          s1Client = s2Client;
+        } else {
+          elLoadStatus.textContent = `正在加载主模型 ${s2Model} (ctx=${effectiveS2Ctx})…`;
+          await s2Client.reload(s2Model, { context_window_size: effectiveS2Ctx });
+
+          if (needDual) {
+            elLoadStatus.textContent = `主模型已就绪，正在加载快模 S1 ${s1Model} (ctx=256)…`;
+            const w1 = await createLlmWorkerInstance();
+            s1Client = new BenchMLCClient(w1, (r) => {
+              const pct = Math.round((r.progress || 0) * 100);
+              elProgressFill.style.width = `${pct}%`;
+              elLoadStatus.textContent = `[快模 S1] ${r.text || ''}`;
+            }, onWorkerFatal);
+            s1Client.setFramePacing(pacingOpts);
+            s1Client.setAppConfig(appCfg);
+            await s1Client.reload(s1Model, { context_window_size: 256, prefill_chunk_size: 256 });
+          } else {
+            s1Client = null;
+          }
+        }
+
+        const loadMs = performance.now() - loadStart;
+        const maxDt = turnFrameStats?.maxDt || 0;
+        const minFps = maxDt > 0 ? (1000 / maxDt) : 0;
+        turnCounter++;
+        recordTelemetryRow({
+          turn: turnCounter,
+          mode: `LOAD[${pacingProfile}]·${s2Model.replace(/-q4f16_1-MLC$/, '')}`,
+          prefillToks: '权重+算子',
+          ttftMs: loadMs,
+          firstSliceMs: loadMs,
+          prefillTps: null,
+          decodeTps: null,
+          minFps,
+          maxDt,
+          j25: turnFrameStats?.jank25 ?? 0,
+          j50: turnFrameStats?.jank50 ?? 0,
+        });
+
+        loadedConfigSig = sig;
+        conversationHistory = [];
+        elProgressFill.style.width = '100%';
+        elLoadStatus.textContent = needDual
+          ? `就绪(双模型 2xGPUDevice): S1=${s1Model}(256) + S2=${s2Model}(${effectiveS2Ctx})`
+          : currentMode === 'dual-live' && dualSched === 'single-2pass'
+            ? `就绪(单GPUDevice双阶段抢答): ${s2Model} (ctx=${effectiveS2Ctx})`
+            : `就绪: ${s2Model} (ctx=${effectiveS2Ctx}) · 加载期最低 ${minFps.toFixed(0)} FPS (max ${maxDt.toFixed(1)}ms)`;
+        elUnloadBtn.disabled = false;
+      } catch (err) {
+        elLoadStatus.textContent = '模型加载失败: ' + (err?.message || String(err));
+        await unloadAllModels(true);
+        throw err;
+      } finally {
+        setGpuPhase('idle');
+        elLoadBtn.disabled = false;
+      }
+    }
+
+    async function unloadAllModels(keepStatus = false) {
+      if (s1Client && s1Client !== s2Client) {
+        try { await s1Client.unload(); } catch {}
+        s1Client.terminate();
+      }
+      if (s2Client) {
+        try { await s2Client.unload(); } catch {}
+        s2Client.terminate();
+      }
+      s1Client = null;
+      s2Client = null;
+      loadedConfigSig = '';
+      elUnloadBtn.disabled = true;
+      elProgressFill.style.width = '0%';
+      if (!keepStatus) elLoadStatus.textContent = '已释放全部 WebGPU 模型显存。';
+    }
+
+    elLoadBtn.addEventListener('click', () => {
+      ensureModelsLoaded().catch((e) => console.error(e));
+    });
+    elUnloadBtn.addEventListener('click', () => {
+      unloadAllModels();
+    });
+
+    // ═══════════════════════════════════════════════════════════════════════════
+    // 5. 流式语音队列 (联动小蠢 /embed speakText 或 WebSpeech)
+    // ═══════════════════════════════════════════════════════════════════════════
+    let speechPendingTexts = [];
+    let speechDraining = false;
+    let speechGenerationId = 0;
+
+    function stopSpeechPlayback() {
+      speechGenerationId++;
+      speechPendingTexts = [];
+      try { speechSynthesis.cancel(); } catch {}
+      try { iframe.contentWindow?.vrmEngine?.chatDirector?.stop?.(); } catch {}
+    }
+
+    function enqueueSpeechClause(text) {
+      const clean = text.replace(/<think>[\s\S]*?<\/think>/g, '').trim();
+      if (!clean) return;
+      const ttsMode = document.getElementById('tts-mode-select').value;
+      if (ttsMode === 'none') return;
+
+      if (ttsMode === 'webspeech') {
+        const u = new SpeechSynthesisUtterance(clean);
+        u.lang = /[\u4e00-\u9fa5]/.test(clean) ? 'zh-CN' : 'en-US';
+        u.rate = 1.08;
+        speechSynthesis.speak(u);
+        return;
+      }
+
+      speechPendingTexts.push(clean);
+      if (!speechDraining) {
+        void drainXiaoChunSpeech(speechGenerationId);
+      }
+    }
+
+    async function drainXiaoChunSpeech(genId) {
+      speechDraining = true;
+      try {
+        while (speechPendingTexts.length > 0 && genId === speechGenerationId) {
+          // 合并排队中的句子一次性交给 ChatDirector 流式播报，避免句间自我打断
+          const batch = speechPendingTexts.splice(0, speechPendingTexts.length).join(' ');
+          const eng = iframe.contentWindow?.vrmEngine;
+          if (eng?.speakText) {
+            await eng.speakText(batch, undefined, { preserveMotion: true });
+          }
+        }
+      } catch (err) {
+        console.warn('[LiveBench] speakText error:', err);
+      } finally {
+        speechDraining = false;
+      }
+    }
+
+    // 切句辅助：首片极短 (minFirstChars)，后续按句末标点
+    function popReadyClause(buffer, isFirstClause, minFirstChars) {
+      const stripped = buffer.replace(/^<think>[\s\S]*?<\/think>\s*/, '');
+      if (stripped.startsWith('<think>')) return null; // 思考块尚未闭合
+      const punctRe = isFirstClause
+        ? /[，。！？；,.!?;—\n]/g
+        : /[。！？.!?\n]/g;
+      let match;
+      while ((match = punctRe.exec(stripped)) !== null) {
+        const idx = match.index + 1;
+        const candidate = stripped.slice(0, idx).trim();
+        if (candidate.length >= (isFirstClause ? minFirstChars : 16)) {
+          return { clause: candidate, rest: stripped.slice(idx) };
+        }
+      }
+      return null;
+    }
+
+    // ═══════════════════════════════════════════════════════════════════════════
+    // 6. 核心对话执行器 (A / B / C 三模式 + 精确延迟采样)
+    // ═══════════════════════════════════════════════════════════════════════════
+    function appendLogMessage(cls, html) {
+      const div = document.createElement('div');
+      div.className = 'msg ' + cls;
+      div.innerHTML = html;
+      elChatLog.appendChild(div);
+      elChatLog.scrollTop = elChatLog.scrollHeight;
+      return div;
+    }
+
+    function escapeHtml(s) {
+      return String(s)
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;');
+    }
+
+    // 多模态视觉附件管理 (支持上传文件 / 标准测试卡 / 实时抓取左侧小蠢 3D 画面)
+    let pendingAttachment = null; // { dataUrl, label }
+    const elImgFileInput = document.getElementById('image-file-input');
+    const elImgPreviewWrap = document.getElementById('img-preview-wrap');
+    const elImgPreviewThumb = document.getElementById('img-preview-thumb');
+    const elImgPreviewMeta = document.getElementById('img-preview-meta');
+
+    function setPendingAttachment(att) {
+      pendingAttachment = att;
+      if (!att) {
+        elImgPreviewWrap.classList.remove('visible');
+        elImgPreviewThumb.removeAttribute('src');
+        elImgPreviewMeta.textContent = '';
+        return;
+      }
+      elImgPreviewThumb.src = att.dataUrl;
+      elImgPreviewMeta.textContent = `已附带视觉输入: ${att.label} (发送时随本轮消息一同送入 VLM 编码器)`;
+      elImgPreviewWrap.classList.add('visible');
+    }
+
+    function blobToDataUrl(blob) {
+      return new Promise((resolve, reject) => {
+        const reader = new FileReader();
+        reader.onload = () => resolve(String(reader.result));
+        reader.onerror = () => reject(reader.error || new Error('读取图片失败'));
+        reader.readAsDataURL(blob);
+      });
+    }
+
+    document.getElementById('upload-img-btn').addEventListener('click', () => {
+      elImgFileInput.value = '';
+      elImgFileInput.click();
+    });
+
+    elImgFileInput.addEventListener('change', async () => {
+      const file = elImgFileInput.files?.[0];
+      if (!file) return;
+      const dataUrl = await blobToDataUrl(file);
+      setPendingAttachment({ dataUrl, label: `${file.name} (${Math.round(file.size / 1024)}KB)` });
+    });
+
+    function synthesizeTestCard448DataUrl() {
+      const cv = document.createElement('canvas');
+      cv.width = 448;
+      cv.height = 448;
+      const g = cv.getContext('2d');
+      g.fillStyle = '#f8fafc';
+      g.fillRect(0, 0, 448, 448);
+      // Red circle (top-left)
+      g.fillStyle = '#ef4444';
+      g.beginPath();
+      g.arc(112, 112, 72, 0, Math.PI * 2);
+      g.fill();
+      // Blue square (top-right)
+      g.fillStyle = '#2563eb';
+      g.fillRect(264, 40, 144, 144);
+      // Green triangle (bottom-left)
+      g.fillStyle = '#16a34a';
+      g.beginPath();
+      g.moveTo(112, 248);
+      g.lineTo(40, 396);
+      g.lineTo(184, 396);
+      g.closePath();
+      g.fill();
+      // Yellow OCR box (bottom-right)
+      g.fillStyle = '#fef08a';
+      g.strokeStyle = '#ca8a04';
+      g.lineWidth = 4;
+      g.fillRect(244, 256, 176, 136);
+      g.strokeRect(244, 256, 176, 136);
+      g.fillStyle = '#0f172a';
+      g.font = 'bold 28px ui-monospace, Menlo, monospace';
+      g.textAlign = 'center';
+      g.fillText('VLM 2026', 332, 316);
+      g.font = 'bold 24px ui-monospace, Menlo, monospace';
+      g.fillText('42.7%', 332, 358);
+      return cv.toDataURL('image/png');
+    }
+
+    document.getElementById('attach-testcard-btn').addEventListener('click', () => {
+      try {
+        const dataUrl = synthesizeTestCard448DataUrl();
+        setPendingAttachment({ dataUrl, label: 'test_card_448.png (448×448 标准几何+文字测试卡)' });
+        const input = document.getElementById('chat-input');
+        if (!input.value.trim()) {
+          input.value = '请用中文准确描述这张图里的几何形状、各自颜色，以及框内的英文与数字内容。';
+        }
+      } catch (err) {
+        appendLogMessage('assistant', '加载测试卡失败: ' + escapeHtml(err.message));
+      }
+    });
+
+    document.getElementById('capture-stage-btn').addEventListener('click', async () => {
+      try {
+        const snap = await captureXiaoChunCanvasDataUrl();
+        setPendingAttachment({ dataUrl: snap.dataUrl, label: `小蠢 3D 实时截图 (${snap.width}×${snap.height})` });
+        const input = document.getElementById('chat-input');
+        if (!input.value.trim()) {
+          input.value = '请看看这张画面里的人物形象、服饰和背景环境，用两三句话自然描述你看到了什么。';
+        }
+      } catch (err) {
+        appendLogMessage('assistant', '截取 3D 画面失败: ' + escapeHtml(err.message));
+      }
+    });
+
+    document.getElementById('clear-img-btn').addEventListener('click', () => {
+      setPendingAttachment(null);
+    });
+
+    function synthesizeLargeBenchImages() {
+      // 1. Fallback 1024x503 dark 3-column troubleshooting table (if /__bench_user_1024x503.png is absent)
+      const makeUserFallback = () => {
+        const cv = document.createElement('canvas');
+        cv.width = 1024;
+        cv.height = 503;
+        const g = cv.getContext('2d');
+        g.fillStyle = '#0a0a0c';
+        g.fillRect(0, 0, 1024, 503);
+        g.fillStyle = '#e5e7eb';
+        g.font = '16px "PingFang SC", sans-serif';
+        g.fillText('对，我直接跑像素取样量了一下你发来的截图，查清原因并顺手把两处隐患都修了：', 48, 86);
+        const cols = [48, 340, 632, 976];
+        g.strokeStyle = '#27272a';
+        g.strokeRect(48, 115, 928, 220);
+        g.fillStyle = '#18181b';
+        g.fillRect(48, 115, 928, 44);
+        g.fillStyle = '#f4f4f5';
+        g.font = 'bold 15px "PingFang SC", sans-serif';
+        g.fillText('原因拆解', 64, 143);
+        g.fillText('为什么“偶尔”出现', 356, 143);
+        g.fillText('已落地修复 ( ChatBar.tsx )', 648, 143);
+        g.font = '14px "PingFang SC", sans-serif';
+        g.fillText('1. 外框原有 p-0.5 (2px 深色内边距)', 64, 192);
+        g.fillText('+ 截图顶部自带深色栏撞色', 64, 214);
+        g.fillText('顶部 rgb(40,40,40) 与外框融成一片', 356, 192);
+        g.fillText('视觉上像顶部 pt 特别大', 356, 214);
+        g.fillText('去掉缩略图外框多余的 p-0.5，直接铺满', 648, 192);
+        g.fillText('2. 大尺寸透明边缘 PNG 转 JPEG 变纯黑', 64, 268);
+        g.fillText('超过 768px 透明边缘默认变 #000000', 356, 268);
+        g.fillText('在 toImageDataUrl 导出前垫 #ffffff 白底', 648, 268);
+        return cv.toDataURL('image/png');
+      };
+
+      // 2. Ultra-wide 2200x550 (4:1) 4-column report
+      const makeUltraWide = () => {
+        const cv = document.createElement('canvas');
+        cv.width = 2200;
+        cv.height = 550;
+        const g = cv.getContext('2d');
+        g.fillStyle = '#f8fafc';
+        g.fillRect(0, 0, 2200, 550);
+        g.fillStyle = '#0f172a';
+        g.fillRect(30, 30, 2140, 80);
+        g.fillStyle = '#f8fafc';
+        g.font = 'bold 30px "PingFang SC", sans-serif';
+        g.fillText('2026-Q3 边缘推理集群 · 超宽全景运营报表 (2200×550)', 60, 80);
+        const cols = [
+          [30, 525, '区域与负责人', ['季度节点: 2026-Q3 华东区', '负责人: 林知夏', '机房代号: HZ-West-03']],
+          [568, 525, '终端规模与在线率', ['活跃设备: 18,420 台', '在线率: 99.4%', '峰值并发: 3,280 路']],
+          [1106, 525, '推理性能指标', ['首字延迟 TTFT: 312 ms', '解码吞吐率: 68.5 tok/s', '帧率抖动: < 1.2 ms']],
+          [1644, 526, '财务结算与核验', ['月度结算金额: ¥482,900', '同比降本: 37.8%', '审计核验码: XC-9047']],
+        ];
+        for (const [x, w, title, lines] of cols) {
+          g.fillStyle = '#ffffff';
+          g.fillRect(x, 135, w, 380);
+          g.strokeStyle = '#cbd5e1';
+          g.lineWidth = 3;
+          g.strokeRect(x, 135, w, 380);
+          g.fillStyle = '#e2e8f0';
+          g.fillRect(x, 135, w, 70);
+          g.fillStyle = '#0f172a';
+          g.font = 'bold 26px "PingFang SC", sans-serif';
+          g.fillText(title, x + 24, 180);
+          g.font = '24px "PingFang SC", sans-serif';
+          g.fillStyle = '#1e293b';
+          lines.forEach((line, idx) => g.fillText(line, x + 24, 265 + idx * 82));
+        }
+        return cv.toDataURL('image/png');
+      };
+
+      // 3. Tall vertical 750x2250 (1:3) coffee receipt
+      const makeTallReceipt = () => {
+        const cv = document.createElement('canvas');
+        cv.width = 750;
+        cv.height = 2250;
+        const g = cv.getContext('2d');
+        g.fillStyle = '#fffdf9';
+        g.fillRect(0, 0, 750, 2250);
+        g.fillStyle = '#1c1917';
+        g.fillRect(40, 50, 670, 310);
+        g.fillStyle = '#fef3c7';
+        g.font = 'bold 34px "PingFang SC", sans-serif';
+        g.fillText('星海咖啡 · 电子消费水单', 80, 125);
+        g.fillStyle = '#e7e5e4';
+        g.font = '24px "PingFang SC", sans-serif';
+        g.fillText('门店: 上海徐汇滨江店', 80, 195);
+        g.fillStyle = '#fde68a';
+        g.font = 'bold 26px "PingFang SC", sans-serif';
+        g.fillText('取餐号: A-308   桌号: 临江 12 号', 80, 255);
+        g.fillStyle = '#a8a29e';
+        g.font = '22px "PingFang SC", sans-serif';
+        g.fillText('下单时间: 2026-11-12 14:25', 80, 315);
+
+        g.fillStyle = '#ffffff';
+        g.fillRect(40, 410, 670, 1330);
+        g.strokeStyle = '#e7e5e4';
+        g.lineWidth = 3;
+        g.strokeRect(40, 410, 670, 1330);
+        g.fillStyle = '#1c1917';
+        g.font = 'bold 28px "PingFang SC", sans-serif';
+        g.fillText('商品明细 (共 4 件)', 80, 480);
+        const items = [
+          ['1. 桂花燕麦拿铁 (热 / 少甜)', '数量 ×1', '¥32.00', 600],
+          ['2. 海盐焦糖可颂 (现烤)', '数量 ×2', '¥36.00', 900],
+          ['3. 宇治抹茶巴斯克蛋糕', '数量 ×1', '¥45.00', 1200],
+          ['4. 会员满减优惠券抵扣', '立减', '-¥15.00', 1500],
+        ];
+        for (const [name, qty, price, y] of items) {
+          g.fillStyle = '#292524';
+          g.font = 'bold 25px "PingFang SC", sans-serif';
+          g.fillText(name, 80, y);
+          g.fillStyle = '#78716c';
+          g.font = '22px "PingFang SC", sans-serif';
+          g.fillText(qty, 80, y + 48);
+          g.fillStyle = '#0f172a';
+          g.font = 'bold 26px "PingFang SC", sans-serif';
+          g.fillText(price, 555, y);
+        }
+
+        g.fillStyle = '#fef3c7';
+        g.fillRect(40, 1790, 670, 400);
+        g.strokeStyle = '#f59e0b';
+        g.strokeRect(40, 1790, 670, 400);
+        g.fillStyle = '#92400e';
+        g.font = 'bold 30px "PingFang SC", sans-serif';
+        g.fillText('实付合计: ¥98.00 (微信支付)', 80, 1870);
+        g.fillStyle = '#451a03';
+        g.font = 'bold 25px "PingFang SC", sans-serif';
+        g.fillText('订单编号: SH-20261112-8842', 80, 1955);
+        g.fillStyle = '#78350f';
+        g.font = '24px "PingFang SC", sans-serif';
+        g.fillText('Wi-Fi 密码: XingHai2026', 80, 2035);
+        g.fillText('发票提取码: FP-6619', 80, 2115);
+        return cv.toDataURL('image/png');
+      };
+
+      // 4. 1080p Full-HD 1920x1080 (16:9) 4-card dashboard
+      const makeHdDashboard = () => {
+        const cv = document.createElement('canvas');
+        cv.width = 1920;
+        cv.height = 1080;
+        const g = cv.getContext('2d');
+        g.fillStyle = '#0b1120';
+        g.fillRect(0, 0, 1920, 1080);
+        g.fillStyle = '#111827';
+        g.fillRect(40, 32, 1840, 80);
+        g.fillStyle = '#f8fafc';
+        g.font = 'bold 30px "PingFang SC", sans-serif';
+        g.fillText('Project XiaoChun · 端侧视觉监控大屏 (1920×1080 Full HD)', 72, 82);
+        g.fillStyle = '#34d399';
+        g.font = 'bold 25px "PingFang SC", sans-serif';
+        g.fillText('运行状态: 60 FPS 满帧稳定', 1460, 82);
+        const cards = [
+          [40, 145, '左上卡片 · GPU 硬件与显存', ['活跃节点: Apple M-Series WebGPU (N-07)', '显存占用: 1.62 GB / 4.00 GB 预算上限', '核心温度: 54°C   功耗: 11.8 W', 'Shader 管线缓存命中率: 98.7%']],
+          [985, 145, '右上卡片 · 视觉编码器配置', ['模型架构: MiniCPM-V-4.7-1B (q4f16_1)', '下采样模式: 4x 高清模式 (256 tokens/tile)', '自适应切片网格: 2×3 动态分块', '权重复用: 100% 复用原 1.54 GB 分片']],
+          [40, 610, '左下卡片 · 3D 动作与语音管线', ['动作驱动: EMAGE 流式全身手势 + FootIK', '语音切片: 25~65 字智能标点断句', '渲染帧耗时 P99: 16.9 ms (零掉帧)', '当前装扮: 夏日海滩 · 下午 16:30 晴空']],
+          [985, 610, '右下卡片 · 安全审计与构建信息', ['构建批次号: BUILD-7721-RC3', '端侧隐私策略: 100% 本地推理 · 零云端上传', '异常告警统计: 0 次 OOM · 0 次设备丢失', '校验指纹: SHA-8378EAFA']],
+        ];
+        for (const [x, y, header, rows] of cards) {
+          g.fillStyle = '#1e293b';
+          g.fillRect(x, y, 895, 430);
+          g.fillStyle = '#0f172a';
+          g.fillRect(x, y, 895, 70);
+          g.strokeStyle = '#475569';
+          g.lineWidth = 2;
+          g.strokeRect(x, y, 895, 430);
+          g.fillStyle = '#38bdf8';
+          g.font = 'bold 26px "PingFang SC", sans-serif';
+          g.fillText(header, x + 28, y + 45);
+          g.fillStyle = '#e2e8f0';
+          g.font = '24px "PingFang SC", sans-serif';
+          rows.forEach((r, idx) => g.fillText(r, x + 28, y + 130 + idx * 76));
+        }
+        return cv.toDataURL('image/png');
+      };
+
+      return { makeUserFallback, makeUltraWide, makeTallReceipt, makeHdDashboard };
+    }
+
+    document.getElementById('bench-vision-hd-btn').addEventListener('click', async () => {
+      if (isGenerating) return;
+      isGenerating = true;
+      abortRequested = false;
+      elSendBtn.disabled = true;
+      elStopBtn.disabled = false;
+
+      document.getElementById('s2-model-select').value = 'MiniCPM-V-4.7-1B-q4f16_1-MLC';
+      document.getElementById('ctx-window-select').value = '4096';
+
+      const statusDiv = appendLogMessage('assistant', '<div id="vision-bench-status">正在加载 MiniCPM-V-4.7-1B (4x 256-token 内置 WASM) 并准备 4 张大图 A/B 压测…</div><pre id="vision-bench-json" style="white-space:pre-wrap;font-size:11px;margin-top:8px;max-height:360px;overflow:auto;"></pre>');
+      const elBenchStatus = statusDiv.querySelector('#vision-bench-status');
+      const elBenchJson = statusDiv.querySelector('#vision-bench-json');
+
+      try {
+        await ensureModelsLoaded();
+        const gen = synthesizeLargeBenchImages();
+        let userImgUrl = null;
+        try {
+          const resp = await fetch('/__bench_user_1024x503.png', { cache: 'no-store' });
+          if (resp.ok && (resp.headers.get('content-type') || '').includes('image')) {
+            userImgUrl = await blobToDataUrl(await resp.blob());
+          }
+        } catch {}
+        if (!userImgUrl) userImgUrl = gen.makeUserFallback();
+
+        const cases = [
+          {
+            id: 'user_1024x503',
+            dims: '1024×503',
+            url: userImgUrl,
+            prompt: '请准确读出这张表格的三列标题，以及两条原因拆解和对应的已落地修复内容。',
+          },
+          {
+            id: 'ultrawide_2200x550',
+            dims: '2200×550',
+            url: gen.makeUltraWide(),
+            prompt: '请读出最左侧的负责人姓名、中间的活跃设备数与首字延迟TTFT、以及最右侧的月度结算金额和审计核验码。',
+          },
+          {
+            id: 'tall_750x2250',
+            dims: '750×2250',
+            url: gen.makeTallReceipt(),
+            prompt: '请读出顶部的门店与取餐号、中间第2和第3项商品名称及价格、以及底部的实付合计、订单编号和发票提取码。',
+          },
+          {
+            id: 'hd_1920x1080',
+            dims: '1920×1080',
+            url: gen.makeHdDashboard(),
+            prompt: '请读出左上卡片的核心温度与功耗、右上卡片的下采样模式、左下卡片的渲染帧耗时P99、以及右下卡片的构建批次号和校验指纹。',
+          },
+        ];
+
+        const results = [];
+        const details = ['low', 'auto'];
+        let idx = 0;
+        for (const c of cases) {
+          for (const detail of details) {
+            if (abortRequested) break;
+            idx++;
+            elBenchStatus.textContent = `[${idx}/8] 正在评测 ${c.id} (${c.dims}) · detail="${detail}" …`;
+            await s2Client.resetChat();
+            beginTurnFrameMonitor();
+            setGpuPhase('prefill');
+            const t0 = performance.now();
+            let ttftMs = null;
+            let usage = null;
+            let reply = '';
+
+            const stream = s2Client.streamChat({
+              model: 'MiniCPM-V-4.7-1B-q4f16_1-MLC',
+              messages: [
+                { role: 'system', content: '你是一个精准的中文视觉助手，请直接、准确地读出图片中的文字、数字与表格信息，不要编造。' },
+                {
+                  role: 'user',
+                  content: [
+                    { type: 'image_url', image_url: { url: c.url, detail } },
+                    { type: 'text', text: c.prompt },
+                  ],
+                },
+              ],
+              max_tokens: 240,
+              temperature: 0,
+              stream_options: { include_usage: true },
+            });
+
+            for await (const chunk of stream) {
+              if (abortRequested) break;
+              if (chunk.usage) usage = chunk.usage;
+              const delta = chunk.choices?.[0]?.delta?.content || '';
+              if (!delta) continue;
+              if (ttftMs === null && delta.trim().length > 0) {
+                ttftMs = performance.now() - t0;
+                setGpuPhase('decode');
+              }
+              reply += delta;
+            }
+            const totalMs = performance.now() - t0;
+            setGpuPhase('idle');
+
+            const maxDt = turnFrameStats?.maxDt || 0;
+            const minFps = maxDt > 0 ? 1000 / maxDt : 0;
+            const prefillTps = usage?.extra?.prefill_tokens_per_s || null;
+            const decodeTps = usage?.extra?.decode_tokens_per_s || null;
+            const promptTokens = usage?.prompt_tokens || 0;
+            const completionTokens = usage?.completion_tokens || 0;
+
+            turnCounter++;
+            recordTelemetryRow({
+              turn: turnCounter,
+              mode: `4x[${detail}]·${c.dims}`,
+              prefillToks: promptTokens,
+              ttftMs,
+              firstSliceMs: ttftMs,
+              prefillTps,
+              decodeTps,
+              minFps,
+              maxDt,
+              j25: turnFrameStats?.jank25 ?? 0,
+              j50: turnFrameStats?.jank50 ?? 0,
+            });
+
+            const item = {
+              id: c.id,
+              dims: c.dims,
+              detail,
+              promptTokens,
+              completionTokens,
+              ttftMs: ttftMs ? Math.round(ttftMs) : null,
+              totalMs: Math.round(totalMs),
+              prefillTps: prefillTps ? Number(prefillTps.toFixed(1)) : null,
+              decodeTps: decodeTps ? Number(decodeTps.toFixed(1)) : null,
+              minFps: Number(minFps.toFixed(1)),
+              maxFrameMs: Number(maxDt.toFixed(1)),
+              jank25: turnFrameStats?.jank25 ?? 0,
+              jank50: turnFrameStats?.jank50 ?? 0,
+              reply: reply.trim(),
+            };
+            results.push(item);
+            elBenchJson.textContent = JSON.stringify({ status: idx === 8 ? 'DONE' : 'RUNNING', completed: idx, results }, null, 2);
+            await new Promise((r) => setTimeout(r, 250));
+          }
+        }
+        elBenchStatus.textContent = `DONE: 已完成全部 ${results.length}/8 组 4x 高清大图 A/B 实测！`;
+        const userAuto = results.find((r) => r.id === 'user_1024x503' && r.detail === 'auto');
+        if (userAuto && document.getElementById('tts-mode-select').value !== 'none') {
+          enqueueSpeechClause(userAuto.reply.slice(0, 80));
+        }
+      } catch (err) {
+        elBenchStatus.textContent = 'ERROR: ' + (err?.message || String(err));
+        elBenchJson.textContent = JSON.stringify({ status: 'ERROR', error: String(err?.stack || err) }, null, 2);
+      } finally {
+        setGpuPhase('idle');
+        isGenerating = false;
+        elSendBtn.disabled = false;
+        elStopBtn.disabled = true;
+      }
+    });
+
+    function buildUserContent(text, imageUrl) {
+      if (!imageUrl) return text;
+      return [
+        { type: 'image_url', image_url: { url: imageUrl } },
+        { type: 'text', text },
+      ];
+    }
+
+    async function runSingleTurn(userText) {
+      if (isGenerating) return;
+      const s2ModelSelected = document.getElementById('s2-model-select').value;
+      if (pendingAttachment && !isVisionModel(s2ModelSelected)) {
+        appendLogMessage(
+          'assistant',
+          `当前所选主模型 (${escapeHtml(s2ModelSelected)}) 为纯文本模型，不支持图片输入。请先在上方切换为 MiniCPM-V-4.7-1B-q4f16_1 或移除图片。`
+        );
+        return;
+      }
+
+      isGenerating = true;
+      abortRequested = false;
+      elSendBtn.disabled = true;
+      elStopBtn.disabled = false;
+
+      const attached = pendingAttachment;
+      setPendingAttachment(null);
+
+      const userHtml = attached
+        ? `<img class="msg-img" src="${attached.dataUrl}" alt="${escapeHtml(attached.label)}" /><div>${escapeHtml(userText)}</div>`
+        : escapeHtml(userText);
+      appendLogMessage('user', userHtml);
+      const botDiv = appendLogMessage('assistant', '<span class="s1-chunk"></span><span class="s2-chunk">…</span><div class="meta">准备中…</div>');
+      const elS1 = botDiv.querySelector('.s1-chunk');
+      const elS2 = botDiv.querySelector('.s2-chunk');
+      const elMeta = botDiv.querySelector('.meta');
+
+      try {
+        await ensureModelsLoaded();
+      } catch (err) {
+        elS2.textContent = '加载失败: ' + err.message;
+        isGenerating = false;
+        elSendBtn.disabled = false;
+        elStopBtn.disabled = true;
+        return;
+      }
+
+      stopSpeechPlayback();
+      const mySpeechGen = speechGenerationId;
+      beginTurnFrameMonitor();
+
+      const s2Model = document.getElementById('s2-model-select').value;
+      const s1Model = document.getElementById('s1-model-select').value;
+      const dualSched = document.getElementById('dual-sched-select').value;
+
+      const tStart = performance.now();
+      let ttftMs = null;
+      let firstSliceMs = null;
+      let usageStats = null;
+      let fullReply = '';
+
+      async function readExactEngineAssistantMessage(client, modelId, fallbackRaw) {
+        try {
+          const msg = await client.getMessage(modelId);
+          if (typeof msg === 'string' && msg.length > 0) return msg;
+        } catch {}
+        return fallbackRaw;
+      }
+
+      const baseModeLabel =
+        (currentMode === 'baseline' ? 'A·现状无KV' :
+        currentMode === 'kv-fast' ? 'B·锁KV快切' :
+        dualSched === 'single-2pass' ? 'C0·单模双阶' :
+        `C·双流(${dualSched})`) + (attached ? '+图' : '');
+
+      try {
+        if (currentMode === 'dual-live' && (dualSched === 'single-2pass' || !s1Client)) {
+          // ── 模式 C0：单 GPUDevice 同模型双阶段抢答 (零额外显存 + 两阶段均命中 KV-Cache) ──
+          setGpuPhase('s1');
+          elS2.textContent = '';
+          elMeta.textContent = `[1/3] C0 阶段1：快反短句预填充与抢答中…`;
+
+          const pass1UserText =
+            `${userText}\n[指令：先只输出半句4~10字的自然口语接话反应（中文对中文、英文对英文，以逗号或破折号结尾），先别展开正文]`;
+          const pass1User = buildUserContent(pass1UserText, attached?.dataUrl);
+          let u1Stats = null;
+          let u2Stats = null;
+          let s1Raw = '';
+
+          const pass1Stream = s2Client.streamChat({
+            model: s2Model,
+            messages: [
+              { role: 'system', content: systemPromptZhEn },
+              ...conversationHistory,
+              { role: 'user', content: pass1User },
+            ],
+            max_tokens: 24,
+            temperature: 0.6,
+            stream_options: { include_usage: true },
+            ...buildThinkingExtraBody(s2Model, false),
+          });
+
+          for await (const chunk of pass1Stream) {
+            if (abortRequested) break;
+            if (chunk.usage) u1Stats = chunk.usage;
+            const delta = chunk.choices?.[0]?.delta?.content || '';
+            if (!delta) continue;
+            const cleanSoFar = (s1Raw + delta).replace(/<think>[\s\S]*?<\/think>/g, '');
+            if (ttftMs === null && cleanSoFar.trim().length > 0 && !cleanSoFar.includes('<think>')) {
+              ttftMs = performance.now() - tStart;
+            }
+            s1Raw += delta;
+            elS1.textContent = cleanSoFar.trimStart();
+          }
+
+          const cleanS1 = s1Raw.replace(/<think>[\s\S]*?<\/think>/g, '').trim();
+          if (cleanS1 && firstSliceMs === null && !abortRequested) {
+            firstSliceMs = performance.now() - tStart;
+            if (mySpeechGen === speechGenerationId) enqueueSpeechClause(cleanS1);
+          }
+
+          if (!abortRequested) {
+            const exactPass1 = await readExactEngineAssistantMessage(s2Client, s2Model, s1Raw);
+            conversationHistory.push({ role: 'user', content: pass1User });
+            conversationHistory.push({ role: 'assistant', content: exactPass1 });
+
+            // 让出 1 帧给 Three.js WebGL2 渲染，避免两阶段紧贴抢占
+            elMeta.textContent = `[2/3] C0 首句已送播 (${firstSliceMs ? firstSliceMs.toFixed(0) : '--'}ms)，复用同 KV 续写正文中…`;
+            await new Promise((r) => requestAnimationFrame(() => r()));
+
+            setGpuPhase('prefill');
+            const pass2User = '[指令：紧接上面那半句自然往下说完正文，不要重复开头，控制在1~2句口语]';
+            let s2Raw = '';
+            let clauseBuf = '';
+
+            const pass2Stream = s2Client.streamChat({
+              model: s2Model,
+              messages: [
+                { role: 'system', content: systemPromptZhEn },
+                ...conversationHistory,
+                { role: 'user', content: pass2User },
+              ],
+              max_tokens: 165,
+              temperature: 0.7,
+              stream_options: { include_usage: true },
+              ...buildThinkingExtraBody(s2Model, false),
+            });
+
+            for await (const chunk of pass2Stream) {
+              if (abortRequested) break;
+              if (chunk.usage) u2Stats = chunk.usage;
+              const delta = chunk.choices?.[0]?.delta?.content || '';
+              if (!delta) continue;
+              setGpuPhase('decode');
+              if (ttftMs === null) ttftMs = performance.now() - tStart;
+              s2Raw += delta;
+              clauseBuf += delta;
+              const visible = s2Raw.replace(/<think>[\s\S]*?<\/think>/g, '').trimStart();
+              elS2.textContent = (cleanS1 ? ' ' : '') + visible;
+
+              const popped = popReadyClause(clauseBuf, false, 12);
+              if (popped) {
+                if (firstSliceMs === null) firstSliceMs = performance.now() - tStart;
+                clauseBuf = popped.rest;
+                if (mySpeechGen === speechGenerationId) enqueueSpeechClause(popped.clause);
+              }
+            }
+
+            const tail = clauseBuf.replace(/<think>[\s\S]*?<\/think>/g, '').trim();
+            if (tail && !abortRequested) {
+              if (firstSliceMs === null) firstSliceMs = performance.now() - tStart;
+              if (mySpeechGen === speechGenerationId) enqueueSpeechClause(tail);
+            }
+
+            const cleanS2 = s2Raw.replace(/<think>[\s\S]*?<\/think>/g, '').trim();
+            fullReply = (cleanS1 ? cleanS1 + ' ' : '') + cleanS2;
+            if (!abortRequested && cleanS2) {
+              const exactPass2 = await readExactEngineAssistantMessage(s2Client, s2Model, s2Raw);
+              conversationHistory.push({ role: 'user', content: pass2User });
+              conversationHistory.push({ role: 'assistant', content: exactPass2 });
+              if (conversationHistory.length > 24) {
+                conversationHistory = conversationHistory.slice(-24);
+              }
+            }
+
+            usageStats = {
+              prompt_tokens: (u1Stats?.prompt_tokens || 0) + (u2Stats?.prompt_tokens || 0),
+              extra: u2Stats?.extra || u1Stats?.extra || {},
+            };
+          }
+        } else if (currentMode === 'dual-live' && s1Client) {
+          // ── 模式 C1/C2/C3：双模型 (WebLLM 2x GPUDevice) System-1 抢答 + System-2 续写 ──
+          setGpuPhase('s1');
+          elS2.textContent = '';
+          elMeta.textContent = `[1/4] S1 快模 (${s1Model}) 正在预填充…`;
+
+          const runS1 = async () => {
+            let s1Text = '';
+            const s1Stream = s1Client.streamChat({
+              model: s1Model,
+              messages: [
+                { role: 'system', content: s1PromptZhEn },
+                { role: 'user', content: userText },
+              ],
+              max_tokens: 20,
+              temperature: 0.6,
+              ...buildThinkingExtraBody(s1Model, false),
+            });
+            for await (const chunk of s1Stream) {
+              if (abortRequested) break;
+              const delta = chunk.choices?.[0]?.delta?.content || '';
+              if (delta) {
+                const cleanDelta = (s1Text + delta).replace(/<think>[\s\S]*?<\/think>/g, '');
+                if (ttftMs === null && cleanDelta.trim().length > 0 && !cleanDelta.includes('<think>')) {
+                  ttftMs = performance.now() - tStart;
+                }
+                s1Text += delta;
+                elS1.textContent = cleanDelta.trimStart();
+              }
+            }
+            const cleanS1 = s1Text.replace(/<think>[\s\S]*?<\/think>/g, '').trim();
+            if (cleanS1 && firstSliceMs === null && !abortRequested) {
+              firstSliceMs = performance.now() - tStart;
+              if (mySpeechGen === speechGenerationId) enqueueSpeechClause(cleanS1);
+            }
+            return cleanS1;
+          };
+
+          let usedUserMsgForS2 = userText;
+          let s2RawCapture = '';
+          const runS2 = async (s1Prefix) => {
+            setGpuPhase('prefill');
+            elMeta.textContent = `[3/4] S2 主模 (${s2Model}) 正在预填充…`;
+            const s2TextPrompt = s1Prefix
+              ? `${userText}\n(补充指令：你刚已开口说了「${s1Prefix}」，请直接顺着往后接正文，不要重复这半句)`
+              : userText;
+            usedUserMsgForS2 = buildUserContent(s2TextPrompt, attached?.dataUrl);
+            const msgs = [
+              { role: 'system', content: systemPromptZhEn },
+              ...conversationHistory,
+              { role: 'user', content: usedUserMsgForS2 },
+            ];
+            let s2Raw = '';
+            let clauseBuf = '';
+            let firstClauseSent = Boolean(s1Prefix);
+
+            const s2Stream = s2Client.streamChat({
+              model: s2Model,
+              messages: msgs,
+              max_tokens: 180,
+              temperature: 0.7,
+              stream_options: { include_usage: true },
+              ...buildThinkingExtraBody(s2Model, false),
+            });
+
+            for await (const chunk of s2Stream) {
+              if (abortRequested) break;
+              if (chunk.usage) usageStats = chunk.usage;
+              const delta = chunk.choices?.[0]?.delta?.content || '';
+              if (!delta) continue;
+              if (gpuPhase !== 'decode') {
+                setGpuPhase('decode');
+                elMeta.textContent = `[4/4] S2 主模流式解码中…`;
+              }
+              if (ttftMs === null) ttftMs = performance.now() - tStart;
+              s2Raw += delta;
+              clauseBuf += delta;
+              const visible = s2Raw.replace(/<think>[\s\S]*?<\/think>/g, '').trimStart();
+              elS2.textContent = (s1Prefix ? ' ' : '') + visible;
+
+              const popped = popReadyClause(clauseBuf, !firstClauseSent, 8);
+              if (popped) {
+                firstClauseSent = true;
+                if (firstSliceMs === null) firstSliceMs = performance.now() - tStart;
+                clauseBuf = popped.rest;
+                if (mySpeechGen === speechGenerationId) enqueueSpeechClause(popped.clause);
+              }
+            }
+            s2RawCapture = s2Raw;
+            const tail = clauseBuf.replace(/<think>[\s\S]*?<\/think>/g, '').trim();
+            if (tail && !abortRequested) {
+              if (firstSliceMs === null) firstSliceMs = performance.now() - tStart;
+              if (mySpeechGen === speechGenerationId) enqueueSpeechClause(tail);
+            }
+            return s2Raw.replace(/<think>[\s\S]*?<\/think>/g, '').trim();
+          };
+
+          let s1Out = '';
+          let s2Out = '';
+          if (dualSched === 'parallel') {
+            const [r1, r2] = await Promise.all([runS1(), runS2('')]);
+            s1Out = r1;
+            s2Out = r2;
+          } else {
+            s1Out = await runS1();
+            if (!abortRequested) {
+              elMeta.textContent = `[2/4] S1 已出声 (${firstSliceMs ? firstSliceMs.toFixed(0) : '--'}ms)，让步 24ms 给 3D 渲染后切 S2…`;
+              await new Promise((r) => setTimeout(r, 24));
+              s2Out = await runS2(s1Out);
+            }
+          }
+          fullReply = (s1Out ? s1Out + ' ' : '') + s2Out;
+          if (!abortRequested && s2Out) {
+            const exactS2 = await readExactEngineAssistantMessage(s2Client, s2Model, s2RawCapture);
+            conversationHistory.push({ role: 'user', content: usedUserMsgForS2 });
+            conversationHistory.push({ role: 'assistant', content: exactS2 });
+            if (conversationHistory.length > 24) {
+              conversationHistory = conversationHistory.slice(-24);
+            }
+          }
+        } else {
+          // ── 模式 A (现状破环 KV) vs 模式 B (严格保住 KV + 8字极速切句) ──
+          setGpuPhase('prefill');
+          elS2.textContent = '';
+
+          const isBaseline = currentMode === 'baseline';
+          const sysContent = isBaseline
+            ? `[动态检索快照 ts=${Date.now()} · 模拟现状每轮改写前缀导致 KV 失效]\n${systemPromptZhEn}\n[近期记忆摘要 turn=${turnCounter}: 用户正在测试端侧推理帧率]`
+            : systemPromptZhEn;
+
+          const userPayload = buildUserContent(userText, attached?.dataUrl);
+          const msgs = [
+            { role: 'system', content: sysContent },
+            ...conversationHistory,
+            { role: 'user', content: userPayload },
+          ];
+
+          const minFirstChars = isBaseline ? 25 : 8;
+          let rawText = '';
+          let clauseBuf = '';
+          let firstClauseSent = false;
+
+          const stream = s2Client.streamChat({
+            model: s2Model,
+            messages: msgs,
+            max_tokens: 180,
+            temperature: 0.7,
+            stream_options: { include_usage: true },
+            ...(isBaseline ? {} : buildThinkingExtraBody(s2Model, false)),
+          });
+
+          for await (const chunk of stream) {
+            if (abortRequested) break;
+            if (chunk.usage) usageStats = chunk.usage;
+            const delta = chunk.choices?.[0]?.delta?.content || '';
+            if (!delta) continue;
+            setGpuPhase('decode');
+            const cleanSoFar = (rawText + delta).replace(/<think>[\s\S]*?<\/think>/g, '');
+            if (ttftMs === null && cleanSoFar.trim().length > 0 && !cleanSoFar.includes('<think>')) {
+              ttftMs = performance.now() - tStart;
+            }
+            rawText += delta;
+            clauseBuf += delta;
+            elS2.textContent = rawText.replace(/<think>[\s\S]*?<\/think>/g, '').trimStart();
+
+            const popped = popReadyClause(clauseBuf, !firstClauseSent, minFirstChars);
+            if (popped) {
+              firstClauseSent = true;
+              if (firstSliceMs === null) firstSliceMs = performance.now() - tStart;
+              clauseBuf = popped.rest;
+              if (mySpeechGen === speechGenerationId) enqueueSpeechClause(popped.clause);
+            }
+          }
+
+          const tail = clauseBuf.replace(/<think>[\s\S]*?<\/think>/g, '').trim();
+          if (tail && !abortRequested) {
+            if (firstSliceMs === null) firstSliceMs = performance.now() - tStart;
+            if (mySpeechGen === speechGenerationId) enqueueSpeechClause(tail);
+          }
+          fullReply = rawText.replace(/<think>[\s\S]*?<\/think>/g, '').trim();
+          if (!abortRequested && fullReply) {
+            // 关键：保存引擎内部精确原始 assistant 字符串（含 <think>\n\n</think>\n\n），确保下一轮 compareConversationObject === true 100% 命中 KV-Cache！
+            const exactAssistant = isBaseline
+              ? fullReply
+              : await readExactEngineAssistantMessage(s2Client, s2Model, rawText);
+            conversationHistory.push({ role: 'user', content: userPayload });
+            conversationHistory.push({ role: 'assistant', content: exactAssistant });
+            if (conversationHistory.length > 24) {
+              conversationHistory = conversationHistory.slice(-24);
+            }
+          }
+        }
+
+        turnCounter++;
+        const totalMs = performance.now() - tStart;
+        const prefillToks = usageStats?.prompt_tokens ?? '--';
+        const prefillTps = usageStats?.extra?.prefill_tokens_per_s;
+        const decodeTps = usageStats?.extra?.decode_tokens_per_s;
+        const maxDt = turnFrameStats?.maxDt || 0;
+        const minFps = maxDt > 0 ? (1000 / maxDt) : 0;
+        const j25 = turnFrameStats?.jank25 ?? 0;
+        const j50 = turnFrameStats?.jank50 ?? 0;
+
+        const modeLabel = abortRequested ? `${baseModeLabel}[打断]` : baseModeLabel;
+
+        elMeta.textContent =
+          `[${modeLabel}] Prefill=${prefillToks} toks | TTFT=${ttftMs ? ttftMs.toFixed(0) : '--'}ms | ` +
+          `首句可播=${firstSliceMs ? firstSliceMs.toFixed(0) : '--'}ms | ` +
+          `Prefill=${prefillTps ? prefillTps.toFixed(1) : '--'} tok/s | ` +
+          `Decode=${decodeTps ? decodeTps.toFixed(1) : '--'} tok/s | ` +
+          `3D最低=${minFps ? minFps.toFixed(0) : '--'}FPS (${maxDt.toFixed(1)}ms) | 总计=${totalMs.toFixed(0)}ms`;
+
+        recordTelemetryRow({
+          turn: turnCounter,
+          mode: modeLabel,
+          prefillToks,
+          ttftMs,
+          firstSliceMs,
+          prefillTps,
+          decodeTps,
+          minFps,
+          maxDt,
+          j25,
+          j50,
+        });
+      } catch (err) {
+        turnCounter++;
+        const maxDt = turnFrameStats?.maxDt || 0;
+        const minFps = maxDt > 0 ? (1000 / maxDt) : 0;
+        const j25 = turnFrameStats?.jank25 ?? 0;
+        const j50 = turnFrameStats?.jank50 ?? 0;
+        elS2.textContent = '推理异常: ' + err.message;
+        elMeta.textContent = `[${baseModeLabel}·异常] ${err.message}`;
+        recordTelemetryRow({
+          turn: turnCounter,
+          mode: `${baseModeLabel}[异常]`,
+          prefillToks: '--',
+          ttftMs,
+          firstSliceMs,
+          prefillTps: null,
+          decodeTps: null,
+          minFps,
+          maxDt,
+          j25,
+          j50,
+        });
+      } finally {
+        setGpuPhase('idle');
+        isGenerating = false;
+        elSendBtn.disabled = false;
+        elStopBtn.disabled = true;
+      }
+    }
+
+    function recordTelemetryRow(r) {
+      telemetryRecords.push(r);
+      const tr = document.createElement('tr');
+      const fpsClass = r.minFps >= 45 ? 'ok' : r.minFps >= 25 ? 'warn' : 'err';
+      const ttftClass = r.ttftMs !== null && r.ttftMs <= 350 ? 'ok' : r.ttftMs <= 900 ? 'warn' : 'err';
+      tr.innerHTML = `
+        <td>#${r.turn}</td>
+        <td>${escapeHtml(r.mode)}</td>
+        <td>${r.prefillToks}</td>
+        <td class="${ttftClass}">${r.ttftMs !== null ? r.ttftMs.toFixed(0) + ' ms' : '--'}</td>
+        <td class="${ttftClass}">${r.firstSliceMs !== null ? r.firstSliceMs.toFixed(0) + ' ms' : '--'}</td>
+        <td>${r.prefillTps ? r.prefillTps.toFixed(1) + ' t/s' : '--'}</td>
+        <td>${r.decodeTps ? r.decodeTps.toFixed(1) + ' t/s' : '--'}</td>
+        <td class="${fpsClass}">${r.minFps ? r.minFps.toFixed(0) + ' FPS' : '--'}</td>
+        <td class="${fpsClass}">${r.maxDt ? r.maxDt.toFixed(1) + ' ms' : '--'}</td>
+        <td>${r.j25} / ${r.j50}</td>
+      `;
+      elTbody.appendChild(tr);
+    }
+
+    // ═══════════════════════════════════════════════════════════════════════════
+    // 7. 表单、打断与一键多轮脚本事件绑定
+    // ═══════════════════════════════════════════════════════════════════════════
+    document.getElementById('chat-form').addEventListener('submit', (e) => {
+      e.preventDefault();
+      const input = document.getElementById('chat-input');
+      const val = input.value.trim();
+      if (!val || isGenerating) return;
+      input.value = '';
+      void runSingleTurn(val);
+    });
+
+    elStopBtn.addEventListener('click', () => {
+      abortRequested = true;
+      s1Client?.interruptGenerate();
+      s2Client?.interruptGenerate();
+      stopSpeechPlayback();
+    });
+
+    document.getElementById('reset-chat-btn').addEventListener('click', async () => {
+      conversationHistory = [];
+      stopSpeechPlayback();
+      try { await s1Client?.resetChat(); } catch {}
+      try { await s2Client?.resetChat(); } catch {}
+      appendLogMessage('assistant', '已清空对话历史与 WebLLM 内部 KV-Cache。下一轮将触发冷 Prefill，第 2 轮起观察热 KV 复用。');
+    });
+
+    async function runMultiTurnSuite(prompts) {
+      if (isGenerating) return;
+      abortRequested = false;
+      conversationHistory = [];
+      try { await s1Client?.resetChat(); } catch {}
+      try { await s2Client?.resetChat(); } catch {}
+      for (const p of prompts) {
+        if (abortRequested) break;
+        await runSingleTurn(p);
+        if (abortRequested) break;
+        await new Promise((r) => setTimeout(r, 450));
+      }
+    }
+
+    document.getElementById('bench-zh-btn').addEventListener('click', () => {
+      void runMultiTurnSuite([
+        '你好呀小蠢！今天海边风大不大？',
+        '我最近在折腾端侧大模型，感觉显卡风扇转得好快啊。',
+        '那你觉得如果搬到桌面端跑，体验会不会好很多？',
+      ]);
+    });
+
+    document.getElementById('bench-long-btn').addEventListener('click', () => {
+      const lorebookContext = [
+        '【记忆档案与世界书摘要】',
+        '1. 用户正在开发浏览器原生 3D AI 角色项目 Project XiaoChun，使用 Three.js 0.185 + @pixiv/three-vrm 3.5 渲染 VRM 1.0/0.x 角色，开启 UnrealBloomPass、阴影贴图、海面反射与 SpringBone 物理模拟。',
+        '2. 端侧推理同时包含 WebLLM (WebGPU Compute Shaders) 与 EMAGE 音频驱动全身手势 (ONNX Runtime WASM INT8)，并服务桌面端与 iOS/Android 手机端客户。',
+        '3. 手机端采用统一内存架构 (UMA) 与分块延迟渲染 (TBDR)，如果在单次 GPUCommandEncoder 提交过多算子或一次性 Prefill 几百个 Token，极易挤占渲染帧预算导致掉帧。',
+        '4. 系统支持四层客户端记忆（短期对话、用户画像、Stanford 3D 衰减叙事日记、SillyTavern 酒馆世界书），真实多轮对话的冷启动 Prompt 通常在 500~800 Tokens 左右。',
+        '5. 近期团队新增了 MiniCPM-V-4.7-1B 多模态视觉能力，并在 monorepo 内维护了 @firetable/web-runtime 与 @firetable/web-llm 闭环帧率节流补丁。',
+      ].join('\n');
+      void runMultiTurnSuite([
+        `${lorebookContext}\n\n请结合以上背景，用两三句自然口语聊聊：为什么手机端跑大模型时保住 3D 画面不卡顿这么关键？`,
+        '如果用户紧接着追问第二句：在 KV-Cache 命中的情况下，响应速度是不是会快很多？请简短回答。',
+      ]);
+    });
+
+    document.getElementById('bench-en-btn').addEventListener('click', () => {
+      void runMultiTurnSuite([
+        'Hey XiaoChun! How is the ocean breeze over there today?',
+        'I am testing local WebGPU models right alongside your 3D shaders.',
+        'Do you think keeping a tiny fast model in front helps mask latency?',
+      ]);
+    });
+
+    document.getElementById('bench-mix-btn').addEventListener('click', () => {
+      void runMultiTurnSuite([
+        '嗨 XiaoChun，我们现在同时跑 WebGPU LLM 和 Three.js MSAA，你会不会觉得 GPU 有点挤？',
+        'If we move the heavy backend model to Tauri Rust sidecar later, 浏览器是不是就轻松多了？',
+      ]);
+    });
+
+    document.getElementById('clear-table-btn').addEventListener('click', () => {
+      telemetryRecords.length = 0;
+      elTbody.innerHTML = '';
+    });
+
+    document.getElementById('copy-report-btn').addEventListener('click', async () => {
+      const header = `### WebGPU + XiaoChun 3D 抢占实测报告\n- ${elGpuInfo.textContent}\n- 场景: ${document.getElementById('scene-select').value} | 限30fps: ${cap30Toggle.checked}\n\n` +
+        `| # | 模式 | Prefill Toks | TTFT (ms) | 首句可播 (ms) | Prefill (t/s) | Decode (t/s) | 3D最低FPS | 最大帧(ms) | 掉帧(>25/>50ms) |\n` +
+        `|---|---|---:|---:|---:|---:|---:|---:|---:|---:|`;
+      const rows = telemetryRecords.map((r) =>
+        `| ${r.turn} | ${r.mode} | ${r.prefillToks} | ${r.ttftMs ? r.ttftMs.toFixed(0) : '--'} | ${r.firstSliceMs ? r.firstSliceMs.toFixed(0) : '--'} | ${r.prefillTps ? r.prefillTps.toFixed(1) : '--'} | ${r.decodeTps ? r.decodeTps.toFixed(1) : '--'} | ${r.minFps ? r.minFps.toFixed(0) : '--'} | ${r.maxDt ? r.maxDt.toFixed(1) : '--'} | ${r.j25}/${r.j50} |`
+      );
+      const md = [header, ...rows].join('\n');
+      await navigator.clipboard.writeText(md);
+      const btn = document.getElementById('copy-report-btn');
+      const old = btn.textContent;
+      btn.textContent = '已复制 Markdown';
+      setTimeout(() => { btn.textContent = old; }, 1500);
+    });
+  </script>
+</body>
+</html>

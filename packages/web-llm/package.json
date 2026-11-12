@@ -1,0 +1,43 @@
+{
+  "name": "@firetable/web-llm",
+  "version": "0.2.88",
+  "description": "Extended @mlc-ai/web-llm with cooperative WebGPU frame pacing for 60 FPS 3D rendering coexistence",
+  "license": "Apache-2.0",
+  "homepage": "https://github.com/mlc-ai/web-llm",
+  "type": "module",
+  "files": [
+    "lib",
+    "src",
+    "LICENSE",
+    "NOTICE",
+    "README.md"
+  ],
+  "main": "./lib/index.js",
+  "module": "./lib/index.js",
+  "types": "./lib/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./lib/index.d.ts",
+      "default": "./lib/index.js"
+    },
+    "./package.json": "./package.json"
+  },
+  "scripts": {
+    "clean": "rm -rf lib",
+    "build": "node ./build.mjs",
+    "prepare": "node ./build.mjs"
+  },
+  "dependencies": {
+    "@mlc-ai/web-runtime": "workspace:@firetable/web-runtime@*",
+    "@mlc-ai/web-tokenizers": "^0.1.6",
+    "@mlc-ai/web-xgrammar": "0.1.27",
+    "@types/chrome": "^0.0.266",
+    "@webgpu/types": "^0.1.72",
+    "loglevel": "^1.9.1"
+  },
+  "devDependencies": {
+    "@types/serviceworker": "^0.0.86",
+    "esbuild": "^0.25.0",
+    "typescript": "~6.0.2"
+  }
+}

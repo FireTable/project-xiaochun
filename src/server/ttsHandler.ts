@@ -54,7 +54,8 @@ export async function computeTextHash(
 interface SingleFlightResult {
   stream: ReadableStream<Uint8Array>;
   collectedChunks: Uint8Array[];
-  onFinished: Promise<void>;
+  /** 仅当完整收到 Edge-TTS `Path: turn.end` 且未发生取消/断流/报错时 resolve(true)，否则 resolve(false) */
+  onFinished: Promise<boolean>;
 }
 
 function executeSingleFlight(
@@ -71,22 +72,36 @@ function executeSingleFlight(
     let streamController: ReadableStreamDefaultController<Uint8Array> | null = null;
     let streamClosed = false;
     let ended = false;
+    let cancelledOrFailed = false;
+    let finishedResolved = false;
     let pendingAsync = 0;
     let receivedFirstChunk = false;
     const collectedChunks: Uint8Array[] = [];
 
-    let resolveFinished: () => void = () => {};
-    const onFinished = new Promise<void>((r) => {
+    let resolveFinished: (completedCleanly: boolean) => void = () => {};
+    const onFinished = new Promise<boolean>((r) => {
       resolveFinished = r;
     });
 
-    const cleanup = () => {
-      if (streamClosed) return;
+    const finish = (completedCleanly: boolean) => {
+      if (finishedResolved) return;
+      finishedResolved = true;
+      resolveFinished(completedCleanly);
+    };
+
+    const cleanup = (completedCleanly = false) => {
+      if (!completedCleanly) {
+        cancelledOrFailed = true;
+      }
+      if (streamClosed) {
+        finish(false);
+        return;
+      }
       streamClosed = true;
       try {
         socket?.close();
       } catch { }
-      resolveFinished();
+      finish(completedCleanly);
     };
 
     const timeoutId = setTimeout(() => {
@@ -171,18 +186,19 @@ function executeSingleFlight(
           }
           if (h.Path === 'turn.end') {
             ended = true;
-            try {
-              socket?.close();
-            } catch { }
             const wait = () => {
               if (pendingAsync === 0) {
+                const completedCleanly = !cancelledOrFailed;
                 if (!streamClosed && streamController) {
                   streamClosed = true;
                   try {
                     streamController.close();
                   } catch { }
                 }
-                resolveFinished();
+                try {
+                  socket?.close();
+                } catch { }
+                finish(completedCleanly);
               } else {
                 setTimeout(wait, 5);
               }
@@ -236,13 +252,14 @@ function executeSingleFlight(
         }
         if (!ended) {
           ended = true;
+          cancelledOrFailed = true;
           if (!streamClosed && streamController) {
             streamClosed = true;
             try {
               streamController.close();
             } catch { }
           }
-          resolveFinished();
+          finish(false);
         }
       };
 
@@ -500,6 +517,10 @@ export async function handleTTS(
 
     // 3. 缓存未命中：上游 Edge-TTS 实时流式合成
     const abortController = new AbortController();
+    if (request.signal) {
+      if (request.signal.aborted) abortController.abort();
+      else request.signal.addEventListener('abort', () => abortController.abort(), { once: true });
+    }
     const { stream, collectedChunks, onFinished } = await synthesizeWithRetry(
       cleanText,
       voice,
@@ -510,9 +531,10 @@ export async function handleTTS(
       3,
     );
 
-    // 4. 流完成后异步双写：L1 边缘 PoP 缓存 + L2 R2 持久化存储
+    // 4. 流完成后异步双写：仅当完整收到 turn.end 且未中途取消/断流时写入 L1 PoP 与 L2 R2
     if (cache || r2) {
-      const persistPromise = onFinished.then(async () => {
+      const persistPromise = onFinished.then(async (completedCleanly) => {
+        if (!completedCleanly) return;
         try {
           let totalLen = 0;
           for (const c of collectedChunks) totalLen += c.length;

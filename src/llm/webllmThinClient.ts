@@ -5,7 +5,7 @@
  * `CreateWebWorkerMLCEngine` still evaluates all of it on the main thread. The client half of the protocol is small,
  * so it is re-implemented here and the library only ever loads inside llmWorker.ts.
  *
- * PROTOCOL PIN: mirrors WebWorkerMLCEngine of @mlc-ai/web-llm 0.2.84 (lib/index.js, class WebWorkerMLCEngine).
+ * PROTOCOL PIN: mirrors WebWorkerMLCEngine of @mlc-ai/web-llm 0.2.88 (lib/index.js, class WebWorkerMLCEngine).
  * Messages are { kind, uuid, content }; the handler answers each request with kind "return" | "throw" (content = the
  * error's toString()), and pushes { kind: "initProgressCallback", uuid: "" } during reload. Streaming: one
  * "chatCompletionStreamInit", then one "completionStreamNextChunk" per chunk until the reply is not an object.
@@ -20,9 +20,10 @@ import type {
   ChatOptions,
   InitProgressReport,
   ModelRecord,
+  WebGPUFramePacingUpdate,
 } from '@mlc-ai/web-llm';
 
-export const WEBLLM_PROTOCOL_VERSION = '0.2.84';
+export const WEBLLM_PROTOCOL_VERSION = '0.2.88';
 
 type Msg = { kind: string; uuid: string; content: unknown };
 type Pending = { resolve: (v: unknown) => void; reject: (e: unknown) => void };
@@ -62,6 +63,11 @@ export class ThinMLCEngine {
     this.post({ kind: 'setAppConfig', uuid: uuid(), content: appConfig });
   }
 
+  /** Toggle or tune cooperative WebGPU frame pacing inside the worker ('desktop' / 'mobile' / 'turbo'). */
+  setFramePacing(opts: WebGPUFramePacingUpdate): void {
+    this.post({ kind: 'xcSetFramePacing', uuid: uuid(), content: opts });
+  }
+
   private post(msg: Msg): void {
     this.worker.postMessage(msg);
   }
@@ -99,9 +105,17 @@ export class ThinMLCEngine {
   async reload(modelId: string | string[], chatOpts?: ChatOptions | ChatOptions[]): Promise<void> {
     const ids = Array.isArray(modelId) ? modelId : [modelId];
     const opts = chatOpts === undefined ? undefined : Array.isArray(chatOpts) ? chatOpts : [chatOpts];
-    await this.request('reload', { modelId: ids, chatOpts: opts });
+    const prevIds = this.modelId;
+    const prevOpts = this.chatOpts;
     this.modelId = ids;
     this.chatOpts = opts;
+    try {
+      await this.request('reload', { modelId: ids, chatOpts: opts });
+    } catch (err) {
+      this.modelId = prevIds;
+      this.chatOpts = prevOpts;
+      throw err;
+    }
   }
 
   async unload(): Promise<void> {
@@ -143,17 +157,51 @@ export class ThinMLCEngine {
     if (this.modelId === undefined) throw new Error('WebWorkerMLCEngine: model not loaded; call reload() first');
     const selectedModelId = this.selectModel(request.model);
     if (request.stream) {
-      await this.request('chatCompletionStreamInit', { request, selectedModelId, modelId: this.modelId, chatOpts: this.chatOpts });
-      return this.streamChunks(selectedModelId);
+      const streamId = uuid();
+      await this.request('chatCompletionStreamInit', {
+        request,
+        selectedModelId,
+        streamId,
+        modelId: this.modelId,
+        chatOpts: this.chatOpts,
+      });
+      return this.streamChunks(streamId);
     }
     return this.request<ChatCompletion>('chatCompletionNonStreaming', { request, modelId: this.modelId, chatOpts: this.chatOpts });
   }
 
-  private async *streamChunks(selectedModelId: string): AsyncGenerator<ChatCompletionChunk> {
-    while (true) {
-      const ret = await this.request<ChatCompletionChunk | void>('completionStreamNextChunk', { selectedModelId });
-      if (typeof ret !== 'object' || ret === null) return;
-      yield ret;
-    }
+  private streamChunks(streamId: string): AsyncGenerator<ChatCompletionChunk> {
+    let completed = false;
+    let closePromise: Promise<void> | undefined;
+    const close = (): Promise<void> => {
+      closePromise ??= (async () => {
+        if (completed) return;
+        completed = true;
+        await this.request('completionStreamReturn', { streamId }).catch(() => {});
+      })();
+      return closePromise;
+    };
+
+    const requestNext = () => this.request<ChatCompletionChunk | void>('completionStreamNextChunk', { streamId });
+    const iterator = (async function* () {
+      try {
+        while (true) {
+          const ret = await requestNext();
+          if (typeof ret !== 'object' || ret === null) {
+            completed = true;
+            return;
+          }
+          yield ret;
+        }
+      } finally {
+        await close();
+      }
+    })();
+
+    const returnSource = iterator.return.bind(iterator);
+    const throwSource = iterator.throw.bind(iterator);
+    iterator.return = (value) => returnSource(value).finally(close);
+    iterator.throw = (err) => throwSource(err).finally(close);
+    return iterator;
   }
 }

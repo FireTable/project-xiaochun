@@ -137,8 +137,13 @@ export class UniversalMotionController {
 
   bind(vrm: VRM): void {
     if (this.vrm === vrm && this.mixer) return;
+    if (this.mixer) {
+      this.mixer.stopAllAction();
+      this.mixer.uncacheRoot(this.mixer.getRoot());
+    }
     this.vrm = vrm;
     this.mixer = new THREE.AnimationMixer(vrm.scene);
+    this.hipsRest = null;
     this.currentAction = null;
     this.active = false;
     this.nodeToBoneMap = null;
@@ -146,6 +151,15 @@ export class UniversalMotionController {
     this.hasHipsPosTrack = false;
     this.expressionRemainingTimer = 0;
     expressionController.setExpressionFn(null);
+  }
+
+  private releaseActionIfTransient(action: THREE.AnimationAction | null): void {
+    if (!action || !this.mixer) return;
+    const clip = action.getClip();
+    if (clip && (clip as any)._transientSubclip) {
+      this.mixer.uncacheAction(clip);
+      this.mixer.uncacheClip(clip);
+    }
   }
 
   private buildNodeToBoneMap(): Map<string, VRMHumanBoneName> {
@@ -213,7 +227,16 @@ export class UniversalMotionController {
         const fps = 30;
         const startFrame = Math.round(startSec * fps);
         const endFrame = Math.round(endSec * fps);
-        clip = THREE.AnimationUtils.subclip(clip, clip.name || 'subclip', startFrame, endFrame, fps);
+        const rangeKey = `${startFrame}:${endFrame}`;
+        if ((clip as any)._timeRangeBaked !== rangeKey) {
+          const wasRetargeted = Boolean((clip as any)._retargetedBaked);
+          clip = THREE.AnimationUtils.subclip(clip, clip.name || 'subclip', startFrame, endFrame, fps);
+          (clip as any)._timeRangeBaked = rangeKey;
+          (clip as any)._transientSubclip = true;
+          if (wasRetargeted) {
+            (clip as any)._retargetedBaked = true;
+          }
+        }
       }
       return retargetClip(clip, vrm, { antiClip });
     }
@@ -246,6 +269,7 @@ export class UniversalMotionController {
       const startFrame = Math.round(startSec * fps);
       const endFrame = Math.round(endSec * fps);
       clip = THREE.AnimationUtils.subclip(clip, clip.name || 'subclip', startFrame, endFrame, fps);
+      (clip as any)._timeRangeBaked = `${startFrame}:${endFrame}`;
     }
 
     // 校准 Hips 根骨骼位移轨道
@@ -331,6 +355,7 @@ export class UniversalMotionController {
       this.preserveHumanoidPose(() => {
         prevAction.stop();
       });
+      this.releaseActionIfTransient(prevAction);
     }
 
     // 分析当前 Clip 实际驱动的人体骨骼集合，杜绝未覆盖骨骼继承上一动作的残留姿态 (防动作串连)
@@ -492,9 +517,11 @@ export class UniversalMotionController {
   stop(_fadeDur?: number): void {
     if (!this.active && !this.currentAction) return;
 
+    const prevAction = this.currentAction;
     this.preserveHumanoidPose(() => {
       this.mixer?.stopAllAction();
     });
+    this.releaseActionIfTransient(prevAction);
 
     this.active = false;
     this.isFadingOut = false;

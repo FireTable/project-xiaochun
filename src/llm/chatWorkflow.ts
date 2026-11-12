@@ -11,12 +11,31 @@
 import { langFromSystemPrompt, XIAOCHUN_SYSTEM_PROMPT } from '@/llm/prompts';
 import { applyRecall, recallForChat } from '@/memory';
 import type { Lang } from '@/i18n';
-import { customChatProvider } from './customProvider';
-import { webllmChatProvider, ModelSwitchedError, isThinkingEnabled, preloadWebLLM, resetWebLLMChat } from './webLLMProvider';
+import { customChatProvider, getActiveProvider } from './customProvider';
+import { webllmChatProvider, ModelSwitchedError, getActiveModelId, isThinkingEnabled, preloadWebLLM, resetWebLLMChat, isVisionModelId, VISION_LLM_MODEL } from './webLLMProvider';
 import { resolveEffectiveSettings } from './userSettings';
-import type { ChatProvider, LlmMilestoneKey, MilestoneFn, ChatMessage, RunChatOptions, RunChatFn } from './chatTypes';
+import type { ChatProvider, LlmMilestoneKey, MilestoneFn, ChatMessage, ChatContentPart, RunChatOptions, RunChatFn } from './chatTypes';
 
 export type { LlmMilestoneKey };
+
+/**
+ * 内存级最近 1 轮视觉帧临时缓存（不落盘 IndexedDB，防止多 MB base64 撑爆浏览器存储）：
+ * - 用户发图后紧接着追问第 2 轮（如“那右上角是什么？”）时，只要当前仍处于视觉模型，自动把上一轮附图拼回 history 对应轮次；
+ * - 既让多模态追问看得到上一轮图片，又使 WebLLM `compareConversationObject` 命中前缀一致、直接复用已编码的 ViT KV Cache！
+ */
+let lastVisionTurn: { userText: string; imageUrls: string[] } | null = null;
+
+export function clearEphemeralVisionContext(): void {
+  lastVisionTurn = null;
+}
+
+async function isCurrentActiveModelVision(): Promise<boolean> {
+  if (await customChatProvider.isActive()) {
+    const p = await getActiveProvider();
+    return p ? isVisionModelId(p.model) : true;
+  }
+  return isVisionModelId(getActiveModelId());
+}
 
 /**
  * ponytail: provider 工厂 — 轮询所有 ChatProvider,第一个 isActive 命中即返回。
@@ -78,6 +97,7 @@ export async function generateSpeechReply(
   systemPrompt: string = XIAOCHUN_SYSTEM_PROMPT['zh-CN'],
   lang?: Lang,
   onSentenceChunk?: (sentence: string, isFirst: boolean) => void,
+  imageUrls?: string[],
 ): Promise<string> {
   const effectiveLang: Lang = lang ?? langFromSystemPrompt(systemPrompt);
   // ponytail: 用户可能改了记忆轮数 — 走 effective 解析(override 优先,否则设备默认)。
@@ -85,12 +105,54 @@ export async function generateSpeechReply(
   const mem = await recallForChat(userText, memoryTurns);
   const recalled = applyRecall(systemPrompt, mem, effectiveLang, userText);
 
+  const finalUserText = recalled.currentUserContent || userText.trim();
+  const validImages = (imageUrls ?? []).map((u) => u.trim()).filter(Boolean);
+  const visionActive = validImages.length > 0 || (lastVisionTurn !== null && (await isCurrentActiveModelVision()));
+  if (!visionActive) {
+    lastVisionTurn = null;
+  }
+
+  let historyMessages: ChatMessage[] = recalled.history;
+  if (validImages.length === 0 && lastVisionTurn && visionActive) {
+    const cachedTurn = lastVisionTurn;
+    let injected = false;
+    historyMessages = [...recalled.history];
+    for (let i = historyMessages.length - 1; i >= 0; i--) {
+      const m = historyMessages[i]!;
+      if (m.role === 'user' && typeof m.content === 'string' && m.content.trim() === cachedTurn.userText) {
+        historyMessages[i] = {
+          role: 'user',
+          content: [
+            ...cachedTurn.imageUrls.map((url): ChatContentPart => ({ type: 'image_url', image_url: { url } })),
+            { type: 'text', text: m.content },
+          ],
+        };
+        injected = true;
+        break;
+      }
+    }
+    if (!injected) {
+      lastVisionTurn = null;
+    }
+  }
+  if (validImages.length > 0) {
+    lastVisionTurn = { userText: userText.trim(), imageUrls: validImages };
+  }
+
+  const userContent: string | ChatContentPart[] =
+    validImages.length > 0
+      ? [
+          ...validImages.map((url): ChatContentPart => ({ type: 'image_url', image_url: { url } })),
+          { type: 'text', text: finalUserText },
+        ]
+      : finalUserText;
+
   // 组装标准 ChatML 格式的 messages 列表：历史记录使用纯净原始文本杜绝污染，
-  // 仅在当轮输入附带轻量记忆提示，让 WebLLM compareConversationObject 成功复用 KV Cache。
+  // 仅在当轮输入附带轻量记忆提示（与可选视觉帧），让 WebLLM compareConversationObject 成功复用 KV Cache。
   const messages: ChatMessage[] = [
     { role: 'system', content: recalled.system },
-    ...recalled.history,
-    { role: 'user', content: recalled.currentUserContent || userText.trim() },
+    ...historyMessages,
+    { role: 'user', content: userContent },
   ];
 
   const wantThink = isThinkingEnabled();
@@ -143,5 +205,5 @@ export async function generateSpeechReply(
   return cleanSpeech;
 }
 
-// ponytail: 重导出 webLLM 预热与会话重置入口,方便 vrmEngine 等在启动时一次性 import。
-export { preloadWebLLM, resetWebLLMChat };
+// ponytail: 重导出 webLLM 预热、会话重置与视觉模型标识,方便 vrmEngine 等在启动时一次性 import。
+export { preloadWebLLM, resetWebLLMChat, isVisionModelId, VISION_LLM_MODEL };

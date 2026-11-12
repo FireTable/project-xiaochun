@@ -1,7 +1,7 @@
 import { isEmbed } from '@/lib/platform';
 import React, { useState, useEffect, useRef, Fragment, useMemo } from 'react';
 import { useTranslation } from 'react-i18next';
-import { ChevronLeft, ChevronRight, Menu, Mountain, Server, Sun, Zap } from 'lucide-react';
+import { ChevronLeft, ChevronRight, ImagePlus, Menu, Mountain, Server, Sun, X, Zap } from 'lucide-react';
 import { vrmEngine } from '@/core/vrmEngine';
 import { useCurrentScene } from '@/core/scene/sceneManager';
 import { DeviceStatusDialog } from '@/components/DeviceStatusDialog';
@@ -26,9 +26,11 @@ import {
   onWebLLMLibReady,
   modelBaseId,
   subscribeThinkingEnabled,
+  isVisionModelId,
 } from '@/llm/webLLMProvider';
 import { getActiveProviderId, getProvider, type ProviderProfile, subscribeProvidersChange } from '@/llm/customProvider';
 import { readActiveModel, subscribeActiveModel } from '@/llm/activeModel';
+import { dataTransferHasImage, isImageFile, setVisionDropHandler } from '@/llm/visionDropBus';
 import { Send, Sparkles, Loader2 } from '@/components/icons';
 import { zhCN } from '@/i18n/zh-CN';
 import { en as enBundle } from '@/i18n/en';
@@ -98,9 +100,72 @@ export interface ChatBarProps {
   className?: string;
   topSlot?: React.ReactNode;
   placeholder?: string;
-  onSend?: (text: string) => Promise<void> | void;
+  onSend?: (text: string, imageUrls?: string[]) => Promise<void> | void;
   disabled?: boolean;
   isStatic?: boolean;
+}
+
+const MAX_VISION_ATTACHMENTS = 4;
+const MAX_VISION_IMAGE_EDGE = 1792;
+
+interface VisionAttachment {
+  id: string;
+  dataUrl: string;
+  name: string;
+}
+
+async function toImageDataUrl(file: File): Promise<string> {
+  const readRaw = () =>
+    new Promise<string>((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onload = () => resolve(String(reader.result || ''));
+      reader.onerror = () => reject(reader.error ?? new Error('Failed to read image'));
+      reader.readAsDataURL(file);
+    });
+
+  if (typeof document === 'undefined') return readRaw();
+
+  const objectUrl = URL.createObjectURL(file);
+  try {
+    const img = await new Promise<HTMLImageElement>((resolve, reject) => {
+      const el = new Image();
+      el.onload = () => resolve(el);
+      el.onerror = () => reject(new Error('Invalid image file'));
+      el.src = objectUrl;
+    });
+    const w = img.naturalWidth || img.width;
+    const h = img.naturalHeight || img.height;
+    if (!w || !h) return readRaw();
+    if (Math.max(w, h) <= MAX_VISION_IMAGE_EDGE && file.size <= 2 * 1024 * 1024) {
+      return readRaw();
+    }
+    const scale = Math.min(1, MAX_VISION_IMAGE_EDGE / Math.max(w, h));
+    const targetW = Math.max(1, Math.round(w * scale));
+    const targetH = Math.max(1, Math.round(h * scale));
+    const canvas = document.createElement('canvas');
+    canvas.width = targetW;
+    canvas.height = targetH;
+    const ctx = canvas.getContext('2d');
+    if (!ctx) return readRaw();
+    ctx.imageSmoothingQuality = 'high';
+    if (file.type === 'image/png') {
+      ctx.drawImage(img, 0, 0, targetW, targetH);
+      const pngUrl = canvas.toDataURL('image/png');
+      if (pngUrl.length <= 3_000_000) return pngUrl;
+      ctx.fillStyle = '#ffffff';
+      ctx.fillRect(0, 0, targetW, targetH);
+      ctx.drawImage(img, 0, 0, targetW, targetH);
+      return canvas.toDataURL('image/jpeg', 0.92);
+    }
+    ctx.fillStyle = '#ffffff';
+    ctx.fillRect(0, 0, targetW, targetH);
+    ctx.drawImage(img, 0, 0, targetW, targetH);
+    return canvas.toDataURL('image/jpeg', 0.90);
+  } catch {
+    return readRaw();
+  } finally {
+    URL.revokeObjectURL(objectUrl);
+  }
 }
 
 /** 加载失败文案的三语前缀 (取自 i18n 包的 error.loadFailed，不在这里写死任何语言) */
@@ -130,6 +195,7 @@ export const ChatBar: React.FC<ChatBarProps> = ({
   isDevDrawerOpenRef.current = isDevDrawerOpen;
 
   const inputRef = useRef<HTMLTextAreaElement>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
 
   const sttRef = useRef<SttClient | null>(null);
   const sttRangeRef = useRef<TextRange | null>(null);
@@ -168,6 +234,9 @@ export const ChatBar: React.FC<ChatBarProps> = ({
     return vrmEngine.onTurnStateChange(setTurnState);
   }, []);
   const queuedTextRef = useRef('');
+  const queuedImagesRef = useRef<string[]>([]);
+  const [attachedImages, setAttachedImages] = useState<VisionAttachment[]>([]);
+  const [isImageDragOver, setIsImageDragOver] = useState(false);
   const [thinkingOn, setThinkingOn] = useState(() => isThinkingEnabled());
   const [activeModel, setActiveModel] = useState(() => getActiveModelId());
   const [pickingModel, setPickingModel] = useState(false);
@@ -388,6 +457,67 @@ export const ChatBar: React.FC<ChatBarProps> = ({
   // custom 用户永远不需要等 webllm 加载,否则 SYNC badge + "加载模型 0%" + "神经核心同步中"
   // 会一直挂着,误导用户。
   const isOnCustom = activeKey?.kind === 'custom';
+  // 仅当当前激活模型支持多模态视觉且非故事脚本托管模式时，开放传图 / 拖拽 / 粘贴入口
+  const isVisionSupported =
+    !onSend &&
+    (isOnCustom
+      ? Boolean(activeCustom && isVisionModelId(activeCustom.model))
+      : isVisionModelId(activeModel));
+  const isVisionSupportedRef = useRef(isVisionSupported);
+  isVisionSupportedRef.current = isVisionSupported;
+
+  const attachImageFiles = async (files: File[]) => {
+    if (!isVisionSupportedRef.current) return;
+    const valid = files.filter(isImageFile);
+    if (valid.length === 0) return;
+    try {
+      const items = await Promise.all(
+        valid.slice(0, MAX_VISION_ATTACHMENTS).map(async (f) => ({
+          id: `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+          dataUrl: await toImageDataUrl(f),
+          name: f.name || 'image.png',
+        })),
+      );
+      if (!isVisionSupportedRef.current) return;
+      setAttachedImages((prev) => {
+        const next = [...prev, ...items].slice(0, MAX_VISION_ATTACHMENTS);
+        if (isQueued) {
+          queuedImagesRef.current = next.map((item) => item.dataUrl);
+        }
+        return next;
+      });
+      vrmEngine.setListening(true);
+      inputRef.current?.focus({ preventScroll: true });
+      setIsInputFocused(true);
+    } catch (err) {
+      console.warn('[ChatBar] Failed to decode attached image:', err);
+    }
+  };
+
+  useEffect(() => {
+    if (!isVisionSupported) {
+      setAttachedImages([]);
+      queuedImagesRef.current = [];
+      setIsImageDragOver(false);
+      if (!queuedTextRef.current) {
+        setIsQueued(false);
+      }
+    }
+  }, [isVisionSupported]);
+
+  useEffect(() => {
+    if (!isVisionSupported || disabledProp) {
+      setVisionDropHandler(null);
+      return;
+    }
+    setVisionDropHandler((files) => {
+      void attachImageFiles(files);
+    });
+    return () => {
+      setVisionDropHandler(null);
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isVisionSupported, disabledProp]);
 
   // 模型与引擎就绪感知
   const [isVRMReady, setIsVRMReady] = useState(() => vrmEngine.isReady());
@@ -629,28 +759,33 @@ export const ChatBar: React.FC<ChatBarProps> = ({
 
   // 智能排队机制：一旦模型加载完毕，若此前有排队中的输入，自动无缝触发发送，绝不丢字
   useEffect(() => {
-    if (isModelReady && isQueued && queuedTextRef.current) {
-      const toSend = queuedTextRef.current;
+    if (isModelReady && isQueued && (queuedTextRef.current || queuedImagesRef.current.length > 0)) {
+      const toSend = queuedTextRef.current || t('chat.defaultImagePrompt');
+      const imagesToSend = queuedImagesRef.current;
       queuedTextRef.current = '';
+      queuedImagesRef.current = [];
       if (inputRef.current) {
         inputRef.current.value = '';
         inputRef.current.style.height = '';
         inputRef.current.style.overflowY = 'hidden';
       }
       setHasText(false);
+      setAttachedImages([]);
       inputRowsRef.current = 1;
       setInputRows(1);
       setIsQueued(false);
 
       if (onSend) {
-        void Promise.resolve(onSend(toSend)).catch((e: unknown) => console.error('[ChatBar Queue] Send failed:', e));
+        void Promise.resolve(onSend(toSend, imagesToSend.length > 0 ? imagesToSend : undefined)).catch((e: unknown) =>
+          console.error('[ChatBar Queue] Send failed:', e),
+        );
       } else {
         void vrmEngine
-          .sendMessage(toSend)
+          .sendMessage(toSend, imagesToSend.length > 0 ? imagesToSend : undefined)
           .catch((e) => console.error('[ChatBar Queue] Send failed:', e));
       }
     }
-  }, [isModelReady, isQueued, onSend]);
+  }, [isModelReady, isQueued, onSend, t]);
 
   const handleStop = () => {
     vrmEngine.stopSpeaking();
@@ -659,8 +794,10 @@ export const ChatBar: React.FC<ChatBarProps> = ({
 
   const handleSend = async () => {
     if (disabledProp) return;
-    const text = inputRef.current?.value.trim() ?? '';
-    if (!text) return;
+    const rawText = inputRef.current?.value.trim() ?? '';
+    const imagesToSend = isVisionSupported ? attachedImages.map((img) => img.dataUrl) : [];
+    if (!rawText && imagesToSend.length === 0) return;
+    const text = rawText || t('chat.defaultImagePrompt');
 
     vrmEngine.stopSpeaking();
     vrmEngine.setListening(false);
@@ -668,10 +805,11 @@ export const ChatBar: React.FC<ChatBarProps> = ({
     sttRangeRef.current = null;
     sttRef.current?.resetSession();
 
-    // 模型尚未完全就绪：智能转入排队状态，输入内容安全保留，不吞字
+    // 模型尚未完全就绪：智能转入排队状态，输入内容与附图安全保留，不吞字
     if (!isModelReady) {
       setIsQueued(true);
-      queuedTextRef.current = text;
+      queuedTextRef.current = rawText;
+      queuedImagesRef.current = imagesToSend;
       return;
     }
 
@@ -681,15 +819,17 @@ export const ChatBar: React.FC<ChatBarProps> = ({
       inputRef.current.style.overflowY = 'hidden';
     }
     setHasText(false);
+    setAttachedImages([]);
+    queuedImagesRef.current = [];
     inputRowsRef.current = 1;
     setInputRows(1);
     setIsQueued(false);
 
     try {
       if (onSend) {
-        await onSend(text);
+        await onSend(text, imagesToSend.length > 0 ? imagesToSend : undefined);
       } else {
-        await vrmEngine.sendMessage(text);
+        await vrmEngine.sendMessage(text, imagesToSend.length > 0 ? imagesToSend : undefined);
       }
     } catch (e) {
       console.error(e);
@@ -749,9 +889,29 @@ export const ChatBar: React.FC<ChatBarProps> = ({
     syncComposerHeight();
     if (isQueued) {
       queuedTextRef.current = val.trim();
-      if (!val.trim()) setIsQueued(false);
+      if (!val.trim() && queuedImagesRef.current.length === 0) setIsQueued(false);
     }
   };
+
+  const handlePaste = (e: React.ClipboardEvent<HTMLTextAreaElement>) => {
+    if (!isVisionSupported || disabledProp) return;
+    const items = Array.from(e.clipboardData?.items ?? []);
+    const imageFiles: File[] = [];
+    for (const item of items) {
+      if (item.kind === 'file' && item.type.startsWith('image/')) {
+        const f = item.getAsFile();
+        if (f) imageFiles.push(f);
+      }
+    }
+    if (imageFiles.length > 0) {
+      if (!e.clipboardData.getData('text/plain')) {
+        e.preventDefault();
+      }
+      void attachImageFiles(imageFiles);
+    }
+  };
+
+  const hasDraft = hasText || (isVisionSupported && attachedImages.length > 0);
 
   // ponytail: dev 菜单段数从实际测试文本算出来 — 不写死,
   // 改 testSpeakText / testSpeakShudaoText 后菜单里「N 段」自动跟上。
@@ -761,7 +921,7 @@ export const ChatBar: React.FC<ChatBarProps> = ({
     shudaoSegs: splitIntoSpeechChunks(t('chat.testSpeakShudaoText')).length,
   }), [t]);
 
-  const showChatBar = !autoHideActive || isPetUIVisible || isMenuOpen || isInputFocused || hasText || isBusy || isListening || sttState === 'listening' || sttState === 'recognizing' || sttState === 'loading';
+  const showChatBar = !autoHideActive || isPetUIVisible || isMenuOpen || isInputFocused || hasDraft || isBusy || isListening || sttState === 'listening' || sttState === 'recognizing' || sttState === 'loading';
   const visibilityClass = showChatBar
     ? 'opacity-100 pointer-events-auto'
     : 'opacity-0 pointer-events-none';
@@ -778,14 +938,74 @@ export const ChatBar: React.FC<ChatBarProps> = ({
       className={containerClasses}
     >
       {topSlot}
-      <div id="xiaochun-chatbar" className="flex items-end gap-2 sm:gap-2.5 w-full">
+      {isVisionSupported && attachedImages.length > 0 ? (
+        <div id="xiaochun-chatbar-attachments" className="mb-2 flex flex-wrap items-center gap-2 px-1">
+          {attachedImages.map((img) => (
+            <div
+              key={img.id}
+              className="group relative h-12 w-12 shrink-0 rounded-xl border border-white/20 bg-[#13111c]/90 shadow-md backdrop-blur-xl"
+            >
+              <img
+                src={img.dataUrl}
+                alt={img.name}
+                className="block h-full w-full rounded-[11px] object-cover"
+              />
+              <button
+                type="button"
+                aria-label={t('chat.removeImage')}
+                title={t('chat.removeImage')}
+                onClick={() => {
+                  const next = attachedImages.filter((item) => item.id !== img.id);
+                  setAttachedImages(next);
+                  if (isQueued) {
+                    queuedImagesRef.current = next.map((item) => item.dataUrl);
+                    if (next.length === 0 && !queuedTextRef.current) {
+                      setIsQueued(false);
+                    }
+                  }
+                }}
+                className="absolute -right-1.5 -top-1.5 flex h-5 w-5 items-center justify-center rounded-full border border-white/20 bg-[#1c1926] text-white/80 shadow hover:bg-[#ea8377] hover:text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#ea8377] transition-colors cursor-pointer"
+              >
+                <X className="h-3 w-3" />
+              </button>
+            </div>
+          ))}
+        </div>
+      ) : null}
+      <div
+        id="xiaochun-chatbar"
+        onDragOver={(e) => {
+          if (!isVisionSupported || disabledProp) return;
+          if (dataTransferHasImage(e.dataTransfer)) {
+            e.preventDefault();
+            e.stopPropagation();
+            if (!isImageDragOver) setIsImageDragOver(true);
+          }
+        }}
+        onDragLeave={(e) => {
+          if (!e.currentTarget.contains(e.relatedTarget as Node | null)) {
+            setIsImageDragOver(false);
+          }
+        }}
+        onDrop={(e) => {
+          if (!isVisionSupported || disabledProp) return;
+          if (dataTransferHasImage(e.dataTransfer)) {
+            e.preventDefault();
+            e.stopPropagation();
+            setIsImageDragOver(false);
+            const files = Array.from(e.dataTransfer.files ?? []);
+            void attachImageFiles(files);
+          }
+        }}
+        className="flex items-end gap-2 sm:gap-2.5 w-full"
+      >
         {/* Unified composer: ONE permanent textarea; single↔multi via CSS grid only (no remount). */}
         {(() => {
           // Single/multi share the same shell padding.
           const shellPad = 'px-2.5 sm:px-3 py-2.5';
 
-          // Left slot: full hamburger menu (moved inside shell; no external round button).
-          const leftEl = (
+          // Left slot: full hamburger menu + vision image upload button (only when active model supports vision).
+          const menuEl = (
             <DropdownMenu
               modal={false}
               onOpenChange={(open) => {
@@ -855,7 +1075,8 @@ export const ChatBar: React.FC<ChatBarProps> = ({
                             <span className="truncate">{group.provider}</span>
                           </DropdownMenuLabel>
                           {group.models.map((m) => {
-                            const selected = !activeCustom && modelBaseId(m.id) === activeBase;
+                            const selected =
+                              activeKey?.kind !== 'custom' && !activeCustom && modelBaseId(m.id) === activeBase;
                             return (
                               <DropdownMenuItem
                                 key={m.id}
@@ -965,6 +1186,49 @@ export const ChatBar: React.FC<ChatBarProps> = ({
             </DropdownMenu>
           );
 
+          const attachImageEl = isVisionSupported ? (
+            <>
+              <input
+                ref={fileInputRef}
+                id="xiaochun-chat-image-upload"
+                name="xiaochun-chat-image-upload"
+                type="file"
+                accept="image/*"
+                multiple
+                tabIndex={-1}
+                disabled={disabledProp}
+                onChange={(e) => {
+                  const files = Array.from(e.target.files ?? []);
+                  e.target.value = '';
+                  if (files.length > 0) void attachImageFiles(files);
+                }}
+                className="absolute h-px w-px -m-px overflow-hidden whitespace-nowrap border-0 p-0 [clip-path:inset(50%)]"
+              />
+              <button
+                type="button"
+                id="chatAttachImage"
+                disabled={disabledProp || attachedImages.length >= MAX_VISION_ATTACHMENTS}
+                onClick={() => fileInputRef.current?.click()}
+                aria-label={t('chat.attachImage')}
+                title={t('chat.attachImage')}
+                className={`shrink-0 h-9 w-9 rounded-full flex items-center justify-center touch-manipulation active:scale-95 appearance-none border-none transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#ea8377] ${
+                  disabledProp || attachedImages.length >= MAX_VISION_ATTACHMENTS
+                    ? 'text-white/25 cursor-not-allowed'
+                    : 'text-white/55 hover:text-[#f5aa9c] hover:bg-white/10 cursor-pointer'
+                }`}
+              >
+                <ImagePlus className="w-4 h-4" />
+              </button>
+            </>
+          ) : null;
+
+          const leftEl = (
+            <div className="flex items-center gap-0.5">
+              {menuEl}
+              {attachImageEl}
+            </div>
+          );
+
           const textareaEl = (
             <textarea
               ref={inputRef}
@@ -1024,15 +1288,16 @@ export const ChatBar: React.FC<ChatBarProps> = ({
               }}
               onInput={handleInput}
               onKeyDown={handleKeyDown}
+              onPaste={handlePaste}
               onFocus={() => {
                 setIsInputFocused(true);
                 handleInputFocus();
                 vrmEngine.setListening(true);
               }}
-              onBlur={() => {
+                onBlur={() => {
                 setIsInputFocused(false);
                 const isMicActive = sttState === 'listening' || sttState === 'recognizing' || sttState === 'loading';
-                if (!isMicActive && !inputRef.current?.value.trim()) {
+                if (!isMicActive && !inputRef.current?.value.trim() && attachedImages.length === 0) {
                   vrmEngine.setListening(false);
                 }
                 const vv = window.visualViewport;
@@ -1179,8 +1444,8 @@ export const ChatBar: React.FC<ChatBarProps> = ({
             </div>
           );
 
-          const canStop = !hasText && isBusy;
-          const isButtonActive = (canStop || isQueued || hasText) && !disabledProp;
+          const canStop = !hasDraft && isBusy;
+          const isButtonActive = (canStop || isQueued || hasDraft) && !disabledProp;
 
           const sendBtn = (
             <button
@@ -1199,7 +1464,7 @@ export const ChatBar: React.FC<ChatBarProps> = ({
                   ? t('chat.stopSpeaking')
                   : isQueued
                   ? t('chat.queued')
-                  : hasText && !isModelReady
+                  : hasDraft && !isModelReady
                   ? t('chat.queueSend')
                   : t('chat.send')
               }
@@ -1208,7 +1473,7 @@ export const ChatBar: React.FC<ChatBarProps> = ({
                   ? t('chat.stopSpeaking')
                   : isQueued
                   ? `${t('chat.queued')}${!isLLMReady ? ` ${llmPct}%` : ''}`
-                  : hasText && !isModelReady
+                  : hasDraft && !isModelReady
                   ? t('chat.queueSend')
                   : t('chat.send')
               }
@@ -1222,17 +1487,17 @@ export const ChatBar: React.FC<ChatBarProps> = ({
               <span className="relative z-10 flex items-center justify-center">
                 {canStop ? (
                   <span className="w-3 h-3 bg-white rounded-[2.5px] shadow-sm block" />
-                ) : hasText && !isModelReady ? (
+                ) : hasDraft && !isModelReady ? (
                   <Sparkles className="w-4 h-4 text-white animate-pulse" />
                 ) : (
-                  <Send className={`w-4 h-4 ${hasText ? 'text-white' : 'text-white/40'}`} />
+                  <Send className={`w-4 h-4 ${hasDraft ? 'text-white' : 'text-white/40'}`} />
                 )}
               </span>
             </button>
           );
 
           const sendWrapped =
-            isModelReady || sttState === 'loading' || (!isInputFocused && !hasText && !isQueued) ? (
+            isModelReady || sttState === 'loading' || (!isInputFocused && !hasDraft && !isQueued) ? (
               sendBtn
             ) : (
               <Tooltip delayDuration={0} open>
@@ -1304,7 +1569,9 @@ export const ChatBar: React.FC<ChatBarProps> = ({
                     ? 'grid-cols-[auto_1fr_auto] grid-rows-[minmax(0,1fr)_auto] gap-y-1'
                     : 'grid-cols-[auto_minmax(0,1fr)_auto] grid-rows-1 items-center gap-x-2'
                 } ${
-                  isVoiceActive
+                  isImageDragOver
+                    ? 'border-[#ea8377] ring-2 ring-[#ea8377]/50 shadow-[0_0_24px_rgba(234,131,119,0.4)]'
+                    : isVoiceActive
                     ? 'border-[#ea8377]/40 ring-1 ring-[#ea8377]/25 shadow-[0_0_20px_rgba(234,131,119,0.2)]'
                     : isQueued
                     ? 'border-[#ea8377] ring-2 ring-[#ea8377]/40 shadow-[0_0_24px_rgba(234,131,119,0.35)]'

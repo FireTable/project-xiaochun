@@ -574,7 +574,7 @@ export class ChatDirector {
       segmentIndex?: number,
       totalSegments?: number,
     ) => void,
-    opts?: { preserveMotion?: boolean },
+    opts?: { preserveMotion?: boolean; imageUrls?: string[] },
   ): Promise<void> {
     if (await this.audioBlocked()) {
       console.warn('[ChatDirector] 自动播放受浏览器策略限制，继续合成动作与气泡，等待用户手势激活音频:', text);
@@ -614,6 +614,8 @@ export class ChatDirector {
         guardedStatus,
         ctx.prompt,
         ctx.lang,
+        undefined,
+        opts?.imageUrls,
       );
     } catch (e: any) {
       if (!this.owns(id)) return;
@@ -677,7 +679,7 @@ export class ChatDirector {
     if (!this.owns(id)) return;
 
     this.plan = { speech: text, llm_provider: 'DEV_BYPASS' };
-    await this.runSpeechPipeline(text, player, emage, status, id, voiceOverride, opts);
+    await this.runSpeechPipeline(null, player, emage, status, id, voiceOverride, opts);
   }
 
   /**
@@ -943,7 +945,7 @@ export class ChatDirector {
   }
 
   private async runSpeechPipeline(
-    userText: string,
+    userText: string | null,
     player: VRMAMotionPlayer,
     emage: EmagePlayer,
     status: (
@@ -960,7 +962,9 @@ export class ChatDirector {
   ): Promise<void> {
     const live = () => this.owns(utteranceId);
     console.log('[ChatDirector] speech:', this.plan!.speech, 'llm:', this.plan!.llm_provider, 'preserveMotion:', opts?.preserveMotion);
-    void rememberTurn(userText, this.plan!.speech);
+    if (userText !== null) {
+      void rememberTurn(userText, this.plan!.speech);
+    }
 
     this.ctx = this.ctx ?? new AudioContext();
     if ((this.ctx.state as string) !== 'running') {

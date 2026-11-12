@@ -31,9 +31,11 @@ export interface ProviderProfile {
   availableModels?: string[];
 }
 
+import type { ChatContentPart } from '../chatTypes';
+
 export interface ChatMessage {
   role: 'system' | 'user' | 'assistant';
-  content: string;
+  content: string | ChatContentPart[];
 }
 
 export interface ChatChunkDelta {

@@ -113,12 +113,32 @@ export async function getProviderDecrypted(id: string): Promise<ProviderProfile 
 export async function getActiveProvider(): Promise<ProviderProfile | null> {
   const active = readActiveModel();
   if (!active || active.kind !== 'custom') return null;
-  return getProviderDecrypted(active.providerId);
+  const profile = await getProviderDecrypted(active.providerId);
+  if (!profile) {
+    // 自愈孤儿 custom 指针（如 provider 已删除、跨协议/端口 IndexedDB 为空或解密密钥变更），自动回退默认 WebLLM
+    const current = readActiveModel();
+    if (current?.kind === 'custom' && current.providerId === active.providerId) {
+      writeActiveModel(null);
+      notifyProvidersChange();
+    }
+    return null;
+  }
+  return profile;
 }
 
 export async function getActiveProviderId(): Promise<string | null> {
   const active = readActiveModel();
-  return active?.kind === 'custom' ? active.providerId : null;
+  if (active?.kind !== 'custom') return null;
+  const exists = await getProvider(active.providerId);
+  if (!exists) {
+    const current = readActiveModel();
+    if (current?.kind === 'custom' && current.providerId === active.providerId) {
+      writeActiveModel(null);
+      notifyProvidersChange();
+    }
+    return null;
+  }
+  return active.providerId;
 }
 
 export async function setActiveProviderId(id: string | null): Promise<void> {
@@ -204,6 +224,8 @@ export async function saveProvider(input: SaveInput): Promise<ProviderProfile> {
 }
 
 export async function deleteProvider(id: string): Promise<void> {
+  const current = readActiveModel();
+  const wasActive = current?.kind === 'custom' && current.providerId === id;
   const db = await openDb();
   await new Promise<void>((resolve, reject) => {
     const tx = db.transaction(DB_STORE, 'readwrite');
@@ -217,7 +239,7 @@ export async function deleteProvider(id: string): Promise<void> {
       reject(req.error);
     };
   });
-  if ((await getActiveProviderId()) === id) await setActiveProviderId(null);
+  if (wasActive) await setActiveProviderId(null);
   notifyProvidersChange();
 }
 

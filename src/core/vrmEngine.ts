@@ -3489,7 +3489,7 @@ export class VRMEngine {
   }
 
   // ── 聊天与气泡追踪 ──
-  public async sendMessage(text: string): Promise<void> {
+  public async sendMessage(text: string, imageUrls?: string[]): Promise<void> {
     if (!this.currentVRM) return;
 
     const setStatus = (
@@ -3516,7 +3516,14 @@ export class VRMEngine {
       );
     };
 
-    await this.chatDirector.say(text, this.currentVRM, this.vrmaPlayer, this.emagePlayer, setStatus);
+    await this.chatDirector.say(
+      text,
+      this.currentVRM,
+      this.vrmaPlayer,
+      this.emagePlayer,
+      setStatus,
+      imageUrls && imageUrls.length > 0 ? { imageUrls } : undefined,
+    );
   }
 
   /**

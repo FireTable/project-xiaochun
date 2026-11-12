@@ -15,6 +15,7 @@ import type {
   ChatCompletionRequest,
   ChatOptions,
   InitProgressReport,
+  WebGPUFramePacingUpdate,
 } from '@mlc-ai/web-llm';
 import { ThinMLCEngine } from './webllmThinClient';
 
@@ -40,6 +41,20 @@ const hfBase = (APP_CONFIG.llm?.hfEndpoint || 'https://huggingface.co').replace(
 
 export const CUSTOM_WEBLLM_MODELS: ModelRecord[] = [
   {
+    model: `${hfBase}/m070122/MiniCPM-V-4.7-1B-q4f16_1-MLC`,
+    model_id: 'MiniCPM-V-4.7-1B-q4f16_1-MLC',
+    // 内置 4x 高清视觉编码器运行时 (256 tokens/tile + 自适应 <slice> 多切片)，复用同一套 1.54GB 43 分片权重
+    model_lib: '/wasm/MiniCPM-V-4.7-1B-q4f16_1-4x-8378eafa-webgpu.wasm',
+    model_manifest: '/wasm/MiniCPM-V-4.7-1B-q4f16_1-4x-8378eafa-manifest.json',
+    vram_required_MB: 1850,
+    buffer_size_required_bytes: 268435456,
+    low_resource_required: false,
+    required_features: ['shader-f16'],
+    overrides: {
+      context_window_size: 4096,
+    },
+  },
+  {
     model: `${hfBase}/ozhyhinas/MiniCPM5-2B-q4f16_1-MLC`,
     model_id: 'MiniCPM5-2B-q4f16_1-MLC',
     model_lib:
@@ -59,12 +74,53 @@ const libReadyListeners = new Set<() => void>();
 let thinClient: ThinMLCEngine | null = null;
 let prebuiltList: ModelRecord[] | null = null;
 let prebuiltListPromise: Promise<ModelRecord[]> | null = null;
+let visibilityHookBound = false;
+
+/**
+ * 根据页面前后台可见性与设备硬件画像（移动端 TBDR GPU / 低显存设备 vs 桌面端）计算 Worker WebGPU 节流策略：
+ * - 后台隐藏标签页：关闭节流 (`enabled: false`)，最大化权重上传与编译吞吐；
+ * - 移动端或低配设备 (`isMobile || tier === 'low'`)：切换 `mobile` 紧致预算（12 dispatches/encoder、2MB/4MB 闭环分片流式上传、64-token Prefill、2 路并发分片拉取），兼顾帧率与防 OOM；
+ * - 桌面端前台：采用 `desktop` 闭环自适应节流预设。
+ */
+export function resolveAdaptiveFramePacing(opts: {
+  hidden: boolean;
+  profile?: Pick<GpuDeviceProfile, 'tier' | 'isMobile'> | null;
+  quickTier?: 'high' | 'low';
+}): WebGPUFramePacingUpdate {
+  const useMobilePreset = opts.profile
+    ? opts.profile.isMobile || opts.profile.tier === 'low'
+    : opts.quickTier === 'low';
+  return {
+    preset: useMobilePreset ? 'mobile' : 'desktop',
+    enabled: !opts.hidden,
+  };
+}
+
+function syncWorkerFramePacing(target: ThinMLCEngine | null = thinClient): void {
+  if (!target || typeof document === 'undefined') return;
+  const cached = getCachedDeviceProfile();
+  target.setFramePacing(
+    resolveAdaptiveFramePacing({
+      hidden: document.visibilityState === 'hidden',
+      profile: cached,
+      quickTier: cached ? undefined : getQuickDeviceTier(),
+    }),
+  );
+}
+
+function bindVisibilityFramePacing(): void {
+  if (visibilityHookBound || typeof document === 'undefined') return;
+  visibilityHookBound = true;
+  document.addEventListener('visibilitychange', () => syncWorkerFramePacing());
+}
 
 function ensureThinClient(): ThinMLCEngine {
   if (!thinClient) {
     const w = new Worker(new URL('./llmWorker.ts', import.meta.url), { type: 'module' });
     engineWorker = w;
     thinClient = new ThinMLCEngine(w);
+    bindVisibilityFramePacing();
+    syncWorkerFramePacing(thinClient);
   }
   return thinClient;
 }
@@ -113,11 +169,28 @@ function currentModelList(): ModelRecord[] {
 }
 
 function getAppLlmConfig(): AppConfig {
-  return { model_list: currentModelList(), cacheBackend: 'indexeddb' };
+  // 优先使用浏览器原生 Cache Storage 流式存取权重分片，规避 IndexedDB 64MB ArrayBuffer 结构化克隆阻塞；不可用环境自动回退 indexeddb
+  const cacheBackend = typeof caches !== 'undefined' ? 'cache' : 'indexeddb';
+  return { model_list: currentModelList(), cacheBackend };
 }
 
 export const DEFAULT_LLM_MODEL = APP_CONFIG.llm.model;
+export const VISION_LLM_MODEL = APP_CONFIG.llm.visionModel;
 export const FALLBACK_LLM_MODEL = APP_CONFIG.llm.fallback;
+
+/** 判断指定模型 ID（WebLLM 端侧或自定义 OpenAI 兼容服务）是否原生支持多模态视觉输入 (`image_url`)。 */
+export function isVisionModelId(modelId: string): boolean {
+  const id = modelId.trim();
+  if (!id) return false;
+  // WebLLM 端侧视觉模型
+  if (/^(MiniCPM-V-4\.7|Phi-3\.5-vision|gemma-[34])/i.test(id)) return true;
+  // 排除已知纯文本 OpenAI o1/o3-mini/preview 推理模型
+  if (/(?:^|\/)(?:o1-(?:mini|preview)|o3-mini)(?:-|$|:)/i.test(id)) return false;
+  // 常见多模态 OpenAI-compatible 视觉模型标识（排除纯文本 MiniCPM5 / Qwen2.5-Instruct / DeepSeek-R1 等）
+  return /(?:minicpm-(?:v|o)|gpt-4o|gpt-4\.1|gpt-4-turbo|gpt-5|(?:^|\/)o[134](?:-|$)|claude-(?:3|4|sonnet|opus|haiku)|gemini|gemma-3|qwen(?:\d(?:\.\d)?)?-vl|qwen3\.5(?:-omni|-vl)|glm-4(?:\.\d)?v|pixtral|llava|internvl|step-1v|yi-vision|doubao.*vision|vision|-vl(?:-|$|:))/i.test(
+    id,
+  );
+}
 
 export function isThinkingEnabled(): boolean {
   if (typeof window === 'undefined') return APP_CONFIG.llm.thinking;
@@ -240,11 +313,6 @@ export function resolveInitialModelId(): string {
     const active = readActiveModel();
     const saved = active?.kind === 'webllm' ? active.modelId : null;
     if (saved && isKnownModelId(saved)) {
-      // 显存与设备保护：若评估为 low（显存受限/手机等），且存的模型不是 fallback，自动纠偏为 fallback 模型
-      if (quickTier === 'low' && saved !== FALLBACK_LLM_MODEL) {
-        writeActiveModel({ kind: 'webllm', modelId: FALLBACK_LLM_MODEL });
-        return FALLBACK_LLM_MODEL;
-      }
       return saved;
     }
   }
@@ -257,7 +325,13 @@ export function isWebLLMReady(): boolean {
 // Dev-only probe for perf scripts (grok/sess.mjs).
 if (import.meta.env?.DEV && typeof window !== 'undefined') {
   (window as any).__xcLLMReady = () => isWebLLMReady();
-  (window as any).__xcLLM = { model: () => getActiveModelId(), setModel: (id: string) => setActiveModelId(id), listSize: () => currentModelList().length };
+  (window as any).__xcLLM = {
+    model: () => getActiveModelId(),
+    setModel: (id: string) => setActiveModelId(id),
+    listSize: () => currentModelList().length,
+    progress: () => getLlmLoadProgress(),
+    onProgress: (cb: (p: LlmLoadProgress) => void) => onLlmLoadProgress(cb),
+  };
 }
 
 const modelChangeListeners = new Set<(modelId: string) => void>();
@@ -342,12 +416,13 @@ export function setActiveModelId(modelId: string): void {
   if (!isKnownModelId(modelId)) return;
   // ponytail: 必须先写 key,即使 model 跟当前一样 — 之前因为提前 return 没写,
   // 导致 custom 激活时点 webLLM 默认模型,key 还是 custom,UI 也跟着错。
-  const wasAlreadyWebLLM = readActiveModel()?.kind === 'webllm';
+  const prev = readActiveModel();
+  const wasSameWebLLM = prev?.kind === 'webllm' && prev.modelId === modelId;
   writeActiveModel({ kind: 'webllm', modelId });
   activeModelId = modelId;
   notifyModelChange(modelId);
   // ponytail: 已经在跑同一个 model 且 key 本来就是 webllm → 完全 no-op,跳过 reload。
-  if (wasAlreadyWebLLM && engineInstance) return;
+  if (wasSameWebLLM && (engineInstance || initPromise)) return;
   unloadEngine();
   preloadWebLLM();
 }
@@ -379,14 +454,24 @@ export async function getWebLLMEngine(opts?: {
     const profile = await detectGpuDeviceProfile();
     console.log(`[WebLLM 评测] tier=${profile.tier}, maxBuffer=${profile.maxBufferSizeMB}MB, mem=${profile.deviceMemoryGB ?? '?'}GB, reason=${profile.reason}`);
 
+    const hasExplicitWebLLMSelection = readActiveModel()?.kind === 'webllm';
     let modelId = getActiveModelId();
-    // 若设备显存/算力不足以运行正常模型，且当前非 fallback 模型，直接重定向为 fallback 模型，彻底避免耗时下载大模型
-    if (profile.tier === 'low' && modelId !== FALLBACK_LLM_MODEL) {
-      console.warn(`[WebLLM] 设备评估不足以承载全量模型 (${profile.reason})，直接加载 fallback 模型 (${FALLBACK_LLM_MODEL})，避免浪费时间与流量`);
+    // 仅在首次未手动选模（默认启动）或硬件根本无法承载（无 WebGPU / 软光栅 / maxBuffer < 256MB）时自动重定向至 0.5B；
+    // 用户在移动端手动点选 MiniCPM-V-4.7-1B 等模型时予以放行（走 mobile 保帧预算，万一 OOM 由下方 catch 兜底降级）。
+    const cannotRunNonFallback =
+      !profile.supported ||
+      profile.reasonKey === 'chat.deviceDialog.reasonText.fallbackAdapter' ||
+      profile.maxBufferSizeMB < 256;
+    if (
+      profile.tier === 'low' &&
+      modelId !== FALLBACK_LLM_MODEL &&
+      (!hasExplicitWebLLMSelection || cannotRunNonFallback)
+    ) {
+      console.warn(`[WebLLM] 设备评估不足以默认承载全量模型 (${profile.reason})，切换至 fallback 模型 (${FALLBACK_LLM_MODEL})`);
       activeModelId = FALLBACK_LLM_MODEL;
       modelId = FALLBACK_LLM_MODEL;
-      notifyModelChange(FALLBACK_LLM_MODEL);
       writeActiveModel({ kind: 'webllm', modelId: FALLBACK_LLM_MODEL });
+      notifyModelChange(FALLBACK_LLM_MODEL);
     }
 
     const worker = ensureThinClient().worker;
@@ -399,6 +484,8 @@ export async function getWebLLMEngine(opts?: {
     // Same sequence as web-llm's CreateWebWorkerMLCEngine: setAppConfig, then reload(modelId, chatOpts).
     const create = async (w: Worker, id: string, opts: ChatOptions): Promise<LLMEngine> => {
       const client = thinClient && thinClient.worker === w ? thinClient : (thinClient = new ThinMLCEngine(w));
+      bindVisibilityFramePacing();
+      syncWorkerFramePacing(client);
       client.setAppConfig(appConfig);
       client.initProgressCallback = onInit;
       await client.reload(id, opts);
@@ -430,6 +517,8 @@ export async function getWebLLMEngine(opts?: {
         const freshWorker = ensureThinClient().worker;
         engineWorker = freshWorker;
         activeModelId = FALLBACK_LLM_MODEL;
+        writeActiveModel({ kind: 'webllm', modelId: FALLBACK_LLM_MODEL });
+        notifyModelChange(FALLBACK_LLM_MODEL);
         const engine = await create(freshWorker, FALLBACK_LLM_MODEL, chatOpts);
         if (gen !== loadGen) {
           freshWorker.terminate();
@@ -463,12 +552,20 @@ export function preloadWebLLM(opts?: {
   void getWebLLMEngine({ onProgressText: opts?.onProgressText })
     .then(async (engine) => {
       if (!opts?.warmup) return;
-      // 后台轻量预热：触发一次 1-token 微前向传播，让驱动提前完成 WGSL 算子 JIT 编译，
-      // 避免用户首轮发消息时命中 GPU 编译着色器导致的 500ms~1s 卡顿。
+      // 后台渐进式预热：max_tokens: 2 同时覆盖 prefill 与 decodeStep（视觉模型额外覆盖 1x1 imageAdapter），
+      // 配合 @firetable/web-runtime 协同帧率节流平滑触发驱动 ISA 特化与 TVM 内存池预分配。
       try {
+        const TINY_1X1_PNG =
+          'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAIAAACQd1PeAAAADElEQVR4nGP4z8AAAAMBAQDJ/pLvAAAAAElFTkSuQmCC';
+        const warmupContent = isVisionModelId(getActiveModelId())
+          ? ([
+              { type: 'image_url', image_url: { url: TINY_1X1_PNG } },
+              { type: 'text', text: 'hi' },
+            ] as const)
+          : 'hi';
         await engine.chat.completions.create({
-          messages: [{ role: 'user', content: 'hi' }],
-          max_tokens: 1,
+          messages: [{ role: 'user', content: warmupContent as any }],
+          max_tokens: 2,
         });
         await engine.resetChat();
         console.log('[WebLLM] 后台 WebGPU 着色器管线预热完成，就绪待命');
@@ -509,11 +606,25 @@ export async function runChat(opts: RunChatOptions): Promise<string> {
     unloadEngine();
     if (getActiveModelId() !== FALLBACK_LLM_MODEL) {
       console.warn(`[WebLLM] 自动降级至 fallback 模型 (${FALLBACK_LLM_MODEL})`);
-      setActiveModelId(FALLBACK_LLM_MODEL);
+      writeActiveModel({ kind: 'webllm', modelId: FALLBACK_LLM_MODEL });
+      activeModelId = FALLBACK_LLM_MODEL;
+      notifyModelChange(FALLBACK_LLM_MODEL);
     }
+    const retryGen = getLoadGen();
     engine = await getWebLLMEngine({ onMilestone: opts.onMilestone });
-    if (gen !== getLoadGen()) throw new ModelSwitchedError();
-    return callEngine(engine, { ...opts, thinking: false, maxTokens: 80 });
+    if (retryGen !== getLoadGen()) throw new ModelSwitchedError();
+    const fallbackMessages = isVisionModelId(getActiveModelId())
+      ? opts.messages
+      : opts.messages.map((m) => {
+          if (m.role !== 'user' || typeof m.content === 'string') return m;
+          const textOnly = m.content
+            .filter((p): p is { type: 'text'; text: string } => p.type === 'text')
+            .map((p) => p.text)
+            .join('\n')
+            .trim();
+          return { role: 'user' as const, content: textOnly || '你好' };
+        });
+    return callEngine(engine, { ...opts, messages: fallbackMessages, thinking: false, maxTokens: 80 });
   }
 }
 

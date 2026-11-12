@@ -10,6 +10,7 @@ export const zhCN = {
   },
   app: {
     dropZoneHint: '松开鼠标加载该 `.vrm` 模型',
+    dropImageHint: '松开鼠标添加图片给小蠢看',
   },
   sceneTimeCard: {
     title: '场景时间',
@@ -268,6 +269,9 @@ export const zhCN = {
     etaSec: '{{sec}}秒',
     etaRemaining: '剩余 {{eta}}',
     send: '发送',
+    attachImage: '上传图片（支持拖拽与粘贴截图）',
+    removeImage: '移除图片',
+    defaultImagePrompt: '看看这张图片里有什么？',
     sttIdle: '语音输入（单击连续 / 按住即说）',
     sttLoading: '加载语音模型…',
     sttListening: '正在听…（再点结束）',

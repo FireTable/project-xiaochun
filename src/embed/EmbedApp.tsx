@@ -33,6 +33,7 @@ import {
 import { syncXiaoChunRuntimeState } from '@/core/protocol/runtimeState';
 import { prologueStory } from '@/story/prologueStory';
 import { storyDirectorEngine } from '@/story/storyEngine';
+import { dataTransferHasImage, dispatchVisionDrop, isImageFile, isVisionDropActive } from '@/llm/visionDropBus';
 
 // 内置按钮只在 ?picker= 打开时才加载 (Radix 下拉等); 默认不开的宿主不为它多下一个字节
 const EmbedCorners = lazy(() => import('./EmbedCorners').then((m) => ({ default: m.EmbedCorners })));
@@ -203,7 +204,25 @@ export const EmbedApp: React.FC = () => {
         .catch((e) => console.error('[embed] initial model load failed:', e));
     }, 120);
 
+    const handleDragOver = (e: DragEvent) => {
+      if (isVisionDropActive() && dataTransferHasImage(e.dataTransfer)) {
+        e.preventDefault();
+      }
+    };
+    const handleDrop = (e: DragEvent) => {
+      if (!isVisionDropActive() || !dataTransferHasImage(e.dataTransfer)) return;
+      e.preventDefault();
+      const imageFiles = Array.from(e.dataTransfer?.files ?? []).filter(isImageFile);
+      if (imageFiles.length > 0) {
+        dispatchVisionDrop(imageFiles);
+      }
+    };
+    window.addEventListener('dragover', handleDragOver);
+    window.addEventListener('drop', handleDrop);
+
     return () => {
+      window.removeEventListener('dragover', handleDragOver);
+      window.removeEventListener('drop', handleDrop);
       window.removeEventListener('pointerdown', handleFirstUnlock, { capture: true });
       window.removeEventListener('keydown', handleFirstUnlock, { capture: true });
       vrmEngine.interaction.guidesEnabled = true;

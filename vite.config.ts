@@ -9,6 +9,7 @@ import path from 'path';
 import fs from 'fs';
 import { localApiPlugin } from './vite/localApiPlugin';
 import { dropDockerfatAssets } from './vite/dropDockerfatAssets';
+import { resolveDevHttps } from './vite/devHttps';
 
 function syncDocsPlugin() {
   return {
@@ -29,9 +30,11 @@ function syncDocsPlugin() {
 const isTauri = Boolean(process.env.TAURI_ENV_PLATFORM || process.env.TAURI_DEV_HOST);
 const defaultPort = isTauri ? 5186 : 5185;
 
-export default defineConfig(({ command, isPreview }) => ({
+export default defineConfig(({ command, isPreview }) => {
+  const devHttps = resolveDevHttps(import.meta.dirname, command === 'serve' && !isPreview, isTauri);
+  return {
   plugins: [
-    ...(command === 'serve' && !isTauri ? [basicSsl()] : []),
+    ...(devHttps.useBasicSsl ? [basicSsl()] : []),
     // Tauri release builds (`tauri build` -> beforeBuildCommand `pnpm build`; the Tauri CLI sets
     // TAURI_ENV_PLATFORM for that command) must NOT load @cloudflare/vite-plugin.
     // wrangler.jsonc declares an `ai` binding (Workers AI), which has no local simulation: the plugin
@@ -103,6 +106,7 @@ export default defineConfig(({ command, isPreview }) => ({
     host: '0.0.0.0',
     port: Number(process.env.PORT) || defaultPort,
     strictPort: true,
+    https: devHttps.https,
     watch: {
       ignored: ['**/*.md', '**/docs/**', '**/public/llms*.txt'],
     },
@@ -127,4 +131,5 @@ export default defineConfig(({ command, isPreview }) => ({
   optimizeDeps: {
     exclude: ['@mlc-ai/web-llm'],
   },
-}));
+  };
+});

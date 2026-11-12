@@ -17,6 +17,9 @@
   "scripts": {
     "preinstall": "npx only-allow pnpm",
     "dev": "vite --host 0.0.0.0",
+    "dev:http": "VITE_HTTP=1 vite --host 0.0.0.0",
+    "dev:https": "VITE_HTTPS=1 vite --host 0.0.0.0",
+    "setup:https": "node scripts/setup-https-cert.mjs",
     "build:packages": "pnpm --filter \"./packages/**\" build",
     "build": "pnpm build:packages && vite build",
     "preview": "vite preview",
@@ -87,9 +90,11 @@
     "@firetable/client-memory": "workspace:*",
     "@firetable/stream-asr": "^0.1.2",
     "@firetable/three-vrm-materials-mtoon": "workspace:*",
+    "@firetable/web-llm": "workspace:*",
+    "@firetable/web-runtime": "workspace:*",
     "@fontsource-variable/geist": "^5.3.0",
     "@gltf-transform/core": "^4.4.2",
-    "@mlc-ai/web-llm": "^0.2.84",
+    "@mlc-ai/web-llm": "workspace:@firetable/web-llm@*",
     "@pixiv/three-vrm": "^3.5.5",
     "@pixiv/three-vrm-animation": "^3.5.5",
     "@pixiv/three-vrm-springbone": "3.5.5",
@@ -133,7 +138,9 @@
       "sharp"
     ],
     "overrides": {
-      "@pixiv/three-vrm-materials-mtoon": "workspace:@firetable/three-vrm-materials-mtoon@*"
+      "@pixiv/three-vrm-materials-mtoon": "workspace:@firetable/three-vrm-materials-mtoon@*",
+      "@mlc-ai/web-runtime": "workspace:@firetable/web-runtime@*",
+      "@mlc-ai/web-llm": "workspace:@firetable/web-llm@*"
     }
   }
 }

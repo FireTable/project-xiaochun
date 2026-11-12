@@ -15,6 +15,8 @@ __pycache__/
 node_modules
 dist
 dist-ssr
+packages/web-runtime/lib/
+packages/web-llm/lib/
 *.local
 public/onnx
 public/*_extracted/
@@ -27,7 +29,8 @@ grok
 .grok
 public/vrm/.vroid
 
-# Local tooling scratch
+# Local tooling scratch & mkcert dev certificates
+.certs/
 .maker-mcp/
 scratch/
 
