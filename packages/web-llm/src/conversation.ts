@@ -31,6 +31,14 @@ export type ArtifactPromptSegment =
   | ChatCompletionContentPartImage
   | ChatCompletionContentPartInputAudio;
 
+export const EMPTY_THINKING_BLOCK = "<think>\n\n</think>\n\n";
+
+export function stripEmptyThinkingPrefix(text: string): string {
+  return text.startsWith(EMPTY_THINKING_BLOCK)
+    ? text.slice(EMPTY_THINKING_BLOCK.length)
+    : text;
+}
+
 /**
  * Helper to keep track of history conversations.
  */
@@ -59,6 +67,7 @@ export class Conversation {
    * false when the reply is finished with `finishReply()`.
    */
   private isLastMessageEmptyThinkingReplyHeader = false;
+  private lastEmptyThinkingBlockStr?: string = undefined;
 
   // TODO(tvm-team) confirm and remove
   // private contextWindowStart = 0;
@@ -447,6 +456,8 @@ export class Conversation {
     this.use_function_calling = false;
     this.isTextCompletion = false;
     this.prompt = undefined;
+    this.isLastMessageEmptyThinkingReplyHeader = false;
+    this.lastEmptyThinkingBlockStr = undefined;
   }
 
   getStopStr(): string[] {
@@ -500,7 +511,29 @@ export class Conversation {
       );
     }
     this.isLastMessageEmptyThinkingReplyHeader = true;
+    this.lastEmptyThinkingBlockStr = emptyThinkingBlockStr;
     this.messages.push([role, this.config.roles[role], emptyThinkingBlockStr]);
+  }
+
+  clearEmptyThinkingReplyHeader() {
+    this.isLastMessageEmptyThinkingReplyHeader = false;
+    this.lastEmptyThinkingBlockStr = undefined;
+  }
+
+  /**
+   * Replace the last assistant message content cleanly (used by KV prefix truncation).
+   */
+  setLastAssistantReplyText(message: string): boolean {
+    if (this.isTextCompletion || this.messages.length === 0) {
+      return false;
+    }
+    const lastIdx = this.messages.length - 1;
+    if (this.messages[lastIdx][0] !== Role.assistant) {
+      return false;
+    }
+    this.messages[lastIdx][2] = message;
+    this.clearEmptyThinkingReplyHeader();
+    return true;
   }
 
   finishReply(message: string) {
@@ -518,8 +551,17 @@ export class Conversation {
     ) {
       throw Error("Already assigned");
     }
-    this.messages[this.messages.length - 1][2] = message;
-    this.isLastMessageEmptyThinkingReplyHeader = false;
+    let storedMessage = message;
+    if (this.isLastMessageEmptyThinkingReplyHeader) {
+      const prefix = this.lastEmptyThinkingBlockStr ?? EMPTY_THINKING_BLOCK;
+      if (storedMessage.startsWith(prefix)) {
+        storedMessage = storedMessage.slice(prefix.length);
+      } else {
+        storedMessage = stripEmptyThinkingPrefix(storedMessage);
+      }
+    }
+    this.messages[this.messages.length - 1][2] = storedMessage;
+    this.clearEmptyThinkingReplyHeader();
   }
 }
 
@@ -571,12 +613,19 @@ export function compareConversationObject(
   const msgLen = convA.messages.length;
   const msgEntryLen = convA.messages[0].length; // always 3 for now
   for (let i = 0; i < msgLen; i++) {
+    const isAssistantTurn =
+      convA.messages[i][0] === Role.assistant &&
+      convB.messages[i][0] === Role.assistant;
     for (let j = 0; j < msgEntryLen; j++) {
       const entryA = convA.messages[i][j];
       const entryB = convB.messages[i][j];
       if (typeof entryA === "string" && typeof entryB === "string") {
         // Case 1: both are strings
-        if (convA.messages[i][j] !== convB.messages[i][j]) {
+        const normA =
+          isAssistantTurn && j === 2 ? stripEmptyThinkingPrefix(entryA) : entryA;
+        const normB =
+          isAssistantTurn && j === 2 ? stripEmptyThinkingPrefix(entryB) : entryB;
+        if (normA !== normB) {
           return false;
         }
       } else if (entryA === undefined && entryB === undefined) {
@@ -593,7 +642,13 @@ export function compareConversationObject(
           const entryB_k = entryB[k];
           if (entryA_k.type === "text" && entryB_k.type === "text") {
             // Case 3.1: both are text
-            if (entryA_k.text !== entryB_k.text) {
+            const normA = isAssistantTurn
+              ? stripEmptyThinkingPrefix(entryA_k.text)
+              : entryA_k.text;
+            const normB = isAssistantTurn
+              ? stripEmptyThinkingPrefix(entryB_k.text)
+              : entryB_k.text;
+            if (normA !== normB) {
               return false;
             }
           } else if (

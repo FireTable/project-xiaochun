@@ -403,4 +403,21 @@ describe('UniversalMotionController Motion-Native Expression Binding', () => {
       }
     }
   });
+
+  it('preserves ongoing external conversational emotions when a clip has no bound expression', () => {
+    const controller = new UniversalMotionController();
+    const vrm = createMockVRM();
+    controller.bind(vrm);
+
+    expressionController.setExpression('shy', 0.85);
+    const setExprSpy = vi.spyOn(expressionController, 'setExpression');
+
+    const clip = createDummyClip(1.0);
+    controller.play(clip, {});
+    controller.update(1.1);
+    controller.stop();
+
+    expect(setExprSpy).not.toHaveBeenCalledWith('neutral');
+    setExprSpy.mockRestore();
+  });
 });

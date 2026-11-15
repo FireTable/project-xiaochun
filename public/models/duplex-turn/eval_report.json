@@ -1,0 +1,581 @@
+{
+  "modelFile": "duplex-turn-zh-en-v1.int8.onnx",
+  "modelSizeMB": 11.33,
+  "temperature": 1.430285,
+  "overall": {
+    "count": 2328,
+    "accuracy": 0.8522,
+    "macroF1All4": 0.8412,
+    "macroF1Present": 0.8412,
+    "weightedF1": 0.8521,
+    "ece": 0.03496,
+    "perClass": {
+      "COMPLETE": {
+        "support": 897,
+        "precision": 0.8238,
+        "recall": 0.9019,
+        "f1": 0.8611,
+        "accuracy": 0.9019
+      },
+      "INCOMPLETE": {
+        "support": 967,
+        "precision": 0.889,
+        "recall": 0.8283,
+        "f1": 0.8576,
+        "accuracy": 0.8283
+      },
+      "BACKCHANNEL": {
+        "support": 232,
+        "precision": 0.9653,
+        "recall": 0.7198,
+        "f1": 0.8247,
+        "accuracy": 0.7198
+      },
+      "WAIT_INTERRUPT": {
+        "support": 232,
+        "precision": 0.761,
+        "recall": 0.8922,
+        "f1": 0.8214,
+        "accuracy": 0.8922
+      }
+    },
+    "confusionMatrixLabels": [
+      "COMPLETE",
+      "INCOMPLETE",
+      "BACKCHANNEL",
+      "WAIT_INTERRUPT"
+    ],
+    "confusionMatrix": [
+      [
+        809,
+        68,
+        3,
+        17
+      ],
+      [
+        147,
+        801,
+        2,
+        17
+      ],
+      [
+        16,
+        18,
+        167,
+        31
+      ],
+      [
+        10,
+        14,
+        1,
+        207
+      ]
+    ],
+    "presentGroundTruthClasses": [
+      "COMPLETE",
+      "INCOMPLETE",
+      "BACKCHANNEL",
+      "WAIT_INTERRUPT"
+    ],
+    "predictedClasses": [
+      "COMPLETE",
+      "INCOMPLETE",
+      "BACKCHANNEL",
+      "WAIT_INTERRUPT"
+    ]
+  },
+  "balancedBenchmarkMeanAccuracy": 0.8505,
+  "byLanguage": {
+    "CS": {
+      "count": 120,
+      "accuracy": 0.9417,
+      "macroF1All4": 0.4707,
+      "macroF1Present": 0.9415,
+      "weightedF1": 0.9415,
+      "ece": 0.05267,
+      "perClass": {
+        "COMPLETE": {
+          "support": 0,
+          "precision": 0.0,
+          "recall": 0.0,
+          "f1": 0.0,
+          "accuracy": null
+        },
+        "INCOMPLETE": {
+          "support": 0,
+          "precision": 0.0,
+          "recall": 0.0,
+          "f1": 0.0,
+          "accuracy": null
+        },
+        "BACKCHANNEL": {
+          "support": 60,
+          "precision": 1.0,
+          "recall": 0.8833,
+          "f1": 0.9381,
+          "accuracy": 0.8833
+        },
+        "WAIT_INTERRUPT": {
+          "support": 60,
+          "precision": 0.8955,
+          "recall": 1.0,
+          "f1": 0.9449,
+          "accuracy": 1.0
+        }
+      },
+      "confusionMatrixLabels": [
+        "COMPLETE",
+        "INCOMPLETE",
+        "BACKCHANNEL",
+        "WAIT_INTERRUPT"
+      ],
+      "confusionMatrix": [
+        [
+          0,
+          0,
+          0,
+          0
+        ],
+        [
+          0,
+          0,
+          0,
+          0
+        ],
+        [
+          0,
+          0,
+          53,
+          7
+        ],
+        [
+          0,
+          0,
+          0,
+          60
+        ]
+      ],
+      "presentGroundTruthClasses": [
+        "BACKCHANNEL",
+        "WAIT_INTERRUPT"
+      ],
+      "predictedClasses": [
+        "BACKCHANNEL",
+        "WAIT_INTERRUPT"
+      ]
+    },
+    "EN": {
+      "count": 1249,
+      "accuracy": 0.8911,
+      "macroF1All4": 0.861,
+      "macroF1Present": 0.861,
+      "weightedF1": 0.8905,
+      "ece": 0.00909,
+      "perClass": {
+        "COMPLETE": {
+          "support": 518,
+          "precision": 0.8456,
+          "recall": 0.9517,
+          "f1": 0.8955,
+          "accuracy": 0.9517
+        },
+        "INCOMPLETE": {
+          "support": 587,
+          "precision": 0.9597,
+          "recall": 0.8518,
+          "f1": 0.9025,
+          "accuracy": 0.8518
+        },
+        "BACKCHANNEL": {
+          "support": 72,
+          "precision": 0.9057,
+          "recall": 0.6667,
+          "f1": 0.768,
+          "accuracy": 0.6667
+        },
+        "WAIT_INTERRUPT": {
+          "support": 72,
+          "precision": 0.7826,
+          "recall": 1.0,
+          "f1": 0.878,
+          "accuracy": 1.0
+        }
+      },
+      "confusionMatrixLabels": [
+        "COMPLETE",
+        "INCOMPLETE",
+        "BACKCHANNEL",
+        "WAIT_INTERRUPT"
+      ],
+      "confusionMatrix": [
+        [
+          493,
+          21,
+          3,
+          1
+        ],
+        [
+          85,
+          500,
+          2,
+          0
+        ],
+        [
+          5,
+          0,
+          48,
+          19
+        ],
+        [
+          0,
+          0,
+          0,
+          72
+        ]
+      ],
+      "presentGroundTruthClasses": [
+        "COMPLETE",
+        "INCOMPLETE",
+        "BACKCHANNEL",
+        "WAIT_INTERRUPT"
+      ],
+      "predictedClasses": [
+        "COMPLETE",
+        "INCOMPLETE",
+        "BACKCHANNEL",
+        "WAIT_INTERRUPT"
+      ]
+    },
+    "ZH": {
+      "count": 959,
+      "accuracy": 0.7904,
+      "macroF1All4": 0.7748,
+      "macroF1Present": 0.7748,
+      "weightedF1": 0.7908,
+      "ece": 0.07804,
+      "perClass": {
+        "COMPLETE": {
+          "support": 379,
+          "precision": 0.792,
+          "recall": 0.8338,
+          "f1": 0.8123,
+          "accuracy": 0.8338
+        },
+        "INCOMPLETE": {
+          "support": 380,
+          "precision": 0.7921,
+          "recall": 0.7921,
+          "f1": 0.7921,
+          "accuracy": 0.7921
+        },
+        "BACKCHANNEL": {
+          "support": 100,
+          "precision": 0.9851,
+          "recall": 0.66,
+          "f1": 0.7904,
+          "accuracy": 0.66
+        },
+        "WAIT_INTERRUPT": {
+          "support": 100,
+          "precision": 0.6637,
+          "recall": 0.75,
+          "f1": 0.7042,
+          "accuracy": 0.75
+        }
+      },
+      "confusionMatrixLabels": [
+        "COMPLETE",
+        "INCOMPLETE",
+        "BACKCHANNEL",
+        "WAIT_INTERRUPT"
+      ],
+      "confusionMatrix": [
+        [
+          316,
+          47,
+          0,
+          16
+        ],
+        [
+          62,
+          301,
+          0,
+          17
+        ],
+        [
+          11,
+          18,
+          66,
+          5
+        ],
+        [
+          10,
+          14,
+          1,
+          75
+        ]
+      ],
+      "presentGroundTruthClasses": [
+        "COMPLETE",
+        "INCOMPLETE",
+        "BACKCHANNEL",
+        "WAIT_INTERRUPT"
+      ],
+      "predictedClasses": [
+        "COMPLETE",
+        "INCOMPLETE",
+        "BACKCHANNEL",
+        "WAIT_INTERRUPT"
+      ]
+    }
+  },
+  "datasets": {
+    "easy_turn_test": {
+      "count": 800,
+      "accuracy": 0.7725,
+      "macroF1All4": 0.7646,
+      "macroF1Present": 0.7646,
+      "weightedF1": 0.7732,
+      "ece": 0.0927,
+      "perClass": {
+        "COMPLETE": {
+          "support": 300,
+          "precision": 0.7746,
+          "recall": 0.8133,
+          "f1": 0.7935,
+          "accuracy": 0.8133
+        },
+        "INCOMPLETE": {
+          "support": 300,
+          "precision": 0.7639,
+          "recall": 0.7767,
+          "f1": 0.7702,
+          "accuracy": 0.7767
+        },
+        "BACKCHANNEL": {
+          "support": 100,
+          "precision": 0.9851,
+          "recall": 0.66,
+          "f1": 0.7904,
+          "accuracy": 0.66
+        },
+        "WAIT_INTERRUPT": {
+          "support": 100,
+          "precision": 0.6637,
+          "recall": 0.75,
+          "f1": 0.7042,
+          "accuracy": 0.75
+        }
+      },
+      "confusionMatrixLabels": [
+        "COMPLETE",
+        "INCOMPLETE",
+        "BACKCHANNEL",
+        "WAIT_INTERRUPT"
+      ],
+      "confusionMatrix": [
+        [
+          244,
+          40,
+          0,
+          16
+        ],
+        [
+          50,
+          233,
+          0,
+          17
+        ],
+        [
+          11,
+          18,
+          66,
+          5
+        ],
+        [
+          10,
+          14,
+          1,
+          75
+        ]
+      ],
+      "presentGroundTruthClasses": [
+        "COMPLETE",
+        "INCOMPLETE",
+        "BACKCHANNEL",
+        "WAIT_INTERRUPT"
+      ],
+      "predictedClasses": [
+        "COMPLETE",
+        "INCOMPLETE",
+        "BACKCHANNEL",
+        "WAIT_INTERRUPT"
+      ]
+    },
+    "smart_turn_test": {
+      "count": 1264,
+      "accuracy": 0.8964,
+      "macroF1All4": 0.4492,
+      "macroF1Present": 0.8985,
+      "weightedF1": 0.8985,
+      "ece": 0.01531,
+      "perClass": {
+        "COMPLETE": {
+          "support": 597,
+          "precision": 0.8535,
+          "recall": 0.9464,
+          "f1": 0.8975,
+          "accuracy": 0.9464
+        },
+        "INCOMPLETE": {
+          "support": 667,
+          "precision": 0.953,
+          "recall": 0.8516,
+          "f1": 0.8994,
+          "accuracy": 0.8516
+        },
+        "BACKCHANNEL": {
+          "support": 0,
+          "precision": 0.0,
+          "recall": 0.0,
+          "f1": 0.0,
+          "accuracy": null
+        },
+        "WAIT_INTERRUPT": {
+          "support": 0,
+          "precision": 0.0,
+          "recall": 0.0,
+          "f1": 0.0,
+          "accuracy": null
+        }
+      },
+      "confusionMatrixLabels": [
+        "COMPLETE",
+        "INCOMPLETE",
+        "BACKCHANNEL",
+        "WAIT_INTERRUPT"
+      ],
+      "confusionMatrix": [
+        [
+          565,
+          28,
+          3,
+          1
+        ],
+        [
+          97,
+          568,
+          2,
+          0
+        ],
+        [
+          0,
+          0,
+          0,
+          0
+        ],
+        [
+          0,
+          0,
+          0,
+          0
+        ]
+      ],
+      "presentGroundTruthClasses": [
+        "COMPLETE",
+        "INCOMPLETE"
+      ],
+      "predictedClasses": [
+        "COMPLETE",
+        "INCOMPLETE",
+        "BACKCHANNEL",
+        "WAIT_INTERRUPT"
+      ],
+      "binaryEndpointAccuracy": 0.9011
+    },
+    "holdout_en_cs": {
+      "count": 264,
+      "accuracy": 0.8826,
+      "macroF1All4": 0.4443,
+      "macroF1Present": 0.8886,
+      "weightedF1": 0.8886,
+      "ece": 0.07943,
+      "perClass": {
+        "COMPLETE": {
+          "support": 0,
+          "precision": 0.0,
+          "recall": 0.0,
+          "f1": 0.0,
+          "accuracy": null
+        },
+        "INCOMPLETE": {
+          "support": 0,
+          "precision": 0.0,
+          "recall": 0.0,
+          "f1": 0.0,
+          "accuracy": null
+        },
+        "BACKCHANNEL": {
+          "support": 132,
+          "precision": 1.0,
+          "recall": 0.7652,
+          "f1": 0.867,
+          "accuracy": 0.7652
+        },
+        "WAIT_INTERRUPT": {
+          "support": 132,
+          "precision": 0.8354,
+          "recall": 1.0,
+          "f1": 0.9103,
+          "accuracy": 1.0
+        }
+      },
+      "confusionMatrixLabels": [
+        "COMPLETE",
+        "INCOMPLETE",
+        "BACKCHANNEL",
+        "WAIT_INTERRUPT"
+      ],
+      "confusionMatrix": [
+        [
+          0,
+          0,
+          0,
+          0
+        ],
+        [
+          0,
+          0,
+          0,
+          0
+        ],
+        [
+          5,
+          0,
+          101,
+          26
+        ],
+        [
+          0,
+          0,
+          0,
+          132
+        ]
+      ],
+      "presentGroundTruthClasses": [
+        "BACKCHANNEL",
+        "WAIT_INTERRUPT"
+      ],
+      "predictedClasses": [
+        "COMPLETE",
+        "BACKCHANNEL",
+        "WAIT_INTERRUPT"
+      ]
+    }
+  },
+  "cpuOnnxBatchMsPerClip": {
+    "easy_turn_test": 13.81,
+    "smart_turn_test": 14.07,
+    "holdout_en_cs": 13.55
+  }
+}

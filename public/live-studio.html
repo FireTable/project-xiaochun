@@ -1,0 +1,229 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>XiaoChun Live Studio — Bilingual Full-Duplex Console</title>
+</head>
+<body>
+  <div id="studio-app" class="studio-shell">
+    <!-- Left Pane: Live 3D Stage & Host-Clock Telemetry -->
+    <section class="stage-pane" aria-label="Live 3D Stage">
+      <header class="pane-header">
+        <div class="pane-title-group">
+          <h1>XiaoChun Live Studio</h1>
+          <span class="pane-subtitle">Bilingual Full-Duplex 60FPS Console</span>
+        </div>
+        <div class="stage-controls">
+          <span id="stage-embed-status" class="status-text" role="status">Embed: booting</span>
+          <button id="btn-init-all" type="button" class="btn btn-primary">Initialize All Engines</button>
+        </div>
+      </header>
+
+      <div class="stage-viewport-wrap">
+        <iframe
+          id="embed-stage"
+          class="stage-iframe"
+          src="/embed?scene=beach3d&preset=normal"
+          title="XiaoChun 3D Stage"
+          allow="microphone; autoplay"
+        ></iframe>
+
+        <div id="stage-hud" class="stage-hud" aria-live="polite">
+          <div class="hud-row">
+            <div class="hud-kv">
+              <span class="kv-label">3D FPS</span>
+              <strong id="hud-fps" class="kv-value">60.0</strong>
+            </div>
+            <div class="hud-kv">
+              <span class="kv-label">Max Frame</span>
+              <strong id="hud-max-ms" class="kv-value">0.0 ms</strong>
+            </div>
+            <div class="hud-kv">
+              <span class="kv-label">Jank (&gt;25 / &gt;50ms)</span>
+              <strong id="hud-jank" class="kv-value">0 / 0</strong>
+            </div>
+            <div class="hud-kv">
+              <span class="kv-label">Turn State</span>
+              <strong id="hud-turn-state" class="kv-value">idle</strong>
+            </div>
+            <div class="hud-kv">
+              <span class="kv-label">Expr</span>
+              <strong id="hud-expr" class="kv-value">neutral</strong>
+            </div>
+            <div class="hud-kv">
+              <span class="kv-label">Inference</span>
+              <strong id="hud-infer" class="kv-value">idle</strong>
+            </div>
+          </div>
+          <div class="hud-audio-row">
+            <div class="meter-group">
+              <span class="kv-label">Mic In</span>
+              <div class="meter-track" aria-hidden="true">
+                <div id="meter-mic-fill" class="meter-fill"></div>
+              </div>
+              <span id="hud-mic-db" class="mono-dim">-60 dB</span>
+            </div>
+            <div class="meter-group">
+              <span class="kv-label">Speaker Out</span>
+              <div class="meter-track" aria-hidden="true">
+                <div id="meter-spk-fill" class="meter-fill meter-fill-spk"></div>
+              </div>
+              <span id="hud-echo-duck" class="mono-dim">Echo Duck: off</span>
+            </div>
+          </div>
+          <div class="hud-bubble-row">
+            <span class="kv-label">Head Bubble</span>
+            <p id="hud-bubble-text" class="bubble-preview">(waiting for speech)</p>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Right Pane: Models Setup, Duplex Controls, Transcript & Latency Log -->
+    <section class="console-pane" aria-label="Full-Duplex Experiment Console">
+      <!-- Model & Voice Setup Bar -->
+      <section class="panel setup-panel" aria-label="Models and Endpoints">
+        <div class="setup-grid">
+          <div class="engine-item">
+            <div class="engine-head">
+              <span class="engine-name">MiniCPM5-2B (WebGPU)</span>
+              <span id="status-brain" class="engine-state">unloaded</span>
+            </div>
+            <button id="btn-load-brain" type="button" class="btn btn-sm">Load Brain</button>
+          </div>
+          <div class="engine-item">
+            <div class="engine-head">
+              <span class="engine-name">DuplexTurn ZH/EN INT8</span>
+              <span id="status-turn" class="engine-state">unloaded</span>
+            </div>
+            <button id="btn-load-turn" type="button" class="btn btn-sm">Load Turn</button>
+          </div>
+          <div class="engine-item">
+            <div class="engine-head">
+              <span class="engine-name">TTS Engine</span>
+              <span id="status-tts" class="engine-state">edge: idle | kokoro: unloaded</span>
+            </div>
+            <div class="inline-row">
+              <select id="select-tts-mode" class="select-input" aria-label="TTS Engine Mode">
+                <option value="auto">Auto (Warm Edge-TTS, Fallback Kokoro)</option>
+                <option value="edge-warm">Warm Edge-TTS</option>
+                <option value="kokoro-local">Kokoro-82M-v1.1-zh Local</option>
+              </select>
+              <button id="btn-load-kokoro" type="button" class="btn btn-sm">Warm / Load</button>
+            </div>
+          </div>
+          <div class="engine-item">
+            <div class="engine-head">
+              <span class="engine-name">Heavyworker Deep Reasoner</span>
+              <span id="status-heavy" class="engine-state">local &lt;think&gt;</span>
+            </div>
+            <select id="select-heavy-mode" class="select-input" aria-label="Heavyworker Endpoint Mode">
+              <option value="local-think">Local &lt;think&gt; (On-Device)</option>
+              <option value="custom-openai">Custom OpenAI Endpoint</option>
+            </select>
+          </div>
+        </div>
+
+        <div id="custom-openai-fields" class="openai-fields" hidden>
+          <label class="field-label">
+            Base URL
+            <input id="input-openai-base" type="url" class="text-input" placeholder="https://api.openai.com/v1" autocomplete="off" />
+          </label>
+          <label class="field-label">
+            API Key (localStorage only)
+            <input id="input-openai-key" type="password" class="text-input" placeholder="sk-..." autocomplete="off" />
+          </label>
+          <label class="field-label">
+            Model
+            <input id="input-openai-model" type="text" class="text-input" placeholder="gpt-4o-mini" autocomplete="off" />
+          </label>
+        </div>
+      </section>
+
+      <!-- Action & Prompt Controls -->
+      <section class="panel controls-panel" aria-label="Interaction and Verification Controls">
+        <div class="control-row">
+          <button id="btn-mic-toggle" type="button" class="btn" aria-pressed="false">Start Full-Duplex Mic</button>
+          <button id="btn-run-suite" type="button" class="btn btn-primary">Run 5-Scenario E2E Suite</button>
+          <button id="btn-stop-turn" type="button" class="btn btn-danger">Stop / Abort</button>
+          <button id="btn-clear-log" type="button" class="btn">Clear Log</button>
+        </div>
+
+        <div class="scenario-buttons" role="group" aria-label="Individual Verification Scenarios">
+          <button type="button" class="btn btn-xs" data-scenario="zh_banter">1. ZH Banter</button>
+          <button type="button" class="btn btn-xs" data-scenario="en_cs_banter">2. EN + Code-Switch</button>
+          <button type="button" class="btn btn-xs" data-scenario="backchannel_hold">3. Backchannel Hold</button>
+          <button type="button" class="btn btn-xs" data-scenario="barge_in_kv_truncation">4. Barge-In &amp; KV Trunc</button>
+          <button type="button" class="btn btn-xs" data-scenario="heavy_delegate_amend">5. Heavy Delegate + Amend</button>
+        </div>
+
+        <div class="prompt-presets" role="group" aria-label="Quick Bilingual Prompts">
+          <button type="button" class="btn btn-xs" data-prompt="小春，今天在海边心情怎么样呀？">你好海边</button>
+          <button type="button" class="btn btn-xs" data-prompt="Hey XiaoChun, 今天海边风大不大? By the way how is your WebGPU frame rate?">EN+ZH Mixed</button>
+          <button type="button" class="btn btn-xs" data-prompt="帮我查一下 / deeply analyze why iOS TBDR WebGPU drops frames when we use RGBA16F 4x MSAA">Heavy WebGPU</button>
+          <button type="button" class="btn btn-xs" data-barge="等一下 wait a second，我问另一个问题">Inject Barge-In</button>
+        </div>
+
+        <form id="manual-turn-form" class="manual-form">
+          <input
+            id="input-manual-text"
+            type="text"
+            class="text-input"
+            placeholder="输入中文、English 或混合对话并回车发送..."
+            aria-label="Manual bilingual turn prompt"
+          />
+          <button type="submit" class="btn btn-primary">Send Turn</button>
+        </form>
+      </section>
+
+      <!-- Scenario Assertions Summary -->
+      <section id="scenario-summary" class="panel scenario-panel" aria-label="Verification Results">
+        <div class="panel-subhead">
+          <h2>E2E Verification Harness (5 Scenarios)</h2>
+          <span id="scenario-overall" class="mono-dim">Idle</span>
+        </div>
+        <div id="scenario-list" class="scenario-list"></div>
+      </section>
+
+      <!-- Bilingual Conversation Transcript -->
+      <section class="panel transcript-panel" aria-label="Bilingual Transcript">
+        <div class="panel-subhead">
+          <h2>Bilingual Conversation</h2>
+          <span id="transcript-count" class="mono-dim">0 turns</span>
+        </div>
+        <div id="transcript-log" class="transcript-log" aria-live="polite"></div>
+      </section>
+
+      <!-- Real-Time Latency & FPS Telemetry Log -->
+      <section class="panel telemetry-panel" aria-label="Real-Time Latency Telemetry">
+        <div class="panel-subhead">
+          <h2>Latency &amp; 3D Frame Telemetry</h2>
+          <span id="telemetry-count" class="mono-dim">0 rows</span>
+        </div>
+        <div class="table-wrap">
+          <table class="telemetry-table">
+            <thead>
+              <tr>
+                <th>#</th>
+                <th>Scenario / Input</th>
+                <th>Turn Label</th>
+                <th>Spec Hit</th>
+                <th>TTFT</th>
+                <th>TTS TTFA</th>
+                <th>First Sound</th>
+                <th>Min FPS</th>
+                <th>Jank &gt;25/&gt;50</th>
+                <th>Status</th>
+              </tr>
+            </thead>
+            <tbody id="telemetry-tbody"></tbody>
+          </table>
+        </div>
+      </section>
+    </section>
+  </div>
+
+  <script type="module" src="/src/live/studio/main.ts"></script>
+</body>
+</html>

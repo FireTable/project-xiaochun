@@ -28,8 +28,15 @@ export const GHFAST_MLC_WASM_PREFIX =
   'https://ghfast.top/https://raw.githubusercontent.com/mlc-ai/binary-mlc-llm-libs/main';
 
 export const HF_ENDPOINT_STORAGE_KEY = 'xc_hf_endpoint';
+export const CF_TRACE_ENDPOINT = 'https://www.cloudflare.com/cdn-cgi/trace';
 
-const HF_PROBE_PATH = '/ozhyhinas/MiniCPM5-2B-q4f16_1-MLC/resolve/main/mlc-chat-config.json';
+/**
+ * 使用 `/api/models/<repo>` 元数据端点 (`HEAD`) 作为连通性探针：
+ * - 相比 `/resolve/main/...`（会触发 `307 -> /api/resolve-cache/...` 二次跳转并拉取正文），
+ *   `/api/models/...` 在 `huggingface.co` 与国内直连 `hf-mirror.com` 下均单次往返直接返回 `200 OK` + CORS 头（0 字节响应体）；
+ * - 海外或代理 IP 命中 `hf-mirror.com` 时返回无 CORS 头的 `308`，被 `mode: 'cors'` 拦截后立即唤醒后备源并降级。
+ */
+export const HF_PROBE_PATH = '/api/models/ozhyhinas/MiniCPM5-2B-q4f16_1-MLC';
 const WASM_PROBE_PATH = '/web-llm-models/v0_2_87/base/Qwen2-0.5B-Instruct-q4f16_1_cs1k-webgpu.wasm';
 
 const MAINLAND_CHINA_TIMEZONES = new Set([
@@ -88,29 +95,24 @@ export function isMainlandChinaTimezone(tz?: string): boolean {
   return MAINLAND_CHINA_TIMEZONES.has(resolved);
 }
 
-export async function fetchEdgeRegionCountry(
-  fetchImpl: typeof fetch = fetch,
-  timeoutMs = 500,
+async function fetchCloudflareTraceCountry(
+  fetchImpl: typeof fetch,
+  timeoutMs: number,
 ): Promise<string | null> {
-  // Tauri 本地协议无同源 /api/region 路由，直接走时区 + 实时竞速
-  if (
-    typeof window !== 'undefined' &&
-    (window.location.protocol === 'tauri:' || window.location.hostname === 'tauri.localhost')
-  ) {
-    return null;
-  }
   const ctrl = new AbortController();
   const timer = setTimeout(() => ctrl.abort(), timeoutMs);
   try {
-    const res = await fetchImpl('/api/region', {
+    const res = await fetchImpl(CF_TRACE_ENDPOINT, {
       method: 'GET',
+      mode: 'cors',
+      cache: 'no-store',
       signal: ctrl.signal,
-      headers: { Accept: 'application/json' },
     });
     if (!res.ok) return null;
-    const data = (await res.json()) as { country?: unknown };
-    const code = typeof data?.country === 'string' ? data.country.trim().toUpperCase() : '';
-    return /^[A-Z]{2}$/.test(code) ? code : null;
+    const text = await res.text();
+    const match = text.match(/^loc=([A-Z]{2})$/m);
+    const code = match?.[1] ?? '';
+    return code && code !== 'XX' && code !== 'T1' ? code : null;
   } catch {
     return null;
   } finally {
@@ -118,15 +120,53 @@ export async function fetchEdgeRegionCountry(
   }
 }
 
+export async function fetchEdgeRegionCountry(
+  fetchImpl: typeof fetch = fetch,
+  timeoutMs = 600,
+): Promise<string | null> {
+  const isTauriProtocol =
+    typeof window !== 'undefined' &&
+    (window.location.protocol === 'tauri:' || window.location.hostname === 'tauri.localhost');
+
+  if (!isTauriProtocol) {
+    const ctrl = new AbortController();
+    const timer = setTimeout(() => ctrl.abort(), timeoutMs);
+    try {
+      const res = await fetchImpl('/api/region', {
+        method: 'GET',
+        signal: ctrl.signal,
+        headers: { Accept: 'application/json' },
+      });
+      if (res.ok) {
+        const data = (await res.json()) as { country?: unknown };
+        const code = typeof data?.country === 'string' ? data.country.trim().toUpperCase() : '';
+        if (/^[A-Z]{2}$/.test(code)) return code;
+      }
+    } catch {
+      // Fall through to Cloudflare CORS trace fallback
+    } finally {
+      clearTimeout(timer);
+    }
+  }
+
+  // Tauri 本地协议、纯静态托管或 /api/region 未返回有效国家码时，使用支持 CORS (*) 的 Cloudflare Trace 兜底探测真实出口 IP
+  return fetchCloudflareTraceCountry(fetchImpl, timeoutMs);
+}
+
 interface CandidateSpec {
   base: string;
   delayMs: number;
 }
 
+interface RaceResult {
+  winner: string | null;
+  failed: ReadonlySet<string>;
+}
+
 /**
  * 带错峰起跑 (Happy Eyeballs) 与失败即刻唤醒下一候选的并发 CORS 竞速器。
  * 任一候选率先返回 `res.ok` 即胜出并立即中止其余在途探测连接；若排在前面的候选提前失败，
- * 立即唤醒尚未过延迟窗的后备候选，零无效等待。
+ * 立即唤醒尚未过延迟窗的后备候选，并将明确失败的节点记录在 `failed` 集合中以便排到主备链末尾。
  */
 async function raceHealthyCandidate(
   candidates: readonly CandidateSpec[],
@@ -134,8 +174,9 @@ async function raceHealthyCandidate(
   method: 'GET' | 'HEAD',
   timeoutMs: number,
   fetchImpl: typeof fetch,
-): Promise<string | null> {
-  if (candidates.length === 0) return null;
+): Promise<RaceResult> {
+  const failed = new Set<string>();
+  if (candidates.length === 0) return { winner: null, failed };
 
   const controllers = candidates.map(() => new AbortController());
   const wakeups: Array<() => void> = [];
@@ -167,14 +208,14 @@ async function raceHealthyCandidate(
     });
   };
 
-  return new Promise<string | null>((resolve) => {
+  return new Promise<RaceResult>((resolve) => {
     let remaining = candidates.length;
     const finish = (winner: string | null, winnerIdx = -1) => {
       if (settled) return;
       settled = true;
       if (globalTimer !== undefined) clearTimeout(globalTimer);
       cancelAllExcept(winnerIdx);
-      resolve(winner);
+      resolve({ winner, failed });
     };
 
     globalTimer = setTimeout(() => finish(null), timeoutMs);
@@ -201,8 +242,14 @@ async function raceHealthyCandidate(
             finish(cand.base, idx);
             return;
           }
+          if (!settled && !ctrl.signal.aborted) {
+            failed.add(cand.base);
+          }
         } catch {
-          // CORS block / timeout / DNS reset
+          // CORS block / timeout / DNS reset (排除因其他候选胜出或全局超时触发的 abort)
+          if (!settled && !ctrl.signal.aborted) {
+            failed.add(cand.base);
+          }
         }
         // 当前候选失败：立即唤醒所有尚在 stagger 等待中的后备候选！
         for (const wake of wakeups) wake();
@@ -249,7 +296,7 @@ export async function resolveBestMirrorConfig(
   const run = async (): Promise<ArtifactMirrorConfig> => {
     const fetchImpl = options?.fetchImpl ?? fetch;
     const regionTimeoutMs = options?.regionTimeoutMs ?? 500;
-    const probeTimeoutMs = options?.probeTimeoutMs ?? 1500;
+    const probeTimeoutMs = options?.probeTimeoutMs ?? 2500;
     const explicitHf = readExplicitHfEndpoint(options?.explicitHfEndpoint);
 
     const ipCountry = await fetchEdgeRegionCountry(fetchImpl, regionTimeoutMs);
@@ -258,15 +305,13 @@ export async function resolveBestMirrorConfig(
     // 若边缘 IP 为 CN，或本地开发 / Tauri 无法获知边缘 IP 且系统时区为中国大陆，则按国内提示优先探测镜像。
     const isMainlandHint = ipCountry === 'CN' || (ipCountry === null && cnTz);
 
-    const hfCandidates: CandidateSpec[] = isMainlandHint
-      ? [
-          { base: HF_MIRROR_ORIGIN, delayMs: 0 },
-          { base: CANONICAL_HF_ORIGIN, delayMs: 80 },
-        ]
-      : [
-          { base: CANONICAL_HF_ORIGIN, delayMs: 0 },
-          { base: HF_MIRROR_ORIGIN, delayMs: 220 },
-        ];
+    // 仅在疑似中国大陆直连 (`isMainlandHint === true`) 时对 `hf-mirror.com` 发起 CORS 竞速探测；
+    // 当出口 IP 已确认为非 CN（如海外用户或开启代理到 NL/US/SG/HK/JP）时，`hf-mirror.com` 必返回无 CORS 头的 308，
+    // 若在跨洋 TLS 握手 (>220ms) 期间唤醒 `hf-mirror.com` 探测反而会污染 DevTools Console，故直接采用官方源为主、镜像殿后。
+    const hfCandidates: CandidateSpec[] = [
+      { base: HF_MIRROR_ORIGIN, delayMs: 0 },
+      { base: CANONICAL_HF_ORIGIN, delayMs: 600 },
+    ];
 
     const wasmCandidates: CandidateSpec[] = isMainlandHint
       ? [
@@ -282,10 +327,12 @@ export async function resolveBestMirrorConfig(
           { base: GHFAST_MLC_WASM_PREFIX, delayMs: 300 },
         ];
 
-    const [hfWinner, wasmWinner] = await Promise.all([
+    const [hfRace, wasmRace] = await Promise.all([
       explicitHf
-        ? Promise.resolve(explicitHf)
-        : raceHealthyCandidate(hfCandidates, HF_PROBE_PATH, 'GET', probeTimeoutMs, fetchImpl),
+        ? Promise.resolve<RaceResult>({ winner: explicitHf, failed: new Set() })
+        : isMainlandHint
+          ? raceHealthyCandidate(hfCandidates, HF_PROBE_PATH, 'HEAD', probeTimeoutMs, fetchImpl)
+          : Promise.resolve<RaceResult>({ winner: CANONICAL_HF_ORIGIN, failed: new Set() }),
       raceHealthyCandidate(wasmCandidates, WASM_PROBE_PATH, 'HEAD', probeTimeoutMs, fetchImpl),
     ]);
 
@@ -294,14 +341,16 @@ export async function resolveBestMirrorConfig(
       : [CANONICAL_HF_ORIGIN, HF_MIRROR_ORIGIN];
     const hfOrigins = dedupe([
       ...(explicitHf ? [explicitHf] : []),
-      ...(hfWinner ? [hfWinner] : []),
-      ...defaultHfOrder,
+      ...(hfRace.winner ? [hfRace.winner] : []),
+      ...defaultHfOrder.filter((base) => !hfRace.failed.has(base)),
+      ...defaultHfOrder.filter((base) => hfRace.failed.has(base)),
     ]);
 
     const defaultWasmOrder = wasmCandidates.map((c) => c.base);
     const wasmLibPrefixes = dedupe([
-      ...(wasmWinner ? [wasmWinner] : []),
-      ...defaultWasmOrder,
+      ...(wasmRace.winner ? [wasmRace.winner] : []),
+      ...defaultWasmOrder.filter((base) => !wasmRace.failed.has(base)),
+      ...defaultWasmOrder.filter((base) => wasmRace.failed.has(base)),
     ]);
 
     const resolved: ArtifactMirrorConfig = {

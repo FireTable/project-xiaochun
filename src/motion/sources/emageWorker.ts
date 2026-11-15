@@ -306,10 +306,8 @@ async function ensureLoaded(onStatus?: (msg: string) => void): Promise<void> {
     const sabOk = typeof SharedArrayBuffer !== 'undefined';
     const isolated = typeof self !== 'undefined' && !!(self as unknown as { crossOriginIsolated?: boolean }).crossOriginIsolated;
     const hw = (typeof navigator !== 'undefined' && navigator.hardwareConcurrency) || 1;
-    // Mobile phones cap at 4 to prevent thermal throttling; Desktop platforms unlock up to 8 threads for peak performance.
-    const isDesktopEnv = typeof navigator !== 'undefined' && !/Android|iPhone|iPad|iPod|Mobile/i.test(navigator.userAgent);
-    const maxThreads = isDesktopEnv ? 8 : 4;
-    const numThreads = sabOk ? Math.min(Math.max(1, hw), maxThreads) : 1;
+    // Cap WASM threads so EMAGE never oversubscribes cores alongside WebGPU, DuplexTurn, and Kokoro workers.
+    const numThreads = sabOk ? Math.min(Math.max(1, hw - 1), 3) : 1;
     ort.env.wasm.numThreads = numThreads;
     // simd defaults on modern builds; set explicitly so profile logs are unambiguous.
     (ort.env.wasm as any).simd = true;

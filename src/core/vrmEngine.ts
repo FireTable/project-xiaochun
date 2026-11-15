@@ -2,7 +2,7 @@ import * as THREE from 'three';
 import { LatestWinsQueue, SUPERSEDED } from '@/core/latestWinsQueue';
 import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js';
 import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
-import { VRM, VRMLoaderPlugin, VRMUtils } from '@pixiv/three-vrm';
+import { VRM, VRMExpression, VRMExpressionMorphTargetBind, VRMLoaderPlugin, VRMUtils } from '@pixiv/three-vrm';
 // @pixiv/three-vrm inlines stock MToon in its bundle — load fork explicitly (pnpm override → packages/...)
 import { MToonMaterial, MToonMaterialLoaderPlugin } from '@pixiv/three-vrm-materials-mtoon';
 
@@ -220,6 +220,78 @@ function computeDefaultCameraPosition(fovDeg: number): [number, number, number] 
   return target.clone().add(direction.multiplyScalar(distance)).toArray() as [number, number, number];
 }
 
+interface ShyBlushBinding {
+  expressionKeys: string[];
+}
+
+const shyBlushBindings = new WeakMap<VRM, ShyBlushBinding>();
+
+function resolveShyBlushBinding(vrm: VRM): ShyBlushBinding {
+  const cached = shyBlushBindings.get(vrm);
+  if (cached) return cached;
+
+  const mgr = vrm.expressionManager;
+  const keys = new Set<string>();
+  const candidateNames = ['shy', 'blush', 'Blush', 'cheek', 'Cheek', 'tereru', 'Tereru', 'embarrassed', 'Embarrassed'];
+  if (mgr) {
+    for (const candidate of candidateNames) {
+      if (mgr.getExpression(candidate)) {
+        keys.add(candidate);
+      }
+    }
+    const exprMap = (mgr as any).expressions as Map<string, VRMExpression> | Record<string, VRMExpression> | undefined;
+    if (exprMap) {
+      const iterKeys = exprMap instanceof Map ? Array.from(exprMap.keys()) : Object.keys(exprMap);
+      for (const k of iterKeys) {
+        if (/^(?:shy|blush|cheek|tereru|embarrassed)$/i.test(k)) {
+          keys.add(k);
+        }
+      }
+    }
+
+    // If no native 'shy'/'blush' VRMExpression is registered, probe mesh morph targets for blush/cheek/shy
+    // shapes or construct a gentle warm blush/soft-eye fallback blend on VRoid rigs without dedicated blush shapes.
+    if (keys.size === 0 && vrm.scene?.traverse) {
+      const blushBinds: VRMExpressionMorphTargetBind[] = [];
+      const fallbackEyeBinds: VRMExpressionMorphTargetBind[] = [];
+      const fallbackBrowBinds: VRMExpressionMorphTargetBind[] = [];
+
+      vrm.scene.traverse((node) => {
+        if ((node as THREE.Mesh).isMesh && (node as THREE.Mesh).morphTargetDictionary) {
+          const mesh = node as THREE.Mesh;
+          const dict = mesh.morphTargetDictionary!;
+          for (const [morphName, idx] of Object.entries(dict)) {
+            if (typeof idx !== 'number') continue;
+            if (/(?:blush|cheek|tereru|shy|照れ|頬|赤面)/i.test(morphName) && !/eyebrow|mouth/i.test(morphName)) {
+              blushBinds.push(new VRMExpressionMorphTargetBind({ primitives: [mesh], index: idx, weight: 1.0 }));
+            } else if (morphName === 'Fcl_EYE_Fun') {
+              fallbackEyeBinds.push(new VRMExpressionMorphTargetBind({ primitives: [mesh], index: idx, weight: 0.14 }));
+            } else if (morphName === 'Fcl_BRW_Fun') {
+              fallbackBrowBinds.push(new VRMExpressionMorphTargetBind({ primitives: [mesh], index: idx, weight: 0.16 }));
+            }
+          }
+        }
+      });
+
+      const shyExpr = new VRMExpression('shy');
+      if (blushBinds.length > 0) {
+        for (const bind of blushBinds) shyExpr.addBind(bind);
+      } else {
+        for (const bind of fallbackEyeBinds) shyExpr.addBind(bind);
+        for (const bind of fallbackBrowBinds) shyExpr.addBind(bind);
+      }
+      if (shyExpr.binds.length > 0 && typeof mgr.registerExpression === 'function') {
+        mgr.registerExpression(shyExpr);
+        keys.add('shy');
+      }
+    }
+  }
+
+  const binding: ShyBlushBinding = { expressionKeys: Array.from(keys) };
+  shyBlushBindings.set(vrm, binding);
+  return binding;
+}
+
 /**
  * Official three-vrm post-parse opts (`basic.html` / `dnd.html`). Global — not
  * platform-gated: skeleton matrix work and morph-target caps exist on every GPU.
@@ -230,9 +302,12 @@ function applyVrmUtilsOptimizations(scene: THREE.Object3D, vrm: VRM): void {
   // 在 combineMorphs 烘焙合并形态前，先完成预设表情解耦 (嘴巴大笑与眯眼剥离)，
   // 确保 combineMorphs 烘焙出的 'happy' / 'relaxed' 形态中眼睛 100% 睁开、0 眯眼！
   expressionController.ensureDecoupledExpressions(vrm);
+  resolveShyBlushBinding(vrm);
   VRMUtils.removeUnnecessaryVertices(scene);
   VRMUtils.combineSkeletons(scene);
   VRMUtils.combineMorphs(vrm);
+  // Refresh binding after combineMorphs in case primitive targets were merged
+  shyBlushBindings.delete(vrm);
 }
 
 export interface SwapOutfitOptions {
@@ -442,6 +517,46 @@ export class VRMEngine {
   private _rulerLastBx = -1;
   private _rulerLastBy = -1;
   private _rulerLastInView: boolean | null = null;
+  /** True while an on-device or duplex LLM inference pass is actively running (throttles secondary shadow/idle cost). */
+  private _inferenceActive = false;
+  /** Active 'shy' blush intensity target & damped runtime weight [0..1]. */
+  private _shyTargetIntensity = 0;
+  private _shyCurrentWeight = 0;
+
+  public get isInferenceActive(): boolean {
+    return this._inferenceActive;
+  }
+
+  /**
+   * Notify the 3D render loop that WebLLM/inference prefill/decode is active so directional shadow map passes
+   * and non-critical idle work throttle down cleanly to preserve 55-60 FPS render pacing.
+   */
+  public setInferenceActive(active: boolean): void {
+    const next = Boolean(active);
+    if (this._inferenceActive === next) return;
+    this._inferenceActive = next;
+    if (this.renderer) {
+      this.renderer.shadowMap.autoUpdate = !next && (APP_CONFIG.shadow.updateIntervalFrames ?? 1) <= 1;
+      if (!next) this.renderer.shadowMap.needsUpdate = true;
+    }
+  }
+
+  private syncShyBlushFrame(vrm: VRM, delta: number): void {
+    const mgr = vrm.expressionManager;
+    if (!mgr) return;
+    const binding = resolveShyBlushBinding(vrm);
+    if (binding.expressionKeys.length === 0) return;
+    const ramp = expressionController.getBlushIntensity();
+    const target = this._shyTargetIntensity > 0
+      ? Math.max(this._shyTargetIntensity * 0.65, ramp * this._shyTargetIntensity)
+      : ramp * 0.5;
+    const step = delta > 0 ? Math.min(1, delta * 8.0) : 1;
+    this._shyCurrentWeight += (target - this._shyCurrentWeight) * step;
+    if (this._shyCurrentWeight < 0.002 && target === 0) this._shyCurrentWeight = 0;
+    for (const key of binding.expressionKeys) {
+      mgr.setValue(key, this._shyCurrentWeight);
+    }
+  }
 
   constructor() {
     this.loader.register((parser) => {
@@ -960,7 +1075,7 @@ export class VRMEngine {
    */
   private getRendererContextAttributes(): THREE.WebGLRendererParameters {
     const theme = this.getLineworkTheme();
-    const composerDraws = this.postFx.config.enabled;
+    const composerDraws = this.postFx.needsComposer();
     const preserve = isTauri() && (
       theme === 'transparent' || passthroughManager.isPassthroughEnabled()
     );
@@ -1460,10 +1575,11 @@ export class VRMEngine {
   public renderFrameNow(): void {
     if (!this.renderer || !this.scene || !this.camera) return;
     try {
+      this.beach3d.prepareFrame(this.renderer, this._inferenceActive ? 0.999 : 0.9995);
       if (!this.renderer.shadowMap.autoUpdate) {
         this.renderer.shadowMap.needsUpdate = true;
       }
-      if (this.postFx.isReady() && this.postFx.config.enabled) {
+      if (this.postFx.isReady() && this.postFx.needsComposer()) {
         this.postFx.render(0.016);
       } else {
         this.renderer.render(this.scene, this.camera);
@@ -2064,7 +2180,23 @@ export class VRMEngine {
 
   public setExpression(name: SupportedExpression | string, intensity?: number): void {
     if (!this.currentVRM?.expressionManager) return;
-    this.manualExpression = name === 'neutral' ? null : name;
+    const norm = String(name || '').trim().toLowerCase();
+    this.manualExpression = norm === 'neutral' ? null : name;
+    if (norm === 'shy' || norm === 'blush') {
+      const clamped = intensity === undefined ? 1.0 : THREE.MathUtils.clamp(intensity, 0, 1);
+      this._shyTargetIntensity = clamped;
+      expressionController.setExpression('shy', clamped);
+      const binding = resolveShyBlushBinding(this.currentVRM);
+      if (clamped > 0 && binding.expressionKeys.length > 0) {
+        const initWeight = Math.max(this._shyCurrentWeight, clamped * 0.25);
+        this._shyCurrentWeight = initWeight;
+        for (const key of binding.expressionKeys) {
+          this.currentVRM.expressionManager.setValue(key, initWeight);
+        }
+      }
+      return;
+    }
+    this._shyTargetIntensity = 0;
     expressionController.setExpression(name, intensity);
   }
 
@@ -2383,6 +2515,8 @@ export class VRMEngine {
           this.motionPipeline.finalPose.sampleFromVRM(vrm);
           this.bodyMorph.bind(vrm);
           if (!preserveMotion) {
+            this._shyTargetIntensity = 0;
+            this._shyCurrentWeight = 0;
             expressionController.reset(vrm);
           }
           this.applySpringBoneTuning(vrm);
@@ -3123,6 +3257,8 @@ export class VRMEngine {
           this.motionPipeline.finalPose.sampleFromVRM(vrm);
           this.bodyMorph.bind(vrm);
           if (!preserveMotion) {
+            this._shyTargetIntensity = 0;
+            this._shyCurrentWeight = 0;
             expressionController.reset(vrm);
           }
           this.applySpringBoneTuning(vrm);
@@ -3377,7 +3513,7 @@ export class VRMEngine {
 
   /** 待机小动作逐帧心跳（在 render 循环中驱动） */
   private updateIdleFlavor(delta: number): void {
-    if (!this.enableIdleFlavor || !this.currentVRM || this.isDevDrawerOpen) return;
+    if (!this.enableIdleFlavor || !this.currentVRM || this.isDevDrawerOpen || this._inferenceActive) return;
 
     // 前置守卫：必须处于纯粹待机（idle），且无对话、无动作播放、无过渡融合
     const isCleanIdle =
@@ -3724,10 +3860,11 @@ export class VRMEngine {
   public renderSingleFrame(): void {
     if (this.renderer && this.currentVRM) {
       this.applyEnvironmentLight();
+      this.beach3d.prepareFrame(this.renderer, this._inferenceActive ? 0.999 : 0.9995);
       if (!this.renderer.shadowMap.autoUpdate) {
         this.renderer.shadowMap.needsUpdate = true;
       }
-      if (this.postFx.isReady() && this.postFx.config.enabled) {
+      if (this.postFx.isReady() && this.postFx.needsComposer()) {
         this.postFx.render(0);
       } else {
         this.renderer.render(this.scene, this.camera);
@@ -3858,6 +3995,7 @@ export class VRMEngine {
           0,
           this.gazeController.currentBlink,
         );
+        this.syncShyBlushFrame(vrm, delta);
 
         // ponytail: 注入 wind (ambient + 鼠标冲量) 到 springBone joints 的 gravityDir/Power,
         // 必须在 vrm.update(delta) 之前, 因为 springBoneManager.update() 内部读取这些 settings.
@@ -3966,14 +4104,18 @@ export class VRMEngine {
       try {
         // 场景时间 → 引擎主光 (角色的受光与脚下落影跟随场景的太阳 / 月亮)
         this.applyEnvironmentLight();
+        if (this.renderer) {
+          this.beach3d.prepareFrame(this.renderer, this._inferenceActive ? 0.999 : 0.9995);
+        }
         if (this.renderer && !this.renderer.shadowMap.autoUpdate) {
-          const interval = Math.max(1, APP_CONFIG.shadow.updateIntervalFrames ?? 2);
+          const baseInterval = Math.max(1, APP_CONFIG.shadow.updateIntervalFrames ?? 2);
+          const interval = this._inferenceActive ? Math.max(4, baseInterval * 2) : baseInterval;
           this._shadowFrameCount++;
           if (this._shadowFrameCount % interval === 0) {
             this.renderer.shadowMap.needsUpdate = true;
           }
         }
-        if (this.postFx.isReady() && this.postFx.config.enabled) {
+        if (this.postFx.isReady() && this.postFx.needsComposer()) {
           this.postFx.render(delta);
         } else {
           this.renderer?.render(this.scene, this.camera);

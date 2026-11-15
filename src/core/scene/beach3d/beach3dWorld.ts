@@ -590,7 +590,7 @@ export class Beach3DWorld implements IEnvironmentTimeAware, IEnvironmentLightPro
       magFilter: THREE.LinearFilter,
       wrapS: THREE.ClampToEdgeWrapping,
       wrapT: THREE.ClampToEdgeWrapping,
-      samples: 4,
+      samples: 0,
     });
     this.shadowRT.texture.name = 'Beach3DShadowMask';
     const maskRect = new THREE.Vector4(SHADOW_MASK.minX, SHADOW_MASK.minZ, SHADOW_MASK.sizeX, SHADOW_MASK.sizeZ);
@@ -1119,6 +1119,16 @@ export class Beach3DWorld implements IEnvironmentTimeAware, IEnvironmentLightPro
     obj.matrixWorld.makeTranslation(this.tmpV.x, this.tmpV.y, this.tmpV.z);
   }
 
+  /** Pre-frame shadow mask bake hoisted out of sky.onBeforeRender so render targets never switch mid-pass. */
+  public prepareFrame(renderer: THREE.WebGLRenderer, sunDotThreshold = 0.9995): void {
+    if (this.disposed || !this.built || !this.active || !this.shadowRT) return;
+    this.updateEnvironmentTime();
+    const sunDir = this.shared.uSunDir.value as THREE.Vector3;
+    if (this.maskDirty || sunDir.dot(this.bakedSun) < sunDotThreshold) {
+      this.bakeShadowMask(renderer);
+    }
+  }
+
   /** 每帧渲染前 (天空层最先画, 由它的 onBeforeRender 调用一次)。 */
   private beforeRender(renderer: THREE.WebGLRenderer, camera: THREE.PerspectiveCamera): void {
     const cfg = APP_CONFIG.beach3dScene;
@@ -1131,12 +1141,6 @@ export class Beach3DWorld implements IEnvironmentTimeAware, IEnvironmentLightPro
 
     // 驱动通用场景环境时间与太阳轨迹
     this.updateEnvironmentTime();
-
-    const sunDir = this.shared.uSunDir.value as THREE.Vector3;
-    // 太阳方向变化或时间更新时实时重烘棕榈与沙堡落影 (仅 2 次 Instanced 绘制, 开销极小, 拖拽滑块时树影实时连续跟手)
-    if (this.shadowRT && (this.maskDirty || sunDir.dot(this.bakedSun) < 0.99995)) {
-      this.bakeShadowMask(renderer);
-    }
 
     camera.getWorldPosition(this.tmpV);
     const camDist = Math.hypot(this.tmpV.x - this.group.position.x, this.tmpV.z - this.group.position.z);

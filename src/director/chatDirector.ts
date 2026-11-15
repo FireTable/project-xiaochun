@@ -798,7 +798,15 @@ export class ChatDirector {
     let segmentCount = 0;
 
     const resampler = new StreamResampler16k(sr);
-    const slicer = new PcmSlicer(sr);
+    const firstSliceSec =
+      typeof input.firstSliceSec === 'number' && Number.isFinite(input.firstSliceSec) && input.firstSliceSec > 0
+        ? Math.max(0.2, Math.min(4.0, input.firstSliceSec))
+        : (input.live ? HOST_AUDIO.liveFirstSliceSec : HOST_AUDIO.firstSliceSec);
+    const sliceSec =
+      typeof input.sliceSec === 'number' && Number.isFinite(input.sliceSec) && input.sliceSec > 0
+        ? Math.max(0.5, Math.min(8.0, input.sliceSec))
+        : (input.live ? HOST_AUDIO.liveSliceSec : HOST_AUDIO.sliceSec);
+    const slicer = new PcmSlicer(sr, firstSliceSec, sliceSec);
 
     const makeSegment = async (slice: Float32Array): Promise<void> => {
       let motion = emptyMotion;

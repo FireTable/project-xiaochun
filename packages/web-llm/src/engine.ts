@@ -15,9 +15,12 @@ import {
 } from "./config";
 import {
   LLMChatPipeline,
+  PrefillAbortedError,
+  RollbackLastTurnResult,
   SampleDecodeOptions,
   SamplePrefillOptions,
   SampledGenerationStep,
+  TruncateReplyResult,
 } from "./llm_chat";
 import {
   // ChatCompletion
@@ -611,6 +614,7 @@ export class MLCEngine implements MLCEngineInterface {
                 detectedGpu.device.limits.maxStorageBufferBindingSize,
             },
           );
+          newPipeline.setInterruptChecker(() => this.interruptSignal);
         }
       } finally {
         await tvmInstance.endBulkAllocation();
@@ -707,7 +711,14 @@ export class MLCEngine implements MLCEngineInterface {
     if (genConfig !== undefined) {
       postInitAndCheckGenerationConfigValues(genConfig);
     }
-    await this.prefill(input, pipeline, chatConfig, genConfig);
+    try {
+      await this.prefill(input, pipeline, chatConfig, genConfig);
+    } catch (err) {
+      if (err instanceof PrefillAbortedError) {
+        return pipeline.getMessage();
+      }
+      throw err;
+    }
 
     while (!pipeline.stopped()) {
       if (this.interruptSignal) {
@@ -1024,8 +1035,27 @@ export class MLCEngine implements MLCEngineInterface {
           journal,
         );
       } else {
-        await this.prefill(request, pipeline, chatConfig, genConfig);
-        prefilled = true;
+        try {
+          await this.prefill(request, pipeline, chatConfig, genConfig);
+          prefilled = true;
+        } catch (err) {
+          if (err instanceof PrefillAbortedError) {
+            yield this.makeStreamFinalChunk(request, model, pipeline, state);
+            const usageChunk = this.makeStreamUsageChunk(
+              request,
+              model,
+              pipeline,
+              state,
+              0,
+              timeReceived,
+            );
+            if (usageChunk !== undefined) {
+              yield usageChunk;
+            }
+            return;
+          }
+          throw err;
+        }
         if (!("messages" in request) && request.echo) {
           yield {
             id: state.id,
@@ -1689,6 +1719,45 @@ export class MLCEngine implements MLCEngineInterface {
     }
   }
 
+  async xcRollbackLastTurn(modelId?: string): Promise<RollbackLastTurnResult> {
+    try {
+      const [, selectedPipeline] = this.getLLMStates(
+        "xcRollbackLastTurn",
+        modelId,
+      );
+      return selectedPipeline.rollbackLastTurn();
+    } catch (error) {
+      if (
+        error instanceof ModelNotLoadedError ||
+        error instanceof SpecifiedModelNotFoundError
+      ) {
+        return { popped: 0, remaining: 0 };
+      }
+      throw error;
+    }
+  }
+
+  async xcTruncateReplyToHeard(
+    heardText: string,
+    modelId?: string,
+  ): Promise<TruncateReplyResult> {
+    try {
+      const [, selectedPipeline] = this.getLLMStates(
+        "xcTruncateReplyToHeard",
+        modelId,
+      );
+      return selectedPipeline.truncateReplyToHeard(heardText);
+    } catch (error) {
+      if (
+        error instanceof ModelNotLoadedError ||
+        error instanceof SpecifiedModelNotFoundError
+      ) {
+        return { truncated: false, poppedTokens: 0, remainingTokens: 0 };
+      }
+      throw error;
+    }
+  }
+
   //-----------------------------------------------
   // 7. Prefill and decode given an LLMChatPipeline
   //-----------------------------------------------
@@ -1735,10 +1804,13 @@ export class MLCEngine implements MLCEngineInterface {
         chatConfig,
       );
       const previousFinishReason = pipeline.getFinishReason();
+      const hasUnrecoveredStop =
+        (previousFinishReason === "abort" ||
+          previousFinishReason === "length") &&
+        !pipeline.isKVStateAlignedAfterRecovery();
       if (
         !reuseKVCache ||
-        previousFinishReason === "abort" ||
-        previousFinishReason === "length" ||
+        hasUnrecoveredStop ||
         !compareConversationObject(oldConv, newConv)
       ) {
         // Not the same conversation, so not multiround chatting, reset everything (KV cache, etc.)

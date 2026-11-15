@@ -13,6 +13,8 @@ export {
   modelVersion,
   modelLibURLPrefix,
   functionCallingModelIds,
+  Role,
+  type ConvTemplateConfig,
 } from "./config";
 
 export {
@@ -46,6 +48,18 @@ export {
 } from "./types";
 
 export { MLCEngine, CreateMLCEngine } from "./engine";
+export {
+  LLMChatPipeline,
+  PrefillAbortedError,
+  type RollbackLastTurnResult,
+  type TruncateReplyResult,
+} from "./llm_chat";
+export {
+  Conversation,
+  compareConversationObject,
+  EMPTY_THINKING_BLOCK,
+  stripEmptyThinkingPrefix,
+} from "./conversation";
 
 export {
   hasModelInCache,

@@ -58,3 +58,15 @@ packages/cindy-plugin/bridge-port.json
 
 .tanstack/
 tmp/
+.agents/
+public/models/kokoro-zh/*.onnx
+public/models/kokoro-zh/voices/
+
+# Intent Router training checkpoints & cache
+scripts/train-intent-router/checkpoints/
+scripts/train-intent-router/data/
+*.ckpt
+*.fp32.onnx
+!public/models/intent-router/*.onnx
+!public/models/intent-router/*.json
+!public/models/intent-router/*.md

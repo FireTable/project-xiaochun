@@ -296,6 +296,25 @@ export interface MLCEngineInterface {
    * @param logLevel The new log level
    */
   setLogLevel(logLevel: LogLevel): void;
+
+  /**
+   * XiaoChun extension: roll back the last uncommitted turn in O(1) via kv_state_popn.
+   */
+  xcRollbackLastTurn?: (
+    modelId?: string,
+  ) => Promise<{ popped: number; remaining: number }>;
+
+  /**
+   * XiaoChun extension: truncate the latest assistant reply to `heardText` in O(1) via kv_state_popn.
+   */
+  xcTruncateReplyToHeard?: (
+    heardText: string,
+    modelId?: string,
+  ) => Promise<{
+    truncated: boolean;
+    poppedTokens: number;
+    remainingTokens: number;
+  }>;
 }
 
 export const LOG_LEVELS = {

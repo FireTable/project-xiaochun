@@ -22,6 +22,7 @@ export const XC_HOST_TO_FRAME = [
   'xc.init',
   'xc.say',
   'xc.audio',
+  'xc.audio.begin',
   'xc.audio.chunk',
   'xc.audio.end',
   'xc.motion',
@@ -37,6 +38,9 @@ export const XC_HOST_TO_FRAME = [
   'xc.mic',
   'xc.transport',
   'xc.clock',
+  'xc.turnState',
+  'xc.bubble',
+  'xc.inference.state',
   'xc.pause',
   'xc.resume',
   'xc.stop',
@@ -76,6 +80,7 @@ export type XcFrameMessageType = (typeof XC_FRAME_TO_HOST)[number];
 export const XC_IMPLEMENTED_COMMANDS = [
   'xc.say',
   'xc.audio',
+  'xc.audio.begin',
   'xc.audio.chunk',
   'xc.audio.end',
   'xc.motion',
@@ -90,6 +95,9 @@ export const XC_IMPLEMENTED_COMMANDS = [
   'xc.mic',
   'xc.transport',
   'xc.clock',
+  'xc.turnState',
+  'xc.bubble',
+  'xc.inference.state',
   'xc.pause',
   'xc.resume',
   'xc.stop',
@@ -425,6 +433,35 @@ export interface XcAudioOptions {
    * 没收到 xc.clock 时从 start 起按倍速自走。需要 capabilities.audio.hostClock, 旧版 /embed 忽略这个字段。
    */
   hostClock?: boolean;
+  /** Real-time live duplex mode: tightens EMAGE first slice (~0.32s) for immediate gesture coupling. */
+  live?: boolean;
+  /** Optional first slice duration override in seconds (e.g. 0.32 in live mode). */
+  firstSliceSec?: number;
+}
+
+export interface XcAudioBeginPayload extends XcAudioOptions {
+  /** 8000~96000. */
+  sampleRate: number;
+  format?: Exclude<XcAudioFormat, 'encoded'>;
+  channels?: 1 | 2;
+}
+
+export interface XcTurnStatePayload {
+  state: 'idle' | 'listening' | 'thinking' | 'speaking' | 'backchannel';
+}
+
+export interface XcBubblePayload {
+  visible?: boolean;
+  text?: string;
+  statusKey?: string;
+  vars?: Record<string, unknown>;
+  isError?: boolean;
+  segmentIndex?: number;
+  totalSegments?: number;
+}
+
+export interface XcInferenceStatePayload {
+  active: boolean;
 }
 
 /**
@@ -782,6 +819,7 @@ export interface XcHostPayloadMap {
   'xc.init': XcInitPayload;
   'xc.say': XcSayPayload;
   'xc.audio': XcAudioPayload;
+  'xc.audio.begin': XcAudioBeginPayload;
   'xc.audio.chunk': XcAudioChunkPayload;
   'xc.audio.end': XcAudioEndPayload;
   'xc.motion': XcMotionPayload;
@@ -797,6 +835,9 @@ export interface XcHostPayloadMap {
   'xc.mic': XcMicPayload;
   'xc.transport': XcTransportPayload;
   'xc.clock': XcClockPayload;
+  'xc.turnState': XcTurnStatePayload;
+  'xc.bubble': XcBubblePayload;
+  'xc.inference.state': XcInferenceStatePayload;
   'xc.pause': undefined;
   'xc.resume': undefined;
   'xc.stop': undefined;

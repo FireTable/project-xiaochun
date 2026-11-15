@@ -16,8 +16,98 @@ import {
   parseHeaders,
   parseBinaryFrame,
 } from '../src/lib/edge-tts-core';
+import { getSharedWarmEdgePool } from '../src/server/warmEdgePool';
 
 const TTS_PROXY_TIMEOUT_MS = 12_000;
+const DEV_REGION_CACHE_TTL_MS = 3 * 60_000;
+const DEV_REGION_MISS_TTL_MS = 15_000;
+const DEV_REGION_PROBE_TIMEOUT_MS = 1500;
+const CF_TRACE_URL = 'https://www.cloudflare.com/cdn-cgi/trace';
+const HF_MIRROR_GEO_PROBE_URL = 'https://hf-mirror.com/api/models/ozhyhinas/MiniCPM5-2B-q4f16_1-MLC';
+
+let cachedDevRegion: { country: string | null; expiresAt: number } | null = null;
+let inFlightDevRegion: Promise<string | null> | null = null;
+
+async function probeOutboundCountryNode(): Promise<string | null> {
+  const ctrl = new AbortController();
+  const timer = setTimeout(() => ctrl.abort(), DEV_REGION_PROBE_TIMEOUT_MS);
+
+  const tracePromise = (async (): Promise<string | null> => {
+    try {
+      const res = await fetch(CF_TRACE_URL, {
+        method: 'GET',
+        signal: ctrl.signal,
+      });
+      if (!res.ok) return null;
+      const text = await res.text();
+      const match = text.match(/^loc=([A-Z]{2})$/m);
+      const code = match?.[1] ?? '';
+      return code && code !== 'XX' && code !== 'T1' ? code : null;
+    } catch {
+      return null;
+    }
+  })();
+
+  const mirrorGeoPromise = (async (): Promise<string | null> => {
+    try {
+      const res = await fetch(HF_MIRROR_GEO_PROBE_URL, {
+        method: 'HEAD',
+        redirect: 'manual',
+        signal: ctrl.signal,
+      });
+      if (res.status === 200) return 'CN';
+      if (res.status >= 300 && res.status < 400) return 'ZZ';
+      return null;
+    } catch {
+      return null;
+    }
+  })();
+
+  try {
+    const traceCountry = await tracePromise;
+    if (traceCountry) {
+      ctrl.abort();
+      return traceCountry;
+    }
+    return await mirrorGeoPromise;
+  } finally {
+    clearTimeout(timer);
+    ctrl.abort();
+  }
+}
+
+async function resolveDevCountry(): Promise<string | null> {
+  const rawCountry = (process.env.XC_DEV_COUNTRY || '').trim().toUpperCase();
+  if (/^[A-Z]{2}$/.test(rawCountry)) {
+    return rawCountry;
+  }
+
+  const now = Date.now();
+  if (cachedDevRegion && now < cachedDevRegion.expiresAt) {
+    return cachedDevRegion.country;
+  }
+
+  const refresh =
+    inFlightDevRegion ??
+    (inFlightDevRegion = probeOutboundCountryNode()
+      .then((country) => {
+        cachedDevRegion = {
+          country,
+          expiresAt: Date.now() + (country ? DEV_REGION_CACHE_TTL_MS : DEV_REGION_MISS_TTL_MS),
+        };
+        return country;
+      })
+      .finally(() => {
+        inFlightDevRegion = null;
+      }));
+
+  // Stale-while-revalidate: 已有历史探测值时 0ms 立即返回，后台异步刷新代理切换状态
+  if (cachedDevRegion?.country) {
+    void refresh.catch(() => {});
+    return cachedDevRegion.country;
+  }
+  return refresh;
+}
 
 export async function streamNativeEdgeTTSNode(
   text: string,
@@ -135,13 +225,26 @@ export function localApiPlugin(ttsProxyUrl?: string, sttProxyUrl?: string): Plug
   return {
     name: 'local-api-plugin',
     configureServer(server) {
+      server.httpServer?.once('listening', () => {
+        void resolveDevCountry().catch(() => {});
+      });
+
+      if (!ttsProxyUrl) {
+        const pool = getSharedWarmEdgePool();
+        server.httpServer?.once('listening', () => {
+          void pool.warm().catch(() => {});
+        });
+        server.httpServer?.once('close', () => {
+          pool.dispose();
+        });
+      }
+
       server.middlewares.use(async (req, res, next) => {
         const host = req.headers.host || 'localhost:5185';
         const url = new URL(req.url || '', `http://${host}`);
 
         if (url.pathname === '/api/region' && (req.method === 'GET' || req.method === 'HEAD')) {
-          const rawCountry = (process.env.XC_DEV_COUNTRY || '').trim().toUpperCase();
-          const country = /^[A-Z]{2}$/.test(rawCountry) ? rawCountry : null;
+          const country = await resolveDevCountry();
           res.statusCode = 200;
           res.setHeader('Content-Type', 'application/json; charset=utf-8');
           res.setHeader('Cache-Control', 'no-store');
@@ -207,6 +310,40 @@ export function localApiPlugin(ttsProxyUrl?: string, sttProxyUrl?: string): Plug
           return;
         }
 
+        if (url.pathname === '/api/tts/warm') {
+          if (req.method === 'OPTIONS') {
+            res.statusCode = 204;
+            for (const [k, v] of Object.entries(EDGE_TTS_CONSTANTS.COMMON_CORS)) {
+              res.setHeader(k, v);
+            }
+            res.end();
+            return;
+          }
+          if (req.method !== 'GET' && req.method !== 'POST') {
+            res.statusCode = 405;
+            res.end();
+            return;
+          }
+          res.setHeader('Content-Type', 'application/json; charset=utf-8');
+          res.setHeader('Cache-Control', 'no-store');
+          res.setHeader('Access-Control-Allow-Origin', '*');
+          if (ttsProxyUrl) {
+            res.statusCode = 200;
+            res.end(JSON.stringify({ ok: true, proxied: true, warmSockets: 0 }));
+            return;
+          }
+          const stats = await getSharedWarmEdgePool().warm();
+          res.statusCode = 200;
+          res.end(
+            JSON.stringify({
+              ok: stats.idleSockets > 0,
+              warmSockets: stats.idleSockets,
+              ...stats,
+            }),
+          );
+          return;
+        }
+
         if (url.pathname !== '/api/tts') {
           next();
           return;
@@ -217,6 +354,7 @@ export function localApiPlugin(ttsProxyUrl?: string, sttProxyUrl?: string): Plug
           for (const [k, v] of Object.entries(EDGE_TTS_CONSTANTS.COMMON_CORS)) {
             res.setHeader(k, v);
           }
+          res.setHeader('Access-Control-Expose-Headers', 'X-TTS-Warm, X-TTS-TTFA-Ms');
           res.end();
           return;
         }
@@ -295,13 +433,17 @@ export function localApiPlugin(ttsProxyUrl?: string, sttProxyUrl?: string): Plug
             return;
           }
 
-          // 模式 2：未配置 ttsProxyUrl，本地直接流式下发
+          // 模式 2：未配置 ttsProxyUrl，使用预热 WebSocket 连接池直连流式/缓冲下发
           try {
             let text = url.searchParams.get('text') || '';
             let voice = url.searchParams.get('voice') || 'zh-CN-XiaoyiNeural';
             let pitch = url.searchParams.get('pitch') || '+10Hz';
             let rate = url.searchParams.get('rate') || '+0%';
             let volume = url.searchParams.get('volume') || '+0%';
+            let buffered =
+              url.searchParams.get('buffered') === '1' ||
+              url.searchParams.get('buffered') === 'true' ||
+              url.searchParams.get('mode') === 'raw';
 
             if (bodyText) {
               try {
@@ -311,17 +453,19 @@ export function localApiPlugin(ttsProxyUrl?: string, sttProxyUrl?: string): Plug
                 if (parsed.pitch) pitch = parsed.pitch;
                 if (parsed.rate) rate = parsed.rate;
                 if (parsed.volume) volume = parsed.volume;
+                if (parsed.buffered === true || parsed.mode === 'raw') buffered = true;
               } catch { }
             }
 
             if (!text.trim()) {
               res.statusCode = 400;
               res.setHeader('Content-Type', 'application/json');
+              res.setHeader('Access-Control-Allow-Origin', '*');
               res.end(JSON.stringify({ error: 'text is required' }));
               return;
             }
 
-            // 非法 voice / pitch / rate / volume: 在写 200 头、打开上游 socket 之前就返回 400
+            // 非法 voice / pitch / rate / volume: 在打开上游 socket 之前就返回 400
             try {
               buildEdgeTTSPayloads(text.trim(), voice, pitch, rate, volume);
             } catch {
@@ -332,40 +476,87 @@ export function localApiPlugin(ttsProxyUrl?: string, sttProxyUrl?: string): Plug
               return;
             }
 
-            res.statusCode = 200;
-            res.setHeader('Content-Type', 'audio/mpeg');
-            res.setHeader('Cache-Control', 'no-store');
-            res.setHeader('Access-Control-Allow-Origin', '*');
-
             const abortController = new AbortController();
-            req.on('close', () => {
-              abortController.abort();
+            res.on('close', () => {
+              if (!res.writableEnded) {
+                abortController.abort();
+              }
             });
 
-            await streamNativeEdgeTTSNode(
-              text.trim(),
+            const pool = getSharedWarmEdgePool();
+
+            if (buffered) {
+              const { audio, meta } = await pool.synthesizeBuffer({
+                text: text.trim(),
+                voice,
+                pitch,
+                rate,
+                volume,
+                signal: abortController.signal,
+              });
+              if (abortController.signal.aborted) return;
+              res.statusCode = 200;
+              res.setHeader('Content-Type', 'audio/mpeg');
+              res.setHeader('Content-Length', String(audio.byteLength));
+              res.setHeader('Cache-Control', 'no-store');
+              res.setHeader('Access-Control-Allow-Origin', '*');
+              res.setHeader('Access-Control-Expose-Headers', 'X-TTS-Warm, X-TTS-TTFA-Ms');
+              res.setHeader('X-TTS-Warm', meta.warmHit ? '1' : '0');
+              res.setHeader('X-TTS-TTFA-Ms', String(Math.round(meta.ttfaMs)));
+              res.end(audio);
+              return;
+            }
+
+            let headersSent = false;
+            await pool.synthesizeStream({
+              text: text.trim(),
               voice,
               pitch,
               rate,
               volume,
-              async (chunk) => {
+              signal: abortController.signal,
+              onFirstAudio: ({ warmHit, ttfaMs }) => {
+                if (headersSent || abortController.signal.aborted) return;
+                headersSent = true;
+                res.statusCode = 200;
+                res.setHeader('Content-Type', 'audio/mpeg');
+                res.setHeader('Cache-Control', 'no-store');
+                res.setHeader('Access-Control-Allow-Origin', '*');
+                res.setHeader('Access-Control-Expose-Headers', 'X-TTS-Warm, X-TTS-TTFA-Ms');
+                res.setHeader('X-TTS-Warm', warmHit ? '1' : '0');
+                res.setHeader('X-TTS-TTFA-Ms', String(Math.round(ttfaMs)));
+              },
+              onChunk: async (chunk) => {
+                if (abortController.signal.aborted || res.writableEnded) return;
                 const flushed = res.write(chunk);
                 if (!flushed) {
                   await new Promise<void>((r) => res.once('drain', () => r()));
                 }
-                return true;
               },
-              abortController.signal
-            );
+            });
 
-            res.end();
+            if (!headersSent && !res.headersSent) {
+              res.statusCode = 502;
+              res.setHeader('Content-Type', 'application/json');
+              res.setHeader('Access-Control-Allow-Origin', '*');
+              res.end(JSON.stringify({ error: 'Upstream returned no audio' }));
+              return;
+            }
+            if (!res.writableEnded) {
+              res.end();
+            }
           } catch (err: any) {
+            if (err?.message === 'TTS client aborted') {
+              if (!res.writableEnded) res.end();
+              return;
+            }
             console.error('[Local Native Node TTS Error]', err);
             if (!res.headersSent) {
               res.statusCode = 502;
               res.setHeader('Content-Type', 'application/json');
+              res.setHeader('Access-Control-Allow-Origin', '*');
               res.end(JSON.stringify({ error: String(err?.message || err) }));
-            } else {
+            } else if (!res.writableEnded) {
               res.end();
             }
           }

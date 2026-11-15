@@ -644,13 +644,13 @@ export const APP_CONFIG = {
     globalMult: 1.0,
   } as LightConfig,
   postfx: {
-    // MSAA resolve stays on. Bloom is a separate pass and stays off unless its strength is raised.
+    // MSAA resolve stays on. Bloom & grading default to 0.0 so PostFxPipeline bypasses offscreen 4x MSAA RGBA16F.
     enabled: true,
     bloom: { strength: 0, radius: 0.36, threshold: 0.76 },
     vignette: { darkness: 0.0, offset: 0.5 },
     toneMapping: { mode: THREE.LinearToneMapping, exposure: 1.06 },
-    bc: { brightness: 0.0, contrast: 0.035 },
-    hs: { hue: 0.0, saturation: 0.01 },
+    bc: { brightness: 0.0, contrast: 0.0 },
+    hs: { hue: 0.0, saturation: 0.0 },
     bloomInputScaleMobile: 0.3,
     bloomInputScaleDesktop: 0.5,
     composerMSAASamplesMobile: 4,

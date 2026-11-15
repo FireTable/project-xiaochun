@@ -46,6 +46,7 @@ export function fillIdentityJaw(faceDec: Float32Array, T: number): Float32Array 
 }
 
 /**
+ * Slice only the trailing `seedFrames` frames from cls logits before VQ decode and postprocess (16x speedup over decoding all T=64 frames).
  * @returns Float32Array [seedFrames * mdim] = last `seedFrames` frames of motion_inference of the window.
  */
 export async function computeSeedFromLogits(
@@ -58,10 +59,15 @@ export async function computeSeedFromLogits(
   mdim: number,
   seedFrames: number,
 ): Promise<Float32Array> {
-  const upperDec = await deps.runVq('upper', deps.argmax2d(clsUpper, T, codebookSize), T);
-  const handsDec = await deps.runVq('hands', deps.argmax2d(clsHands, T, codebookSize), T);
-  const lowerDec = await deps.runVq('lower', deps.argmax2d(clsLower, T, codebookSize), T);
-  const faceDec = fillIdentityJaw(new Float32Array(T * FACE_DEC_DIM), T);
-  const mi = await deps.runPostprocess(faceDec, upperDec, handsDec, lowerDec, T);
-  return mi.slice((T - seedFrames) * mdim, T * mdim);
+  const n = Math.min(T, Math.max(1, seedFrames));
+  const start = (T - n) * codebookSize;
+  const end = T * codebookSize;
+  const upperDec = await deps.runVq('upper', deps.argmax2d(clsUpper.subarray(start, end), n, codebookSize), n);
+  const handsDec = await deps.runVq('hands', deps.argmax2d(clsHands.subarray(start, end), n, codebookSize), n);
+  const lowerDec = await deps.runVq('lower', deps.argmax2d(clsLower.subarray(start, end), n, codebookSize), n);
+  const faceDec = fillIdentityJaw(new Float32Array(n * FACE_DEC_DIM), n);
+  const mi = await deps.runPostprocess(faceDec, upperDec, handsDec, lowerDec, n);
+  const expectedLen = seedFrames * mdim;
+  if (mi.length === expectedLen) return mi;
+  return mi.slice(Math.max(0, mi.length - expectedLen));
 }

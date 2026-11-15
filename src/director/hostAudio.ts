@@ -15,12 +15,15 @@ export const HOST_AUDIO = {
    * 调大: 起播前要先等更多音频推理完, 延迟增加。EMAGE 一个窗口 ≈ 64 帧 / 30 fps ≈ 2.13 s, 2 s 约等于一个窗口。
    */
   firstSliceSec: 2.0,
+  /** Live full-duplex first slice (~320ms, > 4 EMAGE seed frames) so gestures begin immediately on live host-clock audio. */
+  liveFirstSliceSec: 0.32,
   /**
    * 后续切片时长 (秒)。范围 1~8。
    * 调小: 每片都做一次 checkpoint (尾窗不满, 推理效率低、CPU 占用高), 切片接缝更多;
    * 调大: 效率更高、接缝更少, 但低端设备上每片推理时间更长, 追不上实时播放就会出现"等下一片"的停顿。
    */
   sliceSec: 4.0,
+  liveSliceSec: 1.6,
   /** 单次/单流最长音频 (秒)。调大允许更长音频但内存占用线性增加 (48 kHz mono float ≈ 11.5 MB/分钟); 调小更安全。 */
   maxSec: 120,
   /** 单个编码音频 (ArrayBuffer/Blob/URL) 的最大字节数。调大允许更高码率/更长音频; 调小防止恶意宿主塞爆内存。 */
@@ -57,6 +60,12 @@ export interface HostAudioInput {
   sampleRate: number;
   /** 单声道 PCM 块 (任意长度)。整段音频就是只 yield 一次。 */
   chunks: AsyncIterable<Float32Array>;
+  /** Real-time host-clock mode: tightens firstSliceSec (~0.32s) so EMAGE reacts immediately alongside live speech. */
+  live?: boolean;
+  /** Optional explicit override for first slice duration (seconds). */
+  firstSliceSec?: number;
+  /** Optional explicit override for subsequent slice duration (seconds). */
+  sliceSec?: number;
 }
 
 /** 交错多声道 → 单声道 (均值)。channels<=1 时原样返回 (不拷贝)。 */

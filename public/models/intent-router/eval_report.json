@@ -1,0 +1,65 @@
+{
+  "timestamp": "2026-11-14T04:05:51Z",
+  "modelFile": "intent-router-bilingual-v1.int8.onnx",
+  "modelBytes": 3488401,
+  "totalSamples": 1508,
+  "overall_accuracy": 0.9993,
+  "overallAccuracy": 0.9993,
+  "macro_f1": 0.9993,
+  "macroF1": 0.9993,
+  "classes": [
+    "CHAT",
+    "HEAVY"
+  ],
+  "per_class": {
+    "CHAT": {
+      "precision": 0.9987,
+      "recall": 1.0,
+      "f1": 0.9993
+    },
+    "HEAVY": {
+      "precision": 1.0,
+      "recall": 0.9987,
+      "f1": 0.9993
+    }
+  },
+  "chatMetrics": {
+    "precision": 0.9987,
+    "recall": 1.0,
+    "f1": 0.9993
+  },
+  "heavyMetrics": {
+    "precision": 1.0,
+    "recall": 0.9987,
+    "f1": 0.9993
+  },
+  "confusionMatrix": {
+    "CHAT_as_CHAT": 755,
+    "CHAT_as_HEAVY": 0,
+    "HEAVY_as_CHAT": 1,
+    "HEAVY_as_HEAVY": 752
+  },
+  "languageSlices": {
+    "ZH": {
+      "total": 229,
+      "correct": 229,
+      "accuracy": 1.0
+    },
+    "EN": {
+      "total": 345,
+      "correct": 344,
+      "accuracy": 0.9971
+    },
+    "CS": {
+      "total": 934,
+      "correct": 934,
+      "accuracy": 1.0
+    }
+  },
+  "latencyMs": {
+    "mean": 0.565,
+    "p50": 0.561,
+    "p95": 0.626,
+    "p99": 0.694
+  }
+}

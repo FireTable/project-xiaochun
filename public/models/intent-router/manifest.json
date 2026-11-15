@@ -1,0 +1,23 @@
+{
+  "version": "1.0.0",
+  "architecture": "CompactTransformerClassifier-2L-128D-4H",
+  "classes": [
+    "CHAT",
+    "HEAVY"
+  ],
+  "maxSeqLen": 64,
+  "vocabSize": 5767,
+  "temperature": 0.8,
+  "confidenceThreshold": 0.5,
+  "modelFile": "intent-router-bilingual-v1.int8.onnx",
+  "modelBytes": 3488401,
+  "vocabFile": "vocab.json",
+  "quantization": "INT8_DYNAMIC",
+  "inputNames": [
+    "input_ids",
+    "attention_mask"
+  ],
+  "outputNames": [
+    "logits"
+  ]
+}

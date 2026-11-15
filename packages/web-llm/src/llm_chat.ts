@@ -10,6 +10,7 @@ import {
   getConversation,
   Conversation,
   ArtifactPromptSegment,
+  stripEmptyThinkingPrefix,
 } from "./conversation";
 import { decodeAudioInput } from "./audio";
 import {
@@ -53,6 +54,32 @@ import {
 } from "./error";
 
 type ImageURL = ChatCompletionContentPartImage.ImageURL;
+
+export class PrefillAbortedError extends Error {
+  constructor(message = "Prefill aborted by interrupt signal") {
+    super(message);
+    this.name = "PrefillAbortedError";
+  }
+}
+
+export interface RollbackLastTurnResult {
+  popped: number;
+  remaining: number;
+}
+
+export interface TruncateReplyResult {
+  truncated: boolean;
+  poppedTokens: number;
+  remainingTokens: number;
+}
+
+interface TurnKVRecord {
+  turnStartKVLen: number;
+  turnStartMessageCount: number;
+  promptTokensInKV: number;
+  assistantPrefixTokenIds: number[];
+  generatedTokenIds: number[];
+}
 
 type KVStateKind = "kv_cache" | "rnn_state" | "hybrid" | "none";
 type ComputeABIKind = "single" | "batch";
@@ -229,6 +256,7 @@ export class LLMChatPipeline {
   private fKVCacheBeginForward: tvmjs.PackedFunc;
   private fKVCacheEndForward: tvmjs.PackedFunc;
   private fKVCacheEnableSlidingWindowForSeq: tvmjs.PackedFunc;
+  private fKVCachePopN?: tvmjs.PackedFunc;
 
   // parameter states
   private params: tvmjs.TVMObject;
@@ -241,6 +269,11 @@ export class LLMChatPipeline {
   private maxHistorySize = 1;
   private logitsOnCPU?: tvmjs.Tensor = undefined;
   private filledKVCacheLength = 0;
+  private turnHistoryStack: TurnKVRecord[] = [];
+  private interruptChecker?: () => boolean;
+  private kvStateAlignedAfterRecovery = false;
+  private curRoundAssistantPrefixCount = 0;
+  private curRoundRolledBackMidPrefill = false;
 
   // meta data
   private bosTokenId = 1;
@@ -668,6 +701,15 @@ export class LLMChatPipeline {
         "vm.builtin.attention_kv_cache_enable_sliding_window_for_seq",
       ),
     );
+    if (this.kvStateKind === "kv_cache") {
+      try {
+        this.fKVCachePopN = this.tvm.detachFromCurrentScope(
+          this.tvm.getGlobalFunc("vm.builtin.kv_state_popn"),
+        );
+      } catch (err) {
+        log.warn("vm.builtin.kv_state_popn unavailable:", err);
+      }
+    }
 
     const defaultPageSize = 16;
     const defaultMaxNumSequence = 1;
@@ -762,6 +804,7 @@ export class LLMChatPipeline {
     this.topPDevice?.dispose();
     this.vm.dispose();
     this.fclearKVCaches.dispose();
+    this.fKVCachePopN?.dispose();
     this.logitsOnCPU?.dispose();
     this.tvm.dispose();
     this.tokenizer.dispose();
@@ -793,6 +836,10 @@ export class LLMChatPipeline {
     this.tvm.beginScope();
     this.conversation.reset();
     this.finishReason = undefined;
+    this.turnHistoryStack = [];
+    this.curRoundAssistantPrefixCount = 0;
+    this.curRoundRolledBackMidPrefill = false;
+    this.kvStateAlignedAfterRecovery = false;
     if (!keepStats) {
       this.resetRuntimeStats();
     }
@@ -800,6 +847,202 @@ export class LLMChatPipeline {
     this.filledKVCacheLength = 0;
     this.logitProcessor?.resetState();
     this.tvm.endScope();
+  }
+
+  setInterruptChecker(checker?: () => boolean): void {
+    this.interruptChecker = checker;
+  }
+
+  isKVStateAlignedAfterRecovery(): boolean {
+    return this.kvStateAlignedAfterRecovery;
+  }
+
+  private popKVTokens(popCount: number): boolean {
+    if (
+      this.kvStateKind !== "kv_cache" ||
+      this.kvCache === undefined ||
+      this.fKVCachePopN === undefined
+    ) {
+      return false;
+    }
+    const clamped = Math.max(0, Math.min(popCount, this.filledKVCacheLength));
+    if (clamped > 0) {
+      this.tvm.beginScope();
+      try {
+        this.fKVCachePopN(
+          this.kvCache,
+          new tvmjs.Scalar(0, "int64"),
+          new tvmjs.Scalar(clamped, "int32"),
+        );
+      } finally {
+        this.tvm.endScope();
+      }
+      this.filledKVCacheLength -= clamped;
+    }
+    return true;
+  }
+
+  private rollbackPartialPrefill(
+    turnStartKVLen: number,
+    turnStartMessageCount: number,
+  ): void {
+    const prefilledSoFar = Math.max(
+      0,
+      this.filledKVCacheLength - turnStartKVLen,
+    );
+    const popped = this.popKVTokens(prefilledSoFar);
+    if (!this.conversation.isTextCompletion) {
+      this.conversation.messages.length = Math.min(
+        this.conversation.messages.length,
+        turnStartMessageCount,
+      );
+      this.conversation.clearEmptyThinkingReplyHeader();
+    }
+    this.outputIds = [];
+    this.outputMessage = "";
+    this.curRoundAssistantPrefixCount = 0;
+    this.stopTriggered = true;
+    this.finishReason = "abort";
+    this.kvStateAlignedAfterRecovery = popped;
+    this.curRoundRolledBackMidPrefill = true;
+    this.logitProcessor?.resetState();
+  }
+
+  /**
+   * Roll back the most recent uncommitted/speculative turn via O(1) kv_state_popn.
+   */
+  rollbackLastTurn(): RollbackLastTurnResult {
+    if (this.curRoundRolledBackMidPrefill) {
+      this.curRoundRolledBackMidPrefill = false;
+      return { popped: 0, remaining: this.filledKVCacheLength };
+    }
+    const record = this.turnHistoryStack.pop();
+    if (!record) {
+      return { popped: 0, remaining: this.filledKVCacheLength };
+    }
+    const toPop = Math.max(0, this.filledKVCacheLength - record.turnStartKVLen);
+    const popped = this.popKVTokens(toPop);
+    if (!this.conversation.isTextCompletion) {
+      this.conversation.messages.length = Math.min(
+        this.conversation.messages.length,
+        record.turnStartMessageCount,
+      );
+      this.conversation.clearEmptyThinkingReplyHeader();
+    }
+    this.outputIds = [];
+    this.outputMessage = "";
+    this.curRoundAssistantPrefixCount = 0;
+    this.stopTriggered = true;
+    if (popped) {
+      this.finishReason = record.turnStartMessageCount > 0 ? "stop" : undefined;
+      this.kvStateAlignedAfterRecovery = true;
+      this.logitProcessor?.resetState();
+      return { popped: toPop, remaining: this.filledKVCacheLength };
+    }
+    this.finishReason = "abort";
+    this.kvStateAlignedAfterRecovery = false;
+    return { popped: 0, remaining: this.filledKVCacheLength };
+  }
+
+  /**
+   * Truncate the latest assistant turn in KV cache and conversation history to
+   * match `heardText`, popping only unheard generated suffix tokens in O(1).
+   */
+  truncateReplyToHeard(heardText: string): TruncateReplyResult {
+    const interruptedText = heardText.endsWith("[interrupted]")
+      ? heardText
+      : heardText.length > 0
+        ? `${heardText} [interrupted]`
+        : "[interrupted]";
+    const record = this.turnHistoryStack.at(-1);
+    if (!record) {
+      if (!this.conversation.isTextCompletion) {
+        this.conversation.setLastAssistantReplyText(interruptedText);
+      }
+      return {
+        truncated: false,
+        poppedTokens: 0,
+        remainingTokens: this.filledKVCacheLength,
+      };
+    }
+
+    const promptEndKVLen = record.turnStartKVLen + record.promptTokensInKV;
+    const genInKV = Math.max(0, this.filledKVCacheLength - promptEndKVLen);
+    const genIds = record.generatedTokenIds;
+
+    if (
+      this.kvStateKind !== "kv_cache" ||
+      this.kvCache === undefined ||
+      this.fKVCachePopN === undefined
+    ) {
+      if (!this.conversation.isTextCompletion) {
+        this.conversation.setLastAssistantReplyText(interruptedText);
+      }
+      this.outputMessage = interruptedText;
+      this.stopTriggered = true;
+      this.finishReason = "abort";
+      this.kvStateAlignedAfterRecovery = false;
+      return {
+        truncated: false,
+        poppedTokens: 0,
+        remainingTokens: this.filledKVCacheLength,
+      };
+    }
+
+    let keptGenTokens = 0;
+    if (heardText.length > 0 && genIds.length > 0) {
+      const stripTags = (s: string) =>
+        stripEmptyThinkingPrefix(s).replace(
+          /\[(?:happy|laugh|sigh|shy|surprised|angry|sad|relaxed|neutral)\]\s*/gi,
+          "",
+        );
+      const targetClean = stripTags(heardText);
+      const fullDecoded = this.tokenizer.decode(new Int32Array(genIds));
+      const fullClean = stripTags(fullDecoded);
+      if (targetClean.length > 0 && fullClean.startsWith(targetClean)) {
+        let lo = 1;
+        let hi = genIds.length;
+        let best = genIds.length;
+        while (lo <= hi) {
+          const mid = (lo + hi) >> 1;
+          const prefixClean = stripTags(
+            this.tokenizer.decode(new Int32Array(genIds.slice(0, mid))),
+          );
+          if (prefixClean.length >= targetClean.length) {
+            best = mid;
+            hi = mid - 1;
+          } else {
+            lo = mid + 1;
+          }
+        }
+        keptGenTokens = Math.min(best, genInKV);
+      } else {
+        const heardIds = Array.from(this.tokenizer.encode(heardText));
+        keptGenTokens = Math.min(heardIds.length, genInKV);
+      }
+    }
+
+    const popCount = Math.max(0, genInKV - keptGenTokens);
+    this.popKVTokens(popCount);
+    record.generatedTokenIds = genIds.slice(0, keptGenTokens);
+    this.outputIds = [
+      ...record.assistantPrefixTokenIds,
+      ...record.generatedTokenIds,
+    ];
+    if (!this.conversation.isTextCompletion) {
+      this.conversation.setLastAssistantReplyText(interruptedText);
+    }
+    this.outputMessage = interruptedText;
+    this.stopTriggered = true;
+    this.finishReason = "stop";
+    this.kvStateAlignedAfterRecovery = true;
+    this.logitProcessor?.resetState();
+
+    return {
+      truncated: true,
+      poppedTokens: popCount,
+      remainingTokens: this.filledKVCacheLength,
+    };
   }
 
   /**
@@ -1183,8 +1426,25 @@ export class LLMChatPipeline {
     // with prefilling the prompt to hide overhead by using this promise.
     const grammarMatcherInitPromise =
       this.prepareGrammarMatcherForSampling(genConfig);
-    const { logits, promptLen, promptTokenIds, assistantPrefixTokenIds } =
-      await this.forwardPrefill(inp, msgRole, inp_role_str, genConfig);
+    let logits: tvmjs.Tensor;
+    let promptLen: number;
+    let promptTokenIds: number[] | undefined;
+    let assistantPrefixTokenIds: number[];
+    try {
+      const prefillRes = await this.forwardPrefill(
+        inp,
+        msgRole,
+        inp_role_str,
+        genConfig,
+      );
+      logits = prefillRes.logits;
+      promptLen = prefillRes.promptLen;
+      promptTokenIds = prefillRes.promptTokenIds;
+      assistantPrefixTokenIds = prefillRes.assistantPrefixTokenIds;
+    } catch (err) {
+      void grammarMatcherInitPromise?.catch(() => undefined);
+      throw err;
+    }
     let promptCheckpoint: KVCheckpointData | undefined;
     let nextToken: number;
     try {
@@ -1238,6 +1498,11 @@ export class LLMChatPipeline {
   ): Promise<ForwardPrefillResult> {
     const conversation = this.conversation;
     const assistantPrefixTokenIds: number[] = [];
+    const turnStartKVLen = this.filledKVCacheLength;
+    const turnStartMessageCount = conversation.messages.length;
+    this.kvStateAlignedAfterRecovery = false;
+    this.curRoundAssistantPrefixCount = 0;
+    this.curRoundRolledBackMidPrefill = false;
 
     // 0. Get inputData from conversation
     if (conversation.isTextCompletion) {
@@ -1255,6 +1520,7 @@ export class LLMChatPipeline {
         );
         this.outputIds.push(...encoded);
         assistantPrefixTokenIds.push(...encoded);
+        this.curRoundAssistantPrefixCount = encoded.length;
         conversation.appendEmptyThinkingReplyHeader(
           Role.assistant,
           emptyThinkingBlockStr,
@@ -1278,6 +1544,11 @@ export class LLMChatPipeline {
           promptTokenIds = chunks.flatMap((chunk) => chunk.tokenIds);
         }
         for (let i = 0; i < chunks.length; i++) {
+          if (this.interruptChecker?.()) {
+            logits?.dispose();
+            this.rollbackPartialPrefill(turnStartKVLen, turnStartMessageCount);
+            throw new PrefillAbortedError();
+          }
           const chunk = chunks[i];
           const previousLength = this.filledKVCacheLength;
           const embeddings =
@@ -1341,6 +1612,11 @@ export class LLMChatPipeline {
           getEmbedSize,
         );
         for (let i = 0; i < chunks.length; i++) {
+          if (this.interruptChecker?.()) {
+            logits?.dispose();
+            this.rollbackPartialPrefill(turnStartKVLen, turnStartMessageCount);
+            throw new PrefillAbortedError();
+          }
           const previousLength = this.filledKVCacheLength;
           const chunkLogits = await this.embedAndForward(
             chunks[i],
@@ -1365,6 +1641,11 @@ export class LLMChatPipeline {
           }
         }
       }
+      if (this.interruptChecker?.()) {
+        logits?.dispose();
+        this.rollbackPartialPrefill(turnStartKVLen, turnStartMessageCount);
+        throw new PrefillAbortedError();
+      }
     } finally {
       this.imageDataCache.clear();
       this.artifactImagePixelCache.clear();
@@ -1373,6 +1654,13 @@ export class LLMChatPipeline {
     if (logits === undefined) {
       throw new Error("Internal Error: prefill did not produce logits.");
     }
+    this.turnHistoryStack.push({
+      turnStartKVLen,
+      turnStartMessageCount,
+      promptTokensInKV: promptLen,
+      assistantPrefixTokenIds: [...assistantPrefixTokenIds],
+      generatedTokenIds: [],
+    });
     return { logits, promptLen, promptTokenIds, assistantPrefixTokenIds };
   }
 
@@ -1536,6 +1824,7 @@ export class LLMChatPipeline {
     }
     if (!this.stopTriggered) {
       this.outputIds.push(nextToken);
+      this.turnHistoryStack.at(-1)?.generatedTokenIds.push(nextToken);
       // Update token appearance frequency
       const curFreq = this.appearedTokensFreq.get(nextToken);
       if (curFreq !== undefined) {
@@ -1560,8 +1849,11 @@ export class LLMChatPipeline {
     }
     this.outputMessage = outputMessage;
 
-    // Stop condition 3: exceed max_tokens
-    if (this.outputIds.length >= max_tokens) {
+    // Stop condition 3: exceed max_tokens (excluding synthetic empty thinking prefix tokens)
+    if (
+      this.outputIds.length - this.curRoundAssistantPrefixCount >=
+      max_tokens
+    ) {
       this.stopTriggered = true;
       this.finishReason = "length";
       log.info("Generation stopped due to exceeding max_tokens.");

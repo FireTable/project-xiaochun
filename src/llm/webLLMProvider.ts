@@ -23,6 +23,12 @@ import { ThinMLCEngine } from './webllmThinClient';
 interface LLMEngine {
   chat: { completions: { create(request: ChatCompletionRequest): Promise<unknown> } };
   resetChat(): Promise<void>;
+  interruptGenerate?(): void;
+  xcRollbackLastTurn?(modelId?: string): Promise<{ popped: number; remaining: number }>;
+  xcTruncateReplyToHeard?(
+    heardText: string,
+    modelId?: string,
+  ): Promise<{ truncated: boolean; poppedTokens: number; remainingTokens: number }>;
 }
 import { APP_CONFIG } from '@/config';
 import { readActiveModel, writeActiveModel } from './activeModel';
@@ -573,6 +579,7 @@ export function preloadWebLLM(opts?: {
         await engine.chat.completions.create({
           messages: [{ role: 'user', content: warmupContent as any }],
           max_tokens: 2,
+          extra_body: { enable_thinking: false },
         });
         await engine.resetChat();
         console.log('[WebLLM] 后台 WebGPU 着色器管线预热完成，就绪待命');
@@ -593,6 +600,111 @@ export async function resetWebLLMChat(): Promise<void> {
     try {
       await engineInstance.resetChat();
     } catch {}
+  }
+}
+
+export function interruptWebLLMGenerate(): void {
+  engineInstance?.interruptGenerate?.();
+}
+
+export async function rollbackWebLLMLastTurn(): Promise<{ popped: number; remaining: number }> {
+  if (!engineInstance?.xcRollbackLastTurn) {
+    return { popped: 0, remaining: 0 };
+  }
+  return engineInstance.xcRollbackLastTurn();
+}
+
+export async function truncateWebLLMReplyToHeard(
+  heardText: string,
+): Promise<{ truncated: boolean; poppedTokens: number; remainingTokens: number }> {
+  if (!engineInstance?.xcTruncateReplyToHeard) {
+    return { truncated: false, poppedTokens: 0, remainingTokens: 0 };
+  }
+  return engineInstance.xcTruncateReplyToHeard(heardText);
+}
+
+export interface WebLLMStreamDirectOptions {
+  messages: RunChatOptions['messages'];
+  modelId?: string;
+  thinking?: boolean;
+  maxTokens?: number;
+  temperature?: number;
+  stop?: string[];
+  signal?: AbortSignal;
+  onMilestone?: RunChatOptions['onMilestone'];
+}
+
+export interface WebLLMDirectStreamChunk {
+  delta: string;
+  raw: string;
+  finishReason?: string | null;
+}
+
+/**
+ * Direct token-level WebLLM streamer for LiveOrchestrator / FrontBrain / HeavyWorker.
+ * Always passes `extra_body: { enable_thinking: Boolean(opts.thinking) }` explicitly and
+ * maps AbortSignal cancellation straight to `engine.interruptGenerate()`.
+ */
+let activeDirectStreamDone: Promise<void> = Promise.resolve();
+
+export async function* streamWebLLMDirect(
+  opts: WebLLMStreamDirectOptions,
+): AsyncGenerator<WebLLMDirectStreamChunk, void, void> {
+  const gen = getLoadGen();
+  const engine = await getWebLLMEngine({ onMilestone: opts.onMilestone });
+  if (gen !== getLoadGen()) throw new ModelSwitchedError();
+  if (opts.signal?.aborted) return;
+
+  // Serialize WebLLM direct streams briefly so an aborted draft/barge-in stream finishes
+  // exiting inside the WebLLM Worker before the next chat.completions.create() starts.
+  const prevDone = activeDirectStreamDone;
+  let releaseLock!: () => void;
+  activeDirectStreamDone = new Promise<void>((resolve) => {
+    releaseLock = resolve;
+  });
+
+  const model = opts.modelId || getActiveModelId();
+  const onAbort = () => {
+    engine.interruptGenerate?.();
+  };
+  opts.signal?.addEventListener('abort', onAbort, { once: true });
+
+  let raw = '';
+  try {
+    await Promise.race([
+      prevDone,
+      new Promise<void>((resolve) => setTimeout(resolve, 1500)),
+    ]);
+    if (gen !== getLoadGen()) throw new ModelSwitchedError();
+    if (opts.signal?.aborted) return;
+
+    const stream = (await engine.chat.completions.create({
+      model,
+      messages: opts.messages,
+      temperature: opts.temperature ?? 0.75,
+      stream: true,
+      ...(opts.maxTokens ? { max_tokens: opts.maxTokens } : {}),
+      ...(opts.stop?.length ? { stop: opts.stop } : {}),
+      extra_body: { enable_thinking: Boolean(opts.thinking) },
+    })) as AsyncIterable<ChatCompletionChunk>;
+
+    for await (const chunk of stream) {
+      if (opts.signal?.aborted) {
+        engine.interruptGenerate?.();
+        break;
+      }
+      const delta = chunk.choices[0]?.delta?.content ?? '';
+      const finishReason = chunk.choices[0]?.finish_reason ?? null;
+      if (delta) {
+        raw += delta;
+        yield { delta, raw, finishReason };
+      } else if (finishReason !== null) {
+        yield { delta: '', raw, finishReason };
+      }
+    }
+  } finally {
+    opts.signal?.removeEventListener('abort', onAbort);
+    releaseLock();
   }
 }
 
@@ -655,7 +767,7 @@ async function callEngine(
     temperature: 0.8,
     stream: true,
     ...(opts.maxTokens ? { max_tokens: opts.maxTokens } : {}),
-    ...(opts.thinking ? { extra_body: { enable_thinking: true } } : {}),
+    extra_body: { enable_thinking: Boolean(opts.thinking) },
   })) as AsyncIterable<ChatCompletionChunk>;
 
   let raw = '';
@@ -673,7 +785,9 @@ async function callEngine(
     if (!hasNotifiedThink && raw.includes('<think>')) {
       inThink = true;
       hasNotifiedThink = true;
-      opts.onMilestone?.('thinking');
+      if (opts.thinking) {
+        opts.onMilestone?.('thinking');
+      }
     }
     if (inThink) {
       if (raw.includes('</think>')) {

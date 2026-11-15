@@ -118,6 +118,8 @@ export class UniversalMotionController {
   private nodeToBoneMap: Map<string, VRMHumanBoneName> | null = null;
   /** 动作绑定表情的倒计时（秒），用于在指定 duration 后提前平滑归于 neutral */
   private expressionRemainingTimer = 0;
+  /** 仅当当前动作亲自绑定了 expression / expressionFn 时才在结束/停播时归位 neutral，避免抹除外部对话情绪 */
+  private ownsExpression = false;
 
   nextRequestId(): number {
     return ++this.currentPlayRequestId;
@@ -150,6 +152,7 @@ export class UniversalMotionController {
     this.animatedBoneIndices = null;
     this.hasHipsPosTrack = false;
     this.expressionRemainingTimer = 0;
+    this.ownsExpression = false;
     expressionController.setExpressionFn(null);
   }
 
@@ -380,7 +383,9 @@ export class UniversalMotionController {
     this.hasHipsPosTrack = hasHipsPos;
 
     // 动作原生表情绑定与生命周期接管
+    const prevOwnedExpression = this.ownsExpression;
     if (options.expressionFn) {
+      this.ownsExpression = true;
       expressionController.setExpressionFn(options.expressionFn, () => ({
         elapsed: this.currentAction?.time ?? 0,
         duration: clip.duration || 1,
@@ -391,15 +396,25 @@ export class UniversalMotionController {
     } else {
       const expr = options.expression;
       if (expr && expr !== 'neutral') {
+        this.ownsExpression = true;
         expressionController.setExpressionFn(null);
         expressionController.setExpression(expr, options.expressionIntensity);
         this.expressionRemainingTimer = (options.expressionDuration && options.expressionDuration > 0)
           ? options.expressionDuration
           : 0;
-      } else {
-        // 若当前动作未指定表情或显式指定 neutral，平滑阻尼淡出回基态素颜，杜绝上一动作表情残留
+      } else if (expr === 'neutral') {
+        this.ownsExpression = false;
+        // Explicit neutral reset requested by clip options
         expressionController.setExpressionFn(null);
         expressionController.setExpression('neutral');
+        this.expressionRemainingTimer = 0;
+      } else {
+        this.ownsExpression = false;
+        if (prevOwnedExpression) {
+          expressionController.setExpressionFn(null);
+          expressionController.setExpression('neutral');
+        }
+        // Do not overwrite ongoing conversational emotions (e.g. happy/shy/surprised) when no prior clip owned an expression
         this.expressionRemainingTimer = 0;
       }
     }
@@ -453,6 +468,7 @@ export class UniversalMotionController {
       this.expressionRemainingTimer -= delta;
       if (this.expressionRemainingTimer <= 0) {
         this.expressionRemainingTimer = 0;
+        this.ownsExpression = false;
         expressionController.setExpressionFn(null);
         expressionController.setExpression('neutral');
       }
@@ -474,7 +490,10 @@ export class UniversalMotionController {
           justEnded = true;
           this.active = false;
           expressionController.setExpressionFn(null);
-          expressionController.setExpression('neutral');
+          if (this.ownsExpression) {
+            expressionController.setExpression('neutral');
+            this.ownsExpression = false;
+          }
           this.expressionRemainingTimer = 0;
           this.currentOptions.onEnd?.();
         }
@@ -531,7 +550,10 @@ export class UniversalMotionController {
     this.traits = { ...DEFAULT_MOTION_TRAITS };
 
     expressionController.setExpressionFn(null);
-    expressionController.setExpression('neutral');
+    if (this.ownsExpression) {
+      expressionController.setExpression('neutral');
+      this.ownsExpression = false;
+    }
     this.expressionRemainingTimer = 0;
 
     if (!this.onEndTriggered) {

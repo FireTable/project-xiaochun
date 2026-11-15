@@ -448,38 +448,21 @@ float grainOct(vec2 q, float f) {
   return (vnoise(q * f) - 0.5) * (1.0 - smoothstep(0.3, 0.75, fw));
 }
 
-// 道具落影 (0..1): 16-tap 泊松圆盘抗锯齿滤波 (消除网格走样与阶梯锯齿, 提供丝滑柔和的投影过渡)
+// 道具落影 (0..1): 4-tap 旋转网格 PCF 抗锯齿滤波 (替换 17-tap Poisson 循环, 配合线性过滤纹理保持平滑柔和投影)
 float bakedShadow(vec2 q) {
   vec2 uv = (q - uMaskRect.xy) / uMaskRect.zw;
   if (uv.x <= 0.0 || uv.y <= 0.0 || uv.x >= 1.0 || uv.y >= 1.0) return 0.0;
   // 边缘平滑柔和渐隐: 距遮罩边缘 4% 区域内 smoothstep 衰减至 0, 杜绝在任何极端光照下产生硬切截断线
   vec2 edgeDist = min(uv, 1.0 - uv);
   float edgeFade = smoothstep(0.0, 0.04, min(edgeDist.x, edgeDist.y));
-  vec2 r = uMaskTexel * 1.65 * uMaskSoft;
+  vec2 r = uMaskTexel * 1.15 * uMaskSoft;
 
-  const vec2 poisson[16] = vec2[16](
-    vec2(-0.94201624, -0.39906216),
-    vec2(0.94558609, -0.76890725),
-    vec2(-0.094184101, -0.92938870),
-    vec2(0.34495938, 0.29387760),
-    vec2(-0.91588581, 0.45771432),
-    vec2(-0.81544232, -0.87912464),
-    vec2(-0.38277543, 0.27676845),
-    vec2(0.97484398, 0.75648379),
-    vec2(0.44323325, -0.97511554),
-    vec2(0.53742981, -0.47373420),
-    vec2(-0.26496911, -0.41893023),
-    vec2(0.79197514, 0.19090188),
-    vec2(-0.24188840, 0.99706507),
-    vec2(-0.81409955, 0.91437590),
-    vec2(0.19984126, 0.78641367),
-    vec2(0.14383161, -0.14100790)
-  );
-
-  float s = texture2D(uShadowMask, uv).r * 0.16;
-  for (int i = 0; i < 16; i++) {
-    s += texture2D(uShadowMask, uv + poisson[i] * r).r * 0.0525;
-  }
+  float s = (
+    texture2D(uShadowMask, uv + vec2(-0.375, -0.875) * r).r +
+    texture2D(uShadowMask, uv + vec2( 0.875, -0.375) * r).r +
+    texture2D(uShadowMask, uv + vec2( 0.375,  0.875) * r).r +
+    texture2D(uShadowMask, uv + vec2(-0.875,  0.375) * r).r
+  ) * 0.25;
   return s * edgeFade;
 }
 

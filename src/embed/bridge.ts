@@ -45,6 +45,7 @@ import {
   isXcId,
   parseXcUiList,
   xcMessage,
+  type XcAudioBeginPayload,
   type XcAudioChunkPayload,
   type XcAudioPayload,
   type XcConfig,
@@ -273,7 +274,57 @@ export function startEmbedBridge(opts: EmbedBridgeOptions): EmbedBridge {
   }
   setPickerState({ outfit: null, loading: opts.initialOutfit ?? null }); // 初始加载中: 按钮显示 spinner
   let readyTimer: ReturnType<typeof setInterval> | null = null;
-  /** 流式音频会话 (xc.audio.chunk 的 id → 队列)。 */
+  const openAudioStream = (
+    streamId: string,
+    opts: {
+      sampleRate: number;
+      format: 'pcm16' | 'float32';
+      channels: 1 | 2;
+      text?: string;
+      motion?: boolean;
+      lipsync?: boolean;
+      audible?: boolean;
+      playbackRate?: number;
+      volume?: number;
+      hostClock?: boolean;
+      live?: boolean;
+      firstSliceSec?: number;
+      originCmd: 'xc.audio.begin' | 'xc.audio.chunk';
+    },
+  ) => {
+    const q = new AsyncChunkQueue();
+    const st = { q, sampleRate: opts.sampleRate, format: opts.format, channels: opts.channels, samples: 0 };
+    audioStreams.set(streamId, st);
+    const liveMode = opts.live === true;
+    const firstSliceSec =
+      typeof opts.firstSliceSec === 'number' && Number.isFinite(opts.firstSliceSec) && opts.firstSliceSec > 0
+        ? opts.firstSliceSec
+        : (liveMode ? HOST_AUDIO.liveFirstSliceSec : undefined);
+    void dispatchSpeech(streamId, {
+      action: 'audio',
+      payload: {
+        text: opts.text ?? '',
+        motion: opts.motion,
+        lipsync: opts.lipsync,
+        audible: opts.audible,
+        playbackRate: opts.playbackRate,
+        volume: opts.volume,
+        hostClock: opts.hostClock === true,
+        stream: {
+          sampleRate: opts.sampleRate,
+          chunks: q,
+          ...(liveMode ? { live: true } : {}),
+          ...(firstSliceSec !== undefined ? { firstSliceSec } : {}),
+        },
+      },
+    }, opts.text ?? '', opts.originCmd).finally(() => {
+      const cur = audioStreams.get(streamId);
+      if (cur) { cur.q.abort(); audioStreams.delete(streamId); }
+      endedStreams.add(streamId);
+      if (endedStreams.size > 64) endedStreams.delete(endedStreams.values().next().value as string);
+    });
+    return st;
+  };
   const audioStreams = new Map<string, { q: AsyncChunkQueue; sampleRate: number; format: 'pcm16' | 'float32'; channels: 1 | 2; samples: number }>();
   /** 已结束/被抢占的流 id: 之后到达的 chunk 只报一次错, 不会"复活"一次说话。 */
   const endedStreams = new Set<string>();
@@ -724,6 +775,34 @@ export function startEmbedBridge(opts: EmbedBridgeOptions): EmbedBridge {
           }, text, 'xc.audio');
           break;
         }
+        case 'xc.audio.begin': {
+          const bp = p as unknown as XcAudioBeginPayload;
+          if (!id) throw new CmdError('bad_request', 'xc.audio.begin needs an envelope id (stream id)');
+          if (endedStreams.has(id)) {
+            endedStreams.delete(id);
+            throw new CmdError('bad_request', 'audio stream already ended or was preempted');
+          }
+          if (audioStreams.has(id)) break;
+          const format: 'pcm16' | 'float32' = bp.format === 'pcm16' ? 'pcm16' : 'float32';
+          const sampleRate = checkSampleRate(bp.sampleRate);
+          const channels: 1 | 2 = bp.channels === 2 ? 2 : 1;
+          openAudioStream(id, {
+            sampleRate,
+            format,
+            channels,
+            text: typeof bp.text === 'string' ? bp.text : '',
+            motion: bp.motion,
+            lipsync: bp.lipsync,
+            audible: bp.audible,
+            playbackRate: bp.playbackRate,
+            volume: bp.volume,
+            hostClock: bp.hostClock === true,
+            live: bp.live !== false,
+            firstSliceSec: bp.firstSliceSec,
+            originCmd: 'xc.audio.begin',
+          });
+          break;
+        }
         case 'xc.audio.chunk': {
           const cp = p as unknown as XcAudioChunkPayload;
           if (!id) throw new CmdError('bad_request', 'xc.audio.chunk needs an envelope id (stream id)');
@@ -741,23 +820,20 @@ export function startEmbedBridge(opts: EmbedBridgeOptions): EmbedBridge {
           // 先校验/转换数据, 再建流: 第一个 chunk 就非法时不会留下一条空流
           const mono = rawPcmToMono(cp.data, cp.format, st ? st.channels : cp.channels);
           if (!st) {
-            const q = new AsyncChunkQueue();
-            st = { q, sampleRate, format: cp.format, channels, samples: 0 };
-            audioStreams.set(id, st);
-            const streamId = id;
-            const text = typeof cp.text === 'string' ? cp.text : '';
-            void dispatchSpeech(streamId, {
-              action: 'audio',
-              payload: {
-                text, motion: cp.motion, lipsync: cp.lipsync, audible: cp.audible,
-                playbackRate: cp.playbackRate, volume: cp.volume, hostClock: cp.hostClock === true,
-                stream: { sampleRate, chunks: q },
-              },
-            }, text, 'xc.audio.chunk').finally(() => {
-              const cur = audioStreams.get(streamId);
-              if (cur) { cur.q.abort(); audioStreams.delete(streamId); }
-              endedStreams.add(streamId);
-              if (endedStreams.size > 64) endedStreams.delete(endedStreams.values().next().value as string);
+            st = openAudioStream(id, {
+              sampleRate,
+              format: cp.format,
+              channels,
+              text: typeof cp.text === 'string' ? cp.text : '',
+              motion: cp.motion,
+              lipsync: cp.lipsync,
+              audible: cp.audible,
+              playbackRate: cp.playbackRate,
+              volume: cp.volume,
+              hostClock: cp.hostClock === true,
+              live: cp.live === true,
+              firstSliceSec: cp.firstSliceSec,
+              originCmd: 'xc.audio.chunk',
             });
           }
           st.samples += mono.length;
@@ -905,10 +981,16 @@ export function startEmbedBridge(opts: EmbedBridgeOptions): EmbedBridge {
           break;
         case 'xc.turnState': {
           await waitModelReady().catch(() => { throw new CmdError('not_ready', 'model not ready'); });
-          const state = p.state as any;
+          const state = p.state as string;
           if (state === 'idle' || state === 'listening' || state === 'thinking' || state === 'speaking') {
             vrmEngine.setTurnState(state);
+          } else if (state === 'backchannel') {
+            // Keep ongoing speech playback uninterrupted; avoid resetting speaking state on short backchannel ack.
           }
+          break;
+        }
+        case 'xc.inference.state': {
+          vrmEngine.setInferenceActive(Boolean(p.active));
           break;
         }
         case 'xc.bubble': {

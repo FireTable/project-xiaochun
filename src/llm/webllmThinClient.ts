@@ -146,6 +146,17 @@ export class ThinMLCEngine {
     return this.request('runtimeStatsText', { modelId });
   }
 
+  xcRollbackLastTurn(modelId?: string): Promise<{ popped: number; remaining: number }> {
+    return this.request('xcRollbackLastTurn', { modelId });
+  }
+
+  xcTruncateReplyToHeard(
+    heardText: string,
+    modelId?: string,
+  ): Promise<{ truncated: boolean; poppedTokens: number; remainingTokens: number }> {
+    return this.request('xcTruncateReplyToHeard', { heardText, modelId });
+  }
+
   /** Same rule as web-llm's getModelIdToUse for the single-model case we use. */
   private selectModel(requested?: string | null): string {
     const loaded = this.modelId ?? [];

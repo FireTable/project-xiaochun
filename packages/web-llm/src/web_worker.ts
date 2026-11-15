@@ -41,6 +41,10 @@ import {
   CompletionStreamNextChunkParams,
   ResumeChatCompletionParams,
   DeleteResumableSessionParams,
+  XCRollbackLastTurnParams,
+  XCTruncateReplyToHeardParams,
+  XCRollbackLastTurnResult,
+  XCTruncateReplyToHeardResult,
 } from "./message";
 import log from "loglevel";
 import { isAsyncIterable } from "./streaming";
@@ -423,6 +427,27 @@ export class WebWorkerMLCEngineHandler {
         onComplete?.(null);
         return;
       }
+      case "xcRollbackLastTurn": {
+        this.handleTask(msg.uuid, async () => {
+          const params = (msg.content ?? {}) as XCRollbackLastTurnParams;
+          const res = await this.engine.xcRollbackLastTurn(params.modelId);
+          onComplete?.(res);
+          return res;
+        });
+        return;
+      }
+      case "xcTruncateReplyToHeard": {
+        this.handleTask(msg.uuid, async () => {
+          const params = msg.content as XCTruncateReplyToHeardParams;
+          const res = await this.engine.xcTruncateReplyToHeard(
+            params.heardText,
+            params.modelId,
+          );
+          onComplete?.(res);
+          return res;
+        });
+        return;
+      }
       case "customRequest": {
         onComplete?.(null);
         return;
@@ -698,6 +723,34 @@ export class WebWorkerMLCEngine implements MLCEngineInterface {
       },
     };
     await this.getPromise<null>(msg);
+  }
+
+  async xcRollbackLastTurn(
+    modelId?: string,
+  ): Promise<XCRollbackLastTurnResult> {
+    const msg: WorkerRequest = {
+      kind: "xcRollbackLastTurn",
+      uuid: crypto.randomUUID(),
+      content: {
+        modelId,
+      },
+    };
+    return await this.getPromise<XCRollbackLastTurnResult>(msg);
+  }
+
+  async xcTruncateReplyToHeard(
+    heardText: string,
+    modelId?: string,
+  ): Promise<XCTruncateReplyToHeardResult> {
+    const msg: WorkerRequest = {
+      kind: "xcTruncateReplyToHeard",
+      uuid: crypto.randomUUID(),
+      content: {
+        heardText,
+        modelId,
+      },
+    };
+    return await this.getPromise<XCTruncateReplyToHeardResult>(msg);
   }
 
   async forwardTokensAndSample(

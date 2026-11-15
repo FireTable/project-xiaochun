@@ -121,6 +121,8 @@
     "lucide-react": "^1.40.0",
     "mpg123-decoder": "^1.0.3",
     "onnxruntime-web": "1.29.0",
+    "phonemizer": "^1.2.1",
+    "pinyin-pro": "^3.29.5",
     "react": "^19.2.8",
     "react-dom": "^19.2.8",
     "react-i18next": "^17.0.13",

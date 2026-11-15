@@ -41,7 +41,9 @@ type RequestKind =
   | "keepAlive"
   | "setLogLevel"
   | "setAppConfig"
-  | "xcSetFramePacing";
+  | "xcSetFramePacing"
+  | "xcRollbackLastTurn"
+  | "xcTruncateReplyToHeard";
 
 // eslint-disable-next-line @typescript-eslint/no-unused-vars
 type ResponseKind = "return" | "throw" | "initProgressCallback";
@@ -122,6 +124,22 @@ export interface CustomRequestParams {
   requestName: string;
   requestMessage: string;
 }
+export interface XCRollbackLastTurnParams {
+  modelId?: string;
+}
+export interface XCTruncateReplyToHeardParams {
+  heardText: string;
+  modelId?: string;
+}
+export interface XCRollbackLastTurnResult {
+  popped: number;
+  remaining: number;
+}
+export interface XCTruncateReplyToHeardResult {
+  truncated: boolean;
+  poppedTokens: number;
+  remainingTokens: number;
+}
 export type MessageContent =
   | ReloadParams
   | ResetChatParams
@@ -137,6 +155,10 @@ export type MessageContent =
   | DeleteResumableSessionParams
   | CompletionStreamNextChunkParams
   | CustomRequestParams
+  | XCRollbackLastTurnParams
+  | XCTruncateReplyToHeardParams
+  | XCRollbackLastTurnResult
+  | XCTruncateReplyToHeardResult
   | InitProgressReport
   | LogLevel
   | string

@@ -10,8 +10,10 @@ import {
   toCanonicalArtifactUrl,
 } from '@mlc-ai/web-llm';
 import {
+  CF_TRACE_ENDPOINT,
   GHFAST_MLC_WASM_PREFIX,
   HF_MIRROR_ORIGIN,
+  HF_PROBE_PATH,
   JSDELIVR_CDN_MLC_WASM_PREFIX,
   JSDELIVR_CF_MLC_WASM_PREFIX,
   resetMirrorProbeCacheForTests,
@@ -85,6 +87,65 @@ describe('Auto Region / IP + Live CORS Race Mirror Resolver', () => {
     expect(elapsed).toBeLessThan(60);
   });
 
+  it('falls back to Cloudflare CORS trace when /api/region is null so VPN users never touch hf-mirror 308', async () => {
+    const requestedUrls: string[] = [];
+    const fakeFetch: typeof fetch = async (input) => {
+      const url = String(input);
+      requestedUrls.push(url);
+      if (url === '/api/region') {
+        return new Response(JSON.stringify({ country: null }), { status: 200 });
+      }
+      if (url === CF_TRACE_ENDPOINT) {
+        return new Response('fl=29f\nip=1.2.3.4\nloc=NL\ntls=TLSv1.3\n', { status: 200 });
+      }
+      if (url === `${CANONICAL_HF_ORIGIN}${HF_PROBE_PATH}` || url.startsWith(CANONICAL_MLC_WASM_PREFIX)) {
+        return new Response(null, { status: 200 });
+      }
+      return new Response(null, { status: 503 });
+    };
+
+    const cfg = await resolveBestMirrorConfig({
+      fetchImpl: fakeFetch,
+      timeZone: 'Asia/Shanghai',
+      skipCache: true,
+    });
+
+    expect(cfg.hfOrigins).toEqual([CANONICAL_HF_ORIGIN, HF_MIRROR_ORIGIN]);
+    expect(requestedUrls.some((u) => u.startsWith(HF_MIRROR_ORIGIN))).toBe(false);
+  });
+
+  it('demotes hf-mirror behind huggingface.co when hf-mirror explicitly fails even if huggingface.co exceeds probeTimeoutMs', async () => {
+    const fakeFetch: typeof fetch = async (input, init) => {
+      const url = String(input);
+      if (url === '/api/region') {
+        return new Response(JSON.stringify({ country: null }), { status: 200 });
+      }
+      if (url === CF_TRACE_ENDPOINT) {
+        throw new TypeError('Trace blocked');
+      }
+      if (url.startsWith(HF_MIRROR_ORIGIN)) {
+        throw new TypeError('CORS blocked 308');
+      }
+      if (url.startsWith(CANONICAL_HF_ORIGIN)) {
+        return new Promise<Response>((_resolve, reject) => {
+          init?.signal?.addEventListener('abort', () => {
+            reject(new DOMException('Aborted', 'AbortError'));
+          });
+        });
+      }
+      return new Response(null, { status: 200 });
+    };
+
+    const cfg = await resolveBestMirrorConfig({
+      fetchImpl: fakeFetch,
+      timeZone: 'Asia/Shanghai',
+      probeTimeoutMs: 40,
+      skipCache: true,
+    });
+
+    expect(cfg.hfOrigins).toEqual([CANONICAL_HF_ORIGIN, HF_MIRROR_ORIGIN]);
+  });
+
   it('prioritizes huggingface.co immediately when edge IP is non-CN even if timezone is Asia/Shanghai', async () => {
     const requestedUrls: string[] = [];
     const fakeFetch: typeof fetch = async (input) => {
@@ -107,7 +168,29 @@ describe('Auto Region / IP + Live CORS Race Mirror Resolver', () => {
 
     expect(cfg.hfOrigins).toEqual([CANONICAL_HF_ORIGIN, HF_MIRROR_ORIGIN]);
     expect(cfg.wasmLibPrefixes?.[0]).toBe(CANONICAL_MLC_WASM_PREFIX);
-    // Staggered hf-mirror should not even need to fire when huggingface.co wins at 0ms
+    // Non-CN IP never probes hf-mirror.com even when trans-Pacific TLS exceeds 220ms
+    expect(requestedUrls.some((u) => u.startsWith(HF_MIRROR_ORIGIN))).toBe(false);
+  });
+
+  it('never probes hf-mirror.com on non-CN IP even when upstream cold TLS takes > 250ms', async () => {
+    const requestedUrls: string[] = [];
+    const fakeFetch: typeof fetch = async (input) => {
+      const url = String(input);
+      requestedUrls.push(url);
+      if (url === '/api/region') {
+        return new Response(JSON.stringify({ country: 'NL' }), { status: 200 });
+      }
+      await new Promise((r) => setTimeout(r, 260));
+      return new Response(null, { status: 200 });
+    };
+
+    const cfg = await resolveBestMirrorConfig({
+      fetchImpl: fakeFetch,
+      timeZone: 'Asia/Shanghai',
+      skipCache: true,
+    });
+
+    expect(cfg.hfOrigins).toEqual([CANONICAL_HF_ORIGIN, HF_MIRROR_ORIGIN]);
     expect(requestedUrls.some((u) => u.startsWith(HF_MIRROR_ORIGIN))).toBe(false);
   });
 

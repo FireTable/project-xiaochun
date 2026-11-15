@@ -1,0 +1,22 @@
+{
+  "version": "1.0.0",
+  "backbone": "openai/whisper-tiny-encoder-8s",
+  "classes": [
+    "COMPLETE",
+    "INCOMPLETE",
+    "BACKCHANNEL",
+    "WAIT_INTERRUPT"
+  ],
+  "temperature": 1.430285,
+  "inputShape": [
+    1,
+    80,
+    800
+  ],
+  "sampleRate": 16000,
+  "windowSeconds": 8.0,
+  "maxSamples": 128000,
+  "paddingSide": "left",
+  "modelFile": "duplex-turn-zh-en-v1.int8.onnx",
+  "modelBytes": 11884162
+}

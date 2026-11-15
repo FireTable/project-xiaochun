@@ -57,16 +57,59 @@ export class PostFxPipeline {
   public onEnabledChange: ((enabled: boolean) => void) | null = null;
 
   private _renderer: THREE.WebGLRenderer | null = null;
+  private _scene: THREE.Scene | null = null;
+  private _camera: THREE.PerspectiveCamera | null = null;
   private _ready = false;
   private _lastAppliedEnabled: boolean | null = null;
+  private _lastNeedsComposer: boolean | null = null;
+
+  public isBloomActive(): boolean {
+    return this.config.bloom.strength > 0.001;
+  }
+
+  public isGradingActive(): boolean {
+    return (
+      Math.abs(this.config.bc.brightness) > 0.001 ||
+      Math.abs(this.config.bc.contrast) > 0.001 ||
+      Math.abs(this.config.hs.hue) > 0.001 ||
+      Math.abs(this.config.hs.saturation) > 0.001 ||
+      this.config.vignette.darkness > 0.001
+    );
+  }
+
+  /** True only when PostFX needs the 4x MSAA RGBA16F offscreen composer (bloom or color grading active). */
+  public needsComposer(): boolean {
+    return Boolean(this.config.enabled && (this.isBloomActive() || this.isGradingActive()));
+  }
 
   init(renderer: THREE.WebGLRenderer, scene: THREE.Scene, camera: THREE.PerspectiveCamera): void {
-    if (this._ready && this._renderer === renderer) return;
+    if (this._ready && this._renderer === renderer && this._scene === scene && this._camera === camera) return;
     if (this._ready) {
       this.dispose();
     }
     this._renderer = renderer;
+    this._scene = scene;
+    this._camera = camera;
 
+    if (this.needsComposer()) {
+      this.buildComposer();
+    }
+
+    this._ready = true;
+  }
+
+  private disposeComposer(): void {
+    this.composer?.dispose?.();
+    this.composer = null;
+    this.bloom = null;
+    this.outputPass = null;
+  }
+
+  private buildComposer(): void {
+    if (!this._renderer || !this._scene || !this._camera) return;
+    this.disposeComposer();
+
+    const renderer = this._renderer;
     const pixelRatio = getRenderPixelRatio();
     const size = renderer.getSize(new THREE.Vector2());
     const mobile = isMobile();
@@ -101,11 +144,9 @@ export class PostFxPipeline {
       this.composer.writeBuffer = this.composer.renderTarget2;
     }
 
-    this.composer.addPass(new RenderPass(scene, camera));
-    if (this.config.bloom.strength > 0.001) this.addBloom(pixelRatio, mobile);
+    this.composer.addPass(new RenderPass(this._scene, this._camera));
+    if (this.isBloomActive()) this.addBloom(pixelRatio, mobile);
     this.addOutputPass();
-
-    this._ready = true;
   }
 
   private addBloom(pixelRatio: number, mobile: boolean): void {
@@ -281,10 +322,20 @@ export class PostFxPipeline {
     this.composer?.addPass(this.outputPass);
   }
 
-  /** 每帧调。dt 是秒。 */
+  /** 每帧调。dt 是秒。当 Bloom 与调色均处于非激活中性值时直接绕过离屏 4x MSAA RGBA16F Composer，直出屏幕帧缓冲。 */
   render(dt: number): void {
-    if (!this._ready || !this.composer) return;
-    this.composer.render(dt);
+    if (!this._ready || !this._renderer || !this._scene || !this._camera) return;
+    if (!this.needsComposer()) {
+      if (this._renderer.getRenderTarget() !== null) {
+        this._renderer.setRenderTarget(null);
+      }
+      this._renderer.render(this._scene, this._camera);
+      return;
+    }
+    if (!this.composer) {
+      this.buildComposer();
+    }
+    this.composer?.render(dt);
   }
 
   resize(width: number, height: number, pixelRatio?: number): void {
@@ -300,12 +351,18 @@ export class PostFxPipeline {
    */
   applyConfig(): void {
     if (!this._ready) return;
+    const needs = this.needsComposer();
+    if (needs && this._renderer && this._scene && this._camera) {
+      if (!this.composer || (this.isBloomActive() && !this.bloom)) {
+        this.buildComposer();
+      }
+    }
     if (this.bloom) {
       this.bloom.strength = this.config.bloom.strength;
       this.bloom.radius = this.config.bloom.radius;
       this.bloom.threshold = this.config.bloom.threshold;
       // 性能短路：若 Bloom strength 为 0，禁用 Pass 省算力
-      this.bloom.enabled = this.config.bloom.strength > 0.001;
+      this.bloom.enabled = this.isBloomActive();
     }
     if (this.outputPass?.uniforms) {
       const u = this.outputPass.uniforms as any;
@@ -332,10 +389,13 @@ export class PostFxPipeline {
       }
     }
 
-    if (this._lastAppliedEnabled !== null && this._lastAppliedEnabled !== this.config.enabled) {
-      this.onEnabledChange?.(this.config.enabled);
+    const enabledChanged = this._lastAppliedEnabled !== null && this._lastAppliedEnabled !== this.config.enabled;
+    const composerChanged = this._lastNeedsComposer !== null && this._lastNeedsComposer !== needs;
+    if (enabledChanged || composerChanged) {
+      this.onEnabledChange?.(needs);
     }
     this._lastAppliedEnabled = this.config.enabled;
+    this._lastNeedsComposer = needs;
   }
 
   setEnabled(on: boolean): void {
@@ -352,11 +412,12 @@ export class PostFxPipeline {
   isReady(): boolean { return this._ready; }
 
   dispose(): void {
-    this.composer?.dispose?.();
-    this.composer = null;
-    this.bloom = null;
-    this.outputPass = null;
+    this.disposeComposer();
+    this._scene = null;
+    this._camera = null;
+    this._renderer = null;
     this._ready = false;
+    this._lastNeedsComposer = null;
   }
 }
 
