@@ -281,7 +281,9 @@ export const TopHeader: React.FC<TopHeaderProps> = ({
                   {isWearingBase && <Check className="w-3 h-3 text-brand-300" />}
                 </DropdownMenuItem>
               )}
-              {Object.entries(addons).map(([key, addon]) => (
+              {Object.entries(addons)
+                .filter(([, addon]) => !addon.hidden)
+                .map(([key, addon]) => (
                 <DropdownMenuItem
                   key={key}
                   disabled={isSwapping}

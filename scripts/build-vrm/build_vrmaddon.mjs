@@ -19,6 +19,7 @@
  *   bspatch(base.bin, binPatch) → new.bin → packRawGLB(json, bin).
  *   base 由同名 .vrmbase 提供 (compose_outfit 同时 fetch baseUrl)。
  */
+import { createHash } from 'node:crypto';
 import { zipSync } from 'fflate';
 // ponytail: 字符串 spec + Function 包装,完全绕过 TS 静态 module-resolution (TS7016)。
 // 仅 node CLI 用,Function 构造的 async fn 跑在 module scope。
@@ -98,7 +99,6 @@ async function main() {
 
   // ponytail: sha256 比对 — 同源 bsdiff patch + 固定 mtime → 产物 byte-identical,
   // 跳过 writeFileSync 避免 mtime 漂移触发 git modified。
-  const { createHash } = await import('node:crypto');
   const newHash = createHash('sha256').update(addonBytes).digest('hex').slice(0, 8);
   let wrote = true;
   if (fs.existsSync(outputPath)) {

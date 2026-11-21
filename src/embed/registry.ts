@@ -14,6 +14,7 @@ export interface AddonLike {
   source: string;
   name: string;
   default?: boolean;
+  hidden?: boolean;
 }
 
 export interface SceneLike {
@@ -29,7 +30,7 @@ export function ownEntry<T>(registry: Readonly<Record<string, T>>, id: unknown):
 /** 未指定 / 非法时用的默认服装 id (配置里 default:true 的那个; 没有则取第一个)。裸模 base 永远不会被返回。 */
 export function defaultOutfitId(addons: Readonly<Record<string, AddonLike>>): string | null {
   const keys = Object.keys(addons);
-  return keys.find((k) => addons[k].default) ?? keys[0] ?? null;
+  return keys.find((k) => addons[k].default) ?? keys.find((k) => !addons[k].hidden) ?? keys[0] ?? null;
 }
 
 /** 解析初始服装: 请求的 id 合法就用它, 否则回退默认。 */
@@ -64,13 +65,16 @@ export const OUTFIT_SIZE_MB: Readonly<Record<string, number>> = {
   xiaochun_dinner_dress: 4.3,
   xiaochun_office_lady: 4.2,
   xiaochun_wedding: 13.9,
+  xiaochun_civic: 3.6,
 };
 
 export function listOutfits(addons: Readonly<Record<string, AddonLike>>): XcOutfitInfo[] {
-  return Object.keys(addons).map((id) => {
-    const sizeMB = xcHasOwn(OUTFIT_SIZE_MB, id) ? OUTFIT_SIZE_MB[id] : undefined;
-    return { id, name: addons[id].name, ...(sizeMB !== undefined ? { sizeMB } : {}) };
-  });
+  return Object.keys(addons)
+    .filter((id) => !addons[id].hidden)
+    .map((id) => {
+      const sizeMB = xcHasOwn(OUTFIT_SIZE_MB, id) ? OUTFIT_SIZE_MB[id] : undefined;
+      return { id, name: addons[id].name, ...(sizeMB !== undefined ? { sizeMB } : {}) };
+    });
 }
 
 

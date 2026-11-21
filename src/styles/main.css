@@ -1,5 +1,7 @@
-@import "tailwindcss";
+@import "tailwindcss" source(none);
 @plugin "tailwindcss-animate";
+@source "../**";
+@source "../../packages/**";
 
 @theme {
   /* 1. 标准语义主题 Token (Primary) */

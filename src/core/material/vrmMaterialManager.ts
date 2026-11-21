@@ -480,9 +480,11 @@ export class VRMMaterialManager {
 
           if (!mat.isMToonMaterial) return;
 
+          const isOutlineMat = Boolean(mat.isOutline || mat.name?.includes('(Outline)'));
+
           // 2. 根据全局配置 APP_CONFIG.outline 统一应用描边参数（消除硬编码魔法值）
           if (!APP_CONFIG.outline.enabled) {
-            if (mat.isOutline || mat.name?.includes('(Outline)')) {
+            if (isOutlineMat) {
               mat.visible = false;
               mat.opacity = 0.0;
               return;
@@ -491,7 +493,7 @@ export class VRMMaterialManager {
             mat.outlineWidthFactor = 0.0;
           } else {
             // 确保描边材质本身绝不启用 polygonOffset，防止轮廓线被掠射角斜率撕扯变形
-            if (mat.isOutline || mat.name?.includes('(Outline)')) {
+            if (isOutlineMat) {
               mat.polygonOffset = false;
               mat.polygonOffsetFactor = 0.0;
               mat.polygonOffsetUnits = 0.0;
@@ -609,12 +611,14 @@ uniform float uMatSaturation;
             }
 
             // 🚫 素体皮肤作为绝对基准面，保持物理深度真实 (polygonOffset = false)
-            mat.polygonOffset = skinOffset.enabled;
-            mat.polygonOffsetFactor = skinOffset.factor;
-            mat.polygonOffsetUnits = skinOffset.units;
+            if (!isOutlineMat) {
+              mat.polygonOffset = skinOffset.enabled;
+              mat.polygonOffsetFactor = skinOffset.factor;
+              mat.polygonOffsetUnits = skinOffset.units;
+            }
           } else if (isSocks) {
             // 贴身丝袜/袜子无论全局配置如何，自身都绝不开启描边（防止圆柱体 UV 接缝处出现断裂黑线）
-            if (mat.isOutline || mat.name?.includes('(Outline)')) {
+            if (isOutlineMat) {
               mat.visible = false;
               mat.opacity = 0.0;
               return;
@@ -671,13 +675,16 @@ uniform float uMatSaturation;
               name.includes('003_');
 
             // 深度分层防穿模: 全部向前拉 (负 offset)，内衬向前拉 1 级，外衣向前拉 2 级，永远覆盖素体
-            const clothOffset = isInner
-              ? APP_CONFIG.mtoon.cloth.innerPolygonOffset
-              : APP_CONFIG.mtoon.cloth.outerPolygonOffset;
+            // 描边材质跳过 polygonOffset（已在上方显式清零），避免掠射角斜率把内层轮廓拉穿外衣
+            if (!isOutlineMat) {
+              const clothOffset = isInner
+                ? APP_CONFIG.mtoon.cloth.innerPolygonOffset
+                : APP_CONFIG.mtoon.cloth.outerPolygonOffset;
 
-            mat.polygonOffset = clothOffset.enabled;
-            mat.polygonOffsetFactor = clothOffset.factor;
-            mat.polygonOffsetUnits = clothOffset.units;
+              mat.polygonOffset = clothOffset.enabled;
+              mat.polygonOffsetFactor = clothOffset.factor;
+              mat.polygonOffsetUnits = clothOffset.units;
+            }
           }
 
           // feat-mtoon: fork defaults are classic-off; always reset then optionally apply preset.

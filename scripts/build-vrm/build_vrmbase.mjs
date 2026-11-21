@@ -18,6 +18,7 @@
  * 收益: foo.vrm (raw) → foo.vrmbase (zip),典型省 30-45% (PNG/JPEG 纹理重压)。
  * 用途: 冷启动 (走 compose_outfit) + bspatch base (换装路径用同一份)。
  */
+import { createHash } from 'node:crypto';
 import { zipSync } from 'fflate';
 import fs from 'fs';
 import path from 'path';
@@ -71,7 +72,6 @@ async function main() {
   }, { level: 9 });
   // ponytail: 同源文件重跑产物 byte-identical (mtime 已固定),sha256 比对后
   // 跳过 writeFileSync — 避免 git 误以为 mtime 变了 / IDE 弹 modified 提示。
-  const { createHash } = await import('node:crypto');
   const newHash = createHash('sha256').update(addonBytes).digest('hex').slice(0, 8);
   let wrote = true;
   if (fs.existsSync(outputPath)) {
