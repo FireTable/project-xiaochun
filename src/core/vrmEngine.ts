@@ -353,6 +353,8 @@ export class VRMEngine {
 
   public notifyOutfitChange(outfitKey: string | null): void {
     this.currentOutfitKey = outfitKey;
+    // 无论 DevDrawer 是否挂载（如 /embed 嵌入模式），引擎自身都必须同步应用当前服装的基准体型配置
+    this.bodyMorph.setConfig(this.getOutfitBaselineMorph(outfitKey));
     this.outfitChangeListeners.forEach((cb) => {
       try { cb(outfitKey); } catch (e) { console.warn('[VRMEngine] onOutfitChange error:', e); }
     });
